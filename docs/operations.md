@@ -7,7 +7,7 @@ restricted Unix user in v1 because the Coop socket is mode `0600`.
 Responder holds a non-blocking lock in `state_dir`; a second process exits instead of competing for
 Slack and incident ownership.
 
-Startup order:
+In the default external mode (`coop.supervise: false`), startup order is:
 
 1. load secrets;
 2. run `responder bootstrap-coop`;
@@ -19,8 +19,36 @@ Startup order:
 6. start `responder serve`;
 7. wait for `/readyz`.
 
-Responder exits when initial database, Coop, or Slack authentication fails. A supervisor should
-restart it with a bounded delay.
+For a one-command foreground process, configure:
+
+```yaml
+coop:
+  supervise: true
+  binary: /usr/local/bin/coop
+  state_dir: /var/lib/responder/coop
+  policies: /etc/responder/session-policies.yaml
+  restart_delay: 5s
+  socket: /var/lib/responder/coop/control.sock
+```
+
+Run `bootstrap-coop` and authenticate the policy targets once, then run only `responder serve`.
+Responder rejects a stale private Coop projection or a socket already owned by another controller,
+starts `coop sessions serve`, and waits for its readiness before authenticating Slack. An exit
+before initial readiness fails Responder startup. An unexpected exit after readiness is logged and
+restarted after `restart_delay`. Responder sends the managed process group `SIGTERM` and reaps it
+on shutdown.
+
+`responder doctor` also supports managed mode: it starts Coop, checks the socket and the rest of the
+preflight, and stops Coop before returning. Known Slack, webhook, and Emisar secret variables are
+removed from the child environment. Coop receives `COOP_CONFIG_DIR=<bootstrap_dir>` and loads the
+private Emisar projection written by `bootstrap-coop`.
+
+Managed foreground mode requires the Responder caller to have every permission Coop needs,
+including Docker access. Keep the split units for a hardened systemd installation so the Responder
+process itself does not receive the `docker` supplementary group.
+
+Responder exits when initial database, Coop, or Slack authentication fails. An external supervisor
+should restart Responder with a bounded delay.
 
 ## Health
 
@@ -110,7 +138,8 @@ them in the secret environment and restart Responder.
 The Emisar key is copied by `bootstrap-coop` into Coop's owner-private environment file. Rotate it
 by parking active turns, stopping Coop and Responder, updating the environment, rerunning
 `bootstrap-coop`, and restarting Coop followed by Responder. `bootstrap-coop` refuses to rewrite
-configuration while the Coop socket is accepting connections. The command never prints the key.
+configuration while the Coop socket is accepting connections. The same file sets
+`EMISAR_CLIENT=responder`; the command never prints the key.
 
 ## Release verification
 

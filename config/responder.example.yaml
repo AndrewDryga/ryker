@@ -19,6 +19,12 @@ slack:
   native_status: true
 
 coop:
+  # Set true for a one-command foreground process. Keep false with the shipped split systemd units.
+  supervise: false
+  binary: /usr/local/bin/coop
+  state_dir: /var/lib/responder/coop
+  policies: /etc/responder/session-policies.yaml
+  restart_delay: 5s
   socket: /var/lib/responder/coop/control.sock
   request_timeout: 20s
   poll_interval: 1s

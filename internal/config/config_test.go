@@ -44,8 +44,14 @@ webhooks:
 	if cfg.Webhooks["grafana"].CorrelationWindow.Duration != 2*time.Hour {
 		t.Fatalf("route defaults = %+v", cfg.Webhooks["grafana"])
 	}
-	if cfg.Coop.EmisarTokenEnv != "EMISAR_API_KEY" || !cfg.Slack.NativeStatus {
+	if cfg.Coop.EmisarTokenEnv != "EMISAR_API_KEY" || cfg.Coop.Binary != "coop" ||
+		cfg.Coop.RestartDelay.Duration != 5*time.Second || !cfg.Slack.NativeStatus {
 		t.Fatalf("defaults missing: %+v %+v", cfg.Coop, cfg.Slack)
+	}
+	if cfg.Coop.StateDir != filepath.Join(cfg.StateDir, "coop") ||
+		cfg.Coop.Socket != filepath.Join(cfg.Coop.StateDir, "control.sock") ||
+		cfg.Coop.BootstrapDir != filepath.Join(cfg.Coop.StateDir, "agents") {
+		t.Fatalf("derived Coop paths = %+v", cfg.Coop)
 	}
 }
 
@@ -83,6 +89,12 @@ webhooks:
 		},
 		"unknown repository": func(s string) string {
 			return strings.Replace(s, "repository: emisar", "repository: other", 1)
+		},
+		"managed without policies": func(s string) string {
+			return strings.Replace(s, "coop: {}", "coop: {supervise: true}", 1)
+		},
+		"relative Coop binary path": func(s string) string {
+			return strings.Replace(s, "coop: {}", "coop: {binary: bin/coop}", 1)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

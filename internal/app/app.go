@@ -57,7 +57,7 @@ func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 	}
 }
 
-func runServe(args []string, stdout, stderr io.Writer) error {
+func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", defaultConfigPath(), "configuration file")
@@ -83,6 +83,15 @@ func runServe(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if cfg.Coop.Supervise {
+		expectedBootstrap, err := bootstrapFiles(cfg, emisarToken)
+		if err != nil {
+			return err
+		}
+		if err := checkPrivateCoopConfig(cfg.Coop.BootstrapDir, expectedBootstrap); err != nil {
+			return err
+		}
+	}
 	if err := ensurePrivateDirectory(cfg.StateDir); err != nil {
 		return err
 	}
@@ -100,6 +109,15 @@ func runServe(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	coopClient := coop.New(cfg.Coop.Socket, cfg.Coop.RequestTimeout.Duration)
+	supervisor, err := startManagedCoop(cfg, stderr, logger, coopClient)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if stopErr := stopManagedCoop(supervisor, 15*time.Second); resultErr == nil && stopErr != nil {
+			resultErr = stopErr
+		}
+	}()
 	slackClient := slackui.New(botToken, appToken)
 	redactions := []string{botToken, appToken, emisarToken}
 	for _, secret := range secrets {
@@ -152,7 +170,7 @@ func runServe(args []string, stdout, stderr io.Writer) error {
 	return err
 }
 
-func runDoctor(args []string, stdout, stderr io.Writer) error {
+func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", defaultConfigPath(), "configuration file")
@@ -186,6 +204,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	if err := checkPrivateCoopConfig(cfg.Coop.BootstrapDir, expectedBootstrap); err != nil {
 		return err
 	}
+	logger := newLogger(stderr, cfg.LogLevel)
 	if err := ensurePrivateDirectory(cfg.StateDir); err != nil {
 		return err
 	}
@@ -210,12 +229,27 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	}
 	releaseProcessLock(lock)
 	checks["database"] = "ok"
+	coopClient := coop.New(cfg.Coop.Socket, cfg.Coop.RequestTimeout.Duration)
+	supervisor, err := startManagedCoop(cfg, stderr, logger, coopClient)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if stopErr := stopManagedCoop(supervisor, 15*time.Second); resultErr == nil && stopErr != nil {
+			resultErr = stopErr
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Coop.RequestTimeout.Duration)
 	defer cancel()
-	if err := coop.New(cfg.Coop.Socket, cfg.Coop.RequestTimeout.Duration).Ready(ctx); err != nil {
+	if err := coopClient.Ready(ctx); err != nil {
 		return fmt.Errorf("Coop: %w", err)
 	}
 	checks["coop"] = "ok"
+	if cfg.Coop.Supervise {
+		checks["coop_supervision"] = "managed"
+	} else {
+		checks["coop_supervision"] = "external"
+	}
 	slackReport, err := slackui.New(botToken, appToken).Preflight(
 		ctx, cfg.Slack.TeamID, cfg.Slack.Operators,
 		cfg.Slack.InviteUsers, cfg.Slack.SummonChannels,
@@ -235,7 +269,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintln(stdout, "config          ok")
 	fmt.Fprintln(stdout, "database        ok")
-	fmt.Fprintln(stdout, "Coop            ready")
+	fmt.Fprintf(stdout, "Coop            ready (%s)\n", checks["coop_supervision"])
 	fmt.Fprintln(stdout, "Slack           authenticated; scopes and Socket Mode ready")
 	fmt.Fprintf(stdout, "Operators       %d full workspace members\n", slackReport.OperatorCount)
 	fmt.Fprintf(stdout, "Invite users    %d full workspace members\n", slackReport.InviteCount)

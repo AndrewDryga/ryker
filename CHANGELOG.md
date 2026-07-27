@@ -12,3 +12,6 @@
 - **Production operations.** The distribution includes strict configuration, preflight checks,
   systemd and nginx examples, Prometheus health surfaces, signed checksums, and provenance
   attestations.
+- **Managed foreground Coop.** Optional Coop supervision starts the local session controller,
+  waits for readiness, restarts unexpected exits, strips Responder secrets from the child, and
+  shuts the process group down with Responder.

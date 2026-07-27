@@ -106,9 +106,14 @@ func bootstrapFiles(cfg config.Config, token string) (map[string][]byte, error) 
 	if err != nil {
 		return nil, err
 	}
+	environment := fmt.Sprintf(
+		"%s=%s\nEMISAR_CLIENT=responder\n",
+		cfg.Coop.EmisarTokenEnv,
+		token,
+	)
 	return map[string][]byte{
 		"mcp.json":        append(mcpData, '\n'),
-		"env":             []byte(cfg.Coop.EmisarTokenEnv + "=" + token + "\n"),
+		"env":             []byte(environment),
 		"INSTRUCTIONS.md": []byte(strings.TrimSpace(cfg.Coop.Instructions) + "\n"),
 	}, nil
 }

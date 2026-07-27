@@ -75,6 +75,13 @@ webhooks:
 		mcp.Servers["emisar"].BearerTokenEnvVar != "EMISAR_API_KEY" {
 		t.Fatalf("MCP config = %+v", mcp)
 	}
+	envData, err := os.ReadFile(filepath.Join(bootstrapDir, "env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(envData) != "EMISAR_API_KEY=emk-test-observe-token\nEMISAR_CLIENT=responder\n" {
+		t.Fatalf("Coop environment = %q", envData)
+	}
 	if err := checkPrivateCoopConfig(bootstrapDir, nil); err != nil {
 		t.Fatal(err)
 	}

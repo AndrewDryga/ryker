@@ -101,17 +101,29 @@ sudo -u responder git clone <infrastructure-repository-url> /srv/repos/infrastru
 sudo -u responder git clone <backend-repository-url> /srv/repos/backend
 ```
 
-Start Coop with that dedicated configuration:
+For a one-command foreground trial, set `coop.supervise: true` in Responder's configuration. Both
+`doctor` and `serve` then launch Coop with the configured binary, state, policies, socket, and
+private agent configuration. `doctor` stops its temporary child after preflight; `serve` restarts
+Coop after unexpected exits and stops it when Responder shuts down:
 
 ```bash
-sudo -u responder -g docker env COOP_CONFIG_DIR=/var/lib/responder/coop/agents \
-  coop sessions serve \
-  --state /var/lib/responder/coop \
-  --policies /etc/responder/session-policies.yaml \
-  --socket /var/lib/responder/coop/control.sock
+sudo -u responder -g docker env \
+  SLACK_BOT_TOKEN="$SLACK_BOT_TOKEN" \
+  SLACK_APP_TOKEN="$SLACK_APP_TOKEN" \
+  EMISAR_API_KEY="$EMISAR_API_KEY" \
+  GRAFANA_WEBHOOK_TOKEN="$GRAFANA_WEBHOOK_TOKEN" \
+  GENERIC_WEBHOOK_SECRET="$GENERIC_WEBHOOK_SECRET" \
+  responder serve --config /etc/responder/responder.yaml
 ```
 
-Then verify local state, Coop, Slack, and the presence and current projection of the Emisar token:
+Responder refuses managed mode when another process owns the configured Coop socket. It also
+removes the configured Slack, webhook, and Emisar variables from the child process environment;
+Coop receives Emisar access through the private files written by `bootstrap-coop`, which project
+`EMISAR_CLIENT=responder` into every incident box for client attribution.
+
+With `coop.supervise: false`, start `coop sessions serve` separately or use the shipped split
+systemd units. Then verify local state, Coop, Slack, and the presence and current projection of the
+Emisar token:
 
 ```bash
 sudo -u responder env \
@@ -137,8 +149,8 @@ sudo systemctl status coop-responder.service responder.service
 curl -f http://127.0.0.1:8080/readyz
 ```
 
-Both processes use the same restricted Unix account because Coop's v1 socket is owner-only. Only
-the Coop unit receives the `docker` supplementary group; the Responder process does not.
+Both systemd processes use the same restricted Unix account because Coop's v1 socket is owner-only.
+Only the Coop unit receives the `docker` supplementary group; the Responder process does not.
 
 `doctor` validates that the configured Emisar token is present and exactly projected into Coop. The
 first real investigation validates its server-side scope and MCP authorization; Responder does not

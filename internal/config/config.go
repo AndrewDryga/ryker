@@ -70,6 +70,11 @@ type SlackConfig struct {
 }
 
 type CoopConfig struct {
+	Supervise      bool     `yaml:"supervise"`
+	Binary         string   `yaml:"binary"`
+	StateDir       string   `yaml:"state_dir"`
+	Policies       string   `yaml:"policies"`
+	RestartDelay   Duration `yaml:"restart_delay"`
 	Socket         string   `yaml:"socket"`
 	RequestTimeout Duration `yaml:"request_timeout"`
 	PollInterval   Duration `yaml:"poll_interval"`
@@ -133,6 +138,8 @@ func defaults() Config {
 			NativeStatus:    true,
 		},
 		Coop: CoopConfig{
+			Binary:         "coop",
+			RestartDelay:   Duration{5 * time.Second},
 			RequestTimeout: Duration{20 * time.Second},
 			PollInterval:   Duration{time.Second},
 			ExtendTurns:    25,
@@ -185,14 +192,20 @@ func Load(path string) (Config, error) {
 		}
 		cfg.StateDir = filepath.Clean(filepath.Join(base, cfg.StateDir))
 	}
+	if cfg.Coop.StateDir == "" {
+		cfg.Coop.StateDir = filepath.Join(cfg.StateDir, "coop")
+	}
+	if !filepath.IsAbs(cfg.Coop.StateDir) {
+		return Config{}, errors.New("coop.state_dir must be an absolute path")
+	}
 	if cfg.Coop.Socket == "" {
-		cfg.Coop.Socket = filepath.Join(cfg.StateDir, "coop", "control.sock")
+		cfg.Coop.Socket = filepath.Join(cfg.Coop.StateDir, "control.sock")
 	}
 	if !filepath.IsAbs(cfg.Coop.Socket) {
 		return Config{}, errors.New("coop.socket must be an absolute path")
 	}
 	if cfg.Coop.BootstrapDir == "" {
-		cfg.Coop.BootstrapDir = filepath.Join(cfg.StateDir, "coop", "agents")
+		cfg.Coop.BootstrapDir = filepath.Join(cfg.Coop.StateDir, "agents")
 	}
 	if !filepath.IsAbs(cfg.Coop.BootstrapDir) {
 		return Config{}, errors.New("coop.bootstrap_dir must be an absolute path")
@@ -332,6 +345,17 @@ func validateSlack(c SlackConfig) error {
 
 func validateCoop(c CoopConfig) error {
 	switch {
+	case c.Binary == "" || (strings.ContainsRune(c.Binary, filepath.Separator) &&
+		(!filepath.IsAbs(c.Binary) || filepath.Clean(c.Binary) != c.Binary)):
+		return errors.New("binary must be a command name or absolute clean path")
+	case c.StateDir == "" || !filepath.IsAbs(c.StateDir) || filepath.Clean(c.StateDir) != c.StateDir:
+		return errors.New("state_dir must be an absolute clean path")
+	case c.Policies != "" && (!filepath.IsAbs(c.Policies) || filepath.Clean(c.Policies) != c.Policies):
+		return errors.New("policies must be an absolute clean path")
+	case c.Supervise && c.Policies == "":
+		return errors.New("policies is required when supervise is true")
+	case c.RestartDelay.Duration < 100*time.Millisecond || c.RestartDelay.Duration > time.Minute:
+		return errors.New("restart_delay must be between 100ms and 1m")
 	case c.Socket == "" || !filepath.IsAbs(c.Socket) || filepath.Clean(c.Socket) != c.Socket:
 		return errors.New("socket must be an absolute clean path")
 	case c.BootstrapDir == "" || !filepath.IsAbs(c.BootstrapDir) || filepath.Clean(c.BootstrapDir) != c.BootstrapDir:

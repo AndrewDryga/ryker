@@ -1,0 +1,268 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/AndrewDryga/responder/internal/config"
+)
+
+type coopReadiness interface {
+	Ready(context.Context) error
+}
+
+type coopSupervisor struct {
+	cfg    config.Config
+	output io.Writer
+	log    *slog.Logger
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	done   chan struct{}
+	exited chan error
+
+	processMu sync.Mutex
+	process   *exec.Cmd
+
+	stateMu sync.Mutex
+	ready   bool
+}
+
+func startCoopSupervisor(cfg config.Config, output io.Writer, logger *slog.Logger) (*coopSupervisor, error) {
+	live, err := coopSocketLive(cfg.Coop.Socket)
+	if err != nil {
+		return nil, err
+	}
+	if live {
+		return nil, errors.New("managed Coop cannot start because its socket is already serving")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	supervisor := &coopSupervisor{
+		cfg: cfg, output: output, log: logger,
+		ctx: ctx, cancel: cancel, done: make(chan struct{}), exited: make(chan error, 1),
+	}
+	command, err := supervisor.start()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("start managed Coop: %w", err)
+	}
+	go supervisor.run(command)
+	return supervisor, nil
+}
+
+func startManagedCoop(
+	cfg config.Config,
+	output io.Writer,
+	logger *slog.Logger,
+	client coopReadiness,
+) (*coopSupervisor, error) {
+	if !cfg.Coop.Supervise {
+		return nil, nil
+	}
+	supervisor, err := startCoopSupervisor(cfg, output, logger)
+	if err != nil {
+		return nil, err
+	}
+	readyCtx, cancel := context.WithTimeout(context.Background(), cfg.Coop.RequestTimeout.Duration)
+	defer cancel()
+	if err := supervisor.WaitReady(readyCtx, client); err != nil {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), cfg.Coop.RequestTimeout.Duration)
+		defer stopCancel()
+		return nil, errors.Join(err, supervisor.Close(stopCtx))
+	}
+	return supervisor, nil
+}
+
+func stopManagedCoop(supervisor *coopSupervisor, timeout time.Duration) error {
+	if supervisor == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return supervisor.Close(ctx)
+}
+
+func (s *coopSupervisor) WaitReady(ctx context.Context, client coopReadiness) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		s.stateMu.Lock()
+		err := client.Ready(ctx)
+		if err == nil {
+			s.ready = true
+		}
+		s.stateMu.Unlock()
+		if err == nil {
+			s.log.Info("managed Coop is ready", "socket", s.cfg.Coop.Socket)
+			return nil
+		}
+		lastErr = err
+		select {
+		case exitErr := <-s.exited:
+			if exitErr == nil {
+				exitErr = errors.New("process exited successfully")
+			}
+			return fmt.Errorf("managed Coop exited before becoming ready: %w", exitErr)
+		case <-ctx.Done():
+			return fmt.Errorf("wait for managed Coop readiness: %w", errors.Join(ctx.Err(), lastErr))
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *coopSupervisor) Close(ctx context.Context) error {
+	s.cancel()
+	s.signal(syscall.SIGTERM)
+	select {
+	case <-s.done:
+		return nil
+	case <-ctx.Done():
+		s.signal(syscall.SIGKILL)
+		select {
+		case <-s.done:
+		case <-time.After(time.Second):
+		}
+		return fmt.Errorf("stop managed Coop: %w", ctx.Err())
+	}
+}
+
+func (s *coopSupervisor) run(command *exec.Cmd) {
+	defer close(s.done)
+	for {
+		waitErr := command.Wait()
+		s.clearProcess(command)
+		if s.ctx.Err() != nil {
+			return
+		}
+
+		s.stateMu.Lock()
+		ready := s.ready
+		s.stateMu.Unlock()
+		if !ready {
+			select {
+			case s.exited <- waitErr:
+			default:
+			}
+			return
+		}
+
+		s.log.Error("managed Coop exited; restarting", "error", processResult(waitErr))
+		if !sleepContext(s.ctx, s.cfg.Coop.RestartDelay.Duration) {
+			return
+		}
+		for {
+			next, err := s.start()
+			if err == nil {
+				s.log.Info("managed Coop restarted", "pid", next.Process.Pid)
+				command = next
+				break
+			}
+			if s.ctx.Err() != nil {
+				return
+			}
+			s.log.Error("managed Coop restart failed", "error", err)
+			if !sleepContext(s.ctx, s.cfg.Coop.RestartDelay.Duration) {
+				return
+			}
+		}
+	}
+}
+
+func (s *coopSupervisor) start() (*exec.Cmd, error) {
+	coop := s.cfg.Coop
+	command := exec.Command(
+		coop.Binary,
+		"sessions", "serve",
+		"--state", coop.StateDir,
+		"--policies", coop.Policies,
+		"--socket", coop.Socket,
+	)
+	command.Env = coopEnvironment(s.cfg)
+	command.Stdout = s.output
+	command.Stderr = s.output
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := command.Start(); err != nil {
+		return nil, err
+	}
+	s.processMu.Lock()
+	s.process = command
+	s.processMu.Unlock()
+	if s.ctx.Err() != nil {
+		s.signal(syscall.SIGTERM)
+	}
+	return command, nil
+}
+
+func (s *coopSupervisor) clearProcess(command *exec.Cmd) {
+	s.processMu.Lock()
+	if s.process == command {
+		s.process = nil
+	}
+	s.processMu.Unlock()
+}
+
+func (s *coopSupervisor) signal(signal syscall.Signal) {
+	s.processMu.Lock()
+	command := s.process
+	s.processMu.Unlock()
+	if command == nil || command.Process == nil {
+		return
+	}
+	_ = syscall.Kill(-command.Process.Pid, signal)
+}
+
+func coopEnvironment(cfg config.Config) []string {
+	blocked := map[string]bool{
+		"COOP_CONFIG_DIR":       true,
+		"COOP_SPINNER":          true,
+		"NO_COLOR":              true,
+		"TERM":                  true,
+		cfg.Slack.BotTokenEnv:   true,
+		cfg.Slack.AppTokenEnv:   true,
+		cfg.Coop.EmisarTokenEnv: true,
+	}
+	for _, route := range cfg.Webhooks {
+		blocked[route.SecretEnv] = true
+	}
+	environment := make([]string, 0, len(os.Environ())+4)
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if !blocked[name] {
+			environment = append(environment, entry)
+		}
+	}
+	return append(environment,
+		"COOP_CONFIG_DIR="+cfg.Coop.BootstrapDir,
+		"COOP_SPINNER=0",
+		"NO_COLOR=1",
+		"TERM=dumb",
+	)
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func processResult(err error) string {
+	if err == nil {
+		return "process exited successfully"
+	}
+	return err.Error()
+}

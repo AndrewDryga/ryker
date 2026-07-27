@@ -31,7 +31,10 @@ The layers have distinct authority:
 The Slack and Emisar tokens are never submitted through the Coop session API. `bootstrap-coop`
 writes the Emisar key to Coop's dedicated owner-private `env` file, while `mcp.json` references it
 by environment-variable name. Coop projects those files into a turn only while its short-lived box
-runs.
+runs. The same private environment sets `EMISAR_CLIENT=responder` for Emisar audit attribution.
+When optional foreground supervision is enabled, Responder launches and monitors the Coop process
+but still communicates only through the same Unix API. Configured Slack, webhook, and Emisar secret
+variables are removed from the child environment.
 
 ## Durable model
 
