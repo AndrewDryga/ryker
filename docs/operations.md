@@ -115,14 +115,28 @@ configuration while the Coop socket is accepting connections. The command never 
 ## Release verification
 
 Release archives include the binary, example configuration, systemd and reverse-proxy deployment
-files, documentation, license, changelog, and security policy. Verify both the checksum and GitHub
-build provenance before installation:
+files, documentation, license, changelog, and security policy. Download the archive,
+`checksums.txt`, and `checksums.txt.bundle` from the same GitHub Release. Authenticate the checksum
+manifest first, then verify the archive and its GitHub build provenance:
 
 ```bash
-sha256sum --check --ignore-missing SHA256SUMS
-gh attestation verify responder_<version>_linux_<arch>.tar.gz \
-  --repo AndrewDryga/responder
+tag=vX.Y.Z
+arch=amd64
+artifact="responder_${tag#v}_linux_${arch}.tar.gz"
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.bundle \
+  --certificate-identity "https://github.com/AndrewDryga/responder/.github/workflows/release.yml@refs/tags/${tag}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+awk -v file="$artifact" '$2 == file { print $1 "  " file }' checksums.txt |
+  sha256sum --check
+gh attestation verify "$artifact" \
+  --repo AndrewDryga/responder \
+  --signer-workflow AndrewDryga/responder/.github/workflows/release.yml \
+  --source-ref "refs/tags/${tag}"
 ```
+
+On macOS, replace `sha256sum --check` with `shasum -a 256 --check`. The checksum comparison alone
+does not authenticate the manifest; do not skip cosign verification for a production install.
 
 ## Incident retention
 

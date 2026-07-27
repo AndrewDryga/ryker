@@ -46,4 +46,5 @@ policies that do not need them.
 - Use observe-only Emisar credentials by default. Mutating authority belongs in Emisar policy and
   approval, not in prompts.
 - Do not add GitHub, deploy, merge, or signing credentials to the agent box.
-- Verify release checksums and GitHub build provenance before installing an archive.
+- Verify the checksum manifest's keyless cosign bundle, the selected archive checksum, and GitHub
+  build provenance before installing a release.

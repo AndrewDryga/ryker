@@ -1,0 +1,19 @@
+# Keep SHA-pinned Actions and Go dependencies current without floating anything
+# in the trusted build path.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+    groups:
+      go-dependencies:
+        patterns: ["*"]

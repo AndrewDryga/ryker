@@ -1,5 +1,8 @@
 # Responder
 
+[![CI](https://github.com/AndrewDryga/responder/actions/workflows/ci.yml/badge.svg)](https://github.com/AndrewDryga/responder/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/AndrewDryga/responder?sort=semver)](https://github.com/AndrewDryga/responder/releases/latest)
+
 Responder turns authenticated alerts into focused Slack incident rooms backed by isolated
 [Coop](https://github.com/AndrewDryga/coop) sessions and Emisar MCP access.
 
@@ -41,6 +44,9 @@ Or install the binary at the root of an unpacked release archive:
 ```bash
 sudo install -m 0755 ./responder /usr/local/bin/responder
 ```
+
+Release archives have a signed checksum manifest and GitHub build provenance. Verify them before
+installation using the commands in [`docs/operations.md`](docs/operations.md#release-verification).
 
 Then create the service account and configuration:
 
@@ -206,3 +212,8 @@ Run the full gate with:
 ```bash
 make check
 ```
+
+`make snapshot` builds the exact unsigned release archive layout locally; `make release-check`
+runs the full gate, builds both Linux archives, checks every checksum and required deployment file,
+and smoke-tests the host binary. On Linux it also executes the packaged native binary. See
+[`docs/releasing.md`](docs/releasing.md) for the tag and publication contract.
