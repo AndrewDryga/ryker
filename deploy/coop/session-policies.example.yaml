@@ -1,0 +1,19 @@
+version: 1
+policies:
+  infrastructure-observe:
+    repository: /srv/repos/infrastructure
+    target: codex:gpt-5.6/medium@oncall
+    max_turns: 100
+    max_queued_turns: 20
+    max_queued_bytes: 1048576
+    turn_timeout: 1h
+    max_patch_bytes: 1048576
+
+  backend-observe:
+    repository: /srv/repos/backend
+    target: codex:gpt-5.6/medium@oncall
+    max_turns: 100
+    max_queued_turns: 20
+    max_queued_bytes: 1048576
+    turn_timeout: 1h
+    max_patch_bytes: 1048576

@@ -1,0 +1,27 @@
+[Unit]
+Description=Coop session controller for Responder
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=responder
+Group=responder
+SupplementaryGroups=docker
+UMask=0077
+StateDirectory=responder
+StateDirectoryMode=0700
+Environment=COOP_CONFIG_DIR=/var/lib/responder/coop/agents
+ExecStart=/usr/local/bin/coop sessions serve --state /var/lib/responder/coop --policies /etc/responder/session-policies.yaml --socket /var/lib/responder/coop/control.sock
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/responder /srv/repos
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

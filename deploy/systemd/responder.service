@@ -1,0 +1,32 @@
+[Unit]
+Description=Slack incident Responder
+After=coop-responder.service network-online.target
+Wants=network-online.target
+Requires=coop-responder.service
+
+[Service]
+Type=simple
+User=responder
+Group=responder
+UMask=0077
+StateDirectory=responder
+StateDirectoryMode=0700
+EnvironmentFile=/etc/responder/responder.env
+ExecStartPre=/usr/local/bin/responder doctor --config /etc/responder/responder.yaml
+ExecStart=/usr/local/bin/responder serve --config /etc/responder/responder.yaml
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/responder
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

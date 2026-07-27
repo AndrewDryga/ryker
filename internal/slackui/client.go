@@ -1,0 +1,407 @@
+package slackui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/socketmode"
+)
+
+type API interface {
+	Auth(context.Context) (Identity, error)
+	CreateChannel(context.Context, string, bool, string) (Channel, error)
+	FindChannelByName(context.Context, string, string) (Channel, error)
+	Invite(context.Context, string, ...string) error
+	SetTopic(context.Context, string, string) error
+	Post(context.Context, string, string, string, Message) (string, error)
+	Update(context.Context, string, string, Message) error
+	Pin(context.Context, string, string) error
+	SetStatus(context.Context, string, string, string) error
+	UserAllowed(context.Context, string, string) (bool, error)
+	FindOutboxMessage(context.Context, string, string, string) (string, error)
+}
+
+var ErrNotFound = errors.New("not found")
+
+type Identity struct {
+	TeamID       string
+	BotUserID    string
+	BotID        string
+	EnterpriseID string
+	BotScopes    []string
+}
+
+type PreflightReport struct {
+	Identity       Identity
+	OperatorCount  int
+	InviteCount    int
+	SummonChannels int
+}
+
+type Channel struct {
+	ID      string
+	Name    string
+	Creator string
+	Created time.Time
+	Private bool
+	Shared  bool
+}
+
+type Client struct {
+	api       *slack.Client
+	socket    *socketmode.Client
+	connected atomic.Bool
+}
+
+func New(botToken, appToken string) *Client {
+	api := slack.New(
+		botToken,
+		slack.OptionAppLevelToken(appToken),
+		slack.OptionLog(log.New(discardLogger{}, "", 0)),
+		slack.OptionHTTPClient(&http.Client{Timeout: 20 * time.Second}),
+	)
+	return &Client{api: api, socket: socketmode.New(api)}
+}
+
+type discardLogger struct{}
+
+func (discardLogger) Write(data []byte) (int, error) {
+	return len(data), nil
+}
+
+func (c *Client) Events() <-chan socketmode.Event {
+	return c.socket.Events
+}
+
+func (c *Client) Ack(request socketmode.Request) error {
+	return c.socket.Ack(request)
+}
+
+func (c *Client) Run(ctx context.Context) error {
+	return c.socket.RunContext(ctx)
+}
+
+func (c *Client) Connected() bool {
+	return c.connected.Load()
+}
+
+func (c *Client) SetConnected(value bool) {
+	c.connected.Store(value)
+}
+
+func (c *Client) Auth(ctx context.Context) (Identity, error) {
+	response, err := c.api.AuthTestContext(ctx)
+	if err != nil {
+		return Identity{}, err
+	}
+	return Identity{
+		TeamID: response.TeamID, BotUserID: response.UserID,
+		BotID: response.BotID, EnterpriseID: response.EnterpriseID,
+		BotScopes: splitScopes(response.Header.Get("X-OAuth-Scopes")),
+	}, nil
+}
+
+func (c *Client) Preflight(
+	ctx context.Context,
+	teamID string,
+	operators []string,
+	inviteUsers []string,
+	summonChannels []string,
+) (PreflightReport, error) {
+	identity, err := c.Auth(ctx)
+	if err != nil {
+		return PreflightReport{}, err
+	}
+	if identity.TeamID != teamID {
+		return PreflightReport{}, fmt.Errorf(
+			"bot token belongs to team %q, expected %q", identity.TeamID, teamID,
+		)
+	}
+	if missing := missingBotScopes(identity.BotScopes); len(missing) > 0 {
+		return PreflightReport{}, fmt.Errorf(
+			"bot token is missing required scopes: %s", strings.Join(missing, ", "),
+		)
+	}
+	for _, operator := range operators {
+		allowed, err := c.UserAllowed(ctx, operator, teamID)
+		if err != nil {
+			return PreflightReport{}, fmt.Errorf("inspect operator %s: %w", operator, err)
+		}
+		if !allowed {
+			return PreflightReport{}, fmt.Errorf(
+				"operator %s is not an active full member of workspace %s", operator, teamID,
+			)
+		}
+	}
+	for _, inviteUser := range inviteUsers {
+		allowed, err := c.UserAllowed(ctx, inviteUser, teamID)
+		if err != nil {
+			return PreflightReport{}, fmt.Errorf("inspect invite user %s: %w", inviteUser, err)
+		}
+		if !allowed {
+			return PreflightReport{}, fmt.Errorf(
+				"invite user %s is not an active full member of workspace %s",
+				inviteUser, teamID,
+			)
+		}
+	}
+	for _, channelID := range summonChannels {
+		channel, err := c.api.GetConversationInfoContext(ctx, &slack.GetConversationInfoInput{
+			ChannelID: channelID,
+		})
+		if err != nil {
+			return PreflightReport{}, fmt.Errorf("inspect summon channel %s: %w", channelID, err)
+		}
+		if !channel.IsMember {
+			return PreflightReport{}, fmt.Errorf(
+				"bot is not a member of summon channel %s", channelID,
+			)
+		}
+	}
+	info, websocketURL, err := c.socket.OpenContext(ctx)
+	if err != nil {
+		return PreflightReport{}, fmt.Errorf("open Socket Mode connection: %w", err)
+	}
+	if info == nil || websocketURL == "" {
+		return PreflightReport{}, errors.New("Slack returned no Socket Mode connection")
+	}
+	if err := dialSocketMode(ctx, websocketURL); err != nil {
+		return PreflightReport{}, err
+	}
+	return PreflightReport{
+		Identity: identity, OperatorCount: len(operators),
+		InviteCount: len(inviteUsers), SummonChannels: len(summonChannels),
+	}, nil
+}
+
+func dialSocketMode(ctx context.Context, websocketURL string) error {
+	connection, response, err := websocket.DefaultDialer.DialContext(ctx, websocketURL, nil)
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("connect Socket Mode WebSocket: %w", err)
+	}
+	if err := connection.Close(); err != nil {
+		return fmt.Errorf("close Socket Mode preflight connection: %w", err)
+	}
+	return nil
+}
+
+var requiredBotScopes = []string{
+	"app_mentions:read",
+	"channels:history",
+	"channels:manage",
+	"channels:read",
+	"chat:write",
+	"groups:history",
+	"groups:read",
+	"groups:write",
+	"pins:write",
+	"users:read",
+}
+
+func splitScopes(value string) []string {
+	var result []string
+	for scope := range strings.SplitSeq(value, ",") {
+		scope = strings.TrimSpace(scope)
+		if scope != "" {
+			result = append(result, scope)
+		}
+	}
+	return result
+}
+
+func missingBotScopes(granted []string) []string {
+	have := make(map[string]bool, len(granted))
+	for _, scope := range granted {
+		have[scope] = true
+	}
+	var missing []string
+	for _, scope := range requiredBotScopes {
+		if !have[scope] {
+			missing = append(missing, scope)
+		}
+	}
+	return missing
+}
+
+func (c *Client) CreateChannel(ctx context.Context, name string, private bool, teamID string) (Channel, error) {
+	channel, err := c.api.CreateConversationContext(ctx, slack.CreateConversationParams{
+		ChannelName: name,
+		IsPrivate:   private,
+		TeamID:      teamID,
+	})
+	if err != nil {
+		return Channel{}, err
+	}
+	return Channel{
+		ID: channel.ID, Name: channel.Name, Creator: channel.Creator,
+		Created: time.Unix(int64(channel.Created), 0).UTC(),
+		Private: channel.IsPrivate,
+		Shared:  channel.IsShared || channel.IsExtShared || channel.IsOrgShared,
+	}, nil
+}
+
+func (c *Client) FindChannelByName(ctx context.Context, name, teamID string) (Channel, error) {
+	cursor := ""
+	for page := 0; page < 5; page++ {
+		channels, next, err := c.api.GetConversationsContext(ctx, &slack.GetConversationsParameters{
+			Cursor: cursor, ExcludeArchived: true, Limit: 200,
+			Types: []string{"public_channel", "private_channel"}, TeamID: teamID,
+		})
+		if err != nil {
+			return Channel{}, err
+		}
+		for _, channel := range channels {
+			if channel.Name == name {
+				return Channel{
+					ID: channel.ID, Name: channel.Name, Creator: channel.Creator,
+					Created: time.Unix(int64(channel.Created), 0).UTC(),
+					Private: channel.IsPrivate,
+					Shared:  channel.IsShared || channel.IsExtShared || channel.IsOrgShared,
+				}, nil
+			}
+		}
+		cursor = next
+		if cursor == "" {
+			break
+		}
+	}
+	return Channel{}, errors.New("channel not found")
+}
+
+func (c *Client) Invite(ctx context.Context, channel string, users ...string) error {
+	if len(users) == 0 {
+		return nil
+	}
+	_, err := c.api.InviteUsersToConversationContext(ctx, channel, users...)
+	if err != nil && !strings.Contains(err.Error(), "already_in_channel") {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) SetTopic(ctx context.Context, channel, topic string) error {
+	_, err := c.api.SetTopicOfConversationContext(ctx, channel, truncateUTF8(topic, 250))
+	return err
+}
+
+func (c *Client) Post(ctx context.Context, outboxID, channel, threadTS string, message Message) (string, error) {
+	options := []slack.MsgOption{
+		slack.MsgOptionText(message.Text, false),
+		slack.MsgOptionBlocks(message.Blocks()...),
+		slack.MsgOptionDisableLinkUnfurl(),
+		slack.MsgOptionDisableMediaUnfurl(),
+		slack.MsgOptionMetadata(slack.SlackMetadata{
+			EventType:    "responder_outbox",
+			EventPayload: map[string]any{"id": outboxID},
+		}),
+	}
+	if threadTS != "" {
+		options = append(options, slack.MsgOptionTS(threadTS))
+	}
+	_, timestamp, err := c.api.PostMessageContext(ctx, channel, options...)
+	return timestamp, err
+}
+
+func (c *Client) Update(ctx context.Context, channel, timestamp string, message Message) error {
+	_, _, _, err := c.api.UpdateMessageContext(
+		ctx,
+		channel,
+		timestamp,
+		slack.MsgOptionText(message.Text, false),
+		slack.MsgOptionBlocks(message.Blocks()...),
+		slack.MsgOptionDisableLinkUnfurl(),
+		slack.MsgOptionDisableMediaUnfurl(),
+	)
+	return err
+}
+
+func (c *Client) Pin(ctx context.Context, channel, timestamp string) error {
+	err := c.api.AddPinContext(ctx, channel, slack.NewRefToMessage(channel, timestamp))
+	if err != nil && !strings.Contains(err.Error(), "already_pinned") {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) SetStatus(ctx context.Context, channel, threadTS, status string) error {
+	return c.api.SetAssistantThreadsStatusContext(ctx, slack.AssistantThreadsSetStatusParameters{
+		ChannelID: channel,
+		ThreadTS:  threadTS,
+		Status:    truncateUTF8(status, 100),
+	})
+}
+
+func (c *Client) UserAllowed(ctx context.Context, userID, teamID string) (bool, error) {
+	user, err := c.api.GetUserInfoContext(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if user.TeamID != teamID || user.Deleted || user.IsBot || user.IsAppUser ||
+		user.IsRestricted || user.IsUltraRestricted || user.IsStranger {
+		return false, nil
+	}
+	return true, nil
+}
+
+func (c *Client) FindOutboxMessage(ctx context.Context, channel, threadTS, outboxID string) (string, error) {
+	if threadTS != "" {
+		cursor := ""
+		for page := 0; page < 5; page++ {
+			messages, _, next, err := c.api.GetConversationRepliesContext(
+				ctx, &slack.GetConversationRepliesParameters{
+					ChannelID: channel, Timestamp: threadTS, Cursor: cursor,
+					Limit: 100, IncludeAllMetadata: true,
+				},
+			)
+			if err != nil {
+				return "", err
+			}
+			if timestamp := findMetadataMessage(messages, outboxID); timestamp != "" {
+				return timestamp, nil
+			}
+			cursor = next
+			if cursor == "" {
+				break
+			}
+		}
+		return "", ErrNotFound
+	}
+	cursor := ""
+	for page := 0; page < 5; page++ {
+		response, err := c.api.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
+			ChannelID: channel, Cursor: cursor, Limit: 100, IncludeAllMetadata: true,
+		})
+		if err != nil {
+			return "", err
+		}
+		if timestamp := findMetadataMessage(response.Messages, outboxID); timestamp != "" {
+			return timestamp, nil
+		}
+		cursor = response.ResponseMetaData.NextCursor
+		if cursor == "" {
+			break
+		}
+	}
+	return "", ErrNotFound
+}
+
+func findMetadataMessage(messages []slack.Message, outboxID string) string {
+	for _, message := range messages {
+		if message.Metadata.EventType == "responder_outbox" &&
+			fmt.Sprint(message.Metadata.EventPayload["id"]) == outboxID {
+			return message.Timestamp
+		}
+	}
+	return ""
+}

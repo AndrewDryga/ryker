@@ -1,0 +1,1670 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
+	_ "modernc.org/sqlite"
+)
+
+const timestampFormat = time.RFC3339Nano
+
+var (
+	ErrNotFound = errors.New("not found")
+	ErrConflict = errors.New("conflict")
+	ErrCapacity = errors.New("incident capacity reached")
+)
+
+type Store struct {
+	db *sql.DB
+}
+
+type Metrics struct {
+	IncidentsOpen   int
+	IncidentsTotal  int
+	SessionsOpen    int
+	WebhooksPending int
+	SlackPending    int
+	OutboxPending   int
+	TurnsPending    int
+	WorkFailed      int
+}
+
+type FailedWork struct {
+	Kind      string    `json:"kind"`
+	ID        string    `json:"id"`
+	Reference string    `json:"reference,omitempty"`
+	Retryable bool      `json:"retryable"`
+	Attempts  int       `json:"attempts"`
+	LastError string    `json:"last_error"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func Open(stateDir string) (*Store, error) {
+	if err := ensurePrivateDir(stateDir); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(stateDir, "responder.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	store := &Store{db: db}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("protect database: %w", err)
+	}
+	if _, err := db.Exec(connectionPragmas); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("configure database connection: %w", err)
+	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(persistentPragmas); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("configure database durability: %w", err)
+	}
+	return store, nil
+}
+
+// OpenCurrent opens an existing database for inspection without changing its
+// schema or persistent settings. It is safe to use while Responder is running.
+func OpenCurrent(stateDir string) (*Store, error) {
+	if !filepath.IsAbs(stateDir) || filepath.Clean(stateDir) != stateDir {
+		return nil, errors.New("state directory must be an absolute clean path")
+	}
+	info, err := os.Lstat(stateDir)
+	if err != nil {
+		return nil, fmt.Errorf("inspect state directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, errors.New("state path must be a real directory")
+	}
+	path := filepath.Join(stateDir, "responder.db")
+	info, err = os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect database: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, errors.New("database must be a regular file")
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	store := &Store{db: db}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	if _, err := db.Exec(connectionPragmas + "\nPRAGMA query_only = ON;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("configure database inspection: %w", err)
+	}
+	version, err := schemaVersion(db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if version != currentSchemaVersion {
+		db.Close()
+		return nil, fmt.Errorf(
+			"database schema version %d requires an offline upgrade to version %d",
+			version, currentSchemaVersion,
+		)
+	}
+	return store, nil
+}
+
+func schemaVersion(db *sql.DB) (int, error) {
+	var versionTableCount int
+	if err := db.QueryRow(`
+		SELECT count(*) FROM sqlite_master
+		WHERE type = 'table' AND name = 'schema_version'`).Scan(&versionTableCount); err != nil {
+		return 0, fmt.Errorf("inspect schema version: %w", err)
+	}
+	version := 0
+	if versionTableCount == 0 {
+		var existingTables int
+		if err := db.QueryRow(`
+			SELECT count(*) FROM sqlite_master
+			WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&existingTables); err != nil {
+			return 0, fmt.Errorf("inspect database schema: %w", err)
+		}
+		if existingTables != 0 {
+			return 0, errors.New("database has tables but no schema version")
+		}
+	} else {
+		var count int
+		if err := db.QueryRow(`SELECT count(*), min(version) FROM schema_version`).Scan(&count, &version); err != nil {
+			return 0, fmt.Errorf("read schema version: %w", err)
+		}
+		if count != 1 || version < 1 {
+			return 0, errors.New("invalid schema version")
+		}
+	}
+	return version, nil
+}
+
+func migrate(db *sql.DB) error {
+	version, err := schemaVersion(db)
+	if err != nil {
+		return err
+	}
+	if version > currentSchemaVersion {
+		return fmt.Errorf(
+			"database schema version %d is newer than supported version %d",
+			version, currentSchemaVersion,
+		)
+	}
+	for version < currentSchemaVersion {
+		next := version + 1
+		if next > len(migrations) || strings.TrimSpace(migrations[next-1]) == "" {
+			return fmt.Errorf("database migration %d is unavailable", next)
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin database migration %d: %w", next, err)
+		}
+		if _, err := tx.Exec(migrations[next-1]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("apply database migration %d: %w", next, err)
+		}
+		if version == 0 {
+			_, err = tx.Exec(`INSERT INTO schema_version(version) VALUES (?)`, next)
+		} else {
+			var result sql.Result
+			result, err = tx.Exec(`UPDATE schema_version SET version = ? WHERE version = ?`, next, version)
+			if err == nil {
+				err = expectOne(result, nil, fmt.Sprintf("record database migration %d", next))
+			}
+		}
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("record database migration %d: %w", next, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit database migration %d: %w", next, err)
+		}
+		version = next
+	}
+	return nil
+}
+
+func (s *Store) RecoverInterrupted(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE webhook_events SET state = 'retry', next_attempt_at = updated_at
+		  WHERE state = 'processing';
+		UPDATE slack_inputs SET state = 'retry', next_attempt_at = updated_at
+		  WHERE state = 'processing';
+		UPDATE turn_submissions SET state = 'retry'
+		  , next_attempt_at = updated_at WHERE state = 'submitting';
+		UPDATE outbox SET state = 'uncertain', last_error = 'process stopped during Slack send'
+		  WHERE state = 'sending';
+	`); err != nil {
+		return fmt.Errorf("recover interrupted work: %w", err)
+	}
+	return nil
+}
+
+func ensurePrivateDir(path string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return errors.New("state directory must be an absolute clean path")
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return errors.New("state path must be a real directory")
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect state directory: %w", err)
+	} else if err := os.MkdirAll(path, 0o700); err != nil {
+		return fmt.Errorf("create state directory: %w", err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		return fmt.Errorf("protect state directory: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}
+
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
+func (s *Store) Check(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA quick_check`)
+	if err != nil {
+		return fmt.Errorf("check database: %w", err)
+	}
+	defer rows.Close()
+	var problems []string
+	for rows.Next() {
+		var result string
+		if err := rows.Scan(&result); err != nil {
+			return fmt.Errorf("check database: %w", err)
+		}
+		if result != "ok" {
+			problems = append(problems, result)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("check database: %w", err)
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("database quick check failed: %s", boundedError(strings.Join(problems, "; ")))
+	}
+	return nil
+}
+
+func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
+	var result Metrics
+	queries := []struct {
+		target *int
+		query  string
+	}{
+		{&result.IncidentsOpen, `SELECT count(*) FROM incidents WHERE status != 'closed'`},
+		{&result.IncidentsTotal, `SELECT count(*) FROM incidents`},
+		{&result.SessionsOpen, `SELECT count(*) FROM incidents WHERE coop_session_id != '' AND workflow != 'closed'`},
+		{&result.WebhooksPending, `SELECT count(*) FROM webhook_events WHERE state IN ('pending', 'retry', 'processing')`},
+		{&result.SlackPending, `SELECT count(*) FROM slack_inputs WHERE state IN ('pending', 'retry', 'processing')`},
+		{&result.OutboxPending, `SELECT count(*) FROM outbox WHERE state IN ('pending', 'retry', 'sending', 'uncertain')`},
+		{&result.TurnsPending, `SELECT count(*) FROM turn_submissions WHERE state IN ('pending', 'retry', 'submitting', 'submitted')`},
+		{&result.WorkFailed, `
+			SELECT
+			  (SELECT count(*) FROM webhook_events WHERE state = 'failed') +
+			  (SELECT count(*) FROM slack_inputs WHERE state = 'failed') +
+			  (SELECT count(*) FROM outbox WHERE state = 'failed') +
+			  (SELECT count(*) FROM turn_submissions WHERE state = 'failed')`},
+	}
+	for _, item := range queries {
+		if err := s.db.QueryRowContext(ctx, item.query).Scan(item.target); err != nil {
+			return Metrics{}, err
+		}
+	}
+	return result, nil
+}
+
+func (s *Store) ListFailedWork(ctx context.Context, limit int) ([]FailedWork, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT kind, id, reference, retryable, attempts, last_error, updated_at
+		FROM (
+			SELECT 'webhook' AS kind, id, incident_ids_json AS reference, 1 AS retryable,
+			       attempts, last_error, updated_at
+			FROM webhook_events WHERE state = 'failed'
+			UNION ALL
+			SELECT 'slack', id, channel_id, 1, attempts, last_error, updated_at
+			FROM slack_inputs WHERE state = 'failed'
+			UNION ALL
+			SELECT 'outbox', id, incident_id, 1, attempts, last_error, updated_at
+			FROM outbox WHERE state = 'failed'
+			UNION ALL
+			SELECT 'turn', id, incident_id,
+			       CASE WHEN coop_turn_id = '' THEN 1 ELSE 0 END,
+			       attempts, last_error, updated_at
+			FROM turn_submissions WHERE state = 'failed'
+		)
+		ORDER BY updated_at DESC, kind, id
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list failed work: %w", err)
+	}
+	defer rows.Close()
+	result := make([]FailedWork, 0)
+	for rows.Next() {
+		var item FailedWork
+		var retryable int
+		var updated string
+		if err := rows.Scan(
+			&item.Kind, &item.ID, &item.Reference, &retryable, &item.Attempts,
+			&item.LastError, &updated,
+		); err != nil {
+			return nil, fmt.Errorf("scan failed work: %w", err)
+		}
+		item.Retryable = retryable != 0
+		item.UpdatedAt = parseTime(updated)
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) RetryFailedWork(ctx context.Context, kind, id string) (FailedWork, error) {
+	target, ok := map[string][2]string{
+		"webhook": {"webhook_events", "incident_ids_json"},
+		"slack":   {"slack_inputs", "channel_id"},
+		"outbox":  {"outbox", "incident_id"},
+		"turn":    {"turn_submissions", "incident_id"},
+	}[kind]
+	if !ok {
+		return FailedWork{}, fmt.Errorf("unknown work kind %q", kind)
+	}
+	table, referenceColumn := target[0], target[1]
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return FailedWork{}, err
+	}
+	defer tx.Rollback()
+	item := FailedWork{Kind: kind, ID: id}
+	var updated string
+	query := fmt.Sprintf(
+		`SELECT %s, attempts, last_error, updated_at FROM %s WHERE id = ? AND state = 'failed'`,
+		referenceColumn, table,
+	)
+	if err := tx.QueryRowContext(ctx, query, id).Scan(
+		&item.Reference, &item.Attempts, &item.LastError, &updated,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return FailedWork{}, fmt.Errorf("%s %q is not failed: %w", kind, id, ErrNotFound)
+		}
+		return FailedWork{}, err
+	}
+	item.UpdatedAt = parseTime(updated)
+	item.Retryable = true
+	if kind == "turn" {
+		var coopTurnID string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT coop_turn_id FROM turn_submissions
+			WHERE id = ? AND state = 'failed'`, id).Scan(&coopTurnID); err != nil {
+			return FailedWork{}, err
+		}
+		if coopTurnID != "" {
+			return FailedWork{}, fmt.Errorf(
+				"turn %q already reached terminal Coop turn %q; submit a new Slack message instead",
+				id, coopTurnID,
+			)
+		}
+	}
+	now := nowText()
+	retryState := "retry"
+	if kind == "outbox" {
+		retryState = "uncertain"
+	}
+	update := fmt.Sprintf(`
+		UPDATE %s
+		SET state = ?, attempts = 0, next_attempt_at = ?,
+		    last_error = '', updated_at = ?
+		WHERE id = ? AND state = 'failed'`, table)
+	result, err := tx.ExecContext(ctx, update, retryState, now, now, id)
+	if err := expectOne(result, err, "retry failed "+kind); err != nil {
+		return FailedWork{}, err
+	}
+	auditID, err := core.NewID("audit")
+	if err != nil {
+		return FailedWork{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO audit_events
+		  (id, incident_id, kind, actor_id, object_id, outcome, detail, created_at)
+		VALUES (?, '', 'operator.work.retried', 'local-cli', ?, 'succeeded', ?, ?)`,
+		auditID, kind+":"+id, boundedError(item.LastError), now); err != nil {
+		return FailedWork{}, fmt.Errorf("record retry audit event: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return FailedWork{}, err
+	}
+	return item, nil
+}
+
+func nowText() string {
+	return time.Now().UTC().Format(timestampFormat)
+}
+
+func timeText(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC().Format(timestampFormat)
+}
+
+func parseTime(value string) time.Time {
+	if value == "" {
+		return time.Time{}
+	}
+	parsed, _ := time.Parse(timestampFormat, value)
+	return parsed
+}
+
+func scanTime(value sql.NullString) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	return parseTime(value.String)
+}
+
+func (s *Store) AdmitWebhook(ctx context.Context, route, dedupeKey, bodyDigest string, signals []core.Signal) (core.WebhookEvent, bool, error) {
+	id, err := core.NewID("hook")
+	if err != nil {
+		return core.WebhookEvent{}, false, err
+	}
+	data, err := json.Marshal(signals)
+	if err != nil {
+		return core.WebhookEvent{}, false, fmt.Errorf("encode normalized signals: %w", err)
+	}
+	now := nowText()
+	result, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO webhook_events
+		  (id, route, dedupe_key, body_digest, signals_json, state, next_attempt_at, received_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		id, route, dedupeKey, bodyDigest, data, now, now, now)
+	if err != nil {
+		return core.WebhookEvent{}, false, fmt.Errorf("admit webhook: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return core.WebhookEvent{}, false, err
+	}
+	event, err := s.GetWebhookByKey(ctx, route, dedupeKey)
+	return event, rows == 1, err
+}
+
+func (s *Store) GetWebhookByKey(ctx context.Context, route, dedupeKey string) (core.WebhookEvent, error) {
+	return scanWebhook(s.db.QueryRowContext(ctx, `
+		SELECT id, route, dedupe_key, body_digest, signals_json, incident_ids_json,
+		       applied, state, attempts,
+		       next_attempt_at, last_error, received_at
+		FROM webhook_events WHERE route = ? AND dedupe_key = ?`, route, dedupeKey))
+}
+
+func scanWebhook(row interface{ Scan(...any) error }) (core.WebhookEvent, error) {
+	var event core.WebhookEvent
+	var signals, incidentIDs []byte
+	var applied int
+	var next, received string
+	if err := row.Scan(&event.ID, &event.Route, &event.DedupeKey, &event.BodyDigest, &signals,
+		&incidentIDs, &applied, &event.State, &event.Attempts, &next, &event.LastError, &received); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return core.WebhookEvent{}, ErrNotFound
+		}
+		return core.WebhookEvent{}, err
+	}
+	if err := json.Unmarshal(signals, &event.Signals); err != nil {
+		return core.WebhookEvent{}, fmt.Errorf("decode stored signals: %w", err)
+	}
+	if err := json.Unmarshal(incidentIDs, &event.IncidentIDs); err != nil {
+		return core.WebhookEvent{}, fmt.Errorf("decode affected incidents: %w", err)
+	}
+	event.Applied = applied != 0
+	event.NextAttemptAt = parseTime(next)
+	event.ReceivedAt = parseTime(received)
+	return event, nil
+}
+
+func (s *Store) LeaseWebhook(ctx context.Context) (core.WebhookEvent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.WebhookEvent{}, err
+	}
+	defer tx.Rollback()
+	now := nowText()
+	event, err := scanWebhook(tx.QueryRowContext(ctx, `
+		SELECT id, route, dedupe_key, body_digest, signals_json, incident_ids_json,
+		       applied, state, attempts,
+		       next_attempt_at, last_error, received_at
+		FROM webhook_events
+		WHERE state IN ('pending', 'retry') AND next_attempt_at <= ?
+		ORDER BY received_at LIMIT 1`, now))
+	if err != nil {
+		return core.WebhookEvent{}, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE webhook_events
+		SET state = 'processing', attempts = attempts + 1, updated_at = ?
+		WHERE id = ? AND state IN ('pending', 'retry')`, now, event.ID)
+	if err != nil {
+		return core.WebhookEvent{}, err
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return core.WebhookEvent{}, ErrConflict
+	}
+	if err := tx.Commit(); err != nil {
+		return core.WebhookEvent{}, err
+	}
+	event.State = "processing"
+	event.Attempts++
+	return event, nil
+}
+
+func (s *Store) FinishWebhook(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE webhook_events SET state = 'done', last_error = '', updated_at = ?
+		WHERE id = ? AND state = 'processing'`, nowText(), id)
+	return expectOne(result, err, "finish webhook")
+}
+
+func (s *Store) RetryWebhook(ctx context.Context, id, detail string, next time.Time, terminal bool) error {
+	state := "retry"
+	if terminal {
+		state = "failed"
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE webhook_events SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'processing'`,
+		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+	return expectOne(result, err, "retry webhook")
+}
+
+func expectOne(result sql.Result, err error, action string) error {
+	if err != nil {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	if rows != 1 {
+		return fmt.Errorf("%s: %w", action, ErrConflict)
+	}
+	return nil
+}
+
+func boundedError(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 1000 {
+		value = value[:1000]
+	}
+	return value
+}
+
+func (s *Store) ApplySignals(
+	ctx context.Context,
+	event core.WebhookEvent,
+	correlationWindow, resolveAfter time.Duration,
+	maxOpenIncidents int,
+) ([]core.Incident, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC()
+	affected := append([]string(nil), event.IncidentIDs...)
+	var capacityErr error
+	for _, signal := range event.Signals {
+		incidentID, changed, err := applySignal(
+			ctx, tx, signal, now, correlationWindow, maxOpenIncidents,
+		)
+		if errors.Is(err, ErrCapacity) {
+			capacityErr = err
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if incidentID == "" || !changed {
+			continue
+		}
+		if !slices.Contains(affected, incidentID) {
+			affected = append(affected, incidentID)
+		}
+		if err := refreshIncident(ctx, tx, incidentID, now, resolveAfter); err != nil {
+			return nil, err
+		}
+	}
+	if event.ID != "" {
+		encoded, err := json.Marshal(affected)
+		if err != nil {
+			return nil, err
+		}
+		applied := 1
+		if capacityErr != nil {
+			applied = 0
+		}
+		result, err := tx.ExecContext(ctx, `
+			UPDATE webhook_events SET applied = ?, incident_ids_json = ?, updated_at = ?
+			WHERE id = ? AND state = 'processing'`,
+			applied, encoded, now.Format(timestampFormat), event.ID)
+		if err := expectOne(result, err, "record applied webhook"); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	result := make([]core.Incident, 0, len(affected))
+	for _, id := range affected {
+		incident, err := s.GetIncident(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, incident)
+	}
+	return result, capacityErr
+}
+
+func applySignal(
+	ctx context.Context,
+	tx *sql.Tx,
+	signal core.Signal,
+	now time.Time,
+	correlationWindow time.Duration,
+	maxOpenIncidents int,
+) (string, bool, error) {
+	var existing sql.NullString
+	var previousEventID, previousStatus, previousTitle, previousSeverity, previousSummary, previousURL string
+	err := tx.QueryRowContext(ctx, `
+		SELECT incident_id, event_id, status, title, severity, summary, source_url
+		FROM signals WHERE route = ? AND source_id = ?`,
+		signal.Route, signal.SourceID).Scan(
+		&existing, &previousEventID, &previousStatus, &previousTitle,
+		&previousSeverity, &previousSummary, &previousURL)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", false, err
+	}
+	isNew := errors.Is(err, sql.ErrNoRows)
+	incidentID := existing.String
+	suppressRefresh := false
+	if incidentID != "" {
+		var incidentStatus, incidentUpdated string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT status, updated_at FROM incidents WHERE id = ?`, incidentID).
+			Scan(&incidentStatus, &incidentUpdated); err != nil {
+			return "", false, err
+		}
+		tooOld := parseTime(incidentUpdated).Before(now.Add(-correlationWindow))
+		endedOccurrence := incidentStatus == string(core.IncidentClosed) ||
+			(incidentStatus == string(core.IncidentResolved) && tooOld)
+		if endedOccurrence {
+			if signal.Status == core.SignalFiring {
+				incidentID = ""
+			} else {
+				suppressRefresh = true
+			}
+		}
+	}
+	if incidentID == "" && signal.Status == core.SignalFiring {
+		cutoff := now.Add(-correlationWindow).Format(timestampFormat)
+		err = tx.QueryRowContext(ctx, `
+			SELECT id FROM incidents
+			WHERE route = ? AND repository = ? AND correlation_key = ?
+			  AND status != 'closed' AND updated_at >= ?
+			ORDER BY updated_at DESC LIMIT 1`,
+			signal.Route, signal.Repository, signal.CorrelationKey, cutoff).Scan(&incidentID)
+		if errors.Is(err, sql.ErrNoRows) {
+			if err := requireOpenIncidentSlot(ctx, tx, maxOpenIncidents); err != nil {
+				return "", false, err
+			}
+			incidentID, err = core.NewID("inc")
+			if err != nil {
+				return "", false, err
+			}
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO incidents
+				  (id, route, repository, correlation_key, source_incident_id, title, severity,
+				   status, workflow, created_at, updated_at, last_firing_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 'provisioning_channel', ?, ?, ?)`,
+				incidentID, signal.Route, signal.Repository, signal.CorrelationKey,
+				signal.SourceIncidentID, signal.Title, signal.Severity,
+				now.Format(timestampFormat), now.Format(timestampFormat), now.Format(timestampFormat))
+		}
+		if err != nil {
+			return "", false, err
+		}
+	}
+	labels, _ := json.Marshal(signal.Labels)
+	annotations, _ := json.Marshal(signal.Annotations)
+	var incidentValue any
+	if incidentID != "" {
+		incidentValue = incidentID
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO signals
+		  (route, source_id, incident_id, source_incident_id, event_id, repository,
+		   correlation_key, status, title, severity, summary, source_url, labels_json,
+		   annotations_json, starts_at, ends_at, received_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(route, source_id) DO UPDATE SET
+		  incident_id = excluded.incident_id,
+		  source_incident_id = excluded.source_incident_id,
+		  event_id = excluded.event_id,
+		  status = excluded.status,
+		  title = excluded.title,
+		  severity = excluded.severity,
+		  summary = excluded.summary,
+		  source_url = excluded.source_url,
+		  labels_json = excluded.labels_json,
+		  annotations_json = excluded.annotations_json,
+		  starts_at = excluded.starts_at,
+		  ends_at = excluded.ends_at,
+		  received_at = excluded.received_at,
+		  updated_at = excluded.updated_at`,
+		signal.Route, signal.SourceID, incidentValue, signal.SourceIncidentID, signal.EventID,
+		signal.Repository, signal.CorrelationKey, signal.Status, signal.Title, signal.Severity,
+		signal.Summary, signal.SourceURL, labels, annotations, timeText(signal.StartsAt),
+		timeText(signal.EndsAt), signal.ReceivedAt.UTC().Format(timestampFormat), now.Format(timestampFormat))
+	changed := isNew ||
+		incidentID != existing.String ||
+		previousEventID != signal.EventID ||
+		previousStatus != string(signal.Status) ||
+		previousTitle != signal.Title ||
+		previousSeverity != signal.Severity ||
+		previousSummary != signal.Summary ||
+		previousURL != signal.SourceURL
+	if suppressRefresh {
+		return "", false, err
+	}
+	return incidentID, changed, err
+}
+
+func requireOpenIncidentSlot(ctx context.Context, tx *sql.Tx, maximum int) error {
+	if maximum < 1 {
+		return fmt.Errorf("invalid open incident limit %d: %w", maximum, ErrCapacity)
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT count(*) FROM incidents WHERE status != 'closed'`).Scan(&count); err != nil {
+		return err
+	}
+	if count >= maximum {
+		return fmt.Errorf("open incident limit %d reached: %w", maximum, ErrCapacity)
+	}
+	return nil
+}
+
+func enforceOpenIncidentCapacity(ctx context.Context, tx *sql.Tx, maximum int) error {
+	if maximum < 1 {
+		return fmt.Errorf("invalid open incident limit %d: %w", maximum, ErrCapacity)
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT count(*) FROM incidents WHERE status != 'closed'`).Scan(&count); err != nil {
+		return err
+	}
+	if count > maximum {
+		return fmt.Errorf("open incident limit %d reached: %w", maximum, ErrCapacity)
+	}
+	return nil
+}
+
+func refreshIncident(ctx context.Context, tx *sql.Tx, incidentID string, now time.Time, resolveAfter time.Duration) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT status, title, severity, received_at
+		FROM signals WHERE incident_id = ? ORDER BY received_at`, incidentID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	count, firing := 0, 0
+	title, severity := "", ""
+	var lastFiring time.Time
+	for rows.Next() {
+		var status, candidateTitle, candidateSeverity, received string
+		if err := rows.Scan(&status, &candidateTitle, &candidateSeverity, &received); err != nil {
+			return err
+		}
+		count++
+		if severityRank(candidateSeverity) > severityRank(severity) {
+			severity = candidateSeverity
+		}
+		if status == string(core.SignalFiring) {
+			firing++
+			title = candidateTitle
+			lastFiring = parseTime(received)
+		} else if title == "" {
+			title = candidateTitle
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	status := core.IncidentActive
+	var due, resolved any
+	if firing == 0 {
+		if resolveAfter == 0 {
+			status = core.IncidentResolved
+			resolved = now.Format(timestampFormat)
+		} else {
+			status = core.IncidentMonitoring
+			due = now.Add(resolveAfter).Format(timestampFormat)
+		}
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE incidents SET title = ?, severity = ?, status = ?, signal_count = ?,
+		  firing_count = ?, updated_at = ?, last_firing_at = COALESCE(?, last_firing_at),
+		  resolve_due_at = ?, resolved_at = ?, card_version = card_version + 1
+		WHERE id = ?`,
+		title, severity, status, count, firing, now.Format(timestampFormat),
+		timeText(lastFiring), due, resolved, incidentID)
+	return err
+}
+
+func severityRank(value string) int {
+	switch strings.ToLower(value) {
+	case "critical", "p0", "sev0":
+		return 5
+	case "high", "error", "p1", "sev1":
+		return 4
+	case "warning", "warn", "medium", "p2", "sev2":
+		return 3
+	case "low", "info", "p3", "sev3":
+		return 2
+	default:
+		return 1
+	}
+}
+
+const incidentColumns = `
+	id, route, repository, correlation_key, source_incident_id, title, severity,
+	status, workflow, signal_count, firing_count, channel_id, channel_name, root_ts,
+	coop_session_id, coop_fork_name, coop_revision, coop_event_sequence, active_turn_id,
+	initial_turn_queued, card_version, card_rendered_version, last_error,
+	created_at, updated_at, last_firing_at, resolve_due_at, resolved_at, closed_at`
+
+func scanIncident(row interface{ Scan(...any) error }) (core.Incident, error) {
+	var incident core.Incident
+	var initial int
+	var created, updated string
+	var firing, due, resolved, closed sql.NullString
+	err := row.Scan(
+		&incident.ID, &incident.Route, &incident.Repository, &incident.CorrelationKey,
+		&incident.SourceIncidentID, &incident.Title, &incident.Severity, &incident.Status,
+		&incident.Workflow, &incident.SignalCount, &incident.FiringCount, &incident.ChannelID,
+		&incident.ChannelName, &incident.RootTS, &incident.CoopSessionID, &incident.CoopForkName,
+		&incident.CoopRevision, &incident.CoopEventSequence,
+		&incident.ActiveTurnID, &initial, &incident.CardVersion,
+		&incident.CardRenderedVersion, &incident.LastError, &created, &updated, &firing, &due,
+		&resolved, &closed,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return core.Incident{}, ErrNotFound
+		}
+		return core.Incident{}, err
+	}
+	incident.InitialTurnQueued = initial != 0
+	incident.CreatedAt = parseTime(created)
+	incident.UpdatedAt = parseTime(updated)
+	incident.LastFiringAt = scanTime(firing)
+	incident.ResolveDueAt = scanTime(due)
+	incident.ResolvedAt = scanTime(resolved)
+	incident.ClosedAt = scanTime(closed)
+	return incident, nil
+}
+
+func (s *Store) GetIncident(ctx context.Context, id string) (core.Incident, error) {
+	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+` FROM incidents WHERE id = ?`, id))
+}
+
+func (s *Store) FindIncidentByChannel(ctx context.Context, channelID string) (core.Incident, error) {
+	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
+		FROM incidents WHERE channel_id = ? AND status != 'closed'
+		ORDER BY updated_at DESC LIMIT 1`, channelID))
+}
+
+func (s *Store) ListIncidents(ctx context.Context, limit int) ([]core.Incident, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+incidentColumns+`
+		FROM incidents ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []core.Incident
+	for rows.Next() {
+		incident, err := scanIncident(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, incident)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) ListSignals(ctx context.Context, incidentID string) ([]core.Signal, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT route, source_id, source_incident_id, event_id, repository, correlation_key,
+		  status, title, severity, summary, source_url, labels_json, annotations_json,
+		  starts_at, ends_at, received_at
+		FROM signals WHERE incident_id = ? ORDER BY received_at`, incidentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []core.Signal
+	for rows.Next() {
+		var signal core.Signal
+		var labels, annotations []byte
+		var starts, ends sql.NullString
+		var received string
+		if err := rows.Scan(&signal.Route, &signal.SourceID, &signal.SourceIncidentID,
+			&signal.EventID, &signal.Repository, &signal.CorrelationKey, &signal.Status,
+			&signal.Title, &signal.Severity, &signal.Summary, &signal.SourceURL, &labels,
+			&annotations, &starts, &ends, &received); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(labels, &signal.Labels); err != nil {
+			return nil, fmt.Errorf("decode signal labels: %w", err)
+		}
+		if err := json.Unmarshal(annotations, &signal.Annotations); err != nil {
+			return nil, fmt.Errorf("decode signal annotations: %w", err)
+		}
+		signal.StartsAt = scanTime(starts)
+		signal.EndsAt = scanTime(ends)
+		signal.ReceivedAt = parseTime(received)
+		result = append(result, signal)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) ListChannelWork(ctx context.Context, limit int) ([]core.Incident, error) {
+	return s.listIncidentsWhere(ctx, `channel_id = '' AND workflow = 'provisioning_channel'`, limit)
+}
+
+func (s *Store) ListRootWork(ctx context.Context, limit int) ([]core.Incident, error) {
+	return s.listIncidentsWhere(ctx, `channel_id != '' AND root_ts = '' AND workflow = 'provisioning_channel'`, limit)
+}
+
+func (s *Store) ListSessionWork(ctx context.Context, limit int) ([]core.Incident, error) {
+	return s.listIncidentsWhere(ctx, `root_ts != '' AND coop_session_id = '' AND workflow IN ('provisioning_session', 'holding')`, limit)
+}
+
+func (s *Store) ListBoundIncidents(ctx context.Context, limit int) ([]core.Incident, error) {
+	return s.listIncidentsWhere(ctx, `coop_session_id != '' AND status != 'closed'`, limit)
+}
+
+func (s *Store) ListDirtyCards(ctx context.Context, limit int) ([]core.Incident, error) {
+	return s.listIncidentsWhere(ctx, `root_ts != '' AND card_version > card_rendered_version`, limit)
+}
+
+func (s *Store) listIncidentsWhere(ctx context.Context, where string, limit int) ([]core.Incident, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+incidentColumns+`
+		FROM incidents WHERE `+where+` ORDER BY created_at LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []core.Incident
+	for rows.Next() {
+		item, err := scanIncident(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) SetChannel(ctx context.Context, id, channelID, channelName string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET channel_id = ?, channel_name = ?, workflow = 'provisioning_channel',
+		  updated_at = ?, card_version = card_version + 1, last_error = ''
+		WHERE id = ? AND channel_id = ''`, channelID, channelName, nowText(), id)
+	return expectOne(result, err, "bind incident channel")
+}
+
+func (s *Store) CreateManualIncident(
+	ctx context.Context,
+	repository, sourceID, title, userID string,
+	maxOpenIncidents int,
+) (core.Incident, bool, error) {
+	id, err := core.NewID("inc")
+	if err != nil {
+		return core.Incident{}, false, err
+	}
+	now := time.Now().UTC()
+	correlation := "manual:" + sourceID
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.Incident{}, false, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO incidents
+		  (id, route, repository, correlation_key, source_incident_id, title, severity,
+		   status, workflow, signal_count, firing_count, created_at, updated_at, last_firing_at)
+		VALUES (?, 'manual', ?, ?, ?, ?, '', 'active', 'provisioning_channel', 1, 1, ?, ?, ?)`,
+		id, repository, correlation, sourceID, title,
+		now.Format(timestampFormat), now.Format(timestampFormat), now.Format(timestampFormat))
+	if err != nil {
+		return core.Incident{}, false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return core.Incident{}, false, err
+	}
+	if rows == 1 {
+		if err := enforceOpenIncidentCapacity(ctx, tx, maxOpenIncidents); err != nil {
+			return core.Incident{}, false, err
+		}
+		labels, _ := json.Marshal(map[string]string{"slack_user": userID})
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO signals
+			  (route, source_id, incident_id, source_incident_id, event_id, repository,
+			   correlation_key, status, title, labels_json, annotations_json, received_at, updated_at)
+			VALUES ('manual', ?, ?, ?, ?, ?, ?, 'firing', ?, ?, '{}', ?, ?)`,
+			sourceID, id, sourceID, sourceID, repository, correlation, title, labels,
+			now.Format(timestampFormat), now.Format(timestampFormat)); err != nil {
+			return core.Incident{}, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return core.Incident{}, false, err
+		}
+		incident, err := s.GetIncident(ctx, id)
+		return incident, true, err
+	}
+	if err := tx.Rollback(); err != nil {
+		return core.Incident{}, false, err
+	}
+	incident, err := scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
+		FROM incidents WHERE route = 'manual' AND correlation_key = ?`, correlation))
+	return incident, false, err
+}
+
+func (s *Store) SetRoot(ctx context.Context, id, rootTS string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET root_ts = ?, workflow = 'provisioning_session',
+		  updated_at = ?, card_version = card_version + 1, last_error = ''
+		WHERE id = ? AND channel_id != '' AND root_ts = ''`, rootTS, nowText(), id)
+	return expectOne(result, err, "bind incident root")
+}
+
+func (s *Store) SetCoopSession(ctx context.Context, id, sessionID, forkName string, revision int64) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET coop_session_id = ?, coop_fork_name = ?, coop_revision = ?, workflow = 'investigating',
+		  updated_at = ?, card_version = card_version + 1, last_error = ''
+		WHERE id = ? AND root_ts != '' AND coop_session_id = ''`,
+		sessionID, forkName, revision, nowText(), id)
+	return expectOne(result, err, "bind Coop session")
+}
+
+func (s *Store) UpdateCoopState(ctx context.Context, id string, revision, cursor int64, activeTurnID string, workflow core.WorkflowState) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET card_version = card_version + CASE
+		    WHEN coop_revision != ? OR coop_event_sequence != ? OR active_turn_id != ? OR workflow != ?
+		    THEN 1 ELSE 0 END,
+		  coop_revision = ?, coop_event_sequence = ?, active_turn_id = ?,
+		  workflow = ?, updated_at = ?,
+		  last_error = CASE WHEN ? != '' THEN '' ELSE last_error END
+		WHERE id = ?`,
+		revision, cursor, activeTurnID, workflow,
+		revision, cursor, activeTurnID, workflow, nowText(), activeTurnID, id)
+	return err
+}
+
+func (s *Store) SetIncidentError(ctx context.Context, id string, workflow core.WorkflowState, detail string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET workflow = ?, last_error = ?, updated_at = ?,
+		  card_version = card_version + 1 WHERE id = ?`,
+		workflow, boundedError(detail), nowText(), id)
+	return err
+}
+
+func (s *Store) MarkCardRendered(ctx context.Context, id string, version int64) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET card_rendered_version = CASE
+		  WHEN card_rendered_version < ? THEN ? ELSE card_rendered_version END
+		WHERE id = ?`, version, version, id)
+	return err
+}
+
+func (s *Store) CountOpenSessions(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM incidents
+		WHERE coop_session_id != '' AND workflow != 'closed'`).Scan(&count)
+	return count, err
+}
+
+func (s *Store) ResolveDueIncidents(ctx context.Context, now time.Time) (int64, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET status = 'resolved', resolved_at = ?, resolve_due_at = NULL,
+		  updated_at = ?, card_version = card_version + 1
+		WHERE status = 'monitoring' AND firing_count = 0
+		  AND resolve_due_at IS NOT NULL AND resolve_due_at <= ?`,
+		now.UTC().Format(timestampFormat), now.UTC().Format(timestampFormat), now.UTC().Format(timestampFormat))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+func (s *Store) CloseIncident(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET status = 'closed', workflow = 'closed', closed_at = ?,
+		  updated_at = ?, card_version = card_version + 1, active_turn_id = ''
+		WHERE id = ? AND status != 'closed'`, nowText(), nowText(), id)
+	return expectOne(result, err, "close incident")
+}
+
+func (s *Store) MarkInitialTurnQueued(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET initial_turn_queued = 1, updated_at = ?
+		WHERE id = ? AND initial_turn_queued = 0`, nowText(), id)
+	return expectOne(result, err, "mark initial turn queued")
+}
+
+func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (bool, error) {
+	if input.ID == "" {
+		var err error
+		input.ID, err = core.NewID("slack")
+		if err != nil {
+			return false, err
+		}
+	}
+	now := nowText()
+	result, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO slack_inputs
+		  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
+		   user_id, text, action_id, action_value, state, next_attempt_at, received_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		input.ID, input.EnvelopeID, input.EventID, input.Kind, input.TeamID, input.ChannelID,
+		input.ThreadTS, input.MessageTS, input.UserID, input.Text, input.ActionID,
+		input.ActionValue, now, now, now)
+	if err != nil {
+		return false, fmt.Errorf("admit Slack input: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
+func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.SlackInput{}, err
+	}
+	defer tx.Rollback()
+	now := nowText()
+	var input core.SlackInput
+	var received string
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, envelope_id, event_id, kind, team_id, channel_id, thread_ts,
+		  message_ts, user_id, text, action_id, action_value, frozen_json, state, attempts, received_at
+		FROM slack_inputs
+		WHERE state IN ('pending', 'retry') AND next_attempt_at <= ?
+		ORDER BY received_at LIMIT 1`, now).Scan(
+		&input.ID, &input.EnvelopeID, &input.EventID, &input.Kind, &input.TeamID,
+		&input.ChannelID, &input.ThreadTS, &input.MessageTS, &input.UserID, &input.Text,
+		&input.ActionID, &input.ActionValue, &input.Frozen, &input.State, &input.Attempts, &received)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.SlackInput{}, ErrNotFound
+	}
+	if err != nil {
+		return core.SlackInput{}, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE slack_inputs SET state = 'processing', attempts = attempts + 1, updated_at = ?
+		WHERE id = ? AND state IN ('pending', 'retry')`, now, input.ID)
+	if err := expectOne(result, err, "lease Slack input"); err != nil {
+		return core.SlackInput{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.SlackInput{}, err
+	}
+	input.State = "processing"
+	input.Attempts++
+	input.ReceivedAt = parseTime(received)
+	return input, nil
+}
+
+func (s *Store) FinishSlackInput(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE slack_inputs SET state = 'done', last_error = '', updated_at = ?
+		WHERE id = ? AND state = 'processing'`, nowText(), id)
+	return expectOne(result, err, "finish Slack input")
+}
+
+func (s *Store) RetrySlackInput(ctx context.Context, id, detail string, next time.Time, terminal bool) error {
+	state := "retry"
+	if terminal {
+		state = "failed"
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE slack_inputs SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'processing'`,
+		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+	return expectOne(result, err, "retry Slack input")
+}
+
+func (s *Store) FreezeSlackInput(ctx context.Context, id string, frozen []byte) ([]byte, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var existing []byte
+	if err := tx.QueryRowContext(ctx, `SELECT frozen_json FROM slack_inputs WHERE id = ?`, id).Scan(&existing); err != nil {
+		return nil, err
+	}
+	if len(existing) == 0 {
+		if len(frozen) == 0 {
+			return nil, errors.New("frozen Slack action is empty")
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE slack_inputs SET frozen_json = ?, updated_at = ? WHERE id = ?`,
+			frozen, nowText(), id); err != nil {
+			return nil, err
+		}
+		existing = append([]byte(nil), frozen...)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+func (s *Store) EnqueueOutbox(ctx context.Context, message core.OutboxMessage) (bool, error) {
+	if message.ID == "" {
+		var err error
+		message.ID, err = core.NewID("out")
+		if err != nil {
+			return false, err
+		}
+	}
+	now := nowText()
+	result, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO outbox
+		  (id, incident_id, kind, channel_id, thread_ts, message_ts, body_json,
+		   state, next_attempt_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		message.ID, message.IncidentID, message.Kind, message.ChannelID, message.ThreadTS,
+		message.MessageTS, message.Body, now, now, now)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
+func (s *Store) LeaseOutbox(ctx context.Context) (core.OutboxMessage, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.OutboxMessage{}, err
+	}
+	defer tx.Rollback()
+	now := nowText()
+	var item core.OutboxMessage
+	var next, created string
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, incident_id, kind, channel_id, thread_ts, message_ts, body_json,
+		  state, attempts, next_attempt_at, last_error, created_at
+		FROM outbox WHERE state IN ('pending', 'retry') AND next_attempt_at <= ?
+		ORDER BY created_at LIMIT 1`, now).Scan(
+		&item.ID, &item.IncidentID, &item.Kind, &item.ChannelID, &item.ThreadTS,
+		&item.MessageTS, &item.Body, &item.State, &item.Attempts, &next,
+		&item.LastError, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.OutboxMessage{}, ErrNotFound
+	}
+	if err != nil {
+		return core.OutboxMessage{}, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE outbox SET state = 'sending', attempts = attempts + 1, updated_at = ?
+		WHERE id = ? AND state IN ('pending', 'retry')`, now, item.ID)
+	if err := expectOne(result, err, "lease outbox"); err != nil {
+		return core.OutboxMessage{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.OutboxMessage{}, err
+	}
+	item.State = "sending"
+	item.Attempts++
+	item.NextAttemptAt = parseTime(next)
+	item.CreatedAt = parseTime(created)
+	return item, nil
+}
+
+func (s *Store) FinishOutbox(ctx context.Context, id, messageTS string) error {
+	return s.finishOutbox(ctx, id, messageTS, "sending")
+}
+
+func (s *Store) RetryOutbox(ctx context.Context, id, detail string, next time.Time, uncertain, terminal bool) error {
+	state := "retry"
+	if uncertain {
+		state = "uncertain"
+	} else if terminal {
+		state = "failed"
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE outbox SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'sending'`,
+		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+	return expectOne(result, err, "retry outbox")
+}
+
+func (s *Store) ListUncertainOutbox(ctx context.Context, limit int) ([]core.OutboxMessage, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, incident_id, kind, channel_id, thread_ts, message_ts, body_json,
+		  state, attempts, next_attempt_at, last_error, created_at
+		FROM outbox WHERE state = 'uncertain' AND next_attempt_at <= ?
+		ORDER BY created_at LIMIT ?`, nowText(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []core.OutboxMessage
+	for rows.Next() {
+		var item core.OutboxMessage
+		var next, created string
+		if err := rows.Scan(&item.ID, &item.IncidentID, &item.Kind, &item.ChannelID,
+			&item.ThreadTS, &item.MessageTS, &item.Body, &item.State, &item.Attempts,
+			&next, &item.LastError, &created); err != nil {
+			return nil, err
+		}
+		item.NextAttemptAt = parseTime(next)
+		item.CreatedAt = parseTime(created)
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) ResolveUncertainOutbox(ctx context.Context, id, messageTS string) error {
+	return s.finishOutbox(ctx, id, messageTS, "uncertain")
+}
+
+func (s *Store) RetryUncertainOutbox(ctx context.Context, id, detail string, next time.Time, terminal bool) error {
+	state := "retry"
+	if terminal {
+		state = "failed"
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE outbox SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'uncertain'`,
+		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+	return expectOne(result, err, "retry uncertain outbox")
+}
+
+func (s *Store) finishOutbox(ctx context.Context, id, messageTS, fromState string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var incidentID, kind string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT incident_id, kind FROM outbox WHERE id = ? AND state = ?`,
+		id, fromState).Scan(&incidentID, &kind); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("finish outbox: %w", ErrConflict)
+		}
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE outbox SET state = 'sent', message_ts = ?, last_error = '', updated_at = ?
+		WHERE id = ? AND state = ?`, messageTS, nowText(), id, fromState)
+	if err := expectOne(result, err, "finish outbox"); err != nil {
+		return err
+	}
+	if kind == "root" {
+		result, err = tx.ExecContext(ctx, `
+			UPDATE incidents SET root_ts = ?, workflow = 'provisioning_session',
+			  updated_at = ?, card_version = card_version + 1, last_error = ''
+			WHERE id = ? AND channel_id != '' AND root_ts = ''`,
+			messageTS, nowText(), incidentID)
+		if err := expectOne(result, err, "bind incident root"); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) QueueTurn(ctx context.Context, submission core.TurnSubmission) (core.TurnSubmission, bool, error) {
+	if submission.ID == "" {
+		var err error
+		submission.ID, err = core.NewID("turn")
+		if err != nil {
+			return core.TurnSubmission{}, false, err
+		}
+	}
+	if submission.IdempotencyKey == "" {
+		submission.IdempotencyKey = "responder:turn:" + submission.ID
+	}
+	now := nowText()
+	result, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO turn_submissions
+		  (id, incident_id, source_kind, source_id, user_id, prompt, idempotency_key,
+		   state, next_attempt_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		submission.ID, submission.IncidentID, submission.SourceKind, submission.SourceID,
+		submission.UserID, submission.Prompt, submission.IdempotencyKey, now, now, now)
+	if err != nil {
+		return core.TurnSubmission{}, false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return core.TurnSubmission{}, false, err
+	}
+	item, err := s.GetTurnSubmissionBySource(ctx, submission.SourceKind, submission.SourceID)
+	return item, rows == 1, err
+}
+
+func (s *Store) GetTurnSubmissionBySource(ctx context.Context, kind, sourceID string) (core.TurnSubmission, error) {
+	return scanTurnSubmission(s.db.QueryRowContext(ctx, `
+		SELECT id, incident_id, source_kind, source_id, user_id, prompt, idempotency_key,
+		  expected_revision, coop_turn_id, state, attempts, next_attempt_at,
+		  last_error, created_at, updated_at
+		FROM turn_submissions WHERE source_kind = ? AND source_id = ?`, kind, sourceID))
+}
+
+func scanTurnSubmission(row interface{ Scan(...any) error }) (core.TurnSubmission, error) {
+	var item core.TurnSubmission
+	var next, created, updated string
+	err := row.Scan(&item.ID, &item.IncidentID, &item.SourceKind, &item.SourceID,
+		&item.UserID, &item.Prompt, &item.IdempotencyKey, &item.ExpectedRevision, &item.CoopTurnID,
+		&item.State, &item.Attempts, &next, &item.LastError, &created, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.TurnSubmission{}, ErrNotFound
+	}
+	if err != nil {
+		return core.TurnSubmission{}, err
+	}
+	item.CreatedAt = parseTime(created)
+	item.UpdatedAt = parseTime(updated)
+	item.NextAttemptAt = parseTime(next)
+	return item, nil
+}
+
+func (s *Store) LeaseTurnSubmission(ctx context.Context) (core.TurnSubmission, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.TurnSubmission{}, err
+	}
+	defer tx.Rollback()
+	item, err := scanTurnSubmission(tx.QueryRowContext(ctx, `
+		SELECT t.id, t.incident_id, t.source_kind, t.source_id, t.user_id, t.prompt,
+		  t.idempotency_key, t.expected_revision, t.coop_turn_id, t.state, t.attempts,
+		  t.next_attempt_at, t.last_error, t.created_at, t.updated_at
+		FROM turn_submissions t
+		JOIN incidents i ON i.id = t.incident_id
+		WHERE t.state IN ('pending', 'retry') AND i.coop_session_id != ''
+		  AND i.active_turn_id = '' AND i.workflow NOT IN ('closed', 'blocked')
+		  AND t.next_attempt_at <= ?
+		ORDER BY t.created_at LIMIT 1`, nowText()))
+	if err != nil {
+		return core.TurnSubmission{}, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE turn_submissions SET state = 'submitting', attempts = attempts + 1, updated_at = ?
+		WHERE id = ? AND state IN ('pending', 'retry')`, nowText(), item.ID)
+	if err := expectOne(result, err, "lease turn submission"); err != nil {
+		return core.TurnSubmission{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.TurnSubmission{}, err
+	}
+	item.State = "submitting"
+	item.Attempts++
+	return item, nil
+}
+
+func (s *Store) FreezeTurnRevision(ctx context.Context, id string, revision int64) (int64, error) {
+	if revision <= 0 {
+		return 0, errors.New("positive Coop revision is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var existing int64
+	if err := tx.QueryRowContext(ctx, `SELECT expected_revision FROM turn_submissions WHERE id = ?`, id).Scan(&existing); err != nil {
+		return 0, err
+	}
+	if existing == 0 {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE turn_submissions SET expected_revision = ?, updated_at = ?
+			WHERE id = ? AND expected_revision = 0`, revision, nowText(), id); err != nil {
+			return 0, err
+		}
+		existing = revision
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return existing, nil
+}
+
+func (s *Store) MarkTurnSubmitted(ctx context.Context, id, coopTurnID string, revision int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var incidentID string
+	if err := tx.QueryRowContext(ctx, `SELECT incident_id FROM turn_submissions WHERE id = ?`, id).Scan(&incidentID); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE turn_submissions SET state = 'submitted', coop_turn_id = ?, last_error = '',
+		  updated_at = ? WHERE id = ? AND state = 'submitting'`, coopTurnID, nowText(), id)
+	if err := expectOne(result, err, "mark turn submitted"); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE incidents SET active_turn_id = ?, coop_revision = ?, workflow = 'investigating',
+		  updated_at = ?, card_version = card_version + 1, last_error = '' WHERE id = ?`,
+		coopTurnID, revision, nowText(), incidentID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) RetryTurnSubmission(ctx context.Context, id, detail string, next time.Time, terminal bool) error {
+	state := "retry"
+	if terminal {
+		state = "failed"
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE turn_submissions SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'submitting'`,
+		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+	return expectOne(result, err, "retry turn submission")
+}
+
+func (s *Store) CompleteTurnSubmission(ctx context.Context, coopTurnID, state, detail string) (core.TurnSubmission, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.TurnSubmission{}, err
+	}
+	defer tx.Rollback()
+	item, err := scanTurnSubmission(tx.QueryRowContext(ctx, `
+		SELECT id, incident_id, source_kind, source_id, user_id, prompt, idempotency_key,
+		  expected_revision, coop_turn_id, state, attempts, next_attempt_at,
+		  last_error, created_at, updated_at
+		FROM turn_submissions WHERE coop_turn_id = ?`, coopTurnID))
+	if err != nil {
+		return core.TurnSubmission{}, err
+	}
+	if item.State == "completed" || item.State == "failed" || item.State == "cancelled" {
+		return item, nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE turn_submissions SET state = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+		state, boundedError(detail), nowText(), item.ID); err != nil {
+		return core.TurnSubmission{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE incidents SET active_turn_id = '', workflow = ?, last_error = ?,
+		  updated_at = ?, card_version = card_version + 1
+		WHERE id = ? AND active_turn_id = ?`,
+		workflowAfterTurn(state), turnResultError(state, detail), nowText(),
+		item.IncidentID, coopTurnID); err != nil {
+		return core.TurnSubmission{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.TurnSubmission{}, err
+	}
+	item.State = state
+	item.LastError = detail
+	return item, nil
+}
+
+func workflowAfterTurn(_ string) core.WorkflowState {
+	return core.WorkflowParked
+}
+
+func turnResultError(state, detail string) string {
+	if state == "completed" || state == "cancelled" {
+		return ""
+	}
+	if strings.TrimSpace(detail) == "" {
+		return "The agent turn failed without an error detail."
+	}
+	return boundedError(detail)
+}
+
+func (s *Store) Audit(ctx context.Context, event core.AuditEvent) error {
+	if event.ID == "" {
+		var err error
+		event.ID, err = core.NewID("audit")
+		if err != nil {
+			return err
+		}
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO audit_events
+		  (id, incident_id, kind, actor_id, object_id, outcome, detail, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.ID, event.IncidentID, event.Kind, event.ActorID, event.ObjectID,
+		event.Outcome, boundedError(event.Detail), event.CreatedAt.Format(timestampFormat))
+	return err
+}
+
+func FileOwner(path string) (uint32, os.FileMode, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, 0, errors.New("file ownership is unavailable")
+	}
+	return stat.Uid, info.Mode().Perm(), nil
+}
