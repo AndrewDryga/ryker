@@ -176,9 +176,11 @@ Mention the bot in a configured summon channel to start a manual incident:
 @Responder investigate elevated checkout latency in production
 ```
 
-Responder acknowledges the request in that thread, then creates the incident channel. In the
-incident channel, collaborate by replying to the pinned card. No repeated mention is needed.
-Incident channels are private by default; all configured operators are invited automatically.
+Responder acknowledges the request in that thread, creates the incident channel, then replies with
+a direct channel link. In the incident channel, collaborate by replying to the pinned card. The card
+updates in place with alert evidence, investigation state, and only currently valid controls; no
+repeated mention is needed. Incident channels are private by default, and all configured operators
+are invited automatically.
 
 Only configured operator user IDs who are full members of the configured workspace can steer the
 agent. Slack guests, bots, and external Slack Connect identities are denied. See

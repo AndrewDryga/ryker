@@ -50,14 +50,6 @@ func (s *Service) processWebhook(ctx context.Context) error {
 			continue
 		}
 		signals := signalsForIncident(event.Signals, incident)
-		if incident.RootTS != "" {
-			if err := s.enqueue(
-				ctx, "out_signal_"+event.ID+"_"+incident.ID, incident, "signal",
-				incident.RootTS, slackui.SignalUpdate(incident, signals),
-			); err != nil {
-				return s.store.RetryWebhook(ctx, event.ID, trimError(err), queueDelay(event.Attempts), false)
-			}
-		}
 		if incident.InitialTurnQueued {
 			prompt, err := signalPrompt(signals)
 			if err != nil {
@@ -101,10 +93,17 @@ func (s *Service) processChannel(ctx context.Context) error {
 			return err
 		}
 		incident := incidents[0]
-		return s.enqueue(
+		body, err := s.incidentCard(ctx, incident)
+		if err != nil {
+			return err
+		}
+		if err := s.enqueue(
 			ctx, "out_root_"+incident.ID, incident, "root", "",
-			slackui.IncidentCard(incident, s.repositoryName(incident.Repository)),
-		)
+			body,
+		); err != nil {
+			return err
+		}
+		return nil
 	}
 	incident := incidents[0]
 	key := "channel:" + incident.ID
@@ -127,7 +126,11 @@ func (s *Service) processChannel(ctx context.Context) error {
 	}
 	incident.ChannelID = channel.ID
 	incident.ChannelName = channel.Name
-	body := slackui.IncidentCard(incident, s.repositoryName(incident.Repository))
+	body, err := s.incidentCard(ctx, incident)
+	if err != nil {
+		s.retryLater(key)
+		return err
+	}
 	if err := s.enqueue(ctx, "out_root_"+incident.ID, incident, "root", "", body); err != nil {
 		s.retryLater(key)
 		return err
@@ -159,10 +162,25 @@ func (s *Service) adoptChannel(
 	return channel, nil
 }
 
-func (s *Service) processOutbox(ctx context.Context) error {
+func (s *Service) processSlackWrite(ctx context.Context) error {
 	if time.Since(s.lastPost) < 1100*time.Millisecond {
 		return nil
 	}
+	first, second := s.processOutbox, s.processCard
+	if s.preferCard {
+		first, second = second, first
+	}
+	err := first(ctx)
+	if errors.Is(err, store.ErrNotFound) {
+		err = second(ctx)
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		s.preferCard = !s.preferCard
+	}
+	return err
+}
+
+func (s *Service) processOutbox(ctx context.Context) error {
 	item, err := s.store.LeaseOutbox(ctx)
 	if err != nil {
 		return err
@@ -187,6 +205,13 @@ func (s *Service) processOutbox(ctx context.Context) error {
 			queueDelay(item.Attempts), true, false,
 		)
 		return err
+	}
+	if item.ThreadTS != "" {
+		s.forgetNativeStatus(item.IncidentID)
+		if incident, incidentErr := s.store.GetIncident(ctx, item.IncidentID); incidentErr == nil &&
+			incident.ActiveTurnID != "" {
+			s.setNativeStatus(ctx, incident, "is investigating...")
+		}
 	}
 	return nil
 }
@@ -248,6 +273,10 @@ func (s *Service) processSession(ctx context.Context) error {
 		s.retryLater(key)
 		_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowHolding, trimError(err))
 		return nil
+	}
+	if err := s.enqueueManualHandoff(ctx, incident); err != nil {
+		s.retryLater(key)
+		return err
 	}
 	open, err := s.store.CountOpenSessions(ctx)
 	if err != nil {
@@ -381,6 +410,7 @@ func (s *Service) processTurn(ctx context.Context) error {
 		)
 		if terminal {
 			_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowParked, trimError(err))
+			s.clearNativeStatus(ctx, incident)
 		}
 		return retryErr
 	}
@@ -395,9 +425,7 @@ func (s *Service) processTurn(ctx context.Context) error {
 		return err
 	}
 	s.retryDone(key)
-	if s.cfg.Slack.NativeStatus {
-		_ = s.slack.SetStatus(ctx, incident.ChannelID, incident.RootTS, "Investigating")
-	}
+	s.setNativeStatus(ctx, incident, "is investigating...")
 	return nil
 }
 
@@ -449,6 +477,9 @@ func (s *Service) pollIncident(ctx context.Context, incident core.Incident) erro
 	case session.QueuedTurnCount > 0:
 		workflow = core.WorkflowInvestigating
 	}
+	if session.ActiveTurnID != "" {
+		s.setNativeStatus(ctx, incident, "is investigating...")
+	}
 	if err := s.store.UpdateCoopState(
 		ctx, incident.ID, session.Revision, cursor, session.ActiveTurnID, workflow,
 	); err != nil {
@@ -456,6 +487,7 @@ func (s *Service) pollIncident(ctx context.Context, incident core.Incident) erro
 	}
 	if session.State == "exhausted" &&
 		(incident.Workflow != core.WorkflowBlocked || incident.LastError == "") {
+		s.clearNativeStatus(ctx, incident)
 		return s.store.SetIncidentError(
 			ctx, incident.ID, core.WorkflowBlocked,
 			"The Coop turn budget is exhausted. Use Extend budget to continue.",
@@ -487,37 +519,125 @@ func (s *Service) completeTurn(ctx context.Context, incident core.Incident, even
 		message = slackui.AssistantResponse(turn.AssistantMessage, s.sanitizer)
 	} else {
 		detail := s.sanitizer.Text(firstNonempty(turn.ErrorDetail, turn.StopReason, state))
-		message = slackui.Notice("Agent turn " + state + ": " + detail)
+		message = slackui.TurnFailureMessage(state, detail)
 	}
 	if err := s.enqueue(
 		ctx, "out_turn_"+item.ID, incident, "assistant", incident.RootTS, message,
 	); err != nil {
 		return err
 	}
-	if s.cfg.Slack.NativeStatus {
-		_ = s.slack.SetStatus(ctx, incident.ChannelID, incident.RootTS, "Waiting for input")
-	}
+	s.forgetNativeStatus(incident.ID)
 	return nil
 }
 
 func (s *Service) processCard(ctx context.Context) error {
-	if time.Since(s.lastPost) < 1100*time.Millisecond {
-		return nil
-	}
-	incidents, err := s.store.ListDirtyCards(ctx, 1)
+	incidents, err := s.store.ListDirtyCards(ctx, 1000)
 	if err != nil || len(incidents) == 0 {
 		if err == nil {
 			return store.ErrNotFound
 		}
 		return err
 	}
-	incident := incidents[0]
-	message := s.sanitizer.Message(slackui.IncidentCard(incident, s.repositoryName(incident.Repository)))
-	if err := s.slack.Update(ctx, incident.ChannelID, incident.RootTS, message); err != nil {
+	var incident core.Incident
+	for _, candidate := range incidents {
+		if s.canRetry("card:" + candidate.ID) {
+			incident = candidate
+			break
+		}
+	}
+	if incident.ID == "" {
+		return store.ErrNotFound
+	}
+	message, err := s.incidentCard(ctx, incident)
+	if err != nil {
+		s.retryLater("card:" + incident.ID)
 		return err
 	}
+	message = s.sanitizer.Message(message)
+	err = s.slack.Update(ctx, incident.ChannelID, incident.RootTS, message)
 	s.lastPost = time.Now()
-	return s.store.MarkCardRendered(ctx, incident.ID, incident.CardVersion)
+	if err != nil {
+		s.retryLater("card:" + incident.ID)
+		return err
+	}
+	if err := s.store.MarkCardRendered(ctx, incident.ID, incident.CardVersion); err != nil {
+		return err
+	}
+	s.retryDone("card:" + incident.ID)
+	return nil
+}
+
+func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (slackui.Message, error) {
+	signals, err := s.store.ListSignals(ctx, incident.ID)
+	if err != nil {
+		return slackui.Message{}, err
+	}
+	return slackui.IncidentCard(
+		incident,
+		s.repositoryName(incident.Repository),
+		signals,
+	), nil
+}
+
+func (s *Service) enqueueManualHandoff(ctx context.Context, incident core.Incident) error {
+	if incident.Route != "manual" {
+		return nil
+	}
+	signals, err := s.store.ListSignals(ctx, incident.ID)
+	if err != nil {
+		return err
+	}
+	for _, signal := range signals {
+		channelID := signal.Labels["slack_origin_channel"]
+		threadTS := signal.Labels["slack_origin_thread"]
+		if channelID == "" || threadTS == "" {
+			continue
+		}
+		origin := incident
+		origin.ChannelID = channelID
+		return s.enqueue(
+			ctx,
+			"out_manual_ready_"+incident.ID,
+			origin,
+			"notice",
+			threadTS,
+			slackui.ManualHandoff(incident.ChannelID),
+		)
+	}
+	return nil
+}
+
+func (s *Service) clearNativeStatus(ctx context.Context, incident core.Incident) {
+	if s.cfg.Slack.NativeStatus && incident.ChannelID != "" && incident.RootTS != "" {
+		_ = s.slack.SetStatus(ctx, incident.ChannelID, incident.RootTS, "")
+	}
+	s.forgetNativeStatus(incident.ID)
+}
+
+func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, status string) {
+	if !s.cfg.Slack.NativeStatus || incident.ChannelID == "" || incident.RootTS == "" {
+		return
+	}
+	previous := s.nativeStatus[incident.ID]
+	if previous.text == status && time.Since(previous.at) < 75*time.Second {
+		return
+	}
+	key := "native-status:" + incident.ID
+	if !s.canRetry(key) {
+		return
+	}
+	if err := s.slack.SetStatus(ctx, incident.ChannelID, incident.RootTS, status); err != nil {
+		s.retryLater(key)
+		s.log.Warn("set Slack thread status", "incident", incident.ID, "error", err)
+		return
+	}
+	s.retryDone(key)
+	s.nativeStatus[incident.ID] = nativeStatusState{text: status, at: time.Now()}
+}
+
+func (s *Service) forgetNativeStatus(incidentID string) {
+	delete(s.nativeStatus, incidentID)
+	s.retryDone("native-status:" + incidentID)
 }
 
 func (s *Service) enqueue(

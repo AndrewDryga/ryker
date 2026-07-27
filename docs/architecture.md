@@ -77,8 +77,12 @@ The root-card send and root timestamp binding commit in one SQLite transaction. 
 has no client idempotency key, so a timeout is recovered by deterministic channel name. Responder
 adopts a same-name channel only when it was created by this bot near the incident creation time.
 
-Message and card writes are paced globally. Responder posts completed paragraphs or turns, never
-token-streaming tool output.
+Thread posts and dirty root-card updates alternate through a conservative Slack write slot. A
+failed card update keeps its durable dirty version and receives in-memory exponential backoff;
+another incident card or queued thread reply can proceed instead of being starved. Responder posts
+completed paragraphs or turns, never token-streaming tool output or routine raw webhook refreshes.
+Alert source links expose their destination hostname and omit query strings and fragments before
+leaving the service.
 
 ## Coop delivery
 

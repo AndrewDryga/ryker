@@ -3,8 +3,8 @@
 ## Unreleased
 
 - **Slack-native incident rooms.** Authenticated Grafana and generic webhooks create correlated,
-  deduplicated incident channels with persistent threaded operator conversations and deterministic
-  controls.
+  deduplicated incident channels with accessible stateful cards, durable manual handoffs,
+  progressive thread updates, immediate working states, and lifecycle-aware controls.
 - **Isolated Coop investigations.** Each incident receives a policy-bound Coop session and fork
   with Emisar MCP access, bounded budgets, change inspection, review, cancellation, and parking.
 - **Crash-safe delivery.** SQLite-backed webhook, Slack, outbox, and turn queues preserve

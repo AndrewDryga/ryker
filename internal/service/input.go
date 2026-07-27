@@ -74,6 +74,9 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				IncidentID: incident.ID, SourceKind: "slack", SourceID: input.ID,
 				UserID: input.UserID, Prompt: operatorPrompt(input.UserID, text),
 			})
+			if err == nil {
+				s.setNativeStatus(ctx, incident, "is investigating your message...")
+			}
 		}
 	}
 	if err != nil {
@@ -90,8 +93,13 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 	if len(title) > 200 {
 		title = title[:200]
 	}
+	thread := input.ThreadTS
+	if thread == "" {
+		thread = input.MessageTS
+	}
 	incident, _, err := s.store.CreateManualIncident(
 		ctx, s.cfg.Slack.DefaultRepository, input.EventID, title, input.UserID,
+		input.ChannelID, thread,
 		s.cfg.Limits.MaxOpenIncidents,
 	)
 	if err != nil {
@@ -112,10 +120,6 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 			return s.finishSlackInput(ctx, input)
 		}
 		return s.retrySlackInput(ctx, input, err)
-	}
-	thread := input.ThreadTS
-	if thread == "" {
-		thread = input.MessageTS
 	}
 	if err := s.enqueue(
 		ctx, "out_manual_ack_"+input.ID, core.Incident{
@@ -202,18 +206,27 @@ func (s *Service) handleControl(
 			Prompt: operatorPrompt(input.UserID,
 				"Give a concise incident update: verified facts, current hypothesis, code changes, blockers, and next action."),
 		})
+		if err == nil {
+			s.setNativeStatus(ctx, incident, "is preparing an incident update...")
+		}
 		return err
 	case slackui.ActionChanges:
 		if incident.CoopSessionID == "" {
 			return s.enqueue(ctx, "out_changes_"+input.ID, incident, "notice",
 				incident.RootTS, slackui.Notice("The incident fork is still being prepared."))
 		}
+		s.setNativeStatus(ctx, incident, "is checking the isolated fork...")
 		changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
 		if err != nil {
+			s.clearNativeStatus(ctx, incident)
 			return err
 		}
-		return s.enqueue(ctx, "out_changes_"+input.ID, incident, "changes",
+		err = s.enqueue(ctx, "out_changes_"+input.ID, incident, "changes",
 			incident.RootTS, slackui.ChangesMessage(incident, changesSummary(changes)))
+		if err != nil {
+			s.clearNativeStatus(ctx, incident)
+		}
+		return err
 	case slackui.ActionReview:
 		return s.reviewFix(ctx, input, incident)
 	case slackui.ActionStop:
@@ -275,18 +288,25 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 		return s.enqueue(ctx, "out_review_"+input.ID, incident, "notice",
 			incident.RootTS, slackui.Notice("Wait for the active turn to finish or stop it before reviewing."))
 	}
+	s.setNativeStatus(ctx, incident, "is reviewing the proposed fix...")
 	action, err := s.freezeAction(ctx, input, incident, false)
 	if err != nil {
+		s.clearNativeStatus(ctx, incident)
 		return err
 	}
 	review, _, err := s.coop.Review(
 		ctx, "responder:review:"+input.ID, action.SessionID, action.Revision,
 	)
 	if err != nil {
+		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	return s.enqueue(ctx, "out_review_"+input.ID, incident, "review", incident.RootTS,
+	err = s.enqueue(ctx, "out_review_"+input.ID, incident, "review", incident.RootTS,
 		slackui.ReviewMessage(incident, reviewSummary(review), review.Publishable))
+	if err != nil {
+		s.clearNativeStatus(ctx, incident)
+	}
+	return err
 }
 
 func (s *Service) stopTurn(ctx context.Context, input core.SlackInput, incident core.Incident) error {

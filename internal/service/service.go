@@ -49,11 +49,13 @@ type Service struct {
 	sanitizer *slackui.Sanitizer
 	log       *slog.Logger
 
-	identity    slackui.Identity
-	initialized atomic.Bool
-	running     atomic.Bool
-	coopHealthy atomic.Bool
-	lastPost    time.Time
+	identity     slackui.Identity
+	initialized  atomic.Bool
+	running      atomic.Bool
+	coopHealthy  atomic.Bool
+	lastPost     time.Time
+	preferCard   bool
+	nativeStatus map[string]nativeStatusState
 
 	retryMu sync.Mutex
 	retries map[string]retryState
@@ -62,6 +64,11 @@ type Service struct {
 type retryState struct {
 	at       time.Time
 	attempts int
+}
+
+type nativeStatusState struct {
+	text string
+	at   time.Time
 }
 
 func New(
@@ -78,7 +85,9 @@ func New(
 	}
 	return &Service{
 		cfg: cfg, store: st, coop: coopClient, slack: slackClient, socket: socket,
-		sanitizer: sanitizer, log: logger, retries: make(map[string]retryState),
+		sanitizer: sanitizer, log: logger, preferCard: true,
+		nativeStatus: make(map[string]nativeStatusState),
+		retries:      make(map[string]retryState),
 	}
 }
 
@@ -177,11 +186,10 @@ func (s *Service) runWork(ctx context.Context) {
 		{"webhook", s.processWebhook},
 		{"channel", s.processChannel},
 		{"outbox reconcile", s.reconcileOutbox},
-		{"outbox", s.processOutbox},
+		{"Slack write", s.processSlackWrite},
 		{"session", s.processSession},
 		{"Slack input", s.processSlackInput},
 		{"turn", s.processTurn},
-		{"card", s.processCard},
 	}
 	for _, step := range steps {
 		if err := step.run(ctx); err != nil && !errors.Is(err, store.ErrNotFound) && ctx.Err() == nil {

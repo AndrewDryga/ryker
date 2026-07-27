@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -145,10 +146,10 @@ func Decode(data []byte) (Message, error) {
 }
 
 func (m Message) Blocks() []slack.Block {
-	blocks := make([]slack.Block, 0, 8)
+	blocks := make([]slack.Block, 0, 12)
 	if m.Header != "" {
 		blocks = append(blocks, slack.NewHeaderBlock(
-			slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(m.Header, 150), false, false),
+			slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(singleLine(m.Header), 150), false, false),
 		))
 	}
 	for _, section := range m.Sections {
@@ -181,87 +182,114 @@ func (m Message) Blocks() []slack.Block {
 		blocks = append(blocks, slack.NewContextBlock("", elements...))
 	}
 	if len(m.Actions) > 0 {
-		elements := make([]slack.BlockElement, 0, len(m.Actions))
-		for _, action := range m.Actions {
-			button := slack.NewButtonBlockElement(
-				action.ID,
-				action.Value,
-				slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Label, 75), false, false),
-			)
-			switch action.Style {
-			case "primary":
-				button.WithStyle(slack.StylePrimary)
-			case "danger":
-				button.WithStyle(slack.StyleDanger)
+		blocks = append(blocks, slack.NewDividerBlock())
+		for start := 0; start < len(m.Actions); start += 4 {
+			end := min(start+4, len(m.Actions))
+			elements := make([]slack.BlockElement, 0, end-start)
+			for _, action := range m.Actions[start:end] {
+				button := slack.NewButtonBlockElement(
+					action.ID,
+					action.Value,
+					slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Label, 75), false, false),
+				)
+				switch action.Style {
+				case "primary":
+					button.WithStyle(slack.StylePrimary)
+				case "danger":
+					button.WithStyle(slack.StyleDanger)
+				}
+				if action.Confirm != "" {
+					button.WithConfirm(slack.NewConfirmationBlockObject(
+						slack.NewTextBlockObject(slack.PlainTextType, "Confirm action", false, false),
+						slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Confirm, 300), false, false),
+						slack.NewTextBlockObject(slack.PlainTextType, "Confirm", false, false),
+						slack.NewTextBlockObject(slack.PlainTextType, "Cancel", false, false),
+					))
+				}
+				elements = append(elements, button)
 			}
-			if action.Confirm != "" {
-				button.WithConfirm(slack.NewConfirmationBlockObject(
-					slack.NewTextBlockObject(slack.PlainTextType, "Confirm action", false, false),
-					slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Confirm, 300), false, false),
-					slack.NewTextBlockObject(slack.PlainTextType, "Confirm", false, false),
-					slack.NewTextBlockObject(slack.PlainTextType, "Cancel", false, false),
-				))
-			}
-			elements = append(elements, button)
+			blocks = append(blocks, slack.NewActionBlock(
+				fmt.Sprintf("responder_incident_actions_%d", start/4+1),
+				elements...,
+			))
 		}
-		blocks = append(blocks, slack.NewActionBlock("responder_incident_actions", elements...))
 	}
 	return blocks
 }
 
-func IncidentCard(incident core.Incident, repositoryName string) Message {
-	status := strings.ReplaceAll(string(incident.Status), "_", " ")
-	workflow := strings.ReplaceAll(string(incident.Workflow), "_", " ")
+func IncidentCard(incident core.Incident, repositoryName string, signals []core.Signal) Message {
+	status := incidentStatusLabel(incident.Status)
+	workflow := workflowStateLabel(incident.Workflow)
+	severity := displayOr(incident.Severity, "unclassified")
+	header := singleLine(incident.Title)
+	if incident.Severity != "" {
+		header = strings.ToUpper(truncateUTF8(incident.Severity, 18)) + " | " + header
+	}
+	fallback := fmt.Sprintf(
+		"Incident %s: %s. Severity %s. Alert %s; Responder %s. %d of %d signals firing in %s.",
+		ShortID(incident.ID), escapeSlackText(incident.Title), escapeSlackText(severity), status, workflow,
+		incident.FiringCount, incident.SignalCount, escapeSlackText(repositoryName),
+	)
+	if incident.LastError != "" {
+		fallback += " Action needed: " + truncateUTF8(escapeSlackText(incident.LastError), 500)
+	}
 	message := Message{
-		Text:   fmt.Sprintf("Incident %s: %s (%s)", ShortID(incident.ID), incident.Title, status),
-		Header: truncateUTF8(incident.Title, 150),
+		Text:   truncateUTF8(fallback, 4000),
+		Header: truncateUTF8(header, 150),
 		Sections: []string{
-			"Responder is keeping the investigation and code work in this thread. Reply here to collaborate.",
+			fmt.Sprintf("*%s*  |  Responder: *%s*\n%s", status, workflow, signalStateSummary(incident)),
 		},
 		Fields: []Field{
 			{Label: "Incident", Value: ShortID(incident.ID)},
-			{Label: "Severity", Value: displayOr(incident.Severity, "unclassified")},
-			{Label: "Alert state", Value: status},
-			{Label: "Responder", Value: workflow},
+			{Label: "Severity", Value: escapeSlackText(severity)},
+			{Label: "Repository", Value: escapeSlackText(repositoryName)},
 			{Label: "Signals", Value: fmt.Sprintf("%d firing / %d total", incident.FiringCount, incident.SignalCount)},
-			{Label: "Repository", Value: repositoryName},
 		},
 		Context: []string{
-			"Only allowlisted operators can steer the agent. Infrastructure authority remains enforced by Emisar.",
+			"Reply in this thread to collaborate with Responder.",
 			"Updated " + incident.UpdatedAt.UTC().Format("2006-01-02 15:04 UTC"),
 		},
-		Actions: []Action{
-			{ID: ActionChanges, Label: "Changes", Value: incident.ID},
-			{ID: ActionReview, Label: "Review fix", Value: incident.ID},
-			{ID: ActionHelp, Label: "Controls", Value: incident.ID},
-		},
+		Actions: incidentActions(incident),
+	}
+	if !incident.CreatedAt.IsZero() {
+		message.Fields = append(message.Fields, Field{
+			Label: "Started", Value: incident.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
+		})
 	}
 	if incident.CoopForkName != "" {
 		message.Fields = append(message.Fields, Field{Label: "Fork", Value: "`" + incident.CoopForkName + "`"})
 	}
-	if incident.Status != core.IncidentClosed {
-		message.Actions = append([]Action{{
-			ID: ActionUpdate, Label: "Get update", Value: incident.ID, Style: "primary",
-		}}, message.Actions...)
-	}
-	if incident.ActiveTurnID != "" && incident.Status != core.IncidentClosed {
-		message.Actions = append(message.Actions, Action{
-			ID: ActionStop, Label: "Stop turn", Value: incident.ID, Style: "danger",
-			Confirm: "Stop the active agent turn? The fork and queued work are preserved.",
+	switch {
+	case !incident.ClosedAt.IsZero():
+		message.Fields = append(message.Fields, Field{
+			Label: "Closed", Value: incident.ClosedAt.UTC().Format("2006-01-02 15:04 UTC"),
+		})
+	case !incident.ResolvedAt.IsZero():
+		message.Fields = append(message.Fields, Field{
+			Label: "Resolved", Value: incident.ResolvedAt.UTC().Format("2006-01-02 15:04 UTC"),
+		})
+	case !incident.ResolveDueAt.IsZero():
+		message.Fields = append(message.Fields, Field{
+			Label: "Recovery check", Value: incident.ResolveDueAt.UTC().Format("2006-01-02 15:04 UTC"),
 		})
 	}
-	if incident.Status != core.IncidentClosed {
-		message.Actions = append(message.Actions, Action{
-			ID: ActionExtend, Label: "Extend budget", Value: incident.ID,
-			Confirm: "Add the configured turn allowance to this incident session?",
-		})
-		message.Actions = append(message.Actions, Action{
-			ID: ActionResolve, Label: "Close incident", Value: incident.ID,
-			Confirm: "Close the Coop session and preserve its fork for review?",
-		})
+	if signal, ok := primarySignal(signals); ok {
+		if summary := strings.TrimSpace(signal.Summary); summary != "" {
+			message.Sections = append(
+				message.Sections,
+				"*Alert summary*\n"+truncateUTF8(escapeSlackText(summary), 1200),
+			)
+		}
+		if link := sourceLink(signal.SourceURL); link != "" {
+			message.Context = append(message.Context, "Alert source: "+link)
+		}
 	}
 	if incident.LastError != "" {
-		message.Sections = append(message.Sections, "*Needs attention*\n"+truncateUTF8(incident.LastError, 800))
+		sections := []string{
+			message.Sections[0],
+			"*Action needed*\n" + truncateUTF8(escapeSlackText(incident.LastError), 800),
+		}
+		message.Sections = append(sections, message.Sections[1:]...)
 	}
 	return message
 }
@@ -272,25 +300,204 @@ func AssistantResponse(text string, sanitizer *Sanitizer) Message {
 		text = "No response was returned."
 	}
 	return Message{
-		Text:     truncateUTF8(text, 4000),
+		Text:     truncateUTF8("Investigation update: "+text, 4000),
+		Header:   "Investigation update",
 		Sections: splitSections(text, 2800, 5),
-		Context:  []string{"Agent response. Tool output and hidden reasoning are not forwarded."},
+		Context:  []string{"Responder reply. Internal tool output and hidden reasoning are omitted."},
 	}
 }
 
-func SignalUpdate(incident core.Incident, signals []core.Signal) Message {
-	lines := make([]string, 0, len(signals))
-	for _, signal := range signals {
-		lines = append(lines, fmt.Sprintf("• *%s* — %s", truncateUTF8(signal.Title, 180), signal.Status))
-		if len(lines) == 8 {
-			break
-		}
+func TurnFailureMessage(state, detail string) Message {
+	header := "Investigation could not finish"
+	if state == "cancelled" {
+		header = "Investigation stopped"
+	}
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		detail = state
 	}
 	return Message{
-		Text:     fmt.Sprintf("Signal update for incident %s", ShortID(incident.ID)),
-		Sections: []string{"*Signal update*\n" + strings.Join(lines, "\n")},
-		Context:  []string{fmt.Sprintf("%d firing / %d total", incident.FiringCount, incident.SignalCount)},
+		Text:   header + ": " + escapeSlackText(detail),
+		Header: header,
+		Sections: []string{
+			escapeSlackText(detail),
+			"The isolated fork and collected evidence are preserved. Reply in this thread to continue or use the incident controls.",
+		},
+		Context: []string{"No merge, push, signing, or deployment occurred."},
 	}
+}
+
+func ManualHandoff(channelID string) Message {
+	return Message{
+		Text:   "Responder created incident room <#" + channelID + ">.",
+		Header: "Incident room ready",
+		Sections: []string{
+			"Continue in <#" + channelID + ">. Responder is preparing the isolated workspace and will post investigation updates in the incident thread.",
+		},
+		Context: []string{"The originating request remains linked here for reference."},
+	}
+}
+
+func incidentActions(incident core.Incident) []Action {
+	if incident.RootTS == "" {
+		return nil
+	}
+	changes := Action{ID: ActionChanges, Label: "View changes", Value: incident.ID}
+	review := Action{ID: ActionReview, Label: "Review fix", Value: incident.ID}
+	closeIncident := Action{
+		ID: ActionResolve, Label: "Close incident", Value: incident.ID, Style: "danger",
+		Confirm: "Close the Coop session and preserve its fork for review?",
+	}
+	if incident.Status == core.IncidentClosed {
+		actions := make([]Action, 0, 3)
+		if incident.CoopForkName != "" {
+			actions = append(actions, changes)
+		}
+		if incident.CoopSessionID != "" {
+			actions = append(actions, review)
+		}
+		return actions
+	}
+	if incident.CoopSessionID == "" {
+		return []Action{closeIncident}
+	}
+	extend := Action{
+		ID: ActionExtend, Label: "Extend budget", Value: incident.ID,
+		Confirm: "Add the configured turn allowance to this incident session?",
+	}
+	if incident.ActiveTurnID != "" {
+		actions := []Action{{
+			ID: ActionStop, Label: "Stop turn", Value: incident.ID, Style: "danger",
+			Confirm: "Stop the active agent turn? The fork and queued work are preserved.",
+		}}
+		if incident.CoopForkName != "" {
+			actions = append(actions, changes)
+		}
+		return append(actions, extend)
+	}
+	if incident.Workflow == core.WorkflowInvestigating {
+		actions := make([]Action, 0, 3)
+		if incident.CoopForkName != "" {
+			actions = append(actions, changes)
+		}
+		return append(actions, extend)
+	}
+	actions := make([]Action, 0, 4)
+	if incident.Workflow == core.WorkflowBlocked {
+		extend.Style = "primary"
+		actions = append(actions, extend)
+	} else {
+		actions = append(actions, Action{
+			ID: ActionUpdate, Label: "Get update", Value: incident.ID, Style: "primary",
+		})
+	}
+	if incident.CoopForkName != "" {
+		actions = append(actions, changes)
+	}
+	actions = append(actions, review)
+	return append(actions, closeIncident)
+}
+
+func incidentStatusLabel(status core.IncidentStatus) string {
+	switch status {
+	case core.IncidentActive:
+		return "Active"
+	case core.IncidentMonitoring:
+		return "Monitoring recovery"
+	case core.IncidentResolved:
+		return "Resolved"
+	case core.IncidentClosed:
+		return "Closed"
+	default:
+		return displayOr(strings.ReplaceAll(string(status), "_", " "), "Unknown")
+	}
+}
+
+func workflowStateLabel(workflow core.WorkflowState) string {
+	switch workflow {
+	case core.WorkflowProvisioningChannel:
+		return "Creating incident room"
+	case core.WorkflowProvisioningSession:
+		return "Preparing isolated workspace"
+	case core.WorkflowHolding:
+		return "Queued for capacity"
+	case core.WorkflowInvestigating:
+		return "Investigating"
+	case core.WorkflowParked:
+		return "Waiting for input"
+	case core.WorkflowBlocked:
+		return "Needs operator action"
+	case core.WorkflowClosed:
+		return "Closed"
+	default:
+		return displayOr(strings.ReplaceAll(string(workflow), "_", " "), "Unknown")
+	}
+}
+
+func signalStateSummary(incident core.Incident) string {
+	switch incident.Status {
+	case core.IncidentMonitoring:
+		if !incident.ResolveDueAt.IsZero() {
+			return "All signals recovered. Responder is monitoring until " +
+				incident.ResolveDueAt.UTC().Format("2006-01-02 15:04 UTC") + "."
+		}
+		return "All signals recovered. Responder is monitoring for a stable recovery."
+	case core.IncidentResolved:
+		return "All alert signals have recovered."
+	case core.IncidentClosed:
+		if incident.FiringCount > 0 {
+			return fmt.Sprintf(
+				"Incident closed with %d of %d signals still firing; the isolated fork is preserved.",
+				incident.FiringCount, incident.SignalCount,
+			)
+		}
+		return "Incident closed; the isolated fork is preserved."
+	default:
+		return fmt.Sprintf(
+			"%d of %d alert signals are firing.",
+			incident.FiringCount, incident.SignalCount,
+		)
+	}
+}
+
+func primarySignal(signals []core.Signal) (core.Signal, bool) {
+	for index := len(signals) - 1; index >= 0; index-- {
+		if signals[index].Status == core.SignalFiring {
+			return signals[index], true
+		}
+	}
+	if len(signals) == 0 {
+		return core.Signal{}, false
+	}
+	return signals[len(signals)-1], true
+}
+
+func sourceLink(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 300 || strings.ContainsAny(value, "<>|") {
+		return ""
+	}
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil ||
+		(parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return ""
+	}
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return ""
+	}
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	return "<" + parsed.String() + "|Open " + escapeSlackText(hostname) + ">"
+}
+
+func singleLine(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func escapeSlackText(value string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(value)
 }
 
 func ChangesMessage(incident core.Incident, summary string) Message {

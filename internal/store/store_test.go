@@ -120,11 +120,21 @@ func TestRecoveryAndManualIncidentDeduplication(t *testing.T) {
 	if _, err := st.LeaseWebhook(ctx); err != nil {
 		t.Fatal(err)
 	}
-	first, created, err := st.CreateManualIncident(ctx, "repo", "Ev123", "Manual", "U123ABC", 100)
+	first, created, err := st.CreateManualIncident(
+		ctx, "repo", "Ev123", "Manual", "U123ABC", "CSUMMON", "1700.1", 100,
+	)
 	if err != nil || !created {
 		t.Fatalf("manual first = %+v, %v, %v", first, created, err)
 	}
-	second, created, err := st.CreateManualIncident(ctx, "repo", "Ev123", "Manual", "U123ABC", 100)
+	signals, err := st.ListSignals(ctx, first.ID)
+	if err != nil || len(signals) != 1 ||
+		signals[0].Labels["slack_origin_channel"] != "CSUMMON" ||
+		signals[0].Labels["slack_origin_thread"] != "1700.1" {
+		t.Fatalf("manual Slack origin = %+v, %v", signals, err)
+	}
+	second, created, err := st.CreateManualIncident(
+		ctx, "repo", "Ev123", "Manual", "U123ABC", "CSUMMON", "1700.1", 100,
+	)
 	if err != nil || created || second.ID != first.ID {
 		t.Fatalf("manual duplicate = %+v, %v, %v", second, created, err)
 	}
@@ -242,7 +252,7 @@ func TestOpenIncidentCapacityRollsBackNewOccurrences(t *testing.T) {
 		t.Fatalf("second incident capacity error = %v", err)
 	}
 	if _, _, err := st.CreateManualIncident(
-		ctx, "repo", "manual-1", "Manual", "U123ABC", 1,
+		ctx, "repo", "manual-1", "Manual", "U123ABC", "CSUMMON", "1700.1", 1,
 	); !errors.Is(err, ErrCapacity) {
 		t.Fatalf("manual incident capacity error = %v", err)
 	}

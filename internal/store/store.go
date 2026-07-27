@@ -1027,6 +1027,7 @@ func (s *Store) SetChannel(ctx context.Context, id, channelID, channelName strin
 func (s *Store) CreateManualIncident(
 	ctx context.Context,
 	repository, sourceID, title, userID string,
+	originChannelID, originThreadTS string,
 	maxOpenIncidents int,
 ) (core.Incident, bool, error) {
 	id, err := core.NewID("inc")
@@ -1058,7 +1059,11 @@ func (s *Store) CreateManualIncident(
 		if err := enforceOpenIncidentCapacity(ctx, tx, maxOpenIncidents); err != nil {
 			return core.Incident{}, false, err
 		}
-		labels, _ := json.Marshal(map[string]string{"slack_user": userID})
+		labels, _ := json.Marshal(map[string]string{
+			"slack_user":           userID,
+			"slack_origin_channel": originChannelID,
+			"slack_origin_thread":  originThreadTS,
+		})
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO signals
 			  (route, source_id, incident_id, source_incident_id, event_id, repository,
