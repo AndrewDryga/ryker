@@ -151,6 +151,26 @@ type Review struct {
 	NotPublishableReasons []string `json:"not_publishable_reasons,omitempty"`
 }
 
+type DiscardWorkspace struct {
+	Branch           string `json:"branch"`
+	Head             string `json:"head"`
+	StatusDigest     string `json:"status_digest"`
+	Dirty            bool   `json:"dirty"`
+	Unmerged         bool   `json:"unmerged"`
+	Running          bool   `json:"running"`
+	AcceptedDirty    bool   `json:"accepted_dirty,omitempty"`
+	AcceptedUnmerged bool   `json:"accepted_unmerged,omitempty"`
+}
+
+type DiscardPlan struct {
+	OperationID string `json:"operation_id"`
+	Plan        struct {
+		SessionID string           `json:"session_id"`
+		Revision  int64            `json:"revision"`
+		Workspace DiscardWorkspace `json:"workspace"`
+	} `json:"plan"`
+}
+
 type sessionResponse struct {
 	Operation Operation `json:"operation"`
 	Session   Session   `json:"session"`
@@ -164,6 +184,11 @@ type turnResponse struct {
 type reviewResponse struct {
 	Operation Operation `json:"operation"`
 	Review    Review    `json:"review"`
+}
+
+type discardPlanResponse struct {
+	Operation Operation   `json:"operation"`
+	Plan      DiscardPlan `json:"plan"`
 }
 
 func New(socket string, timeout time.Duration) *Client {
@@ -210,6 +235,15 @@ func (c *Client) CreateSession(ctx context.Context, key, policy, externalRef str
 func (c *Client) GetSession(ctx context.Context, id string) (Session, error) {
 	var response Session
 	err := c.get(ctx, "/v1/sessions/"+url.PathEscape(id), nil, &response)
+	return response, err
+}
+
+func (c *Client) ListSessions(ctx context.Context, limit int) ([]Session, error) {
+	if limit < 1 || limit > 1000 {
+		return nil, errors.New("Coop session list limit must be between 1 and 1000")
+	}
+	var response []Session
+	err := c.get(ctx, "/v1/sessions", url.Values{"limit": {strconv.Itoa(limit)}}, &response)
 	return response, err
 }
 
@@ -273,6 +307,36 @@ func (c *Client) Close(ctx context.Context, key, sessionID string, expectedRevis
 	var response sessionResponse
 	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/close", key, map[string]any{
 		"expected_revision": expectedRevision,
+	}, &response)
+	return response.Session, response.Operation, err
+}
+
+func (c *Client) PlanDiscard(
+	ctx context.Context,
+	key string,
+	sessionID string,
+	expectedRevision int64,
+	acceptDirty bool,
+	acceptUnmerged bool,
+) (DiscardPlan, Operation, error) {
+	var response discardPlanResponse
+	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/discard-plan", key, map[string]any{
+		"expected_revision": expectedRevision,
+		"accept_dirty":      acceptDirty,
+		"accept_unmerged":   acceptUnmerged,
+	}, &response)
+	return response.Plan, response.Operation, err
+}
+
+func (c *Client) Discard(
+	ctx context.Context,
+	key string,
+	sessionID string,
+	planOperationID string,
+) (Session, Operation, error) {
+	var response sessionResponse
+	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/discard", key, map[string]any{
+		"plan_operation_id": planOperationID,
 	}, &response)
 	return response.Session, response.Operation, err
 }

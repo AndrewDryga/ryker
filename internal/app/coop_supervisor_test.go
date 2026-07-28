@@ -41,6 +41,7 @@ while :; do sleep 1; done
 	t.Setenv("TEST_SLACK_BOT_TOKEN", "secret-bot")
 	t.Setenv("TEST_SLACK_APP_TOKEN", "secret-app")
 	t.Setenv("TEST_EMISAR_TOKEN", "secret-emisar")
+	t.Setenv("TEST_GITHUB_TOKEN", "secret-github")
 	t.Setenv("TEST_WEBHOOK_TOKEN", "secret-webhook")
 
 	cfg := supervisorTestConfig(root, script)
@@ -83,6 +84,7 @@ while :; do sleep 1; done
 		"TEST_SLACK_BOT_TOKEN=",
 		"TEST_SLACK_APP_TOKEN=",
 		"TEST_EMISAR_TOKEN=",
+		"TEST_GITHUB_TOKEN=",
 		"TEST_WEBHOOK_TOKEN=",
 	} {
 		if strings.Contains(string(environment), forbidden) {
@@ -164,12 +166,60 @@ func TestCoopSupervisorReportsExitBeforeReadiness(t *testing.T) {
 	}
 }
 
+func TestCoopSupervisorReportsAuthenticationRemediation(t *testing.T) {
+	root := t.TempDir()
+	script := writeSupervisorScript(t, `#!/bin/sh
+echo '✗ policy "emisar-observe": target account "personal" is not authenticated' >&2
+exit 1
+`)
+	cfg := supervisorTestConfig(root, script)
+	policies := `version: 1
+policies:
+  emisar-observe:
+    repository: /tmp/emisar
+    target: codex:gpt-5.6/medium@personal
+`
+	if err := os.WriteFile(cfg.Coop.Policies, []byte(policies), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	supervisor, err := startCoopSupervisor(cfg, &output, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = supervisor.WaitReady(waitCtx, fakeCoopReadiness{err: errors.New("not ready")})
+	if err == nil {
+		t.Fatal("unauthenticated managed Coop unexpectedly became ready")
+	}
+	wantCommand := "COOP_CONFIG_DIR='" + cfg.Coop.BootstrapDir + "' '" +
+		cfg.Coop.Binary + "' login 'codex@personal'"
+	for _, want := range []string{
+		"managed Coop target codex@personal is not authenticated",
+		wantCommand,
+		"then retry Responder",
+		"exit status 1",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("authentication error = %q; missing %q", err, want)
+		}
+	}
+	if !strings.Contains(output.String(), `target account "personal" is not authenticated`) {
+		t.Fatalf("managed Coop output was not forwarded: %q", output.String())
+	}
+	if err := supervisor.Close(waitCtx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func supervisorTestConfig(root, binary string) config.Config {
 	return config.Config{
 		Slack: config.SlackConfig{
 			BotTokenEnv: "TEST_SLACK_BOT_TOKEN",
 			AppTokenEnv: "TEST_SLACK_APP_TOKEN",
 		},
+		GitHub: config.GitHubConfig{TokenEnv: "TEST_GITHUB_TOKEN"},
 		Coop: config.CoopConfig{
 			Supervise:      true,
 			Binary:         binary,

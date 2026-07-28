@@ -82,6 +82,22 @@ webhooks:
 	if string(envData) != "EMISAR_API_KEY=emk-test-observe-token\nEMISAR_CLIENT=responder\n" {
 		t.Fatalf("Coop environment = %q", envData)
 	}
+	instructionsData, err := os.ReadFile(filepath.Join(bootstrapDir, "INSTRUCTIONS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"Choose evidence sources by the claim being answered",
+		"Use the checked-out repository for declared intent and expected topology",
+		"Prefer Emisar MCP for current private infrastructure state",
+		"Inspect and use other available MCP servers and tools",
+		"treat its results only as runner identities and connection state",
+		"only after an Emisar MCP tool call fails in the current turn",
+	} {
+		if !strings.Contains(string(instructionsData), required) {
+			t.Fatalf("Coop instructions do not contain %q:\n%s", required, instructionsData)
+		}
+	}
 	if err := checkPrivateCoopConfig(bootstrapDir, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +117,105 @@ webhooks:
 	}
 	if err := checkPrivateCoopConfig(bootstrapDir, expected); err == nil {
 		t.Fatal("stale Coop bootstrap passed validation")
+	}
+}
+
+func TestBootstrapFilesMergeAdditionalPrivateMCPAndEnvironment(t *testing.T) {
+	root := t.TempDir()
+	mcpPath := filepath.Join(root, "additional-mcp.json")
+	envPath := filepath.Join(root, "additional.env")
+	if err := os.WriteFile(mcpPath, []byte(`{
+  "mcpServers": {
+    "logs": {
+      "type": "http",
+      "url": "https://logs.example.test/mcp",
+      "bearer_token_env_var": "LOGS_TOKEN"
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(envPath, []byte("LOGS_TOKEN=logs-test-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{
+		Slack: config.SlackConfig{
+			BotTokenEnv: "SLACK_BOT_TOKEN", AppTokenEnv: "SLACK_APP_TOKEN",
+		},
+		GitHub: config.GitHubConfig{TokenEnv: "GITHUB_TOKEN"},
+		Coop: config.CoopConfig{
+			EmisarURL: "https://emisar.dev/api/mcp/rpc", EmisarTokenEnv: "EMISAR_API_KEY",
+			AdditionalMCP: mcpPath, AdditionalEnv: envPath,
+		},
+		Webhooks: map[string]config.Webhook{
+			"grafana": {SecretEnv: "GRAFANA_TOKEN"},
+		},
+	}
+	files, err := bootstrapFiles(cfg, "emk-test-observe-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(files["mcp.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Servers) != 2 || len(document.Servers["emisar"]) == 0 ||
+		len(document.Servers["logs"]) == 0 {
+		t.Fatalf("merged MCP config = %s", files["mcp.json"])
+	}
+	wantEnvironment := "EMISAR_API_KEY=emk-test-observe-token\n" +
+		"EMISAR_CLIENT=responder\nLOGS_TOKEN=logs-test-token\n"
+	if string(files["env"]) != wantEnvironment {
+		t.Fatalf("merged Coop environment = %q", files["env"])
+	}
+}
+
+func TestBootstrapFilesRejectReservedAdditionalCredentialsAndMCP(t *testing.T) {
+	root := t.TempDir()
+	mcpPath := filepath.Join(root, "additional-mcp.json")
+	envPath := filepath.Join(root, "additional.env")
+	cfg := config.Config{
+		Slack: config.SlackConfig{
+			BotTokenEnv: "SLACK_BOT_TOKEN", AppTokenEnv: "SLACK_APP_TOKEN",
+		},
+		GitHub: config.GitHubConfig{TokenEnv: "GITHUB_TOKEN"},
+		Coop: config.CoopConfig{
+			EmisarURL: "https://emisar.dev/api/mcp/rpc", EmisarTokenEnv: "EMISAR_API_KEY",
+			AdditionalMCP: mcpPath, AdditionalEnv: envPath,
+		},
+		Webhooks: map[string]config.Webhook{
+			"grafana": {SecretEnv: "GRAFANA_TOKEN"},
+		},
+	}
+	if err := os.WriteFile(
+		mcpPath,
+		[]byte(`{"mcpServers":{"emisar":{"url":"https://other.example.test/mcp"}}}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(envPath, []byte("SLACK_BOT_TOKEN=xoxb-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bootstrapFiles(cfg, "emk-test-observe-token"); err == nil ||
+		!strings.Contains(err.Error(), `reserved server "emisar"`) {
+		t.Fatalf("reserved Emisar MCP = %v", err)
+	}
+	if err := os.WriteFile(mcpPath, []byte(`{"mcpServers":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bootstrapFiles(cfg, "emk-test-observe-token"); err == nil ||
+		!strings.Contains(err.Error(), "SLACK_BOT_TOKEN is reserved or service-only") {
+		t.Fatalf("service secret projection = %v", err)
+	}
+	if err := os.WriteFile(envPath, []byte("GITHUB_TOKEN=github-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bootstrapFiles(cfg, "emk-test-observe-token"); err == nil ||
+		!strings.Contains(err.Error(), "GITHUB_TOKEN is reserved or service-only") {
+		t.Fatalf("GitHub secret projection = %v", err)
 	}
 }
 
@@ -250,6 +365,60 @@ webhooks:
 	replayed, err := st.LeaseWebhook(context.Background())
 	if err != nil || replayed.ID != event.ID || replayed.Attempts != 1 {
 		t.Fatalf("replayed webhook = %+v, %v", replayed, err)
+	}
+}
+
+func TestStatusJSONIncludesLifecycleMetricsAndIncidents(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "responder.yaml")
+	stateDir := filepath.Join(root, "state")
+	body := `version: 1
+state_dir: ` + stateDir + `
+slack:
+  team_id: T123ABC
+  default_repository: repo
+  operators: [U123ABC]
+coop: {}
+repositories:
+  repo:
+    coop_policy: repo-observe
+webhooks:
+  grafana:
+    kind: grafana
+    auth: bearer
+    secret_env: GRAFANA_TOKEN
+    repository: repo
+`
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run(
+		[]string{"status", "--config", configPath, "--json"},
+		&stdout,
+		&stderr,
+		"test",
+	); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Metrics   store.Metrics   `json:"metrics"`
+		Incidents []core.Incident `json:"incidents"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		t.Fatalf("decode status JSON: %v: %s", err, stdout.String())
+	}
+	if status.Metrics.IncidentsTotal != 0 ||
+		status.Metrics.CleanupPending != 0 ||
+		status.Incidents == nil {
+		t.Fatalf("status JSON = %+v", status)
 	}
 }
 

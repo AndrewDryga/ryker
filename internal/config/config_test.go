@@ -19,6 +19,7 @@ slack:
   operators: [U123ABC]
   invite_users: [U123ABC]
   summon_channels: [C123ABC]
+  watch_channels: [C456DEF]
 coop: {}
 repositories:
   emisar:
@@ -45,7 +46,13 @@ webhooks:
 		t.Fatalf("route defaults = %+v", cfg.Webhooks["grafana"])
 	}
 	if cfg.Coop.EmisarTokenEnv != "EMISAR_API_KEY" || cfg.Coop.Binary != "coop" ||
-		cfg.Coop.RestartDelay.Duration != 5*time.Second || !cfg.Slack.NativeStatus {
+		cfg.Coop.RestartDelay.Duration != 5*time.Second || cfg.Coop.TurnLimit != 1000 ||
+		cfg.Coop.WatchSessionTurns != 40 ||
+		cfg.Coop.WatchSessionAge.Duration != 24*time.Hour ||
+		cfg.Slack.ChannelPrefix != "ems" || cfg.Slack.WatchContext != 20 ||
+		cfg.Slack.WatchSettleDelay.Duration != 2*time.Second ||
+		!cfg.Slack.NativeStatus || !cfg.Slack.AssistantExperience ||
+		!cfg.IsWatchChannel("C456DEF") {
 		t.Fatalf("defaults missing: %+v %+v", cfg.Coop, cfg.Slack)
 	}
 	if cfg.Coop.StateDir != filepath.Join(cfg.StateDir, "coop") ||
@@ -96,6 +103,39 @@ webhooks:
 		"relative Coop binary path": func(s string) string {
 			return strings.Replace(s, "coop: {}", "coop: {binary: bin/coop}", 1)
 		},
+		"relative additional MCP file": func(s string) string {
+			return strings.Replace(
+				s, "coop: {}", "coop: {additional_mcp_file: config/mcp.json}", 1,
+			)
+		},
+		"relative additional environment file": func(s string) string {
+			return strings.Replace(
+				s, "coop: {}", "coop: {additional_env_file: config/mcp.env}", 1,
+			)
+		},
+		"unsafe automatic turn ceiling": func(s string) string {
+			return strings.Replace(s, "coop: {}", "coop: {turn_limit: 99}", 1)
+		},
+		"too little watch context": func(s string) string {
+			return strings.Replace(
+				s, "operators: [U123ABC]", "operators: [U123ABC]\n  watch_context_messages: 9", 1,
+			)
+		},
+		"excessive watch settle delay": func(s string) string {
+			return strings.Replace(
+				s, "operators: [U123ABC]", "operators: [U123ABC]\n  watch_settle_delay: 11s", 1,
+			)
+		},
+		"short watch memory session": func(s string) string {
+			return strings.Replace(
+				s, "coop: {}", "coop: {watch_session_max_turns: 4}", 1,
+			)
+		},
+		"young watch memory session": func(s string) string {
+			return strings.Replace(
+				s, "coop: {}", "coop: {watch_session_max_age: 59m}", 1,
+			)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "responder.yaml")
@@ -106,6 +146,45 @@ webhooks:
 				t.Fatal("unsafe config was accepted")
 			}
 		})
+	}
+}
+
+func TestActionPoliciesAreRejectedUntilRequestsAreHostBound(t *testing.T) {
+	base := `version: 1
+state_dir: /tmp/responder-action-test
+slack:
+  team_id: T123ABC
+  default_repository: emisar
+  operators: [U123ABC]
+coop: {}
+repositories:
+  emisar:
+    coop_policy: observe
+actions:
+  restart_allocation:
+    description: Restart one failed allocation.
+    authority: emisar
+    risk: medium
+    approval: two_person
+webhooks:
+  grafana:
+    kind: grafana
+    auth: bearer
+    secret_env: GRAFANA_TOKEN
+    repository: emisar
+`
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "responder.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	_, err := Load(write(t, base))
+	if err == nil ||
+		!strings.Contains(err.Error(), "actions are not supported in this release") {
+		t.Fatalf("unsafe action catalog accepted or unclear error: %v", err)
 	}
 }
 

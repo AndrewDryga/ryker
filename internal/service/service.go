@@ -13,6 +13,8 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack/socketmode"
@@ -22,6 +24,7 @@ type CoopAPI interface {
 	Ready(context.Context) error
 	CreateSession(context.Context, string, string, string) (coop.Session, coop.Operation, error)
 	GetSession(context.Context, string) (coop.Session, error)
+	ListSessions(context.Context, int) ([]coop.Session, error)
 	SubmitTurn(context.Context, string, string, int64, string) (coop.Turn, coop.Operation, error)
 	GetTurn(context.Context, string, string) (coop.Turn, error)
 	Events(context.Context, string, int64, int) ([]coop.Event, error)
@@ -30,6 +33,15 @@ type CoopAPI interface {
 	Cancel(context.Context, string, string, string, int64) (coop.Turn, coop.Operation, error)
 	Extend(context.Context, string, string, int64, int) (coop.Session, coop.Operation, error)
 	Close(context.Context, string, string, int64) (coop.Session, coop.Operation, error)
+	PlanDiscard(context.Context, string, string, int64, bool, bool) (coop.DiscardPlan, coop.Operation, error)
+	Discard(context.Context, string, string, string) (coop.Session, coop.Operation, error)
+}
+
+type PublicationAPI interface {
+	Enabled() bool
+	HeadBranch(core.Incident, core.Publication) (string, error)
+	Publish(context.Context, publisher.Request) (publisher.Result, error)
+	VerifyPublication(context.Context, core.Publication) error
 }
 
 type Socket interface {
@@ -40,6 +52,12 @@ type Socket interface {
 	SetConnected(bool)
 }
 
+func (s *Service) SetPublisher(value PublicationAPI) {
+	if value != nil {
+		s.publisher = value
+	}
+}
+
 type Service struct {
 	cfg       config.Config
 	store     *store.Store
@@ -48,6 +66,7 @@ type Service struct {
 	socket    Socket
 	sanitizer *slackui.Sanitizer
 	log       *slog.Logger
+	publisher PublicationAPI
 
 	identity     slackui.Identity
 	initialized  atomic.Bool
@@ -86,6 +105,7 @@ func New(
 	return &Service{
 		cfg: cfg, store: st, coop: coopClient, slack: slackClient, socket: socket,
 		sanitizer: sanitizer, log: logger, preferCard: true,
+		publisher:    publisher.New(cfg.GitHub),
 		nativeStatus: make(map[string]nativeStatusState),
 		retries:      make(map[string]retryState),
 	}
@@ -134,7 +154,7 @@ func (s *Service) Run(ctx context.Context) error {
 	defer workTicker.Stop()
 	coopTicker := time.NewTicker(s.cfg.Coop.PollInterval.Duration)
 	defer coopTicker.Stop()
-	maintenanceTicker := time.NewTicker(30 * time.Second)
+	maintenanceTicker := time.NewTicker(s.cfg.Retention.MaintenanceInterval.Duration)
 	defer maintenanceTicker.Stop()
 
 	for {
@@ -202,6 +222,10 @@ func (s *Service) runMaintenance(ctx context.Context) {
 	if _, err := s.store.ResolveDueIncidents(ctx, time.Now()); err != nil && ctx.Err() == nil {
 		s.log.Error("incident resolution reconciliation failed", "error", err)
 	}
+	if err := s.reconcileIncidentChannel(ctx); err != nil &&
+		!errors.Is(err, store.ErrNotFound) && ctx.Err() == nil {
+		s.log.Warn("incident Slack room reconciliation failed", "error", err)
+	}
 	if err := s.coop.Ready(ctx); err != nil {
 		s.coopHealthy.Store(false)
 		if ctx.Err() == nil {
@@ -210,6 +234,47 @@ func (s *Service) runMaintenance(ctx context.Context) {
 	} else {
 		s.coopHealthy.Store(true)
 	}
+	s.maintainLifecycle(ctx)
+}
+
+func (s *Service) reconcileIncidentChannel(ctx context.Context) error {
+	incidents, err := s.store.ListChannelReconciliationWork(ctx, 1)
+	if err != nil {
+		return err
+	}
+	if len(incidents) == 0 {
+		return store.ErrNotFound
+	}
+	incident := incidents[0]
+	state := core.ChannelActive
+	channel, err := s.slack.GetChannel(ctx, incident.ChannelID)
+	switch {
+	case err == nil && channel.Archived:
+		state = core.ChannelArchived
+	case err == nil:
+	case errors.Is(err, slackui.ErrNotFound):
+		state = core.ChannelUnreachable
+	default:
+		return err
+	}
+	updated, err := s.store.SetIncidentChannelState(
+		ctx, incident.ChannelID, state, time.Now().UTC(),
+	)
+	if err != nil {
+		return err
+	}
+	if incident.ChannelState != state {
+		for _, item := range updated {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				IncidentID: item.ID,
+				Kind:       "slack.channel.reconciled",
+				ObjectID:   item.ChannelID,
+				Outcome:    "observed",
+				Detail:     string(state),
+			})
+		}
+	}
+	return nil
 }
 
 func (s *Service) canRetry(key string) bool {

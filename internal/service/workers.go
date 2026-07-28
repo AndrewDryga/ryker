@@ -49,7 +49,20 @@ func (s *Service) processWebhook(ctx context.Context) error {
 		if incident.Status == core.IncidentClosed || incident.Workflow == core.WorkflowClosed {
 			continue
 		}
+		if !incident.ChannelWritable() && incident.ChannelID != "" {
+			continue
+		}
 		signals := signalsForIncident(event.Signals, incident)
+		for _, signal := range signals {
+			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+				ID:         "tl_alert_" + event.ID + "_" + signal.SourceID,
+				IncidentID: incident.ID, ChannelID: incident.ChannelID,
+				Kind: "alert." + string(signal.Status), ActorID: signal.Route,
+				Title:     signal.Title,
+				Detail:    signal.Summary,
+				CreatedAt: signal.ReceivedAt,
+			})
+		}
 		if incident.InitialTurnQueued {
 			prompt, err := signalPrompt(signals)
 			if err != nil {
@@ -98,7 +111,8 @@ func (s *Service) processChannel(ctx context.Context) error {
 			return err
 		}
 		if err := s.enqueue(
-			ctx, "out_root_"+incident.ID, incident, "root", "",
+			ctx, "out_root_"+incident.ID, incident, "root",
+			incident.ConversationThreadTS(),
 			body,
 		); err != nil {
 			return err
@@ -108,6 +122,44 @@ func (s *Service) processChannel(ctx context.Context) error {
 	incident := incidents[0]
 	key := "channel:" + incident.ID
 	if !s.canRetry(key) {
+		return nil
+	}
+	if incident.IsThreadScoped() {
+		if err := s.store.BindThreadWork(ctx, incident.ID); err != nil {
+			s.retryLater(key)
+			return err
+		}
+		incident.ChannelID = incident.OriginChannelID
+		incident.ChannelState = core.ChannelActive
+		body, err := s.incidentCard(ctx, incident)
+		if err != nil {
+			s.retryLater(key)
+			return err
+		}
+		if err := s.enqueue(
+			ctx,
+			"out_root_"+incident.ID,
+			incident,
+			"root",
+			incident.ConversationThreadTS(),
+			body,
+		); err != nil {
+			s.retryLater(key)
+			return err
+		}
+		s.retryDone(key)
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			IncidentID: incident.ID, Kind: "slack.thread.bound",
+			ObjectID: incident.OriginChannelID + ":" + incident.OriginThreadTS,
+			Outcome:  "succeeded",
+			Detail:   "engineering task remains in its source thread",
+		})
+		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+			IncidentID: incident.ID, ChannelID: incident.ChannelID,
+			Kind: "slack.thread.bound", ActorID: "responder",
+			Title:  "Engineering task started in source thread",
+			Detail: incident.OriginThreadTS,
+		})
 		return nil
 	}
 	name := slackui.ChannelName(s.cfg.Slack.ChannelPrefix, incident)
@@ -139,6 +191,14 @@ func (s *Service) processChannel(ctx context.Context) error {
 	_ = s.store.Audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "slack.channel.created", ObjectID: channel.ID,
 		Outcome: "succeeded", Detail: channel.Name,
+	})
+	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		IncidentID: incident.ID, ChannelID: channel.ID,
+		Kind: "slack.channel.created", ActorID: "responder",
+		Title: map[bool]string{
+			true: "Engineering room created", false: "Incident room created",
+		}[incident.IsEngineeringTask()],
+		Detail: channel.Name,
 	})
 	return nil
 }
@@ -185,6 +245,22 @@ func (s *Service) processOutbox(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	incident, incidentErr := s.store.GetIncident(ctx, item.IncidentID)
+	if incidentErr != nil {
+		return s.store.RetryOutbox(
+			ctx, item.ID, trimError(incidentErr), time.Now(), false, true,
+		)
+	}
+	if item.ChannelID == incident.ChannelID && !incident.ChannelWritable() {
+		return s.store.RetryOutbox(
+			ctx,
+			item.ID,
+			"Slack delivery suppressed because the work conversation is "+string(incident.ChannelState),
+			time.Now(),
+			false,
+			true,
+		)
+	}
 	message, err := slackui.Decode(item.Body)
 	if err != nil {
 		retryErr := s.store.RetryOutbox(ctx, item.ID, trimError(err), time.Now(), false, true)
@@ -207,10 +283,15 @@ func (s *Service) processOutbox(ctx context.Context) error {
 		return err
 	}
 	if item.ThreadTS != "" {
+		s.retryDone("native-status:" + item.IncidentID + "@" + item.ThreadTS)
 		s.forgetNativeStatus(item.IncidentID)
 		if incident, incidentErr := s.store.GetIncident(ctx, item.IncidentID); incidentErr == nil &&
 			incident.ActiveTurnID != "" {
-			s.setNativeStatus(ctx, incident, "is investigating...")
+			s.setNativeStatus(
+				ctx,
+				s.turnStatusIncident(ctx, incident, incident.ActiveTurnID),
+				"is investigating...",
+			)
 		}
 	}
 	return nil
@@ -225,6 +306,20 @@ func (s *Service) reconcileOutbox(ctx context.Context) error {
 		return err
 	}
 	item := items[0]
+	incident, incidentErr := s.store.GetIncident(ctx, item.IncidentID)
+	if incidentErr != nil {
+		return incidentErr
+	}
+	if item.ChannelID == incident.ChannelID && !incident.ChannelWritable() {
+		return s.store.RetryUncertainOutbox(
+			ctx,
+			item.ID,
+			"Slack reconciliation suppressed because the work conversation is "+
+				string(incident.ChannelState),
+			time.Now(),
+			true,
+		)
+	}
 	key := "outbox-reconcile:" + item.ID
 	if !s.canRetry(key) {
 		return nil
@@ -269,14 +364,16 @@ func (s *Service) processSession(ctx context.Context) error {
 	if !s.canRetry(key) {
 		return nil
 	}
-	if err := s.prepareChannel(ctx, incident); err != nil {
-		s.retryLater(key)
-		_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowHolding, trimError(err))
-		return nil
-	}
-	if err := s.enqueueManualHandoff(ctx, incident); err != nil {
-		s.retryLater(key)
-		return err
+	if !incident.IsThreadScoped() {
+		if err := s.prepareChannel(ctx, incident); err != nil {
+			s.retryLater(key)
+			_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowHolding, trimError(err))
+			return nil
+		}
+		if err := s.enqueueManualHandoff(ctx, incident); err != nil {
+			s.retryLater(key)
+			return err
+		}
 	}
 	open, err := s.store.CountOpenSessions(ctx)
 	if err != nil {
@@ -284,9 +381,13 @@ func (s *Service) processSession(ctx context.Context) error {
 	}
 	if open >= s.cfg.Limits.MaxActiveIncidents {
 		s.retryLater(key)
+		detail := "Responder is at its configured active incident limit; this incident is queued."
+		if incident.IsEngineeringTask() {
+			detail = "Responder is at its configured active work limit; this engineering task is queued."
+		}
 		_ = s.store.SetIncidentError(
 			ctx, incident.ID, core.WorkflowHolding,
-			"Responder is at its configured active incident limit; this incident is queued.",
+			detail,
 		)
 		return nil
 	}
@@ -303,8 +404,12 @@ func (s *Service) processSession(ctx context.Context) error {
 		s.retryLater(key)
 		return err
 	}
+	sessionLabel := "incident:" + incident.ID
+	if incident.IsEngineeringTask() {
+		sessionLabel = "engineering-task:" + incident.ID
+	}
 	session, _, err := s.coop.CreateSession(
-		ctx, "responder:session:"+incident.ID, repository.CoopPolicy, "incident:"+incident.ID,
+		ctx, "responder:session:"+incident.ID, repository.CoopPolicy, sessionLabel,
 	)
 	if err != nil {
 		s.retryLater(key)
@@ -327,21 +432,36 @@ func (s *Service) processSession(ctx context.Context) error {
 		IncidentID: incident.ID, Kind: "coop.session.created", ObjectID: session.ID,
 		Outcome: "succeeded", Detail: repository.CoopPolicy,
 	})
+	timelineTitle := "Isolated investigation started"
+	if incident.IsEngineeringTask() {
+		timelineTitle = "Isolated engineering task started"
+	}
+	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		IncidentID: incident.ID, ChannelID: incident.ChannelID,
+		Kind: "coop.session.created", ActorID: "responder",
+		Title:  timelineTitle,
+		Detail: "Coop session " + session.ID + " using policy " + repository.CoopPolicy,
+	})
 	return nil
 }
 
 func (s *Service) prepareChannel(ctx context.Context, incident core.Incident) error {
 	if err := s.slack.Invite(ctx, incident.ChannelID, s.inviteUsers()...); err != nil {
-		return fmt.Errorf("invite incident responders: %w", err)
+		return fmt.Errorf("invite responders: %w", err)
+	}
+	workLabel := "Incident"
+	if incident.IsEngineeringTask() {
+		workLabel = "Engineering task"
 	}
 	topic := s.sanitizer.Text(fmt.Sprintf(
-		"Incident %s | %s | managed by Responder", slackui.ShortID(incident.ID), incident.Title,
+		"%s %s | %s | managed by Responder",
+		workLabel, slackui.ShortID(incident.ID), incident.Title,
 	))
 	if err := s.slack.SetTopic(ctx, incident.ChannelID, topic); err != nil {
-		return fmt.Errorf("set incident topic: %w", err)
+		return fmt.Errorf("set working room topic: %w", err)
 	}
 	if err := s.slack.Pin(ctx, incident.ChannelID, incident.RootTS); err != nil {
-		return fmt.Errorf("pin incident card: %w", err)
+		return fmt.Errorf("pin work card: %w", err)
 	}
 	return nil
 }
@@ -395,12 +515,66 @@ func (s *Service) processTurn(ctx context.Context) error {
 	if err != nil {
 		return s.store.RetryTurnSubmission(ctx, item.ID, trimError(err), time.Now(), true)
 	}
-	revision, err := s.store.FreezeTurnRevision(ctx, item.ID, incident.CoopRevision)
+	if !incident.ChannelWritable() {
+		return s.store.RetryTurnSubmission(
+			ctx,
+			item.ID,
+			"agent turn suppressed because the Slack work conversation is "+
+				string(incident.ChannelState),
+			time.Now(),
+			true,
+		)
+	}
+	session, err := s.coop.GetSession(ctx, incident.CoopSessionID)
+	if err != nil {
+		return s.store.RetryTurnSubmission(
+			ctx, item.ID, trimError(err), queueDelay(item.Attempts), !coop.Retryable(err),
+		)
+	}
+	if session.State == "closed" {
+		return s.store.RetryTurnSubmission(
+			ctx, item.ID, "the Coop session is closed", time.Now(), true,
+		)
+	}
+	session, err = s.ensureTurnCapacity(
+		ctx, incident.ChannelID, incident.ID, session,
+	)
+	if err != nil {
+		var limitErr *automaticTurnLimitError
+		if errors.As(err, &limitErr) {
+			detail := turnLimitReachedMessage(limitErr.Limit)
+			_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowBlocked, detail)
+			return s.store.RetryTurnSubmission(
+				ctx, item.ID, detail, time.Now().Add(30*time.Second), false,
+			)
+		}
+		detail := "Responder could not allocate additional automatic session capacity: " +
+			trimError(err) + ". The pending request and Coop session are preserved; " +
+			"Responder will retry after the Coop limit or service error is corrected."
+		_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowParked, detail)
+		return s.store.RetryTurnSubmission(
+			ctx, item.ID, detail, queueDelay(item.Attempts), false,
+		)
+	}
+	if session.State != "open" {
+		return s.store.RetryTurnSubmission(
+			ctx,
+			item.ID,
+			fmt.Sprintf("Coop session has unsupported state %q", session.State),
+			time.Now(),
+			true,
+		)
+	}
+	revision, err := s.store.FreezeTurnRevision(ctx, item.ID, session.Revision)
 	if err != nil {
 		return s.store.RetryTurnSubmission(ctx, item.ID, trimError(err), time.Now(), true)
 	}
 	turn, _, err := s.coop.SubmitTurn(
-		ctx, item.IdempotencyKey, incident.CoopSessionID, revision, item.Prompt,
+		ctx,
+		item.IdempotencyKey,
+		incident.CoopSessionID,
+		revision,
+		item.Prompt+"\n\n"+s.structuredResponsePolicy(),
 	)
 	if err != nil {
 		s.retryLater(key)
@@ -414,7 +588,7 @@ func (s *Service) processTurn(ctx context.Context) error {
 		}
 		return retryErr
 	}
-	session, err := s.coop.GetSession(ctx, incident.CoopSessionID)
+	session, err = s.coop.GetSession(ctx, incident.CoopSessionID)
 	if err != nil {
 		s.retryLater(key)
 		return s.store.RetryTurnSubmission(ctx, item.ID, trimError(err), queueDelay(item.Attempts), false)
@@ -425,7 +599,7 @@ func (s *Service) processTurn(ctx context.Context) error {
 		return err
 	}
 	s.retryDone(key)
-	s.setNativeStatus(ctx, incident, "is investigating...")
+	s.setNativeStatus(ctx, s.turnSubmissionStatusIncident(ctx, incident, item), "is investigating...")
 	return nil
 }
 
@@ -465,35 +639,85 @@ func (s *Service) pollIncident(ctx context.Context, incident core.Incident) erro
 	}
 	workflow := core.WorkflowParked
 	switch {
+	case session.State == "closed" && !incident.ChannelWritable():
+		workflow = core.WorkflowBlocked
 	case session.State == "closed":
 		if incident.Status != core.IncidentClosed {
 			return s.store.CloseIncident(ctx, incident.ID)
 		}
 		workflow = core.WorkflowClosed
 	case session.State == "exhausted":
-		workflow = core.WorkflowBlocked
+		limit, limitErr := s.effectiveTurnLimit(ctx, incident.ChannelID)
+		if limitErr != nil {
+			return limitErr
+		}
+		if session.MaxTurns >= limit {
+			workflow = core.WorkflowBlocked
+		}
 	case session.ActiveTurnID != "":
 		workflow = core.WorkflowInvestigating
 	case session.QueuedTurnCount > 0:
 		workflow = core.WorkflowInvestigating
 	}
 	if session.ActiveTurnID != "" {
-		s.setNativeStatus(ctx, incident, "is investigating...")
+		s.setNativeStatus(
+			ctx,
+			s.turnStatusIncident(ctx, incident, session.ActiveTurnID),
+			"is investigating...",
+		)
+	}
+	if !incident.ChannelWritable() && incident.Status != core.IncidentClosed {
+		workflow = core.WorkflowBlocked
 	}
 	if err := s.store.UpdateCoopState(
 		ctx, incident.ID, session.Revision, cursor, session.ActiveTurnID, workflow,
 	); err != nil {
 		return err
 	}
-	if session.State == "exhausted" &&
-		(incident.Workflow != core.WorkflowBlocked || incident.LastError == "") {
+	if !incident.ChannelWritable() && incident.Status != core.IncidentClosed {
+		return s.store.SetIncidentError(
+			ctx, incident.ID, core.WorkflowBlocked, incidentChannelStateError(incident),
+		)
+	}
+	if session.State == "exhausted" {
+		limit, err := s.effectiveTurnLimit(ctx, incident.ChannelID)
+		if err != nil {
+			return err
+		}
+		detail := ""
+		if session.MaxTurns >= limit {
+			detail = turnLimitReachedMessage(limit)
+		}
+		if incident.Workflow == workflow && incident.LastError == detail {
+			return nil
+		}
 		s.clearNativeStatus(ctx, incident)
 		return s.store.SetIncidentError(
-			ctx, incident.ID, core.WorkflowBlocked,
-			"The Coop turn budget is exhausted. Use Extend budget to continue.",
+			ctx, incident.ID, workflow, detail,
 		)
 	}
 	return nil
+}
+
+func incidentChannelStateError(incident core.Incident) string {
+	if incident.IsThreadScoped() {
+		switch incident.ChannelState {
+		case core.ChannelArchived:
+			return "The Slack channel containing this task thread was archived. The Coop session and isolated fork are preserved; unarchive the channel to continue."
+		case core.ChannelDeleted:
+			return "The Slack channel containing this task thread was deleted. The Coop session and isolated fork are preserved, but this thread can no longer continue."
+		default:
+			return "The Slack channel containing this task thread is unavailable to Responder. Restore channel access to continue; the Coop session and isolated fork are preserved."
+		}
+	}
+	switch incident.ChannelState {
+	case core.ChannelArchived:
+		return "Slack incident room was archived. The Coop session and isolated fork are preserved; unarchive the room to continue."
+	case core.ChannelDeleted:
+		return "Slack incident room was deleted. The Coop session and isolated fork are preserved; create or rebind a room before continuing."
+	default:
+		return "Slack incident room is unavailable to Responder. The room may be inaccessible or deleted; restore access or rebind a room before continuing."
+	}
 }
 
 func (s *Service) completeTurn(ctx context.Context, incident core.Incident, event coop.Event) error {
@@ -503,6 +727,9 @@ func (s *Service) completeTurn(ctx context.Context, incident core.Incident, even
 	}
 	state := strings.TrimPrefix(event.Type, "turn.")
 	detail := firstNonempty(turn.ErrorDetail, turn.StopReason)
+	if s.sanitizer != nil {
+		detail = s.sanitizer.Text(detail)
+	}
 	item, err := s.store.CompleteTurnSubmission(ctx, turn.ID, state, detail)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
@@ -514,15 +741,132 @@ func (s *Service) completeTurn(ctx context.Context, incident core.Incident, even
 			Outcome: "observed", Detail: state,
 		})
 	}
+	threadTS := incident.ConversationThreadTS()
+	conversation := item.SourceKind == "slack"
+	if conversation {
+		input, inputErr := s.store.GetSlackInput(ctx, item.SourceID)
+		if inputErr != nil {
+			return inputErr
+		}
+		threadTS = slackReplyThread(input)
+	}
 	var message slackui.Message
 	if state == "completed" {
-		message = slackui.AssistantResponse(turn.AssistantMessage, s.sanitizer)
+		report, structured, reportErr := parseAgentReport(turn.AssistantMessage)
+		if reportErr != nil {
+			s.log.Warn(
+				"agent returned malformed structured response",
+				"incident", incident.ID,
+				"turn", turn.ID,
+				"error", reportErr,
+			)
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				IncidentID: incident.ID, Kind: "agent.report", ObjectID: turn.ID,
+				Outcome: "malformed", Detail: trimError(reportErr),
+			})
+			reportDetail := trimError(reportErr)
+			if s.sanitizer != nil {
+				reportDetail = s.sanitizer.Text(reportDetail)
+			}
+			message = slackui.AgentReportFailureMessage(reportDetail)
+			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+				IncidentID: incident.ID, ChannelID: incident.ChannelID,
+				Kind: "agent.failure", ActorID: "responder",
+				Title:  "Agent result could not be rendered",
+				Detail: boundedField(trimError(reportErr), 1000),
+			})
+		} else {
+			if !structured {
+				_ = s.store.Audit(ctx, core.AuditEvent{
+					IncidentID: incident.ID, Kind: "agent.report", ObjectID: turn.ID,
+					Outcome: "legacy", Detail: "response had no structured evidence envelope",
+				})
+			}
+			report, err = s.persistAgentReport(
+				ctx, report, incident, incident.ChannelID, item.ID, item.UserID,
+			)
+			if err != nil {
+				return err
+			}
+			if conversation && suppressConversationReply(report.Message) {
+				s.clearNativeStatus(ctx, incident)
+				return nil
+			}
+			if conversation {
+				message = slackui.ConciseEvidenceResponse(
+					report.Message,
+					report.Evidence,
+					report.Coverage,
+					report.Proposals,
+					s.sanitizer,
+				)
+			} else {
+				message = slackui.IncidentEvidenceResponse(
+					report.Message,
+					report.Evidence,
+					report.Coverage,
+					report.Proposals,
+					s.sanitizer,
+				)
+			}
+			evidenceIDs := make([]string, 0, len(report.Evidence))
+			for _, item := range report.Evidence {
+				evidenceIDs = append(evidenceIDs, item.ID)
+			}
+			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+				IncidentID:  incident.ID,
+				ChannelID:   incident.ChannelID,
+				Kind:        "agent.finding",
+				ActorID:     "responder",
+				Title:       "Investigation update",
+				Detail:      boundedField(report.Message, 2000),
+				EvidenceIDs: evidenceIDs,
+			})
+		}
 	} else {
 		detail := s.sanitizer.Text(firstNonempty(turn.ErrorDetail, turn.StopReason, state))
-		message = slackui.TurnFailureMessage(state, detail)
+		failure := classifyProviderFailure(detail)
+		message = slackui.TurnFailureMessage(
+			state,
+			failure.Summary+"\n\nReported detail: `"+detail+"`\n\n"+failure.OperatorFix,
+		)
+		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+			IncidentID: incident.ID, ChannelID: incident.ChannelID,
+			Kind: "agent.failure", ActorID: "responder",
+			Title: "Agent turn " + state, Detail: detail,
+		})
+	}
+	if state == "completed" && incident.IsEngineeringTask() {
+		if changes, changesErr := s.coop.Changes(ctx, incident.CoopSessionID); changesErr == nil {
+			message = slackui.WithEngineeringTaskDelivery(
+				message,
+				incident,
+				coopChangesPresent(changes),
+			)
+		} else {
+			s.log.Warn(
+				"inspect completed engineering task changes failed",
+				"incident", incident.ID,
+				"error", changesErr,
+			)
+		}
+	}
+	if item.SourceKind == "proposal" {
+		proposalState := "failed"
+		if state == "completed" {
+			proposalState = "finished"
+		}
+		proposalResult := firstNonempty(turn.AssistantMessage, detail)
+		if s.sanitizer != nil {
+			proposalResult = s.sanitizer.Text(proposalResult)
+		}
+		_ = s.store.MarkProposalExecution(
+			ctx, item.SourceID, proposalState, turn.ID,
+			proposalResult,
+		)
 	}
 	if err := s.enqueue(
-		ctx, "out_turn_"+item.ID, incident, "assistant", incident.RootTS, message,
+		ctx, "out_turn_"+item.ID, incident, "assistant", threadTS, message,
 	); err != nil {
 		return err
 	}
@@ -572,15 +916,35 @@ func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (sla
 	if err != nil {
 		return slackui.Message{}, err
 	}
-	return slackui.IncidentCard(
+	hasCodeChanges := false
+	publication, publicationErr := s.store.GetPublication(ctx, incident.ID)
+	if publicationErr != nil && !errors.Is(publicationErr, store.ErrNotFound) {
+		return slackui.Message{}, publicationErr
+	}
+	if incident.CoopSessionID != "" {
+		changes, changesErr := s.coop.Changes(ctx, incident.CoopSessionID)
+		if changesErr != nil {
+			s.log.Warn(
+				"inspect Coop changes for incident controls",
+				"incident", incident.ID,
+				"session", incident.CoopSessionID,
+				"error", changesErr,
+			)
+		} else {
+			hasCodeChanges = coopChangesPresent(changes)
+		}
+	}
+	return slackui.IncidentCardWithPublication(
 		incident,
 		s.repositoryName(incident.Repository),
 		signals,
+		hasCodeChanges,
+		publication,
 	), nil
 }
 
 func (s *Service) enqueueManualHandoff(ctx context.Context, incident core.Incident) error {
-	if incident.Route != "manual" {
+	if incident.Route != "manual" || incident.IsThreadScoped() {
 		return nil
 	}
 	signals, err := s.store.ListSignals(ctx, incident.ID)
@@ -595,49 +959,139 @@ func (s *Service) enqueueManualHandoff(ctx context.Context, incident core.Incide
 		}
 		origin := incident
 		origin.ChannelID = channelID
+		message := slackui.ManualHandoff(incident.ChannelID)
+		if incident.IsEngineeringTask() {
+			message = slackui.EngineeringTaskHandoff(incident.ChannelID)
+		}
 		return s.enqueue(
 			ctx,
 			"out_manual_ready_"+incident.ID,
 			origin,
 			"notice",
 			threadTS,
-			slackui.ManualHandoff(incident.ChannelID),
+			message,
 		)
 	}
 	return nil
 }
 
 func (s *Service) clearNativeStatus(ctx context.Context, incident core.Incident) {
-	if s.cfg.Slack.NativeStatus && incident.ChannelID != "" && incident.RootTS != "" {
-		_ = s.slack.SetStatus(ctx, incident.ChannelID, incident.RootTS, "")
+	if s.cfg.Slack.NativeStatus && incident.ChannelWritable() &&
+		incident.ChannelID != "" && incident.ConversationThreadTS() != "" {
+		_ = s.slack.SetStatus(ctx, incident.ChannelID, incident.ConversationThreadTS(), "")
+		s.retryDone(
+			"native-status:" + incident.ID + "@" + incident.ConversationThreadTS(),
+		)
 	}
 	s.forgetNativeStatus(incident.ID)
 }
 
 func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, status string) {
-	if !s.cfg.Slack.NativeStatus || incident.ChannelID == "" || incident.RootTS == "" {
+	if !s.cfg.Slack.NativeStatus || !incident.ChannelWritable() ||
+		incident.ChannelID == "" || incident.ConversationThreadTS() == "" {
 		return
 	}
-	previous := s.nativeStatus[incident.ID]
+	statusKey := incident.ID + "@" + incident.ConversationThreadTS()
+	previous := s.nativeStatus[statusKey]
 	if previous.text == status && time.Since(previous.at) < 75*time.Second {
 		return
 	}
-	key := "native-status:" + incident.ID
+	key := "native-status:" + statusKey
 	if !s.canRetry(key) {
 		return
 	}
-	if err := s.slack.SetStatus(ctx, incident.ChannelID, incident.RootTS, status); err != nil {
+	if err := s.slack.SetProgress(
+		ctx,
+		incident.ChannelID,
+		incident.ConversationThreadTS(),
+		status,
+		progressMilestones(status),
+	); err != nil {
 		s.retryLater(key)
 		s.log.Warn("set Slack thread status", "incident", incident.ID, "error", err)
 		return
 	}
 	s.retryDone(key)
-	s.nativeStatus[incident.ID] = nativeStatusState{text: status, at: time.Now()}
+	s.nativeStatus[statusKey] = nativeStatusState{text: status, at: time.Now()}
+}
+
+func (s *Service) setNativeStatusForThread(
+	ctx context.Context,
+	incident core.Incident,
+	threadTS string,
+	status string,
+) {
+	if threadTS != "" && !incident.IsThreadScoped() {
+		incident.RootTS = threadTS
+	}
+	s.setNativeStatus(ctx, incident, status)
+}
+
+func (s *Service) turnStatusIncident(
+	ctx context.Context,
+	incident core.Incident,
+	coopTurnID string,
+) core.Incident {
+	submission, err := s.store.GetTurnSubmissionByCoopTurn(ctx, coopTurnID)
+	if err != nil {
+		return incident
+	}
+	return s.turnSubmissionStatusIncident(ctx, incident, submission)
+}
+
+func (s *Service) turnSubmissionStatusIncident(
+	ctx context.Context,
+	incident core.Incident,
+	submission core.TurnSubmission,
+) core.Incident {
+	if submission.SourceKind != "slack" {
+		return incident
+	}
+	input, err := s.store.GetSlackInput(ctx, submission.SourceID)
+	if err != nil {
+		return incident
+	}
+	if !incident.IsThreadScoped() {
+		incident.RootTS = slackReplyThread(input)
+	}
+	return incident
+}
+
+func progressMilestones(status string) []string {
+	switch {
+	case strings.Contains(status, "approved action"):
+		return []string{
+			"Re-checking whether the evidence is still current",
+			"Validating the exact target and blast radius",
+			"Requesting policy authorization from Emisar",
+			"Waiting for authoritative verification",
+		}
+	case strings.Contains(status, "review"):
+		return []string{
+			"Inspecting the isolated code change",
+			"Checking current repository divergence",
+			"Running configured validation and policy gates",
+			"Preparing fix-readiness findings",
+		}
+	default:
+		return []string{
+			"Mapping declared topology from the repository",
+			"Checking current infrastructure state with Emisar",
+			"Reconciling expected and observed entities",
+			"Assessing coverage and unresolved gaps",
+			"Preparing an evidence-backed response",
+		}
+	}
 }
 
 func (s *Service) forgetNativeStatus(incidentID string) {
-	delete(s.nativeStatus, incidentID)
-	s.retryDone("native-status:" + incidentID)
+	prefix := incidentID + "@"
+	for key := range s.nativeStatus {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.nativeStatus, key)
+			s.retryDone("native-status:" + key)
+		}
+	}
 }
 
 func (s *Service) enqueue(
@@ -705,6 +1159,14 @@ func changesSummary(changes coop.Changes) string {
 		lines = append(lines, "The detailed patch exceeded the configured response limit.")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func coopChangesPresent(changes coop.Changes) bool {
+	return len(changes.Committed) > 0 ||
+		len(changes.Staged) > 0 ||
+		len(changes.Unstaged) > 0 ||
+		len(changes.Untracked) > 0 ||
+		len(changes.Conflicts) > 0
 }
 
 func reviewSummary(review coop.Review) string {

@@ -68,11 +68,14 @@ for arch in amd64 arm64; do
 		LICENSE \
 		SECURITY.md \
 		config/responder.example.yaml \
+		deploy/slack-app-icon.png \
+		deploy/slack-app-manifest.yaml \
 		deploy/nginx/responder.conf \
 		deploy/systemd/responder.service \
 		deploy/systemd/coop-responder.service \
 		docs/operations.md \
-		docs/releasing.md; do
+		docs/releasing.md \
+		docs/slack-app.md; do
 		if [ ! -f "$extract/$path" ]; then
 			echo "$archive is missing $path" >&2
 			exit 1

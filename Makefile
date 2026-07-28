@@ -1,15 +1,24 @@
 .DEFAULT_GOAL := check
 
-.PHONY: build test race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: build install test eval race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
+INSTALL_DIR ?= $(HOME)/.local/bin
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/responder ./cmd/responder
 
+install:
+	install -d "$(INSTALL_DIR)"
+	go build -trimpath -ldflags "$(LDFLAGS)" -o "$(INSTALL_DIR)/responder" ./cmd/responder
+	@echo "installed $(INSTALL_DIR)/responder ($(VERSION))"
+
 test:
 	go test ./...
+
+eval:
+	go run ./cmd/responder eval --input testdata/eval/golden.jsonl
 
 race:
 	go test -race ./...

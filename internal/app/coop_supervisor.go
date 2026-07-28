@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 type coopReadiness interface {
@@ -33,8 +34,39 @@ type coopSupervisor struct {
 	processMu sync.Mutex
 	process   *exec.Cmd
 
-	stateMu sync.Mutex
-	ready   bool
+	stateMu       sync.Mutex
+	ready         bool
+	startupOutput *coopProcessOutput
+}
+
+const coopStartupOutputLimit = 16 << 10
+
+type coopProcessOutput struct {
+	mu          sync.Mutex
+	destination io.Writer
+	tail        []byte
+}
+
+func (w *coopProcessOutput) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(p) >= coopStartupOutputLimit {
+		w.tail = append(w.tail[:0], p[len(p)-coopStartupOutputLimit:]...)
+	} else {
+		overflow := len(w.tail) + len(p) - coopStartupOutputLimit
+		if overflow > 0 {
+			copy(w.tail, w.tail[overflow:])
+			w.tail = w.tail[:len(w.tail)-overflow]
+		}
+		w.tail = append(w.tail, p...)
+	}
+	return w.destination.Write(p)
+}
+
+func (w *coopProcessOutput) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return string(w.tail)
 }
 
 func startCoopSupervisor(cfg config.Config, output io.Writer, logger *slog.Logger) (*coopSupervisor, error) {
@@ -112,6 +144,14 @@ func (s *coopSupervisor) WaitReady(ctx context.Context, client coopReadiness) er
 			if exitErr == nil {
 				exitErr = errors.New("process exited successfully")
 			}
+			s.stateMu.Lock()
+			output := s.startupOutput
+			s.stateMu.Unlock()
+			if output != nil {
+				if remediation := coopAuthenticationRemediation(s.cfg, output.String()); remediation != "" {
+					return fmt.Errorf("%s: %w", remediation, exitErr)
+				}
+			}
 			return fmt.Errorf("managed Coop exited before becoming ready: %w", exitErr)
 		case <-ctx.Done():
 			return fmt.Errorf("wait for managed Coop readiness: %w", errors.Join(ctx.Err(), lastErr))
@@ -188,9 +228,13 @@ func (s *coopSupervisor) start() (*exec.Cmd, error) {
 		"--socket", coop.Socket,
 	)
 	command.Env = coopEnvironment(s.cfg)
-	command.Stdout = s.output
-	command.Stderr = s.output
+	processOutput := &coopProcessOutput{destination: s.output}
+	command.Stdout = processOutput
+	command.Stderr = processOutput
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	s.stateMu.Lock()
+	s.startupOutput = processOutput
+	s.stateMu.Unlock()
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
@@ -223,16 +267,13 @@ func (s *coopSupervisor) signal(signal syscall.Signal) {
 
 func coopEnvironment(cfg config.Config) []string {
 	blocked := map[string]bool{
-		"COOP_CONFIG_DIR":       true,
-		"COOP_SPINNER":          true,
-		"NO_COLOR":              true,
-		"TERM":                  true,
-		cfg.Slack.BotTokenEnv:   true,
-		cfg.Slack.AppTokenEnv:   true,
-		cfg.Coop.EmisarTokenEnv: true,
+		"COOP_CONFIG_DIR": true,
+		"COOP_SPINNER":    true,
+		"NO_COLOR":        true,
+		"TERM":            true,
 	}
-	for _, route := range cfg.Webhooks {
-		blocked[route.SecretEnv] = true
+	for name := range reservedServiceEnvironment(cfg) {
+		blocked[name] = true
 	}
 	environment := make([]string, 0, len(os.Environ())+4)
 	for _, entry := range os.Environ() {
@@ -265,4 +306,68 @@ func processResult(err error) string {
 		return "process exited successfully"
 	}
 	return err.Error()
+}
+
+func coopAuthenticationRemediation(cfg config.Config, output string) string {
+	const accountPrefix = `target account "`
+	const accountSuffix = `" is not authenticated`
+	accountStart := strings.LastIndex(output, accountPrefix)
+	if accountStart < 0 {
+		return ""
+	}
+	accountStart += len(accountPrefix)
+	accountEnd := strings.Index(output[accountStart:], accountSuffix)
+	if accountEnd < 0 {
+		return ""
+	}
+	account := output[accountStart : accountStart+accountEnd]
+
+	const policyPrefix = `policy "`
+	const policySuffix = `": target account`
+	policyStart := strings.LastIndex(output[:accountStart], policyPrefix)
+	if policyStart < 0 {
+		return ""
+	}
+	policyStart += len(policyPrefix)
+	policyEnd := strings.Index(output[policyStart:], policySuffix)
+	if policyEnd < 0 {
+		return ""
+	}
+	policyName := output[policyStart : policyStart+policyEnd]
+
+	data, err := os.ReadFile(cfg.Coop.Policies)
+	if err != nil {
+		return ""
+	}
+	var policyFile struct {
+		Policies map[string]struct {
+			Target string `yaml:"target"`
+		} `yaml:"policies"`
+	}
+	if err := yaml.Unmarshal(data, &policyFile); err != nil {
+		return ""
+	}
+	target, ok := policyFile.Policies[policyName]
+	if !ok {
+		return ""
+	}
+	provider := target.Target
+	if separator := strings.IndexAny(provider, ":/@"); separator >= 0 {
+		provider = provider[:separator]
+	}
+	if provider == "" || account == "" {
+		return ""
+	}
+	loginTarget := provider + "@" + account
+	return fmt.Sprintf(
+		"managed Coop target %s is not authenticated; run:\n  COOP_CONFIG_DIR=%s %s login %s\nthen retry Responder",
+		loginTarget,
+		shellWord(cfg.Coop.BootstrapDir),
+		shellWord(cfg.Coop.Binary),
+		shellWord(loginTarget),
+	)
+}
+
+func shellWord(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

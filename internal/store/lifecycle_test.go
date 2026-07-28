@@ -1,0 +1,90 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
+)
+
+func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	incidents, err := st.ApplySignals(ctx, testWebhookEvent(), time.Hour, 0, 100)
+	if err != nil || len(incidents) != 1 {
+		t.Fatalf("incident = %+v, %v", incidents, err)
+	}
+	publication := core.Publication{
+		IncidentID: incidents[0].ID, Repository: "owner/repository", BaseBranch: "main",
+		ParentHead: "parent", CandidateTree: "tree", State: "publishing",
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatalf("save pre-side-effect publication: %v", err)
+	}
+	stored, err := st.GetPublication(ctx, incidents[0].ID)
+	if err != nil || stored.HeadBranch != "" || stored.State != "publishing" {
+		t.Fatalf("stored publication = %+v, %v", stored, err)
+	}
+
+	publication.State = "published"
+	if err := st.SavePublication(ctx, publication); err == nil {
+		t.Fatal("published record without remote proof was accepted")
+	}
+	publication.HeadBranch = "responder/fix"
+	publication.CommitSHA = "commit"
+	publication.RemoteSHA = "commit"
+	publication.PRNumber = 12
+	publication.PRURL = "https://github.com/owner/repository/pull/12"
+	publication.PublishedAt = time.Now().UTC()
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatalf("save proved publication: %v", err)
+	}
+}
+
+func TestExpiredChannelMemoryIsOwnedBeforeItIsPruned(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	started := time.Now().UTC().Add(-2 * time.Hour)
+	if err := st.BindChannelSession(ctx, "COPS", "repo", "session-old", 3, 1, started); err != nil {
+		t.Fatal(err)
+	}
+	count, err := st.ScheduleExpiredChannelMemoryCleanup(
+		ctx, started.Add(time.Minute), time.Now().Add(-time.Minute),
+	)
+	if err != nil || count != 1 {
+		t.Fatalf("scheduled = %d, %v", count, err)
+	}
+	item, err := st.NextCleanup(ctx, time.Now())
+	if err != nil || item.SessionID != "session-old" || item.IncidentID != "" {
+		t.Fatalf("cleanup = %+v, %v", item, err)
+	}
+	if err := st.SetCleanupState(
+		ctx, item.SessionID, "done", "discard-plan", "", time.Now(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Prune(
+		ctx,
+		time.Now().Add(time.Hour),
+		time.Now().Add(time.Hour),
+		time.Now().Add(-time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetChannelMemory(ctx, "COPS"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired channel memory remained after owned cleanup: %v", err)
+	}
+}

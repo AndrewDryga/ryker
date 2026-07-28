@@ -28,6 +28,130 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	if input.TeamID != s.cfg.Slack.TeamID {
 		return s.store.RetrySlackInput(ctx, input.ID, "wrong Slack workspace", time.Now(), true)
 	}
+	if input.Kind == "channel_lifecycle" {
+		if err := s.processChannelLifecycleInput(ctx, input); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		return s.finishSlackInput(ctx, input)
+	}
+	if input.Kind == "slash" {
+		if err := s.processSlashInput(ctx, input); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		return nil
+	}
+	if input.Kind == "action" {
+		if command, ok := slashTextForCommandAction(input); ok {
+			input.Text = command
+			if err := s.processSlashInput(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
+		if input.ActionID == slackui.ActionOpenIncident {
+			if err := s.handleWatchIncidentOfferAction(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
+		if input.ActionID == slackui.ActionStartTask {
+			if err := s.handleWatchTaskOfferAction(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
+		if input.ActionID == slackui.ActionApproveProposal ||
+			input.ActionID == slackui.ActionRejectProposal {
+			if err := s.handleActionProposal(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
+	}
+	if input.Kind == "shortcut" {
+		allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
+		if allowedErr != nil {
+			return s.retrySlackInput(ctx, input, allowedErr)
+		}
+		if !allowed {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "slack.shortcut", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "ignored", Detail: "requester is not an active full workspace member",
+			})
+			return s.finishSlackInput(ctx, input)
+		}
+		if err := s.processWatchedInput(ctx, input); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		return nil
+	}
+
+	var incident core.Incident
+	var incidentErr error
+	if input.Kind == "action" {
+		incident, incidentErr = s.store.GetIncident(ctx, input.ActionValue)
+	} else {
+		incident, incidentErr = s.store.FindIncidentForConversation(
+			ctx,
+			input.ChannelID,
+			slackReplyThread(input),
+		)
+	}
+	if incidentErr != nil && !errors.Is(incidentErr, store.ErrNotFound) {
+		return s.retrySlackInput(ctx, input, incidentErr)
+	}
+	if input.Kind == "action" && errors.Is(incidentErr, store.ErrNotFound) {
+		return s.finishSlashInput(
+			ctx,
+			input,
+			"*This incident control is no longer valid.* The incident record or button target "+
+				"cannot be found. Refresh the channel and use the controls on the current pinned "+
+				"incident card. No action was taken.",
+		)
+	}
+	watched := false
+	directRequest := errors.Is(incidentErr, store.ErrNotFound) &&
+		input.Kind == "direct"
+	summoned := errors.Is(incidentErr, store.ErrNotFound) &&
+		input.Kind == "mention" &&
+		s.cfg.IsSummonChannel(input.ChannelID)
+	if errors.Is(incidentErr, store.ErrNotFound) {
+		if directRequest {
+			watched = true
+		} else {
+			watched, err = s.proactiveEnabled(ctx, input.ChannelID)
+			if err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+		}
+	}
+	if errors.Is(incidentErr, store.ErrNotFound) && (watched || summoned) {
+		if input.Kind != "bot_message" {
+			allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
+			if allowedErr != nil {
+				return s.retrySlackInput(ctx, input, allowedErr)
+			}
+			if !allowed {
+				_ = s.store.Audit(ctx, core.AuditEvent{
+					Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+					Outcome: "ignored", Detail: "sender is not an active full workspace member",
+				})
+				return s.finishSlackInput(ctx, input)
+			}
+		}
+		if summoned &&
+			s.cfg.IsOperator(input.UserID) &&
+			explicitIncidentRequest(s.stripBotMention(input.Text)) {
+			return s.createManualIncident(ctx, input)
+		}
+		if err := s.processWatchedInput(ctx, input); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		return nil
+	}
+	if errors.Is(incidentErr, store.ErrNotFound) && input.Kind != "mention" {
+		return s.finishSlackInput(ctx, input)
+	}
 	if !s.cfg.IsOperator(input.UserID) {
 		s.denyInput(ctx, input, "This action is restricted to configured incident operators.")
 		return s.finishSlackInput(ctx, input)
@@ -41,11 +165,6 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.finishSlackInput(ctx, input)
 	}
 
-	incident, incidentErr := s.store.FindIncidentByChannel(ctx, input.ChannelID)
-	if errors.Is(incidentErr, store.ErrNotFound) && input.Kind == "mention" &&
-		s.cfg.IsSummonChannel(input.ChannelID) {
-		return s.createManualIncident(ctx, input)
-	}
 	if errors.Is(incidentErr, store.ErrNotFound) {
 		return s.finishSlackInput(ctx, input)
 	}
@@ -53,16 +172,35 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.retrySlackInput(ctx, input, incidentErr)
 	}
 	if input.Kind == "action" {
-		if input.ActionValue != incident.ID || input.MessageTS != incident.RootTS {
-			return s.store.RetrySlackInput(ctx, input.ID, "stale or mismatched incident control", time.Now(), true)
+		if input.ActionValue != incident.ID || input.MessageTS != incident.RootTS ||
+			input.ChannelID != incident.ChannelID {
+			return s.finishSlashInput(
+				ctx,
+				input,
+				"*This incident control is stale or belongs to another card.* Refresh the "+
+					"channel and use the controls on the current pinned incident card. No action "+
+					"was taken.",
+			)
+		}
+		if incident.Status == core.IncidentClosed &&
+			input.ActionID != slackui.ActionChanges &&
+			input.ActionID != slackui.ActionReview &&
+			input.ActionID != slackui.ActionViewPR &&
+			input.ActionID != slackui.ActionDiscardWork {
+			return s.finishSlashInput(
+				ctx,
+				input,
+				"*This incident is already closed.* Closed incidents allow only read-only "+
+					"inspection of an existing code change. No action was taken.",
+			)
 		}
 		err = s.handleControl(ctx, input, incident, input.ActionID)
 	} else {
-		if input.ThreadTS != incident.RootTS {
-			return s.finishSlackInput(ctx, input)
-		}
 		text := strings.TrimSpace(input.Text)
-		if input.Kind == "mention" {
+		hasMention := strings.Contains(text, fmt.Sprintf("<@%s>", s.identity.BotUserID))
+		direct := input.Kind == "mention" || hasMention ||
+			input.ThreadTS == incident.ConversationThreadTS()
+		if input.Kind == "mention" || hasMention {
 			text = s.stripBotMention(text)
 		}
 		if command, ok := exactCommand(text); ok {
@@ -72,10 +210,24 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		} else {
 			_, _, err = s.store.QueueTurn(ctx, core.TurnSubmission{
 				IncidentID: incident.ID, SourceKind: "slack", SourceID: input.ID,
-				UserID: input.UserID, Prompt: operatorPrompt(input.UserID, text),
+				UserID: input.UserID, Prompt: conversationPrompt(input.UserID, text, direct),
 			})
+			if err == nil && direct {
+				s.setNativeStatusForThread(
+					ctx,
+					incident,
+					slackReplyThread(input),
+					"is investigating your message...",
+				)
+			}
 			if err == nil {
-				s.setNativeStatus(ctx, incident, "is investigating your message...")
+				_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+					ID:         "tl_input_" + input.ID,
+					IncidentID: incident.ID, ChannelID: incident.ChannelID,
+					Kind: "operator.message", ActorID: input.UserID,
+					Title:  "Operator requested investigation",
+					Detail: boundedField(text, 2000), CreatedAt: input.ReceivedAt,
+				})
 			}
 		}
 	}
@@ -83,6 +235,204 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.retrySlackInput(ctx, input, err)
 	}
 	return s.finishSlackInput(ctx, input)
+}
+
+func (s *Service) handleActionProposal(ctx context.Context, input core.SlackInput) error {
+	proposal, err := s.store.GetActionProposal(ctx, input.ActionValue)
+	if errors.Is(err, store.ErrNotFound) {
+		return s.finishSlashInput(
+			ctx, input,
+			"*This action proposal is no longer valid.* The stored proposal cannot be found. "+
+				"No operational action was taken.",
+		)
+	}
+	if err != nil {
+		return err
+	}
+	if proposal.ChannelID != input.ChannelID {
+		return s.finishSlashInput(
+			ctx, input,
+			"*This action proposal belongs to another incident room.* Use the controls in the "+
+				"original room. No operational action was taken.",
+		)
+	}
+	if !s.cfg.IsOperator(input.UserID) {
+		return s.finishSlashInput(
+			ctx, input,
+			"*This action proposal was not approved.* Only a configured incident operator can "+
+				"approve or reject operational work.",
+		)
+	}
+	allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return s.finishSlashInput(
+			ctx, input,
+			"*This action proposal was not approved.* Approval requires an active full member of "+
+				"the configured Slack workspace.",
+		)
+	}
+	policy, ok := s.cfg.Actions[proposal.ActionName]
+	if !ok || policy.Authority != proposal.Authority {
+		return s.finishSlashInput(
+			ctx, input,
+			"*This action proposal is no longer authorized by configuration.* The configured action "+
+				"catalog changed after the proposal was created. No operational action was taken.",
+		)
+	}
+	decision := "approve"
+	if input.ActionID == slackui.ActionRejectProposal {
+		decision = "reject"
+	}
+	proposal, err = s.store.DecideActionProposal(
+		ctx, proposal.ID, input.UserID, decision, time.Now().UTC(),
+	)
+	if err != nil {
+		return err
+	}
+	_ = s.store.Audit(ctx, core.AuditEvent{
+		IncidentID: proposal.IncidentID, Kind: "action.proposal." + decision,
+		ActorID: input.UserID, ObjectID: proposal.ID, Outcome: proposal.Status,
+		Detail: proposal.ActionName + " target=" + proposal.Target,
+	})
+	eventTitle := "Approved proposed action"
+	if decision == "reject" {
+		eventTitle = "Rejected proposed action"
+	}
+	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		IncidentID: proposal.IncidentID, ChannelID: proposal.ChannelID,
+		Kind: "action." + decision, ActorID: input.UserID,
+		Title:  eventTitle,
+		Detail: proposal.ActionName + " for " + proposal.Target,
+	})
+	switch proposal.Status {
+	case "rejected":
+		return s.finishSlashInput(
+			ctx, input,
+			"*Action proposal rejected.* No operational action ran. The proposal and decision "+
+				"remain in the incident timeline and audit history.",
+		)
+	case "expired":
+		return s.finishSlashInput(
+			ctx, input,
+			"*This action proposal expired before approval.* Ask Responder to re-check current "+
+				"evidence and create a new proposal. No operational action ran.",
+		)
+	case "pending":
+		return s.finishSlashInput(
+			ctx, input,
+			fmt.Sprintf(
+				"*Approval recorded: %d of %d.* A different configured operator must approve "+
+					"before the request can be submitted. No operational action has run.",
+				proposal.ApprovalCount, proposal.Required,
+			),
+		)
+	case "executing", "finished", "failed":
+		return s.finishSlashInput(
+			ctx, input,
+			"*This proposal has already left the approval stage.* Its current state is `"+
+				proposal.Status+"`. Check the incident thread and timeline for the result.",
+		)
+	case "approved":
+	default:
+		return fmt.Errorf("unsupported action proposal state %q", proposal.Status)
+	}
+	incident, err := s.store.GetIncident(ctx, proposal.IncidentID)
+	if err != nil {
+		return err
+	}
+	if incident.Status == core.IncidentClosed || !incident.ChannelWritable() {
+		return s.finishSlashInput(
+			ctx, input,
+			"*Approval completed, but the action was not submitted.* The incident is closed or its "+
+				"Slack room is unavailable. Re-open or rebind operational work explicitly after "+
+				"reviewing current evidence.",
+		)
+	}
+	parameters, err := json.Marshal(proposal.Parameters)
+	if err != nil {
+		return err
+	}
+	prompt := fmt.Sprintf(
+		`Two-stage host validation is complete for stored proposal %s.
+Use the policy-authorized Emisar MCP path to request exactly the configured action %q against
+target %q with these untrusted parameter values:
+<untrusted-action-parameters>%s</untrusted-action-parameters>
+
+Do not substitute another action or expand the target. Emisar authorization and any Emisar approval
+remain authoritative; Slack approval does not bypass them. Before requesting execution, re-check
+the evidence and stop if it is stale or the action is no longer justified. Report whether Emisar
+authorized, rejected, awaited approval, or completed the request. Never claim success without
+post-action verification matching this requirement: %s
+
+Blast radius stated at approval: %s
+Rollback stated at approval: %s`,
+		proposal.ID,
+		proposal.ActionName,
+		proposal.Target,
+		parameters,
+		proposal.Verification,
+		proposal.BlastRadius,
+		proposal.Rollback,
+	)
+	_, _, err = s.store.QueueTurn(ctx, core.TurnSubmission{
+		IncidentID: incident.ID, SourceKind: "proposal", SourceID: proposal.ID,
+		UserID: input.UserID, Prompt: prompt,
+	})
+	if err != nil {
+		return err
+	}
+	if err := s.store.MarkProposalExecution(
+		ctx, proposal.ID, "executing", "", "approved and queued for Coop",
+	); err != nil {
+		return err
+	}
+	s.setNativeStatus(ctx, incident, "is re-checking an approved action with Emisar...")
+	return s.finishSlashInput(
+		ctx, input,
+		"*Required approval is complete.* Responder queued the exact stored request for a fresh "+
+			"evidence check and Emisar authorization. This does not mean the action is approved by "+
+			"Emisar or has succeeded; the incident thread will show the authoritative outcome.",
+	)
+}
+
+func (s *Service) processChannelLifecycleInput(
+	ctx context.Context,
+	input core.SlackInput,
+) error {
+	state := core.ChannelState(input.ActionID)
+	incidents, err := s.store.SetIncidentChannelState(
+		ctx, input.ChannelID, state, input.ReceivedAt,
+	)
+	if err != nil {
+		return err
+	}
+	if state == core.ChannelDeleted {
+		if _, err := s.store.DeleteSlackChannelSettings(ctx, input.ChannelID); err != nil {
+			return err
+		}
+	}
+	for _, incident := range incidents {
+		s.forgetNativeStatus(incident.ID)
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			IncidentID: incident.ID,
+			Kind:       "slack.channel.lifecycle",
+			ActorID:    input.UserID,
+			ObjectID:   input.ChannelID,
+			Outcome:    "observed",
+			Detail:     input.ActionValue + ": " + string(state),
+		})
+	}
+	return nil
+}
+
+func slackReplyThread(input core.SlackInput) string {
+	if input.ThreadTS != "" {
+		return input.ThreadTS
+	}
+	return input.MessageTS
 }
 
 func (s *Service) createManualIncident(ctx context.Context, input core.SlackInput) error {
@@ -98,7 +448,7 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 		thread = input.MessageTS
 	}
 	incident, _, err := s.store.CreateManualIncident(
-		ctx, s.cfg.Slack.DefaultRepository, input.EventID, title, input.UserID,
+		ctx, s.cfg.Slack.DefaultRepository, input.EventID, title, title, input.UserID,
 		input.ChannelID, thread,
 		s.cfg.Limits.MaxOpenIncidents,
 	)
@@ -108,8 +458,10 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 				ctx,
 				"manual_capacity_"+input.ID,
 				input,
-				"Responder is at its open incident limit. Close an existing incident or raise "+
-					"limits.max_open_incidents, then try again.",
+				"*Responder did not create an incident.* The configured open incident limit has "+
+					"been reached, so no channel, agent session, or working copy was created. "+
+					"Close an existing incident, or ask an administrator to raise "+
+					"`limits.max_open_incidents`, then send the request again.",
 			); noticeErr != nil {
 				return s.retrySlackInput(ctx, input, noticeErr)
 			}
@@ -125,7 +477,11 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 		ctx, "out_manual_ack_"+input.ID, core.Incident{
 			ID: incident.ID, ChannelID: input.ChannelID,
 		}, "notice", thread,
-		slackui.Notice("Incident accepted. I’m creating a dedicated channel and isolated Coop fork now."),
+		slackui.Notice(
+			"*Incident accepted.* I’m creating a dedicated Slack channel and an isolated "+
+				"working copy now. I’ll post the channel link in this thread when it is ready. "+
+				"No merge, push, deployment, or infrastructure change has occurred.",
+		),
 	); err != nil {
 		return s.retrySlackInput(ctx, input, err)
 	}
@@ -142,6 +498,15 @@ func (s *Service) postInputNotice(
 	input core.SlackInput,
 	text string,
 ) error {
+	return s.postInputMessage(ctx, id, input, slackui.Notice(text))
+}
+
+func (s *Service) postInputMessage(
+	ctx context.Context,
+	id string,
+	input core.SlackInput,
+	message slackui.Message,
+) error {
 	thread := input.ThreadTS
 	if thread == "" {
 		thread = input.MessageTS
@@ -151,7 +516,6 @@ func (s *Service) postInputNotice(
 	} else if !errors.Is(err, slackui.ErrNotFound) {
 		return err
 	}
-	message := slackui.Notice(text)
 	if s.sanitizer != nil {
 		message = s.sanitizer.Message(message)
 	}
@@ -169,6 +533,8 @@ func exactCommand(text string) (string, bool) {
 		return slackui.ActionChanges, true
 	case "!respond review":
 		return slackui.ActionReview, true
+	case "!respond publish":
+		return slackui.ActionPublishPR, true
 	case "!respond stop":
 		return slackui.ActionStop, true
 	case "!respond extend":
@@ -188,23 +554,23 @@ func (s *Service) handleControl(
 	incident core.Incident,
 	control string,
 ) error {
+	threadTS := incident.ConversationThreadTS()
 	switch control {
 	case "status":
-		return s.enqueue(ctx, "out_status_"+input.ID, incident, "notice", incident.RootTS,
-			slackui.Notice(fmt.Sprintf(
-				"Incident %s is %s; Responder is %s. %d of %d signals are firing.",
-				slackui.ShortID(incident.ID), incident.Status, incident.Workflow,
-				incident.FiringCount, incident.SignalCount,
-			)))
+		return s.enqueue(ctx, "out_status_"+input.ID, incident, "notice", threadTS,
+			slackui.IncidentStatusMessage(incident))
 	case slackui.ActionHelp:
 		return s.enqueue(ctx, "out_help_"+input.ID, incident, "notice",
-			incident.RootTS, slackui.HelpMessage(incident.ID))
+			threadTS, slackui.HelpMessage(incident))
 	case slackui.ActionUpdate:
+		request := "Give a concise incident update: verified facts, current hypothesis, code changes, blockers, and next action."
+		if incident.IsEngineeringTask() {
+			request = "Give a concise engineering task update: completed work, verification, code changes, blockers, and next action."
+		}
 		_, _, err := s.store.QueueTurn(ctx, core.TurnSubmission{
 			IncidentID: incident.ID, SourceKind: "control", SourceID: input.ID,
 			UserID: input.UserID,
-			Prompt: operatorPrompt(input.UserID,
-				"Give a concise incident update: verified facts, current hypothesis, code changes, blockers, and next action."),
+			Prompt: operatorPrompt(input.UserID, request),
 		})
 		if err == nil {
 			s.setNativeStatus(ctx, incident, "is preparing an incident update...")
@@ -213,7 +579,12 @@ func (s *Service) handleControl(
 	case slackui.ActionChanges:
 		if incident.CoopSessionID == "" {
 			return s.enqueue(ctx, "out_changes_"+input.ID, incident, "notice",
-				incident.RootTS, slackui.Notice("The incident fork is still being prepared."))
+				threadTS, slackui.Notice(
+					"*Code changes are not available yet.* Responder is still preparing the "+
+						"isolated working copy. Wait for the pinned incident card to show "+
+						"*Waiting for input* or *Investigating*, then try again. No repository "+
+						"changes were made by this request.",
+				))
 		}
 		s.setNativeStatus(ctx, incident, "is checking the isolated fork...")
 		changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
@@ -222,17 +593,28 @@ func (s *Service) handleControl(
 			return err
 		}
 		err = s.enqueue(ctx, "out_changes_"+input.ID, incident, "changes",
-			incident.RootTS, slackui.ChangesMessage(incident, changesSummary(changes)))
+			threadTS, slackui.ChangesMessage(
+				incident,
+				changesSummary(changes),
+				changes.Patch,
+				changes.Truncated,
+			))
 		if err != nil {
 			s.clearNativeStatus(ctx, incident)
 		}
 		return err
 	case slackui.ActionReview:
 		return s.reviewFix(ctx, input, incident)
+	case slackui.ActionPublishPR:
+		return s.publishDraftPR(ctx, input, incident)
+	case slackui.ActionViewPR:
+		return nil
+	case slackui.ActionDiscardWork:
+		return s.discardRetainedWork(ctx, input, incident)
 	case slackui.ActionStop:
 		return s.stopTurn(ctx, input, incident)
 	case slackui.ActionExtend:
-		return s.extendSession(ctx, input, incident)
+		return s.explainAutomaticCapacity(ctx, input, incident)
 	case slackui.ActionResolve:
 		return s.closeIncident(ctx, input, incident)
 	default:
@@ -240,53 +622,56 @@ func (s *Service) handleControl(
 	}
 }
 
-func (s *Service) extendSession(ctx context.Context, input core.SlackInput, incident core.Incident) error {
-	if incident.CoopSessionID == "" {
-		return s.enqueue(ctx, "out_extend_"+input.ID, incident, "notice",
-			incident.RootTS, slackui.Notice("The incident session is still being prepared."))
-	}
-	action, err := s.freezeAction(ctx, input, incident, false)
+func (s *Service) explainAutomaticCapacity(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+) error {
+	limit, err := s.effectiveTurnLimit(ctx, incident.ChannelID)
 	if err != nil {
 		return err
 	}
-	session, _, err := s.coop.Extend(
-		ctx, "responder:extend:"+input.ID, action.SessionID, action.Revision, s.cfg.Coop.ExtendTurns,
-	)
-	if err != nil {
-		return err
-	}
-	workflow := core.WorkflowParked
-	if session.ActiveTurnID != "" || session.QueuedTurnCount > 0 {
-		workflow = core.WorkflowInvestigating
-	}
-	if err := s.store.UpdateCoopState(
-		ctx, incident.ID, session.Revision, incident.CoopEventSequence,
-		session.ActiveTurnID, workflow,
-	); err != nil {
-		return err
-	}
-	if err := s.store.SetIncidentError(ctx, incident.ID, workflow, ""); err != nil {
-		return err
-	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
-		IncidentID: incident.ID, Kind: "coop.budget.extend", ActorID: input.UserID,
-		ObjectID: incident.CoopSessionID, Outcome: "succeeded",
-		Detail: fmt.Sprintf("%d turns", s.cfg.Coop.ExtendTurns),
-	})
-	return s.enqueue(ctx, "out_extend_"+input.ID, incident, "notice", incident.RootTS,
+	return s.enqueue(ctx, "out_extend_"+input.ID, incident, "notice",
+		incident.ConversationThreadTS(),
 		slackui.Notice(fmt.Sprintf(
-			"Added %d turns to the incident session budget.", s.cfg.Coop.ExtendTurns,
+			"*Manual turn allocation is no longer required.* Responder automatically adds "+
+				"session capacity when authorized work arrives, up to this channel's safety "+
+				"ceiling of %d accepted requests. Tool calls and investigation steps inside a "+
+				"request are not counted separately. Use `/responder turn-limit` to inspect or "+
+				"change the ceiling.",
+			limit,
 		)))
 }
 
 func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident core.Incident) error {
 	if incident.CoopSessionID == "" {
 		return s.enqueue(ctx, "out_review_"+input.ID, incident, "notice",
-			incident.RootTS, slackui.Notice("The incident fork is still being prepared."))
+			incident.ConversationThreadTS(), slackui.Notice(
+				"*Fix review is not available yet.* Responder is still preparing the isolated "+
+					"working copy. Wait for the pinned card to show *Waiting for input*, then "+
+					"run the review again.",
+			))
 	}
 	if incident.ActiveTurnID != "" {
 		return s.enqueue(ctx, "out_review_"+input.ID, incident, "notice",
-			incident.RootTS, slackui.Notice("Wait for the active turn to finish or stop it before reviewing."))
+			incident.ConversationThreadTS(), slackui.Notice(
+				"*Fix review did not start because an agent turn is still running.* Wait for "+
+					"that run to finish, or use *Stop current run*, then request review again. "+
+					"The review is read-only and never merges or deploys.",
+			))
+	}
+	changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
+	if err != nil {
+		return err
+	}
+	if !coopChangesPresent(changes) {
+		return s.enqueue(ctx, "out_review_"+input.ID, incident, "notice",
+			incident.ConversationThreadTS(), slackui.Notice(
+				"*There is no proposed code change to review.* Fix readiness checks compare "+
+					"the isolated change with the current repository, test whether it can be "+
+					"rebased, and run configured validation and policy gates. This incident's "+
+					"working copy has no changed files, so no review was started.",
+			))
 	}
 	s.setNativeStatus(ctx, incident, "is reviewing the proposed fix...")
 	action, err := s.freezeAction(ctx, input, incident, false)
@@ -301,7 +686,8 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	err = s.enqueue(ctx, "out_review_"+input.ID, incident, "review", incident.RootTS,
+	err = s.enqueue(
+		ctx, "out_review_"+input.ID, incident, "review", incident.ConversationThreadTS(),
 		slackui.ReviewMessage(incident, reviewSummary(review), review.Publishable))
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
@@ -312,7 +698,11 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 func (s *Service) stopTurn(ctx context.Context, input core.SlackInput, incident core.Incident) error {
 	if incident.ActiveTurnID == "" {
 		return s.enqueue(ctx, "out_stop_"+input.ID, incident, "notice",
-			incident.RootTS, slackui.Notice("No agent turn is currently running."))
+			incident.ConversationThreadTS(), slackui.Notice(
+				"*Nothing was stopped.* No agent turn is currently running. Responder is "+
+					"waiting for input; reply with the next request, ask for an update, or close "+
+					"the incident.",
+			))
 	}
 	action, err := s.freezeAction(ctx, input, incident, true)
 	if err != nil {
@@ -329,13 +719,25 @@ func (s *Service) stopTurn(ctx context.Context, input core.SlackInput, incident 
 		ObjectID: action.TurnID, Outcome: "requested",
 	})
 	return s.enqueue(ctx, "out_stop_"+input.ID, incident, "notice",
-		incident.RootTS, slackui.Notice("Stop requested. The fork and queued evidence are preserved."))
+		incident.ConversationThreadTS(), slackui.Notice(
+			"*Stop requested for the active agent turn.* Responder will stop starting new work "+
+				"for that turn. The isolated working copy, collected evidence, and queued "+
+				"incident context are preserved so an operator can inspect or continue later.",
+		))
 }
 
 func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, incident core.Incident) error {
+	noun := "incident"
+	if incident.IsEngineeringTask() {
+		noun = "engineering task"
+	}
 	if incident.ActiveTurnID != "" {
 		return s.enqueue(ctx, "out_close_"+input.ID, incident, "notice",
-			incident.RootTS, slackui.Notice("Stop the active turn before closing this incident."))
+			incident.ConversationThreadTS(), slackui.Notice(
+				"*The "+noun+" was not closed because an agent turn is still running.* Use "+
+					"*Stop current run* and wait for it to stop, then close it again. "+
+					"No work or evidence was discarded.",
+			))
 	}
 	if incident.CoopSessionID != "" {
 		action, err := s.freezeAction(ctx, input, incident, false)
@@ -347,17 +749,83 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 		); err != nil {
 			return err
 		}
+		publication, publicationErr := s.store.GetPublication(ctx, incident.ID)
+		if publicationErr != nil && !errors.Is(publicationErr, store.ErrNotFound) {
+			return publicationErr
+		}
+		if err := s.store.ScheduleCleanup(
+			ctx,
+			incident.CoopSessionID,
+			incident.ID,
+			"closed "+noun,
+			publication.Published(),
+			time.Now().UTC().Add(s.cfg.Retention.ClosedSessionGrace.Duration),
+		); err != nil {
+			return err
+		}
 	}
 	if err := s.store.CloseIncident(ctx, incident.ID); err != nil {
 		return err
 	}
+	auditKind := "incident.close"
+	timelineKind := "incident.closed"
+	timelineTitle := "Incident closed"
+	if incident.IsEngineeringTask() {
+		auditKind = "engineering_task.close"
+		timelineKind = "engineering_task.closed"
+		timelineTitle = "Engineering task closed"
+	}
 	_ = s.store.Audit(ctx, core.AuditEvent{
-		IncidentID: incident.ID, Kind: "incident.close", ActorID: input.UserID,
+		IncidentID: incident.ID, Kind: auditKind, ActorID: input.UserID,
 		ObjectID: incident.CoopSessionID, Outcome: "succeeded",
 	})
-	return s.enqueue(ctx, "out_close_"+input.ID, incident, "notice",
-		incident.RootTS,
-		slackui.Notice("Incident closed. Its Coop fork is preserved for explicit review or cleanup."))
+	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		IncidentID: incident.ID, ChannelID: incident.ChannelID,
+		Kind: timelineKind, ActorID: input.UserID,
+		Title: timelineTitle,
+		Detail: "The Coop session was closed. Responder will reclaim zero-change or " +
+			"published workspace state after the configured grace period; unpublished " +
+			"changes are retained for operator action.",
+	})
+	closeMessage := "*Incident closed.* Responder will not start more investigation turns for this " +
+		"incident. Zero-change workspace state is reclaimed after the retention grace period; " +
+		"unpublished changes are retained for operator action. Closing did not merge, push, " +
+		"sign, or deploy anything."
+	if incident.IsEngineeringTask() {
+		closeMessage = "*Engineering task closed.* Responder will not start more turns for this " +
+			"task. Published or zero-change workspace state is reclaimed after the retention " +
+			"grace period; unpublished changes are retained. Closing did not merge, push, sign, " +
+			"deploy, or change infrastructure."
+	}
+	if err := s.enqueue(
+		ctx, "out_close_"+input.ID, incident, "notice", incident.ConversationThreadTS(),
+		slackui.Notice(closeMessage),
+	); err != nil {
+		return err
+	}
+	if incident.IsEngineeringTask() {
+		return nil
+	}
+	events, err := s.store.ListTimeline(ctx, incident.ID, "", 100)
+	if err != nil {
+		return err
+	}
+	evidence, err := s.store.ListEvidence(ctx, incident.ID, "", 100)
+	if err != nil {
+		return err
+	}
+	coverage, err := s.store.ListCoverage(ctx, incident.ID, "", 100)
+	if err != nil {
+		return err
+	}
+	return s.enqueue(
+		ctx,
+		"out_postmortem_"+incident.ID,
+		incident,
+		"postmortem",
+		incident.ConversationThreadTS(),
+		slackui.PostmortemDraft(incident, events, evidence, coverage),
+	)
 }
 
 func (s *Service) freezeAction(
@@ -405,10 +873,23 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 		terminal = true
 	}
 	if terminal {
-		if incident, incidentErr := s.store.FindIncidentByChannel(ctx, input.ChannelID); incidentErr == nil {
+		if incident, incidentErr := s.store.FindIncidentForConversation(
+			ctx,
+			input.ChannelID,
+			slackReplyThread(input),
+		); incidentErr == nil {
 			_ = s.enqueue(
-				ctx, "out_input_error_"+input.ID, incident, "notice", incident.RootTS,
-				slackui.Notice("Responder could not complete that request: "+trimError(err)),
+				ctx,
+				"out_input_error_"+input.ID,
+				incident,
+				"notice",
+				incident.ConversationThreadTS(),
+				slackui.Notice(
+					"*Responder could not complete that request after retrying.*\n\n"+
+						"Reason: `"+trimError(err)+"`\n\nThe incident and isolated working copy "+
+						"are preserved. Check the pinned card for the current state, then retry "+
+						"the command or reply with a different next step.",
+				),
 			)
 		}
 	}
@@ -424,10 +905,14 @@ func (s *Service) finishSlackInput(ctx context.Context, input core.SlackInput) e
 }
 
 func (s *Service) denyInput(ctx context.Context, input core.SlackInput, reason string) {
-	incident, err := s.store.FindIncidentByChannel(ctx, input.ChannelID)
-	if err == nil && (input.ThreadTS == incident.RootTS || input.MessageTS == incident.RootTS) {
+	incident, err := s.store.FindIncidentForConversation(
+		ctx,
+		input.ChannelID,
+		slackReplyThread(input),
+	)
+	if err == nil {
 		_ = s.enqueue(ctx, "out_denied_"+input.ID, incident, "notice",
-			incident.RootTS, slackui.Notice(reason))
+			incident.ConversationThreadTS(), slackui.Notice(reason))
 	}
 	_ = s.store.Audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "slack.input", ActorID: input.UserID,

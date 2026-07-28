@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 1
+const currentSchemaVersion = 6
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -189,6 +189,264 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS audit_incident_idx ON audit_events(incident_id, created_at);
 `
 
+const schemaV2 = `
+CREATE TABLE IF NOT EXISTS slack_settings (
+  scope TEXT NOT NULL,
+  channel_id TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  value TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(scope, channel_id, name),
+  CHECK (
+    (scope = 'global' AND channel_id = '') OR
+    (scope = 'channel' AND channel_id != '')
+  )
+);
+`
+
+const schemaV3 = `
+ALTER TABLE incidents ADD COLUMN channel_state TEXT NOT NULL DEFAULT 'pending'
+  CHECK (channel_state IN ('pending', 'active', 'archived', 'deleted', 'unreachable'));
+ALTER TABLE incidents ADD COLUMN channel_state_changed_at TEXT;
+ALTER TABLE incidents ADD COLUMN channel_checked_at TEXT;
+
+UPDATE incidents
+SET channel_state = 'active',
+    channel_state_changed_at = updated_at,
+    channel_checked_at = updated_at
+WHERE channel_id != '';
+
+CREATE INDEX IF NOT EXISTS incidents_channel_lifecycle_idx
+  ON incidents(channel_state, channel_checked_at, status);
+`
+
+const schemaV4 = `
+CREATE TABLE IF NOT EXISTS channel_memories (
+  channel_id TEXT PRIMARY KEY,
+  repository TEXT NOT NULL,
+  session_id TEXT NOT NULL DEFAULT '',
+  session_revision INTEGER NOT NULL DEFAULT 0,
+  generation INTEGER NOT NULL DEFAULT 1,
+  turn_count INTEGER NOT NULL DEFAULT 0,
+  state_json TEXT NOT NULL DEFAULT '{}',
+  session_started_at TEXT,
+  rotated_at TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS evidence (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL DEFAULT '',
+  channel_id TEXT NOT NULL DEFAULT '',
+  source_input TEXT NOT NULL DEFAULT '',
+  claim TEXT NOT NULL,
+  observation TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  source_url TEXT NOT NULL DEFAULT '',
+  target TEXT NOT NULL DEFAULT '',
+  freshness TEXT NOT NULL DEFAULT '',
+  confidence TEXT NOT NULL DEFAULT '',
+  observed_at TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS evidence_incident_idx ON evidence(incident_id, created_at);
+CREATE INDEX IF NOT EXISTS evidence_channel_idx ON evidence(channel_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS evidence_source_once_idx
+  ON evidence(source_input, claim, source_name, target) WHERE source_input != '';
+
+CREATE TABLE IF NOT EXISTS coverage (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL DEFAULT '',
+  channel_id TEXT NOT NULL DEFAULT '',
+  source_input TEXT NOT NULL DEFAULT '',
+  layer TEXT NOT NULL,
+  status TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  observed_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS coverage_incident_idx ON coverage(incident_id, created_at);
+CREATE INDEX IF NOT EXISTS coverage_channel_idx ON coverage(channel_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS coverage_source_once_idx
+  ON coverage(source_input, layer) WHERE source_input != '';
+
+CREATE TABLE IF NOT EXISTS timeline_events (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL DEFAULT '',
+  channel_id TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL,
+  actor_id TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS timeline_incident_idx
+  ON timeline_events(incident_id, created_at);
+CREATE INDEX IF NOT EXISTS timeline_channel_idx
+  ON timeline_events(channel_id, created_at);
+
+CREATE TABLE IF NOT EXISTS action_proposals (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL DEFAULT '',
+  channel_id TEXT NOT NULL DEFAULT '',
+  source_input TEXT NOT NULL DEFAULT '',
+  action_name TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  target TEXT NOT NULL,
+  parameters_json TEXT NOT NULL DEFAULT '{}',
+  blast_radius TEXT NOT NULL,
+  rollback TEXT NOT NULL,
+  verification TEXT NOT NULL,
+  authority TEXT NOT NULL,
+  risk TEXT NOT NULL,
+  status TEXT NOT NULL,
+  required_approvals INTEGER NOT NULL,
+  requested_by TEXT NOT NULL DEFAULT '',
+  execution_turn TEXT NOT NULL DEFAULT '',
+  result TEXT NOT NULL DEFAULT '',
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS proposals_incident_idx
+  ON action_proposals(incident_id, status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS proposals_source_once_idx
+  ON action_proposals(source_input, action_name, target) WHERE source_input != '';
+
+CREATE TABLE IF NOT EXISTS proposal_approvals (
+  proposal_id TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  decision TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(proposal_id, actor_id),
+  FOREIGN KEY(proposal_id) REFERENCES action_proposals(id)
+);
+
+CREATE TABLE IF NOT EXISTS evaluation_decisions (
+  id TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL,
+  source_input TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  action TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  evidence_count INTEGER NOT NULL DEFAULT 0,
+  coverage_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  UNIQUE(source_input, mode)
+);
+
+CREATE INDEX IF NOT EXISTS evaluation_channel_idx
+  ON evaluation_decisions(channel_id, created_at);
+`
+
+const schemaV5 = `
+ALTER TABLE incidents ADD COLUMN work_kind TEXT NOT NULL DEFAULT 'incident'
+  CHECK (work_kind IN ('incident', 'engineering_task'));
+ALTER TABLE incidents ADD COLUMN work_scope TEXT NOT NULL DEFAULT 'room'
+  CHECK (work_scope IN ('room', 'thread'));
+ALTER TABLE incidents ADD COLUMN origin_channel_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE incidents ADD COLUMN origin_thread_ts TEXT NOT NULL DEFAULT '';
+
+UPDATE incidents
+SET work_kind = 'engineering_task',
+    work_scope = CASE
+      WHEN channel_id = '' AND coop_session_id = '' THEN 'thread'
+      ELSE 'room'
+    END,
+    origin_channel_id = COALESCE((
+      SELECT json_extract(signals.labels_json, '$.slack_origin_channel')
+      FROM signals
+      WHERE signals.incident_id = incidents.id
+      ORDER BY signals.received_at
+      LIMIT 1
+    ), ''),
+    origin_thread_ts = COALESCE((
+      SELECT json_extract(signals.labels_json, '$.slack_origin_thread')
+      FROM signals
+      WHERE signals.incident_id = incidents.id
+      ORDER BY signals.received_at
+      LIMIT 1
+    ), '')
+WHERE route = 'manual' AND source_incident_id LIKE 'task:%';
+
+UPDATE incidents
+SET origin_channel_id = COALESCE((
+      SELECT json_extract(signals.labels_json, '$.slack_origin_channel')
+      FROM signals
+      WHERE signals.incident_id = incidents.id
+      ORDER BY signals.received_at
+      LIMIT 1
+    ), ''),
+    origin_thread_ts = COALESCE((
+      SELECT json_extract(signals.labels_json, '$.slack_origin_thread')
+      FROM signals
+      WHERE signals.incident_id = incidents.id
+      ORDER BY signals.received_at
+      LIMIT 1
+    ), '')
+WHERE route = 'manual' AND work_kind = 'incident';
+
+CREATE INDEX IF NOT EXISTS incidents_conversation_idx
+  ON incidents(work_scope, origin_channel_id, origin_thread_ts, status);
+`
+
+const schemaV6 = `
+CREATE TABLE IF NOT EXISTS publications (
+  incident_id TEXT PRIMARY KEY,
+  repository TEXT NOT NULL,
+  base_branch TEXT NOT NULL,
+  head_branch TEXT NOT NULL,
+  parent_head TEXT NOT NULL,
+  candidate_tree TEXT NOT NULL,
+  commit_sha TEXT NOT NULL DEFAULT '',
+  remote_sha TEXT NOT NULL DEFAULT '',
+  pr_number INTEGER NOT NULL DEFAULT 0,
+  pr_url TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  published_at TEXT,
+  FOREIGN KEY(incident_id) REFERENCES incidents(id)
+);
+
+CREATE INDEX IF NOT EXISTS publications_state_idx
+  ON publications(state, updated_at);
+
+CREATE TABLE IF NOT EXISTS coop_cleanup (
+  session_id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL,
+  allow_unmerged INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL,
+  plan_operation_id TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  eligible_at TEXT NOT NULL,
+  next_attempt_at TEXT NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS coop_cleanup_work_idx
+  ON coop_cleanup(state, next_attempt_at, eligible_at);
+`
+
 var migrations = []string{
 	schemaV1,
+	schemaV2,
+	schemaV3,
+	schemaV4,
+	schemaV5,
+	schemaV6,
 }

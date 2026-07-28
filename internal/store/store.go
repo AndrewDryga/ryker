@@ -30,14 +30,17 @@ type Store struct {
 }
 
 type Metrics struct {
-	IncidentsOpen   int
-	IncidentsTotal  int
-	SessionsOpen    int
-	WebhooksPending int
-	SlackPending    int
-	OutboxPending   int
-	TurnsPending    int
-	WorkFailed      int
+	IncidentsOpen   int `json:"incidents_open"`
+	IncidentsTotal  int `json:"incidents_total"`
+	SessionsOpen    int `json:"sessions_open"`
+	PublishedPRs    int `json:"published_prs"`
+	CleanupPending  int `json:"cleanup_pending"`
+	CleanupBlocked  int `json:"cleanup_blocked"`
+	WebhooksPending int `json:"webhooks_pending"`
+	SlackPending    int `json:"slack_pending"`
+	OutboxPending   int `json:"outbox_pending"`
+	TurnsPending    int `json:"turns_pending"`
+	WorkFailed      int `json:"work_failed"`
 }
 
 type FailedWork struct {
@@ -48,6 +51,15 @@ type FailedWork struct {
 	Attempts  int       `json:"attempts"`
 	LastError string    `json:"last_error"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type SlackSetting struct {
+	Scope     string
+	ChannelID string
+	Name      string
+	Value     string
+	ActorID   string
+	UpdatedAt time.Time
 }
 
 func Open(stateDir string) (*Store, error) {
@@ -74,7 +86,22 @@ func Open(stateDir string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("configure database connection: %w", err)
 	}
+	version, err := schemaVersion(db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if version == 0 {
+		if _, err := db.Exec(`PRAGMA auto_vacuum = INCREMENTAL;`); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("configure incremental database vacuum: %w", err)
+		}
+	}
 	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := ensureIncrementalVacuum(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -83,6 +110,26 @@ func Open(stateDir string) (*Store, error) {
 		return nil, fmt.Errorf("configure database durability: %w", err)
 	}
 	return store, nil
+}
+
+func ensureIncrementalVacuum(db *sql.DB) error {
+	var mode int
+	if err := db.QueryRow(`PRAGMA auto_vacuum;`).Scan(&mode); err != nil {
+		return fmt.Errorf("inspect database vacuum mode: %w", err)
+	}
+	if mode == 2 {
+		return nil
+	}
+	if _, err := db.Exec(`PRAGMA auto_vacuum = INCREMENTAL; VACUUM;`); err != nil {
+		return fmt.Errorf("enable incremental database vacuum: %w", err)
+	}
+	if err := db.QueryRow(`PRAGMA auto_vacuum;`).Scan(&mode); err != nil {
+		return fmt.Errorf("verify database vacuum mode: %w", err)
+	}
+	if mode != 2 {
+		return fmt.Errorf("database auto_vacuum mode is %d after migration, want 2", mode)
+	}
+	return nil
 }
 
 // OpenCurrent opens an existing database for inspection without changing its
@@ -221,6 +268,10 @@ func (s *Store) RecoverInterrupted(ctx context.Context) error {
 		  , next_attempt_at = updated_at WHERE state = 'submitting';
 		UPDATE outbox SET state = 'uncertain', last_error = 'process stopped during Slack send'
 		  WHERE state = 'sending';
+		UPDATE publications SET state = 'failed',
+		  last_error = 'Responder stopped during draft PR publication',
+		  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		  WHERE state = 'publishing';
 	`); err != nil {
 		return fmt.Errorf("recover interrupted work: %w", err)
 	}
@@ -257,6 +308,102 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
+func (s *Store) SetSlackSetting(
+	ctx context.Context,
+	scope, channelID, name, value, actorID string,
+) error {
+	if err := validateSlackSettingKey(scope, channelID, name); err != nil {
+		return err
+	}
+	if strings.TrimSpace(value) == "" || strings.TrimSpace(actorID) == "" {
+		return errors.New("Slack setting value and actor are required")
+	}
+	if len(value) > 1024 || len(actorID) > 64 {
+		return errors.New("Slack setting field exceeds its limit")
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO slack_settings (scope, channel_id, name, value, actor_id, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(scope, channel_id, name) DO UPDATE SET
+		  value = excluded.value,
+		  actor_id = excluded.actor_id,
+		  updated_at = excluded.updated_at`,
+		scope, channelID, name, value, actorID, nowText())
+	return err
+}
+
+func (s *Store) DeleteSlackSetting(
+	ctx context.Context,
+	scope, channelID, name string,
+) error {
+	if err := validateSlackSettingKey(scope, channelID, name); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM slack_settings
+		WHERE scope = ? AND channel_id = ? AND name = ?`,
+		scope, channelID, name)
+	return err
+}
+
+func (s *Store) DeleteSlackChannelSettings(ctx context.Context, channelID string) (int64, error) {
+	if strings.TrimSpace(channelID) == "" || len(channelID) > 64 {
+		return 0, errors.New("Slack channel ID is invalid")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM slack_settings
+		WHERE scope = 'channel' AND channel_id = ?`,
+		channelID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+func (s *Store) GetSlackSetting(
+	ctx context.Context,
+	scope, channelID, name string,
+) (SlackSetting, error) {
+	if err := validateSlackSettingKey(scope, channelID, name); err != nil {
+		return SlackSetting{}, err
+	}
+	var setting SlackSetting
+	var updated string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT scope, channel_id, name, value, actor_id, updated_at
+		FROM slack_settings
+		WHERE scope = ? AND channel_id = ? AND name = ?`,
+		scope, channelID, name).Scan(
+		&setting.Scope, &setting.ChannelID, &setting.Name,
+		&setting.Value, &setting.ActorID, &updated,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SlackSetting{}, ErrNotFound
+	}
+	if err != nil {
+		return SlackSetting{}, err
+	}
+	setting.UpdatedAt = parseTime(updated)
+	return setting, nil
+}
+
+func validateSlackSettingKey(scope, channelID, name string) error {
+	if scope != "global" && scope != "channel" {
+		return errors.New("Slack setting scope must be global or channel")
+	}
+	if (scope == "global" && channelID != "") || (scope == "channel" && channelID == "") {
+		return errors.New("Slack setting channel does not match its scope")
+	}
+	if strings.TrimSpace(name) == "" {
+		return errors.New("Slack setting name is required")
+	}
+	if len(name) > 64 || len(channelID) > 64 {
+		return errors.New("Slack setting field exceeds its limit")
+	}
+	return nil
+}
+
 func (s *Store) Check(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx, `PRAGMA quick_check`)
 	if err != nil {
@@ -291,6 +438,9 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 		{&result.IncidentsOpen, `SELECT count(*) FROM incidents WHERE status != 'closed'`},
 		{&result.IncidentsTotal, `SELECT count(*) FROM incidents`},
 		{&result.SessionsOpen, `SELECT count(*) FROM incidents WHERE coop_session_id != '' AND workflow != 'closed'`},
+		{&result.PublishedPRs, `SELECT count(*) FROM publications WHERE state = 'published'`},
+		{&result.CleanupPending, `SELECT count(*) FROM coop_cleanup WHERE state IN ('pending', 'retry', 'planning', 'discarding')`},
+		{&result.CleanupBlocked, `SELECT count(*) FROM coop_cleanup WHERE state = 'blocked'`},
 		{&result.WebhooksPending, `SELECT count(*) FROM webhook_events WHERE state IN ('pending', 'retry', 'processing')`},
 		{&result.SlackPending, `SELECT count(*) FROM slack_inputs WHERE state IN ('pending', 'retry', 'processing')`},
 		{&result.OutboxPending, `SELECT count(*) FROM outbox WHERE state IN ('pending', 'retry', 'sending', 'uncertain')`},
@@ -300,7 +450,9 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 			  (SELECT count(*) FROM webhook_events WHERE state = 'failed') +
 			  (SELECT count(*) FROM slack_inputs WHERE state = 'failed') +
 			  (SELECT count(*) FROM outbox WHERE state = 'failed') +
-			  (SELECT count(*) FROM turn_submissions WHERE state = 'failed')`},
+			  (SELECT count(*) FROM turn_submissions WHERE state = 'failed') +
+			  (SELECT count(*) FROM publications WHERE state = 'failed') +
+			  (SELECT count(*) FROM coop_cleanup WHERE state = 'blocked')`},
 	}
 	for _, item := range queries {
 		if err := s.db.QueryRowContext(ctx, item.query).Scan(item.target); err != nil {
@@ -331,6 +483,12 @@ func (s *Store) ListFailedWork(ctx context.Context, limit int) ([]FailedWork, er
 			       CASE WHEN coop_turn_id = '' THEN 1 ELSE 0 END,
 			       attempts, last_error, updated_at
 			FROM turn_submissions WHERE state = 'failed'
+			UNION ALL
+			SELECT 'publication', incident_id, head_branch, 0, 1, last_error, updated_at
+			FROM publications WHERE state = 'failed'
+			UNION ALL
+			SELECT 'cleanup', session_id, incident_id, 0, attempts, last_error, updated_at
+			FROM coop_cleanup WHERE state = 'blocked'
 		)
 		ORDER BY updated_at DESC, kind, id
 		LIMIT ?`, limit)
@@ -529,7 +687,8 @@ func (s *Store) LeaseWebhook(ctx context.Context) (core.WebhookEvent, error) {
 		       applied, state, attempts,
 		       next_attempt_at, last_error, received_at
 		FROM webhook_events
-		WHERE state IN ('pending', 'retry') AND next_attempt_at <= ?
+		WHERE state IN ('pending', 'retry')
+		  AND julianday(next_attempt_at) <= julianday(?)
 		ORDER BY received_at LIMIT 1`, now))
 	if err != nil {
 		return core.WebhookEvent{}, err
@@ -875,13 +1034,15 @@ const incidentColumns = `
 	status, workflow, signal_count, firing_count, channel_id, channel_name, root_ts,
 	coop_session_id, coop_fork_name, coop_revision, coop_event_sequence, active_turn_id,
 	initial_turn_queued, card_version, card_rendered_version, last_error,
-	created_at, updated_at, last_firing_at, resolve_due_at, resolved_at, closed_at`
+	created_at, updated_at, last_firing_at, resolve_due_at, resolved_at, closed_at,
+	channel_state, channel_state_changed_at, channel_checked_at,
+	work_kind, work_scope, origin_channel_id, origin_thread_ts`
 
 func scanIncident(row interface{ Scan(...any) error }) (core.Incident, error) {
 	var incident core.Incident
 	var initial int
 	var created, updated string
-	var firing, due, resolved, closed sql.NullString
+	var firing, due, resolved, closed, channelChanged, channelChecked sql.NullString
 	err := row.Scan(
 		&incident.ID, &incident.Route, &incident.Repository, &incident.CorrelationKey,
 		&incident.SourceIncidentID, &incident.Title, &incident.Severity, &incident.Status,
@@ -890,7 +1051,9 @@ func scanIncident(row interface{ Scan(...any) error }) (core.Incident, error) {
 		&incident.CoopRevision, &incident.CoopEventSequence,
 		&incident.ActiveTurnID, &initial, &incident.CardVersion,
 		&incident.CardRenderedVersion, &incident.LastError, &created, &updated, &firing, &due,
-		&resolved, &closed,
+		&resolved, &closed, &incident.ChannelState, &channelChanged, &channelChecked,
+		&incident.WorkKind, &incident.WorkScope, &incident.OriginChannelID,
+		&incident.OriginThreadTS,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -905,6 +1068,8 @@ func scanIncident(row interface{ Scan(...any) error }) (core.Incident, error) {
 	incident.ResolveDueAt = scanTime(due)
 	incident.ResolvedAt = scanTime(resolved)
 	incident.ClosedAt = scanTime(closed)
+	incident.ChannelStateChangedAt = scanTime(channelChanged)
+	incident.ChannelCheckedAt = scanTime(channelChecked)
 	return incident, nil
 }
 
@@ -914,8 +1079,23 @@ func (s *Store) GetIncident(ctx context.Context, id string) (core.Incident, erro
 
 func (s *Store) FindIncidentByChannel(ctx context.Context, channelID string) (core.Incident, error) {
 	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
-		FROM incidents WHERE channel_id = ? AND status != 'closed'
+		FROM incidents WHERE channel_id = ? AND work_scope = 'room' AND status != 'closed'
 		ORDER BY updated_at DESC LIMIT 1`, channelID))
+}
+
+func (s *Store) FindIncidentForConversation(
+	ctx context.Context,
+	channelID string,
+	threadTS string,
+) (core.Incident, error) {
+	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
+		FROM incidents
+		WHERE status != 'closed' AND (
+		  (work_scope = 'room' AND channel_id = ?)
+		  OR
+		  (work_scope = 'thread' AND origin_channel_id = ? AND origin_thread_ts = ?)
+		)
+		ORDER BY updated_at DESC LIMIT 1`, channelID, channelID, threadTS))
 }
 
 func (s *Store) ListIncidents(ctx context.Context, limit int) ([]core.Incident, error) {
@@ -937,6 +1117,47 @@ func (s *Store) ListIncidents(ctx context.Context, limit int) ([]core.Incident, 
 		result = append(result, incident)
 	}
 	return result, rows.Err()
+}
+
+func (s *Store) ListIncidentPage(
+	ctx context.Context,
+	openOnly bool,
+	limit int,
+	offset int,
+) ([]core.Incident, int, error) {
+	if limit <= 0 || limit > 100 || offset < 0 {
+		return nil, 0, errors.New("incident page requires limit 1..100 and non-negative offset")
+	}
+	where := ""
+	if openOnly {
+		where = " WHERE status != 'closed'"
+	}
+	var total int
+	if err := s.db.QueryRowContext(
+		ctx, `SELECT COUNT(*) FROM incidents`+where,
+	).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT `+incidentColumns+` FROM incidents`+where+
+			` ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+		limit,
+		offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	result := make([]core.Incident, 0, min(limit, total))
+	for rows.Next() {
+		incident, err := scanIncident(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		result = append(result, incident)
+	}
+	return result, total, rows.Err()
 }
 
 func (s *Store) ListSignals(ctx context.Context, incidentID string) ([]core.Signal, error) {
@@ -980,11 +1201,13 @@ func (s *Store) ListChannelWork(ctx context.Context, limit int) ([]core.Incident
 }
 
 func (s *Store) ListRootWork(ctx context.Context, limit int) ([]core.Incident, error) {
-	return s.listIncidentsWhere(ctx, `channel_id != '' AND root_ts = '' AND workflow = 'provisioning_channel'`, limit)
+	return s.listIncidentsWhere(ctx, `channel_id != '' AND channel_state = 'active'
+		AND root_ts = '' AND workflow = 'provisioning_channel'`, limit)
 }
 
 func (s *Store) ListSessionWork(ctx context.Context, limit int) ([]core.Incident, error) {
-	return s.listIncidentsWhere(ctx, `root_ts != '' AND coop_session_id = '' AND workflow IN ('provisioning_session', 'holding')`, limit)
+	return s.listIncidentsWhere(ctx, `root_ts != '' AND channel_state = 'active'
+		AND coop_session_id = '' AND workflow IN ('provisioning_session', 'holding')`, limit)
 }
 
 func (s *Store) ListBoundIncidents(ctx context.Context, limit int) ([]core.Incident, error) {
@@ -992,7 +1215,8 @@ func (s *Store) ListBoundIncidents(ctx context.Context, limit int) ([]core.Incid
 }
 
 func (s *Store) ListDirtyCards(ctx context.Context, limit int) ([]core.Incident, error) {
-	return s.listIncidentsWhere(ctx, `root_ts != '' AND card_version > card_rendered_version`, limit)
+	return s.listIncidentsWhere(ctx, `root_ts != '' AND channel_state = 'active'
+		AND card_version > card_rendered_version`, limit)
 }
 
 func (s *Store) listIncidentsWhere(ctx context.Context, where string, limit int) ([]core.Incident, error) {
@@ -1017,19 +1241,217 @@ func (s *Store) listIncidentsWhere(ctx context.Context, where string, limit int)
 }
 
 func (s *Store) SetChannel(ctx context.Context, id, channelID, channelName string) error {
+	now := nowText()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET channel_id = ?, channel_name = ?, workflow = 'provisioning_channel',
+		  channel_state = 'active', channel_state_changed_at = ?, channel_checked_at = ?,
 		  updated_at = ?, card_version = card_version + 1, last_error = ''
-		WHERE id = ? AND channel_id = ''`, channelID, channelName, nowText(), id)
+		WHERE id = ? AND channel_id = ''`, channelID, channelName, now, now, now, id)
 	return expectOne(result, err, "bind incident channel")
+}
+
+func (s *Store) BindThreadWork(ctx context.Context, id string) error {
+	now := nowText()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE incidents SET channel_id = origin_channel_id, workflow = 'provisioning_channel',
+		  channel_state = 'active', channel_state_changed_at = ?, channel_checked_at = ?,
+		  updated_at = ?, card_version = card_version + 1, last_error = ''
+		WHERE id = ? AND work_scope = 'thread' AND channel_id = ''
+		  AND origin_channel_id != '' AND origin_thread_ts != ''`,
+		now, now, now, id)
+	return expectOne(result, err, "bind thread work conversation")
+}
+
+func (s *Store) ListChannelReconciliationWork(
+	ctx context.Context,
+	limit int,
+) ([]core.Incident, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+incidentColumns+`
+		FROM incidents
+		WHERE channel_id != '' AND status != 'closed'
+		  AND channel_state IN ('active', 'archived', 'unreachable')
+		ORDER BY COALESCE(channel_checked_at, created_at), created_at
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []core.Incident
+	for rows.Next() {
+		incident, err := scanIncident(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, incident)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) SetIncidentChannelState(
+	ctx context.Context,
+	channelID string,
+	state core.ChannelState,
+	observedAt time.Time,
+) ([]core.Incident, error) {
+	if channelID == "" {
+		return nil, errors.New("incident channel ID is required")
+	}
+	switch state {
+	case core.ChannelActive, core.ChannelArchived, core.ChannelDeleted, core.ChannelUnreachable:
+	default:
+		return nil, fmt.Errorf("invalid incident channel state %q", state)
+	}
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
+	observed := observedAt.UTC().Format(timestampFormat)
+	roomDetail := channelStateError(state, false)
+	threadDetail := channelStateError(state, true)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE incidents
+		SET channel_state_changed_at = CASE
+		      WHEN channel_state != ? THEN ? ELSE channel_state_changed_at END,
+		  channel_checked_at = ?,
+		  workflow = CASE
+		    WHEN status = 'closed' THEN workflow
+		    WHEN ? != 'active' THEN 'blocked'
+		    WHEN channel_state != 'active' THEN CASE
+		      WHEN coop_session_id = '' AND root_ts = '' THEN 'provisioning_channel'
+		      WHEN coop_session_id = '' THEN 'provisioning_session'
+		      WHEN active_turn_id != '' THEN 'investigating'
+		      ELSE 'parked'
+		    END
+		    ELSE workflow
+		  END,
+		  last_error = CASE
+		    WHEN status = 'closed' THEN last_error
+		    WHEN ? != 'active' AND work_scope = 'thread' THEN ?
+		    WHEN ? != 'active' THEN ?
+		    WHEN channel_state != 'active' AND (
+		      last_error LIKE 'Slack incident room%'
+		      OR last_error LIKE 'The Slack channel containing this task thread%'
+		    ) THEN ''
+		    ELSE last_error
+		  END,
+		  card_version = card_version + CASE WHEN channel_state != ? THEN 1 ELSE 0 END,
+		  updated_at = CASE WHEN channel_state != ? THEN ? ELSE updated_at END,
+		  channel_state = ?
+		WHERE channel_id = ?
+		  AND (channel_state_changed_at IS NULL OR channel_state_changed_at <= ?)
+		  AND NOT (channel_state = 'deleted' AND ? != 'deleted')`,
+		state, observed, observed,
+		state, state, threadDetail, state, roomDetail,
+		state, state, observed, state, channelID, observed, state,
+	)
+	if err != nil {
+		return nil, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	rows, err := tx.QueryContext(
+		ctx, `SELECT `+incidentColumns+` FROM incidents WHERE channel_id = ? ORDER BY created_at`,
+		channelID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var incidents []core.Incident
+	for rows.Next() {
+		incident, scanErr := scanIncident(rows)
+		if scanErr != nil {
+			rows.Close()
+			return nil, scanErr
+		}
+		incidents = append(incidents, incident)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return incidents, nil
+}
+
+func channelStateError(state core.ChannelState, threadScoped bool) string {
+	if threadScoped {
+		switch state {
+		case core.ChannelArchived:
+			return "The Slack channel containing this task thread was archived. The Coop session and isolated fork are preserved; unarchive the channel to continue."
+		case core.ChannelDeleted:
+			return "The Slack channel containing this task thread was deleted. The Coop session and isolated fork are preserved, but this thread can no longer continue."
+		case core.ChannelUnreachable:
+			return "The Slack channel containing this task thread is unavailable to Responder. Restore channel access to continue; the Coop session and isolated fork are preserved."
+		default:
+			return ""
+		}
+	}
+	switch state {
+	case core.ChannelArchived:
+		return "Slack incident room was archived. The Coop session and isolated fork are preserved; unarchive the room to continue."
+	case core.ChannelDeleted:
+		return "Slack incident room was deleted. The Coop session and isolated fork are preserved; create or rebind a room before continuing."
+	case core.ChannelUnreachable:
+		return "Slack incident room is unavailable to Responder. The room may be inaccessible or deleted; restore access or rebind a room before continuing."
+	default:
+		return ""
+	}
 }
 
 func (s *Store) CreateManualIncident(
 	ctx context.Context,
-	repository, sourceID, title, userID string,
+	repository, sourceID, title, summary, userID string,
 	originChannelID, originThreadTS string,
 	maxOpenIncidents int,
 ) (core.Incident, bool, error) {
+	return s.createManualWork(
+		ctx, repository, sourceID, title, summary, userID,
+		originChannelID, originThreadTS, maxOpenIncidents, false,
+	)
+}
+
+func (s *Store) CreateEngineeringTask(
+	ctx context.Context,
+	repository, sourceID, title, summary, userID string,
+	originChannelID, originThreadTS string,
+	maxOpenIncidents int,
+) (core.Incident, bool, error) {
+	return s.createManualWork(
+		ctx, repository, sourceID, title, summary, userID,
+		originChannelID, originThreadTS, maxOpenIncidents, true,
+	)
+}
+
+func (s *Store) createManualWork(
+	ctx context.Context,
+	repository, sourceID, title, summary, userID string,
+	originChannelID, originThreadTS string,
+	maxOpenIncidents int,
+	engineeringTask bool,
+) (core.Incident, bool, error) {
+	workKind := "incident"
+	workScope := "room"
+	if engineeringTask {
+		sourceID = "task:" + sourceID
+		workKind = "engineering_task"
+		workScope = "thread"
+	}
 	id, err := core.NewID("inc")
 	if err != nil {
 		return core.Incident{}, false, err
@@ -1044,9 +1466,12 @@ func (s *Store) CreateManualIncident(
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO incidents
 		  (id, route, repository, correlation_key, source_incident_id, title, severity,
-		   status, workflow, signal_count, firing_count, created_at, updated_at, last_firing_at)
-		VALUES (?, 'manual', ?, ?, ?, ?, '', 'active', 'provisioning_channel', 1, 1, ?, ?, ?)`,
-		id, repository, correlation, sourceID, title,
+		   status, workflow, signal_count, firing_count, work_kind, work_scope,
+		   origin_channel_id, origin_thread_ts, created_at, updated_at, last_firing_at)
+		VALUES (?, 'manual', ?, ?, ?, ?, '', 'active', 'provisioning_channel', 1, 1,
+		  ?, ?, ?, ?, ?, ?, ?)`,
+		id, repository, correlation, sourceID, title, workKind, workScope,
+		originChannelID, originThreadTS,
 		now.Format(timestampFormat), now.Format(timestampFormat), now.Format(timestampFormat))
 	if err != nil {
 		return core.Incident{}, false, err
@@ -1063,13 +1488,14 @@ func (s *Store) CreateManualIncident(
 			"slack_user":           userID,
 			"slack_origin_channel": originChannelID,
 			"slack_origin_thread":  originThreadTS,
+			"work_kind":            workKind,
 		})
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO signals
 			  (route, source_id, incident_id, source_incident_id, event_id, repository,
-			   correlation_key, status, title, labels_json, annotations_json, received_at, updated_at)
-			VALUES ('manual', ?, ?, ?, ?, ?, ?, 'firing', ?, ?, '{}', ?, ?)`,
-			sourceID, id, sourceID, sourceID, repository, correlation, title, labels,
+			   correlation_key, status, title, summary, labels_json, annotations_json, received_at, updated_at)
+			VALUES ('manual', ?, ?, ?, ?, ?, ?, 'firing', ?, ?, ?, '{}', ?, ?)`,
+			sourceID, id, sourceID, sourceID, repository, correlation, title, summary, labels,
 			now.Format(timestampFormat), now.Format(timestampFormat)); err != nil {
 			return core.Incident{}, false, err
 		}
@@ -1179,6 +1605,10 @@ func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (boo
 		}
 	}
 	now := nowText()
+	received := input.ReceivedAt
+	if received.IsZero() {
+		received = time.Now().UTC()
+	}
 	result, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO slack_inputs
 		  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
@@ -1186,7 +1616,7 @@ func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (boo
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
 		input.ID, input.EnvelopeID, input.EventID, input.Kind, input.TeamID, input.ChannelID,
 		input.ThreadTS, input.MessageTS, input.UserID, input.Text, input.ActionID,
-		input.ActionValue, now, now, now)
+		input.ActionValue, now, received.UTC().Format(timestampFormat), now)
 	if err != nil {
 		return false, fmt.Errorf("admit Slack input: %w", err)
 	}
@@ -1201,20 +1631,56 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 	}
 	defer tx.Rollback()
 	now := nowText()
-	var input core.SlackInput
-	var received string
-	err = tx.QueryRowContext(ctx, `
-		SELECT id, envelope_id, event_id, kind, team_id, channel_id, thread_ts,
-		  message_ts, user_id, text, action_id, action_value, frozen_json, state, attempts, received_at
-		FROM slack_inputs
-		WHERE state IN ('pending', 'retry') AND next_attempt_at <= ?
-		ORDER BY received_at LIMIT 1`, now).Scan(
-		&input.ID, &input.EnvelopeID, &input.EventID, &input.Kind, &input.TeamID,
-		&input.ChannelID, &input.ThreadTS, &input.MessageTS, &input.UserID, &input.Text,
-		&input.ActionID, &input.ActionValue, &input.Frozen, &input.State, &input.Attempts, &received)
-	if errors.Is(err, sql.ErrNoRows) {
-		return core.SlackInput{}, ErrNotFound
-	}
+	input, err := scanSlackInput(tx.QueryRowContext(ctx, `
+		SELECT candidate.id, candidate.envelope_id, candidate.event_id, candidate.kind,
+		  candidate.team_id, candidate.channel_id, candidate.thread_ts, candidate.message_ts,
+		  candidate.user_id, candidate.text, candidate.action_id, candidate.action_value,
+		  candidate.frozen_json, candidate.state, candidate.attempts, candidate.received_at
+		FROM slack_inputs AS candidate
+			WHERE candidate.state IN ('pending', 'retry')
+			  AND julianday(candidate.next_attempt_at) <= julianday(?)
+		  AND (
+		    candidate.kind IN ('slash', 'action') OR
+		    NOT EXISTS (
+		      SELECT 1 FROM slack_inputs AS earlier
+		      WHERE earlier.channel_id = candidate.channel_id
+		        AND earlier.state IN ('pending', 'retry', 'processing')
+		        AND (
+		          (
+		            earlier.message_ts != '' AND candidate.message_ts != '' AND (
+		              earlier.message_ts < candidate.message_ts OR
+		              (
+		                earlier.message_ts = candidate.message_ts AND (
+			                  julianday(earlier.received_at) < julianday(candidate.received_at) OR
+			                  (
+			                    julianday(earlier.received_at) = julianday(candidate.received_at)
+			                    AND earlier.id < candidate.id
+			                  )
+		                )
+		              )
+		            )
+		          ) OR (
+		            (earlier.message_ts = '' OR candidate.message_ts = '') AND (
+			              julianday(earlier.received_at) < julianday(candidate.received_at) OR
+			              (
+			                julianday(earlier.received_at) = julianday(candidate.received_at)
+			                AND earlier.id < candidate.id
+			              )
+		            )
+		          )
+		        )
+		    )
+		  )
+			ORDER BY
+			  CASE WHEN candidate.kind IN ('slash', 'action') THEN 0 ELSE 1 END,
+			  CASE
+			    WHEN candidate.message_ts = '' THEN
+			      (julianday(candidate.received_at) - 2440587.5) * 86400.0
+			    ELSE CAST(candidate.message_ts AS REAL)
+			  END,
+			  julianday(candidate.received_at),
+			  candidate.id
+		LIMIT 1`, now))
 	if err != nil {
 		return core.SlackInput{}, err
 	}
@@ -1229,6 +1695,126 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 	}
 	input.State = "processing"
 	input.Attempts++
+	return input, nil
+}
+
+func (s *Store) GetSlackInput(ctx context.Context, id string) (core.SlackInput, error) {
+	return scanSlackInput(s.db.QueryRowContext(ctx, `
+		SELECT id, envelope_id, event_id, kind, team_id, channel_id, thread_ts,
+		  message_ts, user_id, text, action_id, action_value, frozen_json, state, attempts, received_at
+		FROM slack_inputs WHERE id = ?`, id))
+}
+
+func (s *Store) ListRecentWatchMessages(
+	ctx context.Context,
+	channelID string,
+	limit int,
+) ([]core.SlackInput, error) {
+	if channelID == "" || limit < 1 || limit > 100 {
+		return nil, errors.New("recent Slack context requires a channel and limit between 1 and 100")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT input.id, input.envelope_id, input.event_id, input.kind, input.team_id,
+		  input.channel_id, input.thread_ts, input.message_ts, input.user_id, input.text,
+		  input.action_id, input.action_value, input.frozen_json, input.state,
+		  input.attempts, input.received_at
+		FROM slack_inputs AS input
+		WHERE input.channel_id = ?
+		  AND input.message_ts != ''
+		  AND input.kind IN ('message', 'bot_message', 'mention', 'direct', 'shortcut')
+		  AND (
+		    input.state IN ('pending', 'retry', 'processing') OR
+		    EXISTS (
+		      SELECT 1 FROM audit_events AS audit
+		      WHERE audit.kind = 'slack.watch' AND audit.object_id = input.id
+		    )
+		  )
+		ORDER BY input.message_ts DESC, input.received_at DESC, input.id DESC
+		LIMIT ?`,
+		channelID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.SlackInput, 0, limit)
+	for rows.Next() {
+		input, err := scanSlackInput(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, input)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	slices.Reverse(result)
+	return result, nil
+}
+
+func (s *Store) LatestSlackConversationAt(
+	ctx context.Context,
+	channelID string,
+) (time.Time, error) {
+	if channelID == "" {
+		return time.Time{}, errors.New("Slack conversation channel is required")
+	}
+	var latest sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT MAX(received_at)
+		FROM slack_inputs
+		WHERE channel_id = ?
+		  AND kind IN ('message', 'bot_message', 'mention', 'direct', 'shortcut')
+		  AND state IN ('pending', 'retry', 'processing')`,
+		channelID,
+	).Scan(&latest)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !latest.Valid || latest.String == "" {
+		return time.Time{}, ErrNotFound
+	}
+	return parseTime(latest.String), nil
+}
+
+func (s *Store) HasNewerWatchDecision(
+	ctx context.Context,
+	channelID string,
+	messageTS string,
+) (bool, error) {
+	if channelID == "" || messageTS == "" {
+		return false, nil
+	}
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1
+		  FROM slack_inputs AS input
+		  JOIN audit_events AS audit
+		    ON audit.kind = 'slack.watch' AND audit.object_id = input.id
+		  WHERE input.channel_id = ?
+			    AND input.kind IN ('message', 'bot_message', 'mention', 'direct', 'shortcut')
+		    AND input.message_ts > ?
+		)`,
+		channelID, messageTS,
+	).Scan(&exists)
+	return exists, err
+}
+
+func scanSlackInput(row interface{ Scan(...any) error }) (core.SlackInput, error) {
+	var input core.SlackInput
+	var received string
+	err := row.Scan(
+		&input.ID, &input.EnvelopeID, &input.EventID, &input.Kind, &input.TeamID,
+		&input.ChannelID, &input.ThreadTS, &input.MessageTS, &input.UserID, &input.Text,
+		&input.ActionID, &input.ActionValue, &input.Frozen, &input.State, &input.Attempts, &received,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.SlackInput{}, ErrNotFound
+	}
+	if err != nil {
+		return core.SlackInput{}, err
+	}
 	input.ReceivedAt = parseTime(received)
 	return input, nil
 }
@@ -1278,6 +1864,16 @@ func (s *Store) FreezeSlackInput(ctx context.Context, id string, frozen []byte) 
 	return existing, nil
 }
 
+func (s *Store) SetSlackInputFrozen(ctx context.Context, id string, frozen []byte) error {
+	if len(frozen) == 0 {
+		return errors.New("Slack input state is empty")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE slack_inputs SET frozen_json = ?, updated_at = ?
+		WHERE id = ? AND state = 'processing'`, frozen, nowText(), id)
+	return expectOne(result, err, "set Slack input state")
+}
+
 func (s *Store) EnqueueOutbox(ctx context.Context, message core.OutboxMessage) (bool, error) {
 	if message.ID == "" {
 		var err error
@@ -1313,7 +1909,8 @@ func (s *Store) LeaseOutbox(ctx context.Context) (core.OutboxMessage, error) {
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, incident_id, kind, channel_id, thread_ts, message_ts, body_json,
 		  state, attempts, next_attempt_at, last_error, created_at
-		FROM outbox WHERE state IN ('pending', 'retry') AND next_attempt_at <= ?
+		FROM outbox WHERE state IN ('pending', 'retry')
+		  AND julianday(next_attempt_at) <= julianday(?)
 		ORDER BY created_at LIMIT 1`, now).Scan(
 		&item.ID, &item.IncidentID, &item.Kind, &item.ChannelID, &item.ThreadTS,
 		&item.MessageTS, &item.Body, &item.State, &item.Attempts, &next,
@@ -1365,7 +1962,8 @@ func (s *Store) ListUncertainOutbox(ctx context.Context, limit int) ([]core.Outb
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, incident_id, kind, channel_id, thread_ts, message_ts, body_json,
 		  state, attempts, next_attempt_at, last_error, created_at
-		FROM outbox WHERE state = 'uncertain' AND next_attempt_at <= ?
+		FROM outbox WHERE state = 'uncertain'
+		  AND julianday(next_attempt_at) <= julianday(?)
 		ORDER BY created_at LIMIT ?`, nowText(), limit)
 	if err != nil {
 		return nil, err
@@ -1475,6 +2073,20 @@ func (s *Store) GetTurnSubmissionBySource(ctx context.Context, kind, sourceID st
 		FROM turn_submissions WHERE source_kind = ? AND source_id = ?`, kind, sourceID))
 }
 
+func (s *Store) GetTurnSubmissionByCoopTurn(
+	ctx context.Context,
+	coopTurnID string,
+) (core.TurnSubmission, error) {
+	if coopTurnID == "" {
+		return core.TurnSubmission{}, errors.New("Coop turn ID is required")
+	}
+	return scanTurnSubmission(s.db.QueryRowContext(ctx, `
+		SELECT id, incident_id, source_kind, source_id, user_id, prompt, idempotency_key,
+		  expected_revision, coop_turn_id, state, attempts, next_attempt_at,
+		  last_error, created_at, updated_at
+		FROM turn_submissions WHERE coop_turn_id = ?`, coopTurnID))
+}
+
 func scanTurnSubmission(row interface{ Scan(...any) error }) (core.TurnSubmission, error) {
 	var item core.TurnSubmission
 	var next, created, updated string
@@ -1507,7 +2119,7 @@ func (s *Store) LeaseTurnSubmission(ctx context.Context) (core.TurnSubmission, e
 		JOIN incidents i ON i.id = t.incident_id
 		WHERE t.state IN ('pending', 'retry') AND i.coop_session_id != ''
 		  AND i.active_turn_id = '' AND i.workflow NOT IN ('closed', 'blocked')
-		  AND t.next_attempt_at <= ?
+		  AND julianday(t.next_attempt_at) <= julianday(?)
 		ORDER BY t.created_at LIMIT 1`, nowText()))
 	if err != nil {
 		return core.TurnSubmission{}, err

@@ -20,7 +20,9 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/httpapi"
+	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -46,6 +48,8 @@ func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 		return runFailures(args[1:], stdout, stderr)
 	case "retry":
 		return runRetry(args[1:], stdout, stderr)
+	case "eval":
+		return runEval(args[1:], stdout, stderr)
 	case "version", "--version", "-version":
 		fmt.Fprintln(stdout, buildVersion)
 		return nil
@@ -79,9 +83,48 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if err != nil {
 		return err
 	}
+	projectedEnvironment, err := additionalEnvironmentValues(cfg)
+	if err != nil {
+		return err
+	}
 	emisarToken, err := cfg.Secret(cfg.Coop.EmisarTokenEnv)
 	if err != nil {
 		return err
+	}
+	redactions := []string{botToken, appToken, emisarToken}
+	if cfg.GitHub.TokenEnv != "" {
+		if token := os.Getenv(cfg.GitHub.TokenEnv); token != "" {
+			redactions = append(redactions, token)
+		}
+	}
+	for _, secret := range secrets {
+		redactions = append(redactions, secret)
+	}
+	for _, secret := range projectedEnvironment {
+		redactions = append(redactions, secret)
+	}
+	emisarCtx, emisarCancel := context.WithTimeout(
+		context.Background(),
+		cfg.Coop.RequestTimeout.Duration,
+	)
+	_, err = preflightEmisarMCP(
+		emisarCtx,
+		&http.Client{
+			Timeout: cfg.Coop.RequestTimeout.Duration,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		cfg.Coop.EmisarURL,
+		emisarToken,
+	)
+	emisarCancel()
+	if err != nil {
+		return fmt.Errorf("Emisar MCP: %w", err)
+	}
+	githubPublisher := publisher.New(cfg.GitHub, redactions...)
+	if err := githubPublisher.Ready(context.Background()); err != nil {
+		return fmt.Errorf("GitHub publisher: %w", err)
 	}
 	if cfg.Coop.Supervise {
 		expectedBootstrap, err := bootstrapFiles(cfg, emisarToken)
@@ -119,14 +162,11 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		}
 	}()
 	slackClient := slackui.New(botToken, appToken)
-	redactions := []string{botToken, appToken, emisarToken}
-	for _, secret := range secrets {
-		redactions = append(redactions, secret)
-	}
 	svc := service.New(
 		cfg, st, coopClient, slackClient, slackClient,
 		slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes, redactions...), logger,
 	)
+	svc.SetPublisher(githubPublisher)
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), cfg.Coop.RequestTimeout.Duration)
 	err = svc.Initialize(startupCtx)
 	startupCancel()
@@ -197,6 +237,28 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if err != nil {
 		return err
 	}
+	emisarCtx, emisarCancel := context.WithTimeout(
+		context.Background(),
+		cfg.Coop.RequestTimeout.Duration,
+	)
+	emisarReport, err := preflightEmisarMCP(
+		emisarCtx,
+		&http.Client{
+			Timeout: cfg.Coop.RequestTimeout.Duration,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		cfg.Coop.EmisarURL,
+		emisarToken,
+	)
+	emisarCancel()
+	if err != nil {
+		return fmt.Errorf("Emisar MCP: %w", err)
+	}
+	if err := publisher.New(cfg.GitHub).Ready(context.Background()); err != nil {
+		return fmt.Errorf("GitHub publisher: %w", err)
+	}
 	expectedBootstrap, err := bootstrapFiles(cfg, emisarToken)
 	if err != nil {
 		return err
@@ -252,7 +314,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	slackReport, err := slackui.New(botToken, appToken).Preflight(
 		ctx, cfg.Slack.TeamID, cfg.Slack.Operators,
-		cfg.Slack.InviteUsers, cfg.Slack.SummonChannels,
+		cfg.Slack.InviteUsers, cfg.Slack.SummonChannels, cfg.Slack.WatchChannels,
 	)
 	if err != nil {
 		return fmt.Errorf("Slack: %w", err)
@@ -262,8 +324,18 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	checks["slack_operators"] = fmt.Sprintf("%d", slackReport.OperatorCount)
 	checks["slack_invite_users"] = fmt.Sprintf("%d", slackReport.InviteCount)
 	checks["slack_summon_channels"] = fmt.Sprintf("%d", slackReport.SummonChannels)
-	checks["emisar_token"] = "present"
+	checks["slack_watch_channels"] = fmt.Sprintf("%d", slackReport.WatchChannels)
+	checks["emisar_mcp"] = fmt.Sprintf(
+		"authenticated; %d tools; protocol %s",
+		emisarReport.ToolCount,
+		emisarReport.ProtocolVersion,
+	)
 	checks["coop_config"] = "private"
+	if cfg.GitHub.Enabled {
+		checks["github_publisher"] = "draft PR credentials ready"
+	} else {
+		checks["github_publisher"] = "disabled"
+	}
 	if *jsonOutput {
 		return json.NewEncoder(stdout).Encode(map[string]any{"healthy": true, "checks": checks})
 	}
@@ -274,8 +346,14 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	fmt.Fprintf(stdout, "Operators       %d full workspace members\n", slackReport.OperatorCount)
 	fmt.Fprintf(stdout, "Invite users    %d full workspace members\n", slackReport.InviteCount)
 	fmt.Fprintf(stdout, "Summon channels %d accessible\n", slackReport.SummonChannels)
-	fmt.Fprintln(stdout, "Emisar token    present")
+	fmt.Fprintf(stdout, "Watch channels  %d accessible\n", slackReport.WatchChannels)
+	fmt.Fprintf(
+		stdout,
+		"Emisar MCP      authenticated; %d tools; required operational tools ready\n",
+		emisarReport.ToolCount,
+	)
 	fmt.Fprintln(stdout, "Coop config     private")
+	fmt.Fprintf(stdout, "GitHub          %s\n", checks["github_publisher"])
 	return nil
 }
 
@@ -307,9 +385,27 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if *jsonOutput {
-		return json.NewEncoder(stdout).Encode(incidents)
+	metrics, err := st.Metrics(context.Background())
+	if err != nil {
+		return err
 	}
+	if *jsonOutput {
+		if incidents == nil {
+			incidents = []core.Incident{}
+		}
+		return json.NewEncoder(stdout).Encode(struct {
+			Metrics   store.Metrics   `json:"metrics"`
+			Incidents []core.Incident `json:"incidents"`
+		}{
+			Metrics:   metrics,
+			Incidents: incidents,
+		})
+	}
+	fmt.Fprintf(
+		stdout,
+		"Lifecycle: %d draft PRs, %d cleanup queued, %d cleanup blocked\n",
+		metrics.PublishedPRs, metrics.CleanupPending, metrics.CleanupBlocked,
+	)
 	if len(incidents) == 0 {
 		fmt.Fprintln(stdout, "No incidents.")
 		return nil
@@ -488,11 +584,12 @@ func printHelp(output io.Writer) {
 
 Usage:
   responder serve          Run webhook, Slack, and Coop reconciliation
-  responder doctor         Verify local state, Coop, Slack, and Emisar token presence
+  responder doctor         Verify local state, Coop, Slack, and the Emisar MCP tool catalog
   responder bootstrap-coop Write private Coop MCP, environment, and instruction files
   responder status         List durable incidents
   responder failures       List terminal durable work
   responder retry          Requeue one failed work item while Responder is stopped
+  responder eval           Replay the redacted response-quality evaluation corpus
   responder version        Print the build version
 
 Every command accepts --help. The default config is ~/.config/responder/responder.yaml.`)

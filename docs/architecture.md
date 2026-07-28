@@ -26,12 +26,18 @@ The layers have distinct authority:
 | Webhook auth, incident correlation, Slack identity, inbox/outbox | Responder |
 | Repository allowlist, agent target, budgets, fork, box, review | Coop |
 | Infrastructure identity, observe/mutate policy, approval, audit | Emisar |
-| Push, pull request publication, merge, signing, deployment | External human-controlled workflow |
+| Exact reviewed-tree branch publication and draft PR creation | Responder publisher |
+| Merge, signing, deployment | External human-controlled workflow |
 
 The Slack and Emisar tokens are never submitted through the Coop session API. `bootstrap-coop`
 writes the Emisar key to Coop's dedicated owner-private `env` file, while `mcp.json` references it
 by environment-variable name. Coop projects those files into a turn only while its short-lived box
 runs. The same private environment sets `EMISAR_CLIENT=responder` for Emisar audit attribution.
+Responder verifies MCP authentication and the required tool catalog at startup, then instructs
+every agent to choose evidence sources by claim: repository state for declared topology and
+implementation, Emisar as the preferred live infrastructure source, and any other available MCP
+server or tool when it owns relevant evidence. Cross-layer answers must reconcile those sources
+instead of treating runner inventory as host, VM, workload, or service inventory.
 When optional foreground supervision is enabled, Responder launches and monitors the Coop process
 but still communicates only through the same Unix API. Configured Slack, webhook, and Emisar secret
 variables are removed from the child environment.
@@ -46,6 +52,10 @@ SQLite runs in WAL mode with full synchronous writes and one connection. It stor
 - outgoing Slack messages with caller-owned IDs;
 - Coop turn submissions with stable idempotency keys and frozen revisions;
 - Slack channel, root timestamp, Coop session, and event cursor mappings;
+- source-attributed evidence and health-layer coverage independent of answer prose;
+- compact per-channel memory and bounded watch-session generations;
+- incident timeline events and operator decisions;
+- live and shadow evaluation decisions for replay analysis;
 - bounded audit facts for denied and privileged actions.
 
 One serialized reconciliation loop leases a small amount of each work type. HTTP and Socket Mode
@@ -87,6 +97,12 @@ completed paragraphs or turns, never token-streaming tool output or routine raw 
 Alert source links expose their destination hostname and omit query strings and fragments before
 leaving the service.
 
+The App Home is generated from durable incident and failure metrics using Home-supported Block Kit
+sections and fields. Opening the Agent Messages tab installs host-owned suggested prompts.
+Accepted long-running work uses Slack's native agent status with semantic loading milestones; the
+status remains until a reply, explicit silence decision, handoff, or user-facing failure is durably
+handled.
+
 ## Coop delivery
 
 Every mutation has a stable idempotency key:
@@ -95,20 +111,74 @@ Every mutation has a stable idempotency key:
 responder:session:<incident_id>
 responder:turn:<turn_submission_id>
 responder:review:<slack_input_id>
+responder:publish-review:<slack_input_id>
 responder:stop:<slack_input_id>
 responder:extend:<slack_input_id>
 responder:close:<slack_input_id>
+responder:gc-plan:<session_id>:<revision>
+responder:gc-discard:<session_id>:<plan_operation_id>
 ```
 
 Revision-bearing actions freeze the observed session and revision before the call. A lost response
 replays the exact request. A revision conflict is surfaced instead of silently guessing a new
 action.
 
+Draft PR publication is a separate authority boundary. Coop returns a complete reviewed patch,
+exact parent commit, and candidate tree. Responder applies that patch to the exact parent in an
+isolated checkout and refuses publication unless `git write-tree` equals Coop's candidate tree. It
+then pushes a deterministic Responder-owned branch with `--force-with-lease` and creates or updates
+a draft PR. GitHub credentials are held only by Responder and are not projected into the agent box.
+Responder has no merge, signing, deployment, or arbitrary branch-push operation.
+
+Closed-session cleanup is ownership-based rather than name-based. Responder records the exact Coop
+session ID before requesting a discard plan. The plan pins revision, workspace identity, branch,
+head, status digest, dirty state, and unmerged state. Automatic cleanup never accepts dirty work and
+accepts unmerged work only after the reviewed tree has been published durably. Unrelated Coop forks
+are outside Responder's cleanup set.
+
 Coop events are consumed by durable sequence cursor. Terminal turns are fetched from Coop and only
 their bounded assistant message or terminal error is rendered into Slack.
+
+Every completed agent turn is asked for a strict JSON envelope containing Markdown prose, evidence,
+coverage, and compact memory. The host sanitizes and bounds every field,
+persists evidence separately, strips credentials and query strings from evidence URLs, and renders
+only host-owned interactive controls. Legacy prose remains readable during upgrades but is audited
+as unstructured.
+
+Shared operational channels use one ordered watch session at a time. After a configurable turn or
+age limit, Responder closes an idle generation and creates the next one while carrying only compact
+durable memory. The latest 10 to 50 Slack inputs remain frozen event context for each decision; they
+are not compressed into hidden model history.
+
+## Operational actions
+
+Model-proposed operational mutation is disabled in this release. Responder uses Emisar for
+policy-controlled observation, and operators perform mutations through an operator-controlled
+Emisar workflow. A future Slack approval flow must host-validate and bind the exact message, target,
+parameters, policy revision, approver identities, execution result, and verification before this
+surface can be enabled.
+
+## Evaluation
+
+Shadow mode uses the same ordered read-only triage and persistence path but suppresses replies,
+incident offers, and incident creation. Each decision records mode, action, reason, and evidence and
+coverage counts. `responder eval` replays redacted JSONL outputs through the strict parsers so
+prompt, model, and schema changes fail CI when they break accepted decision contracts.
+
+Explicit repository-change requests use a separate engineering-task handoff. The shared-channel
+session remains read-only and can only return an inert task title. An authorized Slack confirmation
+binds that exact source thread to a task-identified durable work record and isolated Coop fork. The
+task card, progress, agent replies, controls, and later operator messages all remain in that thread;
+conversation lookup requires both channel and thread so unrelated messages cannot enter the writable
+session. Incident workflows still create dedicated rooms. Task identity is carried through cards,
+prompts, directory entries, and close behavior so repository work is not presented as an alert
+incident.
 
 ## Deliberate limits
 
 This v1 is a single-host, single-workspace service. SQLite and a local owner-only Coop socket are
-the simplest reliable fit. A later multi-tenant Emisar control plane should use an outbound worker,
-tenant-scoped identity, and a server database. It should not expose Coop's local socket over TCP.
+the simplest reliable fit. Production operators must deploy one isolated Responder process,
+`state_dir`, Coop state directory, Slack credential pair, GitHub credential, and Emisar identity per
+Slack workspace; sharing any of those across customer workspaces is unsupported. A later
+multi-tenant Emisar control plane should use an outbound worker, tenant-scoped identity, and a
+server database. It should not expose Coop's local socket over TCP.

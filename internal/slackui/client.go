@@ -19,22 +19,31 @@ type API interface {
 	Auth(context.Context) (Identity, error)
 	CreateChannel(context.Context, string, bool, string) (Channel, error)
 	FindChannelByName(context.Context, string, string) (Channel, error)
+	GetChannel(context.Context, string) (Channel, error)
 	Invite(context.Context, string, ...string) error
 	SetTopic(context.Context, string, string) error
 	Post(context.Context, string, string, string, Message) (string, error)
+	PostEphemeral(context.Context, string, string, Message) error
 	Update(context.Context, string, string, Message) error
 	Pin(context.Context, string, string) error
 	SetStatus(context.Context, string, string, string) error
+	SetProgress(context.Context, string, string, string, []string) error
+	SetSuggestedPrompts(context.Context, string, string) error
+	PublishHome(context.Context, string, Message) error
 	UserAllowed(context.Context, string, string) (bool, error)
 	FindOutboxMessage(context.Context, string, string, string) (string, error)
 }
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound         = errors.New("not found")
+	ErrSearchIncomplete = errors.New("Slack history search was incomplete")
+)
 
 type Identity struct {
 	TeamID       string
 	BotUserID    string
 	BotID        string
+	BotName      string
 	EnterpriseID string
 	BotScopes    []string
 }
@@ -44,15 +53,18 @@ type PreflightReport struct {
 	OperatorCount  int
 	InviteCount    int
 	SummonChannels int
+	WatchChannels  int
 }
 
 type Channel struct {
-	ID      string
-	Name    string
-	Creator string
-	Created time.Time
-	Private bool
-	Shared  bool
+	ID       string
+	Name     string
+	Creator  string
+	Created  time.Time
+	Private  bool
+	Shared   bool
+	Member   bool
+	Archived bool
 }
 
 type Client struct {
@@ -104,7 +116,7 @@ func (c *Client) Auth(ctx context.Context) (Identity, error) {
 	}
 	return Identity{
 		TeamID: response.TeamID, BotUserID: response.UserID,
-		BotID: response.BotID, EnterpriseID: response.EnterpriseID,
+		BotID: response.BotID, BotName: response.User, EnterpriseID: response.EnterpriseID,
 		BotScopes: splitScopes(response.Header.Get("X-OAuth-Scopes")),
 	}, nil
 }
@@ -115,6 +127,7 @@ func (c *Client) Preflight(
 	operators []string,
 	inviteUsers []string,
 	summonChannels []string,
+	watchChannels []string,
 ) (PreflightReport, error) {
 	identity, err := c.Auth(ctx)
 	if err != nil {
@@ -153,17 +166,32 @@ func (c *Client) Preflight(
 			)
 		}
 	}
-	for _, channelID := range summonChannels {
-		channel, err := c.api.GetConversationInfoContext(ctx, &slack.GetConversationInfoInput{
-			ChannelID: channelID,
-		})
-		if err != nil {
-			return PreflightReport{}, fmt.Errorf("inspect summon channel %s: %w", channelID, err)
-		}
-		if !channel.IsMember {
-			return PreflightReport{}, fmt.Errorf(
-				"bot is not a member of summon channel %s", channelID,
-			)
+	checkedChannels := make(map[string]bool, len(summonChannels)+len(watchChannels))
+	for _, configured := range []struct {
+		kind     string
+		channels []string
+	}{
+		{kind: "summon", channels: summonChannels},
+		{kind: "watch", channels: watchChannels},
+	} {
+		for _, channelID := range configured.channels {
+			if checkedChannels[channelID] {
+				continue
+			}
+			checkedChannels[channelID] = true
+			channel, err := c.api.GetConversationInfoContext(ctx, &slack.GetConversationInfoInput{
+				ChannelID: channelID,
+			})
+			if err != nil {
+				return PreflightReport{}, fmt.Errorf(
+					"inspect %s channel %s: %w", configured.kind, channelID, err,
+				)
+			}
+			if !channel.IsMember {
+				return PreflightReport{}, channelMembershipError(
+					identity.BotName, configured.kind, channelID, channel.Name,
+				)
+			}
 		}
 	}
 	info, websocketURL, err := c.socket.OpenContext(ctx)
@@ -179,7 +207,28 @@ func (c *Client) Preflight(
 	return PreflightReport{
 		Identity: identity, OperatorCount: len(operators),
 		InviteCount: len(inviteUsers), SummonChannels: len(summonChannels),
+		WatchChannels: len(watchChannels),
 	}, nil
+}
+
+func summonChannelMembershipError(botName, channelID, channelName string) error {
+	return channelMembershipError(botName, "summon", channelID, channelName)
+}
+
+func channelMembershipError(botName, kind, channelID, channelName string) error {
+	bot := "the bot"
+	if botName != "" {
+		bot = "@" + botName
+	}
+	channel := channelID
+	if channelName != "" {
+		channel = "#" + channelName + " (" + channelID + ")"
+	}
+	invite := "/invite " + bot
+	return fmt.Errorf(
+		"%s is not a member of %s channel %s; in that Slack channel, run: %s",
+		bot, kind, channel, invite,
+	)
 }
 
 func dialSocketMode(ctx context.Context, websocketURL string) error {
@@ -198,13 +247,16 @@ func dialSocketMode(ctx context.Context, websocketURL string) error {
 
 var requiredBotScopes = []string{
 	"app_mentions:read",
+	"assistant:write",
 	"channels:history",
 	"channels:manage",
 	"channels:read",
 	"chat:write",
+	"commands",
 	"groups:history",
 	"groups:read",
 	"groups:write",
+	"im:history",
 	"pins:write",
 	"users:read",
 }
@@ -279,6 +331,26 @@ func (c *Client) FindChannelByName(ctx context.Context, name, teamID string) (Ch
 	return Channel{}, errors.New("channel not found")
 }
 
+func (c *Client) GetChannel(ctx context.Context, channelID string) (Channel, error) {
+	channel, err := c.api.GetConversationInfoContext(ctx, &slack.GetConversationInfoInput{
+		ChannelID: channelID,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "channel_not_found") {
+			return Channel{}, ErrNotFound
+		}
+		return Channel{}, err
+	}
+	return Channel{
+		ID: channel.ID, Name: channel.Name, Creator: channel.Creator,
+		Created:  time.Unix(int64(channel.Created), 0).UTC(),
+		Private:  channel.IsPrivate,
+		Shared:   channel.IsShared || channel.IsExtShared || channel.IsOrgShared,
+		Member:   channel.IsMember,
+		Archived: channel.IsArchived,
+	}, nil
+}
+
 func (c *Client) Invite(ctx context.Context, channel string, users ...string) error {
 	if len(users) == 0 {
 		return nil
@@ -313,6 +385,23 @@ func (c *Client) Post(ctx context.Context, outboxID, channel, threadTS string, m
 	return timestamp, err
 }
 
+func (c *Client) PostEphemeral(
+	ctx context.Context,
+	channel, user string,
+	message Message,
+) error {
+	_, err := c.api.PostEphemeralContext(
+		ctx,
+		channel,
+		user,
+		slack.MsgOptionText(message.Text, false),
+		slack.MsgOptionBlocks(message.Blocks()...),
+		slack.MsgOptionDisableLinkUnfurl(),
+		slack.MsgOptionDisableMediaUnfurl(),
+	)
+	return err
+}
+
 func (c *Client) Update(ctx context.Context, channel, timestamp string, message Message) error {
 	_, _, _, err := c.api.UpdateMessageContext(
 		ctx,
@@ -335,11 +424,51 @@ func (c *Client) Pin(ctx context.Context, channel, timestamp string) error {
 }
 
 func (c *Client) SetStatus(ctx context.Context, channel, threadTS, status string) error {
+	return c.SetProgress(ctx, channel, threadTS, status, nil)
+}
+
+func (c *Client) SetProgress(
+	ctx context.Context,
+	channel string,
+	threadTS string,
+	status string,
+	loadingMessages []string,
+) error {
+	messages := make([]string, 0, min(len(loadingMessages), 10))
+	for _, message := range loadingMessages[:min(len(loadingMessages), 10)] {
+		messages = append(messages, truncateUTF8(message, 100))
+	}
 	return c.api.SetAssistantThreadsStatusContext(ctx, slack.AssistantThreadsSetStatusParameters{
+		ChannelID: channel, ThreadTS: threadTS,
+		Status: truncateUTF8(status, 100), LoadingMessages: messages,
+	})
+}
+
+func (c *Client) SetSuggestedPrompts(
+	ctx context.Context,
+	channel string,
+	threadTS string,
+) error {
+	parameters := slack.AssistantThreadsSetSuggestedPromptsParameters{
+		Title:     "Investigate with Emisar Responder",
 		ChannelID: channel,
 		ThreadTS:  threadTS,
-		Status:    truncateUTF8(status, 100),
+	}
+	parameters.AddPrompt("Infrastructure health", "Assess current infrastructure health with live evidence.")
+	parameters.AddPrompt("Explain an alert", "Explain the selected alert and verify its current state.")
+	return c.api.SetAssistantThreadsSuggestedPromptsContext(ctx, parameters)
+}
+
+func (c *Client) PublishHome(ctx context.Context, userID string, message Message) error {
+	_, err := c.api.PublishViewContext(ctx, slack.PublishViewContextRequest{
+		UserID: userID,
+		View: slack.HomeTabViewRequest{
+			Type:       slack.VTHomeTab,
+			Blocks:     slack.Blocks{BlockSet: message.Blocks()},
+			CallbackID: "responder_operations_home",
+		},
 	})
+	return err
 }
 
 func (c *Client) UserAllowed(ctx context.Context, userID, teamID string) (bool, error) {
@@ -372,10 +501,10 @@ func (c *Client) FindOutboxMessage(ctx context.Context, channel, threadTS, outbo
 			}
 			cursor = next
 			if cursor == "" {
-				break
+				return "", ErrNotFound
 			}
 		}
-		return "", ErrNotFound
+		return "", ErrSearchIncomplete
 	}
 	cursor := ""
 	for page := 0; page < 5; page++ {
@@ -390,10 +519,10 @@ func (c *Client) FindOutboxMessage(ctx context.Context, channel, threadTS, outbo
 		}
 		cursor = response.ResponseMetaData.NextCursor
 		if cursor == "" {
-			break
+			return "", ErrNotFound
 		}
 	}
-	return "", ErrNotFound
+	return "", ErrSearchIncomplete
 }
 
 func findMetadataMessage(messages []slack.Message, outboxID string) string {
