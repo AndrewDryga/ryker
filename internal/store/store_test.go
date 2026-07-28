@@ -538,10 +538,10 @@ func TestNewerSchemaIsRejectedWithoutMutation(t *testing.T) {
 	}
 	if _, err := db.Exec(`
 		CREATE TABLE schema_version (version INTEGER NOT NULL);
-		INSERT INTO schema_version(version) VALUES (7);
+		INSERT INTO schema_version(version) VALUES (?);
 		CREATE TABLE future_state (value TEXT NOT NULL);
 		INSERT INTO future_state(value) VALUES ('preserve-me');
-	`); err != nil {
+	`, currentSchemaVersion+1); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {

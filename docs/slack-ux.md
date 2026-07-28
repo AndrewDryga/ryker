@@ -39,6 +39,9 @@ The root card is the authoritative incident snapshot. It shows:
 The top-level fallback text carries the same essential status for notifications and screen readers.
 Responder updates this message in place and alternates card writes with thread delivery so a busy
 conversation cannot leave the pinned snapshot stale.
+Responder also persists the rendered card UI revision. A changed revision marks every writable
+existing card dirty once during startup, so upgraded controls appear without waiting for unrelated
+incident activity; failed Slack updates remain queued for retry.
 
 Configured operators can converse anywhere in the incident channel without an `@mention`.
 Responder admits ordinary top-level messages and thread replies, keeps them in the same Coop

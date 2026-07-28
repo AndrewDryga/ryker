@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 6
+const currentSchemaVersion = 7
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -442,6 +442,14 @@ CREATE INDEX IF NOT EXISTS coop_cleanup_work_idx
   ON coop_cleanup(state, next_attempt_at, eligible_at);
 `
 
+const schemaV7 = `
+CREATE TABLE IF NOT EXISTS responder_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -449,4 +457,5 @@ var migrations = []string{
 	schemaV4,
 	schemaV5,
 	schemaV6,
+	schemaV7,
 }

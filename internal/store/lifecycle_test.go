@@ -88,3 +88,52 @@ func TestExpiredChannelMemoryIsOwnedBeforeItIsPruned(t *testing.T) {
 		t.Fatalf("expired channel memory remained after owned cleanup: %v", err)
 	}
 }
+
+func TestIncidentCardRevisionInvalidatesRenderedCardsOnce(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incidents, err := st.ApplySignals(ctx, testWebhookEvent(), time.Hour, 0, 100)
+	if err != nil || len(incidents) != 1 {
+		t.Fatalf("incident = %+v, %v", incidents, err)
+	}
+	if err := st.SetChannel(ctx, incidents[0].ID, "CINCIDENT", "ems-test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, incidents[0].ID, "1700.001"); err != nil {
+		t.Fatal(err)
+	}
+	incident, err := st.GetIncident(ctx, incidents[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkCardRendered(ctx, incident.ID, incident.CardVersion); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := st.EnsureIncidentCardRevision(ctx, "revision-1")
+	if err != nil || !changed {
+		t.Fatalf("first revision = %v, %v", changed, err)
+	}
+	dirty, err := st.ListDirtyCards(ctx, 10)
+	if err != nil || len(dirty) != 1 || dirty[0].ID != incident.ID {
+		t.Fatalf("dirty after UI upgrade = %+v, %v", dirty, err)
+	}
+	if err := st.MarkCardRendered(ctx, dirty[0].ID, dirty[0].CardVersion); err != nil {
+		t.Fatal(err)
+	}
+	changed, err = st.EnsureIncidentCardRevision(ctx, "revision-1")
+	if err != nil || changed {
+		t.Fatalf("same revision = %v, %v", changed, err)
+	}
+	dirty, err = st.ListDirtyCards(ctx, 10)
+	if err != nil || len(dirty) != 0 {
+		t.Fatalf("same revision dirtied cards = %+v, %v", dirty, err)
+	}
+	changed, err = st.EnsureIncidentCardRevision(ctx, "revision-2")
+	if err != nil || !changed {
+		t.Fatalf("second revision = %v, %v", changed, err)
+	}
+}

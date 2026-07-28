@@ -462,6 +462,56 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 	return result, nil
 }
 
+func (s *Store) EnsureIncidentCardRevision(
+	ctx context.Context,
+	revision string,
+) (bool, error) {
+	revision = strings.TrimSpace(revision)
+	if revision == "" || len(revision) > 128 {
+		return false, errors.New("incident card revision is invalid")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var current string
+	err = tx.QueryRowContext(
+		ctx,
+		`SELECT value FROM responder_state WHERE key = 'incident_card_revision'`,
+	).Scan(&current)
+	if err == nil && current == revision {
+		return false, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	now := nowText()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE incidents
+		SET card_version = card_version + 1, updated_at = ?
+		WHERE root_ts != '' AND channel_state = 'active'`,
+		now,
+	); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO responder_state (key, value, updated_at)
+		VALUES ('incident_card_revision', ?, ?)
+		ON CONFLICT(key) DO UPDATE SET
+		  value = excluded.value,
+		  updated_at = excluded.updated_at`,
+		revision,
+		now,
+	); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Store) ListFailedWork(ctx context.Context, limit int) ([]FailedWork, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50

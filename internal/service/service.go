@@ -128,6 +128,20 @@ func (s *Service) Initialize(ctx context.Context) error {
 	if identity.BotUserID == "" {
 		return errors.New("Slack auth returned no bot user ID")
 	}
+	cardRevisionChanged, err := s.store.EnsureIncidentCardRevision(
+		ctx,
+		slackui.IncidentCardRevision,
+	)
+	if err != nil {
+		return fmt.Errorf("incident card revision: %w", err)
+	}
+	if cardRevisionChanged {
+		s.log.Info(
+			"scheduled Slack incident card refresh",
+			"revision",
+			slackui.IncidentCardRevision,
+		)
+	}
 	s.identity = identity
 	s.coopHealthy.Store(true)
 	s.initialized.Store(true)
