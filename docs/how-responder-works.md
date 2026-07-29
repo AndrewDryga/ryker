@@ -1,0 +1,506 @@
+# How Responder Works
+
+This guide follows one message from admission through Slack delivery and explains where state,
+memory, authority, retries, and cleanup live. It describes the current single-host implementation,
+not a future multi-tenant design.
+
+## 1. System map and authority boundaries
+
+```mermaid
+flowchart LR
+  subgraph Sources["External inputs"]
+    Human["Slack members"]
+    SlackApps["Slack apps<br/>Terraform, Grafana, CI"]
+    Webhooks["Authenticated webhooks<br/>Grafana or mapped JSON"]
+  end
+
+  subgraph Responder["Responder process"]
+    Socket["Slack Socket Mode<br/>event admission"]
+    HTTP["HTTP webhook admission<br/>verify + normalize"]
+    DB[("SQLite WAL<br/>durable queues and state")]
+    Worker["Serialized worker loop<br/>lease + reconcile"]
+    Router["Host-owned routing<br/>authorization + policy"]
+    Renderer["Host-owned Slack rendering<br/>Block Kit + controls"]
+    Publisher["Optional draft PR publisher<br/>exact reviewed tree only"]
+    Supervisor["Optional Coop supervisor"]
+  end
+
+  subgraph SlackPlane["Slack control plane"]
+    SlackAPI["Slack Web API"]
+    Threads["Threads, incident rooms,<br/>pinned cards, App Home"]
+  end
+
+  subgraph CoopPlane["Coop execution boundary"]
+    CoopAPI["Owner-private Unix API"]
+    Session["Session + revision + budget"]
+    Fork["Isolated repository fork"]
+    Box["Short-lived agent box"]
+    Agent["Agent model"]
+  end
+
+  subgraph Tools["Evidence and action tools"]
+    Repo["Current repository"]
+    Emisar["Emisar MCP<br/>infrastructure authority"]
+    Other["Other configured MCPs<br/>or approved tools"]
+    GitHub["GitHub"]
+  end
+
+  Human --> Socket
+  SlackApps --> Socket
+  Webhooks --> HTTP
+  Socket -->|"persist before ACK"| DB
+  HTTP -->|"persist before 202"| DB
+  DB <--> Worker
+  Worker --> Router
+  Router <--> CoopAPI
+  Supervisor -.-> CoopAPI
+  CoopAPI --> Session --> Fork --> Box --> Agent
+  Agent --> Repo
+  Agent --> Emisar
+  Agent --> Other
+  Router --> Renderer --> SlackAPI --> Threads
+  Publisher --> GitHub
+  Worker <--> Publisher
+  Human <--> Threads
+```
+
+Authority is deliberately split:
+
+| Boundary | Owner | Responder cannot bypass it |
+| --- | --- | --- |
+| Slack identity, event admission, conversation routing, durable queues | Responder | Slack membership and configured operator checks |
+| Repository allowlist, fork, agent target, box, revision, turn budget | Coop | Coop policy and revision conflicts |
+| Live infrastructure identity, action schemas, policy, approval, execution, audit | Emisar | Emisar authorization and approval decisions |
+| Draft branch publication | Responder publisher | Exact Coop-reviewed tree, lease-protected branch, draft PR only |
+| Merge, signing, deployment | External human-controlled workflow | No Responder operation exists for these actions |
+
+Slack and webhook secrets stay in Responder. The Emisar key is projected into the short-lived Coop
+box through Coop's private configuration; it is not sent in prompts. Slack never receives Coop's
+filesystem or terminal protocol.
+
+## 2. Slack event admission and routing
+
+Socket Mode handlers do minimal synchronous work: validate the workspace and event shape, persist a
+deduplicated `slack_inputs` row, and only then acknowledge Slack. The worker makes the expensive
+decision later. A persistence or policy-resolution failure before that point is not acknowledged,
+so Slack can redeliver the envelope instead of Responder silently losing it.
+
+```mermaid
+flowchart TD
+  Event["Slack event"] --> Valid{"Expected workspace<br/>and supported event?"}
+  Valid -- No --> AckIgnore["ACK and ignore"]
+  Valid -- Yes --> Own{"Responder's own message?"}
+  Own -- Yes --> AckIgnore
+  Own -- No --> Kind{"Event kind"}
+
+  Kind -- "Slash command" --> Persist["Persist slack_inputs<br/>by envelope/event ID"]
+  Kind -- "Button or shortcut" --> Persist
+  Kind -- "Channel lifecycle" --> Persist
+  Kind -- "Direct message" --> Persist
+  Kind -- "@mention" --> Persist
+  Kind -- "Ordinary human message" --> HumanGate{"Existing incident/task thread,<br/>proactive channel, or rule match?"}
+  Kind -- "External app message" --> AppGate{"Proactive channel<br/>or rule match?"}
+
+  HumanGate -- No --> AckIgnore
+  HumanGate -- Yes --> Persist
+  AppGate -- No --> AckIgnore
+  AppGate -- Yes --> Persist
+
+  Persist --> Ack["ACK Slack"]
+```
+
+After acknowledgement, the durable worker applies the more expensive authorization and conversation
+routing:
+
+```mermaid
+flowchart TD
+  Lease["Worker leases input"] --> Workspace{"Correct workspace?"}
+  Workspace -- No --> Terminal["Fail and audit"]
+  Workspace -- Yes --> Route{"Host routing"}
+
+  Route -- "Lifecycle" --> Lifecycle["Mark channel active,<br/>archived, unreachable, or deleted"]
+  Route -- "Slash command" --> Slash["Run deterministic command"]
+  Route -- "Button" --> Action["Validate action payload,<br/>operator, age, scope, and target"]
+  Route -- "Known incident or task thread" --> Conversation["Queue ordered turn in<br/>that exact conversation"]
+  Route -- "Direct message or shortcut" --> Triage["Read-only shared-channel triage"]
+  Route -- "Summon-channel mention" --> Summon{"Explicit incident request<br/>from configured operator?"}
+  Route -- "Explicit typed behavior request" --> Triage
+  Route -- "Proactive or standing-rule match" --> Triage
+  Route -- "No eligible route" --> Done["Finish without a response"]
+
+  Summon -- Yes --> ManualIncident["Create manual incident occurrence"]
+  Summon -- No --> Triage
+```
+
+Important routing behavior:
+
+- A direct message or **Investigate message** shortcut always enters read-only triage.
+- An `@mention` outside a configured summon or proactive channel is not a general summons. The
+  narrow exception is an explicit typed preference or standing-rule request from a configured
+  operator.
+- Messages already bound to an incident room or engineering-task thread stay in that conversation.
+- Broad proactivity and deterministic standing rules are separate. A rule can admit its matching
+  event while general proactive triage is off.
+- Human senders must be active full workspace members. Incident steering and confirmations require
+  a configured operator.
+- Responder ignores its own posts, foreign-workspace events, unsupported subtypes, guests, and
+  Slack Connect users that do not satisfy the membership boundary.
+
+## 3. One complete shared-channel triage turn
+
+This is the path used for direct messages, message shortcuts, summon mentions, proactive channel
+messages, and standing-rule matches.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant S as Slack
+  participant A as Admission
+  participant DB as SQLite
+  participant W as Responder worker
+  participant C as Coop
+  participant G as Agent
+  participant T as Repo / Emisar / other tools
+
+  S->>A: Event envelope
+  A->>DB: INSERT slack_inputs<br/>dedupe envelope_id and event_id
+  DB-->>A: Persisted
+  A-->>S: ACK
+
+  W->>DB: Lease next eligible Slack input
+  Note over W,DB: Slash/actions are prioritized.<br/>Conversation messages preserve Slack timestamp order per channel.
+  W->>DB: Wait for channel settle delay
+  W->>DB: Reject late input if a newer decision already completed
+  W->>DB: Freeze matched standing rules
+  W->>DB: Load or create channel session generation
+  W->>C: Refresh current session state
+  C-->>W: Open / exhausted / terminal + revision
+
+  alt Terminal session
+    W->>DB: Detach session, preserve compact memory
+    W->>DB: Queue owned-session cleanup
+    W->>C: Create next generation
+  else Exhausted session
+    W->>C: Extend within configured automatic ceiling
+  end
+
+  W->>DB: Freeze latest 10-50 admitted channel messages
+  W->>DB: Load compact channel memory
+  W->>DB: Load confirmed memory + recent evidence + effective preferences
+  W->>S: Set native pending status
+  W->>C: Submit turn with session revision<br/>and generation-aware idempotency key
+  C->>G: Start short-lived agent box
+  G->>T: Inspect declared topology and fresh evidence
+  T-->>G: Source-attributed observations
+  G-->>C: Strict JSON decision envelope
+  C-->>W: Terminal turn
+
+  W->>W: Strict parse, bound, sanitize, validate
+  W->>DB: Persist evidence and coverage separately
+  W->>DB: Transaction: decision once + compact memory update
+
+  alt ignore
+    W->>DB: Audit silence
+  else reply
+    W->>S: Post rich response in source thread
+  else reply with inert offer
+    W->>S: Post response + host-owned confirmation button
+  else allowed automatic app alert
+    W->>DB: Create correlated incident occurrence
+  end
+
+  W->>DB: Record standing-rule run once, if matched
+  W->>S: Clear pending status
+  W->>DB: Mark input done
+```
+
+The model does not return arbitrary Slack blocks. It returns a strict decision envelope containing
+prose, evidence, coverage, compact memory, and at most one inert offer. Responder owns buttons,
+confirmation dialogs, mentions, approval links, limits, and persistence.
+
+For shared-channel work, accepted decisions are:
+
+| Decision | Effect |
+| --- | --- |
+| `ignore` | Audit the decision and post nothing |
+| `reply` | Post a bounded rich response in the source thread |
+| Reply plus incident offer | Show **Open incident room**; create nothing until confirmed |
+| Reply plus engineering-task offer | Show **Start engineering task**; create no writable fork until confirmed |
+| Reply plus memory/preference/rule offer | Show a typed confirmation; save nothing until confirmed |
+| Automatic incident | Allowed for a credible unresolved monitoring-app alert, not an ordinary human health question |
+
+## 4. Memory, context, evidence, preferences, and rules
+
+Responder does not have one undifferentiated memory. It has separate stores because conversation
+continuity, factual hints, current evidence, and executable behavior require different trust and
+retention rules.
+
+```mermaid
+flowchart TB
+  subgraph Inputs["Context assembled for one turn"]
+    Recent["Recent Slack transcript<br/>10-50 admitted messages<br/>frozen for this decision"]
+    Compact["Compact channel memory<br/>goal, topology, decisions,<br/>open questions, evidence refs"]
+    Confirmed["Operator-confirmed memory<br/>aliases, bindings, routes,<br/>entity corrections"]
+    Evidence["Recent same-channel evidence<br/>claim + observation + source + time"]
+    Preferences["Effective typed preferences<br/>operator, channel,<br/>repository, workspace"]
+    Rules["Host-matched standing rules<br/>typed trigger + action + source"]
+    Repository["Current repository content"]
+    Live["Fresh live evidence<br/>Emisar and other authoritative tools"]
+    Config["Current Responder configuration"]
+  end
+
+  Prompt["Bounded trusted/untrusted<br/>prompt assembly"]
+  Agent["Agent decision"]
+  Validate["Host validation"]
+
+  Recent --> Prompt
+  Compact --> Prompt
+  Confirmed --> Prompt
+  Evidence --> Prompt
+  Preferences --> Prompt
+  Rules --> Prompt
+  Repository --> Prompt
+  Live --> Agent
+  Config --> Prompt
+  Prompt --> Agent --> Validate
+
+  Validate -->|"structured memory"| CompactStore[("channel_memories.state_json")]
+  Validate -->|"evidence"| EvidenceStore[("evidence + coverage")]
+  Validate -->|"inert memory offer"| MemoryCard["Confirmation card"]
+  Validate -->|"inert behavior offer"| BehaviorCard["Confirmation card"]
+  MemoryCard -->|"operator click"| MemoryStore[("memory_entries")]
+  BehaviorCard -->|"operator click"| BehaviorStore[("responder_preferences<br/>or standing_rules")]
+  Rules -->|"source input once"| RuleRuns[("standing_rule_runs")]
+```
+
+### Memory layers
+
+| Layer | Stored in | Writer | Purpose | Trust and lifetime |
+| --- | --- | --- | --- | --- |
+| Recent Slack context | `slack_inputs`, then frozen in input state | Slack admission | Understand nearby conversation and avoid interrupting people | Event context only; bounded and pruned |
+| Compact channel memory | `channel_memories.state_json` | Agent result after host validation | Carry goal, topology, decisions, unresolved questions, and evidence references across turns and session rotation | Continuity, not current-health proof |
+| Evidence ledger | `evidence`, `coverage`, `timeline_events` | Host after strict agent-report parsing | Preserve source-attributed observations independently of prose | Same-channel recall; time and source remain visible |
+| Confirmed operational memory | `memory_entries` | Configured operator click | Durable alias, repository binding, evidence route, or entity correction | Untrusted hint with scope, source, expiry, and caps |
+| Preferences | `responder_preferences` | Configured operator click | Typed investigation depth or response detail | Closed catalog; precedence and expiry are host-owned |
+| Standing rules | `standing_rules` | Configured operator click | Typed channel subscription such as Terraform-plan review | Host matches trigger deterministically; read-only |
+| Rule executions | `standing_rule_runs` | Host | Prevent the same rule/source event from running twice | Idempotency record, later pruned |
+| Incident intelligence | Incident, evidence, coverage, timeline, proposals, approvals | Webhook, host, agent, operators | Coordinate one incident or engineering task | Bound to that work occurrence |
+
+### Evidence precedence
+
+```mermaid
+flowchart LR
+  Fresh["1. Fresh authoritative<br/>live evidence"] --> Repo["2. Current repository<br/>content"]
+  Repo --> Configuration["3. Current Responder<br/>configuration"]
+  Configuration --> ConfirmedHint["4. Operator-confirmed<br/>memory hint"]
+  ConfirmedHint --> OlderEvidence["5. Older source-attributed<br/>evidence"]
+```
+
+Higher items resolve conflicts with lower items. Memory never proves current health, carries a
+credential, grants approval, or authorizes a mutation. The model cannot write confirmed memory,
+preferences, or rules directly.
+
+### Typed behavior setup and execution
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant O as Operator
+  participant R as Responder
+  participant DB as SQLite
+  participant S as Slack
+  participant A as Terraform app
+  participant C as Coop agent
+
+  O->>R: "When you see a Terraform plan here,<br/>review its diff and red flags for 30 days"
+  R->>C: Read-only interpretation turn
+  C-->>R: rule_offer with allowlisted fields
+  R->>R: Validate operator, channel, repository,<br/>trigger/action pair, source, TTL, capacity
+  R->>S: Proposed standing rule card
+  Note over R,DB: Nothing is stored yet
+  O->>S: Click Enable standing rule
+  S->>R: Signed Slack interaction
+  R->>R: Validate payload age, source event,<br/>operator, scope, and normalized offer
+  R->>DB: Upsert one logical typed rule
+  R->>S: Standing rule enabled
+
+  A->>R: New Terraform plan message
+  R->>DB: Deterministic text/source match
+  R->>C: Read-only review with repository context
+  C-->>R: Threaded assessment
+  R->>DB: Record rule_id + source_input once
+  R->>S: Reply in Terraform message thread
+```
+
+Arbitrary remembered prose never becomes an executable prompt. Only the closed host catalog can be
+saved:
+
+- preferences: `health_check_depth` and `response_detail`;
+- triggers: `terraform_plan`, `deployment`, and `operational_alert`;
+- actions: `review_terraform_plan`, `verify_deployment`, and `triage_alert`;
+- sources: `human`, `app`, or `any`.
+
+## 5. Shared triage, incident rooms, and engineering tasks
+
+```mermaid
+flowchart TD
+  Source["Slack message or webhook"] --> Mode{"Required work"}
+
+  Mode -- "Question, alert explanation,<br/>health check" --> Shared["Shared-channel triage<br/>read-only persistent Coop session"]
+  Shared --> SharedResult["Reply, stay silent,<br/>or offer explicit next work"]
+
+  Mode -- "Credible monitoring alert<br/>or explicit incident request" --> Incident["Incident occurrence"]
+  Incident --> Room["Dedicated Slack room<br/>topic + invited operators + pinned card"]
+  Room --> IncidentSession["One isolated Coop fork<br/>incident policy"]
+  IncidentSession --> Investigate["Ordered investigation turns"]
+  Investigate --> CloseIncident["Close incident"]
+
+  Mode -- "Explicit repository change request" --> TaskOffer["Engineering-task offer"]
+  TaskOffer --> Confirm{"Operator confirms?"}
+  Confirm -- No --> NoTask["No writable session"]
+  Confirm -- Yes --> ThreadTask["Thread-scoped task record<br/>in the source Slack thread"]
+  ThreadTask --> TaskSession["Isolated Coop fork<br/>engineering policy"]
+  TaskSession --> Changes["Edit, validate, commit,<br/>review exact tree"]
+  Changes --> Publish{"Publish requested<br/>and publishable?"}
+  Publish -- No --> Retain["Retain reviewed work"]
+  Publish -- Yes --> DraftPR["Lease-protected branch<br/>and draft PR"]
+  DraftPR --> External["Human merge/deploy workflow"]
+```
+
+An engineering task uses the same durable work model as incident work but stays attached to the
+source thread. Dedicated rooms are reserved for incidents. A shared-channel triage session cannot
+edit files; the operator confirmation creates the separate writable task session.
+
+## 6. Emisar tools and approval handoff
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant O as Configured operator
+  participant S as Slack
+  participant R as Responder
+  participant C as Coop agent box
+  participant E as Emisar
+
+  O->>S: Exact operational request in existing incident
+  S->>R: Durable Slack input
+  R->>C: Prompt under declared policy
+  C->>E: Discover exact action and immutable target
+  E-->>C: Authorized read, denial, or pending_approval
+
+  alt Read-only or immediately authorized result
+    C-->>R: Structured evidence and outcome
+    R-->>S: Evidence-backed response
+  else Pending Emisar approval
+    E-->>C: run + operation + pack + runner<br/>request ID + HTTPS approval URL + expiry
+    C-->>R: Exact structured pending approval
+    R->>R: Validate operator turn, immutable refs,<br/>Emisar origin, URL path, request ID, expiry
+    R->>R: Persist emisar_approvals hold
+    R-->>S: Approval required card<br/>Review approval in Emisar link
+    O->>E: Review in Emisar console
+    E->>E: Policy-owned approval, dispatch, and audit
+    O->>S: Ask Responder to continue/check status
+    R->>C: Continue exact wait_for_run chain
+    C->>E: Read authoritative run result
+    E-->>C: Completed, failed, denied, or expired
+    C-->>R: Verified terminal result
+    R-->>S: Outcome with evidence
+  end
+```
+
+The Slack link never approves an action. Approval authorizes Emisar to dispatch; it is not proof of
+successful execution. A later read of the exact run establishes the outcome.
+
+## 7. Durability, ordering, retries, and garbage collection
+
+```mermaid
+flowchart LR
+  subgraph Queues["Durable work states"]
+    Pending["pending"] --> Processing["processing"]
+    Processing --> Done["done"]
+    Processing --> Retry["retry + next_attempt_at"]
+    Retry --> Processing
+    Processing --> Failed["failed"]
+  end
+
+  subgraph Once["Exactly-once or idempotent boundaries"]
+    SlackOnce["Slack envelope/event ID"]
+    WebhookOnce["Route + delivery ID<br/>and body digest"]
+    DecisionOnce["source_input + mode"]
+    RuleOnce["rule_id + source_input"]
+    CoopOnce["Stable operation keys<br/>plus session generation"]
+    OutboxOnce["Caller-owned Slack metadata ID"]
+  end
+
+  subgraph Recovery["Recovery"]
+    LostSlack["Unknown Slack POST result"] --> SearchSlack["Search metadata in history"]
+    SearchSlack -->|"found"| ConfirmPost["Mark delivered"]
+    SearchSlack -->|"absent"| RetryPost["Retry later"]
+    TerminalSession["Closed or discarded watch session"] --> Detach["Detach session binding<br/>preserve compact memory"]
+    Detach --> NextGeneration["Create next generation"]
+    NextGeneration --> CleanupQueue["Queue owned session cleanup"]
+  end
+
+  subgraph GC["Maintenance"]
+    Expire["Expire old inputs, evidence,<br/>memory, preferences, rules, audits"]
+    Reconcile["Find orphaned Responder sessions"]
+    Plan["Coop discard plan pins<br/>revision + workspace state"]
+    Guard{"Workspace safe?"}
+    Discard["Discard owned fork/session"]
+    Block["Block cleanup and report why"]
+    Reconcile --> Plan --> Guard
+    Guard -- "clean, or verified published tree" --> Discard
+    Guard -- "dirty, or unpublished unmerged work" --> Block
+  end
+```
+
+Key properties:
+
+- SQLite uses WAL mode, full synchronous writes, and one connection.
+- Slack inputs are leased in timestamp order within a channel. Slash commands and buttons are
+  prioritized so stop/configuration actions do not wait behind ordinary conversation.
+- A short settle delay lets nearby messages enter the frozen transcript before classification.
+- A delayed older event cannot reply after a newer channel decision has completed.
+- Coop create results are refreshed through `GET` because an idempotent create replay describes the
+  original creation state, not necessarily the current session state.
+- Replacement watch sessions use generation-aware create and turn keys.
+- A terminal failed watch turn posts a user-facing failure, clears pending status, detaches the
+  session while preserving compact memory, and queues cleanup.
+- Automatic cleanup operates only on exact Responder-owned session IDs. It never accepts dirty
+  work, and it accepts unmerged work only after the exact reviewed tree has been durably published.
+- Channel deletion removes channel-scoped memory, preferences, and rules. Repository reconciliation
+  removes orphaned repository-scoped state. Normal maintenance prunes expired operational data.
+
+## 8. Main durable records
+
+```mermaid
+flowchart TB
+  SlackInput[("slack_inputs")] --> Evaluation[("evaluation_decisions")]
+  SlackInput --> RuleRun[("standing_rule_runs")]
+  SlackInput --> Evidence[("evidence / coverage")]
+  SlackInput --> WorkOffer["Incident or task offer"]
+
+  Webhook[("webhook_events")] --> Signals[("signals")]
+  Signals --> Incident[("incidents")]
+  WorkOffer --> Incident
+
+  Incident --> Turns[("turn_submissions")]
+  Incident --> Outbox[("outbox")]
+  Incident --> Timeline[("timeline_events")]
+  Incident --> Proposals[("action_proposals")]
+  Incident --> Approvals[("emisar_approvals")]
+  Incident --> Publication[("publications")]
+
+  ChannelMemory[("channel_memories")] --> Evaluation
+  Memory[("memory_entries")] --> PromptContext["Future prompt context"]
+  Preferences[("responder_preferences")] --> PromptContext
+  Rules[("standing_rules")] --> RuleRun
+  Evidence --> PromptContext
+  ChannelMemory --> PromptContext
+
+  Incident --> Cleanup[("coop_cleanup")]
+  ChannelMemory --> Cleanup
+```
+
+These are logical relationships. Not every arrow is a database foreign key; some are deliberately
+bound by stable source IDs and idempotency keys so admission and recovery can remain independent.

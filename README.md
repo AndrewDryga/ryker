@@ -30,6 +30,10 @@ fork and agent boundary. When explicitly configured, Responder can reproduce Coo
 tree, push only a lease-protected Responder branch, and create or update a draft GitHub pull
 request. Emisar owns infrastructure policy, approval, execution, and audit.
 
+See [How Responder works](docs/how-responder-works.md) for end-to-end diagrams covering Slack
+message routing, Coop turns, memory, evidence, standing rules, incidents, approvals, retries, and
+garbage collection.
+
 ## Quick start
 
 Requirements:

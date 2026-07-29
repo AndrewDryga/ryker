@@ -1,5 +1,8 @@
 # Architecture
 
+For end-to-end message, memory, incident, approval, and cleanup diagrams, see
+[How Responder works](how-responder-works.md).
+
 ## Boundaries
 
 Responder is the incident and conversation layer above Coop:
