@@ -75,6 +75,7 @@ func TestConfirmedMemoryActionPersistsAndForgetDeletes(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	entries, err := st.ListMemoryForContext(
 		ctx, cfg.Slack.TeamID, "COPS", "repo", cfg.Slack.Operators[0], 10,
 	)

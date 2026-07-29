@@ -164,7 +164,11 @@ type Limits struct {
 	MaxActiveIncidents       int      `yaml:"max_active_incidents"`
 	MaxOpenIncidents         int      `yaml:"max_open_incidents"`
 	MaxAssistantBytes        int      `yaml:"max_assistant_bytes"`
-	MaxOutboxAttempts        int      `yaml:"max_outbox_attempts"`
+	MaxWebhookAttempts       int      `yaml:"max_webhook_attempts"`
+	MaxSlackInputAttempts    int      `yaml:"max_slack_input_attempts"`
+	MaxDeliveryAttempts      int      `yaml:"max_delivery_attempts"`
+	MaxAgentRunAttempts      int      `yaml:"max_agent_run_attempts"`
+	MaxOutboxAttempts        int      `yaml:"max_outbox_attempts"` // Deprecated compatibility alias.
 	MaxMemoryEntries         int      `yaml:"max_memory_entries"`
 	MaxMemoryEntriesPerScope int      `yaml:"max_memory_entries_per_scope"`
 	MaxPreferences           int      `yaml:"max_preferences"`
@@ -226,6 +230,10 @@ func defaults() Config {
 			MaxActiveIncidents:       50,
 			MaxOpenIncidents:         200,
 			MaxAssistantBytes:        12000,
+			MaxWebhookAttempts:       12,
+			MaxSlackInputAttempts:    12,
+			MaxDeliveryAttempts:      12,
+			MaxAgentRunAttempts:      20,
 			MaxOutboxAttempts:        12,
 			MaxMemoryEntries:         1000,
 			MaxMemoryEntriesPerScope: 100,
@@ -248,6 +256,9 @@ func Load(path string) (Config, error) {
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)
+	}
+	if err := applyLegacyLimitDefaults(data, &cfg); err != nil {
+		return Config{}, err
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
@@ -317,6 +328,38 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func applyLegacyLimitDefaults(data []byte, cfg *Config) error {
+	var keys struct {
+		Limits struct {
+			MaxWebhookAttempts    *int `yaml:"max_webhook_attempts"`
+			MaxSlackInputAttempts *int `yaml:"max_slack_input_attempts"`
+			MaxDeliveryAttempts   *int `yaml:"max_delivery_attempts"`
+			MaxAgentRunAttempts   *int `yaml:"max_agent_run_attempts"`
+			MaxOutboxAttempts     *int `yaml:"max_outbox_attempts"`
+		} `yaml:"limits"`
+	}
+	if err := yaml.Unmarshal(data, &keys); err != nil {
+		return fmt.Errorf("inspect legacy retry limits: %w", err)
+	}
+	legacy := keys.Limits.MaxOutboxAttempts
+	if legacy == nil {
+		return nil
+	}
+	if keys.Limits.MaxWebhookAttempts == nil {
+		cfg.Limits.MaxWebhookAttempts = *legacy
+	}
+	if keys.Limits.MaxSlackInputAttempts == nil {
+		cfg.Limits.MaxSlackInputAttempts = *legacy
+	}
+	if keys.Limits.MaxDeliveryAttempts == nil {
+		cfg.Limits.MaxDeliveryAttempts = *legacy
+	}
+	if keys.Limits.MaxAgentRunAttempts == nil {
+		cfg.Limits.MaxAgentRunAttempts = *legacy
+	}
+	return nil
 }
 
 func (c Config) Validate() error {
@@ -439,8 +482,16 @@ func (c Config) Validate() error {
 	if c.Limits.MaxAssistantBytes < 1000 || c.Limits.MaxAssistantBytes > 30000 {
 		return errors.New("limits.max_assistant_bytes must be between 1000 and 30000")
 	}
-	if c.Limits.MaxOutboxAttempts < 1 || c.Limits.MaxOutboxAttempts > 100 {
-		return errors.New("limits.max_outbox_attempts must be between 1 and 100")
+	for name, value := range map[string]int{
+		"max_webhook_attempts":     c.Limits.MaxWebhookAttempts,
+		"max_slack_input_attempts": c.Limits.MaxSlackInputAttempts,
+		"max_delivery_attempts":    c.Limits.MaxDeliveryAttempts,
+		"max_agent_run_attempts":   c.Limits.MaxAgentRunAttempts,
+		"max_outbox_attempts":      c.Limits.MaxOutboxAttempts,
+	} {
+		if value < 1 || value > 100 {
+			return fmt.Errorf("limits.%s must be between 1 and 100", name)
+		}
 	}
 	if c.Limits.MaxMemoryEntries < 10 || c.Limits.MaxMemoryEntries > 100000 {
 		return errors.New("limits.max_memory_entries must be between 10 and 100000")

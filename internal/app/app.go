@@ -478,7 +478,10 @@ func runRetry(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if flags.NArg() != 2 {
-		return errors.New("usage: responder retry [--config path] <webhook|slack|outbox|turn> <id>")
+		return errors.New(
+			"usage: responder retry [--config path] " +
+				"<webhook|slack|delivery|agent_run> <id>",
+		)
 	}
 	cfg, err := config.Load(*configPath)
 	if err != nil {

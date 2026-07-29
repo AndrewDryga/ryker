@@ -49,9 +49,7 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 	if err := svc.processChannel(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); err != nil {
-		t.Fatal(err)
-	}
+	drainSlackDeliveries(t, ctx, svc)
 	incidents, err := st.ListIncidents(ctx, 10)
 	if err != nil || len(incidents) != 1 || incidents[0].RootTS == "" {
 		t.Fatalf("root incident = %+v, %v", incidents, err)
@@ -60,9 +58,10 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 	if err := svc.processSession(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processTurn(ctx); err != nil {
+	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	incident, _ = st.GetIncident(ctx, incident.ID)
 	if incident.CoopSessionID == "" || incident.ActiveTurnID == "" {
 		t.Fatalf("Coop binding = %+v", incident)
@@ -78,9 +77,7 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.lastPost = time.Time{}
-	if err := svc.processOutbox(ctx); err != nil {
-		t.Fatal(err)
-	}
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 2 {
 		t.Fatalf("Slack posts = %+v", slack.posts)
 	}
@@ -129,7 +126,8 @@ func TestOperatorRequestedEmisarApprovalReachesIncidentThread(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processTurn(ctx); err != nil {
+	drainSlackDeliveries(t, ctx, svc)
+	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
 	expires := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
@@ -158,9 +156,7 @@ func TestOperatorRequestedEmisarApprovalReachesIncidentThread(t *testing.T) {
 	if err := svc.pollIncident(ctx, incident); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); err != nil {
-		t.Fatal(err)
-	}
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slackClient.posts) != 1 {
 		t.Fatalf("approval posts = %+v", slackClient.posts)
 	}
@@ -263,10 +259,10 @@ func TestRepeatedFiringRefreshUpdatesCardAndAgentWithoutRawThreadPost(t *testing
 	if err := svc.processWebhook(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.LeaseOutbox(ctx); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.LeaseSlackDelivery(ctx); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("routine firing refresh queued raw Slack output: %v", err)
 	}
-	submission, err := st.GetTurnSubmissionBySource(ctx, "webhook", event.ID+":"+incident.ID)
+	submission, err := st.GetAgentRunBySource(ctx, "webhook", event.ID+":"+incident.ID)
 	if err != nil || !strings.Contains(submission.Prompt, "still timing out") {
 		t.Fatalf("agent did not receive firing refresh: %+v, %v", submission, err)
 	}
@@ -319,6 +315,7 @@ func TestSummonQuestionRepliesWithoutCreatingIncident(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	if len(slackClient.posts) != 1 ||
 		!strings.Contains(slackClient.posts[0].message.Text, "no active alerts") {
 		t.Fatalf("summon reply = %+v", slackClient.posts)
@@ -365,6 +362,7 @@ func TestManualSummonGetsCapacityRejectionInOriginThread(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 1 || slack.posts[0].channel != "CSUMMON" ||
 		slack.posts[0].thread != input.MessageTS ||
 		!strings.Contains(slack.posts[0].message.Text, "open incident limit") {
@@ -399,20 +397,20 @@ func TestManualSummonCompletesHandoffToIncidentRoom(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.processChannel(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.processSession(ctx); err != nil {
 		t.Fatal(err)
 	}
 	for count := 0; count < 4; count++ {
-		err := svc.processOutbox(ctx)
+		err := svc.processSlackDelivery(ctx)
 		if errors.Is(err, store.ErrNotFound) {
 			break
 		}
@@ -437,7 +435,7 @@ func TestManualSummonCompletesHandoffToIncidentRoom(t *testing.T) {
 	if err := svc.enqueueManualHandoff(ctx, incidents[0]); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); !errors.Is(err, store.ErrNotFound) {
+	if err := svc.processSlackDelivery(ctx); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("manual handoff was not idempotent: %v", err)
 	}
 }
@@ -473,7 +471,7 @@ func TestManualHandoffWaitsForUsableIncidentRoom(t *testing.T) {
 			if err := svc.processChannel(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if err := svc.processOutbox(ctx); err != nil {
+			if err := svc.processSlackDelivery(ctx); err != nil {
 				t.Fatal(err)
 			}
 			if err := svc.processSession(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -488,14 +486,62 @@ func TestManualHandoffWaitsForUsableIncidentRoom(t *testing.T) {
 			if err != nil || (incident.RootTS != "") != test.wantRootTS {
 				t.Fatalf("root binding = %+v, %v", incident, err)
 			}
-			if _, err := st.LeaseOutbox(ctx); !errors.Is(err, store.ErrNotFound) {
+			if _, err := st.LeaseSlackDelivery(ctx); !errors.Is(err, store.ErrNotFound) {
 				t.Fatalf("handoff was queued before room preparation: %v", err)
 			}
 		})
 	}
 }
 
-func TestSlackWritesAlternateBetweenDirtyCardAndOutbox(t *testing.T) {
+func TestAcceptedSlackPostWithLostResponseIsReconciledExactlyOnce(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	slack := &fakeSlack{postErr: errors.New("response lost after Slack accepted post")}
+	svc := New(
+		cfg,
+		st,
+		newFakeCoop(),
+		slack,
+		nil,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	if err := svc.enqueue(
+		ctx,
+		"delivery-lost-response",
+		incident,
+		"notice",
+		incident.RootTS,
+		slackui.Notice("Durable result"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slack.posts) != 1 {
+		t.Fatalf("initial Slack attempt = %+v", slack.posts)
+	}
+	slack.postErr = nil
+	time.Sleep(2100 * time.Millisecond)
+	if err := svc.reconcileSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackDelivery(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("reconciled delivery remained runnable: %v", err)
+	}
+	if len(slack.posts) != 1 {
+		t.Fatalf("accepted Slack post was duplicated: %+v", slack.posts)
+	}
+}
+
+func TestSlackWritesAlternateBetweenDirtyCardAndDelivery(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -540,28 +586,35 @@ func TestDirtyCardBacksOffAfterTransientSlackFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	incident := createBoundIncident(t, ctx, st)
+	createBoundIncident(t, ctx, st)
 	slack := &fakeSlack{updateErr: errors.New("Slack unavailable")}
 	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
-	if err := svc.processCard(ctx); err == nil {
-		t.Fatal("card update failure was ignored")
-	}
-	if err := svc.processCard(ctx); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("card retry did not back off: %v", err)
+	if err := svc.processSlackWrite(ctx); err != nil {
+		t.Fatal(err)
 	}
 	if slack.updateCall != 1 {
-		t.Fatalf("card retried without backoff: %d calls", slack.updateCall)
+		t.Fatalf("card update attempt = %d", slack.updateCall)
 	}
-	state := svc.retries["card:"+incident.ID]
-	state.at = time.Time{}
-	svc.retries["card:"+incident.ID] = state
 	slack.updateErr = nil
-	if err := svc.processCard(ctx); err != nil {
+	delivery, err := st.ListFailedWork(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery) != 0 {
+		t.Fatalf("transient card delivery became terminal: %+v", delivery)
+	}
+	metrics, err := st.Metrics(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
 	dirty, err := st.ListDirtyCards(ctx, 10)
-	if err != nil || len(dirty) != 0 || slack.updateCall != 2 {
-		t.Fatalf("card did not recover: dirty=%+v calls=%d err=%v", dirty, slack.updateCall, err)
+	if err != nil || len(dirty) != 1 || metrics.SlackDeliveriesPending != 1 {
+		t.Fatalf(
+			"card retry was not durable: dirty=%+v pending=%d err=%v",
+			dirty,
+			metrics.SlackDeliveriesPending,
+			err,
+		)
 	}
 }
 
@@ -592,10 +645,12 @@ func TestAcceptedOperatorReplySetsAndRefreshesNativeStatus(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.statuses) != 1 || slack.statuses[0].text != "is investigating your message..." {
 		t.Fatalf("accepted reply status = %+v", slack.statuses)
 	}
 	svc.setNativeStatus(ctx, incident, "is investigating your message...")
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.statuses) != 1 {
 		t.Fatalf("status refreshed too early: %+v", slack.statuses)
 	}
@@ -604,6 +659,7 @@ func TestAcceptedOperatorReplySetsAndRefreshesNativeStatus(t *testing.T) {
 	status.at = time.Now().Add(-76 * time.Second)
 	svc.nativeStatus[statusKey] = status
 	svc.setNativeStatus(ctx, incident, "is investigating your message...")
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.statuses) != 2 {
 		t.Fatalf("long-running status was not refreshed: %+v", slack.statuses)
 	}
@@ -612,7 +668,7 @@ func TestAcceptedOperatorReplySetsAndRefreshesNativeStatus(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := svc.nativeStatus[statusKey]; ok {
@@ -658,13 +714,15 @@ func TestIncidentSubthreadKeepsProgressOnTheSourceConversation(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.statuses) != 1 || slack.statuses[0].thread != input.ThreadTS ||
 		slack.statuses[0].text != "is investigating your message..." {
 		t.Fatalf("accepted subthread status = %+v", slack.statuses)
 	}
-	if err := svc.processTurn(ctx); err != nil {
+	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.statuses) != 2 || slack.statuses[1].thread != input.ThreadTS ||
 		slack.statuses[1].text != "is investigating..." {
 		t.Fatalf("running subthread status = %+v", slack.statuses)
@@ -731,7 +789,7 @@ func TestIncidentConversationAcceptsMessagesWithoutMentions(t *testing.T) {
 			if err := svc.processSlackInput(ctx); err != nil {
 				t.Fatal(err)
 			}
-			submission, err := st.GetTurnSubmissionBySource(ctx, "slack", input.ID)
+			submission, err := st.GetAgentRunBySource(ctx, "slack", input.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -771,7 +829,7 @@ func TestConversationReplyReturnsToOriginWithoutIncidentChrome(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processTurn(ctx); err != nil {
+	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
 	coopClient.complete("The inspection is complete. Close the incident unless another gate should run.")
@@ -779,9 +837,7 @@ func TestConversationReplyReturnsToOriginWithoutIncidentChrome(t *testing.T) {
 	if err := svc.pollIncident(ctx, incident); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); err != nil {
-		t.Fatal(err)
-	}
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 1 || slack.posts[0].thread != input.MessageTS ||
 		slack.posts[0].message.Header != "" || len(slack.posts[0].message.Context) != 0 ||
 		!strings.Contains(slack.posts[0].message.Text, "inspection is complete") {
@@ -816,7 +872,7 @@ func TestAmbientConversationMayCompleteWithoutSlackReply(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processTurn(ctx); err != nil {
+	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
 	coopClient.complete(noConversationReply)
@@ -824,9 +880,7 @@ func TestAmbientConversationMayCompleteWithoutSlackReply(t *testing.T) {
 	if err := svc.pollIncident(ctx, incident); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("silent conversation created outbox work: %v", err)
-	}
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 0 {
 		t.Fatalf("silent conversation posted: %+v", slack.posts)
 	}
@@ -845,21 +899,29 @@ func TestNativeStatusRetriesAfterTransientSlackFailure(t *testing.T) {
 	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
 	svc.setNativeStatus(ctx, incident, "is investigating...")
 	statusKey := incident.ID + "@" + incident.ConversationThreadTS()
-	if _, ok := svc.nativeStatus[statusKey]; ok {
-		t.Fatal("failed native status was cached as delivered")
+	if err := svc.processSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if svc.nativeStatus[statusKey].text != "is investigating..." {
+		t.Fatal("desired native status was not retained for durable retry")
 	}
 	if err := svc.enqueue(
 		ctx, "out_failed_status_reset", incident, "notice", incident.RootTS, slackui.Notice("Request finished"),
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); err != nil {
+	slack.statusErr = nil
+	metrics, err := st.Metrics(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	slack.statusErr = nil
-	svc.setNativeStatus(ctx, incident, "is investigating...")
-	if len(slack.statuses) != 2 || svc.nativeStatus[statusKey].text != "is investigating..." {
-		t.Fatalf("native status did not recover: %+v", slack.statuses)
+	if len(slack.statuses) != 1 || metrics.SlackDeliveriesPending == 0 ||
+		svc.nativeStatus[statusKey].text != "is investigating..." {
+		t.Fatalf(
+			"native status retry was not durable: statuses=%+v pending=%d",
+			slack.statuses,
+			metrics.SlackDeliveriesPending,
+		)
 	}
 }
 
@@ -1042,7 +1104,7 @@ func TestDeletedChannelEventBlocksIncidentAndSuppressesSlackDelivery(t *testing.
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processOutbox(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if len(slackClient.posts) != 0 {
@@ -1656,6 +1718,7 @@ func TestClosedIncidentControlsResolveByIDAndHideWithoutChanges(t *testing.T) {
 	if err := svc.processCard(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	if len(slackClient.updates) != 1 ||
 		len(slackClient.updates[0].message.Actions) != 0 {
 		t.Fatalf("unchanged closed card controls = %+v", slackClient.updates)
@@ -1674,9 +1737,7 @@ func TestClosedIncidentControlsResolveByIDAndHideWithoutChanges(t *testing.T) {
 		if err := svc.processSlackInput(ctx); err != nil {
 			t.Fatalf("process %s: %v", id, err)
 		}
-		if err := svc.processOutbox(ctx); err != nil {
-			t.Fatalf("deliver %s: %v", id, err)
-		}
+		drainSlackDeliveries(t, ctx, svc)
 	}
 	runAction("closed-changes", slackui.ActionChanges)
 	if got := slackClient.posts[len(slackClient.posts)-1].message; !strings.Contains(
@@ -1781,7 +1842,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 		},
 		{
 			name: "malformed", kind: "bot_message", decision: `I would ignore this.`,
-			wantState: "failed", wantPosts: 1,
+			wantState: "done", wantPosts: 1,
 		},
 	}
 	for _, test := range tests {
@@ -1819,6 +1880,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			if err := svc.processSlackInput(ctx); err != nil {
 				t.Fatal(err)
 			}
+			finishQueuedAgentRun(t, ctx, svc)
 			stored, err := st.GetSlackInput(ctx, input.ID)
 			if err != nil || stored.State != test.wantState {
 				t.Fatalf("stored input = %+v, %v", stored, err)
@@ -1836,6 +1898,10 @@ func TestWatchedChannelDecisions(t *testing.T) {
 				}
 			}
 			if test.name == "malformed" {
+				run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+				if err != nil || run.State != core.AgentRunFailed {
+					t.Fatalf("malformed agent run = %+v, %v", run, err)
+				}
 				if slack.posts[0].thread != input.MessageTS ||
 					!strings.Contains(slack.posts[0].message.Text, "could not complete this check") ||
 					!strings.Contains(slack.posts[0].message.Text, "No incident was created") {
@@ -1850,7 +1916,11 @@ func TestWatchedChannelDecisions(t *testing.T) {
 					!strings.Contains(message.Text, "have not opened an incident") {
 					t.Fatalf("human incident confirmation = %+v", message)
 				}
-				state, err := decodeWatchState(stored.Frozen)
+				run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				state, err := decodeWatchRunContext(run)
 				if err != nil || state.OfferedIncidentTitle != "Checkout error rate is elevated" {
 					t.Fatalf("persisted incident offer = %+v, %v", state, err)
 				}
@@ -1912,12 +1982,26 @@ func TestWatchedFailureKeepsPendingStatusUntilNoticeIsPosted(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatalf("agent finalization should not depend on Slack: %v", err)
+	}
+	if err := svc.processSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
 	stored, err := st.GetSlackInput(ctx, input.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.State != "retry" {
+	if stored.State != "done" {
 		t.Fatalf("stored input = %+v", stored)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunFailed {
+		t.Fatalf("finalized failed run = %+v, %v", run, err)
 	}
 	if len(slack.posts) != 1 ||
 		!strings.Contains(slack.posts[0].message.Text, "could not complete this check") {
@@ -1959,6 +2043,7 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	if len(slackClient.posts) != 1 ||
 		len(slackClient.posts[0].message.Actions) != 1 ||
 		slackClient.posts[0].message.Actions[0].ID != slackui.ActionOpenIncident {
@@ -1994,6 +2079,7 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 
 	click("incident-offer-authorized", "U123ABC")
 	click("incident-offer-repeated", "U123ABC")
+	drainSlackDeliveries(t, ctx, svc)
 	incidents, err := st.ListIncidents(ctx, 10)
 	if err != nil || len(incidents) != 1 {
 		t.Fatalf("authorized offer incidents = %+v, %v", incidents, err)
@@ -2046,17 +2132,18 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	if len(slackClient.posts) != 1 ||
 		len(slackClient.posts[0].message.Actions) != 1 ||
 		slackClient.posts[0].message.Actions[0].ID != slackui.ActionStartTask ||
 		slackClient.posts[0].message.Actions[0].Value != source.ID {
 		t.Fatalf("engineering task offer = %+v", slackClient.posts)
 	}
-	stored, err := st.GetSlackInput(ctx, source.ID)
+	run, err := st.GetAgentRunBySource(ctx, "watch", source.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := decodeWatchState(stored.Frozen)
+	state, err := decodeWatchRunContext(run)
 	if err != nil ||
 		state.OfferedTaskTitle != "Audit infrastructure packs" ||
 		state.OfferedTaskRepository != cfg.Slack.DefaultRepository {
@@ -2090,6 +2177,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		t.Fatalf("unauthorized click created task = %+v, %v", incidents, err)
 	}
 	click("engineering-task-authorized", "U123ABC")
+	drainSlackDeliveries(t, ctx, svc)
 	incidents, err := st.ListIncidents(ctx, 10)
 	if err != nil || len(incidents) != 1 || !incidents[0].IsEngineeringTask() {
 		t.Fatalf("engineering task = %+v, %v", incidents, err)
@@ -2123,7 +2211,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	if slackClient.createChannelCalls != 0 {
 		t.Fatalf("thread task created %d Slack channels", slackClient.createChannelCalls)
 	}
-	if err := svc.processOutbox(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx); err != nil {
 		t.Fatal(err)
 	}
 	incidents, err = st.ListIncidents(ctx, 10)
@@ -2145,7 +2233,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		t.Fatal(err)
 	}
 	for count := 0; count < 4; count++ {
-		err := svc.processOutbox(ctx)
+		err := svc.processSlackDelivery(ctx)
 		if errors.Is(err, store.ErrNotFound) {
 			break
 		}
@@ -2159,7 +2247,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 			t.Fatalf("thread task posted a room handoff = %+v", slackClient.posts)
 		}
 	}
-	if err := svc.processTurn(ctx); err != nil {
+	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
 	taskPrompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
@@ -2185,7 +2273,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	queued, err := st.GetTurnSubmissionBySource(ctx, "slack", followup.ID)
+	queued, err := st.GetAgentRunBySource(ctx, "slack", followup.ID)
 	if err != nil || queued.IncidentID != task.ID {
 		t.Fatalf("thread follow-up routing = %+v, %v", queued, err)
 	}
@@ -2202,7 +2290,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if queued, err := st.GetTurnSubmissionBySource(ctx, "slack", unrelated.ID); !errors.Is(err, store.ErrNotFound) {
+	if queued, err := st.GetAgentRunBySource(ctx, "slack", unrelated.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unrelated message entered task session = %+v, %v", queued, err)
 	}
 }
@@ -2246,6 +2334,7 @@ func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	if len(slackClient.posts) != 1 ||
 		len(slackClient.posts[0].message.Actions) != 0 ||
 		!strings.Contains(slackClient.posts[0].message.Text, "Which configured repository") ||
@@ -2253,11 +2342,11 @@ func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *
 		!strings.Contains(slackClient.posts[0].message.Text, "Repository (`repo`)") {
 		t.Fatalf("ambiguous repository response = %+v", slackClient.posts)
 	}
-	stored, err := st.GetSlackInput(ctx, source.ID)
+	run, err := st.GetAgentRunBySource(ctx, "watch", source.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := decodeWatchState(stored.Frozen)
+	state, err := decodeWatchRunContext(run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2338,6 +2427,7 @@ func TestWatchedDecisionReceivesFreshChronologicalChannelContext(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	if len(coopClient.submitPrompts) != 1 {
 		t.Fatalf("submitted prompts = %d", len(coopClient.submitPrompts))
 	}
@@ -2411,7 +2501,11 @@ func TestWatchedDecisionWaitsForNearbyConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored, err := st.GetSlackInput(ctx, input.ID)
-	if err != nil || stored.State != "retry" || len(coopClient.createKeys) != 0 {
+	run, runErr := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || stored.State != "done" || runErr != nil ||
+		run.State != core.AgentRunPending ||
+		!run.NextAttemptAt.After(time.Now()) ||
+		len(coopClient.createKeys) != 0 {
 		t.Fatalf("settling input = %+v, Coop creates=%v, error=%v",
 			stored, coopClient.createKeys, err)
 	}
@@ -2462,10 +2556,17 @@ func TestLateWatchedMessageCannotRespondAfterNewerDecision(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
 	stored, err := st.GetSlackInput(ctx, "slack-late-old")
 	if err != nil || stored.State != "done" || len(coopClient.createKeys) != 0 {
 		t.Fatalf("late input = %+v, Coop creates=%v, error=%v",
 			stored, coopClient.createKeys, err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", older.ID)
+	if err != nil || run.State != core.AgentRunSuperseded {
+		t.Fatalf("late run = %+v, %v", run, err)
 	}
 }
 
@@ -2481,9 +2582,13 @@ func TestIncidentTurnCapacityExtendsAutomatically(t *testing.T) {
 	if err := st.SetCoopSession(ctx, incident.ID, "ses_1", "incident-api", 7); err != nil {
 		t.Fatal(err)
 	}
-	if _, created, err := st.QueueTurn(ctx, core.TurnSubmission{
-		IncidentID: incident.ID, SourceKind: "control", SourceID: "automatic-capacity",
-		UserID: "U123ABC", Prompt: "Inspect current evidence.",
+	if _, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.RootTS,
+		ConversationKey: "incident:" + incident.ID,
+		SourceKind:      "control", SourceID: "automatic-capacity",
+		UserID: "U123ABC", Repository: incident.Repository,
+		Prompt: "Inspect current evidence.",
 	}); err != nil || !created {
 		t.Fatalf("queue turn = %v, %v", created, err)
 	}
@@ -2495,15 +2600,15 @@ func TestIncidentTurnCapacityExtendsAutomatically(t *testing.T) {
 		cfg, st, coopClient, &fakeSlack{}, nil,
 		slackui.NewSanitizer(12000), nil,
 	)
-	if err := svc.processTurn(ctx); err != nil {
+	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if coopClient.session.MaxTurns != 125 || len(coopClient.submitKeys) != 1 {
 		t.Fatalf("automatic capacity session = %+v, submissions = %v",
 			coopClient.session, coopClient.submitKeys)
 	}
-	submission, err := st.GetTurnSubmissionBySource(ctx, "control", "automatic-capacity")
-	if err != nil || submission.State != "submitted" {
+	submission, err := st.GetAgentRunBySource(ctx, "control", "automatic-capacity")
+	if err != nil || submission.State != core.AgentRunRunning {
 		t.Fatalf("automatic-capacity submission = %+v, %v", submission, err)
 	}
 }
@@ -2558,8 +2663,13 @@ func TestWatchedTurnResumesFromDurableState(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
 	stored, err := st.GetSlackInput(ctx, input.ID)
-	if err != nil || stored.State != "retry" || len(stored.Frozen) == 0 {
+	run, runErr := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || stored.State != "done" || runErr != nil ||
+		run.State != core.AgentRunRunning || len(run.Context) == 0 {
 		t.Fatalf("running watch input = %+v, %v", stored, err)
 	}
 	if len(firstSlack.statuses) != 0 {
@@ -2570,7 +2680,6 @@ func TestWatchedTurnResumesFromDurableState(t *testing.T) {
 	}
 
 	coopClient.complete(`{"action":"reply","message":"Yes, the deploy recovered."}`)
-	time.Sleep(watchPollDelay + 100*time.Millisecond)
 	st, err = store.Open(cfg.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -2579,9 +2688,11 @@ func TestWatchedTurnResumesFromDurableState(t *testing.T) {
 	slack := &fakeSlack{}
 	svc = New(cfg, st, coopClient, slack, nil, slackui.NewSanitizer(12000), nil)
 	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
-	if err := svc.processSlackInput(ctx); err != nil {
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	stored, err = st.GetSlackInput(ctx, input.ID)
 	if err != nil || stored.State != "done" || len(slack.posts) != 1 {
 		t.Fatalf("resumed watch input = %+v, posts=%+v, %v", stored, slack.posts, err)
@@ -2592,6 +2703,97 @@ func TestWatchedTurnResumesFromDurableState(t *testing.T) {
 	if len(coopClient.createKeys) != 1 || len(coopClient.submitKeys) != 1 {
 		t.Fatalf("durable state replayed Coop mutations: create=%v submit=%v",
 			coopClient.createKeys, coopClient.submitKeys)
+	}
+}
+
+func TestLongWatchedRunDoesNotConsumeInputRetriesOrBlockLaterContext(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.submitState = "running"
+	svc := New(
+		cfg,
+		st,
+		coopClient,
+		&fakeSlack{},
+		nil,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT",
+	}
+	first := core.SlackInput{
+		ID: "slack-long-first", EnvelopeID: "env-long-first",
+		EventID: "EvLongFirst", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.100", UserID: "U111",
+		Text: "The deploy started.",
+	}
+	second := core.SlackInput{
+		ID: "slack-long-second", EnvelopeID: "env-long-second",
+		EventID: "EvLongSecond", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.200", UserID: "U222",
+		Text: "It completed successfully.",
+	}
+	for _, input := range []core.SlackInput{first, second} {
+		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, err)
+		}
+		if err := svc.processSlackInput(ctx); err != nil {
+			t.Fatalf("process %s: %v", input.ID, err)
+		}
+		if input.ID == first.ID {
+			if err := svc.processAgentRun(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for range cfg.Limits.MaxSlackInputAttempts + 5 {
+		svc.pollAgentRuns(ctx)
+	}
+	storedFirst, err := st.GetSlackInput(ctx, first.ID)
+	if err != nil || storedFirst.State != "done" || storedFirst.Failures != 0 {
+		t.Fatalf("long-running source input = %+v, %v", storedFirst, err)
+	}
+	firstRun, err := st.GetAgentRunBySource(ctx, "watch", first.ID)
+	if err != nil || firstRun.State != core.AgentRunRunning ||
+		firstRun.Failures != 0 {
+		t.Fatalf("long-running agent run = %+v, %v", firstRun, err)
+	}
+	secondRun, err := st.GetAgentRunBySource(ctx, "watch", second.ID)
+	if err != nil || secondRun.State != core.AgentRunPending {
+		t.Fatalf("later message run = %+v, %v", secondRun, err)
+	}
+	if err := svc.processAgentRun(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("later run bypassed per-conversation serialization: %v", err)
+	}
+
+	coopClient.complete(`{"action":"ignore","reason":"superseded by the successful completion"}`)
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	secondRun, err = st.GetAgentRunBySource(ctx, "watch", second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(secondRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.RecentMessages) < 2 ||
+		state.RecentMessages[len(state.RecentMessages)-2].Text != first.Text ||
+		state.RecentMessages[len(state.RecentMessages)-1].Text != second.Text {
+		t.Fatalf("later run context is not ordered and fresh: %+v", state.RecentMessages)
 	}
 }
 
@@ -2939,8 +3141,9 @@ func (f *fakeCoop) complete(message string) {
 	f.session.State = "open"
 	f.session.Activity = "parked"
 	f.session.Revision++
+	sequence := int64(len(f.events) + 1)
 	f.events = append(f.events, coop.Event{
-		ID: "evt_1", SessionID: f.session.ID, Sequence: 1,
+		ID: fmt.Sprintf("evt_%d", sequence), SessionID: f.session.ID, Sequence: sequence,
 		TurnID: f.turn.ID, Type: "turn.completed",
 	})
 }
@@ -3069,7 +3272,7 @@ func (f *fakeSlack) PublishHome(
 func (f *fakeSlack) UserAllowed(context.Context, string, string) (bool, error) {
 	return true, nil
 }
-func (f *fakeSlack) FindOutboxMessage(
+func (f *fakeSlack) FindDeliveryMessage(
 	_ context.Context,
 	channel string,
 	thread string,
@@ -3117,4 +3320,39 @@ webhooks:
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+func finishQueuedAgentRun(
+	t *testing.T,
+	ctx context.Context,
+	svc *Service,
+) {
+	t.Helper()
+	if err := svc.processAgentRun(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("process queued agent run: %v", err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil &&
+		!errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("finalize queued agent run: %v", err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+}
+
+func drainSlackDeliveries(
+	t *testing.T,
+	ctx context.Context,
+	svc *Service,
+) {
+	t.Helper()
+	for range 100 {
+		err := svc.processSlackDelivery(ctx)
+		if errors.Is(err, store.ErrNotFound) {
+			return
+		}
+		if err != nil {
+			t.Fatalf("deliver queued Slack work: %v", err)
+		}
+	}
+	t.Fatal("Slack delivery queue did not drain")
 }

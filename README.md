@@ -351,18 +351,18 @@ and external Slack Connect identities are denied. See
 responder status --config /etc/responder/responder.yaml
 responder status --config /etc/responder/responder.yaml --json
 responder failures --config /etc/responder/responder.yaml
-responder retry --config /etc/responder/responder.yaml outbox out_...
+responder retry --config /etc/responder/responder.yaml delivery delivery_...
 curl -f http://127.0.0.1:8080/healthz
 curl -f http://127.0.0.1:8080/readyz
 curl -f http://127.0.0.1:8080/metrics
 ```
 
 `responder status --json` returns both lifecycle counters and the bounded incident directory.
-`responder failures` lists retryability and the retained error for failed Slack, webhook, outbox,
-turn, publication, and cleanup work.
+`responder failures` lists retryability and the retained error for failed Slack inputs, webhooks,
+Slack deliveries, agent runs, publications, and cleanup work.
 
 State is one owner-private SQLite database in `state_dir`. Slack inputs, webhook events, outgoing
-messages, turn submissions, incident mappings, channel lifecycle, structured evidence, coverage,
+Slack deliveries, agent runs, incident mappings, channel lifecycle, structured evidence, coverage,
 channel memory, operator-confirmed operational memory, Emisar approval holds, timelines,
 evaluation decisions, and audit records are durable.
 Bounded retention removes expired operational payloads and closed work. Coop cleanup is restricted

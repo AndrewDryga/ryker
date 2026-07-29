@@ -1,0 +1,643 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
+)
+
+const agentRunColumns = `
+	id, mode, incident_id, channel_id, thread_ts, conversation_key,
+	source_kind, source_id, user_id, repository, prompt, idempotency_key,
+	session_id, session_generation, expected_revision, coop_turn_id,
+	coop_event_sequence, context_json, result_json, terminal_state, state,
+	failure_count, next_attempt_at, last_error, created_at, updated_at,
+	started_at, completed_at`
+
+func (s *Store) QueueAgentRun(
+	ctx context.Context,
+	run core.AgentRun,
+) (core.AgentRun, bool, error) {
+	if run.Mode == "" || run.SourceKind == "" || run.SourceID == "" {
+		return core.AgentRun{}, false, errors.New("agent run identity is incomplete")
+	}
+	if run.ConversationKey == "" {
+		if run.IncidentID == "" {
+			return core.AgentRun{}, false, errors.New("agent run conversation is required")
+		}
+		run.ConversationKey = "incident:" + run.IncidentID
+	}
+	if run.ID == "" {
+		var err error
+		run.ID, err = core.NewID("run")
+		if err != nil {
+			return core.AgentRun{}, false, err
+		}
+	}
+	if run.IdempotencyKey == "" {
+		run.IdempotencyKey = "responder:run:" + run.ID
+	}
+	if run.State == "" {
+		run.State = core.AgentRunPending
+	}
+	if run.State != core.AgentRunPending && run.State != core.AgentRunRunning {
+		return core.AgentRun{}, false, fmt.Errorf("cannot queue agent run in state %q", run.State)
+	}
+	if len(run.Context) == 0 {
+		run.Context = []byte("{}")
+	}
+	if run.Result == nil {
+		run.Result = []byte{}
+	}
+	if len(run.Context) > 256<<10 {
+		return core.AgentRun{}, false, errors.New("agent run context exceeds 256 KiB")
+	}
+	now := time.Now().UTC()
+	if run.CreatedAt.IsZero() {
+		run.CreatedAt = now
+	}
+	if run.NextAttemptAt.IsZero() {
+		run.NextAttemptAt = now
+	}
+	var incidentID any
+	if run.IncidentID != "" {
+		incidentID = run.IncidentID
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO agent_runs (
+		  id, mode, incident_id, channel_id, thread_ts, conversation_key,
+		  source_kind, source_id, user_id, repository, prompt, idempotency_key,
+		  session_id, session_generation, expected_revision, coop_turn_id,
+		  coop_event_sequence, context_json, result_json, terminal_state, state,
+		  failure_count, next_attempt_at, last_error, created_at, updated_at,
+		  started_at, completed_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		        ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, run.Mode, incidentID, run.ChannelID, run.ThreadTS, run.ConversationKey,
+		run.SourceKind, run.SourceID, run.UserID, run.Repository, run.Prompt,
+		run.IdempotencyKey, run.SessionID, run.SessionGeneration, run.ExpectedRevision,
+		run.CoopTurnID, run.CoopEventSequence, run.Context, run.Result,
+		run.TerminalState, run.State, run.Failures,
+		run.NextAttemptAt.UTC().Format(timestampFormat), boundedError(run.LastError),
+		run.CreatedAt.UTC().Format(timestampFormat), nowText(), nullableTime(run.StartedAt),
+		nullableTime(run.CompletedAt),
+	)
+	if err != nil {
+		return core.AgentRun{}, false, fmt.Errorf("queue agent run: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return core.AgentRun{}, false, err
+	}
+	stored, err := s.GetAgentRunBySource(ctx, run.SourceKind, run.SourceID)
+	return stored, rows == 1, err
+}
+
+func nullableTime(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value.UTC().Format(timestampFormat)
+}
+
+func (s *Store) GetAgentRun(ctx context.Context, id string) (core.AgentRun, error) {
+	return scanAgentRun(s.db.QueryRowContext(
+		ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE id = ?`, id,
+	))
+}
+
+func (s *Store) GetAgentRunBySource(
+	ctx context.Context,
+	kind string,
+	sourceID string,
+) (core.AgentRun, error) {
+	return scanAgentRun(s.db.QueryRowContext(
+		ctx,
+		`SELECT `+agentRunColumns+`
+		 FROM agent_runs WHERE source_kind = ? AND source_id = ?`,
+		kind,
+		sourceID,
+	))
+}
+
+func (s *Store) GetAgentRunByCoopTurn(
+	ctx context.Context,
+	coopTurnID string,
+) (core.AgentRun, error) {
+	if coopTurnID == "" {
+		return core.AgentRun{}, errors.New("Coop turn ID is required")
+	}
+	return scanAgentRun(s.db.QueryRowContext(
+		ctx,
+		`SELECT `+agentRunColumns+` FROM agent_runs WHERE coop_turn_id = ?`,
+		coopTurnID,
+	))
+}
+
+func scanAgentRun(row interface{ Scan(...any) error }) (core.AgentRun, error) {
+	var run core.AgentRun
+	var incident sql.NullString
+	var next, created, updated string
+	var started, completed sql.NullString
+	err := row.Scan(
+		&run.ID, &run.Mode, &incident, &run.ChannelID, &run.ThreadTS,
+		&run.ConversationKey, &run.SourceKind, &run.SourceID, &run.UserID,
+		&run.Repository, &run.Prompt, &run.IdempotencyKey, &run.SessionID,
+		&run.SessionGeneration, &run.ExpectedRevision, &run.CoopTurnID,
+		&run.CoopEventSequence, &run.Context, &run.Result, &run.TerminalState,
+		&run.State, &run.Failures, &next, &run.LastError, &created, &updated,
+		&started, &completed,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.AgentRun{}, ErrNotFound
+	}
+	if err != nil {
+		return core.AgentRun{}, err
+	}
+	run.IncidentID = incident.String
+	run.NextAttemptAt = parseTime(next)
+	run.CreatedAt = parseTime(created)
+	run.UpdatedAt = parseTime(updated)
+	run.StartedAt = scanTime(started)
+	run.CompletedAt = scanTime(completed)
+	return run, nil
+}
+
+func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.AgentRun{}, err
+	}
+	defer tx.Rollback()
+	run, err := scanAgentRun(tx.QueryRowContext(ctx, `
+		SELECT `+agentRunColumns+`
+		FROM agent_runs AS candidate
+		WHERE candidate.state = 'pending'
+		  AND julianday(candidate.next_attempt_at) <= julianday(?)
+		  AND (
+		    candidate.incident_id IS NULL OR EXISTS (
+		      SELECT 1 FROM incidents AS incident
+		      WHERE incident.id = candidate.incident_id
+		        AND incident.coop_session_id != ''
+		        AND incident.active_turn_id = ''
+		        AND incident.workflow NOT IN ('closed', 'blocked')
+		    )
+		  )
+		  AND NOT EXISTS (
+		    SELECT 1 FROM agent_runs AS active
+		    WHERE active.conversation_key = candidate.conversation_key
+		      AND active.id != candidate.id
+		      AND active.state IN ('preparing', 'running', 'applying', 'finalizing')
+		  )
+		ORDER BY
+		  CASE WHEN candidate.mode = 'triage' THEN 1 ELSE 0 END,
+		  candidate.created_at,
+		  candidate.id
+		LIMIT 1`, nowText()))
+	if err != nil {
+		return core.AgentRun{}, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs SET state = 'preparing', updated_at = ?
+		WHERE id = ? AND state = 'pending'`, nowText(), run.ID)
+	if err := expectOne(result, err, "lease agent run"); err != nil {
+		return core.AgentRun{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.AgentRun{}, err
+	}
+	run.State = core.AgentRunPreparing
+	return run, nil
+}
+
+func (s *Store) LeaseAgentRunFinalization(ctx context.Context) (core.AgentRun, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.AgentRun{}, err
+	}
+	defer tx.Rollback()
+	run, err := scanAgentRun(tx.QueryRowContext(ctx, `
+		SELECT `+agentRunColumns+`
+		FROM agent_runs
+		WHERE state = 'applying'
+		ORDER BY updated_at, id
+		LIMIT 1`))
+	if err != nil {
+		return core.AgentRun{}, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs SET state = 'finalizing', updated_at = ?
+		WHERE id = ? AND state = 'applying'`, nowText(), run.ID)
+	if err := expectOne(result, err, "lease agent run finalization"); err != nil {
+		return core.AgentRun{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.AgentRun{}, err
+	}
+	run.State = core.AgentRunFinalizing
+	return run, nil
+}
+
+func (s *Store) BeginAgentRunFinalization(
+	ctx context.Context,
+	id string,
+) (core.AgentRun, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.AgentRun{}, err
+	}
+	defer tx.Rollback()
+	run, err := scanAgentRun(tx.QueryRowContext(
+		ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE id = ?`, id,
+	))
+	if err != nil {
+		return core.AgentRun{}, err
+	}
+	if run.State == core.AgentRunFinalizing {
+		return run, tx.Commit()
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs SET state = 'finalizing', updated_at = ?
+		WHERE id = ? AND state = 'applying'`, nowText(), id)
+	if err := expectOne(result, err, "begin agent run finalization"); err != nil {
+		return core.AgentRun{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.AgentRun{}, err
+	}
+	run.State = core.AgentRunFinalizing
+	return run, nil
+}
+
+func (s *Store) BindAgentRunSession(
+	ctx context.Context,
+	id string,
+	sessionID string,
+	generation int,
+	repository string,
+	eventSequence int64,
+	contextJSON []byte,
+) error {
+	if sessionID == "" || len(contextJSON) == 0 || len(contextJSON) > 256<<10 {
+		return errors.New("agent run session binding is incomplete")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET session_id = ?, session_generation = ?, repository = ?,
+		    coop_event_sequence = ?, context_json = ?, updated_at = ?
+		WHERE id = ? AND state = 'preparing'`,
+		sessionID, generation, repository, eventSequence, contextJSON, nowText(), id)
+	return expectOne(result, err, "bind agent run session")
+}
+
+func (s *Store) SetAgentRunContext(
+	ctx context.Context,
+	id string,
+	contextJSON []byte,
+) error {
+	if len(contextJSON) == 0 || len(contextJSON) > 256<<10 {
+		return errors.New("agent run context must be between 1 byte and 256 KiB")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs SET context_json = ?, updated_at = ?
+		WHERE id = ? AND state NOT IN ('superseded')`,
+		contextJSON, nowText(), id)
+	return expectOne(result, err, "set agent run context")
+}
+
+func (s *Store) SetAgentRunPreparedContext(
+	ctx context.Context,
+	id string,
+	repository string,
+	contextJSON []byte,
+) error {
+	if len(contextJSON) == 0 || len(contextJSON) > 256<<10 {
+		return errors.New("agent run context must be between 1 byte and 256 KiB")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET repository = ?, context_json = ?, updated_at = ?
+		WHERE id = ? AND state = 'preparing'`,
+		repository, contextJSON, nowText(), id)
+	return expectOne(result, err, "set prepared agent run context")
+}
+
+func (s *Store) FreezeAgentRunRevision(
+	ctx context.Context,
+	id string,
+	revision int64,
+) (int64, error) {
+	if revision <= 0 {
+		return 0, errors.New("positive Coop revision is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var existing int64
+	if err := tx.QueryRowContext(
+		ctx, `SELECT expected_revision FROM agent_runs WHERE id = ?`, id,
+	).Scan(&existing); err != nil {
+		return 0, err
+	}
+	if existing == 0 {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE agent_runs SET expected_revision = ?, updated_at = ?
+			WHERE id = ? AND state = 'preparing' AND expected_revision = 0`,
+			revision, nowText(), id)
+		if err := expectOne(result, err, "freeze agent run revision"); err != nil {
+			return 0, err
+		}
+		existing = revision
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return existing, nil
+}
+
+func (s *Store) MarkAgentRunSubmitted(
+	ctx context.Context,
+	id string,
+	coopTurnID string,
+	revision int64,
+	eventSequence int64,
+) error {
+	if coopTurnID == "" {
+		return errors.New("submitted agent run requires a Coop turn ID")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var incidentID sql.NullString
+	var channelID string
+	if err := tx.QueryRowContext(
+		ctx, `SELECT incident_id, channel_id FROM agent_runs WHERE id = ?`, id,
+	).Scan(&incidentID, &channelID); err != nil {
+		return err
+	}
+	now := nowText()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'running', coop_turn_id = ?, coop_event_sequence = ?,
+		    last_error = '', started_at = COALESCE(started_at, ?), updated_at = ?
+		WHERE id = ? AND state = 'preparing'`,
+		coopTurnID, eventSequence, now, now, id)
+	if err := expectOne(result, err, "mark agent run submitted"); err != nil {
+		return err
+	}
+	if incidentID.Valid {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE incidents
+			SET active_turn_id = ?, coop_revision = ?, workflow = 'investigating',
+			    updated_at = ?, card_version = card_version + 1, last_error = ''
+			WHERE id = ?`,
+			coopTurnID, revision, now, incidentID.String); err != nil {
+			return err
+		}
+	} else if channelID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE channel_memories
+			SET session_revision = ?, coop_event_sequence = ?, updated_at = ?
+			WHERE channel_id = ?`,
+			revision, eventSequence, now, channelID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) DeferAgentRun(
+	ctx context.Context,
+	id string,
+	detail string,
+	next time.Time,
+) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'pending', last_error = ?, next_attempt_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'preparing'`,
+		boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+	return expectOne(result, err, "defer agent run")
+}
+
+func (s *Store) RetryAgentRun(
+	ctx context.Context,
+	id string,
+	detail string,
+	next time.Time,
+	terminal bool,
+) error {
+	state := core.AgentRunPending
+	completedAt := any(nil)
+	if terminal {
+		state = core.AgentRunFailed
+		completedAt = nowText()
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = ?, failure_count = failure_count + 1, last_error = ?,
+		    next_attempt_at = ?, completed_at = ?, updated_at = ?
+		WHERE id = ? AND state IN ('preparing', 'finalizing')`,
+		state, boundedError(detail), next.UTC().Format(timestampFormat),
+		completedAt, nowText(), id)
+	return expectOne(result, err, "retry agent run")
+}
+
+func (s *Store) ListRunningAgentRuns(
+	ctx context.Context,
+	limit int,
+) ([]core.AgentRun, error) {
+	if limit < 1 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+agentRunColumns+`
+		FROM agent_runs
+		WHERE state = 'running'
+		ORDER BY started_at, id
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.AgentRun, 0)
+	for rows.Next() {
+		run, err := scanAgentRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, run)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) AdvanceAgentRunEvents(
+	ctx context.Context,
+	id string,
+	sequence int64,
+) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET coop_event_sequence = MAX(coop_event_sequence, ?), updated_at = ?
+		WHERE id = ? AND state = 'running'`,
+		sequence, nowText(), id)
+	return expectOne(result, err, "advance agent run events")
+}
+
+func (s *Store) StageAgentRunResult(
+	ctx context.Context,
+	id string,
+	terminalState string,
+	resultJSON []byte,
+	detail string,
+	eventSequence int64,
+) error {
+	if terminalState != "completed" && terminalState != "failed" &&
+		terminalState != "cancelled" {
+		return fmt.Errorf("unsupported agent run terminal state %q", terminalState)
+	}
+	if len(resultJSON) > 1<<20 {
+		return errors.New("agent run result exceeds 1 MiB")
+	}
+	if resultJSON == nil {
+		resultJSON = []byte{}
+	}
+	update, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'applying', terminal_state = ?, result_json = ?,
+		    coop_event_sequence = MAX(coop_event_sequence, ?), last_error = ?, updated_at = ?
+		WHERE id = ? AND state = 'running'`,
+		terminalState, resultJSON, eventSequence, boundedError(detail), nowText(), id)
+	if err := expectOne(update, err, "stage agent run result"); err != nil {
+		current, getErr := s.GetAgentRun(ctx, id)
+		if getErr == nil && (current.State == core.AgentRunApplying ||
+			current.State == core.AgentRunFinalizing ||
+			current.State == core.AgentRunCompleted ||
+			current.State == core.AgentRunFailed ||
+			current.State == core.AgentRunCancelled) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var terminal, coopTurnID string
+	var incidentID sql.NullString
+	if err := tx.QueryRowContext(ctx, `
+		SELECT terminal_state, coop_turn_id, incident_id
+		FROM agent_runs WHERE id = ? AND state = 'finalizing'`, id).Scan(
+		&terminal, &coopTurnID, &incidentID,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("finish agent run: %w", ErrConflict)
+		}
+		return err
+	}
+	finalState := core.AgentRunState(terminal)
+	if finalState != core.AgentRunCompleted &&
+		finalState != core.AgentRunFailed &&
+		finalState != core.AgentRunCancelled {
+		return fmt.Errorf("agent run has invalid terminal state %q", terminal)
+	}
+	now := nowText()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = ?, completed_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'finalizing'`,
+		finalState, now, now, id)
+	if err := expectOne(result, err, "finish agent run"); err != nil {
+		return err
+	}
+	if incidentID.Valid {
+		lastError := ""
+		if finalState == core.AgentRunFailed {
+			if err := tx.QueryRowContext(
+				ctx, `SELECT last_error FROM agent_runs WHERE id = ?`, id,
+			).Scan(&lastError); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE incidents
+			SET active_turn_id = '', workflow = 'parked', last_error = ?,
+			    updated_at = ?, card_version = card_version + 1
+			WHERE id = ? AND active_turn_id = ?`,
+			lastError, now, incidentID.String, coopTurnID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) RetryAgentRunFinalization(
+	ctx context.Context,
+	id string,
+	detail string,
+) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'applying', last_error = ?, updated_at = ?
+		WHERE id = ? AND state = 'finalizing'`,
+		boundedError(detail), nowText(), id)
+	return expectOne(result, err, "retry agent run finalization")
+}
+
+func (s *Store) FailAgentRunFinalization(
+	ctx context.Context,
+	id string,
+	detail string,
+) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET terminal_state = 'failed', last_error = ?, updated_at = ?
+		WHERE id = ? AND state = 'finalizing'`,
+		boundedError(detail), nowText(), id)
+	return expectOne(result, err, "fail agent run finalization")
+}
+
+func (s *Store) SupersedeAgentRun(ctx context.Context, id, detail string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'superseded', last_error = ?, completed_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'preparing'`,
+		boundedError(detail), nowText(), nowText(), id)
+	return expectOne(result, err, "supersede agent run")
+}
+
+func (s *Store) HasNewerPendingAgentRun(
+	ctx context.Context,
+	run core.AgentRun,
+) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM agent_runs
+		WHERE conversation_key = ? AND id != ?
+		  AND state IN ('pending', 'preparing')
+		  AND (
+		    julianday(created_at) > julianday(?) OR
+		    (julianday(created_at) = julianday(?) AND id > ?)
+		  )`,
+		run.ConversationKey, run.ID,
+		run.CreatedAt.UTC().Format(timestampFormat),
+		run.CreatedAt.UTC().Format(timestampFormat),
+		run.ID,
+	).Scan(&count)
+	return count > 0, err
+}

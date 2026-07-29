@@ -138,7 +138,10 @@ limits:
   max_active_incidents: 50
   max_open_incidents: 200
   max_assistant_bytes: 12000
-  max_outbox_attempts: 12
+  max_webhook_attempts: 12
+  max_slack_input_attempts: 12
+  max_delivery_attempts: 12
+  max_agent_run_attempts: 20
   max_memory_entries: 1000
   max_memory_entries_per_scope: 100
   max_preferences: 500

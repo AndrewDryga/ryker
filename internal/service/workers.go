@@ -39,7 +39,7 @@ func (s *Service) processWebhook(ctx context.Context) error {
 			s.cfg.Limits.MaxOpenIncidents,
 		)
 		if applyErr != nil && len(incidents) == 0 {
-			terminal := terminalAttempt(event.Attempts, s.cfg.Limits.MaxOutboxAttempts)
+			terminal := terminalAttempt(event.Attempts, s.cfg.Limits.MaxWebhookAttempts)
 			return s.store.RetryWebhook(
 				ctx, event.ID, trimError(applyErr), queueDelay(event.Attempts), terminal,
 			)
@@ -71,16 +71,20 @@ func (s *Service) processWebhook(ctx context.Context) error {
 				}
 				return s.store.RetryWebhook(ctx, event.ID, trimError(err), time.Now(), true)
 			}
-			if _, _, err := s.store.QueueTurn(ctx, core.TurnSubmission{
-				IncidentID: incident.ID, SourceKind: "webhook",
-				SourceID: event.ID + ":" + incident.ID, Prompt: prompt,
-			}); err != nil {
+			if _, _, err := s.queueIncidentAgentRun(
+				ctx,
+				incident,
+				"webhook",
+				event.ID+":"+incident.ID,
+				"",
+				prompt,
+			); err != nil {
 				return s.store.RetryWebhook(ctx, event.ID, trimError(err), queueDelay(event.Attempts), false)
 			}
 		}
 	}
 	if applyErr != nil {
-		terminal := terminalAttempt(event.Attempts, s.cfg.Limits.MaxOutboxAttempts)
+		terminal := terminalAttempt(event.Attempts, s.cfg.Limits.MaxWebhookAttempts)
 		return s.store.RetryWebhook(
 			ctx, event.ID, trimError(applyErr), queueDelay(event.Attempts), terminal,
 		)
@@ -223,36 +227,35 @@ func (s *Service) adoptChannel(
 }
 
 func (s *Service) processSlackWrite(ctx context.Context) error {
+	s.postMu.Lock()
+	defer s.postMu.Unlock()
 	if time.Since(s.lastPost) < 1100*time.Millisecond {
 		return nil
 	}
-	first, second := s.processOutbox, s.processCard
-	if s.preferCard {
-		first, second = second, first
+	if err := s.processCard(ctx); err != nil &&
+		!errors.Is(err, store.ErrNotFound) {
+		return err
 	}
-	err := first(ctx)
-	if errors.Is(err, store.ErrNotFound) {
-		err = second(ctx)
-	}
-	if !errors.Is(err, store.ErrNotFound) {
-		s.preferCard = !s.preferCard
-	}
-	return err
+	return s.processSlackDelivery(ctx)
 }
 
-func (s *Service) processOutbox(ctx context.Context) error {
-	item, err := s.store.LeaseOutbox(ctx)
+func (s *Service) processSlackDelivery(ctx context.Context) error {
+	item, err := s.store.LeaseSlackDelivery(ctx)
 	if err != nil {
 		return err
 	}
-	incident, incidentErr := s.store.GetIncident(ctx, item.IncidentID)
-	if incidentErr != nil {
-		return s.store.RetryOutbox(
-			ctx, item.ID, trimError(incidentErr), time.Now(), false, true,
-		)
+	var incident core.Incident
+	if item.IncidentID != "" {
+		incident, err = s.store.GetIncident(ctx, item.IncidentID)
+		if err != nil {
+			return s.store.RetrySlackDelivery(
+				ctx, item.ID, trimError(err), time.Now(), false, true,
+			)
+		}
 	}
-	if item.ChannelID == incident.ChannelID && !incident.ChannelWritable() {
-		return s.store.RetryOutbox(
+	if incident.ID != "" && item.ChannelID == incident.ChannelID &&
+		!incident.ChannelWritable() {
+		return s.store.RetrySlackDelivery(
 			ctx,
 			item.ID,
 			"Slack delivery suppressed because the work conversation is "+string(incident.ChannelState),
@@ -261,31 +264,69 @@ func (s *Service) processOutbox(ctx context.Context) error {
 			true,
 		)
 	}
-	message, err := slackui.Decode(item.Body)
-	if err != nil {
-		retryErr := s.store.RetryOutbox(ctx, item.ID, trimError(err), time.Now(), false, true)
-		if incident, incidentErr := s.store.GetIncident(ctx, item.IncidentID); incidentErr == nil {
-			_ = s.store.SetIncidentError(ctx, incident.ID, incident.Workflow, trimError(err))
+	var timestamp string
+	switch item.Operation {
+	case "post", "update":
+		message, decodeErr := slackui.Decode(item.Body)
+		if decodeErr != nil {
+			retryErr := s.store.RetrySlackDelivery(
+				ctx, item.ID, trimError(decodeErr), time.Now(), false, true,
+			)
+			if incident.ID != "" {
+				_ = s.store.SetIncidentError(
+					ctx, incident.ID, incident.Workflow, trimError(decodeErr),
+				)
+			}
+			return retryErr
 		}
-		return retryErr
+		if item.Operation == "post" {
+			timestamp, err = s.slack.Post(
+				ctx, item.ID, item.ChannelID, item.ThreadTS, message,
+			)
+		} else {
+			timestamp = item.MessageTS
+			err = s.slack.Update(
+				ctx, item.ChannelID, item.MessageTS, message,
+			)
+		}
+	case "status":
+		err = s.slack.SetProgress(
+			ctx,
+			item.ChannelID,
+			item.ThreadTS,
+			item.Status,
+			item.Steps,
+		)
+	default:
+		err = fmt.Errorf("unsupported Slack delivery operation %q", item.Operation)
 	}
-	timestamp, err := s.slack.Post(ctx, item.ID, item.ChannelID, item.ThreadTS, message)
 	s.lastPost = time.Now()
 	if err != nil {
-		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxOutboxAttempts)
-		return s.store.RetryOutbox(ctx, item.ID, trimError(err), queueDelay(item.Attempts), true, terminal)
+		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
+		return s.store.RetrySlackDelivery(
+			ctx,
+			item.ID,
+			trimError(err),
+			queueDelay(item.Attempts),
+			item.Operation == "post",
+			terminal,
+		)
 	}
-	if err := s.store.FinishOutbox(ctx, item.ID, timestamp); err != nil {
-		_ = s.store.RetryOutbox(
+	if err := s.store.FinishSlackDelivery(
+		ctx, item.ID, timestamp, "sending",
+	); err != nil {
+		_ = s.store.RetrySlackDelivery(
 			ctx, item.ID, "Slack accepted the message but local confirmation failed",
-			queueDelay(item.Attempts), true, false,
+			queueDelay(item.Attempts), item.Operation == "post", false,
 		)
 		return err
 	}
-	if item.ThreadTS != "" {
+	if item.Operation == "post" && item.ThreadTS != "" && incident.ID != "" {
 		s.retryDone("native-status:" + item.IncidentID + "@" + item.ThreadTS)
 		s.forgetNativeStatus(item.IncidentID)
-		if incident, incidentErr := s.store.GetIncident(ctx, item.IncidentID); incidentErr == nil &&
+		if incident, incidentErr := s.store.GetIncident(
+			ctx, item.IncidentID,
+		); incidentErr == nil &&
 			incident.ActiveTurnID != "" {
 			s.setNativeStatus(
 				ctx,
@@ -297,8 +338,8 @@ func (s *Service) processOutbox(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) reconcileOutbox(ctx context.Context) error {
-	items, err := s.store.ListUncertainOutbox(ctx, 1)
+func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
+	items, err := s.store.ListUncertainSlackDeliveries(ctx, 1)
 	if err != nil || len(items) == 0 {
 		if err == nil {
 			return store.ErrNotFound
@@ -306,12 +347,16 @@ func (s *Service) reconcileOutbox(ctx context.Context) error {
 		return err
 	}
 	item := items[0]
-	incident, incidentErr := s.store.GetIncident(ctx, item.IncidentID)
-	if incidentErr != nil {
-		return incidentErr
+	var incident core.Incident
+	if item.IncidentID != "" {
+		incident, err = s.store.GetIncident(ctx, item.IncidentID)
+		if err != nil {
+			return err
+		}
 	}
-	if item.ChannelID == incident.ChannelID && !incident.ChannelWritable() {
-		return s.store.RetryUncertainOutbox(
+	if incident.ID != "" && item.ChannelID == incident.ChannelID &&
+		!incident.ChannelWritable() {
+		return s.store.RetryUncertainSlackDelivery(
 			ctx,
 			item.ID,
 			"Slack reconciliation suppressed because the work conversation is "+
@@ -320,24 +365,28 @@ func (s *Service) reconcileOutbox(ctx context.Context) error {
 			true,
 		)
 	}
-	key := "outbox-reconcile:" + item.ID
+	key := "delivery-reconcile:" + item.ID
 	if !s.canRetry(key) {
 		return nil
 	}
-	timestamp, err := s.slack.FindOutboxMessage(ctx, item.ChannelID, item.ThreadTS, item.ID)
+	timestamp, err := s.slack.FindDeliveryMessage(
+		ctx, item.ChannelID, item.ThreadTS, item.ID,
+	)
 	switch {
 	case err == nil:
 		s.retryDone(key)
-		return s.store.ResolveUncertainOutbox(ctx, item.ID, timestamp)
+		return s.store.FinishSlackDelivery(
+			ctx, item.ID, timestamp, "uncertain",
+		)
 	case errors.Is(err, slackui.ErrNotFound):
 		s.retryDone(key)
-		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxOutboxAttempts)
-		retryErr := s.store.RetryUncertainOutbox(
+		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
+		retryErr := s.store.RetryUncertainSlackDelivery(
 			ctx, item.ID, "Slack history confirmed the message was not posted",
 			queueDelay(item.Attempts), terminal,
 		)
 		if terminal {
-			if incident, incidentErr := s.store.GetIncident(ctx, item.IncidentID); incidentErr == nil {
+			if incident.ID != "" {
 				_ = s.store.SetIncidentError(
 					ctx, incident.ID, incident.Workflow,
 					"Slack delivery failed after the configured retry limit.",
@@ -483,28 +532,18 @@ func (s *Service) queueInitialTurn(ctx context.Context, incident core.Incident) 
 	if err != nil {
 		return err
 	}
-	prior, err := s.loadOperationalMemoryContext(
-		ctx,
-		incident.ChannelID,
-		incident.Repository,
-		"",
-		incident.ID,
-	)
-	if err != nil {
-		return err
-	}
 	prompt, err := initialPrompt(
 		s.cfg.Coop.Instructions,
 		incident,
 		signals,
-		operationalMemoryPrompt(prior),
+		"",
 	)
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.store.QueueTurn(ctx, core.TurnSubmission{
-		IncidentID: incident.ID, SourceKind: "initial", SourceID: incident.ID, Prompt: prompt,
-	}); err != nil {
+	if _, _, err := s.queueIncidentAgentRun(
+		ctx, incident, "initial", incident.ID, "", prompt,
+	); err != nil {
 		return err
 	}
 	if incident.InitialTurnQueued {
@@ -515,107 +554,6 @@ func (s *Service) queueInitialTurn(ctx context.Context, incident core.Incident) 
 		return nil
 	}
 	return err
-}
-
-func (s *Service) processTurn(ctx context.Context) error {
-	item, err := s.store.LeaseTurnSubmission(ctx)
-	if err != nil {
-		return err
-	}
-	key := "turn:" + item.ID
-	if !s.canRetry(key) {
-		return s.store.RetryTurnSubmission(ctx, item.ID, "waiting to retry Coop", queueDelay(item.Attempts), false)
-	}
-	incident, err := s.store.GetIncident(ctx, item.IncidentID)
-	if err != nil {
-		return s.store.RetryTurnSubmission(ctx, item.ID, trimError(err), time.Now(), true)
-	}
-	if !incident.ChannelWritable() {
-		return s.store.RetryTurnSubmission(
-			ctx,
-			item.ID,
-			"agent turn suppressed because the Slack work conversation is "+
-				string(incident.ChannelState),
-			time.Now(),
-			true,
-		)
-	}
-	session, err := s.coop.GetSession(ctx, incident.CoopSessionID)
-	if err != nil {
-		return s.store.RetryTurnSubmission(
-			ctx, item.ID, trimError(err), queueDelay(item.Attempts), !coop.Retryable(err),
-		)
-	}
-	if session.State == "closed" {
-		return s.store.RetryTurnSubmission(
-			ctx, item.ID, "the Coop session is closed", time.Now(), true,
-		)
-	}
-	session, err = s.ensureTurnCapacity(
-		ctx, incident.ChannelID, incident.ID, session,
-	)
-	if err != nil {
-		var limitErr *automaticTurnLimitError
-		if errors.As(err, &limitErr) {
-			detail := turnLimitReachedMessage(limitErr.Limit)
-			_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowBlocked, detail)
-			return s.store.RetryTurnSubmission(
-				ctx, item.ID, detail, time.Now().Add(30*time.Second), false,
-			)
-		}
-		detail := "Responder could not allocate additional automatic session capacity: " +
-			trimError(err) + ". The pending request and Coop session are preserved; " +
-			"Responder will retry after the Coop limit or service error is corrected."
-		_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowParked, detail)
-		return s.store.RetryTurnSubmission(
-			ctx, item.ID, detail, queueDelay(item.Attempts), false,
-		)
-	}
-	if session.State != "open" {
-		return s.store.RetryTurnSubmission(
-			ctx,
-			item.ID,
-			fmt.Sprintf("Coop session has unsupported state %q", session.State),
-			time.Now(),
-			true,
-		)
-	}
-	revision, err := s.store.FreezeTurnRevision(ctx, item.ID, session.Revision)
-	if err != nil {
-		return s.store.RetryTurnSubmission(ctx, item.ID, trimError(err), time.Now(), true)
-	}
-	turn, _, err := s.coop.SubmitTurn(
-		ctx,
-		item.IdempotencyKey,
-		incident.CoopSessionID,
-		revision,
-		item.Prompt+"\n\n"+s.structuredResponsePolicy(),
-	)
-	if err != nil {
-		s.retryLater(key)
-		terminal := !coop.Retryable(err)
-		retryErr := s.store.RetryTurnSubmission(
-			ctx, item.ID, trimError(err), queueDelay(item.Attempts), terminal,
-		)
-		if terminal {
-			_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowParked, trimError(err))
-			s.clearNativeStatus(ctx, incident)
-		}
-		return retryErr
-	}
-	session, err = s.coop.GetSession(ctx, incident.CoopSessionID)
-	if err != nil {
-		s.retryLater(key)
-		return s.store.RetryTurnSubmission(ctx, item.ID, trimError(err), queueDelay(item.Attempts), false)
-	}
-	if err := s.store.MarkTurnSubmitted(ctx, item.ID, turn.ID, session.Revision); err != nil {
-		s.retryLater(key)
-		_ = s.store.RetryTurnSubmission(ctx, item.ID, trimError(err), queueDelay(item.Attempts), false)
-		return err
-	}
-	s.retryDone(key)
-	s.setNativeStatus(ctx, s.turnSubmissionStatusIncident(ctx, incident, item), "is investigating...")
-	return nil
 }
 
 func (s *Service) pollCoop(ctx context.Context) {
@@ -632,6 +570,35 @@ func (s *Service) pollCoop(ctx context.Context) {
 }
 
 func (s *Service) pollIncident(ctx context.Context, incident core.Incident) error {
+	if incident.ActiveTurnID != "" {
+		run, err := s.store.GetAgentRunByCoopTurn(ctx, incident.ActiveTurnID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		if err == nil {
+			if run.State == core.AgentRunRunning {
+				if err := s.pollAgentRun(ctx, run); err != nil {
+					return err
+				}
+				run, err = s.store.GetAgentRun(ctx, run.ID)
+				if err != nil {
+					return err
+				}
+			}
+			if run.State == core.AgentRunApplying {
+				run, err = s.store.BeginAgentRunFinalization(ctx, run.ID)
+				if err != nil {
+					return err
+				}
+				if err := s.finalizeIncidentAgentRun(ctx, run); err != nil {
+					_ = s.store.RetryAgentRunFinalization(
+						ctx, run.ID, trimError(err),
+					)
+					return err
+				}
+			}
+		}
+	}
 	events, err := s.coop.Events(ctx, incident.CoopSessionID, incident.CoopEventSequence, 100)
 	if err != nil {
 		return err
@@ -640,12 +607,6 @@ func (s *Service) pollIncident(ctx context.Context, incident core.Incident) erro
 	for _, event := range events {
 		if event.Sequence > cursor {
 			cursor = event.Sequence
-		}
-		switch event.Type {
-		case "turn.completed", "turn.failed", "turn.cancelled":
-			if err := s.completeTurn(ctx, incident, event); err != nil {
-				return err
-			}
 		}
 	}
 	session, err := s.coop.GetSession(ctx, incident.CoopSessionID)
@@ -735,197 +696,6 @@ func incidentChannelStateError(incident core.Incident) string {
 	}
 }
 
-func (s *Service) completeTurn(ctx context.Context, incident core.Incident, event coop.Event) error {
-	turn, err := s.coop.GetTurn(ctx, incident.CoopSessionID, event.TurnID)
-	if err != nil {
-		return err
-	}
-	state := strings.TrimPrefix(event.Type, "turn.")
-	detail := firstNonempty(turn.ErrorDetail, turn.StopReason)
-	if s.sanitizer != nil {
-		detail = s.sanitizer.Text(detail)
-	}
-	item, err := s.store.CompleteTurnSubmission(ctx, turn.ID, state, detail)
-	if err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			return err
-		}
-		item.ID = event.ID
-		_ = s.store.Audit(ctx, core.AuditEvent{
-			IncidentID: incident.ID, Kind: "coop.turn.external", ObjectID: turn.ID,
-			Outcome: "observed", Detail: state,
-		})
-	}
-	threadTS := incident.ConversationThreadTS()
-	conversation := item.SourceKind == "slack"
-	var conversationInput core.SlackInput
-	if conversation {
-		input, inputErr := s.store.GetSlackInput(ctx, item.SourceID)
-		if inputErr != nil {
-			return inputErr
-		}
-		conversationInput = input
-		threadTS = slackReplyThread(input)
-	}
-	var message slackui.Message
-	if state == "completed" {
-		report, structured, reportErr := parseAgentReport(turn.AssistantMessage)
-		if reportErr != nil {
-			s.log.Warn(
-				"agent returned malformed structured response",
-				"incident", incident.ID,
-				"turn", turn.ID,
-				"error", reportErr,
-			)
-			_ = s.store.Audit(ctx, core.AuditEvent{
-				IncidentID: incident.ID, Kind: "agent.report", ObjectID: turn.ID,
-				Outcome: "malformed", Detail: trimError(reportErr),
-			})
-			reportDetail := trimError(reportErr)
-			if s.sanitizer != nil {
-				reportDetail = s.sanitizer.Text(reportDetail)
-			}
-			message = slackui.AgentReportFailureMessage(reportDetail)
-			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
-				IncidentID: incident.ID, ChannelID: incident.ChannelID,
-				Kind: "agent.failure", ActorID: "responder",
-				Title:  "Agent result could not be rendered",
-				Detail: boundedField(trimError(reportErr), 1000),
-			})
-		} else {
-			if !structured {
-				_ = s.store.Audit(ctx, core.AuditEvent{
-					IncidentID: incident.ID, Kind: "agent.report", ObjectID: turn.ID,
-					Outcome: "legacy", Detail: "response had no structured evidence envelope",
-				})
-			}
-			report, err = s.persistAgentReport(
-				ctx, report, incident, incident.ChannelID, item.ID, item.UserID,
-			)
-			if err != nil {
-				return err
-			}
-			if conversation && suppressConversationReply(report.Message) {
-				s.clearNativeStatus(ctx, incident)
-				return nil
-			}
-			if conversation {
-				message = slackui.ConciseEvidenceResponse(
-					report.Message,
-					report.Evidence,
-					report.Coverage,
-					report.Proposals,
-					s.sanitizer,
-				)
-				if actionValue, scope, expires, ok := s.prepareMemoryOfferAction(
-					conversationInput,
-					report.MemoryOffer,
-				); ok {
-					message = slackui.WithMemoryOffer(
-						message, *report.MemoryOffer, actionValue, scope, expires,
-					)
-				}
-				if actionValue, preference, expires, ok := s.preparePreferenceOfferAction(
-					conversationInput,
-					report.PreferenceOffer,
-				); ok {
-					message = slackui.WithPreferenceOffer(
-						message,
-						*report.PreferenceOffer,
-						preference,
-						actionValue,
-						expires,
-					)
-				}
-				if actionValue, rule, expires, ok := s.prepareRuleOfferAction(
-					conversationInput,
-					report.RuleOffer,
-				); ok {
-					message = slackui.WithRuleOffer(
-						message,
-						*report.RuleOffer,
-						rule,
-						actionValue,
-						expires,
-					)
-				}
-			} else {
-				message = slackui.IncidentEvidenceResponse(
-					report.Message,
-					report.Evidence,
-					report.Coverage,
-					report.Proposals,
-					s.sanitizer,
-				)
-			}
-			if report.PendingApproval != nil {
-				message = slackui.WithEmisarApproval(message, *report.PendingApproval)
-			}
-			evidenceIDs := make([]string, 0, len(report.Evidence))
-			for _, item := range report.Evidence {
-				evidenceIDs = append(evidenceIDs, item.ID)
-			}
-			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
-				IncidentID:  incident.ID,
-				ChannelID:   incident.ChannelID,
-				Kind:        "agent.finding",
-				ActorID:     "responder",
-				Title:       "Investigation update",
-				Detail:      boundedField(report.Message, 2000),
-				EvidenceIDs: evidenceIDs,
-			})
-		}
-	} else {
-		detail := s.sanitizer.Text(firstNonempty(turn.ErrorDetail, turn.StopReason, state))
-		failure := classifyProviderFailure(detail)
-		message = slackui.TurnFailureMessage(
-			state,
-			failure.Summary+"\n\nReported detail: `"+detail+"`\n\n"+failure.OperatorFix,
-		)
-		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
-			IncidentID: incident.ID, ChannelID: incident.ChannelID,
-			Kind: "agent.failure", ActorID: "responder",
-			Title: "Agent turn " + state, Detail: detail,
-		})
-	}
-	if state == "completed" && incident.IsEngineeringTask() {
-		if changes, changesErr := s.coop.Changes(ctx, incident.CoopSessionID); changesErr == nil {
-			message = slackui.WithEngineeringTaskDelivery(
-				message,
-				incident,
-				coopChangesPresent(changes),
-			)
-		} else {
-			s.log.Warn(
-				"inspect completed engineering task changes failed",
-				"incident", incident.ID,
-				"error", changesErr,
-			)
-		}
-	}
-	if item.SourceKind == "proposal" {
-		proposalState := "failed"
-		if state == "completed" {
-			proposalState = "finished"
-		}
-		proposalResult := firstNonempty(turn.AssistantMessage, detail)
-		if s.sanitizer != nil {
-			proposalResult = s.sanitizer.Text(proposalResult)
-		}
-		_ = s.store.MarkProposalExecution(
-			ctx, item.SourceID, proposalState, turn.ID,
-			proposalResult,
-		)
-	}
-	if err := s.enqueue(
-		ctx, "out_turn_"+item.ID, incident, "assistant", threadTS, message,
-	); err != nil {
-		return err
-	}
-	s.forgetNativeStatus(incident.ID)
-	return nil
-}
-
 func (s *Service) processCard(ctx context.Context) error {
 	incidents, err := s.store.ListDirtyCards(ctx, 1000)
 	if err != nil || len(incidents) == 0 {
@@ -949,14 +719,24 @@ func (s *Service) processCard(ctx context.Context) error {
 		s.retryLater("card:" + incident.ID)
 		return err
 	}
-	message = s.sanitizer.Message(message)
-	err = s.slack.Update(ctx, incident.ChannelID, incident.RootTS, message)
-	s.lastPost = time.Now()
+	body, err := slackui.Encode(s.sanitizer.Message(message))
 	if err != nil {
 		s.retryLater("card:" + incident.ID)
 		return err
 	}
-	if err := s.store.MarkCardRendered(ctx, incident.ID, incident.CardVersion); err != nil {
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID:          fmt.Sprintf("delivery_card_%s_%d", incident.ID, incident.CardVersion),
+		IncidentID:  incident.ID,
+		Operation:   "update",
+		Kind:        "card",
+		ChannelID:   incident.ChannelID,
+		MessageTS:   incident.RootTS,
+		Body:        body,
+		CoalesceKey: "card:" + incident.ID,
+		CardVersion: incident.CardVersion,
+	})
+	if err != nil {
+		s.retryLater("card:" + incident.ID)
 		return err
 	}
 	s.retryDone("card:" + incident.ID)
@@ -1030,7 +810,20 @@ func (s *Service) enqueueManualHandoff(ctx context.Context, incident core.Incide
 func (s *Service) clearNativeStatus(ctx context.Context, incident core.Incident) {
 	if s.cfg.Slack.NativeStatus && incident.ChannelWritable() &&
 		incident.ChannelID != "" && incident.ConversationThreadTS() != "" {
-		_ = s.slack.SetStatus(ctx, incident.ChannelID, incident.ConversationThreadTS(), "")
+		if err := s.enqueueNativeStatus(
+			ctx,
+			incident.ID,
+			incident.ChannelID,
+			incident.ConversationThreadTS(),
+			"",
+			nil,
+		); err != nil {
+			s.log.Warn(
+				"queue Slack thread status clear",
+				"incident", incident.ID,
+				"error", err,
+			)
+		}
 		s.retryDone(
 			"native-status:" + incident.ID + "@" + incident.ConversationThreadTS(),
 		)
@@ -1044,16 +837,20 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 		return
 	}
 	statusKey := incident.ID + "@" + incident.ConversationThreadTS()
+	s.statusMu.Lock()
 	previous := s.nativeStatus[statusKey]
 	if previous.text == status && time.Since(previous.at) < 75*time.Second {
+		s.statusMu.Unlock()
 		return
 	}
+	s.statusMu.Unlock()
 	key := "native-status:" + statusKey
 	if !s.canRetry(key) {
 		return
 	}
-	if err := s.slack.SetProgress(
+	if err := s.enqueueNativeStatus(
 		ctx,
+		incident.ID,
 		incident.ChannelID,
 		incident.ConversationThreadTS(),
 		status,
@@ -1064,7 +861,29 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 		return
 	}
 	s.retryDone(key)
+	s.statusMu.Lock()
 	s.nativeStatus[statusKey] = nativeStatusState{text: status, at: time.Now()}
+	s.statusMu.Unlock()
+}
+
+func (s *Service) enqueueNativeStatus(
+	ctx context.Context,
+	incidentID string,
+	channelID string,
+	threadTS string,
+	status string,
+	steps []string,
+) error {
+	id, err := core.NewID("delivery")
+	if err != nil {
+		return err
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: id, IncidentID: incidentID, Operation: "status", Kind: "status",
+		ChannelID: channelID, ThreadTS: threadTS, Status: status, Steps: steps,
+		CoalesceKey: "status:" + channelID + ":" + threadTS,
+	})
+	return err
 }
 
 func (s *Service) setNativeStatusForThread(
@@ -1084,22 +903,22 @@ func (s *Service) turnStatusIncident(
 	incident core.Incident,
 	coopTurnID string,
 ) core.Incident {
-	submission, err := s.store.GetTurnSubmissionByCoopTurn(ctx, coopTurnID)
+	run, err := s.store.GetAgentRunByCoopTurn(ctx, coopTurnID)
 	if err != nil {
 		return incident
 	}
-	return s.turnSubmissionStatusIncident(ctx, incident, submission)
+	return s.agentRunStatusIncident(ctx, incident, run)
 }
 
-func (s *Service) turnSubmissionStatusIncident(
+func (s *Service) agentRunStatusIncident(
 	ctx context.Context,
 	incident core.Incident,
-	submission core.TurnSubmission,
+	run core.AgentRun,
 ) core.Incident {
-	if submission.SourceKind != "slack" {
+	if run.SourceKind != "slack" {
 		return incident
 	}
-	input, err := s.store.GetSlackInput(ctx, submission.SourceID)
+	input, err := s.store.GetSlackInput(ctx, run.SourceID)
 	if err != nil {
 		return incident
 	}
@@ -1137,6 +956,8 @@ func progressMilestones(status string) []string {
 }
 
 func (s *Service) forgetNativeStatus(incidentID string) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
 	prefix := incidentID + "@"
 	for key := range s.nativeStatus {
 		if strings.HasPrefix(key, prefix) {
@@ -1158,7 +979,7 @@ func (s *Service) enqueue(
 	if err != nil {
 		return err
 	}
-	_, err = s.store.EnqueueOutbox(ctx, core.OutboxMessage{
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID: id, IncidentID: incident.ID, Kind: kind,
 		ChannelID: incident.ChannelID, ThreadTS: threadTS, Body: body,
 	})

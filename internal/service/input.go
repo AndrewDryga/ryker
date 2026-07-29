@@ -140,7 +140,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			})
 			return s.finishSlackInput(ctx, input)
 		}
-		if err := s.processWatchedInput(ctx, input); err != nil {
+		if err := s.queueWatchedInput(ctx, input); err != nil {
 			return s.retrySlackInput(ctx, input, err)
 		}
 		return nil
@@ -216,7 +216,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			explicitIncidentRequest(s.stripBotMention(input.Text)) {
 			return s.createManualIncident(ctx, input)
 		}
-		if err := s.processWatchedInput(ctx, input); err != nil {
+		if err := s.queueWatchedInput(ctx, input); err != nil {
 			return s.retrySlackInput(ctx, input, err)
 		}
 		return nil
@@ -280,24 +280,10 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		} else if text == "" {
 			err = errors.New("empty Slack message")
 		} else {
-			prior, priorErr := s.loadOperationalMemoryContext(
-				ctx,
-				incident.ChannelID,
-				incident.Repository,
-				input.UserID,
-				input.ID,
-			)
-			if priorErr != nil {
-				return s.retrySlackInput(ctx, input, priorErr)
-			}
 			prompt := conversationPrompt(input.UserID, text, direct)
-			if memoryPrompt := operationalMemoryPrompt(prior); memoryPrompt != "" {
-				prompt += "\n\n" + memoryPrompt
-			}
-			_, _, err = s.store.QueueTurn(ctx, core.TurnSubmission{
-				IncidentID: incident.ID, SourceKind: "slack", SourceID: input.ID,
-				UserID: input.UserID, Prompt: prompt,
-			})
+			_, _, err = s.queueIncidentAgentRun(
+				ctx, incident, "slack", input.ID, input.UserID, prompt,
+			)
 			if err == nil && direct {
 				s.setNativeStatusForThread(
 					ctx,
@@ -488,10 +474,9 @@ Rollback stated at approval: %s`,
 		proposal.BlastRadius,
 		proposal.Rollback,
 	)
-	_, _, err = s.store.QueueTurn(ctx, core.TurnSubmission{
-		IncidentID: incident.ID, SourceKind: "proposal", SourceID: proposal.ID,
-		UserID: input.UserID, Prompt: prompt,
-	})
+	_, _, err = s.queueIncidentAgentRun(
+		ctx, incident, "proposal", proposal.ID, input.UserID, prompt,
+	)
 	if err != nil {
 		return err
 	}
@@ -650,15 +635,17 @@ func (s *Service) postInputMessage(
 	if thread == "" {
 		thread = input.MessageTS
 	}
-	if _, err := s.slack.FindOutboxMessage(ctx, input.ChannelID, thread, id); err == nil {
-		return nil
-	} else if !errors.Is(err, slackui.ErrNotFound) {
-		return err
-	}
 	if s.sanitizer != nil {
 		message = s.sanitizer.Message(message)
 	}
-	_, err := s.slack.Post(ctx, id, input.ChannelID, thread, message)
+	body, err := slackui.Encode(message)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: id, Operation: "post", Kind: "notice",
+		ChannelID: input.ChannelID, ThreadTS: thread, Body: body,
+	})
 	return err
 }
 
@@ -706,11 +693,14 @@ func (s *Service) handleControl(
 		if incident.IsEngineeringTask() {
 			request = "Give a concise engineering task update: completed work, verification, code changes, blockers, and next action."
 		}
-		_, _, err := s.store.QueueTurn(ctx, core.TurnSubmission{
-			IncidentID: incident.ID, SourceKind: "control", SourceID: input.ID,
-			UserID: input.UserID,
-			Prompt: operatorPrompt(input.UserID, request),
-		})
+		_, _, err := s.queueIncidentAgentRun(
+			ctx,
+			incident,
+			"control",
+			input.ID,
+			input.UserID,
+			operatorPrompt(input.UserID, request),
+		)
 		if err == nil {
 			s.setNativeStatus(ctx, incident, "is preparing an incident update...")
 		}
@@ -1006,7 +996,7 @@ func (s *Service) freezeAction(
 }
 
 func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, err error) error {
-	terminal := terminalAttempt(input.Attempts, s.cfg.Limits.MaxOutboxAttempts)
+	terminal := terminalAttempt(input.Failures+1, s.cfg.Limits.MaxSlackInputAttempts)
 	var apiErr *coop.APIError
 	if errors.As(err, &apiErr) && !apiErr.Retryable() {
 		terminal = true
@@ -1032,7 +1022,13 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 			)
 		}
 	}
-	return s.store.RetrySlackInput(ctx, input.ID, trimError(err), queueDelay(input.Attempts), terminal)
+	return s.store.RetrySlackInputFailure(
+		ctx,
+		input.ID,
+		trimError(err),
+		queueDelay(input.Failures+1),
+		terminal,
+	)
 }
 
 func (s *Service) finishSlackInput(ctx context.Context, input core.SlackInput) error {

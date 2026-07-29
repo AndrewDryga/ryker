@@ -172,40 +172,28 @@ type SlackInput struct {
 	Frozen      []byte
 	State       string
 	Attempts    int
+	Failures    int
 	ReceivedAt  time.Time
 }
 
-type OutboxMessage struct {
+type SlackDelivery struct {
 	ID            string
 	IncidentID    string
+	Operation     string
 	Kind          string
 	ChannelID     string
 	ThreadTS      string
 	MessageTS     string
 	Body          []byte
+	Status        string
+	Steps         []string
+	CoalesceKey   string
+	CardVersion   int64
 	State         string
 	Attempts      int
 	NextAttemptAt time.Time
 	LastError     string
 	CreatedAt     time.Time
-}
-
-type TurnSubmission struct {
-	ID               string
-	IncidentID       string
-	SourceKind       string
-	SourceID         string
-	UserID           string
-	Prompt           string
-	IdempotencyKey   string
-	ExpectedRevision int64
-	CoopTurnID       string
-	State            string
-	Attempts         int
-	NextAttemptAt    time.Time
-	LastError        string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
 }
 
 type AuditEvent struct {
@@ -401,16 +389,70 @@ func decodeMemoryStrings(data json.RawMessage) ([]string, error) {
 }
 
 type ChannelMemory struct {
-	ChannelID       string
-	Repository      string
-	SessionID       string
-	SessionRevision int64
-	Generation      int
-	TurnCount       int
-	State           AgentMemory
-	SessionStarted  time.Time
-	RotatedAt       time.Time
-	UpdatedAt       time.Time
+	ChannelID         string
+	Repository        string
+	SessionID         string
+	SessionRevision   int64
+	CoopEventSequence int64
+	Generation        int
+	TurnCount         int
+	State             AgentMemory
+	SessionStarted    time.Time
+	RotatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type AgentRunMode string
+
+const (
+	AgentRunTriage          AgentRunMode = "triage"
+	AgentRunIncident        AgentRunMode = "incident"
+	AgentRunEngineeringTask AgentRunMode = "engineering_task"
+)
+
+type AgentRunState string
+
+const (
+	AgentRunPending    AgentRunState = "pending"
+	AgentRunPreparing  AgentRunState = "preparing"
+	AgentRunRunning    AgentRunState = "running"
+	AgentRunApplying   AgentRunState = "applying"
+	AgentRunFinalizing AgentRunState = "finalizing"
+	AgentRunCompleted  AgentRunState = "completed"
+	AgentRunFailed     AgentRunState = "failed"
+	AgentRunCancelled  AgentRunState = "cancelled"
+	AgentRunSuperseded AgentRunState = "superseded"
+)
+
+type AgentRun struct {
+	ID                string
+	Mode              AgentRunMode
+	IncidentID        string
+	ChannelID         string
+	ThreadTS          string
+	ConversationKey   string
+	SourceKind        string
+	SourceID          string
+	UserID            string
+	Repository        string
+	Prompt            string
+	IdempotencyKey    string
+	SessionID         string
+	SessionGeneration int
+	ExpectedRevision  int64
+	CoopTurnID        string
+	CoopEventSequence int64
+	Context           []byte
+	Result            []byte
+	TerminalState     string
+	State             AgentRunState
+	Failures          int
+	NextAttemptAt     time.Time
+	LastError         string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	StartedAt         time.Time
+	CompletedAt       time.Time
 }
 
 type TimelineEvent struct {
@@ -520,8 +562,8 @@ type CoopCleanup struct {
 type PruneResult struct {
 	SlackInputs         int64
 	WebhookEvents       int64
-	OutboxMessages      int64
-	TurnSubmissions     int64
+	SlackDeliveries     int64
+	AgentRuns           int64
 	EvaluationDecisions int64
 	ChannelIntelligence int64
 	MemoryEntries       int64
@@ -535,7 +577,7 @@ type PruneResult struct {
 }
 
 func (r PruneResult) Total() int64 {
-	return r.SlackInputs + r.WebhookEvents + r.OutboxMessages + r.TurnSubmissions +
+	return r.SlackInputs + r.WebhookEvents + r.SlackDeliveries + r.AgentRuns +
 		r.EvaluationDecisions + r.ChannelIntelligence + r.MemoryEntries + r.ActionProposals +
 		r.Preferences + r.StandingRules + r.StandingRuleRuns + r.EmisarApprovals +
 		r.ClosedIncidents + r.AuditEvents

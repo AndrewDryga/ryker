@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadStrictDefaultsAndRoutes(t *testing.T) {
@@ -53,6 +55,10 @@ webhooks:
 		cfg.Slack.WatchSettleDelay.Duration != 2*time.Second ||
 		!cfg.Slack.NativeStatus || !cfg.Slack.AssistantExperience ||
 		!cfg.IsWatchChannel("C456DEF") ||
+		cfg.Limits.MaxWebhookAttempts != 12 ||
+		cfg.Limits.MaxSlackInputAttempts != 12 ||
+		cfg.Limits.MaxDeliveryAttempts != 12 ||
+		cfg.Limits.MaxAgentRunAttempts != 20 ||
 		cfg.Limits.MaxMemoryEntries != 1000 ||
 		cfg.Limits.MaxMemoryEntriesPerScope != 100 ||
 		cfg.Limits.MaxPreferences != 500 ||
@@ -65,6 +71,26 @@ webhooks:
 		cfg.Coop.Socket != filepath.Join(cfg.Coop.StateDir, "control.sock") ||
 		cfg.Coop.BootstrapDir != filepath.Join(cfg.Coop.StateDir, "agents") {
 		t.Fatalf("derived Coop paths = %+v", cfg.Coop)
+	}
+}
+
+func TestLegacyOutboxLimitSeedsOnlyUnspecifiedFailureBudgets(t *testing.T) {
+	cfg := defaults()
+	data := []byte(`limits:
+  max_outbox_attempts: 7
+  max_delivery_attempts: 9
+`)
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyLegacyLimitDefaults(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Limits.MaxWebhookAttempts != 7 ||
+		cfg.Limits.MaxSlackInputAttempts != 7 ||
+		cfg.Limits.MaxAgentRunAttempts != 7 ||
+		cfg.Limits.MaxDeliveryAttempts != 9 {
+		t.Fatalf("legacy retry limit migration = %+v", cfg.Limits)
 	}
 }
 

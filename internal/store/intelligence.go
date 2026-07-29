@@ -18,11 +18,12 @@ func (s *Store) GetChannelMemory(ctx context.Context, channelID string) (core.Ch
 	var started, rotated sql.NullString
 	var updated string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT channel_id, repository, session_id, session_revision, generation, turn_count,
-		  state_json, session_started_at, rotated_at, updated_at
-		FROM channel_memories WHERE channel_id = ?`, channelID).Scan(
+			SELECT channel_id, repository, session_id, session_revision, generation, turn_count,
+			  coop_event_sequence, state_json, session_started_at, rotated_at, updated_at
+			FROM channel_memories WHERE channel_id = ?`, channelID).Scan(
 		&memory.ChannelID, &memory.Repository, &memory.SessionID, &memory.SessionRevision,
-		&memory.Generation, &memory.TurnCount, &state, &started, &rotated, &updated,
+		&memory.Generation, &memory.TurnCount, &memory.CoopEventSequence,
+		&state, &started, &rotated, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.ChannelMemory{}, ErrNotFound
@@ -59,12 +60,13 @@ func (s *Store) BindChannelSession(
 		  (channel_id, repository, session_id, session_revision, generation, turn_count,
 		   state_json, session_started_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, 0, '{}', ?, ?)
-		ON CONFLICT(channel_id) DO UPDATE SET
+			ON CONFLICT(channel_id) DO UPDATE SET
 		  repository = excluded.repository,
 		  session_id = excluded.session_id,
 		  session_revision = excluded.session_revision,
-		  generation = excluded.generation,
-		  turn_count = 0,
+			  generation = excluded.generation,
+			  turn_count = 0,
+			  coop_event_sequence = 0,
 		  session_started_at = excluded.session_started_at,
 		  rotated_at = channel_memories.updated_at,
 		  updated_at = excluded.updated_at`,
@@ -84,8 +86,9 @@ func (s *Store) DetachChannelSession(
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE channel_memories
-		SET session_id = '',
-		    session_revision = 0,
+			SET session_id = '',
+			    session_revision = 0,
+			    coop_event_sequence = 0,
 		    turn_count = 0,
 		    session_started_at = NULL,
 		    rotated_at = updated_at,
@@ -123,6 +126,20 @@ func (s *Store) AdvanceChannelMemory(
 		sessionRevision, data, nowText(), channelID,
 	)
 	return expectOne(result, err, "advance channel memory")
+}
+
+func (s *Store) AdvanceChannelEvents(
+	ctx context.Context,
+	channelID string,
+	sessionID string,
+	sequence int64,
+) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE channel_memories
+		SET coop_event_sequence = MAX(coop_event_sequence, ?), updated_at = ?
+		WHERE channel_id = ? AND session_id = ?`,
+		sequence, nowText(), channelID, sessionID)
+	return expectOne(result, err, "advance channel Coop events")
 }
 
 func (s *Store) ApplyWatchDecision(

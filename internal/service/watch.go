@@ -19,7 +19,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-const watchPollDelay = time.Second
 const watchContextTextLimit = 2000
 const watchPendingStatus = "is gathering and reconciling evidence; broad checks can take a few minutes..."
 const watchPendingStatusRefresh = 75 * time.Second
@@ -30,21 +29,24 @@ var explicitIncidentRequestPattern = regexp.MustCompile(
 )
 
 type watchTurnState struct {
-	SessionID             string                `json:"session_id"`
-	Repository            string                `json:"repository,omitempty"`
-	Generation            int                   `json:"generation,omitempty"`
-	ExpectedRevision      int64                 `json:"expected_revision,omitempty"`
-	TurnID                string                `json:"turn_id,omitempty"`
-	ContextCaptured       bool                  `json:"context_captured,omitempty"`
-	RecentMessages        []watchContextMessage `json:"recent_messages,omitempty"`
-	Memory                core.AgentMemory      `json:"memory,omitempty"`
-	RulesCaptured         bool                  `json:"rules_captured,omitempty"`
-	MatchedRules          []core.StandingRule   `json:"matched_rules,omitempty"`
-	OfferedIncidentTitle  string                `json:"offered_incident_title,omitempty"`
-	OfferedTaskTitle      string                `json:"offered_task_title,omitempty"`
-	OfferedTaskRepository string                `json:"offered_task_repository,omitempty"`
-	PendingStatusSet      bool                  `json:"pending_status_set,omitempty"`
-	PendingStatusAt       int64                 `json:"pending_status_at,omitempty"`
+	SessionID             string                   `json:"session_id"`
+	Repository            string                   `json:"repository,omitempty"`
+	Generation            int                      `json:"generation,omitempty"`
+	ExpectedRevision      int64                    `json:"expected_revision,omitempty"`
+	TurnID                string                   `json:"turn_id,omitempty"`
+	ContextCaptured       bool                     `json:"context_captured,omitempty"`
+	RecentMessages        []watchContextMessage    `json:"recent_messages,omitempty"`
+	Memory                core.AgentMemory         `json:"memory,omitempty"`
+	Prior                 operationalMemoryContext `json:"prior_operational_context,omitempty"`
+	PriorCaptured         bool                     `json:"prior_captured,omitempty"`
+	RulesCaptured         bool                     `json:"rules_captured,omitempty"`
+	MatchedRules          []core.StandingRule      `json:"matched_rules,omitempty"`
+	OfferedIncidentTitle  string                   `json:"offered_incident_title,omitempty"`
+	OfferedTaskTitle      string                   `json:"offered_task_title,omitempty"`
+	OfferedTaskRepository string                   `json:"offered_task_repository,omitempty"`
+	PendingStatusSet      bool                     `json:"pending_status_set,omitempty"`
+	PendingStatusAt       int64                    `json:"pending_status_at,omitempty"`
+	FailureDetail         string                   `json:"failure_detail,omitempty"`
 }
 
 type watchContextMessage struct {
@@ -241,229 +243,12 @@ func watchSessionTerminal(state string) bool {
 	return state == "closed" || state == "discarded"
 }
 
-func (s *Service) processWatchedInput(ctx context.Context, input core.SlackInput) error {
-	state, err := decodeWatchState(input.Frozen)
-	if err != nil {
-		return s.failWatchedInput(
-			ctx, input, watchTurnState{}, "invalid persisted watch state: "+trimError(err),
-		)
-	}
-	if state.TurnID == "" {
-		latestAt, err := s.store.LatestSlackConversationAt(ctx, input.ChannelID)
-		if err != nil {
-			return err
-		}
-		readyAt := latestAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
-		if time.Now().Before(readyAt) {
-			return s.store.RetrySlackInput(
-				ctx,
-				input.ID,
-				"waiting briefly for nearby channel conversation",
-				readyAt,
-				false,
-			)
-		}
-		newer, err := s.store.HasNewerWatchDecision(
-			ctx, input.ChannelID, input.MessageTS,
-		)
-		if err != nil {
-			return err
-		}
-		if newer {
-			_ = s.store.Audit(ctx, core.AuditEvent{
-				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "ignored_late",
-				Detail:  "a newer channel message was already classified",
-			})
-			return s.store.FinishSlackInput(ctx, input.ID)
-		}
-	}
-	if !state.RulesCaptured {
-		state.MatchedRules, err = s.matchingStandingRules(ctx, input)
-		if err != nil {
-			return err
-		}
-		state.RulesCaptured = true
-		if err := s.setWatchState(ctx, input.ID, state); err != nil {
-			return err
-		}
-	}
-	if state.SessionID == "" {
-		memory, session, err := s.ensureWatchSession(ctx, input.ChannelID)
-		if err != nil {
-			return err
-		}
-		state.SessionID = session.ID
-		state.Repository = memory.Repository
-		state.Generation = memory.Generation
-		state.Memory = memory.State
-		if err := s.setWatchState(ctx, input.ID, state); err != nil {
-			return err
-		}
-	}
-
-	if state.TurnID != "" {
-		if input.Kind == "direct" || input.Kind == "mention" || input.Kind == "shortcut" ||
-			len(state.MatchedRules) > 0 {
-			if err := s.ensureWatchPendingStatus(ctx, input, &state); err != nil {
-				return err
-			}
-		}
-		turn, err := s.coop.GetTurn(ctx, state.SessionID, state.TurnID)
-		if err != nil {
-			return err
-		}
-		return s.handleWatchTurn(ctx, input, state, turn)
-	}
-
-	session, err := s.coop.GetSession(ctx, state.SessionID)
-	if err != nil {
-		return err
-	}
-	if watchSessionTerminal(session.State) {
-		if err := s.retireFailedWatchSession(ctx, input, state); err != nil {
-			return err
-		}
-		state.SessionID = ""
-		state.ExpectedRevision = 0
-		state.Generation = 0
-		if err := s.setWatchState(ctx, input.ID, state); err != nil {
-			return err
-		}
-		return s.retryWatchedInput(
-			ctx, input, "rotating a terminal watch channel Coop session",
-		)
-	}
-	if session.ActiveTurnID != "" {
-		return s.retryWatchedInput(
-			ctx, input, "waiting for the previous message in this watch channel",
-		)
-	}
-	switch session.State {
-	case "exhausted":
-		session, err = s.ensureTurnCapacity(ctx, input.ChannelID, "", session)
-		if err != nil {
-			var limitErr *automaticTurnLimitError
-			if errors.As(err, &limitErr) {
-				if postErr := s.postInputNotice(
-					ctx,
-					"watch_turn_limit_"+input.ID,
-					input,
-					turnLimitReachedMessage(limitErr.Limit),
-				); postErr != nil {
-					return postErr
-				}
-				return s.retryWatchedInput(ctx, input, trimError(err))
-			}
-			return err
-		}
-	case "open":
-	default:
-		return fmt.Errorf("watch channel Coop session has unsupported state %q", session.State)
-	}
-
-	if !state.ContextCaptured {
-		recent, err := s.store.ListRecentWatchMessages(
-			ctx, input.ChannelID, s.cfg.Slack.WatchContext,
-		)
-		if err != nil {
-			return err
-		}
-		state.RecentMessages = makeWatchContext(recent, input, s.identity.BotUserID)
-		state.ContextCaptured = true
-	}
-	state.ExpectedRevision = session.Revision
-	if err := s.setWatchState(ctx, input.ID, state); err != nil {
-		return err
-	}
-	if input.Kind == "direct" || input.Kind == "mention" || input.Kind == "shortcut" ||
-		len(state.MatchedRules) > 0 {
-		if err := s.ensureWatchPendingStatus(ctx, input, &state); err != nil {
-			return err
-		}
-	}
-	prior, err := s.loadOperationalMemoryContext(
-		ctx,
-		input.ChannelID,
-		firstNonempty(state.Repository, s.cfg.Slack.DefaultRepository),
-		input.UserID,
-		input.ID,
-	)
-	if err != nil {
-		return err
-	}
-	turn, _, err := s.coop.SubmitTurn(
-		ctx,
-		watchTurnIdempotencyKey(input.ID, state.Generation),
-		state.SessionID,
-		state.ExpectedRevision,
-		s.watchPrompt(
-			input,
-			s.identity.BotUserID,
-			state.RecentMessages,
-			state.Memory,
-			prior,
-			firstNonempty(state.Repository, s.cfg.Slack.DefaultRepository),
-			state.MatchedRules,
-		),
-	)
-	if err != nil {
-		return err
-	}
-	if turn.ID == "" {
-		return errors.New("Coop returned an empty watch turn ID")
-	}
-	state.TurnID = turn.ID
-	if err := s.setWatchState(ctx, input.ID, state); err != nil {
-		return err
-	}
-	return s.handleWatchTurn(ctx, input, state, turn)
-}
-
 func watchTurnIdempotencyKey(inputID string, generation int) string {
 	key := "responder:watch-turn:" + inputID
 	if generation > 1 {
 		return fmt.Sprintf("%s:%d", key, generation)
 	}
 	return key
-}
-
-func (s *Service) handleWatchTurn(
-	ctx context.Context,
-	input core.SlackInput,
-	state watchTurnState,
-	turn coop.Turn,
-) error {
-	switch turn.State {
-	case "queued", "starting", "running":
-		return s.retryWatchedInput(ctx, input, "watch channel triage is running")
-	case "completed":
-		decision, err := parseWatchDecision(turn.AssistantMessage)
-		if err != nil {
-			return s.failWatchedInput(
-				ctx, input, state, "malformed watch decision: "+trimError(err),
-			)
-		}
-		if len(state.MatchedRules) > 0 && decision.Action != "reply" {
-			return s.failWatchedInput(
-				ctx,
-				input,
-				state,
-				"standing rule result must be a read-only threaded reply",
-			)
-		}
-		return s.applyWatchDecision(ctx, input, state, decision)
-	case "failed", "cancelled":
-		detail := strings.TrimSpace(firstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason))
-		if detail == "" {
-			detail = turn.State
-		}
-		return s.failWatchedInput(
-			ctx, input, state, "watch triage "+turn.State+": "+detail,
-		)
-	default:
-		return fmt.Errorf("watch turn has unsupported state %q", turn.State)
-	}
 }
 
 func (s *Service) applyWatchDecision(
@@ -533,7 +318,7 @@ func (s *Service) applyWatchDecision(
 		if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 			return err
 		}
-		return s.store.FinishSlackInput(ctx, input.ID)
+		return s.finishInputIfOpen(ctx, input)
 	}
 	switch decision.Action {
 	case "ignore":
@@ -675,7 +460,7 @@ func (s *Service) applyWatchDecision(
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return err
 	}
-	return s.store.FinishSlackInput(ctx, input.ID)
+	return s.finishInputIfOpen(ctx, input)
 }
 
 func (s *Service) createWatchedIncident(
@@ -762,7 +547,7 @@ func (s *Service) createWatchedWork(
 			Kind: "slack.watch", ActorID: trigger.UserID, ObjectID: trigger.ID,
 			Outcome: "rejected", Detail: trimError(err),
 		})
-		return s.store.FinishSlackInput(ctx, trigger.ID)
+		return s.finishInputIfOpen(ctx, trigger)
 	}
 	acknowledgement := "This needs investigation. I’m opening a dedicated incident room and isolated Coop fork."
 	if engineeringTask {
@@ -792,7 +577,14 @@ func (s *Service) createWatchedWork(
 		IncidentID: incident.ID, Kind: auditKind, ActorID: trigger.UserID,
 		ObjectID: trigger.ID, Outcome: outcome, Detail: title,
 	})
-	return s.store.FinishSlackInput(ctx, trigger.ID)
+	return s.finishInputIfOpen(ctx, trigger)
+}
+
+func (s *Service) finishInputIfOpen(ctx context.Context, input core.SlackInput) error {
+	if input.State == "done" {
+		return nil
+	}
+	return s.store.FinishSlackInput(ctx, input.ID)
 }
 
 func (s *Service) persistWatchIncidentOffer(
@@ -800,11 +592,11 @@ func (s *Service) persistWatchIncidentOffer(
 	inputID string,
 	title string,
 ) error {
-	input, err := s.store.GetSlackInput(ctx, inputID)
+	run, err := s.store.GetAgentRunBySource(ctx, "watch", inputID)
 	if err != nil {
 		return err
 	}
-	state, err := decodeWatchState(input.Frozen)
+	state, err := decodeWatchRunContext(run)
 	if err != nil {
 		return err
 	}
@@ -812,7 +604,11 @@ func (s *Service) persistWatchIncidentOffer(
 	if state.OfferedIncidentTitle == "" {
 		return errors.New("watch incident offer has no title")
 	}
-	return s.setWatchState(ctx, inputID, state)
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.store.SetAgentRunContext(ctx, run.ID, data)
 }
 
 func (s *Service) persistWatchTaskOffer(
@@ -821,11 +617,11 @@ func (s *Service) persistWatchTaskOffer(
 	title string,
 	repository string,
 ) error {
-	input, err := s.store.GetSlackInput(ctx, inputID)
+	run, err := s.store.GetAgentRunBySource(ctx, "watch", inputID)
 	if err != nil {
 		return err
 	}
-	state, err := decodeWatchState(input.Frozen)
+	state, err := decodeWatchRunContext(run)
 	if err != nil {
 		return err
 	}
@@ -837,7 +633,11 @@ func (s *Service) persistWatchTaskOffer(
 		return fmt.Errorf("watch engineering task offer names unknown repository %q", repository)
 	}
 	state.OfferedTaskRepository = repository
-	return s.setWatchState(ctx, inputID, state)
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.store.SetAgentRunContext(ctx, run.ID, data)
 }
 
 func explicitIncidentRequest(text string) bool {
@@ -966,7 +766,11 @@ func (s *Service) handleWatchIncidentOfferAction(
 				"button in the original thread. No incident, channel, or working copy was created.",
 		)
 	}
-	state, err := decodeWatchState(source.Frozen)
+	run, err := s.store.GetAgentRunBySource(ctx, "watch", source.ID)
+	if err != nil {
+		return err
+	}
+	state, err := decodeWatchRunContext(run)
 	if err != nil {
 		return err
 	}
@@ -1038,7 +842,11 @@ func (s *Service) handleWatchTaskOfferAction(
 				"current button in the original thread. No work was started.",
 		)
 	}
-	state, err := decodeWatchState(source.Frozen)
+	run, err := s.store.GetAgentRunBySource(ctx, "watch", source.ID)
+	if err != nil {
+		return err
+	}
+	state, err := decodeWatchRunContext(run)
 	if err != nil {
 		return err
 	}
@@ -1105,48 +913,6 @@ func (s *Service) finishWatchTaskOffer(
 	return s.finishSlashInput(ctx, input, message)
 }
 
-func (s *Service) retryWatchedInput(
-	ctx context.Context,
-	input core.SlackInput,
-	detail string,
-) error {
-	return s.store.RetrySlackInput(
-		ctx, input.ID, detail, time.Now().Add(watchPollDelay), false,
-	)
-}
-
-func (s *Service) failWatchedInput(
-	ctx context.Context,
-	input core.SlackInput,
-	state watchTurnState,
-	detail string,
-) error {
-	if err := s.postInputNotice(
-		ctx,
-		"watch_failure_"+input.ID,
-		input,
-		watchFailureNotice(detail),
-	); err != nil {
-		return fmt.Errorf("post watched Slack failure: %w", err)
-	}
-	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
-		return err
-	}
-	if err := s.retireFailedWatchSession(ctx, input, state); err != nil && s.log != nil {
-		s.log.Warn(
-			"retire failed watch session",
-			"channel", input.ChannelID,
-			"session", state.SessionID,
-			"error", err,
-		)
-	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
-		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-		Outcome: "failed", Detail: detail,
-	})
-	return s.store.RetrySlackInput(ctx, input.ID, detail, time.Now(), true)
-}
-
 func (s *Service) retireFailedWatchSession(
 	ctx context.Context,
 	input core.SlackInput,
@@ -1202,51 +968,6 @@ func watchFailureNotice(detail string) string {
 		failure.OperatorFix
 }
 
-func (s *Service) ensureWatchPendingStatus(
-	ctx context.Context,
-	input core.SlackInput,
-	state *watchTurnState,
-) error {
-	if !s.cfg.Slack.NativeStatus {
-		return nil
-	}
-	statusAt := time.Unix(state.PendingStatusAt, 0)
-	if state.PendingStatusSet && time.Since(statusAt) < watchPendingStatusRefresh {
-		return nil
-	}
-	key := "watch-native-status:" + input.ID
-	if !s.canRetry(key) {
-		return nil
-	}
-	if err := s.slack.SetProgress(
-		ctx,
-		input.ChannelID,
-		slackReplyThread(input),
-		watchPendingStatus,
-		[]string{
-			"Reading the latest channel context",
-			"Mapping declared topology from the repository",
-			"Checking live infrastructure state with Emisar",
-			"Reconciling identities, freshness, and coverage",
-			"Preparing a concise response",
-		},
-	); err != nil {
-		s.retryLater(key)
-		s.log.Warn(
-			"set watched Slack thread status",
-			"channel", input.ChannelID,
-			"thread", slackReplyThread(input),
-			"input", input.ID,
-			"error", err,
-		)
-		return nil
-	}
-	s.retryDone(key)
-	state.PendingStatusSet = true
-	state.PendingStatusAt = time.Now().Unix()
-	return s.setWatchState(ctx, input.ID, *state)
-}
-
 func (s *Service) clearWatchPendingStatus(
 	ctx context.Context,
 	input core.SlackInput,
@@ -1257,23 +978,18 @@ func (s *Service) clearWatchPendingStatus(
 		s.retryDone(key)
 		return nil
 	}
-	if err := s.slack.SetStatus(ctx, input.ChannelID, slackReplyThread(input), ""); err != nil {
+	if err := s.enqueueNativeStatus(
+		ctx,
+		"",
+		input.ChannelID,
+		slackReplyThread(input),
+		"",
+		nil,
+	); err != nil {
 		return fmt.Errorf("clear watched Slack thread status: %w", err)
 	}
 	s.retryDone(key)
 	return nil
-}
-
-func (s *Service) setWatchState(
-	ctx context.Context,
-	inputID string,
-	state watchTurnState,
-) error {
-	data, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	return s.store.SetSlackInputFrozen(ctx, inputID, data)
 }
 
 func decodeWatchState(data []byte) (watchTurnState, error) {

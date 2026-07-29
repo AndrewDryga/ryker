@@ -30,23 +30,23 @@ type Store struct {
 }
 
 type Metrics struct {
-	IncidentsOpen       int `json:"incidents_open"`
-	IncidentsTotal      int `json:"incidents_total"`
-	SessionsOpen        int `json:"sessions_open"`
-	PublishedPRs        int `json:"published_prs"`
-	CleanupPending      int `json:"cleanup_pending"`
-	CleanupBlocked      int `json:"cleanup_blocked"`
-	WebhooksPending     int `json:"webhooks_pending"`
-	SlackPending        int `json:"slack_pending"`
-	OutboxPending       int `json:"outbox_pending"`
-	TurnsPending        int `json:"turns_pending"`
-	WorkFailed          int `json:"work_failed"`
-	MemoryActive        int `json:"memory_active"`
-	MemoryExpired       int `json:"memory_expired"`
-	PreferencesActive   int `json:"preferences_active"`
-	PreferencesDisabled int `json:"preferences_disabled"`
-	RulesActive         int `json:"rules_active"`
-	RulesDisabled       int `json:"rules_disabled"`
+	IncidentsOpen          int `json:"incidents_open"`
+	IncidentsTotal         int `json:"incidents_total"`
+	SessionsOpen           int `json:"sessions_open"`
+	PublishedPRs           int `json:"published_prs"`
+	CleanupPending         int `json:"cleanup_pending"`
+	CleanupBlocked         int `json:"cleanup_blocked"`
+	WebhooksPending        int `json:"webhooks_pending"`
+	SlackPending           int `json:"slack_pending"`
+	SlackDeliveriesPending int `json:"slack_deliveries_pending"`
+	AgentRunsPending       int `json:"agent_runs_pending"`
+	WorkFailed             int `json:"work_failed"`
+	MemoryActive           int `json:"memory_active"`
+	MemoryExpired          int `json:"memory_expired"`
+	PreferencesActive      int `json:"preferences_active"`
+	PreferencesDisabled    int `json:"preferences_disabled"`
+	RulesActive            int `json:"rules_active"`
+	RulesDisabled          int `json:"rules_disabled"`
 }
 
 type FailedWork struct {
@@ -270,9 +270,14 @@ func (s *Store) RecoverInterrupted(ctx context.Context) error {
 		  WHERE state = 'processing';
 		UPDATE slack_inputs SET state = 'retry', next_attempt_at = updated_at
 		  WHERE state = 'processing';
-		UPDATE turn_submissions SET state = 'retry'
-		  , next_attempt_at = updated_at WHERE state = 'submitting';
-		UPDATE outbox SET state = 'uncertain', last_error = 'process stopped during Slack send'
+			UPDATE agent_runs SET state = 'pending', next_attempt_at = updated_at
+			  WHERE state = 'preparing';
+			UPDATE agent_runs SET state = 'applying', next_attempt_at = updated_at
+			  WHERE state = 'finalizing';
+		UPDATE slack_deliveries
+		  SET state = CASE WHEN operation = 'post' THEN 'uncertain' ELSE 'retry' END,
+		      last_error = 'process stopped during Slack delivery',
+		      next_attempt_at = updated_at
 		  WHERE state = 'sending';
 		UPDATE publications SET state = 'failed',
 		  last_error = 'Responder stopped during draft PR publication',
@@ -449,8 +454,8 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 		{&result.CleanupBlocked, `SELECT count(*) FROM coop_cleanup WHERE state = 'blocked'`},
 		{&result.WebhooksPending, `SELECT count(*) FROM webhook_events WHERE state IN ('pending', 'retry', 'processing')`},
 		{&result.SlackPending, `SELECT count(*) FROM slack_inputs WHERE state IN ('pending', 'retry', 'processing')`},
-		{&result.OutboxPending, `SELECT count(*) FROM outbox WHERE state IN ('pending', 'retry', 'sending', 'uncertain')`},
-		{&result.TurnsPending, `SELECT count(*) FROM turn_submissions WHERE state IN ('pending', 'retry', 'submitting', 'submitted')`},
+		{&result.SlackDeliveriesPending, `SELECT count(*) FROM slack_deliveries WHERE state IN ('pending', 'retry', 'sending', 'uncertain')`},
+		{&result.AgentRunsPending, `SELECT count(*) FROM agent_runs WHERE state IN ('pending', 'preparing', 'running', 'applying', 'finalizing')`},
 		{&result.MemoryActive, `SELECT count(*) FROM memory_entries WHERE julianday(expires_at) > julianday('now')`},
 		{&result.MemoryExpired, `SELECT count(*) FROM memory_entries WHERE julianday(expires_at) <= julianday('now')`},
 		{&result.PreferencesActive, `SELECT count(*) FROM responder_preferences WHERE enabled = 1 AND julianday(expires_at) > julianday('now')`},
@@ -461,8 +466,8 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 			SELECT
 			  (SELECT count(*) FROM webhook_events WHERE state = 'failed') +
 			  (SELECT count(*) FROM slack_inputs WHERE state = 'failed') +
-			  (SELECT count(*) FROM outbox WHERE state = 'failed') +
-			  (SELECT count(*) FROM turn_submissions WHERE state = 'failed') +
+			  (SELECT count(*) FROM slack_deliveries WHERE state = 'failed') +
+			  (SELECT count(*) FROM agent_runs WHERE state = 'failed') +
 			  (SELECT count(*) FROM publications WHERE state = 'failed') +
 			  (SELECT count(*) FROM coop_cleanup WHERE state = 'blocked')`},
 	}
@@ -538,13 +543,14 @@ func (s *Store) ListFailedWork(ctx context.Context, limit int) ([]FailedWork, er
 			SELECT 'slack', id, channel_id, 1, attempts, last_error, updated_at
 			FROM slack_inputs WHERE state = 'failed'
 			UNION ALL
-			SELECT 'outbox', id, incident_id, 1, attempts, last_error, updated_at
-			FROM outbox WHERE state = 'failed'
+			SELECT 'delivery', id, COALESCE(incident_id, channel_id), 1,
+			       failure_count, last_error, updated_at
+			FROM slack_deliveries WHERE state = 'failed'
 			UNION ALL
-			SELECT 'turn', id, incident_id,
+			SELECT 'agent_run', id, COALESCE(incident_id, conversation_key),
 			       CASE WHEN coop_turn_id = '' THEN 1 ELSE 0 END,
-			       attempts, last_error, updated_at
-			FROM turn_submissions WHERE state = 'failed'
+			       failure_count, last_error, updated_at
+			FROM agent_runs WHERE state = 'failed'
 			UNION ALL
 			SELECT 'publication', incident_id, head_branch, 0, 1, last_error, updated_at
 			FROM publications WHERE state = 'failed'
@@ -578,10 +584,12 @@ func (s *Store) ListFailedWork(ctx context.Context, limit int) ([]FailedWork, er
 
 func (s *Store) RetryFailedWork(ctx context.Context, kind, id string) (FailedWork, error) {
 	target, ok := map[string][2]string{
-		"webhook": {"webhook_events", "incident_ids_json"},
-		"slack":   {"slack_inputs", "channel_id"},
-		"outbox":  {"outbox", "incident_id"},
-		"turn":    {"turn_submissions", "incident_id"},
+		"webhook":   {"webhook_events", "incident_ids_json"},
+		"slack":     {"slack_inputs", "channel_id"},
+		"delivery":  {"slack_deliveries", "COALESCE(incident_id, channel_id)"},
+		"outbox":    {"slack_deliveries", "COALESCE(incident_id, channel_id)"},
+		"agent_run": {"agent_runs", "COALESCE(incident_id, conversation_key)"},
+		"turn":      {"agent_runs", "COALESCE(incident_id, conversation_key)"},
 	}[kind]
 	if !ok {
 		return FailedWork{}, fmt.Errorf("unknown work kind %q", kind)
@@ -594,9 +602,14 @@ func (s *Store) RetryFailedWork(ctx context.Context, kind, id string) (FailedWor
 	defer tx.Rollback()
 	item := FailedWork{Kind: kind, ID: id}
 	var updated string
+	attemptColumn := "attempts"
+	if kind == "turn" || kind == "agent_run" ||
+		kind == "outbox" || kind == "delivery" {
+		attemptColumn = "failure_count"
+	}
 	query := fmt.Sprintf(
-		`SELECT %s, attempts, last_error, updated_at FROM %s WHERE id = ? AND state = 'failed'`,
-		referenceColumn, table,
+		`SELECT %s, %s, last_error, updated_at FROM %s WHERE id = ? AND state = 'failed'`,
+		referenceColumn, attemptColumn, table,
 	)
 	if err := tx.QueryRowContext(ctx, query, id).Scan(
 		&item.Reference, &item.Attempts, &item.LastError, &updated,
@@ -608,30 +621,44 @@ func (s *Store) RetryFailedWork(ctx context.Context, kind, id string) (FailedWor
 	}
 	item.UpdatedAt = parseTime(updated)
 	item.Retryable = true
-	if kind == "turn" {
+	if kind == "turn" || kind == "agent_run" {
 		var coopTurnID string
 		if err := tx.QueryRowContext(ctx, `
-			SELECT coop_turn_id FROM turn_submissions
+			SELECT coop_turn_id FROM agent_runs
 			WHERE id = ? AND state = 'failed'`, id).Scan(&coopTurnID); err != nil {
 			return FailedWork{}, err
 		}
 		if coopTurnID != "" {
 			return FailedWork{}, fmt.Errorf(
-				"turn %q already reached terminal Coop turn %q; submit a new Slack message instead",
+				"agent run %q already reached terminal Coop turn %q; submit a new Slack message instead",
 				id, coopTurnID,
 			)
 		}
 	}
 	now := nowText()
 	retryState := "retry"
-	if kind == "outbox" {
-		retryState = "uncertain"
+	if kind == "outbox" || kind == "delivery" {
+		var operation string
+		if err := tx.QueryRowContext(
+			ctx,
+			`SELECT operation FROM slack_deliveries WHERE id = ?`,
+			id,
+		).Scan(&operation); err != nil {
+			return FailedWork{}, err
+		}
+		if operation == "post" {
+			retryState = "uncertain"
+		}
+	}
+	if kind == "turn" || kind == "agent_run" {
+		retryState = "pending"
+		attemptColumn = "failure_count"
 	}
 	update := fmt.Sprintf(`
 		UPDATE %s
-		SET state = ?, attempts = 0, next_attempt_at = ?,
+		SET state = ?, %s = 0, next_attempt_at = ?,
 		    last_error = '', updated_at = ?
-		WHERE id = ? AND state = 'failed'`, table)
+		WHERE id = ? AND state = 'failed'`, table, attemptColumn)
 	result, err := tx.ExecContext(ctx, update, retryState, now, now, id)
 	if err := expectOne(result, err, "retry failed "+kind); err != nil {
 		return FailedWork{}, err
@@ -1694,19 +1721,20 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 	defer tx.Rollback()
 	now := nowText()
 	input, err := scanSlackInput(tx.QueryRowContext(ctx, `
-		SELECT candidate.id, candidate.envelope_id, candidate.event_id, candidate.kind,
-		  candidate.team_id, candidate.channel_id, candidate.thread_ts, candidate.message_ts,
-		  candidate.user_id, candidate.text, candidate.action_id, candidate.action_value,
-		  candidate.frozen_json, candidate.state, candidate.attempts, candidate.received_at
-		FROM slack_inputs AS candidate
+			SELECT candidate.id, candidate.envelope_id, candidate.event_id, candidate.kind,
+			  candidate.team_id, candidate.channel_id, candidate.thread_ts, candidate.message_ts,
+			  candidate.user_id, candidate.text, candidate.action_id, candidate.action_value,
+			  candidate.frozen_json, candidate.state, candidate.attempts,
+			  candidate.failure_count, candidate.received_at
+			FROM slack_inputs AS candidate
 			WHERE candidate.state IN ('pending', 'retry')
 			  AND julianday(candidate.next_attempt_at) <= julianday(?)
 		  AND (
 		    candidate.kind IN ('slash', 'action') OR
-		    NOT EXISTS (
-		      SELECT 1 FROM slack_inputs AS earlier
-		      WHERE earlier.channel_id = candidate.channel_id
-		        AND earlier.state IN ('pending', 'retry', 'processing')
+			    NOT EXISTS (
+			      SELECT 1 FROM slack_inputs AS earlier
+			      WHERE earlier.channel_id = candidate.channel_id
+			        AND earlier.state = 'processing'
 		        AND (
 		          (
 		            earlier.message_ts != '' AND candidate.message_ts != '' AND (
@@ -1763,7 +1791,8 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 func (s *Store) GetSlackInput(ctx context.Context, id string) (core.SlackInput, error) {
 	return scanSlackInput(s.db.QueryRowContext(ctx, `
 		SELECT id, envelope_id, event_id, kind, team_id, channel_id, thread_ts,
-		  message_ts, user_id, text, action_id, action_value, frozen_json, state, attempts, received_at
+		  message_ts, user_id, text, action_id, action_value, frozen_json, state, attempts,
+		  failure_count, received_at
 		FROM slack_inputs WHERE id = ?`, id))
 }
 
@@ -1778,14 +1807,14 @@ func (s *Store) ListRecentWatchMessages(
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT input.id, input.envelope_id, input.event_id, input.kind, input.team_id,
 		  input.channel_id, input.thread_ts, input.message_ts, input.user_id, input.text,
-		  input.action_id, input.action_value, input.frozen_json, input.state,
-		  input.attempts, input.received_at
+			  input.action_id, input.action_value, input.frozen_json, input.state,
+			  input.attempts, input.failure_count, input.received_at
 		FROM slack_inputs AS input
 		WHERE input.channel_id = ?
 		  AND input.message_ts != ''
-		  AND input.kind IN ('message', 'bot_message', 'mention', 'direct', 'shortcut')
-		  AND (
-		    input.state IN ('pending', 'retry', 'processing') OR
+			  AND input.kind IN ('message', 'bot_message', 'mention', 'direct', 'shortcut')
+			  AND (
+			    input.state IN ('pending', 'retry', 'processing', 'done') OR
 		    EXISTS (
 		      SELECT 1 FROM audit_events AS audit
 		      WHERE audit.kind = 'slack.watch' AND audit.object_id = input.id
@@ -1869,7 +1898,8 @@ func scanSlackInput(row interface{ Scan(...any) error }) (core.SlackInput, error
 	err := row.Scan(
 		&input.ID, &input.EnvelopeID, &input.EventID, &input.Kind, &input.TeamID,
 		&input.ChannelID, &input.ThreadTS, &input.MessageTS, &input.UserID, &input.Text,
-		&input.ActionID, &input.ActionValue, &input.Frozen, &input.State, &input.Attempts, &received,
+		&input.ActionID, &input.ActionValue, &input.Frozen, &input.State, &input.Attempts,
+		&input.Failures, &received,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.SlackInput{}, ErrNotFound
@@ -1898,6 +1928,26 @@ func (s *Store) RetrySlackInput(ctx context.Context, id, detail string, next tim
 		WHERE id = ? AND state = 'processing'`,
 		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
 	return expectOne(result, err, "retry Slack input")
+}
+
+func (s *Store) RetrySlackInputFailure(
+	ctx context.Context,
+	id string,
+	detail string,
+	next time.Time,
+	terminal bool,
+) error {
+	state := "retry"
+	if terminal {
+		state = "failed"
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE slack_inputs
+		SET state = ?, failure_count = failure_count + 1, last_error = ?,
+		    next_attempt_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'processing'`,
+		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+	return expectOne(result, err, "retry failed Slack input")
 }
 
 func (s *Store) FreezeSlackInput(ctx context.Context, id string, frozen []byte) ([]byte, error) {
@@ -1934,386 +1984,6 @@ func (s *Store) SetSlackInputFrozen(ctx context.Context, id string, frozen []byt
 		UPDATE slack_inputs SET frozen_json = ?, updated_at = ?
 		WHERE id = ? AND state = 'processing'`, frozen, nowText(), id)
 	return expectOne(result, err, "set Slack input state")
-}
-
-func (s *Store) EnqueueOutbox(ctx context.Context, message core.OutboxMessage) (bool, error) {
-	if message.ID == "" {
-		var err error
-		message.ID, err = core.NewID("out")
-		if err != nil {
-			return false, err
-		}
-	}
-	now := nowText()
-	result, err := s.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO outbox
-		  (id, incident_id, kind, channel_id, thread_ts, message_ts, body_json,
-		   state, next_attempt_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		message.ID, message.IncidentID, message.Kind, message.ChannelID, message.ThreadTS,
-		message.MessageTS, message.Body, now, now, now)
-	if err != nil {
-		return false, err
-	}
-	rows, err := result.RowsAffected()
-	return rows == 1, err
-}
-
-func (s *Store) LeaseOutbox(ctx context.Context) (core.OutboxMessage, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return core.OutboxMessage{}, err
-	}
-	defer tx.Rollback()
-	now := nowText()
-	var item core.OutboxMessage
-	var next, created string
-	err = tx.QueryRowContext(ctx, `
-		SELECT id, incident_id, kind, channel_id, thread_ts, message_ts, body_json,
-		  state, attempts, next_attempt_at, last_error, created_at
-		FROM outbox WHERE state IN ('pending', 'retry')
-		  AND julianday(next_attempt_at) <= julianday(?)
-		ORDER BY created_at LIMIT 1`, now).Scan(
-		&item.ID, &item.IncidentID, &item.Kind, &item.ChannelID, &item.ThreadTS,
-		&item.MessageTS, &item.Body, &item.State, &item.Attempts, &next,
-		&item.LastError, &created)
-	if errors.Is(err, sql.ErrNoRows) {
-		return core.OutboxMessage{}, ErrNotFound
-	}
-	if err != nil {
-		return core.OutboxMessage{}, err
-	}
-	result, err := tx.ExecContext(ctx, `
-		UPDATE outbox SET state = 'sending', attempts = attempts + 1, updated_at = ?
-		WHERE id = ? AND state IN ('pending', 'retry')`, now, item.ID)
-	if err := expectOne(result, err, "lease outbox"); err != nil {
-		return core.OutboxMessage{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return core.OutboxMessage{}, err
-	}
-	item.State = "sending"
-	item.Attempts++
-	item.NextAttemptAt = parseTime(next)
-	item.CreatedAt = parseTime(created)
-	return item, nil
-}
-
-func (s *Store) FinishOutbox(ctx context.Context, id, messageTS string) error {
-	return s.finishOutbox(ctx, id, messageTS, "sending")
-}
-
-func (s *Store) RetryOutbox(ctx context.Context, id, detail string, next time.Time, uncertain, terminal bool) error {
-	state := "retry"
-	if uncertain {
-		state = "uncertain"
-	} else if terminal {
-		state = "failed"
-	}
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE outbox SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'sending'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
-	return expectOne(result, err, "retry outbox")
-}
-
-func (s *Store) ListUncertainOutbox(ctx context.Context, limit int) ([]core.OutboxMessage, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, incident_id, kind, channel_id, thread_ts, message_ts, body_json,
-		  state, attempts, next_attempt_at, last_error, created_at
-		FROM outbox WHERE state = 'uncertain'
-		  AND julianday(next_attempt_at) <= julianday(?)
-		ORDER BY created_at LIMIT ?`, nowText(), limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var result []core.OutboxMessage
-	for rows.Next() {
-		var item core.OutboxMessage
-		var next, created string
-		if err := rows.Scan(&item.ID, &item.IncidentID, &item.Kind, &item.ChannelID,
-			&item.ThreadTS, &item.MessageTS, &item.Body, &item.State, &item.Attempts,
-			&next, &item.LastError, &created); err != nil {
-			return nil, err
-		}
-		item.NextAttemptAt = parseTime(next)
-		item.CreatedAt = parseTime(created)
-		result = append(result, item)
-	}
-	return result, rows.Err()
-}
-
-func (s *Store) ResolveUncertainOutbox(ctx context.Context, id, messageTS string) error {
-	return s.finishOutbox(ctx, id, messageTS, "uncertain")
-}
-
-func (s *Store) RetryUncertainOutbox(ctx context.Context, id, detail string, next time.Time, terminal bool) error {
-	state := "retry"
-	if terminal {
-		state = "failed"
-	}
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE outbox SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'uncertain'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
-	return expectOne(result, err, "retry uncertain outbox")
-}
-
-func (s *Store) finishOutbox(ctx context.Context, id, messageTS, fromState string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var incidentID, kind string
-	if err := tx.QueryRowContext(ctx, `
-		SELECT incident_id, kind FROM outbox WHERE id = ? AND state = ?`,
-		id, fromState).Scan(&incidentID, &kind); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("finish outbox: %w", ErrConflict)
-		}
-		return err
-	}
-	result, err := tx.ExecContext(ctx, `
-		UPDATE outbox SET state = 'sent', message_ts = ?, last_error = '', updated_at = ?
-		WHERE id = ? AND state = ?`, messageTS, nowText(), id, fromState)
-	if err := expectOne(result, err, "finish outbox"); err != nil {
-		return err
-	}
-	if kind == "root" {
-		result, err = tx.ExecContext(ctx, `
-			UPDATE incidents SET root_ts = ?, workflow = 'provisioning_session',
-			  updated_at = ?, card_version = card_version + 1, last_error = ''
-			WHERE id = ? AND channel_id != '' AND root_ts = ''`,
-			messageTS, nowText(), incidentID)
-		if err := expectOne(result, err, "bind incident root"); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func (s *Store) QueueTurn(ctx context.Context, submission core.TurnSubmission) (core.TurnSubmission, bool, error) {
-	if submission.ID == "" {
-		var err error
-		submission.ID, err = core.NewID("turn")
-		if err != nil {
-			return core.TurnSubmission{}, false, err
-		}
-	}
-	if submission.IdempotencyKey == "" {
-		submission.IdempotencyKey = "responder:turn:" + submission.ID
-	}
-	now := nowText()
-	result, err := s.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO turn_submissions
-		  (id, incident_id, source_kind, source_id, user_id, prompt, idempotency_key,
-		   state, next_attempt_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		submission.ID, submission.IncidentID, submission.SourceKind, submission.SourceID,
-		submission.UserID, submission.Prompt, submission.IdempotencyKey, now, now, now)
-	if err != nil {
-		return core.TurnSubmission{}, false, err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return core.TurnSubmission{}, false, err
-	}
-	item, err := s.GetTurnSubmissionBySource(ctx, submission.SourceKind, submission.SourceID)
-	return item, rows == 1, err
-}
-
-func (s *Store) GetTurnSubmissionBySource(ctx context.Context, kind, sourceID string) (core.TurnSubmission, error) {
-	return scanTurnSubmission(s.db.QueryRowContext(ctx, `
-		SELECT id, incident_id, source_kind, source_id, user_id, prompt, idempotency_key,
-		  expected_revision, coop_turn_id, state, attempts, next_attempt_at,
-		  last_error, created_at, updated_at
-		FROM turn_submissions WHERE source_kind = ? AND source_id = ?`, kind, sourceID))
-}
-
-func (s *Store) GetTurnSubmissionByCoopTurn(
-	ctx context.Context,
-	coopTurnID string,
-) (core.TurnSubmission, error) {
-	if coopTurnID == "" {
-		return core.TurnSubmission{}, errors.New("Coop turn ID is required")
-	}
-	return scanTurnSubmission(s.db.QueryRowContext(ctx, `
-		SELECT id, incident_id, source_kind, source_id, user_id, prompt, idempotency_key,
-		  expected_revision, coop_turn_id, state, attempts, next_attempt_at,
-		  last_error, created_at, updated_at
-		FROM turn_submissions WHERE coop_turn_id = ?`, coopTurnID))
-}
-
-func scanTurnSubmission(row interface{ Scan(...any) error }) (core.TurnSubmission, error) {
-	var item core.TurnSubmission
-	var next, created, updated string
-	err := row.Scan(&item.ID, &item.IncidentID, &item.SourceKind, &item.SourceID,
-		&item.UserID, &item.Prompt, &item.IdempotencyKey, &item.ExpectedRevision, &item.CoopTurnID,
-		&item.State, &item.Attempts, &next, &item.LastError, &created, &updated)
-	if errors.Is(err, sql.ErrNoRows) {
-		return core.TurnSubmission{}, ErrNotFound
-	}
-	if err != nil {
-		return core.TurnSubmission{}, err
-	}
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
-	item.NextAttemptAt = parseTime(next)
-	return item, nil
-}
-
-func (s *Store) LeaseTurnSubmission(ctx context.Context) (core.TurnSubmission, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return core.TurnSubmission{}, err
-	}
-	defer tx.Rollback()
-	item, err := scanTurnSubmission(tx.QueryRowContext(ctx, `
-		SELECT t.id, t.incident_id, t.source_kind, t.source_id, t.user_id, t.prompt,
-		  t.idempotency_key, t.expected_revision, t.coop_turn_id, t.state, t.attempts,
-		  t.next_attempt_at, t.last_error, t.created_at, t.updated_at
-		FROM turn_submissions t
-		JOIN incidents i ON i.id = t.incident_id
-		WHERE t.state IN ('pending', 'retry') AND i.coop_session_id != ''
-		  AND i.active_turn_id = '' AND i.workflow NOT IN ('closed', 'blocked')
-		  AND julianday(t.next_attempt_at) <= julianday(?)
-		ORDER BY t.created_at LIMIT 1`, nowText()))
-	if err != nil {
-		return core.TurnSubmission{}, err
-	}
-	result, err := tx.ExecContext(ctx, `
-		UPDATE turn_submissions SET state = 'submitting', attempts = attempts + 1, updated_at = ?
-		WHERE id = ? AND state IN ('pending', 'retry')`, nowText(), item.ID)
-	if err := expectOne(result, err, "lease turn submission"); err != nil {
-		return core.TurnSubmission{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return core.TurnSubmission{}, err
-	}
-	item.State = "submitting"
-	item.Attempts++
-	return item, nil
-}
-
-func (s *Store) FreezeTurnRevision(ctx context.Context, id string, revision int64) (int64, error) {
-	if revision <= 0 {
-		return 0, errors.New("positive Coop revision is required")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	var existing int64
-	if err := tx.QueryRowContext(ctx, `SELECT expected_revision FROM turn_submissions WHERE id = ?`, id).Scan(&existing); err != nil {
-		return 0, err
-	}
-	if existing == 0 {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE turn_submissions SET expected_revision = ?, updated_at = ?
-			WHERE id = ? AND expected_revision = 0`, revision, nowText(), id); err != nil {
-			return 0, err
-		}
-		existing = revision
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return existing, nil
-}
-
-func (s *Store) MarkTurnSubmitted(ctx context.Context, id, coopTurnID string, revision int64) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var incidentID string
-	if err := tx.QueryRowContext(ctx, `SELECT incident_id FROM turn_submissions WHERE id = ?`, id).Scan(&incidentID); err != nil {
-		return err
-	}
-	result, err := tx.ExecContext(ctx, `
-		UPDATE turn_submissions SET state = 'submitted', coop_turn_id = ?, last_error = '',
-		  updated_at = ? WHERE id = ? AND state = 'submitting'`, coopTurnID, nowText(), id)
-	if err := expectOne(result, err, "mark turn submitted"); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE incidents SET active_turn_id = ?, coop_revision = ?, workflow = 'investigating',
-		  updated_at = ?, card_version = card_version + 1, last_error = '' WHERE id = ?`,
-		coopTurnID, revision, nowText(), incidentID); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *Store) RetryTurnSubmission(ctx context.Context, id, detail string, next time.Time, terminal bool) error {
-	state := "retry"
-	if terminal {
-		state = "failed"
-	}
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE turn_submissions SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'submitting'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
-	return expectOne(result, err, "retry turn submission")
-}
-
-func (s *Store) CompleteTurnSubmission(ctx context.Context, coopTurnID, state, detail string) (core.TurnSubmission, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return core.TurnSubmission{}, err
-	}
-	defer tx.Rollback()
-	item, err := scanTurnSubmission(tx.QueryRowContext(ctx, `
-		SELECT id, incident_id, source_kind, source_id, user_id, prompt, idempotency_key,
-		  expected_revision, coop_turn_id, state, attempts, next_attempt_at,
-		  last_error, created_at, updated_at
-		FROM turn_submissions WHERE coop_turn_id = ?`, coopTurnID))
-	if err != nil {
-		return core.TurnSubmission{}, err
-	}
-	if item.State == "completed" || item.State == "failed" || item.State == "cancelled" {
-		return item, nil
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE turn_submissions SET state = ?, last_error = ?, updated_at = ? WHERE id = ?`,
-		state, boundedError(detail), nowText(), item.ID); err != nil {
-		return core.TurnSubmission{}, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE incidents SET active_turn_id = '', workflow = ?, last_error = ?,
-		  updated_at = ?, card_version = card_version + 1
-		WHERE id = ? AND active_turn_id = ?`,
-		workflowAfterTurn(state), turnResultError(state, detail), nowText(),
-		item.IncidentID, coopTurnID); err != nil {
-		return core.TurnSubmission{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return core.TurnSubmission{}, err
-	}
-	item.State = state
-	item.LastError = detail
-	return item, nil
-}
-
-func workflowAfterTurn(_ string) core.WorkflowState {
-	return core.WorkflowParked
-}
-
-func turnResultError(state, detail string) string {
-	if state == "completed" || state == "cancelled" {
-		return ""
-	}
-	if strings.TrimSpace(detail) == "" {
-		return "The agent turn failed without an error detail."
-	}
-	return boundedError(detail)
 }
 
 func (s *Store) Audit(ctx context.Context, event core.AuditEvent) error {

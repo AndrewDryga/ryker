@@ -313,13 +313,16 @@ func (s *Store) Prune(
 		operational); err != nil {
 		return result, err
 	}
-	if result.OutboxMessages, err = deleteCount(`
-		DELETE FROM outbox WHERE state IN ('sent', 'failed') AND updated_at < ?`,
+	if result.SlackDeliveries, err = deleteCount(`
+		DELETE FROM slack_deliveries
+		WHERE state IN ('sent', 'failed', 'superseded') AND updated_at < ?`,
 		operational); err != nil {
 		return result, err
 	}
-	if result.TurnSubmissions, err = deleteCount(`
-		DELETE FROM turn_submissions WHERE state IN ('submitted', 'failed') AND updated_at < ?`,
+	if result.AgentRuns, err = deleteCount(`
+		DELETE FROM agent_runs
+		WHERE state IN ('completed', 'failed', 'cancelled', 'superseded')
+		  AND updated_at < ?`,
 		operational); err != nil {
 		return result, err
 	}
@@ -400,8 +403,8 @@ func (s *Store) Prune(
 		`DELETE FROM evidence WHERE incident_id IN (` + eligible + `)`,
 		`DELETE FROM coverage WHERE incident_id IN (` + eligible + `)`,
 		`DELETE FROM signals WHERE incident_id IN (` + eligible + `)`,
-		`DELETE FROM outbox WHERE incident_id IN (` + eligible + `)`,
-		`DELETE FROM turn_submissions WHERE incident_id IN (` + eligible + `)`,
+		`DELETE FROM slack_deliveries WHERE incident_id IN (` + eligible + `)`,
+		`DELETE FROM agent_runs WHERE incident_id IN (` + eligible + `)`,
 		`DELETE FROM publications WHERE incident_id IN (` + eligible + `)`,
 	} {
 		if _, err = deleteCount(query, closed); err != nil {

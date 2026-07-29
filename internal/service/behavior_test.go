@@ -101,20 +101,25 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 		cfg, st, coopClient, slackClient, nil,
 		slackui.NewSanitizer(12000), nil,
 	)
-	if err := svc.failWatchedInput(
+	if err := svc.finishSlackInput(ctx, leased); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.finishTriageRunFailure(
 		ctx,
+		core.AgentRun{ID: "run_failed_watch"},
 		leased,
 		watchTurnState{SessionID: "ses_1"},
 		"watch triage failed: turn cleanup failed",
 	); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 
 	failed, err := st.GetSlackInput(ctx, input.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failed.State != "failed" {
+	if failed.State != "done" {
 		t.Fatalf("failed input state = %q", failed.State)
 	}
 	memory, err := st.GetChannelMemory(ctx, "COPS")
@@ -175,46 +180,27 @@ func TestDiscardedPersistedWatchSessionRotatesWithoutFailureNotice(t *testing.T)
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
 		t.Fatalf("admit discarded watch = %t, %v", created, err)
 	}
-	if _, err := st.LeaseSlackInput(ctx); err != nil {
-		t.Fatal(err)
-	}
 	slackClient := &fakeSlack{}
 	coopClient := newFakeCoop()
 	coopClient.session.State = "discarded"
+	coopClient.openAfterCreateKey = "responder:watch-session:COPS:2"
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
 		slackui.NewSanitizer(12000), nil,
 	)
-	if err := svc.setWatchState(ctx, input.ID, watchTurnState{
-		SessionID: "ses_1", Repository: "emisar", Generation: 1,
-		RulesCaptured: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	stored, err := st.GetSlackInput(ctx, input.ID)
+	memory, session, err := svc.ensureWatchSession(ctx, input.ChannelID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processWatchedInput(ctx, stored); err != nil {
-		t.Fatal(err)
-	}
-	stored, err = st.GetSlackInput(ctx, input.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	state, err := decodeWatchState(stored.Frozen)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.State != "retry" || state.SessionID != "" {
-		t.Fatalf("rotated input = state %q watch %+v", stored.State, state)
-	}
-	memory, err := st.GetChannelMemory(ctx, "COPS")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if memory.SessionID != "" || memory.Generation != 1 {
+	if memory.SessionID == "" || session.ID == "" || memory.Generation != 2 {
 		t.Fatalf("rotated channel memory = %+v", memory)
+	}
+	memory, err = st.GetChannelMemory(ctx, "COPS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if memory.SessionID == "" || memory.Generation != 2 {
+		t.Fatalf("persisted rotated channel memory = %+v", memory)
 	}
 	if len(slackClient.posts) != 0 {
 		t.Fatalf("terminal session rotation posted a failure notice: %+v", slackClient.posts)
@@ -296,6 +282,16 @@ func TestConfirmedPreferenceReachesFutureHealthPrompt(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) == 0 {
+		run, runErr := st.GetAgentRunBySource(ctx, "watch", request.ID)
+		stored, storedErr := st.GetSlackInput(ctx, request.ID)
+		queueErr := svc.queueWatchedInput(ctx, stored)
+		t.Fatalf(
+			"preference offer produced no Slack reply: run=%+v err=%v input=%+v input_err=%v queue_err=%v",
+			run, runErr, stored, storedErr, queueErr,
+		)
+	}
 	action := findSlackAction(t, slackClient.posts[0].message, slackui.ActionRememberPreference)
 	confirm := core.SlackInput{
 		ID: "slack_preference_confirm", EnvelopeID: "env_preference_confirm",
@@ -331,6 +327,7 @@ func TestConfirmedPreferenceReachesFutureHealthPrompt(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	prompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
 	for _, expected := range []string{
 		"<trusted-responder-preferences>",
@@ -390,6 +387,7 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	action := findSlackAction(t, slackClient.posts[0].message, slackui.ActionRememberRule)
 	confirm := core.SlackInput{
 		ID: "slack_rule_confirm", EnvelopeID: "env_rule_confirm",
@@ -434,6 +432,7 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	rule, err := st.GetStandingRule(ctx, rules[0].ID)
 	if err != nil || rule.TriggerCount != 1 || rule.LastTriggered.IsZero() {
 		t.Fatalf("triggered rule = %+v, %v", rule, err)

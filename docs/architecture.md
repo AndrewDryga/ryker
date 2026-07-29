@@ -26,7 +26,7 @@ The layers have distinct authority:
 
 | Concern | Owner |
 | --- | --- |
-| Webhook auth, incident correlation, Slack identity, inbox/outbox | Responder |
+| Webhook auth, incident correlation, Slack identity, input/delivery ledgers | Responder |
 | Repository allowlist, agent target, budgets, fork, box, review | Coop |
 | Infrastructure identity, observe/mutate policy, approval, audit | Emisar |
 | Exact reviewed-tree branch publication and draft PR creation | Responder publisher |
@@ -52,8 +52,8 @@ SQLite runs in WAL mode with full synchronous writes and one connection. It stor
 - normalized signals and incident occurrences;
 - webhook delivery state and body digests;
 - Slack inputs admitted before Socket Mode acknowledgement;
-- outgoing Slack messages with caller-owned IDs;
-- Coop turn submissions with stable idempotency keys and frozen revisions;
+- Slack posts, updates, and native statuses in one delivery ledger;
+- agent runs with stable idempotency keys, frozen revisions, and persisted context snapshots;
 - Slack channel, root timestamp, Coop session, and event cursor mappings;
 - source-attributed evidence and health-layer coverage independent of answer prose;
 - compact per-channel memory and bounded watch-session generations;
@@ -61,9 +61,12 @@ SQLite runs in WAL mode with full synchronous writes and one connection. It stor
 - live and shadow evaluation decisions for replay analysis;
 - bounded audit facts for denied and privileged actions.
 
-One serialized reconciliation loop leases a small amount of each work type. HTTP and Socket Mode
-handlers only validate and persist input. This keeps acknowledgements short and avoids concurrent
-incident workers fighting over SQLite or Slack rate limits.
+HTTP and Socket Mode handlers only validate and persist input. A control lane handles Slack inputs,
+buttons, slash commands, uncertain-send reconciliation, and Slack delivery; a background lane
+handles webhooks, session preparation, agent runs, results, and maintenance. Each durable lease is
+short, SQLite still has one writer connection, and network calls happen outside transactions.
+Long-running Coop work therefore cannot block operator controls or consume the source Slack
+input's retry budget.
 
 ## Incident identity and correlation
 
@@ -85,7 +88,7 @@ resolved occurrence is immutable; a later firing creates a new occurrence.
 
 ## Slack delivery
 
-New messages use a durable outbox ID in Slack message metadata. If a request times out after Slack
+New posts use a durable delivery ID in Slack message metadata. If a request times out after Slack
 may have accepted it, Responder does not post again immediately. It searches recent channel history
 for that metadata, confirms the original message, or retries only after confirming absence.
 
@@ -93,10 +96,11 @@ The root-card send and root timestamp binding commit in one SQLite transaction. 
 has no client idempotency key, so a timeout is recovered by deterministic channel name. Responder
 adopts a same-name channel only when it was created by this bot near the incident creation time.
 
-Thread posts and dirty root-card updates alternate through a conservative Slack write slot. A
-failed card update keeps its durable dirty version and receives in-memory exponential backoff;
-another incident card or queued thread reply can proceed instead of being starved. Responder posts
-completed paragraphs or turns, never token-streaming tool output or routine raw webhook refreshes.
+Posts, root-card updates, and native agent statuses share one durable delivery ledger and a
+conservative Slack write slot. Updates and statuses are idempotent; newer pending versions
+supersede obsolete pending card or status writes. A failed write receives durable exponential
+backoff, so another queued control or reply can proceed instead of being starved. Responder posts
+completed paragraphs or runs, never token-streaming tool output or routine raw webhook refreshes.
 Alert source links expose their destination hostname and omit query strings and fragments before
 leaving the service.
 
@@ -112,7 +116,7 @@ Every mutation has a stable idempotency key:
 
 ```text
 responder:session:<incident_id>
-responder:turn:<turn_submission_id>
+responder:run:<agent_run_id>
 responder:review:<slack_input_id>
 responder:publish-review:<slack_input_id>
 responder:stop:<slack_input_id>
@@ -139,7 +143,7 @@ head, status digest, dirty state, and unmerged state. Automatic cleanup never ac
 accepts unmerged work only after the reviewed tree has been published durably. Unrelated Coop forks
 are outside Responder's cleanup set.
 
-Coop events are consumed by durable sequence cursor. Terminal turns are fetched from Coop and only
+Coop events are consumed by durable sequence cursor. Terminal runs are fetched from Coop and only
 their bounded assistant message or terminal error is rendered into Slack.
 
 Every completed agent turn is asked for a strict JSON envelope containing Markdown prose, evidence,
@@ -149,10 +153,13 @@ persists evidence separately, strips credentials and query strings from evidence
 only host-owned interactive controls. Legacy prose remains readable during upgrades but is audited
 as unstructured.
 
-Shared operational channels use one ordered watch session at a time. After a configurable turn or
-age limit, Responder closes an idle generation and creates the next one while carrying only compact
-durable memory. The latest 10 to 50 Slack inputs remain frozen event context for each decision; they
-are not compressed into hidden model history.
+Shared operational channels use one ordered watch session generation at a time. A Slack input
+classifies and queues an agent run, then finishes; the independent run record owns preparation,
+submission, polling, finalization, and its own retry budget. Immediately before submission, the
+context assembler freezes the latest 10 to 50 Slack messages, resolved repository, preferences,
+confirmed memory, and recent evidence into `agent_runs.context_json`. That exact snapshot survives
+restart. After a configurable run or age limit, Responder closes an idle generation and creates the
+next one while carrying only compact durable memory.
 
 Durable cross-session memory uses one `memory_entries` table rather than a second infrastructure
 catalog or entity graph. Each logical `(scope, subject, predicate)` has one active value with a

@@ -100,8 +100,8 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 		{"responder_standing_rules_disabled", "Disabled unexpired standing rules.", snapshot.RulesDisabled},
 		{"responder_webhook_work_pending", "Webhook events awaiting completion.", snapshot.WebhooksPending},
 		{"responder_slack_input_pending", "Slack inputs awaiting completion.", snapshot.SlackPending},
-		{"responder_slack_outbox_pending", "Slack messages awaiting confirmed delivery.", snapshot.OutboxPending},
-		{"responder_coop_turns_pending", "Coop turns awaiting terminal completion.", snapshot.TurnsPending},
+		{"responder_slack_deliveries_pending", "Slack writes awaiting confirmed delivery.", snapshot.SlackDeliveriesPending},
+		{"responder_agent_runs_pending", "Agent runs awaiting terminal completion.", snapshot.AgentRunsPending},
 		{"responder_work_failed", "Durable work items in a terminal failure state.", snapshot.WorkFailed},
 	}
 	for _, metric := range metrics {

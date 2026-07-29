@@ -72,12 +72,13 @@ database migration; startup holds the process lock while applying migrations.
 
 ## Retries
 
-Webhook, Slack input, Slack outbox, and Coop turn work use bounded exponential delay. Process
-restart converts an interrupted lease back into retryable state.
+Webhook, Slack input, Slack delivery, and agent-run work use separate bounded exponential delays.
+Process restart converts an interrupted lease back into the correct recoverable state.
 
-Slack send failures are treated as uncertain because the API might have accepted the message before
-the connection failed. Responder searches Slack history by durable message metadata before deciding
-whether another post is safe.
+Only new Slack posts with an ambiguous response are treated as uncertain because the API might have
+accepted the message before the connection failed. Responder searches Slack history by durable
+message metadata before deciding whether another post is safe. Updates and statuses are retried
+idempotently, and obsolete pending versions are superseded.
 
 Coop requests reuse the same idempotency key and frozen request body. Non-retryable Coop conflicts
 stop the action and remain visible; they are never rewritten with a guessed revision.
@@ -88,10 +89,12 @@ channels.
 `slack.watch_settle_delay` requires a quiet period after the newest queued message before
 classification; the default is two seconds. `slack.watch_context_messages` freezes the latest
 chronological channel transcript into each triage request; the default is 20 and the allowed range
-is 10 through 50. A running triage turn leaves the durable Slack input retryable until its strict
-ignore, reply, or incident result is available. A delayed event older than an already completed
-decision is retained and audited but cannot produce an out-of-order reply. Slash commands and
-button controls have priority over queued conversation in their channel.
+is 10 through 50. Once classification queues an agent run, the source Slack input is complete and
+cannot exhaust retries during a long model call. The agent run takes its own lease and freezes the
+freshest ordered context immediately before submission. One run executes per conversation, while
+later inputs can still be admitted and included in subsequent context. A delayed event older than
+an already completed decision is retained and audited but cannot produce an out-of-order reply.
+Slash commands and button controls have priority over ordinary conversation delivery.
 
 The host does not accept a human health question as authorization to create an incident. Human
 triage can reply with findings and persist an incident offer; a configured full-member operator must
@@ -226,8 +229,12 @@ override, then deployment configuration is the precedence order. At the ceiling,
 request, session, and fork are preserved, and raising the ceiling resumes incident work. Coop's
 policy and service-wide hard limits remain authoritative.
 
-`limits.max_outbox_attempts` bounds poison webhook, Slack input, and Slack output retries. Terminal
+`limits.max_webhook_attempts`, `limits.max_slack_input_attempts`,
+`limits.max_delivery_attempts`, and `limits.max_agent_run_attempts` independently bound poison work.
+Normal scheduling deferrals and Coop progress polls do not consume these failure budgets. Terminal
 failures are counted by `responder_work_failed`.
+For configuration upgrades, the retired `max_outbox_attempts` value seeds any of these four budgets
+that are not explicitly set; new configurations should use only the specific names.
 
 Memory gauges are exported as `responder_memory_entries_active` and
 `responder_memory_entries_expired`. Maintenance logs include the number of expired entries pruned.
@@ -245,15 +252,16 @@ retry exactly one item:
 ```bash
 responder retry --config /etc/responder/responder.yaml webhook hook_...
 responder retry --config /etc/responder/responder.yaml slack slack_...
-responder retry --config /etc/responder/responder.yaml outbox out_...
-responder retry --config /etc/responder/responder.yaml turn turn_...
+responder retry --config /etc/responder/responder.yaml delivery delivery_...
+responder retry --config /etc/responder/responder.yaml agent_run run_...
 ```
 
 The command refuses to run while Responder owns the state directory. It preserves the original
-payload, frozen Coop revision, and idempotency key, resets the attempt budget, and appends an audit
-event. Failed Slack outbox work always returns through Slack history reconciliation before another
-send is possible. A turn that already reached a terminal Coop result is shown as non-retryable;
-send a new Slack message to start a new turn instead. There is deliberately no bulk retry.
+payload, persisted context or frozen Coop revision, and idempotency key, resets the failure budget,
+and appends an audit event. A failed uncertain Slack post always returns through history
+reconciliation before another send is possible. An agent run that already reached a terminal Coop
+result is shown as non-retryable; send a new Slack message to start a new run instead. The retired
+`outbox` and `turn` kind names remain compatibility aliases. There is deliberately no bulk retry.
 
 ## Backups
 
@@ -317,8 +325,8 @@ Closing work closes its Coop session and records a cleanup intent. After
 - clean committed but unpublished work is retained until publication or explicit operator disposal;
 - only exact session IDs recorded by Responder are eligible. Fork name patterns are never ownership.
 
-`retention.operational_data` bounds completed Slack inputs, webhook payloads, outbox deliveries,
-turn submissions, classifier decisions, and rotated channel intelligence after its Coop cleanup
+`retention.operational_data` bounds completed Slack inputs, webhook payloads, Slack deliveries,
+agent runs, classifier decisions, and rotated channel intelligence after its Coop cleanup
 completes. `retention.closed_work` bounds closed incidents and their detailed evidence after Coop
 cleanup completes. `retention.audit_data` bounds the smaller
 audit and cleanup ledger. Maintenance checkpoints the SQLite WAL and runs `PRAGMA optimize` after

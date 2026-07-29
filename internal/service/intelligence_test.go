@@ -71,6 +71,7 @@ func TestWatchedStructuredReportPersistsEvidenceCoverageAndMemory(t *testing.T) 
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	if len(slackClient.posts) != 1 ||
 		strings.Contains(slackClient.posts[0].message.Markdown, "## Evidence") ||
 		strings.Contains(slackClient.posts[0].message.Markdown, "## Coverage") ||
@@ -137,6 +138,7 @@ func TestWatchedShadowModeRecordsWithoutPosting(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	finishQueuedAgentRun(t, ctx, svc)
 	if len(slackClient.posts) != 0 {
 		t.Fatalf("shadow mode posted: %+v", slackClient.posts)
 	}
@@ -294,13 +296,13 @@ func TestTwoPersonActionApprovalQueuesOnlyConfiguredProposal(t *testing.T) {
 		!strings.Contains(slackClient.ephemerals[0].message.Text, "1 of 2") {
 		t.Fatalf("first approval receipt = %+v", slackClient.ephemerals)
 	}
-	if _, err := st.GetTurnSubmissionBySource(
+	if _, err := st.GetAgentRunBySource(
 		ctx, "proposal", proposals[0].ID,
 	); err != store.ErrNotFound {
 		t.Fatalf("proposal ran after one approval: %v", err)
 	}
 	approve("approval-2", "U456DEF")
-	submission, err := st.GetTurnSubmissionBySource(
+	submission, err := st.GetAgentRunBySource(
 		ctx, "proposal", proposals[0].ID,
 	)
 	if err != nil ||

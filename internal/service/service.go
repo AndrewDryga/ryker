@@ -72,8 +72,9 @@ type Service struct {
 	initialized  atomic.Bool
 	running      atomic.Bool
 	coopHealthy  atomic.Bool
+	postMu       sync.Mutex
 	lastPost     time.Time
-	preferCard   bool
+	statusMu     sync.Mutex
 	nativeStatus map[string]nativeStatusState
 
 	retryMu sync.Mutex
@@ -104,7 +105,7 @@ func New(
 	}
 	return &Service{
 		cfg: cfg, store: st, coop: coopClient, slack: slackClient, socket: socket,
-		sanitizer: sanitizer, log: logger, preferCard: true,
+		sanitizer: sanitizer, log: logger,
 		publisher:    publisher.New(cfg.GitHub),
 		nativeStatus: make(map[string]nativeStatusState),
 		retries:      make(map[string]retryState),
@@ -158,18 +159,44 @@ func (s *Service) Run(ctx context.Context) error {
 	s.running.Store(true)
 	defer s.running.Store(false)
 
+	runCtx, cancel := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	defer func() {
+		cancel()
+		workers.Wait()
+	}()
 	socketErrors := make(chan error, 1)
 	go func() {
-		socketErrors <- s.socket.Run(ctx)
+		socketErrors <- s.socket.Run(runCtx)
 	}()
-	go s.consumeSocket(ctx)
-
-	workTicker := time.NewTicker(s.cfg.Limits.WorkerInterval.Duration)
-	defer workTicker.Stop()
-	coopTicker := time.NewTicker(s.cfg.Coop.PollInterval.Duration)
-	defer coopTicker.Stop()
-	maintenanceTicker := time.NewTicker(s.cfg.Retention.MaintenanceInterval.Duration)
-	defer maintenanceTicker.Stop()
+	go s.consumeSocket(runCtx)
+	s.startPeriodicWorker(
+		runCtx,
+		&workers,
+		s.cfg.Limits.WorkerInterval.Duration,
+		s.runControlWork,
+	)
+	s.startPeriodicWorker(
+		runCtx,
+		&workers,
+		s.cfg.Limits.WorkerInterval.Duration,
+		s.runBackgroundWork,
+	)
+	s.startPeriodicWorker(
+		runCtx,
+		&workers,
+		s.cfg.Coop.PollInterval.Duration,
+		func(workerCtx context.Context) {
+			s.pollAgentRuns(workerCtx)
+			s.pollCoop(workerCtx)
+		},
+	)
+	s.startPeriodicWorker(
+		runCtx,
+		&workers,
+		s.cfg.Retention.MaintenanceInterval.Duration,
+		s.runMaintenance,
+	)
 
 	for {
 		select {
@@ -183,14 +210,30 @@ func (s *Service) Run(ctx context.Context) error {
 				return errors.New("Slack Socket Mode stopped")
 			}
 			return fmt.Errorf("Slack Socket Mode: %w", err)
-		case <-workTicker.C:
-			s.runWork(ctx)
-		case <-coopTicker.C:
-			s.pollCoop(ctx)
-		case <-maintenanceTicker.C:
-			s.runMaintenance(ctx)
 		}
 	}
+}
+
+func (s *Service) startPeriodicWorker(
+	ctx context.Context,
+	group *sync.WaitGroup,
+	interval time.Duration,
+	run func(context.Context),
+) {
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			run(ctx)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 }
 
 func (s *Service) Ready() (bool, string) {
@@ -212,19 +255,30 @@ func (s *Service) Identity() slackui.Identity {
 	return s.identity
 }
 
-func (s *Service) runWork(ctx context.Context) {
-	steps := []struct {
-		name string
-		run  func(context.Context) error
-	}{
+func (s *Service) runControlWork(ctx context.Context) {
+	s.runSteps(ctx, []workerStep{
+		{"Slack input", s.processSlackInput},
+		{"Slack delivery reconciliation", s.reconcileSlackDelivery},
+		{"Slack write", s.processSlackWrite},
+	})
+}
+
+func (s *Service) runBackgroundWork(ctx context.Context) {
+	s.runSteps(ctx, []workerStep{
 		{"webhook", s.processWebhook},
 		{"channel", s.processChannel},
-		{"outbox reconcile", s.reconcileOutbox},
-		{"Slack write", s.processSlackWrite},
 		{"session", s.processSession},
-		{"Slack input", s.processSlackInput},
-		{"turn", s.processTurn},
-	}
+		{"agent run", s.processAgentRun},
+		{"agent result", s.processAgentRunFinalization},
+	})
+}
+
+type workerStep struct {
+	name string
+	run  func(context.Context) error
+}
+
+func (s *Service) runSteps(ctx context.Context, steps []workerStep) {
 	for _, step := range steps {
 		if err := step.run(ctx); err != nil && !errors.Is(err, store.ErrNotFound) && ctx.Err() == nil {
 			s.log.Error("worker step failed", "step", step.name, "error", err)

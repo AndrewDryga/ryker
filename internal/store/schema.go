@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 10
+const currentSchemaVersion = 12
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -574,6 +574,140 @@ CREATE INDEX IF NOT EXISTS standing_rule_runs_created_idx
   ON standing_rule_runs(created_at);
 `
 
+const schemaV11 = `
+ALTER TABLE slack_inputs ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE channel_memories ADD COLUMN coop_event_sequence INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id TEXT PRIMARY KEY,
+  mode TEXT NOT NULL CHECK (mode IN ('triage', 'incident', 'engineering_task')),
+  incident_id TEXT,
+  channel_id TEXT NOT NULL DEFAULT '',
+  thread_ts TEXT NOT NULL DEFAULT '',
+  conversation_key TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  user_id TEXT NOT NULL DEFAULT '',
+  repository TEXT NOT NULL DEFAULT '',
+  prompt TEXT NOT NULL DEFAULT '',
+  idempotency_key TEXT NOT NULL UNIQUE,
+  session_id TEXT NOT NULL DEFAULT '',
+  session_generation INTEGER NOT NULL DEFAULT 0,
+  expected_revision INTEGER NOT NULL DEFAULT 0,
+  coop_turn_id TEXT NOT NULL DEFAULT '',
+  coop_event_sequence INTEGER NOT NULL DEFAULT 0,
+  context_json BLOB NOT NULL DEFAULT '{}',
+  result_json BLOB NOT NULL DEFAULT '',
+  terminal_state TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL CHECK (
+    state IN (
+      'pending', 'preparing', 'running', 'applying', 'finalizing', 'completed',
+      'failed', 'cancelled', 'superseded'
+    )
+  ),
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  UNIQUE(source_kind, source_id),
+  FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS agent_runs_work_idx
+  ON agent_runs(state, next_attempt_at, created_at);
+CREATE INDEX IF NOT EXISTS agent_runs_session_idx
+  ON agent_runs(session_id, state, coop_event_sequence);
+CREATE INDEX IF NOT EXISTS agent_runs_conversation_idx
+  ON agent_runs(conversation_key, state, created_at);
+
+INSERT OR IGNORE INTO agent_runs (
+  id, mode, incident_id, channel_id, thread_ts, conversation_key,
+  source_kind, source_id, user_id, repository, prompt, idempotency_key,
+  session_id, expected_revision, coop_turn_id, coop_event_sequence,
+  state, failure_count, next_attempt_at, last_error, created_at, updated_at
+)
+SELECT
+  t.id,
+  CASE WHEN i.work_kind = 'engineering_task' THEN 'engineering_task' ELSE 'incident' END,
+  t.incident_id,
+  i.channel_id,
+  CASE WHEN i.work_scope = 'thread' THEN i.origin_thread_ts ELSE i.root_ts END,
+  'incident:' || t.incident_id,
+  t.source_kind,
+  t.source_id,
+  t.user_id,
+  i.repository,
+  t.prompt,
+  t.idempotency_key,
+  i.coop_session_id,
+  t.expected_revision,
+  t.coop_turn_id,
+  i.coop_event_sequence,
+  CASE
+    WHEN t.state IN ('pending', 'retry', 'submitting') THEN 'pending'
+    WHEN t.state = 'submitted' THEN 'running'
+    WHEN t.state IN ('completed', 'failed', 'cancelled') THEN t.state
+    ELSE 'failed'
+  END,
+  t.attempts,
+  t.next_attempt_at,
+  t.last_error,
+  t.created_at,
+  t.updated_at
+FROM turn_submissions AS t
+JOIN incidents AS i ON i.id = t.incident_id;
+
+DROP TABLE turn_submissions;
+`
+
+const schemaV12 = `
+CREATE TABLE slack_deliveries (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT,
+  operation TEXT NOT NULL CHECK (operation IN ('post', 'update', 'status')),
+  kind TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL DEFAULT '',
+  message_ts TEXT NOT NULL DEFAULT '',
+  body_json BLOB NOT NULL DEFAULT '',
+  status_text TEXT NOT NULL DEFAULT '',
+  steps_json BLOB NOT NULL DEFAULT '[]',
+  coalesce_key TEXT NOT NULL DEFAULT '',
+  card_version INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL CHECK (
+    state IN ('pending', 'sending', 'retry', 'uncertain', 'sent', 'failed', 'superseded')
+  ),
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX slack_delivery_work_idx
+  ON slack_deliveries(state, next_attempt_at, created_at);
+CREATE INDEX slack_delivery_coalesce_idx
+  ON slack_deliveries(coalesce_key, state, created_at)
+  WHERE coalesce_key != '';
+
+INSERT INTO slack_deliveries (
+  id, incident_id, operation, kind, channel_id, thread_ts, message_ts,
+  body_json, state, failure_count, next_attempt_at, last_error,
+  created_at, updated_at
+)
+SELECT
+  id, incident_id, 'post', kind, channel_id, thread_ts, message_ts,
+  body_json, state, attempts, next_attempt_at, last_error,
+  created_at, updated_at
+FROM outbox;
+
+DROP TABLE outbox;
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -585,4 +719,6 @@ var migrations = []string{
 	schemaV8,
 	schemaV9,
 	schemaV10,
+	schemaV11,
+	schemaV12,
 }

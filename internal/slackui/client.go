@@ -31,7 +31,7 @@ type API interface {
 	SetSuggestedPrompts(context.Context, string, string) error
 	PublishHome(context.Context, string, Message) error
 	UserAllowed(context.Context, string, string) (bool, error)
-	FindOutboxMessage(context.Context, string, string, string) (string, error)
+	FindDeliveryMessage(context.Context, string, string, string) (string, error)
 }
 
 var (
@@ -367,15 +367,15 @@ func (c *Client) SetTopic(ctx context.Context, channel, topic string) error {
 	return err
 }
 
-func (c *Client) Post(ctx context.Context, outboxID, channel, threadTS string, message Message) (string, error) {
+func (c *Client) Post(ctx context.Context, deliveryID, channel, threadTS string, message Message) (string, error) {
 	options := []slack.MsgOption{
 		slack.MsgOptionText(message.Text, false),
 		slack.MsgOptionBlocks(message.Blocks()...),
 		slack.MsgOptionDisableLinkUnfurl(),
 		slack.MsgOptionDisableMediaUnfurl(),
 		slack.MsgOptionMetadata(slack.SlackMetadata{
-			EventType:    "responder_outbox",
-			EventPayload: map[string]any{"id": outboxID},
+			EventType:    "responder_delivery",
+			EventPayload: map[string]any{"id": deliveryID},
 		}),
 	}
 	if threadTS != "" {
@@ -483,7 +483,12 @@ func (c *Client) UserAllowed(ctx context.Context, userID, teamID string) (bool, 
 	return true, nil
 }
 
-func (c *Client) FindOutboxMessage(ctx context.Context, channel, threadTS, outboxID string) (string, error) {
+func (c *Client) FindDeliveryMessage(
+	ctx context.Context,
+	channel string,
+	threadTS string,
+	deliveryID string,
+) (string, error) {
 	if threadTS != "" {
 		cursor := ""
 		for page := 0; page < 5; page++ {
@@ -496,7 +501,7 @@ func (c *Client) FindOutboxMessage(ctx context.Context, channel, threadTS, outbo
 			if err != nil {
 				return "", err
 			}
-			if timestamp := findMetadataMessage(messages, outboxID); timestamp != "" {
+			if timestamp := findMetadataMessage(messages, deliveryID); timestamp != "" {
 				return timestamp, nil
 			}
 			cursor = next
@@ -514,7 +519,7 @@ func (c *Client) FindOutboxMessage(ctx context.Context, channel, threadTS, outbo
 		if err != nil {
 			return "", err
 		}
-		if timestamp := findMetadataMessage(response.Messages, outboxID); timestamp != "" {
+		if timestamp := findMetadataMessage(response.Messages, deliveryID); timestamp != "" {
 			return timestamp, nil
 		}
 		cursor = response.ResponseMetaData.NextCursor
@@ -525,10 +530,11 @@ func (c *Client) FindOutboxMessage(ctx context.Context, channel, threadTS, outbo
 	return "", ErrSearchIncomplete
 }
 
-func findMetadataMessage(messages []slack.Message, outboxID string) string {
+func findMetadataMessage(messages []slack.Message, deliveryID string) string {
 	for _, message := range messages {
-		if message.Metadata.EventType == "responder_outbox" &&
-			fmt.Sprint(message.Metadata.EventPayload["id"]) == outboxID {
+		if (message.Metadata.EventType == "responder_delivery" ||
+			message.Metadata.EventType == "responder_outbox") &&
+			fmt.Sprint(message.Metadata.EventPayload["id"]) == deliveryID {
 			return message.Timestamp
 		}
 	}

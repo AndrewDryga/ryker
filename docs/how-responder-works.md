@@ -18,7 +18,8 @@ flowchart LR
     Socket["Slack Socket Mode<br/>event admission"]
     HTTP["HTTP webhook admission<br/>verify + normalize"]
     DB[("SQLite WAL<br/>durable queues and state")]
-    Worker["Serialized worker loop<br/>lease + reconcile"]
+    Control["Control lane<br/>Slack admission + delivery"]
+    Background["Background lane<br/>incidents + agent runs"]
     Router["Host-owned routing<br/>authorization + policy"]
     Renderer["Host-owned Slack rendering<br/>Block Kit + controls"]
     Publisher["Optional draft PR publisher<br/>exact reviewed tree only"]
@@ -50,8 +51,10 @@ flowchart LR
   Webhooks --> HTTP
   Socket -->|"persist before ACK"| DB
   HTTP -->|"persist before 202"| DB
-  DB <--> Worker
-  Worker --> Router
+  DB <--> Control
+  DB <--> Background
+  Control --> Router
+  Background --> Router
   Router <--> CoopAPI
   Supervisor -.-> CoopAPI
   CoopAPI --> Session --> Fork --> Box --> Agent
@@ -60,7 +63,7 @@ flowchart LR
   Agent --> Other
   Router --> Renderer --> SlackAPI --> Threads
   Publisher --> GitHub
-  Worker <--> Publisher
+  Background <--> Publisher
   Human <--> Threads
 ```
 
@@ -168,10 +171,16 @@ sequenceDiagram
   A-->>S: ACK
 
   W->>DB: Lease next eligible Slack input
-  Note over W,DB: Slash/actions are prioritized.<br/>Conversation messages preserve Slack timestamp order per channel.
+  Note over W,DB: Slash/actions are prioritized.<br/>Only active admission work serializes a channel.
+  W->>DB: Match standing rules and INSERT agent_runs
+  W->>DB: Mark Slack input done
+  W->>DB: Queue native pending status
+  Note over W,DB: Slack input retry budget stops here.<br/>Long model work has its own failure budget.
+
+  W->>DB: Lease next eligible agent run
+  W->>DB: Enforce one active run per conversation
   W->>DB: Wait for channel settle delay
   W->>DB: Reject late input if a newer decision already completed
-  W->>DB: Freeze matched standing rules
   W->>DB: Load or create channel session generation
   W->>C: Refresh current session state
   C-->>W: Open / exhausted / terminal + revision
@@ -184,10 +193,9 @@ sequenceDiagram
     W->>C: Extend within configured automatic ceiling
   end
 
-  W->>DB: Freeze latest 10-50 admitted channel messages
-  W->>DB: Load compact channel memory
-  W->>DB: Load confirmed memory + recent evidence + effective preferences
-  W->>S: Set native pending status
+  W->>DB: Assemble latest 10-50 admitted messages
+  W->>DB: Load compact memory, confirmed memory,<br/>recent evidence, preferences, and repository binding
+  W->>DB: Persist exact context snapshot on agent_runs
   W->>C: Submit turn with session revision<br/>and generation-aware idempotency key
   C->>G: Start short-lived agent box
   G->>T: Inspect declared topology and fresh evidence
@@ -196,22 +204,24 @@ sequenceDiagram
   C-->>W: Terminal turn
 
   W->>W: Strict parse, bound, sanitize, validate
+  W->>DB: Stage terminal result on agent_runs
   W->>DB: Persist evidence and coverage separately
   W->>DB: Transaction: decision once + compact memory update
 
   alt ignore
     W->>DB: Audit silence
   else reply
-    W->>S: Post rich response in source thread
+    W->>DB: Queue rich source-thread delivery
   else reply with inert offer
-    W->>S: Post response + host-owned confirmation button
+    W->>DB: Queue response + host-owned confirmation button
   else allowed automatic app alert
     W->>DB: Create correlated incident occurrence
   end
 
   W->>DB: Record standing-rule run once, if matched
-  W->>S: Clear pending status
-  W->>DB: Mark input done
+  W->>DB: Queue pending-status clear
+  W->>DB: Finish agent run
+  W->>S: Deliver queued post/update/status
 ```
 
 The model does not return arbitrary Slack blocks. It returns a strict decision envelope containing
@@ -277,7 +287,7 @@ flowchart TB
 
 | Layer | Stored in | Writer | Purpose | Trust and lifetime |
 | --- | --- | --- | --- | --- |
-| Recent Slack context | `slack_inputs`, then frozen in input state | Slack admission | Understand nearby conversation and avoid interrupting people | Event context only; bounded and pruned |
+| Recent Slack context | `slack_inputs`, then snapshotted in `agent_runs.context_json` | Context assembler | Understand nearby conversation and avoid interrupting people | Event context only; bounded and pruned |
 | Compact channel memory | `channel_memories.state_json` | Agent result after host validation | Carry goal, topology, decisions, unresolved questions, and evidence references across turns and session rotation | Continuity, not current-health proof |
 | Evidence ledger | `evidence`, `coverage`, `timeline_events` | Host after strict agent-report parsing | Preserve source-attributed observations independently of prose | Same-channel recall; time and source remain visible |
 | Confirmed operational memory | `memory_entries` | Configured operator click | Durable alias, repository binding, evidence route, or entity correction | Untrusted hint with scope, source, expiry, and caps |
@@ -415,12 +425,14 @@ successful execution. A later read of the exact run establishes the outcome.
 
 ```mermaid
 flowchart LR
-  subgraph Queues["Durable work states"]
-    Pending["pending"] --> Processing["processing"]
-    Processing --> Done["done"]
-    Processing --> Retry["retry + next_attempt_at"]
-    Retry --> Processing
-    Processing --> Failed["failed"]
+  subgraph Runs["Durable agent run states"]
+    Pending["pending"] --> Preparing["preparing"]
+    Preparing --> Running["running"]
+    Running --> Applying["applying"]
+    Applying --> Finalizing["finalizing"]
+    Finalizing --> Done["completed / failed / cancelled"]
+    Preparing --> Retry["pending + next_attempt_at"]
+    Finalizing --> Applying
   end
 
   subgraph Once["Exactly-once or idempotent boundaries"]
@@ -429,7 +441,7 @@ flowchart LR
     DecisionOnce["source_input + mode"]
     RuleOnce["rule_id + source_input"]
     CoopOnce["Stable operation keys<br/>plus session generation"]
-    OutboxOnce["Caller-owned Slack metadata ID"]
+    DeliveryOnce["Caller-owned Slack delivery ID"]
   end
 
   subgraph Recovery["Recovery"]
@@ -457,14 +469,20 @@ flowchart LR
 Key properties:
 
 - SQLite uses WAL mode, full synchronous writes, and one connection.
-- Slack inputs are leased in timestamp order within a channel. Slash commands and buttons are
-  prioritized so stop/configuration actions do not wait behind ordinary conversation.
-- A short settle delay lets nearby messages enter the frozen transcript before classification.
+- Slack inputs are leased in timestamp order within a channel, but only an actively processing
+  input holds that channel. Once it queues an agent run, it is complete and cannot exhaust retries
+  while the model works.
+- The control lane prioritizes slash commands and buttons; long Coop work runs independently in the
+  background lane.
+- A short settle delay lets nearby messages enter the context snapshot before submission. The
+  snapshot is persisted on the run and reused exactly after restart.
 - A delayed older event cannot reply after a newer channel decision has completed.
 - Coop create results are refreshed through `GET` because an idempotent create replay describes the
   original creation state, not necessarily the current session state.
-- Replacement watch sessions use generation-aware create and turn keys.
-- A terminal failed watch turn posts a user-facing failure, clears pending status, detaches the
+- Replacement watch sessions use generation-aware create and run keys.
+- Posts, updates, and statuses use one durable, coalescing Slack delivery ledger. Ambiguous posts
+  reconcile by metadata before retry; updates and statuses retry idempotently.
+- A terminal failed watch run queues a user-facing failure, clears pending status, detaches the
   session while preserving compact memory, and queues cleanup.
 - Automatic cleanup operates only on exact Responder-owned session IDs. It never accepts dirty
   work, and it accepts unmerged work only after the exact reviewed tree has been durably published.
@@ -484,8 +502,10 @@ flowchart TB
   Signals --> Incident[("incidents")]
   WorkOffer --> Incident
 
-  Incident --> Turns[("turn_submissions")]
-  Incident --> Outbox[("outbox")]
+  SlackInput --> AgentRuns[("agent_runs")]
+  Incident --> AgentRuns
+  Incident --> Deliveries[("slack_deliveries")]
+  SlackInput --> Deliveries
   Incident --> Timeline[("timeline_events")]
   Incident --> Proposals[("action_proposals")]
   Incident --> Approvals[("emisar_approvals")]

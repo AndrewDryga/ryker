@@ -14,7 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
-func TestIncidentOutboxAndTurnLifecycle(t *testing.T) {
+func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 	ctx := context.Background()
 	stateDir := filepath.Join(t.TempDir(), "state")
 	st, err := Open(stateDir)
@@ -54,17 +54,19 @@ func TestIncidentOutboxAndTurnLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := []byte(`{"text":"root"}`)
-	if created, err := st.EnqueueOutbox(ctx, core.OutboxMessage{
+	if created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID: "out_root", IncidentID: incident.ID, Kind: "root",
 		ChannelID: "C123ABC", Body: body,
 	}); err != nil || !created {
 		t.Fatalf("enqueue root = %v, %v", created, err)
 	}
-	outbox, err := st.LeaseOutbox(ctx)
+	outbox, err := st.LeaseSlackDelivery(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.FinishOutbox(ctx, outbox.ID, "1700.001"); err != nil {
+	if err := st.FinishSlackDelivery(
+		ctx, outbox.ID, "1700.001", "sending",
+	); err != nil {
 		t.Fatal(err)
 	}
 	incident, err = st.GetIncident(ctx, incident.ID)
@@ -73,8 +75,12 @@ func TestIncidentOutboxAndTurnLifecycle(t *testing.T) {
 		t.Fatalf("root binding = %+v, %v", incident, err)
 	}
 
-	queued, created, err := st.QueueTurn(ctx, core.TurnSubmission{
-		IncidentID: incident.ID, SourceKind: "initial", SourceID: incident.ID, Prompt: "investigate",
+	queued, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.RootTS,
+		ConversationKey: "incident:" + incident.ID,
+		SourceKind:      "initial", SourceID: incident.ID,
+		Repository: incident.Repository, Prompt: "investigate",
 	})
 	if err != nil || !created {
 		t.Fatalf("queue turn = %+v, %v, %v", queued, created, err)
@@ -82,20 +88,30 @@ func TestIncidentOutboxAndTurnLifecycle(t *testing.T) {
 	if err := st.SetCoopSession(ctx, incident.ID, "ses_1", "incident-api-latency", 1); err != nil {
 		t.Fatal(err)
 	}
-	leasedTurn, err := st.LeaseTurnSubmission(ctx)
+	leasedTurn, err := st.LeaseAgentRun(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision, err := st.FreezeTurnRevision(ctx, leasedTurn.ID, 1)
+	revision, err := st.FreezeAgentRunRevision(ctx, leasedTurn.ID, 1)
 	if err != nil || revision != 1 {
 		t.Fatalf("freeze revision = %d, %v", revision, err)
 	}
-	if err := st.MarkTurnSubmitted(ctx, leasedTurn.ID, "coop_turn_1", 2); err != nil {
+	if err := st.MarkAgentRunSubmitted(
+		ctx, leasedTurn.ID, "coop_turn_1", 2, 0,
+	); err != nil {
 		t.Fatal(err)
 	}
-	completed, err := st.CompleteTurnSubmission(ctx, "coop_turn_1", "completed", "")
+	if err := st.StageAgentRunResult(
+		ctx, leasedTurn.ID, "completed", nil, "", 0,
+	); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := st.BeginAgentRunFinalization(ctx, leasedTurn.ID)
 	if err != nil || completed.ID != leasedTurn.ID {
-		t.Fatalf("complete = %+v, %v", completed, err)
+		t.Fatalf("begin finalization = %+v, %v", completed, err)
+	}
+	if err := st.FinishAgentRun(ctx, leasedTurn.ID); err != nil {
+		t.Fatal(err)
 	}
 	incident, _ = st.GetIncident(ctx, incident.ID)
 	if incident.ActiveTurnID != "" || incident.Workflow != core.WorkflowParked {
@@ -106,6 +122,61 @@ func TestIncidentOutboxAndTurnLifecycle(t *testing.T) {
 	if err != nil || owner != uint32(os.Getuid()) || mode != 0o600 {
 		t.Fatalf("database ownership/mode = %d %o, %v", owner, mode, err)
 	}
+}
+
+func TestSlackDeliveryCoalescingIsIdempotentAndSupersedesOnlyOlderVersions(t *testing.T) {
+	ctx := context.Background()
+	t.Run("identical delivery stays pending", func(t *testing.T) {
+		st, err := Open(filepath.Join(t.TempDir(), "state"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		delivery := core.SlackDelivery{
+			ID: "delivery_card_inc_1_2", Operation: "update", Kind: "card",
+			ChannelID: "C1", MessageTS: "1700.001",
+			Body: []byte(`{"text":"card"}`), CoalesceKey: "card:inc_1",
+			CardVersion: 2,
+		}
+		if created, err := st.EnqueueSlackDelivery(ctx, delivery); err != nil || !created {
+			t.Fatalf("first enqueue = %v, %v", created, err)
+		}
+		if created, err := st.EnqueueSlackDelivery(ctx, delivery); err != nil || created {
+			t.Fatalf("idempotent enqueue = %v, %v", created, err)
+		}
+		leased, err := st.LeaseSlackDelivery(ctx)
+		if err != nil || leased.ID != delivery.ID {
+			t.Fatalf("identical delivery was superseded = %+v, %v", leased, err)
+		}
+	})
+	t.Run("new version supersedes old pending version", func(t *testing.T) {
+		st, err := Open(filepath.Join(t.TempDir(), "state"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		base := core.SlackDelivery{
+			Operation: "update", Kind: "card", ChannelID: "C1",
+			MessageTS: "1700.001", Body: []byte(`{"text":"card"}`),
+			CoalesceKey: "card:inc_1",
+		}
+		old := base
+		old.ID = "delivery_card_inc_1_2"
+		old.CardVersion = 2
+		if _, err := st.EnqueueSlackDelivery(ctx, old); err != nil {
+			t.Fatal(err)
+		}
+		current := base
+		current.ID = "delivery_card_inc_1_3"
+		current.CardVersion = 3
+		if _, err := st.EnqueueSlackDelivery(ctx, current); err != nil {
+			t.Fatal(err)
+		}
+		leased, err := st.LeaseSlackDelivery(ctx)
+		if err != nil || leased.ID != current.ID {
+			t.Fatalf("newer delivery did not supersede old = %+v, %v", leased, err)
+		}
+	})
 }
 
 func TestRecoveryAndManualIncidentDeduplication(t *testing.T) {
@@ -200,7 +271,7 @@ func TestEngineeringTaskIsDistinctAndIdempotent(t *testing.T) {
 	}
 }
 
-func TestSlackInputsAreLeasedInOrderPerChannel(t *testing.T) {
+func TestSlackInputsOnlySerializeActiveChannelWork(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))
 	if err != nil {
@@ -234,9 +305,6 @@ func TestSlackInputsAreLeasedInOrderPerChannel(t *testing.T) {
 	if err != nil || first.ID != "slack-a1" {
 		t.Fatalf("first lease = %+v, %v", first, err)
 	}
-	if err := st.RetrySlackInput(ctx, first.ID, "still running", time.Now().Add(time.Hour), false); err != nil {
-		t.Fatal(err)
-	}
 	second, err := st.LeaseSlackInput(ctx)
 	if err != nil || second.ID != "slack-b1" {
 		t.Fatalf("independent channel lease = %+v, %v", second, err)
@@ -244,8 +312,20 @@ func TestSlackInputsAreLeasedInOrderPerChannel(t *testing.T) {
 	if err := st.FinishSlackInput(ctx, second.ID); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.RetrySlackInput(
+		ctx, first.ID, "long-running work was detached", time.Now().Add(time.Hour), false,
+	); err != nil {
+		t.Fatal(err)
+	}
+	third, err := st.LeaseSlackInput(ctx)
+	if err != nil || third.ID != "slack-a2" {
+		t.Fatalf("later channel input remained head-of-line blocked = %+v, %v", third, err)
+	}
+	if err := st.FinishSlackInput(ctx, third.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("later input overtook retrying channel predecessor: %v", err)
+		t.Fatalf("deferred input became due early: %v", err)
 	}
 }
 
@@ -511,6 +591,111 @@ func TestSchemaV9MigratesBehaviorPreferencesAndRules(t *testing.T) {
 		5,
 	); err != nil {
 		t.Fatalf("migrated standing rule table: %v", err)
+	}
+}
+
+func TestSchemaV10MigratesActiveAgentRunAndUncertainSlackDelivery(t *testing.T) {
+	ctx := context.Background()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range []string{
+		schemaV1, schemaV2, schemaV3, schemaV4, schemaV5,
+		schemaV6, schemaV7, schemaV8, schemaV9, schemaV10,
+	} {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC().Format(timestampFormat)
+	if _, err := db.Exec(`
+		INSERT INTO schema_version(version) VALUES (10);
+		INSERT INTO incidents (
+		  id, route, repository, correlation_key, title, status, workflow,
+		  channel_id, root_ts, coop_session_id, created_at, updated_at
+		) VALUES (
+		  'inc_migrate', 'grafana', 'repo', 'migration', 'Migration',
+		  'active', 'investigating', 'CMIGRATE', '1700.001', 'ses_migrate', ?, ?
+		);
+		INSERT INTO turn_submissions (
+		  id, incident_id, source_kind, source_id, user_id, prompt,
+		  idempotency_key, expected_revision, coop_turn_id, state, attempts,
+		  next_attempt_at, last_error, created_at, updated_at
+		) VALUES (
+		  'turn_migrate', 'inc_migrate', 'slack', 'slack_migrate', 'U1',
+		  'Inspect.', 'responder:turn:turn_migrate', 7, 'coop_turn_migrate',
+		  'submitted', 3, ?, '', ?, ?
+		);
+		INSERT INTO outbox (
+		  id, incident_id, kind, channel_id, thread_ts, body_json, state,
+		  attempts, next_attempt_at, last_error, created_at, updated_at
+		) VALUES (
+		  'out_migrate', 'inc_migrate', 'reply', 'CMIGRATE', '1700.001',
+		  '{"text":"accepted"}', 'sending', 2, ?, '', ?, ?
+		);
+		INSERT INTO slack_inputs (
+		  id, envelope_id, event_id, kind, team_id, channel_id, message_ts,
+		  text, state, attempts, next_attempt_at, received_at, updated_at
+		) VALUES (
+		  'slack_migrate', 'env_migrate', 'event_migrate', 'message',
+		  'T1', 'CMIGRATE', '1700.002', 'Inspect.', 'done', 4, ?, ?, ?
+		)`,
+		now, now,
+		now, now, now,
+		now, now, now,
+		now, now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "slack", "slack_migrate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ID != "turn_migrate" || run.State != core.AgentRunRunning ||
+		run.SessionID != "ses_migrate" || run.ExpectedRevision != 7 ||
+		run.Failures != 3 || run.CoopTurnID != "coop_turn_migrate" {
+		t.Fatalf("migrated agent run = %+v", run)
+	}
+	deliveries, err := st.ListUncertainSlackDeliveries(ctx, 10)
+	if err != nil || len(deliveries) != 1 {
+		t.Fatalf("migrated Slack deliveries = %+v, %v", deliveries, err)
+	}
+	delivery := deliveries[0]
+	if delivery.ID != "out_migrate" || delivery.Operation != "post" ||
+		delivery.Attempts != 2 || string(delivery.Body) != `{"text":"accepted"}` {
+		t.Fatalf("migrated Slack delivery = %+v", delivery)
+	}
+	input, err := st.GetSlackInput(ctx, "slack_migrate")
+	if err != nil || input.Failures != 0 || input.Attempts != 4 {
+		t.Fatalf("migrated Slack input failure budget = %+v, %v", input, err)
+	}
+	for _, oldTable := range []string{"turn_submissions", "outbox"} {
+		var count int
+		if err := st.db.QueryRow(`
+			SELECT count(*) FROM sqlite_master
+			WHERE type = 'table' AND name = ?`, oldTable).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("legacy table %q survived migration", oldTable)
+		}
 	}
 }
 
@@ -925,17 +1110,17 @@ func TestFailedWorkCanBeInspectedAndExplicitlyRetried(t *testing.T) {
 	if err != nil || len(incident) != 1 {
 		t.Fatalf("incident = %+v, %v", incident, err)
 	}
-	if _, err := st.EnqueueOutbox(ctx, core.OutboxMessage{
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID: "out_failed", IncidentID: incident[0].ID, Kind: "notice",
 		ChannelID: "C123ABC", Body: []byte(`{"text":"notice"}`),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	leasedOutbox, err := st.LeaseOutbox(ctx)
+	leasedOutbox, err := st.LeaseSlackDelivery(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RetryOutbox(ctx, leasedOutbox.ID, "invalid Slack payload", time.Now(), false, true); err != nil {
+	if err := st.RetrySlackDelivery(ctx, leasedOutbox.ID, "invalid Slack payload", time.Now(), false, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -963,9 +1148,33 @@ func TestFailedWorkCanBeInspectedAndExplicitlyRetried(t *testing.T) {
 	if _, err := st.RetryFailedWork(ctx, "outbox", leasedOutbox.ID); err != nil {
 		t.Fatal(err)
 	}
-	uncertain, err := st.ListUncertainOutbox(ctx, 10)
+	uncertain, err := st.ListUncertainSlackDeliveries(ctx, 10)
 	if err != nil || len(uncertain) != 1 || uncertain[0].ID != leasedOutbox.ID {
 		t.Fatalf("retried outbox skipped reconciliation = %+v, %v", uncertain, err)
+	}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "update_failed", IncidentID: incident[0].ID,
+		Operation: "update", Kind: "card", ChannelID: "C123ABC",
+		MessageTS: "1700.001", Body: []byte(`{"text":"updated"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	leasedUpdate, err := st.LeaseSlackDelivery(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RetrySlackDelivery(
+		ctx, leasedUpdate.ID, "update rejected", time.Now(), false, true,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RetryFailedWork(ctx, "outbox", leasedUpdate.ID); err != nil {
+		t.Fatal(err)
+	}
+	retriedUpdate, err := st.LeaseSlackDelivery(ctx)
+	if err != nil || retriedUpdate.ID != leasedUpdate.ID ||
+		retriedUpdate.Operation != "update" {
+		t.Fatalf("legacy alias stranded Slack update = %+v, %v", retriedUpdate, err)
 	}
 	if _, err := st.RetryFailedWork(ctx, "unknown", admitted.ID); err == nil {
 		t.Fatal("unknown work kind accepted")
@@ -994,20 +1203,38 @@ func TestTerminalCoopTurnCannotBeRetried(t *testing.T) {
 	if err := st.SetCoopSession(ctx, incident.ID, "ses_1", "fork-1", 1); err != nil {
 		t.Fatal(err)
 	}
-	queued, _, err := st.QueueTurn(ctx, core.TurnSubmission{
-		IncidentID: incident.ID, SourceKind: "slack", SourceID: "slack-1", Prompt: "investigate",
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.RootTS,
+		ConversationKey: "incident:" + incident.ID,
+		SourceKind:      "slack", SourceID: "slack-1",
+		Repository: incident.Repository, Prompt: "investigate",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	leased, err := st.LeaseTurnSubmission(ctx)
+	leased, err := st.LeaseAgentRun(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.MarkTurnSubmitted(ctx, leased.ID, "coop_turn_1", 2); err != nil {
+	if err := st.MarkAgentRunSubmitted(
+		ctx, leased.ID, "coop_turn_1", 2, 0,
+	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CompleteTurnSubmission(ctx, "coop_turn_1", "failed", "agent failed"); err != nil {
+	if err := st.StageAgentRunResult(
+		ctx, leased.ID, "failed", nil, "agent failed", 0,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BeginAgentRunFinalization(ctx, leased.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishAgentRun(ctx, leased.ID); err != nil {
 		t.Fatal(err)
 	}
 	failures, err := st.ListFailedWork(ctx, 10)

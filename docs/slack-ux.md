@@ -181,13 +181,13 @@ the message into an incident. The channel queue preserves Slack timestamp order 
 rule/source-event key prevents duplicate execution after redelivery or restart. Shadow mode records
 the matched decision and run without posting.
 
-When a watched-channel turn starts, Responder sets a native thread status explaining that it is
-checking live systems with Emisar and that broad checks can take a few minutes. The status is
-recorded with the durable turn state so restarts do not duplicate it, refreshed before Slack's
-two-minute expiry, and cleared when the turn replies, stays silent, or hands off to incident
-creation. A terminal failure posts a threaded explanation before clearing the status. If that
-explanation cannot be delivered, Responder keeps the pending status and retries delivery instead
-of leaving the user waiting without an outcome.
+When a watched-channel run starts, Responder queues a native thread status explaining that it is
+checking live systems with Emisar and that broad checks can take a few minutes. Statuses, replies,
+and cards share the durable Slack delivery ledger, so restart does not lose them. The status is
+refreshed before Slack's two-minute expiry and cleared only after the run replies, stays silent,
+hands off to incident creation, or queues a user-facing failure. If the failure explanation cannot
+be delivered, the ledger retains both the desired outcome and the retry instead of leaving the user
+without a durable result.
 
 For a question about current infrastructure health, operational state, or an alert, the agent can
 inspect the repository for declared topology and use policy-authorized read-only tools, especially
@@ -281,8 +281,8 @@ and documents any incident attached to the channel. It never relies on raw value
 `inherit`, `parked`, or `responder.yaml` to explain behavior. Proactive and shadow changes are
 durable and audited. Incident-control acknowledgements
 describe the requested effect and direct the operator to the pinned incident thread for the
-authoritative result. Slash commands and button controls are prioritized over queued conversation
-so an off or stop command does not wait behind a running triage turn.
+authoritative result. Slash commands and button controls run in the control lane, so an off or stop
+command does not wait behind a running agent run.
 
 `preferences` lists the effective operator, channel, repository, and workspace investigation
 defaults. `rules` lists this channel's standing rules, source filters, expiry, last run, and run
