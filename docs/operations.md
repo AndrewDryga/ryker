@@ -113,6 +113,23 @@ and evidence references. `coop.watch_session_max_turns` defaults to 40 and
 the compact memory, and uses a generation-specific idempotency key. Rotation bounds provider
 context without discarding operational corrections.
 
+Operator-confirmed operational memory is a separate bounded facility. Responder offers it only
+after a configured operator explicitly asks to remember, save, or correct one of four supported
+facts: an alias, a channel repository binding, an evidence route, or an entity relationship.
+The button shows the scope and expiry before writing. Entries are unique by scope, subject, and
+predicate, so a correction replaces the prior value rather than creating a duplicate. App Home
+shows workspace-visible and operator-visible entries; `/responder memory` shows the exact entries
+visible in the current channel and provides permanent forget controls. Forgotten values are
+removed; audit records retain only the entry ID, scope, predicate, actor, and outcome.
+
+`limits.max_memory_entries` and `limits.max_memory_entries_per_scope` bound active memory. Entries
+expire after 7, 30, 90, or 365 days and maintenance deletes expired values. A confirmed Slack
+channel deletion immediately removes entries scoped or visible only to that channel. Retrieval is
+an exact scope and visibility match; Responder does not search another private channel. Saved
+memory remains a potentially stale hint: live tools, current repository content, and deployment
+configuration take precedence. Recent source-attributed evidence is retrieved from the existing
+same-channel evidence ledger and is not duplicated into memory.
+
 `responder.yaml` remains the deployment default. `/responder proactive` writes audited overrides
 to the owner-private database. Resolution order is channel override, workspace override, then the
 static `slack.watch_channels` list. `inherit` deletes an override instead of copying a stale
@@ -131,11 +148,13 @@ SLO, and recent-change layers are healthy, degraded, unhealthy, unknown, or not 
 Closing an incident posts a post-incident draft and leaves unknown impact, root cause, ownership,
 and follow-up explicitly unassigned.
 
-Model-proposed operational actions are disabled in this release. Responder may investigate through
-the configured Emisar read-only authority, but an operator must perform mutations through an
-operator-controlled Emisar workflow. This avoids presenting Slack approval as authoritative before
-the approved message, target, parameters, policy revision, and resulting action can be bound and
-verified by the host.
+Model-proposed and autonomous operational actions are disabled. A configured operator can directly
+request one exact action from an existing incident conversation; Responder must use Emisar's
+governed action flow. A `pending_approval` result is stored and rendered with a link to the exact
+Emisar approval request. Slack never records the decision and never bypasses Emisar policy.
+After the operator decides in Emisar, reply in the incident thread or use **Ask agent for update**;
+Responder follows the same `wait_for_run` continuation and reports the authoritative terminal
+result plus post-action verification.
 
 ## Evaluation rollout
 
@@ -180,6 +199,9 @@ policy and service-wide hard limits remain authoritative.
 
 `limits.max_outbox_attempts` bounds poison webhook, Slack input, and Slack output retries. Terminal
 failures are counted by `responder_work_failed`.
+
+Memory gauges are exported as `responder_memory_entries_active` and
+`responder_memory_entries_expired`. Maintenance logs include the number of expired entries pruned.
 
 Inspect terminal failures locally:
 
@@ -273,6 +295,11 @@ cleanup completes. `retention.audit_data` bounds the smaller
 audit and cleanup ledger. Maintenance checkpoints the SQLite WAL and runs `PRAGMA optimize` after
 pruning. Coop leaves a small discarded-session tombstone for its own audit while deleting the
 workspace and private ACP state.
+
+Operational memory has its own per-entry expiry and active-entry caps. The same maintenance pass
+deletes expired values and entries bound to repository keys no longer present in configuration.
+Confirmed Slack channel deletion removes channel-scoped and channel-visible memory immediately.
+These deletions do not copy forgotten values into the audit ledger.
 
 A task must be published before it is closed because Coop reviews only open, parked sessions.
 Closing a changed unpublished task therefore warns that the work will be retained. Its closed task

@@ -18,6 +18,11 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 		"When sources disagree, do not silently pick one",
 		"does not prove runner, fleet, workload, or infrastructure health",
 		"only after an Emisar MCP tool call fails in the current turn",
+		"Emisar is the only authority for operational actions",
+		"directly and explicitly asks for that exact operational change",
+		"If Emisar returns pending_approval, stop the turn",
+		"Do not keep polling while a human decision is pending",
+		"continue the same run through its returned wait_for_run continuation",
 		"standard Markdown for Slack's Block Kit `markdown` block",
 		"fenced code blocks with a language",
 		"task lists, dividers, tables",
@@ -76,7 +81,7 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 		Repository: "emisar", Title: "Audit infrastructure packs",
 		Status: core.IncidentActive,
 	}
-	prompt, err := initialPrompt("Use evidence.", task, nil)
+	prompt, err := initialPrompt("Use evidence.", task, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}

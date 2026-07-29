@@ -54,7 +54,7 @@ features:
   slash_commands:
     - command: /responder
       description: Check incidents, configure Responder, and control incident work
-      usage_hint: help | status | incidents | proactive | shadow
+      usage_hint: help | status | incidents | memory | proactive | shadow
       should_escape: false
   shortcuts:
     - name: Investigate message

@@ -130,7 +130,7 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 		command.UsageHint == "" || command.ShouldEscape == nil || *command.ShouldEscape {
 		t.Fatalf("manifest slash command = %+v", command)
 	}
-	if command.UsageHint != "help | status | incidents | proactive | shadow" ||
+	if command.UsageHint != "help | status | incidents | memory | proactive | shadow" ||
 		len(command.UsageHint) > 60 {
 		t.Fatalf("manifest usage hint must remain short and discoverable: %q", command.UsageHint)
 	}

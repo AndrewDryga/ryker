@@ -16,11 +16,13 @@ import (
 )
 
 type agentReport struct {
-	Message   string                `json:"message"`
-	Evidence  []core.Evidence       `json:"evidence,omitempty"`
-	Coverage  []core.Coverage       `json:"coverage,omitempty"`
-	Memory    core.AgentMemory      `json:"memory,omitempty"`
-	Proposals []core.ActionProposal `json:"proposals,omitempty"`
+	Message         string                `json:"message"`
+	Evidence        []core.Evidence       `json:"evidence,omitempty"`
+	Coverage        []core.Coverage       `json:"coverage,omitempty"`
+	Memory          core.AgentMemory      `json:"memory,omitempty"`
+	MemoryOffer     *core.MemoryOffer     `json:"memory_offer,omitempty"`
+	PendingApproval *core.EmisarApproval  `json:"pending_approval,omitempty"`
+	Proposals       []core.ActionProposal `json:"proposals,omitempty"`
 }
 
 func parseAgentReport(message string) (agentReport, bool, error) {
@@ -140,6 +142,30 @@ func (s *Service) persistAgentReport(
 	report.Memory.EvidenceRefs = s.cleanStructuredStrings(
 		report.Memory.EvidenceRefs, 50, 120,
 	)
+	if report.MemoryOffer != nil {
+		report.MemoryOffer.Scope = s.cleanStructuredField(report.MemoryOffer.Scope, 20)
+		report.MemoryOffer.Repository = s.cleanStructuredField(
+			report.MemoryOffer.Repository, 63,
+		)
+		report.MemoryOffer.Subject = s.cleanStructuredField(report.MemoryOffer.Subject, 200)
+		report.MemoryOffer.Predicate = s.cleanStructuredField(report.MemoryOffer.Predicate, 80)
+		report.MemoryOffer.Value = s.cleanStructuredField(report.MemoryOffer.Value, 1000)
+		report.MemoryOffer.Visibility = s.cleanStructuredField(
+			report.MemoryOffer.Visibility, 20,
+		)
+		report.MemoryOffer.ExpiresIn = s.cleanStructuredField(report.MemoryOffer.ExpiresIn, 20)
+		report.MemoryOffer.SourceRevision = s.cleanStructuredField(
+			report.MemoryOffer.SourceRevision, 200,
+		)
+	}
+	if report.PendingApproval != nil {
+		report.PendingApproval = s.prepareEmisarApproval(
+			*report.PendingApproval,
+			incident,
+			sourceInput,
+			requestedBy,
+		)
+	}
 
 	evidence, err := s.store.RecordEvidence(ctx, report.Evidence)
 	if err != nil {
@@ -162,6 +188,31 @@ func (s *Service) persistAgentReport(
 		}
 	} else {
 		report.Proposals = nil
+	}
+	if report.PendingApproval != nil {
+		approval, created, err := s.store.RecordEmisarApproval(ctx, *report.PendingApproval)
+		if err != nil {
+			return agentReport{}, err
+		}
+		report.PendingApproval = &approval
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			IncidentID: incident.ID,
+			Kind:       "emisar.approval.pending",
+			ActorID:    requestedBy,
+			ObjectID:   approval.RequestID,
+			Outcome:    approval.Status,
+			Detail:     approval.ActionID + " runner=" + approval.RunnerRef,
+		})
+		if created {
+			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+				IncidentID: incident.ID,
+				ChannelID:  incident.ChannelID,
+				Kind:       "emisar.approval.pending",
+				ActorID:    requestedBy,
+				Title:      "Emisar approval required",
+				Detail:     approval.ActionID + " for " + approval.RunnerRef,
+			})
+		}
 	}
 	return report, nil
 }
@@ -336,6 +387,43 @@ func (s *Service) prepareActionProposals(
 	return result, nil
 }
 
+func (s *Service) prepareEmisarApproval(
+	item core.EmisarApproval,
+	incident core.Incident,
+	sourceInput string,
+	requestedBy string,
+) *core.EmisarApproval {
+	item.RequestID = s.cleanStructuredField(item.RequestID, 80)
+	item.RunID = s.cleanStructuredField(item.RunID, 200)
+	item.OperationID = s.cleanStructuredField(item.OperationID, 200)
+	item.ActionID = s.cleanStructuredField(item.ActionID, 200)
+	item.PackRef = s.cleanStructuredField(item.PackRef, 300)
+	item.RunnerRef = s.cleanStructuredField(item.RunnerRef, 300)
+	item.Status = s.cleanStructuredField(item.Status, 40)
+	item.ApprovalURL = safeEmisarApprovalURL(
+		item.ApprovalURL,
+		s.cfg.Coop.EmisarURL,
+		item.RequestID,
+	)
+	if incident.ID == "" || requestedBy == "" || !s.cfg.IsOperator(requestedBy) ||
+		item.RequestID == "" || item.RunID == "" || item.OperationID == "" ||
+		item.ActionID == "" || item.PackRef == "" || item.RunnerRef == "" ||
+		item.Status != "pending_approval" || item.ApprovalURL == "" ||
+		item.ExpiresAt.IsZero() || !item.ExpiresAt.After(time.Now().UTC()) {
+		s.log.Warn(
+			"drop invalid or unauthorized Emisar pending approval",
+			"incident", incident.ID,
+			"request", item.RequestID,
+			"run", item.RunID,
+		)
+		return nil
+	}
+	item.IncidentID = incident.ID
+	item.ChannelID = incident.ChannelID
+	item.SourceInput = sourceInput
+	return &item
+}
+
 func (s *Service) cleanStructuredField(value string, limit int) string {
 	if s.sanitizer != nil {
 		value = s.sanitizer.Text(value)
@@ -431,6 +519,30 @@ func safeEvidenceURL(value string) string {
 	return parsed.String()
 }
 
+func safeEmisarApprovalURL(value, emisarRPCURL, requestID string) string {
+	value = strings.TrimSpace(value)
+	requestID = strings.TrimSpace(requestID)
+	approval, err := url.Parse(value)
+	if err != nil || approval.Scheme != "https" || approval.Host == "" ||
+		approval.User != nil || approval.RawQuery != "" || approval.Fragment != "" ||
+		requestID == "" {
+		return ""
+	}
+	rpc, err := url.Parse(strings.TrimSpace(emisarRPCURL))
+	if err != nil || rpc.Scheme != "https" || rpc.Host == "" || rpc.User != nil ||
+		!strings.EqualFold(approval.Scheme, rpc.Scheme) ||
+		!strings.EqualFold(approval.Host, rpc.Host) {
+		return ""
+	}
+	path := strings.TrimRight(approval.EscapedPath(), "/")
+	if !strings.HasPrefix(path, "/app/") ||
+		!strings.Contains(path, "/approvals/") ||
+		!strings.HasSuffix(path, "/"+url.PathEscape(requestID)) {
+		return ""
+	}
+	return approval.String()
+}
+
 func structuredResponseInstructions() string {
 	return `Return exactly one JSON object and no code fence:
 {
@@ -460,6 +572,27 @@ func structuredResponseInstructions() string {
     "unresolved_questions": ["important open question"],
     "evidence_refs": ["stable evidence source name or identifier"]
   },
+  "memory_offer": {
+    "scope": "channel|workspace|repository",
+    "repository": "exact configured repository key when scope is repository",
+    "subject": "canonical source ID, except a normalized human alias for alias_of",
+    "predicate": "alias_of|repository_for_channel|evidence_route|entity_relationship_correction",
+    "value": "validated canonical value",
+    "visibility": "channel|workspace|operator",
+    "expires_in": "7d|30d|90d|365d",
+    "source_revision": "optional immutable repository revision"
+  },
+  "pending_approval": {
+    "request_id": "exact approval.request_id returned by Emisar",
+    "run_id": "exact run_id returned by Emisar",
+    "operation_id": "exact operation_id returned by Emisar",
+    "action_id": "exact action_id returned by Emisar",
+    "pack_ref": "exact immutable pack_ref returned by Emisar",
+    "runner_ref": "exact immutable runner_ref returned by Emisar",
+    "status": "pending_approval",
+    "approval_url": "exact approval.url returned by Emisar",
+    "expires_at": "exact RFC3339 approval.expires_at returned by Emisar"
+  },
   "proposals": [{
     "action_name": "one configured action name only",
     "title": "plain-language proposed action",
@@ -473,8 +606,16 @@ func structuredResponseInstructions() string {
     "risk": "low|medium|high"
   }]
 }
-Use an empty array when no evidence, coverage, or action proposal exists. Never invent a source,
-timestamp, action name, target, approval, or successful outcome. The message must lead with the
+Omit memory_offer unless the current configured operator explicitly asked Responder to remember,
+save, or correct durable operational context. A memory offer is inert until the host displays an
+exact confirmation and an operator clicks it. Never use it for current health, credentials,
+secrets, approvals, or transient observations. Use an empty array when no evidence, coverage, or
+action proposal exists. Omit pending_approval unless the latest exact Emisar run response has
+status pending_approval and includes its approval object. Copy only the exact Emisar run and
+approval fields into pending_approval; never infer, rewrite, or invent any identifier, URL, expiry,
+target, approval, or successful outcome. Do not place the approval URL in message because
+Responder validates and renders the control. A pending approval means nothing has executed.
+Never invent a source, timestamp, action name, target, approval, or successful outcome. The message must lead with the
 answer, distinguish declared configuration from live observation, state material coverage gaps,
 and use Slack-supported standard Markdown: short headings, bullets, tables when comparison helps,
 links, block quotes for quoted alert text, and fenced language-tagged code only for code or logs.`

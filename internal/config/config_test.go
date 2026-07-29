@@ -52,7 +52,9 @@ webhooks:
 		cfg.Slack.ChannelPrefix != "ems" || cfg.Slack.WatchContext != 20 ||
 		cfg.Slack.WatchSettleDelay.Duration != 2*time.Second ||
 		!cfg.Slack.NativeStatus || !cfg.Slack.AssistantExperience ||
-		!cfg.IsWatchChannel("C456DEF") {
+		!cfg.IsWatchChannel("C456DEF") ||
+		cfg.Limits.MaxMemoryEntries != 1000 ||
+		cfg.Limits.MaxMemoryEntriesPerScope != 100 {
 		t.Fatalf("defaults missing: %+v %+v", cfg.Coop, cfg.Slack)
 	}
 	if cfg.Coop.StateDir != filepath.Join(cfg.StateDir, "coop") ||
@@ -135,6 +137,12 @@ webhooks:
 			return strings.Replace(
 				s, "coop: {}", "coop: {watch_session_max_age: 59m}", 1,
 			)
+		},
+		"too few memory entries": func(s string) string {
+			return s + "limits:\n  max_memory_entries: 9\n"
+		},
+		"memory scope exceeds total": func(s string) string {
+			return s + "limits:\n  max_memory_entries: 100\n  max_memory_entries_per_scope: 101\n"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

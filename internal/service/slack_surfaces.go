@@ -29,6 +29,18 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 	if err != nil {
 		return err
 	}
+	memories, err := s.store.ListMemoryForHome(
+		ctx, s.cfg.Slack.TeamID, userID, 6,
+	)
+	if err != nil {
+		return err
+	}
+	homeMemoryCount, err := s.store.CountMemoryForHome(
+		ctx, s.cfg.Slack.TeamID, userID,
+	)
+	if err != nil {
+		return err
+	}
 	message := slackui.OperationsHome(
 		metrics.IncidentsOpen,
 		metrics.IncidentsTotal,
@@ -37,7 +49,9 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 		metrics.PublishedPRs,
 		metrics.CleanupPending,
 		metrics.CleanupBlocked,
+		homeMemoryCount,
 		incidents,
+		memories,
 	)
 	if s.sanitizer != nil {
 		message = s.sanitizer.Message(message)

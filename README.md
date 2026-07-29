@@ -22,7 +22,8 @@ It is a single-host incident controller for pragmatic on-call teams:
 - exposes an App Home, Agent Messages tab, message shortcut, semantic progress, and
   deterministic controls for status, evidence, handoff, changes, review, draft PR publication,
   retained-work disposal, stop, and close;
-- investigates live infrastructure through Emisar's policy-controlled read-only actions.
+- investigates live infrastructure through Emisar and can submit an exact, directly requested
+  incident action to Emisar's policy and approval workflow.
 
 Responder does not merge, deploy, sign commits, or grant infrastructure authority. Coop owns the
 fork and agent boundary. When explicitly configured, Responder can reproduce Coop's exact approved
@@ -253,6 +254,7 @@ proactivity from Slack:
 /responder timeline
 /responder evidence
 /responder handoff
+/responder memory
 /responder turn-limit
 /responder turn-limit 1000
 /responder turn-limit global 1000
@@ -281,6 +283,14 @@ indicator with semantic milestones until the reply or a clear failure is posted.
 Each shared operations channel keeps compact durable memory for the current goal, verified topology,
 decisions, open questions, and evidence references. Responder rotates the underlying Coop session
 after `coop.watch_session_max_turns` or `coop.watch_session_max_age` while preserving that summary.
+This session summary is separate from operator-confirmed operational memory. When an operator
+explicitly asks Responder to remember an alias, channel-to-repository binding, evidence route, or
+entity relationship correction, Responder can show the exact proposed value and scope in a
+confirmation button. Nothing is saved until an operator confirms it. Saved entries are bounded,
+deduplicated by logical key, expire automatically, can be forgotten from App Home, and are supplied
+to future investigations only as untrusted hints. Fresh live evidence, current repository content,
+and Responder configuration always take precedence. Recent structured evidence is reused directly
+within the same Slack channel instead of copied into another catalog.
 `/responder shadow` runs the classifier and records its decision, evidence, and coverage without
 posting or creating an incident.
 
@@ -329,7 +339,8 @@ turn, publication, and cleanup work.
 
 State is one owner-private SQLite database in `state_dir`. Slack inputs, webhook events, outgoing
 messages, turn submissions, incident mappings, channel lifecycle, structured evidence, coverage,
-channel memory, timelines, evaluation decisions, and audit records are durable.
+channel memory, operator-confirmed operational memory, Emisar approval holds, timelines,
+evaluation decisions, and audit records are durable.
 Bounded retention removes expired operational payloads and closed work. Coop cleanup is restricted
 to exact session IDs recorded by Responder: clean closed sessions and sessions whose reviewed tree
 is durable in a draft PR are discarded after a grace period, while dirty or unpublished work is
@@ -340,9 +351,11 @@ retained. Deleting a Slack room does not itself discard work. See
 
 V1 supports one Slack workspace and one repository binding per incident. Multiple routes can select
 different repository policies. It can publish an explicitly authorized reviewed tree as a draft
-GitHub pull request, but cannot merge, deploy from repository changes, archive Slack channels, or
-execute model-selected containment. Operational mutation remains in operator-controlled Emisar
-workflows until Slack approval can be bound to an exact host-validated request schema.
+GitHub pull request, but cannot merge, deploy from repository changes, or archive Slack channels.
+Shared-channel work and autonomous containment remain read-only. In an existing incident, a
+configured operator may directly request one exact operational action. Emisar remains authoritative
+for target validation, policy, approval, execution, and audit; Slack only links to the exact pending
+approval returned by Emisar.
 
 Run the full gate with:
 

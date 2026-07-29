@@ -96,6 +96,88 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 	}
 }
 
+func TestOperatorRequestedEmisarApprovalReachesIncidentThread(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	if err := st.SetCoopSession(
+		ctx, incident.ID, "ses_1", "incident-api", 1,
+	); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	input := core.SlackInput{
+		ID: "slack-operational-action", EnvelopeID: "env-operational-action",
+		EventID: "event-operational-action", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.RootTS, MessageTS: "1700.002",
+		UserID: cfg.Slack.Operators[0], Text: "Restart the failed allocation on prod-1.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit operator request = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processTurn(ctx); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	coopClient.complete(fmt.Sprintf(`{
+	  "message":"Emisar paused the requested restart before execution.",
+	  "evidence":[],
+	  "coverage":[],
+	  "memory":{},
+	  "pending_approval":{
+	    "request_id":"apr_123",
+	    "run_id":"run_123",
+	    "operation_id":"op_123",
+	    "action_id":"nomad.alloc_restart",
+	    "pack_ref":"nomad@1.2.3#sha256:abc",
+	    "runner_ref":"prod-1~abc123",
+	    "status":"pending_approval",
+	    "approval_url":"https://emisar.dev/app/acme/approvals/apr_123",
+	    "expires_at":%q
+	  },
+	  "proposals":[]
+	}`, expires.Format(time.RFC3339)))
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.pollIncident(ctx, incident); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processOutbox(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("approval posts = %+v", slackClient.posts)
+	}
+	post := slackClient.posts[0]
+	if post.thread != incident.RootTS ||
+		post.message.Header != "Approval required in Emisar" ||
+		len(post.message.Actions) != 1 ||
+		post.message.Actions[0].ID != slackui.ActionOpenApproval ||
+		post.message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_123" {
+		t.Fatalf("approval thread card = %+v", post)
+	}
+	stored, err := st.GetEmisarApproval(ctx, "apr_123")
+	if err != nil || stored.RunID != "run_123" {
+		t.Fatalf("stored approval = %+v, %v", stored, err)
+	}
+}
+
 func TestMixedCapacityBatchDispatchesAcceptedIncidentUpdate(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

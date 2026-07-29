@@ -41,6 +41,8 @@ type Metrics struct {
 	OutboxPending   int `json:"outbox_pending"`
 	TurnsPending    int `json:"turns_pending"`
 	WorkFailed      int `json:"work_failed"`
+	MemoryActive    int `json:"memory_active"`
+	MemoryExpired   int `json:"memory_expired"`
 }
 
 type FailedWork struct {
@@ -445,6 +447,8 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 		{&result.SlackPending, `SELECT count(*) FROM slack_inputs WHERE state IN ('pending', 'retry', 'processing')`},
 		{&result.OutboxPending, `SELECT count(*) FROM outbox WHERE state IN ('pending', 'retry', 'sending', 'uncertain')`},
 		{&result.TurnsPending, `SELECT count(*) FROM turn_submissions WHERE state IN ('pending', 'retry', 'submitting', 'submitted')`},
+		{&result.MemoryActive, `SELECT count(*) FROM memory_entries WHERE julianday(expires_at) > julianday('now')`},
+		{&result.MemoryExpired, `SELECT count(*) FROM memory_entries WHERE julianday(expires_at) <= julianday('now')`},
 		{&result.WorkFailed, `
 			SELECT
 			  (SELECT count(*) FROM webhook_events WHERE state = 'failed') +

@@ -524,6 +524,54 @@ func TestEvidenceResponseRendersCoverageCitationsAndGovernedActions(t *testing.T
 	}
 }
 
+func TestEmisarApprovalCardLinksToAuthoritativeConsole(t *testing.T) {
+	message := WithEmisarApproval(
+		IncidentEvidenceResponse(
+			"Emisar paused the requested restart for policy approval.",
+			nil,
+			nil,
+			[]core.ActionProposal{{ID: "legacy", Title: "Legacy approval"}},
+			NewSanitizer(30000),
+		),
+		core.EmisarApproval{
+			RequestID: "apr_123", RunID: "run_123", OperationID: "op_123",
+			ActionID: "nomad.alloc_restart", PackRef: "nomad@1.2.3#sha256:abc",
+			RunnerRef: "prod-1~abc123", Status: "pending_approval",
+			ApprovalURL: "https://emisar.dev/app/acme/approvals/apr_123",
+			ExpiresAt:   time.Date(2026, 7, 28, 6, 30, 0, 0, time.UTC),
+		},
+	)
+	if message.Header != "Approval required in Emisar" ||
+		!strings.Contains(strings.Join(message.Sections, "\n"), "paused this operational request") ||
+		!strings.Contains(strings.Join(message.Context, "\n"), "Slack cannot approve") {
+		t.Fatalf("approval card copy = %+v", message)
+	}
+	if len(message.Actions) != 1 ||
+		message.Actions[0].ID != ActionOpenApproval ||
+		message.Actions[0].Value != "apr_123" ||
+		message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_123" ||
+		message.Actions[0].Label != "Review approval in Emisar" {
+		t.Fatalf("approval control = %+v", message.Actions)
+	}
+	blocks := message.Blocks()
+	var linked bool
+	for _, block := range blocks {
+		actionBlock, ok := block.(*slack.ActionBlock)
+		if !ok {
+			continue
+		}
+		for _, element := range actionBlock.Elements.ElementSet {
+			button, ok := element.(*slack.ButtonBlockElement)
+			if ok && button.URL == message.Actions[0].URL {
+				linked = true
+			}
+		}
+	}
+	if !linked {
+		t.Fatalf("Block Kit did not retain approval URL: %+v", blocks)
+	}
+}
+
 func TestConciseEvidenceResponseKeepsLedgerOutOfRoutineSlackReply(t *testing.T) {
 	message := ConciseEvidenceResponse(
 		"**Audit complete:** no repository change was needed.",
@@ -604,11 +652,11 @@ func TestTimelineHandoffAndPostmortemRemainEvidenceGrounded(t *testing.T) {
 }
 
 func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
-	message := OperationsHome(1, 3, 1, 2, 1, 2, 1, []core.Incident{{
+	message := OperationsHome(1, 3, 1, 2, 1, 2, 1, 0, []core.Incident{{
 		ID: "inc_1", Title: "API unavailable", Status: core.IncidentActive,
 		Workflow: core.WorkflowInvestigating, ChannelID: "CINCIDENT",
 		ChannelName: "ems-api", FiringCount: 1, SignalCount: 1,
-	}})
+	}}, nil)
 	content := message.Text + "\n" + message.Markdown + "\n" +
 		strings.Join(message.Sections, "\n")
 	for _, field := range message.Fields {
@@ -627,5 +675,45 @@ func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
 	}
 	if message.Markdown != "" {
 		t.Fatalf("operations home uses message-only markdown block: %+v", message)
+	}
+}
+
+func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
+	offer := core.MemoryOffer{
+		Scope: "channel", Subject: "old portal", Predicate: "alias_of",
+		Value: "service:portal", Visibility: "channel", ExpiresIn: "30d",
+	}
+	message := WithMemoryOffer(
+		ConversationResponse("I can remember that mapping.", NewSanitizer(12000)),
+		offer,
+		`{"version":1}`,
+		"channel",
+		"30 days",
+	)
+	content := strings.Join(message.Sections, "\n") + "\n" +
+		strings.Join(message.Context, "\n")
+	for _, expected := range []string{
+		"Proposed operational memory", "old portal", "alias_of", "service:portal",
+		"Nothing is saved yet", "not live evidence",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("memory offer missing %q: %+v", expected, message)
+		}
+	}
+	if len(message.Actions) != 1 ||
+		message.Actions[0].ID != ActionRememberMemory ||
+		!strings.Contains(message.Actions[0].Confirm, "cannot establish current health") {
+		t.Fatalf("memory offer action = %+v", message.Actions)
+	}
+	entry := core.MemoryEntry{
+		ID: "mem_1", ScopeKind: "channel", ScopeKey: "COPS",
+		SubjectKey: "old portal", Predicate: "alias_of", Value: "service:portal",
+		ExpiresAt: time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC),
+	}
+	directory := MemoryDirectoryMessage([]core.MemoryEntry{entry})
+	if len(directory.Actions) != 1 ||
+		directory.Actions[0].ID != ActionForgetMemory ||
+		!strings.Contains(directory.Sections[0], "COPS") {
+		t.Fatalf("memory directory = %+v", directory)
 	}
 }

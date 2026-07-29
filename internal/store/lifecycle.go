@@ -327,6 +327,14 @@ func (s *Store) Prune(
 		DELETE FROM evaluation_decisions WHERE created_at < ?`, operational); err != nil {
 		return result, err
 	}
+	if result.MemoryEntries, err = deleteCount(`
+		DELETE FROM memory_entries WHERE expires_at <= ?`, nowText()); err != nil {
+		return result, err
+	}
+	if result.EmisarApprovals, err = deleteCount(`
+		DELETE FROM emisar_approvals WHERE expires_at < ?`, operational); err != nil {
+		return result, err
+	}
 
 	closed := closedBefore.UTC().Format(timestampFormat)
 	for _, query := range []string{
@@ -372,6 +380,7 @@ func (s *Store) Prune(
 		WHERE i.status = 'closed' AND i.closed_at IS NOT NULL AND i.closed_at < ?
 		  AND (i.coop_session_id = '' OR c.state = 'done')`
 	for _, query := range []string{
+		`DELETE FROM emisar_approvals WHERE incident_id IN (` + eligible + `)`,
 		`DELETE FROM proposal_approvals WHERE proposal_id IN
 		  (SELECT id FROM action_proposals WHERE incident_id IN (` + eligible + `))`,
 		`DELETE FROM action_proposals WHERE incident_id IN (` + eligible + `)`,

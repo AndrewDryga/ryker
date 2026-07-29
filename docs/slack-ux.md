@@ -71,8 +71,9 @@ state remains on the card rather than using a misleading persistent typing indic
 
 ## Agent surfaces
 
-App Home shows durable open-incident, active-session, failed-work, and incident-history counts plus
-the current incident rooms. The Agent Messages tab offers suggested prompts for infrastructure
+App Home shows durable open-incident, active-session, failed-work, incident-history, and saved-memory
+counts plus the current incident rooms and bounded memory controls. The Agent Messages tab offers
+suggested prompts for infrastructure
 health, alert explanation, open incidents, and shift handoff. A direct message always starts
 read-only triage and does not require proactive mode or an `@mention`.
 
@@ -148,6 +149,15 @@ Compact memory retains the current goal, verified topology, decisions, unresolve
 evidence references. The underlying session rotates after a configurable age or turn count while
 that memory survives, preventing unbounded context growth.
 
+An operator may also explicitly ask Responder to remember a durable alias, repository binding,
+evidence route, or entity relationship correction. Responder answers normally and adds a
+host-owned confirmation button that states the scope and expiry. Until that button is confirmed,
+nothing is stored. A later correction replaces the same logical entry. App Home lists active saved
+memory with individual forget confirmations. Saved entries are never presented as live health or
+authority; every future investigation must verify them against current repositories and live tools.
+Same-channel evidence can be recalled from the existing evidence ledger, while evidence from other
+private channels is never injected.
+
 When a watched-channel turn starts, Responder sets a native thread status explaining that it is
 checking live systems with Emisar and that broad checks can take a few minutes. The status is
 recorded with the durable turn state so restarts do not duplicate it, refreshed before Slack's
@@ -218,6 +228,7 @@ The shipped Slack app registers one command with deterministic subcommands:
 /responder timeline
 /responder evidence
 /responder handoff
+/responder memory
 /responder update
 /responder changes
 /responder review
@@ -227,7 +238,7 @@ The shipped Slack app registers one command with deterministic subcommands:
 ```
 
 Slack does not provide application-defined autocomplete for text after a slash command. The
-manifest therefore uses a short `status | incidents | proactive | turn-limit | help` usage hint instead of
+manifest therefore uses a short `help | status | incidents | memory | proactive | shadow` usage hint instead of
 putting every argument in the picker. Running `/responder` without arguments or selecting `help`
 returns an interactive guide with read-only buttons for channel status, open incidents, and all
 incident history.
@@ -286,9 +297,12 @@ dumping the source ledger into the conversation.
 `/responder handoff` prepares an evidence-backed shift summary. Closing also posts a post-incident
 draft that does not invent impact, root cause, owners, or corrective actions.
 
-Operational mutation is not exposed through Slack in this release. Responder may gather live
-read-only evidence through Emisar; operators perform mutations through an operator-controlled
-Emisar workflow.
+Shared-channel operational mutation is not exposed through Slack. In an existing incident, a
+configured operator can directly request one exact operational action. Responder submits it only
+through Emisar. If Emisar requires approval, the incident thread receives an **Approval required in
+Emisar** card with the exact action, immutable runner and pack references, expiry, and a **Review
+approval in Emisar** link. Opening the link is navigation, not approval; no action has run, and the
+decision remains in Emisar's authenticated console and audit trail.
 The exact whole-message command equivalents, including legacy and help controls, are:
 
 ```text

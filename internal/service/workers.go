@@ -483,7 +483,22 @@ func (s *Service) queueInitialTurn(ctx context.Context, incident core.Incident) 
 	if err != nil {
 		return err
 	}
-	prompt, err := initialPrompt(s.cfg.Coop.Instructions, incident, signals)
+	prior, err := s.loadOperationalMemoryContext(
+		ctx,
+		incident.ChannelID,
+		incident.Repository,
+		"",
+		incident.ID,
+	)
+	if err != nil {
+		return err
+	}
+	prompt, err := initialPrompt(
+		s.cfg.Coop.Instructions,
+		incident,
+		signals,
+		operationalMemoryPrompt(prior),
+	)
 	if err != nil {
 		return err
 	}
@@ -743,11 +758,13 @@ func (s *Service) completeTurn(ctx context.Context, incident core.Incident, even
 	}
 	threadTS := incident.ConversationThreadTS()
 	conversation := item.SourceKind == "slack"
+	var conversationInput core.SlackInput
 	if conversation {
 		input, inputErr := s.store.GetSlackInput(ctx, item.SourceID)
 		if inputErr != nil {
 			return inputErr
 		}
+		conversationInput = input
 		threadTS = slackReplyThread(input)
 	}
 	var message slackui.Message
@@ -800,6 +817,14 @@ func (s *Service) completeTurn(ctx context.Context, incident core.Incident, even
 					report.Proposals,
 					s.sanitizer,
 				)
+				if actionValue, scope, expires, ok := s.prepareMemoryOfferAction(
+					conversationInput,
+					report.MemoryOffer,
+				); ok {
+					message = slackui.WithMemoryOffer(
+						message, *report.MemoryOffer, actionValue, scope, expires,
+					)
+				}
 			} else {
 				message = slackui.IncidentEvidenceResponse(
 					report.Message,
@@ -808,6 +833,9 @@ func (s *Service) completeTurn(ctx context.Context, incident core.Incident, even
 					report.Proposals,
 					s.sanitizer,
 				)
+			}
+			if report.PendingApproval != nil {
+				message = slackui.WithEmisarApproval(message, *report.PendingApproval)
 			}
 			evidenceIDs := make([]string, 0, len(report.Evidence))
 			for _, item := range report.Evidence {

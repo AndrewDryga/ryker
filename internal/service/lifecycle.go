@@ -52,6 +52,16 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			break
 		}
 	}
+	repositories := make([]string, 0, len(s.cfg.Repositories))
+	for repository := range s.cfg.Repositories {
+		repositories = append(repositories, repository)
+	}
+	if pruned, err := s.store.PruneOrphanMemoryEntries(ctx, repositories); err != nil &&
+		ctx.Err() == nil {
+		s.log.Warn("orphaned operational memory pruning failed", "error", err)
+	} else if pruned > 0 {
+		s.log.Info("pruned orphaned operational memory", "records", pruned)
+	}
 	result, err := s.store.Prune(
 		ctx,
 		now.Add(-s.cfg.Retention.OperationalData.Duration),
@@ -74,7 +84,9 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"turns", result.TurnSubmissions,
 			"evaluations", result.EvaluationDecisions,
 			"channel_intelligence", result.ChannelIntelligence,
+			"memory_entries", result.MemoryEntries,
 			"action_proposals", result.ActionProposals,
+			"emisar_approvals", result.EmisarApprovals,
 			"closed_work", result.ClosedIncidents,
 			"audit", result.AuditEvents,
 		)

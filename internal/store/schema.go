@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 7
+const currentSchemaVersion = 9
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -450,6 +450,64 @@ CREATE TABLE IF NOT EXISTS responder_state (
 );
 `
 
+const schemaV8 = `
+CREATE TABLE IF NOT EXISTS memory_entries (
+  id TEXT PRIMARY KEY,
+  scope_kind TEXT NOT NULL,
+  scope_key TEXT NOT NULL,
+  subject_key TEXT NOT NULL,
+  predicate TEXT NOT NULL,
+  value_json TEXT NOT NULL,
+  value_hash TEXT NOT NULL,
+  source_ref TEXT NOT NULL,
+  source_revision TEXT NOT NULL DEFAULT '',
+  actor_id TEXT NOT NULL,
+  visibility_kind TEXT NOT NULL,
+  visibility_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(scope_kind, scope_key, subject_key, predicate),
+  CHECK (scope_kind IN ('workspace', 'channel', 'repository')),
+  CHECK (predicate IN (
+    'alias_of',
+    'repository_for_channel',
+    'evidence_route',
+    'entity_relationship_correction'
+  )),
+  CHECK (visibility_kind IN ('workspace', 'channel', 'operator'))
+);
+
+CREATE INDEX IF NOT EXISTS memory_lookup_idx
+  ON memory_entries(scope_kind, scope_key, visibility_kind, visibility_id, expires_at);
+CREATE INDEX IF NOT EXISTS memory_expiry_idx ON memory_entries(expires_at);
+`
+
+const schemaV9 = `
+CREATE TABLE IF NOT EXISTS emisar_approvals (
+  request_id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  source_input TEXT NOT NULL,
+  run_id TEXT NOT NULL UNIQUE,
+  operation_id TEXT NOT NULL,
+  action_id TEXT NOT NULL,
+  pack_ref TEXT NOT NULL,
+  runner_ref TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status = 'pending_approval'),
+  approval_url TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(incident_id) REFERENCES incidents(id)
+);
+
+CREATE INDEX IF NOT EXISTS emisar_approvals_incident_idx
+  ON emisar_approvals(incident_id, expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS emisar_approvals_source_once_idx
+  ON emisar_approvals(source_input, request_id);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -458,4 +516,6 @@ var migrations = []string{
 	schemaV5,
 	schemaV6,
 	schemaV7,
+	schemaV8,
+	schemaV9,
 }

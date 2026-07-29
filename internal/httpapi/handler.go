@@ -92,6 +92,8 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 		{"responder_draft_prs_published", "Responder-managed draft pull requests.", snapshot.PublishedPRs},
 		{"responder_cleanup_pending", "Owned Coop sessions awaiting cleanup.", snapshot.CleanupPending},
 		{"responder_cleanup_blocked", "Owned Coop sessions retained for operator action.", snapshot.CleanupBlocked},
+		{"responder_memory_entries_active", "Active operator-confirmed memory entries.", snapshot.MemoryActive},
+		{"responder_memory_entries_expired", "Expired memory entries awaiting maintenance pruning.", snapshot.MemoryExpired},
 		{"responder_webhook_work_pending", "Webhook events awaiting completion.", snapshot.WebhooksPending},
 		{"responder_slack_input_pending", "Slack inputs awaiting completion.", snapshot.SlackPending},
 		{"responder_slack_outbox_pending", "Slack messages awaiting confirmed delivery.", snapshot.OutboxPending},

@@ -32,6 +32,9 @@ const (
 	ActionStartTask       = "responder_start_engineering_task"
 	ActionApproveProposal = "responder_approve_proposal"
 	ActionRejectProposal  = "responder_reject_proposal"
+	ActionOpenApproval    = "responder_open_emisar_approval"
+	ActionRememberMemory  = "responder_remember_memory"
+	ActionForgetMemory    = "responder_forget_memory"
 
 	ActionCommandStatus            = "responder_command_status"
 	ActionCommandOpenIncidents     = "responder_command_incidents_open"
@@ -496,6 +499,167 @@ func ConversationResponse(text string, sanitizer *Sanitizer) Message {
 	}
 }
 
+func WithMemoryOffer(
+	message Message,
+	offer core.MemoryOffer,
+	actionValue string,
+	scopeLabel string,
+	expiresLabel string,
+) Message {
+	revision := ""
+	if offer.SourceRevision != "" {
+		revision = "\nSource revision: `" + offer.SourceRevision + "`"
+	}
+	message.Sections = append(message.Sections, fmt.Sprintf(
+		"**Proposed operational memory**\n`%s` **%s** `%s`\n\nScope: %s · Visibility: `%s` · Expires: %s%s",
+		offer.Subject,
+		offer.Predicate,
+		offer.Value,
+		scopeLabel,
+		offer.Visibility,
+		expiresLabel,
+		revision,
+	))
+	message.Context = append(
+		message.Context,
+		"Nothing is saved yet. This is an operator-reviewed hint, not live evidence; Responder will re-check it against repositories and operational tools before relying on it.",
+	)
+	message.Actions = append(message.Actions, Action{
+		ID:    ActionRememberMemory,
+		Label: "Remember for " + expiresLabel,
+		Value: actionValue,
+		Style: "primary",
+		Confirm: "Save this " + scopeLabel + " memory for " + expiresLabel +
+			"? It may guide future investigations but cannot establish current health or authorize a change.",
+	})
+	return message
+}
+
+func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
+	message.Header = "Approval required in Emisar"
+	message.Text = truncateUTF8(
+		"Emisar approval required for "+approval.ActionID+
+			". Nothing has executed. Review the request in Emisar: "+approval.ApprovalURL,
+		4000,
+	)
+	message.Sections = append(message.Sections,
+		"**Emisar paused this operational request before execution.** "+
+			"Review its exact arguments, evidence, blast radius, and policy decision in Emisar.",
+		"**After the decision:** return to this incident and reply `check approval`, or use "+
+			"**Ask agent for update** on the pinned card. Responder will continue this same run "+
+			"and report its authoritative result.",
+	)
+	message.Fields = append(message.Fields,
+		Field{Label: "Action", Value: "`" + safeInlineCode(approval.ActionID) + "`"},
+		Field{Label: "Runner", Value: "`" + safeInlineCode(approval.RunnerRef) + "`"},
+		Field{Label: "Pack", Value: "`" + safeInlineCode(approval.PackRef) + "`"},
+		Field{
+			Label: "Approval expires",
+			Value: fmt.Sprintf(
+				"<!date^%d^{date_short_pretty} at {time}|%s>",
+				approval.ExpiresAt.Unix(),
+				approval.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+			),
+		},
+	)
+	message.Context = append(
+		message.Context,
+		"Run `"+safeInlineCode(approval.RunID)+"` is waiting. "+
+			"Slack cannot approve it, and opening the link does not execute it. "+
+			"Emisar remains authoritative for the decision and audit trail.",
+	)
+	actions := message.Actions[:0]
+	for _, action := range message.Actions {
+		if action.ID != ActionApproveProposal && action.ID != ActionRejectProposal {
+			actions = append(actions, action)
+		}
+	}
+	message.Actions = append(actions, Action{
+		ID:    ActionOpenApproval,
+		Label: "Review approval in Emisar",
+		Value: approval.RequestID,
+		Style: "primary",
+		URL:   approval.ApprovalURL,
+	})
+	return message
+}
+
+func MemorySavedMessage(entry core.MemoryEntry, replaced bool) Message {
+	action := "Saved"
+	if replaced {
+		action = "Updated"
+	}
+	return Message{
+		Text: fmt.Sprintf(
+			"%s Responder memory: %s %s %s.",
+			action, entry.SubjectKey, entry.Predicate, entry.Value,
+		),
+		Header: action + " operational memory",
+		Sections: []string{fmt.Sprintf(
+			"**%s** `%s` `%s`\n\nScope: `%s:%s`\nExpires: %s",
+			entry.SubjectKey, entry.Predicate, entry.Value,
+			entry.ScopeKind, entry.ScopeKey,
+			entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+		)},
+		Context: []string{
+			"Responder treats this as an operator-confirmed hint. Fresh live evidence and current repository content take precedence.",
+		},
+		Actions: []Action{{
+			ID:      ActionForgetMemory,
+			Label:   "Forget this memory",
+			Value:   entry.ID,
+			Style:   "danger",
+			Confirm: "Permanently forget this saved memory? The audit trail will retain only the entry ID and outcome, not its value.",
+		}},
+	}
+}
+
+func MemoryForgottenMessage() Message {
+	return Message{
+		Text:     "Responder forgot the selected operational memory.",
+		Header:   "Operational memory forgotten",
+		Sections: []string{"The saved value was permanently deleted and will no longer be supplied to future investigations."},
+		Context:  []string{"The audit trail retains only the memory entry ID and deletion outcome."},
+	}
+}
+
+func MemoryDirectoryMessage(entries []core.MemoryEntry) Message {
+	message := Message{
+		Text:   fmt.Sprintf("Responder has %d active memory entries visible here.", len(entries)),
+		Header: "Operational memory visible here",
+		Context: []string{
+			"These are operator-confirmed hints, not current health evidence. Fresh live observations and repository state take precedence.",
+		},
+	}
+	if len(entries) == 0 {
+		message.Sections = []string{
+			"No active memory matches this channel, its configured repository, and your visibility.",
+			"Ask Responder to remember a durable alias, repository binding, evidence route, or entity relationship correction. It will show the exact proposed value before anything is saved.",
+		}
+		return message
+	}
+	for index, entry := range entries[:min(len(entries), 20)] {
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"**%d. %s**\n`%s` `%s`\nScope: `%s:%s` · Expires: %s",
+			index+1,
+			escapeSlackText(entry.SubjectKey),
+			entry.Predicate,
+			entry.Value,
+			entry.ScopeKind,
+			entry.ScopeKey,
+			entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+		))
+		message.Actions = append(message.Actions, Action{
+			ID:      ActionForgetMemory,
+			Label:   fmt.Sprintf("Forget memory %d", index+1),
+			Value:   entry.ID,
+			Style:   "danger",
+			Confirm: "Permanently forget this saved memory? The audit trail will retain only the entry ID and outcome, not its value.",
+		})
+	}
+	return message
+}
+
 func PublicationMessage(publication core.Publication, updated bool) Message {
 	action := "created"
 	header := "Draft PR ready"
@@ -955,7 +1119,9 @@ func OperationsHome(
 	publishedPRs int,
 	cleanupPending int,
 	cleanupBlocked int,
+	memoryActive int,
 	incidents []core.Incident,
+	memories []core.MemoryEntry,
 ) Message {
 	state := "Operational"
 	if failedWork > 0 {
@@ -976,6 +1142,7 @@ func OperationsHome(
 			{Label: "Draft PRs", Value: fmt.Sprint(publishedPRs)},
 			{Label: "Cleanup queued", Value: fmt.Sprint(cleanupPending)},
 			{Label: "Cleanup blocked", Value: fmt.Sprint(cleanupBlocked)},
+			{Label: "Saved memory visible here", Value: fmt.Sprint(memoryActive)},
 		},
 		Context: []string{
 			"Use `/responder incidents`, `/responder status`, or `/responder help` in a channel for interactive controls.",
@@ -1011,6 +1178,34 @@ func OperationsHome(
 			)
 		}
 		message.Sections = append(message.Sections, current.String())
+	}
+	if len(memories) > 0 {
+		var saved strings.Builder
+		saved.WriteString("*Operational memory*\n")
+		for index, entry := range memories[:min(len(memories), 6)] {
+			fmt.Fprintf(
+				&saved,
+				"\n%d. **%s** `%s` `%s`\n   %s scope; expires %s",
+				index+1,
+				escapeSlackText(entry.SubjectKey),
+				entry.Predicate,
+				entry.Value,
+				entry.ScopeKind,
+				entry.ExpiresAt.UTC().Format("2006-01-02"),
+			)
+			message.Actions = append(message.Actions, Action{
+				ID:      ActionForgetMemory,
+				Label:   fmt.Sprintf("Forget memory %d", index+1),
+				Value:   entry.ID,
+				Style:   "danger",
+				Confirm: "Permanently forget this saved memory? The audit trail will retain only the entry ID and outcome, not its value.",
+			})
+		}
+		message.Sections = append(message.Sections, saved.String())
+		message.Context = append(
+			message.Context,
+			"Saved memory is an operator-confirmed hint, never current health evidence. Fresh live observations and repository state take precedence.",
+		)
 	}
 	return message
 }
@@ -1287,6 +1482,10 @@ func singleLine(value string) string {
 
 func escapeSlackText(value string) string {
 	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(value)
+}
+
+func safeInlineCode(value string) string {
+	return escapeSlackText(strings.ReplaceAll(value, "`", "'"))
 }
 
 func ChangesMessage(

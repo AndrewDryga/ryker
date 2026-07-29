@@ -67,6 +67,24 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			}
 			return nil
 		}
+		if input.ActionID == slackui.ActionOpenApproval {
+			if err := s.handleOpenEmisarApproval(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
+		if input.ActionID == slackui.ActionRememberMemory {
+			if err := s.handleRememberMemory(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
+		if input.ActionID == slackui.ActionForgetMemory {
+			if err := s.handleForgetMemory(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
 	}
 	if input.Kind == "shortcut" {
 		allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
@@ -208,9 +226,23 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		} else if text == "" {
 			err = errors.New("empty Slack message")
 		} else {
+			prior, priorErr := s.loadOperationalMemoryContext(
+				ctx,
+				incident.ChannelID,
+				incident.Repository,
+				input.UserID,
+				input.ID,
+			)
+			if priorErr != nil {
+				return s.retrySlackInput(ctx, input, priorErr)
+			}
+			prompt := conversationPrompt(input.UserID, text, direct)
+			if memoryPrompt := operationalMemoryPrompt(prior); memoryPrompt != "" {
+				prompt += "\n\n" + memoryPrompt
+			}
 			_, _, err = s.store.QueueTurn(ctx, core.TurnSubmission{
 				IncidentID: incident.ID, SourceKind: "slack", SourceID: input.ID,
-				UserID: input.UserID, Prompt: conversationPrompt(input.UserID, text, direct),
+				UserID: input.UserID, Prompt: prompt,
 			})
 			if err == nil && direct {
 				s.setNativeStatusForThread(
@@ -234,6 +266,31 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	if err != nil {
 		return s.retrySlackInput(ctx, input, err)
 	}
+	return s.finishSlackInput(ctx, input)
+}
+
+func (s *Service) handleOpenEmisarApproval(
+	ctx context.Context,
+	input core.SlackInput,
+) error {
+	approval, err := s.store.GetEmisarApproval(ctx, input.ActionValue)
+	if errors.Is(err, store.ErrNotFound) {
+		return s.finishSlackInput(ctx, input)
+	}
+	if err != nil {
+		return err
+	}
+	if approval.ChannelID != input.ChannelID {
+		return s.finishSlackInput(ctx, input)
+	}
+	_ = s.store.Audit(ctx, core.AuditEvent{
+		IncidentID: approval.IncidentID,
+		Kind:       "emisar.approval.opened",
+		ActorID:    input.UserID,
+		ObjectID:   approval.RequestID,
+		Outcome:    "linked",
+		Detail:     approval.ActionID + " runner=" + approval.RunnerRef,
+	})
 	return s.finishSlackInput(ctx, input)
 }
 
@@ -413,6 +470,17 @@ func (s *Service) processChannelLifecycleInput(
 		if _, err := s.store.DeleteSlackChannelSettings(ctx, input.ChannelID); err != nil {
 			return err
 		}
+		deleted, err := s.store.DeleteChannelMemoryEntries(ctx, input.ChannelID)
+		if err != nil {
+			return err
+		}
+		if deleted > 0 {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "memory.channel_deleted", ActorID: input.UserID,
+				ObjectID: input.ChannelID, Outcome: "deleted",
+				Detail: fmt.Sprintf("entries=%d", deleted),
+			})
+		}
 	}
 	for _, incident := range incidents {
 		s.forgetNativeStatus(incident.ID)
@@ -447,8 +515,14 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 	if thread == "" {
 		thread = input.MessageTS
 	}
+	repository, err := s.effectiveRepository(
+		ctx, input.ChannelID, input.UserID, s.cfg.Slack.DefaultRepository,
+	)
+	if err != nil {
+		return err
+	}
 	incident, _, err := s.store.CreateManualIncident(
-		ctx, s.cfg.Slack.DefaultRepository, input.EventID, title, title, input.UserID,
+		ctx, repository, input.EventID, title, title, input.UserID,
 		input.ChannelID, thread,
 		s.cfg.Limits.MaxOpenIncidents,
 	)

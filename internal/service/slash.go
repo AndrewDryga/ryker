@@ -225,6 +225,11 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 		return s.finishSlashStatus(ctx, input)
 	case "incidents":
 		return s.finishSlashIncidents(ctx, input, fields[1:])
+	case "memory":
+		if len(fields) != 1 {
+			return s.finishSlashInput(ctx, input, slashUsage("memory"))
+		}
+		return s.finishSlashMemory(ctx, input)
 	case "proactive", "watch":
 		return s.configureProactive(ctx, input, fields[1:])
 	case "shadow":
@@ -247,6 +252,30 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 			fmt.Sprintf("Unknown `/responder` subcommand `%s`.\n\n%s", fields[0], slashHelp()),
 		)
 	}
+}
+
+func (s *Service) finishSlashMemory(
+	ctx context.Context,
+	input core.SlackInput,
+) error {
+	repository, err := s.effectiveRepository(
+		ctx, input.ChannelID, input.UserID, s.cfg.Slack.DefaultRepository,
+	)
+	if err != nil {
+		return err
+	}
+	entries, err := s.store.ListMemoryForContext(
+		ctx,
+		s.cfg.Slack.TeamID,
+		input.ChannelID,
+		repository,
+		input.UserID,
+		20,
+	)
+	if err != nil {
+		return err
+	}
+	return s.finishSlashMessage(ctx, input, slackui.MemoryDirectoryMessage(entries))
 }
 
 func (s *Service) finishIncidentIntelligence(
@@ -644,7 +673,8 @@ func slashHelpSections() []string {
 		"*Find work*\n" +
 			"`/responder status` - explain Responder's behavior in this channel\n" +
 			"`/responder incidents` - show open incidents and engineering tasks\n" +
-			"`/responder incidents all [page]` - include closed work history",
+			"`/responder incidents all [page]` - include closed work history\n" +
+			"`/responder memory` - inspect and forget saved memory visible here",
 		"*Control listening*\n" +
 			"`/responder proactive on|off|inherit` - change this channel\n" +
 			"`/responder proactive global on|off|inherit` - change the workspace default\n" +
@@ -701,6 +731,12 @@ func slashUsage(command string) string {
 			"`/responder incidents open [page]` selects another open-incident page. " +
 			"`/responder incidents all [page]` includes closed history. Pages start at 1, and " +
 			"each incident includes a clickable Slack channel link when its room is ready."
+	case "memory":
+		return "*Inspect operational memory visible here.*\n\n" +
+			"`/responder memory` lists active operator-confirmed hints matching this channel, " +
+			"its configured repository, workspace visibility, or your operator visibility. " +
+			"Each entry has an explicit forget control. Saved memory never establishes current " +
+			"health or authorizes a change; live evidence and current repository state win."
 	case "proactive":
 		return "*Choose what Responder should read.*\n\n" +
 			"`/responder proactive on|off|inherit` changes only this channel. " +

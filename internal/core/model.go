@@ -258,6 +258,35 @@ type AgentMemory struct {
 	EvidenceRefs        []string `json:"evidence_refs,omitempty"`
 }
 
+type MemoryOffer struct {
+	Scope          string `json:"scope"`
+	Repository     string `json:"repository,omitempty"`
+	Subject        string `json:"subject"`
+	Predicate      string `json:"predicate"`
+	Value          string `json:"value"`
+	Visibility     string `json:"visibility"`
+	ExpiresIn      string `json:"expires_in,omitempty"`
+	SourceRevision string `json:"source_revision,omitempty"`
+}
+
+type MemoryEntry struct {
+	ID             string    `json:"id"`
+	ScopeKind      string    `json:"scope_kind"`
+	ScopeKey       string    `json:"scope_key"`
+	SubjectKey     string    `json:"subject_key"`
+	Predicate      string    `json:"predicate"`
+	Value          string    `json:"value"`
+	ValueHash      string    `json:"value_hash"`
+	SourceRef      string    `json:"source_ref"`
+	SourceRevision string    `json:"source_revision,omitempty"`
+	ActorID        string    `json:"actor_id"`
+	VisibilityKind string    `json:"visibility_kind"`
+	VisibilityID   string    `json:"visibility_id"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 func (m *AgentMemory) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -374,6 +403,23 @@ type ActionProposal struct {
 	UpdatedAt     time.Time         `json:"updated_at,omitempty"`
 }
 
+type EmisarApproval struct {
+	RequestID   string    `json:"request_id"`
+	IncidentID  string    `json:"incident_id,omitempty"`
+	ChannelID   string    `json:"channel_id,omitempty"`
+	SourceInput string    `json:"source_input,omitempty"`
+	RunID       string    `json:"run_id"`
+	OperationID string    `json:"operation_id"`
+	ActionID    string    `json:"action_id"`
+	PackRef     string    `json:"pack_ref"`
+	RunnerRef   string    `json:"runner_ref"`
+	Status      string    `json:"status"`
+	ApprovalURL string    `json:"approval_url"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	CreatedAt   time.Time `json:"created_at,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at,omitempty"`
+}
+
 type EvaluationDecision struct {
 	ID          string
 	ChannelID   string
@@ -430,13 +476,15 @@ type PruneResult struct {
 	TurnSubmissions     int64
 	EvaluationDecisions int64
 	ChannelIntelligence int64
+	MemoryEntries       int64
 	ActionProposals     int64
+	EmisarApprovals     int64
 	ClosedIncidents     int64
 	AuditEvents         int64
 }
 
 func (r PruneResult) Total() int64 {
 	return r.SlackInputs + r.WebhookEvents + r.OutboxMessages + r.TurnSubmissions +
-		r.EvaluationDecisions + r.ChannelIntelligence + r.ActionProposals +
-		r.ClosedIncidents + r.AuditEvents
+		r.EvaluationDecisions + r.ChannelIntelligence + r.MemoryEntries + r.ActionProposals +
+		r.EmisarApprovals + r.ClosedIncidents + r.AuditEvents
 }

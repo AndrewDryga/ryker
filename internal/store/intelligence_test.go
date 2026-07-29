@@ -44,6 +44,7 @@ func TestSchemaV3MigratesIntelligenceState(t *testing.T) {
 		"action_proposals",
 		"proposal_approvals",
 		"evaluation_decisions",
+		"memory_entries",
 	} {
 		var count int
 		if err := st.db.QueryRow(`

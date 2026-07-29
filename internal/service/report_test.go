@@ -1,10 +1,14 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/responder/internal/store"
 )
 
 func TestAgentReportStrictSchemaAndLegacyCompatibility(t *testing.T) {
@@ -17,9 +21,21 @@ func TestAgentReportStrictSchemaAndLegacyCompatibility(t *testing.T) {
 	  "evidence":[],
 	  "coverage":[],
 	  "memory":{},
+	  "pending_approval":{
+	    "request_id":"apr_123",
+	    "run_id":"run_123",
+	    "operation_id":"op_123",
+	    "action_id":"nomad.alloc_restart",
+	    "pack_ref":"nomad@1.2.3#sha256:abc",
+	    "runner_ref":"prod-1~abc123",
+	    "status":"pending_approval",
+	    "approval_url":"https://emisar.dev/app/acme/approvals/apr_123",
+	    "expires_at":"2026-07-29T00:00:00Z"
+	  },
 	  "proposals":[]
 	}`)
-	if err != nil || !structured || report.Message != "Current state is degraded." {
+	if err != nil || !structured || report.Message != "Current state is degraded." ||
+		report.PendingApproval == nil || report.PendingApproval.RequestID != "apr_123" {
 		t.Fatalf("structured = %+v, %v, %v", report, structured, err)
 	}
 	for name, input := range map[string]string{
@@ -100,9 +116,85 @@ func TestStructuredResponsePolicyOwnsFormattingAndActionCatalog(t *testing.T) {
 		"Slack-supported standard Markdown",
 		"No actions are configured",
 		"Never invent a source",
+		"approval.url",
+		"Do not place the approval URL in message",
 	} {
 		if !strings.Contains(policy, required) {
 			t.Fatalf("policy lacks %q:\n%s", required, policy)
 		}
+	}
+}
+
+func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	expires := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	pending := core.EmisarApproval{
+		RequestID: "apr_123", RunID: "run_123", OperationID: "op_123",
+		ActionID: "nomad.alloc_restart", PackRef: "nomad@1.2.3#sha256:abc",
+		RunnerRef: "prod-1~abc123", Status: "pending_approval",
+		ApprovalURL: "https://emisar.dev/app/acme/approvals/apr_123",
+		ExpiresAt:   expires,
+	}
+	report, err := svc.persistAgentReport(
+		ctx,
+		agentReport{Message: "Emisar is waiting for approval.", PendingApproval: &pending},
+		incident,
+		incident.ChannelID,
+		"slack_approval_1",
+		cfg.Slack.Operators[0],
+	)
+	if err != nil || report.PendingApproval == nil {
+		t.Fatalf("persist pending approval = %+v, %v", report, err)
+	}
+	stored, err := st.GetEmisarApproval(ctx, pending.RequestID)
+	if err != nil || stored.RunID != pending.RunID ||
+		stored.ApprovalURL != pending.ApprovalURL || !stored.ExpiresAt.Equal(expires) {
+		t.Fatalf("stored pending approval = %+v, %v", stored, err)
+	}
+
+	foreign := pending
+	foreign.RequestID = "apr_evil"
+	foreign.RunID = "run_evil"
+	foreign.ApprovalURL = "https://evil.example/app/acme/approvals/apr_evil"
+	report, err = svc.persistAgentReport(
+		ctx,
+		agentReport{Message: "Untrusted link.", PendingApproval: &foreign},
+		incident,
+		incident.ChannelID,
+		"slack_approval_2",
+		cfg.Slack.Operators[0],
+	)
+	if err != nil || report.PendingApproval != nil {
+		t.Fatalf("foreign approval escaped validation = %+v, %v", report, err)
+	}
+	if _, err := st.GetEmisarApproval(ctx, foreign.RequestID); err != store.ErrNotFound {
+		t.Fatalf("foreign approval persisted: %v", err)
+	}
+
+	unowned := pending
+	unowned.RequestID = "apr_unowned"
+	unowned.RunID = "run_unowned"
+	unowned.ApprovalURL = "https://emisar.dev/app/acme/approvals/apr_unowned"
+	report, err = svc.persistAgentReport(
+		ctx,
+		agentReport{Message: "No operator.", PendingApproval: &unowned},
+		incident,
+		incident.ChannelID,
+		"initial_turn",
+		"",
+	)
+	if err != nil || report.PendingApproval != nil {
+		t.Fatalf("non-operator approval escaped validation = %+v, %v", report, err)
 	}
 }

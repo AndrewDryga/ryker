@@ -140,7 +140,8 @@ Coop events are consumed by durable sequence cursor. Terminal turns are fetched 
 their bounded assistant message or terminal error is rendered into Slack.
 
 Every completed agent turn is asked for a strict JSON envelope containing Markdown prose, evidence,
-coverage, and compact memory. The host sanitizes and bounds every field,
+coverage, compact session memory, and an optional inert operational-memory offer. The host
+sanitizes and bounds every field,
 persists evidence separately, strips credentials and query strings from evidence URLs, and renders
 only host-owned interactive controls. Legacy prose remains readable during upgrades but is audited
 as unstructured.
@@ -150,13 +151,30 @@ age limit, Responder closes an idle generation and creates the next one while ca
 durable memory. The latest 10 to 50 Slack inputs remain frozen event context for each decision; they
 are not compressed into hidden model history.
 
+Durable cross-session memory uses one `memory_entries` table rather than a second infrastructure
+catalog or entity graph. Each logical `(scope, subject, predicate)` has one active value with a
+source reference, actor, visibility, expiry, and value hash. Only an explicit operator confirmation
+can upsert it. The model cannot write memory directly. Exact channel, repository, workspace, and
+operator visibility filters prevent cross-channel leakage. The prompt labels recalled entries as
+untrusted hints and gives fresh live evidence, current repository content, and Responder
+configuration higher precedence. Recent evidence is referenced from the existing ledger rather
+than copied. Expiry, caps, channel deletion, and the normal maintenance prune bound storage.
+
 ## Operational actions
 
-Model-proposed operational mutation is disabled in this release. Responder uses Emisar for
-policy-controlled observation, and operators perform mutations through an operator-controlled
-Emisar workflow. A future Slack approval flow must host-validate and bind the exact message, target,
-parameters, policy revision, approver identities, execution result, and verification before this
-surface can be enabled.
+Model-proposed and autonomous operational mutation remains disabled. Shared-channel work is
+read-only. A configured operator may directly request one exact action in an existing incident
+conversation; the agent must discover and submit it through Emisar's governed action contract
+without widening its target or arguments.
+
+When Emisar returns `pending_approval`, the structured agent result copies the exact run,
+operation, immutable pack and runner references, approval request, URL, and expiry. Responder accepts
+that envelope only for an allowlisted operator turn, validates that the HTTPS URL belongs to the
+configured Emisar origin and ends in the returned request ID, and stores the hold with the incident.
+Slack renders a **Review approval in Emisar** link. The link does not approve or execute anything,
+and Responder never renders a Slack approve button for this state. Emisar owns the exact request,
+policy revision, approvers, execution, and audit. A later operator turn follows the same
+`wait_for_run` continuation and treats approval as authorization to dispatch, not proof of success.
 
 ## Evaluation
 
