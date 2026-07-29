@@ -652,11 +652,11 @@ func TestTimelineHandoffAndPostmortemRemainEvidenceGrounded(t *testing.T) {
 }
 
 func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
-	message := OperationsHome(1, 3, 1, 2, 1, 2, 1, 0, []core.Incident{{
+	message := OperationsHome(1, 3, 1, 2, 1, 2, 1, 0, 0, 0, []core.Incident{{
 		ID: "inc_1", Title: "API unavailable", Status: core.IncidentActive,
 		Workflow: core.WorkflowInvestigating, ChannelID: "CINCIDENT",
 		ChannelName: "ems-api", FiringCount: 1, SignalCount: 1,
-	}}, nil)
+	}}, nil, nil, nil)
 	content := message.Text + "\n" + message.Markdown + "\n" +
 		strings.Join(message.Sections, "\n")
 	for _, field := range message.Fields {
@@ -715,5 +715,110 @@ func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
 		directory.Actions[0].ID != ActionForgetMemory ||
 		!strings.Contains(directory.Sections[0], "COPS") {
 		t.Fatalf("memory directory = %+v", directory)
+	}
+}
+
+func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	preference := core.ResponderPreference{
+		ID: "pref_1", ScopeKind: "operator", ScopeKey: "UOPERATOR",
+		Name: "health_check_depth", Value: "deep", Enabled: true,
+		ExpiresAt: now,
+	}
+	preferenceOffer := core.PreferenceOffer{
+		Scope: "operator", Name: preference.Name, Value: preference.Value,
+		ExpiresIn: "30d",
+	}
+	preferenceMessage := WithPreferenceOffer(
+		ConversationResponse("I can make that your default.", NewSanitizer(12000)),
+		preferenceOffer,
+		preference,
+		`{"version":1}`,
+		"30 days",
+	)
+	preferenceContent := strings.Join(preferenceMessage.Sections, "\n") + "\n" +
+		strings.Join(preferenceMessage.Context, "\n")
+	for _, expected := range []string{
+		"Proposed Responder preference", "health_check_depth", "deep",
+		"Nothing is saved yet", "cannot establish health",
+	} {
+		if !strings.Contains(preferenceContent, expected) {
+			t.Fatalf("preference offer lacks %q: %+v", expected, preferenceMessage)
+		}
+	}
+	if strings.Contains(preferenceContent, "**") ||
+		strings.Contains(preferenceContent, preference.ScopeKey) ||
+		!strings.Contains(preferenceContent, "You (operator preference)") {
+		t.Fatalf("preference offer has invalid Slack formatting or scope: %s", preferenceContent)
+	}
+	if len(preferenceMessage.Actions) != 1 ||
+		preferenceMessage.Actions[0].ID != ActionRememberPreference {
+		t.Fatalf("preference offer action = %+v", preferenceMessage.Actions)
+	}
+	preferenceDirectory := PreferenceDirectoryMessage(
+		[]core.ResponderPreference{preference},
+	)
+	preferenceSaved := PreferenceSavedMessage(preference, false)
+	preferenceSurface := strings.Join(preferenceDirectory.Sections, "\n") + "\n" +
+		strings.Join(preferenceSaved.Sections, "\n") + "\n" +
+		strings.Join(preferenceSaved.Context, "\n")
+	if len(preferenceDirectory.Actions) != 3 ||
+		preferenceDirectory.Actions[0].ID != ActionTogglePreference ||
+		preferenceDirectory.Actions[1].ID != ActionEditPreference ||
+		preferenceDirectory.Actions[2].ID != ActionDeletePreference ||
+		strings.Contains(preferenceSurface, "**") ||
+		strings.Contains(preferenceSurface, preference.ScopeKey) ||
+		!strings.Contains(preferenceSurface, "highest precedence") {
+		t.Fatalf("preference controls = %+v", preferenceDirectory.Actions)
+	}
+
+	rule := core.StandingRule{
+		ID: "rule_1", ChannelID: "COPS", Repository: "repo",
+		Trigger: "terraform_plan", Action: "review_terraform_plan",
+		SourceKind: "app", Enabled: true, TriggerCount: 2,
+		ExpiresAt: now,
+	}
+	ruleOffer := core.RuleOffer{
+		Scope: "channel", Repository: rule.Repository,
+		Trigger: rule.Trigger, Action: rule.Action,
+		SourceKind: rule.SourceKind, ExpiresIn: "30d",
+	}
+	ruleMessage := WithRuleOffer(
+		ConversationResponse("I can watch those plans.", NewSanitizer(12000)),
+		ruleOffer,
+		rule,
+		`{"version":1}`,
+		"30 days",
+	)
+	ruleContent := strings.Join(ruleMessage.Sections, "\n") + "\n" +
+		strings.Join(ruleMessage.Context, "\n")
+	for _, expected := range []string{
+		"Proposed standing rule", "terraform_plan", "review_terraform_plan",
+		"read-only", "proactive triage is off", "Nothing is saved yet",
+	} {
+		if !strings.Contains(ruleContent, expected) {
+			t.Fatalf("rule offer lacks %q: %+v", expected, ruleMessage)
+		}
+	}
+	if strings.Contains(ruleContent, "**") ||
+		strings.Contains(ruleContent, rule.ChannelID) ||
+		!strings.Contains(ruleContent, "Scope: This channel") {
+		t.Fatalf("rule offer has invalid Slack formatting or scope: %s", ruleContent)
+	}
+	if len(ruleMessage.Actions) != 1 ||
+		ruleMessage.Actions[0].ID != ActionRememberRule {
+		t.Fatalf("rule offer action = %+v", ruleMessage.Actions)
+	}
+	ruleDirectory := RuleDirectoryMessage([]core.StandingRule{rule})
+	ruleSaved := RuleSavedMessage(rule, false)
+	ruleSurface := strings.Join(ruleDirectory.Sections, "\n") + "\n" +
+		strings.Join(ruleSaved.Sections, "\n")
+	if len(ruleDirectory.Actions) != 3 ||
+		ruleDirectory.Actions[0].ID != ActionToggleRule ||
+		ruleDirectory.Actions[1].ID != ActionEditRule ||
+		ruleDirectory.Actions[2].ID != ActionDeleteRule ||
+		!strings.Contains(ruleDirectory.Sections[0], "Runs: 2") ||
+		strings.Contains(ruleSurface, "**") {
+		t.Fatalf("rule directory = %+v", ruleDirectory)
 	}
 }

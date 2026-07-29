@@ -45,8 +45,9 @@ type memoryRememberResult struct {
 }
 
 type operationalMemoryContext struct {
-	ConfirmedMemory []memoryPromptEntry   `json:"operator_confirmed_memory,omitempty"`
-	RecentEvidence  []evidencePromptEntry `json:"recent_same_channel_evidence,omitempty"`
+	ConfirmedMemory []memoryPromptEntry     `json:"operator_confirmed_memory,omitempty"`
+	RecentEvidence  []evidencePromptEntry   `json:"recent_same_channel_evidence,omitempty"`
+	Preferences     []preferencePromptEntry `json:"responder_preferences,omitempty"`
 }
 
 type memoryPromptEntry struct {
@@ -111,6 +112,12 @@ func (s *Service) loadOperationalMemoryContext(
 		ConfirmedMemory: make([]memoryPromptEntry, 0, len(entries)),
 		RecentEvidence:  make([]evidencePromptEntry, 0, len(evidence)),
 	}
+	result.Preferences, err = s.loadEffectivePreferences(
+		ctx, channelID, effectiveRepository, operatorID,
+	)
+	if err != nil {
+		return operationalMemoryContext{}, err
+	}
 	for _, entry := range entries {
 		result.ConfirmedMemory = append(result.ConfirmedMemory, memoryPromptEntry{
 			Scope: entry.ScopeKind + ":" + entry.ScopeKey, Subject: entry.SubjectKey,
@@ -158,14 +165,15 @@ func (s *Service) effectiveRepository(
 }
 
 func operationalMemoryPrompt(context operationalMemoryContext) string {
-	if len(context.ConfirmedMemory) == 0 && len(context.RecentEvidence) == 0 {
+	if len(context.ConfirmedMemory) == 0 && len(context.RecentEvidence) == 0 &&
+		len(context.Preferences) == 0 {
 		return ""
 	}
 	data, err := json.Marshal(context)
 	if err != nil {
 		return ""
 	}
-	return `The host supplied bounded prior operational context below.
+	prompt := `The host supplied bounded prior operational context below.
 
 ` + operationalMemoryPolicy + `
 
@@ -175,6 +183,10 @@ freshness-checked.
 <untrusted-prior-operational-context>
 ` + string(data) + `
 </untrusted-prior-operational-context>`
+	if preferences := behaviorPreferencePrompt(context.Preferences); preferences != "" {
+		prompt += "\n\n" + preferences
+	}
+	return prompt
 }
 
 func (s *Service) prepareMemoryOfferAction(

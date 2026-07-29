@@ -74,6 +74,35 @@ func (s *Store) BindChannelSession(
 	return err
 }
 
+func (s *Store) DetachChannelSession(
+	ctx context.Context,
+	channelID string,
+	sessionID string,
+) (bool, error) {
+	if channelID == "" || sessionID == "" {
+		return false, errors.New("channel session detachment identity is incomplete")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE channel_memories
+		SET session_id = '',
+		    session_revision = 0,
+		    turn_count = 0,
+		    session_started_at = NULL,
+		    rotated_at = updated_at,
+		    updated_at = ?
+		WHERE channel_id = ? AND session_id = ?`,
+		nowText(), channelID, sessionID,
+	)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows == 1, nil
+}
+
 func (s *Store) AdvanceChannelMemory(
 	ctx context.Context,
 	channelID string,

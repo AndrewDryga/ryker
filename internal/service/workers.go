@@ -825,6 +825,30 @@ func (s *Service) completeTurn(ctx context.Context, incident core.Incident, even
 						message, *report.MemoryOffer, actionValue, scope, expires,
 					)
 				}
+				if actionValue, preference, expires, ok := s.preparePreferenceOfferAction(
+					conversationInput,
+					report.PreferenceOffer,
+				); ok {
+					message = slackui.WithPreferenceOffer(
+						message,
+						*report.PreferenceOffer,
+						preference,
+						actionValue,
+						expires,
+					)
+				}
+				if actionValue, rule, expires, ok := s.prepareRuleOfferAction(
+					conversationInput,
+					report.RuleOffer,
+				); ok {
+					message = slackui.WithRuleOffer(
+						message,
+						*report.RuleOffer,
+						rule,
+						actionValue,
+						expires,
+					)
+				}
 			} else {
 				message = slackui.IncidentEvidenceResponse(
 					report.Message,

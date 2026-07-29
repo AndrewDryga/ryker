@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 9
+const currentSchemaVersion = 10
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -508,6 +508,72 @@ CREATE UNIQUE INDEX IF NOT EXISTS emisar_approvals_source_once_idx
   ON emisar_approvals(source_input, request_id);
 `
 
+const schemaV10 = `
+CREATE TABLE IF NOT EXISTS responder_preferences (
+  id TEXT PRIMARY KEY,
+  scope_kind TEXT NOT NULL,
+  scope_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  value TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  source_ref TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(scope_kind, scope_key, name),
+  CHECK (scope_kind IN ('workspace', 'channel', 'repository', 'operator')),
+  CHECK (name IN ('health_check_depth', 'response_detail')),
+  CHECK (
+    (name = 'health_check_depth' AND value IN ('quick', 'standard', 'deep')) OR
+    (name = 'response_detail' AND value IN ('concise', 'standard', 'detailed'))
+  )
+);
+
+CREATE INDEX IF NOT EXISTS responder_preferences_lookup_idx
+  ON responder_preferences(scope_kind, scope_key, enabled, expires_at);
+CREATE INDEX IF NOT EXISTS responder_preferences_expiry_idx
+  ON responder_preferences(expires_at);
+
+CREATE TABLE IF NOT EXISTS standing_rules (
+  id TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL,
+  repository TEXT NOT NULL,
+  trigger_name TEXT NOT NULL,
+  action_name TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  source_ref TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  trigger_count INTEGER NOT NULL DEFAULT 0,
+  last_triggered_at TEXT,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(channel_id, trigger_name, action_name, repository, source_kind),
+  CHECK (trigger_name IN ('terraform_plan', 'deployment', 'operational_alert')),
+  CHECK (action_name IN ('review_terraform_plan', 'verify_deployment', 'triage_alert')),
+  CHECK (source_kind IN ('any', 'human', 'app'))
+);
+
+CREATE INDEX IF NOT EXISTS standing_rules_channel_idx
+  ON standing_rules(channel_id, enabled, expires_at);
+CREATE INDEX IF NOT EXISTS standing_rules_expiry_idx ON standing_rules(expires_at);
+
+CREATE TABLE IF NOT EXISTS standing_rule_runs (
+  rule_id TEXT NOT NULL,
+  source_input TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(rule_id, source_input),
+  FOREIGN KEY(rule_id) REFERENCES standing_rules(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS standing_rule_runs_created_idx
+  ON standing_rule_runs(created_at);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -518,4 +584,5 @@ var migrations = []string{
 	schemaV7,
 	schemaV8,
 	schemaV9,
+	schemaV10,
 }

@@ -193,6 +193,22 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 				)
 				return
 			}
+			if !watched {
+				rules, ruleErr := s.matchingStandingRules(ctx, core.SlackInput{
+					Kind:      "bot_message",
+					ChannelID: inner.Channel,
+					Text:      inner.Text,
+				})
+				if ruleErr != nil {
+					s.log.Error(
+						"match standing rules for Slack app message",
+						"channel", inner.Channel,
+						"error", ruleErr,
+					)
+					return
+				}
+				watched = len(rules) > 0
+			}
 			if !watched || (inner.SubType != "" && inner.SubType != "bot_message") {
 				_ = s.socket.Ack(*event.Request)
 				return
@@ -262,7 +278,15 @@ func (s *Service) shouldAdmitChannelMessage(
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return false, err
 	}
-	return s.proactiveEnabled(ctx, input.ChannelID)
+	proactive, err := s.proactiveEnabled(ctx, input.ChannelID)
+	if err != nil || proactive {
+		return proactive, err
+	}
+	rules, err := s.matchingStandingRules(ctx, input)
+	if err != nil {
+		return false, err
+	}
+	return len(rules) > 0, nil
 }
 
 func setLifecycleInput(

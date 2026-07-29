@@ -255,6 +255,8 @@ proactivity from Slack:
 /responder evidence
 /responder handoff
 /responder memory
+/responder preferences
+/responder rules
 /responder turn-limit
 /responder turn-limit 1000
 /responder turn-limit global 1000
@@ -291,6 +293,24 @@ deduplicated by logical key, expire automatically, can be forgotten from App Hom
 to future investigations only as untrusted hints. Fresh live evidence, current repository content,
 and Responder configuration always take precedence. Recent structured evidence is reused directly
 within the same Slack channel instead of copied into another catalog.
+
+Responder also supports two operator-confirmed behavior catalogs. Preferences are typed defaults
+such as `health_check_depth=deep` or `response_detail=concise`; their precedence is operator,
+channel, repository, then workspace. Standing rules are typed channel subscriptions such as
+`terraform_plan -> review_terraform_plan`, restricted to human, app, or any matching message. A
+request such as `when I ask about infrastructure health, always do a deep check` or `when you see a
+Terraform plan here, report its main diff and red flags` produces a confirmation card showing the
+normalized behavior, scope, expiry, source filter, and fixed read-only safety boundary. Arbitrary
+prose is never stored as an executable instruction. A configured operator can make this explicit
+setup request in any channel where Responder is invited, even when that channel is not otherwise a
+summon or proactive channel.
+
+`/responder preferences` and `/responder rules` list active and disabled entries with enable,
+disable, edit, and delete controls. An enabled standing rule may admit only its deterministic
+message type even when broad proactive triage is off, then replies in the source thread without
+opening an incident. Slack events remain ordered per channel, and each rule records its source event
+before incrementing its run count so retries cannot execute it twice. Expiry, capacity limits,
+channel deletion, repository removal, and maintenance pruning bound all durable behavior state.
 `/responder shadow` runs the classifier and records its decision, evidence, and coverage without
 posting or creating an incident.
 

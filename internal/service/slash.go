@@ -230,6 +230,16 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 			return s.finishSlashInput(ctx, input, slashUsage("memory"))
 		}
 		return s.finishSlashMemory(ctx, input)
+	case "preferences", "preference":
+		if len(fields) != 1 {
+			return s.finishSlashInput(ctx, input, slashUsage("preferences"))
+		}
+		return s.finishSlashPreferences(ctx, input)
+	case "rules", "rule":
+		if len(fields) != 1 {
+			return s.finishSlashInput(ctx, input, slashUsage("rules"))
+		}
+		return s.finishSlashRules(ctx, input)
 	case "proactive", "watch":
 		return s.configureProactive(ctx, input, fields[1:])
 	case "shadow":
@@ -276,6 +286,46 @@ func (s *Service) finishSlashMemory(
 		return err
 	}
 	return s.finishSlashMessage(ctx, input, slackui.MemoryDirectoryMessage(entries))
+}
+
+func (s *Service) finishSlashPreferences(
+	ctx context.Context,
+	input core.SlackInput,
+) error {
+	repository, err := s.effectiveRepository(
+		ctx, input.ChannelID, input.UserID, s.cfg.Slack.DefaultRepository,
+	)
+	if err != nil {
+		return err
+	}
+	preferences, err := s.store.ListPreferencesForContext(
+		ctx,
+		s.cfg.Slack.TeamID,
+		input.ChannelID,
+		repository,
+		input.UserID,
+		false,
+		20,
+	)
+	if err != nil {
+		return err
+	}
+	return s.finishSlashMessage(
+		ctx, input, slackui.PreferenceDirectoryMessage(preferences),
+	)
+}
+
+func (s *Service) finishSlashRules(
+	ctx context.Context,
+	input core.SlackInput,
+) error {
+	rules, err := s.store.ListStandingRulesForChannel(
+		ctx, input.ChannelID, false, 20,
+	)
+	if err != nil {
+		return err
+	}
+	return s.finishSlashMessage(ctx, input, slackui.RuleDirectoryMessage(rules))
 }
 
 func (s *Service) finishIncidentIntelligence(
@@ -581,6 +631,30 @@ func (s *Service) finishSlashStatus(ctx context.Context, input core.SlackInput) 
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
+	repository, err := s.effectiveRepository(
+		ctx, input.ChannelID, input.UserID, s.cfg.Slack.DefaultRepository,
+	)
+	if err != nil {
+		return err
+	}
+	preferences, err := s.store.ListPreferencesForContext(
+		ctx,
+		s.cfg.Slack.TeamID,
+		input.ChannelID,
+		repository,
+		input.UserID,
+		true,
+		100,
+	)
+	if err != nil {
+		return err
+	}
+	rules, err := s.store.ListStandingRulesForChannel(
+		ctx, input.ChannelID, true, 100,
+	)
+	if err != nil {
+		return err
+	}
 	return s.finishSlashMessage(
 		ctx,
 		input,
@@ -588,7 +662,9 @@ func (s *Service) finishSlashStatus(ctx context.Context, input core.SlackInput) 
 			status,
 			shadow,
 			s.cfg.IsSummonChannel(input.ChannelID),
-			s.cfg.Slack.DefaultRepository,
+			repository,
+			len(preferences),
+			len(rules),
 			incident,
 		),
 	)
@@ -674,7 +750,9 @@ func slashHelpSections() []string {
 			"`/responder status` - explain Responder's behavior in this channel\n" +
 			"`/responder incidents` - show open incidents and engineering tasks\n" +
 			"`/responder incidents all [page]` - include closed work history\n" +
-			"`/responder memory` - inspect and forget saved memory visible here",
+			"`/responder memory` - inspect and forget saved operational facts\n" +
+			"`/responder preferences` - manage investigation and response defaults\n" +
+			"`/responder rules` - manage typed read-only channel automations",
 		"*Control listening*\n" +
 			"`/responder proactive on|off|inherit` - change this channel\n" +
 			"`/responder proactive global on|off|inherit` - change the workspace default\n" +
@@ -737,6 +815,21 @@ func slashUsage(command string) string {
 			"its configured repository, workspace visibility, or your operator visibility. " +
 			"Each entry has an explicit forget control. Saved memory never establishes current " +
 			"health or authorizes a change; live evidence and current repository state win."
+	case "preferences":
+		return "*Manage durable Responder preferences.*\n\n" +
+			"`/responder preferences` lists enabled and disabled preferences that match this " +
+			"operator, channel, repository, or workspace. Use the buttons to enable, disable, " +
+			"replace, or permanently delete them.\n\n" +
+			"Preferences change investigation depth or presentation only. Ask Responder in " +
+			"natural language for a lasting behavior; it will show the exact normalized value, " +
+			"scope, and expiry before saving."
+	case "rules":
+		return "*Manage standing rules for this channel.*\n\n" +
+			"`/responder rules` lists typed read-only subscriptions and their run counts. Use " +
+			"the buttons to enable, disable, replace, or permanently delete them.\n\n" +
+			"An enabled rule can read only its matching messages even when broad proactive " +
+			"triage is off. It replies in the source thread and cannot create incidents, edit " +
+			"files, deploy, approve, or mutate infrastructure."
 	case "proactive":
 		return "*Choose what Responder should read.*\n\n" +
 			"`/responder proactive on|off|inherit` changes only this channel. " +
@@ -1125,6 +1218,8 @@ func slashStatusMessage(
 	shadow shadowStatus,
 	summon bool,
 	repository string,
+	preferenceCount int,
+	ruleCount int,
 	incident *core.Incident,
 ) slackui.Message {
 	state := "passive"
@@ -1143,6 +1238,17 @@ func slashStatusMessage(
 			"*Why this is the effective setting*\n" + effectiveReason(status) + ". " +
 				"Priority is: channel setting, then workspace setting, then deployment configuration.",
 			mentionBehavior(summon),
+			fmt.Sprintf(
+				"*Durable behavior*\n%d enabled preference%s affect investigation method or "+
+					"presentation. %d enabled standing rule%s can admit only their typed "+
+					"matching messages and run read-only threaded checks, even when broad "+
+					"proactive triage is off. Use `/responder preferences` or "+
+					"`/responder rules` to inspect exact entries.",
+				preferenceCount,
+				map[bool]string{true: "", false: "s"}[preferenceCount == 1],
+				ruleCount,
+				map[bool]string{true: "", false: "s"}[ruleCount == 1],
+			),
 		},
 		Fields: []slackui.Field{
 			{Label: "This channel", Value: channelSettingDescription(status.ChannelOverride)},

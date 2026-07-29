@@ -85,6 +85,48 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			}
 			return nil
 		}
+		switch input.ActionID {
+		case slackui.ActionRememberPreference:
+			if err := s.handleRememberPreference(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionTogglePreference:
+			if err := s.handleTogglePreference(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionEditPreference:
+			if err := s.handleEditPreference(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionDeletePreference:
+			if err := s.handleDeletePreference(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionRememberRule:
+			if err := s.handleRememberRule(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionToggleRule:
+			if err := s.handleToggleRule(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionEditRule:
+			if err := s.handleEditRule(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionDeleteRule:
+			if err := s.handleDeleteRule(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
 	}
 	if input.Kind == "shortcut" {
 		allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
@@ -133,6 +175,10 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	summoned := errors.Is(incidentErr, store.ErrNotFound) &&
 		input.Kind == "mention" &&
 		s.cfg.IsSummonChannel(input.ChannelID)
+	behaviorRequest := errors.Is(incidentErr, store.ErrNotFound) &&
+		input.Kind == "mention" &&
+		s.cfg.IsOperator(input.UserID) &&
+		explicitBehaviorRequest(input.Text)
 	if errors.Is(incidentErr, store.ErrNotFound) {
 		if directRequest {
 			watched = true
@@ -141,9 +187,17 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			if err != nil {
 				return s.retrySlackInput(ctx, input, err)
 			}
+			if !watched {
+				rules, ruleErr := s.matchingStandingRules(ctx, input)
+				if ruleErr != nil {
+					return s.retrySlackInput(ctx, input, ruleErr)
+				}
+				watched = len(rules) > 0
+			}
 		}
 	}
-	if errors.Is(incidentErr, store.ErrNotFound) && (watched || summoned) {
+	if errors.Is(incidentErr, store.ErrNotFound) &&
+		(watched || summoned || behaviorRequest) {
 		if input.Kind != "bot_message" {
 			allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
 			if allowedErr != nil {
@@ -479,6 +533,17 @@ func (s *Service) processChannelLifecycleInput(
 				Kind: "memory.channel_deleted", ActorID: input.UserID,
 				ObjectID: input.ChannelID, Outcome: "deleted",
 				Detail: fmt.Sprintf("entries=%d", deleted),
+			})
+		}
+		preferences, rules, err := s.store.DeleteChannelBehavior(ctx, input.ChannelID)
+		if err != nil {
+			return err
+		}
+		if preferences+rules > 0 {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "behavior.channel_deleted", ActorID: input.UserID,
+				ObjectID: input.ChannelID, Outcome: "deleted",
+				Detail: fmt.Sprintf("preferences=%d rules=%d", preferences, rules),
 			})
 		}
 	}

@@ -458,6 +458,62 @@ func TestSchemaV2MigratesIncidentChannelLifecycle(t *testing.T) {
 	}
 }
 
+func TestSchemaV9MigratesBehaviorPreferencesAndRules(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range []string{
+		schemaV1, schemaV2, schemaV3, schemaV4, schemaV5,
+		schemaV6, schemaV7, schemaV8, schemaV9,
+	} {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO schema_version(version) VALUES (9)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, _, err := st.UpsertPreference(
+		context.Background(),
+		core.ResponderPreference{
+			ScopeKind: "workspace", ScopeKey: "TWORKSPACE",
+			Name: "health_check_depth", Value: "deep",
+			SourceRef: "slack_pref", ActorID: "UOPERATOR",
+			ExpiresAt: time.Now().UTC().Add(time.Hour),
+		},
+		10,
+		5,
+	); err != nil {
+		t.Fatalf("migrated preference table: %v", err)
+	}
+	if _, _, err := st.UpsertStandingRule(
+		context.Background(),
+		core.StandingRule{
+			ChannelID: "COPS", Repository: "repo",
+			Trigger: "terraform_plan", Action: "review_terraform_plan",
+			SourceKind: "any", SourceRef: "slack_rule", ActorID: "UOPERATOR",
+			ExpiresAt: time.Now().UTC().Add(time.Hour),
+		},
+		10,
+		5,
+	); err != nil {
+		t.Fatalf("migrated standing rule table: %v", err)
+	}
+}
+
 func TestSchemaV4MigratesEngineeringTaskScopeWithoutMovingBoundRooms(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {

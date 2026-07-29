@@ -15,11 +15,14 @@ display_information:
     observations, health-layer coverage, timelines, and shift handoffs.
     Explicit repository-change requests can offer an operator-confirmed engineering task in the
     same Slack thread, backed by an isolated writable Coop fork.
+    Typed preferences and standing channel rules require operator confirmation, show their scope
+    and expiry, and remain bounded read-only behavior rather than arbitrary executable memory.
     Operators can collaborate anywhere in the incident room without repeating an @mention,
     request status, inspect changes, run review, stop work, and close the incident. Responder
     automatically allocates investigation capacity up to an operator-configurable safety ceiling.
-    The /responder command manages proactive channel behavior, capacity policy, and incident
-    controls. Infrastructure access remains policy-controlled and audited through Emisar.
+    The /responder command manages preferences, standing rules, proactive channel behavior,
+    capacity policy, and incident controls. Infrastructure access remains policy-controlled and
+    audited through Emisar.
     Responder never merges, deploys, signs commits, or bypasses infrastructure approvals.
     An operator-confirmed engineering task can publish its reviewed tree to a Responder-owned
     branch and draft pull request; that publication is explicit and cannot merge the PR.
@@ -54,7 +57,7 @@ features:
   slash_commands:
     - command: /responder
       description: Check incidents, configure Responder, and control incident work
-      usage_hint: help | status | incidents | memory | proactive | shadow
+      usage_hint: help | status | incidents | preferences | rules
       should_escape: false
   shortcuts:
     - name: Investigate message

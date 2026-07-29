@@ -160,6 +160,21 @@ untrusted hints and gives fresh live evidence, current repository content, and R
 configuration higher precedence. Recent evidence is referenced from the existing ledger rather
 than copied. Expiry, caps, channel deletion, and the normal maintenance prune bound storage.
 
+Durable behavior uses two additional typed tables rather than turning memory prose into a hidden
+prompt. `responder_preferences` stores one value per logical `(scope_kind, scope_key, name)` and
+resolves operator, channel, repository, then workspace precedence. `standing_rules` stores one
+allowlisted trigger/action/source tuple per channel and repository.
+`standing_rule_runs(rule_id, source_input)` is the idempotency boundary for Slack redelivery and
+worker retry.
+
+The model can only propose an inert typed offer. Host validation owns the catalog, expiry,
+authorization, capacity, replacement key, Slack confirmation, and audit receipt. Rule matching is
+also host-owned and deterministic; the model receives only already-matched rules and must return a
+read-only threaded reply. This keeps arbitrary user prose out of executable instructions and
+allows one subscribed message class to operate while general proactivity is disabled. Expiry,
+channel deletion, repository reconciliation, and maintenance prune remove behavior state and
+dependent run records.
+
 ## Operational actions
 
 Model-proposed and autonomous operational mutation remains disabled. Shared-channel work is

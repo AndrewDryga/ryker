@@ -18,23 +18,31 @@ import (
 const (
 	IncidentCardRevision = "2026-07-28.1"
 
-	ActionUpdate          = "responder_update"
-	ActionChanges         = "responder_changes"
-	ActionReview          = "responder_review"
-	ActionPublishPR       = "responder_publish_pr"
-	ActionViewPR          = "responder_view_pr"
-	ActionDiscardWork     = "responder_discard_work"
-	ActionStop            = "responder_stop"
-	ActionExtend          = "responder_extend"
-	ActionResolve         = "responder_resolve"
-	ActionHelp            = "responder_help"
-	ActionOpenIncident    = "responder_open_incident"
-	ActionStartTask       = "responder_start_engineering_task"
-	ActionApproveProposal = "responder_approve_proposal"
-	ActionRejectProposal  = "responder_reject_proposal"
-	ActionOpenApproval    = "responder_open_emisar_approval"
-	ActionRememberMemory  = "responder_remember_memory"
-	ActionForgetMemory    = "responder_forget_memory"
+	ActionUpdate             = "responder_update"
+	ActionChanges            = "responder_changes"
+	ActionReview             = "responder_review"
+	ActionPublishPR          = "responder_publish_pr"
+	ActionViewPR             = "responder_view_pr"
+	ActionDiscardWork        = "responder_discard_work"
+	ActionStop               = "responder_stop"
+	ActionExtend             = "responder_extend"
+	ActionResolve            = "responder_resolve"
+	ActionHelp               = "responder_help"
+	ActionOpenIncident       = "responder_open_incident"
+	ActionStartTask          = "responder_start_engineering_task"
+	ActionApproveProposal    = "responder_approve_proposal"
+	ActionRejectProposal     = "responder_reject_proposal"
+	ActionOpenApproval       = "responder_open_emisar_approval"
+	ActionRememberMemory     = "responder_remember_memory"
+	ActionForgetMemory       = "responder_forget_memory"
+	ActionRememberPreference = "responder_remember_preference"
+	ActionTogglePreference   = "responder_toggle_preference"
+	ActionEditPreference     = "responder_edit_preference"
+	ActionDeletePreference   = "responder_delete_preference"
+	ActionRememberRule       = "responder_remember_rule"
+	ActionToggleRule         = "responder_toggle_rule"
+	ActionEditRule           = "responder_edit_rule"
+	ActionDeleteRule         = "responder_delete_rule"
 
 	ActionCommandStatus            = "responder_command_status"
 	ActionCommandOpenIncidents     = "responder_command_incidents_open"
@@ -535,6 +543,70 @@ func WithMemoryOffer(
 	return message
 }
 
+func WithPreferenceOffer(
+	message Message,
+	offer core.PreferenceOffer,
+	preference core.ResponderPreference,
+	actionValue string,
+	expiresLabel string,
+) Message {
+	message.Sections = append(message.Sections, fmt.Sprintf(
+		"*Proposed Responder preference*\n"+
+			"Set `%s` to `%s`.\n\n"+
+			"Scope: %s · Expires: %s",
+		offer.Name,
+		offer.Value,
+		preferenceScopeLabel(preference),
+		expiresLabel,
+	))
+	message.Context = append(
+		message.Context,
+		"Nothing is saved yet. This preference changes investigation depth or presentation only; it cannot establish health, create an incident, edit files, approve an action, or mutate infrastructure.",
+	)
+	message.Actions = append(message.Actions, Action{
+		ID:    ActionRememberPreference,
+		Label: "Save preference",
+		Value: actionValue,
+		Style: "primary",
+		Confirm: "Save this " + preference.ScopeKind + " preference for " +
+			expiresLabel + "? It changes future Responder behavior within the shown scope.",
+	})
+	return message
+}
+
+func WithRuleOffer(
+	message Message,
+	offer core.RuleOffer,
+	rule core.StandingRule,
+	actionValue string,
+	expiresLabel string,
+) Message {
+	message.Sections = append(message.Sections, fmt.Sprintf(
+		"*Proposed standing rule*\n"+
+			"When `%s` matches a `%s` message, run `%s` against repository `%s` "+
+			"and reply in that message's thread.\n\n"+
+			"Scope: This channel · Expires: %s",
+		offer.Trigger,
+		offer.SourceKind,
+		offer.Action,
+		offer.Repository,
+		expiresLabel,
+	))
+	message.Context = append(
+		message.Context,
+		"Nothing is saved yet. This rule listens only for its typed trigger, even when broad proactive triage is off. It is read-only and cannot create an incident, edit files, deploy, approve, or mutate infrastructure.",
+	)
+	message.Actions = append(message.Actions, Action{
+		ID:    ActionRememberRule,
+		Label: "Enable standing rule",
+		Value: actionValue,
+		Style: "primary",
+		Confirm: "Enable this read-only standing rule in the current channel for " +
+			expiresLabel + "? Matching messages will start a bounded investigation and receive a threaded reply.",
+	})
+	return message
+}
+
 func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
 	message.Header = "Approval required in Emisar"
 	message.Text = truncateUTF8(
@@ -582,6 +654,278 @@ func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
 		URL:   approval.ApprovalURL,
 	})
 	return message
+}
+
+func PreferenceSavedMessage(
+	preference core.ResponderPreference,
+	replaced bool,
+) Message {
+	header := "Responder preference saved"
+	if replaced {
+		header = "Responder preference updated"
+	}
+	return Message{
+		Text: fmt.Sprintf(
+			"%s: %s is now %s for %s scope.",
+			header, preference.Name, preference.Value, preference.ScopeKind,
+		),
+		Header: header,
+		Sections: []string{fmt.Sprintf(
+			"`%s` = `%s`\n\nScope: %s\nExpires: %s",
+			preference.Name,
+			preference.Value,
+			preferenceScopeLabel(preference),
+			preference.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+		)},
+		Context: []string{
+			preferencePrecedenceText(preference) +
+				" It changes investigation behavior only and does not authorize incidents or changes.",
+		},
+		Actions: preferenceActions(preference),
+	}
+}
+
+func PreferenceStateMessage(preference core.ResponderPreference) Message {
+	state := "disabled"
+	if preference.Enabled {
+		state = "enabled"
+	}
+	return Message{
+		Text:   fmt.Sprintf("Responder preference %s is %s.", preference.Name, state),
+		Header: "Preference " + state,
+		Sections: []string{fmt.Sprintf(
+			"`%s` remains `%s` for %s and is now *%s*.",
+			preference.Name, preference.Value, preferenceScopeLabel(preference), state,
+		)},
+		Context: []string{
+			"Disabled preferences remain stored until expiry or deletion and are not supplied to investigations.",
+		},
+		Actions: preferenceActions(preference),
+	}
+}
+
+func PreferenceDeletedMessage() Message {
+	return Message{
+		Text:     "Responder permanently deleted the selected preference.",
+		Header:   "Preference deleted",
+		Sections: []string{"The preference will no longer affect future investigations."},
+		Context:  []string{"The audit trail retains only its ID, scope, and deletion outcome."},
+	}
+}
+
+func PreferenceDirectoryMessage(
+	preferences []core.ResponderPreference,
+) Message {
+	message := Message{
+		Text:   fmt.Sprintf("Responder has %d unexpired preferences visible here.", len(preferences)),
+		Header: "Responder preferences",
+		Context: []string{
+			"Precedence is operator, channel, repository, then workspace. Disabled preferences are retained but do not affect investigations.",
+		},
+	}
+	if len(preferences) == 0 {
+		message.Sections = []string{
+			"No operator, channel, repository, or workspace preference matches this context.",
+			"Examples: `@Responder when I ask for infrastructure health, always run a deep check` or `@Responder from now on keep responses concise in this channel`. Responder will show a confirmation before saving.",
+		}
+		return message
+	}
+	for index, preference := range preferences[:min(len(preferences), 8)] {
+		state := "disabled"
+		if preference.Enabled {
+			state = "enabled"
+		}
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"*%d.* `%s` = `%s`\n%s · %s · expires %s",
+			index+1,
+			preference.Name,
+			preference.Value,
+			state,
+			preferenceScopeLabel(preference),
+			preference.ExpiresAt.UTC().Format("2006-01-02"),
+		))
+		message.Actions = append(message.Actions, preferenceActions(preference)...)
+	}
+	return message
+}
+
+func RuleSavedMessage(rule core.StandingRule, replaced bool) Message {
+	header := "Standing rule enabled"
+	if replaced {
+		header = "Standing rule updated"
+	}
+	return Message{
+		Text: fmt.Sprintf(
+			"%s: %s triggers %s in this channel.",
+			header, rule.Trigger, rule.Action,
+		),
+		Header: header,
+		Sections: []string{fmt.Sprintf(
+			"`%s` -> `%s`\n\nRepository: `%s` · Source: `%s`\n"+
+				"Expires: %s",
+			rule.Trigger,
+			rule.Action,
+			rule.Repository,
+			rule.SourceKind,
+			rule.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+		)},
+		Context: []string{
+			"Matching messages now start a read-only investigation and receive a threaded reply, even when broad proactive triage is off. Slack event IDs and durable rule runs prevent duplicate execution.",
+		},
+		Actions: ruleActions(rule),
+	}
+}
+
+func RuleStateMessage(rule core.StandingRule) Message {
+	state := "disabled"
+	if rule.Enabled {
+		state = "enabled"
+	}
+	return Message{
+		Text:   fmt.Sprintf("Standing rule %s is %s.", rule.Trigger, state),
+		Header: "Standing rule " + state,
+		Sections: []string{fmt.Sprintf(
+			"`%s` -> `%s` is now *%s* in this channel.",
+			rule.Trigger, rule.Action, state,
+		)},
+		Context: []string{
+			"Disabled rules remain stored until expiry or deletion and do not admit or investigate matching messages.",
+		},
+		Actions: ruleActions(rule),
+	}
+}
+
+func RuleDeletedMessage() Message {
+	return Message{
+		Text:     "Responder permanently deleted the selected standing rule.",
+		Header:   "Standing rule deleted",
+		Sections: []string{"Matching messages will no longer trigger this rule."},
+		Context:  []string{"Durable execution records age out with normal operational retention."},
+	}
+}
+
+func RuleDirectoryMessage(rules []core.StandingRule) Message {
+	message := Message{
+		Text:   fmt.Sprintf("Responder has %d unexpired standing rules in this channel.", len(rules)),
+		Header: "Standing rules for this channel",
+		Context: []string{
+			"Rules are typed, read-only subscriptions. They can admit matching messages while broad proactive triage is off; they never create incidents or authorize changes.",
+		},
+	}
+	if len(rules) == 0 {
+		message.Sections = []string{
+			"No standing rules are configured in this channel.",
+			"Example: `@Responder when you see a new Terraform plan here, review its main diff and red flags`. Responder will show the normalized trigger, repository, expiry, and safety boundary before saving.",
+		}
+		return message
+	}
+	for index, rule := range rules[:min(len(rules), 8)] {
+		state := "disabled"
+		if rule.Enabled {
+			state = "enabled"
+		}
+		lastRun := "never"
+		if !rule.LastTriggered.IsZero() {
+			lastRun = rule.LastTriggered.UTC().Format("2006-01-02 15:04 UTC")
+		}
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"*%d.* `%s` -> `%s`\n%s · source `%s` · repository `%s`\n"+
+				"Runs: %d · last: %s · expires: %s",
+			index+1,
+			rule.Trigger,
+			rule.Action,
+			state,
+			rule.SourceKind,
+			rule.Repository,
+			rule.TriggerCount,
+			lastRun,
+			rule.ExpiresAt.UTC().Format("2006-01-02"),
+		))
+		message.Actions = append(message.Actions, ruleActions(rule)...)
+	}
+	return message
+}
+
+func preferenceScopeLabel(preference core.ResponderPreference) string {
+	switch preference.ScopeKind {
+	case "operator":
+		return "You (operator preference)"
+	case "channel":
+		return "This channel"
+	case "repository":
+		return "Repository `" + safeInlineCode(preference.ScopeKey) + "`"
+	case "workspace":
+		return "This Slack workspace"
+	default:
+		return "Unknown scope"
+	}
+}
+
+func preferencePrecedenceText(preference core.ResponderPreference) string {
+	switch preference.ScopeKind {
+	case "operator":
+		return "The preference is enabled and has the highest precedence for your requests."
+	case "channel":
+		return "The preference is enabled. Your operator preference, if configured, takes precedence."
+	case "repository":
+		return "The preference is enabled. Operator and channel preferences, if configured, take precedence."
+	case "workspace":
+		return "The preference is enabled. Operator, channel, and repository preferences, if configured, take precedence."
+	default:
+		return "The preference is enabled."
+	}
+}
+
+func preferenceActions(preference core.ResponderPreference) []Action {
+	label := "Disable preference"
+	if !preference.Enabled {
+		label = "Enable preference"
+	}
+	return []Action{
+		{
+			ID: ActionTogglePreference, Label: label,
+			Value: behaviorToggleValue(preference.ID, !preference.Enabled),
+		},
+		{
+			ID: ActionEditPreference, Label: "Edit preference",
+			Value: preference.ID,
+		},
+		{
+			ID: ActionDeletePreference, Label: "Delete preference",
+			Value: preference.ID, Style: "danger",
+			Confirm: "Permanently delete this Responder preference? It will stop affecting future investigations.",
+		},
+	}
+}
+
+func ruleActions(rule core.StandingRule) []Action {
+	label := "Disable rule"
+	if !rule.Enabled {
+		label = "Enable rule"
+	}
+	return []Action{
+		{
+			ID: ActionToggleRule, Label: label,
+			Value: behaviorToggleValue(rule.ID, !rule.Enabled),
+		},
+		{
+			ID: ActionEditRule, Label: "Edit rule",
+			Value: rule.ID,
+		},
+		{
+			ID: ActionDeleteRule, Label: "Delete rule",
+			Value: rule.ID, Style: "danger",
+			Confirm: "Permanently delete this standing rule? Matching messages will no longer trigger it.",
+		},
+	}
+}
+
+func behaviorToggleValue(id string, enabled bool) string {
+	data, _ := json.Marshal(struct {
+		ID      string `json:"id"`
+		Enabled bool   `json:"enabled"`
+	}{ID: id, Enabled: enabled})
+	return string(data)
 }
 
 func MemorySavedMessage(entry core.MemoryEntry, replaced bool) Message {
@@ -1120,8 +1464,12 @@ func OperationsHome(
 	cleanupPending int,
 	cleanupBlocked int,
 	memoryActive int,
+	preferenceActive int,
+	ruleActive int,
 	incidents []core.Incident,
 	memories []core.MemoryEntry,
+	preferences []core.ResponderPreference,
+	rules []core.StandingRule,
 ) Message {
 	state := "Operational"
 	if failedWork > 0 {
@@ -1143,6 +1491,8 @@ func OperationsHome(
 			{Label: "Cleanup queued", Value: fmt.Sprint(cleanupPending)},
 			{Label: "Cleanup blocked", Value: fmt.Sprint(cleanupBlocked)},
 			{Label: "Saved memory visible here", Value: fmt.Sprint(memoryActive)},
+			{Label: "Enabled preferences", Value: fmt.Sprint(preferenceActive)},
+			{Label: "Enabled standing rules", Value: fmt.Sprint(ruleActive)},
 		},
 		Context: []string{
 			"Use `/responder incidents`, `/responder status`, or `/responder help` in a channel for interactive controls.",
@@ -1206,6 +1556,51 @@ func OperationsHome(
 			message.Context,
 			"Saved memory is an operator-confirmed hint, never current health evidence. Fresh live observations and repository state take precedence.",
 		)
+	}
+	if len(preferences) > 0 {
+		var saved strings.Builder
+		saved.WriteString("*Responder preferences*\n")
+		for index, preference := range preferences[:min(len(preferences), 3)] {
+			state := "disabled"
+			if preference.Enabled {
+				state = "enabled"
+			}
+			fmt.Fprintf(
+				&saved,
+				"\n%d. **`%s` = `%s`** - %s\n   %s scope; expires %s",
+				index+1,
+				preference.Name,
+				preference.Value,
+				state,
+				preference.ScopeKind,
+				preference.ExpiresAt.UTC().Format("2006-01-02"),
+			)
+			message.Actions = append(message.Actions, preferenceActions(preference)...)
+		}
+		message.Sections = append(message.Sections, saved.String())
+	}
+	if len(rules) > 0 {
+		var saved strings.Builder
+		saved.WriteString("*Standing rules*\n")
+		for index, rule := range rules[:min(len(rules), 3)] {
+			state := "disabled"
+			if rule.Enabled {
+				state = "enabled"
+			}
+			fmt.Fprintf(
+				&saved,
+				"\n%d. **`%s` -> `%s`** - %s\n   channel `%s`; %d runs; expires %s",
+				index+1,
+				rule.Trigger,
+				rule.Action,
+				state,
+				rule.ChannelID,
+				rule.TriggerCount,
+				rule.ExpiresAt.UTC().Format("2006-01-02"),
+			)
+			message.Actions = append(message.Actions, ruleActions(rule)...)
+		}
+		message.Sections = append(message.Sections, saved.String())
 	}
 	return message
 }

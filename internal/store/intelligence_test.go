@@ -171,6 +171,48 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	}
 }
 
+func TestDetachChannelSessionPreservesDurableMemory(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	started := time.Now().UTC().Add(-time.Minute)
+	if err := st.BindChannelSession(
+		ctx, "COPS", "emisar", "ses_1", 7, 3, started,
+	); err != nil {
+		t.Fatal(err)
+	}
+	state := core.AgentMemory{
+		Goal:      "Assess production health",
+		Decisions: []string{"Use declared topology to interpret runner identities"},
+	}
+	if err := st.AdvanceChannelMemory(ctx, "COPS", 8, state); err != nil {
+		t.Fatal(err)
+	}
+	detached, err := st.DetachChannelSession(ctx, "COPS", "ses_other")
+	if err != nil || detached {
+		t.Fatalf("detach wrong session = %t, %v", detached, err)
+	}
+	detached, err = st.DetachChannelSession(ctx, "COPS", "ses_1")
+	if err != nil || !detached {
+		t.Fatalf("detach bound session = %t, %v", detached, err)
+	}
+	memory, err := st.GetChannelMemory(ctx, "COPS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if memory.SessionID != "" || memory.SessionRevision != 0 ||
+		memory.TurnCount != 0 || !memory.SessionStarted.IsZero() ||
+		memory.Generation != 3 || memory.Repository != "emisar" ||
+		memory.State.Goal != state.Goal ||
+		len(memory.State.Decisions) != 1 {
+		t.Fatalf("detached memory = %+v", memory)
+	}
+}
+
 func TestActionProposalRequiresDistinctApprovers(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

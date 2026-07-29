@@ -1593,6 +1593,15 @@ func TestSlashHelpButtonsRouteToReadOnlyCommands(t *testing.T) {
 		help.Actions[2].ID != slackui.ActionCommandAllIncidents {
 		t.Fatalf("interactive help = %+v", help)
 	}
+	helpContent := strings.Join(help.Sections, "\n")
+	for _, command := range []string{
+		"`/responder preferences`",
+		"`/responder rules`",
+	} {
+		if !strings.Contains(helpContent, command) {
+			t.Fatalf("interactive help lacks %s: %+v", command, help)
+		}
+	}
 	actionIDs := make(map[string]bool)
 	for _, action := range help.Actions {
 		if actionIDs[action.ID] {
@@ -2668,19 +2677,21 @@ func createBoundIncident(t *testing.T, ctx context.Context, st *store.Store) cor
 }
 
 type fakeCoop struct {
-	session          coop.Session
-	turn             coop.Turn
-	events           []coop.Event
-	createKeys       []string
-	createTasks      []string
-	listSessions     []coop.Session
-	createErrors     []error
-	submitKeys       []string
-	submitPrompts    []string
-	submitState      string
-	completeOnSubmit string
-	discardPlan      coop.DiscardPlan
-	discardCalls     int
+	session            coop.Session
+	turn               coop.Turn
+	events             []coop.Event
+	createKeys         []string
+	createTasks        []string
+	listSessions       []coop.Session
+	createErrors       []error
+	createResultState  string
+	openAfterCreateKey string
+	submitKeys         []string
+	submitPrompts      []string
+	submitState        string
+	completeOnSubmit   string
+	discardPlan        coop.DiscardPlan
+	discardCalls       int
 }
 
 func newFakeCoop() *fakeCoop {
@@ -2705,7 +2716,17 @@ func (f *fakeCoop) CreateSession(_ context.Context, key, _, task string) (coop.S
 		f.session.State = "open"
 		f.session.Activity = "parked"
 	}
-	return f.session, coop.Operation{}, nil
+	if key == f.openAfterCreateKey {
+		f.session.ID = "ses_2"
+		f.session.State = "open"
+		f.session.Activity = "parked"
+		f.session.Revision = 1
+	}
+	result := f.session
+	if f.createResultState != "" {
+		result.State = f.createResultState
+	}
+	return result, coop.Operation{}, nil
 }
 
 func (f *fakeCoop) ListSessions(context.Context, int) ([]coop.Session, error) {

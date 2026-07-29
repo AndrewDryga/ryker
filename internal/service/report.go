@@ -21,6 +21,8 @@ type agentReport struct {
 	Coverage        []core.Coverage       `json:"coverage,omitempty"`
 	Memory          core.AgentMemory      `json:"memory,omitempty"`
 	MemoryOffer     *core.MemoryOffer     `json:"memory_offer,omitempty"`
+	PreferenceOffer *core.PreferenceOffer `json:"preference_offer,omitempty"`
+	RuleOffer       *core.RuleOffer       `json:"rule_offer,omitempty"`
 	PendingApproval *core.EmisarApproval  `json:"pending_approval,omitempty"`
 	Proposals       []core.ActionProposal `json:"proposals,omitempty"`
 }
@@ -72,6 +74,21 @@ func decodeAgentReport(message string) (agentReport, error) {
 	}
 	if strings.TrimSpace(report.Message) == "" {
 		return agentReport{}, errors.New("structured agent response has no message")
+	}
+	offerCount := 0
+	for _, present := range []bool{
+		report.MemoryOffer != nil,
+		report.PreferenceOffer != nil,
+		report.RuleOffer != nil,
+	} {
+		if present {
+			offerCount++
+		}
+	}
+	if offerCount > 1 {
+		return agentReport{}, errors.New(
+			"structured agent response has multiple durable behavior offers",
+		)
 	}
 	return report, nil
 }
@@ -156,6 +173,37 @@ func (s *Service) persistAgentReport(
 		report.MemoryOffer.ExpiresIn = s.cleanStructuredField(report.MemoryOffer.ExpiresIn, 20)
 		report.MemoryOffer.SourceRevision = s.cleanStructuredField(
 			report.MemoryOffer.SourceRevision, 200,
+		)
+	}
+	if report.PreferenceOffer != nil {
+		report.PreferenceOffer.Scope = s.cleanStructuredField(
+			report.PreferenceOffer.Scope, 20,
+		)
+		report.PreferenceOffer.Repository = s.cleanStructuredField(
+			report.PreferenceOffer.Repository, 63,
+		)
+		report.PreferenceOffer.Name = s.cleanStructuredField(
+			report.PreferenceOffer.Name, 80,
+		)
+		report.PreferenceOffer.Value = s.cleanStructuredField(
+			report.PreferenceOffer.Value, 80,
+		)
+		report.PreferenceOffer.ExpiresIn = s.cleanStructuredField(
+			report.PreferenceOffer.ExpiresIn, 20,
+		)
+	}
+	if report.RuleOffer != nil {
+		report.RuleOffer.Scope = s.cleanStructuredField(report.RuleOffer.Scope, 20)
+		report.RuleOffer.Repository = s.cleanStructuredField(
+			report.RuleOffer.Repository, 63,
+		)
+		report.RuleOffer.Trigger = s.cleanStructuredField(report.RuleOffer.Trigger, 80)
+		report.RuleOffer.Action = s.cleanStructuredField(report.RuleOffer.Action, 80)
+		report.RuleOffer.SourceKind = s.cleanStructuredField(
+			report.RuleOffer.SourceKind, 20,
+		)
+		report.RuleOffer.ExpiresIn = s.cleanStructuredField(
+			report.RuleOffer.ExpiresIn, 20,
 		)
 	}
 	if report.PendingApproval != nil {
@@ -582,6 +630,21 @@ func structuredResponseInstructions() string {
     "expires_in": "7d|30d|90d|365d",
     "source_revision": "optional immutable repository revision"
   },
+  "preference_offer": {
+    "scope": "operator|channel|repository|workspace",
+    "repository": "exact configured repository key when scope is repository",
+    "name": "health_check_depth|response_detail",
+    "value": "typed value from the supported preference catalog",
+    "expires_in": "7d|30d|90d|365d"
+  },
+  "rule_offer": {
+    "scope": "channel",
+    "repository": "exact configured repository key",
+    "trigger": "terraform_plan|deployment|operational_alert",
+    "action": "review_terraform_plan|verify_deployment|triage_alert",
+    "source_kind": "any|human|app",
+    "expires_in": "7d|30d|90d|365d"
+  },
   "pending_approval": {
     "request_id": "exact approval.request_id returned by Emisar",
     "run_id": "exact run_id returned by Emisar",
@@ -609,7 +672,11 @@ func structuredResponseInstructions() string {
 Omit memory_offer unless the current configured operator explicitly asked Responder to remember,
 save, or correct durable operational context. A memory offer is inert until the host displays an
 exact confirmation and an operator clicks it. Never use it for current health, credentials,
-secrets, approvals, or transient observations. Use an empty array when no evidence, coverage, or
+secrets, approvals, or transient observations.
+
+` + behaviorOfferPolicy + `
+
+Return at most one of memory_offer, preference_offer, or rule_offer. Use an empty array when no evidence, coverage, or
 action proposal exists. Omit pending_approval unless the latest exact Emisar run response has
 status pending_approval and includes its approval object. Copy only the exact Emisar run and
 approval fields into pending_approval; never infer, rewrite, or invent any identifier, URL, expiry,

@@ -62,6 +62,16 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	} else if pruned > 0 {
 		s.log.Info("pruned orphaned operational memory", "records", pruned)
 	}
+	if preferences, rules, err := s.store.PruneOrphanBehavior(ctx, repositories); err != nil &&
+		ctx.Err() == nil {
+		s.log.Warn("orphaned Responder behavior pruning failed", "error", err)
+	} else if preferences+rules > 0 {
+		s.log.Info(
+			"pruned orphaned Responder behavior",
+			"preferences", preferences,
+			"rules", rules,
+		)
+	}
 	result, err := s.store.Prune(
 		ctx,
 		now.Add(-s.cfg.Retention.OperationalData.Duration),
@@ -85,6 +95,9 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"evaluations", result.EvaluationDecisions,
 			"channel_intelligence", result.ChannelIntelligence,
 			"memory_entries", result.MemoryEntries,
+			"preferences", result.Preferences,
+			"standing_rules", result.StandingRules,
+			"standing_rule_runs", result.StandingRuleRuns,
 			"action_proposals", result.ActionProposals,
 			"emisar_approvals", result.EmisarApprovals,
 			"closed_work", result.ClosedIncidents,

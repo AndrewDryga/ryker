@@ -54,7 +54,11 @@ webhooks:
 		!cfg.Slack.NativeStatus || !cfg.Slack.AssistantExperience ||
 		!cfg.IsWatchChannel("C456DEF") ||
 		cfg.Limits.MaxMemoryEntries != 1000 ||
-		cfg.Limits.MaxMemoryEntriesPerScope != 100 {
+		cfg.Limits.MaxMemoryEntriesPerScope != 100 ||
+		cfg.Limits.MaxPreferences != 500 ||
+		cfg.Limits.MaxPreferencesPerScope != 50 ||
+		cfg.Limits.MaxStandingRules != 500 ||
+		cfg.Limits.MaxRulesPerChannel != 25 {
 		t.Fatalf("defaults missing: %+v %+v", cfg.Coop, cfg.Slack)
 	}
 	if cfg.Coop.StateDir != filepath.Join(cfg.StateDir, "coop") ||
@@ -143,6 +147,12 @@ webhooks:
 		},
 		"memory scope exceeds total": func(s string) string {
 			return s + "limits:\n  max_memory_entries: 100\n  max_memory_entries_per_scope: 101\n"
+		},
+		"preference scope exceeds total": func(s string) string {
+			return s + "limits:\n  max_preferences: 10\n  max_preferences_per_scope: 11\n"
+		},
+		"rule channel exceeds total": func(s string) string {
+			return s + "limits:\n  max_standing_rules: 10\n  max_rules_per_channel: 11\n"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

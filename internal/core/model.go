@@ -287,6 +287,54 @@ type MemoryEntry struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+type PreferenceOffer struct {
+	Scope      string `json:"scope"`
+	Repository string `json:"repository,omitempty"`
+	Name       string `json:"name"`
+	Value      string `json:"value"`
+	ExpiresIn  string `json:"expires_in,omitempty"`
+}
+
+type ResponderPreference struct {
+	ID        string
+	ScopeKind string
+	ScopeKey  string
+	Name      string
+	Value     string
+	Enabled   bool
+	SourceRef string
+	ActorID   string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type RuleOffer struct {
+	Scope      string `json:"scope"`
+	Repository string `json:"repository"`
+	Trigger    string `json:"trigger"`
+	Action     string `json:"action"`
+	SourceKind string `json:"source_kind,omitempty"`
+	ExpiresIn  string `json:"expires_in,omitempty"`
+}
+
+type StandingRule struct {
+	ID            string
+	ChannelID     string
+	Repository    string
+	Trigger       string
+	Action        string
+	SourceKind    string
+	Enabled       bool
+	SourceRef     string
+	ActorID       string
+	TriggerCount  int
+	LastTriggered time.Time
+	ExpiresAt     time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 func (m *AgentMemory) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -477,6 +525,9 @@ type PruneResult struct {
 	EvaluationDecisions int64
 	ChannelIntelligence int64
 	MemoryEntries       int64
+	Preferences         int64
+	StandingRules       int64
+	StandingRuleRuns    int64
 	ActionProposals     int64
 	EmisarApprovals     int64
 	ClosedIncidents     int64
@@ -486,5 +537,6 @@ type PruneResult struct {
 func (r PruneResult) Total() int64 {
 	return r.SlackInputs + r.WebhookEvents + r.OutboxMessages + r.TurnSubmissions +
 		r.EvaluationDecisions + r.ChannelIntelligence + r.MemoryEntries + r.ActionProposals +
-		r.EmisarApprovals + r.ClosedIncidents + r.AuditEvents
+		r.Preferences + r.StandingRules + r.StandingRuleRuns + r.EmisarApprovals +
+		r.ClosedIncidents + r.AuditEvents
 }

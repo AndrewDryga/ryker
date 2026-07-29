@@ -130,6 +130,35 @@ memory remains a potentially stale hint: live tools, current repository content,
 configuration take precedence. Recent source-attributed evidence is retrieved from the existing
 same-channel evidence ledger and is not duplicated into memory.
 
+Operator-confirmed behavior is stored separately from factual operational memory:
+
+- Preferences use the closed catalog `health_check_depth=quick|standard|deep` and
+  `response_detail=concise|standard|detailed`. Effective precedence is operator, channel,
+  repository, then workspace.
+- Standing rules use the closed trigger/action pairs
+  `terraform_plan/review_terraform_plan`, `deployment/verify_deployment`, and
+  `operational_alert/triage_alert`. Each rule is channel-scoped and restricts its source to
+  `human`, `app`, or `any`.
+
+Natural-language requests only create inert offers. The confirmation card shows the normalized
+entry, scope, expiry, and safety boundary; a configured full workspace operator must confirm it
+before the host writes state. `/responder preferences` and `/responder rules` provide enable,
+disable, edit, and delete controls. Editing asks for a replacement natural-language request because
+the replacement must pass the same typed parser and confirmation boundary. No arbitrary prose is
+stored as an executable prompt. An explicit typed setup request from a configured operator is
+admitted in any channel where Responder is invited; ordinary mentions in that channel still follow
+the summon and proactive settings.
+
+Rules use deterministic host matching before the model runs. They can admit their one typed message
+class while broad proactive triage is off, but remain read-only, reply in the source thread, and
+cannot create an incident, edit files, deploy, approve, or mutate infrastructure. Channel input
+leases preserve Slack timestamp order; the unique `(rule_id, source_input)` execution record makes
+redelivery and retry idempotent. `limits.max_preferences`,
+`limits.max_preferences_per_scope`, `limits.max_standing_rules`, and
+`limits.max_rules_per_channel` bound active and disabled unexpired entries. Maintenance removes
+expired entries and run records. Confirmed channel deletion removes channel behavior immediately,
+and repository reconciliation removes orphaned repository preferences.
+
 `responder.yaml` remains the deployment default. `/responder proactive` writes audited overrides
 to the owner-private database. Resolution order is channel override, workspace override, then the
 static `slack.watch_channels` list. `inherit` deletes an override instead of copying a stale

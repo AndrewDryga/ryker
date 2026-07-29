@@ -30,19 +30,23 @@ type Store struct {
 }
 
 type Metrics struct {
-	IncidentsOpen   int `json:"incidents_open"`
-	IncidentsTotal  int `json:"incidents_total"`
-	SessionsOpen    int `json:"sessions_open"`
-	PublishedPRs    int `json:"published_prs"`
-	CleanupPending  int `json:"cleanup_pending"`
-	CleanupBlocked  int `json:"cleanup_blocked"`
-	WebhooksPending int `json:"webhooks_pending"`
-	SlackPending    int `json:"slack_pending"`
-	OutboxPending   int `json:"outbox_pending"`
-	TurnsPending    int `json:"turns_pending"`
-	WorkFailed      int `json:"work_failed"`
-	MemoryActive    int `json:"memory_active"`
-	MemoryExpired   int `json:"memory_expired"`
+	IncidentsOpen       int `json:"incidents_open"`
+	IncidentsTotal      int `json:"incidents_total"`
+	SessionsOpen        int `json:"sessions_open"`
+	PublishedPRs        int `json:"published_prs"`
+	CleanupPending      int `json:"cleanup_pending"`
+	CleanupBlocked      int `json:"cleanup_blocked"`
+	WebhooksPending     int `json:"webhooks_pending"`
+	SlackPending        int `json:"slack_pending"`
+	OutboxPending       int `json:"outbox_pending"`
+	TurnsPending        int `json:"turns_pending"`
+	WorkFailed          int `json:"work_failed"`
+	MemoryActive        int `json:"memory_active"`
+	MemoryExpired       int `json:"memory_expired"`
+	PreferencesActive   int `json:"preferences_active"`
+	PreferencesDisabled int `json:"preferences_disabled"`
+	RulesActive         int `json:"rules_active"`
+	RulesDisabled       int `json:"rules_disabled"`
 }
 
 type FailedWork struct {
@@ -449,6 +453,10 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 		{&result.TurnsPending, `SELECT count(*) FROM turn_submissions WHERE state IN ('pending', 'retry', 'submitting', 'submitted')`},
 		{&result.MemoryActive, `SELECT count(*) FROM memory_entries WHERE julianday(expires_at) > julianday('now')`},
 		{&result.MemoryExpired, `SELECT count(*) FROM memory_entries WHERE julianday(expires_at) <= julianday('now')`},
+		{&result.PreferencesActive, `SELECT count(*) FROM responder_preferences WHERE enabled = 1 AND julianday(expires_at) > julianday('now')`},
+		{&result.PreferencesDisabled, `SELECT count(*) FROM responder_preferences WHERE enabled = 0 AND julianday(expires_at) > julianday('now')`},
+		{&result.RulesActive, `SELECT count(*) FROM standing_rules WHERE enabled = 1 AND julianday(expires_at) > julianday('now')`},
+		{&result.RulesDisabled, `SELECT count(*) FROM standing_rules WHERE enabled = 0 AND julianday(expires_at) > julianday('now')`},
 		{&result.WorkFailed, `
 			SELECT
 			  (SELECT count(*) FROM webhook_events WHERE state = 'failed') +

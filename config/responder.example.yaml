@@ -141,4 +141,8 @@ limits:
   max_outbox_attempts: 12
   max_memory_entries: 1000
   max_memory_entries_per_scope: 100
+  max_preferences: 500
+  max_preferences_per_scope: 50
+  max_standing_rules: 500
+  max_rules_per_channel: 25
   worker_interval: 250ms

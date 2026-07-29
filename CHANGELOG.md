@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Typed Slack behavior.** Explicit operator requests can offer bounded investigation preferences
+  or read-only channel rules with normalized confirmation cards, scope, expiry, source filters,
+  deterministic matching, ordered execution, retry deduplication, management controls, and
+  lifecycle cleanup. Arbitrary remembered prose never becomes an executable instruction.
 - **Slack-native incident rooms.** Authenticated Grafana and generic webhooks create correlated,
   deduplicated incident channels with accessible stateful cards, durable manual handoffs,
   progressive thread updates, immediate working states, and lifecycle-aware controls.

@@ -167,6 +167,10 @@ type Limits struct {
 	MaxOutboxAttempts        int      `yaml:"max_outbox_attempts"`
 	MaxMemoryEntries         int      `yaml:"max_memory_entries"`
 	MaxMemoryEntriesPerScope int      `yaml:"max_memory_entries_per_scope"`
+	MaxPreferences           int      `yaml:"max_preferences"`
+	MaxPreferencesPerScope   int      `yaml:"max_preferences_per_scope"`
+	MaxStandingRules         int      `yaml:"max_standing_rules"`
+	MaxRulesPerChannel       int      `yaml:"max_rules_per_channel"`
 	WorkerInterval           Duration `yaml:"worker_interval"`
 }
 
@@ -225,6 +229,10 @@ func defaults() Config {
 			MaxOutboxAttempts:        12,
 			MaxMemoryEntries:         1000,
 			MaxMemoryEntriesPerScope: 100,
+			MaxPreferences:           500,
+			MaxPreferencesPerScope:   50,
+			MaxStandingRules:         500,
+			MaxRulesPerChannel:       25,
 			WorkerInterval:           Duration{250 * time.Millisecond},
 		},
 	}
@@ -441,6 +449,24 @@ func (c Config) Validate() error {
 		c.Limits.MaxMemoryEntriesPerScope > c.Limits.MaxMemoryEntries {
 		return errors.New(
 			"limits.max_memory_entries_per_scope must be between 1 and max_memory_entries",
+		)
+	}
+	if c.Limits.MaxPreferences < 1 || c.Limits.MaxPreferences > 100000 {
+		return errors.New("limits.max_preferences must be between 1 and 100000")
+	}
+	if c.Limits.MaxPreferencesPerScope < 1 ||
+		c.Limits.MaxPreferencesPerScope > c.Limits.MaxPreferences {
+		return errors.New(
+			"limits.max_preferences_per_scope must be between 1 and max_preferences",
+		)
+	}
+	if c.Limits.MaxStandingRules < 1 || c.Limits.MaxStandingRules > 100000 {
+		return errors.New("limits.max_standing_rules must be between 1 and 100000")
+	}
+	if c.Limits.MaxRulesPerChannel < 1 ||
+		c.Limits.MaxRulesPerChannel > c.Limits.MaxStandingRules {
+		return errors.New(
+			"limits.max_rules_per_channel must be between 1 and max_standing_rules",
 		)
 	}
 	if c.Limits.WorkerInterval.Duration < 50*time.Millisecond || c.Limits.WorkerInterval.Duration > 10*time.Second {

@@ -158,6 +158,29 @@ authority; every future investigation must verify them against current repositor
 Same-channel evidence can be recalled from the existing evidence ledger, while evidence from other
 private channels is never injected.
 
+Behavior memory is a separate typed facility. An explicit request such as `when I ask about
+infrastructure health, always do a deep check` can offer a `health_check_depth=deep` preference.
+An explicit request such as `when you see a Terraform plan here, report its main diff and red
+flags` can offer a channel standing rule. The model may select only a supported preference value or
+trigger/action pair; Responder never persists the original prose as an executable instruction.
+
+Every behavior offer is a host-rendered confirmation card. It states the normalized behavior,
+scope, expiry, source filter when applicable, and the boundary that it remains read-only and cannot
+create incidents, edit files, deploy, approve, or mutate infrastructure. Confirmation requires a
+configured full workspace operator. That operator may make an explicit behavior setup request in
+any channel where Responder is invited, even if ordinary mentions and proactive triage are disabled
+there. This exception admits only the typed setup turn; it does not turn the channel into a summon
+channel. Preferences resolve in operator, channel, repository, then workspace order. Rules are
+channel-scoped and match only Terraform plans, deployments, or operational alerts from the
+configured `human`, `app`, or `any` source.
+
+An enabled standing rule can admit only its matching message type when broad proactive triage is
+off. The resulting turn uses the current channel transcript and available read-only tools, shows
+native pending progress, and must reply in the source message's thread. It cannot silently convert
+the message into an incident. The channel queue preserves Slack timestamp order and a durable
+rule/source-event key prevents duplicate execution after redelivery or restart. Shadow mode records
+the matched decision and run without posting.
+
 When a watched-channel turn starts, Responder sets a native thread status explaining that it is
 checking live systems with Emisar and that broad checks can take a few minutes. The status is
 recorded with the durable turn state so restarts do not duplicate it, refreshed before Slack's
@@ -229,6 +252,8 @@ The shipped Slack app registers one command with deterministic subcommands:
 /responder evidence
 /responder handoff
 /responder memory
+/responder preferences
+/responder rules
 /responder update
 /responder changes
 /responder review
@@ -238,7 +263,7 @@ The shipped Slack app registers one command with deterministic subcommands:
 ```
 
 Slack does not provide application-defined autocomplete for text after a slash command. The
-manifest therefore uses a short `help | status | incidents | memory | proactive | shadow` usage hint instead of
+manifest therefore uses a short `help | status | incidents | preferences | rules` usage hint instead of
 putting every argument in the picker. Running `/responder` without arguments or selecting `help`
 returns an interactive guide with read-only buttons for channel status, open incidents, and all
 incident history.
@@ -258,6 +283,11 @@ durable and audited. Incident-control acknowledgements
 describe the requested effect and direct the operator to the pinned incident thread for the
 authoritative result. Slash commands and button controls are prioritized over queued conversation
 so an off or stop command does not wait behind a running triage turn.
+
+`preferences` lists the effective operator, channel, repository, and workspace investigation
+defaults. `rules` lists this channel's standing rules, source filters, expiry, last run, and run
+count. Both directories expose state-aware enable, disable, edit, and delete controls. App Home
+shows the same bounded controls for current behavior entries.
 
 ## Controls
 

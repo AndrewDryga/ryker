@@ -55,6 +55,14 @@ stores workspace or channel overrides. Current-state questions can use policy-au
 Emisar investigation before that decision. Slack sends mentioned messages through both event
 subscriptions, so Responder admits only `app_mention` for messages containing its bot mention.
 
+Operators can ask Responder to remember only typed behavior. A supported preference changes
+investigation depth or response detail; a supported standing rule subscribes one channel to
+read-only Terraform-plan review, deployment verification, or alert triage. Responder first renders
+the normalized behavior, scope, expiry, source filter, and safety boundary for confirmation.
+`/responder preferences` and `/responder rules` provide state-aware management. Matching rules can
+operate when broad proactive triage is off, but always reply in the source thread and never create
+an incident or authorize a mutation.
+
 The Messages tab is an Agent surface with host-owned suggested prompts and native progress
 indicators. Direct messages always start read-only triage even when normal-channel proactive mode
 is off. The **Investigate message** shortcut does the same for one selected message.

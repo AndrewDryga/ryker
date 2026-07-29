@@ -41,6 +41,14 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 	if err != nil {
 		return err
 	}
+	preferences, err := s.store.ListPreferencesForHome(ctx, 3)
+	if err != nil {
+		return err
+	}
+	rules, err := s.store.ListStandingRulesForHome(ctx, 3)
+	if err != nil {
+		return err
+	}
 	message := slackui.OperationsHome(
 		metrics.IncidentsOpen,
 		metrics.IncidentsTotal,
@@ -50,8 +58,12 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 		metrics.CleanupPending,
 		metrics.CleanupBlocked,
 		homeMemoryCount,
+		metrics.PreferencesActive,
+		metrics.RulesActive,
 		incidents,
 		memories,
+		preferences,
+		rules,
 	)
 	if s.sanitizer != nil {
 		message = s.sanitizer.Message(message)

@@ -331,6 +331,18 @@ func (s *Store) Prune(
 		DELETE FROM memory_entries WHERE expires_at <= ?`, nowText()); err != nil {
 		return result, err
 	}
+	if result.StandingRuleRuns, err = deleteCount(`
+		DELETE FROM standing_rule_runs WHERE created_at < ?`, operational); err != nil {
+		return result, err
+	}
+	if result.Preferences, err = deleteCount(`
+		DELETE FROM responder_preferences WHERE expires_at <= ?`, nowText()); err != nil {
+		return result, err
+	}
+	if result.StandingRules, err = deleteCount(`
+		DELETE FROM standing_rules WHERE expires_at <= ?`, nowText()); err != nil {
+		return result, err
+	}
 	if result.EmisarApprovals, err = deleteCount(`
 		DELETE FROM emisar_approvals WHERE expires_at < ?`, operational); err != nil {
 		return result, err
