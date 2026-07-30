@@ -10,13 +10,34 @@ import (
 
 func TestEvalCommandReportsGoldenCorpusAndFailures(t *testing.T) {
 	var stdout, stderr bytes.Buffer
+	resultsPath := filepath.Join(t.TempDir(), "results.json")
 	err := runEval(
-		[]string{"--input", filepath.Join("..", "..", "testdata", "eval", "golden.jsonl")},
+		[]string{
+			"--replay",
+			"--input",
+			filepath.Join("..", "..", "testdata", "eval", "golden.jsonl"),
+			"--results",
+			resultsPath,
+		},
 		&stdout,
 		&stderr,
 	)
-	if err != nil || !strings.Contains(stdout.String(), "6/6 passed") {
+	if err != nil || !strings.Contains(stdout.String(), "16/16 passed") {
 		t.Fatalf("golden eval = stdout=%q stderr=%q err=%v", stdout.String(), stderr.String(), err)
+	}
+	info, err := os.Stat(resultsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("results mode = %o, want 600", info.Mode().Perm())
+	}
+	body, err := os.ReadFile(resultsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"mode": "replay"`)) {
+		t.Fatalf("results = %s", body)
 	}
 
 	path := filepath.Join(t.TempDir(), "failed.jsonl")
@@ -27,8 +48,34 @@ func TestEvalCommandReportsGoldenCorpusAndFailures(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	err = runEval([]string{"--input", path}, &stdout, &stderr)
+	failedResults := filepath.Join(t.TempDir(), "failed-results.json")
+	err = runEval(
+		[]string{
+			"--replay", "--input", path,
+			"--results", failedResults,
+		},
+		&stdout,
+		&stderr,
+	)
 	if err == nil || !strings.Contains(stdout.String(), "FAIL wrong action") {
 		t.Fatalf("failed eval = stdout=%q stderr=%q err=%v", stdout.String(), stderr.String(), err)
+	}
+	if body, readErr := os.ReadFile(failedResults); readErr != nil ||
+		!bytes.Contains(body, []byte(`"failed": 1`)) {
+		t.Fatalf("failed results = %s, %v", body, readErr)
+	}
+}
+
+func TestEvalCommandRejectsLiveOnlyReplayFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"--replay", "--case", "health"},
+		{"--replay", "--repeat", "2"},
+		{"--repeat", "0"},
+		{"--repeat", "11"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if err := runEval(args, &stdout, &stderr); err == nil {
+			t.Fatalf("runEval(%v) unexpectedly passed", args)
+		}
 	}
 }

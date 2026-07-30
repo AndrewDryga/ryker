@@ -4,6 +4,11 @@ This guide follows one message from admission through Slack delivery and explain
 memory, authority, retries, and cleanup live. It describes the current single-host implementation,
 not a future multi-tenant design.
 
+Conversational responses follow the operator's current Slack location. Top-level conversation stays
+in the channel, thread conversation stays in that thread, and explicit requests to move are
+host-parsed before model execution. Multi-step configuration sessions persist every message root
+they own so moving between channel and thread does not lose state or admit unrelated replies.
+
 ## 1. System map and authority boundaries
 
 ```mermaid
@@ -112,6 +117,11 @@ flowchart TD
   Persist --> Ack["ACK Slack"]
 ```
 
+Separately, a bounded scheduler lists Slack conversations every ten seconds. It stores only channel
+membership state, detects absent-to-present transitions, and persists a synthetic `channel_joined`
+input. This avoids relying on `member_joined_channel`, which Slack cannot deliver for the bot's own
+first join. The transition and input are durable, so restarts cannot duplicate or lose onboarding.
+
 After acknowledgement, the durable worker applies the more expensive authorization and conversation
 routing:
 
@@ -122,6 +132,7 @@ flowchart TD
   Workspace -- Yes --> Route{"Host routing"}
 
   Route -- "Lifecycle" --> Lifecycle["Mark channel active,<br/>archived, unreachable, or deleted"]
+  Route -- "Membership transition" --> Setup["Start durable typed<br/>channel setup"]
   Route -- "Slash command" --> Slash["Run deterministic command"]
   Route -- "Button" --> Action["Validate action payload,<br/>operator, age, scope, and target"]
   Route -- "Known incident or task thread" --> Conversation["Queue ordered turn in<br/>that exact conversation"]
@@ -138,6 +149,11 @@ flowchart TD
 Important routing behavior:
 
 - A direct message or **Investigate message** shortcut always enters read-only triage.
+- When Slack reports that the bot joined a channel, Responder opens one durable setup conversation.
+  Operator answers advance a host-owned typed draft; a confirmation button bound to the stored
+  session ID is required before settings change.
+- Supported conversational controls are normalized into the same command handlers as
+  `/responder`. Read results are threaded publicly; slash results remain ephemeral.
 - An `@mention` outside a configured summon or proactive channel is not a general summons. The
   narrow exception is an explicit typed preference or standing-rule request from a configured
   operator.
@@ -173,6 +189,7 @@ sequenceDiagram
   W->>DB: Lease next eligible Slack input
   Note over W,DB: Slash/actions are prioritized.<br/>Only active admission work serializes a channel.
   W->>DB: Match standing rules and INSERT agent_runs
+  W->>DB: Project durable commitment<br/>queued before execution
   W->>DB: Mark Slack input done
   W->>DB: Queue native pending status
   Note over W,DB: Slack input retry budget stops here.<br/>Long model work has its own failure budget.
@@ -194,7 +211,7 @@ sequenceDiagram
   end
 
   W->>DB: Assemble latest 10-50 admitted messages
-  W->>DB: Load compact memory, confirmed memory,<br/>recent evidence, preferences, and repository binding
+  W->>DB: Load compact situation, confirmed memory,<br/>recent evidence, preferences, and repository binding
   W->>DB: Persist exact context snapshot on agent_runs
   W->>C: Submit turn with session revision<br/>and generation-aware idempotency key
   C->>G: Start short-lived agent box
@@ -204,14 +221,18 @@ sequenceDiagram
   C-->>W: Terminal turn
 
   W->>W: Strict parse, bound, sanitize, validate
+  W->>W: Enforce host attention threshold<br/>after addressee and interruption scoring
   W->>DB: Stage terminal result on agent_runs
   W->>DB: Persist evidence and coverage separately
   W->>DB: Transaction: decision once + compact memory update
 
   alt ignore
     W->>DB: Audit silence
+  else react
+    W->>W: Validate and normalize one Slack emoji name
+    W->>S: Add lightweight standard or workspace reaction
   else reply
-    W->>DB: Queue rich source-thread delivery
+    W->>DB: Queue rich delivery at the safe response location
   else reply with inert offer
     W->>DB: Queue response + host-owned confirmation button
   else allowed automatic app alert
@@ -220,7 +241,7 @@ sequenceDiagram
 
   W->>DB: Record standing-rule run once, if matched
   W->>DB: Queue pending-status clear
-  W->>DB: Finish agent run
+  W->>DB: Finish agent run<br/>commitment becomes done or blocked
   W->>S: Deliver queued post/update/status
 ```
 
@@ -233,7 +254,7 @@ For shared-channel work, accepted decisions are:
 | Decision | Effect |
 | --- | --- |
 | `ignore` | Audit the decision and post nothing |
-| `reply` | Post a bounded rich response in the source thread |
+| `reply` | Post a bounded rich response where a human is speaking; keep app alerts and standing rules in the source thread |
 | Reply plus incident offer | Show **Open incident room**; create nothing until confirmed |
 | Reply plus engineering-task offer | Show **Start engineering task**; create no writable fork until confirmed |
 | Reply plus memory/preference/rule offer | Show a typed confirmation; save nothing until confirmed |
@@ -288,9 +309,10 @@ flowchart TB
 | Layer | Stored in | Writer | Purpose | Trust and lifetime |
 | --- | --- | --- | --- | --- |
 | Recent Slack context | `slack_inputs`, then snapshotted in `agent_runs.context_json` | Context assembler | Understand nearby conversation and avoid interrupting people | Event context only; bounded and pruned |
-| Compact channel memory | `channel_memories.state_json` | Agent result after host validation | Carry goal, topology, decisions, unresolved questions, and evidence references across turns and session rotation | Continuity, not current-health proof |
+| Compact channel situation | `channel_memories.state_json` | Agent result after host validation | Carry channel purpose, situation summary, goal, active topics, topology, decisions, open loops, unresolved questions, and evidence references across turns and session rotation | Continuity, not current-health proof |
 | Evidence ledger | `evidence`, `coverage`, `timeline_events` | Host after strict agent-report parsing | Preserve source-attributed observations independently of prose | Same-channel recall; time and source remain visible |
 | Confirmed operational memory | `memory_entries` | Configured operator click | Durable alias, repository binding, evidence route, or entity correction | Untrusted hint with scope, source, expiry, and caps |
+| Work commitments | `commitments` projected from `agent_runs` | Host when it accepts model-backed work | Show what Emisar owes, current progress, and the next operator action | Execution state, not prompt memory or evidence |
 | Preferences | `responder_preferences` | Configured operator click | Typed investigation depth or response detail | Closed catalog; precedence and expiry are host-owned |
 | Standing rules | `standing_rules` | Configured operator click | Typed channel subscription such as Terraform-plan review | Host matches trigger deterministically; read-only |
 | Rule executions | `standing_rule_runs` | Host | Prevent the same rule/source event from running twice | Idempotency record, later pruned |
@@ -469,19 +491,26 @@ flowchart LR
 Key properties:
 
 - SQLite uses WAL mode, full synchronous writes, and one connection.
+- One durable scheduling index stores only work identity, lane, conversation key, priority, due
+  time, retry state, and lease token. Domain payloads remain in typed tables.
+- Expired scheduler leases are reclaimed during normal operation. Lease-token checks stop a stale
+  worker from completing work reclaimed by another worker.
 - Slack inputs are leased in timestamp order within a channel, but only an actively processing
   input holds that channel. Once it queues an agent run, it is complete and cannot exhaust retries
   while the model works.
 - The control lane prioritizes slash commands and buttons; long Coop work runs independently in the
   background lane.
-- A short settle delay lets nearby messages enter the context snapshot before submission. The
-  snapshot is persisted on the run and reused exactly after restart.
+- A short settle delay lets nearby messages enter the context snapshot before submission. Responder
+  reads recent Slack channel or thread history on demand, merges it with already admitted inputs,
+  guarantees the target message is present, and persists the resulting ordered snapshot on the run
+  for exact restart reuse.
 - A delayed older event cannot reply after a newer channel decision has completed.
 - Coop create results are refreshed through `GET` because an idempotent create replay describes the
   original creation state, not necessarily the current session state.
 - Replacement watch sessions use generation-aware create and run keys.
 - Posts, updates, and statuses use one durable, coalescing Slack delivery ledger. Ambiguous posts
-  reconcile by metadata before retry; updates and statuses retry idempotently.
+  reconcile by metadata before retry; updates retry idempotently; per-thread status generations
+  ensure an older progress write cannot supersede a newer clear.
 - A terminal failed watch run queues a user-facing failure, clears pending status, detaches the
   session while preserving compact memory, and queues cleanup.
 - Automatic cleanup operates only on exact Responder-owned session IDs. It never accepts dirty
@@ -520,6 +549,11 @@ flowchart TB
 
   Incident --> Cleanup[("coop_cleanup")]
   ChannelMemory --> Cleanup
+  Scheduler[("work_items")] --> SlackInput
+  Scheduler --> Webhook
+  Scheduler --> AgentRuns
+  Scheduler --> Deliveries
+  StatusGeneration[("slack_status_generations")] --> Deliveries
 ```
 
 These are logical relationships. Not every arrow is a database foreign key; some are deliberately

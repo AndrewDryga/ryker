@@ -29,8 +29,9 @@ func TestWatchedStructuredReportPersistsEvidenceCoverageAndMemory(t *testing.T) 
 	slackClient := &fakeSlack{}
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
-	  "action":"reply",
-	  "reason":"The operator asked Responder for a health assessment.",
+		  "action":"reply",
+		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},
+		  "reason":"The operator asked Responder for a health assessment.",
 	  "message":"**Current assessment:** declared capacity is two instances; scheduler state remains unknown.",
 	  "evidence":[{
 	    "claim":"Expected production capacity is two instances",
@@ -360,7 +361,7 @@ func TestSlackAssistantPromptsAndOperationsHome(t *testing.T) {
 	}
 	if len(slackClient.homes) != 1 ||
 		slackClient.homes[0].thread != "U123ABC" ||
-		slackClient.homes[0].message.Header != "Emisar Responder" {
+		slackClient.homes[0].message.Header != "Emisar" {
 		t.Fatalf("operations home = %+v", slackClient.homes)
 	}
 

@@ -109,7 +109,20 @@ func (s *Service) processChannel(ctx context.Context) error {
 			}
 			return err
 		}
-		incident := incidents[0]
+	}
+	return s.processChannelIncident(ctx, incidents[0].ID)
+}
+
+func (s *Service) processChannelIncident(ctx context.Context, incidentID string) error {
+	incident, err := s.store.GetIncident(ctx, incidentID)
+	if err != nil {
+		return err
+	}
+	if incident.ChannelID != "" {
+		if !incident.ChannelWritable() || incident.RootTS != "" ||
+			incident.Workflow != core.WorkflowProvisioningChannel {
+			return store.ErrNotFound
+		}
 		body, err := s.incidentCard(ctx, incident)
 		if err != nil {
 			return err
@@ -123,21 +136,17 @@ func (s *Service) processChannel(ctx context.Context) error {
 		}
 		return nil
 	}
-	incident := incidents[0]
-	key := "channel:" + incident.ID
-	if !s.canRetry(key) {
-		return nil
+	if incident.Workflow != core.WorkflowProvisioningChannel {
+		return store.ErrNotFound
 	}
 	if incident.IsThreadScoped() {
 		if err := s.store.BindThreadWork(ctx, incident.ID); err != nil {
-			s.retryLater(key)
 			return err
 		}
 		incident.ChannelID = incident.OriginChannelID
 		incident.ChannelState = core.ChannelActive
 		body, err := s.incidentCard(ctx, incident)
 		if err != nil {
-			s.retryLater(key)
 			return err
 		}
 		if err := s.enqueue(
@@ -148,10 +157,8 @@ func (s *Service) processChannel(ctx context.Context) error {
 			incident.ConversationThreadTS(),
 			body,
 		); err != nil {
-			s.retryLater(key)
 			return err
 		}
-		s.retryDone(key)
 		_ = s.store.Audit(ctx, core.AuditEvent{
 			IncidentID: incident.ID, Kind: "slack.thread.bound",
 			ObjectID: incident.OriginChannelID + ":" + incident.OriginThreadTS,
@@ -172,26 +179,21 @@ func (s *Service) processChannel(ctx context.Context) error {
 		channel, err = s.adoptChannel(ctx, incident, name, err)
 	}
 	if err != nil {
-		s.retryLater(key)
 		_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowProvisioningChannel, trimError(err))
-		return nil
+		return err
 	}
 	if err := s.store.SetChannel(ctx, incident.ID, channel.ID, channel.Name); err != nil {
-		s.retryLater(key)
 		return err
 	}
 	incident.ChannelID = channel.ID
 	incident.ChannelName = channel.Name
 	body, err := s.incidentCard(ctx, incident)
 	if err != nil {
-		s.retryLater(key)
 		return err
 	}
 	if err := s.enqueue(ctx, "out_root_"+incident.ID, incident, "root", "", body); err != nil {
-		s.retryLater(key)
 		return err
 	}
-	s.retryDone(key)
 	_ = s.store.Audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "slack.channel.created", ObjectID: channel.ID,
 		Outcome: "succeeded", Detail: channel.Name,
@@ -322,7 +324,6 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 		return err
 	}
 	if item.Operation == "post" && item.ThreadTS != "" && incident.ID != "" {
-		s.retryDone("native-status:" + item.IncidentID + "@" + item.ThreadTS)
 		s.forgetNativeStatus(item.IncidentID)
 		if incident, incidentErr := s.store.GetIncident(
 			ctx, item.IncidentID,
@@ -365,21 +366,15 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 			true,
 		)
 	}
-	key := "delivery-reconcile:" + item.ID
-	if !s.canRetry(key) {
-		return nil
-	}
 	timestamp, err := s.slack.FindDeliveryMessage(
 		ctx, item.ChannelID, item.ThreadTS, item.ID,
 	)
 	switch {
 	case err == nil:
-		s.retryDone(key)
 		return s.store.FinishSlackDelivery(
 			ctx, item.ID, timestamp, "uncertain",
 		)
 	case errors.Is(err, slackui.ErrNotFound):
-		s.retryDone(key)
 		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
 		retryErr := s.store.RetryUncertainSlackDelivery(
 			ctx, item.ID, "Slack history confirmed the message was not posted",
@@ -395,8 +390,13 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 		}
 		return retryErr
 	default:
-		s.retryLater(key)
-		return nil
+		return s.store.RetryUncertainSlackDelivery(
+			ctx,
+			item.ID,
+			trimError(err),
+			queueDelay(item.Attempts),
+			terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts),
+		)
 	}
 }
 
@@ -408,19 +408,26 @@ func (s *Service) processSession(ctx context.Context) error {
 		}
 		return err
 	}
-	incident := incidents[0]
-	key := "session:" + incident.ID
-	if !s.canRetry(key) {
-		return nil
+	return s.processSessionIncident(ctx, incidents[0].ID)
+}
+
+func (s *Service) processSessionIncident(ctx context.Context, incidentID string) error {
+	incident, err := s.store.GetIncident(ctx, incidentID)
+	if err != nil {
+		return err
+	}
+	if incident.RootTS == "" || !incident.ChannelWritable() ||
+		incident.CoopSessionID != "" ||
+		(incident.Workflow != core.WorkflowProvisioningSession &&
+			incident.Workflow != core.WorkflowHolding) {
+		return store.ErrNotFound
 	}
 	if !incident.IsThreadScoped() {
 		if err := s.prepareChannel(ctx, incident); err != nil {
-			s.retryLater(key)
 			_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowHolding, trimError(err))
-			return nil
+			return err
 		}
 		if err := s.enqueueManualHandoff(ctx, incident); err != nil {
-			s.retryLater(key)
 			return err
 		}
 	}
@@ -429,7 +436,6 @@ func (s *Service) processSession(ctx context.Context) error {
 		return err
 	}
 	if open >= s.cfg.Limits.MaxActiveIncidents {
-		s.retryLater(key)
 		detail := "Responder is at its configured active incident limit; this incident is queued."
 		if incident.IsEngineeringTask() {
 			detail = "Responder is at its configured active work limit; this engineering task is queued."
@@ -438,19 +444,17 @@ func (s *Service) processSession(ctx context.Context) error {
 			ctx, incident.ID, core.WorkflowHolding,
 			detail,
 		)
-		return nil
+		return errors.New(detail)
 	}
-	repository, ok := s.cfg.Repositories[incident.Repository]
+	repository, ok := s.cfg.RepositoryContext(incident.Repository)
 	if !ok {
 		return s.store.SetIncidentError(ctx, incident.ID, core.WorkflowBlocked, "repository binding was removed")
 	}
 	if err := s.queueInitialTurn(ctx, incident); err != nil {
 		if errors.Is(err, errEvidenceTooLarge) {
 			_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowBlocked, trimError(err))
-			s.retryDone(key)
 			return nil
 		}
-		s.retryLater(key)
 		return err
 	}
 	sessionLabel := "incident:" + incident.ID
@@ -461,22 +465,22 @@ func (s *Service) processSession(ctx context.Context) error {
 		ctx, "responder:session:"+incident.ID, repository.CoopPolicy, sessionLabel,
 	)
 	if err != nil {
-		s.retryLater(key)
 		workflow := core.WorkflowHolding
 		if !coop.Retryable(err) {
 			workflow = core.WorkflowBlocked
 		}
 		_ = s.store.SetIncidentError(ctx, incident.ID, workflow, trimError(err))
-		return nil
+		if workflow == core.WorkflowBlocked {
+			return nil
+		}
+		return err
 	}
 	if err := s.store.SetCoopSession(ctx, incident.ID, session.ID, session.ForkName, session.Revision); err != nil {
-		s.retryLater(key)
 		return err
 	}
 	incident.CoopSessionID = session.ID
 	incident.CoopForkName = session.ForkName
 	incident.CoopRevision = session.Revision
-	s.retryDone(key)
 	_ = s.store.Audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "coop.session.created", ObjectID: session.ID,
 		Outcome: "succeeded", Detail: repository.CoopPolicy,
@@ -495,7 +499,11 @@ func (s *Service) processSession(ctx context.Context) error {
 }
 
 func (s *Service) prepareChannel(ctx context.Context, incident core.Incident) error {
-	if err := s.slack.Invite(ctx, incident.ChannelID, s.inviteUsers()...); err != nil {
+	users, err := s.configuredIncidentInviteUsers(ctx, incident.OriginChannelID)
+	if err != nil {
+		return fmt.Errorf("resolve incident audience: %w", err)
+	}
+	if err := s.slack.Invite(ctx, incident.ChannelID, users...); err != nil {
 		return fmt.Errorf("invite responders: %w", err)
 	}
 	workLabel := "Incident"
@@ -578,22 +586,6 @@ func (s *Service) pollIncident(ctx context.Context, incident core.Incident) erro
 		if err == nil {
 			if run.State == core.AgentRunRunning {
 				if err := s.pollAgentRun(ctx, run); err != nil {
-					return err
-				}
-				run, err = s.store.GetAgentRun(ctx, run.ID)
-				if err != nil {
-					return err
-				}
-			}
-			if run.State == core.AgentRunApplying {
-				run, err = s.store.BeginAgentRunFinalization(ctx, run.ID)
-				if err != nil {
-					return err
-				}
-				if err := s.finalizeIncidentAgentRun(ctx, run); err != nil {
-					_ = s.store.RetryAgentRunFinalization(
-						ctx, run.ID, trimError(err),
-					)
 					return err
 				}
 			}
@@ -704,24 +696,13 @@ func (s *Service) processCard(ctx context.Context) error {
 		}
 		return err
 	}
-	var incident core.Incident
-	for _, candidate := range incidents {
-		if s.canRetry("card:" + candidate.ID) {
-			incident = candidate
-			break
-		}
-	}
-	if incident.ID == "" {
-		return store.ErrNotFound
-	}
+	incident := incidents[0]
 	message, err := s.incidentCard(ctx, incident)
 	if err != nil {
-		s.retryLater("card:" + incident.ID)
 		return err
 	}
 	body, err := slackui.Encode(s.sanitizer.Message(message))
 	if err != nil {
-		s.retryLater("card:" + incident.ID)
 		return err
 	}
 	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
@@ -736,10 +717,8 @@ func (s *Service) processCard(ctx context.Context) error {
 		CardVersion: incident.CardVersion,
 	})
 	if err != nil {
-		s.retryLater("card:" + incident.ID)
 		return err
 	}
-	s.retryDone("card:" + incident.ID)
 	return nil
 }
 
@@ -808,27 +787,48 @@ func (s *Service) enqueueManualHandoff(ctx context.Context, incident core.Incide
 }
 
 func (s *Service) clearNativeStatus(ctx context.Context, incident core.Incident) {
-	if s.cfg.Slack.NativeStatus && incident.ChannelWritable() &&
-		incident.ChannelID != "" && incident.ConversationThreadTS() != "" {
-		if err := s.enqueueNativeStatus(
-			ctx,
-			incident.ID,
-			incident.ChannelID,
-			incident.ConversationThreadTS(),
-			"",
-			nil,
-		); err != nil {
-			s.log.Warn(
-				"queue Slack thread status clear",
-				"incident", incident.ID,
-				"error", err,
-			)
-		}
-		s.retryDone(
-			"native-status:" + incident.ID + "@" + incident.ConversationThreadTS(),
+	if err := s.requireNativeStatusClear(
+		ctx,
+		incident,
+		fmt.Sprintf("incident_%d", incident.CardVersion),
+	); err != nil {
+		s.log.Warn(
+			"queue Slack thread status clear",
+			"incident", incident.ID,
+			"error", err,
 		)
+		return
 	}
 	s.forgetNativeStatus(incident.ID)
+}
+
+func (s *Service) requireNativeStatusClear(
+	ctx context.Context,
+	incident core.Incident,
+	causeID string,
+) error {
+	if !s.cfg.Slack.NativeStatus || !incident.ChannelWritable() ||
+		incident.ChannelID == "" || incident.ConversationThreadTS() == "" {
+		return nil
+	}
+	generation, err := s.store.NextSlackStatusGeneration(
+		ctx,
+		incident.ChannelID,
+		incident.ConversationThreadTS(),
+	)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "delivery_status_clear_" + causeID + "_" +
+			fmt.Sprintf("%d", generation),
+		IncidentID: incident.ID, Operation: "status", Kind: "status",
+		ChannelID:   incident.ChannelID,
+		ThreadTS:    incident.ConversationThreadTS(),
+		CoalesceKey: "status:" + incident.ChannelID + ":" + incident.ConversationThreadTS(),
+		CardVersion: generation,
+	})
+	return err
 }
 
 func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, status string) {
@@ -844,10 +844,6 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 		return
 	}
 	s.statusMu.Unlock()
-	key := "native-status:" + statusKey
-	if !s.canRetry(key) {
-		return
-	}
 	if err := s.enqueueNativeStatus(
 		ctx,
 		incident.ID,
@@ -856,11 +852,9 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 		status,
 		progressMilestones(status),
 	); err != nil {
-		s.retryLater(key)
 		s.log.Warn("set Slack thread status", "incident", incident.ID, "error", err)
 		return
 	}
-	s.retryDone(key)
 	s.statusMu.Lock()
 	s.nativeStatus[statusKey] = nativeStatusState{text: status, at: time.Now()}
 	s.statusMu.Unlock()
@@ -874,6 +868,14 @@ func (s *Service) enqueueNativeStatus(
 	status string,
 	steps []string,
 ) error {
+	generation, err := s.store.NextSlackStatusGeneration(
+		ctx,
+		channelID,
+		threadTS,
+	)
+	if err != nil {
+		return err
+	}
 	id, err := core.NewID("delivery")
 	if err != nil {
 		return err
@@ -882,6 +884,7 @@ func (s *Service) enqueueNativeStatus(
 		ID: id, IncidentID: incidentID, Operation: "status", Kind: "status",
 		ChannelID: channelID, ThreadTS: threadTS, Status: status, Steps: steps,
 		CoalesceKey: "status:" + channelID + ":" + threadTS,
+		CardVersion: generation,
 	})
 	return err
 }
@@ -962,7 +965,6 @@ func (s *Service) forgetNativeStatus(incidentID string) {
 	for key := range s.nativeStatus {
 		if strings.HasPrefix(key, prefix) {
 			delete(s.nativeStatus, key)
-			s.retryDone("native-status:" + key)
 		}
 	}
 }
@@ -987,7 +989,7 @@ func (s *Service) enqueue(
 }
 
 func (s *Service) repositoryName(name string) string {
-	repository, ok := s.cfg.Repositories[name]
+	repository, ok := s.cfg.RepositoryContext(name)
 	if !ok || repository.DisplayName == "" {
 		return name
 	}

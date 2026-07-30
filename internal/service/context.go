@@ -3,9 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"slices"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/responder/internal/store"
 )
 
 type agentContextRequest struct {
@@ -20,6 +24,7 @@ type agentContextRequest struct {
 type assembledAgentContext struct {
 	Repository     string                   `json:"repository"`
 	Prior          operationalMemoryContext `json:"prior_operational_context,omitempty"`
+	Situation      core.AgentMemory         `json:"channel_situation,omitempty"`
 	RecentMessages []watchContextMessage    `json:"recent_channel_messages,omitempty"`
 	CapturedAt     time.Time                `json:"captured_at"`
 }
@@ -52,8 +57,16 @@ func (s *Service) assembleAgentContext(
 		Prior:      prior,
 		CapturedAt: time.Now().UTC(),
 	}
+	if request.ChannelID != "" {
+		memory, memoryErr := s.store.GetChannelMemory(ctx, request.ChannelID)
+		if memoryErr == nil {
+			result.Situation = memory.State
+		} else if !errors.Is(memoryErr, store.ErrNotFound) {
+			return assembledAgentContext{}, memoryErr
+		}
+	}
 	if request.IncludeRecent && request.TargetInput != nil {
-		recent, err := s.store.ListRecentWatchMessages(
+		admitted, err := s.store.ListRecentWatchMessages(
 			ctx,
 			request.ChannelID,
 			s.cfg.Slack.WatchContext,
@@ -61,6 +74,16 @@ func (s *Service) assembleAgentContext(
 		if err != nil {
 			return assembledAgentContext{}, err
 		}
+		history, err := s.slack.RecentMessages(
+			ctx,
+			request.ChannelID,
+			request.TargetInput.ThreadTS,
+			s.cfg.Slack.WatchContext,
+		)
+		if err != nil {
+			return assembledAgentContext{}, err
+		}
+		recent := mergeSlackContext(admitted, history, *request.TargetInput)
 		result.RecentMessages = makeWatchContext(
 			recent,
 			*request.TargetInput,
@@ -80,4 +103,59 @@ func decodeAssembledAgentContext(data []byte) (assembledAgentContext, bool) {
 		return assembledAgentContext{}, false
 	}
 	return result, true
+}
+
+func mergeSlackContext(
+	admitted []core.SlackInput,
+	history []slackui.HistoryMessage,
+	target core.SlackInput,
+) []core.SlackInput {
+	byTimestamp := make(map[string]core.SlackInput, len(admitted)+len(history)+1)
+	for _, input := range admitted {
+		if input.MessageTS != "" {
+			byTimestamp[input.MessageTS] = input
+		}
+	}
+	for _, message := range history {
+		if message.Timestamp == "" {
+			continue
+		}
+		kind := "message"
+		userID := message.UserID
+		if message.BotID != "" {
+			kind = "bot_message"
+			if userID == "" {
+				userID = message.BotID
+			}
+		}
+		if _, exists := byTimestamp[message.Timestamp]; !exists {
+			byTimestamp[message.Timestamp] = core.SlackInput{
+				Kind: kind, ChannelID: target.ChannelID,
+				ThreadTS: message.ThreadTS, MessageTS: message.Timestamp,
+				UserID: userID, Text: message.Text,
+			}
+		}
+	}
+	if target.MessageTS != "" {
+		byTimestamp[target.MessageTS] = target
+	}
+	result := make([]core.SlackInput, 0, len(byTimestamp))
+	for _, input := range byTimestamp {
+		result = append(result, input)
+	}
+	slices.SortFunc(result, func(left, right core.SlackInput) int {
+		switch {
+		case left.MessageTS < right.MessageTS:
+			return -1
+		case left.MessageTS > right.MessageTS:
+			return 1
+		case left.ReceivedAt.Before(right.ReceivedAt):
+			return -1
+		case left.ReceivedAt.After(right.ReceivedAt):
+			return 1
+		default:
+			return 0
+		}
+	})
+	return result
 }

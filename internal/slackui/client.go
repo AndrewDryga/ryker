@@ -31,6 +31,8 @@ type API interface {
 	SetSuggestedPrompts(context.Context, string, string) error
 	PublishHome(context.Context, string, Message) error
 	UserAllowed(context.Context, string, string) (bool, error)
+	UserGroupMembers(context.Context, string, string) ([]string, error)
+	RecentMessages(context.Context, string, string, int) ([]HistoryMessage, error)
 	FindDeliveryMessage(context.Context, string, string, string) (string, error)
 }
 
@@ -65,6 +67,14 @@ type Channel struct {
 	Shared   bool
 	Member   bool
 	Archived bool
+}
+
+type HistoryMessage struct {
+	Timestamp string
+	ThreadTS  string
+	UserID    string
+	BotID     string
+	Text      string
 }
 
 type Client struct {
@@ -258,6 +268,8 @@ var requiredBotScopes = []string{
 	"groups:write",
 	"im:history",
 	"pins:write",
+	"reactions:write",
+	"usergroups:read",
 	"users:read",
 }
 
@@ -351,6 +363,40 @@ func (c *Client) GetChannel(ctx context.Context, channelID string) (Channel, err
 	}, nil
 }
 
+func (c *Client) ListChannels(ctx context.Context, teamID string) ([]Channel, error) {
+	cursor := ""
+	var result []Channel
+	for page := 0; page < 100; page++ {
+		channels, next, err := c.api.GetConversationsContext(
+			ctx,
+			&slack.GetConversationsParameters{
+				Cursor: cursor, ExcludeArchived: false, Limit: 200,
+				Types: []string{"public_channel", "private_channel"}, TeamID: teamID,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		for _, channel := range channels {
+			result = append(result, Channel{
+				ID: channel.ID, Name: channel.Name, Creator: channel.Creator,
+				Created: time.Unix(int64(channel.Created), 0).UTC(),
+				Private: channel.IsPrivate,
+				Shared:  channel.IsShared || channel.IsExtShared || channel.IsOrgShared,
+				Member:  channel.IsMember, Archived: channel.IsArchived,
+			})
+		}
+		if next == "" {
+			return result, nil
+		}
+		if next == cursor {
+			return nil, errors.New("Slack channel listing returned a repeated cursor")
+		}
+		cursor = next
+	}
+	return nil, errors.New("Slack channel listing exceeded 100 pages")
+}
+
 func (c *Client) Invite(ctx context.Context, channel string, users ...string) error {
 	if len(users) == 0 {
 		return nil
@@ -423,6 +469,23 @@ func (c *Client) Pin(ctx context.Context, channel, timestamp string) error {
 	return nil
 }
 
+func (c *Client) React(
+	ctx context.Context,
+	channel string,
+	timestamp string,
+	reaction string,
+) error {
+	err := c.api.AddReactionContext(
+		ctx,
+		reaction,
+		slack.NewRefToMessage(channel, timestamp),
+	)
+	if err != nil && !strings.Contains(err.Error(), "already_reacted") {
+		return err
+	}
+	return nil
+}
+
 func (c *Client) SetStatus(ctx context.Context, channel, threadTS, status string) error {
 	return c.SetProgress(ctx, channel, threadTS, status, nil)
 }
@@ -450,12 +513,13 @@ func (c *Client) SetSuggestedPrompts(
 	threadTS string,
 ) error {
 	parameters := slack.AssistantThreadsSetSuggestedPromptsParameters{
-		Title:     "Investigate with Emisar Responder",
+		Title:     "Investigate with Emisar",
 		ChannelID: channel,
 		ThreadTS:  threadTS,
 	}
 	parameters.AddPrompt("Infrastructure health", "Assess current infrastructure health with live evidence.")
 	parameters.AddPrompt("Explain an alert", "Explain the selected alert and verify its current state.")
+	parameters.AddPrompt("Open work", "What are you working on, what is blocked, and what do you owe the team?")
 	return c.api.SetAssistantThreadsSuggestedPromptsContext(ctx, parameters)
 }
 
@@ -481,6 +545,73 @@ func (c *Client) UserAllowed(ctx context.Context, userID, teamID string) (bool, 
 		return false, nil
 	}
 	return true, nil
+}
+
+func (c *Client) UserGroupMembers(
+	ctx context.Context,
+	userGroupID string,
+	teamID string,
+) ([]string, error) {
+	if userGroupID == "" || teamID == "" {
+		return nil, errors.New("Slack user group and workspace are required")
+	}
+	return c.api.GetUserGroupMembersContext(
+		ctx,
+		userGroupID,
+		slack.GetUserGroupMembersOptionTeamID(teamID),
+	)
+}
+
+func (c *Client) RecentMessages(
+	ctx context.Context,
+	channel string,
+	threadTS string,
+	limit int,
+) ([]HistoryMessage, error) {
+	if channel == "" || limit < 1 || limit > 100 {
+		return nil, errors.New("Slack history requires a channel and limit between 1 and 100")
+	}
+	var messages []slack.Message
+	if threadTS != "" {
+		result, _, _, err := c.api.GetConversationRepliesContext(
+			ctx,
+			&slack.GetConversationRepliesParameters{
+				ChannelID: channel,
+				Timestamp: threadTS,
+				Limit:     limit,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		messages = result
+	} else {
+		result, err := c.api.GetConversationHistoryContext(
+			ctx,
+			&slack.GetConversationHistoryParameters{
+				ChannelID: channel,
+				Limit:     limit,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		messages = result.Messages
+	}
+	history := make([]HistoryMessage, 0, len(messages))
+	for _, message := range messages {
+		if message.Timestamp == "" || strings.TrimSpace(message.Text) == "" {
+			continue
+		}
+		history = append(history, HistoryMessage{
+			Timestamp: message.Timestamp,
+			ThreadTS:  message.ThreadTimestamp,
+			UserID:    message.User,
+			BotID:     message.BotID,
+			Text:      message.Text,
+		})
+	}
+	return history, nil
 }
 
 func (c *Client) FindDeliveryMessage(

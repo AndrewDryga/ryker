@@ -53,6 +53,7 @@ SQLite runs in WAL mode with full synchronous writes and one connection. It stor
 - webhook delivery state and body digests;
 - Slack inputs admitted before Socket Mode acknowledgement;
 - Slack posts, updates, and native statuses in one delivery ledger;
+- a small durable scheduling index with lane, subject, conversation, due time, lease token, and retry state;
 - agent runs with stable idempotency keys, frozen revisions, and persisted context snapshots;
 - Slack channel, root timestamp, Coop session, and event cursor mappings;
 - source-attributed evidence and health-layer coverage independent of answer prose;
@@ -61,12 +62,16 @@ SQLite runs in WAL mode with full synchronous writes and one connection. It stor
 - live and shadow evaluation decisions for replay analysis;
 - bounded audit facts for denied and privileged actions.
 
-HTTP and Socket Mode handlers only validate and persist input. A control lane handles Slack inputs,
-buttons, slash commands, uncertain-send reconciliation, and Slack delivery; a background lane
-handles webhooks, session preparation, agent runs, results, and maintenance. Each durable lease is
-short, SQLite still has one writer connection, and network calls happen outside transactions.
-Long-running Coop work therefore cannot block operator controls or consume the source Slack
-input's retry budget.
+HTTP and Socket Mode handlers only validate and persist input. One durable scheduler leases a small
+index of typed work: a control lane handles Slack inputs, buttons, slash commands, uncertain-send
+reconciliation, and Slack delivery; a background lane handles webhooks, per-incident provisioning,
+agent runs, and results; a maintenance lane handles Coop polling and bounded cleanup. Payload and
+domain state remain in their typed tables rather than being copied into a generic queue. Lease
+tokens reject stale workers after expiry, expired leases are reclaimed without restart, and a
+conversation key prevents concurrent work in the same Slack conversation. Per-incident
+provisioning retries cannot head-of-line block unrelated incidents. SQLite still has one writer
+connection, and network calls happen outside transactions. Long-running Coop work therefore cannot
+block operator controls or consume the source Slack input's retry budget.
 
 ## Incident identity and correlation
 
@@ -97,12 +102,13 @@ has no client idempotency key, so a timeout is recovered by deterministic channe
 adopts a same-name channel only when it was created by this bot near the incident creation time.
 
 Posts, root-card updates, and native agent statuses share one durable delivery ledger and a
-conservative Slack write slot. Updates and statuses are idempotent; newer pending versions
-supersede obsolete pending card or status writes. A failed write receives durable exponential
-backoff, so another queued control or reply can proceed instead of being starved. Responder posts
-completed paragraphs or runs, never token-streaming tool output or routine raw webhook refreshes.
-Alert source links expose their destination hostname and omit query strings and fragments before
-leaving the service.
+conservative Slack write slot. Updates and statuses are idempotent. Card revisions are monotonic,
+and every thread status update or clear receives a persistent per-thread generation, so a late
+stale progress write cannot replace a newer clear, including after restart. A failed write receives
+durable exponential backoff, so another queued control or reply can proceed instead of being
+starved. Responder posts completed paragraphs or runs, never token-streaming tool output or routine
+raw webhook refreshes. Alert source links expose their destination hostname and omit query strings
+and fragments before leaving the service.
 
 The App Home is generated from durable incident and failure metrics using Home-supported Block Kit
 sections and fields. Opening the Agent Messages tab installs host-owned suggested prompts.
@@ -205,7 +211,7 @@ policy revision, approvers, execution, and audit. A later operator turn follows 
 
 Shadow mode uses the same ordered read-only triage and persistence path but suppresses replies,
 incident offers, and incident creation. Each decision records mode, action, reason, and evidence and
-coverage counts. `responder eval` replays redacted JSONL outputs through the strict parsers so
+coverage counts. `responder eval --replay` replays redacted JSONL outputs through the strict parsers so
 prompt, model, and schema changes fail CI when they break accepted decision contracts.
 
 Explicit repository-change requests use a separate engineering-task handoff. The shared-channel

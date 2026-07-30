@@ -18,31 +18,47 @@ import (
 const (
 	IncidentCardRevision = "2026-07-28.1"
 
-	ActionUpdate             = "responder_update"
-	ActionChanges            = "responder_changes"
-	ActionReview             = "responder_review"
-	ActionPublishPR          = "responder_publish_pr"
-	ActionViewPR             = "responder_view_pr"
-	ActionDiscardWork        = "responder_discard_work"
-	ActionStop               = "responder_stop"
-	ActionExtend             = "responder_extend"
-	ActionResolve            = "responder_resolve"
-	ActionHelp               = "responder_help"
-	ActionOpenIncident       = "responder_open_incident"
-	ActionStartTask          = "responder_start_engineering_task"
-	ActionApproveProposal    = "responder_approve_proposal"
-	ActionRejectProposal     = "responder_reject_proposal"
-	ActionOpenApproval       = "responder_open_emisar_approval"
-	ActionRememberMemory     = "responder_remember_memory"
-	ActionForgetMemory       = "responder_forget_memory"
-	ActionRememberPreference = "responder_remember_preference"
-	ActionTogglePreference   = "responder_toggle_preference"
-	ActionEditPreference     = "responder_edit_preference"
-	ActionDeletePreference   = "responder_delete_preference"
-	ActionRememberRule       = "responder_remember_rule"
-	ActionToggleRule         = "responder_toggle_rule"
-	ActionEditRule           = "responder_edit_rule"
-	ActionDeleteRule         = "responder_delete_rule"
+	ActionUpdate              = "responder_update"
+	ActionChanges             = "responder_changes"
+	ActionReview              = "responder_review"
+	ActionPublishPR           = "responder_publish_pr"
+	ActionViewPR              = "responder_view_pr"
+	ActionDiscardWork         = "responder_discard_work"
+	ActionStop                = "responder_stop"
+	ActionExtend              = "responder_extend"
+	ActionResolve             = "responder_resolve"
+	ActionHelp                = "responder_help"
+	ActionOpenIncident        = "responder_open_incident"
+	ActionStartTask           = "responder_start_engineering_task"
+	ActionApproveProposal     = "responder_approve_proposal"
+	ActionRejectProposal      = "responder_reject_proposal"
+	ActionOpenApproval        = "responder_open_emisar_approval"
+	ActionRememberMemory      = "responder_remember_memory"
+	ActionForgetMemory        = "responder_forget_memory"
+	ActionRememberPreference  = "responder_remember_preference"
+	ActionTogglePreference    = "responder_toggle_preference"
+	ActionEditPreference      = "responder_edit_preference"
+	ActionDeletePreference    = "responder_delete_preference"
+	ActionRememberRule        = "responder_remember_rule"
+	ActionToggleRule          = "responder_toggle_rule"
+	ActionEditRule            = "responder_edit_rule"
+	ActionDeleteRule          = "responder_delete_rule"
+	ActionSaveChannelConfig   = "responder_save_channel_config"
+	ActionRestartChannelSetup = "responder_restart_channel_setup"
+	ActionCancelChannelSetup  = "responder_cancel_channel_setup"
+	ActionSetupQuickMentions  = "responder_setup_quick_mentions"
+	ActionSetupQuickProactive = "responder_setup_quick_proactive"
+	ActionSetupCustomize      = "responder_setup_customize"
+	ActionSetupMentions       = "responder_setup_participation_mentions"
+	ActionSetupProactive      = "responder_setup_participation_proactive"
+	ActionSetupShadow         = "responder_setup_participation_shadow"
+	ActionSetupRepository     = "responder_setup_repository_"
+	ActionSetupDefaultRepo    = "responder_setup_repository_default"
+	ActionSetupAlertReply     = "responder_setup_alert_reply"
+	ActionSetupAlertOffer     = "responder_setup_alert_offer"
+	ActionSetupAlertAutomatic = "responder_setup_alert_automatic"
+	ActionSetupOperatorsOnly  = "responder_setup_audience_operators"
+	ActionSetupIncludeMe      = "responder_setup_audience_include_me"
 
 	ActionCommandStatus            = "responder_command_status"
 	ActionCommandOpenIncidents     = "responder_command_incidents_open"
@@ -726,7 +742,7 @@ func PreferenceDirectoryMessage(
 	if len(preferences) == 0 {
 		message.Sections = []string{
 			"No operator, channel, repository, or workspace preference matches this context.",
-			"Examples: `@Responder when I ask for infrastructure health, always run a deep check` or `@Responder from now on keep responses concise in this channel`. Responder will show a confirmation before saving.",
+			"Examples: `@Emisar when I ask for infrastructure health, always run a deep check` or `@Emisar from now on keep responses concise in this channel`. Emisar will show a confirmation before saving.",
 		}
 		return message
 	}
@@ -815,7 +831,7 @@ func RuleDirectoryMessage(rules []core.StandingRule) Message {
 	if len(rules) == 0 {
 		message.Sections = []string{
 			"No standing rules are configured in this channel.",
-			"Example: `@Responder when you see a new Terraform plan here, review its main diff and red flags`. Responder will show the normalized trigger, repository, expiry, and safety boundary before saving.",
+			"Example: `@Emisar when you see a new Terraform plan here, review its main diff and red flags`. Emisar will show the normalized trigger, repository, expiry, and safety boundary before saving.",
 		}
 		return message
 	}
@@ -1466,7 +1482,10 @@ func OperationsHome(
 	memoryActive int,
 	preferenceActive int,
 	ruleActive int,
+	commitmentActive int,
 	incidents []core.Incident,
+	commitments []core.Commitment,
+	situations []core.ChannelMemory,
 	memories []core.MemoryEntry,
 	preferences []core.ResponderPreference,
 	rules []core.StandingRule,
@@ -1478,12 +1497,13 @@ func OperationsHome(
 	message := Message{
 		Text: fmt.Sprintf(
 			"Responder operations: %s. %d open work items, %d failed work items.",
-			state, openIncidents, failedWork,
+			state, openIncidents+commitmentActive, failedWork,
 		),
-		Header:   "Emisar Responder",
+		Header:   "Emisar",
 		Sections: []string{"*" + state + "*"},
 		Fields: []Field{
 			{Label: "Open work", Value: fmt.Sprint(openIncidents)},
+			{Label: "Active commitments", Value: fmt.Sprint(commitmentActive)},
 			{Label: "Active sessions", Value: fmt.Sprint(openSessions)},
 			{Label: "Failed work", Value: fmt.Sprint(failedWork)},
 			{Label: "Recorded work", Value: fmt.Sprint(totalIncidents)},
@@ -1495,7 +1515,7 @@ func OperationsHome(
 			{Label: "Enabled standing rules", Value: fmt.Sprint(ruleActive)},
 		},
 		Context: []string{
-			"Use `/responder incidents`, `/responder status`, or `/responder help` in a channel for interactive controls.",
+			"Ask Emisar what it is working on, what it remembers, or how a channel is configured. Slash commands remain available as recovery controls.",
 		},
 	}
 	if cleanupBlocked > 0 {
@@ -1525,6 +1545,64 @@ func OperationsHome(
 				incidentDirectoryStatus(incident),
 				room,
 				signalStateSummary(incident),
+			)
+		}
+		message.Sections = append(message.Sections, current.String())
+	}
+	if len(commitments) > 0 {
+		var owed strings.Builder
+		owed.WriteString("*What Emisar owes the team*\n")
+		for _, commitment := range commitments[:min(len(commitments), 8)] {
+			location := ""
+			if commitment.ChannelID != "" {
+				location = " in <#" + commitment.ChannelID + ">"
+			}
+			fmt.Fprintf(
+				&owed,
+				"\n- **%s**%s\n  %s - %s",
+				escapeSlackText(commitment.Title),
+				location,
+				commitmentStateLabel(commitment.State),
+				escapeSlackText(commitment.Status),
+			)
+			if commitment.NextAction != "" {
+				fmt.Fprintf(
+					&owed,
+					"\n  Next: %s",
+					escapeSlackText(commitment.NextAction),
+				)
+			}
+		}
+		message.Sections = append(message.Sections, owed.String())
+	}
+	if len(situations) > 0 {
+		var current strings.Builder
+		current.WriteString("*Current channel situations*\n")
+		for _, situation := range situations[:min(len(situations), 5)] {
+			summary := strings.TrimSpace(situation.State.SituationSummary)
+			if summary == "" {
+				summary = displayOr(
+					strings.TrimSpace(situation.State.Goal),
+					"Context retained; no current summary",
+				)
+			}
+			fmt.Fprintf(
+				&current,
+				"\n- <#%s> - %s",
+				situation.ChannelID,
+				escapeSlackText(summary),
+			)
+			if count := len(situation.State.OpenLoops); count > 0 {
+				suffix := "s"
+				if count == 1 {
+					suffix = ""
+				}
+				fmt.Fprintf(&current, "\n  %d open loop%s", count, suffix)
+			}
+			fmt.Fprintf(
+				&current,
+				"\n  Updated %s",
+				situation.UpdatedAt.UTC().Format("2006-01-02 15:04 UTC"),
 			)
 		}
 		message.Sections = append(message.Sections, current.String())
@@ -1605,10 +1683,72 @@ func OperationsHome(
 	return message
 }
 
+func commitmentStateLabel(state core.CommitmentState) string {
+	switch state {
+	case core.CommitmentQueued:
+		return "Queued"
+	case core.CommitmentWorking:
+		return "Working"
+	case core.CommitmentFinishing:
+		return "Finishing"
+	case core.CommitmentBlocked:
+		return "Blocked"
+	case core.CommitmentDone:
+		return "Done"
+	default:
+		return "Cancelled"
+	}
+}
+
+func CommitmentDirectoryMessage(items []core.Commitment) Message {
+	if len(items) == 0 {
+		return Message{
+			Text:   "Emisar has no unfinished commitments.",
+			Header: "No unfinished commitments",
+			Markdown: "I do not currently owe the team an investigation, response, or retry. " +
+				"Closed incidents and completed engineering tasks remain available in the work history.",
+		}
+	}
+	var body strings.Builder
+	body.WriteString(
+		"These are durable agent runs that are queued, active, finishing, or blocked. " +
+			"Emisar resumes them after restarts and returns to the originating conversation.\n",
+	)
+	for _, item := range items {
+		location := ""
+		if item.ChannelID != "" {
+			location = " in <#" + item.ChannelID + ">"
+		}
+		fmt.Fprintf(
+			&body,
+			"\n- **%s**%s\n  %s - %s",
+			escapeSlackText(item.Title),
+			location,
+			commitmentStateLabel(item.State),
+			escapeSlackText(item.Status),
+		)
+		if item.NextAction != "" {
+			fmt.Fprintf(
+				&body,
+				"\n  Next: %s",
+				escapeSlackText(item.NextAction),
+			)
+		}
+	}
+	return Message{
+		Text:     fmt.Sprintf("%d unfinished Emisar commitments.", len(items)),
+		Header:   "What Emisar owes the team",
+		Markdown: body.String(),
+		Context: []string{
+			"Blocked work remains visible until it is retried, resolved, or removed by retention cleanup.",
+		},
+	}
+}
+
 func OperationsHomeRestricted() Message {
 	return Message{
 		Text:   "Responder operations access is limited to configured operators.",
-		Header: "Emisar Responder",
+		Header: "Emisar",
 		Sections: []string{
 			"*Operations dashboard access is restricted*\n" +
 				"Incident titles, active work, failures, and session state are visible only to " +

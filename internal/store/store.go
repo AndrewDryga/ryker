@@ -19,6 +19,8 @@ import (
 
 const timestampFormat = time.RFC3339Nano
 
+const migrationBackupRetention = 3
+
 var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("conflict")
@@ -103,6 +105,19 @@ func Open(stateDir string) (*Store, error) {
 			return nil, fmt.Errorf("configure incremental database vacuum: %w", err)
 		}
 	}
+	if version > currentSchemaVersion {
+		db.Close()
+		return nil, fmt.Errorf(
+			"database schema version %d is newer than supported version %d",
+			version, currentSchemaVersion,
+		)
+	}
+	if version > 0 && version < currentSchemaVersion {
+		if err := backupBeforeMigration(db, stateDir, version); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, err
@@ -116,6 +131,113 @@ func Open(stateDir string) (*Store, error) {
 		return nil, fmt.Errorf("configure database durability: %w", err)
 	}
 	return store, nil
+}
+
+func backupBeforeMigration(db *sql.DB, stateDir string, sourceVersion int) error {
+	backupDir := filepath.Join(stateDir, "backups")
+	if err := ensurePrivateDir(backupDir); err != nil {
+		return fmt.Errorf("prepare migration backup directory: %w", err)
+	}
+	name := fmt.Sprintf(
+		"responder-v%d-to-v%d-%s.db",
+		sourceVersion,
+		currentSchemaVersion,
+		time.Now().UTC().Format("20060102T150405.000000000Z"),
+	)
+	path := filepath.Join(backupDir, name)
+	if _, err := db.Exec(`VACUUM INTO ?`, path); err != nil {
+		return fmt.Errorf("create migration backup: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("protect migration backup: %w", err)
+	}
+	if err := verifyMigrationBackup(path, sourceVersion); err != nil {
+		return err
+	}
+	if err := pruneMigrationBackups(backupDir, migrationBackupRetention); err != nil {
+		return err
+	}
+	return nil
+}
+
+func verifyMigrationBackup(path string, sourceVersion int) error {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return fmt.Errorf("open migration backup for verification: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	defer db.Close()
+	if _, err := db.Exec(connectionPragmas + "\nPRAGMA query_only = ON;"); err != nil {
+		return fmt.Errorf("configure migration backup verification: %w", err)
+	}
+	version, err := schemaVersion(db)
+	if err != nil {
+		return fmt.Errorf("verify migration backup schema: %w", err)
+	}
+	if version != sourceVersion {
+		return fmt.Errorf(
+			"migration backup schema version is %d, want %d",
+			version,
+			sourceVersion,
+		)
+	}
+	rows, err := db.Query(`PRAGMA quick_check`)
+	if err != nil {
+		return fmt.Errorf("verify migration backup integrity: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var result string
+		if err := rows.Scan(&result); err != nil {
+			return fmt.Errorf("verify migration backup integrity: %w", err)
+		}
+		if result != "ok" {
+			return fmt.Errorf("migration backup quick check failed: %s", boundedError(result))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("verify migration backup integrity: %w", err)
+	}
+	return nil
+}
+
+func pruneMigrationBackups(dir string, keep int) error {
+	paths, err := filepath.Glob(filepath.Join(dir, "responder-v*-to-v*.db"))
+	if err != nil {
+		return fmt.Errorf("list migration backups: %w", err)
+	}
+	type candidate struct {
+		path    string
+		modTime time.Time
+	}
+	candidates := make([]candidate, 0, len(paths))
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("inspect migration backup: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			continue
+		}
+		candidates = append(candidates, candidate{path: path, modTime: info.ModTime()})
+	}
+	slices.SortFunc(candidates, func(a, b candidate) int {
+		if order := b.modTime.Compare(a.modTime); order != 0 {
+			return order
+		}
+		return strings.Compare(b.path, a.path)
+	})
+	retained := max(keep, 0)
+	if retained > len(candidates) {
+		retained = len(candidates)
+	}
+	for _, item := range candidates[retained:] {
+		if err := os.Remove(item.path); err != nil {
+			return fmt.Errorf("remove expired migration backup: %w", err)
+		}
+	}
+	return nil
 }
 
 func ensureIncrementalVacuum(db *sql.DB) error {
@@ -266,6 +388,21 @@ func migrate(db *sql.DB) error {
 
 func (s *Store) RecoverInterrupted(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		  SET session_id = (
+		    SELECT incidents.coop_session_id
+		    FROM incidents
+		    WHERE incidents.id = agent_runs.incident_id
+		  ),
+		  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		  WHERE incident_id IS NOT NULL
+		    AND session_id = ''
+		    AND state IN ('preparing', 'running', 'applying', 'finalizing')
+		    AND EXISTS (
+		      SELECT 1 FROM incidents
+		      WHERE incidents.id = agent_runs.incident_id
+		        AND incidents.coop_session_id != ''
+		    );
 		UPDATE webhook_events SET state = 'retry', next_attempt_at = updated_at
 		  WHERE state = 'processing';
 		UPDATE slack_inputs SET state = 'retry', next_attempt_at = updated_at
@@ -285,6 +422,9 @@ func (s *Store) RecoverInterrupted(ctx context.Context) error {
 		  WHERE state = 'publishing';
 	`); err != nil {
 		return fmt.Errorf("recover interrupted work: %w", err)
+	}
+	if err := s.RecoverWorkLeases(ctx, time.Now().UTC()); err != nil {
+		return fmt.Errorf("recover scheduled work: %w", err)
 	}
 	return nil
 }
@@ -468,6 +608,7 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 			  (SELECT count(*) FROM slack_inputs WHERE state = 'failed') +
 			  (SELECT count(*) FROM slack_deliveries WHERE state = 'failed') +
 			  (SELECT count(*) FROM agent_runs WHERE state = 'failed') +
+			  (SELECT count(*) FROM work_items WHERE state = 'failed') +
 			  (SELECT count(*) FROM publications WHERE state = 'failed') +
 			  (SELECT count(*) FROM coop_cleanup WHERE state = 'blocked')`},
 	}
@@ -1170,6 +1311,16 @@ func (s *Store) FindIncidentByChannel(ctx context.Context, channelID string) (co
 	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
 		FROM incidents WHERE channel_id = ? AND work_scope = 'room' AND status != 'closed'
 		ORDER BY updated_at DESC LIMIT 1`, channelID))
+}
+
+func (s *Store) IsIncidentChannel(ctx context.Context, channelID string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM incidents
+		WHERE channel_id = ? AND work_scope = 'room'`,
+		channelID,
+	).Scan(&count)
+	return count > 0, err
 }
 
 func (s *Store) FindIncidentForConversation(

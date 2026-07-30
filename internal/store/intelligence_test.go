@@ -71,7 +71,11 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := core.AgentMemory{
-		Goal: "Assess production health",
+		Goal:             "Assess production health",
+		ChannelPurpose:   "Production infrastructure operations",
+		SituationSummary: "Portal health is under review.",
+		ActiveTopics:     []string{"portal health"},
+		OpenLoops:        []string{"Confirm database latency"},
 		Topology: []string{
 			"Two declared production instances",
 		},
@@ -86,8 +90,17 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	}
 	if memory.SessionID != "ses_1" || memory.SessionRevision != 8 ||
 		memory.Generation != 1 || memory.TurnCount != 1 ||
-		memory.State.Goal != state.Goal {
+		memory.State.Goal != state.Goal ||
+		memory.State.ChannelPurpose != state.ChannelPurpose ||
+		memory.State.SituationSummary != state.SituationSummary ||
+		len(memory.State.ActiveTopics) != 1 ||
+		len(memory.State.OpenLoops) != 1 {
 		t.Fatalf("memory = %+v", memory)
+	}
+	situations, err := st.ListChannelSituations(ctx, 10)
+	if err != nil || len(situations) != 1 ||
+		situations[0].State.OpenLoops[0] != "Confirm database latency" {
+		t.Fatalf("situations = %+v, %v", situations, err)
 	}
 	decision := core.EvaluationDecision{
 		ChannelID: "COPS", SourceInput: "slack_once", Mode: "live",

@@ -20,6 +20,10 @@ slack:
   # Give triage a fresh chronological transcript and a short window for nearby human replies.
   watch_context_messages: 20
   watch_settle_delay: 2s
+  # Ambient replies require stronger urgency, novelty, confidence, and ownership than reactions.
+  # Scores range from 0 to 12; higher values make Emisar quieter.
+  proactive_reply_attention_threshold: 7
+  proactive_reaction_attention_threshold: 4
   # Incident rooms are named <prefix>-MMDD-<title>-<incident ID>.
   channel_prefix: ems
   private_channels: true
@@ -98,6 +102,13 @@ repositories:
     github_repository: example/backend
     github_base_branch: main
 
+repository_sets:
+  # Slack selects this logical context. The matching Coop policy below owns all host paths.
+  platform:
+    display_name: Platform
+    primary: infrastructure
+    coop_policy: platform-observe
+
 # Responder does not turn model proposals or Slack clicks into operational approval. A configured
 # operator can directly request an exact action in an incident; Emisar validates, authorizes,
 # approves, executes, and audits that request through its own governed workflow.
@@ -107,7 +118,7 @@ webhooks:
     kind: grafana
     auth: bearer
     secret_env: GRAFANA_WEBHOOK_TOKEN
-    repository: infrastructure
+    repository: platform
     group_by_labels: [cluster, namespace, service]
     correlation_window: 2h
     resolve_after: 5m
@@ -149,3 +160,5 @@ limits:
   max_standing_rules: 500
   max_rules_per_channel: 25
   worker_interval: 250ms
+  work_lease: 3m
+  worker_stall_after: 2m

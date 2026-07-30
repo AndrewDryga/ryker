@@ -40,6 +40,60 @@ func (s *Store) GetChannelMemory(ctx context.Context, channelID string) (core.Ch
 	return memory, nil
 }
 
+func (s *Store) ListChannelSituations(
+	ctx context.Context,
+	limit int,
+) ([]core.ChannelMemory, error) {
+	if limit < 1 {
+		limit = 8
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT channel_id, repository, session_id, session_revision, generation, turn_count,
+		  coop_event_sequence, state_json, session_started_at, rotated_at, updated_at
+		FROM channel_memories
+		WHERE state_json != '{}' AND state_json != ''
+		ORDER BY updated_at DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.ChannelMemory, 0)
+	for rows.Next() {
+		var memory core.ChannelMemory
+		var state []byte
+		var started, rotated sql.NullString
+		var updated string
+		if err := rows.Scan(
+			&memory.ChannelID,
+			&memory.Repository,
+			&memory.SessionID,
+			&memory.SessionRevision,
+			&memory.Generation,
+			&memory.TurnCount,
+			&memory.CoopEventSequence,
+			&state,
+			&started,
+			&rotated,
+			&updated,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(state, &memory.State); err != nil {
+			return nil, fmt.Errorf(
+				"decode channel memory %s: %w",
+				memory.ChannelID,
+				err,
+			)
+		}
+		memory.SessionStarted = scanTime(started)
+		memory.RotatedAt = scanTime(rotated)
+		memory.UpdatedAt = parseTime(updated)
+		result = append(result, memory)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) BindChannelSession(
 	ctx context.Context,
 	channelID string,

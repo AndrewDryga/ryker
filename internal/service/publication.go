@@ -63,7 +63,7 @@ func (s *Service) publishDraftPR(
 			))
 	}
 
-	repository, ok := s.cfg.Repositories[incident.Repository]
+	repository, ok := s.cfg.RepositoryContext(incident.Repository)
 	if !ok {
 		return fmt.Errorf("repository %q is not configured", incident.Repository)
 	}

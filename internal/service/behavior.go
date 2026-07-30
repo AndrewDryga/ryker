@@ -25,6 +25,12 @@ var (
 		`(?i)\b(?:when(?:ever)?\s+you\s+(?:see|receive|notice)|` +
 			`for\s+(?:each|every)\s+(?:new\s+)?message|every\s+time)\b`,
 	)
+	incidentRoomReferencePattern = regexp.MustCompile(
+		`(?i)\bincident(?:\s+(?:channel|room))?\b`,
+	)
+	inviteSelfPattern = regexp.MustCompile(
+		`(?i)\binvite\s+(?:me|myself)\b`,
+	)
 	terraformPlanPattern = regexp.MustCompile(
 		`(?is)\bterraform(?:\s+\w+){0,3}\s+plan\b|` +
 			`\bplan:\s*\d+\s+to\s+add,\s*\d+\s+to\s+change,\s*\d+\s+to\s+destroy\b|` +
@@ -210,6 +216,12 @@ func explicitBehaviorRequest(text string) bool {
 		explicitRuleRequestPattern.MatchString(text)
 }
 
+func incidentSelfInviteBehaviorRequest(text string) bool {
+	return explicitBehaviorRequest(text) &&
+		incidentRoomReferencePattern.MatchString(text) &&
+		inviteSelfPattern.MatchString(text)
+}
+
 func (s *Service) matchingStandingRules(
 	ctx context.Context,
 	input core.SlackInput,
@@ -327,7 +339,7 @@ func (s *Service) preferenceFromOffer(
 		}
 		preference.ScopeKey = input.ChannelID
 	case "repository":
-		if _, ok := s.cfg.Repositories[offer.Repository]; !ok {
+		if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
 			return core.ResponderPreference{}, 0, fmt.Errorf(
 				"repository %q is not configured", offer.Repository,
 			)
@@ -427,7 +439,7 @@ func (s *Service) standingRuleFromOffer(
 			"standing rules require channel scope in a non-DM Slack channel",
 		)
 	}
-	if _, ok := s.cfg.Repositories[offer.Repository]; !ok {
+	if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
 		return core.StandingRule{}, 0, fmt.Errorf(
 			"repository %q is not configured", offer.Repository,
 		)
@@ -755,8 +767,8 @@ func (s *Service) handleEditPreference(
 	return s.behaviorActionFeedback(
 		ctx, input,
 		fmt.Sprintf(
-			"*Replace `%s` with a new confirmed value.*\n\nMention Responder in this channel "+
-				"with, for example, `@Responder from now on set %s to <value> for this %s`. "+
+			"*Replace `%s` with a new confirmed value.*\n\nMention Emisar in this channel "+
+				"with, for example, `@Emisar from now on set %s to <value> for this %s`. "+
 				"Responder will show the normalized replacement before saving it. The existing "+
 				"value remains active until you confirm the replacement.",
 			preference.Name, preference.Name, preference.ScopeKind,

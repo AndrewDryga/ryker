@@ -149,6 +149,14 @@ func (s *Service) effectiveRepository(
 	if channelID == "" {
 		return fallback, nil
 	}
+	configuration, configurationErr := s.store.GetChannelConfiguration(ctx, channelID)
+	if configurationErr == nil {
+		if _, ok := s.cfg.RepositoryContext(configuration.Repository); ok {
+			return configuration.Repository, nil
+		}
+	} else if !errors.Is(configurationErr, store.ErrNotFound) {
+		return "", configurationErr
+	}
 	entry, err := s.store.GetChannelRepositoryBinding(
 		ctx, s.cfg.Slack.TeamID, channelID, operatorID,
 	)
@@ -158,7 +166,7 @@ func (s *Service) effectiveRepository(
 	if err != nil {
 		return "", err
 	}
-	if _, ok := s.cfg.Repositories[entry.Value]; !ok {
+	if _, ok := s.cfg.RepositoryContext(entry.Value); !ok {
 		return fallback, nil
 	}
 	return entry.Value, nil
@@ -471,7 +479,7 @@ func (s *Service) memoryEntryFromOffer(
 	case "channel":
 		entry.ScopeKey = input.ChannelID
 	case "repository":
-		if _, ok := s.cfg.Repositories[offer.Repository]; !ok {
+		if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
 			return core.MemoryEntry{}, 0, fmt.Errorf(
 				"repository %q is not configured", offer.Repository,
 			)
@@ -531,7 +539,7 @@ func (s *Service) validateMemoryValue(entry *core.MemoryEntry) error {
 				"repository_for_channel visibility must be channel or workspace",
 			)
 		}
-		if _, ok := s.cfg.Repositories[entry.Value]; !ok {
+		if _, ok := s.cfg.RepositoryContext(entry.Value); !ok {
 			return fmt.Errorf("repository %q is not configured", entry.Value)
 		}
 		entry.SubjectKey = "channel:" + entry.ScopeKey

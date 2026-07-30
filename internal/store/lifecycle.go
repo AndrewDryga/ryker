@@ -350,6 +350,13 @@ func (s *Store) Prune(
 		DELETE FROM emisar_approvals WHERE expires_at < ?`, operational); err != nil {
 		return result, err
 	}
+	if result.ConfigurationSessions, err = deleteCount(`
+		DELETE FROM configuration_sessions
+		WHERE (status IN ('saved', 'cancelled', 'expired') AND updated_at < ?)
+		   OR expires_at < ?`,
+		operational, operational); err != nil {
+		return result, err
+	}
 
 	closed := closedBefore.UTC().Format(timestampFormat)
 	for _, query := range []string{

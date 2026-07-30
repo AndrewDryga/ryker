@@ -18,19 +18,21 @@ const turnLimitSettingName = "turn_limit"
 const incidentPageSize = 8
 
 type proactiveStatus struct {
-	Enabled         bool
-	EffectiveSource string
-	ChannelOverride string
-	GlobalOverride  string
-	ConfigDefault   bool
+	Enabled           bool
+	EffectiveSource   string
+	ChannelOverride   string
+	GlobalOverride    string
+	ConfiguredDefault string
+	ConfigDefault     bool
 }
 
 type shadowStatus struct {
-	Enabled         bool
-	EffectiveSource string
-	ChannelOverride string
-	GlobalOverride  string
-	ConfigDefault   bool
+	Enabled           bool
+	EffectiveSource   string
+	ChannelOverride   string
+	GlobalOverride    string
+	ConfiguredDefault string
+	ConfigDefault     bool
 }
 
 type turnLimitStatus struct {
@@ -56,9 +58,10 @@ func (s *Service) shadowStatus(
 	channelID string,
 ) (shadowStatus, error) {
 	status := shadowStatus{
-		ChannelOverride: "inherit",
-		GlobalOverride:  "inherit",
-		ConfigDefault:   s.cfg.IsShadowChannel(channelID),
+		ChannelOverride:   "inherit",
+		GlobalOverride:    "inherit",
+		ConfiguredDefault: "inherit",
+		ConfigDefault:     s.cfg.IsShadowChannel(channelID),
 	}
 	channel, err := s.store.GetSlackSetting(ctx, "channel", channelID, shadowSettingName)
 	if err == nil {
@@ -72,11 +75,22 @@ func (s *Service) shadowStatus(
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return shadowStatus{}, err
 	}
+	if configured, configuredErr := s.store.GetChannelConfiguration(ctx, channelID); configuredErr == nil {
+		status.ConfiguredDefault = "off"
+		if configured.Participation == "shadow" {
+			status.ConfiguredDefault = "on"
+		}
+	} else if !errors.Is(configuredErr, store.ErrNotFound) {
+		return shadowStatus{}, configuredErr
+	}
 	err = nil
 	switch {
 	case status.ChannelOverride != "inherit":
 		status.Enabled, err = parseOnOff(status.ChannelOverride)
 		status.EffectiveSource = "channel override"
+	case status.ConfiguredDefault != "inherit":
+		status.Enabled, err = parseOnOff(status.ConfiguredDefault)
+		status.EffectiveSource = "channel setup"
 	case status.GlobalOverride != "inherit":
 		status.Enabled, err = parseOnOff(status.GlobalOverride)
 		status.EffectiveSource = "workspace override"
@@ -92,9 +106,10 @@ func (s *Service) proactiveStatus(
 	channelID string,
 ) (proactiveStatus, error) {
 	status := proactiveStatus{
-		ChannelOverride: "inherit",
-		GlobalOverride:  "inherit",
-		ConfigDefault:   s.cfg.IsWatchChannel(channelID),
+		ChannelOverride:   "inherit",
+		GlobalOverride:    "inherit",
+		ConfiguredDefault: "inherit",
+		ConfigDefault:     s.cfg.IsWatchChannel(channelID),
 	}
 	channel, err := s.store.GetSlackSetting(
 		ctx, "channel", channelID, proactiveSettingName,
@@ -115,6 +130,20 @@ func (s *Service) proactiveStatus(
 	if status.ChannelOverride != "inherit" {
 		status.Enabled, err = parseOnOff(status.ChannelOverride)
 		status.EffectiveSource = "channel override"
+		return status, err
+	}
+	if configured, configuredErr := s.store.GetChannelConfiguration(ctx, channelID); configuredErr == nil {
+		status.ConfiguredDefault = "off"
+		if configured.Participation == "proactive" ||
+			configured.Participation == "shadow" {
+			status.ConfiguredDefault = "on"
+		}
+	} else if !errors.Is(configuredErr, store.ErrNotFound) {
+		return proactiveStatus{}, configuredErr
+	}
+	if status.ConfiguredDefault != "inherit" {
+		status.Enabled, err = parseOnOff(status.ConfiguredDefault)
+		status.EffectiveSource = "channel setup"
 		return status, err
 	}
 	if status.GlobalOverride != "inherit" {
@@ -225,6 +254,11 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 		return s.finishSlashStatus(ctx, input)
 	case "incidents":
 		return s.finishSlashIncidents(ctx, input, fields[1:])
+	case "work", "commitments":
+		if len(fields) != 1 {
+			return s.finishSlashInput(ctx, input, slashUsage("work"))
+		}
+		return s.finishSlashCommitments(ctx, input)
 	case "memory":
 		if len(fields) != 1 {
 			return s.finishSlashInput(ctx, input, slashUsage("memory"))
@@ -262,6 +296,21 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 			fmt.Sprintf("Unknown `/responder` subcommand `%s`.\n\n%s", fields[0], slashHelp()),
 		)
 	}
+}
+
+func (s *Service) finishSlashCommitments(
+	ctx context.Context,
+	input core.SlackInput,
+) error {
+	items, err := s.store.ListActiveCommitments(ctx, 20)
+	if err != nil {
+		return err
+	}
+	return s.finishSlashMessage(
+		ctx,
+		input,
+		slackui.CommitmentDirectoryMessage(items),
+	)
 }
 
 func (s *Service) finishSlashMemory(
@@ -559,7 +608,7 @@ func (s *Service) configureProactive(
 			return s.finishSlashInput(
 				ctx, input,
 				"*Responder cannot listen to this channel yet.*\n\n"+
-					"Invite `@Responder` to this channel so Slack will deliver its messages, "+
+					"Invite `@Emisar` to this channel so Slack will deliver its messages, "+
 					"then run `/responder proactive on` again. No setting was changed.",
 			)
 		}
@@ -655,19 +704,50 @@ func (s *Service) finishSlashStatus(ctx context.Context, input core.SlackInput) 
 	if err != nil {
 		return err
 	}
-	return s.finishSlashMessage(
-		ctx,
-		input,
-		slashStatusMessage(
-			status,
-			shadow,
-			s.cfg.IsSummonChannel(input.ChannelID),
-			repository,
-			len(preferences),
-			len(rules),
-			incident,
-		),
+	message := slashStatusMessage(
+		status,
+		shadow,
+		s.cfg.IsSummonChannel(input.ChannelID),
+		repository,
+		len(preferences),
+		len(rules),
+		incident,
 	)
+	if configured, configuredErr := s.store.GetChannelConfiguration(
+		ctx, input.ChannelID,
+	); configuredErr == nil {
+		audience := "configured operators"
+		if len(configured.InviteUsers) > 0 {
+			audience += fmt.Sprintf(" plus %d selected member(s)", len(configured.InviteUsers))
+		}
+		if len(configured.InviteUserGroups) > 0 {
+			audience += fmt.Sprintf(
+				" and %d Slack user group(s)",
+				len(configured.InviteUserGroups),
+			)
+		}
+		message.Sections = append(
+			[]string{
+				fmt.Sprintf(
+					"*Confirmed channel setup*\nParticipation: *%s*. App alerts: *%s*. "+
+						"New incident audience: %s. Repository: `%s`.",
+					configured.Participation,
+					configured.AlertPolicy,
+					audience,
+					configured.Repository,
+				),
+			},
+			message.Sections...,
+		)
+	} else if !errors.Is(configuredErr, store.ErrNotFound) {
+		return configuredErr
+	}
+	if input.Kind == "conversation_command" {
+		message.Context = []string{
+			"This is the effective channel configuration. Setting changes are durable and audited.",
+		}
+	}
+	return s.finishSlashMessage(ctx, input, message)
 }
 
 func (s *Service) runSlashIncidentControl(
@@ -682,7 +762,7 @@ func (s *Service) runSlashIncidentControl(
 			"*There is no incident to control in this channel.*\n\n"+
 				"`update`, `changes`, `review`, `publish`, `stop`, and `close` operate on the "+
 				"incident attached to the current channel. To create one, explicitly ask "+
-				"`@Responder open an incident for <summary>` in a mention-enabled channel. "+
+				"`@Emisar open an incident for <summary>` in a mention-enabled channel. "+
 				"Use `/responder status` there to check how mentions are handled.",
 		)
 	}
@@ -724,6 +804,14 @@ func (s *Service) finishSlashMessage(
 	if s.sanitizer != nil {
 		message = s.sanitizer.Message(message)
 	}
+	if input.Kind == "conversation_command" {
+		if err := s.postInputMessage(
+			ctx, "conversation_command_"+input.ID, input, message,
+		); err != nil {
+			return err
+		}
+		return s.store.FinishSlackInput(ctx, input.ID)
+	}
 	if err := s.slack.PostEphemeral(ctx, input.ChannelID, input.UserID, message); err != nil {
 		s.log.Warn(
 			"post Slack slash command result",
@@ -748,6 +836,7 @@ func slashHelpSections() []string {
 	return []string{
 		"*Find work*\n" +
 			"`/responder status` - explain Responder's behavior in this channel\n" +
+			"`/responder work` - show what Emisar owes the team\n" +
 			"`/responder incidents` - show open incidents and engineering tasks\n" +
 			"`/responder incidents all [page]` - include closed work history\n" +
 			"`/responder memory` - inspect and forget saved operational facts\n" +
@@ -803,6 +892,10 @@ func slashHelpMessage() slackui.Message {
 
 func slashUsage(command string) string {
 	switch command {
+	case "work":
+		return "*Inspect unfinished Emisar commitments.*\n\n" +
+			"`/responder work` shows queued, active, finishing, and blocked agent work. " +
+			"Each item identifies its originating channel, current state, and next action."
 	case "incidents":
 		return "*Browse the incident directory.*\n\n" +
 			"`/responder incidents` lists currently open incidents. " +
@@ -1236,7 +1329,7 @@ func slashStatusMessage(
 			proactiveBehavior(status.Enabled, incident != nil),
 			shadowBehavior(shadow),
 			"*Why this is the effective setting*\n" + effectiveReason(status) + ". " +
-				"Priority is: channel setting, then workspace setting, then deployment configuration.",
+				"Priority is: channel override, channel setup, workspace override, then deployment configuration.",
 			mentionBehavior(summon),
 			fmt.Sprintf(
 				"*Durable behavior*\n%d enabled preference%s affect investigation method or "+
@@ -1311,6 +1404,8 @@ func effectiveReason(status proactiveStatus) string {
 	case "workspace override":
 		return "no channel setting is present and the Slack workspace default turns it " +
 			onOff(status.Enabled)
+	case "channel setup":
+		return "the confirmed setup for this channel turns it " + onOff(status.Enabled)
 	default:
 		if status.ConfigDefault {
 			return "no Slack override is present and the deployment configuration includes this channel"
@@ -1350,11 +1445,11 @@ func deploymentSettingDescription(enabled bool) string {
 
 func mentionBehavior(enabled bool) string {
 	if enabled {
-		return "*Mention handling is enabled.* `@Responder <question>` investigates and replies in " +
-			"the source thread. Use `@Responder open an incident for <summary>` when a dedicated " +
+		return "*Mention handling is enabled.* `@Emisar <question>` investigates and replies in " +
+			"the source thread. Use `@Emisar open an incident for <summary>` when a dedicated " +
 			"room and isolated working copy are actually required."
 	}
-	return "*Mention handling is disabled for new work.* An `@Responder` mention does not start a " +
+	return "*Mention handling is disabled for new work.* An `@Emisar` mention does not start a " +
 		"request from this channel. This does not affect conversation inside an existing incident room."
 }
 
@@ -1365,8 +1460,8 @@ func normalChannelNextStep(enabled, summon bool) string {
 			"the complete command guide."
 	}
 	if summon {
-		return "*What you can do now*\nUse `@Responder <question>` for a thread reply, or explicitly " +
-			"ask `@Responder open an incident for <summary>` for a dedicated room. Use " +
+		return "*What you can do now*\nUse `@Emisar <question>` for a thread reply, or explicitly " +
+			"ask `@Emisar open an incident for <summary>` for a dedicated room. Use " +
 			"`/responder proactive on` to let Responder triage every new message."
 	}
 	return "*What you can do now*\nUse `/responder proactive on` to let Responder triage new " +

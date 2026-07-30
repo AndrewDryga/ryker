@@ -76,6 +76,9 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 	if err := svc.pollIncident(ctx, incident); err != nil {
 		t.Fatal(err)
 	}
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
 	svc.lastPost = time.Time{}
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 2 {
@@ -88,8 +91,264 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 	if incident.ActiveTurnID != "" || incident.Workflow != core.WorkflowParked {
 		t.Fatalf("terminal workflow = %+v", incident)
 	}
-	if len(slack.statuses) != 1 {
-		t.Fatalf("terminal turn posted a misleading status: %+v", slack.statuses)
+	if len(slack.statuses) != 2 || slack.statuses[1].channel != incident.ChannelID ||
+		slack.statuses[1].thread != incident.RootTS || slack.statuses[1].text != "" {
+		t.Fatalf("terminal turn did not clear its native status: %+v", slack.statuses)
+	}
+}
+
+func TestAgentRunInterruptedByResponderShutdownIsReplayed(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	if err := st.SetCoopSession(
+		ctx, incident.ID, "ses_1", "incident-restart", 1,
+	); err != nil {
+		t.Fatal(err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg,
+		st,
+		coopClient,
+		&fakeSlack{},
+		nil,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	run, created, err := svc.queueIncidentAgentRun(
+		ctx,
+		incident,
+		"initial",
+		incident.ID,
+		"",
+		"Investigate the alert.",
+	)
+	if err != nil || !created {
+		t.Fatalf("queue run = %+v, %t, %v", run, created, err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	running, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || running.State != core.AgentRunRunning ||
+		running.CoopTurnID != "coop_turn_1" ||
+		running.SessionID != coopClient.session.ID {
+		t.Fatalf("first submission = %+v, %v", running, err)
+	}
+	firstKey := running.IdempotencyKey
+	coopClient.turn.State = "failed"
+	coopClient.turn.ErrorCode = "acp_cancelled"
+	coopClient.turn.ErrorDetail = "turn cancelled"
+	coopClient.session.ActiveTurnID = ""
+	coopClient.session.State = "open"
+	coopClient.session.Activity = "parked"
+	coopClient.session.Revision++
+	coopClient.events = append(coopClient.events, coop.Event{
+		ID: "evt_restart", SessionID: coopClient.session.ID, Sequence: 1,
+		TurnID: "coop_turn_1", Type: "turn.failed",
+	})
+	svc.pollAgentRuns(ctx)
+	requeued, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || requeued.State != core.AgentRunPending ||
+		requeued.Failures != 1 || requeued.CoopTurnID != "" ||
+		requeued.ExpectedRevision != 0 ||
+		requeued.CoopEventSequence != 1 ||
+		requeued.IdempotencyKey == firstKey {
+		t.Fatalf("requeued run = %+v, %v", requeued, err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil || incident.ActiveTurnID != "" ||
+		incident.Workflow != core.WorkflowParked ||
+		incident.CoopEventSequence != 1 {
+		t.Fatalf("released incident = %+v, %v", incident, err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || replayed.State != core.AgentRunRunning ||
+		replayed.CoopTurnID != "coop_turn_2" ||
+		replayed.IdempotencyKey != requeued.IdempotencyKey {
+		t.Fatalf("replayed run = %+v, %v", replayed, err)
+	}
+	if len(coopClient.submitKeys) != 2 ||
+		coopClient.submitKeys[0] == coopClient.submitKeys[1] {
+		t.Fatalf("submission keys = %v", coopClient.submitKeys)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil || incident.ActiveTurnID != replayed.CoopTurnID ||
+		incident.Workflow != core.WorkflowInvestigating {
+		t.Fatalf("replayed incident = %+v, %v", incident, err)
+	}
+}
+
+func TestExplicitAgentRunCancellationIsTerminal(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CWATCH", ThreadTS: "1700.100",
+		ConversationKey: "thread:CWATCH:1700.100",
+		SourceKind:      "watch", SourceID: "explicit-cancel",
+		SessionID: "ses_1", Context: []byte("{}"),
+	})
+	if err != nil || !created {
+		t.Fatalf("queue run = %+v, %t, %v", run, created, err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(
+		ctx, leased.ID, "coop_turn_1", 2, 0,
+	); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.turn = coop.Turn{
+		ID: "coop_turn_1", SessionID: "ses_1", State: "cancelled",
+		ErrorCode: "acp_cancelled", ErrorDetail: "turn cancelled",
+	}
+	coopClient.events = []coop.Event{{
+		ID: "evt_cancel", SessionID: "ses_1", Sequence: 1,
+		TurnID: "coop_turn_1", Type: "turn.cancelled",
+	}}
+	svc := New(
+		cfg,
+		st,
+		coopClient,
+		&fakeSlack{},
+		nil,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	svc.pollAgentRuns(ctx)
+	staged, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || staged.State != core.AgentRunApplying ||
+		staged.TerminalState != "cancelled" || staged.Failures != 0 {
+		t.Fatalf("explicit cancellation = %+v, %v", staged, err)
+	}
+}
+
+func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
+	run := core.AgentRun{Failures: 0}
+	oversized := coop.Turn{
+		ErrorCode:   "acp_protocol_error",
+		ErrorDetail: "ACP frame exceeded its bound",
+	}
+	if reason, replay := replayAgentRunFailure(
+		run, "turn.failed", oversized, 20,
+	); !replay || !strings.Contains(reason, "oversized ACP frame") {
+		t.Fatalf("oversized frame replay = %q, %t", reason, replay)
+	}
+	run.Failures = 1
+	if reason, replay := replayAgentRunFailure(
+		run, "turn.failed", oversized, 20,
+	); replay || reason != "" {
+		t.Fatalf("oversized frame replay was not bounded = %q, %t", reason, replay)
+	}
+	run.Failures = 0
+	for _, candidate := range []struct {
+		event string
+		turn  coop.Turn
+	}{
+		{event: "turn.cancelled", turn: oversized},
+		{
+			event: "turn.failed",
+			turn: coop.Turn{
+				ErrorCode: "acp_protocol_error", ErrorDetail: "invalid ACP response",
+			},
+		},
+		{
+			event: "turn.failed",
+			turn: coop.Turn{
+				ErrorCode: "acp_cancelled", ErrorDetail: "operator cancelled",
+			},
+		},
+	} {
+		if reason, replay := replayAgentRunFailure(
+			run, candidate.event, candidate.turn, 20,
+		); replay || reason != "" {
+			t.Fatalf(
+				"unrelated failure replayed: event=%s turn=%+v reason=%q",
+				candidate.event,
+				candidate.turn,
+				reason,
+			)
+		}
+	}
+	if reason, replay := replayAgentRunFailure(
+		run, "turn.failed", oversized, 1,
+	); replay || reason != "" {
+		t.Fatalf("configured terminal attempt replayed = %q, %t", reason, replay)
+	}
+}
+
+func TestReadyRequiresFreshSchedulerHeartbeatsAndDueWork(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.WorkerStallAfter.Duration = time.Second
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	socket := &fakeSocket{connected: true}
+	svc := New(
+		cfg,
+		st,
+		newFakeCoop(),
+		&fakeSlack{},
+		socket,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	if err := svc.seedScheduledWork(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.initialized.Store(true)
+	svc.running.Store(true)
+	svc.coopHealthy.Store(true)
+	now := time.Now().UTC()
+	for _, lane := range []string{
+		store.WorkLaneControl,
+		store.WorkLaneBackground,
+		store.WorkLaneMaintenance,
+	} {
+		svc.heartbeats.mark(lane, now)
+	}
+	if ready, reason := svc.Ready(ctx); !ready || reason != "ready" {
+		t.Fatalf("fresh readiness = %v, %q", ready, reason)
+	}
+
+	svc.heartbeats.mark(store.WorkLaneControl, now.Add(-2*time.Second))
+	if ready, reason := svc.Ready(ctx); ready || reason != "control worker stalled" {
+		t.Fatalf("stale heartbeat readiness = %v, %q", ready, reason)
+	}
+
+	svc.heartbeats.mark(store.WorkLaneControl, time.Now().UTC())
+	if err := st.EnqueueWork(ctx, store.WorkItem{
+		Kind: "stale_test", SubjectID: "due", Lane: store.WorkLaneControl,
+		Priority: 1, AvailableAt: now.Add(-2 * time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ready, reason := svc.Ready(ctx); ready || reason != "control queue stalled" {
+		t.Fatalf("stale queue readiness = %v, %q", ready, reason)
 	}
 }
 
@@ -154,6 +413,9 @@ func TestOperatorRequestedEmisarApprovalReachesIncidentThread(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := svc.pollIncident(ctx, incident); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
@@ -329,6 +591,52 @@ func TestSummonQuestionRepliesWithoutCreatingIncident(t *testing.T) {
 	}
 }
 
+func TestDurableSelfInviteRequestDoesNotCreateIncident(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CSUMMON"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-invite-policy", EnvelopeID: "envelope-invite-policy",
+		EventID: "event-invite-policy", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CSUMMON", MessageTS: "1700.000", UserID: cfg.Slack.Operators[0],
+		Text: "<@U999BOT> when you create an incident channel always invite me into it",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	if len(slackClient.posts) != 1 ||
+		!strings.Contains(slackClient.posts[0].message.Text, "already included") ||
+		!strings.Contains(slackClient.posts[0].message.Text, "No incident was created") {
+		t.Fatalf("self-invite response = %+v", slackClient.posts)
+	}
+	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
+		t.Fatalf("self-invite request created incident = %+v, %v", incidents, err)
+	}
+	if slackClient.createChannelCalls != 0 {
+		t.Fatalf("self-invite request created %d Slack channels", slackClient.createChannelCalls)
+	}
+	if len(coopClient.submitPrompts) != 0 {
+		t.Fatalf("self-invite request reached model: %+v", coopClient.submitPrompts)
+	}
+}
+
 func TestManualSummonGetsCapacityRejectionInOriginThread(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -474,8 +782,13 @@ func TestManualHandoffWaitsForUsableIncidentRoom(t *testing.T) {
 			if err := svc.processSlackDelivery(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if err := svc.processSession(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
-				t.Fatal(err)
+			sessionErr := svc.processSession(ctx)
+			if test.inviteErr != nil {
+				if sessionErr == nil || !strings.Contains(sessionErr.Error(), test.inviteErr.Error()) {
+					t.Fatalf("session preparation error = %v, want %v", sessionErr, test.inviteErr)
+				}
+			} else if sessionErr != nil && !errors.Is(sessionErr, store.ErrNotFound) {
+				t.Fatal(sessionErr)
 			}
 			for _, post := range slack.posts {
 				if post.message.Header == "Incident room ready" {
@@ -490,6 +803,86 @@ func TestManualHandoffWaitsForUsableIncidentRoom(t *testing.T) {
 				t.Fatalf("handoff was queued before room preparation: %v", err)
 			}
 		})
+	}
+}
+
+func TestIncidentScopedSchedulerFailureDoesNotBlockAnotherIncident(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	createBound := func(sourceID, channelID, rootTS string) core.Incident {
+		t.Helper()
+		incident, created, err := st.CreateManualIncident(
+			ctx,
+			"repo",
+			sourceID,
+			"Investigate "+sourceID,
+			"Investigate "+sourceID,
+			"U123ABC",
+			"CSOURCE",
+			"1700.001",
+			cfg.Limits.MaxOpenIncidents,
+		)
+		if err != nil || !created {
+			t.Fatalf("create %s = %+v, %v, %v", sourceID, incident, created, err)
+		}
+		if err := st.SetChannel(ctx, incident.ID, channelID, "room-"+sourceID); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetRoot(ctx, incident.ID, rootTS); err != nil {
+			t.Fatal(err)
+		}
+		incident, err = st.GetIncident(ctx, incident.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return incident
+	}
+	blocked := createBound("blocked", "CBLOCKED", "1700.101")
+	healthy := createBound("healthy", "CHEALTHY", "1700.102")
+	slack := &fakeSlack{inviteByChannel: map[string]error{
+		blocked.ChannelID: errors.New("invite temporarily unavailable"),
+	}}
+	svc := New(
+		cfg, st, newFakeCoop(), slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	for priority, incident := range []core.Incident{blocked, healthy} {
+		if err := st.EnsureWork(ctx, store.WorkItem{
+			Kind: workIncidentSession, SubjectID: incident.ID,
+			Lane:            store.WorkLaneBackground,
+			ConversationKey: "incident:" + incident.ID,
+			Priority:        10 + priority,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := st.LeaseWork(ctx, store.WorkLaneBackground, time.Minute)
+	if err != nil || first.SubjectID != blocked.ID {
+		t.Fatalf("first scheduled incident = %+v, %v", first, err)
+	}
+	svc.handleScheduledWork(ctx, first)
+	second, err := st.LeaseWork(ctx, store.WorkLaneBackground, time.Minute)
+	if err != nil || second.SubjectID != healthy.ID {
+		t.Fatalf("second scheduled incident = %+v, %v", second, err)
+	}
+	svc.handleScheduledWork(ctx, second)
+	blocked, err = st.GetIncident(ctx, blocked.ID)
+	if err != nil || blocked.CoopSessionID != "" ||
+		blocked.Workflow != core.WorkflowHolding {
+		t.Fatalf("blocked incident = %+v, %v", blocked, err)
+	}
+	healthy, err = st.GetIncident(ctx, healthy.ID)
+	if err != nil || healthy.CoopSessionID == "" {
+		t.Fatalf("unrelated incident did not progress = %+v, %v", healthy, err)
+	}
+	metrics, err := st.WorkMetrics(ctx, store.WorkLaneBackground)
+	if err != nil || metrics.Pending != 1 || metrics.Running != 0 {
+		t.Fatalf("per-incident retry queue = %+v, %v", metrics, err)
 	}
 }
 
@@ -837,8 +1230,11 @@ func TestConversationReplyReturnsToOriginWithoutIncidentChrome(t *testing.T) {
 	if err := svc.pollIncident(ctx, incident); err != nil {
 		t.Fatal(err)
 	}
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
 	drainSlackDeliveries(t, ctx, svc)
-	if len(slack.posts) != 1 || slack.posts[0].thread != input.MessageTS ||
+	if len(slack.posts) != 1 || slack.posts[0].thread != "" ||
 		slack.posts[0].message.Header != "" || len(slack.posts[0].message.Context) != 0 ||
 		!strings.Contains(slack.posts[0].message.Text, "inspection is complete") {
 		t.Fatalf("conversation reply = %+v", slack.posts)
@@ -878,6 +1274,9 @@ func TestAmbientConversationMayCompleteWithoutSlackReply(t *testing.T) {
 	coopClient.complete(noConversationReply)
 	incident, _ = st.GetIncident(ctx, incident.ID)
 	if err := svc.pollIncident(ctx, incident); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
@@ -922,6 +1321,141 @@ func TestNativeStatusRetriesAfterTransientSlackFailure(t *testing.T) {
 			slack.statuses,
 			metrics.SlackDeliveriesPending,
 		)
+	}
+}
+
+func TestAgentRunFinalizationFailureUsesDurableBackoff(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := stageAgentRunWithMissingConversationSource(t, ctx, st)
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	before := time.Now().UTC()
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != core.AgentRunApplying || stored.Failures != 1 ||
+		!stored.NextAttemptAt.After(before) ||
+		!strings.Contains(stored.LastError, "not found") {
+		t.Fatalf("deferred finalization = %+v", stored)
+	}
+	if err := svc.processAgentRunFinalization(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("finalization ignored durable due time: %v", err)
+	}
+}
+
+func TestAgentRunFinalizationExhaustionPostsFailureAndClearsStatus(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 1
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := stageAgentRunWithMissingConversationSource(t, ctx, st)
+	slack := &fakeSlack{}
+	svc := New(
+		cfg, st, newFakeCoop(), slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || stored.State != core.AgentRunFailed ||
+		!strings.Contains(stored.LastError, "configured retry limit") {
+		t.Fatalf("terminal finalization = %+v, %v", stored, err)
+	}
+	incident, err := st.GetIncident(ctx, run.IncidentID)
+	if err != nil || incident.ActiveTurnID != "" ||
+		incident.Workflow != core.WorkflowParked {
+		t.Fatalf("terminal incident = %+v, %v", incident, err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 ||
+		!strings.Contains(slack.posts[0].message.Text, "could not finalize") {
+		t.Fatalf("terminal finalization notice = %+v", slack.posts)
+	}
+	if len(slack.statuses) != 1 || slack.statuses[0].text != "" ||
+		slack.statuses[0].thread != incident.RootTS {
+		t.Fatalf("terminal finalization status clear = %+v", slack.statuses)
+	}
+}
+
+func TestTriageFinalizationExhaustionUsesFrozenSlackDestination(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 1
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CWATCH", ThreadTS: "1700.900",
+		ConversationKey: "thread:CWATCH:1700.900",
+		SourceKind:      "watch", SourceID: "missing-watch-input",
+		Repository: "repo", Prompt: "investigate", SessionID: "ses_watch",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue triage run = %+v, %v, %v", run, created, err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(
+		ctx,
+		leased.ID,
+		"coop_turn_missing_source",
+		2,
+		0,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(
+		ctx,
+		leased.ID,
+		"completed",
+		[]byte(`{"action":"ignore"}`),
+		"",
+		0,
+	); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(
+		cfg, st, newFakeCoop(), slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || stored.State != core.AgentRunFailed {
+		t.Fatalf("terminal triage run = %+v, %v", stored, err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || slack.posts[0].channel != run.ChannelID ||
+		slack.posts[0].thread != run.ThreadTS {
+		t.Fatalf("fallback triage notice = %+v", slack.posts)
+	}
+	if len(slack.statuses) != 1 || slack.statuses[0].text != "" ||
+		slack.statuses[0].channel != run.ChannelID ||
+		slack.statuses[0].thread != run.ThreadTS {
+		t.Fatalf("fallback triage status clear = %+v", slack.statuses)
 	}
 }
 
@@ -1810,6 +2344,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 		kind          string
 		text          string
 		decision      string
+		alertPolicy   string
 		wantState     string
 		wantPosts     int
 		wantIncidents int
@@ -1821,12 +2356,35 @@ func TestWatchedChannelDecisions(t *testing.T) {
 		},
 		{
 			name: "reply", kind: "message",
-			decision:  `{"action":"reply","message":"The deploy recovered; no action is needed."}`,
+			decision: `{"action":"reply","attention":{"addressee":"channel",` +
+				`"urgency":1,"confidence":3,"novelty":2,"ownership":2},` +
+				`"message":"The deploy recovered; no action is needed."}`,
 			wantState: "done", wantPosts: 1,
 		},
 		{
 			name: "incident", kind: "bot_message",
 			decision:  `{"action":"incident","title":"Checkout error rate is elevated"}`,
+			wantState: "done", wantPosts: 1, wantIncidents: 1,
+		},
+		{
+			name: "configured app alert offers incident", kind: "bot_message",
+			alertPolicy: "offer",
+			decision:    `{"action":"incident","title":"Checkout error rate is elevated"}`,
+			wantState:   "done", wantPosts: 1, wantOffer: true,
+		},
+		{
+			name: "configured app alert replies in place", kind: "bot_message",
+			alertPolicy: "reply",
+			decision:    `{"action":"incident","title":"Checkout error rate is elevated"}`,
+			wantState:   "done", wantPosts: 1,
+		},
+		{
+			name: "reply incident offer obeys automatic app policy", kind: "bot_message",
+			alertPolicy: "automatic",
+			decision: `{"action":"reply","attention":{"addressee":"channel",` +
+				`"urgency":3,"confidence":3,"novelty":3,"ownership":3},` +
+				`"message":"The alert is credible.",` +
+				`"incident_title":"Checkout error rate is elevated"}`,
 			wantState: "done", wantPosts: 1, wantIncidents: 1,
 		},
 		{
@@ -1862,6 +2420,15 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			svc.identity = slackui.Identity{
 				TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
 			}
+			if test.alertPolicy != "" {
+				if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+					ChannelID: "CWATCH", Participation: "proactive",
+					Repository: "repo", AlertPolicy: test.alertPolicy,
+					ActorID: "U123ABC",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			input := core.SlackInput{
 				ID: "slack-watch-1", EnvelopeID: "env-watch-1", EventID: "EvWatch1",
 				Kind: test.kind, TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
@@ -1892,7 +2459,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 				t.Fatalf("ambient triage exposed a thread status: %+v", slack.statuses)
 			}
 			if test.name == "reply" {
-				if slack.posts[0].thread != input.MessageTS ||
+				if slack.posts[0].thread != "" ||
 					!strings.Contains(slack.posts[0].message.Text, "deploy recovered") {
 					t.Fatalf("threaded watch reply = %+v", slack.posts[0])
 				}
@@ -2023,7 +2590,7 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	defer st.Close()
 	slackClient := &fakeSlack{dedupePosts: true}
 	coopClient := newFakeCoop()
-	coopClient.completeOnSubmit = `{"action":"reply","message":"Two production runners are disconnected.","incident_title":"Two production runners disconnected"}`
+	coopClient.completeOnSubmit = `{"action":"reply","attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},"message":"Two production runners are disconnected.","incident_title":"Two production runners disconnected"}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
 		slackui.NewSanitizer(12000), nil,
@@ -2085,7 +2652,7 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 		t.Fatalf("authorized offer incidents = %+v, %v", incidents, err)
 	}
 	if len(slackClient.posts) != 2 ||
-		slackClient.posts[1].thread != source.MessageTS ||
+		slackClient.posts[1].thread != "" ||
 		!strings.Contains(slackClient.posts[1].message.Text, "opening a dedicated incident room") {
 		t.Fatalf("incident creation acknowledgement = %+v", slackClient.posts)
 	}
@@ -2109,8 +2676,9 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	slackClient := &fakeSlack{dedupePosts: true}
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
-		"action":"reply",
-		"message":"I can audit and update infra/ in a dedicated isolated working copy.",
+			"action":"reply",
+			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},
+			"message":"I can audit and update infra/ in a dedicated isolated working copy.",
 		"task_title":"Audit infrastructure packs"
 	}`
 	svc := New(
@@ -2311,8 +2879,9 @@ func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *
 	slackClient := &fakeSlack{dedupePosts: true}
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
-		"action":"reply",
-		"message":"I can make that repository change.",
+			"action":"reply",
+			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},
+			"message":"I can make that repository change.",
 		"task_title":"Update deployment packs"
 	}`
 	svc := New(
@@ -2374,6 +2943,8 @@ func TestExplicitIncidentRequestRecognition(t *testing.T) {
 		"This looks like an incident",
 		"Should we open one?",
 		"Investigate the disconnected runners",
+		"When you create an incident channel always invite me into it",
+		"Always create an incident for critical alerts",
 	} {
 		if explicitIncidentRequest(input) {
 			t.Fatalf("ordinary conversation was treated as explicit: %q", input)
@@ -2471,6 +3042,146 @@ func TestWatchedDecisionReceivesFreshChronologicalChannelContext(t *testing.T) {
 		if err != nil || item.State != "pending" {
 			t.Fatalf("later source message %s overtook target: %+v, %v", id, item, err)
 		}
+	}
+}
+
+func TestExplicitMentionLoadsAmbientSlackHistoryWhenProactiveTriageIsOff(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CWATCH"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	target := core.SlackInput{
+		ID: "slack-mentioned", EnvelopeID: "env-mentioned", EventID: "EvMentioned",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+		MessageTS: "1700000000.000003", UserID: "U123ABC",
+		Text: "<@U999BOT> should we roll this back?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, target); err != nil || !created {
+		t.Fatalf("admit mention = %v, %v", created, err)
+	}
+	slack := &fakeSlack{history: []slackui.HistoryMessage{
+		{
+			Timestamp: "1700000000.000001", UserID: "U111",
+			Text: "The deploy raised the API error rate.",
+		},
+		{
+			Timestamp: "1700000000.000002", UserID: "U222",
+			Text: "I paused the next rollout step.",
+		},
+		{
+			Timestamp: target.MessageTS, UserID: target.UserID, Text: target.Text,
+		},
+	}}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{"action":"ignore"}`
+	svc := New(
+		cfg, st, coopClient, slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(coopClient.submitPrompts) != 1 {
+		t.Fatalf("submitted prompts = %d", len(coopClient.submitPrompts))
+	}
+	prompt := coopClient.submitPrompts[0]
+	start := strings.Index(prompt, "<untrusted-slack-context>\n")
+	end := strings.Index(prompt, "\n</untrusted-slack-context>")
+	if start < 0 || end <= start {
+		t.Fatalf("prompt has no bounded context: %s", prompt)
+	}
+	var evidence struct {
+		RecentMessages []watchContextMessage `json:"recent_channel_messages"`
+	}
+	start += len("<untrusted-slack-context>\n")
+	if err := json.Unmarshal([]byte(prompt[start:end]), &evidence); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"The deploy raised the API error rate.",
+		"I paused the next rollout step.",
+		"should we roll this back?",
+	}
+	if len(evidence.RecentMessages) != len(want) {
+		t.Fatalf("recent Slack history = %+v", evidence.RecentMessages)
+	}
+	for i := range want {
+		if evidence.RecentMessages[i].Text != want[i] {
+			t.Fatalf(
+				"recent Slack history %d = %q, want %q",
+				i,
+				evidence.RecentMessages[i].Text,
+				want[i],
+			)
+		}
+	}
+}
+
+func TestProactiveAttentionCanAcknowledgeWithoutPosting(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-react", EnvelopeID: "env-react", EventID: "EvReact",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+		MessageTS: "1700000000.000010", UserID: "U123ABC",
+		Text: "The production rollout is complete and all checks passed.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit message = %v, %v", created, err)
+	}
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+		"action":"react",
+		"reaction":"tada",
+		"attention":{
+			"addressee":"channel",
+			"urgency":1,
+			"confidence":3,
+			"novelty":1,
+			"ownership":1
+		},
+		"reason":"Acknowledge the completed handoff without interrupting the channel."
+	}`
+	svc := New(
+		cfg,
+		st,
+		coopClient,
+		slackClient,
+		nil,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.reactions) != 1 ||
+		slackClient.reactions[0].channel != input.ChannelID ||
+		slackClient.reactions[0].timestamp != input.MessageTS ||
+		slackClient.reactions[0].name != "tada" {
+		t.Fatalf("reactions = %+v", slackClient.reactions)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("reaction-only decision posted a message: %+v", slackClient.posts)
 	}
 }
 
@@ -2608,7 +3319,8 @@ func TestIncidentTurnCapacityExtendsAutomatically(t *testing.T) {
 			coopClient.session, coopClient.submitKeys)
 	}
 	submission, err := st.GetAgentRunBySource(ctx, "control", "automatic-capacity")
-	if err != nil || submission.State != core.AgentRunRunning {
+	if err != nil || submission.State != core.AgentRunRunning ||
+		submission.SessionID != "ses_1" {
 		t.Fatalf("automatic-capacity submission = %+v, %v", submission, err)
 	}
 }
@@ -2679,7 +3391,7 @@ func TestWatchedTurnResumesFromDurableState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	coopClient.complete(`{"action":"reply","message":"Yes, the deploy recovered."}`)
+	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},"message":"Yes, the deploy recovered."}`)
 	st, err = store.Open(cfg.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -2800,6 +3512,10 @@ func TestLongWatchedRunDoesNotConsumeInputRetriesOrBlockLaterContext(t *testing.
 func TestParseWatchDecisionIsStrict(t *testing.T) {
 	valid := []string{
 		`{"action":"ignore"}`,
+		`{"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1}}`,
+		`{"action":"react","reaction":"thumbsup"}`,
+		`{"action":"react","reaction":"wave::skin-tone-3"}`,
+		`{"action":"react","reaction":":deployment_parrot:"}`,
 		`{"action":"reply","message":"I am looking at it."}`,
 		`{"action":"reply","message":"Two runners are offline.","incident_title":"Two runners offline"}`,
 		`{"action":"reply","message":"I can make that change.","task_title":"Audit infrastructure packs","task_repository":"repo","memory":{"topology":{"portal_hosts_declared":2,"runner_mapping":"Two current runners"}}}`,
@@ -2817,6 +3533,12 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"incident","title":"API unavailable","incident_title":"duplicate"}`,
 		`{"action":"reply","message":"Choose a repository.","task_repository":"repo"}`,
 		`{"action":"ignore","unknown":true}`,
+		`{"action":"react","reaction":"✅"}`,
+		`{"action":"react","reaction":"wave::skin-tone-9"}`,
+		`{"action":"react","reaction":"not/an/emoji"}`,
+		`{"action":"react","reaction":"eyes","message":"also replying"}`,
+		`{"action":"ignore","attention":{"addressee":"team","urgency":1,"confidence":1,"novelty":1,"ownership":1}}`,
+		`{"action":"ignore","attention":{"addressee":"channel","urgency":4,"confidence":1,"novelty":1,"ownership":1}}`,
 		"```json\n{\"action\":\"ignore\"}\n```",
 		`{"action":"ignore"} {"action":"ignore"}`,
 	}
@@ -2824,6 +3546,76 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		if _, err := parseWatchDecision(input); err == nil {
 			t.Fatalf("invalid decision accepted: %s", input)
 		}
+	}
+}
+
+func TestSlackReactionNameNormalization(t *testing.T) {
+	valid := map[string]string{
+		" TADA ":               "tada",
+		":white_check_mark:":   "white_check_mark",
+		"+1":                   "+1",
+		"wave::skin-tone-6":    "wave::skin-tone-6",
+		":deployment_parrot:":  "deployment_parrot",
+		"custom-release-ready": "custom-release-ready",
+	}
+	for input, want := range valid {
+		got, err := normalizeSlackReactionName(input)
+		if err != nil {
+			t.Fatalf("normalize %q: %v", input, err)
+		}
+		if got != want {
+			t.Fatalf("normalize %q = %q, want %q", input, got, want)
+		}
+	}
+
+	invalid := []string{
+		"",
+		"✅",
+		"wave::skin-tone-1",
+		"wave::skin-tone-7",
+		"not/an/emoji",
+		strings.Repeat("a", 256),
+	}
+	for _, input := range invalid {
+		if got, err := normalizeSlackReactionName(input); err == nil {
+			t.Fatalf("normalize %q = %q, want error", input, got)
+		}
+	}
+}
+
+func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
+	input := core.SlackInput{Kind: "message", ChannelID: "CINFRA"}
+	decision := watchDecision{
+		Action:  "reply",
+		Message: "I can add something.",
+		Attention: attentionAssessment{
+			Addressee: "human", Urgency: 1, Confidence: 3, Novelty: 1, Ownership: 1,
+		},
+	}
+	filtered := enforceAttentionPolicy(input, watchTurnState{}, decision, 7, 4)
+	if filtered.Action != "ignore" || filtered.Message != "" ||
+		!strings.Contains(filtered.Reason, "suppressed") {
+		t.Fatalf("filtered decision = %+v", filtered)
+	}
+
+	input.Kind = "mention"
+	filtered = enforceAttentionPolicy(input, watchTurnState{}, decision, 7, 4)
+	if filtered.Action != "reply" || filtered.Message == "" {
+		t.Fatalf("explicit mention was suppressed: %+v", filtered)
+	}
+
+	input.Kind = "message"
+	decision.Attention = attentionAssessment{}
+	filtered = enforceAttentionPolicy(input, watchTurnState{}, decision, 7, 4)
+	if filtered.Action != "ignore" {
+		t.Fatalf("ambient action without assessment = %q, want ignore", filtered.Action)
+	}
+
+	decision.Action = "react"
+	decision.Reaction = "eyes"
+	filtered = enforceAttentionPolicy(input, watchTurnState{}, decision, 7, 4)
+	if filtered.Action != "ignore" || filtered.Reaction != "" {
+		t.Fatalf("reaction without assessment = %+v, want suppressed", filtered)
 	}
 }
 
@@ -2848,6 +3640,25 @@ func TestParseWatchDecisionNormalizesStructuredMemoryTopology(t *testing.T) {
 	}
 	if !slices.Equal(decision.Memory.Topology, want) {
 		t.Fatalf("normalized topology = %#v, want %#v", decision.Memory.Topology, want)
+	}
+}
+
+func TestParseWatchDecisionExtractsFinalEnvelopeAfterCoopProgress(t *testing.T) {
+	output := "I’m checking the repository and current infrastructure state." +
+		"The evidence is sufficient; I’m preparing the answer." +
+		`{"action":"reply","reason":"The operator asked for a health assessment.",` +
+		`"message":"Production is healthy within the checked scope.",` +
+		`"evidence":[{"claim":"Both hosts are connected","observation":"Two of two runners are connected",` +
+		`"source_type":"emisar","source_name":"list_runners"}],` +
+		`"coverage":[{"layer":"host","status":"healthy"}],"memory":{}}`
+	decision, err := parseWatchDecision(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != "reply" ||
+		decision.Message != "Production is healthy within the checked scope." ||
+		len(decision.Evidence) != 1 || len(decision.Coverage) != 1 {
+		t.Fatalf("extracted decision = %+v", decision)
 	}
 }
 
@@ -2878,11 +3689,75 @@ func createBoundIncident(t *testing.T, ctx context.Context, st *store.Store) cor
 	return incident
 }
 
+func stageAgentRunWithMissingConversationSource(
+	t *testing.T,
+	ctx context.Context,
+	st *store.Store,
+) core.AgentRun {
+	t.Helper()
+	incident := createBoundIncident(t, ctx, st)
+	if err := st.SetCoopSession(
+		ctx,
+		incident.ID,
+		"ses_finalization",
+		"incident-finalization",
+		1,
+	); err != nil {
+		t.Fatal(err)
+	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.RootTS,
+		ConversationKey: "incident:" + incident.ID,
+		SourceKind:      "slack", SourceID: "missing-slack-source",
+		Repository: incident.Repository, Prompt: "investigate",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue agent run = %+v, %v, %v", run, created, err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindAgentRunSession(
+		ctx,
+		leased.ID,
+		"ses_finalization",
+		0,
+		incident.Repository,
+		0,
+		leased.Context,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(
+		ctx,
+		leased.ID,
+		"coop_turn_finalization",
+		2,
+		0,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(
+		ctx,
+		leased.ID,
+		"completed",
+		[]byte(`{"message":"Investigation complete.","evidence":[],"coverage":[]}`),
+		"",
+		0,
+	); err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
 type fakeCoop struct {
 	session            coop.Session
 	turn               coop.Turn
 	events             []coop.Event
 	createKeys         []string
+	createPolicies     []string
 	createTasks        []string
 	listSessions       []coop.Session
 	createErrors       []error
@@ -2904,8 +3779,9 @@ func newFakeCoop() *fakeCoop {
 }
 
 func (f *fakeCoop) Ready(context.Context) error { return nil }
-func (f *fakeCoop) CreateSession(_ context.Context, key, _, task string) (coop.Session, coop.Operation, error) {
+func (f *fakeCoop) CreateSession(_ context.Context, key, policy, task string) (coop.Session, coop.Operation, error) {
 	f.createKeys = append(f.createKeys, key)
+	f.createPolicies = append(f.createPolicies, policy)
 	f.createTasks = append(f.createTasks, task)
 	if len(f.createErrors) > 0 {
 		err := f.createErrors[0]
@@ -2931,6 +3807,39 @@ func (f *fakeCoop) CreateSession(_ context.Context, key, _, task string) (coop.S
 	return result, coop.Operation{}, nil
 }
 
+func TestWatchRepositorySetSelectsItsCoopPolicy(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.RepositorySets = map[string]config.RepositorySet{
+		"platform": {
+			DisplayName: "Platform",
+			Primary:     "repo",
+			CoopPolicy:  "platform-observe",
+		},
+	}
+	cfg.Slack.DefaultRepository = "platform"
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	memory, _, err := svc.ensureWatchSession(ctx, "CREPOSET")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if memory.Repository != "platform" {
+		t.Fatalf("watch memory repository = %q", memory.Repository)
+	}
+	if !slices.Equal(coopClient.createPolicies, []string{"platform-observe"}) {
+		t.Fatalf("Coop create policies = %v", coopClient.createPolicies)
+	}
+}
+
 func (f *fakeCoop) ListSessions(context.Context, int) ([]coop.Session, error) {
 	return append([]coop.Session(nil), f.listSessions...), nil
 }
@@ -2944,7 +3853,11 @@ func (f *fakeCoop) SubmitTurn(_ context.Context, key, _ string, _ int64, prompt 
 	if state == "" {
 		state = "running"
 	}
-	f.turn = coop.Turn{ID: "coop_turn_1", SessionID: f.session.ID, State: state}
+	f.turn = coop.Turn{
+		ID:        fmt.Sprintf("coop_turn_%d", len(f.submitKeys)),
+		SessionID: f.session.ID,
+		State:     state,
+	}
 	f.session.ActiveTurnID = f.turn.ID
 	f.session.Revision++
 	if f.completeOnSubmit != "" {
@@ -3167,16 +4080,24 @@ type slackStatus struct {
 	text    string
 }
 
+type slackReaction struct {
+	channel   string
+	timestamp string
+	name      string
+}
+
 type fakeSlack struct {
 	posts              []slackPost
 	ephemerals         []slackPost
 	updates            []slackUpdate
 	statuses           []slackStatus
+	reactions          []slackReaction
 	suggested          []slackStatus
 	homes              []slackPost
 	postErr            error
 	ephemeralErr       error
 	inviteErr          error
+	inviteByChannel    map[string]error
 	statusErr          error
 	updateErr          error
 	updateCall         int
@@ -3184,6 +4105,10 @@ type fakeSlack struct {
 	channelErr         error
 	dedupePosts        bool
 	createChannelCalls int
+	history            []slackui.HistoryMessage
+	historyErr         error
+	channels           []slackui.Channel
+	listChannelsErr    error
 }
 
 type fakeSocket struct {
@@ -3220,8 +4145,16 @@ func (f *fakeSlack) GetChannel(context.Context, string) (slackui.Channel, error)
 	}
 	return slackui.Channel{ID: "CWATCH", Name: "watch", Member: true}, nil
 }
-func (f *fakeSlack) Invite(context.Context, string, ...string) error { return f.inviteErr }
-func (f *fakeSlack) SetTopic(context.Context, string, string) error  { return nil }
+func (f *fakeSlack) ListChannels(context.Context, string) ([]slackui.Channel, error) {
+	return slices.Clone(f.channels), f.listChannelsErr
+}
+func (f *fakeSlack) Invite(_ context.Context, channel string, _ ...string) error {
+	if err := f.inviteByChannel[channel]; err != nil {
+		return err
+	}
+	return f.inviteErr
+}
+func (f *fakeSlack) SetTopic(context.Context, string, string) error { return nil }
 func (f *fakeSlack) Post(_ context.Context, outboxID, channel, thread string, message slackui.Message) (string, error) {
 	f.posts = append(f.posts, slackPost{
 		outboxID: outboxID, channel: channel, thread: thread, message: message,
@@ -3240,6 +4173,17 @@ func (f *fakeSlack) Update(_ context.Context, channel, ts string, message slacku
 	return f.updateErr
 }
 func (f *fakeSlack) Pin(context.Context, string, string) error { return nil }
+func (f *fakeSlack) React(
+	_ context.Context,
+	channel string,
+	timestamp string,
+	reaction string,
+) error {
+	f.reactions = append(f.reactions, slackReaction{
+		channel: channel, timestamp: timestamp, name: reaction,
+	})
+	return nil
+}
 func (f *fakeSlack) SetStatus(_ context.Context, channel, thread, text string) error {
 	f.statuses = append(f.statuses, slackStatus{channel: channel, thread: thread, text: text})
 	return f.statusErr
@@ -3271,6 +4215,17 @@ func (f *fakeSlack) PublishHome(
 }
 func (f *fakeSlack) UserAllowed(context.Context, string, string) (bool, error) {
 	return true, nil
+}
+func (f *fakeSlack) UserGroupMembers(context.Context, string, string) ([]string, error) {
+	return []string{"UOPERATOR"}, nil
+}
+func (f *fakeSlack) RecentMessages(
+	context.Context,
+	string,
+	string,
+	int,
+) ([]slackui.HistoryMessage, error) {
+	return slices.Clone(f.history), f.historyErr
 }
 func (f *fakeSlack) FindDeliveryMessage(
 	_ context.Context,

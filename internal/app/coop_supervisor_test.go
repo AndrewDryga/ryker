@@ -24,6 +24,25 @@ func (f fakeCoopReadiness) Ready(context.Context) error {
 	return f.err
 }
 
+func TestDoctorUsesAlreadyRunningManagedCoop(t *testing.T) {
+	cfg := supervisorTestConfig(t.TempDir(), filepath.Join(t.TempDir(), "missing-coop"))
+	cfg.Coop.RequestTimeout.Duration = time.Second
+	supervisor, mode, err := startDoctorCoop(
+		cfg,
+		io.Discard,
+		discardLogger(),
+		fakeCoopReadiness{},
+	)
+	if err != nil || supervisor != nil || mode != "managed; already running" {
+		t.Fatalf(
+			"doctor managed Coop attachment = supervisor=%v mode=%q err=%v",
+			supervisor,
+			mode,
+			err,
+		)
+	}
+}
+
 func TestCoopSupervisorBuildsRestrictedProcessAndStopsIt(t *testing.T) {
 	root := t.TempDir()
 	argsPath := filepath.Join(root, "args")

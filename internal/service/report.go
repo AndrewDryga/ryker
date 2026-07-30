@@ -68,8 +68,12 @@ func parseAgentReport(message string) (agentReport, bool, error) {
 }
 
 func decodeAgentReport(message string) (agentReport, error) {
+	normalized, err := normalizeEmptyStructuredTimestamps(message)
+	if err != nil {
+		return agentReport{}, fmt.Errorf("decode structured agent response: %w", err)
+	}
 	var report agentReport
-	if err := decodeStrictJSON([]byte(message), &report); err != nil {
+	if err := decodeStrictJSON(normalized, &report); err != nil {
 		return agentReport{}, fmt.Errorf("decode structured agent response: %w", err)
 	}
 	if strings.TrimSpace(report.Message) == "" {
@@ -91,6 +95,41 @@ func decodeAgentReport(message string) (agentReport, error) {
 		)
 	}
 	return report, nil
+}
+
+func normalizeEmptyStructuredTimestamps(message string) ([]byte, error) {
+	decoder := json.NewDecoder(strings.NewReader(message))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("multiple JSON values")
+		}
+		return nil, err
+	}
+	var visit func(any)
+	visit = func(current any) {
+		switch typed := current.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				if (key == "observed_at" || key == "created_at" || key == "expires_at") &&
+					child == "" {
+					delete(typed, key)
+					continue
+				}
+				visit(child)
+			}
+		case []any:
+			for _, child := range typed {
+				visit(child)
+			}
+		}
+	}
+	visit(value)
+	return json.Marshal(value)
 }
 
 func decodeAgentMessage(message string) (string, error) {
@@ -151,6 +190,18 @@ func (s *Service) persistAgentReport(
 		item.Detail = s.cleanStructuredField(item.Detail, 1000)
 	}
 	report.Memory.Goal = s.cleanStructuredField(report.Memory.Goal, 1000)
+	report.Memory.ChannelPurpose = s.cleanStructuredField(
+		report.Memory.ChannelPurpose, 500,
+	)
+	report.Memory.SituationSummary = s.cleanStructuredField(
+		report.Memory.SituationSummary, 1000,
+	)
+	report.Memory.ActiveTopics = s.cleanStructuredStrings(
+		report.Memory.ActiveTopics, 12, 240,
+	)
+	report.Memory.OpenLoops = s.cleanStructuredStrings(
+		report.Memory.OpenLoops, 20, 400,
+	)
 	report.Memory.Topology = s.cleanStructuredStrings(report.Memory.Topology, 30, 400)
 	report.Memory.Decisions = s.cleanStructuredStrings(report.Memory.Decisions, 30, 400)
 	report.Memory.UnresolvedQuestions = s.cleanStructuredStrings(
@@ -371,6 +422,10 @@ func validCoverageStatus(value string) bool {
 
 func sanitizeMemory(memory core.AgentMemory) core.AgentMemory {
 	memory.Goal = boundedField(memory.Goal, 1000)
+	memory.ChannelPurpose = boundedField(memory.ChannelPurpose, 500)
+	memory.SituationSummary = boundedField(memory.SituationSummary, 1000)
+	memory.ActiveTopics = boundedStrings(memory.ActiveTopics, 12, 240)
+	memory.OpenLoops = boundedStrings(memory.OpenLoops, 20, 400)
 	memory.Topology = boundedStrings(memory.Topology, 30, 400)
 	memory.Decisions = boundedStrings(memory.Decisions, 30, 400)
 	memory.UnresolvedQuestions = boundedStrings(memory.UnresolvedQuestions, 30, 400)
@@ -602,7 +657,7 @@ func structuredResponseInstructions() string {
     "source_name": "specific tool, file, action, or system",
     "source_url": "optional https URL without credentials",
     "target": "specific entity",
-    "observed_at": "RFC3339 timestamp when known",
+    "observed_at": "RFC3339 timestamp; omit this field when unknown",
     "freshness": "why this is current enough",
     "confidence": "high|medium|low"
   }],
@@ -611,10 +666,14 @@ func structuredResponseInstructions() string {
     "status": "healthy|degraded|unhealthy|unknown|not_applicable",
     "source": "evidence source",
     "detail": "what was checked or why it remains unknown",
-    "observed_at": "RFC3339 timestamp when known"
+    "observed_at": "RFC3339 timestamp; omit this field when unknown"
   }],
   "memory": {
     "goal": "current user goal",
+    "channel_purpose": "stable role of this Slack channel when known",
+    "situation_summary": "short current shared situation",
+    "active_topics": ["topic still active in the conversation"],
+    "open_loops": ["unfinished question, promise, approval, or follow-up"],
     "topology": ["durable declared or verified topology fact"],
     "decisions": ["durable decision or correction"],
     "unresolved_questions": ["important open question"],

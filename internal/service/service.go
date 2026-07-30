@@ -76,19 +76,23 @@ type Service struct {
 	lastPost     time.Time
 	statusMu     sync.Mutex
 	nativeStatus map[string]nativeStatusState
-
-	retryMu sync.Mutex
-	retries map[string]retryState
-}
-
-type retryState struct {
-	at       time.Time
-	attempts int
+	heartbeats   laneHeartbeat
 }
 
 type nativeStatusState struct {
 	text string
 	at   time.Time
+}
+
+type SchedulerLaneSnapshot struct {
+	Lane             string
+	Pending          int
+	Running          int
+	Failed           int
+	HeartbeatPresent bool
+	HeartbeatAge     time.Duration
+	OldestDueAge     time.Duration
+	OldestRunningAge time.Duration
 }
 
 func New(
@@ -108,7 +112,6 @@ func New(
 		sanitizer: sanitizer, log: logger,
 		publisher:    publisher.New(cfg.GitHub),
 		nativeStatus: make(map[string]nativeStatusState),
-		retries:      make(map[string]retryState),
 	}
 }
 
@@ -143,6 +146,9 @@ func (s *Service) Initialize(ctx context.Context) error {
 			slackui.IncidentCardRevision,
 		)
 	}
+	if err := s.seedScheduledWork(ctx); err != nil {
+		return fmt.Errorf("initialize durable scheduler: %w", err)
+	}
 	s.identity = identity
 	s.coopHealthy.Store(true)
 	s.initialized.Store(true)
@@ -170,33 +176,7 @@ func (s *Service) Run(ctx context.Context) error {
 		socketErrors <- s.socket.Run(runCtx)
 	}()
 	go s.consumeSocket(runCtx)
-	s.startPeriodicWorker(
-		runCtx,
-		&workers,
-		s.cfg.Limits.WorkerInterval.Duration,
-		s.runControlWork,
-	)
-	s.startPeriodicWorker(
-		runCtx,
-		&workers,
-		s.cfg.Limits.WorkerInterval.Duration,
-		s.runBackgroundWork,
-	)
-	s.startPeriodicWorker(
-		runCtx,
-		&workers,
-		s.cfg.Coop.PollInterval.Duration,
-		func(workerCtx context.Context) {
-			s.pollAgentRuns(workerCtx)
-			s.pollCoop(workerCtx)
-		},
-	)
-	s.startPeriodicWorker(
-		runCtx,
-		&workers,
-		s.cfg.Retention.MaintenanceInterval.Duration,
-		s.runMaintenance,
-	)
+	s.startScheduler(runCtx, &workers)
 
 	for {
 		select {
@@ -214,29 +194,7 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 }
 
-func (s *Service) startPeriodicWorker(
-	ctx context.Context,
-	group *sync.WaitGroup,
-	interval time.Duration,
-	run func(context.Context),
-) {
-	group.Add(1)
-	go func() {
-		defer group.Done()
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			run(ctx)
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
-}
-
-func (s *Service) Ready() (bool, string) {
+func (s *Service) Ready(ctx context.Context) (bool, string) {
 	switch {
 	case !s.initialized.Load():
 		return false, "initializing"
@@ -246,44 +204,59 @@ func (s *Service) Ready() (bool, string) {
 		return false, "Coop unavailable"
 	case s.socket == nil || !s.socket.Connected():
 		return false, "Slack disconnected"
-	default:
-		return true, "ready"
 	}
+	if err := s.store.Ping(ctx); err != nil {
+		return false, "database unavailable"
+	}
+	stallAfter := s.cfg.Limits.WorkerStallAfter.Duration
+	snapshot, err := s.SchedulerSnapshot(ctx)
+	if err != nil {
+		return false, "scheduler unavailable"
+	}
+	for _, lane := range snapshot {
+		if !lane.HeartbeatPresent || lane.HeartbeatAge > stallAfter {
+			return false, lane.Lane + " worker stalled"
+		}
+		if lane.OldestDueAge > stallAfter {
+			return false, lane.Lane + " queue stalled"
+		}
+		if lane.OldestRunningAge > stallAfter {
+			return false, lane.Lane + " work stalled"
+		}
+	}
+	return true, "ready"
+}
+
+func (s *Service) SchedulerSnapshot(ctx context.Context) ([]SchedulerLaneSnapshot, error) {
+	now := time.Now().UTC()
+	lanes := []string{
+		store.WorkLaneControl,
+		store.WorkLaneBackground,
+		store.WorkLaneMaintenance,
+	}
+	result := make([]SchedulerLaneSnapshot, 0, len(lanes))
+	for _, lane := range lanes {
+		metrics, err := s.store.WorkMetrics(ctx, lane)
+		if err != nil {
+			return nil, err
+		}
+		heartbeat := s.heartbeats.time(lane)
+		item := SchedulerLaneSnapshot{
+			Lane: lane, Pending: metrics.Pending, Running: metrics.Running,
+			Failed: metrics.Failed, OldestDueAge: metrics.OldestDueAge,
+			OldestRunningAge: metrics.OldestRunning,
+			HeartbeatPresent: !heartbeat.IsZero(),
+		}
+		if !heartbeat.IsZero() {
+			item.HeartbeatAge = max(now.Sub(heartbeat), 0)
+		}
+		result = append(result, item)
+	}
+	return result, nil
 }
 
 func (s *Service) Identity() slackui.Identity {
 	return s.identity
-}
-
-func (s *Service) runControlWork(ctx context.Context) {
-	s.runSteps(ctx, []workerStep{
-		{"Slack input", s.processSlackInput},
-		{"Slack delivery reconciliation", s.reconcileSlackDelivery},
-		{"Slack write", s.processSlackWrite},
-	})
-}
-
-func (s *Service) runBackgroundWork(ctx context.Context) {
-	s.runSteps(ctx, []workerStep{
-		{"webhook", s.processWebhook},
-		{"channel", s.processChannel},
-		{"session", s.processSession},
-		{"agent run", s.processAgentRun},
-		{"agent result", s.processAgentRunFinalization},
-	})
-}
-
-type workerStep struct {
-	name string
-	run  func(context.Context) error
-}
-
-func (s *Service) runSteps(ctx context.Context, steps []workerStep) {
-	for _, step := range steps {
-		if err := step.run(ctx); err != nil && !errors.Is(err, store.ErrNotFound) && ctx.Err() == nil {
-			s.log.Error("worker step failed", "step", step.name, "error", err)
-		}
-	}
 }
 
 func (s *Service) runMaintenance(ctx context.Context) {
@@ -343,28 +316,6 @@ func (s *Service) reconcileIncidentChannel(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func (s *Service) canRetry(key string) bool {
-	s.retryMu.Lock()
-	defer s.retryMu.Unlock()
-	return !time.Now().Before(s.retries[key].at)
-}
-
-func (s *Service) retryLater(key string) {
-	s.retryMu.Lock()
-	defer s.retryMu.Unlock()
-	state := s.retries[key]
-	state.attempts++
-	seconds := math.Min(300, math.Pow(2, float64(min(state.attempts, 8))))
-	state.at = time.Now().Add(time.Duration(seconds) * time.Second)
-	s.retries[key] = state
-}
-
-func (s *Service) retryDone(key string) {
-	s.retryMu.Lock()
-	delete(s.retries, key)
-	s.retryMu.Unlock()
 }
 
 func queueDelay(attempt int) time.Time {

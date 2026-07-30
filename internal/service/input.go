@@ -34,6 +34,12 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		}
 		return s.finishSlackInput(ctx, input)
 	}
+	if input.Kind == "channel_joined" {
+		if err := s.startChannelConfiguration(ctx, input); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		return nil
+	}
 	if input.Kind == "slash" {
 		if err := s.processSlashInput(ctx, input); err != nil {
 			return s.retrySlackInput(ctx, input, err)
@@ -127,6 +133,12 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			}
 			return nil
 		}
+		if isChannelSetupAction(input.ActionID) {
+			if err := s.handleChannelConfigurationAction(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
 	}
 	if input.Kind == "shortcut" {
 		allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
@@ -144,6 +156,40 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			return s.retrySlackInput(ctx, input, err)
 		}
 		return nil
+	}
+
+	if input.Kind == "message" || input.Kind == "mention" || input.Kind == "direct" {
+		handled, configurationErr := s.processConfigurationReply(ctx, input)
+		if configurationErr != nil {
+			return s.retrySlackInput(ctx, input, configurationErr)
+		}
+		if handled {
+			return nil
+		}
+		if input.Kind == "mention" || input.Kind == "direct" ||
+			(input.Kind == "message" && s.cfg.IsOperator(input.UserID)) {
+			text := s.stripBotMention(input.Text)
+			if explicitChannelConfigurationRequest(text) {
+				if !s.cfg.IsOperator(input.UserID) {
+					return s.finishSlashInput(
+						ctx, input,
+						"**Only a configured operator can change channel behavior.** No settings were changed.",
+					)
+				}
+				if err := s.startChannelConfiguration(ctx, input); err != nil {
+					return s.retrySlackInput(ctx, input, err)
+				}
+				return nil
+			}
+			if command, ok := conversationalCommand(text); ok {
+				input.Kind = "conversation_command"
+				input.Text = command
+				if err := s.processSlashInput(ctx, input); err != nil {
+					return s.retrySlackInput(ctx, input, err)
+				}
+				return nil
+			}
+		}
 	}
 
 	var incident core.Incident
@@ -211,10 +257,46 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				return s.finishSlackInput(ctx, input)
 			}
 		}
+		location := requestedConversationLocation(s.stripBotMention(input.Text))
+		if locationOnlyRequest(s.stripBotMention(input.Text)) {
+			if err := s.postInputNotice(
+				ctx,
+				"conversation_location_"+input.ID,
+				input,
+				conversationLocationAcknowledgement(location),
+			); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "slack.conversation.location", ActorID: input.UserID,
+				ObjectID: input.ID, Outcome: conversationLocationName(location),
+				Detail: input.ChannelID,
+			})
+			return s.finishSlackInput(ctx, input)
+		}
 		if summoned &&
 			s.cfg.IsOperator(input.UserID) &&
 			explicitIncidentRequest(s.stripBotMention(input.Text)) {
 			return s.createManualIncident(ctx, input)
+		}
+		if behaviorRequest && incidentSelfInviteBehaviorRequest(input.Text) {
+			if err := s.postInputNotice(
+				ctx,
+				"incident_invite_policy_"+input.ID,
+				input,
+				"*You’re already included in every incident room.*\n\n"+
+					"Your Slack account is a configured operator. Emisar invites every configured "+
+					"operator, plus the users in `slack.invite_users`, whenever it creates an "+
+					"incident channel.\n\nNo preference was needed or saved. Incident membership "+
+					"is an access setting, not agent memory. No incident was created.",
+			); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "slack.behavior", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "already_configured", Detail: "configured operators are invited to incident rooms",
+			})
+			return s.finishSlackInput(ctx, input)
 		}
 		if err := s.queueWatchedInput(ctx, input); err != nil {
 			return s.retrySlackInput(ctx, input, err)
@@ -242,6 +324,37 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	}
 	if incidentErr != nil {
 		return s.retrySlackInput(ctx, input, incidentErr)
+	}
+	if input.Kind != "action" &&
+		locationOnlyRequest(s.stripBotMention(input.Text)) {
+		location := requestedConversationLocation(s.stripBotMention(input.Text))
+		if incident.IsThreadScoped() && location == conversationLocationChannel {
+			err = s.enqueue(
+				ctx, "conversation_location_"+input.ID, incident, "notice",
+				incident.ConversationThreadTS(), slackui.Notice(
+					"**This engineering task remains in its source thread.** Its authorization, "+
+						"working copy, and review controls are bound to that thread so unrelated "+
+						"channel messages cannot enter the task. Continue here, or start a separate "+
+						"channel conversation with Emisar.",
+				),
+			)
+		} else {
+			err = s.postInputNotice(
+				ctx,
+				"conversation_location_"+input.ID,
+				input,
+				conversationLocationAcknowledgement(location),
+			)
+		}
+		if err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			IncidentID: incident.ID, Kind: "slack.conversation.location",
+			ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: conversationLocationName(location), Detail: input.ChannelID,
+		})
+		return s.finishSlackInput(ctx, input)
 	}
 	if input.Kind == "action" {
 		if input.ActionValue != incident.ID || input.MessageTS != incident.RootTS ||
@@ -509,6 +622,9 @@ func (s *Service) processChannelLifecycleInput(
 		if _, err := s.store.DeleteSlackChannelSettings(ctx, input.ChannelID); err != nil {
 			return err
 		}
+		if _, err := s.store.DeleteChannelConfigurationState(ctx, input.ChannelID); err != nil {
+			return err
+		}
 		deleted, err := s.store.DeleteChannelMemoryEntries(ctx, input.ChannelID)
 		if err != nil {
 			return err
@@ -578,14 +694,16 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 	)
 	if err != nil {
 		if errors.Is(err, store.ErrCapacity) {
-			if noticeErr := s.postInputNotice(
+			if noticeErr := s.postInputMessageInSourceThread(
 				ctx,
 				"manual_capacity_"+input.ID,
 				input,
-				"*Responder did not create an incident.* The configured open incident limit has "+
-					"been reached, so no channel, agent session, or working copy was created. "+
-					"Close an existing incident, or ask an administrator to raise "+
-					"`limits.max_open_incidents`, then send the request again.",
+				slackui.Notice(
+					"*Responder did not create an incident.* The configured open incident limit has "+
+						"been reached, so no channel, agent session, or working copy was created. "+
+						"Close an existing incident, or ask an administrator to raise "+
+						"`limits.max_open_incidents`, then send the request again.",
+				),
 			); noticeErr != nil {
 				return s.retrySlackInput(ctx, input, noticeErr)
 			}
@@ -631,10 +749,29 @@ func (s *Service) postInputMessage(
 	input core.SlackInput,
 	message slackui.Message,
 ) error {
-	thread := input.ThreadTS
-	if thread == "" {
-		thread = input.MessageTS
-	}
+	return s.postInputMessageAt(
+		ctx, id, input.ChannelID, conversationalResponseThread(input), message,
+	)
+}
+
+func (s *Service) postInputMessageInSourceThread(
+	ctx context.Context,
+	id string,
+	input core.SlackInput,
+	message slackui.Message,
+) error {
+	return s.postInputMessageAt(
+		ctx, id, input.ChannelID, slackReplyThread(input), message,
+	)
+}
+
+func (s *Service) postInputMessageAt(
+	ctx context.Context,
+	id string,
+	channelID string,
+	threadTS string,
+	message slackui.Message,
+) error {
 	if s.sanitizer != nil {
 		message = s.sanitizer.Message(message)
 	}
@@ -644,9 +781,20 @@ func (s *Service) postInputMessage(
 	}
 	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID: id, Operation: "post", Kind: "notice",
-		ChannelID: input.ChannelID, ThreadTS: thread, Body: body,
+		ChannelID: channelID, ThreadTS: threadTS, Body: body,
 	})
 	return err
+}
+
+func conversationLocationName(location conversationLocation) string {
+	switch location {
+	case conversationLocationChannel:
+		return "channel"
+	case conversationLocationThread:
+		return "thread"
+	default:
+		return "follow"
+	}
 }
 
 func exactCommand(text string) (string, bool) {

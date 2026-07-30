@@ -176,6 +176,36 @@ type SlackInput struct {
 	ReceivedAt  time.Time
 }
 
+type ChannelConfiguration struct {
+	ChannelID        string   `json:"channel_id"`
+	Participation    string   `json:"participation"`
+	Repository       string   `json:"repository"`
+	AlertPolicy      string   `json:"alert_policy"`
+	InviteUsers      []string `json:"invite_users,omitempty"`
+	InviteUserGroups []string `json:"invite_user_groups,omitempty"`
+	ActorID          string   `json:"actor_id"`
+	Revision         int      `json:"revision"`
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type ConfigurationSession struct {
+	ID               string
+	TeamID           string
+	ChannelID        string
+	ThreadTS         string
+	ResponseThreadTS string
+	ThreadRoots      []string
+	Initiator        string
+	Step             string
+	Status           string
+	Draft            ChannelConfiguration
+	Revision         int
+	ExpiresAt        time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type SlackDelivery struct {
 	ID            string
 	IncidentID    string
@@ -240,6 +270,10 @@ type Coverage struct {
 
 type AgentMemory struct {
 	Goal                string   `json:"goal,omitempty"`
+	ChannelPurpose      string   `json:"channel_purpose,omitempty"`
+	SituationSummary    string   `json:"situation_summary,omitempty"`
+	ActiveTopics        []string `json:"active_topics,omitempty"`
+	OpenLoops           []string `json:"open_loops,omitempty"`
 	Topology            []string `json:"topology,omitempty"`
 	Decisions           []string `json:"decisions,omitempty"`
 	UnresolvedQuestions []string `json:"unresolved_questions,omitempty"`
@@ -330,7 +364,9 @@ func (m *AgentMemory) UnmarshalJSON(data []byte) error {
 	}
 	for name := range fields {
 		switch name {
-		case "goal", "topology", "decisions", "unresolved_questions", "evidence_refs":
+		case "goal", "channel_purpose", "situation_summary", "active_topics",
+			"open_loops", "topology", "decisions", "unresolved_questions",
+			"evidence_refs":
 		default:
 			return fmt.Errorf("json: unknown field %q", name)
 		}
@@ -340,7 +376,23 @@ func (m *AgentMemory) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("decode memory goal: %w", err)
 		}
 	}
+	if value := fields["channel_purpose"]; len(value) != 0 {
+		if err := json.Unmarshal(value, &m.ChannelPurpose); err != nil {
+			return fmt.Errorf("decode memory channel purpose: %w", err)
+		}
+	}
+	if value := fields["situation_summary"]; len(value) != 0 {
+		if err := json.Unmarshal(value, &m.SituationSummary); err != nil {
+			return fmt.Errorf("decode memory situation summary: %w", err)
+		}
+	}
 	var err error
+	if m.ActiveTopics, err = decodeMemoryStrings(fields["active_topics"]); err != nil {
+		return fmt.Errorf("decode memory active topics: %w", err)
+	}
+	if m.OpenLoops, err = decodeMemoryStrings(fields["open_loops"]); err != nil {
+		return fmt.Errorf("decode memory open loops: %w", err)
+	}
 	if m.Topology, err = decodeMemoryStrings(fields["topology"]); err != nil {
 		return fmt.Errorf("decode memory topology: %w", err)
 	}
@@ -453,6 +505,39 @@ type AgentRun struct {
 	UpdatedAt         time.Time
 	StartedAt         time.Time
 	CompletedAt       time.Time
+	CommitmentTitle   string
+}
+
+type CommitmentState string
+
+const (
+	CommitmentQueued    CommitmentState = "queued"
+	CommitmentWorking   CommitmentState = "working"
+	CommitmentFinishing CommitmentState = "finishing"
+	CommitmentDone      CommitmentState = "done"
+	CommitmentBlocked   CommitmentState = "blocked"
+	CommitmentCancelled CommitmentState = "cancelled"
+)
+
+// Commitment is the operator-facing projection of durable agent work. The
+// underlying AgentRun remains the execution record; this projection answers
+// what Emisar owes the team without exposing model or Coop internals.
+type Commitment struct {
+	ID          string
+	AgentRunID  string
+	ChannelID   string
+	ThreadTS    string
+	UserID      string
+	Repository  string
+	Title       string
+	State       CommitmentState
+	Status      string
+	NextAction  string
+	SourceKind  string
+	SourceID    string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CompletedAt time.Time
 }
 
 type TimelineEvent struct {
@@ -560,25 +645,26 @@ type CoopCleanup struct {
 }
 
 type PruneResult struct {
-	SlackInputs         int64
-	WebhookEvents       int64
-	SlackDeliveries     int64
-	AgentRuns           int64
-	EvaluationDecisions int64
-	ChannelIntelligence int64
-	MemoryEntries       int64
-	Preferences         int64
-	StandingRules       int64
-	StandingRuleRuns    int64
-	ActionProposals     int64
-	EmisarApprovals     int64
-	ClosedIncidents     int64
-	AuditEvents         int64
+	SlackInputs           int64
+	WebhookEvents         int64
+	SlackDeliveries       int64
+	AgentRuns             int64
+	EvaluationDecisions   int64
+	ChannelIntelligence   int64
+	MemoryEntries         int64
+	Preferences           int64
+	StandingRules         int64
+	StandingRuleRuns      int64
+	ActionProposals       int64
+	EmisarApprovals       int64
+	ConfigurationSessions int64
+	ClosedIncidents       int64
+	AuditEvents           int64
 }
 
 func (r PruneResult) Total() int64 {
 	return r.SlackInputs + r.WebhookEvents + r.SlackDeliveries + r.AgentRuns +
 		r.EvaluationDecisions + r.ChannelIntelligence + r.MemoryEntries + r.ActionProposals +
 		r.Preferences + r.StandingRules + r.StandingRuleRuns + r.EmisarApprovals +
-		r.ClosedIncidents + r.AuditEvents
+		r.ConfigurationSessions + r.ClosedIncidents + r.AuditEvents
 }

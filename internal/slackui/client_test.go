@@ -102,22 +102,32 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 	if manifest.Metadata.MajorVersion != 1 {
 		t.Fatalf("manifest major version = %d, want 1", manifest.Metadata.MajorVersion)
 	}
-	if display.Name != "Emisar Responder" || len(display.Name) > 35 {
+	if display.Name != "Emisar" || len(display.Name) > 35 {
 		t.Fatalf("manifest name = %q", display.Name)
 	}
-	if display.Description != "Emisar's AI SRE First Responder" || len(display.Description) > 140 {
+	if display.Description !=
+		"AI SRE first responder for evidence-backed investigation and governed operations" ||
+		len(display.Description) > 140 {
 		t.Fatalf("manifest description = %q", display.Description)
 	}
 	if len(display.LongDescription) < 174 || len(display.LongDescription) > 4000 {
 		t.Fatalf("manifest long description length = %d", len(display.LongDescription))
 	}
-	if !strings.Contains(display.LongDescription, "incomplete or inaccurate") {
-		t.Fatal("manifest long description is missing the AI accuracy disclosure")
+	for _, required := range []string{
+		"not given a generic production shell",
+		"Policy decides what runs",
+		"validates the action",
+		"cannot merge, deploy, sign commits",
+		"incomplete or inaccurate",
+	} {
+		if !strings.Contains(display.LongDescription, required) {
+			t.Fatalf("manifest long description is missing %q", required)
+		}
 	}
 	if display.BackgroundColor != "#0A0B0D" {
 		t.Fatalf("manifest background color = %q", display.BackgroundColor)
 	}
-	if manifest.Features.BotUser.DisplayName != "Responder" ||
+	if manifest.Features.BotUser.DisplayName != "Emisar" ||
 		manifest.Features.BotUser.AlwaysOnline == nil ||
 		*manifest.Features.BotUser.AlwaysOnline {
 		t.Fatalf("manifest bot user = %+v", manifest.Features.BotUser)
@@ -130,7 +140,7 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 		command.UsageHint == "" || command.ShouldEscape == nil || *command.ShouldEscape {
 		t.Fatalf("manifest slash command = %+v", command)
 	}
-	if command.UsageHint != "help | status | incidents | preferences | rules" ||
+	if command.UsageHint != "help | status | work | incidents | preferences | rules" ||
 		len(command.UsageHint) > 60 {
 		t.Fatalf("manifest usage hint must remain short and discoverable: %q", command.UsageHint)
 	}
@@ -142,7 +152,7 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 	}
 	agent := manifest.Features.AgentView
 	if agent.AgentDescription == "" || len(agent.AgentDescription) > 300 ||
-		len(agent.SuggestedPrompts) != 2 || len(agent.Actions) != 3 {
+		len(agent.SuggestedPrompts) != 3 || len(agent.Actions) != 3 {
 		t.Fatalf("manifest agent view = %+v", agent)
 	}
 	for _, prompt := range agent.SuggestedPrompts {

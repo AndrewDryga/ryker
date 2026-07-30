@@ -114,6 +114,41 @@ func startManagedCoop(
 	return supervisor, nil
 }
 
+func startDoctorCoop(
+	cfg config.Config,
+	output io.Writer,
+	logger *slog.Logger,
+	client coopReadiness,
+) (*coopSupervisor, string, error) {
+	if !cfg.Coop.Supervise {
+		return nil, "external", nil
+	}
+	readyCtx, readyCancel := context.WithTimeout(
+		context.Background(),
+		cfg.Coop.RequestTimeout.Duration,
+	)
+	readyErr := client.Ready(readyCtx)
+	readyCancel()
+	if readyErr == nil {
+		return nil, "managed; already running", nil
+	}
+	live, err := coopSocketLive(cfg.Coop.Socket)
+	if err != nil {
+		return nil, "", err
+	}
+	if live {
+		return nil, "", fmt.Errorf(
+			"existing managed Coop socket is serving but not ready: %w",
+			readyErr,
+		)
+	}
+	supervisor, err := startManagedCoop(cfg, output, logger, client)
+	if err != nil {
+		return nil, "", err
+	}
+	return supervisor, "managed; temporary", nil
+}
+
 func stopManagedCoop(supervisor *coopSupervisor, timeout time.Duration) error {
 	if supervisor == nil {
 		return nil

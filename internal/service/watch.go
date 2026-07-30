@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,6 +25,10 @@ const watchPendingStatusRefresh = 75 * time.Second
 var explicitIncidentRequestPattern = regexp.MustCompile(
 	`(?i)\b(?:open|create|start|declare)\s+(?:(?:an?|the)\s+)?incident\b|` +
 		`\b(?:make|mark|treat|turn)\s+(?:this|that|it)\s+(?:as|into)\s+an?\s+incident\b`,
+)
+
+var slackReactionNamePattern = regexp.MustCompile(
+	`^[a-z0-9_+\-]{1,255}(?:::skin-tone-[2-6])?$`,
 )
 
 type watchTurnState struct {
@@ -62,6 +65,8 @@ type watchContextMessage struct {
 
 type watchDecision struct {
 	Action          string                `json:"action"`
+	Reaction        string                `json:"reaction,omitempty"`
+	Attention       attentionAssessment   `json:"attention,omitempty"`
 	Message         string                `json:"message,omitempty"`
 	Title           string                `json:"title,omitempty"`
 	IncidentTitle   string                `json:"incident_title,omitempty"`
@@ -74,6 +79,23 @@ type watchDecision struct {
 	PreferenceOffer *core.PreferenceOffer `json:"preference_offer,omitempty"`
 	RuleOffer       *core.RuleOffer       `json:"rule_offer,omitempty"`
 	Reason          string                `json:"reason,omitempty"`
+}
+
+type attentionAssessment struct {
+	Addressee  string `json:"addressee,omitempty"`
+	Urgency    int    `json:"urgency,omitempty"`
+	Confidence int    `json:"confidence,omitempty"`
+	Novelty    int    `json:"novelty,omitempty"`
+	Ownership  int    `json:"ownership,omitempty"`
+}
+
+func (a attentionAssessment) present() bool {
+	return a.Addressee != "" || a.Urgency != 0 || a.Confidence != 0 ||
+		a.Novelty != 0 || a.Ownership != 0
+}
+
+func (a attentionAssessment) score() int {
+	return a.Urgency + a.Confidence + a.Novelty + a.Ownership
 }
 
 type watchPromptRepository struct {
@@ -145,7 +167,13 @@ func (s *Service) ensureWatchSession(
 			generation = memory.Generation + 1
 		}
 	}
-	repository := s.cfg.Repositories[repositoryKey]
+	repository, ok := s.cfg.RepositoryContext(repositoryKey)
+	if !ok {
+		return core.ChannelMemory{}, coop.Session{}, fmt.Errorf(
+			"repository context %q is not configured",
+			repositoryKey,
+		)
+	}
 	session, generation, err := s.createWatchSession(
 		ctx,
 		channelID,
@@ -257,6 +285,13 @@ func (s *Service) applyWatchDecision(
 	state watchTurnState,
 	decision watchDecision,
 ) error {
+	decision = enforceAttentionPolicy(
+		input,
+		state,
+		decision,
+		s.cfg.Slack.ReplyAttention,
+		s.cfg.Slack.ReactionAttention,
+	)
 	report, err := s.persistAgentReport(
 		ctx,
 		agentReport{
@@ -300,7 +335,7 @@ func (s *Service) applyWatchDecision(
 	}
 	if _, err := s.store.ApplyWatchDecision(ctx, core.EvaluationDecision{
 		ChannelID: input.ChannelID, SourceInput: input.ID, Mode: mode,
-		Action: decision.Action, Reason: boundedField(decision.Reason, 1000),
+		Action: decision.Action, Reason: s.cleanStructuredField(decision.Reason, 1000),
 		Evidence: len(decision.Evidence), Coverage: len(decision.Coverage),
 	}, session.Revision, decision.Memory); err != nil {
 		return err
@@ -320,11 +355,46 @@ func (s *Service) applyWatchDecision(
 		}
 		return s.finishInputIfOpen(ctx, input)
 	}
+	post := s.postInputMessage
+	if input.Kind == "bot_message" || input.Kind == "shortcut" ||
+		len(state.MatchedRules) > 0 {
+		post = s.postInputMessageInSourceThread
+	}
 	switch decision.Action {
 	case "ignore":
 		_ = s.store.Audit(ctx, core.AuditEvent{
 			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
 			Outcome: "ignored", Detail: input.ChannelID,
+		})
+	case "react":
+		if input.MessageTS == "" {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "reaction_skipped", Detail: "source message has no timestamp",
+			})
+			break
+		}
+		client, ok := s.slack.(interface {
+			React(context.Context, string, string, string) error
+		})
+		if !ok {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "reaction_unavailable", Detail: decision.Reaction,
+			})
+			break
+		}
+		if err := client.React(
+			ctx,
+			input.ChannelID,
+			input.MessageTS,
+			decision.Reaction,
+		); err != nil {
+			return err
+		}
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: "reacted", Detail: decision.Reaction,
 		})
 	case "reply":
 		message := slackui.ConciseEvidenceResponse(
@@ -365,6 +435,31 @@ func (s *Service) applyWatchDecision(
 		}
 		switch {
 		case decision.IncidentTitle != "":
+			if input.Kind == "bot_message" {
+				alertPolicy, err := s.channelAlertPolicy(ctx, input.ChannelID)
+				if err != nil {
+					return err
+				}
+				if alertPolicy == "automatic" {
+					if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
+						return err
+					}
+					return s.createWatchedIncident(
+						ctx, input, input, decision.IncidentTitle,
+					)
+				}
+				if alertPolicy == "reply" {
+					message = slackui.ConciseEvidenceResponse(
+						decision.Message,
+						decision.Evidence,
+						decision.Coverage,
+						nil,
+						s.sanitizer,
+					)
+					outcome = "alert_replied_in_place"
+					break
+				}
+			}
 			if err := s.persistWatchIncidentOffer(ctx, input.ID, decision.IncidentTitle); err != nil {
 				return err
 			}
@@ -408,7 +503,7 @@ func (s *Service) applyWatchDecision(
 			)
 			outcome = "engineering_task_offered"
 		}
-		if err := s.postInputMessage(
+		if err := post(
 			ctx,
 			"watch_reply_"+input.ID,
 			input,
@@ -428,13 +523,37 @@ func (s *Service) applyWatchDecision(
 			Outcome: outcome, Detail: input.ChannelID,
 		})
 	case "incident":
-		if input.Kind == "bot_message" ||
-			(s.cfg.IsOperator(input.UserID) &&
-				explicitIncidentRequest(s.stripBotMention(input.Text))) {
+		alertPolicy, policyErr := s.channelAlertPolicy(ctx, input.ChannelID)
+		if policyErr != nil {
+			return policyErr
+		}
+		explicitHumanRequest := s.cfg.IsOperator(input.UserID) &&
+			explicitIncidentRequest(s.stripBotMention(input.Text))
+		if explicitHumanRequest ||
+			(input.Kind == "bot_message" && alertPolicy == "automatic") {
 			if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 				return err
 			}
 			return s.createWatchedIncident(ctx, input, input, decision.Title)
+		}
+		if input.Kind == "bot_message" && alertPolicy == "reply" {
+			if err := post(
+				ctx,
+				"watch_reply_"+input.ID,
+				input,
+				slackui.Notice(
+					"**Alert needs attention, but no incident was created.**\n\n"+
+						decision.Title+"\n\nThis channel is configured to keep app-alert "+
+						"triage in place without offering or automatically opening a room.",
+				),
+			); err != nil {
+				return err
+			}
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "alert_replied_in_place", Detail: input.ChannelID,
+			})
+			break
 		}
 		if err := s.persistWatchIncidentOffer(ctx, input.ID, decision.Title); err != nil {
 			return err
@@ -442,7 +561,7 @@ func (s *Service) applyWatchDecision(
 		message := "I found an issue that may need coordinated investigation: " +
 			decision.Title + ". I have not opened an incident. Use the button below if you " +
 			"want a dedicated room and isolated working copy."
-		if err := s.postInputMessage(
+		if err := post(
 			ctx,
 			"watch_reply_"+input.ID,
 			input,
@@ -461,6 +580,66 @@ func (s *Service) applyWatchDecision(
 		return err
 	}
 	return s.finishInputIfOpen(ctx, input)
+}
+
+func enforceAttentionPolicy(
+	input core.SlackInput,
+	state watchTurnState,
+	decision watchDecision,
+	replyThreshold int,
+	reactionThreshold int,
+) watchDecision {
+	if !decision.Attention.present() {
+		switch {
+		case decision.Action == "react":
+			return suppressWatchDecision(
+				decision,
+				"host attention policy suppressed a reaction without an assessment",
+			)
+		case decision.Action == "reply" && !watchInputTargeted(input, state):
+			return suppressWatchDecision(
+				decision,
+				"host attention policy suppressed an ambient reply without an assessment",
+			)
+		default:
+			return decision
+		}
+	}
+	targeted := watchInputTargeted(input, state)
+	humanAddressee := decision.Attention.Addressee == "human"
+	insufficient := false
+	switch decision.Action {
+	case "reply":
+		insufficient = !targeted &&
+			(humanAddressee || decision.Attention.score() < replyThreshold)
+	case "react":
+		insufficient = humanAddressee ||
+			decision.Attention.score() < reactionThreshold
+	}
+	if !insufficient {
+		return decision
+	}
+	return suppressWatchDecision(
+		decision,
+		"host attention policy suppressed a low-value interruption",
+	)
+}
+
+func suppressWatchDecision(decision watchDecision, reason string) watchDecision {
+	decision.Action = "ignore"
+	decision.Reaction = ""
+	decision.Message = ""
+	decision.Title = ""
+	decision.IncidentTitle = ""
+	decision.TaskTitle = ""
+	decision.TaskRepository = ""
+	decision.MemoryOffer = nil
+	decision.PreferenceOffer = nil
+	decision.RuleOffer = nil
+	decision.Reason = strings.TrimSpace(
+		decision.Reason + "; " + reason,
+	)
+	return decision
 }
 
 func (s *Service) createWatchedIncident(
@@ -511,7 +690,7 @@ func (s *Service) createWatchedWork(
 		return errors.New("watched work item source has no Slack event ID")
 	}
 	repository = strings.TrimSpace(repository)
-	if _, ok := s.cfg.Repositories[repository]; !ok {
+	if _, ok := s.cfg.RepositoryContext(repository); !ok {
 		return fmt.Errorf("watched work item names unknown repository %q", repository)
 	}
 	summary := boundedOperatorText(s.stripBotMention(source.Text))
@@ -629,7 +808,7 @@ func (s *Service) persistWatchTaskOffer(
 	if state.OfferedTaskTitle == "" {
 		return errors.New("watch engineering task offer has no title")
 	}
-	if _, ok := s.cfg.Repositories[repository]; !ok {
+	if _, ok := s.cfg.RepositoryContext(repository); !ok {
 		return fmt.Errorf("watch engineering task offer names unknown repository %q", repository)
 	}
 	state.OfferedTaskRepository = repository
@@ -641,34 +820,31 @@ func (s *Service) persistWatchTaskOffer(
 }
 
 func explicitIncidentRequest(text string) bool {
-	return explicitIncidentRequestPattern.MatchString(strings.TrimSpace(text))
+	text = strings.TrimSpace(text)
+	return explicitIncidentRequestPattern.MatchString(text) &&
+		!explicitBehaviorRequest(text)
 }
 
 func (s *Service) resolveTaskOfferRepository(requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if requested != "" {
-		if _, ok := s.cfg.Repositories[requested]; ok {
+		if _, ok := s.cfg.RepositoryContext(requested); ok {
 			return requested, nil
 		}
 		return "", fmt.Errorf("unknown task repository %q", requested)
 	}
-	if len(s.cfg.Repositories) == 1 {
-		for name := range s.cfg.Repositories {
-			return name, nil
-		}
+	keys := s.cfg.RepositoryContextKeys()
+	if len(keys) == 1 {
+		return keys[0], nil
 	}
 	return "", errors.New("task repository is ambiguous")
 }
 
 func (s *Service) promptRepositories() []watchPromptRepository {
-	names := make([]string, 0, len(s.cfg.Repositories))
-	for name := range s.cfg.Repositories {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := s.cfg.RepositoryContextKeys()
 	repositories := make([]watchPromptRepository, 0, len(names))
 	for _, name := range names {
-		repository := s.cfg.Repositories[name]
+		repository, _ := s.cfg.RepositoryContext(name)
 		displayName := strings.TrimSpace(repository.DisplayName)
 		if displayName == "" {
 			displayName = name
@@ -691,7 +867,7 @@ func (s *Service) repositoryChoices() []string {
 }
 
 func (s *Service) repositoryLabel(name string) string {
-	repository, ok := s.cfg.Repositories[name]
+	repository, ok := s.cfg.RepositoryContext(name)
 	if !ok {
 		return "`" + name + "`"
 	}
@@ -860,7 +1036,7 @@ func (s *Service) handleWatchTaskOfferAction(
 				"session or working copy was created.",
 		)
 	}
-	if _, ok := s.cfg.Repositories[state.OfferedTaskRepository]; !ok {
+	if _, ok := s.cfg.RepositoryContext(state.OfferedTaskRepository); !ok {
 		return s.finishWatchTaskOffer(
 			ctx,
 			input,
@@ -973,9 +1149,7 @@ func (s *Service) clearWatchPendingStatus(
 	input core.SlackInput,
 	state watchTurnState,
 ) error {
-	key := "watch-native-status:" + input.ID
 	if !s.cfg.Slack.NativeStatus || !state.PendingStatusSet {
-		s.retryDone(key)
 		return nil
 	}
 	if err := s.enqueueNativeStatus(
@@ -988,7 +1162,6 @@ func (s *Service) clearWatchPendingStatus(
 	); err != nil {
 		return fmt.Errorf("clear watched Slack thread status: %w", err)
 	}
-	s.retryDone(key)
 	return nil
 }
 
@@ -1007,17 +1180,55 @@ func decodeWatchState(data []byte) (watchTurnState, error) {
 }
 
 func parseWatchDecision(message string) (watchDecision, error) {
+	trimmed := strings.TrimSpace(message)
+	decision, err := decodeWatchDecision(trimmed)
+	if err == nil || strings.HasPrefix(trimmed, "{") {
+		return decision, err
+	}
+	candidateErr := err
+	for end := len(trimmed); end > 0; {
+		index := strings.LastIndex(trimmed[:end], "{")
+		if index < 0 {
+			break
+		}
+		candidate := strings.TrimSpace(trimmed[index:])
+		decision, err = decodeWatchDecision(candidate)
+		if err == nil {
+			return decision, nil
+		}
+		if strings.Contains(candidate, `"action"`) {
+			candidateErr = err
+		}
+		end = index
+	}
+	return watchDecision{}, candidateErr
+}
+
+func decodeWatchDecision(message string) (watchDecision, error) {
 	var decision watchDecision
-	if err := decodeStrictJSON([]byte(strings.TrimSpace(message)), &decision); err != nil {
+	if err := decodeStrictJSON([]byte(message), &decision); err != nil {
 		return watchDecision{}, err
 	}
 	switch decision.Action {
 	case "ignore":
-		if decision.Message != "" || decision.Title != "" ||
+		if decision.Reaction != "" || decision.Message != "" || decision.Title != "" ||
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
 			decision.PreferenceOffer != nil || decision.RuleOffer != nil {
 			return watchDecision{}, errors.New("ignore decision has unexpected fields")
+		}
+	case "react":
+		reaction, err := normalizeSlackReactionName(decision.Reaction)
+		if err != nil {
+			return watchDecision{}, err
+		}
+		decision.Reaction = reaction
+		if decision.Message != "" || decision.Title != "" ||
+			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
+			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
+			decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
+			len(decision.Evidence) != 0 || len(decision.Coverage) != 0 {
+			return watchDecision{}, errors.New("react decision has unexpected fields")
 		}
 	case "reply":
 		decision.Message = strings.TrimSpace(decision.Message)
@@ -1030,7 +1241,7 @@ func parseWatchDecision(message string) (watchDecision, error) {
 		if len(decision.Message) > 12<<10 {
 			return watchDecision{}, errors.New("reply decision exceeds 12 KiB")
 		}
-		if decision.Title != "" {
+		if decision.Reaction != "" || decision.Title != "" {
 			return watchDecision{}, errors.New("reply decision has an unexpected title")
 		}
 		if len(decision.IncidentTitle) > 200 {
@@ -1083,7 +1294,7 @@ func parseWatchDecision(message string) (watchDecision, error) {
 		if len(decision.Title) > 200 {
 			return watchDecision{}, errors.New("incident title exceeds 200 bytes")
 		}
-		if decision.Message != "" || decision.IncidentTitle != "" ||
+		if decision.Reaction != "" || decision.Message != "" || decision.IncidentTitle != "" ||
 			decision.TaskTitle != "" || decision.TaskRepository != "" ||
 			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
 			decision.RuleOffer != nil {
@@ -1092,7 +1303,43 @@ func parseWatchDecision(message string) (watchDecision, error) {
 	default:
 		return watchDecision{}, fmt.Errorf("unknown action %q", decision.Action)
 	}
+	if err := validateAttentionAssessment(decision.Attention); err != nil {
+		return watchDecision{}, err
+	}
 	return decision, nil
+}
+
+func normalizeSlackReactionName(name string) (string, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if len(name) >= 2 && strings.HasPrefix(name, ":") && strings.HasSuffix(name, ":") {
+		name = name[1 : len(name)-1]
+	}
+	if !slackReactionNamePattern.MatchString(name) {
+		return "", errors.New(
+			"react decision requires a valid Slack emoji name",
+		)
+	}
+	return name, nil
+}
+
+func validateAttentionAssessment(value attentionAssessment) error {
+	if !value.present() {
+		return nil
+	}
+	switch value.Addressee {
+	case "responder", "channel", "human", "unclear":
+	default:
+		return fmt.Errorf("unsupported attention addressee %q", value.Addressee)
+	}
+	for name, score := range map[string]int{
+		"urgency": value.Urgency, "confidence": value.Confidence,
+		"novelty": value.Novelty, "ownership": value.Ownership,
+	} {
+		if score < 0 || score > 3 {
+			return fmt.Errorf("attention %s must be between 0 and 3", name)
+		}
+	}
+	return nil
 }
 
 func decodeStrictJSON(data []byte, target any) error {
@@ -1162,11 +1409,13 @@ func (s *Service) watchPrompt(
 	matchedRules []core.StandingRule,
 ) string {
 	repositoryCatalog, _ := json.Marshal(struct {
-		Default      string                  `json:"default"`
-		Repositories []watchPromptRepository `json:"repositories"`
+		Default          string                  `json:"default"`
+		Repositories     []watchPromptRepository `json:"repositories"`
+		TargetIsOperator bool                    `json:"target_is_configured_operator"`
 	}{
-		Default:      activeRepository,
-		Repositories: s.promptRepositories(),
+		Default:          activeRepository,
+		Repositories:     s.promptRepositories(),
+		TargetIsOperator: s.cfg.IsOperator(input.UserID),
 	})
 	evidence, _ := json.Marshal(struct {
 		ChannelID      string                   `json:"channel_id"`
@@ -1202,28 +1451,56 @@ Configured repository bindings:
 ` + string(repositoryCatalog) + `
 </trusted-responder-configuration>
 
+Only return a durable memory, preference, or standing-rule offer when
+target_is_configured_operator is true. For other users, explain briefly that a configured operator
+must request and confirm durable behavior; do not claim that a save control will be shown.
+
 ` + slackReplyFormattingPolicy + `
 
 Choose exactly one action:
 - ignore: routine noise, informational chatter, successful or recovered notifications, duplicates, or messages where a human teammate would reasonably stay silent.
+- react: acknowledge useful information without interrupting the channel. Choose one context-appropriate standard Slack emoji or a workspace custom emoji whose name is visible in the supplied Slack context. Return its Slack name without surrounding colons, for example ` + "`eyes`" + `, ` + "`white_check_mark`" + `, ` + "`thumbsup`" + `, ` + "`tada`" + `, ` + "`warning`" + `, or ` + "`bulb`" + `. Prefer familiar, unambiguous reactions; avoid playful or ambiguous choices for incidents and high-severity alerts. A reaction is social acknowledgement only: it must not claim verification, approval, remediation, or future work. Do not attach prose, evidence, offers, or coverage.
 - reply: answer a human's question concisely when channel context or a bounded read-only investigation provides enough evidence. State uncertainty and material gaps. If coordinated incident work may be useful, include incident_title; Responder will show an operator confirmation button without creating an incident. If the human explicitly asks Responder to change repository files or code, or continues that request in the visible conversation, include task_title; Responder will show an operator confirmation button for a thread-scoped engineering task and writable isolated fork.
 - incident: automatically open a dedicated incident only for a credible unresolved alert from an external_app, or when the target human message explicitly asks to open, create, start, or declare an incident. Use a concise factual title.
 
 For a human target, an operational problem or health question is not by itself permission to create an incident. Investigate read-only and choose reply. Add incident_title when escalation is worth offering. Never choose incident for a human merely because the answer identifies an unhealthy component; the host will require explicit human intent. A task_title is only for explicit repository-change requests, never for infrastructure mutation, and never creates work until an operator confirms the button.
 
+Incident admission is classification, not the investigation itself. When a credible unresolved
+external_app alert or an explicit configured-operator request already authorizes action=incident,
+decide from the supplied Slack context without repository or MCP tool calls. The dedicated incident
+session will perform the evidence-backed investigation after Responder creates it. Use tools in this
+shared-channel turn only when they are needed to produce a substantive reply.
+
 Return exactly one JSON object, with no code fence or text outside the JSON. The message value is
 standard Markdown rendered by Slack; the outer JSON is only the transport envelope. Include a
-concise reason for evaluation and shadow-mode audit. Evidence, coverage, and memory use the field
+concise reason for evaluation and shadow-mode audit. Include attention with addressee set to
+responder, channel, human, or unclear, and score urgency, confidence, novelty, and ownership from
+0 to 3. A proactive reply should normally total at least 7; a reaction should total at least 4.
+Explicit mentions and direct messages are always eligible for a reply, but should still have an
+honest assessment. Evidence, coverage, and memory use the field
 shapes below. This shared-channel session cannot propose or execute actions:
-{"action":"ignore","reason":"why silence is appropriate","evidence":[],"coverage":[],"memory":{}}
-{"action":"reply","reason":"why to answer","message":"Slack Markdown","incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"subject","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction","value":"canonical value","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
-{"action":"incident","reason":"why creation is authorized","title":"concise title","evidence":[],"coverage":[],"memory":{}}
+{"action":"ignore","attention":{"addressee":"human","urgency":0,"confidence":3,"novelty":0,"ownership":0},"reason":"why silence is appropriate","evidence":[],"coverage":[],"memory":{}}
+{"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1},"reason":"why acknowledgement is enough","memory":{}}
+{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"Slack Markdown","incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"subject","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction","value":"canonical value","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
+{"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"why creation is authorized","title":"concise title","evidence":[],"coverage":[],"memory":{}}
 
-Evidence objects require claim, observation, source_type, and source_name. Coverage objects require
-layer and status. Memory is a compact durable object with goal, topology, decisions,
-unresolved_questions, and evidence_refs. Never invent a source, timestamp, target, mapping, or
-successful outcome. The message must lead with the answer, distinguish declared configuration from
-live observation, and state material coverage gaps. Omit memory_offer unless the target is a
+Evidence objects require claim, observation, source_type, and source_name. source_type must be
+exactly one of repository, emisar, monitoring, slack, or other. Use slack only for claims about
+what a Slack message reports, not as proof that the reported operational state is true. source_name
+must identify the concrete repository file, Emisar tool, monitoring system, Slack message, or other
+source; policy text is not evidence.
+
+Coverage objects require layer and status. layer must be exactly one of hardware, host, runtime,
+scheduler, workload, dependency, application, slo, or change. status must be exactly one of
+healthy, degraded, unhealthy, unknown, or not_applicable. Represent a narrower endpoint check under
+the closest supported layer and explain its scope in detail; never invent a layer or status.
+
+Memory is the compact current channel situation with goal, channel_purpose, situation_summary,
+active_topics, open_loops, topology, decisions, unresolved_questions, and evidence_refs. Preserve
+still-relevant prior facts, remove resolved loops, and keep it concise. Never invent a source,
+timestamp, target, mapping, or successful outcome. The message
+must lead with the answer, distinguish declared configuration from live observation, and state
+material coverage gaps. Omit memory_offer unless the target is a
 configured operator who explicitly asked you to remember, save, or correct durable operational
 context. It is only an inert proposal; the host validates it and requires a separate operator click.
 Never propose memory for current health, secrets, credentials, approvals, or transient observations.

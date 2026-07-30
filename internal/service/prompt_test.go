@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
@@ -72,6 +73,30 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 	}
 	if strings.Contains(prompt, "call the Emisar MCP tools before using shell commands") {
 		t.Fatalf("watch prompt still imposes the old fixed tool order:\n%s", prompt)
+	}
+}
+
+func TestRepositorySetPromptExplainsPinnedReadOnlyCompanions(t *testing.T) {
+	prompt := repositorySetPrompt(coop.Session{
+		BaseCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Companions: []coop.CompanionRepository{{
+			Name:       "control-plane",
+			Path:       "/coop/repositories/control-plane",
+			BaseCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		}},
+	})
+	for _, required := range []string{
+		"Primary working copy",
+		"only repository whose changes can be reviewed or published",
+		"Read-only companion `control-plane`",
+		"`/coop/repositories/control-plane`",
+		"pinned at `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`",
+		"Reconcile across repositories",
+		"never try to edit them",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("repository-set prompt lacks %q:\n%s", required, prompt)
+		}
 	}
 }
 

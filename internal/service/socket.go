@@ -282,6 +282,10 @@ func (s *Service) shouldAdmitChannelMessage(
 	if err != nil || proactive {
 		return proactive, err
 	}
+	setup, err := s.shouldAdmitConfigurationMessage(ctx, input)
+	if err != nil || setup {
+		return setup, err
+	}
 	rules, err := s.matchingStandingRules(ctx, input)
 	if err != nil {
 		return false, err

@@ -46,18 +46,19 @@ func (d Duration) MarshalText() ([]byte, error) {
 }
 
 type Config struct {
-	Version      int                     `yaml:"version"`
-	Listen       string                  `yaml:"listen"`
-	StateDir     string                  `yaml:"state_dir"`
-	LogLevel     string                  `yaml:"log_level"`
-	Slack        SlackConfig             `yaml:"slack"`
-	Coop         CoopConfig              `yaml:"coop"`
-	GitHub       GitHubConfig            `yaml:"github"`
-	Retention    RetentionConfig         `yaml:"retention"`
-	Repositories map[string]Repository   `yaml:"repositories"`
-	Webhooks     map[string]Webhook      `yaml:"webhooks"`
-	Actions      map[string]ActionPolicy `yaml:"actions"`
-	Limits       Limits                  `yaml:"limits"`
+	Version        int                      `yaml:"version"`
+	Listen         string                   `yaml:"listen"`
+	StateDir       string                   `yaml:"state_dir"`
+	LogLevel       string                   `yaml:"log_level"`
+	Slack          SlackConfig              `yaml:"slack"`
+	Coop           CoopConfig               `yaml:"coop"`
+	GitHub         GitHubConfig             `yaml:"github"`
+	Retention      RetentionConfig          `yaml:"retention"`
+	Repositories   map[string]Repository    `yaml:"repositories"`
+	RepositorySets map[string]RepositorySet `yaml:"repository_sets"`
+	Webhooks       map[string]Webhook       `yaml:"webhooks"`
+	Actions        map[string]ActionPolicy  `yaml:"actions"`
+	Limits         Limits                   `yaml:"limits"`
 }
 
 type SlackConfig struct {
@@ -71,6 +72,8 @@ type SlackConfig struct {
 	WatchChannels       []string `yaml:"watch_channels"`
 	WatchContext        int      `yaml:"watch_context_messages"`
 	WatchSettleDelay    Duration `yaml:"watch_settle_delay"`
+	ReplyAttention      int      `yaml:"proactive_reply_attention_threshold"`
+	ReactionAttention   int      `yaml:"proactive_reaction_attention_threshold"`
 	ChannelPrefix       string   `yaml:"channel_prefix"`
 	PrivateChannels     bool     `yaml:"private_channels"`
 	NativeStatus        bool     `yaml:"native_status"`
@@ -105,6 +108,45 @@ type Repository struct {
 	Path             string `yaml:"path"`
 	GitHubRepository string `yaml:"github_repository"`
 	GitHubBaseBranch string `yaml:"github_base_branch"`
+}
+
+// RepositorySet is a Slack-visible repository context. Primary identifies the only repository
+// whose changes Responder may review or publish. The resolved Coop policy owns any companion host
+// paths and mounts; Slack and model output cannot provide them.
+type RepositorySet struct {
+	DisplayName string `yaml:"display_name"`
+	Primary     string `yaml:"primary"`
+	CoopPolicy  string `yaml:"coop_policy"`
+}
+
+func (c Config) RepositoryContext(name string) (Repository, bool) {
+	if set, ok := c.RepositorySets[name]; ok {
+		primary, exists := c.Repositories[set.Primary]
+		if !exists {
+			return Repository{}, false
+		}
+		if strings.TrimSpace(set.DisplayName) != "" {
+			primary.DisplayName = set.DisplayName
+		}
+		if strings.TrimSpace(set.CoopPolicy) != "" {
+			primary.CoopPolicy = set.CoopPolicy
+		}
+		return primary, true
+	}
+	repository, ok := c.Repositories[name]
+	return repository, ok
+}
+
+func (c Config) RepositoryContextKeys() []string {
+	keys := make([]string, 0, len(c.Repositories)+len(c.RepositorySets))
+	for key := range c.Repositories {
+		keys = append(keys, key)
+	}
+	for key := range c.RepositorySets {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 type GitHubConfig struct {
@@ -176,6 +218,8 @@ type Limits struct {
 	MaxStandingRules         int      `yaml:"max_standing_rules"`
 	MaxRulesPerChannel       int      `yaml:"max_rules_per_channel"`
 	WorkerInterval           Duration `yaml:"worker_interval"`
+	WorkLease                Duration `yaml:"work_lease"`
+	WorkerStallAfter         Duration `yaml:"worker_stall_after"`
 }
 
 func defaults() Config {
@@ -190,6 +234,8 @@ func defaults() Config {
 			WatchSettleDelay: Duration{
 				Duration: 2 * time.Second,
 			},
+			ReplyAttention:      7,
+			ReactionAttention:   4,
 			ChannelPrefix:       "ems",
 			PrivateChannels:     true,
 			NativeStatus:        true,
@@ -242,6 +288,8 @@ func defaults() Config {
 			MaxStandingRules:         500,
 			MaxRulesPerChannel:       25,
 			WorkerInterval:           Duration{250 * time.Millisecond},
+			WorkLease:                Duration{3 * time.Minute},
+			WorkerStallAfter:         Duration{2 * time.Minute},
 		},
 	}
 }
@@ -419,14 +467,45 @@ func (c Config) Validate() error {
 			}
 		}
 	}
+	for name, set := range c.RepositorySets {
+		if !namePattern.MatchString(name) {
+			return fmt.Errorf("repository set name %q is invalid", name)
+		}
+		if _, collision := c.Repositories[name]; collision {
+			return fmt.Errorf(
+				"repository set %q collides with a repository name",
+				name,
+			)
+		}
+		primary, ok := c.Repositories[set.Primary]
+		if !ok {
+			return fmt.Errorf(
+				"repository set %q names unknown primary repository %q",
+				name, set.Primary,
+			)
+		}
+		if strings.TrimSpace(set.DisplayName) == "" {
+			return fmt.Errorf("repository set %q display_name is required", name)
+		}
+		if strings.TrimSpace(set.CoopPolicy) == "" &&
+			strings.TrimSpace(primary.CoopPolicy) == "" {
+			return fmt.Errorf(
+				"repository set %q requires coop_policy or a primary repository policy",
+				name,
+			)
+		}
+	}
 	if err := validateGitHub(c.GitHub); err != nil {
 		return fmt.Errorf("github: %w", err)
 	}
 	if err := validateRetention(c.Retention); err != nil {
 		return fmt.Errorf("retention: %w", err)
 	}
-	if _, ok := c.Repositories[c.Slack.DefaultRepository]; !ok {
-		return fmt.Errorf("slack.default_repository names unknown repository %q", c.Slack.DefaultRepository)
+	if _, ok := c.RepositoryContext(c.Slack.DefaultRepository); !ok {
+		return fmt.Errorf(
+			"slack.default_repository names unknown repository or set %q",
+			c.Slack.DefaultRepository,
+		)
 	}
 	if len(c.Webhooks) == 0 {
 		return errors.New("webhooks must define at least one route")
@@ -435,8 +514,11 @@ func (c Config) Validate() error {
 		if !namePattern.MatchString(name) {
 			return fmt.Errorf("webhook name %q is invalid", name)
 		}
-		if _, ok := c.Repositories[route.Repository]; !ok {
-			return fmt.Errorf("webhook %q names unknown repository %q", name, route.Repository)
+		if _, ok := c.RepositoryContext(route.Repository); !ok {
+			return fmt.Errorf(
+				"webhook %q names unknown repository or set %q",
+				name, route.Repository,
+			)
 		}
 		if err := validateWebhook(route); err != nil {
 			return fmt.Errorf("webhook %q: %w", name, err)
@@ -523,6 +605,19 @@ func (c Config) Validate() error {
 	if c.Limits.WorkerInterval.Duration < 50*time.Millisecond || c.Limits.WorkerInterval.Duration > 10*time.Second {
 		return errors.New("limits.worker_interval must be between 50ms and 10s")
 	}
+	if c.Limits.WorkLease.Duration < 10*time.Second ||
+		c.Limits.WorkLease.Duration > 30*time.Minute {
+		return errors.New("limits.work_lease must be between 10s and 30m")
+	}
+	if c.Limits.WorkerStallAfter.Duration < c.Coop.RequestTimeout.Duration ||
+		c.Limits.WorkerStallAfter.Duration > time.Hour {
+		return errors.New(
+			"limits.worker_stall_after must be at least coop.request_timeout and no more than 1h",
+		)
+	}
+	if c.Limits.WorkLease.Duration <= c.Limits.WorkerStallAfter.Duration {
+		return errors.New("limits.work_lease must be greater than limits.worker_stall_after")
+	}
 	return nil
 }
 
@@ -594,7 +689,7 @@ func validateSlack(c SlackConfig) error {
 		return errors.New("operators must not be empty")
 	}
 	if !namePattern.MatchString(c.DefaultRepository) {
-		return errors.New("default_repository must name a repository")
+		return errors.New("default_repository must name a repository or repository set")
 	}
 	for _, group := range [][]string{
 		c.Operators, c.InviteUsers, c.SummonChannels, c.WatchChannels, c.ShadowChannels,
@@ -619,6 +714,12 @@ func validateSlack(c SlackConfig) error {
 	}
 	if c.WatchSettleDelay.Duration < 0 || c.WatchSettleDelay.Duration > 10*time.Second {
 		return errors.New("watch_settle_delay must be between 0s and 10s")
+	}
+	if c.ReplyAttention < 1 || c.ReplyAttention > 12 {
+		return errors.New("proactive_reply_attention_threshold must be between 1 and 12")
+	}
+	if c.ReactionAttention < 1 || c.ReactionAttention > 12 {
+		return errors.New("proactive_reaction_attention_threshold must be between 1 and 12")
 	}
 	return nil
 }

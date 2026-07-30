@@ -45,12 +45,15 @@ incident activity; failed Slack updates remain queued for retry.
 
 Configured operators can converse anywhere in the incident channel without an `@mention`.
 Responder admits ordinary top-level messages and thread replies, keeps them in the same Coop
-conversation, and returns a useful response to the originating Slack conversation. A top-level
-message receives any response in its own thread. Mentions and replies to the pinned card are
-explicitly direct; for ambient room conversation, the agent may stay silent when a human teammate
-would have nothing useful to add. Each accepted operator message is one ordered Coop request.
-Responder allocates session capacity automatically; tool calls and investigation steps inside the
-request are not counted separately.
+conversation, and follows the operator's current location: a channel message gets a channel
+response and a thread reply gets a reply in that thread. An operator may say `switch to a thread`
+or `back to the channel`; Emisar acknowledges the move at the new location before continuing.
+Mentions and replies to the pinned card are explicitly direct; for ambient room conversation, the
+agent may stay silent when a human teammate would have nothing useful to add. Thread-scoped
+engineering tasks are the deliberate exception: their authorization and working copy remain bound
+to the source thread. Each accepted operator message is one ordered Coop request. Responder
+allocates session capacity automatically; tool calls and investigation steps inside the request
+are not counted separately.
 
 The pinned-card thread remains the home for proactive investigation updates, alert-driven turns,
 fork summaries, review evidence, and failures. Agent tool output, hidden reasoning, token streaming,
@@ -71,10 +74,10 @@ state remains on the card rather than using a misleading persistent typing indic
 
 ## Agent surfaces
 
-App Home shows durable open-incident, active-session, failed-work, incident-history, and saved-memory
-counts plus the current incident rooms and bounded memory controls. The Agent Messages tab offers
-suggested prompts for infrastructure
-health, alert explanation, open incidents, and shift handoff. A direct message always starts
+App Home shows durable open-incident, active-session, failed-work, incident-history, saved-memory,
+and active-commitment counts plus the current incident rooms, work Emisar owes the team, compact
+channel situations, and bounded memory controls. The Agent Messages tab offers suggested prompts
+for infrastructure health, alert explanation, and open work. A direct message always starts
 read-only triage and does not require proactive mode or an `@mention`.
 
 The **Investigate message** shortcut runs the same ordered read-only triage against a
@@ -94,18 +97,65 @@ commands cannot identify a thread, so task controls live on the task card.
 In a configured summon channel:
 
 ```text
-@Responder investigate production checkout errors
+@Emisar investigate production checkout errors
 ```
 
-The user must be a full workspace member. Responder performs bounded read-only triage and replies in
-the source thread; the mention alone does not create an incident. A configured operator can say
-`@Responder open an incident for production checkout errors` to create one directly. Responder then
+The user must be a full workspace member. Responder performs bounded read-only triage and follows
+the user's current channel or thread location; the mention alone does not create an incident. A configured operator can say
+`@Emisar open an incident for production checkout errors` to create one directly. Responder then
 acknowledges the request, creates the dedicated room using `slack.default_repository`, and posts a
 durable `Incident room ready` reply after configured responders are invited and the topic and root
 pin are ready. If the open-incident limit is full, it replies in the summon thread with the action
 required instead of silently dropping the request.
 
 ## Watched channels
+
+### Conversational channel setup
+
+Responder periodically reconciles the bot's authoritative Slack channel memberships. An
+absent-to-present transition queues one durable setup session for that channel and posts the first
+question. This is intentionally not based on `member_joined_channel`: Slack only sends that event
+after the bot is already a member, so it cannot report the bot's own initial join. Membership state
+survives restarts, suppresses duplicate cards, and makes remove/re-add start a fresh setup. The
+first card offers **Use safe defaults**, **Be proactive**, and **Customize**. The first two save a
+complete safe configuration without forcing a wizard: deployment-default repository, in-place
+alert replies, and no additional incident invitees. Customize asks one question at a time:
+
+1. participation: mentions only, proactive, or shadow;
+2. code context: one exact configured repository or repository-set key;
+3. app alerts: reply in place, offer an incident, or automatically create one;
+4. additional incident audience: no one beyond configured operators, or validated Slack members
+   and user groups.
+
+Every closed typed choice is rendered as a Slack button; context choices are generated from the
+configured repository and repository-set catalog. A repository set identifies one primary
+writable/publishable repository and an operator-owned Coop policy containing pinned read-only
+companions. Configured operators are always invited to incident rooms, so the
+audience step offers **No additional invitees** and accepts member or user-group mentions for any
+additional audience. Natural-language answers remain available for operators who prefer
+conversation. Each question records its top-level message or thread root.
+Replies are admitted only from those known setup threads, while top-level answers are accepted only
+from a configured operator during the active 30-minute session. Other channel messages continue
+through normal routing. Ambiguous answers produce a scoped clarification and do not advance the
+draft.
+
+The setup follows the operator rather than forcing one presentation. Answer in the channel and the
+next question appears in the channel; answer in a setup thread and it stays in that thread. Saying
+`switch to a thread`, `continue here so we do not pollute the channel`, or `back to the channel`
+re-renders the current question at that location without changing the typed draft. All later
+controls are bound to the durable setup ID, channel, actor, current step, revision, and expiry, so a
+stale button or unrelated thread cannot advance the session.
+
+The confirmation card says **Nothing is saved yet**, shows every typed value, names its expiry and
+safety boundary, and carries only a stored setup ID. **Save configuration**, **Start over**, and
+**Cancel** re-read the durable session, workspace, actor, channel, thread, revision, and expiry
+before acting. Saving affects listening, repository context, Slack-app alert escalation, and room
+invitations only. It never authorizes repository changes, Emisar approvals, deployments, or
+infrastructure mutations.
+
+Channel setup is more specific than the workspace override and deployment default, while an
+explicit per-channel `/responder` override remains the emergency override. Confirmed channel
+deletion removes its membership observation, setup sessions, and saved configuration.
 
 `slack.watch_channels` is the static default list for shared operational feeds such as
 `#infra-alerts`. Responder must be invited to every configured channel, and `responder doctor`
@@ -123,8 +173,8 @@ Operators can change proactivity without editing the file or restarting Responde
 /responder proactive global inherit
 ```
 
-The effective setting uses the current channel override first, then the workspace override, then
-the static `watch_channels` default. Global `on` watches all channels where Responder is invited and
+The effective setting uses the explicit channel override first, then confirmed channel setup, then
+the workspace override, then the static `watch_channels` default. Global `on` watches all channels where Responder is invited and
 receives message events. A per-channel `off` can opt out of that default, and a per-channel `on`
 can opt in while the workspace default is off. `inherit` deletes the corresponding durable
 override. Responder verifies current channel membership before accepting a per-channel `on`.
@@ -139,15 +189,18 @@ response. A delayed Slack event older than an already completed channel decision
 audited but cannot produce an out-of-order reply.
 
 Each watched channel has one persistent Coop triage session so a new message is interpreted in the
-context of that feed. Every decision also receives a frozen chronological transcript of the latest
-`slack.watch_context_messages` admitted messages across that channel, including thread timestamps
-and explicit targeting metadata. The default is 20 messages and the allowed range is 10 through 50.
-The transcript can include messages posted during the quiet period after the target, allowing the
-agent to recognize that two people are talking to each other or that another person already
-answered. It is durable event context, not a backfill of messages from before Responder joined.
-Compact memory retains the current goal, verified topology, decisions, unresolved questions, and
-evidence references. The underlying session rotates after a configurable age or turn count while
-that memory survives, preventing unbounded context growth.
+context of that feed. Immediately before submission, Responder reads recent Slack channel history
+or the target thread, merges it with admitted inputs, removes timestamp duplicates, guarantees the
+target message is present, and freezes the latest `slack.watch_context_messages` entries with
+explicit targeting metadata. The default is 20 messages and the allowed range is 10 through 50.
+This applies to explicit mentions even when broad proactive triage is off. The transcript can
+include ambient messages that were never Responder work, allowing the agent to recognize that two
+people are talking to each other or that another person already answered. Compact situation memory
+retains the channel purpose, situation summary, current goal, active topics, verified topology,
+decisions, open loops, unresolved questions, and evidence references. Open loops are carried into
+the next turn so a follow-up can resolve work without reconstructing the conversation. The
+underlying session rotates after a configurable age or turn count while that memory survives,
+preventing unbounded context growth.
 
 An operator may also explicitly ask Responder to remember a durable alias, repository binding,
 evidence route, or entity relationship correction. Responder answers normally and adds a
@@ -185,9 +238,10 @@ When a watched-channel run starts, Responder queues a native thread status expla
 checking live systems with Emisar and that broad checks can take a few minutes. Statuses, replies,
 and cards share the durable Slack delivery ledger, so restart does not lose them. The status is
 refreshed before Slack's two-minute expiry and cleared only after the run replies, stays silent,
-hands off to incident creation, or queues a user-facing failure. If the failure explanation cannot
-be delivered, the ledger retains both the desired outcome and the retry instead of leaving the user
-without a durable result.
+hands off to incident creation, or queues a user-facing failure. Every progress update and clear has
+a durable per-thread generation, so delayed progress cannot resurrect a status after a clear. If
+the failure explanation cannot be delivered, the ledger retains both the desired outcome and the
+retry instead of leaving the user without a durable result.
 
 For a question about current infrastructure health, operational state, or an alert, the agent can
 inspect the repository for declared topology and use policy-authorized read-only tools, especially
@@ -198,8 +252,10 @@ one validated decision:
 
 - stay silent for noise, routine success or recovery notifications, duplicates, and ambient
   conversation;
-- reply concisely in the source message's thread when a human addresses Responder and channel
-  context or a bounded read-only investigation provides enough evidence;
+- add one context-appropriate Slack reaction when acknowledgement is useful but a prose reply would
+  interrupt the team;
+- reply concisely where the human is speaking when they address Responder and channel context or a
+  bounded read-only investigation provides enough evidence;
 - attach an `Open incident room` confirmation when a human-reported problem may benefit from
   coordinated investigation, without creating anything yet;
 - attach a `Start engineering task` confirmation when an operator explicitly requests repository
@@ -212,6 +268,17 @@ creation, even if the model identifies an unhealthy component. The offer button 
 incident exists yet and requires a configured full-member operator. The original Slack input stores
 the offered title durably, so a restart does not change what the button approves. Repeated clicks are
 idempotent.
+
+Every decision includes a bounded attention assessment: intended addressee plus urgency,
+confidence, novelty, and ownership scores. Responder applies this after the model returns, so a
+model cannot bypass the interruption policy. Ambient prose replies require
+`slack.proactive_reply_attention_threshold`; reactions require
+`slack.proactive_reaction_attention_threshold`. Direct requests remain eligible. A human-directed
+message cannot produce an ambient Emisar reply or reaction. Emisar may use any standard Slack emoji
+or a workspace custom emoji visible in the supplied message context. The host validates and
+normalizes the emoji name, permits only one reaction, and lets Slack reject names that are not
+available in that workspace. A reaction acknowledges or signals; it never claims verification,
+approval, remediation, or future work.
 
 Engineering-task offers follow the same authorization, source-message binding, restart durability,
 and idempotency rules. Their source threads use task-specific cards and lifecycle copy rather than
@@ -238,6 +305,8 @@ The shipped Slack app registers one command with deterministic subcommands:
 
 ```text
 /responder status
+/responder work
+/responder commitments
 /responder incidents
 /responder incidents open [page]
 /responder incidents all [page]
@@ -263,10 +332,17 @@ The shipped Slack app registers one command with deterministic subcommands:
 ```
 
 Slack does not provide application-defined autocomplete for text after a slash command. The
-manifest therefore uses a short `help | status | incidents | preferences | rules` usage hint instead of
+manifest therefore uses a short `help | status | work | incidents | preferences | rules` usage hint instead of
 putting every argument in the picker. Running `/responder` without arguments or selecting `help`
 returns an interactive guide with read-only buttons for channel status, open incidents, and all
 incident history.
+
+The same handler is conversationally reachable for supported operator requests. For example,
+`@Emisar how are you configured here?`, `show open incidents`, `show evidence`, `enable proactive
+mode`, and `reconfigure this channel` map to the existing typed status, directory, intelligence,
+setting, and setup handlers. Conversational results are posted in the request thread; slash results
+remain ephemeral. Unsupported or ambiguous operational questions continue through normal
+evidence-backed triage rather than being guessed into a command.
 
 `incidents` lists open incidents newest first. Each compact entry contains the title, a native
 Slack channel mention, plain-language activity, firing-alert count, incident ID, repository, and
@@ -283,6 +359,11 @@ durable and audited. Incident-control acknowledgements
 describe the requested effect and direct the operator to the pinned incident thread for the
 authoritative result. Slash commands and button controls run in the control lane, so an off or stop
 command does not wait behind a running agent run.
+
+`work` and its `commitments` alias list every active request accepted by Emisar, newest first.
+Each item names the request, source conversation, queued/working/finishing/blocked state, current
+status, and next operator action. The list is a projection of the durable agent-run scheduler, so
+restart or delivery retry cannot make promised work disappear.
 
 `preferences` lists the effective operator, channel, repository, and workspace investigation
 defaults. `rules` lists this channel's standing rules, source filters, expiry, last run, and run

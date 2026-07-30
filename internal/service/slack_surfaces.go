@@ -49,6 +49,18 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 	if err != nil {
 		return err
 	}
+	commitments, err := s.store.ListActiveCommitments(ctx, 8)
+	if err != nil {
+		return err
+	}
+	commitmentCount, err := s.store.CountActiveCommitments(ctx)
+	if err != nil {
+		return err
+	}
+	situations, err := s.store.ListChannelSituations(ctx, 5)
+	if err != nil {
+		return err
+	}
 	message := slackui.OperationsHome(
 		metrics.IncidentsOpen,
 		metrics.IncidentsTotal,
@@ -60,7 +72,10 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 		homeMemoryCount,
 		metrics.PreferencesActive,
 		metrics.RulesActive,
+		commitmentCount,
 		incidents,
+		commitments,
+		situations,
 		memories,
 		preferences,
 		rules,

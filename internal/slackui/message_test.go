@@ -652,11 +652,15 @@ func TestTimelineHandoffAndPostmortemRemainEvidenceGrounded(t *testing.T) {
 }
 
 func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
-	message := OperationsHome(1, 3, 1, 2, 1, 2, 1, 0, 0, 0, []core.Incident{{
+	message := OperationsHome(1, 3, 1, 2, 1, 2, 1, 0, 0, 0, 1, []core.Incident{{
 		ID: "inc_1", Title: "API unavailable", Status: core.IncidentActive,
 		Workflow: core.WorkflowInvestigating, ChannelID: "CINCIDENT",
 		ChannelName: "ems-api", FiringCount: 1, SignalCount: 1,
-	}}, nil, nil, nil)
+	}}, []core.Commitment{{
+		Title: "Verify rollout", State: core.CommitmentWorking,
+		Status: "Checking live state", NextAction: "Deliver the result",
+		ChannelID: "CINCIDENT",
+	}}, nil, nil, nil, nil)
 	content := message.Text + "\n" + message.Markdown + "\n" +
 		strings.Join(message.Sections, "\n")
 	for _, field := range message.Fields {
@@ -667,6 +671,8 @@ func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
 		"Open work",
 		"Failed work",
 		"API unavailable",
+		"Verify rollout",
+		"What Emisar owes the team",
 		"<#CINCIDENT>",
 	} {
 		if !strings.Contains(content, required) {

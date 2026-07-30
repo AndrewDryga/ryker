@@ -60,20 +60,24 @@ a bounded delay.
 | Endpoint | Meaning |
 | --- | --- |
 | `/healthz` | the process can use its durable database |
-| `/readyz` | workers run, Coop is ready, and Slack Socket Mode is connected |
-| `/metrics` | Prometheus-format incident, queue, failure, and delivery counters |
+| `/readyz` | the database responds, Slack and Coop are ready, every scheduler lane has a fresh heartbeat, and no due or running work exceeds the stall threshold |
+| `/metrics` | Prometheus-format incident, delivery, scheduler queue, lease-age, heartbeat-age, and failure counters |
 
 The webhook endpoint can durably accept work before Slack reconnects, but load balancers should use
 `/readyz` when dependency-complete handling is required.
 
 `responder status` and `responder failures` inspect the current database schema without migrating
 it and do not require Slack or Coop. Stop Responder before upgrading to a binary that needs a
-database migration; startup holds the process lock while applying migrations.
+database migration; startup holds the process lock, creates and verifies a private pre-migration
+snapshot, then applies migrations.
 
 ## Retries
 
-Webhook, Slack input, Slack delivery, and agent-run work use separate bounded exponential delays.
-Process restart converts an interrupted lease back into the correct recoverable state.
+Webhook, Slack input, Slack delivery, and agent-run work retain their typed bounded retry state. A
+single durable scheduler decides when each category or incident subject is eligible to run.
+Scheduler leases have random owner tokens: an expired lease can be reclaimed while the process is
+running, and the stale owner can no longer complete or retry the replacement lease. Process restart
+also converts interrupted domain and scheduler leases back into their correct recoverable states.
 
 Only new Slack posts with an ambiguous response are treated as uncertain because the API might have
 accepted the message before the connection failed. Responder searches Slack history by durable
@@ -96,6 +100,20 @@ later inputs can still be admitted and included in subsequent context. A delayed
 an already completed decision is retained and audited but cannot produce an out-of-order reply.
 Slash commands and button controls have priority over ordinary conversation delivery.
 
+Bot channel joins create a durable `configuration_sessions` row with a 30-minute expiry. The setup
+root timestamp, initiator, current question, typed draft, revision, and status are stored before
+later answers can advance it. Thread answers must match the root; top-level answers require a
+configured full-member operator. Saving creates or replaces one `channel_configurations` row and
+increments its revision. Explicit Slack channel overrides remain higher priority; confirmed setup
+then precedes workspace and deployment defaults.
+
+The saved app-alert policy applies only to authenticated Slack app messages. Human health questions
+never auto-create incidents. Incident rooms created from that source channel invite configured
+operators and deployment invitees plus the saved users and the current Slack members of saved user
+groups. A missing or inaccessible group blocks room preparation visibly rather than silently
+dropping responders. Channel deletion removes configuration and active drafts. Maintenance prunes
+expired and terminal setup sessions with the other bounded operational state.
+
 The host does not accept a human health question as authorization to create an incident. Human
 triage can reply with findings and persist an incident offer; a configured full-member operator must
 confirm its `Open incident room` button. Explicit human incident requests and credible unresolved
@@ -110,8 +128,54 @@ edits, tests, and commits are permitted by the dedicated prompt and remain bound
 repository's Coop policy. Merge, push, signing, deployment, and infrastructure mutation remain
 forbidden.
 
-Compact channel memory stores the current goal, verified topology, decisions, unresolved questions,
-and evidence references. `coop.watch_session_max_turns` defaults to 40 and
+### Repository sets
+
+Use a repository set when one investigation needs declared context from several independent Git
+repositories. Responder's `repository_sets` entry names the primary configured repository and the
+Coop policy:
+
+```yaml
+repositories:
+  infrastructure:
+    display_name: Infrastructure
+    coop_policy: infrastructure-observe
+    path: /srv/repos/infrastructure
+repository_sets:
+  platform:
+    display_name: Platform
+    primary: infrastructure
+    coop_policy: platform-observe
+```
+
+The corresponding owner-private Coop policy is the only place that binds companion aliases to host
+paths:
+
+```yaml
+policies:
+  platform-observe:
+    repository: /srv/repos/infrastructure
+    companions:
+      - name: backend
+        repository: /srv/repos/backend
+      - name: control-plane
+        repository: /srv/repos/control-plane
+    # target and resource limits omitted here
+```
+
+At session creation Coop pins every repository to its current commit. The primary gets the normal
+isolated writable fork. Companions get detached, clean snapshot worktrees mounted read-only at
+`/coop/repositories/<alias>`. Public session data contains only the alias, in-box path, and commit;
+host paths remain inside Coop. Review, GitHub publication, and cleanup apply to the primary tree,
+while discard also removes every owned companion snapshot. A repository set supports at most 32
+companions.
+
+Keep the Responder set's `primary` and the Coop policy's `repository` aligned. This deliberate
+two-part declaration separates publication ownership from local mount authority: Slack and model
+output can select only the configured set key and can never introduce a path or mount.
+
+Compact channel situation stores channel purpose, situation summary, current goal, active topics,
+verified topology, decisions, open loops, unresolved questions, and evidence references.
+`coop.watch_session_max_turns` defaults to 40 and
 `coop.watch_session_max_age` defaults to 24 hours. Responder rotates only an idle session, preserves
 the compact memory, and uses a generation-specific idempotency key. Rotation bounds provider
 context without discarding operational corrections.
@@ -170,6 +234,19 @@ precedence. `/responder shadow` stores dry-run evaluation overrides with the sam
 shadow mode still performs read-only classification and evidence collection, but cannot post,
 offer, or create an incident. Back up these settings with the rest of `responder.db`.
 
+Proactive turns return an addressee and four `0..3` interruption dimensions: urgency, confidence,
+novelty, and ownership. The host sums those dimensions after parsing. Ambient replies below
+`slack.proactive_reply_attention_threshold` and reactions below
+`slack.proactive_reaction_attention_threshold` are converted to silence; defaults are `7` and `4`.
+Higher values make a deployment quieter. Explicit requests bypass the score, while human-addressed
+ambient messages remain suppressed.
+
+Accepted model-backed work is recorded in `commitments` at queue time and projected from
+`agent_runs`, which remains the execution authority. `/responder work`, conversational requests
+such as `what are you working on?`, and App Home expose queued, working, finishing, blocked, and
+cancelled state. Maintenance does not create a second work lifecycle: commitment retention follows
+the underlying agent run.
+
 ## Evidence
 
 Agent prose is not the evidence ledger. Structured observations record claim, observation, source
@@ -199,15 +276,19 @@ Use channel or workspace shadow mode before enabling proactive replies broadly:
 ```
 
 Review durable evaluation records and service audit output, redact representative model outputs,
-and add them to `testdata/eval/golden.jsonl`. Run:
+and add behavioral contracts to `testdata/eval/live.jsonl`. Run the real configured model:
 
 ```bash
-make eval
-responder eval --input testdata/eval/golden.jsonl --json
+make eval CONFIG=.responder/responder.yaml
+responder eval --config .responder/responder.yaml --json
 ```
 
-The replay gate validates strict watch decisions and incident response envelopes, including minimum
-evidence and coverage counts. It does not call a model, Slack, Coop, or infrastructure.
+For a deterministic parser and response-envelope check, add redacted outputs to
+`testdata/eval/golden.jsonl` and run `make eval-replay`. The replay is part of offline CI but is not
+a model eval. The real eval calls the configured model through isolated Coop sessions and scores
+strict watch decisions and incident response envelopes, including confirmation-offer types,
+evidence sources, coverage states, approval holds, response bounds, and forbidden overclaims. See
+[`testing.md`](testing.md) for the customer-journey matrix and bounded live acceptance set.
 
 ## Capacity
 
@@ -235,6 +316,12 @@ Normal scheduling deferrals and Coop progress polls do not consume these failure
 failures are counted by `responder_work_failed`.
 For configuration upgrades, the retired `max_outbox_attempts` value seeds any of these four budgets
 that are not explicitly set; new configurations should use only the specific names.
+
+`limits.worker_interval` controls how quickly an idle scheduler lane checks for newly due work.
+`limits.work_lease` bounds ownership of one scheduler item; expiry permits safe reclamation with a
+new lease token and must exceed `limits.worker_stall_after`. `limits.worker_stall_after` is the
+readiness and handler-timeout threshold for lane heartbeats, due queue age, and running work age,
+and must be at least `coop.request_timeout`.
 
 Memory gauges are exported as `responder_memory_entries_active` and
 `responder_memory_entries_expired`. Maintenance logs include the number of expired entries pruned.
@@ -271,10 +358,21 @@ The database is:
 <state_dir>/responder.db
 ```
 
-For the simplest consistent backup, stop Responder, copy `responder.db`, then restart it. The Coop
-state and repository forks are separate and must be backed up according to Coop's operating policy.
-Never restore only one side and assume session mappings still match; run `doctor`, `status`, and
-`failures` after recovery.
+Before every automatic schema upgrade, Responder creates a SQLite-consistent `VACUUM INTO` snapshot
+under:
+
+```text
+<state_dir>/backups/responder-v<old>-to-v<new>-<timestamp>.db
+```
+
+Startup verifies `PRAGMA quick_check`, verifies that the snapshot still has the source schema
+version, sets file mode `0600`, and aborts before migration if any step fails. Only the three newest
+files matching Responder's migration-backup name are retained; unrelated files are never removed.
+
+For an operator-initiated point-in-time backup outside an upgrade, stop Responder, copy
+`responder.db`, then restart it. The Coop state and repository forks are separate and must be backed
+up according to Coop's operating policy. Never restore only one side and assume session mappings
+still match; run `doctor`, `status`, and `failures` after recovery.
 
 ## Secret rotation
 

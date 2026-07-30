@@ -52,10 +52,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			break
 		}
 	}
-	repositories := make([]string, 0, len(s.cfg.Repositories))
-	for repository := range s.cfg.Repositories {
-		repositories = append(repositories, repository)
-	}
+	repositories := s.cfg.RepositoryContextKeys()
 	if pruned, err := s.store.PruneOrphanMemoryEntries(ctx, repositories); err != nil &&
 		ctx.Err() == nil {
 		s.log.Warn("orphaned operational memory pruning failed", "error", err)
@@ -100,6 +97,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"standing_rule_runs", result.StandingRuleRuns,
 			"action_proposals", result.ActionProposals,
 			"emisar_approvals", result.EmisarApprovals,
+			"configuration_sessions", result.ConfigurationSessions,
 			"closed_work", result.ClosedIncidents,
 			"audit", result.AuditEvents,
 		)
@@ -267,7 +265,7 @@ func (s *Service) verifyPublishedCleanupTree(
 	if err := s.publisher.VerifyPublication(ctx, publication); err != nil {
 		return fmt.Errorf("verify current GitHub publication: %w", err)
 	}
-	repository, ok := s.cfg.Repositories[incident.Repository]
+	repository, ok := s.cfg.RepositoryContext(incident.Repository)
 	if !ok || repository.Path == "" {
 		return errors.New("publication repository checkout is unavailable")
 	}

@@ -95,7 +95,14 @@ func (s *Store) QueueAgentRun(
 		return core.AgentRun{}, false, err
 	}
 	stored, err := s.GetAgentRunBySource(ctx, run.SourceKind, run.SourceID)
-	return stored, rows == 1, err
+	if err != nil {
+		return core.AgentRun{}, false, err
+	}
+	stored.CommitmentTitle = run.CommitmentTitle
+	if err := s.ensureCommitment(ctx, stored); err != nil {
+		return core.AgentRun{}, false, fmt.Errorf("ensure agent commitment: %w", err)
+	}
+	return stored, rows == 1, nil
 }
 
 func nullableTime(value time.Time) any {
@@ -225,8 +232,9 @@ func (s *Store) LeaseAgentRunFinalization(ctx context.Context) (core.AgentRun, e
 		SELECT `+agentRunColumns+`
 		FROM agent_runs
 		WHERE state = 'applying'
+		  AND julianday(next_attempt_at) <= julianday(?)
 		ORDER BY updated_at, id
-		LIMIT 1`))
+		LIMIT 1`, nowText()))
 	if err != nil {
 		return core.AgentRun{}, err
 	}
@@ -378,11 +386,14 @@ func (s *Store) MarkAgentRunSubmitted(
 	}
 	defer tx.Rollback()
 	var incidentID sql.NullString
-	var channelID string
+	var channelID, sessionID string
 	if err := tx.QueryRowContext(
-		ctx, `SELECT incident_id, channel_id FROM agent_runs WHERE id = ?`, id,
-	).Scan(&incidentID, &channelID); err != nil {
+		ctx, `SELECT incident_id, channel_id, session_id FROM agent_runs WHERE id = ?`, id,
+	).Scan(&incidentID, &channelID, &sessionID); err != nil {
 		return err
+	}
+	if sessionID == "" {
+		return errors.New("submitted agent run requires a bound Coop session")
 	}
 	now := nowText()
 	result, err := tx.ExecContext(ctx, `
@@ -493,6 +504,70 @@ func (s *Store) AdvanceAgentRunEvents(
 	return expectOne(result, err, "advance agent run events")
 }
 
+func (s *Store) RequeueInterruptedAgentRun(
+	ctx context.Context,
+	id string,
+	detail string,
+	eventSequence int64,
+	next time.Time,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var incidentID sql.NullString
+	var coopTurnID string
+	var failures int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT incident_id, coop_turn_id, failure_count
+		FROM agent_runs
+		WHERE id = ? AND state = 'running'`, id,
+	).Scan(&incidentID, &coopTurnID, &failures); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("requeue interrupted agent run: %w", ErrConflict)
+		}
+		return err
+	}
+	attempt := failures + 1
+	now := nowText()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'pending', failure_count = ?, idempotency_key = ?,
+		    expected_revision = 0, coop_turn_id = '',
+		    coop_event_sequence = MAX(coop_event_sequence, ?),
+		    result_json = X'', terminal_state = '', last_error = ?,
+		    next_attempt_at = ?, completed_at = NULL, updated_at = ?
+		WHERE id = ? AND state = 'running'`,
+		attempt,
+		fmt.Sprintf("responder:run:%s:recovery:%d", id, attempt),
+		eventSequence,
+		boundedError(detail),
+		next.UTC().Format(timestampFormat),
+		now,
+		id,
+	)
+	if err := expectOne(result, err, "requeue interrupted agent run"); err != nil {
+		return err
+	}
+	if incidentID.Valid {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE incidents
+			SET active_turn_id = '', workflow = 'parked', last_error = '',
+			    coop_event_sequence = MAX(coop_event_sequence, ?),
+			    updated_at = ?, card_version = card_version + 1
+			WHERE id = ? AND active_turn_id = ?`,
+			eventSequence, now, incidentID.String, coopTurnID,
+		)
+		if err := expectOne(
+			result, err, "release interrupted incident turn",
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) StageAgentRunResult(
 	ctx context.Context,
 	id string,
@@ -589,12 +664,14 @@ func (s *Store) RetryAgentRunFinalization(
 	ctx context.Context,
 	id string,
 	detail string,
+	next time.Time,
 ) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE agent_runs
-		SET state = 'applying', last_error = ?, updated_at = ?
+		SET state = 'applying', failure_count = failure_count + 1,
+		    next_attempt_at = ?, last_error = ?, updated_at = ?
 		WHERE id = ? AND state = 'finalizing'`,
-		boundedError(detail), nowText(), id)
+		next.UTC().Format(timestampFormat), boundedError(detail), nowText(), id)
 	return expectOne(result, err, "retry agent run finalization")
 }
 

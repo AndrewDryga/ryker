@@ -92,6 +92,17 @@ func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := st.BindAgentRunSession(
+		ctx,
+		leasedTurn.ID,
+		"ses_1",
+		0,
+		incident.Repository,
+		0,
+		leasedTurn.Context,
+	); err != nil {
+		t.Fatal(err)
+	}
 	revision, err := st.FreezeAgentRunRevision(ctx, leasedTurn.ID, 1)
 	if err != nil || revision != 1 {
 		t.Fatalf("freeze revision = %d, %v", revision, err)
@@ -177,6 +188,87 @@ func TestSlackDeliveryCoalescingIsIdempotentAndSupersedesOnlyOlderVersions(t *te
 			t.Fatalf("newer delivery did not supersede old = %+v, %v", leased, err)
 		}
 	})
+	t.Run("late stale version cannot replace current version", func(t *testing.T) {
+		st, err := Open(filepath.Join(t.TempDir(), "state"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		current := core.SlackDelivery{
+			ID: "delivery_card_inc_1_5", Operation: "update", Kind: "card",
+			ChannelID: "C1", MessageTS: "1700.001",
+			Body: []byte(`{"text":"current"}`), CoalesceKey: "card:inc_1",
+			CardVersion: 5,
+		}
+		if created, err := st.EnqueueSlackDelivery(ctx, current); err != nil || !created {
+			t.Fatalf("current enqueue = %v, %v", created, err)
+		}
+		stale := current
+		stale.ID = "delivery_card_inc_1_4"
+		stale.Body = []byte(`{"text":"stale"}`)
+		stale.CardVersion = 4
+		if created, err := st.EnqueueSlackDelivery(ctx, stale); err != nil || created {
+			t.Fatalf("stale enqueue = %v, %v", created, err)
+		}
+		leased, err := st.LeaseSlackDelivery(ctx)
+		if err != nil || leased.ID != current.ID {
+			t.Fatalf("stale delivery replaced current = %+v, %v", leased, err)
+		}
+	})
+}
+
+func TestSlackStatusGenerationMakesClearMonotonic(t *testing.T) {
+	ctx := context.Background()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeGeneration, err := st.NextSlackStatusGeneration(ctx, "C1", "1700.001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := core.SlackDelivery{
+		ID: "status_active", Operation: "status", Kind: "status",
+		ChannelID: "C1", ThreadTS: "1700.001", Status: "is investigating...",
+		CoalesceKey: "status:C1:1700.001", CardVersion: activeGeneration,
+	}
+	if created, err := st.EnqueueSlackDelivery(ctx, active); err != nil || !created {
+		t.Fatalf("enqueue active status = %v, %v", created, err)
+	}
+	clearGeneration, err := st.NextSlackStatusGeneration(ctx, "C1", "1700.001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear := core.SlackDelivery{
+		ID: "status_clear", Operation: "status", Kind: "status",
+		ChannelID: "C1", ThreadTS: "1700.001",
+		CoalesceKey: "status:C1:1700.001", CardVersion: clearGeneration,
+	}
+	if created, err := st.EnqueueSlackDelivery(ctx, clear); err != nil || !created {
+		t.Fatalf("enqueue status clear = %v, %v", created, err)
+	}
+	stale := active
+	stale.ID = "status_stale_late"
+	if created, err := st.EnqueueSlackDelivery(ctx, stale); err != nil || created {
+		t.Fatalf("late stale status = %v, %v", created, err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	nextGeneration, err := st.NextSlackStatusGeneration(ctx, "C1", "1700.001")
+	if err != nil || nextGeneration != clearGeneration+1 {
+		t.Fatalf("persisted status generation = %d, %v", nextGeneration, err)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx)
+	if err != nil || leased.ID != clear.ID || leased.Status != "" {
+		t.Fatalf("monotonic status delivery = %+v, %v", leased, err)
+	}
 }
 
 func TestRecoveryAndManualIncidentDeduplication(t *testing.T) {
@@ -229,6 +321,71 @@ func TestRecoveryAndManualIncidentDeduplication(t *testing.T) {
 	recovered, err := st.LeaseWebhook(ctx)
 	if err != nil || recovered.Attempts != 2 {
 		t.Fatalf("recovered webhook = %+v, %v", recovered, err)
+	}
+}
+
+func TestAgentRunSubmissionRequiresAndRecoversIncidentSessionBinding(t *testing.T) {
+	ctx := context.Background()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := testWebhookEvent()
+	incidents, err := st.ApplySignals(ctx, event, time.Hour, 0, 100)
+	if err != nil || len(incidents) != 1 {
+		t.Fatalf("create incident = %+v, %v", incidents, err)
+	}
+	incident := incidents[0]
+	if err := st.SetChannel(ctx, incident.ID, "C123ABC", "inc-test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, incident.ID, "1700.001"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, incident.ID, "ses_recover", "fork-recover", 1); err != nil {
+		t.Fatal(err)
+	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: "C123ABC", ThreadTS: "1700.001",
+		ConversationKey: "incident:" + incident.ID,
+		SourceKind:      "initial", SourceID: incident.ID,
+		Repository: incident.Repository, Prompt: "investigate",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue run = %+v, %v, %v", run, created, err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(
+		ctx, leased.ID, "turn_unbound", 2, 0,
+	); err == nil || !strings.Contains(err.Error(), "bound Coop session") {
+		t.Fatalf("unbound submission error = %v", err)
+	}
+	if _, err := st.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'running', coop_turn_id = 'turn_interrupted'
+		WHERE id = ?`, leased.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := st.GetAgentRun(ctx, leased.ID)
+	if err != nil || recovered.SessionID != "ses_recover" ||
+		recovered.State != core.AgentRunRunning {
+		t.Fatalf("recovered binding = %+v, %v", recovered, err)
 	}
 }
 
@@ -696,6 +853,102 @@ func TestSchemaV10MigratesActiveAgentRunAndUncertainSlackDelivery(t *testing.T) 
 		if count != 0 {
 			t.Fatalf("legacy table %q survived migration", oldTable)
 		}
+	}
+}
+
+func TestMigrationCreatesVerifiedPrivateBackup(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(stateDir, "responder.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:12] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO schema_version(version) VALUES (12)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	paths, err := filepath.Glob(filepath.Join(
+		stateDir,
+		"backups",
+		fmt.Sprintf("responder-v12-to-v%d-*.db", currentSchemaVersion),
+	))
+	if err != nil || len(paths) != 1 {
+		t.Fatalf("migration backups = %v, %v", paths, err)
+	}
+	info, err := os.Stat(paths[0])
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("migration backup mode = %v, %v", info, err)
+	}
+	backup, err := sql.Open("sqlite", paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backup.Close()
+	version, err := schemaVersion(backup)
+	if err != nil || version != 12 {
+		t.Fatalf("backup schema version = %d, %v", version, err)
+	}
+	var quickCheck string
+	if err := backup.QueryRow(`PRAGMA quick_check`).Scan(&quickCheck); err != nil || quickCheck != "ok" {
+		t.Fatalf("backup quick check = %q, %v", quickCheck, err)
+	}
+	var workTable int
+	if err := backup.QueryRow(`
+		SELECT count(*) FROM sqlite_master
+		WHERE type = 'table' AND name = 'work_items'`).Scan(&workTable); err != nil {
+		t.Fatal(err)
+	}
+	if workTable != 0 {
+		t.Fatal("migration backup contains post-migration scheduler table")
+	}
+}
+
+func TestMigrationBackupRetentionIsBoundedAndScoped(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "backups")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Add(-time.Hour)
+	for i := range 6 {
+		path := filepath.Join(dir, fmt.Sprintf("responder-v%d-to-v13-test.db", i+1))
+		if err := os.WriteFile(path, []byte("backup"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		when := base.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(path, when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unrelated := filepath.Join(dir, "operator-note.txt")
+	if err := os.WriteFile(unrelated, []byte("retain"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneMigrationBackups(dir, migrationBackupRetention); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "responder-v*-to-v*.db"))
+	if err != nil || len(paths) != migrationBackupRetention {
+		t.Fatalf("retained migration backups = %v, %v", paths, err)
+	}
+	if _, err := os.Stat(unrelated); err != nil {
+		t.Fatalf("unrelated file was removed: %v", err)
 	}
 }
 
@@ -1219,6 +1472,17 @@ func TestTerminalCoopTurnCannotBeRetried(t *testing.T) {
 	}
 	leased, err := st.LeaseAgentRun(ctx)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindAgentRunSession(
+		ctx,
+		leased.ID,
+		"ses_1",
+		0,
+		incident.Repository,
+		0,
+		leased.Context,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.MarkAgentRunSubmitted(

@@ -58,8 +58,8 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"healthy": true})
 }
 
-func (h *Handler) ready(w http.ResponseWriter, _ *http.Request) {
-	ready, reason := h.service.Ready()
+func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
+	ready, reason := h.service.Ready(r.Context())
 	status := http.StatusOK
 	if !ready {
 		status = http.StatusServiceUnavailable
@@ -73,7 +73,12 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "metrics unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	ready, _ := h.service.Ready()
+	scheduler, err := h.service.SchedulerSnapshot(r.Context())
+	if err != nil {
+		http.Error(w, "metrics unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	ready, _ := h.service.Ready(r.Context())
 	readyValue := 0
 	if ready {
 		readyValue = 1
@@ -107,6 +112,70 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 	for _, metric := range metrics {
 		fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n%s %d\n",
 			metric.name, metric.help, metric.name, metric.name, metric.value)
+	}
+	fmt.Fprintln(w, "# HELP responder_scheduler_work_pending Durable scheduled work awaiting a lease.")
+	fmt.Fprintln(w, "# TYPE responder_scheduler_work_pending gauge")
+	for _, lane := range scheduler {
+		fmt.Fprintf(
+			w,
+			"responder_scheduler_work_pending{lane=%q} %d\n",
+			lane.Lane,
+			lane.Pending,
+		)
+	}
+	fmt.Fprintln(w, "# HELP responder_scheduler_work_running Durable scheduled work with an active lease.")
+	fmt.Fprintln(w, "# TYPE responder_scheduler_work_running gauge")
+	for _, lane := range scheduler {
+		fmt.Fprintf(
+			w,
+			"responder_scheduler_work_running{lane=%q} %d\n",
+			lane.Lane,
+			lane.Running,
+		)
+	}
+	fmt.Fprintln(w, "# HELP responder_scheduler_work_failed Durable scheduler records in terminal failure.")
+	fmt.Fprintln(w, "# TYPE responder_scheduler_work_failed gauge")
+	for _, lane := range scheduler {
+		fmt.Fprintf(
+			w,
+			"responder_scheduler_work_failed{lane=%q} %d\n",
+			lane.Lane,
+			lane.Failed,
+		)
+	}
+	fmt.Fprintln(w, "# HELP responder_scheduler_oldest_due_seconds Age of the oldest due scheduler item.")
+	fmt.Fprintln(w, "# TYPE responder_scheduler_oldest_due_seconds gauge")
+	for _, lane := range scheduler {
+		fmt.Fprintf(
+			w,
+			"responder_scheduler_oldest_due_seconds{lane=%q} %.3f\n",
+			lane.Lane,
+			lane.OldestDueAge.Seconds(),
+		)
+	}
+	fmt.Fprintln(w, "# HELP responder_scheduler_oldest_running_seconds Age of the oldest running scheduler item.")
+	fmt.Fprintln(w, "# TYPE responder_scheduler_oldest_running_seconds gauge")
+	for _, lane := range scheduler {
+		fmt.Fprintf(
+			w,
+			"responder_scheduler_oldest_running_seconds{lane=%q} %.3f\n",
+			lane.Lane,
+			lane.OldestRunningAge.Seconds(),
+		)
+	}
+	fmt.Fprintln(w, "# HELP responder_scheduler_heartbeat_age_seconds Age of the last worker heartbeat, or -1 before startup.")
+	fmt.Fprintln(w, "# TYPE responder_scheduler_heartbeat_age_seconds gauge")
+	for _, lane := range scheduler {
+		age := -1.0
+		if lane.HeartbeatPresent {
+			age = lane.HeartbeatAge.Seconds()
+		}
+		fmt.Fprintf(
+			w,
+			"responder_scheduler_heartbeat_age_seconds{lane=%q} %.3f\n",
+			lane.Lane,
+			age,
+		)
 	}
 	fmt.Fprintf(w, "# TYPE responder_webhooks_accepted_total counter\nresponder_webhooks_accepted_total %d\n", h.accepted.Load())
 	fmt.Fprintf(w, "# TYPE responder_webhooks_duplicate_total counter\nresponder_webhooks_duplicate_total %d\n", h.duplicate.Load())

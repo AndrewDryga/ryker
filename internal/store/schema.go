@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 12
+const currentSchemaVersion = 17
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -708,6 +708,130 @@ FROM outbox;
 DROP TABLE outbox;
 `
 
+const schemaV13 = `
+CREATE TABLE slack_status_generations (
+  channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL,
+  generation INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(channel_id, thread_ts)
+);
+
+CREATE TABLE work_items (
+  kind TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  lane TEXT NOT NULL CHECK (lane IN ('control', 'background', 'maintenance')),
+  conversation_key TEXT NOT NULL DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 100,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'running', 'failed')),
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  available_at TEXT NOT NULL,
+  lease_expires_at TEXT,
+  lease_token TEXT NOT NULL DEFAULT '',
+  rerun_at TEXT,
+  deadline_at TEXT,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(kind, subject_id)
+);
+
+CREATE INDEX work_items_due_idx
+  ON work_items(lane, state, available_at, priority, created_at);
+CREATE INDEX work_items_conversation_idx
+  ON work_items(conversation_key, state, lease_expires_at)
+  WHERE conversation_key != '';
+`
+
+const schemaV14 = `
+CREATE TABLE channel_configurations (
+  channel_id TEXT PRIMARY KEY,
+  participation TEXT NOT NULL CHECK (participation IN ('mentions', 'proactive', 'shadow')),
+  repository TEXT NOT NULL,
+  alert_policy TEXT NOT NULL CHECK (alert_policy IN ('reply', 'offer', 'automatic')),
+  invite_users_json TEXT NOT NULL DEFAULT '[]',
+  invite_user_groups_json TEXT NOT NULL DEFAULT '[]',
+  actor_id TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE configuration_sessions (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL DEFAULT '',
+  initiator_id TEXT NOT NULL DEFAULT '',
+  step TEXT NOT NULL CHECK (
+    step IN ('participation', 'repository', 'alerts', 'audience', 'confirm')
+  ),
+  status TEXT NOT NULL CHECK (
+    status IN ('asking', 'confirming', 'saved', 'cancelled', 'expired')
+  ),
+  draft_json BLOB NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX configuration_sessions_active_channel_idx
+  ON configuration_sessions(channel_id)
+  WHERE status IN ('asking', 'confirming');
+CREATE INDEX configuration_sessions_expiry_idx
+  ON configuration_sessions(status, expires_at);
+`
+
+const schemaV15 = `
+CREATE TABLE slack_channel_memberships (
+  channel_id TEXT PRIMARY KEY,
+  channel_name TEXT NOT NULL DEFAULT '',
+  private INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1)),
+  present INTEGER NOT NULL DEFAULT 0 CHECK (present IN (0, 1)),
+  onboarding_state TEXT NOT NULL DEFAULT 'complete' CHECK (
+    onboarding_state IN ('pending', 'complete')
+  ),
+  joined_at TEXT,
+  observed_at TEXT NOT NULL
+);
+
+CREATE INDEX slack_channel_memberships_onboarding_idx
+  ON slack_channel_memberships(onboarding_state, present, joined_at)
+  WHERE onboarding_state = 'pending' AND present = 1;
+`
+
+const schemaV16 = `
+ALTER TABLE configuration_sessions
+  ADD COLUMN response_thread_ts TEXT NOT NULL DEFAULT '';
+ALTER TABLE configuration_sessions
+  ADD COLUMN thread_roots_json TEXT NOT NULL DEFAULT '[]';
+
+UPDATE configuration_sessions
+SET thread_roots_json = CASE
+  WHEN thread_ts = '' THEN '[]'
+  ELSE '["' || thread_ts || '"]'
+END;
+`
+
+const schemaV17 = `
+CREATE TABLE commitments (
+  agent_run_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  FOREIGN KEY(agent_run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+);
+
+INSERT OR IGNORE INTO commitments (agent_run_id, title)
+SELECT
+  id,
+  CASE
+    WHEN mode = 'incident' THEN 'Investigate incident'
+    WHEN mode = 'engineering_task' THEN 'Complete engineering task'
+    ELSE 'Answer Slack request'
+  END
+FROM agent_runs;
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -721,4 +845,9 @@ var migrations = []string{
 	schemaV10,
 	schemaV11,
 	schemaV12,
+	schemaV13,
+	schemaV14,
+	schemaV15,
+	schemaV16,
+	schemaV17,
 }

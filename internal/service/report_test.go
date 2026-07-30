@@ -79,6 +79,20 @@ func TestAgentReportExtractsFinalEnvelopeAfterCoopProgress(t *testing.T) {
 	}
 }
 
+func TestAgentReportAcceptsEmptyOptionalObservationTimestamps(t *testing.T) {
+	output := `Progress update.{"message":"Assessment complete.",` +
+		`"evidence":[{"claim":"Topology is declared","observation":"One region",` +
+		`"source_type":"repository","source_name":"infra/main.tf","observed_at":""}],` +
+		`"coverage":[{"layer":"application","status":"unknown","observed_at":""}],` +
+		`"memory":{},"proposals":[]}`
+	report, structured, err := parseAgentReport(output)
+	if err != nil || !structured || len(report.Evidence) != 1 ||
+		len(report.Coverage) != 1 || !report.Evidence[0].ObservedAt.IsZero() ||
+		!report.Coverage[0].ObservedAt.IsZero() {
+		t.Fatalf("empty timestamps = %+v, structured:%v, err:%v", report, structured, err)
+	}
+}
+
 func TestAgentReportRecoversMessageFromMalformedFinalEnvelopeAfterCoopProgress(t *testing.T) {
 	output := `I’m checking the repository.{"message":"Audit complete","tool_output":"secret"}`
 	report, structured, err := parseAgentReport(output)

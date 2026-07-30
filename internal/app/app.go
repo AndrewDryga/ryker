@@ -292,7 +292,9 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	releaseProcessLock(lock)
 	checks["database"] = "ok"
 	coopClient := coop.New(cfg.Coop.Socket, cfg.Coop.RequestTimeout.Duration)
-	supervisor, err := startManagedCoop(cfg, stderr, logger, coopClient)
+	supervisor, supervision, err := startDoctorCoop(
+		cfg, stderr, logger, coopClient,
+	)
 	if err != nil {
 		return err
 	}
@@ -307,11 +309,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return fmt.Errorf("Coop: %w", err)
 	}
 	checks["coop"] = "ok"
-	if cfg.Coop.Supervise {
-		checks["coop_supervision"] = "managed"
-	} else {
-		checks["coop_supervision"] = "external"
-	}
+	checks["coop_supervision"] = supervision
 	slackReport, err := slackui.New(botToken, appToken).Preflight(
 		ctx, cfg.Slack.TeamID, cfg.Slack.Operators,
 		cfg.Slack.InviteUsers, cfg.Slack.SummonChannels, cfg.Slack.WatchChannels,
@@ -592,7 +590,7 @@ Usage:
   responder status         List durable incidents
   responder failures       List terminal durable work
   responder retry          Requeue one failed work item while Responder is stopped
-  responder eval           Replay the redacted response-quality evaluation corpus
+  responder eval           Run the real configured model against the evaluation corpus
   responder version        Print the build version
 
 Every command accepts --help. The default config is ~/.config/responder/responder.yaml.`)

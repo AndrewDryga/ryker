@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/AndrewDryga/responder/internal/config"
@@ -112,6 +113,34 @@ func TestWebhookRejectsAmbiguousHeaders(t *testing.T) {
 				t.Fatalf("ambiguous header accepted: %d %s", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestMetricsExposeDurableSchedulerHealth(t *testing.T) {
+	cfg := testConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := service.New(cfg, st, nil, nil, nil, nil, nil)
+	handler := New(cfg, st, svc, nil, nil)
+	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("metrics = %d %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		`responder_scheduler_work_pending{lane="control"}`,
+		`responder_scheduler_oldest_due_seconds{lane="background"}`,
+		`responder_scheduler_oldest_running_seconds{lane="maintenance"}`,
+		`responder_scheduler_heartbeat_age_seconds{lane="control"} -1.000`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("metrics missing %q:\n%s", want, body)
+		}
 	}
 }
 

@@ -16,6 +16,34 @@ const slackDeliveryColumns = `
 	message_ts, body_json, status_text, steps_json, coalesce_key, card_version,
 	state, failure_count, next_attempt_at, last_error, created_at`
 
+func (s *Store) NextSlackStatusGeneration(
+	ctx context.Context,
+	channelID string,
+	threadTS string,
+) (int64, error) {
+	if channelID == "" || threadTS == "" {
+		return 0, errors.New("Slack status generation target is required")
+	}
+	var generation int64
+	err := s.db.QueryRowContext(ctx, `
+		INSERT INTO slack_status_generations (
+		  channel_id, thread_ts, generation, updated_at
+		)
+		VALUES (?, ?, 1, ?)
+		ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
+		  generation = slack_status_generations.generation + 1,
+		  updated_at = excluded.updated_at
+		RETURNING generation`,
+		channelID,
+		threadTS,
+		nowText(),
+	).Scan(&generation)
+	if err != nil {
+		return 0, fmt.Errorf("advance Slack status generation: %w", err)
+	}
+	return generation, nil
+}
+
 func (s *Store) EnqueueSlackDelivery(
 	ctx context.Context,
 	delivery core.SlackDelivery,
@@ -70,6 +98,24 @@ func (s *Store) EnqueueSlackDelivery(
 		return false, err
 	}
 	defer tx.Rollback()
+	if delivery.CoalesceKey != "" && delivery.CardVersion > 0 {
+		var newest int64
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COALESCE(MAX(card_version), 0)
+			FROM slack_deliveries
+			WHERE coalesce_key = ? AND card_version > 0
+			  AND state IN ('pending', 'sending', 'retry', 'uncertain', 'sent')`,
+			delivery.CoalesceKey,
+		).Scan(&newest); err != nil {
+			return false, err
+		}
+		if newest >= delivery.CardVersion {
+			if err := tx.Commit(); err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO slack_deliveries (
 		  id, incident_id, operation, kind, channel_id, thread_ts, message_ts,
@@ -93,8 +139,14 @@ func (s *Store) EnqueueSlackDelivery(
 			UPDATE slack_deliveries
 			SET state = 'superseded', updated_at = ?
 			WHERE coalesce_key = ? AND id != ?
-			  AND state IN ('pending', 'retry')`,
-			now, delivery.CoalesceKey, delivery.ID); err != nil {
+			  AND state IN ('pending', 'retry')
+			  AND (? = 0 OR card_version <= ?)`,
+			now,
+			delivery.CoalesceKey,
+			delivery.ID,
+			delivery.CardVersion,
+			delivery.CardVersion,
+		); err != nil {
 			return false, err
 		}
 	}

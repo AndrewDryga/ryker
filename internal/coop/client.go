@@ -52,26 +52,33 @@ type Operation struct {
 }
 
 type Session struct {
-	ID                string    `json:"id"`
-	ExternalRef       string    `json:"external_ref"`
-	Target            string    `json:"target"`
-	Policy            string    `json:"policy"`
-	PolicyDigest      string    `json:"policy_digest"`
-	BaseCommit        string    `json:"base_commit"`
-	ForkName          string    `json:"fork_name"`
-	Revision          int64     `json:"revision"`
-	State             string    `json:"state"`
-	Activity          string    `json:"activity"`
-	MaxTurns          int       `json:"max_turns"`
-	MaxQueuedTurns    int       `json:"max_queued_turns"`
-	MaxQueuedBytes    int       `json:"max_queued_bytes"`
-	TurnsUsed         int       `json:"turns_used"`
-	QueuedTurnCount   int       `json:"queued_turn_count"`
-	QueuedPromptBytes int       `json:"queued_prompt_bytes"`
-	ActiveTurnID      string    `json:"active_turn_id,omitempty"`
-	LastEventSequence int64     `json:"last_event_sequence"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                string                `json:"id"`
+	ExternalRef       string                `json:"external_ref"`
+	Target            string                `json:"target"`
+	Policy            string                `json:"policy"`
+	PolicyDigest      string                `json:"policy_digest"`
+	BaseCommit        string                `json:"base_commit"`
+	Companions        []CompanionRepository `json:"companions,omitempty"`
+	ForkName          string                `json:"fork_name"`
+	Revision          int64                 `json:"revision"`
+	State             string                `json:"state"`
+	Activity          string                `json:"activity"`
+	MaxTurns          int                   `json:"max_turns"`
+	MaxQueuedTurns    int                   `json:"max_queued_turns"`
+	MaxQueuedBytes    int                   `json:"max_queued_bytes"`
+	TurnsUsed         int                   `json:"turns_used"`
+	QueuedTurnCount   int                   `json:"queued_turn_count"`
+	QueuedPromptBytes int                   `json:"queued_prompt_bytes"`
+	ActiveTurnID      string                `json:"active_turn_id,omitempty"`
+	LastEventSequence int64                 `json:"last_event_sequence"`
+	CreatedAt         time.Time             `json:"created_at"`
+	UpdatedAt         time.Time             `json:"updated_at"`
+}
+
+type CompanionRepository struct {
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	BaseCommit string `json:"base_commit"`
 }
 
 type Turn struct {

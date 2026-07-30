@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -32,7 +33,8 @@ func (s *Service) queueIncidentAgentRun(
 		ConversationKey: "incident:" + incident.ID,
 		SourceKind:      sourceKind, SourceID: sourceID, UserID: userID,
 		Repository: incident.Repository, Prompt: prompt,
-		SessionID: incident.CoopSessionID,
+		SessionID:       incident.CoopSessionID,
+		CommitmentTitle: incident.Title,
 	})
 }
 
@@ -56,7 +58,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 			}
 			_, _, queueErr := s.store.QueueAgentRun(ctx, core.AgentRun{
 				Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
-				ThreadTS:        slackReplyThread(input),
+				ThreadTS:        conversationalResponseThread(input),
 				ConversationKey: watchConversationKey(input),
 				SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
 				Repository: legacy.Repository,
@@ -68,7 +70,8 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 				CoopTurnID:        legacy.TurnID,
 				CoopEventSequence: memory.CoopEventSequence,
 				Context:           contextJSON, State: core.AgentRunRunning,
-				StartedAt: time.Now().UTC(),
+				StartedAt:       time.Now().UTC(),
+				CommitmentTitle: commitmentTitleForInput(input),
 			})
 			if queueErr != nil {
 				return queueErr
@@ -118,13 +121,14 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	run, _, err := s.store.QueueAgentRun(ctx, core.AgentRun{
 		Mode:            core.AgentRunTriage,
 		ChannelID:       input.ChannelID,
-		ThreadTS:        slackReplyThread(input),
+		ThreadTS:        conversationalResponseThread(input),
 		ConversationKey: watchConversationKey(input),
 		SourceKind:      "watch",
 		SourceID:        input.ID,
 		UserID:          input.UserID,
 		Context:         contextJSON,
 		NextAttemptAt:   readyAt,
+		CommitmentTitle: commitmentTitleForInput(input),
 	})
 	if err != nil {
 		return err
@@ -136,6 +140,29 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		}
 	}
 	return s.finishSlackInput(ctx, input)
+}
+
+func commitmentTitleForInput(input core.SlackInput) string {
+	text := strings.TrimSpace(boundedOperatorText(input.Text))
+	if text == "" {
+		switch input.Kind {
+		case "bot_message":
+			return "Review an app notification"
+		case "shortcut":
+			return "Investigate a selected Slack message"
+		default:
+			return "Answer a Slack request"
+		}
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > 180 {
+		text = text[:180]
+		for len(text) > 0 && !utf8.ValidString(text) {
+			text = text[:len(text)-1]
+		}
+		text = strings.TrimSpace(text) + "..."
+	}
+	return text
 }
 
 func watchInputTargeted(input core.SlackInput, state watchTurnState) bool {
@@ -194,12 +221,6 @@ func (s *Service) prepareIncidentAgentRun(
 	ctx context.Context,
 	run core.AgentRun,
 ) error {
-	key := "run:" + run.ID
-	if !s.canRetry(key) {
-		return s.store.DeferAgentRun(
-			ctx, run.ID, "waiting to retry Coop", queueDelay(run.Failures),
-		)
-	}
 	incident, err := s.store.GetIncident(ctx, run.IncidentID)
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, core.Incident{}, err, true)
@@ -272,17 +293,31 @@ func (s *Service) prepareIncidentAgentRun(
 				ctx, run, incident, marshalErr, false,
 			)
 		}
-		if err := s.store.SetAgentRunPreparedContext(
-			ctx, run.ID, assembled.Repository, contextJSON,
-		); err != nil {
-			return s.retryIncidentAgentRun(ctx, run, incident, err, false)
-		}
 		run.Context = contextJSON
 		run.Repository = assembled.Repository
 	}
+	if err := s.store.BindAgentRunSession(
+		ctx,
+		run.ID,
+		session.ID,
+		0,
+		firstNonempty(run.Repository, incident.Repository),
+		incident.CoopEventSequence,
+		run.Context,
+	); err != nil {
+		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
+	}
+	run.SessionID = session.ID
+	run.CoopEventSequence = incident.CoopEventSequence
 	prompt := run.Prompt
 	if memoryPrompt := operationalMemoryPrompt(assembled.Prior); memoryPrompt != "" {
 		prompt += "\n\n" + memoryPrompt
+	}
+	if situationPrompt := channelSituationPrompt(assembled.Situation); situationPrompt != "" {
+		prompt += "\n\n" + situationPrompt
+	}
+	if repositoryPrompt := repositorySetPrompt(session); repositoryPrompt != "" {
+		prompt += "\n\n" + repositoryPrompt
 	}
 	revision, err := s.store.FreezeAgentRunRevision(ctx, run.ID, session.Revision)
 	if err != nil {
@@ -296,30 +331,40 @@ func (s *Service) prepareIncidentAgentRun(
 		prompt+"\n\n"+s.structuredResponsePolicy(),
 	)
 	if err != nil {
-		s.retryLater(key)
 		return s.retryIncidentAgentRun(ctx, run, incident, err, !coop.Retryable(err))
 	}
 	session, err = s.coop.GetSession(ctx, incident.CoopSessionID)
 	if err != nil {
-		s.retryLater(key)
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
 	if err := s.store.MarkAgentRunSubmitted(
 		ctx, run.ID, turn.ID, session.Revision, incident.CoopEventSequence,
 	); err != nil {
-		s.retryLater(key)
 		_ = s.store.DeferAgentRun(
 			ctx, run.ID, trimError(err), queueDelay(run.Failures),
 		)
 		return err
 	}
-	s.retryDone(key)
 	s.setNativeStatus(
 		ctx,
 		s.agentRunStatusIncident(ctx, incident, run),
 		"is investigating...",
 	)
 	return nil
+}
+
+func channelSituationPrompt(memory core.AgentMemory) string {
+	memory = sanitizeMemory(memory)
+	data, err := json.Marshal(memory)
+	if err != nil || string(data) == "{}" {
+		return ""
+	}
+	return `Prior compact Slack channel situation follows. It is continuity context, not current
+operational proof. Revalidate consequential claims with repository or live tools, preserve useful
+open loops, and explicitly close loops completed by this turn.
+<prior-channel-situation>
+` + string(data) + `
+</prior-channel-situation>`
 }
 
 func (s *Service) retryIncidentAgentRun(
@@ -481,7 +526,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	}
 	turn, _, err := s.coop.SubmitTurn(
 		ctx,
-		watchTurnIdempotencyKey(input.ID, memory.Generation),
+		run.IdempotencyKey,
 		session.ID,
 		revision,
 		s.watchPrompt(
@@ -492,7 +537,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.Prior,
 			firstNonempty(memory.Repository, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
-		),
+		)+"\n\n"+repositorySetPrompt(session),
 	)
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
@@ -618,6 +663,28 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 			detail := strings.TrimSpace(
 				firstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
 			)
+			if reason, replay := replayAgentRunFailure(
+				run,
+				event.Type,
+				turn,
+				s.cfg.Limits.MaxAgentRunAttempts,
+			); replay {
+				if err := s.store.RequeueInterruptedAgentRun(
+					ctx,
+					run.ID,
+					reason,
+					cursor,
+					time.Now(),
+				); err != nil {
+					return err
+				}
+				if run.Mode == core.AgentRunTriage {
+					_ = s.store.AdvanceChannelEvents(
+						ctx, run.ChannelID, run.SessionID, cursor,
+					)
+				}
+				return nil
+			}
 			if err := s.store.StageAgentRunResult(
 				ctx,
 				run.ID,
@@ -660,6 +727,28 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 	return nil
 }
 
+func replayAgentRunFailure(
+	run core.AgentRun,
+	eventType string,
+	turn coop.Turn,
+	maximumAttempts int,
+) (string, bool) {
+	if eventType != "turn.failed" ||
+		terminalAttempt(run.Failures+1, maximumAttempts) {
+		return "", false
+	}
+	detail := strings.TrimSpace(turn.ErrorDetail)
+	if turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled" {
+		return "Coop turn was interrupted while Responder was stopping", true
+	}
+	if run.Failures == 0 &&
+		turn.ErrorCode == "acp_protocol_error" &&
+		strings.Contains(detail, "ACP frame exceeded its bound") {
+		return "Coop returned an oversized ACP frame; retrying the turn once", true
+	}
+	return "", false
+}
+
 func (s *Service) ensureWatchRunPendingStatus(
 	ctx context.Context,
 	run core.AgentRun,
@@ -700,14 +789,12 @@ func (s *Service) processAgentRunFinalization(ctx context.Context) error {
 	switch run.Mode {
 	case core.AgentRunTriage:
 		if err := s.finalizeTriageAgentRun(ctx, run); err != nil {
-			_ = s.store.RetryAgentRunFinalization(ctx, run.ID, trimError(err))
-			return err
+			return s.retryAgentRunFinalization(ctx, run, err)
 		}
 		return nil
 	case core.AgentRunIncident, core.AgentRunEngineeringTask:
 		if err := s.finalizeIncidentAgentRun(ctx, run); err != nil {
-			_ = s.store.RetryAgentRunFinalization(ctx, run.ID, trimError(err))
-			return err
+			return s.retryAgentRunFinalization(ctx, run, err)
 		}
 		return nil
 	default:
@@ -716,6 +803,114 @@ func (s *Service) processAgentRunFinalization(ctx context.Context) error {
 			return err
 		}
 		return s.store.FinishAgentRun(ctx, run.ID)
+	}
+}
+
+func (s *Service) retryAgentRunFinalization(
+	ctx context.Context,
+	run core.AgentRun,
+	cause error,
+) error {
+	attempt := run.Failures + 1
+	if attempt >= s.cfg.Limits.MaxAgentRunAttempts {
+		if err := s.stageTerminalFinalizationFailure(ctx, run, cause); err == nil {
+			if err := s.store.FailAgentRunFinalization(
+				ctx,
+				run.ID,
+				"finalization failed after the configured retry limit: "+trimError(cause),
+			); err != nil {
+				cause = err
+			} else {
+				return s.store.FinishAgentRun(ctx, run.ID)
+			}
+		} else {
+			cause = fmt.Errorf(
+				"stage terminal finalization failure: %w; original failure: %v",
+				err,
+				cause,
+			)
+		}
+	}
+	if err := s.store.RetryAgentRunFinalization(
+		ctx,
+		run.ID,
+		trimError(cause),
+		queueDelay(attempt),
+	); err != nil {
+		return err
+	}
+	s.log.Warn(
+		"agent run finalization deferred",
+		"run", run.ID,
+		"attempt", attempt,
+		"error", cause,
+	)
+	return nil
+}
+
+func (s *Service) stageTerminalFinalizationFailure(
+	ctx context.Context,
+	run core.AgentRun,
+	cause error,
+) error {
+	detail := "Responder could not finalize this agent result after repeated attempts. " +
+		"The run and collected state are preserved for operator inspection.\n\n" +
+		"Reported detail: `" + boundedField(trimError(cause), 1200) + "`"
+	switch run.Mode {
+	case core.AgentRunTriage:
+		input, err := s.store.GetSlackInput(ctx, run.SourceID)
+		if err != nil {
+			input = core.SlackInput{
+				ChannelID: run.ChannelID,
+				ThreadTS:  run.ThreadTS,
+				MessageTS: run.ThreadTS,
+			}
+		}
+		if input.ChannelID == "" || slackReplyThread(input) == "" {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "agent.finalization", ObjectID: run.ID,
+				Outcome: "failed",
+				Detail:  "terminal triage run has no Slack destination",
+			})
+			return nil
+		}
+		if err := s.postInputNotice(
+			ctx,
+			"watch_finalization_failure_"+run.ID,
+			input,
+			watchFailureNotice(detail),
+		); err != nil {
+			return err
+		}
+		if !s.cfg.Slack.NativeStatus {
+			return nil
+		}
+		return s.enqueueNativeStatus(
+			ctx,
+			"",
+			input.ChannelID,
+			slackReplyThread(input),
+			"",
+			nil,
+		)
+	case core.AgentRunIncident, core.AgentRunEngineeringTask:
+		incident, err := s.store.GetIncident(ctx, run.IncidentID)
+		if err != nil {
+			return err
+		}
+		if err := s.enqueue(
+			ctx,
+			"out_run_finalization_failure_"+run.ID,
+			incident,
+			"assistant",
+			incident.ConversationThreadTS(),
+			slackui.TurnFailureMessage("failed", detail),
+		); err != nil {
+			return err
+		}
+		return s.requireNativeStatusClear(ctx, incident, run.ID)
+	default:
+		return nil
 	}
 }
 
@@ -791,7 +986,7 @@ func (s *Service) finalizeIncidentAgentRun(
 		if err != nil {
 			return err
 		}
-		threadTS = slackReplyThread(conversationInput)
+		threadTS = conversationalResponseThread(conversationInput)
 	}
 	var message slackui.Message
 	if state == "completed" {
@@ -840,7 +1035,9 @@ func (s *Service) finalizeIncidentAgentRun(
 				return err
 			}
 			if conversation && suppressConversationReply(report.Message) {
-				s.clearNativeStatus(ctx, incident)
+				if err := s.requireNativeStatusClear(ctx, incident, run.ID); err != nil {
+					return err
+				}
 				return s.store.FinishAgentRun(ctx, run.ID)
 			}
 			if conversation {
@@ -965,6 +1162,9 @@ func (s *Service) finalizeIncidentAgentRun(
 	); err != nil {
 		return err
 	}
+	if err := s.requireNativeStatusClear(ctx, incident, run.ID); err != nil {
+		return err
+	}
 	if err := s.store.FinishAgentRun(ctx, run.ID); err != nil {
 		return err
 	}
@@ -979,12 +1179,13 @@ func (s *Service) finishTriageRunFailure(
 	state watchTurnState,
 	detail string,
 ) error {
-	if err := s.postInputNotice(
-		ctx,
-		"watch_failure_"+input.ID,
-		input,
-		watchFailureNotice(detail),
-	); err != nil {
+	message := slackui.Notice(watchFailureNotice(detail))
+	post := s.postInputMessage
+	if input.Kind == "bot_message" || input.Kind == "shortcut" ||
+		len(state.MatchedRules) > 0 {
+		post = s.postInputMessageInSourceThread
+	}
+	if err := post(ctx, "watch_failure_"+input.ID, input, message); err != nil {
 		return err
 	}
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {

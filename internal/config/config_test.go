@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,7 @@ webhooks:
 		cfg.Coop.WatchSessionAge.Duration != 24*time.Hour ||
 		cfg.Slack.ChannelPrefix != "ems" || cfg.Slack.WatchContext != 20 ||
 		cfg.Slack.WatchSettleDelay.Duration != 2*time.Second ||
+		cfg.Slack.ReplyAttention != 7 || cfg.Slack.ReactionAttention != 4 ||
 		!cfg.Slack.NativeStatus || !cfg.Slack.AssistantExperience ||
 		!cfg.IsWatchChannel("C456DEF") ||
 		cfg.Limits.MaxWebhookAttempts != 12 ||
@@ -71,6 +73,100 @@ webhooks:
 		cfg.Coop.Socket != filepath.Join(cfg.Coop.StateDir, "control.sock") ||
 		cfg.Coop.BootstrapDir != filepath.Join(cfg.Coop.StateDir, "agents") {
 		t.Fatalf("derived Coop paths = %+v", cfg.Coop)
+	}
+}
+
+func TestRepositorySetResolvesPrimaryAndOwnPolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "responder.yaml")
+	body := `version: 1
+state_dir: state
+slack:
+  team_id: T123ABC
+  default_repository: platform
+  operators: [U123ABC]
+coop: {}
+repositories:
+  emisar:
+    display_name: Emisar
+    coop_policy: emisar-observe
+    path: /srv/repos/emisar
+  coop:
+    display_name: Coop
+    coop_policy: coop-observe
+    path: /srv/repos/coop
+repository_sets:
+  platform:
+    display_name: Emisar Platform
+    primary: emisar
+    coop_policy: platform-observe
+webhooks:
+  grafana:
+    kind: grafana
+    auth: bearer
+    secret_env: GRAFANA_TOKEN
+    repository: platform
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, ok := cfg.RepositoryContext("platform")
+	if !ok {
+		t.Fatal("repository set did not resolve")
+	}
+	if resolved.DisplayName != "Emisar Platform" ||
+		resolved.CoopPolicy != "platform-observe" ||
+		resolved.Path != "/srv/repos/emisar" {
+		t.Fatalf("resolved repository set = %+v", resolved)
+	}
+	if got := cfg.RepositoryContextKeys(); !slices.Equal(got, []string{"coop", "emisar", "platform"}) {
+		t.Fatalf("repository context keys = %v", got)
+	}
+}
+
+func TestRepositorySetRejectsUnknownPrimaryAndNameCollision(t *testing.T) {
+	base := `version: 1
+state_dir: /tmp/responder-repository-set-test
+slack:
+  team_id: T123ABC
+  default_repository: emisar
+  operators: [U123ABC]
+coop: {}
+repositories:
+  emisar:
+    coop_policy: emisar-observe
+repository_sets:
+  platform:
+    display_name: Platform
+    primary: emisar
+webhooks:
+  grafana:
+    kind: grafana
+    auth: bearer
+    secret_env: GRAFANA_TOKEN
+    repository: emisar
+`
+	for name, body := range map[string]string{
+		"unknown primary": strings.Replace(base, "primary: emisar", "primary: missing", 1),
+		"name collision": strings.Replace(
+			base,
+			"  platform:\n    display_name: Platform",
+			"  emisar:\n    display_name: Platform",
+			1,
+		),
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "responder.yaml")
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatal("unsafe repository set was accepted")
+			}
+		})
 	}
 }
 
@@ -156,6 +252,22 @@ webhooks:
 		"excessive watch settle delay": func(s string) string {
 			return strings.Replace(
 				s, "operators: [U123ABC]", "operators: [U123ABC]\n  watch_settle_delay: 11s", 1,
+			)
+		},
+		"invalid reply attention threshold": func(s string) string {
+			return strings.Replace(
+				s,
+				"operators: [U123ABC]",
+				"operators: [U123ABC]\n  proactive_reply_attention_threshold: 13",
+				1,
+			)
+		},
+		"invalid reaction attention threshold": func(s string) string {
+			return strings.Replace(
+				s,
+				"operators: [U123ABC]",
+				"operators: [U123ABC]\n  proactive_reaction_attention_threshold: 0",
+				1,
 			)
 		},
 		"short watch memory session": func(s string) string {

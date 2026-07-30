@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
@@ -33,6 +34,7 @@ const evidenceSourcePolicy = `Choose evidence sources by the claim being answere
 - Establish expected-versus-observed topology before interpreting counts. A stale runner identity, replaced instance, scheduler client, VM, and physical host may describe different lifecycle records for the same capacity. Use repository configuration for expected cardinality and live identifiers plus timestamps for observed cardinality, then explain any unresolved drift.
 - Continue using relevant read-only tools while a material evidence gap is both answerable and within policy. Stop when the answer is decision-useful, further checks would be duplicative, the required authority is unavailable, or operator input is necessary. Never execute a mutation merely to improve confidence.
 - When sources disagree, do not silently pick one. State what each source proves, distinguish expected or configured state from observed live state, assess freshness, and identify the unresolved mapping or drift. Treat a user correction as a reason to re-check the underlying sources, not merely to restate the correction.
+- Preserve source time as structured data. When a live tool or monitoring result returns an observation timestamp, copy that exact RFC3339 value into evidence.observed_at and into coverage.observed_at when the coverage assessment depends on it. Do not leave a known timestamp only in prose, substitute the current time, or invent one. For repository evidence without a source observation time, leave observed_at empty and identify the inspected revision or file in source_name or freshness.
 
 A successful /healthz or /readyz request proves only that the checked endpoint is serving; it does not prove runner, fleet, workload, or infrastructure health. Never say Emisar is unavailable merely because a local CLI or cloud credential is missing. You may say Emisar is unavailable only after an Emisar MCP tool call fails in the current turn; include the concise tool error and state exactly which claims remain unverified. Before answering, check that the evidence covers the user's requested scope and name material gaps instead of filling them with assumptions.`
 
@@ -53,6 +55,27 @@ func CoopInstructions(configured string) string {
 	}
 	return configured + "\n\n" + evidenceSourcePolicy + "\n\n" +
 		emisarGovernedActionPolicy + "\n\n" + slackReplyFormattingPolicy
+}
+
+func repositorySetPrompt(bound coop.Session) string {
+	if len(bound.Companions) == 0 {
+		return ""
+	}
+	lines := []string{
+		"Repository set for this Coop session:",
+		"- Primary working copy: the current working directory at creation commit `" +
+			bound.BaseCommit + "`. This is the only repository whose changes can be reviewed or published.",
+	}
+	for _, companion := range bound.Companions {
+		lines = append(lines, "- Read-only companion `"+companion.Name+"`: `"+
+			companion.Path+"` pinned at `"+companion.BaseCommit+"`.")
+	}
+	lines = append(lines,
+		"Use every relevant companion for declared topology, dependencies, runbooks, and implementation context. "+
+			"Reconcile across repositories before drawing cross-system conclusions. Companion snapshots are immutable context: "+
+			"never try to edit them, and never describe a companion change as part of the primary repository diff.",
+	)
+	return strings.Join(lines, "\n")
 }
 
 func initialPrompt(

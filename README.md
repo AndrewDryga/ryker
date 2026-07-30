@@ -19,7 +19,10 @@ It is a single-host incident controller for pragmatic on-call teams:
 - creates one Coop session and isolated fork under a predeclared repository policy;
 - forwards only operator messages, concise agent responses, and review evidence;
 - parks between turns, resumes the same agent conversation, and survives process restarts;
-- exposes an App Home, Agent Messages tab, message shortcut, semantic progress, and
+- tracks every accepted investigation or engineering promise as durable work, and exposes it in
+  App Home and through `/responder work`;
+- exposes an App Home, Agent Messages tab, message shortcut, semantic progress, lightweight
+  acknowledgements, and
   deterministic controls for status, evidence, handoff, changes, review, draft PR publication,
   retained-work disposal, stop, and close;
 - investigates live infrastructure through Emisar and can submit an exact, directly requested
@@ -219,7 +222,7 @@ Generic routes use deliberately small dot-path mappings. See
 Mention the bot in a configured summon channel to ask a question or request read-only work:
 
 ```text
-@Responder investigate elevated checkout latency in production
+@Emisar investigate elevated checkout latency in production
 ```
 
 Responder investigates and replies in that thread without creating an incident. An operator can ask
@@ -239,11 +242,26 @@ repository policy. Later replies in the same thread continue the same session wi
 `@mention`; unrelated channel messages remain in read-only triage. It does not create an incident,
 and it does not merge, push, deploy, sign, or mutate infrastructure.
 
-`slack.watch_channels` supplies the initial per-channel defaults. Operators can then configure
-proactivity from Slack:
+Inviting `@Emisar` to a new channel first offers safe one-click defaults: mentions only or
+proactive participation, the deployment repository, in-place app-alert replies, and no additional
+incident invitees. **Customize** starts a four-question setup conversation for participation,
+repository or repository-set context, app-alert escalation, and incident audience. A repository
+set gives one primary writable repository plus exact-commit read-only companion snapshots. The
+final card shows the normalized typed values and safety boundary; nothing changes until a
+configured operator confirms it. Typed choices use Slack buttons. Configured operators are always
+invited to incident rooms;
+the audience step either adds no one else or accepts member and user-group mentions for additional
+invitees. Emisar follows the operator between the channel and known setup threads, including
+explicit `switch to a thread` and `back to the channel` requests, throughout the 30-minute setup.
+
+The conversational surface is primary: ask `@Emisar how are you configured here?`, `show open
+incidents`, `enable proactive mode`, or `reconfigure this channel`. Those phrases use the same
+validated handlers below. `slack.watch_channels` supplies deployment defaults and `/responder`
+remains the compatibility and recovery surface:
 
 ```text
 /responder status
+/responder work
 /responder incidents
 /responder incidents all
 /responder proactive on
@@ -266,16 +284,21 @@ proactivity from Slack:
 /responder turn-limit global 1000
 ```
 
-The effective order is channel override, workspace override, then `responder.yaml`. Global `on`
+The effective order is explicit channel override, confirmed channel setup, workspace override, then
+`responder.yaml`. Global `on`
 therefore watches every channel where Responder is a member and receives events, while a channel
 override can opt in or out. `inherit` removes that Slack override. Responder reads human and
 external-app messages in Slack timestamp order and gives each decision a chronological transcript
 of the latest 20 admitted channel messages. It waits for a two-second quiet period so nearby human
-replies are visible, then chooses whether to stay silent, reply in the source message's thread, or
-escalate. Human messages do not automatically become incidents: Responder answers in place and can
+replies are visible, then scores addressee, urgency, confidence, novelty, and ownership. It chooses
+whether to stay silent, add a lightweight reaction, reply where the sender is speaking, or
+escalate. Ambient replies and reactions have separate configurable attention thresholds, while
+direct requests remain eligible regardless of those thresholds. Human messages do not
+automatically become incidents: Responder answers in place and can
 attach an `Open incident room` button when coordinated work would help. Only a configured operator
-can approve that button. A credible unresolved monitoring-app alert can open automatically, and an
-explicit human request to open, create, start, or declare an incident is honored directly. Both the
+can approve that button. A credible unresolved monitoring-app alert follows the channel's
+confirmed policy: reply in place, offer an incident button, or open automatically. An explicit
+human request to open, create, start, or declare an incident is honored directly. Both the
 context size and settling delay are configurable. An explicit repository-change request can instead
 offer a **Start engineering task** transition in the same thread to a writable isolated fork. A configured summon
 mention starts the same read-only triage conversation; explicit incident wording remains
@@ -286,8 +309,9 @@ message shortcut **Investigate message** starts the same read-only triage for a 
 message even when ordinary proactive listening is off. Long checks keep a native Slack progress
 indicator with semantic milestones until the reply or a clear failure is posted.
 
-Each shared operations channel keeps compact durable memory for the current goal, verified topology,
-decisions, open questions, and evidence references. Responder rotates the underlying Coop session
+Each shared operations channel keeps a compact durable situation: channel purpose, current goal,
+active topics, verified topology, decisions, open loops, unresolved questions, and evidence
+references. Responder rotates the underlying Coop session
 after `coop.watch_session_max_turns` or `coop.watch_session_max_age` while preserving that summary.
 This session summary is separate from operator-confirmed operational memory. When an operator
 explicitly asks Responder to remember an alias, channel-to-repository binding, evidence route, or
@@ -317,6 +341,12 @@ before incrementing its run count so retries cannot execute it twice. Expiry, ca
 channel deletion, repository removal, and maintenance pruning bound all durable behavior state.
 `/responder shadow` runs the classifier and records its decision, evidence, and coverage without
 posting or creating an incident.
+
+Every accepted model-backed request also creates a durable commitment before execution. The
+commitment follows the underlying run through queued, working, finishing, done, blocked, or
+cancelled state and survives restart. Ask `what are you working on?`, run `/responder work`, or
+open App Home to see the exact request, current status, and next operator action. This is distinct
+from memory: a commitment is work Emisar owes the team, not a fact to reuse later.
 
 `/responder incidents` lists open incidents with native Slack channel mentions and labels retained
 channel names when a room is archived, deleted, or unavailable;
@@ -364,7 +394,9 @@ Slack deliveries, agent runs, publications, and cleanup work.
 State is one owner-private SQLite database in `state_dir`. Slack inputs, webhook events, outgoing
 Slack deliveries, agent runs, incident mappings, channel lifecycle, structured evidence, coverage,
 channel memory, operator-confirmed operational memory, Emisar approval holds, timelines,
-evaluation decisions, and audit records are durable.
+evaluation decisions, audit records, and the scheduler's compact work index are durable. Before a
+schema upgrade Responder creates and verifies a private pre-migration snapshot and retains the three
+newest migration backups.
 Bounded retention removes expired operational payloads and closed work. Coop cleanup is restricted
 to exact session IDs recorded by Responder: clean closed sessions and sessions whose reviewed tree
 is durable in a draft PR are discarded after a grace period, while dirty or unpublished work is
@@ -373,9 +405,13 @@ retained. Deleting a Slack room does not itself discard work. See
 
 ## V1 scope
 
-V1 supports one Slack workspace and one repository binding per incident. Multiple routes can select
-different repository policies. It can publish an explicitly authorized reviewed tree as a draft
-GitHub pull request, but cannot merge, deploy from repository changes, or archive Slack channels.
+V1 supports one Slack workspace and one repository context per incident. A context may be one
+repository or an explicit repository set: one primary writable/publishable repository and up to 32
+operator-configured read-only companion repositories pinned at session creation. Multiple routes
+can select different contexts and Coop policies. Responder never accepts host paths from Slack or
+model output; the local Coop policy is their only authority. It can publish an explicitly
+authorized reviewed primary tree as a draft GitHub pull request, but cannot publish companion
+changes, merge, deploy from repository changes, or archive Slack channels.
 Shared-channel work and autonomous containment remain read-only. In an existing incident, a
 configured operator may directly request one exact operational action. Emisar remains authoritative
 for target validation, policy, approval, execution, and audit; Slack only links to the exact pending
@@ -387,10 +423,16 @@ Run the full gate with:
 make check
 ```
 
-`make eval` parses the checked-in redacted JSONL decision fixtures. It verifies response-envelope
-compatibility and expected actions; it does not call or score a model. Use shadow mode to collect
-candidate decisions safely, review and redact them, then promote representative cases into
-`testdata/eval/golden.jsonl` before changing prompts or models.
+`make customer-check` is the faster deterministic product-behavior gate: it runs the Go customer
+journeys and replays the checked-in redacted JSONL response corpus through strict production
+parsers. It does not call a model. `make eval CONFIG=/path/to/responder.yaml` is the actual
+behavior eval: every case calls the configured model through its own Coop session, uses the
+production prompts and tool configuration, scores the returned decision, then discards the
+workspace only after Coop proves it is clean. Use shadow mode to collect candidate decisions
+safely, review and redact them, then promote representative contracts into the replay or live
+corpus before changing prompts or models. Use `--case`, `--repeat`, and `--results` for focused
+variance testing and private sanitized diagnostics. See
+[`docs/testing.md`](docs/testing.md) for the coverage matrix and bounded live acceptance set.
 
 `make snapshot` builds the exact unsigned release archive layout locally; `make release-check`
 runs the full gate, builds both Linux archives, checks every checksum and required deployment file,
