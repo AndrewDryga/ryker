@@ -94,12 +94,16 @@ repositories:
   infrastructure:
     display_name: Infrastructure
     coop_policy: infrastructure-observe
+    # Optional bounded lane for conversational answers. Its model should be fast but capable
+    # enough to route uncertain or tool-backed work to coop_policy.
+    conversation_policy: infrastructure-conversation
     path: /srv/repositories/infrastructure
     github_repository: example/infrastructure
     github_base_branch: main
   backend:
     display_name: Backend
     coop_policy: backend-observe
+    conversation_policy: backend-conversation
     path: /srv/repositories/backend
     github_repository: example/backend
     github_base_branch: main
@@ -110,6 +114,7 @@ repository_sets:
     display_name: Platform
     primary: infrastructure
     coop_policy: platform-observe
+    conversation_policy: platform-conversation
 
 # Responder does not turn model proposals or Slack clicks into operational approval. A configured
 # operator can directly request an exact action in an incident; Emisar validates, authorizes,

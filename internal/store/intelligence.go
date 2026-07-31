@@ -265,6 +265,25 @@ func (s *Store) BindChannelSession(
 	return err
 }
 
+func (s *Store) EnsureChannelMemory(
+	ctx context.Context,
+	channelID string,
+	repository string,
+) error {
+	if channelID == "" || repository == "" {
+		return errors.New("channel memory identity is incomplete")
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO channel_memories (
+		  channel_id, repository, session_id, session_revision, generation,
+		  turn_count, state_json, updated_at
+		) VALUES (?, ?, '', 0, 1, 0, '{}', ?)
+		ON CONFLICT(channel_id) DO NOTHING`,
+		channelID, repository, nowText(),
+	)
+	return err
+}
+
 func (s *Store) DetachChannelSession(
 	ctx context.Context,
 	channelID string,
@@ -334,6 +353,7 @@ func (s *Store) AdvanceChannelEvents(
 func (s *Store) ApplyWatchDecision(
 	ctx context.Context,
 	decision core.EvaluationDecision,
+	lane string,
 	sessionRevision int64,
 	state core.AgentMemory,
 ) (bool, error) {
@@ -382,14 +402,39 @@ func (s *Store) ApplyWatchDecision(
 	if inserted == 0 {
 		return false, tx.Commit()
 	}
-	update, err := tx.ExecContext(ctx, `
-		UPDATE channel_memories
-		SET session_revision = ?, turn_count = turn_count + 1, state_json = ?, updated_at = ?
-		WHERE channel_id = ?`,
-		sessionRevision, memory, nowText(), decision.ChannelID,
-	)
-	if err := expectOne(update, err, "apply watch decision memory"); err != nil {
-		return false, err
+	switch lane {
+	case "", "investigation":
+		update, err := tx.ExecContext(ctx, `
+			UPDATE channel_memories
+			SET session_revision = ?, turn_count = turn_count + 1,
+			    state_json = ?, updated_at = ?
+			WHERE channel_id = ?`,
+			sessionRevision, memory, nowText(), decision.ChannelID,
+		)
+		if err := expectOne(update, err, "apply watch decision memory"); err != nil {
+			return false, err
+		}
+	case "conversation":
+		update, err := tx.ExecContext(ctx, `
+			UPDATE conversation_sessions
+			SET session_revision = ?, turn_count = turn_count + 1, updated_at = ?
+			WHERE channel_id = ?`,
+			sessionRevision, nowText(), decision.ChannelID,
+		)
+		if err := expectOne(update, err, "apply conversation decision session"); err != nil {
+			return false, err
+		}
+		update, err = tx.ExecContext(ctx, `
+			UPDATE channel_memories
+			SET state_json = ?, updated_at = ?
+			WHERE channel_id = ?`,
+			memory, nowText(), decision.ChannelID,
+		)
+		if err := expectOne(update, err, "apply conversation decision memory"); err != nil {
+			return false, err
+		}
+	default:
+		return false, errors.New("unsupported watch decision lane")
 	}
 	if decision.Repository != "" && decision.MessageTS != "" {
 		_, err = tx.ExecContext(ctx, `

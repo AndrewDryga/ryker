@@ -1,10 +1,13 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"unicode"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store"
 )
 
 type conversationLocation int
@@ -46,6 +49,11 @@ func requestedConversationLocation(text string) conversationLocation {
 		"take this to thread",
 		"take this to a thread",
 		"use a thread",
+		"back to that thread",
+		"reply in that thread",
+		"post back to that thread",
+		"post it back to that thread",
+		"post hi back to that thread",
 		"not pollute the channel",
 		"not pollute channel",
 	} {
@@ -54,6 +62,87 @@ func requestedConversationLocation(text string) conversationLocation {
 		}
 	}
 	return conversationLocationFollow
+}
+
+func referencesPreviousThread(text string) bool {
+	normalized := normalizeLocationRequest(text)
+	return strings.Contains(normalized, "that thread") ||
+		strings.Contains(normalized, "previous thread") ||
+		strings.Contains(normalized, "prior thread")
+}
+
+func (s *Service) resolveConversationRoute(
+	ctx context.Context,
+	input core.SlackInput,
+) (string, string, error) {
+	if input.ChannelID == "" || input.UserID == "" {
+		threadTS := conversationalResponseThread(input)
+		return threadTS, "", nil
+	}
+	route, err := s.store.GetConversationRoute(ctx, input.ChannelID, input.UserID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", "", err
+	}
+	route.ChannelID = input.ChannelID
+	route.UserID = input.UserID
+	location := requestedConversationLocation(input.Text)
+	responseThreadTS := ""
+	referencedThreadTS := ""
+	switch location {
+	case conversationLocationChannel:
+		if input.ThreadTS != "" {
+			route.PreviousThreadTS = input.ThreadTS
+		} else if route.ActiveThreadTS != "" {
+			route.PreviousThreadTS = route.ActiveThreadTS
+		}
+		route.ActiveThreadTS = ""
+		route.Explicit = true
+		responseThreadTS = ""
+	case conversationLocationThread:
+		switch {
+		case referencesPreviousThread(input.Text) && route.PreviousThreadTS != "":
+			responseThreadTS = route.PreviousThreadTS
+		case input.ThreadTS != "":
+			responseThreadTS = input.ThreadTS
+		case route.ActiveThreadTS != "":
+			responseThreadTS = route.ActiveThreadTS
+		default:
+			responseThreadTS = input.MessageTS
+		}
+		referencedThreadTS = responseThreadTS
+		if route.ActiveThreadTS != "" && route.ActiveThreadTS != responseThreadTS {
+			route.PreviousThreadTS = route.ActiveThreadTS
+		}
+		route.ActiveThreadTS = responseThreadTS
+		route.Explicit = true
+	default:
+		switch {
+		case input.ThreadTS != "" &&
+			route.Explicit &&
+			route.ActiveThreadTS == "" &&
+			route.PreviousThreadTS == input.ThreadTS:
+			responseThreadTS = ""
+			referencedThreadTS = input.ThreadTS
+		case input.ThreadTS != "":
+			responseThreadTS = input.ThreadTS
+			if route.ActiveThreadTS != "" && route.ActiveThreadTS != input.ThreadTS {
+				route.PreviousThreadTS = route.ActiveThreadTS
+			}
+			route.ActiveThreadTS = input.ThreadTS
+			route.Explicit = false
+		default:
+			responseThreadTS = ""
+			if route.ActiveThreadTS != "" {
+				route.PreviousThreadTS = route.ActiveThreadTS
+			}
+			route.ActiveThreadTS = ""
+			route.Explicit = false
+		}
+	}
+	if err := s.store.PutConversationRoute(ctx, route); err != nil {
+		return "", "", err
+	}
+	return responseThreadTS, referencedThreadTS, nil
 }
 
 func conversationalResponseThread(input core.SlackInput) string {
@@ -123,11 +212,9 @@ func normalizeLocationRequest(value string) string {
 func conversationLocationAcknowledgement(location conversationLocation) string {
 	switch location {
 	case conversationLocationChannel:
-		return "**Continuing in the channel.** Send the next message here. Emisar will keep " +
-			"replies in the channel unless you answer in a thread or ask to move."
+		return "Continuing in the channel."
 	case conversationLocationThread:
-		return "**Continuing in this thread.** Send the next message here. Emisar will keep " +
-			"replies in the thread unless you answer in the channel or ask to move."
+		return "Continuing in this thread."
 	default:
 		return ""
 	}

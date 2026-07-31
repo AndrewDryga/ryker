@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -186,6 +185,10 @@ func renderEvaluationMessage(
 			return slackui.Message{}, "", err
 		}
 		switch decision.Action {
+		case "escalate":
+			return slackui.Message{
+				Text: "Internal escalation to the investigation lane.",
+			}, decision.Action, nil
 		case "ignore":
 			return slackui.Message{
 				Text: "No Slack message is emitted for an ignore decision.",
@@ -586,20 +589,4 @@ func BaselineFromSummary(summary EvaluationSummary) EvaluationBaseline {
 		result.CasePassRates[item.Name] = item.PassRate
 	}
 	return result
-}
-
-func renderEvidenceForVerification(output string, kind string) []core.Evidence {
-	switch kind {
-	case "watch":
-		decision, err := parseWatchDecision(output)
-		if err == nil {
-			return decision.Evidence
-		}
-	case "incident":
-		report, _, err := parseAgentReport(output)
-		if err == nil {
-			return report.Evidence
-		}
-	}
-	return nil
 }

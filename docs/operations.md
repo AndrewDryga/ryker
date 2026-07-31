@@ -139,13 +139,21 @@ repositories:
   infrastructure:
     display_name: Infrastructure
     coop_policy: infrastructure-observe
+    conversation_policy: infrastructure-conversation
     path: /srv/repos/infrastructure
 repository_sets:
   platform:
     display_name: Platform
     primary: infrastructure
     coop_policy: platform-observe
+    conversation_policy: platform-conversation
 ```
+
+`conversation_policy` is optional. When configured, direct conversational messages first use that
+bounded Coop policy. It can answer only from ordinary reasoning and supplied Slack context; any
+request needing repositories, files, Emisar, CI, monitoring, current status, configuration, or
+durable behavior is silently continued in `coop_policy`. Omitting it preserves the single
+investigation-lane behavior.
 
 The corresponding owner-private Coop policy is the only place that binds companion aliases to host
 paths:

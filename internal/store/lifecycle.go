@@ -241,7 +241,27 @@ func (s *Store) ScheduleExpiredChannelMemoryCleanup(
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	channelCount, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	result, err = s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO coop_cleanup (
+		  session_id, incident_id, reason, allow_unmerged, state,
+		  eligible_at, next_attempt_at, created_at, updated_at
+		)
+		SELECT session_id, '', 'expired Slack conversation session', 0, 'pending',
+		  ?, ?, ?, ?
+		FROM conversation_sessions
+		WHERE session_id != '' AND session_started_at IS NOT NULL
+		  AND session_started_at <= ?`,
+		eligible, eligible, now, now, startedBefore.UTC().Format(timestampFormat),
+	)
+	if err != nil {
+		return 0, err
+	}
+	conversationCount, err := result.RowsAffected()
+	return channelCount + conversationCount, err
 }
 
 func (s *Store) RetireActionProposals(ctx context.Context, now time.Time) (int64, error) {
@@ -270,8 +290,10 @@ func (s *Store) ResponderSessionKnown(ctx context.Context, sessionID string) (bo
 		  UNION ALL
 		  SELECT 1 FROM channel_memories WHERE session_id = ?
 		  UNION ALL
+		  SELECT 1 FROM conversation_sessions WHERE session_id = ?
+		  UNION ALL
 		  SELECT 1 FROM coop_cleanup WHERE session_id = ?
-		)`, sessionID, sessionID, sessionID).Scan(&known)
+		)`, sessionID, sessionID, sessionID, sessionID).Scan(&known)
 	return known != 0, err
 }
 
@@ -440,6 +462,27 @@ func (s *Store) Prune(
 		      AND coop_cleanup.state = 'done'
 		  )
 		)`, operational)
+	if deleteErr != nil {
+		return result, deleteErr
+	}
+	result.ChannelIntelligence += count
+	count, deleteErr = deleteCount(`
+		DELETE FROM conversation_sessions
+		WHERE updated_at < ? AND (
+		  session_id = '' OR EXISTS (
+		    SELECT 1 FROM coop_cleanup
+		    WHERE coop_cleanup.session_id = conversation_sessions.session_id
+		      AND coop_cleanup.state = 'done'
+		  )
+		)`, operational)
+	if deleteErr != nil {
+		return result, deleteErr
+	}
+	result.ChannelIntelligence += count
+	count, deleteErr = deleteCount(
+		`DELETE FROM conversation_routes WHERE updated_at < ?`,
+		conversationBefore.UTC().Format(timestampFormat),
+	)
 	if deleteErr != nil {
 		return result, deleteErr
 	}

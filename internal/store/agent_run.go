@@ -426,6 +426,58 @@ func (s *Store) MarkAgentRunSubmitted(
 	return tx.Commit()
 }
 
+func (s *Store) MarkTriageAgentRunSubmitted(
+	ctx context.Context,
+	id string,
+	coopTurnID string,
+	revision int64,
+	eventSequence int64,
+	lane string,
+) error {
+	if lane != "conversation" {
+		return s.MarkAgentRunSubmitted(
+			ctx, id, coopTurnID, revision, eventSequence,
+		)
+	}
+	if coopTurnID == "" {
+		return errors.New("submitted agent run requires a Coop turn ID")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var channelID, sessionID string
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT channel_id, session_id FROM agent_runs WHERE id = ?`,
+		id,
+	).Scan(&channelID, &sessionID); err != nil {
+		return err
+	}
+	now := nowText()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'running', coop_turn_id = ?, coop_event_sequence = ?,
+		    last_error = '', started_at = COALESCE(started_at, ?), updated_at = ?
+		WHERE id = ? AND state = 'preparing'`,
+		coopTurnID, eventSequence, now, now, id,
+	)
+	if err := expectOne(result, err, "mark conversation run submitted"); err != nil {
+		return err
+	}
+	result, err = tx.ExecContext(ctx, `
+		UPDATE conversation_sessions
+		SET session_revision = ?, coop_event_sequence = ?, updated_at = ?
+		WHERE channel_id = ? AND session_id = ?`,
+		revision, eventSequence, now, channelID, sessionID,
+	)
+	if err := expectOne(result, err, "advance submitted conversation session"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) DeferAgentRun(
 	ctx context.Context,
 	id string,
@@ -566,6 +618,40 @@ func (s *Store) RequeueAgentRun(
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *Store) EscalateAgentRun(
+	ctx context.Context,
+	id string,
+	detail string,
+	contextJSON []byte,
+	next time.Time,
+) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'pending',
+		    idempotency_key = ?,
+		    session_id = '',
+		    session_generation = 0,
+		    expected_revision = 0,
+		    coop_turn_id = '',
+		    coop_event_sequence = 0,
+		    context_json = ?,
+		    result_json = X'',
+		    terminal_state = '',
+		    last_error = ?,
+		    next_attempt_at = ?,
+		    completed_at = NULL,
+		    updated_at = ?
+		WHERE id = ? AND state = 'running'`,
+		"responder:run:"+id+":investigation",
+		contextJSON,
+		boundedError(detail),
+		next.UTC().Format(timestampFormat),
+		nowText(),
+		id,
+	)
+	return expectOne(result, err, "escalate agent run")
 }
 
 func (s *Store) StageAgentRunResult(

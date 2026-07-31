@@ -18,6 +18,7 @@ type EvaluationCase struct {
 	Name                   string                   `json:"name"`
 	Tags                   []string                 `json:"tags,omitempty"`
 	Kind                   string                   `json:"kind"`
+	Lane                   string                   `json:"lane,omitempty"`
 	Input                  string                   `json:"input,omitempty"`
 	Repository             string                   `json:"repository,omitempty"`
 	SenderType             string                   `json:"sender_type,omitempty"`
@@ -178,6 +179,11 @@ func decodeEvaluationCases(reader io.Reader) ([]EvaluationCase, error) {
 }
 
 func validateEvaluationCase(testCase EvaluationCase) error {
+	switch testCase.Lane {
+	case "", "conversation", "investigation":
+	default:
+		return errors.New("lane must be conversation or investigation")
+	}
 	switch testCase.ProactiveLabel {
 	case "", "act", "silent", "exclude":
 	default:

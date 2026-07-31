@@ -494,6 +494,29 @@ type ConversationMemory struct {
 	UpdatedAt   time.Time
 }
 
+type ConversationSession struct {
+	ChannelID         string
+	Repository        string
+	Policy            string
+	SessionID         string
+	SessionRevision   int64
+	CoopEventSequence int64
+	Generation        int
+	TurnCount         int
+	SessionStarted    time.Time
+	RotatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type ConversationRoute struct {
+	ChannelID        string
+	UserID           string
+	ActiveThreadTS   string
+	PreviousThreadTS string
+	Explicit         bool
+	UpdatedAt        time.Time
+}
+
 type AgentRunMode string
 
 const (

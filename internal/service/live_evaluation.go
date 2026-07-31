@@ -698,6 +698,9 @@ func runLiveEvaluationCase(
 		return "", "", 0, WorkspaceAssessment{}, fmt.Errorf("repository %q is not configured", repositoryKey)
 	}
 	policy := repository.CoopPolicy
+	if testCase.Lane == "conversation" {
+		policy = repository.ConversationPolicy
+	}
 	if testCase.Kind == "task" {
 		policy = firstNonempty(
 			strings.TrimSpace(testCase.CoopPolicy),
@@ -803,12 +806,24 @@ func liveEvaluationPrompt(
 				Action: rule.Action, SourceKind: rule.SourceKind, Enabled: true,
 			})
 		}
+		if testCase.Lane == "conversation" {
+			return evaluator.conversationPrompt(
+				input,
+				"UEVALBOT",
+				false,
+				recent,
+				core.AgentMemory{},
+				nil,
+				repositoryKey,
+			), nil
+		}
 		return evaluator.watchPrompt(
 			input,
 			"UEVALBOT",
 			false,
 			recent,
 			core.AgentMemory{},
+			nil,
 			nil,
 			prior,
 			repositoryKey,

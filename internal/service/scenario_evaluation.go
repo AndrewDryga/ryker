@@ -526,6 +526,7 @@ func liveScenarioPrompt(
 		history,
 		current.Memory,
 		related,
+		nil,
 		operationalMemoryContext{},
 		testCase.Repository,
 		nil,

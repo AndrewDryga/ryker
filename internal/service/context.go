@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -13,12 +14,13 @@ import (
 )
 
 type agentContextRequest struct {
-	ChannelID     string
-	Repository    string
-	OperatorID    string
-	SourceInputID string
-	TargetInput   *core.SlackInput
-	IncludeRecent bool
+	ChannelID          string
+	Repository         string
+	OperatorID         string
+	SourceInputID      string
+	TargetInput        *core.SlackInput
+	ReferencedThreadTS string
+	IncludeRecent      bool
 }
 
 type assembledAgentContext struct {
@@ -27,7 +29,15 @@ type assembledAgentContext struct {
 	Situation         core.AgentMemory               `json:"conversation_situation,omitempty"`
 	RelatedSituations []conversationSituationContext `json:"related_situations,omitempty"`
 	RecentMessages    []watchContextMessage          `json:"recent_messages_around_target,omitempty"`
+	ReferencedThread  *referencedThreadContext       `json:"referenced_thread,omitempty"`
 	CapturedAt        time.Time                      `json:"captured_at"`
+}
+
+type referencedThreadContext struct {
+	ThreadTS       string                `json:"thread_ts"`
+	LastMessageTS  string                `json:"last_message_ts,omitempty"`
+	Summary        core.AgentMemory      `json:"summary,omitempty"`
+	RecentMessages []watchContextMessage `json:"recent_messages,omitempty"`
 }
 
 type conversationSituationContext struct {
@@ -159,7 +169,134 @@ func (s *Service) assembleAgentContext(
 			s.identity.BotUserID,
 		)
 	}
+	if request.ReferencedThreadTS != "" &&
+		(request.TargetInput == nil ||
+			request.ReferencedThreadTS != request.TargetInput.ThreadTS) {
+		referenced := &referencedThreadContext{ThreadTS: request.ReferencedThreadTS}
+		conversation, conversationErr := s.store.GetConversationMemory(
+			ctx,
+			request.ChannelID,
+			request.ReferencedThreadTS,
+		)
+		if conversationErr == nil {
+			referenced.LastMessageTS = conversation.LastMessage
+			referenced.Summary = sanitizeMemory(conversation.State)
+		} else if !errors.Is(conversationErr, store.ErrNotFound) {
+			return assembledAgentContext{}, conversationErr
+		}
+		history, historyErr := s.recentMessages(
+			ctx,
+			request.ChannelID,
+			request.ReferencedThreadTS,
+			referenced.LastMessageTS,
+			"",
+			s.cfg.Slack.WatchContext,
+		)
+		if historyErr != nil {
+			return assembledAgentContext{}, historyErr
+		}
+		referenced.RecentMessages = historyWatchContext(
+			history,
+			request.ChannelID,
+			s.identity.BotUserID,
+		)
+		result.ReferencedThread = referenced
+	}
 	return result, nil
+}
+
+func (s *Service) recentMessages(
+	ctx context.Context,
+	channelID string,
+	threadTS string,
+	targetTS string,
+	sinceTS string,
+	limit int,
+) ([]slackui.HistoryMessage, error) {
+	if targetTS == "" {
+		return s.slack.RecentMessages(
+			ctx, channelID, threadTS, targetTS, sinceTS, limit,
+		)
+	}
+	key := fmt.Sprintf(
+		"%s\x00%s\x00%s\x00%s\x00%d",
+		channelID, threadTS, targetTS, sinceTS, limit,
+	)
+	now := time.Now()
+	s.historyMu.Lock()
+	cached, ok := s.historyCache[key]
+	if ok && now.Before(cached.expiresAt) {
+		messages := append([]slackui.HistoryMessage(nil), cached.messages...)
+		s.historyMu.Unlock()
+		return messages, nil
+	}
+	if ok {
+		delete(s.historyCache, key)
+	}
+	s.historyMu.Unlock()
+	messages, err := s.slack.RecentMessages(
+		ctx, channelID, threadTS, targetTS, sinceTS, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	s.historyMu.Lock()
+	if len(s.historyCache) >= 256 {
+		for cacheKey, item := range s.historyCache {
+			if now.After(item.expiresAt) {
+				delete(s.historyCache, cacheKey)
+			}
+		}
+		if len(s.historyCache) >= 256 {
+			for cacheKey := range s.historyCache {
+				delete(s.historyCache, cacheKey)
+				break
+			}
+		}
+	}
+	s.historyCache[key] = cachedSlackHistory{
+		messages:  append([]slackui.HistoryMessage(nil), messages...),
+		expiresAt: now.Add(5 * time.Minute),
+	}
+	s.historyMu.Unlock()
+	return messages, nil
+}
+
+func historyWatchContext(
+	history []slackui.HistoryMessage,
+	channelID string,
+	botUserID string,
+) []watchContextMessage {
+	inputs := make([]core.SlackInput, 0, len(history))
+	for _, message := range history {
+		kind := "message"
+		userID := message.UserID
+		if message.BotID != "" {
+			kind = "bot_message"
+			if userID == "" {
+				userID = message.BotID
+			}
+		}
+		inputs = append(inputs, core.SlackInput{
+			Kind: kind, ChannelID: channelID, ThreadTS: message.ThreadTS,
+			MessageTS: message.Timestamp, UserID: userID, Text: message.Text,
+		})
+	}
+	slices.SortFunc(inputs, func(left, right core.SlackInput) int {
+		switch {
+		case left.MessageTS < right.MessageTS:
+			return -1
+		case left.MessageTS > right.MessageTS:
+			return 1
+		default:
+			return 0
+		}
+	})
+	result := make([]watchContextMessage, 0, len(inputs))
+	for _, input := range inputs {
+		result = append(result, watchPromptMessage(input, botUserID, false))
+	}
+	return result
 }
 
 func decodeAssembledAgentContext(data []byte) (assembledAgentContext, bool) {

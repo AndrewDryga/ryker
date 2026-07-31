@@ -316,11 +316,16 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		}
 		location := requestedConversationLocation(s.stripBotMention(input.Text))
 		if locationOnlyRequest(s.stripBotMention(input.Text)) {
-			if err := s.postInputNotice(
+			responseThreadTS, _, routeErr := s.resolveConversationRoute(ctx, input)
+			if routeErr != nil {
+				return s.retrySlackInput(ctx, input, routeErr)
+			}
+			if err := s.postInputMessageAt(
 				ctx,
 				"conversation_location_"+input.ID,
-				input,
-				conversationLocationAcknowledgement(location),
+				input.ChannelID,
+				responseThreadTS,
+				slackui.Notice(conversationLocationAcknowledgement(location)),
 			); err != nil {
 				return s.retrySlackInput(ctx, input, err)
 			}
@@ -396,12 +401,17 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				),
 			)
 		} else {
-			err = s.postInputNotice(
-				ctx,
-				"conversation_location_"+input.ID,
-				input,
-				conversationLocationAcknowledgement(location),
-			)
+			var responseThreadTS string
+			responseThreadTS, _, err = s.resolveConversationRoute(ctx, input)
+			if err == nil {
+				err = s.postInputMessageAt(
+					ctx,
+					"conversation_location_"+input.ID,
+					input.ChannelID,
+					responseThreadTS,
+					slackui.Notice(conversationLocationAcknowledgement(location)),
+				)
+			}
 		}
 		if err != nil {
 			return s.retrySlackInput(ctx, input, err)
@@ -699,6 +709,9 @@ func (s *Service) processChannelLifecycleInput(
 			return err
 		}
 		if _, err := s.store.DeleteConversationMemories(ctx, input.ChannelID); err != nil {
+			return err
+		}
+		if _, err := s.store.DeleteConversationRoutes(ctx, input.ChannelID); err != nil {
 			return err
 		}
 		deleted, err := s.store.DeleteChannelMemoryEntries(ctx, input.ChannelID)

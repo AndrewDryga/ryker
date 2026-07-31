@@ -28,6 +28,7 @@ repositories:
   emisar:
     display_name: Emisar
     coop_policy: emisar-observe
+    conversation_policy: emisar-conversation
 webhooks:
   grafana:
     kind: grafana
@@ -100,6 +101,7 @@ repository_sets:
     display_name: Emisar Platform
     primary: emisar
     coop_policy: platform-observe
+    conversation_policy: platform-conversation
 webhooks:
   grafana:
     kind: grafana
@@ -120,6 +122,7 @@ webhooks:
 	}
 	if resolved.DisplayName != "Emisar Platform" ||
 		resolved.CoopPolicy != "platform-observe" ||
+		resolved.ConversationPolicy != "platform-conversation" ||
 		resolved.Path != "/srv/repos/emisar" {
 		t.Fatalf("resolved repository set = %+v", resolved)
 	}

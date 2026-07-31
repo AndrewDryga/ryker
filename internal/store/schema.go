@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 19
+const currentSchemaVersion = 20
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -854,6 +854,39 @@ ALTER TABLE slack_inputs
   ADD COLUMN attachments_json BLOB NOT NULL DEFAULT '[]';
 `
 
+const schemaV20 = `
+CREATE TABLE conversation_sessions (
+  channel_id TEXT PRIMARY KEY,
+  repository TEXT NOT NULL,
+  policy TEXT NOT NULL,
+  session_id TEXT NOT NULL DEFAULT '',
+  session_revision INTEGER NOT NULL DEFAULT 0,
+  coop_event_sequence INTEGER NOT NULL DEFAULT 0,
+  generation INTEGER NOT NULL DEFAULT 1,
+  turn_count INTEGER NOT NULL DEFAULT 0,
+  session_started_at TEXT,
+  rotated_at TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX conversation_sessions_session_idx
+  ON conversation_sessions(session_id)
+  WHERE session_id != '';
+
+CREATE TABLE conversation_routes (
+  channel_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  active_thread_ts TEXT NOT NULL DEFAULT '',
+  previous_thread_ts TEXT NOT NULL DEFAULT '',
+  explicit INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(channel_id, user_id)
+);
+
+CREATE INDEX conversation_routes_updated_idx
+  ON conversation_routes(updated_at);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -874,4 +907,5 @@ var migrations = []string{
 	schemaV17,
 	schemaV18,
 	schemaV19,
+	schemaV20,
 }

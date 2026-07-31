@@ -1,0 +1,230 @@
+package service
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/responder/internal/store"
+)
+
+func TestReferencedOldThreadContextIsAnchoredAndCached(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.BindChannelSession(
+		ctx, "COPS", "repo", "ses_watch", 1, 1, time.Now().UTC(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ApplyWatchDecision(
+		ctx,
+		core.EvaluationDecision{
+			ChannelID: "COPS", ThreadTS: "1600.100", MessageTS: "1600.200",
+			Repository: "repo", SourceInput: "old-thread-decision",
+			Mode: "live", Action: "reply",
+		},
+		"investigation",
+		2,
+		core.AgentMemory{SituationSummary: "The old thread decided to use option B."},
+	); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{history: []slackui.HistoryMessage{{
+		Timestamp: "1600.200", ThreadTS: "1600.100",
+		UserID: "U123ABC", Text: "Use option B.",
+	}}}
+	svc := New(
+		cfg, st, newFakeCoop(), slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	target := core.SlackInput{
+		ID: "current", ChannelID: "COPS", MessageTS: "1700.100",
+		UserID: "U123ABC", Text: "post hi back to that thread",
+	}
+	request := agentContextRequest{
+		ChannelID: "COPS", Repository: "repo", OperatorID: target.UserID,
+		SourceInputID: target.ID, TargetInput: &target,
+		ReferencedThreadTS: "1600.100", IncludeRecent: true,
+	}
+	first, err := svc.assembleAgentContext(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.assembleAgentContext(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ReferencedThread == nil ||
+		first.ReferencedThread.Summary.SituationSummary !=
+			"The old thread decided to use option B." ||
+		len(first.ReferencedThread.RecentMessages) != 1 ||
+		second.ReferencedThread == nil {
+		t.Fatalf("referenced contexts = %+v / %+v", first, second)
+	}
+	if len(slack.historyRequests) != 3 {
+		t.Fatalf("anchored history requests = %+v", slack.historyRequests)
+	}
+}
+
+func TestConversationRoutePersistsChannelAndReturnsToPreviousThread(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	exit := core.SlackInput{
+		ChannelID: "COPS", ThreadTS: "1700.100", MessageTS: "1700.200",
+		UserID: "U123ABC", Text: "no lets get back to channel, 9-1",
+	}
+	thread, referenced, err := svc.resolveConversationRoute(ctx, exit)
+	if err != nil || thread != "" || referenced != "" {
+		t.Fatalf("exit route = %q, %q, %v", thread, referenced, err)
+	}
+	followup := exit
+	followup.MessageTS = "1700.300"
+	followup.Text = "why did you post it here?"
+	thread, referenced, err = svc.resolveConversationRoute(ctx, followup)
+	if err != nil || thread != "" || referenced != exit.ThreadTS {
+		t.Fatalf("persisted channel route = %q, %q, %v", thread, referenced, err)
+	}
+	back := core.SlackInput{
+		ChannelID: "COPS", MessageTS: "1700.400", UserID: "U123ABC",
+		Text: "Can you post hi back to that thread?",
+	}
+	thread, referenced, err = svc.resolveConversationRoute(ctx, back)
+	if err != nil || thread != exit.ThreadTS || referenced != exit.ThreadTS {
+		t.Fatalf("previous thread route = %q, %q, %v", thread, referenced, err)
+	}
+}
+
+func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1},"reason":"ordinary arithmetic","message":"8","memory":{}}`,
+	}
+	slack := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "fast-conversation", EnvelopeID: "fast-conversation-envelope",
+		EventID: "fast-conversation-event", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "<@UBOT> 3+5?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(coopClient.createPolicies) != 1 ||
+		coopClient.createPolicies[0] != "repo-conversation" {
+		t.Fatalf("created policies = %v", coopClient.createPolicies)
+	}
+	if len(coopClient.submitPrompts) != 1 ||
+		!strings.Contains(coopClient.submitPrompts[0], "bounded conversation turn") ||
+		strings.Contains(coopClient.submitPrompts[0], "Run independent read-only") {
+		t.Fatalf("conversation prompt = %q", coopClient.submitPrompts)
+	}
+	if len(slack.posts) != 1 ||
+		!strings.Contains(slack.posts[0].message.Text, "8") {
+		t.Fatalf("conversation reply = %+v", slack.posts)
+	}
+}
+
+func TestConversationLaneEscalatesOperationalWorkWithoutRetryPenalty(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"escalate","attention":{"addressee":"responder","confidence":3,"ownership":2},"reason":"requires current CI evidence","memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"verified current state","message":"CI is green.","evidence":[],"coverage":[],"memory":{}}`,
+	}
+	slack := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "escalated-conversation", EnvelopeID: "escalated-envelope",
+		EventID: "escalated-event", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "<@UBOT> is CI green?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunPending || run.Failures != 0 {
+		t.Fatalf("escalated run = %+v", run)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(coopClient.createPolicies) != 2 ||
+		coopClient.createPolicies[0] != "repo-conversation" ||
+		coopClient.createPolicies[1] != "repo-observe" {
+		t.Fatalf("escalation policies = %v", coopClient.createPolicies)
+	}
+	if len(coopClient.submitPrompts) != 2 ||
+		!strings.Contains(coopClient.submitPrompts[1], "full evidence-backed work") ||
+		!strings.Contains(coopClient.submitPrompts[1], "Run independent read-only") {
+		t.Fatalf("investigation prompt = %q", coopClient.submitPrompts)
+	}
+	if len(slack.posts) != 1 ||
+		!strings.Contains(slack.posts[0].message.Text, "CI is green") {
+		t.Fatalf("escalated reply = %+v", slack.posts)
+	}
+}

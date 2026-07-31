@@ -77,12 +77,19 @@ type Service struct {
 	lastPost     time.Time
 	statusMu     sync.Mutex
 	nativeStatus map[string]nativeStatusState
+	historyMu    sync.Mutex
+	historyCache map[string]cachedSlackHistory
 	heartbeats   laneHeartbeat
 }
 
 type nativeStatusState struct {
 	text string
 	at   time.Time
+}
+
+type cachedSlackHistory struct {
+	messages  []slackui.HistoryMessage
+	expiresAt time.Time
 }
 
 type SchedulerLaneSnapshot struct {
@@ -113,6 +120,7 @@ func New(
 		sanitizer: sanitizer, log: logger,
 		publisher:    publisher.New(cfg.GitHub),
 		nativeStatus: make(map[string]nativeStatusState),
+		historyCache: make(map[string]cachedSlackHistory),
 	}
 }
 

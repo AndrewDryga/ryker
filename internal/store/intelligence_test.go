@@ -47,6 +47,8 @@ func TestSchemaV3MigratesIntelligenceState(t *testing.T) {
 		"evaluation_decisions",
 		"memory_entries",
 		"conversation_memories",
+		"conversation_sessions",
+		"conversation_routes",
 	} {
 		var count int
 		if err := st.db.QueryRow(`
@@ -55,6 +57,65 @@ func TestSchemaV3MigratesIntelligenceState(t *testing.T) {
 		).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("table %s = %d, %v", table, count, err)
 		}
+	}
+}
+
+func TestConversationSessionAndRouteAreDurableAndLaneScoped(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.EnsureChannelMemory(ctx, "COPS", "emisar"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindConversationSession(
+		ctx,
+		"COPS",
+		"emisar",
+		"emisar-conversation",
+		"ses_conversation",
+		1,
+		1,
+		time.Now().UTC(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := st.ApplyWatchDecision(
+		ctx,
+		core.EvaluationDecision{
+			ChannelID: "COPS", ThreadTS: "1700.1", MessageTS: "1700.2",
+			Repository: "emisar", SourceInput: "conversation-source",
+			Mode: "live", Action: "reply",
+		},
+		"conversation",
+		2,
+		core.AgentMemory{SituationSummary: "The answer was 8."},
+	)
+	if err != nil || !applied {
+		t.Fatalf("apply conversation decision = %t, %v", applied, err)
+	}
+	session, err := st.GetConversationSession(ctx, "COPS")
+	if err != nil || session.TurnCount != 1 || session.SessionRevision != 2 {
+		t.Fatalf("conversation session = %+v, %v", session, err)
+	}
+	channel, err := st.GetChannelMemory(ctx, "COPS")
+	if err != nil || channel.TurnCount != 0 ||
+		channel.State.SituationSummary != "The answer was 8." {
+		t.Fatalf("investigation memory after conversation = %+v, %v", channel, err)
+	}
+	route := core.ConversationRoute{
+		ChannelID: "COPS", UserID: "U1",
+		PreviousThreadTS: "1700.1", Explicit: true,
+	}
+	if err := st.PutConversationRoute(ctx, route); err != nil {
+		t.Fatal(err)
+	}
+	storedRoute, err := st.GetConversationRoute(ctx, "COPS", "U1")
+	if err != nil || storedRoute.PreviousThreadTS != "1700.1" ||
+		!storedRoute.Explicit {
+		t.Fatalf("conversation route = %+v, %v", storedRoute, err)
 	}
 }
 
@@ -99,6 +160,7 @@ func TestConversationMemoryCarriesAcrossPublicWorkspaceWithoutLeakingPrivateChan
 				MessageTS: item.thread + "1", Repository: "emisar",
 				SourceInput: item.source, Mode: "live", Action: "reply",
 			},
+			"investigation",
 			2,
 			core.AgentMemory{SituationSummary: item.summary},
 		)
@@ -172,6 +234,7 @@ func TestConversationMemoryDeletionAndRetention(t *testing.T) {
 				MessageTS: "1700.200", Repository: "emisar",
 				SourceInput: "source-" + channel, Mode: "live", Action: "reply",
 			},
+			"investigation",
 			2,
 			core.AgentMemory{SituationSummary: "Retained conversation summary"},
 		)
@@ -261,13 +324,13 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		ChannelID: "COPS", SourceInput: "slack_once", Mode: "live",
 		Action: "reply", Reason: "explicit question",
 	}
-	applied, err := st.ApplyWatchDecision(ctx, decision, 9, core.AgentMemory{
+	applied, err := st.ApplyWatchDecision(ctx, decision, "investigation", 9, core.AgentMemory{
 		Goal: "Answer the explicit question",
 	})
 	if err != nil || !applied {
 		t.Fatalf("apply watch decision = %t, %v", applied, err)
 	}
-	applied, err = st.ApplyWatchDecision(ctx, decision, 10, core.AgentMemory{
+	applied, err = st.ApplyWatchDecision(ctx, decision, "investigation", 10, core.AgentMemory{
 		Goal: "duplicate must not replace memory",
 	})
 	if err != nil || applied {

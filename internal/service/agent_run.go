@@ -95,6 +95,17 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		}
 		state.ConversationFollowup = followup
 	}
+	if !state.RouteCaptured {
+		responseThreadTS, referencedThreadTS, err := s.resolveConversationRoute(
+			ctx, input,
+		)
+		if err != nil {
+			return err
+		}
+		state.ResponseThreadTS = responseThreadTS
+		state.ReferencedThreadTS = referencedThreadTS
+		state.RouteCaptured = true
+	}
 	if watchInputWantsPendingStatus(input, state) && s.cfg.Slack.NativeStatus {
 		if err := s.enqueueNativeStatus(
 			ctx,
@@ -128,7 +139,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	run, _, err := s.store.QueueAgentRun(ctx, core.AgentRun{
 		Mode:            core.AgentRunTriage,
 		ChannelID:       input.ChannelID,
-		ThreadTS:        conversationalResponseThread(input),
+		ThreadTS:        state.ResponseThreadTS,
 		ConversationKey: watchConversationKey(input),
 		SourceKind:      "watch",
 		SourceID:        input.ID,
@@ -196,12 +207,7 @@ func watchInputExplicitlyTargeted(input core.SlackInput, state watchTurnState) b
 }
 
 func watchConversationKey(input core.SlackInput) string {
-	switch input.Kind {
-	case "message", "bot_message", "direct":
-		return "channel:" + input.ChannelID
-	default:
-		return "thread:" + input.ChannelID + ":" + slackReplyThread(input)
-	}
+	return "channel:" + input.ChannelID
 }
 
 func watchProgressSteps() []string {
@@ -515,7 +521,9 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 					s.cfg.Slack.DefaultRepository,
 				),
 				OperatorID: input.UserID, SourceInputID: input.ID,
-				TargetInput: &input, IncludeRecent: true,
+				TargetInput:        &input,
+				ReferencedThreadTS: state.ReferencedThreadTS,
+				IncludeRecent:      true,
 			},
 		)
 		if err != nil {
@@ -524,7 +532,9 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		state.RecentMessages = assembled.RecentMessages
 		state.Memory = assembled.Situation
 		state.RelatedSituations = assembled.RelatedSituations
+		state.ReferencedThread = assembled.ReferencedThread
 		state.Prior = assembled.Prior
+		state.Repository = assembled.Repository
 		state.ContextCaptured = true
 		state.PriorCaptured = true
 	}
@@ -535,9 +545,68 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		}
 		state.RulesCaptured = true
 	}
-	memory, session, err := s.ensureWatchSession(ctx, input.ChannelID)
-	if err != nil {
-		return s.retryAgentRun(ctx, run, err)
+	repository, ok := s.cfg.RepositoryContext(
+		firstNonempty(state.Repository, s.cfg.Slack.DefaultRepository),
+	)
+	if !ok {
+		return s.retryAgentRun(
+			ctx,
+			run,
+			fmt.Errorf("repository context %q is not configured", state.Repository),
+		)
+	}
+	if state.Lane == "" {
+		state.Lane = "investigation"
+		if repository.ConversationPolicy != "" &&
+			len(input.Attachments) == 0 &&
+			len(state.MatchedRules) == 0 &&
+			(input.Kind == "message" || input.Kind == "mention" ||
+				input.Kind == "direct") &&
+			watchInputTargeted(input, state) {
+			state.Lane = "conversation"
+		}
+	}
+	var (
+		session       coop.Session
+		repositoryKey string
+		generation    int
+		eventSequence int64
+	)
+	if state.Lane == "conversation" {
+		if err := s.store.EnsureChannelMemory(
+			ctx,
+			input.ChannelID,
+			state.Repository,
+		); err != nil {
+			return s.retryAgentRun(ctx, run, err)
+		}
+		conversation, conversationSession, conversationErr :=
+			s.ensureConversationSession(
+				ctx,
+				input.ChannelID,
+				state.Repository,
+				repository.ConversationPolicy,
+			)
+		if conversationErr != nil {
+			return s.retryAgentRun(ctx, run, conversationErr)
+		}
+		session = conversationSession
+		repositoryKey = conversation.Repository
+		generation = conversation.Generation
+		eventSequence = conversation.CoopEventSequence
+	} else {
+		memory, investigationSession, investigationErr :=
+			s.ensureWatchSession(ctx, input.ChannelID)
+		if investigationErr != nil {
+			return s.retryAgentRun(ctx, run, investigationErr)
+		}
+		session = investigationSession
+		repositoryKey = memory.Repository
+		generation = memory.Generation
+		eventSequence = memory.CoopEventSequence
+		if !agentMemoryPresent(state.Memory) {
+			state.Memory = memory.State
+		}
 	}
 	if session.ActiveTurnID != "" {
 		return s.store.DeferAgentRun(
@@ -562,11 +631,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		)
 	}
 	state.SessionID = session.ID
-	state.Repository = memory.Repository
-	state.Generation = memory.Generation
-	if !agentMemoryPresent(state.Memory) {
-		state.Memory = memory.State
-	}
+	state.Repository = repositoryKey
+	state.Generation = generation
 	contextJSON, err := json.Marshal(state)
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
@@ -575,18 +641,18 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		ctx,
 		run.ID,
 		session.ID,
-		memory.Generation,
-		memory.Repository,
-		memory.CoopEventSequence,
+		generation,
+		repositoryKey,
+		eventSequence,
 		contextJSON,
 	); err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
 	run.SessionID = session.ID
-	run.SessionGeneration = memory.Generation
-	run.Repository = memory.Repository
+	run.SessionGeneration = generation
+	run.Repository = repositoryKey
 	run.Context = contextJSON
-	run.CoopEventSequence = memory.CoopEventSequence
+	run.CoopEventSequence = eventSequence
 	revision, err := s.store.FreezeAgentRunRevision(ctx, run.ID, session.Revision)
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
@@ -595,23 +661,40 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	turn, _, err := s.coop.SubmitTurnWithArtifacts(
-		ctx,
-		run.IdempotencyKey,
-		session.ID,
-		revision,
-		s.watchPrompt(
+	prompt := s.watchPrompt(
+		input,
+		s.identity.BotUserID,
+		state.ConversationFollowup,
+		state.RecentMessages,
+		state.Memory,
+		state.RelatedSituations,
+		state.ReferencedThread,
+		state.Prior,
+		firstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
+		state.MatchedRules,
+	) + "\n\n" + repositorySetPrompt(session) +
+		watchDecisionCorrectionPrompt(state.FailureDetail)
+	if state.Lane == "conversation" {
+		prompt = s.conversationPrompt(
 			input,
 			s.identity.BotUserID,
 			state.ConversationFollowup,
 			state.RecentMessages,
 			state.Memory,
-			state.RelatedSituations,
-			state.Prior,
-			firstNonempty(memory.Repository, s.cfg.Slack.DefaultRepository),
-			state.MatchedRules,
-		)+"\n\n"+repositorySetPrompt(session)+
-			watchDecisionCorrectionPrompt(state.FailureDetail),
+			state.ReferencedThread,
+			repositoryKey,
+		)
+	} else if state.EscalationReason != "" {
+		prompt += "\n\n<host-escalation>\nThe bounded conversation lane escalated this " +
+			"request because: " + boundedOperatorText(state.EscalationReason) +
+			". Perform the full evidence-backed work now.\n</host-escalation>"
+	}
+	turn, _, err := s.coop.SubmitTurnWithArtifacts(
+		ctx,
+		run.IdempotencyKey,
+		session.ID,
+		revision,
+		prompt,
 		artifacts,
 	)
 	if err != nil {
@@ -624,12 +707,13 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	return s.store.MarkAgentRunSubmitted(
+	return s.store.MarkTriageAgentRunSubmitted(
 		ctx,
 		run.ID,
 		turn.ID,
 		session.Revision,
 		run.CoopEventSequence,
+		state.Lane,
 	)
 }
 
@@ -757,9 +841,7 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 					return err
 				}
 				if run.Mode == core.AgentRunTriage {
-					_ = s.store.AdvanceChannelEvents(
-						ctx, run.ChannelID, run.SessionID, cursor,
-					)
+					_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 				}
 				return nil
 			}
@@ -770,6 +852,36 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 				state, stateErr := decodeWatchRunContext(run)
 				decision, decisionErr := parseWatchDecision(turn.AssistantMessage)
 				if inputErr == nil && stateErr == nil && decisionErr == nil {
+					if state.Lane == "conversation" &&
+						decision.Action == "escalate" {
+						if err := s.store.AdvanceConversationSessionEvents(
+							ctx,
+							run.ChannelID,
+							run.SessionID,
+							cursor,
+						); err != nil {
+							return err
+						}
+						state.Lane = "investigation"
+						state.EscalationReason = decision.Reason
+						state.SessionID = ""
+						state.Generation = 0
+						state.ExpectedRevision = 0
+						state.TurnID = ""
+						state.FailureDetail = ""
+						contextJSON, marshalErr := json.Marshal(state)
+						if marshalErr != nil {
+							return marshalErr
+						}
+						return s.store.EscalateAgentRun(
+							ctx,
+							run.ID,
+							"continuing in the full investigation lane: "+
+								decision.Reason,
+							contextJSON,
+							time.Now(),
+						)
+					}
 					if correction := watchDecisionCorrection(input, state, decision); correction != "" {
 						if !terminalAttempt(
 							run.Failures+1,
@@ -796,12 +908,7 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 							); err != nil {
 								return err
 							}
-							_ = s.store.AdvanceChannelEvents(
-								ctx,
-								run.ChannelID,
-								run.SessionID,
-								cursor,
-							)
+							_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 							return nil
 						}
 						terminalState = "failed"
@@ -821,9 +928,7 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 				return err
 			}
 			if run.Mode == core.AgentRunTriage {
-				_ = s.store.AdvanceChannelEvents(
-					ctx, run.ChannelID, run.SessionID, cursor,
-				)
+				_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 			}
 			return nil
 		}
@@ -833,9 +938,7 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 			return err
 		}
 		if run.Mode == core.AgentRunTriage {
-			if err := s.store.AdvanceChannelEvents(
-				ctx, run.ChannelID, run.SessionID, cursor,
-			); err != nil {
+			if err := s.advanceTriageSessionEvents(ctx, run, cursor); err != nil {
 				return err
 			}
 		}
@@ -851,6 +954,22 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) advanceTriageSessionEvents(
+	ctx context.Context,
+	run core.AgentRun,
+	cursor int64,
+) error {
+	state, err := decodeWatchRunContext(run)
+	if err == nil && state.Lane == "conversation" {
+		return s.store.AdvanceConversationSessionEvents(
+			ctx, run.ChannelID, run.SessionID, cursor,
+		)
+	}
+	return s.store.AdvanceChannelEvents(
+		ctx, run.ChannelID, run.SessionID, cursor,
+	)
 }
 
 func replayAgentRunFailure(

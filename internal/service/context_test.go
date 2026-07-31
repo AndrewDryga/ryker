@@ -77,6 +77,7 @@ func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 			},
 			UpdatedAt: "2026-07-30T12:00:00Z",
 		}},
+		nil,
 		operationalMemoryContext{},
 		"emisar",
 		nil,
@@ -120,6 +121,7 @@ func TestAssembleAgentContextUsesConversationSummaryAsThreadCursor(t *testing.T)
 			MessageTS: "1700.000020", Repository: "emisar",
 			SourceInput: "prior-source", Mode: "live", Action: "reply",
 		},
+		"investigation",
 		2,
 		core.AgentMemory{
 			SituationSummary: "The deploy is paused pending database verification.",
