@@ -649,6 +649,41 @@ func suppressWatchDecision(decision watchDecision, reason string) watchDecision 
 	return decision
 }
 
+func watchDecisionCorrection(
+	input core.SlackInput,
+	state watchTurnState,
+	decision watchDecision,
+) string {
+	if requestedConversationLocation(input.Text) != conversationLocationFollow &&
+		!locationOnlyRequest(input.Text) &&
+		decision.Action != "reply" &&
+		decision.Action != "incident" {
+		return "the operator combined a conversation-location change with new work; " +
+			"answer the new work and honor the requested response location"
+	}
+	if decision.Action == "ignore" &&
+		watchInputTargeted(input, state) &&
+		decision.Attention.Addressee == "responder" {
+		return "the target is an active conversation follow-up addressed to Emisar; " +
+			"answer the current message instead of treating it as a duplicate of an earlier turn"
+	}
+	return ""
+}
+
+func watchDecisionCorrectionPrompt(detail string) string {
+	if strings.TrimSpace(detail) == "" {
+		return ""
+	}
+	return `
+
+<host-decision-correction>
+Your previous decision was rejected by Responder's deterministic conversation policy: ` +
+		detail + `. Re-evaluate the current target message. Do not reuse an answer to a different
+nearby message, and do not silently ignore work that the operator directed to Emisar. Return one
+fresh valid decision for the current target.
+</host-decision-correction>`
+}
+
 func (s *Service) createWatchedIncident(
 	ctx context.Context,
 	trigger core.SlackInput,

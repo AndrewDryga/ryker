@@ -504,7 +504,7 @@ func (s *Store) AdvanceAgentRunEvents(
 	return expectOne(result, err, "advance agent run events")
 }
 
-func (s *Store) RequeueInterruptedAgentRun(
+func (s *Store) RequeueAgentRun(
 	ctx context.Context,
 	id string,
 	detail string,
@@ -525,7 +525,7 @@ func (s *Store) RequeueInterruptedAgentRun(
 		WHERE id = ? AND state = 'running'`, id,
 	).Scan(&incidentID, &coopTurnID, &failures); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("requeue interrupted agent run: %w", ErrConflict)
+			return fmt.Errorf("requeue agent run: %w", ErrConflict)
 		}
 		return err
 	}
@@ -547,7 +547,7 @@ func (s *Store) RequeueInterruptedAgentRun(
 		now,
 		id,
 	)
-	if err := expectOne(result, err, "requeue interrupted agent run"); err != nil {
+	if err := expectOne(result, err, "requeue agent run"); err != nil {
 		return err
 	}
 	if incidentID.Valid {

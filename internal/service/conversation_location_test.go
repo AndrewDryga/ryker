@@ -168,6 +168,82 @@ func TestLocationWorkAndOldThreadContinuationSetPendingStatus(t *testing.T) {
 	}
 }
 
+func TestLocationWorkIgnoreIsRetriedAndAnswered(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"ignore","attention":{"addressee":"responder","confidence":3,"ownership":1},"reason":"duplicate"}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"novelty":2,"ownership":3},"reason":"current arithmetic request","message":"8"}`,
+	}
+	svc := New(
+		cfg,
+		st,
+		coopClient,
+		slack,
+		nil,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	input := core.SlackInput{
+		ID: "location-retry", EnvelopeID: "location-retry-env",
+		EventID: "location-retry-event", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", ThreadTS: "1700.100", MessageTS: "1700.200",
+		UserID: "U123ABC", Text: "No, let's get back to channel, 9-1.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit location retry = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunPending || run.Failures != 1 {
+		t.Fatalf("rejected decision run = %+v", run)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitPrompts) != 2 ||
+		!strings.Contains(
+			coopClient.submitPrompts[1],
+			"Your previous decision was rejected",
+		) {
+		t.Fatalf("correction prompts = %+v", coopClient.submitPrompts)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 ||
+		slack.posts[0].thread != "" ||
+		!strings.Contains(slack.posts[0].message.Text, "8") {
+		t.Fatalf("corrected channel reply = %+v", slack.posts)
+	}
+	if len(slack.statuses) != 2 ||
+		slack.statuses[0].thread != input.ThreadTS ||
+		slack.statuses[0].text != watchPendingStatus ||
+		slack.statuses[1].text != "" {
+		t.Fatalf("pending status lifecycle = %+v", slack.statuses)
+	}
+}
+
 func TestConversationalLocationSwitchAcknowledgesWhereOperatorMoves(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

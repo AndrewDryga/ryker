@@ -593,7 +593,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.Prior,
 			firstNonempty(memory.Repository, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
-		)+"\n\n"+repositorySetPrompt(session),
+		)+"\n\n"+repositorySetPrompt(session)+
+			watchDecisionCorrectionPrompt(state.FailureDetail),
 	)
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
@@ -725,7 +726,7 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 				turn,
 				s.cfg.Limits.MaxAgentRunAttempts,
 			); replay {
-				if err := s.store.RequeueInterruptedAgentRun(
+				if err := s.store.RequeueAgentRun(
 					ctx,
 					run.ID,
 					reason,
@@ -741,11 +742,58 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 				}
 				return nil
 			}
+			terminalState := strings.TrimPrefix(event.Type, "turn.")
+			result := []byte(turn.AssistantMessage)
+			if run.Mode == core.AgentRunTriage && terminalState == "completed" {
+				input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
+				state, stateErr := decodeWatchRunContext(run)
+				decision, decisionErr := parseWatchDecision(turn.AssistantMessage)
+				if inputErr == nil && stateErr == nil && decisionErr == nil {
+					if correction := watchDecisionCorrection(input, state, decision); correction != "" {
+						if !terminalAttempt(
+							run.Failures+1,
+							s.cfg.Limits.MaxAgentRunAttempts,
+						) {
+							state.FailureDetail = correction
+							contextJSON, marshalErr := json.Marshal(state)
+							if marshalErr != nil {
+								return marshalErr
+							}
+							if err := s.store.SetAgentRunContext(
+								ctx,
+								run.ID,
+								contextJSON,
+							); err != nil {
+								return err
+							}
+							if err := s.store.RequeueAgentRun(
+								ctx,
+								run.ID,
+								correction,
+								cursor,
+								time.Now(),
+							); err != nil {
+								return err
+							}
+							_ = s.store.AdvanceChannelEvents(
+								ctx,
+								run.ChannelID,
+								run.SessionID,
+								cursor,
+							)
+							return nil
+						}
+						terminalState = "failed"
+						result = nil
+						detail = correction
+					}
+				}
+			}
 			if err := s.store.StageAgentRunResult(
 				ctx,
 				run.ID,
-				strings.TrimPrefix(event.Type, "turn."),
-				[]byte(turn.AssistantMessage),
+				terminalState,
+				result,
 				detail,
 				cursor,
 			); err != nil {
