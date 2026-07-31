@@ -51,10 +51,11 @@ webhooks:
 	}
 	if cfg.Coop.EmisarTokenEnv != "EMISAR_API_KEY" || cfg.Coop.Binary != "coop" ||
 		cfg.Coop.RestartDelay.Duration != 5*time.Second || cfg.Coop.TurnLimit != 1000 ||
+		cfg.Coop.PollInterval.Duration != 250*time.Millisecond ||
 		cfg.Coop.WatchSessionTurns != 40 ||
 		cfg.Coop.WatchSessionAge.Duration != 24*time.Hour ||
 		cfg.Slack.ChannelPrefix != "ems" || cfg.Slack.WatchContext != 20 ||
-		cfg.Slack.WatchSettleDelay.Duration != 2*time.Second ||
+		cfg.Slack.WatchSettleDelay.Duration != 350*time.Millisecond ||
 		cfg.Slack.ReplyAttention != 7 || cfg.Slack.ReactionAttention != 4 ||
 		!cfg.Slack.NativeStatus || !cfg.Slack.AssistantExperience ||
 		!cfg.IsWatchChannel("C456DEF") ||
@@ -243,6 +244,11 @@ webhooks:
 		"relative additional environment file": func(s string) string {
 			return strings.Replace(
 				s, "coop: {}", "coop: {additional_env_file: config/mcp.env}", 1,
+			)
+		},
+		"too many prewarmed conversation sessions": func(s string) string {
+			return strings.Replace(
+				s, "coop: {}", "coop: {prewarm_conversation_sessions: 21}", 1,
 			)
 		},
 		"unsafe automatic turn ceiling": func(s string) string {

@@ -37,9 +37,9 @@ func TestConversationLocationDetection(t *testing.T) {
 		conversationalResponseThread(combined) != combined.MessageTS {
 		t.Fatalf("combined work and location request = %+v", combined)
 	}
-	if watchInputTargeted(combined, watchTurnState{}) ||
+	if !watchInputTargeted(combined, watchTurnState{}) ||
 		!watchInputWantsPendingStatus(combined, watchTurnState{}) {
-		t.Fatalf("location work should request status without changing attention: %+v", combined)
+		t.Fatalf("location work should be targeted and request status: %+v", combined)
 	}
 }
 

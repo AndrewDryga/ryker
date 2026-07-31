@@ -111,6 +111,103 @@ func TestConversationRoutePersistsChannelAndReturnsToPreviousThread(t *testing.T
 	}
 }
 
+func TestConversationReplyReturnsToPreviouslyExitedThread(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"COPS"}
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1},"reason":"direct request","message":"hi","memory":{}}`,
+	}
+	slack := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	exit := core.SlackInput{
+		ChannelID: "COPS", ThreadTS: "1700.100", MessageTS: "1700.200",
+		UserID: "U123ABC", Text: "no lets get back to channel, 9-1",
+	}
+	if _, _, err := svc.resolveConversationRoute(ctx, exit); err != nil {
+		t.Fatal(err)
+	}
+	input := core.SlackInput{
+		ID: "return-to-thread", EnvelopeID: "return-to-thread-envelope",
+		EventID: "return-to-thread-event", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1700.300", UserID: "U123ABC",
+		Text: "Can you post hi back to that thread?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slack.posts) == 0 {
+		time.Sleep(5 * time.Millisecond)
+		drainSlackDeliveries(t, ctx, svc)
+	}
+	if len(slack.posts) != 1 ||
+		slack.posts[0].thread != exit.ThreadTS ||
+		slack.posts[0].broadcast ||
+		strings.TrimSpace(slack.posts[0].message.Text) != "hi" {
+		delivery, deliveryErr := st.GetSlackDelivery(
+			ctx,
+			"watch_reply_"+input.ID,
+		)
+		t.Fatalf(
+			"thread reply = %+v; delivery = %+v, %v",
+			slack.posts,
+			delivery,
+			deliveryErr,
+		)
+	}
+}
+
+func TestPrewarmConversationSessionsUsesConfiguredBoundedLane(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWARM"}
+	cfg.Coop.PrewarmSessions = 1
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+
+	svc.prewarmConversationSessions(ctx)
+
+	if len(coopClient.createPolicies) != 1 ||
+		coopClient.createPolicies[0] != "repo-conversation" {
+		t.Fatalf("prewarm policies = %v", coopClient.createPolicies)
+	}
+	session, err := st.GetConversationSession(ctx, "CWARM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Policy != "repo-conversation" || session.Repository != "repo" {
+		t.Fatalf("prewarmed session = %+v", session)
+	}
+}
+
 func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

@@ -19,7 +19,7 @@ slack:
     - C0123456789
   # Give triage a fresh chronological transcript and a short window for nearby human replies.
   watch_context_messages: 20
-  watch_settle_delay: 2s
+  watch_settle_delay: 350ms
   # Ambient replies require stronger urgency, novelty, confidence, and ownership than reactions.
   # Scores range from 0 to 12; higher values make Emisar quieter.
   proactive_reply_attention_threshold: 7
@@ -43,7 +43,10 @@ coop:
   restart_delay: 5s
   socket: /var/lib/responder/coop/control.sock
   request_timeout: 20s
-  poll_interval: 1s
+  poll_interval: 250ms
+  # Warm up bounded conversation lanes for this many configured watch/summon channels.
+  # Set to 0 to avoid allocating any Coop sessions before the first message.
+  prewarm_conversation_sessions: 4
   # Internal allocation chunk and automatic lifetime safety ceiling. Operators do not estimate work.
   extend_turns: 25
   turn_limit: 1000

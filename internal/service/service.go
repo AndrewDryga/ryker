@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -186,6 +187,13 @@ func (s *Service) Run(ctx context.Context) error {
 	}()
 	go s.consumeSocket(runCtx)
 	s.startScheduler(runCtx, &workers)
+	if s.cfg.Coop.PrewarmSessions > 0 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			s.prewarmConversationSessions(runCtx)
+		}()
+	}
 
 	for {
 		select {
@@ -200,6 +208,60 @@ func (s *Service) Run(ctx context.Context) error {
 			}
 			return fmt.Errorf("Slack Socket Mode: %w", err)
 		}
+	}
+}
+
+func (s *Service) prewarmConversationSessions(ctx context.Context) {
+	channelIDs := append(
+		append([]string(nil), s.cfg.Slack.WatchChannels...),
+		s.cfg.Slack.SummonChannels...,
+	)
+	slices.Sort(channelIDs)
+	channelIDs = slices.Compact(channelIDs)
+	if len(channelIDs) > s.cfg.Coop.PrewarmSessions {
+		channelIDs = channelIDs[:s.cfg.Coop.PrewarmSessions]
+	}
+	for _, channelID := range channelIDs {
+		if ctx.Err() != nil {
+			return
+		}
+		repositoryKey, err := s.effectiveRepository(
+			ctx,
+			channelID,
+			"",
+			s.cfg.Slack.DefaultRepository,
+		)
+		if err != nil {
+			s.log.Warn(
+				"could not resolve conversation session for prewarming",
+				"channel", channelID,
+				"error", err,
+			)
+			continue
+		}
+		repository, ok := s.cfg.RepositoryContext(repositoryKey)
+		if !ok || strings.TrimSpace(repository.ConversationPolicy) == "" {
+			continue
+		}
+		if _, _, err := s.ensureConversationSession(
+			ctx,
+			channelID,
+			repositoryKey,
+			repository.ConversationPolicy,
+		); err != nil && ctx.Err() == nil {
+			s.log.Warn(
+				"could not prewarm conversation session",
+				"channel", channelID,
+				"repository", repositoryKey,
+				"error", err,
+			)
+			continue
+		}
+		s.log.Info(
+			"prewarmed conversation session",
+			"channel", channelID,
+			"repository", repositoryKey,
+		)
 	}
 }
 

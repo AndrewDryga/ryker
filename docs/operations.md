@@ -90,8 +90,14 @@ stop the action and remain visible; they are never rewritten with a guessed revi
 Watched Slack feeds use one current Coop session generation per configured channel. Messages are
 serialized by Slack message timestamp within each channel and can proceed independently across
 channels.
+`coop.prewarm_conversation_sessions` can open the bounded conversation lane in the background for
+up to 20 configured watch or summon channels. This removes Coop session creation from their first
+reply while preserving the same policy and model. The default is zero; each warmed lane consumes a
+normal Coop session and remains subject to the configured session rotation and retention limits.
 `slack.watch_settle_delay` requires a quiet period after the newest queued message before
-classification; the default is two seconds. `slack.watch_context_messages` freezes the latest
+classification; the default is 350 milliseconds. The request freezes the freshest ordered context
+again immediately before model submission, so this delay is only a short burst debounce rather
+than the source of conversation ordering. `slack.watch_context_messages` freezes the latest
 chronological channel transcript into each triage request; the default is 20 and the allowed range
 is 10 through 50. Once classification queues an agent run, the source Slack input is complete and
 cannot exhaust retries during a long model call. The agent run takes its own lease and freezes the

@@ -203,7 +203,8 @@ func watchInputWantsPendingStatus(
 
 func watchInputExplicitlyTargeted(input core.SlackInput, state watchTurnState) bool {
 	return input.Kind == "direct" || input.Kind == "mention" ||
-		input.Kind == "shortcut" || len(state.MatchedRules) > 0
+		input.Kind == "shortcut" || len(state.MatchedRules) > 0 ||
+		requestedConversationLocation(input.Text) != conversationLocationFollow
 }
 
 func watchConversationKey(input core.SlackInput) string {
