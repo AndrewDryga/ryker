@@ -213,11 +213,11 @@ func watchConversationKey(input core.SlackInput) string {
 
 func watchProgressSteps() []string {
 	return []string{
-		"Reading the latest channel context",
-		"Mapping declared topology from the repository",
-		"Checking live infrastructure state with Emisar",
-		"Reconciling identities, freshness, and coverage",
-		"Preparing a concise response",
+		"Reading the conversation",
+		"Checking the repository setup",
+		"Checking live systems",
+		"Comparing expected and current state",
+		"Writing the answer",
 	}
 }
 
@@ -390,9 +390,19 @@ func (s *Service) prepareIncidentAgentRun(
 	s.setNativeStatus(
 		ctx,
 		s.agentRunStatusIncident(ctx, incident, run),
-		"is investigating...",
+		s.agentRunNativeStatus(ctx, run),
 	)
 	return nil
+}
+
+func (s *Service) agentRunNativeStatus(ctx context.Context, run core.AgentRun) string {
+	if run.SourceKind == "slack" {
+		if input, err := s.store.GetSlackInput(ctx, run.SourceID); err == nil &&
+			simpleExplanationRequest(input.Text) {
+			return "is explaining the earlier answer..."
+		}
+	}
+	return "is investigating..."
 }
 
 func channelSituationPrompt(memory core.AgentMemory) string {

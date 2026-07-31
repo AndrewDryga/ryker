@@ -334,10 +334,13 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 			ctx, item.IncidentID,
 		); incidentErr == nil &&
 			incident.ActiveTurnID != "" {
+			statusIncident, status := s.turnNativeStatus(
+				ctx, incident, incident.ActiveTurnID,
+			)
 			s.setNativeStatus(
 				ctx,
-				s.turnStatusIncident(ctx, incident, incident.ActiveTurnID),
-				"is investigating...",
+				statusIncident,
+				status,
 			)
 		}
 	}
@@ -655,10 +658,13 @@ func (s *Service) pollIncident(ctx context.Context, incident core.Incident) erro
 		workflow = core.WorkflowInvestigating
 	}
 	if session.ActiveTurnID != "" {
+		statusIncident, status := s.turnNativeStatus(
+			ctx, incident, session.ActiveTurnID,
+		)
 		s.setNativeStatus(
 			ctx,
-			s.turnStatusIncident(ctx, incident, session.ActiveTurnID),
-			"is investigating...",
+			statusIncident,
+			status,
 		)
 	}
 	if !incident.ChannelWritable() && incident.Status != core.IncidentClosed {
@@ -928,16 +934,16 @@ func (s *Service) setNativeStatusForThread(
 	s.setNativeStatus(ctx, incident, status)
 }
 
-func (s *Service) turnStatusIncident(
+func (s *Service) turnNativeStatus(
 	ctx context.Context,
 	incident core.Incident,
 	coopTurnID string,
-) core.Incident {
+) (core.Incident, string) {
 	run, err := s.store.GetAgentRunByCoopTurn(ctx, coopTurnID)
 	if err != nil {
-		return incident
+		return incident, "is investigating..."
 	}
-	return s.agentRunStatusIncident(ctx, incident, run)
+	return s.agentRunStatusIncident(ctx, incident, run), s.agentRunNativeStatus(ctx, run)
 }
 
 func (s *Service) agentRunStatusIncident(
@@ -960,27 +966,32 @@ func (s *Service) agentRunStatusIncident(
 
 func progressMilestones(status string) []string {
 	switch {
+	case strings.Contains(status, "explaining"):
+		return []string{
+			"Reading the earlier answer",
+			"Writing a simpler explanation",
+		}
 	case strings.Contains(status, "approved action"):
 		return []string{
-			"Re-checking whether the evidence is still current",
-			"Validating the exact target and blast radius",
+			"Checking that the information is still current",
+			"Checking exactly what will change",
 			"Requesting policy authorization from Emisar",
-			"Waiting for authoritative verification",
+			"Waiting for verification",
 		}
 	case strings.Contains(status, "review"):
 		return []string{
-			"Inspecting the isolated code change",
-			"Checking current repository divergence",
-			"Running configured validation and policy gates",
-			"Preparing fix-readiness findings",
+			"Reading the code changes",
+			"Checking whether the branch is current",
+			"Running the project's checks",
+			"Writing the review",
 		}
 	default:
 		return []string{
-			"Mapping declared topology from the repository",
-			"Checking current infrastructure state with Emisar",
-			"Reconciling expected and observed entities",
-			"Assessing coverage and unresolved gaps",
-			"Preparing an evidence-backed response",
+			"Checking the repository setup",
+			"Checking live systems",
+			"Comparing expected and current state",
+			"Checking what remains unknown",
+			"Writing the answer",
 		}
 	}
 }

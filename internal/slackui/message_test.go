@@ -619,7 +619,7 @@ func TestConciseEvidenceResponseKeepsLedgerOutOfRoutineSlackReply(t *testing.T) 
 		t.Fatalf("routine reply dumped evidence ledger: %+v", message)
 	}
 	if len(message.Context) != 1 ||
-		message.Context[0] != "1 evidence record and 1 coverage assessment saved." {
+		message.Context[0] != "Details saved: 1 finding and 1 system area checked." {
 		t.Fatalf("routine reply evidence summary = %+v", message.Context)
 	}
 }

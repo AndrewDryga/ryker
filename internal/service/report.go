@@ -649,7 +649,7 @@ func safeEmisarApprovalURL(value, emisarRPCURL, requestID string) string {
 func structuredResponseInstructions() string {
 	return `Return exactly one JSON object and no code fence:
 {
-  "message": "operator-facing standard Markdown",
+  "message": "plain-language, operator-facing standard Markdown that answers the question first",
   "evidence": [{
     "claim": "the operational claim this supports",
     "observation": "the exact verified observation",

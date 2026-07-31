@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Plain-language Slack responses.** User-facing answers now default to clear professional
+  language, explain necessary technical terms, match the requested depth, and reuse established
+  context for simple explanations instead of repeating an investigation. Progress labels and saved
+  evidence summaries now use operator-facing language rather than internal workflow terminology.
 - **Reaction-aware conversation.** Emisar now observes additions and removals of emoji reactions on
   its own Slack messages, retains them as ordered conversation context, and refreshes current
   reaction state without starting a separate agent turn. Reactions remain social feedback only and

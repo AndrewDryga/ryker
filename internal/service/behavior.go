@@ -152,7 +152,8 @@ For health_check_depth:
   stating the precise access, catalog, or telemetry gap.
 
 For response_detail, preserve a decision-first Slack response; concise, standard, and detailed
-change supporting detail, not evidentiary rigor.
+change supporting detail, not evidentiary rigor. Every level still uses plain professional language,
+explains necessary technical terms, and matches the user's requested depth.
 
 <trusted-responder-preferences>
 ` + string(data) + `

@@ -431,8 +431,12 @@ Card buttons change with state rather than presenting actions that cannot succee
   confirmation authorizes Coop to delete clean committed work after an exact discard-plan check.
   Dirty uncommitted files are still refused.
 
-Routine evidence-backed replies lead with the concise conclusion and record counts instead of
-dumping the source ledger into the conversation.
+Routine evidence-backed replies lead with the concise conclusion and use plain professional
+language instead of making the reader decode internal architecture, schemas, or workflow terms.
+Necessary technical terms are explained when first used. Simple explanation, summary, and rephrase
+requests reuse established conversation context unless the user asks for a fresh check or the prior
+context is not enough. The footer describes saved supporting findings and assessed system areas in
+ordinary language instead of dumping the source ledger into the conversation.
 `/responder timeline` reads durable lifecycle, operator, finding, and failure events.
 `/responder evidence` shows the latest source ledger and material unknowns.
 `/responder handoff` prepares an evidence-backed shift summary. Closing also posts a post-incident

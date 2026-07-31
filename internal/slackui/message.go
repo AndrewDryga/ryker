@@ -1194,15 +1194,15 @@ func IncidentEvidenceResponse(
 func evidenceRecordSummary(evidence []core.Evidence, coverage []core.Coverage) string {
 	var parts []string
 	if len(evidence) > 0 {
-		parts = append(parts, countLabel(len(evidence), "evidence record"))
+		parts = append(parts, countLabel(len(evidence), "finding"))
 	}
 	if len(coverage) > 0 {
-		parts = append(parts, countLabel(len(coverage), "coverage assessment"))
+		parts = append(parts, countLabel(len(coverage), "system area checked"))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return strings.Join(parts, " and ") + " saved."
+	return "Details saved: " + strings.Join(parts, " and ") + "."
 }
 
 func countLabel(count int, label string) string {

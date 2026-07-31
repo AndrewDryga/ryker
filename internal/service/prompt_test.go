@@ -25,6 +25,10 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 		"Do not keep polling while a human decision is pending",
 		"continue the same run through its returned wait_for_run continuation",
 		"standard Markdown for Slack's Block Kit `markdown` block",
+		"Default to plain, professional language",
+		"Answer the user's actual question first",
+		"Explain necessary technical terms",
+		"Do not repeat repository or live-system checks",
 		"fenced code blocks with a language",
 		"task lists, dividers, tables",
 		"Responder owns interactive controls",
@@ -60,6 +64,9 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"Never say Emisar is unavailable merely because a local CLI",
 		"This evidence policy is mandatory for current operational questions",
 		"standard Markdown for Slack's Block Kit `markdown` block",
+		"Default to plain, professional language",
+		"a simple explanation should usually be a few sentences",
+		"Translate evidence into meaning",
 		"task lists, dividers, tables",
 		"outer JSON is only the transport envelope",
 		"do not send them outside Slack",
@@ -73,6 +80,46 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 	}
 	if strings.Contains(prompt, "call the Emisar MCP tools before using shell commands") {
 		t.Fatalf("watch prompt still imposes the old fixed tool order:\n%s", prompt)
+	}
+}
+
+func TestConversationPromptReusesKnownResultForSimpleExplanation(t *testing.T) {
+	prompt := conversationPrompt(
+		"U123ABC",
+		"Can you explain the fix in simple terms?",
+		true,
+	)
+	for _, required := range []string{
+		"answer from the existing conversation in plain professional language",
+		"Do not rerun tools or repeat the investigation",
+		"unless the user asks for a fresh check",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("conversation prompt does not contain %q:\n%s", required, prompt)
+		}
+	}
+	if !simpleExplanationRequest("Can you explain me the fix in simple terms?") {
+		t.Fatal("simple explanation request was not recognized")
+	}
+	if simpleExplanationRequest("Please check whether the fix is live now.") {
+		t.Fatal("fresh verification request was mistaken for a simple explanation")
+	}
+	if got := progressMilestones("is explaining the earlier answer..."); len(got) != 2 || got[0] != "Reading the earlier answer" ||
+		got[1] != "Writing a simpler explanation" {
+		t.Fatalf("explanation progress = %v", got)
+	}
+}
+
+func TestProgressCopyUsesPlainOperatorLanguage(t *testing.T) {
+	for _, progress := range append(watchProgressSteps(), progressMilestones("investigating")...) {
+		for _, jargon := range []string{"topology", "reconciling", "entities", "coverage"} {
+			if strings.Contains(strings.ToLower(progress), jargon) {
+				t.Fatalf("progress %q contains internal term %q", progress, jargon)
+			}
+		}
+	}
+	if got := progressMilestones("reviewing change"); len(got) != 4 || got[0] != "Reading the code changes" || got[3] != "Writing the review" {
+		t.Fatalf("review progress = %v", got)
 	}
 }
 

@@ -491,11 +491,15 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				ctx, incident, "slack", input.ID, input.UserID, prompt,
 			)
 			if err == nil && direct {
+				status := "is investigating your message..."
+				if simpleExplanationRequest(text) {
+					status = "is explaining the earlier answer..."
+				}
 				s.setNativeStatusForThread(
 					ctx,
 					incident,
 					slackReplyThread(input),
-					"is investigating your message...",
+					status,
 				)
 			}
 			if err == nil {

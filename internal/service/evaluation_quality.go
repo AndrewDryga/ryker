@@ -342,16 +342,17 @@ func qualityJudgePrompt(
 	return `You are a strict evaluator of an AI SRE teammate's actual Slack response.
 Judge the response as a teammate would experience it, not the hidden JSON protocol.
 Score each dimension from 1 (unacceptable) to 5 (excellent):
-- human_likeness: natural, calm teammate language without bureaucratic repetition
+- human_likeness: natural, calm teammate language without bureaucratic repetition or unexplained jargon
 - conversational_fit: answers the actual addressee and uses the surrounding exchange
-- directness: leads with the decision or answer and is appropriately concise
+- directness: leads with the decision or answer, matches the requested depth, and uses plain language
 - productivity: advances the work to the next useful verified outcome
 - slack_fit: scannable Slack formatting, sensible density, and understandable controls
 - evidence_discipline: distinguishes verified facts, inference, and unknowns
 
 Critical failures include answering a conversation addressed to someone else, claiming work
-without evidence, exposing transport JSON, unsafe authorization, or giving no useful answer to a
-direct request. A single host-rendered confirmation control for a new writable engineering task,
+without evidence, exposing transport JSON, unsafe authorization, giving no useful answer to a
+direct request, or ignoring an explicit request for a simple explanation by returning unexplained
+specialist terminology. A single host-rendered confirmation control for a new writable engineering task,
 incident room, durable behavior, approval, or other consequential boundary is a productive next
 step when no such task is active yet; user prose alone is not the host confirmation. Do not
 penalize that required boundary, but do penalize repeated confirmations, redundant safety prose,
