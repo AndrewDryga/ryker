@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Context-aware humor.** Emisar may add a brief, understated joke in relaxed or playful Slack
+  conversation while remaining direct and professional by default. High-risk and stressful
+  situations stay serious, and humor is excluded from evidence, memory, titles, controls, and
+  approval or action records.
 - **Plain-language Slack responses.** User-facing answers now default to clear professional
   language, explain necessary technical terms, match the requested depth, and reuse established
   context for simple explanations instead of repeating an investigation. Progress labels and saved

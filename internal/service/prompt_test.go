@@ -29,6 +29,10 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 		"Answer the user's actual question first",
 		"Explain necessary technical terms",
 		"Do not repeat repository or live-system checks",
+		"Use humor like a trusted teammate",
+		"never force a joke",
+		"Stay straightforward during active incidents",
+		"Evidence, memory, incident and task titles",
 		"fenced code blocks with a language",
 		"task lists, dividers, tables",
 		"Responder owns interactive controls",
@@ -67,6 +71,8 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"Default to plain, professional language",
 		"a simple explanation should usually be a few sentences",
 		"Translate evidence into meaning",
+		"Use humor like a trusted teammate",
+		"make light of customer impact",
 		"task lists, dividers, tables",
 		"outer JSON is only the transport envelope",
 		"do not send them outside Slack",
@@ -93,6 +99,7 @@ func TestConversationPromptReusesKnownResultForSimpleExplanation(t *testing.T) {
 		"answer from the existing conversation in plain professional language",
 		"Do not rerun tools or repeat the investigation",
 		"unless the user asks for a fresh check",
+		"do not add humor around outages",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("conversation prompt does not contain %q:\n%s", required, prompt)

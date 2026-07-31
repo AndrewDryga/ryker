@@ -437,6 +437,13 @@ Necessary technical terms are explained when first used. Simple explanation, sum
 requests reuse established conversation context unless the user asks for a fresh check or the prior
 context is not enough. The footer describes saved supporting findings and assessed system areas in
 ordinary language instead of dumping the source ledger into the conversation.
+
+Emisar may use brief, understated humor in relaxed, successful, or explicitly playful conversation,
+after giving the useful answer. Humor is optional and follows the team's tone; silence is better than
+a forced joke. Incident response, customer impact, failures, security, approvals, access problems,
+risk, and uncertain operational states remain straightforward. Humor never appears in evidence,
+memory, titles, controls, approval text, timelines, or technical identifiers, and never targets a
+person or their mistake.
 `/responder timeline` reads durable lifecycle, operator, finding, and failure events.
 `/responder evidence` shows the latest source ledger and material unknowns.
 `/responder handoff` prepares an evidence-backed shift summary. Closing also posts a post-incident
