@@ -3,6 +3,7 @@ package slackui
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,11 +11,24 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/slack-go/slack"
 	"gopkg.in/yaml.v3"
 )
+
+func TestRetryAfterRecognizesWrappedSlackRateLimit(t *testing.T) {
+	delay, ok := RetryAfter(fmt.Errorf("list channels: %w", &slack.RateLimitedError{
+		RetryAfter: 30 * time.Second,
+	}))
+	if !ok || delay != 30*time.Second {
+		t.Fatalf("retry after = %s, %t", delay, ok)
+	}
+	if _, ok := RetryAfter(errors.New("other failure")); ok {
+		t.Fatal("non-rate-limit error reported a retry delay")
+	}
+}
 
 func TestSelectThreadHistoryKeepsRootAndNewestReplies(t *testing.T) {
 	history := []HistoryMessage{{

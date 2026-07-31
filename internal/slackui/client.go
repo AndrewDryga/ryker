@@ -46,6 +46,14 @@ var (
 	ErrSearchIncomplete = errors.New("Slack history search was incomplete")
 )
 
+func RetryAfter(err error) (time.Duration, bool) {
+	var rateLimited *slack.RateLimitedError
+	if !errors.As(err, &rateLimited) || rateLimited.RetryAfter <= 0 {
+		return 0, false
+	}
+	return rateLimited.RetryAfter, true
+}
+
 type Identity struct {
 	TeamID       string
 	BotUserID    string

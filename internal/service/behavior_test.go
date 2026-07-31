@@ -471,7 +471,9 @@ func TestStandingRuleMatcherIsTypedAndSourceAware(t *testing.T) {
 		want    bool
 	}{
 		{"terraform_plan", "Terraform plan: Plan: 1 to add, 0 to change, 0 to destroy.", true},
-		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planning", true},
+		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planning", false},
+		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planned", true},
+		{"terraform_plan", "Can you review this plan?", true},
 		{"terraform_plan", "Here is our planning document.", false},
 		{"deployment", "Production rollout completed.", true},
 		{"deployment", "The team planned a meeting.", false},
@@ -483,6 +485,10 @@ func TestStandingRuleMatcherIsTypedAndSourceAware(t *testing.T) {
 			t.Fatalf("%s match for %q = %t, want %t",
 				test.trigger, test.text, got, test.want)
 		}
+	}
+	if !terraformPlanAppAwaitingEvidence("Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planning") ||
+		terraformPlanAppAwaitingEvidence("Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planned") {
+		t.Fatal("Terraform lifecycle evidence gating is incorrect")
 	}
 	if standingRuleSourceMatches("app", "message") ||
 		!standingRuleSourceMatches("app", "bot_message") ||

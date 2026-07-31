@@ -346,7 +346,9 @@ summon or proactive channel.
 `/responder preferences` and `/responder rules` list active and disabled entries with enable,
 disable, edit, and delete controls. An enabled standing rule may admit only its deterministic
 message type even when broad proactive triage is off, then replies in the source thread without
-opening an incident. Slack events remain ordered per channel, and each rule records its source event
+opening an incident. Terraform rules ignore intermediate `Run Planning` lifecycle cards and wait
+for a planned result or explicit plan output; repository changes provide context but never replace
+the exact plan. Slack events remain ordered per channel, and each rule records its source event
 before incrementing its run count so retries cannot execute it twice. Expiry, capacity limits,
 channel deletion, repository removal, and maintenance pruning bound all durable behavior state.
 `/responder shadow` runs the classifier and records its decision, evidence, and coverage without

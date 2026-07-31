@@ -232,6 +232,13 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 			_ = s.socket.Ack(*event.Request)
 			return
 		case externalBot:
+			// HCP Terraform first posts an intermediate lifecycle card and later
+			// updates that message with the reviewable result. Do not spend a model
+			// turn or speculate while the plan is still being produced.
+			if terraformPlanAppAwaitingEvidence(message.Text) {
+				_ = s.socket.Ack(*event.Request)
+				return
+			}
 			watched, err := s.proactiveEnabled(ctx, inner.Channel)
 			if err != nil {
 				s.log.Error(

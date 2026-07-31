@@ -96,7 +96,9 @@ read-only Terraform-plan review, deployment verification, or alert triage. Respo
 the normalized behavior, scope, expiry, source filter, and safety boundary for confirmation.
 `/responder preferences` and `/responder rules` provide state-aware management. Matching rules can
 operate when broad proactive triage is off, but always reply in the source thread and never create
-an incident or authorize a mutation.
+an incident or authorize a mutation. Intermediate HCP Terraform `Run Planning` cards remain silent;
+review starts only from a planned/saved update or explicit plan output, and requires exact plan
+evidence rather than an inferred repository diff.
 
 The Messages tab is an Agent surface with host-owned suggested prompts and native progress
 indicators. Direct messages always start read-only triage even when normal-channel proactive mode

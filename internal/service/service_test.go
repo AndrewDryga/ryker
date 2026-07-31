@@ -2071,7 +2071,7 @@ func TestSocketAdmitsExternalAppsOnlyInWatchChannels(t *testing.T) {
 		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
 	}
 
-	admitBotMessage := func(envelope, eventID, channel, botID string) {
+	admitBotMessage := func(envelope, eventID, channel, botID, text string) {
 		t.Helper()
 		payload, _ := json.Marshal(map[string]any{"event_id": eventID})
 		svc.admitEventsAPI(ctx, socketmode.Event{
@@ -2080,14 +2080,14 @@ func TestSocketAdmitsExternalAppsOnlyInWatchChannels(t *testing.T) {
 				TeamID: cfg.Slack.TeamID,
 				InnerEvent: slackevents.EventsAPIInnerEvent{Data: &slackevents.MessageEvent{
 					SubType: "bot_message", BotID: botID, Channel: channel,
-					TimeStamp: "1700.4", Text: "alert notification",
+					TimeStamp: "1700.4", Text: text,
 				}},
 			},
 			Request: &socketmode.Request{EnvelopeID: envelope, Payload: payload},
 		})
 	}
 
-	admitBotMessage("env-watch", "EvWatch", "CWATCH", "BEXTERNAL")
+	admitBotMessage("env-watch", "EvWatch", "CWATCH", "BEXTERNAL", "alert notification")
 	input, err := st.LeaseSlackInput(ctx)
 	if err != nil || input.Kind != "bot_message" || input.UserID != "BEXTERNAL" ||
 		input.ChannelID != "CWATCH" {
@@ -2096,11 +2096,18 @@ func TestSocketAdmitsExternalAppsOnlyInWatchChannels(t *testing.T) {
 	if err := st.FinishSlackInput(ctx, input.ID); err != nil {
 		t.Fatal(err)
 	}
+	admitBotMessage(
+		"env-planning", "EvPlanning", "CWATCH", "BTERRAFORM",
+		"Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planning",
+	)
+	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("intermediate Terraform lifecycle message was persisted: %v", err)
+	}
 
 	if err := st.SetSlackSetting(ctx, "global", "", proactiveSettingName, "on", "U123ABC"); err != nil {
 		t.Fatal(err)
 	}
-	admitBotMessage("env-global", "EvGlobal", "CDYNAMIC", "BEXTERNAL")
+	admitBotMessage("env-global", "EvGlobal", "CDYNAMIC", "BEXTERNAL", "alert notification")
 	input, err = st.LeaseSlackInput(ctx)
 	if err != nil || input.ChannelID != "CDYNAMIC" {
 		t.Fatalf("globally watched app message = %+v, %v", input, err)
@@ -2111,14 +2118,32 @@ func TestSocketAdmitsExternalAppsOnlyInWatchChannels(t *testing.T) {
 	if err := st.SetSlackSetting(ctx, "global", "", proactiveSettingName, "off", "U123ABC"); err != nil {
 		t.Fatal(err)
 	}
-	admitBotMessage("env-global-off", "EvGlobalOff", "CWATCH", "BEXTERNAL")
-	admitBotMessage("env-other", "EvOther", "COTHER", "BEXTERNAL")
-	admitBotMessage("env-self", "EvSelf", "CWATCH", "B999BOT")
+	admitBotMessage("env-global-off", "EvGlobalOff", "CWATCH", "BEXTERNAL", "alert notification")
+	admitBotMessage("env-other", "EvOther", "COTHER", "BEXTERNAL", "alert notification")
+	admitBotMessage("env-self", "EvSelf", "CWATCH", "B999BOT", "alert notification")
 	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unwatched or self-authored app message was persisted: %v", err)
 	}
-	if socket.acks != 5 {
+	if socket.acks != 6 {
 		t.Fatalf("acks = %d", socket.acks)
+	}
+}
+
+func TestScheduledRetryHonorsSlackRetryAfter(t *testing.T) {
+	now := time.Date(2026, time.July, 31, 12, 0, 0, 0, time.UTC)
+	next, delay, rateLimited := scheduledRetryAt(
+		now,
+		1,
+		fmt.Errorf("list Slack channels: %w", &slack.RateLimitedError{
+			RetryAfter: 30 * time.Second,
+		}),
+	)
+	if !rateLimited || delay != 30*time.Second || !next.Equal(now.Add(30*time.Second)) {
+		t.Fatalf("scheduled retry = %s, %s, %t", next, delay, rateLimited)
+	}
+	next, delay, rateLimited = scheduledRetryAt(now, 1, errors.New("temporary failure"))
+	if rateLimited || delay != 0 || !next.Equal(now.Add(2*time.Second)) {
+		t.Fatalf("ordinary retry = %s, %s, %t", next, delay, rateLimited)
 	}
 }
 
@@ -2176,14 +2201,8 @@ func TestSocketAdmitsAttachmentOnlyTerraformRuleAndThreadFollowup(t *testing.T) 
 			},
 		},
 	})
-	root, err := st.LeaseSlackInput(ctx)
-	if err != nil || root.Kind != "bot_message" ||
-		!strings.Contains(root.Text, "app.terraform.io") ||
-		!strings.Contains(root.Text, "Run Planning") {
-		t.Fatalf("attachment-only Terraform root = %+v, %v", root, err)
-	}
-	if err := st.FinishSlackInput(ctx, root.ID); err != nil {
-		t.Fatal(err)
+	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("intermediate Terraform lifecycle message was persisted: %v", err)
 	}
 
 	admit("env-followup", "EvFollowup", &slackevents.MessageEvent{

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -186,7 +187,12 @@ func (s *Service) handleScheduledWork(
 			)
 		}
 	default:
-		next := queueDelay(item.Failures + 1)
+		now := time.Now().UTC()
+		next, retryAfter, rateLimited := scheduledRetryAt(
+			now,
+			item.Failures+1,
+			err,
+		)
 		if retryErr := s.store.RetryWork(
 			ctx,
 			item,
@@ -201,13 +207,35 @@ func (s *Service) handleScheduledWork(
 				"error", retryErr,
 			)
 		}
-		s.log.Error(
-			"scheduled work failed",
-			"kind", item.Kind,
-			"subject", item.SubjectID,
-			"error", err,
-		)
+		if rateLimited {
+			s.log.Warn(
+				"scheduled work rate limited",
+				"kind", item.Kind,
+				"subject", item.SubjectID,
+				"retry_after", retryAfter,
+			)
+		} else {
+			s.log.Error(
+				"scheduled work failed",
+				"kind", item.Kind,
+				"subject", item.SubjectID,
+				"error", err,
+			)
+		}
 	}
+}
+
+func scheduledRetryAt(
+	now time.Time,
+	attempt int,
+	err error,
+) (time.Time, time.Duration, bool) {
+	next := now.Add(queueDelayDuration(attempt))
+	retryAfter, rateLimited := slackui.RetryAfter(err)
+	if rateLimited && now.Add(retryAfter).After(next) {
+		next = now.Add(retryAfter)
+	}
+	return next, retryAfter, rateLimited
 }
 
 func recurringScheduledWork(kind string) bool {
@@ -233,7 +261,7 @@ func (s *Service) scheduledIdleDelay(kind string) time.Duration {
 	case workCoopPoll:
 		return s.cfg.Coop.PollInterval.Duration
 	case workSlackMembership:
-		return 10 * time.Second
+		return time.Minute
 	case workMaintenance:
 		return s.cfg.Retention.MaintenanceInterval.Duration
 	default:

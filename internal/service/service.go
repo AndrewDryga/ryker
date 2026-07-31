@@ -400,8 +400,12 @@ func (s *Service) reconcileIncidentChannel(ctx context.Context) error {
 }
 
 func queueDelay(attempt int) time.Time {
+	return time.Now().Add(queueDelayDuration(attempt))
+}
+
+func queueDelayDuration(attempt int) time.Duration {
 	seconds := math.Min(300, math.Pow(2, float64(min(max(attempt, 1), 8))))
-	return time.Now().Add(time.Duration(seconds) * time.Second)
+	return time.Duration(seconds) * time.Second
 }
 
 func terminalAttempt(attempt, maximum int) bool {
