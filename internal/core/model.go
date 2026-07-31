@@ -167,6 +167,7 @@ type SlackInput struct {
 	MessageTS   string
 	UserID      string
 	Text        string
+	Attachments []SlackAttachment
 	ActionID    string
 	ActionValue string
 	Frozen      []byte
@@ -174,6 +175,16 @@ type SlackInput struct {
 	Attempts    int
 	Failures    int
 	ReceivedAt  time.Time
+}
+
+// SlackAttachment is durable Slack-owned metadata. URLPrivate is used only by the ordered input
+// worker for an authenticated download and is never included in model prompts or Slack output.
+type SlackAttachment struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	MediaType  string `json:"media_type"`
+	Size       int64  `json:"size"`
+	URLPrivate string `json:"url_private"`
 }
 
 type ChannelConfiguration struct {

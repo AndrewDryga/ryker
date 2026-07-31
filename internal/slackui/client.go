@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"slices"
@@ -34,6 +35,8 @@ type API interface {
 	PublishHome(context.Context, string, Message) error
 	UserAllowed(context.Context, string, string) (bool, error)
 	UserGroupMembers(context.Context, string, string) ([]string, error)
+	GetFile(context.Context, string) (HistoryFile, error)
+	DownloadFile(context.Context, string, io.Writer) error
 	RecentMessages(context.Context, string, string, string, string, int) ([]HistoryMessage, error)
 	FindDeliveryMessage(context.Context, string, string, string) (string, error)
 }
@@ -77,6 +80,15 @@ type HistoryMessage struct {
 	UserID    string
 	BotID     string
 	Text      string
+	Files     []HistoryFile
+}
+
+type HistoryFile struct {
+	ID         string
+	Name       string
+	MediaType  string
+	Size       int64
+	URLPrivate string
 }
 
 type Client struct {
@@ -270,6 +282,7 @@ var requiredBotScopes = []string{
 	"channels:read",
 	"chat:write",
 	"commands",
+	"files:read",
 	"groups:history",
 	"groups:read",
 	"groups:write",
@@ -278,6 +291,21 @@ var requiredBotScopes = []string{
 	"reactions:write",
 	"usergroups:read",
 	"users:read",
+}
+
+func (c *Client) DownloadFile(ctx context.Context, downloadURL string, writer io.Writer) error {
+	return c.api.GetFileContext(ctx, downloadURL, writer)
+}
+
+func (c *Client) GetFile(ctx context.Context, fileID string) (HistoryFile, error) {
+	file, _, _, err := c.api.GetFileInfoContext(ctx, fileID, 1, 1)
+	if err != nil {
+		return HistoryFile{}, err
+	}
+	if file == nil {
+		return HistoryFile{}, errors.New("Slack returned no file information")
+	}
+	return historyFile(*file), nil
 }
 
 func splitScopes(value string) []string {
@@ -666,7 +694,9 @@ func (c *Client) RecentMessages(
 	}
 	history := make([]HistoryMessage, 0, len(messages))
 	for _, message := range messages {
-		if message.Timestamp == "" || strings.TrimSpace(message.Text) == "" {
+		files := historyFiles(message.Files)
+		if message.Timestamp == "" ||
+			(strings.TrimSpace(message.Text) == "" && len(files) == 0) {
 			continue
 		}
 		history = append(history, HistoryMessage{
@@ -675,12 +705,35 @@ func (c *Client) RecentMessages(
 			UserID:    message.User,
 			BotID:     message.BotID,
 			Text:      message.Text,
+			Files:     files,
 		})
 	}
 	if threadTS != "" {
 		history = selectThreadHistory(history, threadTS, limit)
 	}
 	return history, nil
+}
+
+func historyFiles(files []slack.File) []HistoryFile {
+	result := make([]HistoryFile, 0, len(files))
+	for _, file := range files {
+		if file.ID == "" {
+			continue
+		}
+		result = append(result, historyFile(file))
+	}
+	return result
+}
+
+func historyFile(file slack.File) HistoryFile {
+	privateURL := file.URLPrivateDownload
+	if privateURL == "" {
+		privateURL = file.URLPrivate
+	}
+	return HistoryFile{
+		ID: file.ID, Name: file.Name, MediaType: file.Mimetype,
+		Size: int64(file.Size), URLPrivate: privateURL,
+	}
 }
 
 func selectThreadHistory(

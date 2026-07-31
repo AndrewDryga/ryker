@@ -460,9 +460,12 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		}
 		if command, ok := exactCommand(text); ok {
 			err = s.handleControl(ctx, input, incident, command)
-		} else if text == "" {
+		} else if text == "" && len(input.Attachments) == 0 {
 			err = errors.New("empty Slack message")
 		} else {
+			if text == "" {
+				text = "Please inspect the attached file."
+			}
 			prompt := conversationPrompt(input.UserID, text, direct)
 			_, _, err = s.queueIncidentAgentRun(
 				ctx, incident, "slack", input.ID, input.UserID, prompt,

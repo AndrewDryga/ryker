@@ -26,6 +26,7 @@ type CoopAPI interface {
 	GetSession(context.Context, string) (coop.Session, error)
 	ListSessions(context.Context, int) ([]coop.Session, error)
 	SubmitTurn(context.Context, string, string, int64, string) (coop.Turn, coop.Operation, error)
+	SubmitTurnWithArtifacts(context.Context, string, string, int64, string, []coop.InputArtifact) (coop.Turn, coop.Operation, error)
 	GetTurn(context.Context, string, string) (coop.Turn, error)
 	Events(context.Context, string, int64, int) ([]coop.Event, error)
 	Changes(context.Context, string) (coop.Changes, error)

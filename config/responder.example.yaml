@@ -148,6 +148,11 @@ webhooks:
 
 limits:
   max_webhook_bytes: 1048576
+  # Slack files are fetched only after ordered event admission. Supported: screenshots, text,
+  # JSON/YAML/CSV, and PDF. Bytes are passed to one Coop turn and are not stored in memory.
+  max_slack_files: 4
+  max_slack_file_bytes: 8388608
+  max_slack_file_total_bytes: 8388608
   max_active_incidents: 50
   max_open_incidents: 200
   max_assistant_bytes: 12000

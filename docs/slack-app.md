@@ -28,10 +28,22 @@ to `Emisar`; it does not rename the `/responder` command or any durable internal
 Reinstall when Slack reports that the updated manifest adds an OAuth scope. The Agent experience
 adds `assistant:write` and `im:history`, while conversational channel setup uses
 bounded `conversations.list` membership reconciliation and `usergroups:read` to validate and expand
-explicitly selected incident audiences. Lightweight acknowledgements use `reactions:write`. The command,
-message shortcut, interactive controls, and subscribed events are delivered over Socket Mode and
-do not need a public request URL. The shipped manifest uses Slack's current `agent_view`; applying
-it to an older `assistant_view` app performs Slack's irreversible Messages-tab migration.
+explicitly selected incident audiences. Lightweight acknowledgements use `reactions:write`.
+Screenshot and document analysis uses `files:read`; after adding that scope, reinstall the app
+before running `responder doctor`. The command, message shortcut, interactive controls, and
+subscribed events are delivered over Socket Mode and do not need a public request URL. The shipped
+manifest uses Slack's current `agent_view`; applying it to an older `assistant_view` app performs
+Slack's irreversible Messages-tab migration.
+
+Slack messages may include up to four bounded Slack-hosted files per turn. Responder supports PNG,
+JPEG, WebP, and GIF screenshots; UTF-8 text, Markdown, CSV, JSON, and YAML; and PDF documents.
+Defaults cap each file and the whole turn at 8 MiB. The ordered worker downloads a private Slack
+URL with the bot token, verifies the Slack host, declared type, detected content, size, and SHA-256
+digest, and submits a typed read-only artifact to Coop. Private URLs and bytes never enter model
+prompts, Slack output, compact summaries, or long-term memory. Responder retains only bounded
+Slack metadata under normal operational-data retention; Coop removes the binary payload when the
+turn becomes terminal. Unsupported or misleading content fails closed with a user-visible retry
+message and does not start repository work.
 
 Slack displays only the manifest's static slash-command usage hint; it does not ask the app for
 dynamic subcommand completions. Keep the hint short. Responder provides the full command guide and

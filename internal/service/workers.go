@@ -541,6 +541,31 @@ func (s *Service) inviteUsers() []string {
 }
 
 func (s *Service) queueInitialTurn(ctx context.Context, incident core.Incident) error {
+	if incident.InitialTurnQueued {
+		return nil
+	}
+	return s.queueInitialTurnWithSource(ctx, incident, "initial", incident.ID, "")
+}
+
+func (s *Service) queueInitialTurnFromSlack(
+	ctx context.Context,
+	incident core.Incident,
+	source core.SlackInput,
+	userID string,
+) error {
+	if incident.InitialTurnQueued {
+		return nil
+	}
+	return s.queueInitialTurnWithSource(ctx, incident, "slack", source.ID, userID)
+}
+
+func (s *Service) queueInitialTurnWithSource(
+	ctx context.Context,
+	incident core.Incident,
+	sourceKind string,
+	sourceID string,
+	userID string,
+) error {
 	signals, err := s.store.ListSignals(ctx, incident.ID)
 	if err != nil {
 		return err
@@ -555,12 +580,9 @@ func (s *Service) queueInitialTurn(ctx context.Context, incident core.Incident) 
 		return err
 	}
 	if _, _, err := s.queueIncidentAgentRun(
-		ctx, incident, "initial", incident.ID, "", prompt,
+		ctx, incident, sourceKind, sourceID, userID, prompt,
 	); err != nil {
 		return err
-	}
-	if incident.InitialTurnQueued {
-		return nil
 	}
 	err = s.store.MarkInitialTurnQueued(ctx, incident.ID)
 	if errors.Is(err, store.ErrConflict) {

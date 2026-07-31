@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -2956,12 +2957,16 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	const screenshotURL = "https://files.slack.com/files-pri/T-F/task.png"
 	st, err := store.Open(cfg.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	slackClient := &fakeSlack{dedupePosts: true}
+	slackClient := &fakeSlack{
+		dedupePosts: true,
+		files:       map[string][]byte{screenshotURL: testPNG},
+	}
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 			"action":"reply",
@@ -2981,6 +2986,10 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		EventID: "event-engineering-request", Kind: "message", TeamID: cfg.Slack.TeamID,
 		ChannelID: "CWATCH", MessageTS: "1700.900", UserID: "U123ABC",
 		Text: "Change infra/ to install every pack our production topology needs.",
+		Attachments: []core.SlackAttachment{{
+			ID: "FTASK", Name: "task.png", MediaType: "image/png",
+			Size: int64(len(testPNG)), URLPrivate: screenshotURL,
+		}},
 	}
 	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
 		t.Fatalf("admit source = %v, %v", created, err)
@@ -3128,6 +3137,11 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		t.Fatal(err)
 	}
 	taskPrompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
+	taskArtifacts := coopClient.submitArtifacts[len(coopClient.submitArtifacts)-1]
+	if len(taskArtifacts) != 1 || taskArtifacts[0].Name != "task.png" ||
+		string(taskArtifacts[0].Data) != string(testPNG) {
+		t.Fatalf("engineering task lost source attachment = %+v", taskArtifacts)
+	}
 	for _, required := range []string{
 		"Complete this operator-approved engineering task",
 		"File edits, tests, and commits are allowed",
@@ -4217,6 +4231,7 @@ type fakeCoop struct {
 	openAfterCreateKey string
 	submitKeys         []string
 	submitPrompts      []string
+	submitArtifacts    [][]coop.InputArtifact
 	submitState        string
 	completeOnSubmit   string
 	completeQueue      []string
@@ -4301,8 +4316,22 @@ func (f *fakeCoop) GetSession(context.Context, string) (coop.Session, error) {
 	return f.session, nil
 }
 func (f *fakeCoop) SubmitTurn(_ context.Context, key, _ string, _ int64, prompt string) (coop.Turn, coop.Operation, error) {
+	return f.SubmitTurnWithArtifacts(
+		context.Background(), key, "", 0, prompt, nil,
+	)
+}
+
+func (f *fakeCoop) SubmitTurnWithArtifacts(
+	_ context.Context,
+	key string,
+	_ string,
+	_ int64,
+	prompt string,
+	artifacts []coop.InputArtifact,
+) (coop.Turn, coop.Operation, error) {
 	f.submitKeys = append(f.submitKeys, key)
 	f.submitPrompts = append(f.submitPrompts, prompt)
+	f.submitArtifacts = append(f.submitArtifacts, artifacts)
 	state := f.submitState
 	if state == "" {
 		state = "running"
@@ -4594,6 +4623,12 @@ type fakeSlack struct {
 	historyRequests    []slackHistoryRequest
 	channels           []slackui.Channel
 	listChannelsErr    error
+	files              map[string][]byte
+	fileInfo           map[string]slackui.HistoryFile
+	fileInfoRequests   []string
+	fileInfoErr        error
+	downloadErr        error
+	downloads          []string
 }
 
 type fakeSocket struct {
@@ -4719,6 +4754,29 @@ func (f *fakeSlack) UserAllowed(context.Context, string, string) (bool, error) {
 }
 func (f *fakeSlack) UserGroupMembers(context.Context, string, string) ([]string, error) {
 	return []string{"UOPERATOR"}, nil
+}
+func (f *fakeSlack) GetFile(_ context.Context, fileID string) (slackui.HistoryFile, error) {
+	f.fileInfoRequests = append(f.fileInfoRequests, fileID)
+	if f.fileInfoErr != nil {
+		return slackui.HistoryFile{}, f.fileInfoErr
+	}
+	file, ok := f.fileInfo[fileID]
+	if !ok {
+		return slackui.HistoryFile{}, errors.New("missing fake Slack file info")
+	}
+	return file, nil
+}
+func (f *fakeSlack) DownloadFile(_ context.Context, fileURL string, writer io.Writer) error {
+	f.downloads = append(f.downloads, fileURL)
+	if f.downloadErr != nil {
+		return f.downloadErr
+	}
+	data, ok := f.files[fileURL]
+	if !ok {
+		return errors.New("missing fake Slack file")
+	}
+	_, err := writer.Write(data)
+	return err
 }
 func (f *fakeSlack) RecentMessages(
 	_ context.Context,

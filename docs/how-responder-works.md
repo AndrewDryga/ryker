@@ -204,6 +204,13 @@ sequenceDiagram
   W->>C: Refresh current session state
   C-->>W: Open / exhausted / terminal + revision
 
+  opt Target message has supported Slack files
+    W->>S: Authenticated bounded file download
+    S-->>W: Private bytes
+    W->>W: Verify Slack host, size, media type,<br/>content signature, and SHA-256
+    W->>C: Submit typed image/resource artifacts<br/>with the text prompt
+  end
+
   alt Terminal session
     W->>DB: Detach session, preserve compact memory
     W->>DB: Queue owned-session cleanup
@@ -246,6 +253,13 @@ sequenceDiagram
   W->>DB: Finish agent run<br/>commitment becomes done or blocked
   W->>S: Deliver queued post/update/status
 ```
+
+Attachment bytes are deliberately turn-scoped. Responder stores Slack-owned file metadata so a
+durable retry can repeat the authenticated download, but it never serializes a private URL or file
+body into the prompt, compact conversation memory, evidence ledger, or Slack response. Coop stores
+the bounded payload only until the turn completes, fails, or is cancelled, then deletes it. When a
+triage answer offers an engineering task, accepting that offer queues the initial writable turn
+against the original Slack input so the same screenshot or document reaches the isolated task fork.
 
 The model does not return arbitrary Slack blocks. It returns a strict decision envelope containing
 prose, evidence, coverage, compact memory, and at most one inert offer. Responder owns buttons,

@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 18
+const currentSchemaVersion = 19
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -849,6 +849,11 @@ CREATE INDEX conversation_memories_repository_idx
   ON conversation_memories(repository, updated_at DESC);
 `
 
+const schemaV19 = `
+ALTER TABLE slack_inputs
+  ADD COLUMN attachments_json BLOB NOT NULL DEFAULT '[]';
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -868,4 +873,5 @@ var migrations = []string{
 	schemaV16,
 	schemaV17,
 	schemaV18,
+	schemaV19,
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -164,6 +165,7 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 		input.MessageTS = inner.TimeStamp
 		input.UserID = inner.User
 		input.Text = inner.Text
+		input.Attachments = slackInputAttachments(inner.Files)
 	case *slackevents.MessageEvent:
 		if inner == nil || foreignSource(inner.SourceTeam, outer.TeamID) {
 			_ = s.socket.Ack(*event.Request)
@@ -233,6 +235,9 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 		input.ThreadTS = inner.ThreadTimeStamp
 		input.MessageTS = inner.TimeStamp
 		input.Text = inner.Text
+		if inner.Message != nil {
+			input.Attachments = slackInputAttachments(inner.Message.Files)
+		}
 		if input.Kind == "message" {
 			admit, err := s.shouldAdmitChannelMessage(ctx, input)
 			if err != nil {
@@ -260,6 +265,25 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 	if err := s.socket.Ack(*event.Request); err != nil {
 		s.log.Warn("acknowledge Slack event", "envelope", envelopeID, "error", err)
 	}
+}
+
+func slackInputAttachments(files []slack.File) []core.SlackAttachment {
+	result := make([]core.SlackAttachment, 0, len(files))
+	for _, file := range files {
+		downloadURL := strings.TrimSpace(firstNonempty(file.URLPrivateDownload, file.URLPrivate))
+		name := strings.TrimSpace(filepath.Base(file.Name))
+		if name == "" || name == "." {
+			name = "attachment"
+		}
+		if file.ID == "" {
+			continue
+		}
+		result = append(result, core.SlackAttachment{
+			ID: file.ID, Name: name, MediaType: strings.TrimSpace(file.Mimetype),
+			Size: int64(file.Size), URLPrivate: downloadURL,
+		})
+	}
+	return result
 }
 
 func (s *Service) shouldAdmitChannelMessage(
@@ -360,6 +384,7 @@ func (s *Service) admitInteraction(ctx context.Context, event socketmode.Event) 
 			MessageTS:   callback.Message.Timestamp,
 			UserID:      callback.User.ID,
 			Text:        callback.Message.Text,
+			Attachments: slackInputAttachments(callback.Message.Files),
 			ActionID:    callback.CallbackID,
 			ActionValue: callback.Message.User,
 			ReceivedAt:  time.Now().UTC(),

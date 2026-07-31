@@ -56,15 +56,22 @@ type watchTurnState struct {
 }
 
 type watchContextMessage struct {
-	MessageTS         string `json:"message_ts"`
-	ThreadTS          string `json:"thread_ts,omitempty"`
-	SenderID          string `json:"sender_id"`
-	SenderType        string `json:"sender_type"`
-	Text              string `json:"text"`
-	MentionsResponder bool   `json:"mentions_responder,omitempty"`
-	RequestedBy       string `json:"requested_by,omitempty"`
-	Continuation      bool   `json:"conversation_continuation,omitempty"`
-	Target            bool   `json:"target,omitempty"`
+	MessageTS         string                   `json:"message_ts"`
+	ThreadTS          string                   `json:"thread_ts,omitempty"`
+	SenderID          string                   `json:"sender_id"`
+	SenderType        string                   `json:"sender_type"`
+	Text              string                   `json:"text"`
+	Attachments       []watchContextAttachment `json:"attachments,omitempty"`
+	MentionsResponder bool                     `json:"mentions_responder,omitempty"`
+	RequestedBy       string                   `json:"requested_by,omitempty"`
+	Continuation      bool                     `json:"conversation_continuation,omitempty"`
+	Target            bool                     `json:"target,omitempty"`
+}
+
+type watchContextAttachment struct {
+	Name      string `json:"name"`
+	MediaType string `json:"media_type"`
+	Size      int64  `json:"size"`
 }
 
 type watchDecision struct {
@@ -799,6 +806,11 @@ func (s *Service) createWatchedWork(
 		IncidentID: incident.ID, Kind: auditKind, ActorID: trigger.UserID,
 		ObjectID: trigger.ID, Outcome: outcome, Detail: title,
 	})
+	if created {
+		if err := s.queueInitialTurnFromSlack(ctx, incident, source, trigger.UserID); err != nil {
+			return err
+		}
+	}
 	return s.finishInputIfOpen(ctx, trigger)
 }
 
@@ -1490,9 +1502,24 @@ func watchPromptMessage(
 		senderID = firstNonempty(input.ActionValue, input.UserID)
 		requestedBy = input.UserID
 	}
+	attachments := make([]watchContextAttachment, 0, len(input.Attachments))
+	for _, attachment := range input.Attachments {
+		attachments = append(attachments, watchContextAttachment{
+			Name:      safeAttachmentName(attachment.Name, attachment.ID),
+			MediaType: attachment.MediaType,
+			Size:      attachment.Size,
+		})
+	}
+	if text == "" && len(attachments) > 0 {
+		if len(attachments) == 1 {
+			text = "Attached file for inspection."
+		} else {
+			text = fmt.Sprintf("%d attached files for inspection.", len(attachments))
+		}
+	}
 	return watchContextMessage{
 		MessageTS: input.MessageTS, ThreadTS: input.ThreadTS,
-		SenderID: senderID, SenderType: senderType, Text: text,
+		SenderID: senderID, SenderType: senderType, Text: text, Attachments: attachments,
 		MentionsResponder: mentionsResponder, RequestedBy: requestedBy, Target: target,
 	}
 }

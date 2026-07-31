@@ -97,6 +97,44 @@ func TestRecentMessagesPaginatesOldThreadAndReturnsNewestTail(t *testing.T) {
 	}
 }
 
+func TestRecentMessagesKeepsFileOnlyContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{
+		  "ok":true,
+		  "messages":[{
+		    "ts":"1700.000100",
+		    "text":"",
+		    "user":"U1",
+		    "files":[{
+		      "id":"F1",
+		      "name":"failure.png",
+		      "mimetype":"image/png",
+		      "size":1234,
+		      "url_private":"https://files.slack.com/files-pri/T-F/failure.png"
+		    }]
+		  }]
+		}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+	history, err := client.RecentMessages(
+		context.Background(), "COPS", "", "1700.000100", "", 10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || history[0].Text != "" ||
+		len(history[0].Files) != 1 ||
+		history[0].Files[0].Name != "failure.png" {
+		t.Fatalf("file-only history = %+v", history)
+	}
+}
+
 type shippedSlackManifest struct {
 	Metadata struct {
 		MajorVersion int `yaml:"major_version"`

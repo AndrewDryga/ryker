@@ -204,6 +204,9 @@ type GenericMapping struct {
 
 type Limits struct {
 	MaxWebhookBytes          int      `yaml:"max_webhook_bytes"`
+	MaxSlackFiles            int      `yaml:"max_slack_files"`
+	MaxSlackFileBytes        int      `yaml:"max_slack_file_bytes"`
+	MaxSlackFileTotalBytes   int      `yaml:"max_slack_file_total_bytes"`
 	MaxActiveIncidents       int      `yaml:"max_active_incidents"`
 	MaxOpenIncidents         int      `yaml:"max_open_incidents"`
 	MaxAssistantBytes        int      `yaml:"max_assistant_bytes"`
@@ -275,6 +278,9 @@ func defaults() Config {
 		},
 		Limits: Limits{
 			MaxWebhookBytes:          1 << 20,
+			MaxSlackFiles:            4,
+			MaxSlackFileBytes:        8 << 20,
+			MaxSlackFileTotalBytes:   8 << 20,
 			MaxActiveIncidents:       50,
 			MaxOpenIncidents:         200,
 			MaxAssistantBytes:        12000,
@@ -555,6 +561,16 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.MaxWebhookBytes < 1024 || c.Limits.MaxWebhookBytes > 8<<20 {
 		return errors.New("limits.max_webhook_bytes must be between 1024 and 8388608")
+	}
+	if c.Limits.MaxSlackFiles < 1 || c.Limits.MaxSlackFiles > 4 {
+		return errors.New("limits.max_slack_files must be between 1 and 4")
+	}
+	if c.Limits.MaxSlackFileBytes < 64<<10 || c.Limits.MaxSlackFileBytes > 8<<20 {
+		return errors.New("limits.max_slack_file_bytes must be between 65536 and 8388608")
+	}
+	if c.Limits.MaxSlackFileTotalBytes < c.Limits.MaxSlackFileBytes ||
+		c.Limits.MaxSlackFileTotalBytes > 8<<20 {
+		return errors.New("limits.max_slack_file_total_bytes must be between max_slack_file_bytes and 8388608")
 	}
 	if c.Limits.MaxActiveIncidents < 1 || c.Limits.MaxActiveIncidents > 10000 {
 		return errors.New("limits.max_active_incidents must be between 1 and 10000")

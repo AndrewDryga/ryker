@@ -99,6 +99,13 @@ type Turn struct {
 	FinishedAt       time.Time `json:"finished_at,omitempty"`
 }
 
+type InputArtifact struct {
+	Name      string `json:"name"`
+	MediaType string `json:"media_type"`
+	SHA256    string `json:"sha256"`
+	Data      []byte `json:"data"`
+}
+
 type Event struct {
 	ID         string    `json:"id"`
 	SessionID  string    `json:"session_id"`
@@ -271,10 +278,21 @@ func (c *Client) ListSessions(ctx context.Context, limit int) ([]Session, error)
 }
 
 func (c *Client) SubmitTurn(ctx context.Context, key, sessionID string, expectedRevision int64, prompt string) (Turn, Operation, error) {
+	return c.SubmitTurnWithArtifacts(ctx, key, sessionID, expectedRevision, prompt, nil)
+}
+
+func (c *Client) SubmitTurnWithArtifacts(
+	ctx context.Context,
+	key, sessionID string,
+	expectedRevision int64,
+	prompt string,
+	artifacts []InputArtifact,
+) (Turn, Operation, error) {
 	var response turnResponse
 	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/turns", key, map[string]any{
 		"expected_revision": expectedRevision,
 		"prompt":            prompt,
+		"artifacts":         artifacts,
 	}, &response)
 	return response.Turn, response.Operation, err
 }

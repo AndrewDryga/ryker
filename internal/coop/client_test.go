@@ -2,7 +2,9 @@ package coop
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -48,6 +50,52 @@ func TestClientUsesUnixSocketAndExactMutationHeaders(t *testing.T) {
 	}
 	if session.ID != "ses_1" || operation.ID != "op_1" {
 		t.Fatalf("response = %+v %+v", session, operation)
+	}
+}
+
+func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	data := []byte("screenshot")
+	digest := sha256.Sum256(data)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			ExpectedRevision int64           `json:"expected_revision"`
+			Prompt           string          `json:"prompt"`
+			Artifacts        []InputArtifact `json:"artifacts"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body.ExpectedRevision != 2 || body.Prompt != "inspect it" ||
+			len(body.Artifacts) != 1 ||
+			string(body.Artifacts[0].Data) != string(data) ||
+			body.Artifacts[0].SHA256 != fmt.Sprintf("%x", digest) {
+			t.Errorf("turn body = %+v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "operation":{"id":"op_turn","method":"SubmitTurn","state":"succeeded"},
+		  "turn":{"id":"turn_1","session_id":"ses_1","state":"queued"}
+		}`))
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	client := New(socket, time.Second)
+	turn, operation, err := client.SubmitTurnWithArtifacts(
+		context.Background(), "turn-1", "ses_1", 2, "inspect it",
+		[]InputArtifact{{
+			Name: "bug.png", MediaType: "image/png",
+			SHA256: fmt.Sprintf("%x", digest), Data: data,
+		}},
+	)
+	if err != nil || turn.ID != "turn_1" || operation.ID != "op_turn" {
+		t.Fatalf("response = %+v %+v, %v", turn, operation, err)
 	}
 }
 

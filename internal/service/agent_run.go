@@ -152,6 +152,12 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 func commitmentTitleForInput(input core.SlackInput) string {
 	text := strings.TrimSpace(boundedOperatorText(input.Text))
 	if text == "" {
+		if len(input.Attachments) > 0 {
+			if len(input.Attachments) == 1 {
+				return "Inspect an attached file"
+			}
+			return fmt.Sprintf("Inspect %d attached files", len(input.Attachments))
+		}
 		switch input.Kind {
 		case "bot_message":
 			return "Review an app notification"
@@ -345,12 +351,19 @@ func (s *Service) prepareIncidentAgentRun(
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, true)
 	}
-	turn, _, err := s.coop.SubmitTurn(
+	artifacts, err := s.agentRunArtifacts(ctx, run)
+	if err != nil {
+		return s.retryIncidentAgentRun(
+			ctx, run, incident, err, permanentSlackAttachmentError(err),
+		)
+	}
+	turn, _, err := s.coop.SubmitTurnWithArtifacts(
 		ctx,
 		run.IdempotencyKey,
 		incident.CoopSessionID,
 		revision,
 		prompt+"\n\n"+s.structuredResponsePolicy(),
+		artifacts,
 	)
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, !coop.Retryable(err))
@@ -578,7 +591,11 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	turn, _, err := s.coop.SubmitTurn(
+	artifacts, err := s.agentRunArtifacts(ctx, run)
+	if err != nil {
+		return s.retryAgentRun(ctx, run, err)
+	}
+	turn, _, err := s.coop.SubmitTurnWithArtifacts(
 		ctx,
 		run.IdempotencyKey,
 		session.ID,
@@ -595,6 +612,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.MatchedRules,
 		)+"\n\n"+repositorySetPrompt(session)+
 			watchDecisionCorrectionPrompt(state.FailureDetail),
+		artifacts,
 	)
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
@@ -623,6 +641,9 @@ func (s *Service) retryAgentRun(
 	terminal := terminalAttempt(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts)
 	var apiErr *coop.APIError
 	if errors.As(cause, &apiErr) && !apiErr.Retryable() {
+		terminal = true
+	}
+	if permanentSlackAttachmentError(cause) {
 		terminal = true
 	}
 	if run.Mode == core.AgentRunTriage && terminal {

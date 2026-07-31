@@ -199,10 +199,17 @@ func mergeSlackContext(
 			}
 		}
 		if _, exists := byTimestamp[message.Timestamp]; !exists {
+			attachments := make([]core.SlackAttachment, 0, len(message.Files))
+			for _, file := range message.Files {
+				attachments = append(attachments, core.SlackAttachment{
+					ID: file.ID, Name: file.Name, MediaType: file.MediaType,
+					Size: file.Size, URLPrivate: file.URLPrivate,
+				})
+			}
 			byTimestamp[message.Timestamp] = core.SlackInput{
 				Kind: kind, ChannelID: target.ChannelID,
 				ThreadTS: message.ThreadTS, MessageTS: message.Timestamp,
-				UserID: userID, Text: message.Text,
+				UserID: userID, Text: message.Text, Attachments: attachments,
 			}
 		}
 	}

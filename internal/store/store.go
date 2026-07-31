@@ -1845,6 +1845,10 @@ func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (boo
 		}
 	}
 	now := nowText()
+	attachments, err := json.Marshal(input.Attachments)
+	if err != nil {
+		return false, fmt.Errorf("encode Slack input attachments: %w", err)
+	}
 	received := input.ReceivedAt
 	if received.IsZero() {
 		received = time.Now().UTC()
@@ -1852,11 +1856,12 @@ func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (boo
 	result, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO slack_inputs
 		  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
-		   user_id, text, action_id, action_value, state, next_attempt_at, received_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		   user_id, text, action_id, action_value, attachments_json, state, next_attempt_at,
+		   received_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
 		input.ID, input.EnvelopeID, input.EventID, input.Kind, input.TeamID, input.ChannelID,
 		input.ThreadTS, input.MessageTS, input.UserID, input.Text, input.ActionID,
-		input.ActionValue, now, received.UTC().Format(timestampFormat), now)
+		input.ActionValue, attachments, now, received.UTC().Format(timestampFormat), now)
 	if err != nil {
 		return false, fmt.Errorf("admit Slack input: %w", err)
 	}
@@ -1875,7 +1880,7 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 			SELECT candidate.id, candidate.envelope_id, candidate.event_id, candidate.kind,
 			  candidate.team_id, candidate.channel_id, candidate.thread_ts, candidate.message_ts,
 			  candidate.user_id, candidate.text, candidate.action_id, candidate.action_value,
-			  candidate.frozen_json, candidate.state, candidate.attempts,
+			  candidate.attachments_json, candidate.frozen_json, candidate.state, candidate.attempts,
 			  candidate.failure_count, candidate.received_at
 			FROM slack_inputs AS candidate
 			WHERE candidate.state IN ('pending', 'retry')
@@ -1942,8 +1947,8 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 func (s *Store) GetSlackInput(ctx context.Context, id string) (core.SlackInput, error) {
 	return scanSlackInput(s.db.QueryRowContext(ctx, `
 		SELECT id, envelope_id, event_id, kind, team_id, channel_id, thread_ts,
-		  message_ts, user_id, text, action_id, action_value, frozen_json, state, attempts,
-		  failure_count, received_at
+		  message_ts, user_id, text, action_id, action_value, attachments_json,
+		  frozen_json, state, attempts, failure_count, received_at
 		FROM slack_inputs WHERE id = ?`, id))
 }
 
@@ -1958,7 +1963,7 @@ func (s *Store) ListRecentWatchMessages(
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT input.id, input.envelope_id, input.event_id, input.kind, input.team_id,
 		  input.channel_id, input.thread_ts, input.message_ts, input.user_id, input.text,
-			  input.action_id, input.action_value, input.frozen_json, input.state,
+			  input.action_id, input.action_value, input.attachments_json, input.frozen_json, input.state,
 			  input.attempts, input.failure_count, input.received_at
 		FROM slack_inputs AS input
 		WHERE input.channel_id = ?
@@ -2094,10 +2099,11 @@ func (s *Store) HasRecentWatchReply(
 func scanSlackInput(row interface{ Scan(...any) error }) (core.SlackInput, error) {
 	var input core.SlackInput
 	var received string
+	var attachments []byte
 	err := row.Scan(
 		&input.ID, &input.EnvelopeID, &input.EventID, &input.Kind, &input.TeamID,
 		&input.ChannelID, &input.ThreadTS, &input.MessageTS, &input.UserID, &input.Text,
-		&input.ActionID, &input.ActionValue, &input.Frozen, &input.State, &input.Attempts,
+		&input.ActionID, &input.ActionValue, &attachments, &input.Frozen, &input.State, &input.Attempts,
 		&input.Failures, &received,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -2105,6 +2111,11 @@ func scanSlackInput(row interface{ Scan(...any) error }) (core.SlackInput, error
 	}
 	if err != nil {
 		return core.SlackInput{}, err
+	}
+	if len(attachments) > 0 {
+		if err := json.Unmarshal(attachments, &input.Attachments); err != nil {
+			return core.SlackInput{}, fmt.Errorf("decode Slack input attachments: %w", err)
+		}
 	}
 	input.ReceivedAt = parseTime(received)
 	return input, nil
