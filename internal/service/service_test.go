@@ -2100,8 +2100,12 @@ func TestSocketAdmitsExternalAppsOnlyInWatchChannels(t *testing.T) {
 		"env-planning", "EvPlanning", "CWATCH", "BTERRAFORM",
 		"Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planning",
 	)
-	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("intermediate Terraform lifecycle message was persisted: %v", err)
+	input, err = st.LeaseSlackInput(ctx)
+	if err != nil || input.EventID != "EvPlanning" {
+		t.Fatalf("Terraform lifecycle message = %+v, %v", input, err)
+	}
+	if err := st.FinishSlackInput(ctx, input.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := st.SetSlackSetting(ctx, "global", "", proactiveSettingName, "on", "U123ABC"); err != nil {
@@ -2201,8 +2205,13 @@ func TestSocketAdmitsAttachmentOnlyTerraformRuleAndThreadFollowup(t *testing.T) 
 			},
 		},
 	})
-	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("intermediate Terraform lifecycle message was persisted: %v", err)
+	pending, err := st.LeaseSlackInput(ctx)
+	if err != nil || pending.Kind != "bot_message" ||
+		!strings.Contains(pending.Text, "Run Planning") {
+		t.Fatalf("intermediate Terraform lifecycle message = %+v, %v", pending, err)
+	}
+	if err := st.FinishSlackInput(ctx, pending.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	admit("env-followup", "EvFollowup", &slackevents.MessageEvent{

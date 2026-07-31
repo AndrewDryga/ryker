@@ -95,10 +95,11 @@ investigation depth or response detail; a supported standing rule subscribes one
 read-only Terraform-plan review, deployment verification, or alert triage. Responder first renders
 the normalized behavior, scope, expiry, source filter, and safety boundary for confirmation.
 `/responder preferences` and `/responder rules` provide state-aware management. Matching rules can
-operate when broad proactive triage is off, but always reply in the source thread and never create
-an incident or authorize a mutation. Intermediate HCP Terraform `Run Planning` cards remain silent;
-review starts only from a planned/saved update or explicit plan output, and requires exact plan
-evidence rather than an inferred repository diff.
+operate when broad proactive triage is off, but never create an incident or authorize a mutation.
+A match asks the model to evaluate the event instead of forcing a reply: it can ignore intermediate
+or duplicate lifecycle events, react when sufficient, or reply in the source thread when useful.
+Terraform review requires exact plan evidence from the message or a read-only tool rather than an
+inferred repository diff.
 
 The Messages tab is an Agent surface with host-owned suggested prompts and native progress
 indicators. Direct messages always start read-only triage even when normal-channel proactive mode

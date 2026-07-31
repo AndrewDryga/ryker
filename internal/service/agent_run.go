@@ -1232,17 +1232,12 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		}
 		return s.store.FinishAgentRun(ctx, run.ID)
 	}
-	if len(state.MatchedRules) > 0 && decision.Action != "reply" {
-		detail := "standing rule result must be a read-only threaded reply"
-		if failErr := s.finishTriageRunFailure(
-			ctx, run, input, state, detail,
-		); failErr != nil {
-			return failErr
-		}
-		if err := s.store.FailAgentRunFinalization(ctx, run.ID, detail); err != nil {
-			return err
-		}
-		return s.store.FinishAgentRun(ctx, run.ID)
+	if len(state.MatchedRules) > 0 &&
+		decision.Action != "ignore" && decision.Action != "react" && decision.Action != "reply" {
+		decision = suppressWatchDecision(
+			decision,
+			"host standing-rule policy suppressed an outcome outside ignore, react, or reply",
+		)
 	}
 	if err := s.applyWatchDecision(ctx, input, state, decision); err != nil {
 		return err

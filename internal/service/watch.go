@@ -693,13 +693,6 @@ func (s *Service) applyWatchDecision(
 		); err != nil {
 			return err
 		}
-		for _, rule := range state.MatchedRules {
-			if _, err := s.store.RecordStandingRuleRun(
-				ctx, rule.ID, input.ID, input.EventID, "replied",
-			); err != nil {
-				return err
-			}
-		}
 		_ = s.store.Audit(ctx, core.AuditEvent{
 			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
 			Outcome: outcome, Detail: input.ChannelID,
@@ -757,6 +750,13 @@ func (s *Service) applyWatchDecision(
 		})
 	default:
 		return fmt.Errorf("unsupported watch decision %q", decision.Action)
+	}
+	for _, rule := range state.MatchedRules {
+		if _, err := s.store.RecordStandingRuleRun(
+			ctx, rule.ID, input.ID, input.EventID, decision.Action,
+		); err != nil {
+			return err
+		}
 	}
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return err

@@ -162,9 +162,11 @@ Important routing behavior:
 - Messages already bound to an incident room or engineering-task thread stay in that conversation.
 - Broad proactivity and deterministic standing rules are separate. A rule can admit its matching
   event while general proactive triage is off.
-- HCP Terraform `Run Planning` lifecycle cards are acknowledged without a model turn. A later
-  planned/saved update can trigger the rule, and only the exact plan or a read-only lookup of that
-  run may support plan findings; commit history is context, not a substitute.
+- A typed standing-rule match starts a model evaluation but does not force speech. The model may
+  ignore an intermediate or duplicate event, react, or reply when the message and read-only tools
+  provide a useful result. Later lifecycle updates are evaluated fresh. Terraform findings still
+  require the exact plan or a read-only lookup of that run; commit history is context, not a
+  substitute.
 - Human senders must be active full workspace members. Incident steering and confirmations require
   a configured operator.
 - Responder ignores its own posts, foreign-workspace events, unsupported subtypes, guests, and

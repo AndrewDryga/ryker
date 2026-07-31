@@ -220,7 +220,7 @@ The customer journeys are distributed across package tests at the boundary that 
 | A human question replies in place without automatically creating an incident | `internal/service/service_test.go` |
 | Nearby messages provide ordered context and late work cannot reply out of order | `internal/service/service_test.go`, `internal/store/work_test.go` |
 | Preferences and standing rules are inert until confirmed and remain read-only | `internal/service/behavior_test.go`, `internal/store/behavior_test.go` |
-| Terraform lifecycle placeholders stay silent until exact plan evidence can be reviewed | `internal/service/behavior_test.go`, `internal/service/service_test.go` |
+| Matched standing rules can ignore intermediate lifecycle events and act on later evidence | `internal/service/behavior_test.go`, `internal/service/service_test.go`, `testdata/eval/proactive.jsonl` |
 | Evidence, coverage, approvals, and Slack controls are host validated | `internal/service/report_test.go`, `internal/slackui/message_test.go` |
 | Draft PR publication uses the exact reviewed task tree and is unavailable to incidents | `internal/service/customer_journey_test.go`, `internal/publisher/github_test.go` |
 | Interrupted work resumes, retries remain bounded, and cleanup preserves unpublished changes | `internal/service/service_test.go`, `internal/store/work_test.go` |

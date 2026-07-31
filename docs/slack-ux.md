@@ -245,13 +245,13 @@ channel-scoped and match only Terraform plans, deployments, or operational alert
 configured `human`, `app`, or `any` source.
 
 An enabled standing rule can admit only its matching message type when broad proactive triage is
-off. The resulting turn uses the current channel transcript and available read-only tools, shows
-native pending progress, and must reply in the source message's thread. It cannot silently convert
-the message into an incident. Terraform `Run Planning` cards are lifecycle placeholders and remain
-silent. A later planned/saved update can trigger review; the exact plan must come from the message
-or an available read-only tool, never an inferred repository diff. The channel queue preserves
-Slack timestamp order, and a durable rule/source-event key prevents duplicate execution after
-redelivery or restart. Shadow mode records
+off. The resulting turn uses the current channel transcript and available read-only tools. A match
+is an evaluation request, not an order to reply: the model may ignore an intermediate or duplicate
+event, react when that is sufficient, or reply in the source thread when it has a useful result. It
+cannot silently convert the message into an incident. Later lifecycle updates are evaluated fresh.
+For Terraform review, the exact plan must come from the message or an available read-only tool,
+never an inferred repository diff. The channel queue preserves Slack timestamp order, and a
+durable rule/source-event key prevents duplicate execution after redelivery or restart. Shadow mode records
 the matched decision and run without posting.
 
 When a watched-channel run starts, Responder queues a native thread status explaining that it is

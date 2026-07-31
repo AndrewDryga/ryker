@@ -458,6 +458,42 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 		!strings.Contains(lastPost.message.Text, "destructive operation") {
 		t.Fatalf("standing rule reply = %+v", lastPost)
 	}
+	postsAfterReview := len(slackClient.posts)
+	pending := core.SlackInput{
+		ID: "slack_plan_pending", EnvelopeID: "env_plan_pending", EventID: "EvPlanPending",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1700.401", UserID: "BTERRAFORM",
+		Text: "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\n" +
+			"Run run-pending\nRun Planning",
+	}
+	if created, err := st.AdmitSlackInput(ctx, pending); err != nil || !created {
+		t.Fatalf("admit pending plan = %t, %v", created, err)
+	}
+	coopClient.completeOnSubmit = `{
+	  "action":"ignore",
+	  "reason":"the plan is still being produced and has no reviewable result yet"
+	}`
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != postsAfterReview {
+		t.Fatalf("pending lifecycle event posted a Slack reply: %+v", slackClient.posts[postsAfterReview:])
+	}
+	rule, err = st.GetStandingRule(ctx, rules[0].ID)
+	if err != nil || rule.TriggerCount != 2 {
+		t.Fatalf("rule executions after silent evaluation = %+v, %v", rule, err)
+	}
+	pendingPrompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
+	for _, expected := range []string{
+		"A match is a request to evaluate the event, not an instruction to speak",
+		"action=ignore",
+		"Run Planning",
+	} {
+		if !strings.Contains(pendingPrompt, expected) {
+			t.Fatalf("pending rule prompt lacks %q:\n%s", expected, pendingPrompt)
+		}
+	}
 	incidents, err := st.ListIncidents(ctx, 20)
 	if err != nil || len(incidents) != 0 {
 		t.Fatalf("standing rule created work = %+v, %v", incidents, err)
@@ -471,7 +507,7 @@ func TestStandingRuleMatcherIsTypedAndSourceAware(t *testing.T) {
 		want    bool
 	}{
 		{"terraform_plan", "Terraform plan: Plan: 1 to add, 0 to change, 0 to destroy.", true},
-		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planning", false},
+		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planning", true},
 		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planned", true},
 		{"terraform_plan", "Can you review this plan?", true},
 		{"terraform_plan", "Here is our planning document.", false},
@@ -485,10 +521,6 @@ func TestStandingRuleMatcherIsTypedAndSourceAware(t *testing.T) {
 			t.Fatalf("%s match for %q = %t, want %t",
 				test.trigger, test.text, got, test.want)
 		}
-	}
-	if !terraformPlanAppAwaitingEvidence("Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planning") ||
-		terraformPlanAppAwaitingEvidence("Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planned") {
-		t.Fatal("Terraform lifecycle evidence gating is incorrect")
 	}
 	if standingRuleSourceMatches("app", "message") ||
 		!standingRuleSourceMatches("app", "bot_message") ||

@@ -349,13 +349,6 @@ func evaluateCaseWithConfig(
 			}
 		}
 	}
-	if len(testCase.StandingRules) > 0 && action != "reply" {
-		result.Detail = fmt.Sprintf(
-			"matched standing rule action = %q, want read-only reply",
-			action,
-		)
-		return result
-	}
 	if testCase.WantOffer != "" && offer != testCase.WantOffer {
 		result.Detail = fmt.Sprintf("offer = %q, want %q", offer, testCase.WantOffer)
 		return result
