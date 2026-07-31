@@ -839,17 +839,6 @@ func (s *Service) postInputMessage(
 	input core.SlackInput,
 	message slackui.Message,
 ) error {
-	if requestedConversationLocation(input.Text) == conversationLocationChannel &&
-		input.ThreadTS != "" {
-		return s.postInputMessageDelivery(
-			ctx,
-			id,
-			"broadcast",
-			input.ChannelID,
-			input.ThreadTS,
-			message,
-		)
-	}
 	return s.postInputMessageAt(
 		ctx, id, input.ChannelID, conversationalResponseThread(input), message,
 	)
