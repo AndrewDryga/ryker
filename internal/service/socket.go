@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -171,16 +172,17 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 			_ = s.socket.Ack(*event.Request)
 			return
 		}
+		message := normalizedSlackEventMessage(inner)
 		if s.identity.BotUserID != "" &&
-			strings.Contains(inner.Text, "<@"+s.identity.BotUserID+">") {
+			strings.Contains(message.Text, "<@"+s.identity.BotUserID+">") {
 			// Slack also delivers this request as app_mention. Admit only that
 			// event so one human message cannot consume two agent requests.
 			_ = s.socket.Ack(*event.Request)
 			return
 		}
-		ownBot := (s.identity.BotID != "" && inner.BotID == s.identity.BotID) ||
-			inner.User == s.identity.BotUserID
-		externalBot := inner.BotID != "" || inner.SubType == "bot_message"
+		ownBot := (s.identity.BotID != "" && message.BotID == s.identity.BotID) ||
+			message.User == s.identity.BotUserID
+		externalBot := message.BotID != "" || message.SubType == "bot_message"
 		switch {
 		case ownBot:
 			_ = s.socket.Ack(*event.Request)
@@ -199,7 +201,7 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 				rules, ruleErr := s.matchingStandingRules(ctx, core.SlackInput{
 					Kind:      "bot_message",
 					ChannelID: inner.Channel,
-					Text:      inner.Text,
+					Text:      message.Text,
 				})
 				if ruleErr != nil {
 					s.log.Error(
@@ -211,18 +213,18 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 				}
 				watched = len(rules) > 0
 			}
-			if !watched || (inner.SubType != "" && inner.SubType != "bot_message") {
+			if !watched || !supportedExternalMessageSubtype(inner.SubType) {
 				_ = s.socket.Ack(*event.Request)
 				return
 			}
 			input.Kind = "bot_message"
-			input.UserID = firstNonempty(inner.BotID, inner.User)
-		case inner.SubType == "" && inner.User != "":
+			input.UserID = firstNonempty(message.BotID, message.User)
+		case inner.SubType == "" && message.User != "":
 			input.Kind = "message"
 			if strings.HasPrefix(inner.Channel, "D") {
 				input.Kind = "direct"
 			}
-			input.UserID = inner.User
+			input.UserID = message.User
 		default:
 			_ = s.socket.Ack(*event.Request)
 			return
@@ -232,12 +234,10 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 			return
 		}
 		input.ChannelID = inner.Channel
-		input.ThreadTS = inner.ThreadTimeStamp
-		input.MessageTS = inner.TimeStamp
-		input.Text = inner.Text
-		if inner.Message != nil {
-			input.Attachments = slackInputAttachments(inner.Message.Files)
-		}
+		input.ThreadTS = message.ThreadTimestamp
+		input.MessageTS = message.Timestamp
+		input.Text = message.Text
+		input.Attachments = slackInputAttachments(message.Files)
 		if input.Kind == "message" {
 			admit, err := s.shouldAdmitChannelMessage(ctx, input)
 			if err != nil {
@@ -265,6 +265,39 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 	if err := s.socket.Ack(*event.Request); err != nil {
 		s.log.Warn("acknowledge Slack event", "envelope", envelopeID, "error", err)
 	}
+}
+
+func normalizedSlackEventMessage(event *slackevents.MessageEvent) slack.Message {
+	message := slack.Message{Msg: slack.Msg{
+		User: event.User, Text: event.Text, Timestamp: event.TimeStamp,
+		ThreadTimestamp: event.ThreadTimeStamp, SubType: event.SubType,
+		BotID: event.BotID, Blocks: event.Blocks,
+	}}
+	if event.Message != nil {
+		message.Msg = *event.Message
+		if message.Timestamp == "" {
+			message.Timestamp = event.TimeStamp
+		}
+		if message.ThreadTimestamp == "" {
+			message.ThreadTimestamp = event.ThreadTimeStamp
+		}
+		if message.User == "" {
+			message.User = event.User
+		}
+		if message.BotID == "" {
+			message.BotID = event.BotID
+		}
+		if message.SubType == "" && event.SubType != slack.MsgSubTypeMessageChanged {
+			message.SubType = event.SubType
+		}
+	}
+	message.Text = slackui.NormalizedMessageText(message)
+	return message
+}
+
+func supportedExternalMessageSubtype(subtype string) bool {
+	return subtype == "" || subtype == slack.MsgSubTypeBotMessage ||
+		subtype == slack.MsgSubTypeMessageChanged
 }
 
 func slackInputAttachments(files []slack.File) []core.SlackAttachment {

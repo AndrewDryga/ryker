@@ -1967,6 +1967,102 @@ func TestSocketAdmitsExternalAppsOnlyInWatchChannels(t *testing.T) {
 	}
 }
 
+func TestSocketAdmitsAttachmentOnlyTerraformRuleAndThreadFollowup(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, _, err := st.UpsertStandingRule(ctx, core.StandingRule{
+		ChannelID: "CPLAN", Repository: "repo", Trigger: "terraform_plan",
+		Action: "review_terraform_plan", SourceKind: "any",
+		SourceRef: "EvRule", ActorID: cfg.Slack.Operators[0],
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+	}, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel); err != nil {
+		t.Fatal(err)
+	}
+	socket := &fakeSocket{events: make(chan socketmode.Event)}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, socket,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+
+	admit := func(envelope, eventID string, message *slackevents.MessageEvent) {
+		t.Helper()
+		payload, _ := json.Marshal(map[string]any{"event_id": eventID})
+		svc.admitEventsAPI(ctx, socketmode.Event{
+			Type: socketmode.EventTypeEventsAPI,
+			Data: slackevents.EventsAPIEvent{
+				TeamID:     cfg.Slack.TeamID,
+				InnerEvent: slackevents.EventsAPIInnerEvent{Data: message},
+			},
+			Request: &socketmode.Request{EnvelopeID: envelope, Payload: payload},
+		})
+	}
+
+	rootTS := "1700.700"
+	terraformAttachment := slack.Attachment{
+		Pretext: "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>",
+		Title:   "Run run-abc", TitleLink: "https://app.terraform.io/app/acme/infra/runs/run-abc",
+		Text: "main deadbeef (gh run 123)",
+	}
+	admit("env-plan", "EvPlan", &slackevents.MessageEvent{
+		SubType: "bot_message", BotID: "BTERRAFORM", Channel: "CPLAN",
+		TimeStamp: rootTS, Message: &slack.Msg{
+			SubType: "bot_message", BotID: "BTERRAFORM", Timestamp: rootTS,
+			Attachments: []slack.Attachment{
+				terraformAttachment,
+				{Title: "Run Planning", Fallback: "Run run-abc - Run Planning"},
+			},
+		},
+	})
+	root, err := st.LeaseSlackInput(ctx)
+	if err != nil || root.Kind != "bot_message" ||
+		!strings.Contains(root.Text, "app.terraform.io") ||
+		!strings.Contains(root.Text, "Run Planning") {
+		t.Fatalf("attachment-only Terraform root = %+v, %v", root, err)
+	}
+	if err := st.FinishSlackInput(ctx, root.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	admit("env-followup", "EvFollowup", &slackevents.MessageEvent{
+		User: "U123ABC", Channel: "CPLAN", TimeStamp: "1700.701",
+		ThreadTimeStamp: rootTS, Text: "Can you review this plan?",
+	})
+	followup, err := st.LeaseSlackInput(ctx)
+	if err != nil || followup.Kind != "message" || followup.ThreadTS != rootTS {
+		t.Fatalf("Terraform thread follow-up = %+v, %v", followup, err)
+	}
+	if err := st.FinishSlackInput(ctx, followup.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	admit("env-planned", "EvPlanned", &slackevents.MessageEvent{
+		SubType: slack.MsgSubTypeMessageChanged, Channel: "CPLAN", TimeStamp: rootTS,
+		Message: &slack.Msg{
+			SubType: "bot_message", BotID: "BTERRAFORM", Timestamp: rootTS,
+			Attachments: []slack.Attachment{
+				terraformAttachment,
+				{Title: "Run Planned", Fallback: "Run run-abc - Run Planned"},
+			},
+		},
+	})
+	updated, err := st.LeaseSlackInput(ctx)
+	if err != nil || updated.Kind != "bot_message" ||
+		!strings.Contains(updated.Text, "Run Planned") {
+		t.Fatalf("updated Terraform plan = %+v, %v", updated, err)
+	}
+	if socket.acks != 3 {
+		t.Fatalf("acknowledgements = %d, want 3", socket.acks)
+	}
+}
+
 func TestSlashCommandIsPersistedBeforeAcknowledgement(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

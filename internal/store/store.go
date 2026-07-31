@@ -1952,6 +1952,25 @@ func (s *Store) GetSlackInput(ctx context.Context, id string) (core.SlackInput, 
 		FROM slack_inputs WHERE id = ?`, id))
 }
 
+func (s *Store) GetSlackInputForMessage(
+	ctx context.Context,
+	channelID string,
+	messageTS string,
+) (core.SlackInput, error) {
+	if channelID == "" || messageTS == "" {
+		return core.SlackInput{}, ErrNotFound
+	}
+	return scanSlackInput(s.db.QueryRowContext(ctx, `
+		SELECT id, envelope_id, event_id, kind, team_id, channel_id, thread_ts,
+		  message_ts, user_id, text, action_id, action_value, attachments_json,
+		  frozen_json, state, attempts, failure_count, received_at
+		FROM slack_inputs
+		WHERE channel_id = ? AND message_ts = ?
+		  AND kind IN ('message', 'bot_message', 'mention', 'direct', 'shortcut')
+		ORDER BY received_at DESC, id DESC
+		LIMIT 1`, channelID, messageTS))
+}
+
 func (s *Store) ListRecentWatchMessages(
 	ctx context.Context,
 	channelID string,

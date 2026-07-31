@@ -695,7 +695,7 @@ func (c *Client) RecentMessages(
 	history := make([]HistoryMessage, 0, len(messages))
 	for _, message := range messages {
 		files := historyFiles(message.Files)
-		text := historyMessageText(message)
+		text := NormalizedMessageText(message)
 		if message.Timestamp == "" || (text == "" && len(files) == 0) {
 			continue
 		}
@@ -714,7 +714,9 @@ func (c *Client) RecentMessages(
 	return history, nil
 }
 
-func historyMessageText(message slack.Message) string {
+// NormalizedMessageText preserves the visible content of Slack messages whose
+// top-level text is empty, including legacy attachments and Block Kit blocks.
+func NormalizedMessageText(message slack.Message) string {
 	parts := make([]string, 0, 8)
 	seen := make(map[string]struct{})
 	add := func(value string) {

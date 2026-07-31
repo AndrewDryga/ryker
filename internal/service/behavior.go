@@ -33,6 +33,7 @@ var (
 	)
 	terraformPlanPattern = regexp.MustCompile(
 		`(?is)\bterraform(?:\s+\w+){0,3}\s+plan\b|` +
+			`\bapp\.terraform\.io\b.*\brun\s+(?:planning|planned)\b|` +
 			`\bplan:\s*\d+\s+to\s+add,\s*\d+\s+to\s+change,\s*\d+\s+to\s+destroy\b|` +
 			`\bno\s+changes\.\s+your\s+infrastructure\s+matches\b`,
 	)
@@ -233,15 +234,30 @@ func (s *Service) matchingStandingRules(
 	if err != nil {
 		return nil, err
 	}
-	result := make([]core.StandingRule, 0, len(rules))
-	for _, rule := range rules {
-		if !standingRuleSourceMatches(rule.SourceKind, input.Kind) ||
-			!standingRuleTextMatches(rule.Trigger, input.Text) {
-			continue
+	match := func(candidate core.SlackInput) []core.StandingRule {
+		result := make([]core.StandingRule, 0, len(rules))
+		for _, rule := range rules {
+			if standingRuleSourceMatches(rule.SourceKind, candidate.Kind) &&
+				standingRuleTextMatches(rule.Trigger, candidate.Text) {
+				result = append(result, rule)
+			}
 		}
-		result = append(result, rule)
+		return result
 	}
-	return result, nil
+	if result := match(input); len(result) > 0 ||
+		input.Kind != "message" || input.ThreadTS == "" {
+		return result, nil
+	}
+	root, err := s.store.GetSlackInputForMessage(
+		ctx, input.ChannelID, input.ThreadTS,
+	)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return match(root), nil
 }
 
 func standingRuleSourceMatches(sourceKind string, inputKind string) bool {

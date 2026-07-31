@@ -471,6 +471,7 @@ func TestStandingRuleMatcherIsTypedAndSourceAware(t *testing.T) {
 		want    bool
 	}{
 		{"terraform_plan", "Terraform plan: Plan: 1 to add, 0 to change, 0 to destroy.", true},
+		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Planning", true},
 		{"terraform_plan", "Here is our planning document.", false},
 		{"deployment", "Production rollout completed.", true},
 		{"deployment", "The team planned a meeting.", false},
