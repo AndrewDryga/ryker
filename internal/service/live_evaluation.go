@@ -100,6 +100,7 @@ func EvaluateLiveJSONL(
 				options.PollInterval,
 				options.TaskPolicy,
 			)
+			responseDurationMS := time.Since(caseStarted).Milliseconds()
 			cancel()
 			summary.ModelCalls += modelCalls
 
@@ -121,7 +122,7 @@ func EvaluateLiveJSONL(
 				Name:       name,
 				CaseName:   testCase.Name,
 				Repetition: repetition,
-				DurationMS: time.Since(caseStarted).Milliseconds(),
+				DurationMS: responseDurationMS,
 			}
 			if options.SanitizeResponse != nil {
 				result.Response = options.SanitizeResponse(response)
