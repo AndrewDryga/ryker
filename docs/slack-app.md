@@ -28,7 +28,10 @@ to `Emisar`; it does not rename the `/responder` command or any durable internal
 Reinstall when Slack reports that the updated manifest adds an OAuth scope. The Agent experience
 adds `assistant:write` and `im:history`, while conversational channel setup uses
 bounded `conversations.list` membership reconciliation and `usergroups:read` to validate and expand
-explicitly selected incident audiences. Lightweight acknowledgements use `reactions:write`.
+explicitly selected incident audiences. Lightweight acknowledgements use `reactions:write`;
+`reactions:read` plus the `reaction_added` and `reaction_removed` events let Emisar understand
+feedback on its own messages in later conversation turns. Reaction events never start work or
+authorize an action by themselves.
 Screenshot and document analysis uses `files:read`; after adding that scope, reinstall the app
 before running `responder doctor`. The command, message shortcut, interactive controls, and
 subscribed events are delivered over Socket Mode and do not need a public request URL. The shipped

@@ -1987,7 +1987,10 @@ func (s *Store) ListRecentWatchMessages(
 		FROM slack_inputs AS input
 		WHERE input.channel_id = ?
 		  AND input.message_ts != ''
-			  AND input.kind IN ('message', 'bot_message', 'mention', 'direct', 'shortcut')
+		  AND input.kind IN (
+		    'message', 'bot_message', 'mention', 'direct', 'shortcut',
+		    'reaction_added', 'reaction_removed'
+		  )
 			  AND (
 			    input.state IN ('pending', 'retry', 'processing', 'done') OR
 		    EXISTS (

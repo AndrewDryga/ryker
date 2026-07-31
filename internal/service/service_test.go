@@ -1769,6 +1769,161 @@ func TestSocketAdmitsMentionOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestSocketPersistsReactionsToResponderMessagesWithoutStartingAgentTurn(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if created, enqueueErr := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "reaction-target", Kind: "watch_reply", ChannelID: "CWATCH",
+		ThreadTS: "1700.100", Body: []byte(`{"text":"Production is healthy."}`),
+	}); enqueueErr != nil || !created {
+		t.Fatalf("enqueue reaction target = %v, %v", created, enqueueErr)
+	}
+	delivery, err := st.LeaseSlackDelivery(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, delivery.ID, "1700.200", "sending"); err != nil {
+		t.Fatal(err)
+	}
+
+	socket := &fakeSocket{events: make(chan socketmode.Event)}
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, socket,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+
+	admitReaction := func(eventID, eventTS, kind string) {
+		t.Helper()
+		payload, _ := json.Marshal(map[string]any{"event_id": eventID})
+		var event any
+		item := slackevents.Item{
+			Type: "message", Channel: "CWATCH", Timestamp: "1700.200",
+		}
+		if kind == "reaction_added" {
+			event = &slackevents.ReactionAddedEvent{
+				User: "U123ABC", Reaction: "thumbsup", ItemUser: "U999BOT",
+				Item: item, EventTimestamp: eventTS,
+			}
+		} else {
+			event = &slackevents.ReactionRemovedEvent{
+				User: "U123ABC", Reaction: "thumbsup", ItemUser: "U999BOT",
+				Item: item, EventTimestamp: eventTS,
+			}
+		}
+		svc.admitEventsAPI(ctx, socketmode.Event{
+			Type: socketmode.EventTypeEventsAPI,
+			Data: slackevents.EventsAPIEvent{
+				TeamID:     cfg.Slack.TeamID,
+				InnerEvent: slackevents.EventsAPIInnerEvent{Data: event},
+			},
+			Request: &socketmode.Request{EnvelopeID: "env-" + eventID, Payload: payload},
+		})
+	}
+
+	admitReaction("EvReactionAdded", "1700.300", "reaction_added")
+	if socket.acks != 1 {
+		t.Fatalf("reaction acknowledgements = %d", socket.acks)
+	}
+	input, err := st.LeaseSlackInput(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.Kind != "reaction_added" || input.ThreadTS != "1700.100" ||
+		input.MessageTS != "1700.300" || input.ActionID != "thumbsup" ||
+		input.ActionValue != "1700.200" || input.UserID != "U123ABC" {
+		t.Fatalf("added reaction input = %+v", input)
+	}
+	if err := st.RetrySlackInput(ctx, input.ID, "test release", time.Now(), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	admitReaction("EvReactionRemoved", "1700.400", "reaction_removed")
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	context, err := st.ListRecentWatchMessages(ctx, "CWATCH", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(context) != 2 || context[0].Kind != "reaction_added" ||
+		context[1].Kind != "reaction_removed" {
+		t.Fatalf("durable reaction context = %+v", context)
+	}
+	if len(coopClient.submitPrompts) != 0 {
+		t.Fatalf("reactions started agent turns: %v", coopClient.submitPrompts)
+	}
+
+	message := watchPromptMessage(context[1], "U999BOT", false)
+	if message.SenderType != "human_reaction" || message.Text != "" ||
+		len(message.Reactions) != 1 || message.Reactions[0].Change != "removed" ||
+		message.Reactions[0].TargetMessageTS != "1700.200" {
+		t.Fatalf("reaction prompt context = %+v", message)
+	}
+	current := watchPromptMessage(core.SlackInput{
+		Kind: "bot_message", UserID: "U999BOT", Text: "Production is healthy.",
+		Reactions: []core.SlackReaction{{
+			Name: "thumbsup", Count: 2, UserIDs: []string{"U123ABC", "U456DEF"},
+		}},
+	}, "U999BOT", false)
+	if current.SenderType != "responder" || len(current.Reactions) != 1 ||
+		current.Reactions[0].Count != 2 ||
+		!slices.Equal(current.Reactions[0].UserIDs, []string{"U123ABC", "U456DEF"}) {
+		t.Fatalf("current reaction state = %+v", current)
+	}
+}
+
+func TestSocketIgnoresReactionsToOtherUsersMessages(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	socket := &fakeSocket{events: make(chan socketmode.Event)}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, socket,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	payload, _ := json.Marshal(map[string]any{"event_id": "EvForeignReaction"})
+	svc.admitEventsAPI(ctx, socketmode.Event{
+		Type: socketmode.EventTypeEventsAPI,
+		Data: slackevents.EventsAPIEvent{
+			TeamID: cfg.Slack.TeamID,
+			InnerEvent: slackevents.EventsAPIInnerEvent{
+				Data: &slackevents.ReactionAddedEvent{
+					User: "U123ABC", Reaction: "eyes", ItemUser: "U456DEF",
+					Item: slackevents.Item{
+						Type: "message", Channel: "CWATCH", Timestamp: "1700.500",
+					},
+					EventTimestamp: "1700.600",
+				},
+			},
+		},
+		Request: &socketmode.Request{EnvelopeID: "env-foreign-reaction", Payload: payload},
+	})
+	if socket.acks != 1 {
+		t.Fatalf("foreign reaction acknowledgements = %d", socket.acks)
+	}
+	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("foreign reaction was admitted: %v", err)
+	}
+}
+
 func TestDeletedChannelEventBlocksIncidentAndSuppressesSlackDelivery(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

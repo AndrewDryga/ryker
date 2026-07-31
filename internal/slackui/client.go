@@ -81,6 +81,13 @@ type HistoryMessage struct {
 	BotID     string
 	Text      string
 	Files     []HistoryFile
+	Reactions []HistoryReaction
+}
+
+type HistoryReaction struct {
+	Name    string
+	Count   int
+	UserIDs []string
 }
 
 type HistoryFile struct {
@@ -288,6 +295,7 @@ var requiredBotScopes = []string{
 	"groups:write",
 	"im:history",
 	"pins:write",
+	"reactions:read",
 	"reactions:write",
 	"usergroups:read",
 	"users:read",
@@ -706,12 +714,39 @@ func (c *Client) RecentMessages(
 			BotID:     message.BotID,
 			Text:      text,
 			Files:     files,
+			Reactions: historyReactions(message.Reactions),
 		})
 	}
 	if threadTS != "" {
 		history = selectThreadHistory(history, threadTS, limit)
 	}
 	return history, nil
+}
+
+func historyReactions(reactions []slack.ItemReaction) []HistoryReaction {
+	const (
+		maxReactionTypes = 20
+		maxReactionUsers = 20
+	)
+	result := make([]HistoryReaction, 0, min(len(reactions), maxReactionTypes))
+	for _, reaction := range reactions {
+		name := strings.TrimSpace(reaction.Name)
+		if name == "" {
+			continue
+		}
+		users := reaction.Users
+		if len(users) > maxReactionUsers {
+			users = users[:maxReactionUsers]
+		}
+		result = append(result, HistoryReaction{
+			Name: name, Count: reaction.Count,
+			UserIDs: append([]string(nil), users...),
+		})
+		if len(result) == maxReactionTypes {
+			break
+		}
+	}
+	return result
 }
 
 // NormalizedMessageText preserves the visible content of Slack messages whose

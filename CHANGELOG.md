@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Reaction-aware conversation.** Emisar now observes additions and removals of emoji reactions on
+  its own Slack messages, retains them as ordered conversation context, and refreshes current
+  reaction state without starting a separate agent turn. Reactions remain social feedback only and
+  never authorize an approval, repository change, incident, or infrastructure action.
 - **Statistical model release gate.** Real-model evaluation now includes human-calibrated Slack
   quality judging, deterministic Block Kit UX validation, labeled proactivity precision and recall,
   repeated per-case variance gates, digest-bound private baselines, stateful cross-channel and

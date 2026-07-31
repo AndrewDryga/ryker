@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -262,6 +263,20 @@ func (s *Service) recentMessages(
 	return messages, nil
 }
 
+func (s *Service) invalidateSlackHistory(channelID string) {
+	if channelID == "" {
+		return
+	}
+	prefix := channelID + "\x00"
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+	for key := range s.historyCache {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.historyCache, key)
+		}
+	}
+}
+
 func historyWatchContext(
 	history []slackui.HistoryMessage,
 	channelID string,
@@ -280,6 +295,7 @@ func historyWatchContext(
 		inputs = append(inputs, core.SlackInput{
 			Kind: kind, ChannelID: channelID, ThreadTS: message.ThreadTS,
 			MessageTS: message.Timestamp, UserID: userID, Text: message.Text,
+			Reactions: coreSlackReactions(message.Reactions),
 		})
 	}
 	slices.SortFunc(inputs, func(left, right core.SlackInput) int {
@@ -295,6 +311,17 @@ func historyWatchContext(
 	result := make([]watchContextMessage, 0, len(inputs))
 	for _, input := range inputs {
 		result = append(result, watchPromptMessage(input, botUserID, false))
+	}
+	return result
+}
+
+func coreSlackReactions(reactions []slackui.HistoryReaction) []core.SlackReaction {
+	result := make([]core.SlackReaction, 0, len(reactions))
+	for _, reaction := range reactions {
+		result = append(result, core.SlackReaction{
+			Name: reaction.Name, Count: reaction.Count,
+			UserIDs: append([]string(nil), reaction.UserIDs...),
+		})
 	}
 	return result
 }
@@ -347,6 +374,7 @@ func mergeSlackContext(
 				Kind: kind, ChannelID: target.ChannelID,
 				ThreadTS: message.ThreadTS, MessageTS: message.Timestamp,
 				UserID: userID, Text: message.Text, Attachments: attachments,
+				Reactions: coreSlackReactions(message.Reactions),
 			}
 		}
 	}

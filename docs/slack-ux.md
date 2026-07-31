@@ -297,6 +297,13 @@ normalizes the emoji name, permits only one reaction, and lets Slack reject name
 available in that workspace. A reaction acknowledges or signals; it never claims verification,
 approval, remediation, or future work.
 
+Emisar also observes reaction additions and removals on messages it posted. These events enter the
+same durable per-channel order as messages, invalidate cached Slack history, and appear in the next
+conversation turn alongside the current bounded reaction counts and reacting member IDs. A reaction
+does not start an agent turn or produce a reply by itself. Removed reactions are retained only as
+historical context and are not treated as current agreement. No emoji reaction can authorize an
+incident, approval, repository change, deployment, or infrastructure mutation.
+
 Engineering-task offers follow the same authorization, source-message binding, restart durability,
 and idempotency rules. Their source threads use task-specific cards and lifecycle copy rather than
 presenting repository work as an alert incident. Dedicated Slack rooms remain reserved for incident

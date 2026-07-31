@@ -155,6 +155,50 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 			return
 		}
 		setLifecycleInput(&input, inner.Channel, "", core.ChannelActive, inner.Type)
+	case *slackevents.ReactionAddedEvent:
+		if inner == nil {
+			_ = s.socket.Ack(*event.Request)
+			return
+		}
+		admit, err := s.setReactionInput(
+			ctx, &input, "reaction_added", inner.User, inner.ItemUser,
+			inner.Reaction, inner.Item, inner.EventTimestamp,
+		)
+		if err != nil {
+			s.log.Error(
+				"resolve Slack reaction target",
+				"channel", inner.Item.Channel,
+				"message", inner.Item.Timestamp,
+				"error", err,
+			)
+			return
+		}
+		if !admit {
+			_ = s.socket.Ack(*event.Request)
+			return
+		}
+	case *slackevents.ReactionRemovedEvent:
+		if inner == nil {
+			_ = s.socket.Ack(*event.Request)
+			return
+		}
+		admit, err := s.setReactionInput(
+			ctx, &input, "reaction_removed", inner.User, inner.ItemUser,
+			inner.Reaction, inner.Item, inner.EventTimestamp,
+		)
+		if err != nil {
+			s.log.Error(
+				"resolve Slack reaction target",
+				"channel", inner.Item.Channel,
+				"message", inner.Item.Timestamp,
+				"error", err,
+			)
+			return
+		}
+		if !admit {
+			_ = s.socket.Ack(*event.Request)
+			return
+		}
 	case *slackevents.AppMentionEvent:
 		if inner == nil || inner.BotID != "" || foreignSource(inner.SourceTeam, outer.TeamID) {
 			_ = s.socket.Ack(*event.Request)
@@ -265,6 +309,48 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 	if err := s.socket.Ack(*event.Request); err != nil {
 		s.log.Warn("acknowledge Slack event", "envelope", envelopeID, "error", err)
 	}
+}
+
+func (s *Service) setReactionInput(
+	ctx context.Context,
+	input *core.SlackInput,
+	kind string,
+	userID string,
+	itemUserID string,
+	reaction string,
+	item slackevents.Item,
+	eventTS string,
+) (bool, error) {
+	if s.identity.BotUserID == "" || userID == "" || userID == s.identity.BotUserID ||
+		item.Type != "message" || item.Channel == "" || item.Timestamp == "" || eventTS == "" {
+		return false, nil
+	}
+	reaction, err := normalizeSlackReactionName(reaction)
+	if err != nil {
+		return false, nil
+	}
+	delivery, deliveryErr := s.store.GetSentSlackMessageDelivery(
+		ctx,
+		item.Channel,
+		item.Timestamp,
+	)
+	if deliveryErr != nil && !errors.Is(deliveryErr, store.ErrNotFound) {
+		return false, deliveryErr
+	}
+	if itemUserID != s.identity.BotUserID && errors.Is(deliveryErr, store.ErrNotFound) {
+		return false, nil
+	}
+	input.Kind = kind
+	input.ChannelID = item.Channel
+	input.MessageTS = eventTS
+	input.UserID = userID
+	input.ActionID = reaction
+	input.ActionValue = item.Timestamp
+	if deliveryErr == nil {
+		input.ThreadTS = delivery.ThreadTS
+	}
+	s.invalidateSlackHistory(item.Channel)
+	return true, nil
 }
 
 func normalizedSlackEventMessage(event *slackevents.MessageEvent) slack.Message {

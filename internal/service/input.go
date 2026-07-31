@@ -79,6 +79,16 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	if input.TeamID != s.cfg.Slack.TeamID {
 		return s.store.RetrySlackInput(ctx, input.ID, "wrong Slack workspace", time.Now(), true)
 	}
+	if input.Kind == "reaction_added" || input.Kind == "reaction_removed" {
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			Kind:     "slack.reaction",
+			ActorID:  input.UserID,
+			ObjectID: input.ActionValue,
+			Outcome:  strings.TrimPrefix(input.Kind, "reaction_"),
+			Detail:   input.ActionID,
+		})
+		return s.finishSlackInput(ctx, input)
+	}
 	if input.Kind == "channel_lifecycle" {
 		if err := s.processChannelLifecycleInput(ctx, input); err != nil {
 			return s.retrySlackInput(ctx, input, err)

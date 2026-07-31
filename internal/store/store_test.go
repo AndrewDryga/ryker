@@ -85,6 +85,14 @@ func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 	if err != nil || matchedDelivery.ID != outbox.ID {
 		t.Fatalf("matched delivery = %+v, %v", matchedDelivery, err)
 	}
+	responderDelivery, err := st.GetSentSlackMessageDelivery(
+		ctx,
+		"C123ABC",
+		"1700.001",
+	)
+	if err != nil || responderDelivery.ID != outbox.ID {
+		t.Fatalf("responder delivery = %+v, %v", responderDelivery, err)
+	}
 	incident, err = st.GetIncident(ctx, incident.ID)
 	if err != nil || incident.RootTS != "1700.001" ||
 		incident.Workflow != core.WorkflowProvisioningSession {

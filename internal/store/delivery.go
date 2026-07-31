@@ -230,6 +230,30 @@ func (s *Store) GetLatestSentSlackMessageDelivery(
 	))
 }
 
+func (s *Store) GetSentSlackMessageDelivery(
+	ctx context.Context,
+	channelID string,
+	messageTS string,
+) (core.SlackDelivery, error) {
+	if channelID == "" || messageTS == "" {
+		return core.SlackDelivery{}, errors.New(
+			"Slack message delivery channel and timestamp are required",
+		)
+	}
+	return scanSlackDelivery(s.db.QueryRowContext(ctx, `
+		SELECT `+slackDeliveryColumns+`
+		FROM slack_deliveries
+		WHERE channel_id = ?
+		  AND message_ts = ?
+		  AND state = 'sent'
+		  AND operation IN ('post', 'update')
+		ORDER BY updated_at DESC, created_at DESC, id DESC
+		LIMIT 1`,
+		channelID,
+		messageTS,
+	))
+}
+
 func (s *Store) LeaseSlackDelivery(
 	ctx context.Context,
 ) (core.SlackDelivery, error) {

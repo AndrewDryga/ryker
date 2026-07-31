@@ -168,6 +168,7 @@ type SlackInput struct {
 	UserID      string
 	Text        string
 	Attachments []SlackAttachment
+	Reactions   []SlackReaction
 	ActionID    string
 	ActionValue string
 	Frozen      []byte
@@ -175,6 +176,14 @@ type SlackInput struct {
 	Attempts    int
 	Failures    int
 	ReceivedAt  time.Time
+}
+
+// SlackReaction is bounded conversation context returned by Slack. Reaction events use the
+// existing ActionID and ActionValue fields so they remain durable without storing a second copy.
+type SlackReaction struct {
+	Name    string   `json:"name"`
+	Count   int      `json:"count"`
+	UserIDs []string `json:"user_ids,omitempty"`
 }
 
 // SlackAttachment is durable Slack-owned metadata. URLPrivate is used only by the ordered input

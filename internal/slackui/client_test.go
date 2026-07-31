@@ -135,6 +135,42 @@ func TestRecentMessagesKeepsFileOnlyContext(t *testing.T) {
 	}
 }
 
+func TestRecentMessagesIncludesBoundedReactionContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{
+		  "ok":true,
+		  "messages":[{
+		    "ts":"1700.000100",
+		    "text":"Production is healthy.",
+		    "bot_id":"BEMISAR",
+		    "reactions":[
+		      {"name":"thumbsup","count":2,"users":["U1","U2"]},
+		      {"name":"eyes","count":1,"users":["U3"]}
+		    ]
+		  }]
+		}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+	history, err := client.RecentMessages(
+		context.Background(), "COPS", "", "1700.000100", "", 10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || len(history[0].Reactions) != 2 ||
+		history[0].Reactions[0].Name != "thumbsup" ||
+		history[0].Reactions[0].Count != 2 ||
+		!slices.Equal(history[0].Reactions[0].UserIDs, []string{"U1", "U2"}) {
+		t.Fatalf("reaction history = %+v", history)
+	}
+}
+
 func TestRecentMessagesKeepsLegacyAttachmentOnlyThreadRoot(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -405,6 +441,8 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 		"message.channels",
 		"message.groups",
 		"message.im",
+		"reaction_added",
+		"reaction_removed",
 	}
 	if !slices.Equal(manifest.Settings.EventSubscriptions.BotEvents, wantEvents) {
 		t.Fatalf(
@@ -431,9 +469,11 @@ func TestMissingBotScopesUsesTheShippedManifestContract(t *testing.T) {
 	if missing := missingBotScopes(requiredBotScopes); len(missing) != 0 {
 		t.Fatalf("complete manifest scopes reported missing: %v", missing)
 	}
-	want := "bot token is missing required scopes: reactions:write, usergroups:read; " +
+	want := "bot token is missing required scopes: reactions:read, reactions:write, usergroups:read; " +
 		"apply deploy/slack-app-manifest.yaml and reinstall the app"
-	if got := missingBotScopesError([]string{"reactions:write", "usergroups:read"}).Error(); got != want {
+	if got := missingBotScopesError(
+		[]string{"reactions:read", "reactions:write", "usergroups:read"},
+	).Error(); got != want {
 		t.Fatalf("scope repair error = %q; want %q", got, want)
 	}
 }
