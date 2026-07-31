@@ -21,6 +21,7 @@ import (
 const watchContextTextLimit = 2000
 const watchPendingStatus = "is gathering and reconciling evidence; broad checks can take a few minutes..."
 const watchPendingStatusRefresh = 75 * time.Second
+const watchConversationContinuationWindow = 30 * time.Minute
 
 var explicitIncidentRequestPattern = regexp.MustCompile(
 	`(?i)\b(?:open|create|start|declare)\s+(?:(?:an?|the)\s+)?incident\b|` +
@@ -32,24 +33,26 @@ var slackReactionNamePattern = regexp.MustCompile(
 )
 
 type watchTurnState struct {
-	SessionID             string                   `json:"session_id"`
-	Repository            string                   `json:"repository,omitempty"`
-	Generation            int                      `json:"generation,omitempty"`
-	ExpectedRevision      int64                    `json:"expected_revision,omitempty"`
-	TurnID                string                   `json:"turn_id,omitempty"`
-	ContextCaptured       bool                     `json:"context_captured,omitempty"`
-	RecentMessages        []watchContextMessage    `json:"recent_messages,omitempty"`
-	Memory                core.AgentMemory         `json:"memory,omitempty"`
-	Prior                 operationalMemoryContext `json:"prior_operational_context,omitempty"`
-	PriorCaptured         bool                     `json:"prior_captured,omitempty"`
-	RulesCaptured         bool                     `json:"rules_captured,omitempty"`
-	MatchedRules          []core.StandingRule      `json:"matched_rules,omitempty"`
-	OfferedIncidentTitle  string                   `json:"offered_incident_title,omitempty"`
-	OfferedTaskTitle      string                   `json:"offered_task_title,omitempty"`
-	OfferedTaskRepository string                   `json:"offered_task_repository,omitempty"`
-	PendingStatusSet      bool                     `json:"pending_status_set,omitempty"`
-	PendingStatusAt       int64                    `json:"pending_status_at,omitempty"`
-	FailureDetail         string                   `json:"failure_detail,omitempty"`
+	SessionID             string                         `json:"session_id"`
+	Repository            string                         `json:"repository,omitempty"`
+	Generation            int                            `json:"generation,omitempty"`
+	ExpectedRevision      int64                          `json:"expected_revision,omitempty"`
+	TurnID                string                         `json:"turn_id,omitempty"`
+	ContextCaptured       bool                           `json:"context_captured,omitempty"`
+	RecentMessages        []watchContextMessage          `json:"recent_messages,omitempty"`
+	Memory                core.AgentMemory               `json:"memory,omitempty"`
+	RelatedSituations     []conversationSituationContext `json:"related_situations,omitempty"`
+	Prior                 operationalMemoryContext       `json:"prior_operational_context,omitempty"`
+	PriorCaptured         bool                           `json:"prior_captured,omitempty"`
+	RulesCaptured         bool                           `json:"rules_captured,omitempty"`
+	MatchedRules          []core.StandingRule            `json:"matched_rules,omitempty"`
+	ConversationFollowup  bool                           `json:"conversation_followup,omitempty"`
+	OfferedIncidentTitle  string                         `json:"offered_incident_title,omitempty"`
+	OfferedTaskTitle      string                         `json:"offered_task_title,omitempty"`
+	OfferedTaskRepository string                         `json:"offered_task_repository,omitempty"`
+	PendingStatusSet      bool                           `json:"pending_status_set,omitempty"`
+	PendingStatusAt       int64                          `json:"pending_status_at,omitempty"`
+	FailureDetail         string                         `json:"failure_detail,omitempty"`
 }
 
 type watchContextMessage struct {
@@ -60,6 +63,7 @@ type watchContextMessage struct {
 	Text              string `json:"text"`
 	MentionsResponder bool   `json:"mentions_responder,omitempty"`
 	RequestedBy       string `json:"requested_by,omitempty"`
+	Continuation      bool   `json:"conversation_continuation,omitempty"`
 	Target            bool   `json:"target,omitempty"`
 }
 
@@ -334,7 +338,9 @@ func (s *Service) applyWatchDecision(
 		mode = "shadow"
 	}
 	if _, err := s.store.ApplyWatchDecision(ctx, core.EvaluationDecision{
-		ChannelID: input.ChannelID, SourceInput: input.ID, Mode: mode,
+		ChannelID: input.ChannelID, ThreadTS: input.ThreadTS,
+		MessageTS: input.MessageTS, Repository: state.Repository,
+		SourceInput: input.ID, Mode: mode,
 		Action: decision.Action, Reason: s.cleanStructuredField(decision.Reason, 1000),
 		Evidence: len(decision.Evidence), Coverage: len(decision.Coverage),
 	}, session.Revision, decision.Memory); err != nil {
@@ -606,12 +612,13 @@ func enforceAttentionPolicy(
 		}
 	}
 	targeted := watchInputTargeted(input, state)
+	explicitlyTargeted := watchInputExplicitlyTargeted(input, state)
 	humanAddressee := decision.Attention.Addressee == "human"
 	insufficient := false
 	switch decision.Action {
 	case "reply":
-		insufficient = !targeted &&
-			(humanAddressee || decision.Attention.score() < replyThreshold)
+		insufficient = (!explicitlyTargeted && humanAddressee) ||
+			(!targeted && decision.Attention.score() < replyThreshold)
 	case "react":
 		insufficient = humanAddressee ||
 			decision.Attention.score() < reactionThreshold
@@ -730,12 +737,13 @@ func (s *Service) createWatchedWork(
 	}
 	acknowledgement := "This needs investigation. I’m opening a dedicated incident room and isolated Coop fork."
 	if engineeringTask {
-		acknowledgement = "Engineering task accepted for " + s.repositoryLabel(repository) +
-			". I’m continuing in this thread with an isolated writable Coop fork. " +
-			"The agent may edit, test, and commit there under Coop policy; no merge, push, deployment, " +
-			"or infrastructure change has occurred."
+		acknowledgement = "On it. I’ll make the change in an isolated working copy and report back here."
 	}
-	if err := s.postInputNotice(
+	postAcknowledgement := s.postInputNotice
+	if engineeringTask {
+		postAcknowledgement = s.postInputNoticeInSourceThread
+	}
+	if err := postAcknowledgement(
 		ctx,
 		"watch_incident_"+source.ID,
 		source,
@@ -931,7 +939,6 @@ func (s *Service) handleWatchIncidentOfferAction(
 	}
 	if source.TeamID != input.TeamID ||
 		source.ChannelID != input.ChannelID ||
-		input.ThreadTS != slackReplyThread(source) ||
 		(source.State != "processing" && source.State != "done") {
 		return s.finishWatchIncidentOffer(
 			ctx,
@@ -940,6 +947,20 @@ func (s *Service) handleWatchIncidentOfferAction(
 			"source Slack input is stale or belongs to another conversation",
 			"*This incident offer is stale or belongs to another conversation.* Use a current "+
 				"button in the original thread. No incident, channel, or working copy was created.",
+		)
+	}
+	matches, err := s.watchOfferActionMatchesDelivery(ctx, input, source)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return s.finishWatchIncidentOffer(
+			ctx,
+			input,
+			"invalid",
+			"action does not match the delivered Slack offer",
+			"*This incident offer is stale or belongs to another conversation.* Use a current "+
+				"button on the original offer. No incident, channel, or working copy was created.",
 		)
 	}
 	run, err := s.store.GetAgentRunBySource(ctx, "watch", source.ID)
@@ -1007,7 +1028,6 @@ func (s *Service) handleWatchTaskOfferAction(
 	}
 	if source.TeamID != input.TeamID ||
 		source.ChannelID != input.ChannelID ||
-		input.ThreadTS != slackReplyThread(source) ||
 		(source.State != "processing" && source.State != "done") {
 		return s.finishWatchTaskOffer(
 			ctx,
@@ -1016,6 +1036,20 @@ func (s *Service) handleWatchTaskOfferAction(
 			"source Slack input is stale or belongs to another conversation",
 			"*This engineering task offer is stale or belongs to another conversation.* Use a "+
 				"current button in the original thread. No work was started.",
+		)
+	}
+	matches, err := s.watchOfferActionMatchesDelivery(ctx, input, source)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return s.finishWatchTaskOffer(
+			ctx,
+			input,
+			"invalid",
+			"action does not match the delivered Slack offer",
+			"*This engineering task offer is stale or belongs to another conversation.* Use a "+
+				"current button on the original offer. No work was started.",
 		)
 	}
 	run, err := s.store.GetAgentRunBySource(ctx, "watch", source.ID)
@@ -1053,6 +1087,31 @@ func (s *Service) handleWatchTaskOfferAction(
 		state.OfferedTaskTitle,
 		state.OfferedTaskRepository,
 	)
+}
+
+func (s *Service) watchOfferActionMatchesDelivery(
+	ctx context.Context,
+	input core.SlackInput,
+	source core.SlackInput,
+) (bool, error) {
+	delivery, err := s.store.GetSlackDelivery(ctx, "watch_reply_"+source.ID)
+	if err != nil {
+		return false, err
+	}
+	switch delivery.State {
+	case "pending", "sending", "retry", "uncertain":
+		return false, fmt.Errorf(
+			"Slack offer delivery %q is not confirmed yet",
+			delivery.ID,
+		)
+	case "sent":
+		return delivery.ChannelID == input.ChannelID &&
+			delivery.ThreadTS == input.ThreadTS &&
+			delivery.MessageTS != "" &&
+			delivery.MessageTS == input.MessageTS, nil
+	default:
+		return false, nil
+	}
 }
 
 func (s *Service) finishWatchIncidentOffer(
@@ -1205,8 +1264,12 @@ func parseWatchDecision(message string) (watchDecision, error) {
 }
 
 func decodeWatchDecision(message string) (watchDecision, error) {
+	normalized, err := normalizeEmptyStructuredTimestamps(message)
+	if err != nil {
+		return watchDecision{}, err
+	}
 	var decision watchDecision
-	if err := decodeStrictJSON([]byte(message), &decision); err != nil {
+	if err := decodeStrictJSON(normalized, &decision); err != nil {
 		return watchDecision{}, err
 	}
 	switch decision.Action {
@@ -1402,8 +1465,10 @@ func watchPromptMessage(
 func (s *Service) watchPrompt(
 	input core.SlackInput,
 	botUserID string,
+	conversationFollowup bool,
 	recent []watchContextMessage,
 	memory core.AgentMemory,
+	related []conversationSituationContext,
 	prior operationalMemoryContext,
 	activeRepository string,
 	matchedRules []core.StandingRule,
@@ -1417,22 +1482,28 @@ func (s *Service) watchPrompt(
 		Repositories:     s.promptRepositories(),
 		TargetIsOperator: s.cfg.IsOperator(input.UserID),
 	})
+	target := watchPromptMessage(input, botUserID, true)
+	target.Continuation = conversationFollowup
 	evidence, _ := json.Marshal(struct {
-		ChannelID      string                   `json:"channel_id"`
-		TargetMessage  watchContextMessage      `json:"target_message"`
-		RecentMessages []watchContextMessage    `json:"recent_channel_messages"`
-		Memory         core.AgentMemory         `json:"structured_memory"`
-		Prior          operationalMemoryContext `json:"prior_operational_context,omitempty"`
+		ChannelID      string                         `json:"channel_id"`
+		TargetMessage  watchContextMessage            `json:"target_message"`
+		RecentMessages []watchContextMessage          `json:"recent_channel_messages"`
+		Memory         core.AgentMemory               `json:"structured_memory"`
+		Related        []conversationSituationContext `json:"related_situations,omitempty"`
+		Prior          operationalMemoryContext       `json:"prior_operational_context,omitempty"`
 	}{
 		ChannelID:      input.ChannelID,
-		TargetMessage:  watchPromptMessage(input, botUserID, true),
+		TargetMessage:  target,
 		RecentMessages: recent,
 		Memory:         memory,
+		Related:        related,
 		Prior:          prior,
 	})
-	return `You are Responder participating in a shared Slack operations feed. Decide whether to act on target_message. Use both the earlier Coop conversation and recent_channel_messages, which is a chronological transcript of the latest admitted channel messages and may include messages posted shortly after the target.
+	return `You are Responder participating in a shared Slack operations feed. Decide whether to act on target_message. Use both the earlier Coop conversation and recent_channel_messages, which is a bounded chronological transcript centered on the target and may include a few messages posted shortly after it.
 
-Infer who is talking to whom before responding. A question mark alone does not mean a question is for Responder. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Responder is explicitly mentioned or the conversation clearly asks the operations responder for help. A standalone operational question in this configured feed may be for Responder even without an explicit mention.
+structured_memory is the compact summary of this exact Slack conversation. related_situations are compact summaries from other recent conversations in this channel and from public channels in the same workspace. Use them to carry decisions, ownership, topology, and open loops across channels without pretending they are fresh operational proof. Prefer same_channel and same_repository summaries when relevant. Do not merge unrelated incidents or assume the target author can access another channel merely because a summary is present.
+
+Infer who is talking to whom before responding. A question mark alone does not mean a question is for Responder. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Responder is explicitly mentioned or the conversation clearly asks the operations responder for help. A standalone operational question in this configured feed may be for Responder even without an explicit mention. target_message.conversation_continuation means Emisar recently answered at this Slack location, so a follow-up is eligible without another mention; it is not proof that every nearby message is addressed to Emisar.
 
 ` + operationalMemoryPolicy + `
 
@@ -1459,7 +1530,7 @@ must request and confirm durable behavior; do not claim that a save control will
 
 Choose exactly one action:
 - ignore: routine noise, informational chatter, successful or recovered notifications, duplicates, or messages where a human teammate would reasonably stay silent.
-- react: acknowledge useful information without interrupting the channel. Choose one context-appropriate standard Slack emoji or a workspace custom emoji whose name is visible in the supplied Slack context. Return its Slack name without surrounding colons, for example ` + "`eyes`" + `, ` + "`white_check_mark`" + `, ` + "`thumbsup`" + `, ` + "`tada`" + `, ` + "`warning`" + `, or ` + "`bulb`" + `. Prefer familiar, unambiguous reactions; avoid playful or ambiguous choices for incidents and high-severity alerts. A reaction is social acknowledgement only: it must not claim verification, approval, remediation, or future work. Do not attach prose, evidence, offers, or coverage.
+- react: acknowledge useful information without interrupting the channel. Prefer this over reply when the sender explicitly asks for acknowledgement without a written response, or when a teammate would naturally use only an emoji. Choose one context-appropriate standard Slack emoji or a workspace custom emoji whose name is visible in the supplied Slack context. Return its Slack name without surrounding colons, for example ` + "`eyes`" + `, ` + "`white_check_mark`" + `, ` + "`thumbsup`" + `, ` + "`tada`" + `, ` + "`warning`" + `, or ` + "`bulb`" + `. Use ` + "`white_check_mark`" + ` for a completed handoff or explicitly completed task unless the context calls for a different reaction. Prefer familiar, unambiguous reactions; avoid playful or ambiguous choices for incidents and high-severity alerts. A reaction is social acknowledgement only: it must not claim verification, approval, remediation, or future work. Do not attach prose, evidence, offers, or coverage.
 - reply: answer a human's question concisely when channel context or a bounded read-only investigation provides enough evidence. State uncertainty and material gaps. If coordinated incident work may be useful, include incident_title; Responder will show an operator confirmation button without creating an incident. If the human explicitly asks Responder to change repository files or code, or continues that request in the visible conversation, include task_title; Responder will show an operator confirmation button for a thread-scoped engineering task and writable isolated fork.
 - incident: automatically open a dedicated incident only for a credible unresolved alert from an external_app, or when the target human message explicitly asks to open, create, start, or declare an incident. Use a concise factual title.
 
@@ -1476,8 +1547,9 @@ standard Markdown rendered by Slack; the outer JSON is only the transport envelo
 concise reason for evaluation and shadow-mode audit. Include attention with addressee set to
 responder, channel, human, or unclear, and score urgency, confidence, novelty, and ownership from
 0 to 3. A proactive reply should normally total at least 7; a reaction should total at least 4.
-Explicit mentions and direct messages are always eligible for a reply, but should still have an
-honest assessment. Evidence, coverage, and memory use the field
+Explicit mentions and direct messages are always eligible for attention, but they do not require a
+written reply when a reaction is the natural requested response. They should still have an honest
+assessment. Evidence, coverage, and memory use the field
 shapes below. This shared-channel session cannot propose or execute actions:
 {"action":"ignore","attention":{"addressee":"human","urgency":0,"confidence":3,"novelty":0,"ownership":0},"reason":"why silence is appropriate","evidence":[],"coverage":[],"memory":{}}
 {"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1},"reason":"why acknowledgement is enough","memory":{}}
@@ -1495,9 +1567,10 @@ scheduler, workload, dependency, application, slo, or change. status must be exa
 healthy, degraded, unhealthy, unknown, or not_applicable. Represent a narrower endpoint check under
 the closest supported layer and explain its scope in detail; never invent a layer or status.
 
-Memory is the compact current channel situation with goal, channel_purpose, situation_summary,
+Memory is the compact current Slack conversation situation with goal, channel_purpose, situation_summary,
 active_topics, open_loops, topology, decisions, unresolved_questions, and evidence_refs. Preserve
-still-relevant prior facts, remove resolved loops, and keep it concise. Never invent a source,
+still-relevant prior facts, incorporate relevant related_situations without copying unrelated work,
+remove resolved loops, and keep it concise. Never invent a source,
 timestamp, target, mapping, or successful outcome. The message
 must lead with the answer, distinguish declared configuration from live observation, and state
 material coverage gaps. Omit memory_offer unless the target is a
@@ -1520,8 +1593,10 @@ func watchPrompt(
 	return (&Service{}).watchPrompt(
 		input,
 		botUserID,
+		false,
 		recent,
 		core.AgentMemory{},
+		nil,
 		operationalMemoryContext{},
 		"",
 		nil,

@@ -83,6 +83,7 @@ func TestMemoryExpiryPruneAndRecentEvidenceIsolation(t *testing.T) {
 		time.Now().Add(-time.Hour),
 		time.Now().Add(-time.Hour),
 		time.Now().Add(-time.Hour),
+		time.Now().Add(-time.Hour),
 	)
 	if err != nil || result.MemoryEntries != 1 {
 		t.Fatalf("prune = %+v, %v", result, err)

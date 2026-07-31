@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -364,8 +366,9 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 
 type publicationCoop struct {
 	*fakeCoop
-	changes coop.Changes
-	review  coop.Review
+	changes  coop.Changes
+	review   coop.Review
+	artifact coop.ReviewPatchArtifact
 }
 
 func (f *publicationCoop) Changes(context.Context, string) (coop.Changes, error) {
@@ -379,6 +382,43 @@ func (f *publicationCoop) Review(
 	int64,
 ) (coop.Review, coop.Operation, error) {
 	return f.review, coop.Operation{}, nil
+}
+
+func (f *publicationCoop) ReviewPatch(
+	context.Context,
+	string,
+) (coop.ReviewPatchArtifact, error) {
+	return f.artifact, nil
+}
+
+func TestCompleteReviewPatchFetchesAndVerifiesArtifact(t *testing.T) {
+	full := []byte(strings.Repeat("+large reviewed change\n", 60000))
+	digest := sha256.Sum256(full)
+	digestText := hex.EncodeToString(digest[:])
+	client := &publicationCoop{
+		fakeCoop: newFakeCoop(),
+		artifact: coop.ReviewPatchArtifact{Patch: full, Digest: digestText},
+	}
+	svc := &Service{coop: client}
+	review, err := svc.completeReviewPatch(context.Background(), coop.Review{
+		OperationID: "op_large", PatchArtifactID: "op_large",
+		Patch: []byte("+large"), PatchTruncated: true,
+		PatchBytes: int64(len(full)), PatchDigest: digestText,
+	})
+	if err != nil || review.PatchTruncated ||
+		!strings.EqualFold(review.PatchDigest, digestText) ||
+		len(review.Patch) != len(full) {
+		t.Fatalf("complete review patch = bytes %d truncated=%t err=%v",
+			len(review.Patch), review.PatchTruncated, err)
+	}
+	client.artifact.Patch[0] = '-'
+	if _, err := svc.completeReviewPatch(context.Background(), coop.Review{
+		OperationID: "op_large", PatchArtifactID: "op_large",
+		Patch: []byte("+large"), PatchTruncated: true,
+		PatchBytes: int64(len(full)), PatchDigest: digestText,
+	}); err == nil || !strings.Contains(err.Error(), "digest") {
+		t.Fatalf("tampered review patch error = %v", err)
+	}
 }
 
 type recordingPublisher struct {

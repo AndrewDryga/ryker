@@ -165,6 +165,60 @@ func (s *Store) BackfillClosedSessionCleanup(
 	return result.RowsAffected()
 }
 
+func (s *Store) RetireResolvedDeletedWork(
+	ctx context.Context,
+	deletedBefore time.Time,
+) (int64, error) {
+	now := nowText()
+	cutoff := deletedBefore.UTC().Format(timestampFormat)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO coop_cleanup (
+		  session_id, incident_id, reason, allow_unmerged, state,
+		  eligible_at, next_attempt_at, created_at, updated_at
+		)
+		SELECT i.coop_session_id, i.id, 'resolved work lost its Slack channel',
+		  CASE WHEN p.state = 'published' THEN 1 ELSE 0 END,
+		  'pending', ?, ?, ?, ?
+		FROM incidents i
+		LEFT JOIN publications p ON p.incident_id = i.id
+		WHERE i.status = 'resolved' AND i.channel_state = 'deleted'
+		  AND i.active_turn_id = '' AND i.coop_session_id != ''
+		  AND COALESCE(i.channel_state_changed_at, i.resolved_at, i.updated_at) <= ?`,
+		now, now, now, now, cutoff,
+	); err != nil {
+		return 0, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE incidents
+		SET status = 'closed', workflow = 'closed', closed_at = ?,
+		  updated_at = ?, card_version = card_version + 1,
+		  last_error = CASE
+		    WHEN coop_session_id = '' THEN ''
+		    ELSE 'Slack room was deleted after the incident resolved; retained work is queued for ownership-checked cleanup.'
+		  END
+		WHERE status = 'resolved' AND channel_state = 'deleted'
+		  AND active_turn_id = ''
+		  AND COALESCE(channel_state_changed_at, resolved_at, updated_at) <= ?`,
+		now, now, cutoff,
+	)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s *Store) ScheduleExpiredChannelMemoryCleanup(
 	ctx context.Context,
 	startedBefore time.Time,
@@ -286,6 +340,7 @@ func (s *Store) SetCleanupState(
 func (s *Store) Prune(
 	ctx context.Context,
 	operationalBefore time.Time,
+	conversationBefore time.Time,
 	closedBefore time.Time,
 	auditBefore time.Time,
 ) (core.PruneResult, error) {
@@ -328,6 +383,12 @@ func (s *Store) Prune(
 	}
 	if result.EvaluationDecisions, err = deleteCount(`
 		DELETE FROM evaluation_decisions WHERE created_at < ?`, operational); err != nil {
+		return result, err
+	}
+	if result.ConversationMemories, err = deleteCount(`
+		DELETE FROM conversation_memories WHERE updated_at < ?`,
+		conversationBefore.UTC().Format(timestampFormat),
+	); err != nil {
 		return result, err
 	}
 	if result.MemoryEntries, err = deleteCount(`

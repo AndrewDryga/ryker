@@ -3,6 +3,7 @@ package service
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -29,6 +30,7 @@ type EvaluationCase struct {
 	Output                 string                   `json:"output,omitempty"`
 	WantAction             string                   `json:"want_action,omitempty"`
 	WantReaction           string                   `json:"want_reaction,omitempty"`
+	WantReactionOneOf      []string                 `json:"want_reaction_one_of,omitempty"`
 	WantAttentionAddressee string                   `json:"want_attention_addressee,omitempty"`
 	MinAttentionScore      int                      `json:"min_attention_score,omitempty"`
 	WantOffer              string                   `json:"want_offer,omitempty"`
@@ -51,6 +53,16 @@ type EvaluationCase struct {
 	MaxCoverage            *int                     `json:"max_coverage,omitempty"`
 	MaxMessageBytes        int                      `json:"max_message_bytes,omitempty"`
 	MaxDurationMS          int64                    `json:"max_duration_ms,omitempty"`
+	ProactiveLabel         string                   `json:"proactive_label,omitempty"`
+	Judge                  bool                     `json:"judge,omitempty"`
+	VerifyEvidence         bool                     `json:"verify_evidence,omitempty"`
+	MinQualityScore        float64                  `json:"min_quality_score,omitempty"`
+	CoopPolicy             string                   `json:"coop_policy,omitempty"`
+	WantCommittedChanges   *bool                    `json:"want_committed_changes,omitempty"`
+	WantChangedPaths       []string                 `json:"want_changed_paths,omitempty"`
+	ForbidChangedPaths     []string                 `json:"forbid_changed_paths,omitempty"`
+	WantReviewPublishable  *bool                    `json:"want_review_publishable,omitempty"`
+	WantReviewGate         string                   `json:"want_review_gate,omitempty"`
 }
 
 type EvaluationMessage struct {
@@ -76,21 +88,34 @@ type EvaluationStandingRule struct {
 }
 
 type EvaluationResult struct {
-	Name       string `json:"name"`
-	Passed     bool   `json:"passed"`
-	Detail     string `json:"detail,omitempty"`
-	Response   string `json:"response,omitempty"`
-	DurationMS int64  `json:"duration_ms,omitempty"`
+	Name         string                  `json:"name"`
+	CaseName     string                  `json:"case_name,omitempty"`
+	Repetition   int                     `json:"repetition,omitempty"`
+	Passed       bool                    `json:"passed"`
+	Detail       string                  `json:"detail,omitempty"`
+	Response     string                  `json:"response,omitempty"`
+	DurationMS   int64                   `json:"duration_ms,omitempty"`
+	Action       string                  `json:"action,omitempty"`
+	SlackUX      SlackUXAssessment       `json:"slack_ux,omitempty"`
+	Quality      QualityAssessment       `json:"quality,omitempty"`
+	Verification EvidenceVerification    `json:"verification,omitempty"`
+	Lifecycle    TurnLifecycleAssessment `json:"lifecycle,omitempty"`
+	Artifacts    WorkspaceAssessment     `json:"artifacts,omitempty"`
 }
 
 type EvaluationSummary struct {
-	Mode       string             `json:"mode,omitempty"`
-	Total      int                `json:"total"`
-	Passed     int                `json:"passed"`
-	Failed     int                `json:"failed"`
-	ModelCalls int                `json:"model_calls,omitempty"`
-	DurationMS int64              `json:"duration_ms,omitempty"`
-	Results    []EvaluationResult `json:"results"`
+	Mode         string               `json:"mode,omitempty"`
+	CorpusDigest string               `json:"corpus_digest,omitempty"`
+	Total        int                  `json:"total"`
+	Passed       int                  `json:"passed"`
+	Failed       int                  `json:"failed"`
+	ModelCalls   int                  `json:"model_calls,omitempty"`
+	DurationMS   int64                `json:"duration_ms,omitempty"`
+	Proactivity  ProactivityMetrics   `json:"proactivity,omitempty"`
+	Quality      QualityMetrics       `json:"quality,omitempty"`
+	Cases        []CaseAggregate      `json:"cases,omitempty"`
+	Gate         EvaluationGateResult `json:"gate,omitempty"`
+	Results      []EvaluationResult   `json:"results"`
 }
 
 func EvaluateJSONL(reader io.Reader) (EvaluationSummary, error) {
@@ -98,7 +123,10 @@ func EvaluateJSONL(reader io.Reader) (EvaluationSummary, error) {
 	if err != nil {
 		return EvaluationSummary{}, err
 	}
-	summary := EvaluationSummary{Mode: "replay"}
+	summary := EvaluationSummary{
+		Mode:         "replay",
+		CorpusDigest: evaluationCorpusDigest(cases),
+	}
 	for _, testCase := range cases {
 		result := evaluateCase(testCase)
 		summary.Total++
@@ -109,6 +137,7 @@ func EvaluateJSONL(reader io.Reader) (EvaluationSummary, error) {
 		}
 		summary.Results = append(summary.Results, result)
 	}
+	summarizeEvaluation(&summary)
 	return summary, nil
 }
 
@@ -129,6 +158,14 @@ func decodeEvaluationCases(reader io.Reader) ([]EvaluationCase, error) {
 				"decode evaluation case %d: %w", len(cases)+1, err,
 			)
 		}
+		if err := validateEvaluationCase(testCase); err != nil {
+			return nil, fmt.Errorf(
+				"validate evaluation case %d (%q): %w",
+				len(cases)+1,
+				testCase.Name,
+				err,
+			)
+		}
 		cases = append(cases, testCase)
 	}
 	if err := scanner.Err(); err != nil {
@@ -138,6 +175,20 @@ func decodeEvaluationCases(reader io.Reader) ([]EvaluationCase, error) {
 		return nil, fmt.Errorf("evaluation corpus is empty")
 	}
 	return cases, nil
+}
+
+func validateEvaluationCase(testCase EvaluationCase) error {
+	switch testCase.ProactiveLabel {
+	case "", "act", "silent", "exclude":
+	default:
+		return fmt.Errorf(
+			"proactive_label must be act, silent, or exclude",
+		)
+	}
+	if testCase.MinQualityScore < 0 || testCase.MinQualityScore > 5 {
+		return errors.New("min_quality_score must be between 0 and 5")
+	}
+	return nil
 }
 
 func evaluateCase(testCase EvaluationCase) EvaluationResult {
@@ -209,7 +260,7 @@ func evaluateCaseWithConfig(
 		message = decision.Message
 		evidence = decision.Evidence
 		coverage = decision.Coverage
-	case "incident":
+	case "incident", "task":
 		report, structured, err := parseAgentReport(testCase.Output)
 		if err != nil {
 			result.Detail = err.Error()
@@ -226,7 +277,7 @@ func evaluateCaseWithConfig(
 		pendingApproval = report.PendingApproval != nil
 		proposals = len(report.Proposals)
 	default:
-		result.Detail = "kind must be watch or incident"
+		result.Detail = "kind must be watch, incident, or task"
 		return result
 	}
 	if cfg != nil {
@@ -245,6 +296,15 @@ func evaluateCaseWithConfig(
 			"reaction = %q, want %q",
 			reaction,
 			testCase.WantReaction,
+		)
+		return result
+	}
+	if len(testCase.WantReactionOneOf) > 0 &&
+		!containsExact(testCase.WantReactionOneOf, reaction) {
+		result.Detail = fmt.Sprintf(
+			"reaction = %q, want one of %q",
+			reaction,
+			testCase.WantReactionOneOf,
 		)
 		return result
 	}
@@ -495,6 +555,15 @@ func agentReportOffer(report agentReport) string {
 
 func containsFold(value, fragment string) bool {
 	return strings.Contains(strings.ToLower(value), strings.ToLower(fragment))
+}
+
+func containsExact(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func hasEvidenceSource(evidence []core.Evidence, sourceType string) bool {

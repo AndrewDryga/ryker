@@ -88,7 +88,14 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		state.MatchedRules = rules
 		state.RulesCaptured = true
 	}
-	if watchInputTargeted(input, state) && s.cfg.Slack.NativeStatus {
+	if input.Kind == "message" && !state.ConversationFollowup {
+		followup, err := s.isRecentWatchConversation(ctx, input)
+		if err != nil {
+			return err
+		}
+		state.ConversationFollowup = followup
+	}
+	if watchInputWantsPendingStatus(input, state) && s.cfg.Slack.NativeStatus {
 		if err := s.enqueueNativeStatus(
 			ctx,
 			"",
@@ -166,6 +173,18 @@ func commitmentTitleForInput(input core.SlackInput) string {
 }
 
 func watchInputTargeted(input core.SlackInput, state watchTurnState) bool {
+	return watchInputExplicitlyTargeted(input, state) || state.ConversationFollowup
+}
+
+func watchInputWantsPendingStatus(
+	input core.SlackInput,
+	state watchTurnState,
+) bool {
+	return watchInputTargeted(input, state) ||
+		requestedConversationLocation(input.Text) != conversationLocationFollow
+}
+
+func watchInputExplicitlyTargeted(input core.SlackInput, state watchTurnState) bool {
 	return input.Kind == "direct" || input.Kind == "mention" ||
 		input.Kind == "shortcut" || len(state.MatchedRules) > 0
 }
@@ -316,6 +335,9 @@ func (s *Service) prepareIncidentAgentRun(
 	if situationPrompt := channelSituationPrompt(assembled.Situation); situationPrompt != "" {
 		prompt += "\n\n" + situationPrompt
 	}
+	if relatedPrompt := relatedSituationsPrompt(assembled.RelatedSituations); relatedPrompt != "" {
+		prompt += "\n\n" + relatedPrompt
+	}
 	if repositoryPrompt := repositorySetPrompt(session); repositoryPrompt != "" {
 		prompt += "\n\n" + repositoryPrompt
 	}
@@ -365,6 +387,34 @@ open loops, and explicitly close loops completed by this turn.
 <prior-channel-situation>
 ` + string(data) + `
 </prior-channel-situation>`
+}
+
+func agentMemoryPresent(memory core.AgentMemory) bool {
+	return memory.Goal != "" ||
+		memory.ChannelPurpose != "" ||
+		memory.SituationSummary != "" ||
+		len(memory.ActiveTopics) != 0 ||
+		len(memory.OpenLoops) != 0 ||
+		len(memory.Topology) != 0 ||
+		len(memory.Decisions) != 0 ||
+		len(memory.UnresolvedQuestions) != 0 ||
+		len(memory.EvidenceRefs) != 0
+}
+
+func relatedSituationsPrompt(situations []conversationSituationContext) string {
+	if len(situations) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(situations)
+	if err != nil {
+		return ""
+	}
+	return `Recent compact situations from related Slack conversations follow. They are continuity
+context, not current operational proof. Revalidate consequential claims, use only relevant entries,
+and do not reveal a source channel or thread unless the requesting user already supplied it.
+<related-workspace-situations>
+` + string(data) + `
+</related-workspace-situations>`
 }
 
 func (s *Service) retryIncidentAgentRun(
@@ -459,6 +509,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			return s.retryAgentRun(ctx, run, err)
 		}
 		state.RecentMessages = assembled.RecentMessages
+		state.Memory = assembled.Situation
+		state.RelatedSituations = assembled.RelatedSituations
 		state.Prior = assembled.Prior
 		state.ContextCaptured = true
 		state.PriorCaptured = true
@@ -499,7 +551,9 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	state.SessionID = session.ID
 	state.Repository = memory.Repository
 	state.Generation = memory.Generation
-	state.Memory = memory.State
+	if !agentMemoryPresent(state.Memory) {
+		state.Memory = memory.State
+	}
 	contextJSON, err := json.Marshal(state)
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
@@ -532,8 +586,10 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		s.watchPrompt(
 			input,
 			s.identity.BotUserID,
+			state.ConversationFollowup,
 			state.RecentMessages,
 			state.Memory,
+			state.RelatedSituations,
 			state.Prior,
 			firstNonempty(memory.Repository, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
@@ -718,7 +774,8 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 	if run.Mode == core.AgentRunTriage {
 		input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 		state, stateErr := decodeWatchRunContext(run)
-		if inputErr == nil && stateErr == nil && watchInputTargeted(input, state) {
+		if inputErr == nil && stateErr == nil &&
+			watchInputWantsPendingStatus(input, state) {
 			if err := s.ensureWatchRunPendingStatus(ctx, run, input, &state); err != nil {
 				s.log.Warn("refresh watched run status", "run", run.ID, "error", err)
 			}
@@ -745,6 +802,10 @@ func replayAgentRunFailure(
 		turn.ErrorCode == "acp_protocol_error" &&
 		strings.Contains(detail, "ACP frame exceeded its bound") {
 		return "Coop returned an oversized ACP frame; retrying the turn once", true
+	}
+	if run.Failures < 2 &&
+		strings.Contains(strings.ToLower(detail), "turn cleanup failed") {
+		return "Coop could not clean up the agent turn; retrying in a fresh turn", true
 	}
 	return "", false
 }

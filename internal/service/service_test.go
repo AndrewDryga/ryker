@@ -22,6 +22,70 @@ import (
 	"github.com/slack-go/slack/socketmode"
 )
 
+func TestReviewSummaryExplainsMachineReasons(t *testing.T) {
+	summary := reviewSummary(coop.Review{
+		Gate:   "none",
+		Rebase: "clean",
+		NotPublishableReasons: []string{
+			"gate_not_configured",
+			"gate_modified_candidate",
+		},
+	})
+	for _, want := range []string{
+		"Repository gate: not configured",
+		"no trusted publication gate",
+		"must leave the reviewed source unchanged",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary does not explain %q:\n%s", want, summary)
+		}
+	}
+	for _, raw := range []string{"gate_not_configured", "gate_modified_candidate"} {
+		if strings.Contains(summary, raw) {
+			t.Fatalf("summary leaked machine reason %q:\n%s", raw, summary)
+		}
+	}
+}
+
+func TestChangesCursorAndNavigationBindPagesToIncidentAndDigest(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	value := encodeChangesCursor(changesCursor{
+		IncidentID: "incident_123",
+		Offset:     changesPatchPageBytes,
+		Digest:     digest,
+	})
+	cursor, ok := decodeChangesCursor(value)
+	if !ok || cursor.IncidentID != "incident_123" ||
+		cursor.Offset != changesPatchPageBytes || cursor.Digest != digest {
+		t.Fatalf("cursor = %+v, %t", cursor, ok)
+	}
+	if _, ok := decodeChangesCursor(value + "!"); ok {
+		t.Fatal("malformed diff cursor was accepted")
+	}
+	navigation := changesNavigation("incident_123", coop.Changes{
+		PatchOffset: 7000, PatchNextOffset: 14000,
+		PatchBytes: 15000, PatchHasMore: true, PatchDigest: digest,
+	})
+	if navigation.Page != 2 || navigation.Pages != 3 ||
+		navigation.PreviousValue == "" || navigation.NextValue == "" ||
+		navigation.RefreshValue == "" {
+		t.Fatalf("navigation = %+v", navigation)
+	}
+	for _, action := range []struct {
+		id    string
+		value string
+	}{
+		{slackui.ActionChangesPrevious, navigation.PreviousValue},
+		{slackui.ActionChangesNext, navigation.NextValue},
+		{slackui.ActionChangesRefresh, navigation.RefreshValue},
+	} {
+		incidentID, ok := changesActionIncidentID(action.id, action.value)
+		if !ok || incidentID != "incident_123" {
+			t.Fatalf("action %s incident = %q, %t", action.id, incidentID, ok)
+		}
+	}
+}
+
 func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -261,6 +325,29 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 	); replay || reason != "" {
 		t.Fatalf("oversized frame replay was not bounded = %q, %t", reason, replay)
 	}
+	cleanupFailure := coop.Turn{
+		ErrorCode:   "acp_protocol_error",
+		ErrorDetail: "turn cleanup failed",
+	}
+	for failures := 0; failures < 2; failures++ {
+		run.Failures = failures
+		if reason, replay := replayAgentRunFailure(
+			run, "turn.failed", cleanupFailure, 20,
+		); !replay || !strings.Contains(reason, "retrying") {
+			t.Fatalf(
+				"cleanup failure %d replay = %q, %t",
+				failures,
+				reason,
+				replay,
+			)
+		}
+	}
+	run.Failures = 2
+	if reason, replay := replayAgentRunFailure(
+		run, "turn.failed", cleanupFailure, 20,
+	); replay || reason != "" {
+		t.Fatalf("cleanup failure replay was not bounded = %q, %t", reason, replay)
+	}
 	run.Failures = 0
 	for _, candidate := range []struct {
 		event string
@@ -295,6 +382,52 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		run, "turn.failed", oversized, 1,
 	); replay || reason != "" {
 		t.Fatalf("configured terminal attempt replayed = %q, %t", reason, replay)
+	}
+}
+
+func TestEvaluationTurnCleanupRetryIsBoundedAndRecovers(t *testing.T) {
+	client := newFakeCoop()
+	client.submitTurns = []coop.Turn{
+		{
+			State:       "failed",
+			ErrorCode:   "acp_protocol_error",
+			ErrorDetail: "turn cleanup failed",
+		},
+		{
+			State:       "failed",
+			ErrorCode:   "acp_protocol_error",
+			ErrorDetail: "turn cleanup failed",
+		},
+		{
+			State:            "completed",
+			AssistantMessage: `{"action":"ignore"}`,
+		},
+	}
+	response, turnID, calls, err := runEvaluationTurnWithRetry(
+		context.Background(),
+		client,
+		client.session.ID,
+		"responder:test-eval-turn",
+		"evaluate",
+		time.Millisecond,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response != `{"action":"ignore"}` || turnID == "" || calls != 3 {
+		t.Fatalf(
+			"retry result = response %q, turn %q, calls %d",
+			response,
+			turnID,
+			calls,
+		)
+	}
+	if want := []string{
+		"responder:test-eval-turn",
+		"responder:test-eval-turn:cleanup-retry:1",
+		"responder:test-eval-turn:cleanup-retry:2",
+	}; !slices.Equal(client.submitKeys, want) {
+		t.Fatalf("retry keys = %v, want %v", client.submitKeys, want)
 	}
 }
 
@@ -548,10 +681,11 @@ func TestCommandsRequireExactWholeMessage(t *testing.T) {
 	}
 }
 
-func TestSummonQuestionRepliesWithoutCreatingIncident(t *testing.T) {
+func TestExplicitMentionRepliesOutsideConfiguredChannelsWithoutCreatingIncident(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
-	cfg.Slack.SummonChannels = []string{"CSUMMON"}
+	cfg.Slack.SummonChannels = []string{"COTHER"}
+	cfg.Slack.WatchChannels = nil
 	st, err := store.Open(cfg.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -560,7 +694,7 @@ func TestSummonQuestionRepliesWithoutCreatingIncident(t *testing.T) {
 	input := core.SlackInput{
 		ID: "slack-summon-question", EnvelopeID: "envelope-summon-question",
 		EventID: "event-summon-question", Kind: "mention", TeamID: cfg.Slack.TeamID,
-		ChannelID: "CSUMMON", MessageTS: "1700.000", UserID: "U123ABC",
+		ChannelID: "CUNCONFIGURED", MessageTS: "1700.000", UserID: "U123ABC",
 		Text: "<@U999BOT> how is the health of our infrastructure?",
 	}
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
@@ -587,7 +721,70 @@ func TestSummonQuestionRepliesWithoutCreatingIncident(t *testing.T) {
 	}
 	if len(coopClient.submitPrompts) != 1 ||
 		!strings.Contains(coopClient.submitPrompts[0], `"mentions_responder":true`) {
-		t.Fatalf("summon question did not use watched triage: %+v", coopClient.submitPrompts)
+		t.Fatalf("explicit mention did not use watched triage: %+v", coopClient.submitPrompts)
+	}
+
+	for name, threadTS := range map[string]string{
+		"top-level continuation":    "",
+		"thread started from reply": "1700.001",
+	} {
+		t.Run(name, func(t *testing.T) {
+			admit, err := svc.shouldAdmitChannelMessage(ctx, core.SlackInput{
+				Kind: "message", ChannelID: input.ChannelID,
+				ThreadTS: threadTS, MessageTS: "1700.010", UserID: input.UserID,
+				Text: "How were you able to verify that?",
+			})
+			if err != nil || !admit {
+				t.Fatalf("continuation admission = %t, %v", admit, err)
+			}
+		})
+	}
+	if active, err := st.HasRecentWatchReply(
+		ctx,
+		input.ChannelID,
+		"",
+		"1700.010",
+		time.Now().UTC().Add(time.Minute),
+	); err != nil || active {
+		t.Fatalf("expired continuation = %t, %v", active, err)
+	}
+	if active, err := st.HasRecentWatchReply(
+		ctx,
+		input.ChannelID,
+		"",
+		"1700.0005",
+		time.Now().UTC().Add(-time.Minute),
+	); err != nil || active {
+		t.Fatalf("message preceding reply continuation = %t, %v", active, err)
+	}
+
+	followup := core.SlackInput{
+		ID: "slack-summon-followup", EnvelopeID: "envelope-summon-followup",
+		EventID: "event-summon-followup", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: input.ChannelID, MessageTS: "1700.010", UserID: input.UserID,
+		Text: "How were you able to verify that?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, followup); err != nil || !created {
+		t.Fatalf("admit continuation = %v, %v", created, err)
+	}
+	coopClient.completeOnSubmit = `{
+		"action":"reply",
+		"message":"I used the configured GitHub credentials and checked the current workflow run."
+	}`
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 2 ||
+		!strings.Contains(slackClient.posts[1].message.Text, "configured GitHub credentials") {
+		t.Fatalf("continuation reply = %+v", slackClient.posts)
+	}
+	if len(coopClient.submitPrompts) != 2 ||
+		!strings.Contains(
+			coopClient.submitPrompts[1],
+			`"conversation_continuation":true`,
+		) {
+		t.Fatalf("continuation prompt = %+v", coopClient.submitPrompts)
 	}
 }
 
@@ -2289,6 +2486,75 @@ func TestClosedIncidentControlsResolveByIDAndHideWithoutChanges(t *testing.T) {
 	}
 }
 
+func TestIncidentControlMatchesDeliveredResultMessage(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	svc := New(
+		cfg,
+		st,
+		newFakeCoop(),
+		&fakeSlack{},
+		nil,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	message := slackui.Message{
+		Text: "The requested change is ready.",
+		Actions: []slackui.Action{{
+			ID: slackui.ActionChanges, Label: "View diff", Value: incident.ID,
+		}},
+	}
+	body, err := slackui.Encode(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "out_result_with_controls", IncidentID: incident.ID,
+		Kind: "assistant", ChannelID: incident.ChannelID,
+		ThreadTS: incident.ConversationThreadTS(), Body: body,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.LeaseSlackDelivery(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(
+		ctx,
+		delivery.ID,
+		"1700.900",
+		"sending",
+	); err != nil {
+		t.Fatal(err)
+	}
+	input := core.SlackInput{
+		Kind: "action", ChannelID: incident.ChannelID,
+		ThreadTS: incident.ConversationThreadTS(), MessageTS: "1700.900",
+		ActionID: slackui.ActionChanges, ActionValue: incident.ID,
+	}
+	matches, err := svc.incidentControlMatchesMessage(ctx, input, incident)
+	if err != nil || !matches {
+		t.Fatalf("delivered result control = %t, %v", matches, err)
+	}
+	input.ActionID = slackui.ActionPublishPR
+	matches, err = svc.incidentControlMatchesMessage(ctx, input, incident)
+	if err != nil || matches {
+		t.Fatalf("undelivered result control = %t, %v", matches, err)
+	}
+	input.ActionID = slackui.ActionChanges
+	input.MessageTS = "1700.999"
+	matches, err = svc.incidentControlMatchesMessage(ctx, input, incident)
+	if err != nil || matches {
+		t.Fatalf("wrong result message control = %t, %v", matches, err)
+	}
+}
+
 func TestSlashProactiveOffPreemptsQueuedChannelMessage(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -2612,6 +2878,7 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	if len(slackClient.posts) != 1 ||
+		slackClient.posts[0].thread != "" ||
 		len(slackClient.posts[0].message.Actions) != 1 ||
 		slackClient.posts[0].message.Actions[0].ID != slackui.ActionOpenIncident {
 		t.Fatalf("incident offer = %+v", slackClient.posts)
@@ -2625,7 +2892,7 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 		input := core.SlackInput{
 			ID: id, EnvelopeID: "env-" + id, EventID: "event-" + id,
 			Kind: "action", TeamID: cfg.Slack.TeamID, ChannelID: source.ChannelID,
-			ThreadTS: source.MessageTS, MessageTS: "1700.801", UserID: userID,
+			MessageTS: "1700.001", UserID: userID,
 			ActionID: slackui.ActionOpenIncident, ActionValue: source.ID,
 		}
 		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
@@ -2642,6 +2909,27 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	}
 	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
 		t.Fatalf("unauthorized click created incident = %+v, %v", incidents, err)
+	}
+
+	stale := core.SlackInput{
+		ID: "incident-offer-stale", EnvelopeID: "env-incident-offer-stale",
+		EventID: "event-incident-offer-stale", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: source.ChannelID,
+		MessageTS: "1700.999", UserID: "U123ABC",
+		ActionID: slackui.ActionOpenIncident, ActionValue: source.ID,
+	}
+	if created, err := st.AdmitSlackInput(ctx, stale); err != nil || !created {
+		t.Fatalf("admit stale = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatalf("process stale: %v", err)
+	}
+	if len(slackClient.ephemerals) != 2 ||
+		!strings.Contains(slackClient.ephemerals[1].message.Text, "stale") {
+		t.Fatalf("stale offer response = %+v", slackClient.ephemerals)
+	}
+	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
+		t.Fatalf("stale click created incident = %+v, %v", incidents, err)
 	}
 
 	click("incident-offer-authorized", "U123ABC")
@@ -2702,6 +2990,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	if len(slackClient.posts) != 1 ||
+		slackClient.posts[0].thread != "" ||
 		len(slackClient.posts[0].message.Actions) != 1 ||
 		slackClient.posts[0].message.Actions[0].ID != slackui.ActionStartTask ||
 		slackClient.posts[0].message.Actions[0].Value != source.ID {
@@ -2726,7 +3015,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		input := core.SlackInput{
 			ID: id, EnvelopeID: "env-" + id, EventID: "event-" + id,
 			Kind: "action", TeamID: cfg.Slack.TeamID, ChannelID: source.ChannelID,
-			ThreadTS: source.MessageTS, MessageTS: "1700.901", UserID: userID,
+			MessageTS: "1700.001", UserID: userID,
 			ActionID: slackui.ActionStartTask, ActionValue: source.ID,
 		}
 		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
@@ -2743,6 +3032,26 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	}
 	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
 		t.Fatalf("unauthorized click created task = %+v, %v", incidents, err)
+	}
+	stale := core.SlackInput{
+		ID: "engineering-task-stale", EnvelopeID: "env-engineering-task-stale",
+		EventID: "event-engineering-task-stale", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: source.ChannelID,
+		MessageTS: "1700.999", UserID: "U123ABC",
+		ActionID: slackui.ActionStartTask, ActionValue: source.ID,
+	}
+	if created, err := st.AdmitSlackInput(ctx, stale); err != nil || !created {
+		t.Fatalf("admit stale = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatalf("process stale: %v", err)
+	}
+	if len(slackClient.ephemerals) != 2 ||
+		!strings.Contains(slackClient.ephemerals[1].message.Text, "stale") {
+		t.Fatalf("stale task response = %+v", slackClient.ephemerals)
+	}
+	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
+		t.Fatalf("stale click created task = %+v, %v", incidents, err)
 	}
 	click("engineering-task-authorized", "U123ABC")
 	drainSlackDeliveries(t, ctx, svc)
@@ -2762,9 +3071,9 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		t.Fatalf("engineering task directory entry = %q", directoryEntry)
 	}
 	if len(slackClient.posts) != 2 ||
-		!strings.Contains(slackClient.posts[1].message.Text, "Engineering task accepted") ||
-		!strings.Contains(slackClient.posts[1].message.Text, "continuing in this thread") ||
-		!strings.Contains(slackClient.posts[1].message.Text, "edit, test, and commit") {
+		slackClient.posts[1].thread != source.MessageTS ||
+		slackClient.posts[1].message.Text !=
+			"On it. I’ll make the change in an isolated working copy and report back here." {
 		t.Fatalf("engineering task acknowledgement = %+v", slackClient.posts)
 	}
 	signals, err := st.ListSignals(ctx, incidents[0].ID)
@@ -2860,6 +3169,75 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	}
 	if queued, err := st.GetAgentRunBySource(ctx, "slack", unrelated.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unrelated message entered task session = %+v, %v", queued, err)
+	}
+}
+
+func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(
+		cfg,
+		st,
+		newFakeCoop(),
+		&fakeSlack{},
+		nil,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	source := core.SlackInput{
+		ID: "threaded-offer-source", ChannelID: "CWATCH",
+		ThreadTS: "1700.700", MessageTS: "1700.701",
+	}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "watch_reply_" + source.ID, Kind: "notice",
+		ChannelID: source.ChannelID, ThreadTS: source.ThreadTS,
+		Body: []byte(`{"text":"offer"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.LeaseSlackDelivery(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(
+		ctx,
+		delivery.ID,
+		"1700.702",
+		"sending",
+	); err != nil {
+		t.Fatal(err)
+	}
+	matching := core.SlackInput{
+		ChannelID: source.ChannelID,
+		ThreadTS:  source.ThreadTS,
+		MessageTS: "1700.702",
+	}
+	matches, err := svc.watchOfferActionMatchesDelivery(ctx, matching, source)
+	if err != nil || !matches {
+		t.Fatalf("matching threaded offer = %v, %v", matches, err)
+	}
+	for name, input := range map[string]core.SlackInput{
+		"wrong channel": {
+			ChannelID: "COTHER", ThreadTS: source.ThreadTS, MessageTS: "1700.702",
+		},
+		"wrong thread": {
+			ChannelID: source.ChannelID, ThreadTS: "1700.799", MessageTS: "1700.702",
+		},
+		"wrong message": {
+			ChannelID: source.ChannelID, ThreadTS: source.ThreadTS, MessageTS: "1700.799",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			matches, err := svc.watchOfferActionMatchesDelivery(ctx, input, source)
+			if err != nil || matches {
+				t.Fatalf("mismatched threaded offer = %v, %v", matches, err)
+			}
+		})
 	}
 }
 
@@ -3549,6 +3927,42 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 	}
 }
 
+func TestParseWatchDecisionAcceptsEmptyOptionalObservationTimestamps(t *testing.T) {
+	decision, err := parseWatchDecision(`{
+		"action":"reply",
+		"message":"The live layer is healthy; the declared layer has no source timestamp.",
+		"attention":{"addressee":"responder","confidence":3,"ownership":3},
+		"evidence":[
+			{
+				"claim":"Topology is declared",
+				"observation":"Two instances",
+				"source_type":"repository",
+				"source_name":"infra/main.tf",
+				"observed_at":""
+			},
+			{
+				"claim":"Two runners are connected",
+				"observation":"Both responded",
+				"source_type":"emisar",
+				"source_name":"Emisar list_runners",
+				"observed_at":"2026-07-30T07:00:00Z"
+			}
+		],
+		"coverage":[
+			{"layer":"change","status":"unknown","observed_at":""},
+			{"layer":"runtime","status":"healthy","observed_at":"2026-07-30T07:00:00Z"}
+		],
+		"memory":{}
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decision.Evidence) != 2 || !decision.Evidence[0].ObservedAt.IsZero() ||
+		len(decision.Coverage) != 2 || !decision.Coverage[0].ObservedAt.IsZero() {
+		t.Fatalf("empty optional timestamps were not normalized: %+v", decision)
+	}
+}
+
 func TestSlackReactionNameNormalization(t *testing.T) {
 	valid := map[string]string{
 		" TADA ":               "tada",
@@ -3617,6 +4031,22 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 	if filtered.Action != "ignore" || filtered.Reaction != "" {
 		t.Fatalf("reaction without assessment = %+v, want suppressed", filtered)
 	}
+
+	decision.Action = "reply"
+	decision.Message = "I will interrupt them."
+	decision.Attention = attentionAssessment{
+		Addressee: "human", Urgency: 2, Confidence: 3, Novelty: 2, Ownership: 2,
+	}
+	filtered = enforceAttentionPolicy(
+		input,
+		watchTurnState{ConversationFollowup: true},
+		decision,
+		7,
+		4,
+	)
+	if filtered.Action != "ignore" {
+		t.Fatalf("human-directed continuation was not suppressed: %+v", filtered)
+	}
 }
 
 func TestParseWatchDecisionNormalizesStructuredMemoryTopology(t *testing.T) {
@@ -3640,6 +4070,28 @@ func TestParseWatchDecisionNormalizesStructuredMemoryTopology(t *testing.T) {
 	}
 	if !slices.Equal(decision.Memory.Topology, want) {
 		t.Fatalf("normalized topology = %#v, want %#v", decision.Memory.Topology, want)
+	}
+
+	decision, err = parseWatchDecision(`{
+		"action":"reply",
+		"message":"I can make that change.",
+		"task_title":"Audit infrastructure packs",
+		"memory":{
+			"topology":[
+				{"service":"portal","declared_instances":2},
+				{"service":"database","kind":"cloud-sql"}
+			]
+		}
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []string{
+		"declared_instances: 2; service: portal",
+		"kind: cloud-sql; service: database",
+	}
+	if !slices.Equal(decision.Memory.Topology, want) {
+		t.Fatalf("normalized topology array = %#v, want %#v", decision.Memory.Topology, want)
 	}
 }
 
@@ -3767,6 +4219,8 @@ type fakeCoop struct {
 	submitPrompts      []string
 	submitState        string
 	completeOnSubmit   string
+	completeQueue      []string
+	submitTurns        []coop.Turn
 	discardPlan        coop.DiscardPlan
 	discardCalls       int
 }
@@ -3860,8 +4314,29 @@ func (f *fakeCoop) SubmitTurn(_ context.Context, key, _ string, _ int64, prompt 
 	}
 	f.session.ActiveTurnID = f.turn.ID
 	f.session.Revision++
+	if len(f.submitTurns) > 0 {
+		scripted := f.submitTurns[0]
+		f.submitTurns = f.submitTurns[1:]
+		if scripted.ID == "" {
+			scripted.ID = f.turn.ID
+		}
+		if scripted.SessionID == "" {
+			scripted.SessionID = f.session.ID
+		}
+		f.turn = scripted
+		if scripted.State == "completed" || scripted.State == "failed" ||
+			scripted.State == "cancelled" {
+			f.session.ActiveTurnID = ""
+			f.session.Activity = "parked"
+		}
+		return f.turn, coop.Operation{}, nil
+	}
 	if f.completeOnSubmit != "" {
 		f.complete(f.completeOnSubmit)
+	} else if len(f.completeQueue) > 0 {
+		message := f.completeQueue[0]
+		f.completeQueue = f.completeQueue[1:]
+		f.complete(message)
 	}
 	return f.turn, coop.Operation{}, nil
 }
@@ -4086,6 +4561,14 @@ type slackReaction struct {
 	name      string
 }
 
+type slackHistoryRequest struct {
+	channel string
+	thread  string
+	target  string
+	since   string
+	limit   int
+}
+
 type fakeSlack struct {
 	posts              []slackPost
 	ephemerals         []slackPost
@@ -4107,6 +4590,7 @@ type fakeSlack struct {
 	createChannelCalls int
 	history            []slackui.HistoryMessage
 	historyErr         error
+	historyRequests    []slackHistoryRequest
 	channels           []slackui.Channel
 	listChannelsErr    error
 }
@@ -4220,11 +4704,16 @@ func (f *fakeSlack) UserGroupMembers(context.Context, string, string) ([]string,
 	return []string{"UOPERATOR"}, nil
 }
 func (f *fakeSlack) RecentMessages(
-	context.Context,
-	string,
-	string,
-	int,
+	_ context.Context,
+	channel string,
+	thread string,
+	target string,
+	since string,
+	limit int,
 ) ([]slackui.HistoryMessage, error) {
+	f.historyRequests = append(f.historyRequests, slackHistoryRequest{
+		channel: channel, thread: thread, target: target, since: since, limit: limit,
+	})
 	return slices.Clone(f.history), f.historyErr
 }
 func (f *fakeSlack) FindDeliveryMessage(

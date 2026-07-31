@@ -24,6 +24,36 @@ func TestSanitizerRedactsSecretsMentionsANSIAndBounds(t *testing.T) {
 	}
 }
 
+func TestChangesMessageRendersExplicitPatchPageAndNavigation(t *testing.T) {
+	incident := core.Incident{
+		ID: "incident_large_diff", WorkKind: core.WorkKindEngineeringTask,
+		CoopForkName: "remote-large",
+	}
+	patch := []byte(strings.Repeat("+changed line\n", 400))
+	message := ChangesMessage(
+		incident,
+		"*Committed (24)*\n`first.go` M\n_…and 23 more committed files._",
+		patch,
+		ChangesNavigation{
+			Page: 2, Pages: 4, FirstByte: 7000, LastByte: 14000,
+			TotalBytes:    25000,
+			Digest:        strings.Repeat("a", 64),
+			PreviousValue: "previous", NextValue: "next", RefreshValue: "refresh",
+		},
+	)
+	if !strings.Contains(message.Markdown, "Patch page 2 of 4") ||
+		!strings.Contains(message.Markdown, "bytes 7001-14000 of 25000") ||
+		!strings.Contains(message.Markdown, "snapshot `aaaaaaaaaaaa`") ||
+		!strings.Contains(message.Markdown, "+changed line") ||
+		strings.Contains(message.Markdown, "The patch exceeded") ||
+		len(message.Actions) != 3 ||
+		message.Actions[0].ID != ActionChangesPrevious ||
+		message.Actions[1].ID != ActionChangesNext ||
+		message.Actions[2].ID != ActionChangesRefresh {
+		t.Fatalf("large diff page = %+v", message)
+	}
+}
+
 func TestSanitizerCoversEveryUntrustedMessageSurface(t *testing.T) {
 	sanitizer := NewSanitizer(500, "super-secret-token")
 	message := sanitizer.Message(Message{

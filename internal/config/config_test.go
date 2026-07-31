@@ -66,7 +66,8 @@ webhooks:
 		cfg.Limits.MaxPreferences != 500 ||
 		cfg.Limits.MaxPreferencesPerScope != 50 ||
 		cfg.Limits.MaxStandingRules != 500 ||
-		cfg.Limits.MaxRulesPerChannel != 25 {
+		cfg.Limits.MaxRulesPerChannel != 25 ||
+		cfg.Retention.ConversationMemory.Duration != 90*24*time.Hour {
 		t.Fatalf("defaults missing: %+v %+v", cfg.Coop, cfg.Slack)
 	}
 	if cfg.Coop.StateDir != filepath.Join(cfg.StateDir, "coop") ||
@@ -279,6 +280,9 @@ webhooks:
 			return strings.Replace(
 				s, "coop: {}", "coop: {watch_session_max_age: 59m}", 1,
 			)
+		},
+		"short conversation memory": func(s string) string {
+			return s + "retention:\n  conversation_memory: 23h\n"
 		},
 		"too few memory entries": func(s string) string {
 			return s + "limits:\n  max_memory_entries: 9\n"

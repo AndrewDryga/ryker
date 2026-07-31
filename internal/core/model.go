@@ -412,32 +412,51 @@ func decodeMemoryStrings(data json.RawMessage) ([]string, error) {
 	if len(data) == 0 || string(data) == "null" {
 		return nil, nil
 	}
-	var values []string
-	if err := json.Unmarshal(data, &values); err == nil {
-		return values, nil
-	}
 	var value string
 	if err := json.Unmarshal(data, &value); err == nil {
 		return []string{value}, nil
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return nil, errors.New("expected a string, string array, or object")
-	}
-	keys := make([]string, 0, len(object))
-	for key := range object {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	values = make([]string, 0, len(keys))
-	for _, key := range keys {
-		var item string
-		if err := json.Unmarshal(object[key], &item); err != nil {
-			item = string(object[key])
+	var items []json.RawMessage
+	if err := json.Unmarshal(data, &items); err == nil {
+		var values []string
+		for _, item := range items {
+			normalized, err := decodeMemoryStrings(item)
+			if err != nil {
+				return nil, err
+			}
+			if len(normalized) == 0 {
+				continue
+			}
+			if len(normalized) == 1 {
+				values = append(values, normalized[0])
+				continue
+			}
+			values = append(values, strings.Join(normalized, "; "))
 		}
-		values = append(values, key+": "+item)
+		return values, nil
 	}
-	return values, nil
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err == nil {
+		keys := make([]string, 0, len(object))
+		for key := range object {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		values := make([]string, 0, len(keys))
+		for _, key := range keys {
+			var item string
+			if err := json.Unmarshal(object[key], &item); err != nil {
+				item = string(object[key])
+			}
+			values = append(values, key+": "+item)
+		}
+		return values, nil
+	}
+	var scalar any
+	if err := json.Unmarshal(data, &scalar); err != nil {
+		return nil, errors.New("expected a JSON memory value")
+	}
+	return []string{string(data)}, nil
 }
 
 type ChannelMemory struct {
@@ -452,6 +471,16 @@ type ChannelMemory struct {
 	SessionStarted    time.Time
 	RotatedAt         time.Time
 	UpdatedAt         time.Time
+}
+
+type ConversationMemory struct {
+	ChannelID   string
+	ChannelName string
+	ThreadTS    string
+	Repository  string
+	LastMessage string
+	State       AgentMemory
+	UpdatedAt   time.Time
 }
 
 type AgentRunMode string
@@ -598,6 +627,9 @@ type EmisarApproval struct {
 type EvaluationDecision struct {
 	ID          string
 	ChannelID   string
+	ThreadTS    string
+	MessageTS   string
+	Repository  string
 	SourceInput string
 	Mode        string
 	Action      string
@@ -651,6 +683,7 @@ type PruneResult struct {
 	AgentRuns             int64
 	EvaluationDecisions   int64
 	ChannelIntelligence   int64
+	ConversationMemories  int64
 	MemoryEntries         int64
 	Preferences           int64
 	StandingRules         int64
@@ -664,7 +697,8 @@ type PruneResult struct {
 
 func (r PruneResult) Total() int64 {
 	return r.SlackInputs + r.WebhookEvents + r.SlackDeliveries + r.AgentRuns +
-		r.EvaluationDecisions + r.ChannelIntelligence + r.MemoryEntries + r.ActionProposals +
-		r.Preferences + r.StandingRules + r.StandingRuleRuns + r.EmisarApprovals +
-		r.ConfigurationSessions + r.ClosedIncidents + r.AuditEvents
+		r.EvaluationDecisions + r.ChannelIntelligence + r.ConversationMemories +
+		r.MemoryEntries + r.ActionProposals + r.Preferences + r.StandingRules +
+		r.StandingRuleRuns + r.EmisarApprovals + r.ConfigurationSessions +
+		r.ClosedIncidents + r.AuditEvents
 }

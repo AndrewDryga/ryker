@@ -79,6 +79,20 @@ func (s *Store) GetActiveConfigurationSession(
 	))
 }
 
+func (s *Store) GetLatestConfigurationSession(
+	ctx context.Context,
+	channelID string,
+) (core.ConfigurationSession, error) {
+	return scanConfigurationSession(s.db.QueryRowContext(ctx, `
+		SELECT id, team_id, channel_id, thread_ts, response_thread_ts, thread_roots_json,
+		  initiator_id, step, status, draft_json, revision, expires_at, created_at, updated_at
+		FROM configuration_sessions
+		WHERE channel_id = ?
+		ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+		channelID,
+	))
+}
+
 func (s *Store) GetConfigurationSession(
 	ctx context.Context,
 	id string,

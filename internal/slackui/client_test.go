@@ -3,6 +3,7 @@ package slackui
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,8 +12,90 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+	"github.com/slack-go/slack"
 	"gopkg.in/yaml.v3"
 )
+
+func TestSelectThreadHistoryKeepsRootAndNewestReplies(t *testing.T) {
+	history := []HistoryMessage{{
+		Timestamp: "1700.000001",
+		Text:      "thread root",
+	}}
+	for index := 2; index <= 30; index++ {
+		history = append(history, HistoryMessage{
+			Timestamp: fmt.Sprintf("1700.%06d", index),
+			ThreadTS:  "1700.000001",
+			Text:      fmt.Sprintf("reply %d", index),
+		})
+	}
+	selected := selectThreadHistory(history, "1700.000001", 5)
+	if len(selected) != 5 ||
+		selected[0].Text != "thread root" ||
+		selected[1].Text != "reply 27" ||
+		selected[4].Text != "reply 30" {
+		t.Fatalf("selected thread history = %+v", selected)
+	}
+}
+
+func TestRecentMessagesPaginatesOldThreadAndReturnsNewestTail(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.FormValue("latest") != "1700.000030" ||
+			r.FormValue("oldest") != "" ||
+			r.FormValue("inclusive") != "1" {
+			t.Errorf("thread history bounds = %s", r.Form.Encode())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.FormValue("cursor") == "" {
+			_, _ = fmt.Fprint(w, `{
+			  "ok":true,
+			  "has_more":true,
+			  "response_metadata":{"next_cursor":"page-two"},
+			  "messages":[
+			    {"ts":"1700.000001","text":"thread root","user":"U1"},
+			    {"ts":"1700.000002","thread_ts":"1700.000001","text":"reply 2","user":"U2"}
+			  ]
+			}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{
+		  "ok":true,
+		  "has_more":false,
+		  "response_metadata":{"next_cursor":""},
+		  "messages":[
+		    {"ts":"1700.000028","thread_ts":"1700.000001","text":"reply 28","user":"U2"},
+		    {"ts":"1700.000029","thread_ts":"1700.000001","text":"reply 29","user":"U2"},
+		    {"ts":"1700.000030","thread_ts":"1700.000001","text":"reply 30","user":"U2"}
+		  ]
+		}`)
+	}))
+	defer server.Close()
+	client := &Client{
+		api: slack.New(
+			"test-token",
+			slack.OptionAPIURL(server.URL+"/"),
+			slack.OptionHTTPClient(server.Client()),
+		),
+	}
+	history, err := client.RecentMessages(
+		context.Background(),
+		"COPS",
+		"1700.000001",
+		"1700.000030",
+		"",
+		4,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || len(history) != 4 ||
+		history[0].Text != "thread root" ||
+		history[1].Text != "reply 28" ||
+		history[3].Text != "reply 30" {
+		t.Fatalf("paginated thread history calls=%d history=%+v", calls, history)
+	}
+}
 
 type shippedSlackManifest struct {
 	Metadata struct {
@@ -226,6 +309,11 @@ func TestMissingBotScopesUsesTheShippedManifestContract(t *testing.T) {
 	}
 	if missing := missingBotScopes(requiredBotScopes); len(missing) != 0 {
 		t.Fatalf("complete manifest scopes reported missing: %v", missing)
+	}
+	want := "bot token is missing required scopes: reactions:write, usergroups:read; " +
+		"apply deploy/slack-app-manifest.yaml and reinstall the app"
+	if got := missingBotScopesError([]string{"reactions:write", "usergroups:read"}).Error(); got != want {
+		t.Fatalf("scope repair error = %q; want %q", got, want)
 	}
 }
 

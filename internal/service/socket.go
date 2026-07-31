@@ -278,6 +278,10 @@ func (s *Service) shouldAdmitChannelMessage(
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return false, err
 	}
+	continuing, err := s.isRecentWatchConversation(ctx, input)
+	if err != nil || continuing {
+		return continuing, err
+	}
 	proactive, err := s.proactiveEnabled(ctx, input.ChannelID)
 	if err != nil || proactive {
 		return proactive, err
@@ -291,6 +295,28 @@ func (s *Service) shouldAdmitChannelMessage(
 		return false, err
 	}
 	return len(rules) > 0, nil
+}
+
+func (s *Service) isRecentWatchConversation(
+	ctx context.Context,
+	input core.SlackInput,
+) (bool, error) {
+	if input.Kind != "message" {
+		return false, nil
+	}
+	since := time.Now().UTC().Add(-watchConversationContinuationWindow)
+	if input.ThreadTS != "" {
+		// A reply in an exact Slack thread remains part of that conversation even
+		// after the short top-level continuation window expires.
+		since = time.Time{}
+	}
+	return s.store.HasRecentWatchReply(
+		ctx,
+		input.ChannelID,
+		input.ThreadTS,
+		input.MessageTS,
+		since,
+	)
 }
 
 func setLifecycleInput(

@@ -2043,6 +2043,54 @@ func (s *Store) HasNewerWatchDecision(
 	return exists, err
 }
 
+func (s *Store) HasRecentWatchReply(
+	ctx context.Context,
+	channelID string,
+	threadTS string,
+	beforeMessageTS string,
+	since time.Time,
+) (bool, error) {
+	if channelID == "" || beforeMessageTS == "" {
+		return false, nil
+	}
+	sinceText := ""
+	if !since.IsZero() {
+		sinceText = since.UTC().Format(timestampFormat)
+	}
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1
+		  FROM slack_deliveries AS delivery
+		  JOIN agent_runs AS run
+		    ON run.source_kind = 'watch'
+		   AND delivery.id = 'watch_reply_' || run.source_id
+		  WHERE delivery.operation = 'post'
+		    AND delivery.state = 'sent'
+		    AND delivery.channel_id = ?
+		    AND (
+		      delivery.thread_ts = ?
+		      OR (
+		        ? != ''
+		        AND delivery.thread_ts = ''
+		        AND delivery.message_ts = ?
+		      )
+		    )
+		    AND delivery.message_ts != ''
+		    AND CAST(delivery.message_ts AS REAL) < CAST(? AS REAL)
+		    AND (? = '' OR delivery.updated_at >= ?)
+		)`,
+		channelID,
+		threadTS,
+		threadTS,
+		threadTS,
+		beforeMessageTS,
+		sinceText,
+		sinceText,
+	).Scan(&exists)
+	return exists, err
+}
+
 func scanSlackInput(row interface{ Scan(...any) error }) (core.SlackInput, error) {
 	var input core.SlackInput
 	var received string

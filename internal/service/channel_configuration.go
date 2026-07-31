@@ -18,6 +18,7 @@ import (
 const (
 	channelRepositorySettingName = "repository"
 	defaultAlertPolicy           = "automatic"
+	channelConfigurationLease    = 30 * time.Minute
 )
 
 var (
@@ -72,7 +73,7 @@ func (s *Service) startChannelConfiguration(
 		TeamID: input.TeamID, ChannelID: input.ChannelID, Initiator: initiator,
 		Step: "participation", Status: "asking",
 		Draft:     draft,
-		ExpiresAt: time.Now().UTC().Add(30 * time.Minute),
+		ExpiresAt: time.Now().UTC().Add(channelConfigurationLease),
 	})
 	if err != nil {
 		return err
@@ -100,20 +101,17 @@ func (s *Service) shouldAdmitConfigurationMessage(
 	ctx context.Context,
 	input core.SlackInput,
 ) (bool, error) {
-	session, err := s.store.GetActiveConfigurationSession(ctx, input.ChannelID)
+	session, err := s.configurationSessionForReply(ctx, input.ChannelID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	if !session.ExpiresAt.After(time.Now().UTC()) {
-		_ = s.store.FinishConfigurationSession(
-			ctx, session.ID, session.Revision, "expired",
-		)
+	if !s.cfg.IsOperator(input.UserID) {
 		return false, nil
 	}
-	if !s.cfg.IsOperator(input.UserID) {
+	if session.Status == "expired" && input.ThreadTS == "" {
 		return false, nil
 	}
 	if input.ThreadTS != "" {
@@ -134,7 +132,7 @@ func (s *Service) processConfigurationReply(
 	ctx context.Context,
 	input core.SlackInput,
 ) (bool, error) {
-	session, err := s.store.GetActiveConfigurationSession(ctx, input.ChannelID)
+	session, err := s.configurationSessionForReply(ctx, input.ChannelID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
@@ -151,6 +149,14 @@ func (s *Service) processConfigurationReply(
 	}
 	if !allowed {
 		return true, s.finishSlackInput(ctx, input)
+	}
+	renewed := false
+	if !session.ExpiresAt.After(time.Now().UTC()) {
+		session, err = s.renewConfigurationSession(ctx, session, input.UserID)
+		if err != nil {
+			return true, err
+		}
+		renewed = true
 	}
 	text := strings.TrimSpace(s.stripBotMention(input.Text))
 	responseThreadTS := conversationalResponseThread(input)
@@ -184,6 +190,12 @@ func (s *Service) processConfigurationReply(
 					answerErr.Error() + "\n\nNothing was saved. Reply again, or say `cancel setup`.",
 			)
 		}
+		if renewed {
+			message.Context = append(
+				[]string{"The previous setup expired, so I renewed it. Nothing is saved yet."},
+				message.Context...,
+			)
+		}
 		messageTS, postErr := s.postConfigurationMessage(
 			ctx, "channel_setup_retry_"+input.ID, session.ChannelID, responseThreadTS, message,
 		)
@@ -215,6 +227,14 @@ func (s *Service) processConfigurationReply(
 			channel.Name, session, s.repositoryKeys(),
 		)
 	}
+	if renewed {
+		message.Context = append(
+			[]string{
+				"The previous setup expired, so I renewed it and applied your answer. Nothing is saved yet.",
+			},
+			message.Context...,
+		)
+	}
 	messageTS, err := s.postConfigurationMessage(
 		ctx, "channel_setup_step_"+session.ID+"_"+strconv.Itoa(session.Revision),
 		session.ChannelID, responseThreadTS, message,
@@ -228,6 +248,64 @@ func (s *Service) processConfigurationReply(
 		return true, err
 	}
 	return true, s.finishSlackInput(ctx, input)
+}
+
+func (s *Service) configurationSessionForReply(
+	ctx context.Context,
+	channelID string,
+) (core.ConfigurationSession, error) {
+	session, err := s.store.GetActiveConfigurationSession(ctx, channelID)
+	if !errors.Is(err, store.ErrNotFound) {
+		return session, err
+	}
+	session, err = s.store.GetLatestConfigurationSession(ctx, channelID)
+	if err != nil {
+		return core.ConfigurationSession{}, err
+	}
+	if session.Status != "expired" {
+		return core.ConfigurationSession{}, store.ErrNotFound
+	}
+	return session, nil
+}
+
+func (s *Service) renewConfigurationSession(
+	ctx context.Context,
+	expired core.ConfigurationSession,
+	actorID string,
+) (core.ConfigurationSession, error) {
+	if expired.Status != "expired" {
+		if err := s.store.FinishConfigurationSession(
+			ctx, expired.ID, expired.Revision, "expired",
+		); err != nil {
+			if errors.Is(err, store.ErrConflict) {
+				return s.store.GetActiveConfigurationSession(ctx, expired.ChannelID)
+			}
+			return core.ConfigurationSession{}, err
+		}
+	}
+	replacement := expired
+	replacement.ID = ""
+	replacement.Initiator = actorID
+	replacement.Status = "asking"
+	if replacement.Step == "confirm" {
+		replacement.Status = "confirming"
+	}
+	replacement.ExpiresAt = time.Now().UTC().Add(channelConfigurationLease)
+	replacement.CreatedAt = time.Time{}
+	replacement.UpdatedAt = time.Time{}
+	replacement.Revision = 0
+	replacement, err := s.store.CreateConfigurationSession(ctx, replacement)
+	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			return s.store.GetActiveConfigurationSession(ctx, expired.ChannelID)
+		}
+		return core.ConfigurationSession{}, err
+	}
+	_ = s.store.Audit(ctx, core.AuditEvent{
+		Kind: "slack.configuration.renewed", ActorID: actorID,
+		ObjectID: replacement.ID, Outcome: replacement.Status, Detail: expired.ID,
+	})
+	return replacement, nil
 }
 
 func (s *Service) applyConfigurationAnswer(

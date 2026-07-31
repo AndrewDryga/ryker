@@ -92,21 +92,29 @@ merge, push, deploy, sign, or mutate infrastructure. Ordinary replies in the sou
 the same task session without an `@mention`; unrelated channel messages never enter it. Slash
 commands cannot identify a thread, so task controls live on the task card.
 
-## Manual summon
+## Explicit summons
 
-In a configured summon channel:
+In any channel where Emisar is a member:
 
 ```text
 @Emisar investigate production checkout errors
 ```
 
 The user must be a full workspace member. Responder performs bounded read-only triage and follows
-the user's current channel or thread location; the mention alone does not create an incident. A configured operator can say
+the user's current channel or thread location; no proactive channel configuration is required, and
+the mention alone does not create an incident. A configured operator can say
 `@Emisar open an incident for production checkout errors` to create one directly. Responder then
 acknowledges the request, creates the dedicated room using `slack.default_repository`, and posts a
 durable `Incident room ready` reply after configured responders are invited and the topic and root
 pin are ready. If the open-incident limit is full, it replies in the summon thread with the action
 required instead of silently dropping the request.
+
+After Emisar answers, that channel location remains an active conversation for 30 minutes. Nearby
+human follow-ups are admitted without another mention, including a reply that starts a thread from
+Emisar's top-level answer. This window is anchored to the last successfully delivered Emisar triage
+reply; silence does not extend it. Membership, chronological context, addressee classification,
+attention policy, and per-conversation serialization still apply, so nearby human conversation can
+be understood without forcing Emisar to interrupt it.
 
 ## Watched channels
 
@@ -160,7 +168,8 @@ deletion removes its membership observation, setup sessions, and saved configura
 `slack.watch_channels` is the static default list for shared operational feeds such as
 `#infra-alerts`. Responder must be invited to every configured channel, and `responder doctor`
 checks membership. The list supports public and private channels and may overlap
-`slack.summon_channels`.
+`slack.summon_channels`. The summon list is a static preflight expectation; it does not restrict
+explicit mentions in other channels where the bot has been invited.
 
 Operators can change proactivity without editing the file or restarting Responder:
 
@@ -191,16 +200,24 @@ audited but cannot produce an out-of-order reply.
 Each watched channel has one persistent Coop triage session so a new message is interpreted in the
 context of that feed. Immediately before submission, Responder reads recent Slack channel history
 or the target thread, merges it with admitted inputs, removes timestamp duplicates, guarantees the
-target message is present, and freezes the latest `slack.watch_context_messages` entries with
-explicit targeting metadata. The default is 20 messages and the allowed range is 10 through 50.
-This applies to explicit mentions even when broad proactive triage is off. The transcript can
+target message is present, and freezes a target-centered `slack.watch_context_messages` window.
+The default is 20 messages and the allowed range is 10 through 50. A thread window keeps its root,
+the nearest preceding replies, the target, and up to three immediately following messages. On the
+first visit to an old thread, Responder follows Slack pagination to recover the newest tail instead
+of mistaking the first page for recent context. Once a compact summary exists, its last message
+timestamp becomes the cursor and later turns fetch only the delta.
+
+This applies to explicit mentions even when broad proactive triage is off. Top-level context can
 include ambient messages that were never Responder work, allowing the agent to recognize that two
-people are talking to each other or that another person already answered. Compact situation memory
-retains the channel purpose, situation summary, current goal, active topics, verified topology,
-decisions, open loops, unresolved questions, and evidence references. Open loops are carried into
-the next turn so a follow-up can resolve work without reconstructing the conversation. The
-underlying session rotates after a configurable age or turn count while that memory survives,
-preventing unbounded context growth.
+people are talking to each other or that another person already answered. Raw messages from
+unrelated threads are not mixed into the target thread. Compact situation memory is stored per
+Slack conversation and retains purpose, situation summary, goal, active topics, verified topology,
+decisions, open loops, unresolved questions, and evidence references. Each turn also receives a
+bounded set of recent summaries from the same channel and from public channels across the
+workspace, preferring the same repository. Private-channel summaries stay local unless a future
+membership-aware path can prove the requester may read them. The underlying channel session rotates
+after a configurable age or turn count while conversation summaries survive for the separately
+configured retention period.
 
 An operator may also explicitly ask Responder to remember a durable alias, repository binding,
 evidence route, or entity relationship correction. Responder answers normally and adds a
@@ -386,14 +403,20 @@ Card buttons change with state rather than presenting actions that cannot succee
 
 - **Ask agent for update** requests fresh verified facts, hypothesis, changes, blockers, and next
   action.
-- **View diff** reads Coop's typed fork summary and posts a bounded, sanitized diff in the task
-  thread. It does not start an agent turn.
+- **View diff** reads Coop's typed fork summary and posts a bounded, sanitized first page in the
+  task thread. **Previous page**, **Next page**, and **Refresh diff** update that same message
+  instead of adding thread noise. Every page carries the complete patch digest and byte range; if
+  the fork changes between clicks, Responder restarts at page one rather than combining snapshots.
+  File groups show their total count and say how many paths are omitted from the compact summary.
+  It does not start an agent turn.
 - **Run readiness check** compares the isolated changes with the current repository, checks rebase,
   runs configured validation and policy gates, and reports whether the result is ready for external
   review. It never publishes, merges, signs, or deploys.
-- **Create draft PR** repeats the readiness review, reproduces the exact approved tree in an
-  isolated checkout, and publishes only a lease-protected Responder branch. After publication the
-  task shows **View draft PR** and **Update draft PR**. These controls cannot merge or deploy.
+- **Create draft PR** repeats the readiness review, retrieves and verifies Coop's complete
+  content-addressed patch artifact when the inline preview is truncated, reproduces the exact
+  approved tree in an isolated checkout, and publishes only a lease-protected Responder branch.
+  After publication the task shows **View draft PR** and **Update draft PR**. These controls cannot
+  merge or deploy.
 - **Stop current run** cancels only the active agent turn. The session, queue, and fork remain.
 - **Close incident/task** closes the Coop session. Clean zero-change or durably published workspace
   state is reclaimed after the configured grace period; dirty or unpublished changes are retained.

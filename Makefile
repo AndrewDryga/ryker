@@ -1,11 +1,14 @@
 .DEFAULT_GOAL := check
 
-.PHONY: build install test eval eval-replay customer-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: build install test product-e2e live-acceptance eval eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity model-release-check eval-replay customer-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
 INSTALL_DIR ?= $(HOME)/.local/bin
 CONFIG ?= .responder/responder.yaml
+LIVE_CHANNEL ?=
+EVAL_REPEAT ?= 3
+TASK_EVAL_POLICY ?=
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/responder ./cmd/responder
@@ -18,13 +21,59 @@ install:
 test:
 	go test ./...
 
+product-e2e:
+	go test ./internal/service -run '^(TestCustomerJourney|TestProductJourney)' -count=1 -v
+
+live-acceptance:
+	@test -n "$(LIVE_CHANNEL)" || { echo "LIVE_CHANNEL must be the joined Slack test channel ID"; exit 2; }
+	RESPONDER_LIVE_CONFIG="$(abspath $(CONFIG))" RESPONDER_LIVE_CHANNEL="$(LIVE_CHANNEL)" \
+		go test ./internal/service -run '^TestLiveSlackAcceptance$$' -count=1 -v
+
 eval:
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/live.jsonl
+
+eval-quality:
+	go run ./cmd/responder eval --config "$(CONFIG)" \
+		--input testdata/eval/live.jsonl --judge --repeat 2 \
+		--min-overall-pass-rate 0.90 --min-case-pass-rate 0.50 --min-mean-quality 4
+
+eval-judge-calibration:
+	go run ./cmd/responder eval --config "$(CONFIG)" \
+		--input testdata/eval/quality-calibration.jsonl --calibrate-judge \
+		--min-overall-pass-rate 1 --min-case-pass-rate 1
+
+eval-proactive:
+	go run ./cmd/responder eval --config "$(CONFIG)" \
+		--input testdata/eval/proactive.jsonl --repeat "$(EVAL_REPEAT)" \
+		--min-overall-pass-rate 0.90 --min-case-pass-rate 0.67 \
+		--min-proactive-precision 0.90 --min-proactive-recall 0.90 \
+		--max-false-interruption-rate 0.10
+
+eval-scenarios:
+	go run ./cmd/responder eval --config "$(CONFIG)" \
+		--input testdata/eval/scenarios.jsonl --scenarios --judge --repeat 2 \
+		--min-overall-pass-rate 0.90 --min-case-pass-rate 0.50 \
+		--min-proactive-precision 0.90 --min-proactive-recall 0.90 \
+		--max-false-interruption-rate 0.10 --min-mean-quality 4
+
+eval-evidence:
+	go run ./cmd/responder eval --config "$(CONFIG)" \
+		--input testdata/eval/evidence.jsonl --judge --verify-evidence \
+		--min-overall-pass-rate 1 --min-case-pass-rate 1 --min-mean-quality 4
+
+eval-productivity:
+	@test -n "$(TASK_EVAL_POLICY)" || { echo "TASK_EVAL_POLICY must name a disposable writable Coop policy"; exit 2; }
+	go run ./cmd/responder eval --config "$(CONFIG)" \
+		--input testdata/eval/productivity.jsonl \
+		--task-policy "$(TASK_EVAL_POLICY)" --judge \
+		--min-overall-pass-rate 1 --min-case-pass-rate 1 --min-mean-quality 4
+
+model-release-check: eval-judge-calibration eval-quality eval-proactive eval-scenarios eval-evidence
 
 eval-replay:
 	go run ./cmd/responder eval --replay --input testdata/eval/golden.jsonl
 
-customer-check: test eval-replay
+customer-check: test product-e2e eval-replay
 
 race:
 	go test -race ./...

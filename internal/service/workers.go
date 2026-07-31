@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -988,6 +987,26 @@ func (s *Service) enqueue(
 	return err
 }
 
+func (s *Service) enqueueMessageUpdate(
+	ctx context.Context,
+	id string,
+	incident core.Incident,
+	kind string,
+	messageTS string,
+	message slackui.Message,
+) error {
+	body, err := slackui.Encode(s.sanitizer.Message(message))
+	if err != nil {
+		return err
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: id, IncidentID: incident.ID, Operation: "update", Kind: kind,
+		ChannelID: incident.ChannelID, ThreadTS: incident.ConversationThreadTS(),
+		MessageTS: messageTS, Body: body,
+	})
+	return err
+}
+
 func (s *Service) repositoryName(name string) string {
 	repository, ok := s.cfg.RepositoryContext(name)
 	if !ok || repository.DisplayName == "" {
@@ -1013,12 +1032,16 @@ func changesSummary(changes coop.Changes) string {
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("*%s (%d)*", group.name, len(group.items)))
-		for _, item := range group.items[:min(len(group.items), 12)] {
+		visible := min(len(group.items), 12)
+		for _, item := range group.items[:visible] {
 			path := item.Path
 			if path == "" {
 				path = fmt.Sprintf("%x", item.PathBytes)
 			}
 			lines = append(lines, fmt.Sprintf("`%s` %s", path, item.Status))
+		}
+		if remaining := len(group.items) - visible; remaining > 0 {
+			lines = append(lines, fmt.Sprintf("_…and %d more %s files._", remaining, strings.ToLower(group.name)))
 		}
 	}
 	if len(lines) == 0 {
@@ -1029,9 +1052,6 @@ func changesSummary(changes coop.Changes) string {
 			"Parent divergence: %d ahead, %d behind.",
 			changes.ParentDivergence.Ahead, changes.ParentDivergence.Behind,
 		))
-	}
-	if changes.Truncated {
-		lines = append(lines, "The detailed patch exceeded the configured response limit.")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1045,17 +1065,79 @@ func coopChangesPresent(changes coop.Changes) bool {
 }
 
 func reviewSummary(review coop.Review) string {
-	lines := []string{
-		fmt.Sprintf("*Gate:* %s", displayOr(review.Gate, "not run")),
-		fmt.Sprintf("*Rebase:* %s", displayOr(review.Rebase, "not run")),
+	gate := map[string]string{
+		"none":          "not configured",
+		"passed":        "passed",
+		"failed":        "failed",
+		"startup_error": "could not start",
+		"not_run":       "not run",
+	}[review.Gate]
+	if gate == "" {
+		gate = displayOr(review.Gate, "not run")
 	}
-	reasons := append([]string(nil), review.NotPublishableReasons...)
-	reasons = append(reasons, review.PolicyFindings...)
-	sort.Strings(reasons)
-	for _, reason := range reasons[:min(len(reasons), 12)] {
-		lines = append(lines, "• "+reason)
+	rebase := map[string]string{
+		"clean":    "clean",
+		"conflict": "has conflicts",
+	}[review.Rebase]
+	if rebase == "" {
+		rebase = displayOr(review.Rebase, "not run")
+	}
+	lines := []string{
+		"*Readiness checks*",
+		"• Repository gate: " + gate,
+		"• Rebase onto the current base branch: " + rebase,
+	}
+	var blockers []string
+	for _, reason := range review.NotPublishableReasons {
+		if message := reviewReasonMessage(reason); message != "" {
+			blockers = append(blockers, "• "+message)
+		}
+	}
+	for _, finding := range review.PolicyFindings {
+		if finding = strings.TrimSpace(finding); finding != "" {
+			blockers = append(blockers, "• Policy check: "+finding)
+		}
+	}
+	if len(blockers) > 0 {
+		lines = append(lines, "", "*What needs attention*")
+		lines = append(lines, blockers[:min(len(blockers), 12)]...)
+	}
+	if detail := strings.TrimSpace(review.GateError); detail != "" {
+		lines = append(lines, "", "*Gate error*", "`"+strings.ReplaceAll(detail, "`", "'")+"`")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func reviewReasonMessage(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case "gate_not_configured":
+		return "This repository has no trusted publication gate. Add `gate:` to `.agent/project.yaml`, then retry."
+	case "gate_failed":
+		return "The repository gate failed. Fix the reported check, then retry the draft PR."
+	case "gate_startup_error":
+		return "Coop could not start the repository gate. Check the box runtime and project review configuration."
+	case "gate_modified_candidate":
+		return "The gate changed source files. Gates may create ignored build output, but must leave the reviewed source unchanged."
+	case "rebase_conflict":
+		return "The change conflicts with the current base branch and needs a rebase."
+	case "parent_moved":
+		return "The base branch changed during review. Retry against its latest commit."
+	case "source_moved":
+		return "The task changed while it was being reviewed. Wait for it to finish, then retry."
+	case "fork_owner_active":
+		return "The agent is still working in this task. Wait for it to finish, then retry."
+	case "policy_findings":
+		return "Coop found a policy issue in the proposed change."
+	case "patch_truncated":
+		return "The complete patch is unavailable from this older Coop review. Run the review again."
+	case "patch_artifact_unavailable":
+		return "Coop could not preserve a complete verified patch artifact. Reduce generated changes or inspect Coop storage, then retry."
+	default:
+		if reason == "" {
+			return ""
+		}
+		return "Coop reported: " + strings.ReplaceAll(reason, "_", " ")
+	}
 }
 
 func firstNonempty(values ...string) string {

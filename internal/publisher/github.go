@@ -3,7 +3,9 @@ package publisher
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -138,6 +140,16 @@ func (g *GitHub) Publish(ctx context.Context, request Request) (Result, error) {
 	}
 	if request.Review.PatchTruncated || len(request.Review.Patch) == 0 {
 		return result, errors.New("Coop review did not provide a complete patch")
+	}
+	if request.Review.PatchBytes > 0 &&
+		int64(len(request.Review.Patch)) != request.Review.PatchBytes {
+		return result, errors.New("Coop review patch size does not match its dossier")
+	}
+	if request.Review.PatchDigest != "" {
+		digest := sha256.Sum256(request.Review.Patch)
+		if hex.EncodeToString(digest[:]) != request.Review.PatchDigest {
+			return result, errors.New("Coop review patch digest does not match its dossier")
+		}
 	}
 	if !fullGitOID.MatchString(request.Review.ParentHead) ||
 		!fullGitOID.MatchString(request.Review.CandidateTree) {

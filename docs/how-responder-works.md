@@ -137,7 +137,7 @@ flowchart TD
   Route -- "Button" --> Action["Validate action payload,<br/>operator, age, scope, and target"]
   Route -- "Known incident or task thread" --> Conversation["Queue ordered turn in<br/>that exact conversation"]
   Route -- "Direct message or shortcut" --> Triage["Read-only shared-channel triage"]
-  Route -- "Summon-channel mention" --> Summon{"Explicit incident request<br/>from configured operator?"}
+  Route -- "Explicit mention" --> Summon{"Explicit incident request<br/>from configured operator?"}
   Route -- "Explicit typed behavior request" --> Triage
   Route -- "Proactive or standing-rule match" --> Triage
   Route -- "No eligible route" --> Done["Finish without a response"]
@@ -154,9 +154,11 @@ Important routing behavior:
   session ID is required before settings change.
 - Supported conversational controls are normalized into the same command handlers as
   `/responder`. Read results are threaded publicly; slash results remain ephemeral.
-- An `@mention` outside a configured summon or proactive channel is not a general summons. The
-  narrow exception is an explicit typed preference or standing-rule request from a configured
-  operator.
+- An explicit `@mention` always summons read-only triage in any channel where Emisar is a member.
+  Proactive participation, shadow evaluation, and app-alert policy remain channel-configured.
+- A successfully delivered triage reply opens a 30-minute continuation window at that channel or
+  thread location. Human follow-ups are admitted without another mention; a reply that starts a
+  thread from Emisar's top-level answer is treated as the same exchange.
 - Messages already bound to an incident room or engineering-task thread stay in that conversation.
 - Broad proactivity and deterministic standing rules are separate. A rule can admit its matching
   event while general proactive triage is off.
@@ -210,8 +212,8 @@ sequenceDiagram
     W->>C: Extend within configured automatic ceiling
   end
 
-  W->>DB: Assemble latest 10-50 admitted messages
-  W->>DB: Load compact situation, confirmed memory,<br/>recent evidence, preferences, and repository binding
+  W->>DB: Assemble target-centered 10-50 message window
+  W->>DB: Load exact conversation summary,<br/>related public workspace summaries,<br/>confirmed memory, evidence, preferences, and repository binding
   W->>DB: Persist exact context snapshot on agent_runs
   W->>C: Submit turn with session revision<br/>and generation-aware idempotency key
   C->>G: Start short-lived agent box
@@ -224,7 +226,7 @@ sequenceDiagram
   W->>W: Enforce host attention threshold<br/>after addressee and interruption scoring
   W->>DB: Stage terminal result on agent_runs
   W->>DB: Persist evidence and coverage separately
-  W->>DB: Transaction: decision once + compact memory update
+  W->>DB: Transaction: decision once + channel session state<br/>+ conversation summary update
 
   alt ignore
     W->>DB: Audit silence
@@ -269,8 +271,9 @@ retention rules.
 ```mermaid
 flowchart TB
   subgraph Inputs["Context assembled for one turn"]
-    Recent["Recent Slack transcript<br/>10-50 admitted messages<br/>frozen for this decision"]
-    Compact["Compact channel memory<br/>goal, topology, decisions,<br/>open questions, evidence refs"]
+    Recent["Target-centered Slack transcript<br/>root + nearest replies<br/>10-50 messages"]
+    Compact["Exact conversation summary<br/>goal, topology, decisions,<br/>open questions, evidence refs"]
+    Related["Related compact summaries<br/>same channel, repository,<br/>public workspace"]
     Confirmed["Operator-confirmed memory<br/>aliases, bindings, routes,<br/>entity corrections"]
     Evidence["Recent same-channel evidence<br/>claim + observation + source + time"]
     Preferences["Effective typed preferences<br/>operator, channel,<br/>repository, workspace"]
@@ -286,6 +289,7 @@ flowchart TB
 
   Recent --> Prompt
   Compact --> Prompt
+  Related --> Prompt
   Confirmed --> Prompt
   Evidence --> Prompt
   Preferences --> Prompt
@@ -295,7 +299,7 @@ flowchart TB
   Config --> Prompt
   Prompt --> Agent --> Validate
 
-  Validate -->|"structured memory"| CompactStore[("channel_memories.state_json")]
+  Validate -->|"structured memory"| CompactStore[("conversation_memories.state_json")]
   Validate -->|"evidence"| EvidenceStore[("evidence + coverage")]
   Validate -->|"inert memory offer"| MemoryCard["Confirmation card"]
   Validate -->|"inert behavior offer"| BehaviorCard["Confirmation card"]
@@ -308,8 +312,10 @@ flowchart TB
 
 | Layer | Stored in | Writer | Purpose | Trust and lifetime |
 | --- | --- | --- | --- | --- |
-| Recent Slack context | `slack_inputs`, then snapshotted in `agent_runs.context_json` | Context assembler | Understand nearby conversation and avoid interrupting people | Event context only; bounded and pruned |
-| Compact channel situation | `channel_memories.state_json` | Agent result after host validation | Carry channel purpose, situation summary, goal, active topics, topology, decisions, open loops, unresolved questions, and evidence references across turns and session rotation | Continuity, not current-health proof |
+| Exact Slack context | Slack history plus `slack_inputs`, then snapshotted in `agent_runs.context_json` | Context assembler | Preserve the thread root and messages nearest the target while avoiding unrelated threads | Raw event context only; 10-50 messages and operational-data retention |
+| Compact conversation situation | `conversation_memories.state_json` | Agent result after host validation | Carry purpose, situation, goal, active topics, topology, decisions, open loops, unresolved questions, and evidence references across turns | Continuity, not current-health proof; 90-day default retention |
+| Related workspace situations | Recent `conversation_memories` selected at prompt assembly | Host-owned context selection | Recall overlapping work from the same channel, repository, and public workspace channels | Bounded to eight summaries; private channels never cross channel boundaries |
+| Channel session state | `channel_memories.state_json` | Agent result after host validation | Preserve a fallback while the per-channel Coop session rotates | Session continuity, not the organizational memory boundary |
 | Evidence ledger | `evidence`, `coverage`, `timeline_events` | Host after strict agent-report parsing | Preserve source-attributed observations independently of prose | Same-channel recall; time and source remain visible |
 | Confirmed operational memory | `memory_entries` | Configured operator click | Durable alias, repository binding, evidence route, or entity correction | Untrusted hint with scope, source, expiry, and caps |
 | Work commitments | `commitments` projected from `agent_runs` | Host when it accepts model-backed work | Show what Emisar owes, current progress, and the next operator action | Execution state, not prompt memory or evidence |
@@ -501,9 +507,11 @@ Key properties:
 - The control lane prioritizes slash commands and buttons; long Coop work runs independently in the
   background lane.
 - A short settle delay lets nearby messages enter the context snapshot before submission. Responder
-  reads recent Slack channel or thread history on demand, merges it with already admitted inputs,
-  guarantees the target message is present, and persists the resulting ordered snapshot on the run
-  for exact restart reuse.
+  reads channel history around the target or paginates an old thread, merges it with already
+  admitted inputs, excludes unrelated threads, guarantees the root and target are present, and
+  persists the resulting ordered snapshot on the run for exact restart reuse.
+- After the first summarized turn in a conversation, the stored last-message timestamp becomes the
+  Slack history cursor. Later turns load only the delta plus the compact summary.
 - A delayed older event cannot reply after a newer channel decision has completed.
 - Coop create results are refreshed through `GET` because an idempotent create replay describes the
   original creation state, not necessarily the current session state.
@@ -515,8 +523,9 @@ Key properties:
   session while preserving compact memory, and queues cleanup.
 - Automatic cleanup operates only on exact Responder-owned session IDs. It never accepts dirty
   work, and it accepts unmerged work only after the exact reviewed tree has been durably published.
-- Channel deletion removes channel-scoped memory, preferences, and rules. Repository reconciliation
-  removes orphaned repository-scoped state. Normal maintenance prunes expired operational data.
+- Channel deletion removes conversation summaries, channel-scoped memory, preferences, and rules.
+  Repository reconciliation removes orphaned repository-scoped state. Normal maintenance prunes raw
+  operational data and compact conversation summaries on their separate schedules.
 
 ## 8. Main durable records
 
@@ -541,6 +550,7 @@ flowchart TB
   Incident --> Publication[("publications")]
 
   ChannelMemory[("channel_memories")] --> Evaluation
+  ConversationMemory[("conversation_memories")] --> PromptContext
   Memory[("memory_entries")] --> PromptContext["Future prompt context"]
   Preferences[("responder_preferences")] --> PromptContext
   Rules[("standing_rules")] --> RuleRun

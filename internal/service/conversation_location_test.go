@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -35,6 +36,135 @@ func TestConversationLocationDetection(t *testing.T) {
 	if locationOnlyRequest(combined.Text) ||
 		conversationalResponseThread(combined) != combined.MessageTS {
 		t.Fatalf("combined work and location request = %+v", combined)
+	}
+	if watchInputTargeted(combined, watchTurnState{}) ||
+		!watchInputWantsPendingStatus(combined, watchTurnState{}) {
+		t.Fatalf("location work should request status without changing attention: %+v", combined)
+	}
+}
+
+func TestLocationWorkAndOldThreadContinuationSetPendingStatus(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{}
+	svc := New(
+		cfg,
+		st,
+		newFakeCoop(),
+		slack,
+		nil,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+
+	locationWork := core.SlackInput{
+		ID: "location-work", EnvelopeID: "location-work-env",
+		EventID: "location-work-event", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "Let's continue in a thread, 3+5?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, locationWork); err != nil || !created {
+		t.Fatalf("admit location work = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.statuses) != 1 ||
+		slack.statuses[0].thread != locationWork.MessageTS ||
+		slack.statuses[0].text != watchPendingStatus {
+		t.Fatalf("location work pending status = %+v", slack.statuses)
+	}
+
+	replySource := core.SlackInput{
+		ID: "old-thread-source", EnvelopeID: "old-thread-source-env",
+		EventID: "old-thread-source-event", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COLD", ThreadTS: "1600.100", MessageTS: "1600.101",
+		UserID: "U123ABC", Text: "What is the result?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, replySource); err != nil || !created {
+		t.Fatalf("admit old thread source = %t, %v", created, err)
+	}
+	leasedReplySource, err := st.LeaseSlackInput(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leasedReplySource.ID != replySource.ID {
+		t.Fatalf("leased old thread source = %q", leasedReplySource.ID)
+	}
+	if err := st.FinishSlackInput(ctx, replySource.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: replySource.ChannelID,
+		ThreadTS:        replySource.ThreadTS,
+		ConversationKey: "channel:" + replySource.ChannelID,
+		SourceKind:      "watch", SourceID: replySource.ID,
+		Repository: "repo", IdempotencyKey: "old-thread-turn",
+	}); err != nil || !created {
+		t.Fatalf("queue old thread source = %t, %v", created, err)
+	}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "watch_reply_" + replySource.ID, Operation: "post", Kind: "notice",
+		ChannelID: replySource.ChannelID, ThreadTS: replySource.ThreadTS,
+		Body: []byte(`{"text":"The result is 8."}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.LeaseSlackDelivery(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(
+		ctx,
+		delivery.ID,
+		"1600.102",
+		"sending",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if recent, err := st.HasRecentWatchReply(
+		ctx,
+		replySource.ChannelID,
+		replySource.ThreadTS,
+		"1600.103",
+		time.Now().UTC().Add(time.Hour),
+	); err != nil || recent {
+		t.Fatalf("future cutoff should exclude reply = %t, %v", recent, err)
+	}
+	oldThreadFollowup := core.SlackInput{
+		ID: "old-thread-followup", EnvelopeID: "old-thread-followup-env",
+		EventID: "old-thread-followup-event", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: replySource.ChannelID,
+		ThreadTS: replySource.ThreadTS, MessageTS: "1600.103",
+		UserID: "U123ABC", Text: "No, let's get back to channel, 9-1.",
+	}
+	if continuing, err := svc.isRecentWatchConversation(
+		ctx,
+		oldThreadFollowup,
+	); err != nil || !continuing {
+		t.Fatalf("old exact thread continuation = %t, %v", continuing, err)
+	}
+	if created, err := st.AdmitSlackInput(
+		ctx,
+		oldThreadFollowup,
+	); err != nil || !created {
+		t.Fatalf("admit old thread followup = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.statuses) != 2 ||
+		slack.statuses[1].thread != oldThreadFollowup.ThreadTS ||
+		slack.statuses[1].text != watchPendingStatus {
+		t.Fatalf("old thread pending status = %+v", slack.statuses)
 	}
 }
 

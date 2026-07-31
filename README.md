@@ -219,7 +219,8 @@ Generic routes use deliberately small dot-path mappings. See
 
 ## Slack
 
-Mention the bot in a configured summon channel to ask a question or request read-only work:
+Mention the bot in any channel where it has been invited to ask a question or request read-only
+work:
 
 ```text
 @Emisar investigate elevated checkout latency in production
@@ -228,9 +229,11 @@ Mention the bot in a configured summon channel to ask a question or request read
 Responder investigates and replies in that thread without creating an incident. An operator can ask
 it to `open an incident for elevated checkout latency` to create one directly, or approve an
 `Open incident room` offer after seeing the findings. In an incident channel, configured operators
-can talk to Responder anywhere without repeating an `@mention`. It reads top-level messages and
-threads, replies in the originating conversation when addressed or when it has something useful to
-add, and may stay silent for ambient chatter. The pinned card updates in place with alert evidence,
+can talk to Responder anywhere without repeating an `@mention`. Outside incident rooms, a delivered
+triage answer opens a bounded 30-minute conversation window for nearby follow-ups in the same
+channel or thread location. It reads top-level messages and threads, replies in the originating
+conversation when addressed or when it has something useful to add, and may stay silent for ambient
+chatter. The pinned card updates in place with alert evidence,
 investigation state, and only currently valid controls. Incident channels are private by default,
 and all configured operators are invited automatically.
 
@@ -289,7 +292,9 @@ The effective order is explicit channel override, confirmed channel setup, works
 therefore watches every channel where Responder is a member and receives events, while a channel
 override can opt in or out. `inherit` removes that Slack override. Responder reads human and
 external-app messages in Slack timestamp order and gives each decision a chronological transcript
-of the latest 20 admitted channel messages. It waits for a two-second quiet period so nearby human
+centered on the target message. The default 20-message window includes the thread root, nearest
+preceding replies, the target, and up to three immediately following messages; top-level requests
+receive the equivalent channel window. It waits for a two-second quiet period so nearby human
 replies are visible, then scores addressee, urgency, confidence, novelty, and ownership. It chooses
 whether to stay silent, add a lightweight reaction, reply where the sender is speaking, or
 escalate. Ambient replies and reactions have separate configurable attention thresholds, while
@@ -309,18 +314,23 @@ message shortcut **Investigate message** starts the same read-only triage for a 
 message even when ordinary proactive listening is off. Long checks keep a native Slack progress
 indicator with semantic milestones until the reply or a clear failure is posted.
 
-Each shared operations channel keeps a compact durable situation: channel purpose, current goal,
-active topics, verified topology, decisions, open loops, unresolved questions, and evidence
-references. Responder rotates the underlying Coop session
+Each Slack conversation keeps a compact durable situation: channel purpose, current goal, active
+topics, verified topology, decisions, open loops, unresolved questions, and evidence references.
+Future turns receive the exact conversation summary, recent summaries from other conversations in
+the same channel, and recent summaries from public channels across the workspace. Same-repository
+work is preferred, while private-channel summaries never cross into another channel without a
+membership proof. Responder rotates the underlying per-channel Coop session
 after `coop.watch_session_max_turns` or `coop.watch_session_max_age` while preserving that summary.
+Compact conversation summaries expire after `retention.conversation_memory`, 90 days by default.
 This session summary is separate from operator-confirmed operational memory. When an operator
 explicitly asks Responder to remember an alias, channel-to-repository binding, evidence route, or
 entity relationship correction, Responder can show the exact proposed value and scope in a
 confirmation button. Nothing is saved until an operator confirms it. Saved entries are bounded,
 deduplicated by logical key, expire automatically, can be forgotten from App Home, and are supplied
 to future investigations only as untrusted hints. Fresh live evidence, current repository content,
-and Responder configuration always take precedence. Recent structured evidence is reused directly
-within the same Slack channel instead of copied into another catalog.
+and Responder configuration always take precedence. Recent structured evidence remains
+source-attributed; compact related summaries carry continuity across channels without becoming
+current-health proof.
 
 Responder also supports two operator-confirmed behavior catalogs. Preferences are typed defaults
 such as `health_check_depth=deep` or `response_detail=concise`; their precedence is operator,
@@ -431,7 +441,11 @@ production prompts and tool configuration, scores the returned decision, then di
 workspace only after Coop proves it is clean. Use shadow mode to collect candidate decisions
 safely, review and redact them, then promote representative contracts into the replay or live
 corpus before changing prompts or models. Use `--case`, `--repeat`, and `--results` for focused
-variance testing and private sanitized diagnostics. See
+variance testing and private sanitized diagnostics. `make model-release-check` additionally
+calibrates the qualitative judge, evaluates the rendered Slack experience, measures proactive
+precision and recall, runs multi-turn cross-channel and old-thread scenarios, and independently
+re-checks high-risk operational claims. `make eval-productivity` adds an observable
+commit-and-review outcome when a disposable writable Coop policy is available. See
 [`docs/testing.md`](docs/testing.md) for the coverage matrix and bounded live acceptance set.
 
 `make snapshot` builds the exact unsigned release archive layout locally; `make release-check`

@@ -85,6 +85,8 @@ retention:
   maintenance_interval: 1m
   closed_session_grace: 15m
   operational_data: 24h
+  # Compact thread/channel summaries only; raw Slack events follow operational_data.
+  conversation_memory: 2160h
   closed_work: 168h
   audit_data: 720h
 

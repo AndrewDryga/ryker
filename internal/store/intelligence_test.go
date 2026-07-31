@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,7 @@ func TestSchemaV3MigratesIntelligenceState(t *testing.T) {
 		"proposal_approvals",
 		"evaluation_decisions",
 		"memory_entries",
+		"conversation_memories",
 	} {
 		var count int
 		if err := st.db.QueryRow(`
@@ -53,6 +55,159 @@ func TestSchemaV3MigratesIntelligenceState(t *testing.T) {
 		).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("table %s = %d, %v", table, count, err)
 		}
+	}
+}
+
+func TestConversationMemoryCarriesAcrossPublicWorkspaceWithoutLeakingPrivateChannels(
+	t *testing.T,
+) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	for _, channel := range []string{"CMAIN", "CPUBLIC", "GPRIVATE"} {
+		if err := st.BindChannelSession(
+			ctx,
+			channel,
+			"emisar",
+			"session-"+channel,
+			1,
+			1,
+			time.Now().UTC(),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, item := range []struct {
+		channel string
+		thread  string
+		source  string
+		summary string
+	}{
+		{"CMAIN", "1700.100", "source-main-one", "Main incident"},
+		{"CMAIN", "1700.200", "source-main-two", "Related thread in this channel"},
+		{"CPUBLIC", "1700.300", "source-public", "Public deployment handoff"},
+		{"GPRIVATE", "1700.400", "source-private", "Private security investigation"},
+	} {
+		applied, applyErr := st.ApplyWatchDecision(
+			ctx,
+			core.EvaluationDecision{
+				ChannelID: item.channel, ThreadTS: item.thread,
+				MessageTS: item.thread + "1", Repository: "emisar",
+				SourceInput: item.source, Mode: "live", Action: "reply",
+			},
+			2,
+			core.AgentMemory{SituationSummary: item.summary},
+		)
+		if applyErr != nil || !applied {
+			t.Fatalf("apply %s = %t, %v", item.source, applied, applyErr)
+		}
+	}
+	now := time.Now().UTC().Format(timestampFormat)
+	if _, err := st.db.Exec(`
+		INSERT INTO slack_channel_memberships (
+		  channel_id, channel_name, private, present, onboarding_state, observed_at
+		) VALUES
+		  ('CPUBLIC', 'deployments', 0, 1, 'complete', ?),
+		  ('GPRIVATE', 'security', 1, 1, 'complete', ?)`,
+		now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := st.GetConversationMemory(ctx, "CMAIN", "1700.100")
+	if err != nil || target.State.SituationSummary != "Main incident" {
+		t.Fatalf("target conversation memory = %+v, %v", target, err)
+	}
+	related, err := st.ListRelatedConversationMemories(
+		ctx,
+		"CMAIN",
+		"1700.100",
+		"emisar",
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(related) != 2 ||
+		related[0].State.SituationSummary != "Related thread in this channel" ||
+		related[1].State.SituationSummary != "Public deployment handoff" ||
+		related[1].ChannelName != "deployments" {
+		t.Fatalf("related conversation memory = %+v", related)
+	}
+	for _, memory := range related {
+		if memory.ChannelID == "GPRIVATE" {
+			t.Fatalf("private cross-channel memory leaked: %+v", memory)
+		}
+	}
+}
+
+func TestConversationMemoryDeletionAndRetention(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	for _, channel := range []string{"CDELETE", "CEXPIRE"} {
+		if err := st.BindChannelSession(
+			ctx,
+			channel,
+			"emisar",
+			"session-"+channel,
+			1,
+			1,
+			time.Now().UTC(),
+		); err != nil {
+			t.Fatal(err)
+		}
+		applied, applyErr := st.ApplyWatchDecision(
+			ctx,
+			core.EvaluationDecision{
+				ChannelID: channel, ThreadTS: "1700.100",
+				MessageTS: "1700.200", Repository: "emisar",
+				SourceInput: "source-" + channel, Mode: "live", Action: "reply",
+			},
+			2,
+			core.AgentMemory{SituationSummary: "Retained conversation summary"},
+		)
+		if applyErr != nil || !applied {
+			t.Fatalf("apply %s = %t, %v", channel, applied, applyErr)
+		}
+	}
+
+	deleted, err := st.DeleteConversationMemories(ctx, "CDELETE")
+	if err != nil || deleted != 1 {
+		t.Fatalf("deleted conversation memories = %d, %v", deleted, err)
+	}
+	if _, err := st.GetConversationMemory(
+		ctx,
+		"CDELETE",
+		"1700.100",
+	); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted conversation memory remained: %v", err)
+	}
+
+	if _, err := st.db.Exec(
+		`UPDATE conversation_memories SET updated_at = ? WHERE channel_id = ?`,
+		time.Now().UTC().Add(-91*24*time.Hour).Format(timestampFormat),
+		"CEXPIRE",
+	); err != nil {
+		t.Fatal(err)
+	}
+	result, err := st.Prune(
+		ctx,
+		time.Now().UTC().Add(-24*time.Hour),
+		time.Now().UTC().Add(-90*24*time.Hour),
+		time.Now().UTC().Add(-7*24*time.Hour),
+		time.Now().UTC().Add(-30*24*time.Hour),
+	)
+	if err != nil || result.ConversationMemories != 1 {
+		t.Fatalf("conversation memory prune = %+v, %v", result, err)
 	}
 }
 

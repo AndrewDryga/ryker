@@ -2,10 +2,19 @@
 
 ## Unreleased
 
+- **Statistical model release gate.** Real-model evaluation now includes human-calibrated Slack
+  quality judging, deterministic Block Kit UX validation, labeled proactivity precision and recall,
+  repeated per-case variance gates, digest-bound private baselines, stateful cross-channel and
+  old-thread scenarios, independent evidence re-checks, public Coop lifecycle assertions, and an
+  opt-in writable task case that verifies the actual commit, changed paths, and Coop review instead
+  of trusting completion prose.
 - **Team-aware participation.** Shared-channel triage now maintains a compact operational situation
   with active topics and open loops, applies a host-enforced attention budget, supports bounded
   lightweight standard or workspace-custom Slack reactions, and projects every accepted agent run
-  as a durable Slack-visible commitment.
+  as a durable Slack-visible commitment. Explicit mentions summon read-only triage in every channel
+  where Emisar is a member, independent of proactive-channel configuration. Delivered answers open
+  a bounded channel-or-thread continuation window so teammates can follow up without repeating the
+  mention.
 - **Progressive onboarding.** New channel setup starts with safe one-click defaults and expands to
   the existing typed conversational wizard only when an operator chooses customization.
 - **Durable work scheduler.** One lease-token scheduler now owns control, background, per-incident,

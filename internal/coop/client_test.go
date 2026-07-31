@@ -72,6 +72,58 @@ func TestClientReturnsTypedErrorsAndBoundsResponses(t *testing.T) {
 	}
 }
 
+func TestClientPagesChangesAndDownloadsReviewPatch(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/sessions/ses_1/changes":
+			if r.URL.Query().Get("patch_offset") != "7000" ||
+				r.URL.Query().Get("patch_limit") != "7000" {
+				t.Errorf("changes query = %s", r.URL.RawQuery)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"base_commit":"base",
+				"fork_head":"fork",
+				"parent_head":"parent",
+				"patch":"K3BhZ2UgMg==",
+				"truncated":true,
+				"patch_digest":"` + digest + `",
+				"patch_bytes":14007,
+				"patch_offset":7000,
+				"patch_next_offset":7007,
+				"patch_has_more":true
+			}`))
+		case "/v1/operations/op_1/review-patch":
+			w.Header().Set("Content-Type", "text/x-diff")
+			w.Header().Set("ETag", `"`+digest+`"`)
+			_, _ = w.Write([]byte("+complete patch\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	client := New(socket, time.Second)
+	changes, err := client.ChangesPage(context.Background(), "ses_1", 7000, 7000)
+	if err != nil || string(changes.Patch) != "+page 2" ||
+		changes.PatchOffset != 7000 || changes.PatchDigest != digest {
+		t.Fatalf("changes page = %+v, %v", changes, err)
+	}
+	artifact, err := client.ReviewPatch(context.Background(), "op_1")
+	if err != nil || string(artifact.Patch) != "+complete patch\n" ||
+		artifact.Digest != digest {
+		t.Fatalf("review patch = %+v, %v", artifact, err)
+	}
+}
+
 func TestReadyFailsWhenSocketMissing(t *testing.T) {
 	client := New(filepath.Join(filepath.Dir(shortSocket(t)), "missing.sock"), 100*time.Millisecond)
 	if err := client.Ready(context.Background()); err == nil {

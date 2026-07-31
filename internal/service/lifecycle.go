@@ -30,6 +30,18 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	); err != nil && ctx.Err() == nil {
 		s.log.Warn("schedule expired Slack channel memory cleanup failed", "error", err)
 	}
+	if retired, err := s.store.RetireResolvedDeletedWork(
+		ctx,
+		now.Add(-grace),
+	); err != nil && ctx.Err() == nil {
+		s.log.Warn("retire resolved work with deleted Slack channels failed", "error", err)
+	} else if retired > 0 {
+		s.log.Info(
+			"retired resolved work with deleted Slack channels",
+			"records",
+			retired,
+		)
+	}
 	if _, err := s.store.BackfillClosedSessionCleanup(ctx, now.Add(-grace)); err != nil &&
 		ctx.Err() == nil {
 		s.log.Warn("backfill closed Coop cleanup failed", "error", err)
@@ -72,6 +84,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	result, err := s.store.Prune(
 		ctx,
 		now.Add(-s.cfg.Retention.OperationalData.Duration),
+		now.Add(-s.cfg.Retention.ConversationMemory.Duration),
 		now.Add(-s.cfg.Retention.ClosedWork.Duration),
 		now.Add(-s.cfg.Retention.AuditData.Duration),
 	)
@@ -91,6 +104,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"agent_runs", result.AgentRuns,
 			"evaluations", result.EvaluationDecisions,
 			"channel_intelligence", result.ChannelIntelligence,
+			"conversation_memories", result.ConversationMemories,
 			"memory_entries", result.MemoryEntries,
 			"preferences", result.Preferences,
 			"standing_rules", result.StandingRules,

@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 17
+const currentSchemaVersion = 18
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -832,6 +832,23 @@ SELECT
 FROM agent_runs;
 `
 
+const schemaV18 = `
+CREATE TABLE conversation_memories (
+  channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL DEFAULT '',
+  repository TEXT NOT NULL,
+  last_message_ts TEXT NOT NULL DEFAULT '',
+  state_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(channel_id, thread_ts)
+);
+
+CREATE INDEX conversation_memories_recent_idx
+  ON conversation_memories(updated_at DESC);
+CREATE INDEX conversation_memories_repository_idx
+  ON conversation_memories(repository, updated_at DESC);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -850,4 +867,5 @@ var migrations = []string{
 	schemaV15,
 	schemaV16,
 	schemaV17,
+	schemaV18,
 }

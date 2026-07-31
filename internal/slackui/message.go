@@ -20,6 +20,9 @@ const (
 
 	ActionUpdate              = "responder_update"
 	ActionChanges             = "responder_changes"
+	ActionChangesPrevious     = "responder_changes_previous"
+	ActionChangesNext         = "responder_changes_next"
+	ActionChangesRefresh      = "responder_changes_refresh"
 	ActionReview              = "responder_review"
 	ActionPublishPR           = "responder_publish_pr"
 	ActionViewPR              = "responder_view_pr"
@@ -101,6 +104,18 @@ type Action struct {
 	Style   string `json:"style,omitempty"`
 	Confirm string `json:"confirm,omitempty"`
 	URL     string `json:"url,omitempty"`
+}
+
+type ChangesNavigation struct {
+	Page          int
+	Pages         int
+	FirstByte     int64
+	LastByte      int64
+	TotalBytes    int64
+	Digest        string
+	PreviousValue string
+	NextValue     string
+	RefreshValue  string
 }
 
 type Sanitizer struct {
@@ -2027,7 +2042,7 @@ func ChangesMessage(
 	incident core.Incident,
 	summary string,
 	patch []byte,
-	patchTruncated bool,
+	navigation ChangesNavigation,
 ) Message {
 	context := "The fork remains isolated. No merge, signing, push, or deployment occurred."
 	if incident.CoopForkName != "" {
@@ -2039,26 +2054,58 @@ func ChangesMessage(
 	}
 	var markdown strings.Builder
 	markdown.WriteString(summary)
+	if navigation.TotalBytes > 0 {
+		page := max(navigation.Page, 1)
+		pages := max(navigation.Pages, 1)
+		markdown.WriteString(fmt.Sprintf(
+			"\n\n*Patch page %d of %d* · bytes %d-%d of %d",
+			page,
+			pages,
+			navigation.FirstByte+1,
+			navigation.LastByte,
+			navigation.TotalBytes,
+		))
+		if len(navigation.Digest) >= 12 {
+			markdown.WriteString(" · snapshot `" + safeInlineCode(navigation.Digest[:12]) + "`")
+		}
+	}
 	if len(patch) > 0 {
 		diff := strings.ToValidUTF8(string(patch), "\uFFFD")
 		diff = strings.ReplaceAll(diff, "```", "` ` `")
-		diff = truncateUTF8(diff, 8500)
 		markdown.WriteString("\n\n```diff\n")
 		markdown.WriteString(diff)
 		markdown.WriteString("\n```")
-	}
-	if patchTruncated {
+	} else if navigation.TotalBytes == 0 {
 		markdown.WriteString(
-			"\n\n_The patch exceeded Coop's configured response limit. " +
-				"The file list above is complete only when it is not marked truncated._",
+			"\n\n_No tracked text patch is available. Untracked or binary files may still " +
+				"appear in the change summary._",
 		)
 	}
-	return Message{
+	message := Message{
 		Text:     "Code changes for " + work + " " + ShortID(incident.ID) + ": " + summary,
 		Header:   "Code changes",
 		Markdown: truncateMarkdown(markdown.String(), 12000),
 		Context:  []string{context},
 	}
+	if navigation.PreviousValue != "" {
+		message.Actions = append(message.Actions, Action{
+			ID: ActionChangesPrevious, Label: "Previous page",
+			Value: navigation.PreviousValue,
+		})
+	}
+	if navigation.NextValue != "" {
+		message.Actions = append(message.Actions, Action{
+			ID: ActionChangesNext, Label: "Next page",
+			Value: navigation.NextValue,
+		})
+	}
+	if navigation.RefreshValue != "" {
+		message.Actions = append(message.Actions, Action{
+			ID: ActionChangesRefresh, Label: "Refresh diff",
+			Value: navigation.RefreshValue,
+		})
+	}
+	return message
 }
 
 func ReviewMessage(incident core.Incident, summary string, publishable bool) Message {
@@ -2074,13 +2121,10 @@ func ReviewMessage(incident core.Incident, summary string, publishable bool) Mes
 		Text:     state + " for " + work + " " + ShortID(incident.ID),
 		Header:   state,
 		Sections: []string{summary},
-		Context:  []string{"This is Coop review evidence, not permission to merge or deploy."},
+		Context:  []string{"No branch was pushed and no pull request was created."},
 	}
 	if publishable && incident.IsEngineeringTask() {
-		message.Context = append(
-			message.Context,
-			"Creating a draft PR publishes only the exact reviewed tree; it cannot merge or deploy.",
-		)
+		message.Context = []string{"The reviewed tree is pinned. Creating a draft PR will not merge or deploy it."}
 		message.Actions = []Action{{
 			ID: ActionPublishPR, Label: "Create draft PR", Value: incident.ID, Style: "primary",
 			Confirm: "Run a fresh readiness review, publish the exact approved tree on a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",

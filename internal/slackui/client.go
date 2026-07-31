@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -32,7 +33,7 @@ type API interface {
 	PublishHome(context.Context, string, Message) error
 	UserAllowed(context.Context, string, string) (bool, error)
 	UserGroupMembers(context.Context, string, string) ([]string, error)
-	RecentMessages(context.Context, string, string, int) ([]HistoryMessage, error)
+	RecentMessages(context.Context, string, string, string, string, int) ([]HistoryMessage, error)
 	FindDeliveryMessage(context.Context, string, string, string) (string, error)
 }
 
@@ -149,9 +150,7 @@ func (c *Client) Preflight(
 		)
 	}
 	if missing := missingBotScopes(identity.BotScopes); len(missing) > 0 {
-		return PreflightReport{}, fmt.Errorf(
-			"bot token is missing required scopes: %s", strings.Join(missing, ", "),
-		)
+		return PreflightReport{}, missingBotScopesError(missing)
 	}
 	for _, operator := range operators {
 		allowed, err := c.UserAllowed(ctx, operator, teamID)
@@ -219,6 +218,13 @@ func (c *Client) Preflight(
 		InviteCount: len(inviteUsers), SummonChannels: len(summonChannels),
 		WatchChannels: len(watchChannels),
 	}, nil
+}
+
+func missingBotScopesError(missing []string) error {
+	return fmt.Errorf(
+		"bot token is missing required scopes: %s; apply deploy/slack-app-manifest.yaml and reinstall the app",
+		strings.Join(missing, ", "),
+	)
 }
 
 func summonChannelMembershipError(botName, channelID, channelName string) error {
@@ -566,6 +572,8 @@ func (c *Client) RecentMessages(
 	ctx context.Context,
 	channel string,
 	threadTS string,
+	targetTS string,
+	sinceTS string,
 	limit int,
 ) ([]HistoryMessage, error) {
 	if channel == "" || limit < 1 || limit > 100 {
@@ -573,23 +581,53 @@ func (c *Client) RecentMessages(
 	}
 	var messages []slack.Message
 	if threadTS != "" {
-		result, _, _, err := c.api.GetConversationRepliesContext(
-			ctx,
-			&slack.GetConversationRepliesParameters{
-				ChannelID: channel,
-				Timestamp: threadTS,
-				Limit:     limit,
-			},
-		)
-		if err != nil {
-			return nil, err
+		const pageSize = 200
+		const maxPages = 50
+		cursor := ""
+		for page := 0; page < maxPages; page++ {
+			result, hasMore, next, err := c.api.GetConversationRepliesContext(
+				ctx,
+				&slack.GetConversationRepliesParameters{
+					ChannelID: channel,
+					Timestamp: threadTS,
+					Cursor:    cursor,
+					Latest:    targetTS,
+					Oldest:    sinceTS,
+					Inclusive: targetTS != "",
+					Limit:     pageSize,
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+			messages = append(messages, result...)
+			if next == "" {
+				if hasMore {
+					return nil, errors.New(
+						"Slack thread history is incomplete and has no continuation cursor",
+					)
+				}
+				break
+			}
+			if next == cursor {
+				return nil, errors.New("Slack thread history returned a repeated cursor")
+			}
+			cursor = next
+			if page == maxPages-1 {
+				return nil, fmt.Errorf(
+					"Slack thread exceeds the bounded %d-message history scan",
+					pageSize*maxPages,
+				)
+			}
 		}
-		messages = result
 	} else {
 		result, err := c.api.GetConversationHistoryContext(
 			ctx,
 			&slack.GetConversationHistoryParameters{
 				ChannelID: channel,
+				Latest:    targetTS,
+				Oldest:    sinceTS,
+				Inclusive: targetTS != "",
 				Limit:     limit,
 			},
 		)
@@ -611,7 +649,41 @@ func (c *Client) RecentMessages(
 			Text:      message.Text,
 		})
 	}
+	if threadTS != "" {
+		history = selectThreadHistory(history, threadTS, limit)
+	}
 	return history, nil
+}
+
+func selectThreadHistory(
+	history []HistoryMessage,
+	threadTS string,
+	limit int,
+) []HistoryMessage {
+	if len(history) <= limit {
+		return history
+	}
+	root := -1
+	for index := range history {
+		if history[index].Timestamp == threadTS {
+			root = index
+			break
+		}
+	}
+	if root < 0 || limit == 1 {
+		return slices.Clone(history[len(history)-limit:])
+	}
+	result := make([]HistoryMessage, 0, limit)
+	result = append(result, history[root])
+	for _, message := range history[len(history)-(limit-1):] {
+		if message.Timestamp != threadTS {
+			result = append(result, message)
+		}
+	}
+	if len(result) > limit {
+		result = append(result[:1], result[len(result)-(limit-1):]...)
+	}
+	return result
 }
 
 func (c *Client) FindDeliveryMessage(

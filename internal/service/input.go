@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +21,54 @@ type frozenAction struct {
 	SessionID string `json:"session_id"`
 	TurnID    string `json:"turn_id,omitempty"`
 	Revision  int64  `json:"revision"`
+}
+
+const changesPatchPageBytes = 7000
+
+type changesCursor struct {
+	IncidentID string `json:"i"`
+	Offset     int64  `json:"o"`
+	Digest     string `json:"d,omitempty"`
+}
+
+type coopChangesPager interface {
+	ChangesPage(context.Context, string, int64, int) (coop.Changes, error)
+}
+
+func encodeChangesCursor(cursor changesCursor) string {
+	data, err := json.Marshal(cursor)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeChangesCursor(value string) (changesCursor, bool) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(data) > 1024 {
+		return changesCursor{}, false
+	}
+	var cursor changesCursor
+	if err := json.Unmarshal(data, &cursor); err != nil ||
+		cursor.IncidentID == "" || cursor.Offset < 0 ||
+		(cursor.Digest != "" && len(cursor.Digest) != sha256.Size*2) {
+		return changesCursor{}, false
+	}
+	return cursor, true
+}
+
+func changesActionIncidentID(actionID string, value string) (string, bool) {
+	switch actionID {
+	case slackui.ActionChanges:
+		return value, value != ""
+	case slackui.ActionChangesPrevious,
+		slackui.ActionChangesNext,
+		slackui.ActionChangesRefresh:
+		cursor, ok := decodeChangesCursor(value)
+		return cursor.IncidentID, ok
+	default:
+		return value, value != ""
+	}
 }
 
 func (s *Service) processSlackInput(ctx context.Context) error {
@@ -219,14 +270,20 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	directRequest := errors.Is(incidentErr, store.ErrNotFound) &&
 		input.Kind == "direct"
 	summoned := errors.Is(incidentErr, store.ErrNotFound) &&
-		input.Kind == "mention" &&
-		s.cfg.IsSummonChannel(input.ChannelID)
+		input.Kind == "mention"
+	conversationFollowup := false
+	if errors.Is(incidentErr, store.ErrNotFound) && input.Kind == "message" {
+		conversationFollowup, err = s.isRecentWatchConversation(ctx, input)
+		if err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+	}
 	behaviorRequest := errors.Is(incidentErr, store.ErrNotFound) &&
 		input.Kind == "mention" &&
 		s.cfg.IsOperator(input.UserID) &&
 		explicitBehaviorRequest(input.Text)
 	if errors.Is(incidentErr, store.ErrNotFound) {
-		if directRequest {
+		if directRequest || conversationFollowup {
 			watched = true
 		} else {
 			watched, err = s.proactiveEnabled(ctx, input.ChannelID)
@@ -357,18 +414,31 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.finishSlackInput(ctx, input)
 	}
 	if input.Kind == "action" {
-		if input.ActionValue != incident.ID || input.MessageTS != incident.RootTS ||
-			input.ChannelID != incident.ChannelID {
+		current, currentErr := s.incidentControlMatchesMessage(
+			ctx,
+			input,
+			incident,
+		)
+		if currentErr != nil {
+			return s.retrySlackInput(ctx, input, currentErr)
+		}
+		if !current {
+			noun := "incident"
+			if incident.IsEngineeringTask() {
+				noun = "task"
+			}
 			return s.finishSlashInput(
 				ctx,
 				input,
-				"*This incident control is stale or belongs to another card.* Refresh the "+
-					"channel and use the controls on the current pinned incident card. No action "+
-					"was taken.",
+				"*That button is no longer current.* Use a control on the latest "+noun+
+					" card or result message. Nothing was changed.",
 			)
 		}
 		if incident.Status == core.IncidentClosed &&
 			input.ActionID != slackui.ActionChanges &&
+			input.ActionID != slackui.ActionChangesPrevious &&
+			input.ActionID != slackui.ActionChangesNext &&
+			input.ActionID != slackui.ActionChangesRefresh &&
 			input.ActionID != slackui.ActionReview &&
 			input.ActionID != slackui.ActionViewPR &&
 			input.ActionID != slackui.ActionDiscardWork {
@@ -625,6 +695,9 @@ func (s *Service) processChannelLifecycleInput(
 		if _, err := s.store.DeleteChannelConfigurationState(ctx, input.ChannelID); err != nil {
 			return err
 		}
+		if _, err := s.store.DeleteConversationMemories(ctx, input.ChannelID); err != nil {
+			return err
+		}
 		deleted, err := s.store.DeleteChannelMemoryEntries(ctx, input.ChannelID)
 		if err != nil {
 			return err
@@ -743,6 +816,20 @@ func (s *Service) postInputNotice(
 	return s.postInputMessage(ctx, id, input, slackui.Notice(text))
 }
 
+func (s *Service) postInputNoticeInSourceThread(
+	ctx context.Context,
+	id string,
+	input core.SlackInput,
+	text string,
+) error {
+	return s.postInputMessageInSourceThread(
+		ctx,
+		id,
+		input,
+		slackui.Notice(text),
+	)
+}
+
 func (s *Service) postInputMessage(
 	ctx context.Context,
 	id string,
@@ -853,33 +940,11 @@ func (s *Service) handleControl(
 			s.setNativeStatus(ctx, incident, "is preparing an incident update...")
 		}
 		return err
-	case slackui.ActionChanges:
-		if incident.CoopSessionID == "" {
-			return s.enqueue(ctx, "out_changes_"+input.ID, incident, "notice",
-				threadTS, slackui.Notice(
-					"*Code changes are not available yet.* Responder is still preparing the "+
-						"isolated working copy. Wait for the pinned incident card to show "+
-						"*Waiting for input* or *Investigating*, then try again. No repository "+
-						"changes were made by this request.",
-				))
-		}
-		s.setNativeStatus(ctx, incident, "is checking the isolated fork...")
-		changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
-		if err != nil {
-			s.clearNativeStatus(ctx, incident)
-			return err
-		}
-		err = s.enqueue(ctx, "out_changes_"+input.ID, incident, "changes",
-			threadTS, slackui.ChangesMessage(
-				incident,
-				changesSummary(changes),
-				changes.Patch,
-				changes.Truncated,
-			))
-		if err != nil {
-			s.clearNativeStatus(ctx, incident)
-		}
-		return err
+	case slackui.ActionChanges,
+		slackui.ActionChangesPrevious,
+		slackui.ActionChangesNext,
+		slackui.ActionChangesRefresh:
+		return s.showChanges(ctx, input, incident)
 	case slackui.ActionReview:
 		return s.reviewFix(ctx, input, incident)
 	case slackui.ActionPublishPR:
@@ -897,6 +962,175 @@ func (s *Service) handleControl(
 	default:
 		return errors.New("unknown Responder control")
 	}
+}
+
+func (s *Service) showChanges(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+) error {
+	threadTS := incident.ConversationThreadTS()
+	if incident.CoopSessionID == "" {
+		return s.enqueue(ctx, "out_changes_"+input.ID, incident, "notice",
+			threadTS, slackui.Notice(
+				"*Code changes are not available yet.* Emisar is still preparing the "+
+					"isolated working copy. Wait for the task to show *Waiting for input* "+
+					"or *Investigating*, then try again.",
+			))
+	}
+
+	requestedOffset := int64(0)
+	expectedDigest := ""
+	if input.ActionID != slackui.ActionChanges {
+		cursor, ok := decodeChangesCursor(input.ActionValue)
+		if !ok || cursor.IncidentID != incident.ID {
+			return errors.New("invalid diff page cursor")
+		}
+		requestedOffset = cursor.Offset
+		expectedDigest = cursor.Digest
+	}
+
+	s.setNativeStatus(ctx, incident, "is checking the isolated fork...")
+	changes, err := s.changesPage(
+		ctx,
+		incident.CoopSessionID,
+		requestedOffset,
+		changesPatchPageBytes,
+	)
+	if err != nil && requestedOffset > 0 {
+		changes, err = s.changesPage(
+			ctx,
+			incident.CoopSessionID,
+			0,
+			changesPatchPageBytes,
+		)
+		requestedOffset = 0
+	}
+	if err != nil {
+		s.clearNativeStatus(ctx, incident)
+		return err
+	}
+	diffChanged := expectedDigest != "" && changes.PatchDigest != expectedDigest
+	if diffChanged && changes.PatchOffset != 0 {
+		changes, err = s.changesPage(
+			ctx,
+			incident.CoopSessionID,
+			0,
+			changesPatchPageBytes,
+		)
+		if err != nil {
+			s.clearNativeStatus(ctx, incident)
+			return err
+		}
+	}
+
+	summary := changesSummary(changes)
+	if diffChanged {
+		summary = "_The fork changed while you were browsing. Showing the newest diff._\n\n" +
+			summary
+	}
+	message := slackui.ChangesMessage(
+		incident,
+		summary,
+		changes.Patch,
+		changesNavigation(incident.ID, changes),
+	)
+	if input.Kind == "action" && input.ActionID != slackui.ActionChanges &&
+		input.MessageTS != "" {
+		err = s.enqueueMessageUpdate(
+			ctx,
+			"out_changes_page_"+input.ID,
+			incident,
+			"changes",
+			input.MessageTS,
+			message,
+		)
+	} else {
+		err = s.enqueue(
+			ctx,
+			"out_changes_"+input.ID,
+			incident,
+			"changes",
+			threadTS,
+			message,
+		)
+	}
+	if err != nil {
+		s.clearNativeStatus(ctx, incident)
+	}
+	return err
+}
+
+func (s *Service) changesPage(
+	ctx context.Context,
+	sessionID string,
+	offset int64,
+	limit int,
+) (coop.Changes, error) {
+	if pager, ok := s.coop.(coopChangesPager); ok {
+		return pager.ChangesPage(ctx, sessionID, offset, limit)
+	}
+	changes, err := s.coop.Changes(ctx, sessionID)
+	if err != nil {
+		return coop.Changes{}, err
+	}
+	full := changes.Patch
+	if changes.PatchBytes == 0 {
+		changes.PatchBytes = int64(len(full))
+	}
+	if changes.PatchDigest == "" && !changes.Truncated {
+		sum := sha256.Sum256(full)
+		changes.PatchDigest = hex.EncodeToString(sum[:])
+	}
+	if offset > int64(len(full)) {
+		return coop.Changes{}, errors.New("diff page starts beyond the available patch")
+	}
+	end := min(offset+int64(limit), int64(len(full)))
+	changes.Patch = append([]byte(nil), full[offset:end]...)
+	changes.PatchOffset = offset
+	changes.PatchNextOffset = end
+	changes.PatchHasMore = end < changes.PatchBytes
+	changes.Truncated = offset > 0 || changes.PatchHasMore
+	return changes, nil
+}
+
+func changesNavigation(
+	incidentID string,
+	changes coop.Changes,
+) slackui.ChangesNavigation {
+	total := changes.PatchBytes
+	pages := 1
+	page := 1
+	if total > 0 {
+		pages = int((total + changesPatchPageBytes - 1) / changesPatchPageBytes)
+		page = int(changes.PatchOffset/changesPatchPageBytes) + 1
+	}
+	navigation := slackui.ChangesNavigation{
+		Page: page, Pages: pages,
+		FirstByte: changes.PatchOffset, LastByte: changes.PatchNextOffset,
+		TotalBytes: total, Digest: changes.PatchDigest,
+		RefreshValue: encodeChangesCursor(changesCursor{
+			IncidentID: incidentID,
+			Offset:     0,
+			Digest:     changes.PatchDigest,
+		}),
+	}
+	if changes.PatchOffset > 0 {
+		previous := max(int64(0), changes.PatchOffset-changesPatchPageBytes)
+		navigation.PreviousValue = encodeChangesCursor(changesCursor{
+			IncidentID: incidentID,
+			Offset:     previous,
+			Digest:     changes.PatchDigest,
+		})
+	}
+	if changes.PatchHasMore {
+		navigation.NextValue = encodeChangesCursor(changesCursor{
+			IncidentID: incidentID,
+			Offset:     changes.PatchNextOffset,
+			Digest:     changes.PatchDigest,
+		})
+	}
+	return navigation
 }
 
 func (s *Service) explainAutomaticCapacity(
@@ -1141,6 +1375,51 @@ func (s *Service) freezeAction(
 		return frozenAction{}, err
 	}
 	return action, nil
+}
+
+func (s *Service) incidentControlMatchesMessage(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+) (bool, error) {
+	actionIncidentID, actionValueOK := changesActionIncidentID(
+		input.ActionID,
+		input.ActionValue,
+	)
+	if !actionValueOK || actionIncidentID != incident.ID ||
+		input.ChannelID != incident.ChannelID ||
+		input.MessageTS == "" {
+		return false, nil
+	}
+	if input.MessageTS == incident.RootTS {
+		return true, nil
+	}
+	delivery, err := s.store.GetLatestSentSlackMessageDelivery(
+		ctx,
+		incident.ID,
+		input.ChannelID,
+		input.MessageTS,
+	)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	message, err := slackui.Decode(delivery.Body)
+	if err != nil {
+		return false, fmt.Errorf(
+			"decode Slack control delivery %q: %w",
+			delivery.ID,
+			err,
+		)
+	}
+	for _, action := range message.Actions {
+		if action.ID == input.ActionID && action.Value == input.ActionValue {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, err error) error {

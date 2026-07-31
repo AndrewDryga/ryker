@@ -93,6 +93,10 @@ func TestConfigurationSessionAndChannelConfigurationLifecycle(t *testing.T) {
 	if _, err := st.GetActiveConfigurationSession(ctx, "C123"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("finished session remains active: %v", err)
 	}
+	latest, err := st.GetLatestConfigurationSession(ctx, "C123")
+	if err != nil || latest.ID != session.ID || latest.Status != "saved" {
+		t.Fatalf("latest session = %+v, %v", latest, err)
+	}
 
 	configuration.Participation = "shadow"
 	configuration.ActorID = "U456"

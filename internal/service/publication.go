@@ -2,16 +2,22 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
+
+type coopReviewPatchReader interface {
+	ReviewPatch(context.Context, string) (coop.ReviewPatchArtifact, error)
+}
 
 func (s *Service) publishDraftPR(
 	ctx context.Context,
@@ -82,12 +88,18 @@ func (s *Service) publishDraftPR(
 	}
 	if !review.Publishable {
 		s.clearNativeStatus(ctx, incident)
-		reasons := strings.Join(review.NotPublishableReasons, "; ")
-		if reasons == "" {
-			reasons = "the configured readiness review did not approve publication"
-		}
 		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "review", threadTS,
-			slackui.ReviewMessage(incident, reviewSummary(review)+"\n\nPublication stopped: "+reasons, false))
+			slackui.ReviewMessage(incident, reviewSummary(review), false))
+	}
+	review, err = s.completeReviewPatch(ctx, review)
+	if err != nil {
+		s.clearNativeStatus(ctx, incident)
+		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "notice", threadTS,
+			slackui.Notice(
+				"*Draft PR publication stopped because the complete reviewed patch could "+
+					"not be verified.* "+trimError(err)+"\n\nThe isolated task and review "+
+					"remain available. No branch was pushed and no pull request was created.",
+			))
 	}
 
 	existing, err := s.store.GetPublication(ctx, incident.ID)
@@ -168,4 +180,43 @@ func (s *Service) publishDraftPR(
 	s.clearNativeStatus(ctx, incident)
 	return s.enqueue(ctx, "out_publish_"+input.ID, incident, "publication", threadTS,
 		slackui.PublicationMessage(record, wasPublished))
+}
+
+func (s *Service) completeReviewPatch(
+	ctx context.Context,
+	review coop.Review,
+) (coop.Review, error) {
+	if review.PatchBytes == 0 || review.PatchDigest == "" {
+		if review.PatchTruncated || len(review.Patch) == 0 {
+			return review, errors.New("Coop review did not bind a complete patch artifact")
+		}
+		return review, nil
+	}
+	if int64(len(review.Patch)) != review.PatchBytes || review.PatchTruncated {
+		reader, ok := s.coop.(coopReviewPatchReader)
+		if !ok {
+			return review, errors.New("Coop client cannot retrieve the complete review patch")
+		}
+		artifact, err := reader.ReviewPatch(ctx, review.PatchArtifactID)
+		if err != nil {
+			return review, err
+		}
+		if artifact.Digest != "" && artifact.Digest != review.PatchDigest {
+			return review, errors.New("Coop review patch ETag does not match the review dossier")
+		}
+		review.Patch = artifact.Patch
+	}
+	if int64(len(review.Patch)) != review.PatchBytes {
+		return review, fmt.Errorf(
+			"Coop review patch is %d bytes, expected %d",
+			len(review.Patch),
+			review.PatchBytes,
+		)
+	}
+	digest := sha256.Sum256(review.Patch)
+	if hex.EncodeToString(digest[:]) != review.PatchDigest {
+		return review, errors.New("Coop review patch digest does not match the review dossier")
+	}
+	review.PatchTruncated = false
+	return review, nil
 }

@@ -53,6 +53,76 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		1,
 		"number of independent model samples per live case (1-10)",
 	)
+	scenarios := flags.Bool(
+		"scenarios",
+		false,
+		"run a stateful multi-turn scenario corpus",
+	)
+	calibrateJudge := flags.Bool(
+		"calibrate-judge",
+		false,
+		"run human-labeled quality-judge calibration cases",
+	)
+	judge := flags.Bool(
+		"judge",
+		false,
+		"score the rendered Slack response with a separate real model turn",
+	)
+	verifyEvidence := flags.Bool(
+		"verify-evidence",
+		false,
+		"independently re-check response claims with a separate real model turn",
+	)
+	taskPolicy := flags.String(
+		"task-policy",
+		"",
+		"explicit disposable writable Coop policy for kind=task cases",
+	)
+	minOverallPassRate := flags.Float64(
+		"min-overall-pass-rate",
+		0,
+		"minimum aggregate pass rate from 0 to 1",
+	)
+	minCasePassRate := flags.Float64(
+		"min-case-pass-rate",
+		0,
+		"minimum repeated-sample pass rate for every case from 0 to 1",
+	)
+	minProactivePrecision := flags.Float64(
+		"min-proactive-precision",
+		0,
+		"minimum precision for labeled proactive decisions from 0 to 1",
+	)
+	minProactiveRecall := flags.Float64(
+		"min-proactive-recall",
+		0,
+		"minimum recall for labeled proactive decisions from 0 to 1",
+	)
+	maxFalseInterruption := flags.Float64(
+		"max-false-interruption-rate",
+		0,
+		"maximum false interruption rate for labeled silent messages from 0 to 1",
+	)
+	minMeanQuality := flags.Float64(
+		"min-mean-quality",
+		0,
+		"minimum mean model-judge score from 1 to 5",
+	)
+	baselinePath := flags.String(
+		"baseline",
+		"",
+		"compare this run with a checked private evaluation baseline",
+	)
+	writeBaselinePath := flags.String(
+		"write-baseline",
+		"",
+		"write a private baseline from this successful run",
+	)
+	maxRegression := flags.Float64(
+		"max-regression",
+		0,
+		"maximum allowed per-case pass-rate regression from baseline",
+	)
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -62,11 +132,42 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if flags.NArg() != 0 {
 		return errors.New("eval accepts no positional arguments")
 	}
+	enforceFalseInterruption := false
+	flags.Visit(func(candidate *flag.Flag) {
+		if candidate.Name == "max-false-interruption-rate" {
+			enforceFalseInterruption = true
+		}
+	})
 	if *repeat < 1 || *repeat > 10 {
 		return errors.New("eval --repeat must be between 1 and 10")
 	}
-	if *replay && (*caseFilter != "" || *repeat != 1) {
-		return errors.New("eval --case and --repeat require a real model run")
+	for name, value := range map[string]float64{
+		"min-overall-pass-rate":       *minOverallPassRate,
+		"min-case-pass-rate":          *minCasePassRate,
+		"min-proactive-precision":     *minProactivePrecision,
+		"min-proactive-recall":        *minProactiveRecall,
+		"max-false-interruption-rate": *maxFalseInterruption,
+		"max-regression":              *maxRegression,
+	} {
+		if value < 0 || value > 1 {
+			return fmt.Errorf("eval --%s must be between 0 and 1", name)
+		}
+	}
+	if *minMeanQuality < 0 || *minMeanQuality > 5 {
+		return errors.New("eval --min-mean-quality must be between 0 and 5")
+	}
+	if *scenarios && *calibrateJudge {
+		return errors.New("eval --scenarios and --calibrate-judge are mutually exclusive")
+	}
+	if *calibrateJudge && *repeat != 1 {
+		return errors.New("eval --repeat is not supported with --calibrate-judge")
+	}
+	if *replay && (*caseFilter != "" || *repeat != 1 || *scenarios ||
+		*calibrateJudge ||
+		*judge || *verifyEvidence) {
+		return errors.New(
+			"eval --case, --repeat, --scenarios, --calibrate-judge, --judge, and --verify-evidence require a real model run",
+		)
 	}
 	if *inputPath == "" && *replay {
 		*inputPath = "testdata/eval/golden.jsonl"
@@ -139,27 +240,79 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		if !*jsonOutput {
 			fmt.Fprintf(stderr, "Coop ready (%s); running real model evaluation\n", supervision)
 		}
-		summary, err = service.EvaluateLiveJSONL(
-			context.Background(),
-			file,
-			cfg,
-			coopClient,
-			service.LiveEvaluationOptions{
-				CaseTimeout: *caseTimeout,
-				CaseFilter:  *caseFilter,
-				Repeat:      *repeat,
-				SanitizeResponse: func(value string) string {
-					return sanitizer.Text(value)
-				},
-				Progress: func(name string, state string) {
-					if *jsonOutput {
-						return
-					}
-					fmt.Fprintf(stderr, "%-7s %s\n", state, name)
-				},
+		options := service.LiveEvaluationOptions{
+			CaseTimeout:    *caseTimeout,
+			CaseFilter:     *caseFilter,
+			Repeat:         *repeat,
+			Judge:          *judge,
+			VerifyEvidence: *verifyEvidence,
+			TaskPolicy:     *taskPolicy,
+			SanitizeResponse: func(value string) string {
+				return sanitizer.Text(value)
 			},
-		)
+			Progress: func(name string, state string) {
+				if *jsonOutput {
+					return
+				}
+				fmt.Fprintf(stderr, "%-7s %s\n", state, name)
+			},
+		}
+		if *calibrateJudge {
+			summary, err = service.EvaluateQualityCalibrationJSONL(
+				context.Background(),
+				file,
+				cfg,
+				coopClient,
+				options,
+			)
+		} else if *scenarios {
+			summary, err = service.EvaluateLiveScenariosJSONL(
+				context.Background(),
+				file,
+				cfg,
+				coopClient,
+				options,
+			)
+		} else {
+			summary, err = service.EvaluateLiveJSONL(
+				context.Background(),
+				file,
+				cfg,
+				coopClient,
+				options,
+			)
+		}
 		if err != nil {
+			return err
+		}
+	}
+	var baseline *service.EvaluationBaseline
+	if *baselinePath != "" {
+		value, readErr := readEvaluationBaseline(*baselinePath)
+		if readErr != nil {
+			return readErr
+		}
+		baseline = &value
+	}
+	service.ApplyEvaluationGates(&summary, service.EvaluationGateOptions{
+		MinOverallPassRate:       *minOverallPassRate,
+		MinCasePassRate:          *minCasePassRate,
+		MinProactivePrecision:    *minProactivePrecision,
+		MinProactiveRecall:       *minProactiveRecall,
+		MaxFalseInterruptionRate: *maxFalseInterruption,
+		EnforceFalseInterruption: enforceFalseInterruption,
+		MinMeanQuality:           *minMeanQuality,
+		MaxBaselineRegression:    *maxRegression,
+		Baseline:                 baseline,
+	})
+	if *writeBaselinePath != "" {
+		if !summary.Gate.Passed || summary.Failed != 0 {
+			return errors.New("refusing to write a baseline from a failed evaluation")
+		}
+		if err := writeEvaluationBaseline(
+			*writeBaselinePath,
+			service.BaselineFromSummary(summary),
+		); err != nil {
 			return err
 		}
 	}
@@ -200,11 +353,56 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 				fmt.Fprintf(stdout, "FAIL %s: %s\n", result.Name, result.Detail)
 			}
 		}
+		for _, failure := range summary.Gate.Failures {
+			fmt.Fprintf(stdout, "GATE: %s\n", failure)
+		}
 	}
 	if summary.Failed > 0 {
 		return fmt.Errorf("%d evaluation cases failed", summary.Failed)
 	}
+	if !summary.Gate.Passed {
+		return errors.New("evaluation gate failed")
+	}
 	return nil
+}
+
+func readEvaluationBaseline(path string) (service.EvaluationBaseline, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return service.EvaluationBaseline{}, fmt.Errorf(
+			"open evaluation baseline: %w",
+			err,
+		)
+	}
+	defer file.Close()
+	var result service.EvaluationBaseline
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil {
+		return service.EvaluationBaseline{}, fmt.Errorf(
+			"decode evaluation baseline: %w",
+			err,
+		)
+	}
+	if result.Version != 1 {
+		return service.EvaluationBaseline{}, fmt.Errorf(
+			"evaluation baseline version must be 1",
+		)
+	}
+	return result, nil
+}
+
+func writeEvaluationBaseline(
+	path string,
+	baseline service.EvaluationBaseline,
+) error {
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(baseline); err != nil {
+		return err
+	}
+	return writePrivateEvaluationFile(path, output.Bytes(), "baseline")
 }
 
 func writeEvaluationSummary(path string, summary service.EvaluationSummary) error {
@@ -214,10 +412,14 @@ func writeEvaluationSummary(path string, summary service.EvaluationSummary) erro
 	if err := encoder.Encode(summary); err != nil {
 		return err
 	}
+	return writePrivateEvaluationFile(path, output.Bytes(), "results")
+}
+
+func writePrivateEvaluationFile(path string, data []byte, label string) error {
 	dir := filepath.Dir(path)
 	file, err := os.CreateTemp(dir, ".responder-eval-*.json")
 	if err != nil {
-		return fmt.Errorf("create evaluation results: %w", err)
+		return fmt.Errorf("create evaluation %s: %w", label, err)
 	}
 	tempPath := file.Name()
 	defer os.Remove(tempPath)
@@ -225,15 +427,15 @@ func writeEvaluationSummary(path string, summary service.EvaluationSummary) erro
 		file.Close()
 		return fmt.Errorf("protect evaluation results: %w", err)
 	}
-	if _, err := file.Write(output.Bytes()); err != nil {
+	if _, err := file.Write(data); err != nil {
 		file.Close()
-		return fmt.Errorf("write evaluation results: %w", err)
+		return fmt.Errorf("write evaluation %s: %w", label, err)
 	}
 	if err := file.Close(); err != nil {
-		return fmt.Errorf("close evaluation results: %w", err)
+		return fmt.Errorf("close evaluation %s: %w", label, err)
 	}
 	if err := os.Rename(tempPath, path); err != nil {
-		return fmt.Errorf("publish evaluation results: %w", err)
+		return fmt.Errorf("publish evaluation %s: %w", label, err)
 	}
 	return nil
 }

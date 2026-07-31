@@ -163,6 +163,7 @@ type RetentionConfig struct {
 	MaintenanceInterval Duration `yaml:"maintenance_interval"`
 	ClosedSessionGrace  Duration `yaml:"closed_session_grace"`
 	OperationalData     Duration `yaml:"operational_data"`
+	ConversationMemory  Duration `yaml:"conversation_memory"`
 	ClosedWork          Duration `yaml:"closed_work"`
 	AuditData           Duration `yaml:"audit_data"`
 }
@@ -268,6 +269,7 @@ func defaults() Config {
 			MaintenanceInterval: Duration{time.Minute},
 			ClosedSessionGrace:  Duration{15 * time.Minute},
 			OperationalData:     Duration{24 * time.Hour},
+			ConversationMemory:  Duration{90 * 24 * time.Hour},
 			ClosedWork:          Duration{7 * 24 * time.Hour},
 			AuditData:           Duration{30 * 24 * time.Hour},
 		},
@@ -663,6 +665,9 @@ func validateRetention(c RetentionConfig) error {
 	case c.OperationalData.Duration < time.Hour ||
 		c.OperationalData.Duration > 30*24*time.Hour:
 		return errors.New("operational_data must be between 1h and 720h")
+	case c.ConversationMemory.Duration < 24*time.Hour ||
+		c.ConversationMemory.Duration > 365*24*time.Hour:
+		return errors.New("conversation_memory must be between 24h and 8760h")
 	case c.ClosedWork.Duration < c.OperationalData.Duration ||
 		c.ClosedWork.Duration > 365*24*time.Hour:
 		return errors.New("closed_work must be at least operational_data and at most 8760h")

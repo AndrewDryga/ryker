@@ -94,6 +94,141 @@ func (s *Store) ListChannelSituations(
 	return result, rows.Err()
 }
 
+func (s *Store) GetConversationMemory(
+	ctx context.Context,
+	channelID string,
+	threadTS string,
+) (core.ConversationMemory, error) {
+	var memory core.ConversationMemory
+	var state []byte
+	var updated string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT channel_id, thread_ts, repository, last_message_ts, state_json, updated_at
+		FROM conversation_memories
+		WHERE channel_id = ? AND thread_ts = ?`,
+		channelID, threadTS,
+	).Scan(
+		&memory.ChannelID,
+		&memory.ThreadTS,
+		&memory.Repository,
+		&memory.LastMessage,
+		&state,
+		&updated,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.ConversationMemory{}, ErrNotFound
+	}
+	if err != nil {
+		return core.ConversationMemory{}, err
+	}
+	if err := json.Unmarshal(state, &memory.State); err != nil {
+		return core.ConversationMemory{}, fmt.Errorf("decode conversation memory: %w", err)
+	}
+	memory.UpdatedAt = parseTime(updated)
+	return memory, nil
+}
+
+func (s *Store) ListRelatedConversationMemories(
+	ctx context.Context,
+	channelID string,
+	threadTS string,
+	repository string,
+	limit int,
+) ([]core.ConversationMemory, error) {
+	if channelID == "" || limit < 1 || limit > 50 {
+		return nil, errors.New("related conversation memory requires a channel and limit from 1 to 50")
+	}
+	localLimit := max(1, limit/2)
+	workspaceLimit := max(1, limit-localLimit)
+	rows, err := s.db.QueryContext(ctx, `
+		WITH candidates AS (
+		  SELECT memory.channel_id, COALESCE(membership.channel_name, '') AS channel_name,
+		    memory.thread_ts, memory.repository,
+		    memory.last_message_ts, memory.state_json, memory.updated_at,
+		    CASE WHEN memory.channel_id = ? THEN 0 ELSE 1 END AS bucket
+		  FROM conversation_memories AS memory
+		  LEFT JOIN slack_channel_memberships AS membership
+		    ON membership.channel_id = memory.channel_id
+		  WHERE NOT (memory.channel_id = ? AND memory.thread_ts = ?)
+		    AND (
+		      memory.channel_id = ? OR (
+		        membership.present = 1 AND membership.private = 0
+		      )
+		    )
+		    AND memory.state_json != '{}' AND memory.state_json != ''
+		),
+		ranked AS (
+		  SELECT *,
+		    row_number() OVER (
+		      PARTITION BY bucket
+		      ORDER BY
+		        CASE WHEN repository = ? THEN 0 ELSE 1 END,
+		        updated_at DESC
+		    ) AS position
+		  FROM candidates
+		)
+		SELECT channel_id, channel_name, thread_ts, repository,
+		  last_message_ts, state_json, updated_at
+		FROM ranked
+		WHERE (bucket = 0 AND position <= ?)
+		   OR (bucket = 1 AND position <= ?)
+		ORDER BY bucket, position
+		LIMIT ?`,
+		channelID, channelID, threadTS, channelID, repository,
+		localLimit, workspaceLimit, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.ConversationMemory, 0, limit)
+	for rows.Next() {
+		var memory core.ConversationMemory
+		var state []byte
+		var updated string
+		if err := rows.Scan(
+			&memory.ChannelID,
+			&memory.ChannelName,
+			&memory.ThreadTS,
+			&memory.Repository,
+			&memory.LastMessage,
+			&state,
+			&updated,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(state, &memory.State); err != nil {
+			return nil, fmt.Errorf(
+				"decode conversation memory %s/%s: %w",
+				memory.ChannelID,
+				memory.ThreadTS,
+				err,
+			)
+		}
+		memory.UpdatedAt = parseTime(updated)
+		result = append(result, memory)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) DeleteConversationMemories(
+	ctx context.Context,
+	channelID string,
+) (int64, error) {
+	if channelID == "" {
+		return 0, errors.New("conversation memory channel is required")
+	}
+	result, err := s.db.ExecContext(
+		ctx,
+		`DELETE FROM conversation_memories WHERE channel_id = ?`,
+		channelID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (s *Store) BindChannelSession(
 	ctx context.Context,
 	channelID string,
@@ -255,6 +390,30 @@ func (s *Store) ApplyWatchDecision(
 	)
 	if err := expectOne(update, err, "apply watch decision memory"); err != nil {
 		return false, err
+	}
+	if decision.Repository != "" && decision.MessageTS != "" {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO conversation_memories (
+			  channel_id, thread_ts, repository, last_message_ts, state_json, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
+			  repository = excluded.repository,
+			  last_message_ts = excluded.last_message_ts,
+			  state_json = CASE
+			    WHEN excluded.state_json = '{}' THEN conversation_memories.state_json
+			    ELSE excluded.state_json
+			  END,
+			  updated_at = excluded.updated_at`,
+			decision.ChannelID,
+			decision.ThreadTS,
+			decision.Repository,
+			decision.MessageTS,
+			string(memory),
+			nowText(),
+		)
+		if err != nil {
+			return false, err
+		}
 	}
 	return true, tx.Commit()
 }

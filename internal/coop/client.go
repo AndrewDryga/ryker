@@ -15,7 +15,10 @@ import (
 	"time"
 )
 
-const maxResponseBytes = 3 << 20
+const (
+	maxResponseBytes    = 3 << 20
+	maxReviewPatchBytes = 64 << 20
+)
 
 type Client struct {
 	socket string
@@ -134,6 +137,11 @@ type Changes struct {
 	ParentDivergence ParentDivergence `json:"parent_divergence"`
 	Patch            []byte           `json:"patch,omitempty"`
 	Truncated        bool             `json:"truncated"`
+	PatchDigest      string           `json:"patch_digest,omitempty"`
+	PatchBytes       int64            `json:"patch_bytes"`
+	PatchOffset      int64            `json:"patch_offset"`
+	PatchNextOffset  int64            `json:"patch_next_offset"`
+	PatchHasMore     bool             `json:"patch_has_more"`
 }
 
 type Review struct {
@@ -154,8 +162,16 @@ type Review struct {
 	PolicyFindings        []string `json:"policy_findings,omitempty"`
 	Patch                 []byte   `json:"patch,omitempty"`
 	PatchTruncated        bool     `json:"patch_truncated"`
+	PatchArtifactID       string   `json:"patch_artifact_id,omitempty"`
+	PatchDigest           string   `json:"patch_digest,omitempty"`
+	PatchBytes            int64    `json:"patch_bytes"`
 	Publishable           bool     `json:"publishable"`
 	NotPublishableReasons []string `json:"not_publishable_reasons,omitempty"`
+}
+
+type ReviewPatchArtifact struct {
+	Patch  []byte
+	Digest string
 }
 
 type DiscardWorkspace struct {
@@ -285,12 +301,91 @@ func (c *Client) Changes(ctx context.Context, sessionID string) (Changes, error)
 	return response, err
 }
 
+func (c *Client) ChangesPage(
+	ctx context.Context,
+	sessionID string,
+	patchOffset int64,
+	patchLimit int,
+) (Changes, error) {
+	if patchOffset < 0 || patchLimit < 1 {
+		return Changes{}, errors.New("Coop patch page requires a non-negative offset and positive limit")
+	}
+	query := url.Values{
+		"patch_offset": {strconv.FormatInt(patchOffset, 10)},
+		"patch_limit":  {strconv.Itoa(patchLimit)},
+	}
+	var response Changes
+	err := c.get(
+		ctx,
+		"/v1/sessions/"+url.PathEscape(sessionID)+"/changes",
+		query,
+		&response,
+	)
+	return response, err
+}
+
 func (c *Client) Review(ctx context.Context, key, sessionID string, expectedRevision int64) (Review, Operation, error) {
 	var response reviewResponse
 	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/review", key, map[string]any{
 		"expected_revision": expectedRevision,
 	}, &response)
 	return response.Review, response.Operation, err
+}
+
+func (c *Client) ReviewPatch(
+	ctx context.Context,
+	operationID string,
+) (ReviewPatchArtifact, error) {
+	if strings.TrimSpace(operationID) == "" {
+		return ReviewPatchArtifact{}, errors.New("Coop review operation ID is required")
+	}
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		"http://coop.local/v1/operations/"+url.PathEscape(operationID)+"/review-patch",
+		nil,
+	)
+	if err != nil {
+		return ReviewPatchArtifact{}, err
+	}
+	request.Header.Set("Accept", "text/x-diff")
+	response, err := c.http.Do(request)
+	if err != nil {
+		return ReviewPatchArtifact{}, fmt.Errorf("call Coop: %w", err)
+	}
+	defer response.Body.Close()
+	limit := int64(maxReviewPatchBytes + 1)
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		limit = maxResponseBytes + 1
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, limit))
+	if err != nil {
+		return ReviewPatchArtifact{}, fmt.Errorf("read Coop review patch: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var failure struct {
+			Error struct {
+				Code   string `json:"code"`
+				Detail string `json:"detail"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(data, &failure); err != nil {
+			return ReviewPatchArtifact{}, &APIError{
+				Status: response.StatusCode, Code: "invalid_error_response",
+			}
+		}
+		return ReviewPatchArtifact{}, &APIError{
+			Status: response.StatusCode,
+			Code:   failure.Error.Code, Detail: failure.Error.Detail,
+		}
+	}
+	if len(data) > maxReviewPatchBytes {
+		return ReviewPatchArtifact{}, errors.New("Coop review patch exceeds 64 MiB")
+	}
+	return ReviewPatchArtifact{
+		Patch:  data,
+		Digest: strings.Trim(response.Header.Get("ETag"), `"`),
+	}, nil
 }
 
 func (c *Client) Cancel(ctx context.Context, key, sessionID, turnID string, expectedRevision int64) (Turn, Operation, error) {
