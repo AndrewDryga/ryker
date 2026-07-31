@@ -232,7 +232,8 @@ func TestLocationWorkIgnoreIsRetriedAndAnswered(t *testing.T) {
 	}
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 1 ||
-		slack.posts[0].thread != "" ||
+		slack.posts[0].thread != input.ThreadTS ||
+		!slack.posts[0].broadcast ||
 		!strings.Contains(slack.posts[0].message.Text, "8") {
 		t.Fatalf("corrected channel reply = %+v", slack.posts)
 	}
@@ -290,7 +291,9 @@ func TestConversationalLocationSwitchAcknowledgesWhereOperatorMoves(t *testing.T
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	if len(slack.posts) != 2 || slack.posts[1].thread != "" ||
+	if len(slack.posts) != 2 ||
+		slack.posts[1].thread != toChannel.ThreadTS ||
+		!slack.posts[1].broadcast ||
 		!strings.Contains(slack.posts[1].message.Text, "Continuing in the channel") {
 		t.Fatalf("channel switch response = %+v", slack.posts)
 	}

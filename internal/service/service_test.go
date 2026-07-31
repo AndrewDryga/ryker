@@ -4537,10 +4537,11 @@ func (f *fakeCoop) complete(message string) {
 }
 
 type slackPost struct {
-	outboxID string
-	channel  string
-	thread   string
-	message  slackui.Message
+	outboxID  string
+	channel   string
+	thread    string
+	broadcast bool
+	message   slackui.Message
 }
 
 type slackUpdate struct {
@@ -4642,6 +4643,22 @@ func (f *fakeSlack) SetTopic(context.Context, string, string) error { return nil
 func (f *fakeSlack) Post(_ context.Context, outboxID, channel, thread string, message slackui.Message) (string, error) {
 	f.posts = append(f.posts, slackPost{
 		outboxID: outboxID, channel: channel, thread: thread, message: message,
+	})
+	return "1700.00" + string(rune('1'+len(f.posts)-1)), f.postErr
+}
+func (f *fakeSlack) PostBroadcast(
+	_ context.Context,
+	outboxID string,
+	channel string,
+	thread string,
+	message slackui.Message,
+) (string, error) {
+	f.posts = append(f.posts, slackPost{
+		outboxID:  outboxID,
+		channel:   channel,
+		thread:    thread,
+		broadcast: true,
+		message:   message,
 	})
 	return "1700.00" + string(rune('1'+len(f.posts)-1)), f.postErr
 }

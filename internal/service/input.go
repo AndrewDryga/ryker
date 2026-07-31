@@ -836,6 +836,17 @@ func (s *Service) postInputMessage(
 	input core.SlackInput,
 	message slackui.Message,
 ) error {
+	if requestedConversationLocation(input.Text) == conversationLocationChannel &&
+		input.ThreadTS != "" {
+		return s.postInputMessageDelivery(
+			ctx,
+			id,
+			"broadcast",
+			input.ChannelID,
+			input.ThreadTS,
+			message,
+		)
+	}
 	return s.postInputMessageAt(
 		ctx, id, input.ChannelID, conversationalResponseThread(input), message,
 	)
@@ -859,6 +870,24 @@ func (s *Service) postInputMessageAt(
 	threadTS string,
 	message slackui.Message,
 ) error {
+	return s.postInputMessageDelivery(
+		ctx,
+		id,
+		"notice",
+		channelID,
+		threadTS,
+		message,
+	)
+}
+
+func (s *Service) postInputMessageDelivery(
+	ctx context.Context,
+	id string,
+	kind string,
+	channelID string,
+	threadTS string,
+	message slackui.Message,
+) error {
 	if s.sanitizer != nil {
 		message = s.sanitizer.Message(message)
 	}
@@ -867,7 +896,7 @@ func (s *Service) postInputMessageAt(
 		return err
 	}
 	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
-		ID: id, Operation: "post", Kind: "notice",
+		ID: id, Operation: "post", Kind: kind,
 		ChannelID: channelID, ThreadTS: threadTS, Body: body,
 	})
 	return err

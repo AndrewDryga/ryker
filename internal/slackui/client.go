@@ -24,6 +24,7 @@ type API interface {
 	Invite(context.Context, string, ...string) error
 	SetTopic(context.Context, string, string) error
 	Post(context.Context, string, string, string, Message) (string, error)
+	PostBroadcast(context.Context, string, string, string, Message) (string, error)
 	PostEphemeral(context.Context, string, string, Message) error
 	Update(context.Context, string, string, Message) error
 	Pin(context.Context, string, string) error
@@ -420,6 +421,30 @@ func (c *Client) SetTopic(ctx context.Context, channel, topic string) error {
 }
 
 func (c *Client) Post(ctx context.Context, deliveryID, channel, threadTS string, message Message) (string, error) {
+	return c.post(ctx, deliveryID, channel, threadTS, message, false)
+}
+
+func (c *Client) PostBroadcast(
+	ctx context.Context,
+	deliveryID string,
+	channel string,
+	threadTS string,
+	message Message,
+) (string, error) {
+	if threadTS == "" {
+		return "", errors.New("Slack broadcast reply requires a thread timestamp")
+	}
+	return c.post(ctx, deliveryID, channel, threadTS, message, true)
+}
+
+func (c *Client) post(
+	ctx context.Context,
+	deliveryID string,
+	channel string,
+	threadTS string,
+	message Message,
+	broadcast bool,
+) (string, error) {
 	options := []slack.MsgOption{
 		slack.MsgOptionText(message.Text, false),
 		slack.MsgOptionBlocks(message.Blocks()...),
@@ -432,6 +457,9 @@ func (c *Client) Post(ctx context.Context, deliveryID, channel, threadTS string,
 	}
 	if threadTS != "" {
 		options = append(options, slack.MsgOptionTS(threadTS))
+	}
+	if broadcast {
+		options = append(options, slack.MsgOptionBroadcast())
 	}
 	_, timestamp, err := c.api.PostMessageContext(ctx, channel, options...)
 	return timestamp, err

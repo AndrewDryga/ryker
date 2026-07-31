@@ -281,9 +281,15 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 			return retryErr
 		}
 		if item.Operation == "post" {
-			timestamp, err = s.slack.Post(
-				ctx, item.ID, item.ChannelID, item.ThreadTS, message,
-			)
+			if item.Kind == "broadcast" {
+				timestamp, err = s.slack.PostBroadcast(
+					ctx, item.ID, item.ChannelID, item.ThreadTS, message,
+				)
+			} else {
+				timestamp, err = s.slack.Post(
+					ctx, item.ID, item.ChannelID, item.ThreadTS, message,
+				)
+			}
 		} else {
 			timestamp = item.MessageTS
 			err = s.slack.Update(
