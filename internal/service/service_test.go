@@ -3901,6 +3901,73 @@ func TestLongWatchedRunDoesNotConsumeInputRetriesOrBlockLaterContext(t *testing.
 	}
 }
 
+func TestWatchedRunRepairsStaleRotatedEventCursor(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-stale-cursor", EnvelopeID: "env-stale-cursor",
+		EventID: "EvStaleCursor", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", ThreadTS: "1700.001", MessageTS: "1700.002",
+		UserID: "U123ABC", Text: "<@U999BOT> can you review it?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AdvanceAgentRunEvents(ctx, run.ID, 13); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AdvanceChannelEvents(
+		ctx, input.ChannelID, run.SessionID, 13,
+	); err != nil {
+		t.Fatal(err)
+	}
+	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"message":"The Terraform plan is safe to apply."}`)
+	coopClient.session.LastEventSequence = 1
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunCompleted ||
+		run.CoopEventSequence != 1 {
+		t.Fatalf("recovered run = %+v, %v", run, err)
+	}
+	memory, err := st.GetChannelMemory(ctx, input.ChannelID)
+	if err != nil || memory.CoopEventSequence != 1 {
+		t.Fatalf("repaired channel memory = %+v, %v", memory, err)
+	}
+	if len(slackClient.posts) != 1 ||
+		!strings.Contains(slackClient.posts[0].message.Text, "Terraform plan") {
+		t.Fatalf("recovered Slack posts = %+v", slackClient.posts)
+	}
+}
+
 func TestParseWatchDecisionIsStrict(t *testing.T) {
 	valid := []string{
 		`{"action":"ignore"}`,

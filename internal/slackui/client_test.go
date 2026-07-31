@@ -135,6 +135,89 @@ func TestRecentMessagesKeepsFileOnlyContext(t *testing.T) {
 	}
 }
 
+func TestRecentMessagesKeepsLegacyAttachmentOnlyThreadRoot(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{
+		  "ok":true,
+		  "messages":[{
+		    "ts":"1700.000001",
+		    "thread_ts":"1700.000001",
+		    "text":"",
+		    "bot_id":"BTERRAFORM",
+		    "attachments":[{
+		      "fallback":"Run run-abc",
+		      "pretext":"Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>",
+		      "title":"Run run-abc",
+		      "title_link":"https://app.terraform.io/app/acme/infra/runs/run-abc",
+		      "text":"main deadbeef (gh run 123)"
+		    },{
+		      "fallback":"Run run-abc - Run Planning",
+		      "title":"Run Planning"
+		    }]
+		  },{
+		    "ts":"1700.000002",
+		    "thread_ts":"1700.000001",
+		    "text":"<@UEMISAR> can you review it?",
+		    "user":"U1"
+		  }]
+		}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+	history, err := client.RecentMessages(
+		context.Background(), "COPS", "1700.000001", "1700.000002", "", 20,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 || history[0].BotID != "BTERRAFORM" ||
+		!strings.Contains(history[0].Text, "Run notification for") ||
+		!strings.Contains(history[0].Text, "run-abc") ||
+		!strings.Contains(history[0].Text, "main deadbeef") ||
+		!strings.Contains(history[0].Text, "Run Planning") {
+		t.Fatalf("attachment-only thread history = %+v", history)
+	}
+}
+
+func TestRecentMessagesKeepsBlockOnlyContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{
+		  "ok":true,
+		  "messages":[{
+		    "ts":"1700.000100",
+		    "text":"",
+		    "bot_id":"BDEPLOY",
+		    "blocks":[
+		      {"type":"header","text":{"type":"plain_text","text":"Deployment failed"}},
+		      {"type":"section","text":{"type":"mrkdwn","text":"Revision abc123 failed readiness."}}
+		    ]
+		  }]
+		}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+	history, err := client.RecentMessages(
+		context.Background(), "COPS", "", "1700.000100", "", 10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 ||
+		history[0].Text != "Deployment failed\nRevision abc123 failed readiness." {
+		t.Fatalf("block-only history = %+v", history)
+	}
+}
+
 type shippedSlackManifest struct {
 	Metadata struct {
 		MajorVersion int `yaml:"major_version"`

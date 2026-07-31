@@ -556,6 +556,67 @@ func (s *Store) AdvanceAgentRunEvents(
 	return expectOne(result, err, "advance agent run events")
 }
 
+func (s *Store) RepairAgentRunEventCursor(
+	ctx context.Context,
+	id string,
+	sessionID string,
+	conversationLane bool,
+) error {
+	if id == "" || sessionID == "" {
+		return errors.New("agent run event cursor repair identity is incomplete")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var incidentID sql.NullString
+	var channelID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT incident_id, channel_id
+		FROM agent_runs
+		WHERE id = ? AND session_id = ? AND state = 'running'`,
+		id, sessionID,
+	).Scan(&incidentID, &channelID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("repair agent run event cursor: %w", ErrConflict)
+		}
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET coop_event_sequence = 0, updated_at = ?
+		WHERE id = ? AND session_id = ? AND state = 'running'`,
+		nowText(), id, sessionID,
+	)
+	if err := expectOne(result, err, "repair agent run event cursor"); err != nil {
+		return err
+	}
+	if incidentID.Valid {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE incidents SET coop_event_sequence = 0, updated_at = ?
+			WHERE id = ? AND coop_session_id = ?`,
+			nowText(), incidentID.String, sessionID,
+		)
+	} else if conversationLane {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE conversation_sessions SET coop_event_sequence = 0, updated_at = ?
+			WHERE channel_id = ? AND session_id = ?`,
+			nowText(), channelID, sessionID,
+		)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE channel_memories SET coop_event_sequence = 0, updated_at = ?
+			WHERE channel_id = ? AND session_id = ?`,
+			nowText(), channelID, sessionID,
+		)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) RequeueAgentRun(
 	ctx context.Context,
 	id string,

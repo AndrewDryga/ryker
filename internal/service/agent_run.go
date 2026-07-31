@@ -810,6 +810,31 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 		return err
 	}
 	cursor := run.CoopEventSequence
+	var session coop.Session
+	if len(events) == 0 {
+		session, err = s.coop.GetSession(ctx, run.SessionID)
+		if err != nil {
+			return err
+		}
+		if cursor > session.LastEventSequence {
+			conversationLane := false
+			if run.Mode == core.AgentRunTriage {
+				state, stateErr := decodeWatchRunContext(run)
+				conversationLane = stateErr == nil && state.Lane == "conversation"
+			}
+			if err := s.store.RepairAgentRunEventCursor(
+				ctx, run.ID, run.SessionID, conversationLane,
+			); err != nil {
+				return err
+			}
+			run.CoopEventSequence = 0
+			cursor = 0
+			events, err = s.coop.Events(ctx, run.SessionID, 0, 100)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	for _, event := range events {
 		if event.Sequence > cursor {
 			cursor = event.Sequence
@@ -823,115 +848,21 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 			if err != nil {
 				return err
 			}
-			detail := strings.TrimSpace(
-				firstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
+			return s.stagePolledAgentRunTerminal(ctx, run, event.Type, turn, cursor)
+		}
+	}
+	if len(events) == 0 && session.ID != "" &&
+		session.ActiveTurnID != run.CoopTurnID {
+		turn, turnErr := s.coop.GetTurn(ctx, run.SessionID, run.CoopTurnID)
+		if turnErr != nil {
+			return turnErr
+		}
+		if turn.State == "completed" || turn.State == "failed" ||
+			turn.State == "cancelled" {
+			return s.stagePolledAgentRunTerminal(
+				ctx, run, "turn."+turn.State, turn,
+				max(cursor, session.LastEventSequence),
 			)
-			if reason, replay := replayAgentRunFailure(
-				run,
-				event.Type,
-				turn,
-				s.cfg.Limits.MaxAgentRunAttempts,
-			); replay {
-				if err := s.store.RequeueAgentRun(
-					ctx,
-					run.ID,
-					reason,
-					cursor,
-					time.Now(),
-				); err != nil {
-					return err
-				}
-				if run.Mode == core.AgentRunTriage {
-					_ = s.advanceTriageSessionEvents(ctx, run, cursor)
-				}
-				return nil
-			}
-			terminalState := strings.TrimPrefix(event.Type, "turn.")
-			result := []byte(turn.AssistantMessage)
-			if run.Mode == core.AgentRunTriage && terminalState == "completed" {
-				input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
-				state, stateErr := decodeWatchRunContext(run)
-				decision, decisionErr := parseWatchDecision(turn.AssistantMessage)
-				if inputErr == nil && stateErr == nil && decisionErr == nil {
-					if state.Lane == "conversation" &&
-						decision.Action == "escalate" {
-						if err := s.store.AdvanceConversationSessionEvents(
-							ctx,
-							run.ChannelID,
-							run.SessionID,
-							cursor,
-						); err != nil {
-							return err
-						}
-						state.Lane = "investigation"
-						state.EscalationReason = decision.Reason
-						state.SessionID = ""
-						state.Generation = 0
-						state.ExpectedRevision = 0
-						state.TurnID = ""
-						state.FailureDetail = ""
-						contextJSON, marshalErr := json.Marshal(state)
-						if marshalErr != nil {
-							return marshalErr
-						}
-						return s.store.EscalateAgentRun(
-							ctx,
-							run.ID,
-							"continuing in the full investigation lane: "+
-								decision.Reason,
-							contextJSON,
-							time.Now(),
-						)
-					}
-					if correction := watchDecisionCorrection(input, state, decision); correction != "" {
-						if !terminalAttempt(
-							run.Failures+1,
-							s.cfg.Limits.MaxAgentRunAttempts,
-						) {
-							state.FailureDetail = correction
-							contextJSON, marshalErr := json.Marshal(state)
-							if marshalErr != nil {
-								return marshalErr
-							}
-							if err := s.store.SetAgentRunContext(
-								ctx,
-								run.ID,
-								contextJSON,
-							); err != nil {
-								return err
-							}
-							if err := s.store.RequeueAgentRun(
-								ctx,
-								run.ID,
-								correction,
-								cursor,
-								time.Now(),
-							); err != nil {
-								return err
-							}
-							_ = s.advanceTriageSessionEvents(ctx, run, cursor)
-							return nil
-						}
-						terminalState = "failed"
-						result = nil
-						detail = correction
-					}
-				}
-			}
-			if err := s.store.StageAgentRunResult(
-				ctx,
-				run.ID,
-				terminalState,
-				result,
-				detail,
-				cursor,
-			); err != nil {
-				return err
-			}
-			if run.Mode == core.AgentRunTriage {
-				_ = s.advanceTriageSessionEvents(ctx, run, cursor)
-			}
-			return nil
 		}
 	}
 	if cursor > run.CoopEventSequence {
@@ -953,6 +884,100 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 				s.log.Warn("refresh watched run status", "run", run.ID, "error", err)
 			}
 		}
+	}
+	return nil
+}
+
+func (s *Service) stagePolledAgentRunTerminal(
+	ctx context.Context,
+	run core.AgentRun,
+	eventType string,
+	turn coop.Turn,
+	cursor int64,
+) error {
+	detail := strings.TrimSpace(
+		firstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
+	)
+	if reason, replay := replayAgentRunFailure(
+		run, eventType, turn, s.cfg.Limits.MaxAgentRunAttempts,
+	); replay {
+		if err := s.store.RequeueAgentRun(
+			ctx, run.ID, reason, cursor, time.Now(),
+		); err != nil {
+			return err
+		}
+		if run.Mode == core.AgentRunTriage {
+			_ = s.advanceTriageSessionEvents(ctx, run, cursor)
+		}
+		return nil
+	}
+	terminalState := strings.TrimPrefix(eventType, "turn.")
+	result := []byte(turn.AssistantMessage)
+	if run.Mode == core.AgentRunTriage && terminalState == "completed" {
+		input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
+		state, stateErr := decodeWatchRunContext(run)
+		decision, decisionErr := parseWatchDecision(turn.AssistantMessage)
+		if inputErr == nil && stateErr == nil && decisionErr == nil {
+			if state.Lane == "conversation" && decision.Action == "escalate" {
+				if err := s.store.AdvanceConversationSessionEvents(
+					ctx, run.ChannelID, run.SessionID, cursor,
+				); err != nil {
+					return err
+				}
+				state.Lane = "investigation"
+				state.EscalationReason = decision.Reason
+				state.SessionID = ""
+				state.Generation = 0
+				state.ExpectedRevision = 0
+				state.TurnID = ""
+				state.FailureDetail = ""
+				contextJSON, marshalErr := json.Marshal(state)
+				if marshalErr != nil {
+					return marshalErr
+				}
+				return s.store.EscalateAgentRun(
+					ctx,
+					run.ID,
+					"continuing in the full investigation lane: "+decision.Reason,
+					contextJSON,
+					time.Now(),
+				)
+			}
+			if correction := watchDecisionCorrection(input, state, decision); correction != "" {
+				if !terminalAttempt(
+					run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+				) {
+					state.FailureDetail = correction
+					contextJSON, marshalErr := json.Marshal(state)
+					if marshalErr != nil {
+						return marshalErr
+					}
+					if err := s.store.SetAgentRunContext(
+						ctx, run.ID, contextJSON,
+					); err != nil {
+						return err
+					}
+					if err := s.store.RequeueAgentRun(
+						ctx, run.ID, correction, cursor, time.Now(),
+					); err != nil {
+						return err
+					}
+					_ = s.advanceTriageSessionEvents(ctx, run, cursor)
+					return nil
+				}
+				terminalState = "failed"
+				result = nil
+				detail = correction
+			}
+		}
+	}
+	if err := s.store.StageAgentRunResult(
+		ctx, run.ID, terminalState, result, detail, cursor,
+	); err != nil {
+		return err
+	}
+	if run.Mode == core.AgentRunTriage {
+		_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 	}
 	return nil
 }

@@ -171,6 +171,9 @@ func TestDiscardedPersistedWatchSessionRotatesWithoutFailureNotice(t *testing.T)
 	); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.AdvanceChannelEvents(ctx, "COPS", "ses_1", 13); err != nil {
+		t.Fatal(err)
+	}
 	input := core.SlackInput{
 		ID: "slack_discarded_watch", EnvelopeID: "env_discarded_watch",
 		EventID: "EvDiscardedWatch", Kind: "mention", TeamID: cfg.Slack.TeamID,
@@ -192,14 +195,16 @@ func TestDiscardedPersistedWatchSessionRotatesWithoutFailureNotice(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if memory.SessionID == "" || session.ID == "" || memory.Generation != 2 {
+	if memory.SessionID == "" || session.ID == "" || memory.Generation != 2 ||
+		memory.CoopEventSequence != 0 {
 		t.Fatalf("rotated channel memory = %+v", memory)
 	}
 	memory, err = st.GetChannelMemory(ctx, "COPS")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if memory.SessionID == "" || memory.Generation != 2 {
+	if memory.SessionID == "" || memory.Generation != 2 ||
+		memory.CoopEventSequence != 0 {
 		t.Fatalf("persisted rotated channel memory = %+v", memory)
 	}
 	if len(slackClient.posts) != 0 {

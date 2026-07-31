@@ -695,8 +695,8 @@ func (c *Client) RecentMessages(
 	history := make([]HistoryMessage, 0, len(messages))
 	for _, message := range messages {
 		files := historyFiles(message.Files)
-		if message.Timestamp == "" ||
-			(strings.TrimSpace(message.Text) == "" && len(files) == 0) {
+		text := historyMessageText(message)
+		if message.Timestamp == "" || (text == "" && len(files) == 0) {
 			continue
 		}
 		history = append(history, HistoryMessage{
@@ -704,7 +704,7 @@ func (c *Client) RecentMessages(
 			ThreadTS:  message.ThreadTimestamp,
 			UserID:    message.User,
 			BotID:     message.BotID,
-			Text:      message.Text,
+			Text:      text,
 			Files:     files,
 		})
 	}
@@ -712,6 +712,93 @@ func (c *Client) RecentMessages(
 		history = selectThreadHistory(history, threadTS, limit)
 	}
 	return history, nil
+}
+
+func historyMessageText(message slack.Message) string {
+	parts := make([]string, 0, 8)
+	seen := make(map[string]struct{})
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, exists := seen[value]; exists {
+			return
+		}
+		seen[value] = struct{}{}
+		parts = append(parts, value)
+	}
+	add(message.Text)
+	for _, attachment := range message.Attachments {
+		before := len(parts)
+		add(attachment.Pretext)
+		if attachment.Title != "" && attachment.TitleLink != "" {
+			add("<" + attachment.TitleLink + "|" + attachment.Title + ">")
+		} else {
+			add(attachment.Title)
+		}
+		add(attachment.Text)
+		for _, field := range attachment.Fields {
+			if field.Title != "" && field.Value != "" {
+				add(field.Title + ": " + field.Value)
+			} else {
+				add(firstNonemptyString(field.Title, field.Value))
+			}
+		}
+		for _, block := range attachment.Blocks.BlockSet {
+			addHistoryBlockText(block, add)
+		}
+		if len(parts) == before {
+			add(attachment.Fallback)
+		}
+	}
+	for _, block := range message.Blocks.BlockSet {
+		addHistoryBlockText(block, add)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func addHistoryBlockText(block slack.Block, add func(string)) {
+	switch value := block.(type) {
+	case *slack.SectionBlock:
+		if value.Text != nil {
+			add(value.Text.Text)
+		}
+		for _, field := range value.Fields {
+			if field != nil {
+				add(field.Text)
+			}
+		}
+	case *slack.HeaderBlock:
+		if value.Text != nil {
+			add(value.Text.Text)
+		}
+	case *slack.MarkdownBlock:
+		add(value.Text)
+	case *slack.ContextBlock:
+		for _, element := range value.ContextElements.Elements {
+			switch item := element.(type) {
+			case *slack.TextBlockObject:
+				add(item.Text)
+			case *slack.ImageBlockElement:
+				add(item.AltText)
+			}
+		}
+	case *slack.ImageBlock:
+		if value.Title != nil {
+			add(value.Title.Text)
+		}
+		add(value.AltText)
+	}
+}
+
+func firstNonemptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func historyFiles(files []slack.File) []HistoryFile {

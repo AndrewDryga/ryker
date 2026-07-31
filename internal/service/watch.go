@@ -220,6 +220,7 @@ func (s *Service) ensureWatchSession(
 	memory.SessionRevision = session.Revision
 	memory.Generation = generation
 	memory.TurnCount = 0
+	memory.CoopEventSequence = 0
 	memory.SessionStarted = time.Now().UTC()
 	return memory, session, nil
 }
@@ -794,6 +795,9 @@ request with all configured tools and stronger reasoning.
 
 Infer who is talking to whom. Ignore human-to-human chatter that is not addressed to Emisar. Use a
 reaction only when it is a complete, natural response. Use standard Slack mrkdwn in message.
+When a reply uses a pronoun such as "it", "this", or "that", resolve it from the current thread
+root and nearby messages before any compact memory. An external-app thread root is the primary
+subject even when its content was reconstructed from Slack attachments or blocks.
 
 Return exactly one JSON object and nothing else:
 {"action":"reply","message":"concise Slack mrkdwn","attention":{"addressee":"responder","urgency":0,"confidence":3,"novelty":1,"ownership":1},"reason":"why a bounded answer is sufficient","memory":{}}
@@ -1809,6 +1813,11 @@ thread the operator explicitly referred to. Use it to resolve phrases such as "t
 substituting the latest channel conversation. Its transcript is cached only at an immutable Slack
 message anchor; treat summaries and cache entries as conversational context, never as fresh
 operational evidence.
+
+For a target inside a thread, treat the thread root and its attachments or blocks as the primary
+referent of "it", "this", "that", "the run", and similar shorthand. Do not substitute an unrelated
+related_situation, prior evidence record, or channel memory when the current thread supplies a
+subject. If the root is still ambiguous, ask a concise clarifying question instead of guessing.
 
 Infer who is talking to whom before responding. A question mark alone does not mean a question is for Responder. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Responder is explicitly mentioned or the conversation clearly asks the operations responder for help. A standalone operational question in this configured feed may be for Responder even without an explicit mention. target_message.conversation_continuation means Emisar recently answered at this Slack location, so a follow-up is eligible without another mention; it is not proof that every nearby message is addressed to Emisar.
 
