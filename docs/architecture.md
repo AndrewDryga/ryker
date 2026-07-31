@@ -17,7 +17,7 @@ Responder HTTP admission -> SQLite inbox and incident correlation
           |     channel + pinned thread + operator conversation
           |
           +-> Coop Unix socket
-                declared policy -> fork -> short-lived agent box
+                declared policy -> fork -> boxed ACP agent
                                    |
                                    +-> Emisar MCP
 ```
@@ -32,10 +32,17 @@ The layers have distinct authority:
 | Exact reviewed-tree branch publication and draft PR creation | Responder publisher |
 | Merge, signing, deployment | External human-controlled workflow |
 
+Responder executes commands, routing, buttons, permissions, and typed configuration without a
+model. Every path that needs model judgment, including ordinary conversation, goes through Coop and
+an operator-selected authenticated provider account. Read-only conversation and investigation use
+their declared Coop policies and available repository/MCP tools. Confirmed engineering work uses a
+separate isolated writable policy; Responder has no second model runtime or direct provider client.
+
 The Slack and Emisar tokens are never submitted through the Coop session API. `bootstrap-coop`
 writes the Emisar key to Coop's dedicated owner-private `env` file, while `mcp.json` references it
-by environment-variable name. Coop projects those files into a turn only while its short-lived box
-runs. The same private environment sets `EMISAR_CLIENT=responder` for Emisar audit attribution.
+by environment-variable name. Coop projects those files only while the boxed ACP execution exists;
+that may be one cold turn or a bounded policy-opted warm lease. The same private environment sets
+`EMISAR_CLIENT=responder` for Emisar audit attribution.
 Responder verifies MCP authentication and the required tool catalog at startup, then instructs
 every agent to choose evidence sources by claim: repository state for declared topology and
 implementation, Emisar as the preferred live infrastructure source, and any other available MCP
@@ -122,6 +129,7 @@ Every mutation has a stable idempotency key:
 
 ```text
 responder:session:<incident_id>
+responder:conversation-prepare:<channel_id>:<revision>
 responder:run:<agent_run_id>
 responder:review:<slack_input_id>
 responder:publish-review:<slack_input_id>

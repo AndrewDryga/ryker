@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -198,6 +199,9 @@ func TestPrewarmConversationSessionsUsesConfiguredBoundedLane(t *testing.T) {
 	if len(coopClient.createPolicies) != 1 ||
 		coopClient.createPolicies[0] != "repo-conversation" {
 		t.Fatalf("prewarm policies = %v", coopClient.createPolicies)
+	}
+	if !slices.Equal(coopClient.prepareSessions, []string{"ses_1"}) {
+		t.Fatalf("prepared conversation sessions = %v", coopClient.prepareSessions)
 	}
 	session, err := st.GetConversationSession(ctx, "CWARM")
 	if err != nil {

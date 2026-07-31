@@ -90,10 +90,12 @@ stop the action and remain visible; they are never rewritten with a guessed revi
 Watched Slack feeds use one current Coop session generation per configured channel. Messages are
 serialized by Slack message timestamp within each channel and can proceed independently across
 channels.
-`coop.prewarm_conversation_sessions` can open the bounded conversation lane in the background for
-up to 20 configured watch or summon channels. This removes Coop session creation from their first
-reply while preserving the same policy and model. The default is zero; each warmed lane consumes a
-normal Coop session and remains subject to the configured session rotation and retention limits.
+`coop.prewarm_conversation_sessions` prepares the bounded conversation lane and its authenticated
+ACP execution environment in the background for up to 20 configured watch or summon channels. The
+default is four. Each warmed lane uses a normal Coop session; the operator-owned Coop policy must
+also opt in with `warm_idle_timeout`. Coop reuses the same native model session and boxed ACP process
+until that idle lease expires, then removes the process and projected credentials. Session rotation,
+retention, provider-account selection, and policy enforcement are unchanged.
 `slack.watch_settle_delay` requires a quiet period after the newest queued message before
 classification; the default is 350 milliseconds. The request freezes the freshest ordered context
 again immediately before model submission, so this delay is only a short burst debounce rather
@@ -155,11 +157,11 @@ repository_sets:
     conversation_policy: platform-conversation
 ```
 
-`conversation_policy` is optional. When configured, direct conversational messages first use that
-bounded Coop policy. It can answer only from ordinary reasoning and supplied Slack context; any
-request needing repositories, files, Emisar, CI, monitoring, current status, configuration, or
-durable behavior is silently continued in `coop_policy`. Omitting it preserves the single
-investigation-lane behavior.
+`conversation_policy` is optional. When configured, direct conversational messages use that bounded
+Coop policy and its authenticated provider account. The policy can expose the same read-only
+repository and MCP tools as the investigation policy; the model decides which evidence it needs.
+Requests that require a writable isolated fork still use the separately confirmed engineering-task
+path. Omitting `conversation_policy` preserves the single investigation-lane behavior.
 
 The corresponding owner-private Coop policy is the only place that binds companion aliases to host
 paths:

@@ -4543,6 +4543,8 @@ type fakeCoop struct {
 	createKeys         []string
 	createPolicies     []string
 	createTasks        []string
+	prepareKeys        []string
+	prepareSessions    []string
 	listSessions       []coop.Session
 	createErrors       []error
 	createResultState  string
@@ -4631,6 +4633,14 @@ func (f *fakeCoop) ListSessions(context.Context, int) ([]coop.Session, error) {
 	return append([]coop.Session(nil), f.listSessions...), nil
 }
 func (f *fakeCoop) GetSession(context.Context, string) (coop.Session, error) {
+	return f.session, nil
+}
+func (f *fakeCoop) PrepareSession(_ context.Context, key, sessionID string, expectedRevision int64) (coop.Session, error) {
+	f.prepareKeys = append(f.prepareKeys, key)
+	f.prepareSessions = append(f.prepareSessions, sessionID)
+	if expectedRevision != f.session.Revision {
+		return coop.Session{}, &coop.APIError{Status: 409, Code: "revision_conflict"}
+	}
 	return f.session, nil
 }
 func (f *fakeCoop) SubmitTurn(_ context.Context, key, _ string, _ int64, prompt string) (coop.Turn, coop.Operation, error) {

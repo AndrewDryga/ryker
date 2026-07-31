@@ -268,6 +268,14 @@ func (c *Client) GetSession(ctx context.Context, id string) (Session, error) {
 	return response, err
 }
 
+func (c *Client) PrepareSession(ctx context.Context, key, id string, expectedRevision int64) (Session, error) {
+	var response Session
+	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(id)+"/prepare", key, map[string]any{
+		"expected_revision": expectedRevision,
+	}, &response)
+	return response, err
+}
+
 func (c *Client) ListSessions(ctx context.Context, limit int) ([]Session, error) {
 	if limit < 1 || limit > 1000 {
 		return nil, errors.New("Coop session list limit must be between 1 and 1000")

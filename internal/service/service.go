@@ -25,6 +25,7 @@ type CoopAPI interface {
 	Ready(context.Context) error
 	CreateSession(context.Context, string, string, string) (coop.Session, coop.Operation, error)
 	GetSession(context.Context, string) (coop.Session, error)
+	PrepareSession(context.Context, string, string, int64) (coop.Session, error)
 	ListSessions(context.Context, int) ([]coop.Session, error)
 	SubmitTurn(context.Context, string, string, int64, string) (coop.Turn, coop.Operation, error)
 	SubmitTurnWithArtifacts(context.Context, string, string, int64, string, []coop.InputArtifact) (coop.Turn, coop.Operation, error)
@@ -243,12 +244,21 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 		if !ok || strings.TrimSpace(repository.ConversationPolicy) == "" {
 			continue
 		}
-		if _, _, err := s.ensureConversationSession(
+		_, session, err := s.ensureConversationSession(
 			ctx,
 			channelID,
 			repositoryKey,
 			repository.ConversationPolicy,
-		); err != nil && ctx.Err() == nil {
+		)
+		if err == nil {
+			_, err = s.coop.PrepareSession(
+				ctx,
+				fmt.Sprintf("responder:conversation-prepare:%s:%d", channelID, session.Revision),
+				session.ID,
+				session.Revision,
+			)
+		}
+		if err != nil && ctx.Err() == nil {
 			s.log.Warn(
 				"could not prewarm conversation session",
 				"channel", channelID,
@@ -258,7 +268,7 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 			continue
 		}
 		s.log.Info(
-			"prewarmed conversation session",
+			"prewarmed conversation session and execution environment",
 			"channel", channelID,
 			"repository", repositoryKey,
 		)

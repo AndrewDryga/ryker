@@ -30,3 +30,38 @@ policies:
     max_queued_bytes: 1048576
     turn_timeout: 1h
     max_patch_bytes: 1048576
+
+  # Conversation policies use the same Coop provider accounts and read-only tool surface. The
+  # bounded idle lease keeps one authenticated ACP process ready without leaving it running forever.
+  infrastructure-conversation:
+    repository: /srv/repos/infrastructure
+    target: codex:gpt-5.6/medium@oncall
+    max_turns: 100
+    max_queued_turns: 20
+    max_queued_bytes: 1048576
+    turn_timeout: 1h
+    warm_idle_timeout: 15m
+    max_patch_bytes: 1048576
+
+  backend-conversation:
+    repository: /srv/repos/backend
+    target: codex:gpt-5.6/medium@oncall
+    max_turns: 100
+    max_queued_turns: 20
+    max_queued_bytes: 1048576
+    turn_timeout: 1h
+    warm_idle_timeout: 15m
+    max_patch_bytes: 1048576
+
+  platform-conversation:
+    repository: /srv/repos/infrastructure
+    companions:
+      - name: backend
+        repository: /srv/repos/backend
+    target: codex:gpt-5.6/medium@oncall
+    max_turns: 100
+    max_queued_turns: 20
+    max_queued_bytes: 1048576
+    turn_timeout: 1h
+    warm_idle_timeout: 15m
+    max_patch_bytes: 1048576

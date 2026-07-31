@@ -99,6 +99,42 @@ func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
 	}
 }
 
+func TestClientPreparesWarmSession(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/ses_1/prepare" || r.Method != http.MethodPost {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Idempotency-Key"); got != "prepare-1" {
+			t.Errorf("idempotency key = %q", got)
+		}
+		var body struct {
+			ExpectedRevision int64 `json:"expected_revision"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body.ExpectedRevision != 3 {
+			t.Errorf("expected revision = %d", body.ExpectedRevision)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"ses_1","revision":4,"state":"open","activity":"parked"}`))
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	client := New(socket, time.Second)
+	prepared, err := client.PrepareSession(context.Background(), "prepare-1", "ses_1", 3)
+	if err != nil || prepared.ID != "ses_1" || prepared.Revision != 4 {
+		t.Fatalf("prepared session = %+v, %v", prepared, err)
+	}
+}
+
 func TestClientReturnsTypedErrorsAndBoundsResponses(t *testing.T) {
 	socket := shortSocket(t)
 	listener, err := net.Listen("unix", socket)
