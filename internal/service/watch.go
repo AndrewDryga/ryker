@@ -158,13 +158,13 @@ func (s *Service) ensureWatchSessionAtGeneration(
 		return core.ChannelMemory{}, coop.Session{}, err
 	}
 	generation := memory.Generation
-	if memory.SessionID == "" && generation < minimumGeneration {
+	rotate := memory.SessionID == "" || generation < minimumGeneration
+	if generation < minimumGeneration {
 		generation = minimumGeneration
 	}
 	if generation < 1 {
 		generation = 1
 	}
-	rotate := memory.SessionID == ""
 	if !rotate {
 		rotate = memory.Repository != repositoryKey ||
 			memory.TurnCount >= s.cfg.Coop.WatchSessionTurns ||
@@ -280,13 +280,14 @@ func (s *Service) ensureConversationSessionAtGeneration(
 		return core.ConversationSession{}, coop.Session{}, err
 	}
 	generation := memory.Generation
-	if memory.SessionID == "" && generation < minimumGeneration {
+	rotate := memory.SessionID == "" || generation < minimumGeneration
+	if generation < minimumGeneration {
 		generation = minimumGeneration
 	}
 	if generation < 1 {
 		generation = 1
 	}
-	rotate := memory.SessionID == "" ||
+	rotate = rotate ||
 		memory.Repository != repositoryKey ||
 		memory.Policy != policy ||
 		memory.TurnCount >= s.cfg.Coop.WatchSessionTurns ||

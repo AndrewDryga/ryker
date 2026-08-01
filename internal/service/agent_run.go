@@ -956,6 +956,27 @@ func (s *Service) stagePolledAgentRunTerminal(
 	if reason, replay := replayAgentRunFailure(
 		run, eventType, turn, s.cfg.Limits.MaxAgentRunAttempts,
 	); replay {
+		if run.Mode == core.AgentRunTriage &&
+			replayAgentRunInFreshSession(turn) {
+			state, err := decodeWatchRunContext(run)
+			if err != nil {
+				return err
+			}
+			state.SessionID = ""
+			state.Generation = max(
+				state.Generation,
+				run.SessionGeneration,
+			) + 1
+			state.ExpectedRevision = 0
+			state.TurnID = ""
+			contextJSON, err := json.Marshal(state)
+			if err != nil {
+				return err
+			}
+			if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
+				return err
+			}
+		}
 		if err := s.store.RequeueAgentRun(
 			ctx, run.ID, reason, cursor, time.Now(),
 		); err != nil {
@@ -1080,10 +1101,37 @@ func replayAgentRunFailure(
 		strings.Contains(strings.ToLower(detail), "turn cleanup failed") {
 		return "Coop could not clean up the agent turn; retrying in a fresh turn", true
 	}
+	if run.Mode == core.AgentRunTriage &&
+		turn.ErrorCode == "acp_process_error" &&
+		strings.Contains(
+			strings.ToLower(detail),
+			"acp child closed before its response",
+		) && run.Failures < min(maximumAttempts-1, 5) {
+		return "Coop ACP child closed unexpectedly; retrying in a fresh read-only session", true
+	}
 	return "", false
 }
 
+func replayAgentRunInFreshSession(turn coop.Turn) bool {
+	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
+	return (turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled") ||
+		(turn.ErrorCode == "acp_process_error" &&
+			strings.Contains(detail, "acp child closed before its response"))
+}
+
 func agentRunContinuationPrompt(run core.AgentRun) string {
+	if strings.Contains(strings.ToLower(run.LastError), "acp child closed") ||
+		strings.Contains(strings.ToLower(run.LastError), "turn was interrupted") {
+		return `
+
+<host-transport-recovery>
+The previous read-only agent process ended before returning an answer. This is a fresh authenticated
+session with the original Slack request and saved context. Perform the requested work from current
+authoritative evidence; do not assume that unreported observations from the interrupted process are
+valid. Long task duration is not a reason to stop. Return the exact structured response requested by
+the host when the task is complete.
+</host-transport-recovery>`
+	}
 	if !strings.Contains(
 		strings.ToLower(run.LastError),
 		"acp transcript",

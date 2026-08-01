@@ -690,6 +690,45 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 	); replay || reason != "" {
 		t.Fatalf("cleanup failure replay was not bounded = %q, %t", reason, replay)
 	}
+	childClosed := coop.Turn{
+		ErrorCode:   "acp_process_error",
+		ErrorDetail: "ACP child closed before its response",
+	}
+	run.Mode = core.AgentRunTriage
+	for failures := 0; failures < 5; failures++ {
+		run.Failures = failures
+		if reason, replay := replayAgentRunFailure(
+			run, "turn.failed", childClosed, 20,
+		); !replay || !strings.Contains(reason, "fresh read-only session") {
+			t.Fatalf(
+				"ACP process failure %d replay = %q, %t",
+				failures,
+				reason,
+				replay,
+			)
+		}
+	}
+	run.Failures = 5
+	if reason, replay := replayAgentRunFailure(
+		run, "turn.failed", childClosed, 20,
+	); replay || reason != "" {
+		t.Fatalf("ACP process failure replay was not bounded = %q, %t", reason, replay)
+	}
+	run.Mode = core.AgentRunIncident
+	run.Failures = 0
+	if reason, replay := replayAgentRunFailure(
+		run, "turn.failed", childClosed, 20,
+	); replay || reason != "" {
+		t.Fatalf("writable ACP process failure replayed = %q, %t", reason, replay)
+	}
+	if !replayAgentRunInFreshSession(childClosed) ||
+		!replayAgentRunInFreshSession(coop.Turn{
+			ErrorCode: "acp_cancelled", ErrorDetail: "turn cancelled",
+		}) || replayAgentRunInFreshSession(coop.Turn{
+		ErrorCode: "acp_cancelled", ErrorDetail: "operator cancelled",
+	}) {
+		t.Fatal("fresh-session recovery classification is not exact")
+	}
 	run.Failures = 0
 	for _, candidate := range []struct {
 		event string
@@ -724,6 +763,84 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		run, "turn.failed", oversized, 1,
 	); replay || reason != "" {
 		t.Fatalf("configured terminal attempt replayed = %q, %t", reason, replay)
+	}
+}
+
+func TestAgentRunACPProcessFailureRotatesSlackInvestigationSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CPROCESS"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-process-recovery", EnvelopeID: "env-process-recovery",
+		EventID: "event-process-recovery", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CPROCESS", MessageTS: "1700.710", UserID: "U123ABC",
+		Text: "<@U999BOT> graph the last seven days of Cassandra CPU load",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{
+		{
+			State:       "failed",
+			ErrorCode:   "acp_process_error",
+			ErrorDetail: "ACP child closed before its response",
+		},
+		{
+			State: "completed",
+			AssistantMessage: `{
+				"action":"reply",
+				"message":"The seven-day Cassandra CPU graph is ready."
+			}`,
+		},
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	requeued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 {
+		t.Fatalf("requeued process failure = %+v, %v", requeued, err)
+	}
+	firstSession := requeued.SessionID
+	coopClient.openAfterCreateKey = "responder:watch-session:CPROCESS:2"
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	completed, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || completed.State != core.AgentRunCompleted ||
+		completed.SessionID == firstSession || completed.SessionGeneration != 2 {
+		t.Fatalf("recovered Slack run = %+v, %v", completed, err)
+	}
+	if len(coopClient.submitPrompts) != 2 ||
+		!strings.Contains(coopClient.submitPrompts[1], "<host-transport-recovery>") ||
+		!strings.Contains(coopClient.submitPrompts[1], "Long task duration is not a reason to stop") {
+		t.Fatalf("process recovery prompts = %+v", coopClient.submitPrompts)
+	}
+	if len(slackClient.posts) != 1 ||
+		!strings.Contains(slackClient.posts[0].message.Text, "graph is ready") ||
+		strings.Contains(slackClient.posts[0].message.Text, "could not complete") {
+		t.Fatalf("process recovery result = %+v", slackClient.posts)
 	}
 }
 
