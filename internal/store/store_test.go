@@ -970,6 +970,51 @@ func TestSchemaV21AddsResponseLocationWithoutLosingPreferences(t *testing.T) {
 	}
 }
 
+func TestSchemaV23AllowsEmisarApprovalWithoutIncident(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:22] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO schema_version(version) VALUES (22)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	expires := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	approval, created, err := st.RecordEmisarApproval(
+		context.Background(),
+		core.EmisarApproval{
+			RequestID: "apr_shared", ChannelID: "CSHARED",
+			SourceInput: "slack_shared", RunID: "run_shared",
+			OperationID: "op_shared", ActionID: "service.enable",
+			PackRef: "service@1#sha256:abc", RunnerRef: "prod~abc",
+			Status:      "pending_approval",
+			ApprovalURL: "https://emisar.dev/app/acme/approvals/apr_shared",
+			ExpiresAt:   expires,
+		},
+	)
+	if err != nil || !created || approval.IncidentID != "" ||
+		approval.ChannelID != "CSHARED" || !approval.ExpiresAt.Equal(expires) {
+		t.Fatalf("shared approval after migration = %+v, %t, %v", approval, created, err)
+	}
+}
+
 func TestMigrationCreatesVerifiedPrivateBackup(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {

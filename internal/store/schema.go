@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 22
+const currentSchemaVersion = 23
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1024,6 +1024,48 @@ CREATE INDEX slack_delivery_coalesce_idx
   WHERE coalesce_key != '';
 `
 
+const schemaV23 = `
+ALTER TABLE emisar_approvals RENAME TO emisar_approvals_v22;
+
+CREATE TABLE emisar_approvals (
+  request_id TEXT PRIMARY KEY,
+  incident_id TEXT,
+  channel_id TEXT NOT NULL,
+  source_input TEXT NOT NULL,
+  run_id TEXT NOT NULL UNIQUE,
+  operation_id TEXT NOT NULL,
+  action_id TEXT NOT NULL,
+  pack_ref TEXT NOT NULL,
+  runner_ref TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status = 'pending_approval'),
+  approval_url TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+);
+
+INSERT INTO emisar_approvals (
+  request_id, incident_id, channel_id, source_input, run_id, operation_id,
+  action_id, pack_ref, runner_ref, status, approval_url, expires_at,
+  created_at, updated_at
+)
+SELECT
+  request_id, incident_id, channel_id, source_input, run_id, operation_id,
+  action_id, pack_ref, runner_ref, status, approval_url, expires_at,
+  created_at, updated_at
+FROM emisar_approvals_v22;
+
+DROP TABLE emisar_approvals_v22;
+
+CREATE INDEX emisar_approvals_incident_idx
+  ON emisar_approvals(incident_id, expires_at);
+CREATE INDEX emisar_approvals_channel_idx
+  ON emisar_approvals(channel_id, expires_at);
+CREATE UNIQUE INDEX emisar_approvals_source_once_idx
+  ON emisar_approvals(source_input, request_id);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1047,4 +1089,5 @@ var migrations = []string{
 	schemaV20,
 	schemaV21,
 	schemaV22,
+	schemaV23,
 }

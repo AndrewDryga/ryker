@@ -602,6 +602,28 @@ func TestEmisarApprovalCardLinksToAuthoritativeConsole(t *testing.T) {
 	}
 }
 
+func TestEmisarApprovalCardSupportsCurrentConversationWithoutIncident(t *testing.T) {
+	message := WithEmisarApproval(
+		ConciseEvidenceResponse(
+			"Emisar paused the requested change for approval.", nil, nil, nil,
+			NewSanitizer(30000),
+		),
+		core.EmisarApproval{
+			RequestID: "apr_shared", RunID: "run_shared", OperationID: "op_shared",
+			ActionID: "bunny.pull_zone.update", PackRef: "bunny@1#sha256:abc",
+			RunnerRef: "prod~abc", Status: "pending_approval",
+			ApprovalURL: "https://emisar.dev/app/acme/approvals/apr_shared",
+			ExpiresAt:   time.Date(2099, 8, 1, 0, 0, 0, 0, time.UTC),
+		},
+	)
+	sections := strings.Join(message.Sections, "\n")
+	if !strings.Contains(sections, "reply `check approval` in this conversation") ||
+		strings.Contains(sections, "pinned card") || len(message.Actions) != 1 ||
+		message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_shared" {
+		t.Fatalf("shared approval card = %+v", message)
+	}
+}
+
 func TestConciseEvidenceResponseKeepsLedgerOutOfRoutineSlackReply(t *testing.T) {
 	message := ConciseEvidenceResponse(
 		"**Audit complete:** no repository change was needed.",

@@ -283,6 +283,7 @@ func (s *Service) persistAgentReport(
 		report.PendingApproval = s.prepareEmisarApproval(
 			*report.PendingApproval,
 			incident,
+			channelID,
 			sourceInput,
 			requestedBy,
 		)
@@ -324,7 +325,7 @@ func (s *Service) persistAgentReport(
 			Outcome:    approval.Status,
 			Detail:     approval.ActionID + " runner=" + approval.RunnerRef,
 		})
-		if created {
+		if created && incident.ID != "" {
 			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
 				IncidentID: incident.ID,
 				ChannelID:  incident.ChannelID,
@@ -515,6 +516,7 @@ func (s *Service) prepareActionProposals(
 func (s *Service) prepareEmisarApproval(
 	item core.EmisarApproval,
 	incident core.Incident,
+	channelID string,
 	sourceInput string,
 	requestedBy string,
 ) *core.EmisarApproval {
@@ -530,7 +532,7 @@ func (s *Service) prepareEmisarApproval(
 		s.cfg.Coop.EmisarURL,
 		item.RequestID,
 	)
-	if incident.ID == "" || requestedBy == "" || !s.cfg.IsOperator(requestedBy) ||
+	if channelID == "" || requestedBy == "" || !s.cfg.IsOperator(requestedBy) ||
 		item.RequestID == "" || item.RunID == "" || item.OperationID == "" ||
 		item.ActionID == "" || item.PackRef == "" || item.RunnerRef == "" ||
 		item.Status != "pending_approval" || item.ApprovalURL == "" ||
@@ -544,7 +546,7 @@ func (s *Service) prepareEmisarApproval(
 		return nil
 	}
 	item.IncidentID = incident.ID
-	item.ChannelID = incident.ChannelID
+	item.ChannelID = channelID
 	item.SourceInput = sourceInput
 	return &item
 }

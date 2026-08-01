@@ -421,7 +421,7 @@ behavior remains in the closed host catalog:
 flowchart TD
   Source["Slack message or webhook"] --> Mode{"Required work"}
 
-  Mode -- "Question, alert explanation,<br/>health check" --> Shared["Shared-channel triage<br/>read-only persistent Coop session"]
+  Mode -- "Question, alert explanation,<br/>health check" --> Shared["Shared-channel triage<br/>persistent policy-governed Coop session"]
   Shared --> SharedResult["Reply, stay silent,<br/>or offer explicit next work"]
 
   Mode -- "Credible monitoring alert<br/>or explicit incident request" --> Incident["Incident occurrence"]
@@ -457,7 +457,7 @@ sequenceDiagram
   participant C as Coop agent box
   participant E as Emisar
 
-  O->>S: Exact operational request in existing incident
+  O->>S: Exact operational request in any conversation
   S->>R: Durable Slack input
   R->>C: Prompt under declared policy
   C->>E: Discover exact action and immutable target
@@ -470,7 +470,7 @@ sequenceDiagram
     E-->>C: run + operation + pack + runner<br/>request ID + HTTPS approval URL + expiry
     C-->>R: Exact structured pending approval
     R->>R: Validate operator turn, immutable refs,<br/>Emisar origin, URL path, request ID, expiry
-    R->>R: Persist emisar_approvals hold
+    R->>R: Persist conversation-bound emisar_approvals hold
     R-->>S: Approval required card<br/>Review approval in Emisar link
     O->>E: Review in Emisar console
     E->>E: Policy-owned approval, dispatch, and audit

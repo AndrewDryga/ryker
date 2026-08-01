@@ -20,7 +20,8 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 		"does not prove runner, fleet, workload, or infrastructure health",
 		"only after an Emisar MCP tool call fails in the current turn",
 		"Emisar is the only authority for operational actions",
-		"directly and explicitly asks for that exact operational change",
+		"directly and explicitly asks for the exact operational change",
+		"A dedicated incident or task is not required",
 		"If Emisar returns pending_approval, stop the turn",
 		"Do not keep polling while a human decision is pending",
 		"continue the same run through its returned wait_for_run continuation",
@@ -79,6 +80,9 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"task_title",
 		"task_repository",
 		"Configured repository bindings",
+		"target_is_configured_operator must be true",
+		"A dedicated incident is not required",
+		"include the exact pending_approval object",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("watch prompt does not contain %q:\n%s", required, prompt)

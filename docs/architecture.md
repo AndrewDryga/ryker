@@ -206,15 +206,16 @@ dependent run records.
 
 ## Operational actions
 
-Model-proposed and autonomous operational mutation remains disabled. Shared-channel work is
-read-only. A configured operator may directly request one exact action in an existing incident
-conversation; the agent must discover and submit it through Emisar's governed action contract
-without widening its target or arguments.
+Model-proposed, inferred, and autonomous operational mutation remains disabled. A configured
+operator may directly request one exact action in any Slack conversation; the agent must discover
+and submit it through Emisar's governed action contract without widening its target or arguments.
+An incident room is optional coordination context, not an authorization boundary.
 
 When Emisar returns `pending_approval`, the structured agent result copies the exact run,
 operation, immutable pack and runner references, approval request, URL, and expiry. Responder accepts
 that envelope only for an allowlisted operator turn, validates that the HTTPS URL belongs to the
-configured Emisar origin and ends in the returned request ID, and stores the hold with the incident.
+configured Emisar origin and ends in the returned request ID, and stores the hold with its Slack
+conversation and, when present, its incident.
 Slack renders a **Review approval in Emisar** link. The link does not approve or execute anything,
 and Responder never renders a Slack approve button for this state. Emisar owns the exact request,
 policy revision, approvers, execution, and audit. A later operator turn follows the same

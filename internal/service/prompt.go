@@ -57,10 +57,10 @@ A successful /healthz or /readyz request proves only that the checked endpoint i
 const emisarGovernedActionPolicy = `Emisar is the only authority for operational actions.
 
 - Shared-channel triage, alerts, health questions, background work, inferred intent, and ambient conversation are read-only. Never initiate an operational mutation from them.
-- In an existing incident conversation, you may submit an operational action only when a configured operator directly and explicitly asks for that exact operational change. Do not broaden the target, arguments, or action. Repository edits still require a separate engineering task.
+- In any Slack conversation, you may submit an operational action only when target_is_configured_operator is true and that operator directly and explicitly asks for the exact operational change. A dedicated incident or task is not required. Do not broaden the target, arguments, or action. Ask a concise clarifying question when the target or desired change is ambiguous. Repository edits still require a separate engineering task.
 - Discover the exact Emisar action and immutable runner and pack references, refresh its contract, and follow every returned continuation exactly. Do not use shell, cloud CLIs, direct HTTP, or another tool to bypass Emisar policy, trust, signing, or approval.
 - If Emisar returns pending_approval, stop the turn and report that exact run in pending_approval. Copy its run_id, operation_id, action_id, pack_ref, runner_ref, approval.request_id, approval.url, and approval.expires_at exactly. Do not keep polling while a human decision is pending, ask for a second Slack approval, retry the mutation, or claim it ran.
-- On a later operator follow-up, continue the same run through its returned wait_for_run continuation. Treat approval as authorization to dispatch, not proof of success; report the terminal result only after Emisar returns it and verify the requested recovery separately when possible.
+- On a later operator follow-up in the same Slack conversation, continue the same run through its returned wait_for_run continuation. Treat approval as authorization to dispatch, not proof of success; report the terminal result only after Emisar returns it and verify the requested recovery separately when possible.
 - A denial, expiry, signature requirement, unavailable trusted action, or changed target contract is a control outcome. Report it without probing substitutes or falling back to an unsigned or less-governed path.`
 
 func CoopInstructions(configured string) string {

@@ -286,10 +286,11 @@ Closing an incident posts a post-incident draft and leaves unknown impact, root 
 and follow-up explicitly unassigned.
 
 Model-proposed and autonomous operational actions are disabled. A configured operator can directly
-request one exact action from an existing incident conversation; Responder must use Emisar's
-governed action flow. A `pending_approval` result is stored and rendered with a link to the exact
+request one exact action from any Slack conversation; Responder must use Emisar's governed action
+flow and does not require an incident. A `pending_approval` result is stored and rendered with a link to the exact
 Emisar approval request. Slack never records the decision and never bypasses Emisar policy.
-After the operator decides in Emisar, reply in the incident thread or use **Ask agent for update**;
+After the operator decides in Emisar, reply `check approval` in the same conversation. In an
+incident, **Ask agent for update** is also available;
 Responder follows the same `wait_for_run` continuation and reports the authoritative terminal
 result plus post-action verification.
 

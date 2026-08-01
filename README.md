@@ -239,8 +239,12 @@ chatter. The pinned card updates in place with alert evidence,
 investigation state, and only currently valid controls. Incident channels are private by default,
 and all configured operators are invited automatically.
 
-Shared-channel triage remains read-only. When an operator explicitly asks Responder to change
-repository files, the reply can include a **Start engineering task** button instead of sending the
+Alerts, ambient conversation, and inferred intent remain read-only. A configured operator can ask
+for one exact operational change in the current Slack conversation; Responder calls Emisar there,
+without requiring an incident room. Emisar still owns target validation, policy, approval,
+execution, and audit. A pending decision appears in the same conversation as a **Review approval in
+Emisar** link. When an operator explicitly asks Responder to change repository files, the reply can
+include a **Start engineering task** button instead of sending the
 operator to another client. Confirmation keeps the task in that Slack thread and creates an isolated
 writable Coop fork, where Responder can inspect, edit, test, and commit under the configured
 repository policy. Later replies in the same thread continue the same session without an
@@ -434,7 +438,7 @@ can select different contexts and Coop policies. Responder never accepts host pa
 model output; the local Coop policy is their only authority. It can publish an explicitly
 authorized reviewed primary tree as a draft GitHub pull request, but cannot publish companion
 changes, merge, deploy from repository changes, or archive Slack channels.
-Shared-channel work and autonomous containment remain read-only. In an existing incident, a
+Automatic and inferred operational changes remain disabled. In any Slack conversation, a
 configured operator may directly request one exact operational action. Emisar remains authoritative
 for target validation, policy, approval, execution, and audit; Slack only links to the exact pending
 approval returned by Emisar.

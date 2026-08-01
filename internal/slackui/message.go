@@ -671,12 +671,17 @@ func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
 			". Nothing has executed. Review the request in Emisar: "+approval.ApprovalURL,
 		4000,
 	)
+	followup := "**After the decision:** reply `check approval` in this conversation. " +
+		"Responder will continue the same Emisar run and report its authoritative result."
+	if approval.IncidentID != "" {
+		followup = "**After the decision:** return to this incident and reply `check approval`, or use " +
+			"**Ask agent for update** on the pinned card. Responder will continue this same run " +
+			"and report its authoritative result."
+	}
 	message.Sections = append(message.Sections,
 		"**Emisar paused this operational request before execution.** "+
 			"Review its exact arguments, evidence, blast radius, and policy decision in Emisar.",
-		"**After the decision:** return to this incident and reply `check approval`, or use "+
-			"**Ask agent for update** on the pinned card. Responder will continue this same run "+
-			"and report its authoritative result.",
+		followup,
 	)
 	message.Fields = append(message.Fields,
 		Field{Label: "Action", Value: "`" + safeInlineCode(approval.ActionID) + "`"},

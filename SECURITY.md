@@ -46,8 +46,9 @@ policies that do not need them.
   Responder caller Coop's permissions and is intended for trials, not the hardened split deployment.
 - Managed Coop does not inherit configured Slack, webhook, or Emisar secret variables. Emisar
   access comes from Coop's owner-private projected configuration.
-- Use observe-only Emisar credentials by default. Mutating authority belongs in Emisar policy and
-  approval, not in prompts.
+- Use observe-only Emisar credentials when Slack should only investigate. To support explicit
+  operator-directed actions, use a narrowly scoped Emisar credential whose server-side policy,
+  approval, runner validation, and audit remain authoritative; prompts never grant authority.
 - Do not add GitHub, deploy, merge, or signing credentials to the agent box.
 - Verify the checksum manifest's keyless cosign bundle, the selected archive checksum, and GitHub
   build provenance before installing a release.

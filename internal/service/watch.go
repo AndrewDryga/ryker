@@ -105,6 +105,7 @@ type watchDecision struct {
 	MemoryOffer     *core.MemoryOffer      `json:"memory_offer,omitempty"`
 	PreferenceOffer *core.PreferenceOffer  `json:"preference_offer,omitempty"`
 	RuleOffer       *core.RuleOffer        `json:"rule_offer,omitempty"`
+	PendingApproval *core.EmisarApproval   `json:"pending_approval,omitempty"`
 	Reason          string                 `json:"reason,omitempty"`
 }
 
@@ -515,6 +516,7 @@ func (s *Service) applyWatchDecision(
 			MemoryOffer:     decision.MemoryOffer,
 			PreferenceOffer: decision.PreferenceOffer,
 			RuleOffer:       decision.RuleOffer,
+			PendingApproval: decision.PendingApproval,
 		},
 		core.Incident{},
 		input.ChannelID,
@@ -532,6 +534,7 @@ func (s *Service) applyWatchDecision(
 	decision.MemoryOffer = report.MemoryOffer
 	decision.PreferenceOffer = report.PreferenceOffer
 	decision.RuleOffer = report.RuleOffer
+	decision.PendingApproval = report.PendingApproval
 	session, err := s.coop.GetSession(ctx, state.SessionID)
 	if err != nil {
 		return err
@@ -659,6 +662,10 @@ func (s *Service) applyWatchDecision(
 				expires,
 			)
 			outcome = "rule_offered"
+		}
+		if decision.PendingApproval != nil {
+			message = slackui.WithEmisarApproval(message, *decision.PendingApproval)
+			outcome = "emisar_approval_pending"
 		}
 		switch {
 		case decision.IncidentTitle != "":
@@ -936,6 +943,7 @@ func suppressWatchDecision(decision watchDecision, reason string) watchDecision 
 	decision.MemoryOffer = nil
 	decision.PreferenceOffer = nil
 	decision.RuleOffer = nil
+	decision.PendingApproval = nil
 	decision.Reason = strings.TrimSpace(
 		decision.Reason + "; " + reason,
 	)
@@ -1624,7 +1632,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.Title != "" || decision.IncidentTitle != "" ||
 			decision.TaskTitle != "" || decision.TaskRepository != "" ||
 			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-			decision.RuleOffer != nil || len(decision.Evidence) != 0 ||
+			decision.RuleOffer != nil || decision.PendingApproval != nil || len(decision.Evidence) != 0 ||
 			len(decision.Coverage) != 0 || len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New(
 				"escalation decision has unexpected fields",
@@ -1635,6 +1643,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
 			decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
+			decision.PendingApproval != nil ||
 			len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("ignore decision has unexpected fields")
 		}
@@ -1648,6 +1657,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
 			decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
+			decision.PendingApproval != nil ||
 			len(decision.Evidence) != 0 || len(decision.Coverage) != 0 ||
 			len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("react decision has unexpected fields")
@@ -1683,6 +1693,14 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		}
 		if decision.IncidentTitle != "" && decision.TaskTitle != "" {
 			return watchDecision{}, errors.New("reply decision cannot offer both incident and engineering task")
+		}
+		if decision.PendingApproval != nil &&
+			(decision.IncidentTitle != "" || decision.TaskTitle != "" ||
+				decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
+				decision.RuleOffer != nil || len(decision.Visuals) != 0) {
+			return watchDecision{}, errors.New(
+				"pending approval cannot be combined with another offer or generated visual",
+			)
 		}
 		if decision.MemoryOffer != nil &&
 			(decision.IncidentTitle != "" || decision.TaskTitle != "") {
@@ -1725,7 +1743,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.Reaction != "" || decision.Message != "" || decision.IncidentTitle != "" ||
 			decision.TaskTitle != "" || decision.TaskRepository != "" ||
 			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-			decision.RuleOffer != nil || len(decision.Visuals) != 0 {
+			decision.RuleOffer != nil || decision.PendingApproval != nil || len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("incident decision has unexpected fields")
 		}
 	default:
@@ -1940,7 +1958,9 @@ Infer who is talking to whom before responding. A question mark alone does not m
 
 ` + behaviorOfferPolicy + `
 
-This evidence policy is mandatory for current operational questions. Prefer the least invasive authoritative checks. Never modify infrastructure or files from this shared-channel triage session. Never claim that you verified something unless a tool result or the supplied channel context supports it. When an authorized human explicitly requests repository file or code changes, or follows up to accept or continue such a request already visible in recent_channel_messages, do not send them outside Slack or tell them to start another client session. Give a useful concise response and include task_title; Responder will offer a governed transition in the same Slack thread to a writable isolated Coop fork. For a task offer, set task_repository to an exact repository key from the host-provided catalog below. When more than one repository is plausible and the conversation does not identify one, ask which repository in message and omit both task_title and task_repository.
+This evidence policy is mandatory for current operational questions. Prefer the least invasive authoritative checks. Never modify repository files from this shared-channel triage session. Operational mutations are allowed only under the Emisar policy below: target_is_configured_operator must be true, the operator must directly request the exact change, and Emisar policy, approval, and audit remain authoritative. A dedicated incident is not required. Never claim that you verified something unless a tool result or the supplied channel context supports it. When an authorized human explicitly requests repository file or code changes, or follows up to accept or continue such a request already visible in recent_channel_messages, do not send them outside Slack or tell them to start another client session. Give a useful concise response and include task_title; Responder will offer a governed transition in the same Slack thread to a writable isolated Coop fork. For a task offer, set task_repository to an exact repository key from the host-provided catalog below. When more than one repository is plausible and the conversation does not identify one, ask which repository in message and omit both task_title and task_repository.
+
+` + emisarGovernedActionPolicy + `
 
 Run independent read-only repository, Emisar, CI, and observability checks concurrently when their
 tool contracts allow it. Preserve every continuation or ordering constraint returned by Emisar.
@@ -1988,10 +2008,13 @@ responder, channel, human, or unclear, and score urgency, confidence, novelty, a
 Explicit mentions and direct messages are always eligible for attention, but they do not require a
 written reply when a reaction is the natural requested response. They should still have an honest
 assessment. Evidence, coverage, and memory use the field
-shapes below. This shared-channel session cannot propose or execute actions:
+shapes below. An explicit configured-operator request may execute only through Emisar as described
+above. If Emisar returns pending_approval, include the exact pending_approval object on action=reply
+so Responder can render the approval URL in this conversation. Do not create or offer an incident
+merely because an operational action is requested:
 {"action":"ignore","attention":{"addressee":"human","urgency":0,"confidence":3,"novelty":0,"ownership":0},"reason":"why silence is appropriate","evidence":[],"coverage":[],"memory":{}}
 {"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1},"reason":"why acknowledgement is enough","memory":{}}
-{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"Slack Markdown","visuals":[{"artifact":"chart.png","title":"Production load","alt_text":"Line chart of production load over 24 hours, peaking at 82 percent at 14:00 UTC"}],"incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
+{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"Slack Markdown","visuals":[{"artifact":"chart.png","title":"Production load","alt_text":"Line chart of production load over 24 hours, peaking at 82 percent at 14:00 UTC"}],"incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","pending_approval":{"request_id":"exact approval request ID","run_id":"exact run ID","operation_id":"exact operation ID","action_id":"exact action ID","pack_ref":"exact immutable pack ref","runner_ref":"exact immutable runner ref","status":"pending_approval","approval_url":"exact Emisar approval URL","expires_at":"exact RFC3339 expiry"},"memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
 {"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"why creation is authorized","title":"concise title","evidence":[],"coverage":[],"memory":{}}
 
 Evidence objects require claim, observation, source_type, and source_name. source_type must be

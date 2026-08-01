@@ -235,4 +235,26 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	if err != nil || report.PendingApproval != nil {
 		t.Fatalf("non-operator approval escaped validation = %+v, %v", report, err)
 	}
+
+	shared := pending
+	shared.RequestID = "apr_shared"
+	shared.RunID = "run_shared"
+	shared.ApprovalURL = "https://emisar.dev/app/acme/approvals/apr_shared"
+	report, err = svc.persistAgentReport(
+		ctx,
+		agentReport{Message: "Emisar is waiting for approval.", PendingApproval: &shared},
+		core.Incident{},
+		"CSHARED",
+		"slack_shared_approval",
+		cfg.Slack.Operators[0],
+	)
+	if err != nil || report.PendingApproval == nil ||
+		report.PendingApproval.IncidentID != "" ||
+		report.PendingApproval.ChannelID != "CSHARED" {
+		t.Fatalf("shared conversation approval = %+v, %v", report, err)
+	}
+	stored, err = st.GetEmisarApproval(ctx, shared.RequestID)
+	if err != nil || stored.IncidentID != "" || stored.ChannelID != "CSHARED" {
+		t.Fatalf("stored shared conversation approval = %+v, %v", stored, err)
+	}
 }

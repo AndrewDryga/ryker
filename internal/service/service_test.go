@@ -2983,6 +2983,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 		wantPosts     int
 		wantIncidents int
 		wantOffer     bool
+		wantApproval  bool
 	}{
 		{
 			name: "ignore", kind: "bot_message",
@@ -2994,6 +2995,20 @@ func TestWatchedChannelDecisions(t *testing.T) {
 				`"urgency":1,"confidence":3,"novelty":2,"ownership":2},` +
 				`"message":"The deploy recovered; no action is needed."}`,
 			wantState: "done", wantPosts: 1,
+		},
+		{
+			name: "operator governed action awaits Emisar approval", kind: "message",
+			text: "Enable origin certificate verification for this pull zone.",
+			decision: `{"action":"reply","attention":{"addressee":"responder",` +
+				`"urgency":2,"confidence":3,"novelty":2,"ownership":3},` +
+				`"message":"Emisar accepted the exact request and paused it for approval.",` +
+				`"pending_approval":{"request_id":"apr_watch_1","run_id":"run_watch_1",` +
+				`"operation_id":"op_watch_1","action_id":"bunny.pull_zone.update",` +
+				`"pack_ref":"bunny@1.0.0#sha256:abc","runner_ref":"prod~abc",` +
+				`"status":"pending_approval",` +
+				`"approval_url":"https://emisar.dev/app/acme/approvals/apr_watch_1",` +
+				`"expires_at":"2099-08-01T00:00:00Z"}}`,
+			wantState: "done", wantPosts: 1, wantApproval: true,
 		},
 		{
 			name: "incident", kind: "bot_message",
@@ -3096,6 +3111,22 @@ func TestWatchedChannelDecisions(t *testing.T) {
 				if slack.posts[0].thread != "" ||
 					!strings.Contains(slack.posts[0].message.Text, "deploy recovered") {
 					t.Fatalf("threaded watch reply = %+v", slack.posts[0])
+				}
+			}
+			if test.wantApproval {
+				message := slack.posts[0].message
+				if message.Header != "Approval required in Emisar" ||
+					len(message.Actions) != 1 ||
+					message.Actions[0].ID != slackui.ActionOpenApproval ||
+					message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_watch_1" ||
+					!strings.Contains(strings.Join(message.Sections, "\n"), "reply `check approval` in this conversation") ||
+					strings.Contains(strings.Join(message.Sections, "\n"), "pinned card") {
+					t.Fatalf("shared conversation approval card = %+v", message)
+				}
+				approval, err := st.GetEmisarApproval(ctx, "apr_watch_1")
+				if err != nil || approval.IncidentID != "" ||
+					approval.ChannelID != input.ChannelID || approval.SourceInput != input.ID {
+					t.Fatalf("shared conversation approval = %+v, %v", approval, err)
 				}
 			}
 			if test.name == "malformed" {
@@ -4406,6 +4437,7 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"react","reaction":"wave::skin-tone-3"}`,
 		`{"action":"react","reaction":":deployment_parrot:"}`,
 		`{"action":"reply","message":"I am looking at it."}`,
+		`{"action":"reply","message":"Waiting for Emisar approval.","pending_approval":{"request_id":"apr_1","run_id":"run_1","operation_id":"op_1","action_id":"service.enable","pack_ref":"service@1#sha256:abc","runner_ref":"prod~abc","status":"pending_approval","approval_url":"https://emisar.dev/app/acme/approvals/apr_1","expires_at":"2099-08-01T00:00:00Z"}}`,
 		`{"action":"reply","message":"Two runners are offline.","incident_title":"Two runners offline"}`,
 		`{"action":"reply","message":"I can make that change.","task_title":"Audit infrastructure packs","task_repository":"repo","memory":{"topology":{"portal_hosts_declared":2,"runner_mapping":"Two current runners"}}}`,
 		`{"action":"incident","title":"API unavailable"}`,
@@ -4426,6 +4458,8 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"react","reaction":"wave::skin-tone-9"}`,
 		`{"action":"react","reaction":"not/an/emoji"}`,
 		`{"action":"react","reaction":"eyes","message":"also replying"}`,
+		`{"action":"ignore","pending_approval":{"request_id":"apr_1"}}`,
+		`{"action":"reply","message":"Waiting.","incident_title":"Open it","pending_approval":{"request_id":"apr_1"}}`,
 		`{"action":"ignore","attention":{"addressee":"team","urgency":1,"confidence":1,"novelty":1,"ownership":1}}`,
 		`{"action":"ignore","attention":{"addressee":"channel","urgency":4,"confidence":1,"novelty":1,"ownership":1}}`,
 		"```json\n{\"action\":\"ignore\"}\n```",

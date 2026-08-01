@@ -273,8 +273,9 @@ For a question about current infrastructure health, operational state, or an ale
 inspect the repository for declared topology and use policy-authorized read-only tools, especially
 Emisar for live state, before deciding. It also considers any other available MCP server or tool
 that owns relevant evidence and reconciles disagreements between configured and observed state. It
-cannot modify infrastructure or files from this shared-channel session, and the host accepts only
-one validated decision:
+cannot modify repository files from this shared-channel session. An exact operational mutation is
+eligible only when a configured operator explicitly requests it and Emisar authorizes it. The host
+accepts only one validated decision:
 
 - stay silent for noise, routine success or recovery notifications, duplicates, and ambient
   conversation;
@@ -458,9 +459,10 @@ person or their mistake.
 `/responder handoff` prepares an evidence-backed shift summary. Closing also posts a post-incident
 draft that does not invent impact, root cause, owners, or corrective actions.
 
-Shared-channel operational mutation is not exposed through Slack. In an existing incident, a
-configured operator can directly request one exact operational action. Responder submits it only
-through Emisar. If Emisar requires approval, the incident thread receives an **Approval required in
+Automatic, inferred, and model-proposed operational mutation is not exposed through Slack. In any
+Slack conversation, a configured operator can directly request one exact operational action.
+Responder submits it only through Emisar; no incident room is required. If Emisar requires
+approval, the current conversation receives an **Approval required in
 Emisar** card with the exact action, immutable runner and pack references, expiry, and a **Review
 approval in Emisar** link. Opening the link is navigation, not approval; no action has run, and the
 decision remains in Emisar's authenticated console and audit trail.
