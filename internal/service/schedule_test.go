@@ -64,6 +64,26 @@ func TestScheduleIntentHandlesNaturalRelativeDurations(t *testing.T) {
 	}
 }
 
+func TestScheduleRetryInheritsExplicitIntentFromSameOperatorThread(t *testing.T) {
+	input := core.SlackInput{
+		UserID: "UOPERATOR", ThreadTS: "1700.100", Text: "Try again <@UEMISAR>",
+	}
+	recent := []watchContextMessage{
+		{MessageTS: "1699.900", SenderID: "UOTHER", SenderType: "human", Text: "Run this weekly."},
+		{MessageTS: "1700.100", SenderID: "UOPERATOR", SenderType: "human", Text: "Post a deep review daily around 9 am."},
+		{MessageTS: "1700.200", ThreadTS: "1700.100", SenderID: "UOPERATOR", SenderType: "human", Text: "Try again", Target: true},
+	}
+	resolved := scheduleInputWithConversationIntent(input, recent)
+	if resolved.Text != recent[1].Text || !explicitScheduleRequest(resolved.Text) {
+		t.Fatalf("resolved schedule intent = %q", resolved.Text)
+	}
+
+	input.Text = "Do not schedule it."
+	if resolved := scheduleInputWithConversationIntent(input, recent); resolved.Text != input.Text {
+		t.Fatalf("non-continuation inherited stale intent = %q", resolved.Text)
+	}
+}
+
 func TestCalendarScheduleComputesNextRunWithoutModelDateArithmetic(t *testing.T) {
 	cfg := serviceConfig(t)
 	s := &Service{cfg: cfg}

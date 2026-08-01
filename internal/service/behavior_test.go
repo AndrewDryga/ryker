@@ -295,6 +295,16 @@ func TestStructuredResponsesAllowCompoundDurableOffers(t *testing.T) {
 	if err != nil || report.PreferenceOffer == nil || report.RuleOffer == nil {
 		t.Fatalf("compound agent report = %+v, %v", report, err)
 	}
+	approvalAndSchedule, err := decodeWatchDecision(`{
+	  "action":"reply",
+	  "message":"Runbook publication is waiting in Emisar. The daily review is ready for separate confirmation.",
+	  "pending_approval":{"request_id":"apr_1","run_id":"run_1","operation_id":"op_1","action_id":"runbooks.publish","pack_ref":"runbooks@1#sha256:abc","runner_ref":"control~abc","status":"pending_approval","approval_url":"https://emisar.dev/app/acme/approvals/apr_1","expires_at":"2026-08-02T00:00:00Z"},
+	  "schedule_offer":{"title":"Daily health review","prompt":"Run a fresh deep health review.","repository":"repo","recurrence":"daily","local_time":"09:00","timezone":"UTC","catch_up":"latest","expires_in":"90d"}
+	}`)
+	if err != nil || approvalAndSchedule.PendingApproval == nil ||
+		approvalAndSchedule.ScheduleOffer == nil {
+		t.Fatalf("approval and schedule decision = %+v, %v", approvalAndSchedule, err)
+	}
 }
 
 func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {

@@ -29,6 +29,12 @@ var scheduleIntentPattern = regexp.MustCompile(
 		`(?:minutes?|hours?|days?|weeks?)\b|\b(?:tomorrow|tonight)\b`,
 )
 
+var scheduleContinuationPattern = regexp.MustCompile(
+	`(?i)^\s*(?:(?:<@[^>]+>)\s*)?(?:please\s+)?(?:` +
+		`try\s+again|retry|do\s+(?:it|that|this|them|both)|go\s+ahead|proceed|yes(?:\s+please)?` +
+		`)(?:\s+(?:<@[^>]+>))?[.!?]?\s*$`,
+)
+
 type scheduleActionPayload struct {
 	Version   int                `json:"version"`
 	ChannelID string             `json:"channel_id"`
@@ -41,6 +47,30 @@ type scheduleActionPayload struct {
 type scheduleTogglePayload struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
+}
+
+func scheduleInputWithConversationIntent(
+	input core.SlackInput,
+	recent []watchContextMessage,
+) core.SlackInput {
+	if explicitScheduleRequest(input.Text) ||
+		!scheduleContinuationPattern.MatchString(input.Text) {
+		return input
+	}
+	for index := len(recent) - 1; index >= 0; index-- {
+		message := recent[index]
+		if message.SenderType != "human" || message.SenderID != input.UserID ||
+			!explicitScheduleRequest(message.Text) {
+			continue
+		}
+		if input.ThreadTS != "" && message.ThreadTS != input.ThreadTS &&
+			message.MessageTS != input.ThreadTS {
+			continue
+		}
+		input.Text = message.Text
+		return input
+	}
+	return input
 }
 
 func (s *Service) prepareScheduleOfferAction(

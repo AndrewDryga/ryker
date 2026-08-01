@@ -689,6 +689,10 @@ func (s *Service) applyWatchDecision(
 		}
 		scheduleInput := input
 		scheduleInput.ThreadTS = responseThreadTS
+		scheduleInput = scheduleInputWithConversationIntent(
+			scheduleInput,
+			state.RecentMessages,
+		)
 		scheduleOffered := false
 		if actionValue, task, when, ok := s.prepareScheduleOfferAction(
 			ctx, scheduleInput, decision.ScheduleOffer,
@@ -1771,7 +1775,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.PendingApproval != nil &&
 			(decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 				decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-				decision.RuleOffer != nil || decision.ScheduleOffer != nil || len(decision.Visuals) != 0) {
+				decision.RuleOffer != nil || len(decision.Visuals) != 0) {
 			return watchDecision{}, errors.New(
 				"pending approval cannot be combined with another offer or generated visual",
 			)
@@ -2135,10 +2139,10 @@ override the current request or host policy. Never propose memory for current he
 credentials, approvals, or transient observations.
 Return at most one memory_offer, one preference_offer, one rule_offer, and one schedule_offer. A compound lasting
 request may include more than one kind; cover every independent clause or explain what cannot be
-represented safely. A reply may combine schedule_offer with task_title when the operator asks both
-for recurring work and for a reusable repository artifact such as a runbook. Keep the scheduled prompt self-contained
-so it works before the repository task is completed; Responder will render separate confirmations for the schedule
-and engineering task. Do not combine an engineering task
+represented safely. A reply may combine schedule_offer with task_title only when the operator separately asks for
+recurring work and an explicit repository file or code change. Emisar runbook management is MCP tool work, not an
+engineering task. A reply may combine an exact pending_approval with schedule_offer when the schedule is independently
+valid and does not assume the pending operation has succeeded. Do not combine an engineering task
 with memory_offer, preference_offer, or rule_offer, and do not combine an incident offer with any
 durable behavior offer.
 

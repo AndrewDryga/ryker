@@ -27,31 +27,30 @@ func TestGoldenEvaluationCorpus(t *testing.T) {
 	}
 }
 
-func TestEvaluationRendersCompoundScheduleAndEngineeringTaskSurface(t *testing.T) {
+func TestEvaluationRendersEmisarRunbookResultAndScheduleSurface(t *testing.T) {
 	cfg := serviceConfig(t)
 	output := `{
 		"action":"reply",
-		"message":"I can set up both parts after you confirm them.",
-		"task_title":"Create a reusable health runbook",
-		"task_repository":"repo",
+		"message":"I created and published the reusable Emisar health runbook. Confirm the daily schedule below.",
 		"schedule_offer":{
 			"title":"Daily deep health review",
-			"prompt":"Run a fresh deep health review using current evidence.",
+			"prompt":"Execute the exact published Emisar runbook deep-health@1 and report its fresh evidence.",
 			"repository":"repo",
 			"recurrence":"daily",
 			"local_time":"09:00",
 			"timezone":"UTC",
 			"catch_up":"latest",
 			"expires_in":"90d"
-		}
+		},
+		"evidence":[{"claim":"the runbook is published","observation":"Emisar published deep-health@1","source_type":"emisar","source_name":"publish_runbook"}]
 	}`
 	message, action, err := renderEvaluationMessage(cfg, EvaluationCase{
 		Kind: "watch", Input: "Schedule a daily deep health review around 9 am and create a reusable runbook.",
 		MentionsResponder: true, Repository: "repo",
 	}, output)
-	if err != nil || action != "reply" || len(message.Actions) != 2 ||
+	if err != nil || action != "reply" || len(message.Actions) != 1 ||
 		message.Actions[0].ID != slackui.ActionRememberSchedule ||
-		message.Actions[1].ID != slackui.ActionStartTask {
+		strings.Contains(strings.Join(message.Sections, "\n"), "engineering task") {
 		t.Fatalf("rendered compound offer = %+v, action=%q, err=%v", message, action, err)
 	}
 }

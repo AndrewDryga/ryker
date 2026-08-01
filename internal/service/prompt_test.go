@@ -84,9 +84,10 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"target_is_configured_operator must be true",
 		"A dedicated incident is not required",
 		"include the exact pending_approval object",
-		"combine schedule_offer with task_title",
-		"Keep the scheduled prompt self-contained",
-		"separate confirmations for the schedule",
+		"Create, inspect, validate, publish, and execute Emisar runbooks",
+		"An Emisar runbook is control-plane data, not a repository artifact",
+		"complete the runbook-management steps first",
+		"do not replace the runbook action with an engineering task",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("watch prompt does not contain %q:\n%s", required, prompt)

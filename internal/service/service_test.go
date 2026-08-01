@@ -4174,7 +4174,7 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	}
 }
 
-func TestWatchedScheduleAndRunbookRequestOffersBothConfirmations(t *testing.T) {
+func TestWatchedScheduleAndRunbookRequestUsesEmisarAndOffersSchedule(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Slack.WatchChannels = []string{"CWATCH"}
@@ -4183,25 +4183,30 @@ func TestWatchedScheduleAndRunbookRequestOffersBothConfirmations(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	slackClient := &fakeSlack{dedupePosts: true}
+	slackClient := &fakeSlack{
+		dedupePosts: true,
+		history: []slackui.HistoryMessage{
+			{Timestamp: "1700.800", UserID: "U123ABC", Text: "Can you post a daily deep infrastructure health review around 9 am? Maybe make a reusable runbook for it too."},
+			{Timestamp: "1700.850", ThreadTS: "1700.800", UserID: "U123ABC", Text: "Try again <@U999BOT>"},
+		},
+	}
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 		"action":"reply",
 		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":3,"ownership":3},
-		"reason":"the operator requested recurring work and a reusable repository artifact",
-		"message":"I can schedule the daily deep review and separately prepare a reusable runbook after you confirm each part.",
-		"task_title":"Create reusable deep infrastructure health-review runbook",
-		"task_repository":"repo",
+		"reason":"the operator requested an Emisar runbook and recurring execution",
+		"message":"I created and published the reusable Emisar runbook deep-infrastructure-health@1. Confirm the daily schedule below.",
 		"schedule_offer":{
 			"title":"Daily deep infrastructure health review",
-			"prompt":"Perform a fresh deep infrastructure health review using current evidence. Reuse the repository runbook if it exists.",
+			"prompt":"Execute the exact published Emisar runbook deep-infrastructure-health@1 with fresh evidence and report the result.",
 			"repository":"repo",
 			"recurrence":"daily",
 			"local_time":"09:00",
 			"timezone":"UTC",
 			"catch_up":"latest",
 			"expires_in":"365d"
-		}
+		},
+		"evidence":[{"claim":"the runbook is published","observation":"Emisar published deep-infrastructure-health@1","source_type":"emisar","source_name":"publish_runbook"}]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -4212,9 +4217,9 @@ func TestWatchedScheduleAndRunbookRequestOffersBothConfirmations(t *testing.T) {
 	}
 	source := core.SlackInput{
 		ID: "slack-schedule-runbook", EnvelopeID: "env-schedule-runbook",
-		EventID: "event-schedule-runbook", Kind: "message", TeamID: cfg.Slack.TeamID,
-		ChannelID: "CWATCH", MessageTS: "1700.850", UserID: "U123ABC",
-		Text: "Can you post a daily deep infrastructure health review around 9 am? Maybe make a reusable runbook for it too.",
+		EventID: "event-schedule-runbook", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", ThreadTS: "1700.800", MessageTS: "1700.850", UserID: "U123ABC",
+		Text: "Try again <@U999BOT>",
 	}
 	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
 		t.Fatalf("admit source = %v, %v", created, err)
@@ -4227,11 +4232,11 @@ func TestWatchedScheduleAndRunbookRequestOffersBothConfirmations(t *testing.T) {
 		t.Fatalf("compound offer posts = %+v", slackClient.posts)
 	}
 	message := slackClient.posts[0].message
-	if len(message.Actions) != 2 ||
+	if len(message.Actions) != 1 ||
 		message.Actions[0].ID != slackui.ActionRememberSchedule ||
-		message.Actions[1].ID != slackui.ActionStartTask ||
 		!strings.Contains(strings.Join(message.Sections, "\n"), "Daily deep infrastructure health review") ||
-		!strings.Contains(strings.Join(message.Sections, "\n"), "Create reusable deep infrastructure health-review runbook") {
+		!strings.Contains(strings.Join(message.Sections, "\n"), "deep-infrastructure-health@1") ||
+		strings.Contains(strings.Join(message.Sections, "\n"), "engineering task") {
 		t.Fatalf("compound offer = %+v", message)
 	}
 	run, err := st.GetAgentRunBySource(ctx, "watch", source.ID)
@@ -4239,10 +4244,8 @@ func TestWatchedScheduleAndRunbookRequestOffersBothConfirmations(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, err := decodeWatchRunContext(run)
-	if err != nil ||
-		state.OfferedTaskTitle != "Create reusable deep infrastructure health-review runbook" ||
-		state.OfferedTaskRepository != "repo" {
-		t.Fatalf("persisted compound task offer = %+v, %v", state, err)
+	if err != nil || state.OfferedTaskTitle != "" || state.OfferedTaskRepository != "" {
+		t.Fatalf("runbook request became a repository task = %+v, %v", state, err)
 	}
 	if schedules, err := st.ListScheduledTasksForChannel(ctx, source.ChannelID, 10); err != nil || len(schedules) != 0 {
 		t.Fatalf("schedule was created before confirmation = %+v, %v", schedules, err)
