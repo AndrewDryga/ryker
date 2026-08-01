@@ -23,7 +23,9 @@ var (
 	)
 	explicitRuleRequestPattern = regexp.MustCompile(
 		`(?i)\b(?:when(?:ever)?\s+you\s+(?:see|receive|notice)|` +
-			`for\s+(?:each|every)\s+(?:new\s+)?message|every\s+time)\b`,
+			`for\s+(?:each|every)\s+(?:new\s+)?message|every\s+time|` +
+			`(?:in|for)\s+this\s+channel[^\n]{0,240}\balerts\b|` +
+			`\balerts\b[^\n]{0,240}(?:in|for)\s+this\s+channel)\b`,
 	)
 	incidentRoomReferencePattern = regexp.MustCompile(
 		`(?i)\bincident(?:\s+(?:channel|room))?\b`,
@@ -91,6 +93,38 @@ type standingRulePromptEntry struct {
 	Repository string `json:"repository"`
 	SourceKind string `json:"source_kind"`
 	Safety     string `json:"safety"`
+}
+
+func normalizeOperationalAlertRule(
+	input core.SlackInput,
+	repository string,
+	proposed *core.RuleOffer,
+) (*core.RuleOffer, bool) {
+	if !explicitRuleRequestPattern.MatchString(input.Text) ||
+		!operationalAlertPattern.MatchString(input.Text) {
+		return proposed, false
+	}
+	if proposed != nil &&
+		(proposed.Trigger != "operational_alert" || proposed.Action != "triage_alert") {
+		return proposed, false
+	}
+	offer := core.RuleOffer{
+		Scope: "channel", Repository: strings.TrimSpace(repository),
+		Trigger: "operational_alert", Action: "triage_alert",
+		SourceKind: "app", ExpiresIn: "90d",
+	}
+	if proposed != nil {
+		if candidate := strings.TrimSpace(proposed.Repository); candidate != "" {
+			offer.Repository = candidate
+		}
+		if candidate := strings.TrimSpace(proposed.SourceKind); candidate != "" {
+			offer.SourceKind = candidate
+		}
+		if candidate := strings.TrimSpace(proposed.ExpiresIn); candidate != "" {
+			offer.ExpiresIn = candidate
+		}
+	}
+	return &offer, true
 }
 
 func (s *Service) loadEffectivePreferences(
@@ -205,8 +239,11 @@ Action meanings:
   state that gap once and concisely without speculating.
 - verify_deployment: reconcile the deployment claim with repository and live evidence; report the
   deployed revision, rollout health, user-facing behavior, and gaps.
-- triage_alert: explain the alert from channel context, repository topology, and fresh live evidence;
-  distinguish impact, likely scope, and unknowns without automatically creating an incident.
+- triage_alert: acknowledge the alert naturally, then investigate it from channel context,
+  repository topology, and fresh live evidence. Distinguish impact, likely scope, and unknowns.
+  Suggest focused fixes supported by the evidence. For a critical alert, identify the safest
+  immediate remediation an operator could request, but do not execute it or automatically create
+  an incident. Responder adds an eyes reaction while this investigation is pending.
 
 <trusted-responder-standing-rules>
 ` + string(data) + `
@@ -214,8 +251,10 @@ Action meanings:
 }
 
 const behaviorOfferPolicy = `A configured operator may define typed Responder behavior in natural
-language. Do not claim that behavior was saved. Instead return exactly one inert offer when the
-operator explicitly asks for a lasting behavior:
+language. Do not claim that behavior was saved. Return inert typed offers when the operator
+explicitly asks for lasting behavior. A compound request may require both preference_offer and
+rule_offer. Cover every independently configurable clause; never silently preserve only one. If a
+clause cannot map safely to a supported type, explain that gap or ask a concise clarification:
 
 - preference_offer is for how Responder should handle future requests. Supported names and values:
   health_check_depth=quick|standard|deep, response_detail=concise|standard|detailed, and
@@ -224,8 +263,11 @@ operator explicitly asks for a lasting behavior:
 - rule_offer is for "when X, do Y" behavior in the current non-DM Slack channel. Supported exact
   trigger/action pairs are terraform_plan/review_terraform_plan,
   deployment/verify_deployment, and operational_alert/triage_alert. Source kind is any, human, or
-  app. Rules are read-only. A matched rule may ignore, react, or reply in the triggering message's
-  thread according to the available evidence.
+  app. Rules are read-only. A matched operational-alert rule acknowledges the alert with an eyes
+  reaction, investigates it, suggests evidence-backed fixes, and for critical alerts names the
+  safest immediate remediation to consider. Execution still requires a separate exact operator
+  request governed by Emisar. A matched rule may otherwise ignore, react, or reply in the
+  triggering message's thread according to the available evidence.
 
 The host validates each offer and shows its normalized scope, expiry, and safety boundary. Nothing
 is stored until an operator confirms it. Never put arbitrary prose, credentials, mutation
@@ -383,6 +425,47 @@ func standingRuleTextMatches(trigger string, text string) bool {
 	default:
 		return false
 	}
+}
+
+func (s *Service) acknowledgeMatchedAlertRule(
+	ctx context.Context,
+	input core.SlackInput,
+	rules []core.StandingRule,
+) {
+	if input.MessageTS == "" {
+		return
+	}
+	matched := false
+	for _, rule := range rules {
+		if rule.Trigger == "operational_alert" && rule.Action == "triage_alert" {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return
+	}
+	client, ok := s.slack.(interface {
+		React(context.Context, string, string, string) error
+	})
+	if !ok {
+		return
+	}
+	if err := client.React(ctx, input.ChannelID, input.MessageTS, "eyes"); err != nil {
+		if s.log != nil {
+			s.log.Warn(
+				"acknowledge matched alert rule",
+				"channel", input.ChannelID,
+				"message", input.MessageTS,
+				"error", err,
+			)
+		}
+		return
+	}
+	_ = s.store.Audit(ctx, core.AuditEvent{
+		Kind: "standing_rule.acknowledged", ActorID: "responder", ObjectID: input.ID,
+		Outcome: "reacted", Detail: "eyes",
+	})
 }
 
 func (s *Service) preparePreferenceOfferAction(

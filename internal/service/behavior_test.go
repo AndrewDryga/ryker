@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -160,6 +161,139 @@ func TestNaturalThreadPreferenceOverridesUnsupportedModelReplyAndRoutesFutureTur
 	last := slackClient.posts[len(slackClient.posts)-1]
 	if last.thread != followup.MessageTS || last.broadcast {
 		t.Fatalf("remembered thread route = %+v", last)
+	}
+}
+
+func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"COPS"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"lasting channel behavior","message":"I can remember the thread preference.","preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"},"memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":2,"ownership":3},"reason":"matched alert triage rule","message":"The alert is critical. I verified the likely scope and recommend the smallest reversible remediation while the owner checks the affected service.","memory":{}}`,
+	}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	request := core.SlackInput{
+		ID: "slack_compound_behavior", EnvelopeID: "env_compound_behavior",
+		EventID: "EvCompoundBehavior", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "1701.100", UserID: cfg.Slack.Operators[0],
+		Text: "<@U999BOT> in this channel prefer threads and react for alerts, " +
+			"investigate them, suggest fixes and suggest immediate remediation for critical ones",
+	}
+	if created, err := st.AdmitSlackInput(ctx, request); err != nil || !created {
+		t.Fatalf("admit compound behavior request = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) == 0 {
+		drainSlackDeliveries(t, ctx, svc)
+	}
+	offerPost := slackClient.posts[len(slackClient.posts)-1]
+	preferenceAction := findSlackAction(
+		t, offerPost.message, slackui.ActionRememberPreference,
+	)
+	ruleAction := findSlackAction(t, offerPost.message, slackui.ActionRememberRule)
+	content := offerPost.message.Text + "\n" +
+		strings.Join(offerPost.message.Sections, "\n") + "\n" +
+		strings.Join(offerPost.message.Context, "\n")
+	for _, expected := range []string{
+		"separate settings", "Reply location", "Proposed standing rule",
+		"acknowledge with :eyes:", "focused fixes", "critical alerts",
+		"safest immediate remediation", "read-only",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("compound offer lacks %q:\n%s", expected, content)
+		}
+	}
+
+	for index, action := range []slackui.Action{preferenceAction, ruleAction} {
+		confirm := core.SlackInput{
+			ID:         fmt.Sprintf("slack_compound_confirm_%d", index),
+			EnvelopeID: fmt.Sprintf("env_compound_confirm_%d", index),
+			EventID:    fmt.Sprintf("EvCompoundConfirm%d", index), Kind: "action",
+			TeamID: cfg.Slack.TeamID, ChannelID: request.ChannelID,
+			ThreadTS: request.MessageTS, MessageTS: fmt.Sprintf("1701.10%d", index+1),
+			UserID: cfg.Slack.Operators[0], ActionID: action.ID, ActionValue: action.Value,
+		}
+		if created, err := st.AdmitSlackInput(ctx, confirm); err != nil || !created {
+			t.Fatalf("admit compound confirmation %d = %t, %v", index, created, err)
+		}
+		if err := svc.processSlackInput(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	preferences, err := st.ListPreferencesForContext(
+		ctx, cfg.Slack.TeamID, request.ChannelID, "repo", request.UserID, true, 20,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preferences) != 1 || preferences[0].Name != "response_location" ||
+		preferences[0].Value != "prefer_thread" {
+		t.Fatalf("saved compound preference = %+v", preferences)
+	}
+	rules, err := st.ListStandingRulesForChannel(ctx, request.ChannelID, true, 20)
+	if err != nil || len(rules) != 1 || rules[0].Trigger != "operational_alert" ||
+		rules[0].Action != "triage_alert" || rules[0].SourceKind != "app" {
+		t.Fatalf("saved compound rules = %+v, %v", rules, err)
+	}
+
+	alert := core.SlackInput{
+		ID: "slack_compound_alert", EnvelopeID: "env_compound_alert",
+		EventID: "EvCompoundAlert", Kind: "bot_message", TeamID: cfg.Slack.TeamID,
+		ChannelID: request.ChannelID, MessageTS: "1701.200", UserID: "BGRAFANA",
+		Text: "CRITICAL alert: checkout error rate is firing above 20 percent.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, alert); err != nil || !created {
+		t.Fatalf("admit matching alert = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.reactions) != 1 || slackClient.reactions[0].name != "eyes" ||
+		slackClient.reactions[0].timestamp != alert.MessageTS {
+		t.Fatalf("alert acknowledgement = %+v", slackClient.reactions)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	last := slackClient.posts[len(slackClient.posts)-1]
+	if last.thread != alert.MessageTS || !strings.Contains(last.message.Text, "critical") {
+		t.Fatalf("alert triage reply = %+v", last)
+	}
+}
+
+func TestStructuredResponsesAllowCompoundDurableOffers(t *testing.T) {
+	decision, err := decodeWatchDecision(`{
+	  "action":"reply",
+	  "message":"Confirm both settings.",
+	  "preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread"},
+	  "rule_offer":{"scope":"channel","repository":"repo","trigger":"operational_alert","action":"triage_alert","source_kind":"app"}
+	}`)
+	if err != nil || decision.PreferenceOffer == nil || decision.RuleOffer == nil {
+		t.Fatalf("compound watch decision = %+v, %v", decision, err)
+	}
+	report, err := decodeAgentReport(`{
+	  "message":"Confirm both settings.",
+	  "preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread"},
+	  "rule_offer":{"scope":"channel","repository":"repo","trigger":"operational_alert","action":"triage_alert","source_kind":"app"}
+	}`)
+	if err != nil || report.PreferenceOffer == nil || report.RuleOffer == nil {
+		t.Fatalf("compound agent report = %+v, %v", report, err)
 	}
 }
 

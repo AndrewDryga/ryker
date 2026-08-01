@@ -638,15 +638,32 @@ func WithRuleOffer(
 	actionValue string,
 	expiresLabel string,
 ) Message {
-	message.Sections = append(message.Sections, fmt.Sprintf(
-		"*Proposed standing rule*\n"+
-			"When `%s` matches a `%s` message, run `%s` against repository `%s` "+
-			"and reply in that message's thread.\n\n"+
-			"Scope: This channel · Expires: %s",
+	description := fmt.Sprintf(
+		"When `%s` matches a `%s` message, run `%s` against repository `%s` and reply in that message's thread.",
 		offer.Trigger,
 		offer.SourceKind,
 		offer.Action,
 		offer.Repository,
+	)
+	label := "Enable standing rule"
+	confirmation := "Matching messages will start a bounded investigation and receive a threaded reply."
+	if offer.Trigger == "operational_alert" && offer.Action == "triage_alert" {
+		source := "alert messages"
+		switch offer.SourceKind {
+		case "app":
+			source = "app alerts"
+		case "human":
+			source = "alerts posted by teammates"
+		}
+		description = "For " + source + " in this channel, acknowledge with :eyes:, investigate using current repository and live evidence, and reply in the alert's thread with impact, likely cause, and focused fixes. For critical alerts, include the safest immediate remediation to consider."
+		label = "Enable alert triage"
+		confirmation = "Matching alerts will be acknowledged, investigated read-only, and receive an evidence-backed threaded reply."
+	}
+	message.Sections = append(message.Sections, fmt.Sprintf(
+		"*Proposed standing rule*\n"+
+			"%s\n\n"+
+			"Scope: This channel · Expires: %s",
+		description,
 		expiresLabel,
 	))
 	message.Context = append(
@@ -655,11 +672,11 @@ func WithRuleOffer(
 	)
 	message.Actions = append(message.Actions, Action{
 		ID:    ActionRememberRule,
-		Label: "Enable standing rule",
+		Label: label,
 		Value: actionValue,
 		Style: "primary",
 		Confirm: "Enable this read-only standing rule in the current channel for " +
-			expiresLabel + "? Matching messages will start a bounded investigation and receive a threaded reply.",
+			expiresLabel + "? " + confirmation,
 	})
 	return message
 }

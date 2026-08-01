@@ -90,11 +90,6 @@ func decodeAgentReport(message string) (agentReport, error) {
 			offerCount++
 		}
 	}
-	if offerCount > 1 {
-		return agentReport{}, errors.New(
-			"structured agent response has multiple durable behavior offers",
-		)
-	}
 	if offerCount > 0 && len(report.Visuals) > 0 {
 		return agentReport{}, errors.New("structured agent response cannot combine a durable behavior offer with generated visuals")
 	}
@@ -780,7 +775,8 @@ Never use memory_offer for secrets, credentials, approvals, or transient observa
 
 ` + behaviorOfferPolicy + `
 
-Return at most one of memory_offer, preference_offer, or rule_offer. Use an empty array when no evidence, coverage, or
+Return at most one memory_offer, one preference_offer, and one rule_offer. A compound lasting request may include more
+than one kind; cover every independent clause or explain what cannot be represented safely. Use an empty array when no evidence, coverage, or
 action proposal exists. Omit pending_approval unless the latest exact Emisar run response has
 status pending_approval and includes its approval object. Copy only the exact Emisar run and
 approval fields into pending_approval; never infer, rewrite, or invent any identifier, URL, expiry,

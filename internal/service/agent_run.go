@@ -88,6 +88,10 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		state.MatchedRules = rules
 		state.RulesCaptured = true
 	}
+	if !state.RuleAcknowledged && len(state.MatchedRules) > 0 {
+		s.acknowledgeMatchedAlertRule(ctx, input, state.MatchedRules)
+		state.RuleAcknowledged = true
+	}
 	if input.Kind == "message" && !state.ConversationFollowup {
 		followup, err := s.isRecentWatchConversation(ctx, input)
 		if err != nil {
@@ -1350,13 +1354,22 @@ func (s *Service) finalizeIncidentAgentRun(
 			})
 		} else {
 			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
+				if offer, ok := normalizeOperationalAlertRule(
+					conversationInput,
+					firstNonempty(run.Repository, incident.Repository),
+					report.RuleOffer,
+				); ok {
+					report.RuleOffer = offer
+				}
 				if offer, acknowledgement, ok := normalizeResponseLocationPreference(
 					conversationInput, report.PreferenceOffer,
 				); ok {
-					report.Message = acknowledgement
-					report.MemoryOffer = nil
 					report.PreferenceOffer = offer
-					report.RuleOffer = nil
+					if report.MemoryOffer == nil && report.RuleOffer == nil {
+						report.Message = acknowledgement
+					} else {
+						report.Message = "I split that into separate settings so each part stays clear and reversible. Confirm the reply-location preference and the alert-triage rule below."
+					}
 					report.Evidence = nil
 					report.Coverage = nil
 				}

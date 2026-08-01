@@ -36,6 +36,7 @@ type EvaluationCase struct {
 	WantAttentionAddressee string                   `json:"want_attention_addressee,omitempty"`
 	MinAttentionScore      int                      `json:"min_attention_score,omitempty"`
 	WantOffer              string                   `json:"want_offer,omitempty"`
+	WantOffers             []string                 `json:"want_offers,omitempty"`
 	WantMemoryContains     []string                 `json:"want_memory_contains,omitempty"`
 	WantMessageContains    []string                 `json:"want_message_contains,omitempty"`
 	ForbidMessageContains  []string                 `json:"forbid_message_contains,omitempty"`
@@ -223,6 +224,7 @@ func evaluateCaseWithConfig(
 	}
 	var action string
 	var offer string
+	var offers []string
 	var message string
 	var reason string
 	var reaction string
@@ -264,10 +266,11 @@ func evaluateCaseWithConfig(
 				cfg.Slack.ReplyAttention,
 				cfg.Slack.ReactionAttention,
 			)
-			offer = hostedWatchDecisionOffer(*cfg, testCase, decision)
+			offers = hostedWatchDecisionOffers(*cfg, testCase, decision)
 		} else {
-			offer = watchDecisionOffer(decision)
+			offers = watchDecisionOffers(decision)
 		}
+		offer = firstEvaluationOffer(offers)
 		action = decision.Action
 		reaction = decision.Reaction
 		attention = decision.Attention
@@ -286,7 +289,8 @@ func evaluateCaseWithConfig(
 			result.Detail = "incident response is not structured"
 			return result
 		}
-		offer = agentReportOffer(report)
+		offers = agentReportOffers(report)
+		offer = firstEvaluationOffer(offers)
 		message = report.Message
 		evidence = report.Evidence
 		coverage = report.Coverage
@@ -306,6 +310,18 @@ func evaluateCaseWithConfig(
 	if testCase.WantAction != "" && action != testCase.WantAction {
 		result.Detail = fmt.Sprintf("action = %q, want %q", action, testCase.WantAction)
 		return result
+	}
+	if len(testCase.WantOffers) > 0 {
+		if len(offers) != len(testCase.WantOffers) {
+			result.Detail = fmt.Sprintf("offers = %q, want %q", offers, testCase.WantOffers)
+			return result
+		}
+		for _, expected := range testCase.WantOffers {
+			if !containsExact(offers, expected) {
+				result.Detail = fmt.Sprintf("offers = %q, want %q", offers, testCase.WantOffers)
+				return result
+			}
+		}
 	}
 	if testCase.WantReaction != "" && reaction != testCase.WantReaction {
 		result.Detail = fmt.Sprintf(
@@ -485,81 +501,96 @@ func evaluateCaseWithConfig(
 	return result
 }
 
-func hostedWatchDecisionOffer(
+func hostedWatchDecisionOffers(
 	cfg config.Config,
 	testCase EvaluationCase,
 	decision watchDecision,
-) string {
+) []string {
 	operatorID := "UEVALOPERATOR"
 	if len(cfg.Slack.Operators) > 0 {
 		operatorID = cfg.Slack.Operators[0]
 	}
 	input, _, err := liveEvaluationWatchContext(testCase, "eval", operatorID)
 	if err != nil {
-		return "invalid"
+		return []string{"invalid"}
 	}
 	evaluator := &Service{cfg: cfg}
-	switch {
-	case decision.IncidentTitle != "":
-		return "incident"
-	case decision.TaskTitle != "":
+	result := make([]string, 0, 3)
+	if decision.IncidentTitle != "" {
+		return []string{"incident"}
+	}
+	if decision.TaskTitle != "" {
 		if _, err := evaluator.resolveTaskOfferRepository(decision.TaskRepository); err != nil {
-			return "none"
+			return nil
 		}
-		return "engineering_task"
-	case decision.MemoryOffer != nil:
+		return []string{"engineering_task"}
+	}
+	if decision.MemoryOffer != nil {
 		if _, _, _, ok := evaluator.prepareMemoryOfferAction(
 			input,
 			decision.MemoryOffer,
 		); ok {
-			return "memory"
+			result = append(result, "memory")
 		}
-	case decision.PreferenceOffer != nil:
+	}
+	if decision.PreferenceOffer != nil {
 		if _, _, _, ok := evaluator.preparePreferenceOfferAction(
 			input,
 			decision.PreferenceOffer,
 		); ok {
-			return "preference"
+			result = append(result, "preference")
 		}
-	case decision.RuleOffer != nil:
+	}
+	if decision.RuleOffer != nil {
 		if _, _, _, ok := evaluator.prepareRuleOfferAction(
 			input,
 			decision.RuleOffer,
 		); ok {
-			return "rule"
+			result = append(result, "rule")
 		}
 	}
-	return "none"
+	return result
 }
 
-func watchDecisionOffer(decision watchDecision) string {
-	switch {
-	case decision.IncidentTitle != "":
-		return "incident"
-	case decision.TaskTitle != "":
-		return "engineering_task"
-	case decision.MemoryOffer != nil:
-		return "memory"
-	case decision.PreferenceOffer != nil:
-		return "preference"
-	case decision.RuleOffer != nil:
-		return "rule"
-	default:
-		return "none"
+func watchDecisionOffers(decision watchDecision) []string {
+	if decision.IncidentTitle != "" {
+		return []string{"incident"}
 	}
+	if decision.TaskTitle != "" {
+		return []string{"engineering_task"}
+	}
+	result := make([]string, 0, 3)
+	if decision.MemoryOffer != nil {
+		result = append(result, "memory")
+	}
+	if decision.PreferenceOffer != nil {
+		result = append(result, "preference")
+	}
+	if decision.RuleOffer != nil {
+		result = append(result, "rule")
+	}
+	return result
 }
 
-func agentReportOffer(report agentReport) string {
-	switch {
-	case report.MemoryOffer != nil:
-		return "memory"
-	case report.PreferenceOffer != nil:
-		return "preference"
-	case report.RuleOffer != nil:
-		return "rule"
-	default:
+func agentReportOffers(report agentReport) []string {
+	result := make([]string, 0, 3)
+	if report.MemoryOffer != nil {
+		result = append(result, "memory")
+	}
+	if report.PreferenceOffer != nil {
+		result = append(result, "preference")
+	}
+	if report.RuleOffer != nil {
+		result = append(result, "rule")
+	}
+	return result
+}
+
+func firstEvaluationOffer(offers []string) string {
+	if len(offers) == 0 {
 		return "none"
 	}
+	return offers[0]
 }
 
 func containsFold(value, fragment string) bool {
