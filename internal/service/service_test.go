@@ -3155,6 +3155,69 @@ func TestWatchedChannelDecisions(t *testing.T) {
 	}
 }
 
+func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CWATCH", Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "U123ABC",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"message":"Cassandra is firing and needs investigation."}`,
+		`{"action":"reply","attention":{"addressee":"channel","urgency":2,"confidence":3,"novelty":3,"ownership":3},"message":"Cassandra recovered after the firing alert."}`,
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	inputs := []core.SlackInput{
+		{
+			ID: "slack-app-firing", EnvelopeID: "env-app-firing",
+			EventID: "EvAppFiring", Kind: "bot_message", TeamID: cfg.Slack.TeamID,
+			ChannelID: "CWATCH", MessageTS: "1700.500", UserID: "BBETTERSTACK",
+			Text: "FIRING: Cassandra total RPS is below 4k.",
+		},
+		{
+			ID: "slack-app-recovered", EnvelopeID: "env-app-recovered",
+			EventID: "EvAppRecovered", Kind: "bot_message", TeamID: cfg.Slack.TeamID,
+			ChannelID: "CWATCH", MessageTS: "1700.501", UserID: "BGRAFANA",
+			Text: "RESOLVED: Cassandra total RPS recovered.",
+		},
+	}
+	for _, input := range inputs {
+		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, err)
+		}
+		if err := svc.processSlackInput(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range inputs {
+		finishQueuedAgentRun(t, ctx, svc)
+	}
+	for _, input := range inputs {
+		run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+		if err != nil || run.State != core.AgentRunCompleted {
+			t.Fatalf("agent run for %s = %+v, %v", input.ID, run, err)
+		}
+	}
+	if len(slackClient.posts) != 2 ||
+		!strings.Contains(slackClient.posts[0].message.Text, "firing") ||
+		!strings.Contains(slackClient.posts[1].message.Text, "recovered") {
+		t.Fatalf("ordered app alert replies = %+v", slackClient.posts)
+	}
+}
+
 func TestWatchedFailureKeepsPendingStatusUntilNoticeIsPosted(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

@@ -487,8 +487,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			ctx, run, input, state, "invalid persisted triage context: "+trimError(err),
 		)
 	}
-	if (input.Kind == "message" || input.Kind == "bot_message") &&
-		len(state.MatchedRules) == 0 {
+	if input.Kind == "message" && len(state.MatchedRules) == 0 {
 		alreadyClassified, err := s.store.HasNewerWatchDecision(
 			ctx, input.ChannelID, input.MessageTS,
 		)
@@ -592,13 +591,21 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			return s.retryAgentRun(ctx, run, err)
 		}
 		conversation, conversationSession, conversationErr :=
-			s.ensureConversationSession(
+			s.ensureConversationSessionAtGeneration(
 				ctx,
 				input.ChannelID,
 				state.Repository,
 				repository.ConversationPolicy,
+				max(state.Generation, 1),
 			)
 		if conversationErr != nil {
+			if advanceFailedSessionGeneration(conversationErr) &&
+				conversation.Generation > 0 {
+				state.Generation = conversation.Generation + 1
+				if err := s.persistTriageRunState(ctx, run.ID, state); err != nil {
+					return s.retryAgentRun(ctx, run, err)
+				}
+			}
 			return s.retryAgentRun(ctx, run, conversationErr)
 		}
 		session = conversationSession
@@ -607,8 +614,17 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		eventSequence = conversation.CoopEventSequence
 	} else {
 		memory, investigationSession, investigationErr :=
-			s.ensureWatchSession(ctx, input.ChannelID)
+			s.ensureWatchSessionAtGeneration(
+				ctx, input.ChannelID, max(state.Generation, 1),
+			)
 		if investigationErr != nil {
+			if advanceFailedSessionGeneration(investigationErr) &&
+				memory.Generation > 0 {
+				state.Generation = memory.Generation + 1
+				if err := s.persistTriageRunState(ctx, run.ID, state); err != nil {
+					return s.retryAgentRun(ctx, run, err)
+				}
+			}
 			return s.retryAgentRun(ctx, run, investigationErr)
 		}
 		session = investigationSession
@@ -726,6 +742,25 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		run.CoopEventSequence,
 		state.Lane,
 	)
+}
+
+func (s *Service) persistTriageRunState(
+	ctx context.Context,
+	runID string,
+	state watchTurnState,
+) error {
+	contextJSON, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.store.SetAgentRunContext(ctx, runID, contextJSON)
+}
+
+func advanceFailedSessionGeneration(err error) bool {
+	var apiErr *coop.APIError
+	return errors.As(err, &apiErr) &&
+		apiErr.Status >= 500 &&
+		apiErr.Code == "internal_error"
 }
 
 func (s *Service) retryAgentRun(

@@ -134,6 +134,14 @@ func (s *Service) ensureWatchSession(
 	ctx context.Context,
 	channelID string,
 ) (core.ChannelMemory, coop.Session, error) {
+	return s.ensureWatchSessionAtGeneration(ctx, channelID, 1)
+}
+
+func (s *Service) ensureWatchSessionAtGeneration(
+	ctx context.Context,
+	channelID string,
+	minimumGeneration int,
+) (core.ChannelMemory, coop.Session, error) {
 	repositoryKey, err := s.effectiveRepository(
 		ctx, channelID, "", s.cfg.Slack.DefaultRepository,
 	)
@@ -145,6 +153,9 @@ func (s *Service) ensureWatchSession(
 		return core.ChannelMemory{}, coop.Session{}, err
 	}
 	generation := memory.Generation
+	if memory.SessionID == "" && generation < minimumGeneration {
+		generation = minimumGeneration
+	}
 	if generation < 1 {
 		generation = 1
 	}
@@ -208,7 +219,8 @@ func (s *Service) ensureWatchSession(
 		generation,
 	)
 	if err != nil {
-		return core.ChannelMemory{}, coop.Session{}, err
+		memory.Generation = generation
+		return memory, coop.Session{}, err
 	}
 	if session.ID == "" {
 		return core.ChannelMemory{}, coop.Session{}, errors.New("Coop returned an empty watch session ID")
@@ -241,6 +253,18 @@ func (s *Service) ensureConversationSession(
 	repositoryKey string,
 	policy string,
 ) (core.ConversationSession, coop.Session, error) {
+	return s.ensureConversationSessionAtGeneration(
+		ctx, channelID, repositoryKey, policy, 1,
+	)
+}
+
+func (s *Service) ensureConversationSessionAtGeneration(
+	ctx context.Context,
+	channelID string,
+	repositoryKey string,
+	policy string,
+	minimumGeneration int,
+) (core.ConversationSession, coop.Session, error) {
 	if policy == "" {
 		return core.ConversationSession{}, coop.Session{}, errors.New(
 			"conversation policy is not configured",
@@ -251,6 +275,9 @@ func (s *Service) ensureConversationSession(
 		return core.ConversationSession{}, coop.Session{}, err
 	}
 	generation := memory.Generation
+	if memory.SessionID == "" && generation < minimumGeneration {
+		generation = minimumGeneration
+	}
 	if generation < 1 {
 		generation = 1
 	}
@@ -308,7 +335,8 @@ func (s *Service) ensureConversationSession(
 		ctx, channelID, policy, generation,
 	)
 	if err != nil {
-		return core.ConversationSession{}, coop.Session{}, err
+		memory.Generation = generation
+		return memory, coop.Session{}, err
 	}
 	started := time.Now().UTC()
 	if err := s.store.BindConversationSession(

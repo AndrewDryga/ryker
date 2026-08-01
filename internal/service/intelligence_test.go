@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -193,6 +195,55 @@ func TestWatchSessionRotatesAndCarriesDurableMemory(t *testing.T) {
 			"rotation = before=%+v after=%+v keys=%v",
 			memory, rotated, coopClient.createKeys,
 		)
+	}
+}
+
+func TestFailedWatchSessionCreateAdvancesIdempotencyGeneration(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.createErrors = []error{&coop.APIError{
+		Status: 500, Code: "internal_error", Detail: "workspace creation failed",
+	}}
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	if _, _, err := svc.ensureWatchSessionAtGeneration(
+		ctx, "CWATCH", 1,
+	); err == nil {
+		t.Fatal("first watch session creation unexpectedly succeeded")
+	}
+	if _, _, err := svc.ensureWatchSessionAtGeneration(
+		ctx, "CWATCH", 2,
+	); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"responder:watch-session:CWATCH",
+		"responder:watch-session:CWATCH:2",
+	}
+	if !slices.Equal(coopClient.createKeys, want) {
+		t.Fatalf("watch session create keys = %v, want %v", coopClient.createKeys, want)
+	}
+}
+
+func TestFailedSessionGenerationOnlyAdvancesForTerminalCoopCreate(t *testing.T) {
+	if !advanceFailedSessionGeneration(&coop.APIError{
+		Status: 500, Code: "internal_error",
+	}) {
+		t.Fatal("terminal Coop create failure did not advance generation")
+	}
+	if advanceFailedSessionGeneration(errors.New("connection reset")) ||
+		advanceFailedSessionGeneration(&coop.APIError{
+			Status: 409, Code: "operation_uncertain",
+		}) {
+		t.Fatal("uncertain create failure advanced generation")
 	}
 }
 
