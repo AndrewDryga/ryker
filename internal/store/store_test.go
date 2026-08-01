@@ -1034,6 +1034,60 @@ func TestMigrationCreatesVerifiedPrivateBackup(t *testing.T) {
 	}
 }
 
+func TestMigrationV22PreservesDeliveriesAndAllowsFiles(t *testing.T) {
+	ctx := context.Background()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(stateDir, "responder.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:21] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`
+		INSERT INTO schema_version(version) VALUES (21);
+		INSERT INTO slack_deliveries (
+		  id, operation, kind, channel_id, body_json, state,
+		  next_attempt_at, created_at, updated_at
+		) VALUES (
+		  'delivery_existing', 'post', 'reply', 'C123', '{"text":"kept"}',
+		  'pending', '2026-07-31T00:00:00Z', '2026-07-31T00:00:00Z',
+		  '2026-07-31T00:00:00Z'
+		)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	existing, err := st.GetSlackDelivery(ctx, "delivery_existing")
+	if err != nil || existing.Operation != "post" || string(existing.Body) != `{"text":"kept"}` {
+		t.Fatalf("existing delivery after migration = %+v, %v", existing, err)
+	}
+	created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "delivery_file", Operation: "file", Kind: "generated_visual",
+		ChannelID: "C123", ThreadTS: "1700.1", Body: []byte(`{"name":"chart.png"}`),
+	})
+	if err != nil || !created {
+		t.Fatalf("enqueue file after migration = %v, %v", created, err)
+	}
+	file, err := st.GetSlackDelivery(ctx, "delivery_file")
+	if err != nil || file.Operation != "file" {
+		t.Fatalf("file delivery after migration = %+v, %v", file, err)
+	}
+}
+
 func TestMigrationBackupRetentionIsBoundedAndScoped(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "backups")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

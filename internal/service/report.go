@@ -16,15 +16,16 @@ import (
 )
 
 type agentReport struct {
-	Message         string                `json:"message"`
-	Evidence        []core.Evidence       `json:"evidence,omitempty"`
-	Coverage        []core.Coverage       `json:"coverage,omitempty"`
-	Memory          core.AgentMemory      `json:"memory,omitempty"`
-	MemoryOffer     *core.MemoryOffer     `json:"memory_offer,omitempty"`
-	PreferenceOffer *core.PreferenceOffer `json:"preference_offer,omitempty"`
-	RuleOffer       *core.RuleOffer       `json:"rule_offer,omitempty"`
-	PendingApproval *core.EmisarApproval  `json:"pending_approval,omitempty"`
-	Proposals       []core.ActionProposal `json:"proposals,omitempty"`
+	Message         string                 `json:"message"`
+	Visuals         []core.GeneratedVisual `json:"visuals,omitempty"`
+	Evidence        []core.Evidence        `json:"evidence,omitempty"`
+	Coverage        []core.Coverage        `json:"coverage,omitempty"`
+	Memory          core.AgentMemory       `json:"memory,omitempty"`
+	MemoryOffer     *core.MemoryOffer      `json:"memory_offer,omitempty"`
+	PreferenceOffer *core.PreferenceOffer  `json:"preference_offer,omitempty"`
+	RuleOffer       *core.RuleOffer        `json:"rule_offer,omitempty"`
+	PendingApproval *core.EmisarApproval   `json:"pending_approval,omitempty"`
+	Proposals       []core.ActionProposal  `json:"proposals,omitempty"`
 }
 
 func parseAgentReport(message string) (agentReport, bool, error) {
@@ -93,6 +94,9 @@ func decodeAgentReport(message string) (agentReport, error) {
 		return agentReport{}, errors.New(
 			"structured agent response has multiple durable behavior offers",
 		)
+	}
+	if offerCount > 0 && len(report.Visuals) > 0 {
+		return agentReport{}, errors.New("structured agent response cannot combine a durable behavior offer with generated visuals")
 	}
 	return report, nil
 }
@@ -173,6 +177,18 @@ func (s *Service) persistAgentReport(
 		// evidence here makes a confirmation card look as if its behavior was already saved.
 		report.Evidence = nil
 		report.Coverage = nil
+		report.Visuals = nil
+	}
+	if len(report.Visuals) > s.cfg.Limits.MaxGeneratedVisuals {
+		return agentReport{}, errors.New("structured agent response references too many generated visuals")
+	}
+	for index := range report.Visuals {
+		report.Visuals[index].Artifact = s.cleanStructuredField(report.Visuals[index].Artifact, 255)
+		report.Visuals[index].Title = s.cleanStructuredField(report.Visuals[index].Title, 200)
+		report.Visuals[index].AltText = s.cleanStructuredField(report.Visuals[index].AltText, 1000)
+		if report.Visuals[index].Artifact == "" || report.Visuals[index].Title == "" || report.Visuals[index].AltText == "" {
+			return agentReport{}, errors.New("generated visual requires artifact, title, and alt_text")
+		}
 	}
 	report.Evidence = sanitizeEvidence(report.Evidence, incident.ID, channelID, sourceInput)
 	report.Coverage = sanitizeCoverage(report.Coverage, incident.ID, channelID, sourceInput)
@@ -656,6 +672,11 @@ func structuredResponseInstructions() string {
 	return `Return exactly one JSON object and no code fence:
 {
   "message": "plain-language, operator-facing standard Markdown that answers the question first",
+  "visuals": [{
+    "artifact": "exact generated output filename or artifact ID from this turn",
+    "title": "short human-readable image title",
+    "alt_text": "specific description of what the image shows, including chart trends and axes when applicable"
+  }],
   "evidence": [{
     "claim": "the operational claim this supports",
     "observation": "the exact verified observation",
@@ -734,6 +755,14 @@ func structuredResponseInstructions() string {
     "risk": "low|medium|high"
   }]
 }
+
+When the user asks for an image or chart and an appropriate tool is available, create it and save it
+in the exact Coop output directory named earlier in the prompt. Reference each intended Slack image
+in visuals. Never inline base64, a data URL, binary content, or a local path in message or JSON. For
+charts, use verified data, label axes and units, and state the source, time range, freshness, and
+material gaps in message/evidence. A generated chart is presentation of evidence, not evidence by
+itself. For creative images, evidence may be empty. If no capable image tool is available, say so
+plainly and return no visuals. Do not include visuals with a memory, preference, or rule offer.
 Omit memory_offer unless the current configured operator explicitly asked Responder to remember,
 save, or correct durable context, or clearly requested lasting guidance with language such as
 "from now on", "always", or "keep this in mind". A memory offer is inert until the host displays an

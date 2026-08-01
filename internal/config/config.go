@@ -209,27 +209,30 @@ type GenericMapping struct {
 }
 
 type Limits struct {
-	MaxWebhookBytes          int      `yaml:"max_webhook_bytes"`
-	MaxSlackFiles            int      `yaml:"max_slack_files"`
-	MaxSlackFileBytes        int      `yaml:"max_slack_file_bytes"`
-	MaxSlackFileTotalBytes   int      `yaml:"max_slack_file_total_bytes"`
-	MaxActiveIncidents       int      `yaml:"max_active_incidents"`
-	MaxOpenIncidents         int      `yaml:"max_open_incidents"`
-	MaxAssistantBytes        int      `yaml:"max_assistant_bytes"`
-	MaxWebhookAttempts       int      `yaml:"max_webhook_attempts"`
-	MaxSlackInputAttempts    int      `yaml:"max_slack_input_attempts"`
-	MaxDeliveryAttempts      int      `yaml:"max_delivery_attempts"`
-	MaxAgentRunAttempts      int      `yaml:"max_agent_run_attempts"`
-	MaxOutboxAttempts        int      `yaml:"max_outbox_attempts"` // Deprecated compatibility alias.
-	MaxMemoryEntries         int      `yaml:"max_memory_entries"`
-	MaxMemoryEntriesPerScope int      `yaml:"max_memory_entries_per_scope"`
-	MaxPreferences           int      `yaml:"max_preferences"`
-	MaxPreferencesPerScope   int      `yaml:"max_preferences_per_scope"`
-	MaxStandingRules         int      `yaml:"max_standing_rules"`
-	MaxRulesPerChannel       int      `yaml:"max_rules_per_channel"`
-	WorkerInterval           Duration `yaml:"worker_interval"`
-	WorkLease                Duration `yaml:"work_lease"`
-	WorkerStallAfter         Duration `yaml:"worker_stall_after"`
+	MaxWebhookBytes              int      `yaml:"max_webhook_bytes"`
+	MaxSlackFiles                int      `yaml:"max_slack_files"`
+	MaxSlackFileBytes            int      `yaml:"max_slack_file_bytes"`
+	MaxSlackFileTotalBytes       int      `yaml:"max_slack_file_total_bytes"`
+	MaxGeneratedVisuals          int      `yaml:"max_generated_visuals"`
+	MaxGeneratedVisualBytes      int      `yaml:"max_generated_visual_bytes"`
+	MaxGeneratedVisualTotalBytes int      `yaml:"max_generated_visual_total_bytes"`
+	MaxActiveIncidents           int      `yaml:"max_active_incidents"`
+	MaxOpenIncidents             int      `yaml:"max_open_incidents"`
+	MaxAssistantBytes            int      `yaml:"max_assistant_bytes"`
+	MaxWebhookAttempts           int      `yaml:"max_webhook_attempts"`
+	MaxSlackInputAttempts        int      `yaml:"max_slack_input_attempts"`
+	MaxDeliveryAttempts          int      `yaml:"max_delivery_attempts"`
+	MaxAgentRunAttempts          int      `yaml:"max_agent_run_attempts"`
+	MaxOutboxAttempts            int      `yaml:"max_outbox_attempts"` // Deprecated compatibility alias.
+	MaxMemoryEntries             int      `yaml:"max_memory_entries"`
+	MaxMemoryEntriesPerScope     int      `yaml:"max_memory_entries_per_scope"`
+	MaxPreferences               int      `yaml:"max_preferences"`
+	MaxPreferencesPerScope       int      `yaml:"max_preferences_per_scope"`
+	MaxStandingRules             int      `yaml:"max_standing_rules"`
+	MaxRulesPerChannel           int      `yaml:"max_rules_per_channel"`
+	WorkerInterval               Duration `yaml:"worker_interval"`
+	WorkLease                    Duration `yaml:"work_lease"`
+	WorkerStallAfter             Duration `yaml:"worker_stall_after"`
 }
 
 func defaults() Config {
@@ -285,27 +288,30 @@ func defaults() Config {
 			AuditData:           Duration{30 * 24 * time.Hour},
 		},
 		Limits: Limits{
-			MaxWebhookBytes:          1 << 20,
-			MaxSlackFiles:            4,
-			MaxSlackFileBytes:        8 << 20,
-			MaxSlackFileTotalBytes:   8 << 20,
-			MaxActiveIncidents:       50,
-			MaxOpenIncidents:         200,
-			MaxAssistantBytes:        12000,
-			MaxWebhookAttempts:       12,
-			MaxSlackInputAttempts:    12,
-			MaxDeliveryAttempts:      12,
-			MaxAgentRunAttempts:      20,
-			MaxOutboxAttempts:        12,
-			MaxMemoryEntries:         1000,
-			MaxMemoryEntriesPerScope: 100,
-			MaxPreferences:           500,
-			MaxPreferencesPerScope:   50,
-			MaxStandingRules:         500,
-			MaxRulesPerChannel:       25,
-			WorkerInterval:           Duration{250 * time.Millisecond},
-			WorkLease:                Duration{3 * time.Minute},
-			WorkerStallAfter:         Duration{2 * time.Minute},
+			MaxWebhookBytes:              1 << 20,
+			MaxSlackFiles:                4,
+			MaxSlackFileBytes:            8 << 20,
+			MaxSlackFileTotalBytes:       8 << 20,
+			MaxGeneratedVisuals:          4,
+			MaxGeneratedVisualBytes:      8 << 20,
+			MaxGeneratedVisualTotalBytes: 8 << 20,
+			MaxActiveIncidents:           50,
+			MaxOpenIncidents:             200,
+			MaxAssistantBytes:            12000,
+			MaxWebhookAttempts:           12,
+			MaxSlackInputAttempts:        12,
+			MaxDeliveryAttempts:          12,
+			MaxAgentRunAttempts:          20,
+			MaxOutboxAttempts:            12,
+			MaxMemoryEntries:             1000,
+			MaxMemoryEntriesPerScope:     100,
+			MaxPreferences:               500,
+			MaxPreferencesPerScope:       50,
+			MaxStandingRules:             500,
+			MaxRulesPerChannel:           25,
+			WorkerInterval:               Duration{250 * time.Millisecond},
+			WorkLease:                    Duration{3 * time.Minute},
+			WorkerStallAfter:             Duration{2 * time.Minute},
 		},
 	}
 }
@@ -579,6 +585,15 @@ func (c Config) Validate() error {
 	if c.Limits.MaxSlackFileTotalBytes < c.Limits.MaxSlackFileBytes ||
 		c.Limits.MaxSlackFileTotalBytes > 8<<20 {
 		return errors.New("limits.max_slack_file_total_bytes must be between max_slack_file_bytes and 8388608")
+	}
+	if c.Limits.MaxGeneratedVisuals < 1 || c.Limits.MaxGeneratedVisuals > 4 {
+		return errors.New("limits.max_generated_visuals must be between 1 and 4")
+	}
+	if c.Limits.MaxGeneratedVisualBytes < 64<<10 || c.Limits.MaxGeneratedVisualBytes > 8<<20 {
+		return errors.New("limits.max_generated_visual_bytes must be between 65536 and 8388608")
+	}
+	if c.Limits.MaxGeneratedVisualTotalBytes < c.Limits.MaxGeneratedVisualBytes || c.Limits.MaxGeneratedVisualTotalBytes > 8<<20 {
+		return errors.New("limits.max_generated_visual_total_bytes must be between max_generated_visual_bytes and 8388608")
 	}
 	if c.Limits.MaxActiveIncidents < 1 || c.Limits.MaxActiveIncidents > 10000 {
 		return errors.New("limits.max_active_incidents must be between 1 and 10000")

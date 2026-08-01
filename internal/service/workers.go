@@ -304,6 +304,15 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 			item.Status,
 			item.Steps,
 		)
+	case "file":
+		file, decodeErr := decodeSlackFileDelivery(item.Body)
+		if decodeErr != nil {
+			err = decodeErr
+			break
+		}
+		timestamp, err = s.slack.UploadFile(ctx, item.ChannelID, item.ThreadTS, slackui.FileUpload{
+			Filename: file.Filename, Title: file.Title, AltText: file.AltText, Data: file.Data,
+		})
 	default:
 		err = fmt.Errorf("unsupported Slack delivery operation %q", item.Operation)
 	}
@@ -315,7 +324,7 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 			item.ID,
 			trimError(err),
 			queueDelay(item.Attempts),
-			item.Operation == "post",
+			item.Operation == "post" || item.Operation == "file",
 			terminal,
 		)
 	}
@@ -324,7 +333,7 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 	); err != nil {
 		_ = s.store.RetrySlackDelivery(
 			ctx, item.ID, "Slack accepted the message but local confirmation failed",
-			queueDelay(item.Attempts), item.Operation == "post", false,
+			queueDelay(item.Attempts), item.Operation == "post" || item.Operation == "file", false,
 		)
 		return err
 	}
@@ -374,9 +383,16 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 			true,
 		)
 	}
-	timestamp, err := s.slack.FindDeliveryMessage(
-		ctx, item.ChannelID, item.ThreadTS, item.ID,
-	)
+	var timestamp string
+	if item.Operation == "file" {
+		file, decodeErr := decodeSlackFileDelivery(item.Body)
+		if decodeErr != nil {
+			return s.store.RetryUncertainSlackDelivery(ctx, item.ID, trimError(decodeErr), time.Now(), true)
+		}
+		timestamp, err = s.slack.FindDeliveryFile(ctx, item.ChannelID, item.ThreadTS, file.Filename)
+	} else {
+		timestamp, err = s.slack.FindDeliveryMessage(ctx, item.ChannelID, item.ThreadTS, item.ID)
+	}
 	switch {
 	case err == nil:
 		return s.store.FinishSlackDelivery(

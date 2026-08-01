@@ -32,8 +32,9 @@ explicitly selected incident audiences. Lightweight acknowledgements use `reacti
 `reactions:read` plus the `reaction_added` and `reaction_removed` events let Emisar understand
 feedback on its own messages in later conversation turns. Reaction events never start work or
 authorize an action by themselves.
-Screenshot and document analysis uses `files:read`; after adding that scope, reinstall the app
-before running `responder doctor`. The command, message shortcut, interactive controls, and
+Screenshot and document analysis uses `files:read`. Generated image and chart delivery uses
+`files:write` and Slack's external upload flow. After adding either scope, reinstall the app before
+running `responder doctor`. The command, message shortcut, interactive controls, and
 subscribed events are delivered over Socket Mode and do not need a public request URL. The shipped
 manifest uses Slack's current `agent_view`; applying it to an older `assistant_view` app performs
 Slack's irreversible Messages-tab migration.
@@ -47,6 +48,15 @@ prompts, Slack output, compact summaries, or long-term memory. Responder retains
 Slack metadata under normal operational-data retention; Coop removes the binary payload when the
 turn becomes terminal. Unsupported or misleading content fails closed with a user-visible retry
 message and does not start repository work.
+
+When a user explicitly asks for an image or chart, the agent may create up to four PNG, JPEG, WebP,
+or GIF outputs in Coop's per-turn output directory or return typed ACP image content. Coop stores
+the bytes outside the text transcript and exposes content-addressed metadata only after the turn is
+terminal. Responder accepts only visuals explicitly referenced by that turn's strict response,
+verifies type, size, and SHA-256, requires a title and useful alt text, and uploads each file to the
+same channel and thread as the prose reply. The durable filename includes the delivery ID so a lost
+Slack response can be reconciled without a duplicate upload. Images are presentation artifacts;
+charts do not become evidence unless their underlying observations are separately sourced.
 
 Slack displays only the manifest's static slash-command usage hint; it does not ask the app for
 dynamic subcommand completions. Keep the hint short. Responder provides the full command guide and

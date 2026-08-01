@@ -161,6 +161,11 @@ limits:
   max_slack_files: 4
   max_slack_file_bytes: 8388608
   max_slack_file_total_bytes: 8388608
+  # Agent-generated images and charts are fetched from the exact completed Coop turn, verified
+  # against its content digest, and uploaded durably to the same Slack conversation as the reply.
+  max_generated_visuals: 4
+  max_generated_visual_bytes: 8388608
+  max_generated_visual_total_bytes: 8388608
   max_active_incidents: 50
   max_open_incidents: 200
   max_assistant_bytes: 12000

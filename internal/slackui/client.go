@@ -1,6 +1,7 @@
 package slackui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -37,8 +38,10 @@ type API interface {
 	UserGroupMembers(context.Context, string, string) ([]string, error)
 	GetFile(context.Context, string) (HistoryFile, error)
 	DownloadFile(context.Context, string, io.Writer) error
+	UploadFile(context.Context, string, string, FileUpload) (string, error)
 	RecentMessages(context.Context, string, string, string, string, int) ([]HistoryMessage, error)
 	FindDeliveryMessage(context.Context, string, string, string) (string, error)
+	FindDeliveryFile(context.Context, string, string, string) (string, error)
 }
 
 var (
@@ -104,6 +107,13 @@ type HistoryFile struct {
 	MediaType  string
 	Size       int64
 	URLPrivate string
+}
+
+type FileUpload struct {
+	Filename string
+	Title    string
+	AltText  string
+	Data     []byte
 }
 
 type Client struct {
@@ -298,6 +308,7 @@ var requiredBotScopes = []string{
 	"chat:write",
 	"commands",
 	"files:read",
+	"files:write",
 	"groups:history",
 	"groups:read",
 	"groups:write",
@@ -311,6 +322,21 @@ var requiredBotScopes = []string{
 
 func (c *Client) DownloadFile(ctx context.Context, downloadURL string, writer io.Writer) error {
 	return c.api.GetFileContext(ctx, downloadURL, writer)
+}
+
+func (c *Client) UploadFile(ctx context.Context, channel, threadTS string, upload FileUpload) (string, error) {
+	file, err := c.api.UploadFileContext(ctx, slack.UploadFileParameters{
+		Reader: bytes.NewReader(upload.Data), FileSize: len(upload.Data),
+		Filename: upload.Filename, Title: upload.Title, AltTxt: upload.AltText,
+		Channel: channel, ThreadTimestamp: threadTS,
+	})
+	if err != nil {
+		return "", err
+	}
+	if file == nil || file.ID == "" {
+		return "", errors.New("Slack returned no uploaded file identity")
+	}
+	return file.ID, nil
 }
 
 func (c *Client) GetFile(ctx context.Context, fileID string) (HistoryFile, error) {
@@ -937,6 +963,53 @@ func (c *Client) FindDeliveryMessage(
 		}
 		if timestamp := findMetadataMessage(response.Messages, deliveryID); timestamp != "" {
 			return timestamp, nil
+		}
+		cursor = response.ResponseMetaData.NextCursor
+		if cursor == "" {
+			return "", ErrNotFound
+		}
+	}
+	return "", ErrSearchIncomplete
+}
+
+func (c *Client) FindDeliveryFile(ctx context.Context, channel, threadTS, filename string) (string, error) {
+	find := func(messages []slack.Message) string {
+		for _, message := range messages {
+			for _, file := range message.Files {
+				if file.Name == filename {
+					return file.ID
+				}
+			}
+		}
+		return ""
+	}
+	if threadTS != "" {
+		cursor := ""
+		for page := 0; page < 5; page++ {
+			messages, _, next, err := c.api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
+				ChannelID: channel, Timestamp: threadTS, Cursor: cursor, Limit: 100,
+			})
+			if err != nil {
+				return "", err
+			}
+			if id := find(messages); id != "" {
+				return id, nil
+			}
+			cursor = next
+			if cursor == "" {
+				return "", ErrNotFound
+			}
+		}
+		return "", ErrSearchIncomplete
+	}
+	cursor := ""
+	for page := 0; page < 5; page++ {
+		response, err := c.api.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{ChannelID: channel, Cursor: cursor, Limit: 100})
+		if err != nil {
+			return "", err
+		}
+		if id := find(response.Messages); id != "" {
+			return id, nil
 		}
 		cursor = response.ResponseMetaData.NextCursor
 		if cursor == "" {

@@ -246,6 +246,12 @@ type SlackDelivery struct {
 	CreatedAt     time.Time
 }
 
+type GeneratedVisual struct {
+	Artifact string `json:"artifact"`
+	Title    string `json:"title"`
+	AltText  string `json:"alt_text"`
+}
+
 type AuditEvent struct {
 	ID         string
 	IncidentID string

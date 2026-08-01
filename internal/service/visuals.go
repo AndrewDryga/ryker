@@ -1,0 +1,163 @@
+package service
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/responder/internal/core"
+)
+
+type slackFileDelivery struct {
+	Filename  string `json:"filename"`
+	Title     string `json:"title"`
+	AltText   string `json:"alt_text"`
+	MediaType string `json:"media_type"`
+	SHA256    string `json:"sha256"`
+	Data      []byte `json:"data"`
+}
+
+func decodeSlackFileDelivery(data []byte) (slackFileDelivery, error) {
+	var result slackFileDelivery
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil {
+		return slackFileDelivery{}, fmt.Errorf("decode Slack file delivery: %w", err)
+	}
+	if result.Filename == "" || filepath.Base(result.Filename) != result.Filename ||
+		len(result.Filename) > 255 || !utf8.ValidString(result.Filename) ||
+		result.Title == "" || len(result.Title) > 200 || result.AltText == "" || len(result.AltText) > 1000 ||
+		len(result.Data) == 0 || len(result.Data) > 8<<20 || !generatedImageMediaType(result.MediaType) {
+		return slackFileDelivery{}, errors.New("Slack file delivery is outside bounds")
+	}
+	digest := sha256.Sum256(result.Data)
+	if hex.EncodeToString(digest[:]) != result.SHA256 {
+		return slackFileDelivery{}, errors.New("Slack file delivery digest mismatch")
+	}
+	return result, nil
+}
+
+func generatedImageMediaType(mediaType string) bool {
+	switch mediaType {
+	case "image/png", "image/jpeg", "image/webp", "image/gif":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) enqueueGeneratedVisuals(
+	ctx context.Context,
+	keyPrefix string,
+	incidentID string,
+	channelID string,
+	threadTS string,
+	sessionID string,
+	turnID string,
+	visuals []core.GeneratedVisual,
+) error {
+	if len(visuals) == 0 {
+		return nil
+	}
+	if len(visuals) > s.cfg.Limits.MaxGeneratedVisuals {
+		return errors.New("agent response references too many generated visuals")
+	}
+	turn, err := s.coop.GetTurn(ctx, sessionID, turnID)
+	if err != nil {
+		return fmt.Errorf("read generated visual metadata: %w", err)
+	}
+	metadata := make(map[string]coop.OutputArtifact, len(turn.OutputArtifacts)*2)
+	for _, artifact := range turn.OutputArtifacts {
+		metadata[artifact.ID] = artifact
+		metadata[artifact.Name] = artifact
+	}
+	prepared := make([]slackFileDelivery, 0, len(visuals))
+	seen := make(map[string]bool, len(visuals))
+	total := 0
+	for index, visual := range visuals {
+		visual.Artifact = strings.TrimSpace(visual.Artifact)
+		visual.Title = strings.TrimSpace(visual.Title)
+		visual.AltText = strings.TrimSpace(visual.AltText)
+		artifact, ok := metadata[visual.Artifact]
+		if !ok || seen[artifact.ID] {
+			return errors.New("agent response references an unknown or duplicate generated visual")
+		}
+		seen[artifact.ID] = true
+		if visual.Title == "" || len(visual.Title) > 200 || visual.AltText == "" || len(visual.AltText) > 1000 {
+			return errors.New("generated visual title or alt text is outside bounds")
+		}
+		if !generatedImageMediaType(artifact.MediaType) || artifact.Bytes <= 0 || artifact.Bytes > int64(s.cfg.Limits.MaxGeneratedVisualBytes) {
+			return errors.New("generated visual metadata is outside configured bounds")
+		}
+		fetched, err := s.coop.GetOutputArtifact(ctx, sessionID, turnID, artifact.ID)
+		if err != nil {
+			return fmt.Errorf("fetch generated visual: %w", err)
+		}
+		digest := sha256.Sum256(fetched.Data)
+		digestHex := hex.EncodeToString(digest[:])
+		if fetched.MediaType != artifact.MediaType || int64(len(fetched.Data)) != artifact.Bytes || digestHex != artifact.SHA256 {
+			return errors.New("generated visual content does not match Coop metadata")
+		}
+		if total > s.cfg.Limits.MaxGeneratedVisualTotalBytes-len(fetched.Data) {
+			return errors.New("generated visuals exceed their configured total bound")
+		}
+		total += len(fetched.Data)
+		deliveryID := fmt.Sprintf("%s_visual_%02d", keyPrefix, index+1)
+		prepared = append(prepared, slackFileDelivery{
+			Filename: deliveryVisualFilename(artifact.Name, deliveryID), Title: visual.Title,
+			AltText: visual.AltText, MediaType: artifact.MediaType, SHA256: digestHex, Data: fetched.Data,
+		})
+	}
+	for index, file := range prepared {
+		body, err := json.Marshal(file)
+		if err != nil {
+			return err
+		}
+		_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+			ID: fmt.Sprintf("%s_visual_%02d", keyPrefix, index+1), IncidentID: incidentID,
+			Operation: "file", Kind: "generated_visual", ChannelID: channelID,
+			ThreadTS: threadTS, Body: body,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deliveryVisualFilename(original, deliveryID string) string {
+	ext := strings.ToLower(filepath.Ext(original))
+	if ext == ".jpeg" {
+		ext = ".jpg"
+	}
+	base := strings.TrimSuffix(filepath.Base(original), filepath.Ext(original))
+	base = strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, base)
+	base = strings.Trim(strings.ToLower(base), "-")
+	if base == "" {
+		base = "generated-image"
+	}
+	suffix := strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, deliveryID)
+	name := base + "--" + suffix + ext
+	if len(name) > 255 {
+		name = name[:255-len(ext)] + ext
+	}
+	return name
+}

@@ -99,6 +99,32 @@ func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
 	}
 }
 
+func TestClientFetchesBoundedOutputArtifact(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	data := []byte("\x89PNG\r\n\x1a\nchart")
+	digest := sha256.Sum256(data)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/ses_1/turns/turn_1/artifacts/artifact_1" {
+			t.Errorf("artifact path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("ETag", fmt.Sprintf(`"%x"`, digest))
+		_, _ = w.Write(data)
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	artifact, err := New(socket, time.Second).GetOutputArtifact(context.Background(), "ses_1", "turn_1", "artifact_1")
+	if err != nil || string(artifact.Data) != string(data) || artifact.SHA256 != fmt.Sprintf("%x", digest) || artifact.MediaType != "image/png" {
+		t.Fatalf("artifact = %+v err=%v", artifact, err)
+	}
+}
+
 func TestClientPreparesWarmSession(t *testing.T) {
 	socket := shortSocket(t)
 	listener, err := net.Listen("unix", socket)

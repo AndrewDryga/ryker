@@ -90,21 +90,22 @@ type watchContextAttachment struct {
 }
 
 type watchDecision struct {
-	Action          string                `json:"action"`
-	Reaction        string                `json:"reaction,omitempty"`
-	Attention       attentionAssessment   `json:"attention,omitempty"`
-	Message         string                `json:"message,omitempty"`
-	Title           string                `json:"title,omitempty"`
-	IncidentTitle   string                `json:"incident_title,omitempty"`
-	TaskTitle       string                `json:"task_title,omitempty"`
-	TaskRepository  string                `json:"task_repository,omitempty"`
-	Evidence        []core.Evidence       `json:"evidence,omitempty"`
-	Coverage        []core.Coverage       `json:"coverage,omitempty"`
-	Memory          core.AgentMemory      `json:"memory,omitempty"`
-	MemoryOffer     *core.MemoryOffer     `json:"memory_offer,omitempty"`
-	PreferenceOffer *core.PreferenceOffer `json:"preference_offer,omitempty"`
-	RuleOffer       *core.RuleOffer       `json:"rule_offer,omitempty"`
-	Reason          string                `json:"reason,omitempty"`
+	Action          string                 `json:"action"`
+	Reaction        string                 `json:"reaction,omitempty"`
+	Attention       attentionAssessment    `json:"attention,omitempty"`
+	Message         string                 `json:"message,omitempty"`
+	Visuals         []core.GeneratedVisual `json:"visuals,omitempty"`
+	Title           string                 `json:"title,omitempty"`
+	IncidentTitle   string                 `json:"incident_title,omitempty"`
+	TaskTitle       string                 `json:"task_title,omitempty"`
+	TaskRepository  string                 `json:"task_repository,omitempty"`
+	Evidence        []core.Evidence        `json:"evidence,omitempty"`
+	Coverage        []core.Coverage        `json:"coverage,omitempty"`
+	Memory          core.AgentMemory       `json:"memory,omitempty"`
+	MemoryOffer     *core.MemoryOffer      `json:"memory_offer,omitempty"`
+	PreferenceOffer *core.PreferenceOffer  `json:"preference_offer,omitempty"`
+	RuleOffer       *core.RuleOffer        `json:"rule_offer,omitempty"`
+	Reason          string                 `json:"reason,omitempty"`
 }
 
 type attentionAssessment struct {
@@ -479,6 +480,7 @@ func (s *Service) applyWatchDecision(
 		ctx,
 		agentReport{
 			Message:         decision.Message,
+			Visuals:         decision.Visuals,
 			Evidence:        decision.Evidence,
 			Coverage:        decision.Coverage,
 			Memory:          decision.Memory,
@@ -495,6 +497,7 @@ func (s *Service) applyWatchDecision(
 		return err
 	}
 	decision.Message = report.Message
+	decision.Visuals = report.Visuals
 	decision.Evidence = report.Evidence
 	decision.Coverage = report.Coverage
 	decision.Memory = report.Memory
@@ -540,6 +543,7 @@ func (s *Service) applyWatchDecision(
 		}
 		return s.finishInputIfOpen(ctx, input)
 	}
+	responseThreadTS := state.ResponseThreadTS
 	post := func(
 		ctx context.Context,
 		id string,
@@ -553,6 +557,7 @@ func (s *Service) applyWatchDecision(
 	if input.Kind == "bot_message" || input.Kind == "shortcut" ||
 		len(state.MatchedRules) > 0 {
 		post = s.postInputMessageInSourceThread
+		responseThreadTS = slackReplyThread(input)
 	}
 	switch decision.Action {
 	case "ignore":
@@ -702,6 +707,12 @@ func (s *Service) applyWatchDecision(
 			"watch_reply_"+input.ID,
 			input,
 			message,
+		); err != nil {
+			return err
+		}
+		if err := s.enqueueGeneratedVisuals(
+			ctx, "watch_reply_"+input.ID, "", input.ChannelID, responseThreadTS,
+			state.SessionID, state.TurnID, decision.Visuals,
 		); err != nil {
 			return err
 		}
@@ -1586,7 +1597,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.TaskTitle != "" || decision.TaskRepository != "" ||
 			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
 			decision.RuleOffer != nil || len(decision.Evidence) != 0 ||
-			len(decision.Coverage) != 0 {
+			len(decision.Coverage) != 0 || len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New(
 				"escalation decision has unexpected fields",
 			)
@@ -1595,7 +1606,8 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.Reaction != "" || decision.Message != "" || decision.Title != "" ||
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
-			decision.PreferenceOffer != nil || decision.RuleOffer != nil {
+			decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
+			len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("ignore decision has unexpected fields")
 		}
 	case "react":
@@ -1608,7 +1620,8 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
 			decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
-			len(decision.Evidence) != 0 || len(decision.Coverage) != 0 {
+			len(decision.Evidence) != 0 || len(decision.Coverage) != 0 ||
+			len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("react decision has unexpected fields")
 		}
 	case "reply":
@@ -1624,6 +1637,9 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		}
 		if decision.Reaction != "" || decision.Title != "" {
 			return watchDecision{}, errors.New("reply decision has an unexpected title")
+		}
+		if len(decision.Visuals) > 4 {
+			return watchDecision{}, errors.New("reply decision references too many generated visuals")
 		}
 		if len(decision.IncidentTitle) > 200 {
 			return watchDecision{}, errors.New("incident offer title exceeds 200 bytes")
@@ -1667,6 +1683,9 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 				"reply decision cannot offer durable behavior and work in the same response",
 			)
 		}
+		if offerCount > 0 && len(decision.Visuals) > 0 {
+			return watchDecision{}, errors.New("reply decision cannot combine durable behavior and generated visuals")
+		}
 	case "incident":
 		decision.Title = strings.TrimSpace(decision.Title)
 		if decision.Title == "" {
@@ -1678,7 +1697,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.Reaction != "" || decision.Message != "" || decision.IncidentTitle != "" ||
 			decision.TaskTitle != "" || decision.TaskRepository != "" ||
 			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-			decision.RuleOffer != nil {
+			decision.RuleOffer != nil || len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("incident decision has unexpected fields")
 		}
 	default:
@@ -1912,6 +1931,13 @@ must request and confirm durable behavior; do not claim that a save control will
 
 ` + slackReplyFormattingPolicy + `
 
+When a user asks for a chart or image and an appropriate tool is available, create it in the exact
+Coop output directory named earlier in the prompt and include visuals with the exact filename or
+artifact ID, a short title, and useful alt text. Never inline image bytes, base64, data URLs, or
+local paths. For charts, use verified data, label axes and units, and explain the source, time range,
+freshness, and gaps in message/evidence; the chart itself is not evidence. Creative images may omit
+evidence. If no capable tool is available, say so plainly and return no visuals.
+
 Choose exactly one action:
 - ignore: routine noise, informational chatter, successful or recovered notifications, duplicates, or messages where a human teammate would reasonably stay silent.
 - react: acknowledge useful information without interrupting the channel. Prefer this over reply when the sender explicitly asks for acknowledgement without a written response, or when a teammate would naturally use only an emoji. Choose one context-appropriate standard Slack emoji or a workspace custom emoji whose name is visible in the supplied Slack context. Return its Slack name without surrounding colons, for example ` + "`eyes`" + `, ` + "`white_check_mark`" + `, ` + "`thumbsup`" + `, ` + "`tada`" + `, ` + "`warning`" + `, or ` + "`bulb`" + `. Use ` + "`white_check_mark`" + ` for a completed handoff or explicitly completed task unless the context calls for a different reaction. Prefer familiar, unambiguous reactions; avoid playful or ambiguous choices for incidents and high-severity alerts. A reaction is social acknowledgement only: it must not claim verification, approval, remediation, or future work. Do not attach prose, evidence, offers, or coverage.
@@ -1937,7 +1963,7 @@ assessment. Evidence, coverage, and memory use the field
 shapes below. This shared-channel session cannot propose or execute actions:
 {"action":"ignore","attention":{"addressee":"human","urgency":0,"confidence":3,"novelty":0,"ownership":0},"reason":"why silence is appropriate","evidence":[],"coverage":[],"memory":{}}
 {"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1},"reason":"why acknowledgement is enough","memory":{}}
-{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"Slack Markdown","incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key when scope is repository","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
+{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"Slack Markdown","visuals":[{"artifact":"chart.png","title":"Production load","alt_text":"Line chart of production load over 24 hours, peaking at 82 percent at 14:00 UTC"}],"incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
 {"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"why creation is authorized","title":"concise title","evidence":[],"coverage":[],"memory":{}}
 
 Evidence objects require claim, observation, source_type, and source_name. source_type must be

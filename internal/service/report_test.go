@@ -50,6 +50,30 @@ func TestAgentReportStrictSchemaAndLegacyCompatibility(t *testing.T) {
 	}
 }
 
+func TestAgentReportGeneratedVisualContract(t *testing.T) {
+	report, structured, err := parseAgentReport(`{
+	  "message":"Here is the requested load chart.",
+	  "visuals":[{"artifact":"load.png","title":"Production load","alt_text":"Line chart of load over 24 hours."}]
+	}`)
+	if err != nil || !structured || len(report.Visuals) != 1 ||
+		report.Visuals[0].Artifact != "load.png" {
+		t.Fatalf("generated visual report = %+v, %v, %v", report, structured, err)
+	}
+	if _, err := decodeAgentReport(`{
+	  "message":"Remember this and show a chart.",
+	  "visuals":[{"artifact":"load.png","title":"Load","alt_text":"Load chart."}],
+	  "memory_offer":{"scope":"workspace","subject":"health","predicate":"guidance","value":"deep","visibility":"workspace"}
+	}`); err == nil {
+		t.Fatal("generated visual was combined with a durable behavior offer")
+	}
+	if _, err := parseWatchDecision(`{
+	  "action":"ignore",
+	  "visuals":[{"artifact":"load.png","title":"Load","alt_text":"Load chart."}]
+	}`); err == nil {
+		t.Fatal("ignore decision carried a generated visual")
+	}
+}
+
 func TestAgentReportPreservesMessageWhenOptionalEnvelopeIsMalformed(t *testing.T) {
 	report, structured, err := parseAgentReport(
 		`{"message":"The database is healthy.","evidence":{"unexpected":"shape"}}`,

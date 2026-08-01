@@ -1269,6 +1269,7 @@ func (s *Service) finalizeIncidentAgentRun(
 		threadTS = conversationalResponseThread(conversationInput)
 	}
 	var message slackui.Message
+	var visuals []core.GeneratedVisual
 	if state == "completed" {
 		report, structured, reportErr := parseAgentReport(string(run.Result))
 		if reportErr != nil {
@@ -1326,6 +1327,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			if err != nil {
 				return err
 			}
+			visuals = report.Visuals
 			if conversation && suppressConversationReply(report.Message) {
 				if err := s.requireNativeStatusClear(ctx, incident, run.ID); err != nil {
 					return err
@@ -1451,6 +1453,12 @@ func (s *Service) finalizeIncidentAgentRun(
 		"assistant",
 		threadTS,
 		message,
+	); err != nil {
+		return err
+	}
+	if err := s.enqueueGeneratedVisuals(
+		ctx, "out_run_"+run.ID, incident.ID, incident.ChannelID, threadTS,
+		run.SessionID, run.CoopTurnID, visuals,
 	); err != nil {
 		return err
 	}

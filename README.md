@@ -25,6 +25,8 @@ It is a single-host incident controller for pragmatic on-call teams:
   acknowledgements, and
   deterministic controls for status, evidence, handoff, changes, review, draft PR publication,
   retained-work disposal, stop, and close;
+- can return bounded generated images and evidence-backed charts in the same Slack conversation,
+  when the configured agent has an appropriate image or chart tool;
 - investigates live infrastructure through Emisar and can submit an exact, directly requested
   incident action to Emisar's policy and approval workflow.
 

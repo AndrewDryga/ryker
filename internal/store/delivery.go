@@ -52,7 +52,7 @@ func (s *Store) EnqueueSlackDelivery(
 		delivery.Operation = "post"
 	}
 	if delivery.Operation != "post" && delivery.Operation != "update" &&
-		delivery.Operation != "status" {
+		delivery.Operation != "status" && delivery.Operation != "file" {
 		return false, fmt.Errorf(
 			"unsupported Slack delivery operation %q",
 			delivery.Operation,
@@ -61,7 +61,7 @@ func (s *Store) EnqueueSlackDelivery(
 	if delivery.ChannelID == "" {
 		return false, errors.New("Slack delivery channel is required")
 	}
-	if delivery.Operation == "post" && len(delivery.Body) == 0 {
+	if (delivery.Operation == "post" || delivery.Operation == "file") && len(delivery.Body) == 0 {
 		return false, errors.New("Slack post delivery body is required")
 	}
 	if delivery.Operation == "update" &&
@@ -381,7 +381,7 @@ func (s *Store) ListUncertainSlackDeliveries(
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+slackDeliveryColumns+`
 		FROM slack_deliveries
-		WHERE state = 'uncertain' AND operation = 'post'
+		WHERE state = 'uncertain' AND operation IN ('post', 'file')
 		  AND julianday(next_attempt_at) <= julianday(?)
 		ORDER BY created_at, id
 		LIMIT ?`, nowText(), limit)

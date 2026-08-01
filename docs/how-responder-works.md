@@ -231,6 +231,10 @@ sequenceDiagram
   C->>G: Start short-lived agent box
   G->>T: Inspect declared topology and fresh evidence
   T-->>G: Source-attributed observations
+  opt User requested an image or chart and a capable tool is available
+    G->>G: Write bounded image to the per-turn output directory<br/>or return typed ACP image content
+    C->>C: Store content-addressed output outside the text transcript
+  end
   G-->>C: Strict JSON decision envelope
   C-->>W: Terminal turn
 
@@ -247,6 +251,10 @@ sequenceDiagram
     W->>S: Add lightweight standard or workspace reaction
   else reply
     W->>DB: Queue rich delivery at the safe response location
+  else reply with generated visuals
+    W->>C: Fetch exact completed-turn artifacts
+    W->>W: Verify type, size, digest, title, and alt text
+    W->>DB: Queue prose and durable file uploads<br/>to the same conversation
   else reply with inert offer
     W->>DB: Queue response + host-owned confirmation button
   else allowed automatic app alert
@@ -266,9 +274,17 @@ the bounded payload only until the turn completes, fails, or is cancelled, then 
 triage answer offers an engineering task, accepting that offer queues the initial writable turn
 against the original Slack input so the same screenshot or document reaches the isolated task fork.
 
-The model does not return arbitrary Slack blocks. It returns a strict decision envelope containing
-prose, evidence, coverage, compact memory, and at most one inert offer. Responder owns buttons,
-confirmation dialogs, mentions, approval links, limits, and persistence.
+The model does not return arbitrary Slack blocks or inline binary data. It returns a strict decision
+envelope containing prose, optional references to exact current-turn image artifacts, evidence,
+coverage, compact memory, and at most one inert offer. Responder owns buttons, file uploads,
+confirmation dialogs, mentions, approval links, accessibility text, limits, and persistence.
+
+Generated visuals are a typed output channel, not memory or evidence. Coop accepts only bounded
+PNG, JPEG, WebP, and GIF files from a fresh per-turn directory or typed ACP image/resource blocks,
+then removes the directory. Responder fetches only artifacts explicitly referenced by the final
+decision, rechecks their SHA-256 and byte count, and queues them after the reply at the same channel
+or thread location. A deterministic filename lets uncertain Slack uploads reconcile exactly once.
+Charts must cite their underlying observations and time range; creative images may have no evidence.
 
 For shared-channel work, accepted decisions are:
 

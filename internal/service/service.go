@@ -30,6 +30,7 @@ type CoopAPI interface {
 	SubmitTurn(context.Context, string, string, int64, string) (coop.Turn, coop.Operation, error)
 	SubmitTurnWithArtifacts(context.Context, string, string, int64, string, []coop.InputArtifact) (coop.Turn, coop.Operation, error)
 	GetTurn(context.Context, string, string) (coop.Turn, error)
+	GetOutputArtifact(context.Context, string, string, string) (coop.OutputArtifact, error)
 	Events(context.Context, string, int64, int) ([]coop.Event, error)
 	Changes(context.Context, string) (coop.Changes, error)
 	Review(context.Context, string, string, int64) (coop.Review, coop.Operation, error)

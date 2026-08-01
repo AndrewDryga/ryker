@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	maxResponseBytes    = 3 << 20
-	maxReviewPatchBytes = 64 << 20
+	maxResponseBytes       = 3 << 20
+	maxReviewPatchBytes    = 64 << 20
+	maxOutputArtifactBytes = 8 << 20
 )
 
 type Client struct {
@@ -85,18 +86,28 @@ type CompanionRepository struct {
 }
 
 type Turn struct {
-	ID               string    `json:"id"`
-	SessionID        string    `json:"session_id"`
-	Ordinal          int64     `json:"ordinal"`
-	State            string    `json:"state"`
-	SendState        string    `json:"send_state"`
-	AssistantMessage string    `json:"assistant_message,omitempty"`
-	StopReason       string    `json:"stop_reason,omitempty"`
-	ErrorCode        string    `json:"error_code,omitempty"`
-	ErrorDetail      string    `json:"error_detail,omitempty"`
-	QueuedAt         time.Time `json:"queued_at"`
-	StartedAt        time.Time `json:"started_at,omitempty"`
-	FinishedAt       time.Time `json:"finished_at,omitempty"`
+	ID               string           `json:"id"`
+	SessionID        string           `json:"session_id"`
+	Ordinal          int64            `json:"ordinal"`
+	State            string           `json:"state"`
+	SendState        string           `json:"send_state"`
+	AssistantMessage string           `json:"assistant_message,omitempty"`
+	StopReason       string           `json:"stop_reason,omitempty"`
+	ErrorCode        string           `json:"error_code,omitempty"`
+	ErrorDetail      string           `json:"error_detail,omitempty"`
+	QueuedAt         time.Time        `json:"queued_at"`
+	StartedAt        time.Time        `json:"started_at,omitempty"`
+	FinishedAt       time.Time        `json:"finished_at,omitempty"`
+	OutputArtifacts  []OutputArtifact `json:"output_artifacts,omitempty"`
+}
+
+type OutputArtifact struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	MediaType string `json:"media_type"`
+	SHA256    string `json:"sha256"`
+	Bytes     int64  `json:"bytes"`
+	Data      []byte `json:"-"`
 }
 
 type InputArtifact struct {
@@ -309,6 +320,37 @@ func (c *Client) GetTurn(ctx context.Context, sessionID, turnID string) (Turn, e
 	var response Turn
 	err := c.get(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/turns/"+url.PathEscape(turnID), nil, &response)
 	return response, err
+}
+
+func (c *Client) GetOutputArtifact(ctx context.Context, sessionID, turnID, artifactID string) (OutputArtifact, error) {
+	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(turnID) == "" || strings.TrimSpace(artifactID) == "" {
+		return OutputArtifact{}, errors.New("Coop output artifact identity is required")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"http://coop.local/v1/sessions/"+url.PathEscape(sessionID)+"/turns/"+url.PathEscape(turnID)+"/artifacts/"+url.PathEscape(artifactID), nil)
+	if err != nil {
+		return OutputArtifact{}, err
+	}
+	request.Header.Set("Accept", "image/png,image/jpeg,image/webp,image/gif")
+	response, err := c.http.Do(request)
+	if err != nil {
+		return OutputArtifact{}, fmt.Errorf("call Coop: %w", err)
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxOutputArtifactBytes+1))
+	if err != nil {
+		return OutputArtifact{}, fmt.Errorf("read Coop output artifact: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return OutputArtifact{}, &APIError{Status: response.StatusCode, Code: "artifact_unavailable"}
+	}
+	if len(data) == 0 || len(data) > maxOutputArtifactBytes {
+		return OutputArtifact{}, errors.New("Coop output artifact exceeds 8 MiB")
+	}
+	return OutputArtifact{
+		ID: artifactID, MediaType: strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0]),
+		SHA256: strings.Trim(response.Header.Get("ETag"), `"`), Bytes: int64(len(data)), Data: data,
+	}, nil
 }
 
 func (c *Client) Events(ctx context.Context, sessionID string, after int64, limit int) ([]Event, error) {

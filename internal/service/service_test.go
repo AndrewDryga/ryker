@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,6 +47,92 @@ func TestReviewSummaryExplainsMachineReasons(t *testing.T) {
 		if strings.Contains(summary, raw) {
 			t.Fatalf("summary leaked machine reason %q:\n%s", raw, summary)
 		}
+	}
+}
+
+func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	data := []byte("\x89PNG\r\n\x1a\nchart")
+	digest := sha256.Sum256(data)
+	digestHex := hex.EncodeToString(digest[:])
+	coopClient := newFakeCoop()
+	coopClient.turn = coop.Turn{ID: "turn_visual", SessionID: "ses_1", OutputArtifacts: []coop.OutputArtifact{{
+		ID: "artifact_visual", Name: "load.png", MediaType: "image/png", SHA256: digestHex, Bytes: int64(len(data)),
+	}}}
+	coopClient.outputArtifacts = map[string]coop.OutputArtifact{
+		"artifact_visual": {ID: "artifact_visual", MediaType: "image/png", SHA256: digestHex, Bytes: int64(len(data)), Data: data},
+	}
+	slackClient := &fakeSlack{uploadErr: errors.New("timeout after Slack accepted upload")}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.enqueueGeneratedVisuals(ctx, "out_test", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
+		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if delivery, err := st.GetSlackDelivery(ctx, "out_test_visual_01"); err != nil {
+		t.Fatalf("queued visual delivery = %+v err=%v", delivery, err)
+	}
+	if err := svc.processSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.uploads) != 1 || slackClient.uploads[0].thread != "1700.001" ||
+		slackClient.uploads[0].upload.Title != "Production load" ||
+		!strings.Contains(slackClient.uploads[0].upload.Filename, "out_test_visual_01") {
+		t.Fatalf("upload = %+v", slackClient.uploads)
+	}
+	time.Sleep(2100 * time.Millisecond)
+	if err := svc.reconcileSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.uploads) != 1 {
+		t.Fatalf("uncertain upload was duplicated: %+v", slackClient.uploads)
+	}
+	delivery, err := st.GetSlackDelivery(ctx, "out_test_visual_01")
+	if err != nil || delivery.State != "sent" {
+		t.Fatalf("delivery = %+v err=%v", delivery, err)
+	}
+}
+
+func TestGeneratedVisualDeliveryRejectsUnknownAndMismatchedArtifacts(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	data := []byte("\x89PNG\r\n\x1a\nchart")
+	digest := sha256.Sum256(data)
+	coopClient := newFakeCoop()
+	coopClient.turn = coop.Turn{ID: "turn_visual", SessionID: "ses_1", OutputArtifacts: []coop.OutputArtifact{{
+		ID: "artifact_visual", Name: "load.png", MediaType: "image/png",
+		SHA256: hex.EncodeToString(digest[:]), Bytes: int64(len(data)),
+	}}}
+	coopClient.outputArtifacts = map[string]coop.OutputArtifact{
+		"artifact_visual": {
+			ID: "artifact_visual", MediaType: "image/png",
+			SHA256: hex.EncodeToString(digest[:]), Bytes: int64(len(data)), Data: append(data, 'x'),
+		},
+	}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	for name, visual := range map[string]core.GeneratedVisual{
+		"unknown":  {Artifact: "other.png", Title: "Load", AltText: "Load chart."},
+		"mismatch": {Artifact: "load.png", Title: "Load", AltText: "Load chart."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := svc.enqueueGeneratedVisuals(
+				ctx, "out_"+name, "", "C123", "1700.1", "ses_1", "turn_visual",
+				[]core.GeneratedVisual{visual},
+			); err == nil {
+				t.Fatal("untrusted generated visual was accepted")
+			}
+		})
 	}
 }
 
@@ -4586,6 +4674,7 @@ type fakeCoop struct {
 	submitTurns        []coop.Turn
 	discardPlan        coop.DiscardPlan
 	discardCalls       int
+	outputArtifacts    map[string]coop.OutputArtifact
 }
 
 func newFakeCoop() *fakeCoop {
@@ -4730,6 +4819,13 @@ func (f *fakeCoop) GetTurn(context.Context, string, string) (coop.Turn, error) {
 		return coop.Turn{}, errors.New("missing turn")
 	}
 	return f.turn, nil
+}
+func (f *fakeCoop) GetOutputArtifact(_ context.Context, _, _, artifactID string) (coop.OutputArtifact, error) {
+	artifact, ok := f.outputArtifacts[artifactID]
+	if !ok {
+		return coop.OutputArtifact{}, errors.New("missing output artifact")
+	}
+	return artifact, nil
 }
 func (f *fakeCoop) Events(_ context.Context, _ string, after int64, _ int) ([]coop.Event, error) {
 	var result []coop.Event
@@ -4947,6 +5043,12 @@ type slackReaction struct {
 	name      string
 }
 
+type slackFileUpload struct {
+	channel string
+	thread  string
+	upload  slackui.FileUpload
+}
+
 type slackHistoryRequest struct {
 	channel string
 	thread  string
@@ -4985,6 +5087,8 @@ type fakeSlack struct {
 	fileInfoErr        error
 	downloadErr        error
 	downloads          []string
+	uploads            []slackFileUpload
+	uploadErr          error
 }
 
 type fakeSocket struct {
@@ -5134,6 +5238,13 @@ func (f *fakeSlack) DownloadFile(_ context.Context, fileURL string, writer io.Wr
 	_, err := writer.Write(data)
 	return err
 }
+func (f *fakeSlack) UploadFile(_ context.Context, channel, thread string, upload slackui.FileUpload) (string, error) {
+	f.uploads = append(f.uploads, slackFileUpload{channel: channel, thread: thread, upload: upload})
+	if f.uploadErr != nil {
+		return "", f.uploadErr
+	}
+	return fmt.Sprintf("F%03d", len(f.uploads)), nil
+}
 func (f *fakeSlack) RecentMessages(
 	_ context.Context,
 	channel string,
@@ -5158,6 +5269,14 @@ func (f *fakeSlack) FindDeliveryMessage(
 			if post.outboxID == outboxID && post.channel == channel && post.thread == thread {
 				return fmt.Sprintf("1700.%03d", index+1), nil
 			}
+		}
+	}
+	return "", slackui.ErrNotFound
+}
+func (f *fakeSlack) FindDeliveryFile(_ context.Context, channel, thread, filename string) (string, error) {
+	for index, upload := range f.uploads {
+		if upload.channel == channel && upload.thread == thread && upload.upload.Filename == filename {
+			return fmt.Sprintf("F%03d", index+1), nil
 		}
 	}
 	return "", slackui.ErrNotFound

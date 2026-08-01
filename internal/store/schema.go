@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 21
+const currentSchemaVersion = 22
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -977,6 +977,53 @@ CREATE INDEX memory_lookup_idx
 CREATE INDEX memory_expiry_idx ON memory_entries(expires_at);
 `
 
+const schemaV22 = `
+ALTER TABLE slack_deliveries RENAME TO slack_deliveries_v21;
+
+CREATE TABLE slack_deliveries (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT,
+  operation TEXT NOT NULL CHECK (operation IN ('post', 'update', 'status', 'file')),
+  kind TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL DEFAULT '',
+  message_ts TEXT NOT NULL DEFAULT '',
+  body_json BLOB NOT NULL DEFAULT '',
+  status_text TEXT NOT NULL DEFAULT '',
+  steps_json BLOB NOT NULL DEFAULT '[]',
+  coalesce_key TEXT NOT NULL DEFAULT '',
+  card_version INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL CHECK (
+    state IN ('pending', 'sending', 'retry', 'uncertain', 'sent', 'failed', 'superseded')
+  ),
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+);
+
+INSERT INTO slack_deliveries (
+  id, incident_id, operation, kind, channel_id, thread_ts, message_ts,
+  body_json, status_text, steps_json, coalesce_key, card_version, state,
+  failure_count, next_attempt_at, last_error, created_at, updated_at
+)
+SELECT
+  id, incident_id, operation, kind, channel_id, thread_ts, message_ts,
+  body_json, status_text, steps_json, coalesce_key, card_version, state,
+  failure_count, next_attempt_at, last_error, created_at, updated_at
+FROM slack_deliveries_v21;
+
+DROP TABLE slack_deliveries_v21;
+
+CREATE INDEX slack_delivery_work_idx
+  ON slack_deliveries(state, next_attempt_at, created_at);
+CREATE INDEX slack_delivery_coalesce_idx
+  ON slack_deliveries(coalesce_key, state, created_at)
+  WHERE coalesce_key != '';
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -999,4 +1046,5 @@ var migrations = []string{
 	schemaV19,
 	schemaV20,
 	schemaV21,
+	schemaV22,
 }

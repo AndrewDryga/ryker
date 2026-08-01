@@ -63,6 +63,9 @@ webhooks:
 		cfg.Limits.MaxSlackInputAttempts != 12 ||
 		cfg.Limits.MaxDeliveryAttempts != 12 ||
 		cfg.Limits.MaxAgentRunAttempts != 20 ||
+		cfg.Limits.MaxGeneratedVisuals != 4 ||
+		cfg.Limits.MaxGeneratedVisualBytes != 8<<20 ||
+		cfg.Limits.MaxGeneratedVisualTotalBytes != 8<<20 ||
 		cfg.Limits.MaxMemoryEntries != 1000 ||
 		cfg.Limits.MaxMemoryEntriesPerScope != 100 ||
 		cfg.Limits.MaxPreferences != 500 ||
@@ -304,6 +307,15 @@ webhooks:
 		},
 		"rule channel exceeds total": func(s string) string {
 			return s + "limits:\n  max_standing_rules: 10\n  max_rules_per_channel: 11\n"
+		},
+		"no generated visuals": func(s string) string {
+			return s + "limits:\n  max_generated_visuals: 0\n"
+		},
+		"small generated visual": func(s string) string {
+			return s + "limits:\n  max_generated_visual_bytes: 65535\n"
+		},
+		"generated visual exceeds total": func(s string) string {
+			return s + "limits:\n  max_generated_visual_bytes: 1048576\n  max_generated_visual_total_bytes: 524288\n"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
