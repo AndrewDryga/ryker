@@ -1296,6 +1296,18 @@ func (s *Service) finalizeIncidentAgentRun(
 				Detail: boundedField(trimError(reportErr), 1000),
 			})
 		} else {
+			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
+				if offer, acknowledgement, ok := normalizeResponseLocationPreference(
+					conversationInput, report.PreferenceOffer,
+				); ok {
+					report.Message = acknowledgement
+					report.MemoryOffer = nil
+					report.PreferenceOffer = offer
+					report.RuleOffer = nil
+					report.Evidence = nil
+					report.Coverage = nil
+				}
+			}
 			if !structured {
 				_ = s.store.Audit(ctx, core.AuditEvent{
 					IncidentID: incident.ID, Kind: "agent.report",

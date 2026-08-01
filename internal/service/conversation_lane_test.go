@@ -112,6 +112,74 @@ func TestConversationRoutePersistsChannelAndReturnsToPreviousThread(t *testing.T
 	}
 }
 
+func TestConversationRouteAppliesPreferencePrecedenceAndExplicitOverride(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC().Add(90 * 24 * time.Hour)
+	for _, preference := range []core.ResponderPreference{
+		{
+			ScopeKind: "workspace", ScopeKey: cfg.Slack.TeamID,
+			Name: "response_location", Value: "prefer_channel",
+			SourceRef: "workspace_pref", ActorID: cfg.Slack.Operators[0], ExpiresAt: now,
+		},
+		{
+			ScopeKind: "operator", ScopeKey: cfg.Slack.Operators[0],
+			Name: "response_location", Value: "prefer_thread",
+			SourceRef: "operator_pref", ActorID: cfg.Slack.Operators[0], ExpiresAt: now,
+		},
+	} {
+		if _, _, err := st.UpsertPreference(ctx, preference, 20, 10); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	operator := core.SlackInput{
+		ChannelID: "COPS", MessageTS: "1700.700",
+		UserID: cfg.Slack.Operators[0], Text: "Can you check this?",
+	}
+	thread, _, err := svc.resolveConversationRoute(ctx, operator)
+	if err != nil || thread != operator.MessageTS {
+		t.Fatalf("operator preference route = %q, %v", thread, err)
+	}
+	other := core.SlackInput{
+		ChannelID: "COPS", ThreadTS: "1700.800", MessageTS: "1700.801",
+		UserID: "UOTHER", Text: "Can you check this?",
+	}
+	thread, referenced, err := svc.resolveConversationRoute(ctx, other)
+	if err != nil || thread != "" || referenced != other.ThreadTS {
+		t.Fatalf("workspace preference route = %q, %q, %v", thread, referenced, err)
+	}
+	explicit := core.SlackInput{
+		ChannelID: "COPS", ThreadTS: operator.MessageTS, MessageTS: "1700.701",
+		UserID: cfg.Slack.Operators[0], Text: "Let's get back to the channel.",
+	}
+	thread, _, err = svc.resolveConversationRoute(ctx, explicit)
+	if err != nil || thread != "" {
+		t.Fatalf("explicit channel override = %q, %v", thread, err)
+	}
+	followup := explicit
+	followup.MessageTS = "1700.702"
+	followup.Text = "One more question."
+	thread, referenced, err = svc.resolveConversationRoute(ctx, followup)
+	if err != nil || thread != "" || referenced != operator.MessageTS {
+		t.Fatalf("conversation override persistence = %q, %q, %v", thread, referenced, err)
+	}
+	newConversation := operator
+	newConversation.MessageTS = "1700.900"
+	thread, _, err = svc.resolveConversationRoute(ctx, newConversation)
+	if err != nil || thread != newConversation.MessageTS {
+		t.Fatalf("new conversation preference route = %q, %v", thread, err)
+	}
+}
+
 func TestConversationReplyReturnsToPreviouslyExitedThread(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

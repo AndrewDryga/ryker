@@ -59,6 +59,108 @@ func TestBehaviorOffersRequireExplicitTypedOperatorIntent(t *testing.T) {
 	if _, _, _, ok := s.prepareRuleOfferAction(input, ruleOffer); ok {
 		t.Fatal("invalid trigger/action pair produced a standing rule offer")
 	}
+
+	input.Text = "I prefer threads by default."
+	locationOffer, acknowledgement, ok := normalizeResponseLocationPreference(
+		input,
+		&core.PreferenceOffer{Scope: "workspace", ExpiresIn: "365d"},
+	)
+	if !ok || locationOffer.Scope != "operator" ||
+		locationOffer.Name != "response_location" ||
+		locationOffer.Value != "prefer_thread" ||
+		locationOffer.ExpiresIn != "365d" ||
+		!strings.Contains(acknowledgement, "replying to you") {
+		t.Fatalf("operator location offer = %+v, %q, %t", locationOffer, acknowledgement, ok)
+	}
+	input.Text = "For everyone in the workspace, always reply in threads."
+	locationOffer, _, ok = normalizeResponseLocationPreference(input, nil)
+	if !ok || locationOffer.Scope != "workspace" {
+		t.Fatalf("workspace location offer = %+v, %t", locationOffer, ok)
+	}
+	input.Text = "In this channel I prefer replies in threads."
+	locationOffer, _, ok = normalizeResponseLocationPreference(input, nil)
+	if !ok || locationOffer.Scope != "channel" {
+		t.Fatalf("channel location offer = %+v, %t", locationOffer, ok)
+	}
+	input.Text = "Switch to a thread for this answer."
+	if _, _, ok := normalizeResponseLocationPreference(input, nil); ok {
+		t.Fatal("one-turn location request produced a durable preference")
+	}
+}
+
+func TestNaturalThreadPreferenceOverridesUnsupportedModelReplyAndRoutesFutureTurn(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"COPS"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2},"reason":"direct preference request","message":"That durable setting is not supported.","evidence":[{"claim":"preference unsupported","observation":"no setting exists","source_type":"other","source_name":"model","target":"Responder","confidence":"low"}],"memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2},"reason":"direct follow-up","message":"I remembered the thread preference.","memory":{}}`,
+	}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	request := core.SlackInput{
+		ID: "slack_location_offer", EnvelopeID: "env_location_offer",
+		EventID: "EvLocationOffer", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "1700.500", UserID: cfg.Slack.Operators[0],
+		Text: "<@U999BOT> I prefer threads by default.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, request); err != nil || !created {
+		t.Fatalf("admit location request = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) == 0 {
+		drainSlackDeliveries(t, ctx, svc)
+	}
+	offerPost := slackClient.posts[len(slackClient.posts)-1]
+	if strings.Contains(offerPost.message.Text, "not supported") ||
+		strings.Contains(strings.Join(offerPost.message.Context, " "), "Details saved") {
+		t.Fatalf("location offer retained model refusal or evidence counter: %+v", offerPost.message)
+	}
+	action := findSlackAction(t, offerPost.message, slackui.ActionRememberPreference)
+	confirm := core.SlackInput{
+		ID: "slack_location_confirm", EnvelopeID: "env_location_confirm",
+		EventID: "EvLocationConfirm", Kind: "action", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", ThreadTS: request.MessageTS, MessageTS: "1700.501",
+		UserID: cfg.Slack.Operators[0], ActionID: action.ID, ActionValue: action.Value,
+	}
+	if created, err := st.AdmitSlackInput(ctx, confirm); err != nil || !created {
+		t.Fatalf("admit location confirmation = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	followup := core.SlackInput{
+		ID: "slack_location_followup", EnvelopeID: "env_location_followup",
+		EventID: "EvLocationFollowup", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "1700.600", UserID: cfg.Slack.Operators[0],
+		Text: "<@U999BOT> where should this reply appear?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, followup); err != nil || !created {
+		t.Fatalf("admit location follow-up = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	last := slackClient.posts[len(slackClient.posts)-1]
+	if last.thread != followup.MessageTS || last.broadcast {
+		t.Fatalf("remembered thread route = %+v", last)
+	}
 }
 
 func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {

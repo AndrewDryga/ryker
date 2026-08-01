@@ -343,6 +343,12 @@ func TestLiveEvaluationPromptIncludesConfirmedBehaviorContext(t *testing.T) {
 			Kind:              "watch",
 			Input:             "Check this Terraform plan.",
 			MentionsResponder: true,
+			Memories: []EvaluationMemory{{
+				Scope: "workspace:TWORKSPACE", Subject: "fix_explanation_style",
+				Predicate: "guidance",
+				Value:     "Start fix explanations with a plain-language summary.",
+				ExpiresAt: "2026-10-27T00:00:00Z",
+			}},
 			Preferences: []EvaluationPreference{{
 				Scope: "operator:U123ABC", Name: "response_detail",
 				Value: "detailed", ExpiresAt: "2026-10-27T00:00:00Z",
@@ -360,6 +366,8 @@ func TestLiveEvaluationPromptIncludesConfirmedBehaviorContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
+		`"predicate":"guidance"`,
+		"Start fix explanations with a plain-language summary.",
 		"<trusted-responder-preferences>",
 		`"name":"response_detail"`,
 		"<trusted-responder-standing-rules>",

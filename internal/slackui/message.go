@@ -545,12 +545,33 @@ func WithMemoryOffer(
 	scopeLabel string,
 	expiresLabel string,
 ) Message {
+	if offer.Predicate == "guidance" {
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"*Proposed guidance*\n> %s\n\nApplies to: %s · Expires: %s",
+			escapeSlackText(offer.Value),
+			guidanceOfferScopeLabel(offer, scopeLabel),
+			expiresLabel,
+		))
+		message.Context = append(
+			message.Context,
+			"Nothing is saved yet. This can steer future replies, but it cannot start work, prove operational state, or authorize any action.",
+		)
+		message.Actions = append(message.Actions, Action{
+			ID:    ActionRememberMemory,
+			Label: "Remember this",
+			Value: actionValue,
+			Style: "primary",
+			Confirm: "Remember this guidance for " + expiresLabel +
+				"? Your current request and Responder's safety policy will always take precedence.",
+		})
+		return message
+	}
 	revision := ""
 	if offer.SourceRevision != "" {
 		revision = "\nSource revision: `" + offer.SourceRevision + "`"
 	}
 	message.Sections = append(message.Sections, fmt.Sprintf(
-		"**Proposed operational memory**\n`%s` **%s** `%s`\n\nScope: %s · Visibility: `%s` · Expires: %s%s",
+		"*Proposed operational memory*\n`%s` *%s* `%s`\n\nScope: %s · Visibility: `%s` · Expires: %s%s",
 		offer.Subject,
 		offer.Predicate,
 		offer.Value,
@@ -581,22 +602,27 @@ func WithPreferenceOffer(
 	actionValue string,
 	expiresLabel string,
 ) Message {
+	title, description := preferenceDescription(preference)
 	message.Sections = append(message.Sections, fmt.Sprintf(
-		"*Proposed Responder preference*\n"+
-			"Set `%s` to `%s`.\n\n"+
+		"*Proposed preference: %s*\n"+
+			"%s\n\n"+
 			"Scope: %s · Expires: %s",
-		offer.Name,
-		offer.Value,
+		title,
+		description,
 		preferenceScopeLabel(preference),
 		expiresLabel,
 	))
+	boundary := "This changes investigation depth or presentation only"
+	if offer.Name == "response_location" {
+		boundary = "This changes where future Slack replies appear only"
+	}
 	message.Context = append(
 		message.Context,
-		"Nothing is saved yet. This preference changes investigation depth or presentation only; it cannot establish health, create an incident, edit files, approve an action, or mutate infrastructure.",
+		"Nothing is saved yet. "+boundary+"; it cannot establish health, create an incident, edit files, approve an action, or mutate infrastructure.",
 	)
 	message.Actions = append(message.Actions, Action{
 		ID:    ActionRememberPreference,
-		Label: "Save preference",
+		Label: "Remember this",
 		Value: actionValue,
 		Style: "primary",
 		Confirm: "Save this " + preference.ScopeKind + " preference for " +
@@ -691,27 +717,26 @@ func PreferenceSavedMessage(
 	preference core.ResponderPreference,
 	replaced bool,
 ) Message {
+	title, description := preferenceDescription(preference)
 	header := "Responder preference saved"
 	if replaced {
 		header = "Responder preference updated"
 	}
 	return Message{
 		Text: fmt.Sprintf(
-			"%s: %s is now %s for %s scope.",
-			header, preference.Name, preference.Value, preference.ScopeKind,
+			"%s: %s.",
+			header, description,
 		),
 		Header: header,
 		Sections: []string{fmt.Sprintf(
-			"`%s` = `%s`\n\nScope: %s\nExpires: %s",
-			preference.Name,
-			preference.Value,
+			"*%s*\n%s\n\nScope: %s\nExpires: %s",
+			title,
+			description,
 			preferenceScopeLabel(preference),
 			preference.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
 		)},
-		Context: []string{
-			preferencePrecedenceText(preference) +
-				" It changes investigation behavior only and does not authorize incidents or changes.",
-		},
+		Context: []string{preferencePrecedenceText(preference) +
+			" It does not authorize incidents or changes."},
 		Actions: preferenceActions(preference),
 	}
 }
@@ -766,11 +791,12 @@ func PreferenceDirectoryMessage(
 		if preference.Enabled {
 			state = "enabled"
 		}
+		title, description := preferenceDescription(preference)
 		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*%d.* `%s` = `%s`\n%s · %s · expires %s",
+			"*%d. %s*\n%s\n%s · %s · expires %s",
 			index+1,
-			preference.Name,
-			preference.Value,
+			title,
+			description,
 			state,
 			preferenceScopeLabel(preference),
 			preference.ExpiresAt.UTC().Format("2006-01-02"),
@@ -778,6 +804,26 @@ func PreferenceDirectoryMessage(
 		message.Actions = append(message.Actions, preferenceActions(preference)...)
 	}
 	return message
+}
+
+func preferenceDescription(preference core.ResponderPreference) (string, string) {
+	switch preference.Name {
+	case "health_check_depth":
+		return "Health-check depth", "Use " + preference.Value + " infrastructure health checks."
+	case "response_detail":
+		return "Response detail", "Use " + preference.Value + " detail in responses."
+	case "response_location":
+		switch preference.Value {
+		case "prefer_thread":
+			return "Reply location", "Prefer threads unless the current conversation explicitly moves to the channel."
+		case "prefer_channel":
+			return "Reply location", "Prefer channel replies unless the current conversation explicitly stays in a thread."
+		default:
+			return "Reply location", "Follow the current conversation location."
+		}
+	default:
+		return preference.Name, "Use " + preference.Value + "."
+	}
 }
 
 func RuleSavedMessage(rule core.StandingRule, replaced bool) Message {
@@ -960,6 +1006,34 @@ func behaviorToggleValue(id string, enabled bool) string {
 }
 
 func MemorySavedMessage(entry core.MemoryEntry, replaced bool) Message {
+	if entry.Predicate == "guidance" {
+		action := "remember"
+		header := "Guidance remembered"
+		if replaced {
+			action = "use the updated guidance"
+			header = "Guidance updated"
+		}
+		return Message{
+			Text:   "I'll " + action + ": " + entry.Value,
+			Header: header,
+			Sections: []string{fmt.Sprintf(
+				"> %s\n\nApplies to: %s · Expires: %s",
+				escapeSlackText(entry.Value),
+				guidanceEntryScopeLabel(entry),
+				entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+			)},
+			Context: []string{
+				"This steers future replies when relevant. Your current request and Responder's safety policy take precedence.",
+			},
+			Actions: []Action{{
+				ID:      ActionForgetMemory,
+				Label:   "Forget this",
+				Value:   entry.ID,
+				Style:   "danger",
+				Confirm: "Permanently forget this guidance? It will no longer steer future replies.",
+			}},
+		}
+	}
 	action := "Saved"
 	if replaced {
 		action = "Updated"
@@ -971,7 +1045,7 @@ func MemorySavedMessage(entry core.MemoryEntry, replaced bool) Message {
 		),
 		Header: action + " operational memory",
 		Sections: []string{fmt.Sprintf(
-			"**%s** `%s` `%s`\n\nScope: `%s:%s`\nExpires: %s",
+			"*%s* `%s` `%s`\n\nScope: `%s:%s`\nExpires: %s",
 			entry.SubjectKey, entry.Predicate, entry.Value,
 			entry.ScopeKind, entry.ScopeKey,
 			entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
@@ -1001,29 +1075,40 @@ func MemoryForgottenMessage() Message {
 func MemoryDirectoryMessage(entries []core.MemoryEntry) Message {
 	message := Message{
 		Text:   fmt.Sprintf("Responder has %d active memory entries visible here.", len(entries)),
-		Header: "Operational memory visible here",
+		Header: "What Responder remembers here",
 		Context: []string{
-			"These are operator-confirmed hints, not current health evidence. Fresh live observations and repository state take precedence.",
+			"Guidance is advice, and operational mappings are hints rather than current health evidence. Current requests, host policy, fresh observations, and repository state take precedence.",
 		},
 	}
 	if len(entries) == 0 {
 		message.Sections = []string{
 			"No active memory matches this channel, its configured repository, and your visibility.",
-			"Ask Responder to remember a durable alias, repository binding, evidence route, or entity relationship correction. It will show the exact proposed value before anything is saved.",
+			"Tell Responder to remember guidance, an alias, a repository binding, an evidence route, or an entity relationship correction. It will show exactly what it plans to remember before anything is saved.",
 		}
 		return message
 	}
 	for index, entry := range entries[:min(len(entries), 20)] {
-		message.Sections = append(message.Sections, fmt.Sprintf(
-			"**%d. %s**\n`%s` `%s`\nScope: `%s:%s` · Expires: %s",
-			index+1,
-			escapeSlackText(entry.SubjectKey),
-			entry.Predicate,
-			entry.Value,
-			entry.ScopeKind,
-			entry.ScopeKey,
-			entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
-		))
+		if entry.Predicate == "guidance" {
+			message.Sections = append(message.Sections, fmt.Sprintf(
+				"*%d. Guidance: %s*\n> %s\nApplies to: %s · Expires: %s",
+				index+1,
+				escapeSlackText(strings.ReplaceAll(entry.SubjectKey, "_", " ")),
+				escapeSlackText(entry.Value),
+				guidanceEntryScopeLabel(entry),
+				entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+			))
+		} else {
+			message.Sections = append(message.Sections, fmt.Sprintf(
+				"*%d. %s*\n`%s` `%s`\nScope: `%s:%s` · Expires: %s",
+				index+1,
+				escapeSlackText(entry.SubjectKey),
+				entry.Predicate,
+				entry.Value,
+				entry.ScopeKind,
+				entry.ScopeKey,
+				entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+			))
+		}
 		message.Actions = append(message.Actions, Action{
 			ID:      ActionForgetMemory,
 			Label:   fmt.Sprintf("Forget memory %d", index+1),
@@ -1033,6 +1118,40 @@ func MemoryDirectoryMessage(entries []core.MemoryEntry) Message {
 		})
 	}
 	return message
+}
+
+func guidanceOfferScopeLabel(offer core.MemoryOffer, fallback string) string {
+	switch {
+	case offer.Scope == "workspace" && offer.Visibility == "operator":
+		return "only you, across this workspace"
+	case offer.Scope == "workspace" && offer.Visibility == "workspace":
+		return "everyone in this workspace"
+	case offer.Scope == "channel":
+		return "this channel"
+	case offer.Scope == "repository" && offer.Visibility == "operator":
+		return "only you, for repository `" + escapeSlackText(offer.Repository) + "`"
+	case offer.Scope == "repository":
+		return "repository `" + escapeSlackText(offer.Repository) + "`"
+	default:
+		return escapeSlackText(fallback)
+	}
+}
+
+func guidanceEntryScopeLabel(entry core.MemoryEntry) string {
+	switch {
+	case entry.ScopeKind == "workspace" && entry.VisibilityKind == "operator":
+		return "only you, across this workspace"
+	case entry.ScopeKind == "workspace" && entry.VisibilityKind == "workspace":
+		return "everyone in this workspace"
+	case entry.ScopeKind == "channel":
+		return "<#" + escapeSlackText(entry.ScopeKey) + ">"
+	case entry.ScopeKind == "repository" && entry.VisibilityKind == "operator":
+		return "only you, for repository `" + escapeSlackText(entry.ScopeKey) + "`"
+	case entry.ScopeKind == "repository":
+		return "repository `" + escapeSlackText(entry.ScopeKey) + "`"
+	default:
+		return "`" + escapeSlackText(entry.ScopeKind+":"+entry.ScopeKey) + "`"
+	}
 }
 
 func PublicationMessage(publication core.Publication, updated bool) Message {

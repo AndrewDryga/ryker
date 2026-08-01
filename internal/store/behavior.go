@@ -131,6 +131,17 @@ func validatePreference(preference core.ResponderPreference) error {
 		default:
 			return fmt.Errorf("response_detail value %q is invalid", preference.Value)
 		}
+	case "response_location":
+		if preference.ScopeKind == "repository" {
+			return errors.New(
+				"response_location does not support repository scope",
+			)
+		}
+		switch preference.Value {
+		case "follow_context", "prefer_thread", "prefer_channel":
+		default:
+			return fmt.Errorf("response_location value %q is invalid", preference.Value)
+		}
 	default:
 		return fmt.Errorf("preference name %q is invalid", preference.Name)
 	}

@@ -40,6 +40,78 @@ func TestMemoryOfferRequiresExplicitOperatorRequestAndStrictValue(t *testing.T) 
 	}
 }
 
+func TestGuidanceMemoryIsNormalizedAndAvailableAcrossChannels(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "slack_guidance", TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		UserID: cfg.Slack.Operators[0],
+		Text:   "Remember that when you explain a fix to me, start with a simple summary.",
+	}
+	offer := &core.MemoryOffer{
+		Scope: "workspace", Subject: "Fix explanation style", Predicate: "guidance",
+		Value:      "When explaining a fix,\nstart with a simple summary before technical details.",
+		Visibility: "operator", ExpiresIn: "90d",
+		SourceRevision: "this-is-not-a-revision",
+	}
+	if _, scope, expiry, ok := svc.prepareMemoryOfferAction(input, offer); !ok ||
+		scope != "workspace" || expiry != "90 days" {
+		t.Fatalf("guidance offer = ok=%t scope=%q expiry=%q offer=%+v", ok, scope, expiry, offer)
+	}
+	if offer.Subject != "fix_explanation_style" ||
+		offer.Value != "When explaining a fix, start with a simple summary before technical details." ||
+		offer.SourceRevision != "" {
+		t.Fatalf("normalized guidance = %+v", offer)
+	}
+	entry, _, err := svc.memoryEntryFromOffer(input, *offer, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.UpsertMemoryEntry(ctx, entry, 10, 5); err != nil {
+		t.Fatal(err)
+	}
+	memory, err := svc.loadOperationalMemoryContext(
+		ctx, "COTHER", "repo", input.UserID, "slack_next",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := operationalMemoryPrompt(memory)
+	for _, expected := range []string{
+		`"predicate":"guidance"`, "start with a simple summary",
+		"cannot initiate work by itself", "current request",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("guidance prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+}
+
+func TestGuidanceMemoryRejectsCredentialLikeValues(t *testing.T) {
+	cfg := serviceConfig(t)
+	svc := &Service{cfg: cfg}
+	_, _, err := svc.memoryEntryFromOffer(core.SlackInput{
+		ID: "slack_secret", TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		UserID: cfg.Slack.Operators[0],
+	}, core.MemoryOffer{
+		Scope: "workspace", Subject: "authentication", Predicate: "guidance",
+		Value: "Use xoxb-secret-value for requests", Visibility: "operator",
+		ExpiresIn: "30d",
+	}, time.Now().UTC())
+	if err == nil || !strings.Contains(err.Error(), "credential-like") {
+		t.Fatalf("credential guidance error = %v", err)
+	}
+}
+
 func TestConfirmedMemoryActionPersistsAndForgetDeletes(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

@@ -880,6 +880,96 @@ func TestSchemaV10MigratesActiveAgentRunAndUncertainSlackDelivery(t *testing.T) 
 	}
 }
 
+func TestSchemaV21AddsResponseLocationWithoutLosingPreferences(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:20] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	if _, err := db.Exec(`
+		INSERT INTO schema_version(version) VALUES (20);
+		INSERT INTO responder_preferences (
+		  id, scope_kind, scope_key, name, value, enabled, source_ref, actor_id,
+		  expires_at, created_at, updated_at
+		) VALUES (?, 'operator', 'UOPERATOR', 'response_detail', 'concise', 1,
+		  'slack_existing', 'UOPERATOR', ?, ?, ?)`,
+		"pref_existing",
+		now.Add(time.Hour).Format(timestampFormat),
+		now.Format(timestampFormat),
+		now.Format(timestampFormat),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO memory_entries (
+		  id, scope_kind, scope_key, subject_key, predicate, value_json, value_hash,
+		  source_ref, source_revision, actor_id, visibility_kind, visibility_id,
+		  expires_at, created_at, updated_at
+		) VALUES (
+		  'mem_existing', 'channel', 'COPS', 'old portal', 'alias_of',
+		  '"service:portal"', 'hash', 'slack_memory', '', 'UOPERATOR',
+		  'channel', 'COPS', ?, ?, ?
+		)`,
+		now.Add(time.Hour).Format(timestampFormat),
+		now.Format(timestampFormat),
+		now.Format(timestampFormat),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if existing, err := st.GetPreference(context.Background(), "pref_existing"); err != nil ||
+		existing.Value != "concise" {
+		t.Fatalf("existing preference after migration = %+v, %v", existing, err)
+	}
+	if existing, err := st.GetMemoryEntry(context.Background(), "mem_existing"); err != nil ||
+		existing.Value != "service:portal" {
+		t.Fatalf("existing memory after migration = %+v, %v", existing, err)
+	}
+	if _, _, err := st.UpsertPreference(
+		context.Background(),
+		core.ResponderPreference{
+			ScopeKind: "operator", ScopeKey: "UOPERATOR",
+			Name: "response_location", Value: "prefer_thread",
+			SourceRef: "slack_new", ActorID: "UOPERATOR",
+			ExpiresAt: now.Add(90 * 24 * time.Hour),
+		},
+		20,
+		10,
+	); err != nil {
+		t.Fatalf("new response location after migration: %v", err)
+	}
+	if _, _, err := st.UpsertMemoryEntry(
+		context.Background(),
+		core.MemoryEntry{
+			ScopeKind: "workspace", ScopeKey: "TWORKSPACE",
+			SubjectKey: "fix_explanation_style", Predicate: "guidance",
+			Value: "Start with a simple summary.", SourceRef: "slack_guidance",
+			ActorID: "UOPERATOR", VisibilityKind: "operator", VisibilityID: "UOPERATOR",
+			ExpiresAt: now.Add(90 * 24 * time.Hour),
+		},
+		20,
+		10,
+	); err != nil {
+		t.Fatalf("new guidance after migration: %v", err)
+	}
+}
+
 func TestMigrationCreatesVerifiedPrivateBackup(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {

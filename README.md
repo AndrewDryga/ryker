@@ -322,24 +322,30 @@ work is preferred, while private-channel summaries never cross into another chan
 membership proof. Responder rotates the underlying per-channel Coop session
 after `coop.watch_session_max_turns` or `coop.watch_session_max_age` while preserving that summary.
 Compact conversation summaries expire after `retention.conversation_memory`, 90 days by default.
-This session summary is separate from operator-confirmed operational memory. When an operator
-explicitly asks Responder to remember an alias, channel-to-repository binding, evidence route, or
-entity relationship correction, Responder can show the exact proposed value and scope in a
-confirmation button. Nothing is saved until an operator confirms it. Saved entries are bounded,
-deduplicated by logical key, expire automatically, can be forgotten from App Home, and are supplied
-to future investigations only as untrusted hints. Fresh live evidence, current repository content,
-and Responder configuration always take precedence. Recent structured evidence remains
+This session summary is separate from operator-confirmed durable memory. An operator can ask
+Responder to remember an alias, channel-to-repository binding, evidence route, entity relationship
+correction, or open-ended guidance such as `when explaining a fix to me, start with a simple
+summary`. Responder shows the normalized value, scope, and expiry in a confirmation card; nothing
+is saved until an operator confirms it. Personal guidance can follow that operator across channels,
+while channel and workspace guidance can encode explicit team conventions. Saved entries are
+bounded, deduplicated by logical key, expire automatically, can be forgotten from App Home, and are
+supplied to future model turns only as advisory context. Guidance cannot start work, authorize an
+incident or change, approve an action, or count as operational evidence. The current request, host
+safety policy, fresh live evidence, current repository content, and Responder configuration always
+take precedence. Recent structured evidence remains
 source-attributed; compact related summaries carry continuity across channels without becoming
 current-health proof.
 
 Responder also supports two operator-confirmed behavior catalogs. Preferences are typed defaults
-such as `health_check_depth=deep` or `response_detail=concise`; their precedence is operator,
-channel, repository, then workspace. Standing rules are typed channel subscriptions such as
+such as `health_check_depth=deep`, `response_detail=concise`, or
+`response_location=prefer_thread`; their precedence is operator, channel, repository, then
+workspace. Standing rules are typed channel subscriptions such as
 `terraform_plan -> review_terraform_plan`, restricted to human, app, or any matching message. A
 request such as `when I ask about infrastructure health, always do a deep check` or `when you see a
 Terraform plan here, report its main diff and red flags` produces a confirmation card showing the
-normalized behavior, scope, expiry, source filter, and fixed read-only safety boundary. Arbitrary
-prose is never stored as an executable instruction. A configured operator can make this explicit
+normalized behavior, scope, expiry, source filter, and fixed read-only safety boundary. Open-ended
+guidance may be remembered as advisory model context, but arbitrary prose is never stored as an
+executable trigger or authority. A configured operator can make this explicit
 setup request in any channel where Responder is invited, even when that channel is not otherwise a
 summon or proactive channel.
 

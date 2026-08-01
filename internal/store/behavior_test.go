@@ -86,6 +86,36 @@ func TestPreferencesReplaceResolveByScopeAndToggle(t *testing.T) {
 	}
 }
 
+func TestResponseLocationPreferenceIsTypedAndRejectsRepositoryScope(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	preference := core.ResponderPreference{
+		ScopeKind: "operator", ScopeKey: "UOPERATOR",
+		Name: "response_location", Value: "prefer_thread",
+		SourceRef: "slack_location", ActorID: "UOPERATOR",
+		ExpiresAt: time.Now().UTC().Add(90 * 24 * time.Hour),
+	}
+	stored, replaced, err := st.UpsertPreference(ctx, preference, 20, 10)
+	if err != nil || replaced || stored.Value != "prefer_thread" {
+		t.Fatalf("response location preference = %+v, replaced=%t, err=%v", stored, replaced, err)
+	}
+	preference.ScopeKind = "repository"
+	preference.ScopeKey = "repo"
+	if _, _, err := st.UpsertPreference(ctx, preference, 20, 10); err == nil {
+		t.Fatal("repository-scoped response location was accepted")
+	}
+	preference.ScopeKind = "channel"
+	preference.ScopeKey = "COPS"
+	preference.Value = "sometimes"
+	if _, _, err := st.UpsertPreference(ctx, preference, 20, 10); err == nil {
+		t.Fatal("untyped response location was accepted")
+	}
+}
+
 func TestStandingRulesDeduplicateRunsAndCleanUpWithChannel(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

@@ -336,7 +336,7 @@ flowchart TB
 | Related workspace situations | Recent `conversation_memories` selected at prompt assembly | Host-owned context selection | Recall overlapping work from the same channel, repository, and public workspace channels | Bounded to eight summaries; private channels never cross channel boundaries |
 | Channel session state | `channel_memories.state_json` | Agent result after host validation | Preserve a fallback while the per-channel Coop session rotates | Session continuity, not the organizational memory boundary |
 | Evidence ledger | `evidence`, `coverage`, `timeline_events` | Host after strict agent-report parsing | Preserve source-attributed observations independently of prose | Same-channel recall; time and source remain visible |
-| Confirmed operational memory | `memory_entries` | Configured operator click | Durable alias, repository binding, evidence route, or entity correction | Untrusted hint with scope, source, expiry, and caps |
+| Confirmed durable memory | `memory_entries` | Configured operator click | Durable mapping or open-ended collaboration guidance | Mapping is an untrusted hint; guidance is advice, never evidence or authority; both have scope, expiry, and caps |
 | Work commitments | `commitments` projected from `agent_runs` | Host when it accepts model-backed work | Show what Emisar owes, current progress, and the next operator action | Execution state, not prompt memory or evidence |
 | Preferences | `responder_preferences` | Configured operator click | Typed investigation depth or response detail | Closed catalog; precedence and expiry are host-owned |
 | Standing rules | `standing_rules` | Configured operator click | Typed channel subscription such as Terraform-plan review | Host matches trigger deterministically; read-only |
@@ -389,10 +389,12 @@ sequenceDiagram
   R->>S: Reply in Terraform message thread
 ```
 
-Arbitrary remembered prose never becomes an executable prompt. Only the closed host catalog can be
-saved:
+Arbitrary remembered prose never becomes an executable trigger or authority. Confirmed open-ended
+guidance may steer future model turns, but it cannot initiate work, count as evidence, authorize an
+incident or change, approve an action, or override the current request or host policy. Deterministic
+behavior remains in the closed host catalog:
 
-- preferences: `health_check_depth` and `response_detail`;
+- preferences: `health_check_depth`, `response_detail`, and `response_location`;
 - triggers: `terraform_plan`, `deployment`, and `operational_alert`;
 - actions: `review_terraform_plan`, `verify_deployment`, and `triage_alert`;
 - sources: `human`, `app`, or `any`.

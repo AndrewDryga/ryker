@@ -196,9 +196,9 @@ verified topology, decisions, open loops, unresolved questions, and evidence ref
 the compact memory, and uses a generation-specific idempotency key. Rotation bounds provider
 context without discarding operational corrections.
 
-Operator-confirmed operational memory is a separate bounded facility. Responder offers it only
-after a configured operator explicitly asks to remember, save, or correct one of four supported
-facts: an alias, a channel repository binding, an evidence route, or an entity relationship.
+Operator-confirmed durable memory is a separate bounded facility. Responder offers it only after a
+configured operator explicitly asks to remember or save an alias, channel repository binding,
+evidence route, entity relationship, or open-ended collaboration guidance.
 The button shows the scope and expiry before writing. Entries are unique by scope, subject, and
 predicate, so a correction replaces the prior value rather than creating a duplicate. App Home
 shows workspace-visible and operator-visible entries; `/responder memory` shows the exact entries
@@ -209,15 +209,19 @@ removed; audit records retain only the entry ID, scope, predicate, actor, and ou
 expire after 7, 30, 90, or 365 days and maintenance deletes expired values. A confirmed Slack
 channel deletion immediately removes entries scoped or visible only to that channel. Retrieval is
 an exact scope and visibility match; Responder does not search another private channel. Saved
-memory remains a potentially stale hint: live tools, current repository content, and deployment
-configuration take precedence. Recent source-attributed evidence is retrieved from the existing
-same-channel evidence ledger and is not duplicated into memory.
+operational memory remains a potentially stale hint: live tools, current repository content, and
+deployment configuration take precedence. Guidance is advisory model context; the current request
+and host safety policy take precedence, and guidance cannot trigger work, count as evidence, or
+authorize incidents, changes, approvals, or mutations. Personal workspace guidance is visible only
+to its operator and can follow them across channels. Recent source-attributed evidence is retrieved
+from the existing same-channel evidence ledger and is not duplicated into memory.
 
 Operator-confirmed behavior is stored separately from factual operational memory:
 
-- Preferences use the closed catalog `health_check_depth=quick|standard|deep` and
-  `response_detail=concise|standard|detailed`. Effective precedence is operator, channel,
-  repository, then workspace.
+- Preferences use the closed catalog `health_check_depth=quick|standard|deep`,
+  `response_detail=concise|standard|detailed`, and
+  `response_location=follow_context|prefer_thread|prefer_channel`. Effective precedence is
+  operator, channel, repository, then workspace; response location excludes repository scope.
 - Standing rules use the closed trigger/action pairs
   `terraform_plan/review_terraform_plan`, `deployment/verify_deployment`, and
   `operational_alert/triage_alert`. Each rule is channel-scoped and restricts its source to
@@ -227,8 +231,9 @@ Natural-language requests only create inert offers. The confirmation card shows 
 entry, scope, expiry, and safety boundary; a configured full workspace operator must confirm it
 before the host writes state. `/responder preferences` and `/responder rules` provide enable,
 disable, edit, and delete controls. Editing asks for a replacement natural-language request because
-the replacement must pass the same typed parser and confirmation boundary. No arbitrary prose is
-stored as an executable prompt. An explicit typed setup request from a configured operator is
+the replacement must pass the same typed parser and confirmation boundary. Confirmed guidance can
+enter model context as advice, but arbitrary prose is never an executable trigger or authority. An
+explicit typed setup request from a configured operator is
 admitted in any channel where Responder is invited; ordinary mentions in that channel still follow
 the summon and proactive settings.
 

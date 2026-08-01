@@ -787,11 +787,22 @@ func liveEvaluationPrompt(
 			return "", err
 		}
 		prior := operationalMemoryContext{
+			ConfirmedMemory: make(
+				[]memoryPromptEntry,
+				0,
+				len(testCase.Memories),
+			),
 			Preferences: make(
 				[]preferencePromptEntry,
 				0,
 				len(testCase.Preferences),
 			),
+		}
+		for _, memory := range testCase.Memories {
+			prior.ConfirmedMemory = append(
+				prior.ConfirmedMemory,
+				memoryPromptEntry(memory),
+			)
 		}
 		for _, preference := range testCase.Preferences {
 			prior.Preferences = append(

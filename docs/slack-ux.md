@@ -220,19 +220,25 @@ after a configurable age or turn count while conversation summaries survive for 
 configured retention period.
 
 An operator may also explicitly ask Responder to remember a durable alias, repository binding,
-evidence route, or entity relationship correction. Responder answers normally and adds a
-host-owned confirmation button that states the scope and expiry. Until that button is confirmed,
-nothing is stored. A later correction replaces the same logical entry. App Home lists active saved
-memory with individual forget confirmations. Saved entries are never presented as live health or
-authority; every future investigation must verify them against current repositories and live tools.
-Same-channel evidence can be recalled from the existing evidence ledger, while evidence from other
-private channels is never injected.
+evidence route, entity relationship correction, or open-ended collaboration guidance. A natural
+request such as `remember that when you explain fixes to me, start with a plain-language summary`
+produces a confirmation card with the exact guidance, scope, and expiry. Personal guidance follows
+that operator across channels; an explicit channel or team convention uses channel or workspace
+visibility. Until the button is confirmed, nothing is stored. A later request with the same topic
+replaces the logical entry. App Home and `/responder memory` list active memory with individual
+forget confirmations. Guidance is advisory: it cannot trigger work, count as evidence, authorize an
+incident or change, approve an action, or override the current request or host safety policy.
+Operational mappings are likewise never presented as live health or authority; future
+investigations verify them against repositories and live tools. Same-channel evidence can be
+recalled from the evidence ledger, while evidence from other private channels is never injected.
 
-Behavior memory is a separate typed facility. An explicit request such as `when I ask about
-infrastructure health, always do a deep check` can offer a `health_check_depth=deep` preference.
+Behavior memory is a separate typed facility for deterministic controls. An explicit request such
+as `when I ask about infrastructure health, always do a deep check` can offer a
+`health_check_depth=deep` preference. `Prefer threads when replying to me` can offer
+`response_location=prefer_thread`.
 An explicit request such as `when you see a Terraform plan here, report its main diff and red
 flags` can offer a channel standing rule. The model may select only a supported preference value or
-trigger/action pair; Responder never persists the original prose as an executable instruction.
+trigger/action pair; Responder never persists the original prose as an executable trigger.
 
 Every behavior offer is a host-rendered confirmation card. It states the normalized behavior,
 scope, expiry, source filter when applicable, and the boundary that it remains read-only and cannot

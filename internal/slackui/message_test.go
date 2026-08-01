@@ -741,6 +741,9 @@ func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
 		!strings.Contains(message.Actions[0].Confirm, "cannot establish current health") {
 		t.Fatalf("memory offer action = %+v", message.Actions)
 	}
+	if strings.Contains(content, "**") {
+		t.Fatalf("memory offer uses non-Slack bold markup: %s", content)
+	}
 	entry := core.MemoryEntry{
 		ID: "mem_1", ScopeKind: "channel", ScopeKey: "COPS",
 		SubjectKey: "old portal", Predicate: "alias_of", Value: "service:portal",
@@ -751,6 +754,54 @@ func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
 		directory.Actions[0].ID != ActionForgetMemory ||
 		!strings.Contains(directory.Sections[0], "COPS") {
 		t.Fatalf("memory directory = %+v", directory)
+	}
+}
+
+func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
+	offer := core.MemoryOffer{
+		Scope: "workspace", Subject: "fix_explanation_style", Predicate: "guidance",
+		Value:      "Start with a simple summary before technical details.",
+		Visibility: "operator", ExpiresIn: "90d",
+	}
+	message := WithMemoryOffer(
+		ConversationResponse("Got it. I can remember that.", NewSanitizer(12000)),
+		offer,
+		`{"version":1}`,
+		"workspace",
+		"90 days",
+	)
+	content := strings.Join(message.Sections, "\n") + "\n" +
+		strings.Join(message.Context, "\n")
+	for _, expected := range []string{
+		"Proposed guidance", "Start with a simple summary", "only you, across this workspace",
+		"cannot start work", "Remember this",
+	} {
+		if !strings.Contains(content+"\n"+message.Actions[0].Label, expected) {
+			t.Fatalf("guidance offer missing %q: %+v", expected, message)
+		}
+	}
+	if strings.Contains(content, "**") || len(message.Actions) != 1 ||
+		message.Actions[0].ID != ActionRememberMemory {
+		t.Fatalf("guidance offer formatting/actions = %+v", message)
+	}
+	entry := core.MemoryEntry{
+		ID: "mem_guidance", ScopeKind: "workspace", ScopeKey: "TWORKSPACE",
+		SubjectKey: "fix_explanation_style", Predicate: "guidance",
+		Value:          "Start with a simple summary before technical details.",
+		VisibilityKind: "operator", VisibilityID: "UOPERATOR",
+		ExpiresAt: time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC),
+	}
+	saved := MemorySavedMessage(entry, false)
+	directory := MemoryDirectoryMessage([]core.MemoryEntry{entry})
+	surface := saved.Text + "\n" + saved.Header + "\n" +
+		strings.Join(saved.Sections, "\n") + "\n" +
+		strings.Join(directory.Sections, "\n")
+	for _, expected := range []string{
+		"I'll remember", "Guidance remembered", "Guidance: fix explanation style",
+	} {
+		if !strings.Contains(surface, expected) {
+			t.Fatalf("guidance management missing %q: %s", expected, surface)
+		}
 	}
 }
 
@@ -775,11 +826,32 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 	preferenceContent := strings.Join(preferenceMessage.Sections, "\n") + "\n" +
 		strings.Join(preferenceMessage.Context, "\n")
 	for _, expected := range []string{
-		"Proposed Responder preference", "health_check_depth", "deep",
+		"Proposed preference", "Health-check depth", "deep",
 		"Nothing is saved yet", "cannot establish health",
 	} {
 		if !strings.Contains(preferenceContent, expected) {
 			t.Fatalf("preference offer lacks %q: %+v", expected, preferenceMessage)
+		}
+	}
+	location := preference
+	location.Name = "response_location"
+	location.Value = "prefer_thread"
+	locationMessage := WithPreferenceOffer(
+		ConversationResponse("Got it.", NewSanitizer(12000)),
+		core.PreferenceOffer{
+			Scope: "operator", Name: location.Name, Value: location.Value,
+		},
+		location,
+		`{"version":1}`,
+		"90 days",
+	)
+	locationContent := strings.Join(locationMessage.Sections, "\n") + "\n" +
+		strings.Join(locationMessage.Context, "\n")
+	for _, expected := range []string{
+		"Reply location", "Prefer threads", "future Slack replies", "Remember this",
+	} {
+		if !strings.Contains(locationContent+"\n"+locationMessage.Actions[0].Label, expected) {
+			t.Fatalf("location preference lacks %q: %+v", expected, locationMessage)
 		}
 	}
 	if strings.Contains(preferenceContent, "**") ||

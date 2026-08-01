@@ -26,6 +26,7 @@ type EvaluationCase struct {
 	MentionsResponder      bool                     `json:"mentions_responder,omitempty"`
 	RecentMessages         []EvaluationMessage      `json:"recent_messages,omitempty"`
 	FollowingMessages      []EvaluationMessage      `json:"following_messages,omitempty"`
+	Memories               []EvaluationMemory       `json:"memories,omitempty"`
 	Preferences            []EvaluationPreference   `json:"preferences,omitempty"`
 	StandingRules          []EvaluationStandingRule `json:"standing_rules,omitempty"`
 	Output                 string                   `json:"output,omitempty"`
@@ -78,6 +79,15 @@ type EvaluationPreference struct {
 	Name      string `json:"name"`
 	Value     string `json:"value"`
 	ExpiresAt string `json:"expires_at"`
+}
+
+type EvaluationMemory struct {
+	Scope          string `json:"scope"`
+	Subject        string `json:"subject"`
+	Predicate      string `json:"predicate"`
+	Value          string `json:"value"`
+	SourceRevision string `json:"source_revision,omitempty"`
+	ExpiresAt      string `json:"expires_at"`
 }
 
 type EvaluationStandingRule struct {

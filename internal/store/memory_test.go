@@ -55,6 +55,38 @@ func TestMemoryEntryReplacementScopeVisibilityAndForget(t *testing.T) {
 	}
 }
 
+func TestOperatorGuidanceIsCrossChannelButNotCrossOperator(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	entry, _, err := st.UpsertMemoryEntry(ctx, core.MemoryEntry{
+		ScopeKind: "workspace", ScopeKey: "TWORKSPACE",
+		SubjectKey: "fix_explanation_style", Predicate: "guidance",
+		Value:     "Start with a plain-language summary before technical details.",
+		SourceRef: "slack_guidance", ActorID: "UOPERATOR",
+		VisibilityKind: "operator", VisibilityID: "UOPERATOR",
+		ExpiresAt: time.Now().UTC().Add(90 * 24 * time.Hour),
+	}, 10, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible, err := st.ListMemoryForContext(
+		ctx, "TWORKSPACE", "COTHER", "repo", "UOPERATOR", 10,
+	)
+	if err != nil || len(visible) != 1 || visible[0].ID != entry.ID {
+		t.Fatalf("cross-channel guidance = %+v, %v", visible, err)
+	}
+	hidden, err := st.ListMemoryForContext(
+		ctx, "TWORKSPACE", "COTHER", "repo", "UOTHER", 10,
+	)
+	if err != nil || len(hidden) != 0 {
+		t.Fatalf("operator guidance leaked = %+v, %v", hidden, err)
+	}
+}
+
 func TestMemoryExpiryPruneAndRecentEvidenceIsolation(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

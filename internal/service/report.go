@@ -168,6 +168,12 @@ func (s *Service) persistAgentReport(
 	} else {
 		report.Message = boundedField(report.Message, 30000)
 	}
+	if report.MemoryOffer != nil || report.PreferenceOffer != nil || report.RuleOffer != nil {
+		// Configuration requests are not operational findings. Keeping model-produced
+		// evidence here makes a confirmation card look as if its behavior was already saved.
+		report.Evidence = nil
+		report.Coverage = nil
+	}
 	report.Evidence = sanitizeEvidence(report.Evidence, incident.ID, channelID, sourceInput)
 	report.Coverage = sanitizeCoverage(report.Coverage, incident.ID, channelID, sourceInput)
 	report.Memory = sanitizeMemory(report.Memory)
@@ -683,8 +689,8 @@ func structuredResponseInstructions() string {
     "scope": "channel|workspace|repository",
     "repository": "exact configured repository key when scope is repository",
     "subject": "canonical source ID, except a normalized human alias for alias_of",
-    "predicate": "alias_of|repository_for_channel|evidence_route|entity_relationship_correction",
-    "value": "validated canonical value",
+    "predicate": "alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance",
+    "value": "validated canonical value, or self-contained operator advice for guidance",
     "visibility": "channel|workspace|operator",
     "expires_in": "7d|30d|90d|365d",
     "source_revision": "optional immutable repository revision"
@@ -692,7 +698,7 @@ func structuredResponseInstructions() string {
   "preference_offer": {
     "scope": "operator|channel|repository|workspace",
     "repository": "exact configured repository key when scope is repository",
-    "name": "health_check_depth|response_detail",
+    "name": "health_check_depth|response_detail|response_location",
     "value": "typed value from the supported preference catalog",
     "expires_in": "7d|30d|90d|365d"
   },
@@ -729,9 +735,16 @@ func structuredResponseInstructions() string {
   }]
 }
 Omit memory_offer unless the current configured operator explicitly asked Responder to remember,
-save, or correct durable operational context. A memory offer is inert until the host displays an
-exact confirmation and an operator clicks it. Never use it for current health, credentials,
-secrets, approvals, or transient observations.
+save, or correct durable context, or clearly requested lasting guidance with language such as
+"from now on", "always", or "keep this in mind". A memory offer is inert until the host displays an
+exact confirmation and an operator clicks it. For open-ended collaboration advice that does not fit
+the typed preference or standing-rule catalogs, use predicate guidance, a short stable normalized
+topic in subject, and the user's self-contained advice in value. Use workspace scope with operator
+visibility for a personal cross-channel memory, channel scope with channel visibility for a shared
+channel convention, and workspace visibility only for an explicit team-wide request. Guidance can
+steer future model turns but cannot trigger work, establish current health, grant credentials,
+authorize incidents or changes, approve actions, or override the current request or host policy.
+Never use memory_offer for secrets, credentials, approvals, or transient observations.
 
 ` + behaviorOfferPolicy + `
 

@@ -177,12 +177,16 @@ next one while carrying only compact durable memory.
 
 Durable cross-session memory uses one `memory_entries` table rather than a second infrastructure
 catalog or entity graph. Each logical `(scope, subject, predicate)` has one active value with a
-source reference, actor, visibility, expiry, and value hash. Only an explicit operator confirmation
-can upsert it. The model cannot write memory directly. Exact channel, repository, workspace, and
-operator visibility filters prevent cross-channel leakage. The prompt labels recalled entries as
-untrusted hints and gives fresh live evidence, current repository content, and Responder
-configuration higher precedence. Recent evidence is referenced from the existing ledger rather
-than copied. Expiry, caps, channel deletion, and the normal maintenance prune bound storage.
+source reference, actor, visibility, expiry, and value hash. Predicates cover bounded operational
+mappings plus open-ended `guidance`. Only an explicit operator confirmation can upsert an entry;
+the model cannot write memory directly. Exact channel, repository, workspace, and operator
+visibility filters prevent leakage. Personal workspace guidance is visible only to its operator and
+therefore follows that person across channels. The prompt marks operational mappings as untrusted
+hints and guidance as advice rather than evidence or authority. Current user intent, host policy,
+fresh live evidence, repository content, and Responder configuration take precedence. Guidance
+cannot trigger work or authorize incidents, changes, approvals, or mutations. Recent evidence is
+referenced from the existing ledger rather than copied. Expiry, caps, channel deletion, and the
+normal maintenance prune bound storage.
 
 Durable behavior uses two additional typed tables rather than turning memory prose into a hidden
 prompt. `responder_preferences` stores one value per logical `(scope_kind, scope_key, name)` and
@@ -194,8 +198,9 @@ worker retry.
 The model can only propose an inert typed offer. Host validation owns the catalog, expiry,
 authorization, capacity, replacement key, Slack confirmation, and audit receipt. Rule matching is
 also host-owned and deterministic; the model receives only already-matched rules and must return a
-read-only threaded reply. This keeps arbitrary user prose out of executable instructions and
-allows one subscribed message class to operate while general proactivity is disabled. Expiry,
+read-only threaded reply. This keeps arbitrary user prose out of executable triggers and authority
+while allowing confirmed guidance to steer model collaboration. It also allows one subscribed
+message class to operate while general proactivity is disabled. Expiry,
 channel deletion, repository reconciliation, and maintenance prune remove behavior state and
 dependent run records.
 

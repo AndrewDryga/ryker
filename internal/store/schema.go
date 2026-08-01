@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 20
+const currentSchemaVersion = 21
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -887,6 +887,96 @@ CREATE INDEX conversation_routes_updated_idx
   ON conversation_routes(updated_at);
 `
 
+const schemaV21 = `
+ALTER TABLE responder_preferences RENAME TO responder_preferences_v20;
+
+CREATE TABLE responder_preferences (
+  id TEXT PRIMARY KEY,
+  scope_kind TEXT NOT NULL,
+  scope_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  value TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  source_ref TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(scope_kind, scope_key, name),
+  CHECK (scope_kind IN ('workspace', 'channel', 'repository', 'operator')),
+  CHECK (name != 'response_location' OR scope_kind != 'repository'),
+  CHECK (name IN ('health_check_depth', 'response_detail', 'response_location')),
+  CHECK (
+    (name = 'health_check_depth' AND value IN ('quick', 'standard', 'deep')) OR
+    (name = 'response_detail' AND value IN ('concise', 'standard', 'detailed')) OR
+    (name = 'response_location' AND value IN ('follow_context', 'prefer_thread', 'prefer_channel'))
+  )
+);
+
+INSERT INTO responder_preferences (
+  id, scope_kind, scope_key, name, value, enabled, source_ref, actor_id,
+  expires_at, created_at, updated_at
+)
+SELECT
+  id, scope_kind, scope_key, name, value, enabled, source_ref, actor_id,
+  expires_at, created_at, updated_at
+FROM responder_preferences_v20;
+
+DROP TABLE responder_preferences_v20;
+
+CREATE INDEX responder_preferences_lookup_idx
+  ON responder_preferences(scope_kind, scope_key, enabled, expires_at);
+CREATE INDEX responder_preferences_expiry_idx
+  ON responder_preferences(expires_at);
+
+ALTER TABLE memory_entries RENAME TO memory_entries_v20;
+
+CREATE TABLE memory_entries (
+  id TEXT PRIMARY KEY,
+  scope_kind TEXT NOT NULL,
+  scope_key TEXT NOT NULL,
+  subject_key TEXT NOT NULL,
+  predicate TEXT NOT NULL,
+  value_json TEXT NOT NULL,
+  value_hash TEXT NOT NULL,
+  source_ref TEXT NOT NULL,
+  source_revision TEXT NOT NULL DEFAULT '',
+  actor_id TEXT NOT NULL,
+  visibility_kind TEXT NOT NULL,
+  visibility_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(scope_kind, scope_key, subject_key, predicate),
+  CHECK (scope_kind IN ('workspace', 'channel', 'repository')),
+  CHECK (predicate IN (
+    'alias_of',
+    'repository_for_channel',
+    'evidence_route',
+    'entity_relationship_correction',
+    'guidance'
+  )),
+  CHECK (visibility_kind IN ('workspace', 'channel', 'operator'))
+);
+
+INSERT INTO memory_entries (
+  id, scope_kind, scope_key, subject_key, predicate, value_json, value_hash,
+  source_ref, source_revision, actor_id, visibility_kind, visibility_id,
+  expires_at, created_at, updated_at
+)
+SELECT
+  id, scope_kind, scope_key, subject_key, predicate, value_json, value_hash,
+  source_ref, source_revision, actor_id, visibility_kind, visibility_id,
+  expires_at, created_at, updated_at
+FROM memory_entries_v20;
+
+DROP TABLE memory_entries_v20;
+
+CREATE INDEX memory_lookup_idx
+  ON memory_entries(scope_kind, scope_key, visibility_kind, visibility_id, expires_at);
+CREATE INDEX memory_expiry_idx ON memory_entries(expires_at);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -908,4 +998,5 @@ var migrations = []string{
 	schemaV18,
 	schemaV19,
 	schemaV20,
+	schemaV21,
 }

@@ -128,7 +128,7 @@ func validateMemoryEntry(entry core.MemoryEntry) error {
 	}
 	switch entry.Predicate {
 	case "alias_of", "repository_for_channel", "evidence_route",
-		"entity_relationship_correction":
+		"entity_relationship_correction", "guidance":
 	default:
 		return fmt.Errorf("memory predicate %q is invalid", entry.Predicate)
 	}

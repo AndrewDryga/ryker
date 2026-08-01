@@ -86,6 +86,13 @@ func (s *Service) resolveConversationRoute(
 	route.ChannelID = input.ChannelID
 	route.UserID = input.UserID
 	location := requestedConversationLocation(input.Text)
+	preferred := conversationLocationFollow
+	if location == conversationLocationFollow {
+		preferred, err = s.preferredConversationLocation(ctx, input)
+		if err != nil {
+			return "", "", err
+		}
+	}
 	responseThreadTS := ""
 	referencedThreadTS := ""
 	switch location {
@@ -124,18 +131,33 @@ func (s *Service) resolveConversationRoute(
 			responseThreadTS = ""
 			referencedThreadTS = input.ThreadTS
 		case input.ThreadTS != "":
-			responseThreadTS = input.ThreadTS
-			if route.ActiveThreadTS != "" && route.ActiveThreadTS != input.ThreadTS {
-				route.PreviousThreadTS = route.ActiveThreadTS
+			if preferred == conversationLocationChannel {
+				responseThreadTS = ""
+				referencedThreadTS = input.ThreadTS
+				route.PreviousThreadTS = input.ThreadTS
+				route.ActiveThreadTS = ""
+			} else {
+				responseThreadTS = input.ThreadTS
+				if route.ActiveThreadTS != "" && route.ActiveThreadTS != input.ThreadTS {
+					route.PreviousThreadTS = route.ActiveThreadTS
+				}
+				route.ActiveThreadTS = input.ThreadTS
 			}
-			route.ActiveThreadTS = input.ThreadTS
 			route.Explicit = false
 		default:
-			responseThreadTS = ""
-			if route.ActiveThreadTS != "" {
-				route.PreviousThreadTS = route.ActiveThreadTS
+			if preferred == conversationLocationThread && input.MessageTS != "" {
+				responseThreadTS = input.MessageTS
+				if route.ActiveThreadTS != "" && route.ActiveThreadTS != input.MessageTS {
+					route.PreviousThreadTS = route.ActiveThreadTS
+				}
+				route.ActiveThreadTS = input.MessageTS
+			} else {
+				responseThreadTS = ""
+				if route.ActiveThreadTS != "" {
+					route.PreviousThreadTS = route.ActiveThreadTS
+				}
+				route.ActiveThreadTS = ""
 			}
-			route.ActiveThreadTS = ""
 			route.Explicit = false
 		}
 	}
@@ -143,6 +165,38 @@ func (s *Service) resolveConversationRoute(
 		return "", "", err
 	}
 	return responseThreadTS, referencedThreadTS, nil
+}
+
+func (s *Service) preferredConversationLocation(
+	ctx context.Context,
+	input core.SlackInput,
+) (conversationLocation, error) {
+	repository, err := s.effectiveRepository(
+		ctx, input.ChannelID, input.UserID, s.cfg.Slack.DefaultRepository,
+	)
+	if err != nil {
+		return conversationLocationFollow, err
+	}
+	preferences, err := s.loadEffectivePreferences(
+		ctx, input.ChannelID, repository, input.UserID,
+	)
+	if err != nil {
+		return conversationLocationFollow, err
+	}
+	for _, preference := range preferences {
+		if preference.Name != "response_location" {
+			continue
+		}
+		switch preference.Value {
+		case "prefer_thread":
+			return conversationLocationThread, nil
+		case "prefer_channel":
+			return conversationLocationChannel, nil
+		default:
+			return conversationLocationFollow, nil
+		}
+	}
+	return conversationLocationFollow, nil
 }
 
 func conversationalResponseThread(input core.SlackInput) string {

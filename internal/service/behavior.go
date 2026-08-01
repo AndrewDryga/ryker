@@ -19,7 +19,7 @@ const behaviorOfferMaxAge = 24 * time.Hour
 var (
 	explicitPreferenceRequestPattern = regexp.MustCompile(
 		`(?i)\b(?:always|from now on|going forward|when(?:ever)?\s+i\s+ask|` +
-			`prefer(?:ence)?|default\s+to)\b`,
+			`prefer(?:ence)?|default\s+to|by\s+default|remember)\b`,
 	)
 	explicitRuleRequestPattern = regexp.MustCompile(
 		`(?i)\b(?:when(?:ever)?\s+you\s+(?:see|receive|notice)|` +
@@ -156,6 +156,15 @@ For response_detail, preserve a decision-first Slack response; concise, standard
 change supporting detail, not evidentiary rigor. Every level still uses plain professional language,
 explains necessary technical terms, and matches the user's requested depth.
 
+For response_location, apply the host-owned Slack routing preference rather than merely describing
+it in prose:
+- follow_context: reply where the current conversation is happening.
+- prefer_thread: start or continue a thread for replies unless the user explicitly moves the
+  current conversation to the channel.
+- prefer_channel: reply at channel level unless the user explicitly keeps the current conversation
+  in a thread.
+The latest explicit location request in a conversation overrides the remembered default.
+
 <trusted-responder-preferences>
 ` + string(data) + `
 </trusted-responder-preferences>`
@@ -209,8 +218,9 @@ language. Do not claim that behavior was saved. Instead return exactly one inert
 operator explicitly asks for a lasting behavior:
 
 - preference_offer is for how Responder should handle future requests. Supported names and values:
-  health_check_depth=quick|standard|deep and response_detail=concise|standard|detailed. Scope is
-  operator, channel, repository, or workspace.
+  health_check_depth=quick|standard|deep, response_detail=concise|standard|detailed, and
+  response_location=follow_context|prefer_thread|prefer_channel. Scope is operator, channel,
+  repository, or workspace, except response_location uses operator, channel, or workspace only.
 - rule_offer is for "when X, do Y" behavior in the current non-DM Slack channel. Supported exact
   trigger/action pairs are terraform_plan/review_terraform_plan,
   deployment/verify_deployment, and operational_alert/triage_alert. Source kind is any, human, or
@@ -219,12 +229,90 @@ operator explicitly asks for a lasting behavior:
 
 The host validates each offer and shows its normalized scope, expiry, and safety boundary. Nothing
 is stored until an operator confirms it. Never put arbitrary prose, credentials, mutation
-instructions, incident creation, file changes, deployment, or approval into an offer. Omit both
-offers for one-time requests.`
+instructions, incident creation, file changes, deployment, or approval into a preference_offer or
+rule_offer. Use memory_offer with predicate guidance for lasting open-ended collaboration advice
+that does not fit the typed catalogs. Omit all offers for one-time requests.`
 
 func explicitBehaviorRequest(text string) bool {
 	return explicitPreferenceRequestPattern.MatchString(text) ||
 		explicitRuleRequestPattern.MatchString(text)
+}
+
+func normalizeResponseLocationPreference(
+	input core.SlackInput,
+	proposed *core.PreferenceOffer,
+) (*core.PreferenceOffer, string, bool) {
+	if !explicitPreferenceRequestPattern.MatchString(input.Text) {
+		return proposed, "", false
+	}
+	normalized := normalizeLocationRequest(input.Text)
+	value := ""
+	switch {
+	case containsAnyPhrase(normalized,
+		"follow the conversation", "follow conversation", "follow context",
+		"where the conversation is", "wherever the conversation is"):
+		value = "follow_context"
+	case containsAnyPhrase(normalized,
+		"prefer thread", "prefer threads", "prefer reply in thread", "prefer replies in thread",
+		"default thread", "default to thread",
+		"always use thread", "always reply in thread", "keep replies in thread",
+		"thread by default", "threaded by default"):
+		value = "prefer_thread"
+	case containsAnyPhrase(normalized,
+		"prefer channel", "prefer reply in channel", "prefer replies in channel",
+		"default channel", "default to channel",
+		"always use channel", "always reply in channel", "keep replies in channel",
+		"channel by default", "unthreaded by default"):
+		value = "prefer_channel"
+	default:
+		return proposed, "", false
+	}
+	scope := "operator"
+	switch {
+	case containsAnyPhrase(normalized,
+		"in this channel", "for this channel", "this channel should", "in here"):
+		scope = "channel"
+	case containsAnyPhrase(normalized,
+		"for everyone", "for everybody", "for the whole team", "team wide",
+		"workspace wide", "for the workspace", "for all users"):
+		scope = "workspace"
+	}
+	expiresIn := "90d"
+	if proposed != nil && strings.TrimSpace(proposed.ExpiresIn) != "" {
+		expiresIn = proposed.ExpiresIn
+	}
+	offer := &core.PreferenceOffer{
+		Scope: scope, Name: "response_location", Value: value, ExpiresIn: expiresIn,
+	}
+	return offer, responseLocationPreferenceAcknowledgement(value, scope), true
+}
+
+func containsAnyPhrase(value string, phrases ...string) bool {
+	for _, phrase := range phrases {
+		if strings.Contains(value, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func responseLocationPreferenceAcknowledgement(value string, scope string) string {
+	target := "when replying to you"
+	switch scope {
+	case "channel":
+		target = "in this channel"
+	case "workspace":
+		target = "across this workspace"
+	}
+	switch value {
+	case "prefer_thread":
+		return "Got it. I can prefer threads " + target + ". Confirm below so I remember it."
+	case "prefer_channel":
+		return "Got it. I can prefer channel replies " + target + ". Confirm below so I remember it."
+	default:
+		return "Got it. I can follow each conversation's current location " + target +
+			". Confirm below so I remember it."
+	}
 }
 
 func incidentSelfInviteBehaviorRequest(text string) bool {
@@ -398,9 +486,21 @@ func (s *Service) preferenceFromOffer(
 				"response_detail must be concise, standard, or detailed",
 			)
 		}
+	case "response_location":
+		if preference.ScopeKind == "repository" {
+			return core.ResponderPreference{}, 0, errors.New(
+				"response_location supports operator, channel, or workspace scope",
+			)
+		}
+		if preference.Value != "follow_context" && preference.Value != "prefer_thread" &&
+			preference.Value != "prefer_channel" {
+			return core.ResponderPreference{}, 0, errors.New(
+				"response_location must be follow_context, prefer_thread, or prefer_channel",
+			)
+		}
 	default:
 		return core.ResponderPreference{}, 0, errors.New(
-			"preference name must be health_check_depth or response_detail",
+			"preference name must be health_check_depth, response_detail, or response_location",
 		)
 	}
 	return preference, ttl, nil
