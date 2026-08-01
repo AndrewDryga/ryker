@@ -14,15 +14,17 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
 type slackFileDelivery struct {
-	Filename  string `json:"filename"`
-	Title     string `json:"title"`
-	AltText   string `json:"alt_text"`
-	MediaType string `json:"media_type"`
-	SHA256    string `json:"sha256"`
-	Data      []byte `json:"data"`
+	Filename  string           `json:"filename"`
+	Title     string           `json:"title"`
+	AltText   string           `json:"alt_text"`
+	MediaType string           `json:"media_type"`
+	SHA256    string           `json:"sha256"`
+	Data      []byte           `json:"data"`
+	Message   *slackui.Message `json:"message,omitempty"`
 }
 
 func decodeSlackFileDelivery(data []byte) (slackFileDelivery, error) {
@@ -37,6 +39,17 @@ func decodeSlackFileDelivery(data []byte) (slackFileDelivery, error) {
 		result.Title == "" || len(result.Title) > 200 || result.AltText == "" || len(result.AltText) > 1000 ||
 		len(result.Data) == 0 || len(result.Data) > 8<<20 || !generatedImageMediaType(result.MediaType) {
 		return slackFileDelivery{}, errors.New("Slack file delivery is outside bounds")
+	}
+	if result.Message != nil {
+		encoded, err := slackui.Encode(*result.Message)
+		if err != nil {
+			return slackFileDelivery{}, fmt.Errorf("encode Slack file message: %w", err)
+		}
+		message, err := slackui.Decode(encoded)
+		if err != nil {
+			return slackFileDelivery{}, fmt.Errorf("decode Slack file message: %w", err)
+		}
+		result.Message = &message
 	}
 	digest := sha256.Sum256(result.Data)
 	if hex.EncodeToString(digest[:]) != result.SHA256 {
@@ -63,6 +76,7 @@ func (s *Service) enqueueGeneratedVisuals(
 	sessionID string,
 	turnID string,
 	visuals []core.GeneratedVisual,
+	message *slackui.Message,
 ) error {
 	if len(visuals) == 0 {
 		return nil
@@ -111,10 +125,18 @@ func (s *Service) enqueueGeneratedVisuals(
 		}
 		total += len(fetched.Data)
 		deliveryID := fmt.Sprintf("%s_visual_%02d", keyPrefix, index+1)
-		prepared = append(prepared, slackFileDelivery{
+		file := slackFileDelivery{
 			Filename: deliveryVisualFilename(artifact.Name, deliveryID), Title: visual.Title,
 			AltText: visual.AltText, MediaType: artifact.MediaType, SHA256: digestHex, Data: fetched.Data,
-		})
+		}
+		if index == 0 && message != nil {
+			copy := *message
+			if s.sanitizer != nil {
+				copy = s.sanitizer.Message(copy)
+			}
+			file.Message = &copy
+		}
+		prepared = append(prepared, file)
 	}
 	for index, file := range prepared {
 		body, err := json.Marshal(file)
@@ -160,4 +182,55 @@ func deliveryVisualFilename(original, deliveryID string) string {
 		name = name[:255-len(ext)] + ext
 	}
 	return name
+}
+
+func permanentSlackFileDeliveryError(err error) bool {
+	detail := strings.ToLower(strings.TrimSpace(err.Error()))
+	for _, marker := range []string{
+		"missing_scope", "not_authed", "invalid_auth", "account_inactive",
+		"not_allowed_token_type", "file_uploads_disabled",
+	} {
+		if strings.Contains(detail, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) enqueueGeneratedVisualFailure(
+	ctx context.Context,
+	delivery core.SlackDelivery,
+	file slackFileDelivery,
+	detail string,
+) error {
+	fix := "Slack rejected the upload after the configured retries. Check the app's file-upload access, then ask me to try again."
+	if strings.Contains(strings.ToLower(detail), "missing_scope") {
+		fix = "This Slack app is missing `files:write`. Apply the current app manifest, reinstall the app in this workspace, then ask me to try again."
+	}
+	notice := fmt.Sprintf(
+		"*Chart could not be attached*\nI generated *%s*, but Slack did not accept the upload. %s",
+		file.Title,
+		fix,
+	)
+	message := slackui.Notice(notice)
+	if file.Message != nil {
+		message = *file.Message
+		message.Text = notice + "\n\n" + message.Text
+		if message.Markdown != "" {
+			message.Markdown = notice + "\n\n" + message.Markdown
+		} else {
+			message.Sections = append([]string{notice}, message.Sections...)
+		}
+		message.Context = append(
+			message.Context,
+			"The analysis completed; only the Slack file delivery failed.",
+		)
+	}
+	return s.postInputMessageAt(
+		ctx,
+		delivery.ID+"_upload_failed",
+		delivery.ChannelID,
+		delivery.ThreadTS,
+		message,
+	)
 }

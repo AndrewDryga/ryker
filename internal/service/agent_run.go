@@ -1584,13 +1584,20 @@ func (s *Service) finalizeIncidentAgentRun(
 		)
 	}
 	deliveryID := "out_run_" + run.ID
-	if err := s.enqueue(
-		ctx,
-		deliveryID,
-		incident,
-		"assistant",
-		threadTS,
-		message,
+	if len(visuals) == 0 {
+		if err := s.enqueue(
+			ctx,
+			deliveryID,
+			incident,
+			"assistant",
+			threadTS,
+			message,
+		); err != nil {
+			return err
+		}
+	} else if err := s.enqueueGeneratedVisuals(
+		ctx, "out_run_"+run.ID, incident.ID, incident.ChannelID, threadTS,
+		run.SessionID, run.CoopTurnID, visuals, &message,
 	); err != nil {
 		return err
 	}
@@ -1598,12 +1605,6 @@ func (s *Service) finalizeIncidentAgentRun(
 		ctx,
 		pendingApproval,
 		deliveryID,
-	); err != nil {
-		return err
-	}
-	if err := s.enqueueGeneratedVisuals(
-		ctx, "out_run_"+run.ID, incident.ID, incident.ChannelID, threadTS,
-		run.SessionID, run.CoopTurnID, visuals,
 	); err != nil {
 		return err
 	}

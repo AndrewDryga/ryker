@@ -71,9 +71,10 @@ func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
 	}
 	slackClient := &fakeSlack{uploadErr: errors.New("timeout after Slack accepted upload")}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	message := slackui.ConversationResponse("CPU stayed below saturation.", slackui.NewSanitizer(12000))
 	if err := svc.enqueueGeneratedVisuals(ctx, "out_test", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
 		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
-	}}); err != nil {
+	}}, &message); err != nil {
 		t.Fatal(err)
 	}
 	if delivery, err := st.GetSlackDelivery(ctx, "out_test_visual_01"); err != nil {
@@ -84,6 +85,8 @@ func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
 	}
 	if len(slackClient.uploads) != 1 || slackClient.uploads[0].thread != "1700.001" ||
 		slackClient.uploads[0].upload.Title != "Production load" ||
+		slackClient.uploads[0].upload.Message == nil ||
+		!strings.Contains(slackClient.uploads[0].upload.Message.Text, "below saturation") ||
 		!strings.Contains(slackClient.uploads[0].upload.Filename, "out_test_visual_01") {
 		t.Fatalf("upload = %+v", slackClient.uploads)
 	}
@@ -97,6 +100,104 @@ func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
 	delivery, err := st.GetSlackDelivery(ctx, "out_test_visual_01")
 	if err != nil || delivery.State != "sent" {
 		t.Fatalf("delivery = %+v err=%v", delivery, err)
+	}
+}
+
+func TestGeneratedVisualMissingScopePostsTruthfulFailureInsteadOfSuccess(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	data := []byte("\x89PNG\r\n\x1a\nchart")
+	digest := sha256.Sum256(data)
+	digestHex := hex.EncodeToString(digest[:])
+	coopClient := newFakeCoop()
+	coopClient.turn = coop.Turn{ID: "turn_visual", SessionID: "ses_1", OutputArtifacts: []coop.OutputArtifact{{
+		ID: "artifact_visual", Name: "load.png", MediaType: "image/png", SHA256: digestHex, Bytes: int64(len(data)),
+	}}}
+	coopClient.outputArtifacts = map[string]coop.OutputArtifact{
+		"artifact_visual": {ID: "artifact_visual", MediaType: "image/png", SHA256: digestHex, Bytes: int64(len(data)), Data: data},
+	}
+	slackClient := &fakeSlack{uploadErr: errors.New("GetUploadURLExternal: missing_scope")}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	message := slackui.ConversationResponse("CPU stayed below saturation.", slackui.NewSanitizer(12000))
+	if err := svc.enqueueGeneratedVisuals(ctx, "out_scope", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
+		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
+	}}, &message); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("success text posted before failed upload: %+v", slackClient.posts)
+	}
+	delivery, err := st.GetSlackDelivery(ctx, "out_scope_visual_01")
+	if err != nil || delivery.State != "failed" || !strings.Contains(delivery.LastError, "missing_scope") {
+		t.Fatalf("visual delivery = %+v err=%v", delivery, err)
+	}
+	if err := svc.processSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.posts) != 1 ||
+		!strings.Contains(slackClient.posts[0].message.Text, "files:write") ||
+		!strings.Contains(slackClient.posts[0].message.Text, "CPU stayed below saturation") {
+		t.Fatalf("upload failure reply = %+v", slackClient.posts)
+	}
+}
+
+func TestGeneratedVisualLegacyUncertainMissingScopeFailsImmediately(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	data := []byte("\x89PNG\r\n\x1a\nchart")
+	digest := sha256.Sum256(data)
+	digestHex := hex.EncodeToString(digest[:])
+	coopClient := newFakeCoop()
+	coopClient.turn = coop.Turn{ID: "turn_visual", SessionID: "ses_1", OutputArtifacts: []coop.OutputArtifact{{
+		ID: "artifact_visual", Name: "load.png", MediaType: "image/png", SHA256: digestHex, Bytes: int64(len(data)),
+	}}}
+	coopClient.outputArtifacts = map[string]coop.OutputArtifact{
+		"artifact_visual": {ID: "artifact_visual", MediaType: "image/png", SHA256: digestHex, Bytes: int64(len(data)), Data: data},
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.enqueueGeneratedVisuals(ctx, "out_legacy", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
+		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RetrySlackDelivery(
+		ctx, leased.ID, "GetUploadURLExternal: missing_scope", time.Now(), true, false,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.reconcileSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.historyRequests) != 0 {
+		t.Fatalf("definitive missing_scope was reconciled through Slack history: %+v", slackClient.historyRequests)
+	}
+	delivery, err := st.GetSlackDelivery(ctx, "out_legacy_visual_01")
+	if err != nil || delivery.State != "failed" {
+		t.Fatalf("legacy visual delivery = %+v err=%v", delivery, err)
+	}
+	if err := svc.processSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.posts) != 1 || !strings.Contains(slackClient.posts[0].message.Text, "files:write") {
+		t.Fatalf("legacy upload failure reply = %+v", slackClient.posts)
 	}
 }
 
@@ -129,7 +230,7 @@ func TestGeneratedVisualDeliveryRejectsUnknownAndMismatchedArtifacts(t *testing.
 		t.Run(name, func(t *testing.T) {
 			if err := svc.enqueueGeneratedVisuals(
 				ctx, "out_"+name, "", "C123", "1700.1", "ses_1", "turn_visual",
-				[]core.GeneratedVisual{visual},
+				[]core.GeneratedVisual{visual}, nil,
 			); err == nil {
 				t.Fatal("untrusted generated visual was accepted")
 			}

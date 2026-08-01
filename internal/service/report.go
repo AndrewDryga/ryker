@@ -756,7 +756,8 @@ func structuredResponseInstructions() string {
 
 When the user asks for an image or chart and an appropriate tool is available, create it and save it
 in the exact Coop output directory named earlier in the prompt. Reference each intended Slack image
-in visuals. Never inline base64, a data URL, binary content, or a local path in message or JSON. For
+in visuals. Never inline base64, a data URL, binary content, or a local path in message or JSON. Do
+not say that a file is attached or uploaded; Responder owns Slack delivery and reports upload failures. For
 charts, use verified data, label axes and units, and state the source, time range, freshness, and
 material gaps in message/evidence. A generated chart is presentation of evidence, not evidence by
 itself. For creative images, evidence may be empty. If no capable image tool is available, say so

@@ -266,6 +266,7 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 		)
 	}
 	var timestamp string
+	var fileDelivery *slackFileDelivery
 	switch item.Operation {
 	case "post", "update":
 		message, decodeErr := slackui.Decode(item.Body)
@@ -310,8 +311,10 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 			err = decodeErr
 			break
 		}
+		fileDelivery = &file
 		timestamp, err = s.slack.UploadFile(ctx, item.ChannelID, item.ThreadTS, slackui.FileUpload{
-			Filename: file.Filename, Title: file.Title, AltText: file.AltText, Data: file.Data,
+			Filename: file.Filename, Title: file.Title, AltText: file.AltText,
+			Data: file.Data, Message: file.Message,
 		})
 	default:
 		err = fmt.Errorf("unsupported Slack delivery operation %q", item.Operation)
@@ -319,14 +322,27 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 	s.lastPost = time.Now()
 	if err != nil {
 		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
-		return s.store.RetrySlackDelivery(
+		uncertain := item.Operation == "post" || item.Operation == "file"
+		if item.Operation == "file" && permanentSlackFileDeliveryError(err) {
+			terminal = true
+			uncertain = false
+		}
+		if retryErr := s.store.RetrySlackDelivery(
 			ctx,
 			item.ID,
 			trimError(err),
 			queueDelay(item.Attempts),
-			item.Operation == "post" || item.Operation == "file",
+			uncertain,
 			terminal,
-		)
+		); retryErr != nil {
+			return retryErr
+		}
+		if terminal && fileDelivery != nil {
+			return s.enqueueGeneratedVisualFailure(
+				ctx, item, *fileDelivery, trimError(err),
+			)
+		}
+		return nil
 	}
 	if err := s.store.FinishSlackDelivery(
 		ctx, item.ID, timestamp, "sending",
@@ -384,10 +400,22 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 		)
 	}
 	var timestamp string
+	var fileDelivery *slackFileDelivery
 	if item.Operation == "file" {
 		file, decodeErr := decodeSlackFileDelivery(item.Body)
 		if decodeErr != nil {
 			return s.store.RetryUncertainSlackDelivery(ctx, item.ID, trimError(decodeErr), time.Now(), true)
+		}
+		fileDelivery = &file
+		if permanentSlackFileDeliveryError(errors.New(item.LastError)) {
+			if retryErr := s.store.RetryUncertainSlackDelivery(
+				ctx, item.ID, item.LastError, time.Now(), true,
+			); retryErr != nil {
+				return retryErr
+			}
+			return s.enqueueGeneratedVisualFailure(
+				ctx, item, file, item.LastError,
+			)
 		}
 		timestamp, err = s.slack.FindDeliveryFile(ctx, item.ChannelID, item.ThreadTS, file.Filename)
 	} else {
@@ -409,6 +437,11 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 				_ = s.store.SetIncidentError(
 					ctx, incident.ID, incident.Workflow,
 					"Slack delivery failed after the configured retry limit.",
+				)
+			}
+			if fileDelivery != nil && retryErr == nil {
+				return s.enqueueGeneratedVisualFailure(
+					ctx, item, *fileDelivery, item.LastError,
 				)
 			}
 		}

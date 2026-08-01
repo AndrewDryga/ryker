@@ -114,6 +114,7 @@ type FileUpload struct {
 	Title    string
 	AltText  string
 	Data     []byte
+	Message  *Message
 }
 
 type Client struct {
@@ -325,10 +326,14 @@ func (c *Client) DownloadFile(ctx context.Context, downloadURL string, writer io
 }
 
 func (c *Client) UploadFile(ctx context.Context, channel, threadTS string, upload FileUpload) (string, error) {
+	var blocks slack.Blocks
+	if upload.Message != nil {
+		blocks = slack.Blocks{BlockSet: upload.Message.Blocks()}
+	}
 	file, err := c.api.UploadFileContext(ctx, slack.UploadFileParameters{
 		Reader: bytes.NewReader(upload.Data), FileSize: len(upload.Data),
 		Filename: upload.Filename, Title: upload.Title, AltTxt: upload.AltText,
-		Channel: channel, ThreadTimestamp: threadTS,
+		Channel: channel, ThreadTimestamp: threadTS, Blocks: blocks,
 	})
 	if err != nil {
 		return "", err

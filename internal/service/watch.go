@@ -757,11 +757,18 @@ func (s *Service) applyWatchDecision(
 			state.ReplyDeliveryID,
 			"watch_reply_"+input.ID,
 		)
-		if err := post(
-			ctx,
-			deliveryID,
-			input,
-			message,
+		if len(decision.Visuals) == 0 {
+			if err := post(
+				ctx,
+				deliveryID,
+				input,
+				message,
+			); err != nil {
+				return err
+			}
+		} else if err := s.enqueueGeneratedVisuals(
+			ctx, deliveryID, "", input.ChannelID, responseThreadTS,
+			state.SessionID, state.TurnID, decision.Visuals, &message,
 		); err != nil {
 			return err
 		}
@@ -769,12 +776,6 @@ func (s *Service) applyWatchDecision(
 			ctx,
 			decision.PendingApproval,
 			deliveryID,
-		); err != nil {
-			return err
-		}
-		if err := s.enqueueGeneratedVisuals(
-			ctx, deliveryID, "", input.ChannelID, responseThreadTS,
-			state.SessionID, state.TurnID, decision.Visuals,
 		); err != nil {
 			return err
 		}
@@ -2008,7 +2009,8 @@ must request and confirm durable behavior; do not claim that a save control will
 When a user asks for a chart or image and an appropriate tool is available, create it in the exact
 Coop output directory named earlier in the prompt and include visuals with the exact filename or
 artifact ID, a short title, and useful alt text. Never inline image bytes, base64, data URLs, or
-local paths. For charts, use verified data, label axes and units, and explain the source, time range,
+local paths. Describe the result and findings, but do not claim that a file is attached or uploaded;
+Responder owns Slack delivery and will report any upload failure. For charts, use verified data, label axes and units, and explain the source, time range,
 freshness, and gaps in message/evidence; the chart itself is not evidence. Creative images may omit
 evidence. If no capable tool is available, say so plainly and return no visuals.
 
