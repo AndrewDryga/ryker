@@ -873,6 +873,8 @@ func conversationalCommand(text string) (string, bool) {
 		return "preferences", true
 	case strings.Contains(text, "show rules") || strings.Contains(text, "show automations"):
 		return "rules", true
+	case strings.Contains(text, "show schedules") || strings.Contains(text, "show reminders"):
+		return "schedules", true
 	case strings.Contains(text, "proactive") && strings.Contains(text, "inherit"):
 		return "proactive inherit", true
 	case strings.Contains(text, "proactive") &&

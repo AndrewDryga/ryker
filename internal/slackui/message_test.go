@@ -784,7 +784,7 @@ func TestTimelineHandoffAndPostmortemRemainEvidenceGrounded(t *testing.T) {
 }
 
 func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
-	message := OperationsHome(1, 3, 1, 2, 1, 2, 1, 0, 0, 0, 1, []core.Incident{{
+	message := OperationsHome(1, 3, 1, 2, 1, 2, 1, 0, 0, 0, 2, 1, []core.Incident{{
 		ID: "inc_1", Title: "API unavailable", Status: core.IncidentActive,
 		Workflow: core.WorkflowInvestigating, ChannelID: "CINCIDENT",
 		ChannelName: "ems-api", FiringCount: 1, SignalCount: 1,
@@ -856,6 +856,41 @@ func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
 		directory.Actions[0].ID != ActionForgetMemory ||
 		!strings.Contains(directory.Sections[0], "COPS") {
 		t.Fatalf("memory directory = %+v", directory)
+	}
+}
+
+func TestScheduleOfferAndDirectoryExplainExecutionBoundary(t *testing.T) {
+	now := time.Now().UTC().Add(time.Hour)
+	task := core.ScheduledTask{
+		ID: "schedule_1", ChannelID: "COPS", ThreadTS: "100.1",
+		Repository: "repo", Title: "Morning health report",
+		Prompt:     "Check production health and summarize material changes.",
+		Recurrence: "daily", LocalTime: "09:00", Timezone: "UTC",
+		NextRunAt: now, ExpiresAt: now.Add(30 * 24 * time.Hour), Enabled: true,
+	}
+	offer := WithScheduleOffer(ConversationResponse("I can do that.", NewSanitizer(12000)), task, `{"version":1}`, "Every day at 09:00 UTC")
+	if len(offer.Actions) != 1 || offer.Actions[0].ID != ActionRememberSchedule ||
+		!strings.Contains(strings.Join(offer.Context, " "), "cannot reuse an old approval") {
+		t.Fatalf("schedule offer = %+v", offer)
+	}
+	directory := ScheduleDirectoryMessage([]core.ScheduledTask{task})
+	ids := make([]string, 0, len(directory.Actions))
+	for _, action := range directory.Actions {
+		ids = append(ids, action.ID)
+	}
+	for _, want := range []string{ActionToggleSchedule, ActionRunSchedule, ActionEditSchedule, ActionDeleteSchedule} {
+		if !slices.Contains(ids, want) {
+			t.Fatalf("schedule directory actions = %v, missing %s", ids, want)
+		}
+	}
+	completed := task
+	completed.Enabled = false
+	completed.NextRunAt = time.Time{}
+	completedDirectory := ScheduleDirectoryMessage([]core.ScheduledTask{completed})
+	for _, action := range completedDirectory.Actions {
+		if action.ID == ActionToggleSchedule {
+			t.Fatalf("completed one-shot schedule can be resumed: %+v", completedDirectory.Actions)
+		}
 	}
 }
 

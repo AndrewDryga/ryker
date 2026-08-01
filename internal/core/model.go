@@ -427,6 +427,64 @@ type StandingRule struct {
 	UpdatedAt     time.Time
 }
 
+// ScheduleOffer is model-produced but inert until a configured operator confirms it.
+// StartAt anchors the first occurrence when supplied. Calendar schedules keep wall-clock
+// semantics in Timezone; interval schedules use IntervalSeconds after the first occurrence.
+type ScheduleOffer struct {
+	Title           string   `json:"title"`
+	Prompt          string   `json:"prompt"`
+	Repository      string   `json:"repository"`
+	Recurrence      string   `json:"recurrence"`
+	StartAt         string   `json:"start_at"`
+	IntervalSeconds int64    `json:"interval_seconds,omitempty"`
+	Weekdays        []string `json:"weekdays,omitempty"`
+	DayOfMonth      int      `json:"day_of_month,omitempty"`
+	LocalTime       string   `json:"local_time,omitempty"`
+	Timezone        string   `json:"timezone,omitempty"`
+	CatchUp         string   `json:"catch_up,omitempty"`
+	ExpiresIn       string   `json:"expires_in,omitempty"`
+}
+
+type ScheduledTask struct {
+	ID              string
+	TeamID          string
+	ChannelID       string
+	ThreadTS        string
+	Repository      string
+	Title           string
+	Prompt          string
+	Recurrence      string
+	StartAt         time.Time
+	IntervalSeconds int64
+	Weekdays        []string
+	DayOfMonth      int
+	LocalTime       string
+	Timezone        string
+	CatchUp         string
+	Enabled         bool
+	ActorID         string
+	SourceRef       string
+	NextRunAt       time.Time
+	LastRunAt       time.Time
+	LastOutcome     string
+	ExpiresAt       time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type ScheduledTaskRun struct {
+	TaskID       string
+	ScheduledFor time.Time
+	SourceInput  string
+	AgentRunID   string
+	Outcome      string
+	LastError    string
+	StartedAt    time.Time
+	CompletedAt  time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 func (m *AgentMemory) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -795,6 +853,8 @@ type PruneResult struct {
 	Preferences           int64
 	StandingRules         int64
 	StandingRuleRuns      int64
+	ScheduledTasks        int64
+	ScheduledTaskRuns     int64
 	ActionProposals       int64
 	EmisarApprovals       int64
 	ConfigurationSessions int64
@@ -807,6 +867,7 @@ func (r PruneResult) Total() int64 {
 		r.EvaluationDecisions + r.ChannelIntelligence + r.ConversationMemories +
 		r.MemoryEntries + r.MemoryRollups + r.MemoryReviews + r.MemorySupersessions +
 		r.ActionProposals + r.Preferences + r.StandingRules +
-		r.StandingRuleRuns + r.EmisarApprovals + r.ConfigurationSessions +
+		r.StandingRuleRuns + r.ScheduledTasks + r.ScheduledTaskRuns +
+		r.EmisarApprovals + r.ConfigurationSessions +
 		r.ClosedIncidents + r.AuditEvents
 }

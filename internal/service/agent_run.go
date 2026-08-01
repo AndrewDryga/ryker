@@ -135,11 +135,14 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	if err != nil {
 		return err
 	}
-	latestAt, err := s.store.LatestSlackConversationAt(ctx, input.ChannelID)
-	if err != nil {
-		return err
+	readyAt := time.Now().UTC()
+	if input.Kind != "scheduled" {
+		latestAt, err := s.store.LatestSlackConversationAt(ctx, input.ChannelID)
+		if err != nil {
+			return err
+		}
+		readyAt = latestAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
 	}
-	readyAt := latestAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
 	run, _, err := s.store.QueueAgentRun(ctx, core.AgentRun{
 		Mode:            core.AgentRunTriage,
 		ChannelID:       input.ChannelID,
@@ -1436,7 +1439,7 @@ func (s *Service) finalizeIncidentAgentRun(
 					conversationInput, report.PreferenceOffer,
 				); ok {
 					report.PreferenceOffer = offer
-					if report.MemoryOffer == nil && report.RuleOffer == nil {
+					if report.MemoryOffer == nil && report.RuleOffer == nil && report.ScheduleOffer == nil {
 						report.Message = acknowledgement
 					} else {
 						report.Message = "I split that into separate settings so each part stays clear and reversible. Confirm the reply-location preference and the alert-triage rule below."
@@ -1509,6 +1512,11 @@ func (s *Service) finalizeIncidentAgentRun(
 						actionValue,
 						expires,
 					)
+				}
+				if actionValue, task, when, ok := s.prepareScheduleOfferAction(
+					ctx, conversationInput, report.ScheduleOffer,
+				); ok {
+					message = slackui.WithScheduleOffer(message, task, actionValue, when)
 				}
 			} else {
 				message = slackui.IncidentEvidenceResponse(

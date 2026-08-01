@@ -196,6 +196,11 @@ limits:
   max_preferences_per_scope: 50
   max_standing_rules: 500
   max_rules_per_channel: 25
+  # Durable operator-confirmed scheduled tasks. Missed tasks using catch_up=skip
+  # are skipped after the grace period; catch_up=latest runs one current occurrence.
+  max_scheduled_tasks: 500
+  max_schedules_per_channel: 25
+  schedule_misfire_grace: 15m
   worker_interval: 250ms
   work_lease: 3m
   worker_stall_after: 2m

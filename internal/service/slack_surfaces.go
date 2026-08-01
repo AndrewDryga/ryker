@@ -72,6 +72,7 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 		homeMemoryCount,
 		metrics.PreferencesActive,
 		metrics.RulesActive,
+		metrics.SchedulesActive,
 		commitmentCount,
 		incidents,
 		commitments,

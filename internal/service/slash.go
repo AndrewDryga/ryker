@@ -277,6 +277,11 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 			return s.finishSlashInput(ctx, input, slashUsage("rules"))
 		}
 		return s.finishSlashRules(ctx, input)
+	case "schedules", "schedule", "reminders":
+		if len(fields) != 1 {
+			return s.finishSlashInput(ctx, input, slashUsage("schedules"))
+		}
+		return s.finishSlashSchedules(ctx, input)
 	case "proactive", "watch":
 		return s.configureProactive(ctx, input, fields[1:])
 	case "shadow":
@@ -390,6 +395,17 @@ func (s *Service) finishSlashRules(
 		return err
 	}
 	return s.finishSlashMessage(ctx, input, slackui.RuleDirectoryMessage(rules))
+}
+
+func (s *Service) finishSlashSchedules(
+	ctx context.Context,
+	input core.SlackInput,
+) error {
+	tasks, err := s.store.ListScheduledTasksForChannel(ctx, input.ChannelID, 20)
+	if err != nil {
+		return err
+	}
+	return s.finishSlashMessage(ctx, input, slackui.ScheduleDirectoryMessage(tasks))
 }
 
 func (s *Service) finishIncidentIntelligence(
@@ -857,7 +873,8 @@ func slashHelpSections() []string {
 			"`/responder memory` - inspect saved memory and consolidation health\n" +
 			"`/responder memory review` - review stale or redundant saved memory\n" +
 			"`/responder preferences` - manage investigation and response defaults\n" +
-			"`/responder rules` - manage typed read-only channel automations",
+			"`/responder rules` - manage typed read-only channel automations\n" +
+			"`/responder schedules` - manage recurring and one-time tasks in this channel",
 		"*Control listening*\n" +
 			"`/responder proactive on|off|inherit` - change this channel\n" +
 			"`/responder proactive global on|off|inherit` - change the workspace default\n" +
@@ -942,6 +959,13 @@ func slashUsage(command string) string {
 			"An enabled rule can read only its matching messages even when broad proactive " +
 			"triage is off. It replies in the source thread and cannot create incidents, edit " +
 			"files, deploy, approve, or mutate infrastructure."
+	case "schedules":
+		return "*Manage scheduled tasks for this channel.*\n\n" +
+			"`/responder schedules` lists one-time and recurring tasks with run-now, pause, " +
+			"replace, and delete controls. Create one conversationally, for example: " +
+			"`@Emisar every Monday at 09:00 UTC, summarize production health`.\n\n" +
+			"Nothing is saved until a configured operator confirms the normalized schedule. " +
+			"Every occurrence rechecks current Coop, repository, tool, and Emisar policy."
 	case "proactive":
 		return "*Choose what Responder should read.*\n\n" +
 			"`/responder proactive on|off|inherit` changes only this channel. " +

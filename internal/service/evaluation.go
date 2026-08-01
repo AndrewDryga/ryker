@@ -2,6 +2,7 @@ package service
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -549,6 +550,13 @@ func hostedWatchDecisionOffers(
 			result = append(result, "rule")
 		}
 	}
+	if decision.ScheduleOffer != nil {
+		if _, _, _, ok := evaluator.prepareScheduleOfferAction(
+			context.Background(), input, decision.ScheduleOffer,
+		); ok {
+			result = append(result, "schedule")
+		}
+	}
 	return result
 }
 
@@ -569,6 +577,9 @@ func watchDecisionOffers(decision watchDecision) []string {
 	if decision.RuleOffer != nil {
 		result = append(result, "rule")
 	}
+	if decision.ScheduleOffer != nil {
+		result = append(result, "schedule")
+	}
 	return result
 }
 
@@ -582,6 +593,9 @@ func agentReportOffers(report agentReport) []string {
 	}
 	if report.RuleOffer != nil {
 		result = append(result, "rule")
+	}
+	if report.ScheduleOffer != nil {
+		result = append(result, "schedule")
 	}
 	return result
 }

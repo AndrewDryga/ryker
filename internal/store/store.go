@@ -52,6 +52,9 @@ type Metrics struct {
 	PreferencesDisabled    int `json:"preferences_disabled"`
 	RulesActive            int `json:"rules_active"`
 	RulesDisabled          int `json:"rules_disabled"`
+	SchedulesActive        int `json:"schedules_active"`
+	SchedulesPaused        int `json:"schedules_paused"`
+	ScheduleRunsActive     int `json:"schedule_runs_active"`
 }
 
 type FailedWork struct {
@@ -608,6 +611,9 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 		{&result.PreferencesDisabled, `SELECT count(*) FROM responder_preferences WHERE enabled = 0 AND julianday(expires_at) > julianday('now')`},
 		{&result.RulesActive, `SELECT count(*) FROM standing_rules WHERE enabled = 1 AND julianday(expires_at) > julianday('now')`},
 		{&result.RulesDisabled, `SELECT count(*) FROM standing_rules WHERE enabled = 0 AND julianday(expires_at) > julianday('now')`},
+		{&result.SchedulesActive, `SELECT count(*) FROM scheduled_tasks WHERE enabled = 1 AND julianday(expires_at) > julianday('now')`},
+		{&result.SchedulesPaused, `SELECT count(*) FROM scheduled_tasks WHERE enabled = 0 AND next_run_at IS NOT NULL AND julianday(expires_at) > julianday('now')`},
+		{&result.ScheduleRunsActive, `SELECT count(*) FROM scheduled_task_runs WHERE outcome IN ('queued', 'running')`},
 		{&result.WorkFailed, `
 			SELECT
 			  (SELECT count(*) FROM webhook_events WHERE state = 'failed') +

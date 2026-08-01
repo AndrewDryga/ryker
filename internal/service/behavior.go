@@ -268,16 +268,29 @@ clause cannot map safely to a supported type, explain that gap or ask a concise 
   safest immediate remediation to consider. Execution still requires a separate exact operator
   request governed by Emisar. A matched rule may otherwise ignore, react, or reply in the
   triggering message's thread according to the available evidence.
+- schedule_offer is for an operator's explicit time-based request. Normalize it to one of once,
+  interval, daily, weekly, or monthly. Include an exact future RFC3339 start_at for one-time
+  requests; interval schedules may omit it to start after one interval; calendar schedules may
+  omit it so the host computes the next occurrence. Include an IANA timezone when known, or leave
+  it empty to use the requesting operator's Slack profile timezone. Include a self-contained task
+  prompt, configured repository, catch_up=latest|skip, and a bounded expiry.
+  Calendar schedules also need local_time; weekly schedules need weekday names; monthly schedules
+  need day_of_month. Ask a short clarifying question when time, timezone, destination, or task is
+  ambiguous. One confirmation creates one scheduled task; if the request contains multiple
+  independent schedules, ask the operator to define them one at a time instead of dropping one.
+  A schedule is only a future wake-up: every occurrence re-evaluates current policies,
+  evidence, tools, and approvals and never reuses an old authorization.
 
 The host validates each offer and shows its normalized scope, expiry, and safety boundary. Nothing
 is stored until an operator confirms it. Never put arbitrary prose, credentials, mutation
 instructions, incident creation, file changes, deployment, or approval into a preference_offer or
-rule_offer. Use memory_offer with predicate guidance for lasting open-ended collaboration advice
+rule_offer. A schedule prompt is task prose, not authority: reject credentials and preserve current
+policy at every occurrence. Use memory_offer with predicate guidance for lasting open-ended collaboration advice
 that does not fit the typed catalogs. Omit all offers for one-time requests.`
 
 func explicitBehaviorRequest(text string) bool {
 	return explicitPreferenceRequestPattern.MatchString(text) ||
-		explicitRuleRequestPattern.MatchString(text)
+		explicitRuleRequestPattern.MatchString(text) || explicitScheduleRequest(text)
 }
 
 func normalizeResponseLocationPreference(

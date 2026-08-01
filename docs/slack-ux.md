@@ -365,7 +365,7 @@ The shipped Slack app registers one command with deterministic subcommands:
 ```
 
 Slack does not provide application-defined autocomplete for text after a slash command. The
-manifest therefore uses a short `help | status | work | incidents | preferences | rules` usage hint instead of
+manifest therefore uses a short `help | status | incidents | schedules` usage hint instead of
 putting every argument in the picker. Running `/responder` without arguments or selecting `help`
 returns an interactive guide with read-only buttons for channel status, open incidents, and all
 incident history.

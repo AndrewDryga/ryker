@@ -26,6 +26,7 @@ const (
 	workEmisarApproval   = "emisar_approval"
 	workCoopPoll         = "coop_poll"
 	workMaintenance      = "maintenance"
+	workScheduledTask    = "scheduled_task"
 	schedulerSingletonID = "drain"
 )
 
@@ -74,6 +75,7 @@ func (s *Service) seedScheduledWork(ctx context.Context) error {
 		{Kind: workAgentFinalize, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 20},
 		{Kind: workIncidentDiscover, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 25},
 		{Kind: workAgentRun, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 50},
+		{Kind: workScheduledTask, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 45},
 		{Kind: workCoopPoll, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 60},
 		{Kind: workMaintenance, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 10},
 	}
@@ -250,7 +252,8 @@ func recurringScheduledWork(kind string) bool {
 		workAgentRun,
 		workAgentFinalize,
 		workCoopPoll,
-		workMaintenance:
+		workMaintenance,
+		workScheduledTask:
 		return true
 	default:
 		return false
@@ -304,6 +307,8 @@ func (s *Service) runScheduledWork(
 	case workMaintenance:
 		s.runMaintenance(ctx)
 		return store.ErrNotFound
+	case workScheduledTask:
+		return s.processScheduledTasks(ctx)
 	default:
 		return fmt.Errorf("unsupported scheduled work kind %q", item.Kind)
 	}

@@ -24,6 +24,7 @@ type agentReport struct {
 	MemoryOffer     *core.MemoryOffer      `json:"memory_offer,omitempty"`
 	PreferenceOffer *core.PreferenceOffer  `json:"preference_offer,omitempty"`
 	RuleOffer       *core.RuleOffer        `json:"rule_offer,omitempty"`
+	ScheduleOffer   *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
 	PendingApproval *core.EmisarApproval   `json:"pending_approval,omitempty"`
 	Proposals       []core.ActionProposal  `json:"proposals,omitempty"`
 }
@@ -85,6 +86,7 @@ func decodeAgentReport(message string) (agentReport, error) {
 		report.MemoryOffer != nil,
 		report.PreferenceOffer != nil,
 		report.RuleOffer != nil,
+		report.ScheduleOffer != nil,
 	} {
 		if present {
 			offerCount++
@@ -167,7 +169,7 @@ func (s *Service) persistAgentReport(
 	} else {
 		report.Message = boundedField(report.Message, 30000)
 	}
-	if report.MemoryOffer != nil || report.PreferenceOffer != nil || report.RuleOffer != nil {
+	if report.MemoryOffer != nil || report.PreferenceOffer != nil || report.RuleOffer != nil || report.ScheduleOffer != nil {
 		// Configuration requests are not operational findings. Keeping model-produced
 		// evidence here makes a confirmation card look as if its behavior was already saved.
 		report.Evidence = nil
@@ -273,6 +275,20 @@ func (s *Service) persistAgentReport(
 		report.RuleOffer.ExpiresIn = s.cleanStructuredField(
 			report.RuleOffer.ExpiresIn, 20,
 		)
+	}
+	if report.ScheduleOffer != nil {
+		report.ScheduleOffer.Title = s.cleanStructuredField(report.ScheduleOffer.Title, 160)
+		report.ScheduleOffer.Prompt = s.cleanStructuredField(report.ScheduleOffer.Prompt, 1200)
+		report.ScheduleOffer.Repository = s.cleanStructuredField(report.ScheduleOffer.Repository, 63)
+		report.ScheduleOffer.Recurrence = s.cleanStructuredField(report.ScheduleOffer.Recurrence, 20)
+		report.ScheduleOffer.StartAt = s.cleanStructuredField(report.ScheduleOffer.StartAt, 40)
+		report.ScheduleOffer.LocalTime = s.cleanStructuredField(report.ScheduleOffer.LocalTime, 5)
+		report.ScheduleOffer.Timezone = s.cleanStructuredField(report.ScheduleOffer.Timezone, 100)
+		report.ScheduleOffer.CatchUp = s.cleanStructuredField(report.ScheduleOffer.CatchUp, 10)
+		report.ScheduleOffer.ExpiresIn = s.cleanStructuredField(report.ScheduleOffer.ExpiresIn, 20)
+		if len(report.ScheduleOffer.Weekdays) > 7 {
+			return agentReport{}, errors.New("schedule offer has too many weekdays")
+		}
 	}
 	if report.PendingApproval != nil {
 		report.PendingApproval = s.prepareEmisarApproval(
@@ -729,6 +745,20 @@ func structuredResponseInstructions() string {
     "source_kind": "any|human|app",
     "expires_in": "7d|30d|90d|365d"
   },
+  "schedule_offer": {
+    "title": "short task title",
+    "prompt": "self-contained task to execute on each occurrence",
+    "repository": "exact configured repository key",
+    "recurrence": "once|interval|daily|weekly|monthly",
+    "start_at": "future RFC3339; required for once, optional otherwise",
+    "interval_seconds": 3600,
+    "weekdays": ["monday"],
+    "day_of_month": 1,
+    "local_time": "09:00",
+    "timezone": "IANA timezone or empty for the requester's Slack profile timezone",
+    "catch_up": "latest|skip",
+    "expires_in": "7d|30d|90d|365d"
+  },
   "pending_approval": {
     "request_id": "exact approval.request_id returned by Emisar",
     "run_id": "exact run_id returned by Emisar",
@@ -761,7 +791,7 @@ not say that a file is attached or uploaded; Responder owns Slack delivery and r
 charts, use verified data, label axes and units, and state the source, time range, freshness, and
 material gaps in message/evidence. A generated chart is presentation of evidence, not evidence by
 itself. For creative images, evidence may be empty. If no capable image tool is available, say so
-plainly and return no visuals. Do not include visuals with a memory, preference, or rule offer.
+plainly and return no visuals. Do not include visuals with a memory, preference, rule, or schedule offer.
 Omit memory_offer unless the current configured operator explicitly asked Responder to remember,
 save, or correct durable context, or clearly requested lasting guidance with language such as
 "from now on", "always", or "keep this in mind". A memory offer is inert until the host displays an
@@ -776,7 +806,7 @@ Never use memory_offer for secrets, credentials, approvals, or transient observa
 
 ` + behaviorOfferPolicy + `
 
-Return at most one memory_offer, one preference_offer, and one rule_offer. A compound lasting request may include more
+Return at most one memory_offer, one preference_offer, one rule_offer, and one schedule_offer. A compound lasting request may include more
 than one kind; cover every independent clause or explain what cannot be represented safely. Use an empty array when no evidence, coverage, or
 action proposal exists. Omit pending_approval unless the latest exact Emisar run response has
 status pending_approval and includes its approval object. Copy only the exact Emisar run and

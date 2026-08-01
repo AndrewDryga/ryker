@@ -247,6 +247,9 @@ type Limits struct {
 	MaxPreferencesPerScope       int      `yaml:"max_preferences_per_scope"`
 	MaxStandingRules             int      `yaml:"max_standing_rules"`
 	MaxRulesPerChannel           int      `yaml:"max_rules_per_channel"`
+	MaxScheduledTasks            int      `yaml:"max_scheduled_tasks"`
+	MaxSchedulesPerChannel       int      `yaml:"max_schedules_per_channel"`
+	ScheduleMisfireGrace         Duration `yaml:"schedule_misfire_grace"`
 	WorkerInterval               Duration `yaml:"worker_interval"`
 	WorkLease                    Duration `yaml:"work_lease"`
 	WorkerStallAfter             Duration `yaml:"worker_stall_after"`
@@ -338,6 +341,9 @@ func defaults() Config {
 			MaxPreferencesPerScope:       50,
 			MaxStandingRules:             500,
 			MaxRulesPerChannel:           25,
+			MaxScheduledTasks:            500,
+			MaxSchedulesPerChannel:       25,
+			ScheduleMisfireGrace:         Duration{15 * time.Minute},
 			WorkerInterval:               Duration{250 * time.Millisecond},
 			WorkLease:                    Duration{3 * time.Minute},
 			WorkerStallAfter:             Duration{2 * time.Minute},
@@ -674,6 +680,19 @@ func (c Config) Validate() error {
 		return errors.New(
 			"limits.max_rules_per_channel must be between 1 and max_standing_rules",
 		)
+	}
+	if c.Limits.MaxScheduledTasks < 1 || c.Limits.MaxScheduledTasks > 100000 {
+		return errors.New("limits.max_scheduled_tasks must be between 1 and 100000")
+	}
+	if c.Limits.MaxSchedulesPerChannel < 1 ||
+		c.Limits.MaxSchedulesPerChannel > c.Limits.MaxScheduledTasks {
+		return errors.New(
+			"limits.max_schedules_per_channel must be between 1 and max_scheduled_tasks",
+		)
+	}
+	if c.Limits.ScheduleMisfireGrace.Duration < time.Minute ||
+		c.Limits.ScheduleMisfireGrace.Duration > 24*time.Hour {
+		return errors.New("limits.schedule_misfire_grace must be between 1m and 24h")
 	}
 	if c.Limits.WorkerInterval.Duration < 50*time.Millisecond || c.Limits.WorkerInterval.Duration > 10*time.Second {
 		return errors.New("limits.worker_interval must be between 50ms and 10s")

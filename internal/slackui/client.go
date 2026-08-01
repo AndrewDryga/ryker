@@ -656,6 +656,15 @@ func (c *Client) UserAllowed(ctx context.Context, userID, teamID string) (bool, 
 	return true, nil
 }
 
+// UserTimezone returns Slack's IANA timezone for calendar schedule normalization.
+func (c *Client) UserTimezone(ctx context.Context, userID string) (string, error) {
+	user, err := c.api.GetUserInfoContext(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	return user.TZ, nil
+}
+
 func (c *Client) UserGroupMembers(
 	ctx context.Context,
 	userGroupID string,

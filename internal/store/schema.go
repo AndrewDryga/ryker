@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 25
+const currentSchemaVersion = 26
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1223,6 +1223,62 @@ CREATE INDEX memory_supersessions_entry_idx
   ON memory_supersessions(entry_id, created_at DESC);
 `
 
+const schemaV26 = `
+CREATE TABLE scheduled_tasks (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL DEFAULT '',
+  repository TEXT NOT NULL,
+  title TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  recurrence TEXT NOT NULL CHECK (recurrence IN ('once', 'interval', 'daily', 'weekly', 'monthly')),
+  start_at TEXT NOT NULL,
+  interval_seconds INTEGER NOT NULL DEFAULT 0,
+  weekdays_json TEXT NOT NULL DEFAULT '[]',
+  day_of_month INTEGER NOT NULL DEFAULT 0,
+  local_time TEXT NOT NULL DEFAULT '',
+  timezone TEXT NOT NULL DEFAULT 'UTC',
+  catch_up TEXT NOT NULL DEFAULT 'latest' CHECK (catch_up IN ('latest', 'skip')),
+  enabled INTEGER NOT NULL DEFAULT 1,
+  actor_id TEXT NOT NULL,
+  source_ref TEXT NOT NULL,
+  next_run_at TEXT,
+  last_run_at TEXT,
+  last_outcome TEXT NOT NULL DEFAULT '',
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX scheduled_tasks_due_idx
+  ON scheduled_tasks(enabled, next_run_at, expires_at);
+CREATE INDEX scheduled_tasks_channel_idx
+  ON scheduled_tasks(channel_id, expires_at, updated_at DESC);
+CREATE UNIQUE INDEX scheduled_tasks_source_once_idx
+  ON scheduled_tasks(team_id, channel_id, source_ref);
+
+CREATE TABLE scheduled_task_runs (
+  task_id TEXT NOT NULL,
+  scheduled_for TEXT NOT NULL,
+  source_input TEXT NOT NULL DEFAULT '',
+  agent_run_id TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL CHECK (outcome IN ('queued', 'running', 'completed', 'failed', 'skipped_missed', 'skipped_overlap', 'skipped_unauthorized')),
+  last_error TEXT NOT NULL DEFAULT '',
+  started_at TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(task_id, scheduled_for),
+  FOREIGN KEY(task_id) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX scheduled_task_runs_state_idx
+  ON scheduled_task_runs(outcome, updated_at);
+CREATE UNIQUE INDEX scheduled_task_runs_input_once_idx
+  ON scheduled_task_runs(source_input) WHERE source_input != '';
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1249,4 +1305,5 @@ var migrations = []string{
 	schemaV23,
 	schemaV24,
 	schemaV25,
+	schemaV26,
 }

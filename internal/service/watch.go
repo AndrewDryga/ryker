@@ -109,6 +109,7 @@ type watchDecision struct {
 	MemoryOffer     *core.MemoryOffer      `json:"memory_offer,omitempty"`
 	PreferenceOffer *core.PreferenceOffer  `json:"preference_offer,omitempty"`
 	RuleOffer       *core.RuleOffer        `json:"rule_offer,omitempty"`
+	ScheduleOffer   *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
 	PendingApproval *core.EmisarApproval   `json:"pending_approval,omitempty"`
 	Reason          string                 `json:"reason,omitempty"`
 }
@@ -501,7 +502,7 @@ func (s *Service) applyWatchDecision(
 			input, decision.PreferenceOffer,
 		); ok {
 			decision.PreferenceOffer = offer
-			if decision.MemoryOffer == nil && decision.RuleOffer == nil {
+			if decision.MemoryOffer == nil && decision.RuleOffer == nil && decision.ScheduleOffer == nil {
 				decision.Message = acknowledgement
 			} else {
 				decision.Message = "I split that into separate settings so each part stays clear and reversible. Confirm the reply-location preference and the alert-triage rule below."
@@ -531,6 +532,7 @@ func (s *Service) applyWatchDecision(
 			MemoryOffer:     decision.MemoryOffer,
 			PreferenceOffer: decision.PreferenceOffer,
 			RuleOffer:       decision.RuleOffer,
+			ScheduleOffer:   decision.ScheduleOffer,
 			PendingApproval: decision.PendingApproval,
 		},
 		core.Incident{},
@@ -549,6 +551,7 @@ func (s *Service) applyWatchDecision(
 	decision.MemoryOffer = report.MemoryOffer
 	decision.PreferenceOffer = report.PreferenceOffer
 	decision.RuleOffer = report.RuleOffer
+	decision.ScheduleOffer = report.ScheduleOffer
 	decision.PendingApproval = report.PendingApproval
 	session, err := s.coop.GetSession(ctx, state.SessionID)
 	if err != nil {
@@ -678,6 +681,14 @@ func (s *Service) applyWatchDecision(
 				expires,
 			)
 			outcome = "rule_offered"
+		}
+		scheduleInput := input
+		scheduleInput.ThreadTS = responseThreadTS
+		if actionValue, task, when, ok := s.prepareScheduleOfferAction(
+			ctx, scheduleInput, decision.ScheduleOffer,
+		); ok {
+			message = slackui.WithScheduleOffer(message, task, actionValue, when)
+			outcome = "schedule_offered"
 		}
 		if decision.PendingApproval != nil {
 			message = slackui.WithEmisarApproval(message, *decision.PendingApproval)
@@ -971,6 +982,7 @@ func suppressWatchDecision(decision watchDecision, reason string) watchDecision 
 	decision.MemoryOffer = nil
 	decision.PreferenceOffer = nil
 	decision.RuleOffer = nil
+	decision.ScheduleOffer = nil
 	decision.PendingApproval = nil
 	decision.Reason = strings.TrimSpace(
 		decision.Reason + "; " + reason,
@@ -1664,7 +1676,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.Title != "" || decision.IncidentTitle != "" ||
 			decision.TaskTitle != "" || decision.TaskRepository != "" ||
 			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-			decision.RuleOffer != nil || decision.PendingApproval != nil || len(decision.Evidence) != 0 ||
+			decision.RuleOffer != nil || decision.ScheduleOffer != nil || decision.PendingApproval != nil || len(decision.Evidence) != 0 ||
 			len(decision.Coverage) != 0 || len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New(
 				"escalation decision has unexpected fields",
@@ -1674,7 +1686,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.Reaction != "" || decision.Message != "" || decision.Title != "" ||
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
-			decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
+			decision.PreferenceOffer != nil || decision.RuleOffer != nil || decision.ScheduleOffer != nil ||
 			decision.PendingApproval != nil ||
 			len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("ignore decision has unexpected fields")
@@ -1688,7 +1700,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.Message != "" || decision.Title != "" ||
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
-			decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
+			decision.PreferenceOffer != nil || decision.RuleOffer != nil || decision.ScheduleOffer != nil ||
 			decision.PendingApproval != nil ||
 			len(decision.Evidence) != 0 || len(decision.Coverage) != 0 ||
 			len(decision.Visuals) != 0 {
@@ -1729,7 +1741,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.PendingApproval != nil &&
 			(decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 				decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-				decision.RuleOffer != nil || len(decision.Visuals) != 0) {
+				decision.RuleOffer != nil || decision.ScheduleOffer != nil || len(decision.Visuals) != 0) {
 			return watchDecision{}, errors.New(
 				"pending approval cannot be combined with another offer or generated visual",
 			)
@@ -1745,6 +1757,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.MemoryOffer != nil,
 			decision.PreferenceOffer != nil,
 			decision.RuleOffer != nil,
+			decision.ScheduleOffer != nil,
 		} {
 			if present {
 				offerCount++
@@ -1770,7 +1783,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.Reaction != "" || decision.Message != "" || decision.IncidentTitle != "" ||
 			decision.TaskTitle != "" || decision.TaskRepository != "" ||
 			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-			decision.RuleOffer != nil || decision.PendingApproval != nil || len(decision.Visuals) != 0 {
+			decision.RuleOffer != nil || decision.ScheduleOffer != nil || decision.PendingApproval != nil || len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("incident decision has unexpected fields")
 		}
 	default:
@@ -1858,6 +1871,8 @@ func watchPromptMessage(
 		senderType = "selected_message"
 	} else if input.Kind == "reaction_added" || input.Kind == "reaction_removed" {
 		senderType = "human_reaction"
+	} else if input.Kind == "scheduled" {
+		senderType = "operator_schedule"
 	}
 	mentionsResponder := botUserID != "" &&
 		strings.Contains(input.Text, "<@"+botUserID+">")
@@ -1929,10 +1944,12 @@ func (s *Service) watchPrompt(
 		Default          string                  `json:"default"`
 		Repositories     []watchPromptRepository `json:"repositories"`
 		TargetIsOperator bool                    `json:"target_is_configured_operator"`
+		CurrentTimeUTC   string                  `json:"current_time_utc"`
 	}{
 		Default:          activeRepository,
 		Repositories:     s.promptRepositories(),
 		TargetIsOperator: s.cfg.IsOperator(input.UserID),
+		CurrentTimeUTC:   time.Now().UTC().Format(time.RFC3339),
 	})
 	target := watchPromptMessage(input, botUserID, true)
 	target.Continuation = conversationFollowup
@@ -1975,6 +1992,11 @@ subject. If the root is still ambiguous, ask a concise clarifying question inste
 
 Infer who is talking to whom before responding. A question mark alone does not mean a question is for Responder. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Responder is explicitly mentioned or the conversation clearly asks the operations responder for help. A standalone operational question in this configured feed may be for Responder even without an explicit mention. target_message.conversation_continuation means Emisar recently answered at this Slack location, so a follow-up is eligible without another mention; it is not proof that every nearby message is addressed to Emisar.
 
+When target_message.sender_type is operator_schedule, this is a previously confirmed scheduled
+occurrence, not ambient Slack prose. Execute its self-contained request now, use current tools and
+evidence, and choose reply with the result. Do not create another schedule_offer from it. Current
+authorization and Emisar approval policy still apply; the schedule itself grants no mutation.
+
 ` + operationalMemoryPolicy + `
 
 ` + evidenceSourcePolicy + `
@@ -2000,7 +2022,7 @@ Configured repository bindings:
 ` + string(repositoryCatalog) + `
 </trusted-responder-configuration>
 
-Only return a durable memory, preference, or standing-rule offer when
+Only return a durable memory, preference, standing-rule, or schedule offer when
 target_is_configured_operator is true. For other users, explain briefly that a configured operator
 must request and confirm durable behavior; do not claim that a save control will be shown.
 
@@ -2042,7 +2064,7 @@ so Responder can render the approval URL in this conversation. Do not create or 
 merely because an operational action is requested:
 {"action":"ignore","attention":{"addressee":"human","urgency":0,"confidence":3,"novelty":0,"ownership":0},"reason":"why silence is appropriate","evidence":[],"coverage":[],"memory":{}}
 {"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1},"reason":"why acknowledgement is enough","memory":{}}
-{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"Slack Markdown","visuals":[{"artifact":"chart.png","title":"Production load","alt_text":"Line chart of production load over 24 hours, peaking at 82 percent at 14:00 UTC"}],"incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","pending_approval":{"request_id":"exact approval request ID","run_id":"exact run ID","operation_id":"exact operation ID","action_id":"exact action ID","pack_ref":"exact immutable pack ref","runner_ref":"exact immutable runner ref","status":"pending_approval","approval_url":"exact Emisar approval URL","expires_at":"exact RFC3339 expiry"},"memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
+{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"Slack Markdown","visuals":[{"artifact":"chart.png","title":"Production load","alt_text":"Line chart of production load over 24 hours, peaking at 82 percent at 14:00 UTC"}],"incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","pending_approval":{"request_id":"exact approval request ID","run_id":"exact run ID","operation_id":"exact operation ID","action_id":"exact action ID","pack_ref":"exact immutable pack ref","runner_ref":"exact immutable runner ref","status":"pending_approval","approval_url":"exact Emisar approval URL","expires_at":"exact RFC3339 expiry"},"memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"schedule_offer":{"title":"short task title","prompt":"self-contained task to execute","repository":"exact configured repository key","recurrence":"once|interval|daily|weekly|monthly","start_at":"exact future RFC3339 timestamp","interval_seconds":3600,"weekdays":["monday"],"day_of_month":1,"local_time":"09:00","timezone":"IANA timezone","catch_up":"latest|skip","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
 {"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"why creation is authorized","title":"concise title","evidence":[],"coverage":[],"memory":{}}
 
 Evidence objects require claim, observation, source_type, and source_name. source_type must be
@@ -2073,7 +2095,7 @@ validates it and requires a separate operator click. Guidance can steer future m
 cannot trigger work, authorize an incident or change, approve an action, count as evidence, or
 override the current request or host policy. Never propose memory for current health, secrets,
 credentials, approvals, or transient observations.
-Return at most one memory_offer, one preference_offer, and one rule_offer. A compound lasting
+Return at most one memory_offer, one preference_offer, one rule_offer, and one schedule_offer. A compound lasting
 request may include more than one kind; cover every independent clause or explain what cannot be
 represented safely.
 

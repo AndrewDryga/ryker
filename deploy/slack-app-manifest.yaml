@@ -56,7 +56,7 @@ features:
   slash_commands:
     - command: /responder
       description: Investigate with Emisar and control operational work
-      usage_hint: help | status | work | incidents | preferences | rules
+      usage_hint: help | status | incidents | schedules
       should_escape: false
   shortcuts:
     - name: Investigate message

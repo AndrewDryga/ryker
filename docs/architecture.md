@@ -62,6 +62,7 @@ SQLite runs in WAL mode with full synchronous writes and one connection. It stor
 - Slack posts, updates, and native statuses in one delivery ledger;
 - a small durable scheduling index with lane, subject, conversation, due time, lease token, and retry state;
 - agent runs with stable idempotency keys, frozen revisions, and persisted context snapshots;
+- operator-confirmed scheduled tasks plus an immutable occurrence ledger keyed by task and due time;
 - Slack channel, root timestamp, Coop session, and event cursor mappings;
 - source-attributed evidence and health-layer coverage independent of answer prose;
 - compact per-channel memory and bounded watch-session generations;
@@ -72,13 +73,18 @@ SQLite runs in WAL mode with full synchronous writes and one connection. It stor
 HTTP and Socket Mode handlers only validate and persist input. One durable scheduler leases a small
 index of typed work: a control lane handles Slack inputs, buttons, slash commands, uncertain-send
 reconciliation, and Slack delivery; a background lane handles webhooks, per-incident provisioning,
-agent runs, and results; a maintenance lane handles Coop polling and bounded cleanup. Payload and
+agent runs, scheduled occurrences, and results; a maintenance lane handles Coop polling and bounded cleanup. Payload and
 domain state remain in their typed tables rather than being copied into a generic queue. Lease
 tokens reject stale workers after expiry, expired leases are reclaimed without restart, and a
 conversation key prevents concurrent work in the same Slack conversation. Per-incident
 provisioning retries cannot head-of-line block unrelated incidents. SQLite still has one writer
 connection, and network calls happen outside transactions. Long-running Coop work therefore cannot
 block operator controls or consume the source Slack input's retry budget.
+
+A scheduled occurrence is not a separate execution engine. The scheduler atomically records and
+advances it, creates an idempotent synthetic Slack input, and queues the ordinary triage agent run.
+That preserves the same conversation serialization, Coop policy, memory assembly, tool projection,
+Slack status, evidence contract, and Emisar approval continuation used by an operator message.
 
 ## Incident identity and correlation
 

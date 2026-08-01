@@ -115,6 +115,39 @@ later inputs can still be admitted and included in subsequent context. A delayed
 an already completed decision is retained and audited but cannot produce an out-of-order reply.
 Slash commands and button controls have priority over ordinary conversation delivery.
 
+## Scheduled tasks
+
+A configured operator creates a schedule by mentioning Emisar with a task and time, for example:
+
+```text
+@Emisar in 4 hours, check whether the rollout is healthy and summarize any blockers
+@Emisar every Monday at 09:00, prepare a production health review
+@Emisar on day 1 of each month at 10:30 Europe/London, summarize SLO and incident trends
+```
+
+Responder asks the model only to normalize an explicit request into a typed offer. The host checks
+the repository, recurrence, timestamp, IANA timezone, interval, task size, expiry, operator, and
+credential-like content. An operator must click **Schedule this** before a row is created. Use
+`/responder schedules` in the destination channel to run, pause, resume, replace, or delete tasks.
+
+One-time schedules require an exact future instant. Interval schedules may omit a start instant and
+then begin after one interval. Daily, weekly, and monthly schedules use the operator's Slack profile
+timezone when none is stated; Responder computes each next local occurrence so DST transitions are
+handled by the Go timezone database. A monthly day that does not exist is skipped rather than moved.
+
+Each due occurrence is inserted in `scheduled_task_runs` before its synthetic Slack input and normal
+triage `agent_run` are queued. The `(task_id, scheduled_for)` key prevents duplicate dispatch after a
+restart, and an active-occurrence check prevents overlap. `catch_up: latest` runs one current catch-up
+after downtime; `skip` records an occurrence as missed when it is older than
+`limits.schedule_misfire_grace`. Current Coop and Emisar policy is re-evaluated on every run. A
+schedule cannot cache a credential, approval, or permission, and a requested mutation can still
+pause for authoritative Emisar approval.
+
+The scheduler limits are `limits.max_scheduled_tasks`, `limits.max_schedules_per_channel`, and
+`limits.schedule_misfire_grace`. Deleting a Slack channel deletes its schedules. Removing a
+repository binding prunes its schedules during maintenance. Expired tasks and terminal occurrence
+records age out with operational retention.
+
 Bot channel joins create a durable `configuration_sessions` row with a 30-minute expiry. The setup
 root timestamp, initiator, current question, typed draft, revision, and status are stored before
 later answers can advance it. Thread answers must match the root; top-level answers require a

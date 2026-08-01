@@ -215,6 +215,31 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				return s.retrySlackInput(ctx, input, err)
 			}
 			return nil
+		case slackui.ActionRememberSchedule:
+			if err := s.handleRememberSchedule(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionToggleSchedule:
+			if err := s.handleToggleSchedule(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionRunSchedule:
+			if err := s.handleRunScheduleNow(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionEditSchedule:
+			if err := s.handleEditSchedule(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		case slackui.ActionDeleteSchedule:
+			if err := s.handleDeleteSchedule(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
 		}
 		if isChannelSetupAction(input.ActionID) {
 			if err := s.handleChannelConfigurationAction(ctx, input); err != nil {
@@ -846,6 +871,17 @@ func (s *Service) processChannelLifecycleInput(
 				Kind: "behavior.channel_deleted", ActorID: input.UserID,
 				ObjectID: input.ChannelID, Outcome: "deleted",
 				Detail: fmt.Sprintf("preferences=%d rules=%d", preferences, rules),
+			})
+		}
+		schedules, err := s.store.DeleteChannelSchedules(ctx, input.ChannelID)
+		if err != nil {
+			return err
+		}
+		if schedules > 0 {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "schedule.channel_deleted", ActorID: input.UserID,
+				ObjectID: input.ChannelID, Outcome: "deleted",
+				Detail: fmt.Sprintf("schedules=%d", schedules),
 			})
 		}
 	}

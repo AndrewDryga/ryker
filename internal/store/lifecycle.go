@@ -433,6 +433,16 @@ func (s *Store) Prune(
 		DELETE FROM standing_rules WHERE expires_at <= ?`, nowText()); err != nil {
 		return result, err
 	}
+	if result.ScheduledTaskRuns, err = deleteCount(`
+		DELETE FROM scheduled_task_runs
+		WHERE outcome IN ('completed', 'failed', 'skipped_missed', 'skipped_overlap', 'skipped_unauthorized')
+		  AND updated_at < ?`, operational); err != nil {
+		return result, err
+	}
+	if result.ScheduledTasks, err = deleteCount(`
+		DELETE FROM scheduled_tasks WHERE expires_at <= ?`, nowText()); err != nil {
+		return result, err
+	}
 	if result.EmisarApprovals, err = deleteCount(`
 		DELETE FROM emisar_approvals WHERE expires_at < ?`, operational); err != nil {
 		return result, err

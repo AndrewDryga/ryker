@@ -52,6 +52,11 @@ const (
 	ActionToggleRule          = "responder_toggle_rule"
 	ActionEditRule            = "responder_edit_rule"
 	ActionDeleteRule          = "responder_delete_rule"
+	ActionRememberSchedule    = "responder_remember_schedule"
+	ActionToggleSchedule      = "responder_toggle_schedule"
+	ActionRunSchedule         = "responder_run_schedule"
+	ActionEditSchedule        = "responder_edit_schedule"
+	ActionDeleteSchedule      = "responder_delete_schedule"
 	ActionSaveChannelConfig   = "responder_save_channel_config"
 	ActionRestartChannelSetup = "responder_restart_channel_setup"
 	ActionCancelChannelSetup  = "responder_cancel_channel_setup"
@@ -731,6 +736,131 @@ func WithRuleOffer(
 			expiresLabel + "? " + confirmation,
 	})
 	return message
+}
+
+func WithScheduleOffer(
+	message Message,
+	task core.ScheduledTask,
+	actionValue string,
+	when string,
+) Message {
+	destination := "this channel"
+	if task.ThreadTS != "" {
+		destination = "this thread"
+	}
+	message.Sections = append(message.Sections, fmt.Sprintf(
+		"*Proposed scheduled task: %s*\n%s\n\n*When:* %s\n*Where:* %s · *Repository:* `%s`",
+		escapeSlackText(task.Title), escapeSlackText(task.Prompt), when,
+		destination, safeInlineCode(task.Repository),
+	))
+	message.Context = append(message.Context,
+		"Nothing is scheduled yet. Each occurrence re-runs this request through current Coop, repository, tool, and Emisar policies. It cannot reuse an old approval, and overlapping occurrences are skipped.",
+	)
+	message.Actions = append(message.Actions, Action{
+		ID: ActionRememberSchedule, Label: "Schedule this", Value: actionValue,
+		Style:   "primary",
+		Confirm: "Create this scheduled task? Future runs use the current policies and may still require operator approval.",
+	})
+	return message
+}
+
+func scheduleToggleValue(id string, enabled bool) string {
+	data, _ := json.Marshal(struct {
+		ID      string `json:"id"`
+		Enabled bool   `json:"enabled"`
+	}{ID: id, Enabled: enabled})
+	return string(data)
+}
+
+func scheduleActions(task core.ScheduledTask) []Action {
+	actions := make([]Action, 0, 4)
+	label := "Pause schedule"
+	if !task.Enabled {
+		label = "Resume schedule"
+	}
+	if !task.NextRunAt.IsZero() {
+		actions = append(actions, Action{ID: ActionToggleSchedule, Label: label, Value: scheduleToggleValue(task.ID, !task.Enabled)})
+	}
+	return append(actions,
+		Action{ID: ActionRunSchedule, Label: "Run now", Value: task.ID, Style: "primary"},
+		Action{ID: ActionEditSchedule, Label: "Replace", Value: task.ID},
+		Action{ID: ActionDeleteSchedule, Label: "Delete", Value: task.ID, Style: "danger", Confirm: "Delete this scheduled task? Future occurrences will not run."},
+	)
+}
+
+func scheduleDirectoryActions(task core.ScheduledTask, number int) []Action {
+	actions := scheduleActions(task)
+	for index := range actions {
+		actions[index].Label += fmt.Sprintf(" #%d", number)
+	}
+	return actions
+}
+
+func ScheduleSavedMessage(task core.ScheduledTask) Message {
+	return Message{
+		Text:     "Scheduled " + task.Title + ". Next run: " + task.NextRunAt.Format(time.RFC3339),
+		Header:   "Scheduled task created",
+		Sections: []string{fmt.Sprintf("*%s*\n%s\n\nNext run: %s\nRepository: `%s`", escapeSlackText(task.Title), escapeSlackText(task.Prompt), task.NextRunAt.In(timeLocation(task.Timezone)).Format("Mon, 02 Jan 2006 15:04 MST"), safeInlineCode(task.Repository))},
+		Context:  []string{"I’ll run only one copy at a time. Each occurrence uses current access and approval rules."},
+		Actions:  scheduleActions(task),
+	}
+}
+
+func ScheduleStateMessage(task core.ScheduledTask) Message {
+	state := "paused"
+	if task.Enabled {
+		state = "active"
+	}
+	return Message{
+		Text:     "Scheduled task " + task.Title + " is " + state + ".",
+		Header:   "Schedule " + state,
+		Sections: []string{"*" + escapeSlackText(task.Title) + "* is now " + state + "."},
+		Actions:  scheduleActions(task),
+	}
+}
+
+func ScheduleDeletedMessage() Message {
+	return Message{Text: "Scheduled task deleted.", Header: "Schedule deleted", Sections: []string{"Future occurrences will not run. A task already in progress can finish. Existing audit records age out with operational retention."}}
+}
+
+func ScheduleDirectoryMessage(tasks []core.ScheduledTask) Message {
+	message := Message{Text: fmt.Sprintf("Emisar has %d unexpired scheduled tasks in this channel.", len(tasks)), Header: "Scheduled tasks for this channel", Context: []string{"Schedules decide when to submit a request. Every occurrence still uses current Coop, repository, tool, and Emisar policy."}}
+	if len(tasks) == 0 {
+		message.Sections = []string{"No scheduled tasks are configured here.", "Example: `@Emisar every Monday at 09:00, summarize production health in this channel`. I’ll normalize the timing and ask for confirmation."}
+		return message
+	}
+	for index, task := range tasks[:min(len(tasks), 8)] {
+		state := "paused"
+		if task.Enabled {
+			state = "active"
+		} else if task.NextRunAt.IsZero() {
+			state = "completed"
+		}
+		next := "none"
+		if !task.NextRunAt.IsZero() {
+			next = task.NextRunAt.In(timeLocation(task.Timezone)).Format("2006-01-02 15:04 MST")
+		}
+		message.Sections = append(message.Sections, fmt.Sprintf("*%d. %s*\n%s · next: %s · last: %s\nRepository: `%s`", index+1, escapeSlackText(task.Title), state, next, firstNonemptyUI(task.LastOutcome, "never"), safeInlineCode(task.Repository)))
+		message.Actions = append(message.Actions, scheduleDirectoryActions(task, index+1)...)
+	}
+	return message
+}
+
+func timeLocation(name string) *time.Location {
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		return time.UTC
+	}
+	return location
+}
+
+func firstNonemptyUI(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
@@ -1881,6 +2011,7 @@ func OperationsHome(
 	memoryActive int,
 	preferenceActive int,
 	ruleActive int,
+	scheduleActive int,
 	commitmentActive int,
 	incidents []core.Incident,
 	commitments []core.Commitment,
@@ -1912,6 +2043,7 @@ func OperationsHome(
 			{Label: "Saved memory visible here", Value: fmt.Sprint(memoryActive)},
 			{Label: "Enabled preferences", Value: fmt.Sprint(preferenceActive)},
 			{Label: "Enabled standing rules", Value: fmt.Sprint(ruleActive)},
+			{Label: "Active schedules", Value: fmt.Sprint(scheduleActive)},
 		},
 		Context: []string{
 			"Ask Emisar what it is working on, what it remembers, or how a channel is configured. Slash commands remain available as recovery controls.",

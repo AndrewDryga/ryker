@@ -383,6 +383,21 @@ provide context but never replace it. Slack events remain ordered per channel, a
 records its source event before incrementing its run count so retries cannot execute it twice.
 Expiry, capacity limits, channel deletion, repository removal, and maintenance pruning bound all
 durable behavior state.
+
+Configured operators can also create one-time and recurring tasks in ordinary language: `remind me
+in 4 hours`, `every weekday at 09:00 check production health`, or `on the first of each month prepare
+an SRE review`. Emisar replies with a confirmation card containing the normalized task, destination,
+repository, recurrence, timezone, next run, expiry, and safety boundary. Nothing runs until an
+operator confirms it. `/responder schedules` lists the current channel's tasks with run-now,
+pause/resume, replace, and delete controls.
+
+Schedules are durable wake-ups, not stored authority. Each occurrence enters the normal Slack/Coop
+agent pipeline with fresh repository, tool, memory, authorization, and Emisar policy context. The
+scheduler records each occurrence before dispatch, never overlaps two copies of the same task, and
+uses IANA timezone calendar arithmetic so local times follow daylight-saving changes. `catch_up`
+can run only the latest missed occurrence after downtime or skip it after the configured grace
+period. One-time tasks complete after their occurrence; run-now remains available for an explicit
+manual repeat. Expired tasks and old run records are removed by normal retention maintenance.
 `/responder shadow` runs the classifier and records its decision, evidence, and coverage without
 posting or creating an incident.
 
