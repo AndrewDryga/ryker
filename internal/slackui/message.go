@@ -1312,7 +1312,7 @@ func evidenceRecordSummary(evidence []core.Evidence, coverage []core.Coverage) s
 		parts = append(parts, countLabel(len(evidence), "finding"))
 	}
 	if len(coverage) > 0 {
-		parts = append(parts, countLabel(len(coverage), "system area checked"))
+		parts = append(parts, countLabel(len(coverage), "system area checked", "system areas checked"))
 	}
 	if len(parts) == 0 {
 		return ""
@@ -1320,12 +1320,15 @@ func evidenceRecordSummary(evidence []core.Evidence, coverage []core.Coverage) s
 	return "Details saved: " + strings.Join(parts, " and ") + "."
 }
 
-func countLabel(count int, label string) string {
-	suffix := ""
+func countLabel(count int, singular string, plural ...string) string {
+	label := singular
 	if count != 1 {
-		suffix = "s"
+		label = singular + "s"
+		if len(plural) > 0 {
+			label = plural[0]
+		}
 	}
-	return fmt.Sprintf("%d %s%s", count, label, suffix)
+	return fmt.Sprintf("%d %s", count, label)
 }
 
 func evidenceMarkdown(

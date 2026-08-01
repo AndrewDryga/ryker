@@ -660,6 +660,20 @@ func TestConciseEvidenceResponseKeepsLedgerOutOfRoutineSlackReply(t *testing.T) 
 	}
 }
 
+func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
+	message := ConciseEvidenceResponse(
+		"Summary",
+		[]core.Evidence{{Claim: "one"}, {Claim: "two"}},
+		[]core.Coverage{{Layer: "host"}, {Layer: "runtime"}, {Layer: "application"}},
+		nil,
+		NewSanitizer(12000),
+	)
+	if len(message.Context) != 1 ||
+		message.Context[0] != "Details saved: 2 findings and 3 system areas checked." {
+		t.Fatalf("evidence summary = %+v", message.Context)
+	}
+}
+
 func TestAgentReportFailureDoesNotRenderRawTranscript(t *testing.T) {
 	message := AgentReportFailureMessage("json: unknown field `tool_output`")
 	content := message.Text + strings.Join(message.Sections, "\n") +
