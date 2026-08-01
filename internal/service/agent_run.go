@@ -373,7 +373,7 @@ func (s *Service) prepareIncidentAgentRun(
 		run.IdempotencyKey,
 		incident.CoopSessionID,
 		revision,
-		prompt+"\n\n"+s.structuredResponsePolicy(),
+		prompt+"\n\n"+s.structuredResponsePolicy()+agentRunContinuationPrompt(run),
 		artifacts,
 	)
 	if err != nil {
@@ -725,6 +725,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			"request because: " + boundedOperatorText(state.EscalationReason) +
 			". Perform the full evidence-backed work now.\n</host-escalation>"
 	}
+	prompt += agentRunContinuationPrompt(run)
 	turn, _, err := s.coop.SubmitTurnWithArtifacts(
 		ctx,
 		run.IdempotencyKey,
@@ -1071,11 +1072,33 @@ func replayAgentRunFailure(
 		strings.Contains(detail, "ACP frame exceeded its bound") {
 		return "Coop returned an oversized ACP frame; retrying the turn once", true
 	}
+	if turn.ErrorCode == "acp_protocol_error" &&
+		strings.Contains(strings.ToLower(detail), "acp transcript exceeded its bound") {
+		return "Coop ACP transcript reached its per-turn bound; continuing from completed work", true
+	}
 	if run.Failures < 2 &&
 		strings.Contains(strings.ToLower(detail), "turn cleanup failed") {
 		return "Coop could not clean up the agent turn; retrying in a fresh turn", true
 	}
 	return "", false
+}
+
+func agentRunContinuationPrompt(run core.AgentRun) string {
+	if !strings.Contains(
+		strings.ToLower(run.LastError),
+		"acp transcript",
+	) {
+		return ""
+	}
+	return `
+
+<host-transport-continuation>
+The previous Coop turn reached its bounded ACP transport transcript after doing work. Continue from
+the existing authenticated session and the progress already made. Do not restart the task or repeat
+completed checks. Continue only unfinished work, keep individual tool results focused, and return
+the exact structured response requested by the host when the task is complete. This is a transport
+continuation, not evidence that an earlier check failed, and elapsed task time is not a reason to stop.
+</host-transport-continuation>`
 }
 
 func (s *Service) ensureWatchRunPendingStatus(

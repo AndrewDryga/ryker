@@ -644,6 +644,29 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 	); replay || reason != "" {
 		t.Fatalf("oversized frame replay was not bounded = %q, %t", reason, replay)
 	}
+	transcript := coop.Turn{
+		ErrorCode:   "acp_protocol_error",
+		ErrorDetail: "ACP transcript exceeded its bound",
+	}
+	for failures := 0; failures < 19; failures++ {
+		run.Failures = failures
+		if reason, replay := replayAgentRunFailure(
+			run, "turn.failed", transcript, 20,
+		); !replay || !strings.Contains(reason, "continuing from completed work") {
+			t.Fatalf(
+				"transcript overflow %d replay = %q, %t",
+				failures,
+				reason,
+				replay,
+			)
+		}
+	}
+	run.Failures = 19
+	if reason, replay := replayAgentRunFailure(
+		run, "turn.failed", transcript, 20,
+	); replay || reason != "" {
+		t.Fatalf("transcript overflow exceeded configured budget = %q, %t", reason, replay)
+	}
 	cleanupFailure := coop.Turn{
 		ErrorCode:   "acp_protocol_error",
 		ErrorDetail: "turn cleanup failed",
@@ -701,6 +724,144 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		run, "turn.failed", oversized, 1,
 	); replay || reason != "" {
 		t.Fatalf("configured terminal attempt replayed = %q, %t", reason, replay)
+	}
+}
+
+func TestAgentRunTranscriptOverflowContinuesExistingIncidentSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	if err := st.SetCoopSession(
+		ctx, incident.ID, "ses_1", "incident-transcript", 1,
+	); err != nil {
+		t.Fatal(err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{
+		{
+			State:       "failed",
+			ErrorCode:   "acp_protocol_error",
+			ErrorDetail: "ACP transcript exceeded its bound",
+		},
+		{State: "running"},
+	}
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	run, created, err := svc.queueIncidentAgentRun(
+		ctx, incident, "initial", incident.ID, "", "Run every required check.",
+	)
+	if err != nil || !created {
+		t.Fatalf("queue run = %+v, %t, %v", run, created, err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	requeued, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 {
+		t.Fatalf("requeued overflow = %+v, %v", requeued, err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	continued, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || continued.State != core.AgentRunRunning ||
+		continued.SessionID != "ses_1" {
+		t.Fatalf("continued run = %+v, %v", continued, err)
+	}
+	if len(coopClient.submitPrompts) != 2 ||
+		!strings.Contains(coopClient.submitPrompts[1], "<host-transport-continuation>") ||
+		!strings.Contains(coopClient.submitPrompts[1], "Do not restart the task") ||
+		!strings.Contains(coopClient.submitPrompts[1], "Run every required check.") {
+		t.Fatalf("continuation prompts = %+v", coopClient.submitPrompts)
+	}
+}
+
+func TestAgentRunTranscriptOverflowContinuesSlackConversation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"COVERFLOW"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-transcript-overflow", EnvelopeID: "env-transcript-overflow",
+		EventID: "event-transcript-overflow", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COVERFLOW", MessageTS: "1700.700", UserID: "U123ABC",
+		Text: "<@U999BOT> repeat every required check and report the current results",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{
+		{
+			State:       "failed",
+			ErrorCode:   "acp_protocol_error",
+			ErrorDetail: "ACP transcript exceeded its bound",
+		},
+		{
+			State: "completed",
+			AssistantMessage: `{
+				"action":"reply",
+				"message":"All current checks completed successfully."
+			}`,
+		},
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	requeued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 {
+		t.Fatalf("requeued Slack run = %+v, %v", requeued, err)
+	}
+	firstSession := requeued.SessionID
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	completed, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || completed.State != core.AgentRunCompleted ||
+		completed.SessionID != firstSession {
+		t.Fatalf("completed Slack run = %+v, %v", completed, err)
+	}
+	if len(coopClient.submitPrompts) != 2 ||
+		!strings.Contains(coopClient.submitPrompts[1], "<host-transport-continuation>") ||
+		!strings.Contains(coopClient.submitPrompts[1], "Do not restart the task") {
+		t.Fatalf("Slack continuation prompts = %+v", coopClient.submitPrompts)
+	}
+	if len(slackClient.posts) != 1 ||
+		!strings.Contains(slackClient.posts[0].message.Text, "All current checks completed") ||
+		strings.Contains(slackClient.posts[0].message.Text, "could not complete") {
+		t.Fatalf("Slack continuation result = %+v", slackClient.posts)
 	}
 }
 

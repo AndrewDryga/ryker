@@ -13,6 +13,12 @@ type providerFailure struct {
 func classifyProviderFailure(detail string) providerFailure {
 	lower := strings.ToLower(detail)
 	switch {
+	case containsAny(lower, "acp transcript exceeded its bound"):
+		return providerFailure{
+			Kind:        "transcript_limit",
+			Summary:     "The investigation produced more tool output than one Coop turn can transport and exhausted Responder's automatic continuation budget.",
+			OperatorFix: "Raise limits.max_agent_run_attempts if the configured budget is unusually low, or continue with a more focused next step.",
+		}
 	case containsAny(lower, "usage limit", "quota", "insufficient_quota", "credit balance"):
 		return providerFailure{
 			Kind:        "usage_limit",

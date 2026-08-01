@@ -15,6 +15,7 @@ func TestProviderFailureClassificationGivesOperatorNextStep(t *testing.T) {
 		{"HTTP 429 too many requests", "rate_limit", "Wait"},
 		{"watch triage failed: ACL request was rejected", "authorization", "Re-authenticate"},
 		{"configured model does not exist", "model", "restart Responder"},
+		{"ACP transcript exceeded its bound", "transcript_limit", "max_agent_run_attempts"},
 		{"worker disconnected", "agent", "Coop service"},
 	}
 	for _, test := range tests {
