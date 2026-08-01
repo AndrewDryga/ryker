@@ -199,9 +199,11 @@ func renderEvaluationMessage(
 				Text: "Slack reaction :" + decision.Reaction + ":",
 			}, decision.Action, nil
 		case "reply":
+			replies := replySequence(decision.Message, decision.FollowupMessages)
+			finalReply := replies[len(replies)-1]
 			if decision.IncidentTitle != "" {
 				return slackui.EvidenceResponseWithIncidentOffer(
-					decision.Message,
+					finalReply,
 					decision.Evidence,
 					decision.Coverage,
 					"evaluation-source",
@@ -209,7 +211,7 @@ func renderEvaluationMessage(
 				), decision.Action, nil
 			}
 			message := slackui.ConciseEvidenceResponse(
-				decision.Message,
+				finalReply,
 				decision.Evidence,
 				decision.Coverage,
 				nil,
@@ -262,7 +264,7 @@ func renderEvaluationMessage(
 			return slackui.Message{}, "", errors.New("incident response is not structured")
 		}
 		message := slackui.IncidentEvidenceResponse(
-			report.Message,
+			replySequence(report.Message, report.FollowupMessages)[len(report.FollowupMessages)],
 			report.Evidence,
 			report.Coverage,
 			report.Proposals,

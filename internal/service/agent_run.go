@@ -1400,6 +1400,7 @@ func (s *Service) finalizeIncidentAgentRun(
 	var message slackui.Message
 	var visuals []core.GeneratedVisual
 	var pendingApproval *core.EmisarApproval
+	var reportReplyParts []string
 	if state == "completed" {
 		report, structured, reportErr := parseAgentReport(string(run.Result))
 		if reportErr != nil {
@@ -1467,6 +1468,10 @@ func (s *Service) finalizeIncidentAgentRun(
 				return err
 			}
 			visuals = report.Visuals
+			reportReplyParts = replySequence(
+				report.Message,
+				report.FollowupMessages,
+			)
 			if conversation && suppressConversationReply(report.Message) {
 				if err := s.requireNativeStatusClear(ctx, incident, run.ID); err != nil {
 					return err
@@ -1474,6 +1479,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				return s.store.FinishAgentRun(ctx, run.ID)
 			}
 			if conversation {
+				report.Message = reportReplyParts[len(reportReplyParts)-1]
 				message = slackui.ConciseEvidenceResponse(
 					report.Message,
 					report.Evidence,
@@ -1519,6 +1525,7 @@ func (s *Service) finalizeIncidentAgentRun(
 					message = slackui.WithScheduleOffer(message, task, actionValue, when)
 				}
 			} else {
+				report.Message = reportReplyParts[len(reportReplyParts)-1]
 				message = slackui.IncidentEvidenceResponse(
 					report.Message,
 					report.Evidence,
@@ -1541,7 +1548,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				Kind:        "agent.finding",
 				ActorID:     "responder",
 				Title:       "Investigation update",
-				Detail:      boundedField(report.Message, 2000),
+				Detail:      boundedField(strings.Join(reportReplyParts, "\n\n"), 2000),
 				EvidenceIDs: evidenceIDs,
 			})
 		}
@@ -1591,7 +1598,27 @@ func (s *Service) finalizeIncidentAgentRun(
 			proposalResult,
 		)
 	}
-	deliveryID := "out_run_" + run.ID
+	baseDeliveryID := "out_run_" + run.ID
+	if len(reportReplyParts) > 1 {
+		for index, part := range reportReplyParts[:len(reportReplyParts)-1] {
+			if err := s.enqueue(
+				ctx,
+				replySequenceDeliveryID(baseDeliveryID, index, len(reportReplyParts)),
+				incident,
+				"assistant",
+				threadTS,
+				slackui.ConversationResponse(part, s.sanitizer),
+			); err != nil {
+				return err
+			}
+		}
+	}
+	replyCount := max(1, len(reportReplyParts))
+	deliveryID := replySequenceDeliveryID(
+		baseDeliveryID,
+		replyCount-1,
+		replyCount,
+	)
 	if len(visuals) == 0 {
 		if err := s.enqueue(
 			ctx,
@@ -1604,7 +1631,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			return err
 		}
 	} else if err := s.enqueueGeneratedVisuals(
-		ctx, "out_run_"+run.ID, incident.ID, incident.ChannelID, threadTS,
+		ctx, deliveryID, incident.ID, incident.ChannelID, threadTS,
 		run.SessionID, run.CoopTurnID, visuals, &message,
 	); err != nil {
 		return err

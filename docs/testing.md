@@ -108,6 +108,12 @@ action IDs, invalid action URLs, leaked transport JSON, and repeated safety boil
 `--judge`, a separate real model turn scores the exact rendered Slack surface for human likeness,
 conversation fit, directness, productivity, Slack fit, and evidence discipline.
 
+Compound cases can set `min_reply_messages` to prove that the model preserved distinct requested
+outcomes instead of silently dropping or collapsing them. The service suite separately proves that
+ordered parts survive durable delivery in both normal channel triage and incident/task sessions,
+stay in one Slack destination, and attach evidence or controls only to the final part. The live
+corpus includes a real-model, repository-backed three-instruction case.
+
 The quality judge is itself calibrated against human-labeled good and bad examples:
 
 ```bash

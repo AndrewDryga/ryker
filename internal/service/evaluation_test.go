@@ -153,6 +153,30 @@ func TestEvaluationChecksCustomerVisibleContract(t *testing.T) {
 	}
 }
 
+func TestEvaluationRequiresCompoundReplyCoverage(t *testing.T) {
+	testCase := EvaluationCase{
+		Name: "three independent outcomes",
+		Kind: "watch",
+		Output: `{
+		  "action":"reply",
+		  "message":"CI is green.",
+		  "followup_messages":["Deployment is waiting.","Two incidents are open."]
+		}`,
+		WantAction:          "reply",
+		MinReplyMessages:    3,
+		WantMessageContains: []string{"CI", "Deployment", "incidents"},
+	}
+	result := evaluateCase(testCase)
+	if !result.Passed {
+		t.Fatalf("compound evaluation = %+v", result)
+	}
+	testCase.Output = `{"action":"reply","message":"CI is green."}`
+	result = evaluateCase(testCase)
+	if result.Passed || !strings.Contains(result.Detail, "reply messages = 1") {
+		t.Fatalf("collapsed compound evaluation = %+v", result)
+	}
+}
+
 func TestEvaluationAcceptsAnyAllowedNaturalReaction(t *testing.T) {
 	testCase := EvaluationCase{
 		Name:              "natural acknowledgement",

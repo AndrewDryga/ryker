@@ -55,6 +55,7 @@ type EvaluationCase struct {
 	MaxEvidenceAgeSeconds  int                      `json:"max_evidence_age_seconds,omitempty"`
 	MinCoverage            int                      `json:"min_coverage,omitempty"`
 	MaxCoverage            *int                     `json:"max_coverage,omitempty"`
+	MinReplyMessages       int                      `json:"min_reply_messages,omitempty"`
 	MaxMessageBytes        int                      `json:"max_message_bytes,omitempty"`
 	MaxDurationMS          int64                    `json:"max_duration_ms,omitempty"`
 	ProactiveLabel         string                   `json:"proactive_label,omitempty"`
@@ -227,6 +228,7 @@ func evaluateCaseWithConfig(
 	var offer string
 	var offers []string
 	var message string
+	var replyMessageCount int
 	var reason string
 	var reaction string
 	var attention attentionAssessment
@@ -277,7 +279,11 @@ func evaluateCaseWithConfig(
 		attention = decision.Attention
 		memory = decision.Memory
 		reason = decision.Reason
-		message = decision.Message
+		if decision.Action == "reply" {
+			replies := replySequence(decision.Message, decision.FollowupMessages)
+			message = strings.Join(replies, "\n\n")
+			replyMessageCount = len(replies)
+		}
 		evidence = decision.Evidence
 		coverage = decision.Coverage
 	case "incident", "task":
@@ -292,7 +298,9 @@ func evaluateCaseWithConfig(
 		}
 		offers = agentReportOffers(report)
 		offer = firstEvaluationOffer(offers)
-		message = report.Message
+		replies := replySequence(report.Message, report.FollowupMessages)
+		message = strings.Join(replies, "\n\n")
+		replyMessageCount = len(replies)
 		evidence = report.Evidence
 		coverage = report.Coverage
 		pendingApproval = report.PendingApproval != nil
@@ -419,6 +427,14 @@ func evaluateCaseWithConfig(
 	if len(coverage) < testCase.MinCoverage {
 		result.Detail = fmt.Sprintf(
 			"coverage = %d, want at least %d", len(coverage), testCase.MinCoverage,
+		)
+		return result
+	}
+	if replyMessageCount < testCase.MinReplyMessages {
+		result.Detail = fmt.Sprintf(
+			"reply messages = %d, want at least %d",
+			replyMessageCount,
+			testCase.MinReplyMessages,
 		)
 		return result
 	}

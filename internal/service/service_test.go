@@ -4187,6 +4187,151 @@ func TestWatchedScheduleAndRunbookRequestOffersBothConfirmations(t *testing.T) {
 	}
 }
 
+func TestWatchedCompoundRequestPostsOrderedMessagesInOneThread(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{dedupePosts: true}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":3,"ownership":3},
+		"reason":"the operator requested three independent read-only outcomes",
+		"message":"**CI:** all required checks passed for the current revision.",
+		"followup_messages":[
+			"**Deployments:** production is waiting for one approval; no failed rollout was observed.",
+			"**Incidents:** two remain open, and the database-latency incident is the higher priority."
+		],
+		"evidence":[{"claim":"CI passed","observation":"All required jobs succeeded","source_type":"other","source_name":"CI"}],
+		"coverage":[{"layer":"change","status":"healthy","source":"CI","detail":"Current revision checks passed"}]
+	}`
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	source := core.SlackInput{
+		ID: "slack-compound-read", EnvelopeID: "env-compound-read",
+		EventID: "event-compound-read", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.860", UserID: "U123ABC",
+		Text: "Check CI, tell me deployment status, and summarize the two active operational investigations.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
+		t.Fatalf("admit source = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 3 {
+		t.Fatalf("compound reply posts = %+v", slackClient.posts)
+	}
+	for _, post := range slackClient.posts {
+		if post.channel != source.ChannelID || post.thread != "" {
+			t.Fatalf("compound reply changed destination = %+v", slackClient.posts)
+		}
+	}
+	for index, expected := range []string{"CI", "Deployments", "Incidents"} {
+		if !strings.Contains(slackClient.posts[index].message.Text, expected) {
+			t.Fatalf("compound reply order = %+v", slackClient.posts)
+		}
+	}
+	if strings.Contains(strings.Join(slackClient.posts[0].message.Context, "\n"), "Details saved") ||
+		!strings.Contains(strings.Join(slackClient.posts[2].message.Context, "\n"), "Details saved") {
+		t.Fatalf("evidence summary was not confined to final reply = %+v", slackClient.posts)
+	}
+}
+
+func TestIncidentCompoundReportPostsOrderedMessagesBeforeFinalEvidenceCard(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	if err := st.SetCoopSession(
+		ctx, incident.ID, "ses_compound_incident", "incident-compound", 1,
+	); err != nil {
+		t.Fatal(err)
+	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.RootTS,
+		ConversationKey: "incident:" + incident.ID,
+		SourceKind:      "signal", SourceID: "signal-compound",
+		Repository: incident.Repository, Prompt: "check host, workload, and dependency",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue incident run = %+v, %t, %v", run, created, err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindAgentRunSession(
+		ctx, leased.ID, "ses_compound_incident", 0, incident.Repository, 0, leased.Context,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(ctx, leased.ID, "turn_compound", 2, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(
+		ctx,
+		leased.ID,
+		"completed",
+		[]byte(`{
+			"message":"**Host:** both nodes are responsive.",
+			"followup_messages":[
+				"**Workload:** all expected allocations are running.",
+				"**Dependency:** database latency remains unverified."
+			],
+			"evidence":[{"claim":"hosts respond","observation":"two host checks passed","source_type":"emisar","source_name":"host check"}],
+			"coverage":[{"layer":"host","status":"healthy","source":"host check","detail":"both nodes responded"}],
+			"memory":{},
+			"proposals":[]
+		}`),
+		"",
+		0,
+	); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{dedupePosts: true}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 3 {
+		t.Fatalf("compound incident posts = %+v", slackClient.posts)
+	}
+	for index, expected := range []string{"Host", "Workload", "Dependency"} {
+		post := slackClient.posts[index]
+		if post.channel != incident.ChannelID || post.thread != incident.RootTS ||
+			!strings.Contains(post.message.Text, expected) {
+			t.Fatalf("compound incident delivery = %+v", slackClient.posts)
+		}
+	}
+	if !strings.Contains(
+		strings.Join(slackClient.posts[2].message.Context, "\n"),
+		"Details saved",
+	) {
+		t.Fatalf("final compound incident evidence = %+v", slackClient.posts[2])
+	}
+}
+
 func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -4486,6 +4631,55 @@ func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
 				t.Fatalf("mismatched threaded offer = %v, %v", matches, err)
 			}
 		})
+	}
+
+	multipartSource := core.SlackInput{
+		ID: "multipart-offer-source", ChannelID: "CWATCH",
+		ThreadTS: "1700.800", MessageTS: "1700.801",
+	}
+	for _, part := range []struct {
+		id        string
+		messageTS string
+	}{
+		{id: "watch_reply_" + multipartSource.ID + "_part_001", messageTS: "1700.802"},
+		{id: "watch_reply_" + multipartSource.ID + "_part_999", messageTS: "1700.803"},
+	} {
+		if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+			ID: part.id, Kind: "notice", ChannelID: multipartSource.ChannelID,
+			ThreadTS: multipartSource.ThreadTS, Body: []byte(`{"text":"offer part"}`),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		delivery, err := st.LeaseSlackDelivery(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if delivery.ID != part.id {
+			t.Fatalf("leased multipart delivery = %q, want %q", delivery.ID, part.id)
+		}
+		if err := st.FinishSlackDelivery(
+			ctx,
+			delivery.ID,
+			part.messageTS,
+			"sending",
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	finalPart := core.SlackInput{
+		ChannelID: multipartSource.ChannelID,
+		ThreadTS:  multipartSource.ThreadTS,
+		MessageTS: "1700.803",
+	}
+	matches, err = svc.watchOfferActionMatchesDelivery(ctx, finalPart, multipartSource)
+	if err != nil || !matches {
+		t.Fatalf("multipart final offer = %v, %v", matches, err)
+	}
+	earlierPart := finalPart
+	earlierPart.MessageTS = "1700.802"
+	matches, err = svc.watchOfferActionMatchesDelivery(ctx, earlierPart, multipartSource)
+	if err != nil || matches {
+		t.Fatalf("multipart earlier offer = %v, %v", matches, err)
 	}
 }
 

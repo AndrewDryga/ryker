@@ -173,6 +173,15 @@ persists evidence separately, strips credentials and query strings from evidence
 only host-owned interactive controls. Legacy prose remains readable during upgrades but is audited
 as unstructured.
 
+Compound requests use the same envelope and authority boundary. The model must account for every
+explicit instruction, order dependent work, and complete independent read-only work in the same
+turn. It may return one primary `message` plus at most five ordered `followup_messages` when distinct
+outcomes are easier to scan separately. Responder validates both per-part and aggregate size,
+persists one evidence and memory result, and durably posts every part to the same Slack destination.
+Evidence summaries, generated files, approvals, durable offers, and other host-owned controls appear
+only on the final part. Repository and operational changes keep their existing confirmation and
+Emisar policy boundaries; a reply sequence does not create additional authority.
+
 Shared operational channels use one ordered watch session generation at a time. A Slack input
 classifies and queues an agent run, then finishes; the independent run record owns preparation,
 submission, polling, finalization, and its own retry budget. Immediately before submission, the

@@ -16,17 +16,73 @@ import (
 )
 
 type agentReport struct {
-	Message         string                 `json:"message"`
-	Visuals         []core.GeneratedVisual `json:"visuals,omitempty"`
-	Evidence        []core.Evidence        `json:"evidence,omitempty"`
-	Coverage        []core.Coverage        `json:"coverage,omitempty"`
-	Memory          core.AgentMemory       `json:"memory,omitempty"`
-	MemoryOffer     *core.MemoryOffer      `json:"memory_offer,omitempty"`
-	PreferenceOffer *core.PreferenceOffer  `json:"preference_offer,omitempty"`
-	RuleOffer       *core.RuleOffer        `json:"rule_offer,omitempty"`
-	ScheduleOffer   *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
-	PendingApproval *core.EmisarApproval   `json:"pending_approval,omitempty"`
-	Proposals       []core.ActionProposal  `json:"proposals,omitempty"`
+	Message          string                 `json:"message"`
+	FollowupMessages []string               `json:"followup_messages,omitempty"`
+	Visuals          []core.GeneratedVisual `json:"visuals,omitempty"`
+	Evidence         []core.Evidence        `json:"evidence,omitempty"`
+	Coverage         []core.Coverage        `json:"coverage,omitempty"`
+	Memory           core.AgentMemory       `json:"memory,omitempty"`
+	MemoryOffer      *core.MemoryOffer      `json:"memory_offer,omitempty"`
+	PreferenceOffer  *core.PreferenceOffer  `json:"preference_offer,omitempty"`
+	RuleOffer        *core.RuleOffer        `json:"rule_offer,omitempty"`
+	ScheduleOffer    *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
+	PendingApproval  *core.EmisarApproval   `json:"pending_approval,omitempty"`
+	Proposals        []core.ActionProposal  `json:"proposals,omitempty"`
+}
+
+const (
+	maxFollowupMessages   = 5
+	maxReplyPartBytes     = 12 << 10
+	maxReplySequenceBytes = 48 << 10
+)
+
+func normalizeReplySequence(message string, followups []string) (string, []string, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "", nil, errors.New("structured agent response has no message")
+	}
+	if len(followups) > maxFollowupMessages {
+		return "", nil, fmt.Errorf(
+			"structured agent response has more than %d follow-up messages",
+			maxFollowupMessages,
+		)
+	}
+	total := len(message)
+	if len(message) > maxReplyPartBytes {
+		return "", nil, errors.New("structured agent response message exceeds 12 KiB")
+	}
+	normalized := make([]string, 0, len(followups))
+	for _, followup := range followups {
+		followup = strings.TrimSpace(followup)
+		if followup == "" {
+			return "", nil, errors.New("structured agent response has an empty follow-up message")
+		}
+		if len(followup) > maxReplyPartBytes {
+			return "", nil, errors.New("structured agent response follow-up exceeds 12 KiB")
+		}
+		total += len(followup)
+		if total > maxReplySequenceBytes {
+			return "", nil, errors.New("structured agent response sequence exceeds 48 KiB")
+		}
+		normalized = append(normalized, followup)
+	}
+	return message, normalized, nil
+}
+
+func replySequence(message string, followups []string) []string {
+	result := make([]string, 0, 1+len(followups))
+	result = append(result, message)
+	return append(result, followups...)
+}
+
+func replySequenceDeliveryID(base string, index int, total int) string {
+	if total <= 1 {
+		return base
+	}
+	if index == total-1 {
+		return base + "_part_999"
+	}
+	return fmt.Sprintf("%s_part_%03d", base, index+1)
 }
 
 func parseAgentReport(message string) (agentReport, bool, error) {
@@ -78,8 +134,17 @@ func decodeAgentReport(message string) (agentReport, error) {
 	if err := decodeStrictJSON(normalized, &report); err != nil {
 		return agentReport{}, fmt.Errorf("decode structured agent response: %w", err)
 	}
-	if strings.TrimSpace(report.Message) == "" {
-		return agentReport{}, errors.New("structured agent response has no message")
+	report.Message, report.FollowupMessages, err = normalizeReplySequence(
+		report.Message,
+		report.FollowupMessages,
+	)
+	if err != nil {
+		return agentReport{}, err
+	}
+	if report.Message == noConversationReply && len(report.FollowupMessages) > 0 {
+		return agentReport{}, errors.New(
+			"structured agent response cannot combine no-reply with follow-up messages",
+		)
 	}
 	offerCount := 0
 	for _, present := range []bool{
@@ -166,8 +231,19 @@ func (s *Service) persistAgentReport(
 ) (agentReport, error) {
 	if s.sanitizer != nil {
 		report.Message = s.sanitizer.Text(report.Message)
+		for index := range report.FollowupMessages {
+			report.FollowupMessages[index] = s.sanitizer.Text(
+				report.FollowupMessages[index],
+			)
+		}
 	} else {
 		report.Message = boundedField(report.Message, 30000)
+		for index := range report.FollowupMessages {
+			report.FollowupMessages[index] = boundedField(
+				report.FollowupMessages[index],
+				maxReplyPartBytes,
+			)
+		}
 	}
 	if report.MemoryOffer != nil || report.PreferenceOffer != nil || report.RuleOffer != nil || report.ScheduleOffer != nil {
 		// Configuration requests are not operational findings. Keeping model-produced
@@ -686,6 +762,7 @@ func structuredResponseInstructions() string {
 	return `Return exactly one JSON object and no code fence:
 {
   "message": "plain-language, operator-facing standard Markdown that answers the question first",
+  "followup_messages": ["optional ordered Markdown outcomes for distinct additional instructions"],
   "visuals": [{
     "artifact": "exact generated output filename or artifact ID from this turn",
     "title": "short human-readable image title",
@@ -815,7 +892,9 @@ target, approval, or successful outcome. Do not place the approval URL in messag
 Responder validates and renders the control. A pending approval means nothing has executed.
 Never invent a source, timestamp, action name, target, approval, or successful outcome. The message must lead with the
 answer, distinguish declared configuration from live observation, state material coverage gaps,
-and use Slack-supported standard Markdown: short headings, bullets, tables when comparison helps,
+and follow the compound-request policy in the session instructions. followup_messages is optional,
+ordered, and limited to five entries. Use it only for materially distinct outcomes, never incremental
+thinking or repeated status. Use Slack-supported standard Markdown: short headings, bullets, tables when comparison helps,
 links, block quotes for quoted alert text, and fenced language-tagged code only for code or logs.`
 }
 

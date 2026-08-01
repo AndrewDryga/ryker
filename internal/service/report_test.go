@@ -50,6 +50,37 @@ func TestAgentReportStrictSchemaAndLegacyCompatibility(t *testing.T) {
 	}
 }
 
+func TestAgentReportAcceptsBoundedOrderedFollowupMessages(t *testing.T) {
+	report, structured, err := parseAgentReport(`{
+	  "message":"CI is green.",
+	  "followup_messages":[
+	    "The deployment is waiting for approval.",
+	    "Two unrelated incidents remain open."
+	  ],
+	  "evidence":[],
+	  "coverage":[]
+	}`)
+	if err != nil || !structured || report.Message != "CI is green." ||
+		len(report.FollowupMessages) != 2 ||
+		report.FollowupMessages[1] != "Two unrelated incidents remain open." {
+		t.Fatalf("compound report = %+v, structured=%t, err=%v", report, structured, err)
+	}
+
+	if _, err := decodeAgentReport(`{
+	  "message":"First.",
+	  "followup_messages":["1","2","3","4","5","6"]
+	}`); err == nil || !strings.Contains(err.Error(), "more than 5") {
+		t.Fatalf("unbounded follow-up sequence error = %v", err)
+	}
+	if _, err := parseWatchDecision(`{
+	  "action":"reply",
+	  "message":"First.",
+	  "followup_messages":[""]
+	}`); err == nil || !strings.Contains(err.Error(), "empty follow-up") {
+		t.Fatalf("empty watch follow-up error = %v", err)
+	}
+}
+
 func TestAgentReportGeneratedVisualContract(t *testing.T) {
 	report, structured, err := parseAgentReport(`{
 	  "message":"Here is the requested load chart.",
@@ -156,6 +187,7 @@ func TestStructuredResponsePolicyOwnsFormattingAndActionCatalog(t *testing.T) {
 		"Never invent a source",
 		"approval.url",
 		"Do not place the approval URL in message",
+		"followup_messages",
 	} {
 		if !strings.Contains(policy, required) {
 			t.Fatalf("policy lacks %q:\n%s", required, policy)
