@@ -95,6 +95,7 @@ settings:
       - group_archive
       - group_deleted
       - group_unarchive
+      - member_joined_channel
       - message.channels
       - message.groups
       - message.im

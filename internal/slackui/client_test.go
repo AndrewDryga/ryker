@@ -30,6 +30,43 @@ func TestRetryAfterRecognizesWrappedSlackRateLimit(t *testing.T) {
 	}
 }
 
+func TestListChannelsUsesCallingBotsMemberships(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if r.URL.Path != "/users.conversations" ||
+			r.FormValue("types") != "public_channel,private_channel" ||
+			r.FormValue("limit") != "200" || r.FormValue("team_id") != "T123" {
+			t.Fatalf("membership request = %s %s", r.URL.Path, r.Form.Encode())
+		}
+		_, _ = fmt.Fprint(w, `{
+		  "ok":true,
+		  "channels":[
+		    {"id":"CPUBLIC","name":"backend-ops","is_private":false},
+		    {"id":"CPRIVATE","name":"security","is_private":true}
+		  ],
+		  "response_metadata":{"next_cursor":""}
+		}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+	channels, err := client.ListChannels(context.Background(), "T123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(paths, []string{"/users.conversations"}) || len(channels) != 2 ||
+		!channels[0].Member || !channels[1].Member || !channels[1].Private {
+		t.Fatalf("joined channels = %+v; paths = %v", channels, paths)
+	}
+}
+
 func TestUploadFileUsesFileCompatibleBlocks(t *testing.T) {
 	var server *httptest.Server
 	var blocks string
@@ -502,6 +539,7 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 		"group_archive",
 		"group_deleted",
 		"group_unarchive",
+		"member_joined_channel",
 		"message.channels",
 		"message.groups",
 		"message.im",

@@ -120,11 +120,10 @@ be understood without forcing Emisar to interrupt it.
 
 ### Conversational channel setup
 
-Responder periodically reconciles the bot's authoritative Slack channel memberships. An
-absent-to-present transition queues one durable setup session for that channel and posts the first
-question. This is intentionally not based on `member_joined_channel`: Slack only sends that event
-after the bot is already a member, so it cannot report the bot's own initial join. Membership state
-survives restarts, suppresses duplicate cards, and makes remove/re-add start a fresh setup. The
+Responder admits the bot's own Slack channel-join event immediately and records the event and
+membership transition in one transaction. A periodic reconciliation against the bot's joined
+conversations is the recovery path for a missed event. Membership state survives restarts,
+suppresses duplicate cards, and makes remove/re-add start a fresh setup. The
 first card offers **Use safe defaults**, **Be proactive**, and **Customize**. The first two save a
 complete safe configuration without forcing a wizard: deployment-default repository, in-place
 alert replies, and no additional incident invitees. Customize asks one question at a time:

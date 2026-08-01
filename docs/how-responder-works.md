@@ -117,10 +117,11 @@ flowchart TD
   Persist --> Ack["ACK Slack"]
 ```
 
-Separately, a bounded scheduler lists Slack conversations every ten seconds. It stores only channel
-membership state, detects absent-to-present transitions, and persists a synthetic `channel_joined`
-input. This avoids relying on `member_joined_channel`, which Slack cannot deliver for the bot's own
-first join. The transition and input are durable, so restarts cannot duplicate or lose onboarding.
+Slack channel-join events for the bot are admitted immediately and atomically record the durable
+setup input and membership transition. Separately, a bounded scheduler calls `users.conversations`
+to reconcile only conversations the bot belongs to. It detects any missed absent-to-present
+transition and persists a synthetic `channel_joined` input. Both paths are durable and deduplicated,
+so restarts cannot duplicate or lose onboarding.
 
 After acknowledgement, the durable worker applies the more expensive authorization and conversation
 routing:

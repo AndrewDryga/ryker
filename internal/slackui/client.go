@@ -449,9 +449,9 @@ func (c *Client) ListChannels(ctx context.Context, teamID string) ([]Channel, er
 	cursor := ""
 	var result []Channel
 	for page := 0; page < 100; page++ {
-		channels, next, err := c.api.GetConversationsContext(
+		channels, next, err := c.api.GetConversationsForUserContext(
 			ctx,
-			&slack.GetConversationsParameters{
+			&slack.GetConversationsForUserParameters{
 				Cursor: cursor, ExcludeArchived: false, Limit: 200,
 				Types: []string{"public_channel", "private_channel"}, TeamID: teamID,
 			},
@@ -465,7 +465,7 @@ func (c *Client) ListChannels(ctx context.Context, teamID string) ([]Channel, er
 				Created: time.Unix(int64(channel.Created), 0).UTC(),
 				Private: channel.IsPrivate,
 				Shared:  channel.IsShared || channel.IsExtShared || channel.IsOrgShared,
-				Member:  channel.IsMember, Archived: channel.IsArchived,
+				Member:  true, Archived: channel.IsArchived,
 			})
 		}
 		if next == "" {

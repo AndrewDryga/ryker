@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 type SlackChannelMembershipObservation struct {
@@ -30,6 +32,66 @@ type storedSlackChannelMembership struct {
 	channelName    string
 	private        bool
 	wasObservedNow bool
+}
+
+// AdmitSlackChannelJoin records the direct Slack join signal and its durable
+// setup input together. Marking onboarding complete here prevents the periodic
+// membership fallback from queuing a duplicate card while the input is pending.
+func (s *Store) AdmitSlackChannelJoin(
+	ctx context.Context,
+	input core.SlackInput,
+) (bool, error) {
+	if input.Kind != "channel_joined" || strings.TrimSpace(input.ChannelID) == "" {
+		return false, errors.New("Slack channel join input is invalid")
+	}
+	observedAt := input.ReceivedAt
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	} else {
+		observedAt = observedAt.UTC()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	input.ReceivedAt = observedAt
+	var semanticDuplicate int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM slack_inputs
+		  WHERE kind = 'channel_joined' AND channel_id = ?
+		    AND ABS((julianday(received_at) - julianday(?)) * 86400.0) <= 5
+		)`,
+		input.ChannelID, observedAt.Format(timestampFormat),
+	).Scan(&semanticDuplicate); err != nil {
+		return false, fmt.Errorf("deduplicate direct Slack channel join: %w", err)
+	}
+	created := false
+	if semanticDuplicate == 0 {
+		created, err = admitSlackInput(ctx, tx, input)
+		if err != nil {
+			return false, err
+		}
+	}
+	stamp := observedAt.Format(timestampFormat)
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO slack_channel_memberships (
+		  channel_id, channel_name, private, present, onboarding_state, joined_at, observed_at
+		) VALUES (?, '', 0, 1, 'complete', ?, ?)
+		ON CONFLICT(channel_id) DO UPDATE SET
+		  present = 1,
+		  onboarding_state = 'complete',
+		  joined_at = excluded.joined_at,
+		  observed_at = excluded.observed_at`,
+		input.ChannelID, stamp, stamp,
+	); err != nil {
+		return false, fmt.Errorf("record direct Slack channel join: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return created, nil
 }
 
 func (s *Store) ReconcileSlackChannelMemberships(

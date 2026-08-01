@@ -71,6 +71,7 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 		EnvelopeID: envelopeID, EventID: wrapper.EventID, TeamID: outer.TeamID,
 		ReceivedAt: time.Now().UTC(),
 	}
+	directChannelJoin := false
 	if wrapper.EventTime > 0 {
 		input.ReceivedAt = time.Unix(wrapper.EventTime, 0).UTC()
 	}
@@ -199,6 +200,16 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 			_ = s.socket.Ack(*event.Request)
 			return
 		}
+	case *slackevents.MemberJoinedChannelEvent:
+		if inner == nil || inner.User != s.identity.BotUserID || inner.Channel == "" {
+			_ = s.socket.Ack(*event.Request)
+			return
+		}
+		input.Kind = "channel_joined"
+		input.ChannelID = inner.Channel
+		input.MessageTS = inner.EventTimestamp
+		input.UserID = inner.Inviter
+		directChannelJoin = true
 	case *slackevents.AppMentionEvent:
 		if inner == nil || inner.BotID != "" || foreignSource(inner.SourceTeam, outer.TeamID) {
 			_ = s.socket.Ack(*event.Request)
@@ -217,6 +228,16 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 			return
 		}
 		message := normalizedSlackEventMessage(inner)
+		if (message.SubType == slack.MsgSubTypeChannelJoin ||
+			message.SubType == slack.MsgSubTypeGroupJoin) &&
+			message.User == s.identity.BotUserID {
+			input.Kind = "channel_joined"
+			input.ChannelID = inner.Channel
+			input.MessageTS = message.Timestamp
+			input.UserID = message.Inviter
+			directChannelJoin = true
+			break
+		}
 		if s.identity.BotUserID != "" &&
 			strings.Contains(message.Text, "<@"+s.identity.BotUserID+">") {
 			// Slack also delivers this request as app_mention. Admit only that
@@ -302,7 +323,13 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 		_ = s.socket.Ack(*event.Request)
 		return
 	}
-	if _, err := s.store.AdmitSlackInput(ctx, input); err != nil {
+	var err error
+	if directChannelJoin {
+		_, err = s.store.AdmitSlackChannelJoin(ctx, input)
+	} else {
+		_, err = s.store.AdmitSlackInput(ctx, input)
+	}
+	if err != nil {
 		s.log.Error("persist Slack event before acknowledgement", "envelope", envelopeID, "error", err)
 		return
 	}

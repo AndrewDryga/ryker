@@ -4,7 +4,57 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
+
+func TestDirectSlackChannelJoinAtomicallySuppressesFallbackOnboarding(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	joinedAt := time.Now().UTC().Truncate(time.Microsecond)
+	input := core.SlackInput{
+		ID: "direct-join", EnvelopeID: "direct-join-envelope",
+		EventID: "direct-join-event", Kind: "channel_joined",
+		TeamID: "T123", ChannelID: "CJOINED", UserID: "UOPERATOR",
+		ReceivedAt: joinedAt,
+	}
+	created, err := st.AdmitSlackChannelJoin(ctx, input)
+	if err != nil || !created {
+		t.Fatalf("admit direct channel join = %t, %v", created, err)
+	}
+	if pending, err := st.ListPendingSlackChannelOnboarding(ctx, 10); err != nil ||
+		len(pending) != 0 {
+		t.Fatalf("direct join left fallback onboarding = %+v, %v", pending, err)
+	}
+	leased, err := st.LeaseSlackInput(ctx)
+	if err != nil || leased.Kind != "channel_joined" || leased.ChannelID != "CJOINED" {
+		t.Fatalf("direct join input = %+v, %v", leased, err)
+	}
+
+	duplicate := input
+	duplicate.ID = "direct-join-duplicate"
+	duplicate.EnvelopeID = "direct-join-envelope-duplicate"
+	duplicate.EventID = "direct-join-event-duplicate"
+	duplicate.ReceivedAt = joinedAt.Add(time.Second)
+	created, err = st.AdmitSlackChannelJoin(ctx, duplicate)
+	if err != nil || created {
+		t.Fatalf("duplicate direct channel join = %t, %v", created, err)
+	}
+	if err := st.ReconcileSlackChannelMemberships(ctx, []SlackChannelMembershipObservation{{
+		ChannelID: "CJOINED", ChannelName: "backend-ops", Present: true,
+	}}, joinedAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := st.ListPendingSlackChannelOnboarding(ctx, 10); err != nil ||
+		len(pending) != 0 {
+		t.Fatalf("fallback duplicated direct join = %+v, %v", pending, err)
+	}
+}
 
 func TestSlackChannelMembershipTransitionsDriveOnboardingOncePerJoin(t *testing.T) {
 	ctx := context.Background()

@@ -2466,6 +2466,90 @@ func TestSocketAdmitsMentionOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestSocketAdmitsOwnChannelJoinImmediatelyWithoutFallbackDuplicate(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	socket := &fakeSocket{events: make(chan socketmode.Event)}
+	slackClient := &fakeSlack{channels: []slackui.Channel{{
+		ID: "CJOINED", Name: "backend-ops", Member: true,
+	}}}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, socket,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	payload, _ := json.Marshal(map[string]any{
+		"event_id": "EvBotJoined", "event_time": int64(1785574912),
+	})
+	svc.admitEventsAPI(ctx, socketmode.Event{
+		Type: socketmode.EventTypeEventsAPI,
+		Data: slackevents.EventsAPIEvent{
+			TeamID: cfg.Slack.TeamID,
+			InnerEvent: slackevents.EventsAPIInnerEvent{Data: &slackevents.MessageEvent{
+				User: "U999BOT", Channel: "CJOINED", TimeStamp: "1785574912.610529",
+				SubType: slack.MsgSubTypeChannelJoin,
+				Message: &slack.Msg{User: "U999BOT", Timestamp: "1785574912.610529",
+					SubType: slack.MsgSubTypeChannelJoin, Inviter: "U123ABC"},
+			}},
+		},
+		Request: &socketmode.Request{EnvelopeID: "env-bot-joined", Payload: payload},
+	})
+	if socket.acks != 1 {
+		t.Fatalf("channel join acknowledgements = %d", socket.acks)
+	}
+	input, err := st.LeaseSlackInput(ctx)
+	if err != nil || input.Kind != "channel_joined" || input.ChannelID != "CJOINED" ||
+		input.UserID != "U123ABC" || input.MessageTS != "1785574912.610529" {
+		t.Fatalf("direct channel join = %+v, %v", input, err)
+	}
+	if err := st.FinishSlackInput(ctx, input.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.reconcileSlackChannelMemberships(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("membership fallback duplicated direct join: %v", err)
+	}
+	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("duplicate channel setup input = %v", err)
+	}
+}
+
+func TestSocketAdmitsAtomicMemberJoinedEventForBotOnly(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	socket := &fakeSocket{events: make(chan socketmode.Event)}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, socket,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	payload, _ := json.Marshal(map[string]any{"event_id": "EvMemberJoined"})
+	svc.admitEventsAPI(ctx, socketmode.Event{
+		Type: socketmode.EventTypeEventsAPI,
+		Data: slackevents.EventsAPIEvent{
+			TeamID: cfg.Slack.TeamID,
+			InnerEvent: slackevents.EventsAPIInnerEvent{Data: &slackevents.MemberJoinedChannelEvent{
+				User: "U999BOT", Channel: "CJOINED", Inviter: "U123ABC",
+				EventTimestamp: "1785574912.610529",
+			}},
+		},
+		Request: &socketmode.Request{EnvelopeID: "env-member-joined", Payload: payload},
+	})
+	input, err := st.LeaseSlackInput(ctx)
+	if err != nil || input.Kind != "channel_joined" || input.UserID != "U123ABC" {
+		t.Fatalf("member joined input = %+v, %v", input, err)
+	}
+}
+
 func TestSocketPersistsReactionsToResponderMessagesWithoutStartingAgentTurn(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

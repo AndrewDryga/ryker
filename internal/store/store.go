@@ -1837,6 +1837,16 @@ func (s *Store) MarkInitialTurnQueued(ctx context.Context, id string) error {
 }
 
 func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (bool, error) {
+	return admitSlackInput(ctx, s.db, input)
+}
+
+func admitSlackInput(
+	ctx context.Context,
+	executor interface {
+		ExecContext(context.Context, string, ...any) (sql.Result, error)
+	},
+	input core.SlackInput,
+) (bool, error) {
 	if input.ID == "" {
 		var err error
 		input.ID, err = core.NewID("slack")
@@ -1853,7 +1863,7 @@ func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (boo
 	if received.IsZero() {
 		received = time.Now().UTC()
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := executor.ExecContext(ctx, `
 		INSERT OR IGNORE INTO slack_inputs
 		  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
 		   user_id, text, action_id, action_value, attachments_json, state, next_attempt_at,
