@@ -3119,7 +3119,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 					len(message.Actions) != 1 ||
 					message.Actions[0].ID != slackui.ActionOpenApproval ||
 					message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_watch_1" ||
-					!strings.Contains(strings.Join(message.Sections, "\n"), "reply `check approval` in this conversation") ||
+					!strings.Contains(strings.Join(message.Sections, "\n"), "reply `check approval` here") ||
 					strings.Contains(strings.Join(message.Sections, "\n"), "pinned card") {
 					t.Fatalf("shared conversation approval card = %+v", message)
 				}

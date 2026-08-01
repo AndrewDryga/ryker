@@ -1,6 +1,7 @@
 package slackui
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -572,9 +573,13 @@ func TestEmisarApprovalCardLinksToAuthoritativeConsole(t *testing.T) {
 		},
 	)
 	if message.Header != "Approval required in Emisar" ||
-		!strings.Contains(strings.Join(message.Sections, "\n"), "paused this operational request") ||
-		!strings.Contains(strings.Join(message.Context, "\n"), "Slack cannot approve") {
+		!strings.Contains(strings.Join(message.Sections, "\n"), "paused `nomad.alloc_restart` before it ran") ||
+		!strings.Contains(strings.Join(message.Sections, "\n"), "2026-07-28 06:30 UTC") ||
+		!strings.Contains(strings.Join(message.Context, "\n"), "Approval happens only in Emisar") {
 		t.Fatalf("approval card copy = %+v", message)
+	}
+	if len(message.Fields) != 0 {
+		t.Fatalf("approval metadata must use a full-width layout: %+v", message.Fields)
 	}
 	if len(message.Actions) != 1 ||
 		message.Actions[0].ID != ActionOpenApproval ||
@@ -600,6 +605,15 @@ func TestEmisarApprovalCardLinksToAuthoritativeConsole(t *testing.T) {
 	if !linked {
 		t.Fatalf("Block Kit did not retain approval URL: %+v", blocks)
 	}
+	renderedMessage := NewSanitizer(30000).Message(message)
+	rendered, err := json.Marshal(renderedMessage.Blocks())
+	if err != nil {
+		t.Fatalf("marshal approval Block Kit: %v", err)
+	}
+	if strings.Contains(strings.Join(renderedMessage.Sections, "\n"), "**") ||
+		strings.Contains(string(rendered), "<!date^") {
+		t.Fatalf("approval Block Kit contains incompatible Slack markup: %s", rendered)
+	}
 }
 
 func TestEmisarApprovalCardSupportsCurrentConversationWithoutIncident(t *testing.T) {
@@ -617,7 +631,7 @@ func TestEmisarApprovalCardSupportsCurrentConversationWithoutIncident(t *testing
 		},
 	)
 	sections := strings.Join(message.Sections, "\n")
-	if !strings.Contains(sections, "reply `check approval` in this conversation") ||
+	if !strings.Contains(sections, "reply `check approval` here") ||
 		strings.Contains(sections, "pinned card") || len(message.Actions) != 1 ||
 		message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_shared" {
 		t.Fatalf("shared approval card = %+v", message)

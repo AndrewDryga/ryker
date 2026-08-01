@@ -671,36 +671,27 @@ func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
 			". Nothing has executed. Review the request in Emisar: "+approval.ApprovalURL,
 		4000,
 	)
-	followup := "**After the decision:** reply `check approval` in this conversation. " +
-		"Responder will continue the same Emisar run and report its authoritative result."
+	followup := "After approval or rejection, reply `check approval` here. " +
+		"I’ll continue the same run and report the result."
 	if approval.IncidentID != "" {
-		followup = "**After the decision:** return to this incident and reply `check approval`, or use " +
-			"**Ask agent for update** on the pinned card. Responder will continue this same run " +
-			"and report its authoritative result."
+		followup = "After approval or rejection, reply `check approval` in this incident, or choose " +
+			"*Ask agent for update* on the pinned card. I’ll continue the same run and report the result."
 	}
 	message.Sections = append(message.Sections,
-		"**Emisar paused this operational request before execution.** "+
-			"Review its exact arguments, evidence, blast radius, and policy decision in Emisar.",
+		"Emisar paused `"+safeInlineCode(approval.ActionID)+"` before it ran. "+
+			"Review the exact target, arguments, evidence, blast radius, and policy decision in Emisar.",
+		fmt.Sprintf(
+			"*Approval expires:* %s\n*Runner:* `%s`\n*Pack:* `%s`",
+			approval.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+			safeInlineCode(approval.RunnerRef),
+			safeInlineCode(approval.PackRef),
+		),
 		followup,
-	)
-	message.Fields = append(message.Fields,
-		Field{Label: "Action", Value: "`" + safeInlineCode(approval.ActionID) + "`"},
-		Field{Label: "Runner", Value: "`" + safeInlineCode(approval.RunnerRef) + "`"},
-		Field{Label: "Pack", Value: "`" + safeInlineCode(approval.PackRef) + "`"},
-		Field{
-			Label: "Approval expires",
-			Value: fmt.Sprintf(
-				"<!date^%d^{date_short_pretty} at {time}|%s>",
-				approval.ExpiresAt.Unix(),
-				approval.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
-			),
-		},
 	)
 	message.Context = append(
 		message.Context,
-		"Run `"+safeInlineCode(approval.RunID)+"` is waiting. "+
-			"Slack cannot approve it, and opening the link does not execute it. "+
-			"Emisar remains authoritative for the decision and audit trail.",
+		"Run `"+safeInlineCode(approval.RunID)+"` is waiting. Approval happens only in Emisar; "+
+			"opening the link does not execute it.",
 	)
 	actions := message.Actions[:0]
 	for _, action := range message.Actions {
