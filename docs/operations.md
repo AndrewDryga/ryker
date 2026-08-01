@@ -333,9 +333,13 @@ Agent prose is not the evidence ledger. Structured observations record claim, ob
 type and name, target, freshness, confidence, optional HTTPS source URL, and observation time.
 Coverage records whether hardware, host, runtime, scheduler, workload, dependency, application,
 SLO, and recent-change layers are healthy, degraded, unhealthy, unknown, or not applicable.
-`/responder evidence`, `/responder timeline`, and `/responder handoff` read these durable records.
-Closing an incident posts a post-incident draft and leaves unknown impact, root cause, ownership,
-and follow-up explicitly unassigned.
+`/responder evidence`, `/responder timeline`, `/responder handoff`, and `/responder postmortem` read
+these durable records. The remediation timeline is a deterministic chronological projection over
+signals, agent runs, explicit operator and lifecycle events, proposals, Emisar approval-bound runs,
+and draft-PR publication. Those source rows remain canonical, so retries cannot create a second
+version of an approval or executed action in the incident record. Closing an incident posts a
+post-incident draft and leaves unknown impact, root cause, ownership, and follow-up explicitly
+unassigned.
 
 Model-proposed and autonomous operational actions are disabled. A configured operator can directly
 request one exact action from any Slack conversation; Responder must use Emisar's governed action

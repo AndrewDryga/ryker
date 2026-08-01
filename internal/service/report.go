@@ -399,7 +399,7 @@ func (s *Service) persistAgentReport(
 		report.Proposals = nil
 	}
 	if report.PendingApproval != nil {
-		approval, created, err := s.store.RecordEmisarApproval(ctx, *report.PendingApproval)
+		approval, _, err := s.store.RecordEmisarApproval(ctx, *report.PendingApproval)
 		if err != nil {
 			return agentReport{}, err
 		}
@@ -412,16 +412,6 @@ func (s *Service) persistAgentReport(
 			Outcome:    approval.Status,
 			Detail:     approval.ActionID + " runner=" + approval.RunnerRef,
 		})
-		if created && incident.ID != "" {
-			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
-				IncidentID: incident.ID,
-				ChannelID:  incident.ChannelID,
-				Kind:       "emisar.approval.pending",
-				ActorID:    requestedBy,
-				Title:      "Emisar approval required",
-				Detail:     approval.ActionID + " for " + approval.RunnerRef,
-			})
-		}
 	}
 	return report, nil
 }

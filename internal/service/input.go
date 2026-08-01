@@ -732,6 +732,7 @@ func (s *Service) handleActionProposal(ctx context.Context, input core.SlackInpu
 		eventTitle = "Rejected proposed action"
 	}
 	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		ID:         "tl_action_" + proposal.ID + "_" + decision,
 		IncidentID: proposal.IncidentID, ChannelID: proposal.ChannelID,
 		Kind: "action." + decision, ActorID: input.UserID,
 		Title:  eventTitle,
@@ -1473,6 +1474,7 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 		ObjectID: incident.CoopSessionID, Outcome: "succeeded",
 	})
 	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		ID:         "tl_close_" + incident.ID,
 		IncidentID: incident.ID, ChannelID: incident.ChannelID,
 		Kind: timelineKind, ActorID: input.UserID,
 		Title: timelineTitle,
@@ -1499,15 +1501,7 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 	if incident.IsEngineeringTask() {
 		return nil
 	}
-	events, err := s.store.ListTimeline(ctx, incident.ID, "", 100)
-	if err != nil {
-		return err
-	}
-	evidence, err := s.store.ListEvidence(ctx, incident.ID, "", 100)
-	if err != nil {
-		return err
-	}
-	coverage, err := s.store.ListCoverage(ctx, incident.ID, "", 100)
+	record, err := s.store.LoadRemediationRecord(ctx, incident.ID)
 	if err != nil {
 		return err
 	}
@@ -1517,7 +1511,7 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 		incident,
 		"postmortem",
 		incident.ConversationThreadTS(),
-		slackui.PostmortemDraft(incident, events, evidence, coverage),
+		slackui.PostmortemDraft(record),
 	)
 }
 

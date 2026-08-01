@@ -1422,6 +1422,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			}
 			message = slackui.AgentReportFailureMessage(reportDetail)
 			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+				ID:         "tl_agent_failure_" + run.ID,
 				IncidentID: incident.ID, ChannelID: incident.ChannelID,
 				Kind: "agent.failure", ActorID: "responder",
 				Title:  "Agent result could not be rendered",
@@ -1543,6 +1544,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				evidenceIDs = append(evidenceIDs, evidence.ID)
 			}
 			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+				ID:          "tl_agent_finding_" + run.ID,
 				IncidentID:  incident.ID,
 				ChannelID:   incident.ChannelID,
 				Kind:        "agent.finding",
@@ -1559,6 +1561,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			failure.Summary+"\n\nReported detail: `"+detail+"`\n\n"+failure.OperatorFix,
 		)
 		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+			ID:         "tl_agent_failure_" + run.ID,
 			IncidentID: incident.ID, ChannelID: incident.ChannelID,
 			Kind: "agent.failure", ActorID: "responder",
 			Title: "Agent turn " + state, Detail: detail,

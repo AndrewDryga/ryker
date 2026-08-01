@@ -165,6 +165,7 @@ func (s *Service) processChannelIncident(ctx context.Context, incidentID string)
 			Detail:   "engineering task remains in its source thread",
 		})
 		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+			ID:         "tl_thread_" + incident.ID,
 			IncidentID: incident.ID, ChannelID: incident.ChannelID,
 			Kind: "slack.thread.bound", ActorID: "responder",
 			Title:  "Engineering task started in source thread",
@@ -198,6 +199,7 @@ func (s *Service) processChannelIncident(ctx context.Context, incidentID string)
 		Outcome: "succeeded", Detail: channel.Name,
 	})
 	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		ID:         "tl_channel_" + incident.ID,
 		IncidentID: incident.ID, ChannelID: channel.ID,
 		Kind: "slack.channel.created", ActorID: "responder",
 		Title: map[bool]string{
@@ -547,6 +549,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 		timelineTitle = "Isolated engineering task started"
 	}
 	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		ID:         "tl_session_" + incident.ID,
 		IncidentID: incident.ID, ChannelID: incident.ChannelID,
 		Kind: "coop.session.created", ActorID: "responder",
 		Title:  timelineTitle,

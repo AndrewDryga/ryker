@@ -358,7 +358,7 @@ flowchart TB
 | Preferences | `responder_preferences` | Configured operator click | Typed investigation depth or response detail | Closed catalog; precedence and expiry are host-owned |
 | Standing rules | `standing_rules` | Configured operator click | Typed channel subscription such as Terraform-plan review | Host matches trigger deterministically; read-only |
 | Rule executions | `standing_rule_runs` | Host | Prevent the same rule/source event from running twice | Idempotency record, later pruned |
-| Incident intelligence | Incident, evidence, coverage, timeline, proposals, approvals | Webhook, host, agent, operators | Coordinate one incident or engineering task | Bound to that work occurrence |
+| Incident intelligence | Incident, signals, agent runs, evidence, coverage, explicit events, proposals, Emisar approvals, publication | Webhook, host, agent, operators | Coordinate one incident or engineering task and derive its remediation timeline and postmortem | Bound to that work occurrence; source rows remain canonical |
 
 ### Evidence precedence
 
@@ -590,6 +590,15 @@ flowchart TB
   Incident --> Proposals[("action_proposals")]
   Incident --> Approvals[("emisar_approvals")]
   Incident --> Publication[("publications")]
+
+  Signals --> Remediation["derived remediation record"]
+  AgentRuns --> Remediation
+  Evidence --> Remediation
+  Timeline --> Remediation
+  Proposals --> Remediation
+  Approvals --> Remediation
+  Publication --> Remediation
+  Remediation --> SlackViews["timeline / handoff / postmortem"]
 
   ChannelMemory[("channel_memories")] --> Evaluation
   ConversationMemory[("conversation_memories")] --> PromptContext

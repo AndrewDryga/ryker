@@ -826,6 +826,34 @@ func (s *Store) GetActionProposal(ctx context.Context, id string) (core.ActionPr
 		FROM action_proposals p WHERE p.id = ?`, id))
 }
 
+func (s *Store) ListActionProposalsForIncident(
+	ctx context.Context,
+	incidentID string,
+) ([]core.ActionProposal, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT p.id, p.incident_id, p.channel_id, p.source_input, p.action_name, p.title,
+		  p.summary, p.target, p.parameters_json, p.blast_radius, p.rollback,
+		  p.verification, p.authority, p.risk, p.status, p.required_approvals,
+		  (SELECT count(*) FROM proposal_approvals a
+		   WHERE a.proposal_id = p.id AND a.decision = 'approve'),
+		  p.requested_by, p.execution_turn, p.result, p.expires_at, p.created_at, p.updated_at
+		FROM action_proposals p WHERE p.incident_id = ?
+		ORDER BY p.created_at, p.id`, incidentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]core.ActionProposal, 0)
+	for rows.Next() {
+		item, err := scanActionProposal(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func scanActionProposal(row interface{ Scan(...any) error }) (core.ActionProposal, error) {
 	var proposal core.ActionProposal
 	var parameters []byte

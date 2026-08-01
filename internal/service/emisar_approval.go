@@ -163,16 +163,6 @@ func (s *Service) finishTerminalEmisarApproval(
 		Outcome:    updated.Status,
 		Detail:     updated.ActionID + " run=" + updated.RunID,
 	})
-	if updated.IncidentID != "" {
-		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
-			IncidentID: updated.IncidentID,
-			ChannelID:  updated.ChannelID,
-			Kind:       "emisar.approval.completed",
-			ActorID:    "responder",
-			Title:      "Emisar run " + updated.Status,
-			Detail:     updated.ActionID + " for " + updated.RunnerRef,
-		})
-	}
 	return nil
 }
 

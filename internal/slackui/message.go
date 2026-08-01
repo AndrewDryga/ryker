@@ -1870,31 +1870,40 @@ func AgentReportFailureMessage(detail string) Message {
 		},
 	}
 }
-func TimelineMessage(incident core.Incident, events []core.TimelineEvent) Message {
+func TimelineMessage(record core.RemediationRecord) Message {
+	incident := record.Incident
+	events := core.RemediationTimeline(record)
 	var body strings.Builder
-	body.WriteString("## Incident timeline\n")
+	body.WriteString("## Remediation timeline\n")
 	if len(events) == 0 {
-		body.WriteString("\nNo timeline events have been recorded yet.")
+		body.WriteString("\nNo incident activity has been recorded yet.")
 	}
-	for _, event := range events[:min(len(events), 40)] {
+	start := max(0, len(events)-40)
+	for _, event := range events[start:] {
 		fmt.Fprintf(
 			&body,
 			"\n- **%s** - %s",
 			event.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
-			event.Title,
+			escapeSlackText(event.Title),
 		)
 		if event.Detail != "" {
-			fmt.Fprintf(&body, "  \n  %s", truncateUTF8(event.Detail, 600))
+			fmt.Fprintf(
+				&body, "  \n  %s",
+				truncateUTF8(escapeSlackText(event.Detail), 600),
+			)
+		}
+		if link := sourceLink(event.URL); link != "" {
+			fmt.Fprintf(&body, "  \n  %s", link)
 		}
 	}
 	return Message{
 		Text: fmt.Sprintf(
-			"Incident %s timeline with %d recorded events.",
+			"Incident %s remediation timeline with %d events.",
 			ShortID(incident.ID), len(events),
 		),
 		Markdown: truncateMarkdown(body.String(), 12000),
 		Context: []string{
-			"The timeline is generated from Responder's durable event records, newest first.",
+			"Built from the alert, agent runs, evidence, approvals, governed actions, and publication state. The latest events are shown oldest first.",
 		},
 	}
 }
@@ -1923,11 +1932,10 @@ func EvidenceDirectoryMessage(
 }
 
 func HandoffMessage(
-	incident core.Incident,
-	events []core.TimelineEvent,
-	evidence []core.Evidence,
-	coverage []core.Coverage,
+	record core.RemediationRecord,
 ) Message {
+	incident := record.Incident
+	events := core.RemediationTimeline(record)
 	var body strings.Builder
 	fmt.Fprintf(
 		&body,
@@ -1945,7 +1953,8 @@ func HandoffMessage(
 	}
 	if len(events) > 0 {
 		body.WriteString("\n### Latest decisions and findings\n")
-		for _, event := range events[:min(len(events), 8)] {
+		start := max(0, len(events)-8)
+		for _, event := range events[start:] {
 			fmt.Fprintf(
 				&body,
 				"\n- **%s:** %s",
@@ -1955,7 +1964,8 @@ func HandoffMessage(
 		}
 	}
 	message := EvidenceResponse(
-		body.String(), evidence[:min(len(evidence), 6)], coverage[:min(len(coverage), 12)],
+		body.String(), record.Evidence[:min(len(record.Evidence), 6)],
+		record.Coverage[:min(len(record.Coverage), 12)],
 		nil, NewSanitizer(30000),
 	)
 	message.Context = append(
@@ -1965,13 +1975,18 @@ func HandoffMessage(
 	return message
 }
 
-func PostmortemDraft(
-	incident core.Incident,
-	events []core.TimelineEvent,
-	evidence []core.Evidence,
-	coverage []core.Coverage,
-) Message {
+func PostmortemDraft(record core.RemediationRecord) Message {
+	incident := record.Incident
+	events := core.RemediationTimeline(record)
 	var body strings.Builder
+	closedAt := incident.ClosedAt
+	if closedAt.IsZero() {
+		closedAt = incident.ResolvedAt
+	}
+	closed := "Still open"
+	if !closedAt.IsZero() {
+		closed = closedAt.UTC().Format("2006-01-02 15:04 UTC")
+	}
 	fmt.Fprintf(
 		&body,
 		"## Post-incident draft: %s\n\n"+
@@ -1981,36 +1996,89 @@ func PostmortemDraft(
 		ShortID(incident.ID),
 		displayOr(incident.Severity, "unclassified"),
 		incident.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
-		time.Now().UTC().Format("2006-01-02 15:04 UTC"),
+		closed,
 	)
-	if len(evidence) == 0 {
+	if len(record.Evidence) == 0 {
 		body.WriteString("\nNo structured evidence was recorded. Root cause must remain unassigned.")
 	} else {
-		for _, item := range evidence[:min(len(evidence), 8)] {
-			fmt.Fprintf(&body, "\n- **%s:** %s", item.Claim, item.Observation)
+		for _, item := range record.Evidence[:min(len(record.Evidence), 8)] {
+			fmt.Fprintf(
+				&body, "\n- **%s:** %s",
+				escapeSlackText(item.Claim), escapeSlackText(item.Observation),
+			)
+		}
+	}
+	body.WriteString("\n\n### Remediation and approvals\n")
+	if len(record.Approvals) == 0 && len(record.Proposals) == 0 &&
+		record.Publication.IncidentID == "" {
+		body.WriteString("\nNo governed operation or code publication was recorded.")
+	}
+	for _, approval := range record.Approvals {
+		status := strings.ReplaceAll(displayOr(approval.Status, "unknown"), "_", " ")
+		fmt.Fprintf(
+			&body, "\n- **%s** on `%s`: %s",
+			escapeSlackText(approval.ActionID), safeInlineCode(approval.RunnerRef),
+			escapeSlackText(status),
+		)
+		if link := sourceLink(firstNonemptyUI(approval.RunURL, approval.ApprovalURL)); link != "" {
+			fmt.Fprintf(&body, " - %s", link)
+		}
+	}
+	for _, proposal := range record.Proposals {
+		fmt.Fprintf(
+			&body, "\n- **%s:** %s for `%s`",
+			escapeSlackText(proposal.Title),
+			escapeSlackText(strings.ReplaceAll(proposal.Status, "_", " ")),
+			safeInlineCode(proposal.Target),
+		)
+	}
+	if record.Publication.IncidentID != "" {
+		publication := record.Publication
+		fmt.Fprintf(
+			&body, "\n- **Draft PR:** %s",
+			escapeSlackText(strings.ReplaceAll(publication.State, "_", " ")),
+		)
+		if link := sourceLink(publication.PRURL); link != "" {
+			fmt.Fprintf(&body, " - %s", link)
 		}
 	}
 	body.WriteString("\n\n### Timeline\n")
-	for _, event := range events[:min(len(events), 20)] {
+	start := max(0, len(events)-20)
+	for _, event := range events[start:] {
 		fmt.Fprintf(
 			&body,
 			"\n- **%s:** %s",
 			event.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
-			event.Title,
+			escapeSlackText(event.Title),
 		)
 	}
-	body.WriteString(
-		"\n\n### Follow-up\n\n- [ ] Confirm impact and affected users\n" +
-			"- [ ] Confirm root cause from cited evidence\n" +
-			"- [ ] Assign corrective actions and owners\n" +
-			"- [ ] Add or improve detection and recovery validation\n",
-	)
+	body.WriteString("\n\n### Follow-up\n")
+	body.WriteString("\n- [ ] Confirm impact and affected users")
+	body.WriteString("\n- [ ] Confirm root cause from cited evidence")
+	for _, item := range record.Coverage {
+		if item.Status == "unknown" || item.Status == "degraded" {
+			fmt.Fprintf(
+				&body, "\n- [ ] Resolve %s coverage: %s",
+				escapeSlackText(item.Layer), truncateUTF8(escapeSlackText(item.Detail), 300),
+			)
+		}
+	}
+	for _, approval := range record.Approvals {
+		if approval.TerminalAt.IsZero() {
+			fmt.Fprintf(
+				&body, "\n- [ ] Complete Emisar approval for `%s`",
+				safeInlineCode(approval.ActionID),
+			)
+		}
+	}
+	body.WriteString("\n- [ ] Assign remaining corrective actions and owners\n")
 	message := EvidenceResponse(
-		body.String(), nil, coverage[:min(len(coverage), 12)], nil, NewSanitizer(30000),
+		body.String(), nil, record.Coverage[:min(len(record.Coverage), 12)], nil,
+		NewSanitizer(30000),
 	)
 	message.Context = append(
 		message.Context,
-		"This is an evidence-grounded draft. It deliberately does not invent impact, root cause, owners, or corrective actions.",
+		"Generated from the durable remediation record. It does not invent impact, root cause, owners, or actions that were not recorded.",
 	)
 	return message
 }

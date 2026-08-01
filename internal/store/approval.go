@@ -144,6 +144,29 @@ func (s *Store) GetEmisarApproval(
 		FROM emisar_approvals WHERE request_id = ?`, requestID))
 }
 
+func (s *Store) ListEmisarApprovalsForIncident(
+	ctx context.Context,
+	incidentID string,
+) ([]core.EmisarApproval, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+emisarApprovalColumns+`
+		FROM emisar_approvals WHERE incident_id = ?
+		ORDER BY created_at, request_id`, incidentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]core.EmisarApproval, 0)
+	for rows.Next() {
+		item, err := scanEmisarApproval(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func scanEmisarApproval(
 	row interface{ Scan(...any) error },
 ) (core.EmisarApproval, error) {

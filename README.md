@@ -288,6 +288,7 @@ remains the compatibility and recovery surface:
 /responder timeline
 /responder evidence
 /responder handoff
+/responder postmortem
 /responder memory
 /responder preferences
 /responder rules
@@ -413,8 +414,11 @@ channel names when a room is archived, deleted, or unavailable;
 command surface and provides read-only buttons for current-channel status and incident directories.
 Slack exposes only one static usage hint for a slash command, so the manifest keeps that picker text
 short and moves detailed guidance into this interactive response. The same command also exposes
-`timeline`, `evidence`, `handoff`, `update`, `changes`, `review`, `publish`, `stop`, and `close` in an
-incident room. Closing posts an evidence-grounded post-incident draft. Responder automatically
+`timeline`, `evidence`, `handoff`, `postmortem`, `update`, `changes`, `review`, `publish`, `stop`, and
+`close` in an incident room. The remediation timeline is derived from the alert, agent runs,
+evidence, approvals, governed actions, and draft-PR publication state instead of copying those
+facts into a second incident system. Closing posts the same evidence-grounded post-incident draft
+that `/responder postmortem` can regenerate from the durable record. Responder automatically
 allocates more Coop session capacity as authorized requests arrive. `/responder turn-limit` shows
 or changes the channel or workspace lifetime safety ceiling; operators do not estimate how many
 turns an investigation needs. Commands are deterministic, operator-authorized, durably processed,

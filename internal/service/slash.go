@@ -288,7 +288,7 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 		return s.configureShadow(ctx, input, fields[1:])
 	case "turn-limit", "turns":
 		return s.configureTurnLimit(ctx, input, fields[1:])
-	case "timeline", "evidence", "handoff":
+	case "timeline", "evidence", "handoff", "postmortem":
 		if len(fields) != 1 {
 			return s.finishSlashInput(ctx, input, slashUsage(fields[0]))
 		}
@@ -413,44 +413,39 @@ func (s *Service) finishIncidentIntelligence(
 	input core.SlackInput,
 	command string,
 ) error {
-	incident, err := s.store.FindIncidentByChannel(ctx, input.ChannelID)
+	incident, err := s.store.FindLatestIncidentByChannel(ctx, input.ChannelID)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.finishSlashInput(
 			ctx, input,
-			"*There is no incident attached to this channel.* `timeline`, `evidence`, and "+
-				"`handoff` read the durable record for the current incident room. Use "+
+			"*There is no incident attached to this channel.* `timeline`, `evidence`, "+
+				"`handoff`, and `postmortem` read the durable record for the latest incident room. Use "+
 				"`/responder incidents` to find one.",
 		)
 	}
 	if err != nil {
 		return err
 	}
-	events, err := s.store.ListTimeline(ctx, incident.ID, "", 100)
+	record, err := s.store.LoadRemediationRecord(ctx, incident.ID)
 	if err != nil {
 		return err
 	}
 	switch command {
 	case "timeline":
-		return s.finishSlashMessage(ctx, input, slackui.TimelineMessage(incident, events))
+		return s.finishSlashMessage(ctx, input, slackui.TimelineMessage(record))
+	case "postmortem":
+		return s.finishSlashMessage(ctx, input, slackui.PostmortemDraft(record))
 	case "evidence", "handoff":
 	default:
 		return errors.New("unknown incident intelligence command")
 	}
-	evidence, err := s.store.ListEvidence(ctx, incident.ID, "", 100)
-	if err != nil {
-		return err
-	}
-	coverage, err := s.store.ListCoverage(ctx, incident.ID, "", 100)
-	if err != nil {
-		return err
-	}
 	if command == "evidence" {
 		return s.finishSlashMessage(
-			ctx, input, slackui.EvidenceDirectoryMessage(incident, evidence, coverage),
+			ctx, input,
+			slackui.EvidenceDirectoryMessage(incident, record.Evidence, record.Coverage),
 		)
 	}
 	return s.finishSlashMessage(
-		ctx, input, slackui.HandoffMessage(incident, events, evidence, coverage),
+		ctx, input, slackui.HandoffMessage(record),
 	)
 }
 
@@ -888,7 +883,8 @@ func slashHelpSections() []string {
 		"*Control active work*\n" +
 			"`/responder timeline` reads the durable event history; `/responder evidence` shows " +
 			"cited observations and coverage; `/responder handoff` prepares a current shift " +
-			"summary. `/responder update` starts an evidence-based agent update; " +
+			"summary; `/responder postmortem` generates the current evidence-grounded draft. " +
+			"`/responder update` starts an evidence-based agent update; " +
 			"`/responder changes` reads the isolated diff; `/responder review` compares a proposed " +
 			"change with the current repository and runs rebase, validation, and policy checks; " +
 			"`/responder stop` preserves and stops the active turn; `/responder close` preserves " +
@@ -935,6 +931,12 @@ func slashUsage(command string) string {
 			"`/responder incidents open [page]` selects another open-incident page. " +
 			"`/responder incidents all [page]` includes closed history. Pages start at 1, and " +
 			"each incident includes a clickable Slack channel link when its room is ready."
+	case "timeline", "evidence", "handoff", "postmortem":
+		return "*Read the current incident record.*\n\n" +
+			"`/responder timeline` shows alert, agent-run, approval, action, and publication history. " +
+			"`/responder evidence` shows cited observations and coverage gaps. " +
+			"`/responder handoff` prepares a concise shift summary. " +
+			"`/responder postmortem` generates an evidence-grounded draft from recorded actions."
 	case "memory":
 		return "*Inspect operational memory visible here.*\n\n" +
 			"`/responder memory` lists active operator-confirmed hints matching this channel, " +

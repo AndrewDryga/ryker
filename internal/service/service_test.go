@@ -3166,6 +3166,71 @@ func TestSlashProactiveOverrides(t *testing.T) {
 	}
 }
 
+func TestSlashPostmortemReadsLatestClosedIncidentRecord(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incidents, err := st.ApplySignals(ctx, core.WebhookEvent{
+		Route: "grafana", DedupeKey: "postmortem-delivery", BodyDigest: "digest",
+		Signals: []core.Signal{{
+			Route: "grafana", SourceID: "alert-postmortem", EventID: "alert-event",
+			Repository: "emisar", CorrelationKey: "api", Status: core.SignalFiring,
+			Title: "API errors", Severity: "high", ReceivedAt: time.Now().UTC(),
+		}},
+	}, time.Hour, 0, 100)
+	if err != nil || len(incidents) != 1 {
+		t.Fatalf("incident = %+v, %v", incidents, err)
+	}
+	incident := incidents[0]
+	if err := st.SetChannel(ctx, incident.ID, "CPOSTMORTEM", "ems-api"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, incident.ID, "1700.001"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RecordEvidence(ctx, []core.Evidence{{
+		IncidentID: incident.ID, ChannelID: "CPOSTMORTEM", SourceInput: "run_1",
+		Claim: "API recovered", Observation: "Probe returned HTTP 200",
+		SourceType: "emisar", SourceName: "http probe", Target: "api",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CloseIncident(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "slash-postmortem", EnvelopeID: "env-slash-postmortem",
+		EventID: "event-slash-postmortem", Kind: "slash", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CPOSTMORTEM", UserID: "U123ABC",
+		Text: "postmortem", ActionID: "/responder",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit command = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("postmortem responses = %+v", slackClient.ephemerals)
+	}
+	message := slackClient.ephemerals[0].message
+	if !strings.Contains(message.Markdown, "Post-incident draft") ||
+		!strings.Contains(message.Markdown, "API recovered") ||
+		strings.Contains(message.Markdown, "Still open") {
+		t.Fatalf("postmortem = %+v", message)
+	}
+}
+
 func TestSlashTurnLimitOverrides(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

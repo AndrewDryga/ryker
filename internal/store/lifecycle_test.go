@@ -49,6 +49,90 @@ func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
 	}
 }
 
+func TestLoadRemediationRecordAssemblesCanonicalIncidentState(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	incidents, err := st.ApplySignals(ctx, testWebhookEvent(), time.Hour, 0, 100)
+	if err != nil || len(incidents) != 1 {
+		t.Fatalf("incident = %+v, %v", incidents, err)
+	}
+	incident := incidents[0]
+	if err := st.SetChannel(ctx, incident.ID, "CINCIDENT", "ems-api"); err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: "CINCIDENT", ConversationKey: "incident:" + incident.ID,
+		SourceKind: "webhook", SourceID: "delivery-1", Repository: "repo",
+		Prompt: "investigate",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RecordEvidence(ctx, []core.Evidence{{
+		IncidentID: incident.ID, ChannelID: "CINCIDENT", SourceInput: run.ID,
+		Claim: "API returned errors", Observation: "Probe observed HTTP 500",
+		SourceType: "emisar", SourceName: "http probe", Target: "api",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, _, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+		RequestID: "req_1", IncidentID: incident.ID, ChannelID: "CINCIDENT",
+		SourceInput: run.ID, RequestedBy: "UOP", RunID: "emisar_run_1",
+		OperationID: "op_1", ActionID: "service.restart", PackRef: "service@1",
+		RunnerRef: "runner_1", Status: "pending_approval",
+		ApprovalURL: "https://emisar.example/approvals/req_1",
+		ExpiresAt:   now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateActionProposals(ctx, []core.ActionProposal{{
+		ID: "proposal_1", IncidentID: incident.ID, ChannelID: "CINCIDENT",
+		ActionName: "service.restart", Title: "Restart one replica", Target: "api-1",
+		BlastRadius: "one replica", Rollback: "restart old process",
+		Verification: "probe API", Authority: "operator", Required: 1,
+		ExpiresAt: now.Add(time.Hour),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SavePublication(ctx, core.Publication{
+		IncidentID: incident.ID, Repository: "owner/repo", BaseBranch: "main",
+		ParentHead: "parent", CandidateTree: "tree", State: "publishing",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordTimeline(ctx, core.TimelineEvent{
+		ID: "operator_1", IncidentID: incident.ID, ChannelID: "CINCIDENT",
+		Kind: "operator.message", Title: "Operator requested a restart", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := st.LoadRemediationRecord(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Signals) != 1 || len(record.AgentRuns) != 1 ||
+		len(record.Evidence) != 1 || len(record.Events) != 1 ||
+		len(record.Proposals) != 1 || len(record.Approvals) != 1 ||
+		record.Publication.State != "publishing" {
+		t.Fatalf("record = %+v", record)
+	}
+	if err := st.CloseIncident(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := st.FindLatestIncidentByChannel(ctx, "CINCIDENT")
+	if err != nil || latest.ID != incident.ID || latest.Status != core.IncidentClosed {
+		t.Fatalf("latest closed incident = %+v, %v", latest, err)
+	}
+}
+
 func TestExpiredChannelMemoryIsOwnedBeforeItIsPruned(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

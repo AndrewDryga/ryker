@@ -779,6 +779,7 @@ func TestTimelineHandoffAndPostmortemRemainEvidenceGrounded(t *testing.T) {
 		Status: core.IncidentActive, Workflow: core.WorkflowParked,
 		FiringCount: 1, SignalCount: 2, Severity: "high",
 		CreatedAt: time.Date(2026, 7, 27, 19, 0, 0, 0, time.UTC),
+		ClosedAt:  time.Date(2026, 7, 27, 21, 0, 0, 0, time.UTC),
 	}
 	events := []core.TimelineEvent{{
 		Title: "Live state checked", Detail: "One allocation was terminal.",
@@ -792,17 +793,28 @@ func TestTimelineHandoffAndPostmortemRemainEvidenceGrounded(t *testing.T) {
 		Layer: "application", Status: "unknown",
 		Detail: "No user-facing SLO source was available",
 	}}
-	timeline := TimelineMessage(incident, events)
-	handoff := HandoffMessage(incident, events, evidence, coverage)
-	postmortem := PostmortemDraft(incident, events, evidence, coverage)
+	record := core.RemediationRecord{
+		Incident: incident, Events: events, Evidence: evidence, Coverage: coverage,
+		Approvals: []core.EmisarApproval{{
+			RunID: "run_1", ActionID: "service.restart", RunnerRef: "runner_1",
+			Status: "succeeded", CreatedAt: time.Date(2026, 7, 27, 20, 5, 0, 0, time.UTC),
+			TerminalAt: time.Date(2026, 7, 27, 20, 10, 0, 0, time.UTC),
+		}},
+	}
+	timeline := TimelineMessage(record)
+	handoff := HandoffMessage(record)
+	postmortem := PostmortemDraft(record)
 	if !strings.Contains(timeline.Markdown, "Live state checked") ||
+		!strings.Contains(timeline.Markdown, "Emisar run succeeded") ||
 		!strings.Contains(handoff.Markdown, "Shift handoff") ||
 		!strings.Contains(handoff.Markdown, "## Evidence") ||
 		!strings.Contains(postmortem.Markdown, "Post-incident draft") ||
+		!strings.Contains(postmortem.Markdown, "2026-07-27 21:00 UTC") ||
+		!strings.Contains(postmortem.Markdown, "service.restart") ||
 		!strings.Contains(postmortem.Markdown, "Confirm root cause") ||
 		!strings.Contains(
 			strings.Join(postmortem.Context, "\n"),
-			"does not invent impact, root cause, owners",
+			"does not invent impact, root cause, owners, or actions",
 		) {
 		t.Fatalf(
 			"timeline=%+v\nhandoff=%+v\npostmortem=%+v",

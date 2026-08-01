@@ -453,10 +453,14 @@ a forced joke. Incident response, customer impact, failures, security, approvals
 risk, and uncertain operational states remain straightforward. Humor never appears in evidence,
 memory, titles, controls, approval text, timelines, or technical identifiers, and never targets a
 person or their mistake.
-`/responder timeline` reads durable lifecycle, operator, finding, and failure events.
+`/responder timeline` presents the chronological remediation record: alerts, agent runs, operator
+and lifecycle events, governed action proposals, Emisar approvals and terminal run results, and
+draft-PR publication. It derives these entries from their canonical rows rather than copying them.
 `/responder evidence` shows the latest source ledger and material unknowns.
 `/responder handoff` prepares an evidence-backed shift summary. Closing also posts a post-incident
-draft that does not invent impact, root cause, owners, or corrective actions.
+draft that does not invent impact, root cause, owners, or corrective actions. `/responder
+postmortem` regenerates that draft for the latest incident attached to the room, including after it
+has closed.
 
 Automatic, inferred, and model-proposed operational mutation is not exposed through Slack. In any
 Slack conversation, a configured operator can directly request one exact operational action.

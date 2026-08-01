@@ -118,6 +118,29 @@ func (s *Store) GetAgentRun(ctx context.Context, id string) (core.AgentRun, erro
 	))
 }
 
+func (s *Store) ListAgentRunsForIncident(
+	ctx context.Context,
+	incidentID string,
+) ([]core.AgentRun, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+agentRunColumns+`
+		FROM agent_runs WHERE incident_id = ?
+		ORDER BY created_at, id`, incidentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]core.AgentRun, 0)
+	for rows.Next() {
+		item, err := scanAgentRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) GetAgentRunBySource(
 	ctx context.Context,
 	kind string,

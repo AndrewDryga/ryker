@@ -730,8 +730,24 @@ type TimelineEvent struct {
 	ActorID     string
 	Title       string
 	Detail      string
+	URL         string
 	EvidenceIDs []string
 	CreatedAt   time.Time
+}
+
+// RemediationRecord is the durable, evidence-backed view of one incident.
+// Its members remain canonical in their own tables; the timeline and
+// postmortem are projections over this record rather than copied state.
+type RemediationRecord struct {
+	Incident    Incident
+	Signals     []Signal
+	AgentRuns   []AgentRun
+	Evidence    []Evidence
+	Coverage    []Coverage
+	Events      []TimelineEvent
+	Proposals   []ActionProposal
+	Approvals   []EmisarApproval
+	Publication Publication
 }
 
 type ActionProposal struct {

@@ -1325,6 +1325,15 @@ func (s *Store) FindIncidentByChannel(ctx context.Context, channelID string) (co
 		ORDER BY updated_at DESC LIMIT 1`, channelID))
 }
 
+func (s *Store) FindLatestIncidentByChannel(
+	ctx context.Context,
+	channelID string,
+) (core.Incident, error) {
+	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
+		FROM incidents WHERE channel_id = ? AND work_scope = 'room'
+		ORDER BY updated_at DESC LIMIT 1`, channelID))
+}
+
 func (s *Store) IsIncidentChannel(ctx context.Context, channelID string) (bool, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
