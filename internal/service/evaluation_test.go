@@ -27,6 +27,35 @@ func TestGoldenEvaluationCorpus(t *testing.T) {
 	}
 }
 
+func TestEvaluationRendersCompoundScheduleAndEngineeringTaskSurface(t *testing.T) {
+	cfg := serviceConfig(t)
+	output := `{
+		"action":"reply",
+		"message":"I can set up both parts after you confirm them.",
+		"task_title":"Create a reusable health runbook",
+		"task_repository":"repo",
+		"schedule_offer":{
+			"title":"Daily deep health review",
+			"prompt":"Run a fresh deep health review using current evidence.",
+			"repository":"repo",
+			"recurrence":"daily",
+			"local_time":"09:00",
+			"timezone":"UTC",
+			"catch_up":"latest",
+			"expires_in":"90d"
+		}
+	}`
+	message, action, err := renderEvaluationMessage(cfg, EvaluationCase{
+		Kind: "watch", Input: "Schedule a daily deep health review around 9 am and create a reusable runbook.",
+		MentionsResponder: true, Repository: "repo",
+	}, output)
+	if err != nil || action != "reply" || len(message.Actions) != 2 ||
+		message.Actions[0].ID != slackui.ActionRememberSchedule ||
+		message.Actions[1].ID != slackui.ActionStartTask {
+		t.Fatalf("rendered compound offer = %+v, action=%q, err=%v", message, action, err)
+	}
+}
+
 func TestEvaluationChecksCustomerVisibleContract(t *testing.T) {
 	watchOutput := `{
 	  "action":"reply",

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -198,8 +199,7 @@ func renderEvaluationMessage(
 				Text: "Slack reaction :" + decision.Reaction + ":",
 			}, decision.Action, nil
 		case "reply":
-			switch {
-			case decision.IncidentTitle != "":
+			if decision.IncidentTitle != "" {
 				return slackui.EvidenceResponseWithIncidentOffer(
 					decision.Message,
 					decision.Evidence,
@@ -207,25 +207,40 @@ func renderEvaluationMessage(
 					"evaluation-source",
 					sanitizer,
 				), decision.Action, nil
-			case decision.TaskTitle != "":
+			}
+			message := slackui.ConciseEvidenceResponse(
+				decision.Message,
+				decision.Evidence,
+				decision.Coverage,
+				nil,
+				sanitizer,
+			)
+			if decision.ScheduleOffer != nil {
+				operatorID := "UEVALOPERATOR"
+				if len(cfg.Slack.Operators) > 0 {
+					operatorID = cfg.Slack.Operators[0]
+				}
+				input, _, err := liveEvaluationWatchContext(testCase, "eval", operatorID)
+				if err != nil {
+					return slackui.Message{}, decision.Action, err
+				}
+				evaluator := &Service{cfg: cfg}
+				if actionValue, task, when, ok := evaluator.prepareScheduleOfferAction(
+					context.Background(), input, decision.ScheduleOffer,
+				); ok {
+					message = slackui.WithScheduleOffer(message, task, actionValue, when)
+				}
+			}
+			if decision.TaskTitle != "" {
 				label := "`" + firstNonempty(decision.TaskRepository, testCase.Repository) + "`"
-				return slackui.EvidenceResponseWithTaskOffer(
-					decision.Message,
-					decision.Evidence,
-					decision.Coverage,
+				message = slackui.WithEngineeringTaskOffer(
+					message,
+					decision.TaskTitle,
 					"evaluation-source",
 					label,
-					sanitizer,
-				), decision.Action, nil
-			default:
-				return slackui.ConciseEvidenceResponse(
-					decision.Message,
-					decision.Evidence,
-					decision.Coverage,
-					nil,
-					sanitizer,
-				), decision.Action, nil
+				)
 			}
+			return message, decision.Action, nil
 		case "incident":
 			return slackui.Message{
 				Text:     "Incident admission: " + decision.Title,

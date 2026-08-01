@@ -22,7 +22,7 @@ func TestEvalCommandReportsGoldenCorpusAndFailures(t *testing.T) {
 		&stdout,
 		&stderr,
 	)
-	if err != nil || !strings.Contains(stdout.String(), "19/19 passed") {
+	if err != nil || !strings.Contains(stdout.String(), "passed, 0 failed") {
 		t.Fatalf("golden eval = stdout=%q stderr=%q err=%v", stdout.String(), stderr.String(), err)
 	}
 	info, err := os.Stat(resultsPath)

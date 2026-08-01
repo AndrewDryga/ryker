@@ -4109,6 +4109,84 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	}
 }
 
+func TestWatchedScheduleAndRunbookRequestOffersBothConfirmations(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{dedupePosts: true}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":3,"ownership":3},
+		"reason":"the operator requested recurring work and a reusable repository artifact",
+		"message":"I can schedule the daily deep review and separately prepare a reusable runbook after you confirm each part.",
+		"task_title":"Create reusable deep infrastructure health-review runbook",
+		"task_repository":"repo",
+		"schedule_offer":{
+			"title":"Daily deep infrastructure health review",
+			"prompt":"Perform a fresh deep infrastructure health review using current evidence. Reuse the repository runbook if it exists.",
+			"repository":"repo",
+			"recurrence":"daily",
+			"local_time":"09:00",
+			"timezone":"UTC",
+			"catch_up":"latest",
+			"expires_in":"365d"
+		}
+	}`
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	source := core.SlackInput{
+		ID: "slack-schedule-runbook", EnvelopeID: "env-schedule-runbook",
+		EventID: "event-schedule-runbook", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.850", UserID: "U123ABC",
+		Text: "Can you post a daily deep infrastructure health review around 9 am? Maybe make a reusable runbook for it too.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
+		t.Fatalf("admit source = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("compound offer posts = %+v", slackClient.posts)
+	}
+	message := slackClient.posts[0].message
+	if len(message.Actions) != 2 ||
+		message.Actions[0].ID != slackui.ActionRememberSchedule ||
+		message.Actions[1].ID != slackui.ActionStartTask ||
+		!strings.Contains(strings.Join(message.Sections, "\n"), "Daily deep infrastructure health review") ||
+		!strings.Contains(strings.Join(message.Sections, "\n"), "Create reusable deep infrastructure health-review runbook") {
+		t.Fatalf("compound offer = %+v", message)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil ||
+		state.OfferedTaskTitle != "Create reusable deep infrastructure health-review runbook" ||
+		state.OfferedTaskRepository != "repo" {
+		t.Fatalf("persisted compound task offer = %+v, %v", state, err)
+	}
+	if schedules, err := st.ListScheduledTasksForChannel(ctx, source.ChannelID, 10); err != nil || len(schedules) != 0 {
+		t.Fatalf("schedule was created before confirmation = %+v, %v", schedules, err)
+	}
+	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
+		t.Fatalf("engineering task was created before confirmation = %+v, %v", incidents, err)
+	}
+}
+
 func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

@@ -480,6 +480,34 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	}
 }
 
+func TestScheduleAndEngineeringTaskOffersComposeWithoutOverwriting(t *testing.T) {
+	task := core.ScheduledTask{
+		Title: "Daily deep health review", Prompt: "Check current infrastructure health.",
+		Repository: "tenant-infra",
+	}
+	message := WithScheduleOffer(
+		ConversationResponse("I can set up both parts.", NewSanitizer(12000)),
+		task,
+		`{"version":1}`,
+		"Every day at 09:00 America/Merida",
+	)
+	message = WithEngineeringTaskOffer(
+		message,
+		"Create a reusable deep health runbook",
+		"slack-source-compound",
+		"Tenant infrastructure (`tenant-infra`)",
+	)
+	if len(message.Actions) != 2 ||
+		message.Actions[0].ID != ActionRememberSchedule ||
+		message.Actions[1].ID != ActionStartTask ||
+		len(message.Sections) != 2 ||
+		!strings.Contains(message.Sections[0], "Daily deep health review") ||
+		!strings.Contains(message.Sections[1], "Create a reusable deep health runbook") ||
+		len(message.Context) != 2 {
+		t.Fatalf("compound offers = %+v", message)
+	}
+}
+
 func TestTurnFailureAndManualHandoffPreserveTheNextStep(t *testing.T) {
 	failure := TurnFailureMessage("failed", "MCP request timed out.")
 	if failure.Header != "Investigation could not finish" ||

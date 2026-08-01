@@ -84,6 +84,9 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"target_is_configured_operator must be true",
 		"A dedicated incident is not required",
 		"include the exact pending_approval object",
+		"combine schedule_offer with task_title",
+		"Keep the scheduled prompt self-contained",
+		"separate confirmations for the schedule",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("watch prompt does not contain %q:\n%s", required, prompt)

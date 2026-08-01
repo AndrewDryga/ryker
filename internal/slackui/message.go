@@ -1670,18 +1670,33 @@ func EvidenceResponseWithTaskOffer(
 	sanitizer *Sanitizer,
 ) Message {
 	message := ConciseEvidenceResponse(text, evidence, coverage, nil, sanitizer)
-	message.Context = []string{
-		"No engineering task has been created. Starting one keeps the work in this Slack thread and creates an isolated writable Coop working copy for " +
-			repositoryLabel + ". It does not merge, push, deploy, or change infrastructure.",
+	return WithEngineeringTaskOffer(message, "", sourceInputID, repositoryLabel)
+}
+
+func WithEngineeringTaskOffer(
+	message Message,
+	taskTitle string,
+	sourceInputID string,
+	repositoryLabel string,
+) Message {
+	if taskTitle = strings.TrimSpace(taskTitle); taskTitle != "" {
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"*Optional engineering task: %s*\nRepository: %s",
+			escapeSlackText(taskTitle), repositoryLabel,
+		))
 	}
-	message.Actions = []Action{{
+	message.Context = append(message.Context,
+		"No engineering task has been created. Starting one keeps the work in this Slack thread and creates an isolated writable Coop working copy for "+
+			repositoryLabel+". It does not merge, push, deploy, or change infrastructure.",
+	)
+	message.Actions = append(message.Actions, Action{
 		ID: ActionStartTask, Label: "Start engineering task", Value: sourceInputID,
 		Style: "primary",
 		Confirm: "Start an engineering task for " + repositoryLabel +
 			" in this thread with an isolated Coop working copy? " +
 			"The agent may edit, test, and commit inside that fork under Coop policy. " +
 			"No merge, push, deployment, or infrastructure change will occur.",
-	}}
+	})
 	return message
 }
 

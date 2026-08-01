@@ -524,7 +524,7 @@ func hostedWatchDecisionOffers(
 		if _, err := evaluator.resolveTaskOfferRepository(decision.TaskRepository); err != nil {
 			return nil
 		}
-		return []string{"engineering_task"}
+		result = append(result, "engineering_task")
 	}
 	if decision.MemoryOffer != nil {
 		if _, _, _, ok := evaluator.prepareMemoryOfferAction(
@@ -561,13 +561,13 @@ func hostedWatchDecisionOffers(
 }
 
 func watchDecisionOffers(decision watchDecision) []string {
+	result := make([]string, 0, 4)
 	if decision.IncidentTitle != "" {
 		return []string{"incident"}
 	}
 	if decision.TaskTitle != "" {
-		return []string{"engineering_task"}
+		result = append(result, "engineering_task")
 	}
-	result := make([]string, 0, 3)
 	if decision.MemoryOffer != nil {
 		result = append(result, "memory")
 	}
