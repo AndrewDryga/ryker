@@ -95,6 +95,7 @@ type CoopConfig struct {
 	BootstrapDir      string   `yaml:"bootstrap_dir"`
 	EmisarURL         string   `yaml:"emisar_url"`
 	EmisarTokenEnv    string   `yaml:"emisar_token_env"`
+	ApprovalPoll      Duration `yaml:"emisar_approval_poll_interval"`
 	AdditionalMCP     string   `yaml:"additional_mcp_file"`
 	AdditionalEnv     string   `yaml:"additional_env_file"`
 	PrewarmSessions   int      `yaml:"prewarm_conversation_sessions"`
@@ -263,6 +264,7 @@ func defaults() Config {
 			TurnLimit:         1000,
 			EmisarURL:         "https://emisar.dev/api/mcp/rpc",
 			EmisarTokenEnv:    "EMISAR_API_KEY",
+			ApprovalPoll:      Duration{3 * time.Second},
 			PrewarmSessions:   4,
 			WatchSessionTurns: 40,
 			WatchSessionAge:   Duration{24 * time.Hour},
@@ -797,6 +799,8 @@ func validateCoop(c CoopConfig) error {
 		return errors.New("emisar_url must be an https URL")
 	case !envPattern.MatchString(c.EmisarTokenEnv):
 		return errors.New("emisar_token_env must name an environment variable")
+	case c.ApprovalPoll.Duration < time.Second || c.ApprovalPoll.Duration > time.Minute:
+		return errors.New("emisar_approval_poll_interval must be between 1s and 1m")
 	case c.AdditionalMCP != "" &&
 		(!filepath.IsAbs(c.AdditionalMCP) || filepath.Clean(c.AdditionalMCP) != c.AdditionalMCP):
 		return errors.New("additional_mcp_file must be an absolute clean path")

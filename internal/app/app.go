@@ -21,6 +21,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/httpapi"
 	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/service"
@@ -107,14 +108,15 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		context.Background(),
 		cfg.Coop.RequestTimeout.Duration,
 	)
+	emisarHTTP := &http.Client{
+		Timeout: cfg.Coop.RequestTimeout.Duration,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	_, err = preflightEmisarMCP(
 		emisarCtx,
-		&http.Client{
-			Timeout: cfg.Coop.RequestTimeout.Duration,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
+		emisarHTTP,
 		cfg.Coop.EmisarURL,
 		emisarToken,
 	)
@@ -167,6 +169,7 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes, redactions...), logger,
 	)
 	svc.SetPublisher(githubPublisher)
+	svc.SetEmisar(emisar.New(emisarHTTP, cfg.Coop.EmisarURL, emisarToken))
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), cfg.Coop.RequestTimeout.Duration)
 	err = svc.Initialize(startupCtx)
 	startupCancel()

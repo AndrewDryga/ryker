@@ -487,7 +487,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			ctx, run, input, state, "invalid persisted triage context: "+trimError(err),
 		)
 	}
-	if input.Kind == "message" && len(state.MatchedRules) == 0 {
+	if input.Kind == "message" && len(state.MatchedRules) == 0 &&
+		!state.ApprovalContinuation {
 		alreadyClassified, err := s.store.HasNewerWatchDecision(
 			ctx, input.ChannelID, input.MessageTS,
 		)
@@ -701,6 +702,10 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		state.MatchedRules,
 	) + "\n\n" + repositorySetPrompt(session) +
 		watchDecisionCorrectionPrompt(state.FailureDetail)
+	if state.ApprovalContinuation && strings.TrimSpace(run.Prompt) != "" {
+		prompt += "\n\n<emisar-run-continuation>\n" + run.Prompt +
+			"\n</emisar-run-continuation>"
+	}
 	if state.Lane == "conversation" {
 		prompt = s.conversationPrompt(
 			input,
@@ -1082,11 +1087,15 @@ func (s *Service) ensureWatchRunPendingStatus(
 	if state.PendingStatusSet && time.Since(statusAt) < watchPendingStatusRefresh {
 		return nil
 	}
+	threadTS := watchRunStatusThread(input, *state)
+	if threadTS == "" {
+		return nil
+	}
 	if err := s.enqueueNativeStatus(
 		ctx,
 		"",
 		input.ChannelID,
-		slackReplyThread(input),
+		threadTS,
 		watchPendingStatus,
 		watchProgressSteps(),
 	); err != nil {
@@ -1099,6 +1108,13 @@ func (s *Service) ensureWatchRunPendingStatus(
 		return err
 	}
 	return s.store.SetAgentRunContext(ctx, run.ID, contextJSON)
+}
+
+func watchRunStatusThread(input core.SlackInput, state watchTurnState) string {
+	if state.ApprovalContinuation {
+		return state.ResponseThreadTS
+	}
+	return slackReplyThread(input)
 }
 
 func (s *Service) processAgentRunFinalization(ctx context.Context) error {
@@ -1305,6 +1321,7 @@ func (s *Service) finalizeIncidentAgentRun(
 	}
 	var message slackui.Message
 	var visuals []core.GeneratedVisual
+	var pendingApproval *core.EmisarApproval
 	if state == "completed" {
 		report, structured, reportErr := parseAgentReport(string(run.Result))
 		if reportErr != nil {
@@ -1420,6 +1437,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			}
 			if report.PendingApproval != nil {
 				message = slackui.WithEmisarApproval(message, *report.PendingApproval)
+				pendingApproval = report.PendingApproval
 			}
 			evidenceIDs := make([]string, 0, len(report.Evidence))
 			for _, evidence := range report.Evidence {
@@ -1481,13 +1499,21 @@ func (s *Service) finalizeIncidentAgentRun(
 			proposalResult,
 		)
 	}
+	deliveryID := "out_run_" + run.ID
 	if err := s.enqueue(
 		ctx,
-		"out_run_"+run.ID,
+		deliveryID,
 		incident,
 		"assistant",
 		threadTS,
 		message,
+	); err != nil {
+		return err
+	}
+	if err := s.bindAndScheduleEmisarApproval(
+		ctx,
+		pendingApproval,
+		deliveryID,
 	); err != nil {
 		return err
 	}
@@ -1515,6 +1541,18 @@ func (s *Service) finishTriageRunFailure(
 	detail string,
 ) error {
 	message := slackui.Notice(watchFailureNotice(detail))
+	if state.ApprovalContinuation {
+		if err := s.postInputMessageAt(
+			ctx,
+			firstNonempty(state.ReplyDeliveryID, "emisar_approval_failure_"+run.ID),
+			input.ChannelID,
+			state.ResponseThreadTS,
+			message,
+		); err != nil {
+			return err
+		}
+		return s.clearWatchPendingStatus(ctx, input, state)
+	}
 	post := s.postInputMessage
 	if input.Kind == "bot_message" || input.Kind == "shortcut" ||
 		len(state.MatchedRules) > 0 {

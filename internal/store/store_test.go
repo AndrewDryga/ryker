@@ -970,7 +970,7 @@ func TestSchemaV21AddsResponseLocationWithoutLosingPreferences(t *testing.T) {
 	}
 }
 
-func TestSchemaV23AllowsEmisarApprovalWithoutIncident(t *testing.T) {
+func TestSchemaV24AllowsEmisarApprovalWithoutIncident(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -1001,7 +1001,8 @@ func TestSchemaV23AllowsEmisarApprovalWithoutIncident(t *testing.T) {
 		context.Background(),
 		core.EmisarApproval{
 			RequestID: "apr_shared", ChannelID: "CSHARED",
-			SourceInput: "slack_shared", RunID: "run_shared",
+			SourceInput: "slack_shared", RequestedBy: "UOPERATOR",
+			RunID:       "run_shared",
 			OperationID: "op_shared", ActionID: "service.enable",
 			PackRef: "service@1#sha256:abc", RunnerRef: "prod~abc",
 			Status:      "pending_approval",
@@ -1010,8 +1011,145 @@ func TestSchemaV23AllowsEmisarApprovalWithoutIncident(t *testing.T) {
 		},
 	)
 	if err != nil || !created || approval.IncidentID != "" ||
-		approval.ChannelID != "CSHARED" || !approval.ExpiresAt.Equal(expires) {
+		approval.ChannelID != "CSHARED" || approval.RequestedBy != "UOPERATOR" ||
+		approval.NextCheckAt.IsZero() || !approval.ExpiresAt.Equal(expires) {
 		t.Fatalf("shared approval after migration = %+v, %t, %v", approval, created, err)
+	}
+}
+
+func TestSchemaV24PreservesExistingPendingApproval(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:23] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO schema_version(version) VALUES (23)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := db.Exec(`
+		INSERT INTO emisar_approvals (
+		  request_id, incident_id, channel_id, source_input, run_id,
+		  operation_id, action_id, pack_ref, runner_ref, status,
+		  approval_url, expires_at, created_at, updated_at
+		) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?, ?, ?)`,
+		"apr_existing", "C123", "slack_existing", "run_existing",
+		"op_existing", "service.enable", "service@1#sha256:abc", "prod~abc",
+		"https://emisar.dev/app/acme/approvals/apr_existing",
+		now.Add(time.Hour).Format(timestampFormat),
+		now.Format(timestampFormat),
+		now.Format(timestampFormat),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	approval, err := st.GetEmisarApproval(context.Background(), "apr_existing")
+	if err != nil || approval.Status != "pending_approval" ||
+		approval.RunID != "run_existing" || approval.NextCheckAt.IsZero() ||
+		approval.ContinuationQueued {
+		t.Fatalf("migrated approval = %+v, %v", approval, err)
+	}
+}
+
+func TestEmisarApprovalLifecycleBindsDeliveryAndSurvivesTerminalReplay(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	approval, created, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+		RequestID: "apr_lifecycle", ChannelID: "C123",
+		SourceInput: "slack_lifecycle", RequestedBy: "U123",
+		RunID: "run_lifecycle", OperationID: "op_lifecycle",
+		ActionID: "service.enable", PackRef: "service@1#sha256:abc",
+		RunnerRef: "prod~abc", Status: "pending_approval",
+		ApprovalURL: "https://emisar.dev/app/acme/approvals/apr_lifecycle",
+		ExpiresAt:   now.Add(time.Hour),
+	})
+	if err != nil || !created {
+		t.Fatalf("record approval = %+v, %t, %v", approval, created, err)
+	}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "delivery_lifecycle", Operation: "post", Kind: "notice",
+		ChannelID: "C123", ThreadTS: "1700.1", Body: []byte(`{"text":"approval"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BindEmisarApprovalDelivery(
+		ctx,
+		approval.RequestID,
+		"delivery_lifecycle",
+	); err != nil {
+		t.Fatal(err)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, leased.ID, "1700.2", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	approval, err = st.GetEmisarApproval(ctx, approval.RequestID)
+	if err != nil || approval.MessageTS != "1700.2" ||
+		approval.DeliveryID != "delivery_lifecycle" {
+		t.Fatalf("bound approval = %+v, %v", approval, err)
+	}
+	approval, changed, err := st.AdvanceEmisarApproval(
+		ctx,
+		approval.RequestID,
+		"running",
+		"https://emisar.dev/app/acme/runs/run_lifecycle",
+		"",
+		now.Add(time.Second),
+	)
+	if err != nil || !changed || approval.Status != "running" ||
+		!approval.TerminalAt.IsZero() {
+		t.Fatalf("running approval = %+v, %t, %v", approval, changed, err)
+	}
+	approval, changed, err = st.AdvanceEmisarApproval(
+		ctx,
+		approval.RequestID,
+		"success",
+		approval.RunURL,
+		"",
+		now.Add(2*time.Second),
+	)
+	if err != nil || !changed || approval.TerminalAt.IsZero() {
+		t.Fatalf("terminal approval = %+v, %t, %v", approval, changed, err)
+	}
+	if err := st.MarkEmisarApprovalContinuationQueued(ctx, approval.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	items, err := st.ListMonitorableEmisarApprovals(ctx, 10)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("monitorable approvals = %+v, %v", items, err)
+	}
+	if _, _, err := st.AdvanceEmisarApproval(
+		ctx,
+		approval.RequestID,
+		"failed",
+		approval.RunURL,
+		"late conflicting status",
+		now.Add(3*time.Second),
+	); err == nil {
+		t.Fatal("terminal approval accepted a conflicting replay")
 	}
 }
 

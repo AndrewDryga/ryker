@@ -15,6 +15,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -48,6 +49,10 @@ type PublicationAPI interface {
 	VerifyPublication(context.Context, core.Publication) error
 }
 
+type EmisarAPI interface {
+	WaitForRun(context.Context, string) (emisar.RunState, error)
+}
+
 type Socket interface {
 	Events() <-chan socketmode.Event
 	Ack(socketmode.Request) error
@@ -62,6 +67,12 @@ func (s *Service) SetPublisher(value PublicationAPI) {
 	}
 }
 
+func (s *Service) SetEmisar(value EmisarAPI) {
+	if value != nil {
+		s.emisar = value
+	}
+}
+
 type Service struct {
 	cfg       config.Config
 	store     *store.Store
@@ -71,6 +82,7 @@ type Service struct {
 	sanitizer *slackui.Sanitizer
 	log       *slog.Logger
 	publisher PublicationAPI
+	emisar    EmisarAPI
 
 	identity     slackui.Identity
 	initialized  atomic.Bool

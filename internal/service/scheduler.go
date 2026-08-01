@@ -23,6 +23,7 @@ const (
 	workIncidentSession  = "incident_session"
 	workAgentRun         = "agent_run"
 	workAgentFinalize    = "agent_finalize"
+	workEmisarApproval   = "emisar_approval"
 	workCoopPoll         = "coop_poll"
 	workMaintenance      = "maintenance"
 	schedulerSingletonID = "drain"
@@ -82,7 +83,7 @@ func (s *Service) seedScheduledWork(ctx context.Context) error {
 			return fmt.Errorf("seed %s scheduled work: %w", items[i].Kind, err)
 		}
 	}
-	return nil
+	return s.seedEmisarApprovalWork(ctx)
 }
 
 func (s *Service) startScheduler(
@@ -294,6 +295,8 @@ func (s *Service) runScheduledWork(
 		return s.processAgentRun(ctx)
 	case workAgentFinalize:
 		return s.processAgentRunFinalization(ctx)
+	case workEmisarApproval:
+		return s.processEmisarApproval(ctx, item.SubjectID)
 	case workCoopPoll:
 		s.pollAgentRuns(ctx)
 		s.pollCoop(ctx)

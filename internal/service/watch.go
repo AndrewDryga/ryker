@@ -59,6 +59,9 @@ type watchTurnState struct {
 	PendingStatusSet      bool                           `json:"pending_status_set,omitempty"`
 	PendingStatusAt       int64                          `json:"pending_status_at,omitempty"`
 	FailureDetail         string                         `json:"failure_detail,omitempty"`
+	ApprovalContinuation  bool                           `json:"approval_continuation,omitempty"`
+	DecisionSourceID      string                         `json:"decision_source_id,omitempty"`
+	ReplyDeliveryID       string                         `json:"reply_delivery_id,omitempty"`
 }
 
 type watchContextMessage struct {
@@ -498,13 +501,16 @@ func (s *Service) applyWatchDecision(
 			decision.Coverage = nil
 		}
 	}
-	decision = enforceAttentionPolicy(
-		input,
-		state,
-		decision,
-		s.cfg.Slack.ReplyAttention,
-		s.cfg.Slack.ReactionAttention,
-	)
+	if !state.ApprovalContinuation {
+		decision = enforceAttentionPolicy(
+			input,
+			state,
+			decision,
+			s.cfg.Slack.ReplyAttention,
+			s.cfg.Slack.ReactionAttention,
+		)
+	}
+	sourceInput := firstNonempty(state.DecisionSourceID, input.ID)
 	report, err := s.persistAgentReport(
 		ctx,
 		agentReport{
@@ -520,7 +526,7 @@ func (s *Service) applyWatchDecision(
 		},
 		core.Incident{},
 		input.ChannelID,
-		input.ID,
+		sourceInput,
 		input.UserID,
 	)
 	if err != nil {
@@ -540,7 +546,8 @@ func (s *Service) applyWatchDecision(
 		return err
 	}
 	shadow := false
-	if input.Kind == "message" || input.Kind == "bot_message" {
+	if !state.ApprovalContinuation &&
+		(input.Kind == "message" || input.Kind == "bot_message") {
 		shadow, err = s.shadowEnabled(ctx, input.ChannelID)
 		if err != nil {
 			return err
@@ -553,7 +560,7 @@ func (s *Service) applyWatchDecision(
 	if _, err := s.store.ApplyWatchDecision(ctx, core.EvaluationDecision{
 		ChannelID: input.ChannelID, ThreadTS: input.ThreadTS,
 		MessageTS: input.MessageTS, Repository: state.Repository,
-		SourceInput: input.ID, Mode: mode,
+		SourceInput: sourceInput, Mode: mode,
 		Action: decision.Action, Reason: s.cleanStructuredField(decision.Reason, 1000),
 		Evidence: len(decision.Evidence), Coverage: len(decision.Coverage),
 	}, state.Lane, session.Revision, decision.Memory); err != nil {
@@ -737,16 +744,27 @@ func (s *Service) applyWatchDecision(
 			)
 			outcome = "engineering_task_offered"
 		}
+		deliveryID := firstNonempty(
+			state.ReplyDeliveryID,
+			"watch_reply_"+input.ID,
+		)
 		if err := post(
 			ctx,
-			"watch_reply_"+input.ID,
+			deliveryID,
 			input,
 			message,
 		); err != nil {
 			return err
 		}
+		if err := s.bindAndScheduleEmisarApproval(
+			ctx,
+			decision.PendingApproval,
+			deliveryID,
+		); err != nil {
+			return err
+		}
 		if err := s.enqueueGeneratedVisuals(
-			ctx, "watch_reply_"+input.ID, "", input.ChannelID, responseThreadTS,
+			ctx, deliveryID, "", input.ChannelID, responseThreadTS,
 			state.SessionID, state.TurnID, decision.Visuals,
 		); err != nil {
 			return err
@@ -1561,11 +1579,15 @@ func (s *Service) clearWatchPendingStatus(
 	if !s.cfg.Slack.NativeStatus || !state.PendingStatusSet {
 		return nil
 	}
+	threadTS := watchRunStatusThread(input, state)
+	if threadTS == "" {
+		return nil
+	}
 	if err := s.enqueueNativeStatus(
 		ctx,
 		"",
 		input.ChannelID,
-		slackReplyThread(input),
+		threadTS,
 		"",
 		nil,
 	); err != nil {

@@ -548,6 +548,7 @@ func (s *Service) prepareEmisarApproval(
 	item.IncidentID = incident.ID
 	item.ChannelID = channelID
 	item.SourceInput = sourceInput
+	item.RequestedBy = requestedBy
 	return &item
 }
 

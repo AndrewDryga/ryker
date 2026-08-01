@@ -243,7 +243,10 @@ Alerts, ambient conversation, and inferred intent remain read-only. A configured
 for one exact operational change in the current Slack conversation; Responder calls Emisar there,
 without requiring an incident room. Emisar still owns target validation, policy, approval,
 execution, and audit. A pending decision appears in the same conversation as a **Review approval in
-Emisar** link. When an operator explicitly asks Responder to change repository files, the reply can
+Emisar** link. Responder watches that exact run in the background, updates the existing card as it
+progresses, and automatically posts the terminal result plus read-only verification in the same
+conversation. Waiting consumes no model turn and survives a Responder restart. When an operator
+explicitly asks Responder to change repository files, the reply can
 include a **Start engineering task** button instead of sending the
 operator to another client. Confirmation keeps the task in that Slack thread and creates an isolated
 writable Coop fork, where Responder can inspect, edit, test, and commit under the configured
@@ -441,7 +444,8 @@ changes, merge, deploy from repository changes, or archive Slack channels.
 Automatic and inferred operational changes remain disabled. In any Slack conversation, a
 configured operator may directly request one exact operational action. Emisar remains authoritative
 for target validation, policy, approval, execution, and audit; Slack only links to the exact pending
-approval returned by Emisar.
+approval returned by Emisar. Responder monitors and reports that exact run but cannot approve it,
+substitute another run, or repeat the mutation during terminal verification.
 
 Run the full gate with:
 

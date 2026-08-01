@@ -657,20 +657,29 @@ type ActionProposal struct {
 }
 
 type EmisarApproval struct {
-	RequestID   string    `json:"request_id"`
-	IncidentID  string    `json:"incident_id,omitempty"`
-	ChannelID   string    `json:"channel_id,omitempty"`
-	SourceInput string    `json:"source_input,omitempty"`
-	RunID       string    `json:"run_id"`
-	OperationID string    `json:"operation_id"`
-	ActionID    string    `json:"action_id"`
-	PackRef     string    `json:"pack_ref"`
-	RunnerRef   string    `json:"runner_ref"`
-	Status      string    `json:"status"`
-	ApprovalURL string    `json:"approval_url"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	CreatedAt   time.Time `json:"created_at,omitempty"`
-	UpdatedAt   time.Time `json:"updated_at,omitempty"`
+	RequestID          string    `json:"request_id"`
+	IncidentID         string    `json:"incident_id,omitempty"`
+	ChannelID          string    `json:"channel_id,omitempty"`
+	SourceInput        string    `json:"source_input,omitempty"`
+	RequestedBy        string    `json:"requested_by,omitempty"`
+	DeliveryID         string    `json:"delivery_id,omitempty"`
+	MessageTS          string    `json:"message_ts,omitempty"`
+	RunID              string    `json:"run_id"`
+	OperationID        string    `json:"operation_id"`
+	ActionID           string    `json:"action_id"`
+	PackRef            string    `json:"pack_ref"`
+	RunnerRef          string    `json:"runner_ref"`
+	Status             string    `json:"status"`
+	ApprovalURL        string    `json:"approval_url"`
+	RunURL             string    `json:"run_url,omitempty"`
+	LastError          string    `json:"last_error,omitempty"`
+	FailureCount       int       `json:"failure_count,omitempty"`
+	ContinuationQueued bool      `json:"continuation_queued,omitempty"`
+	NextCheckAt        time.Time `json:"next_check_at,omitempty"`
+	ExpiresAt          time.Time `json:"expires_at"`
+	TerminalAt         time.Time `json:"terminal_at,omitempty"`
+	CreatedAt          time.Time `json:"created_at,omitempty"`
+	UpdatedAt          time.Time `json:"updated_at,omitempty"`
 }
 
 type EvaluationDecision struct {

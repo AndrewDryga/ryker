@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 23
+const currentSchemaVersion = 24
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1066,6 +1066,102 @@ CREATE UNIQUE INDEX emisar_approvals_source_once_idx
   ON emisar_approvals(source_input, request_id);
 `
 
+const schemaV24 = `
+ALTER TABLE emisar_approvals RENAME TO emisar_approvals_v23;
+
+CREATE TABLE emisar_approvals (
+  request_id TEXT PRIMARY KEY,
+  incident_id TEXT,
+  channel_id TEXT NOT NULL,
+  source_input TEXT NOT NULL,
+  requested_by TEXT NOT NULL,
+  delivery_id TEXT NOT NULL DEFAULT '',
+  message_ts TEXT NOT NULL DEFAULT '',
+  run_id TEXT NOT NULL UNIQUE,
+  operation_id TEXT NOT NULL,
+  action_id TEXT NOT NULL,
+  pack_ref TEXT NOT NULL,
+  runner_ref TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN (
+    'pending', 'pending_approval', 'sent', 'running', 'cancelling',
+    'success', 'failed', 'error', 'validation_failed', 'unknown_action',
+    'cancelled', 'timed_out', 'refused', 'denied'
+  )),
+  approval_url TEXT NOT NULL,
+  run_url TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  continuation_queued INTEGER NOT NULL DEFAULT 0 CHECK (continuation_queued IN (0, 1)),
+  next_check_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  terminal_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+);
+
+INSERT INTO emisar_approvals (
+  request_id, incident_id, channel_id, source_input, requested_by,
+  delivery_id, message_ts, run_id, operation_id, action_id, pack_ref,
+  runner_ref, status, approval_url, next_check_at, expires_at,
+  created_at, updated_at
+)
+SELECT
+  approval.request_id,
+  approval.incident_id,
+  approval.channel_id,
+  approval.source_input,
+  COALESCE((
+    SELECT input.user_id FROM slack_inputs AS input
+    WHERE input.id = approval.source_input
+  ), ''),
+  COALESCE((
+    SELECT delivery.id FROM slack_deliveries AS delivery
+    WHERE delivery.id = 'watch_reply_' || approval.source_input
+       OR delivery.id = (
+         SELECT 'out_run_' || run.id FROM agent_runs AS run
+         WHERE run.source_id = approval.source_input
+         ORDER BY run.created_at DESC LIMIT 1
+       )
+    ORDER BY CASE WHEN delivery.id = 'watch_reply_' || approval.source_input THEN 0 ELSE 1 END
+    LIMIT 1
+  ), ''),
+  COALESCE((
+    SELECT delivery.message_ts FROM slack_deliveries AS delivery
+    WHERE delivery.id = 'watch_reply_' || approval.source_input
+       OR delivery.id = (
+         SELECT 'out_run_' || run.id FROM agent_runs AS run
+         WHERE run.source_id = approval.source_input
+         ORDER BY run.created_at DESC LIMIT 1
+       )
+    ORDER BY CASE WHEN delivery.id = 'watch_reply_' || approval.source_input THEN 0 ELSE 1 END
+    LIMIT 1
+  ), ''),
+  approval.run_id,
+  approval.operation_id,
+  approval.action_id,
+  approval.pack_ref,
+  approval.runner_ref,
+  approval.status,
+  approval.approval_url,
+  approval.updated_at,
+  approval.expires_at,
+  approval.created_at,
+  approval.updated_at
+FROM emisar_approvals_v23 AS approval;
+
+DROP TABLE emisar_approvals_v23;
+
+CREATE INDEX emisar_approvals_incident_idx
+  ON emisar_approvals(incident_id, expires_at);
+CREATE INDEX emisar_approvals_channel_idx
+  ON emisar_approvals(channel_id, expires_at);
+CREATE INDEX emisar_approvals_monitor_idx
+  ON emisar_approvals(continuation_queued, next_check_at, created_at);
+CREATE UNIQUE INDEX emisar_approvals_source_once_idx
+  ON emisar_approvals(source_input, request_id);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1090,4 +1186,5 @@ var migrations = []string{
 	schemaV21,
 	schemaV22,
 	schemaV23,
+	schemaV24,
 }

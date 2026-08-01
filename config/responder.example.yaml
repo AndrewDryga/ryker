@@ -56,6 +56,8 @@ coop:
   bootstrap_dir: /var/lib/responder/coop/agents
   emisar_url: https://emisar.dev/api/mcp/rpc
   emisar_token_env: EMISAR_API_KEY
+  # Background status checks do not consume Coop sessions or Slack conversation lanes.
+  emisar_approval_poll_interval: 3s
   # Optional owner-private standard MCP configuration and NAME=value environment.
   # Responder merges these while retaining ownership of the "emisar" server and service secrets.
   # additional_mcp_file: /etc/responder/additional-mcp.json

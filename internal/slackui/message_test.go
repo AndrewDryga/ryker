@@ -631,10 +631,31 @@ func TestEmisarApprovalCardSupportsCurrentConversationWithoutIncident(t *testing
 		},
 	)
 	sections := strings.Join(message.Sections, "\n")
-	if !strings.Contains(sections, "reply `check approval` here") ||
+	if !strings.Contains(sections, "update this card automatically") ||
 		strings.Contains(sections, "pinned card") || len(message.Actions) != 1 ||
 		message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_shared" {
 		t.Fatalf("shared approval card = %+v", message)
+	}
+}
+
+func TestEmisarApprovalStateMessagesExplainProgressAndCompletion(t *testing.T) {
+	approval := core.EmisarApproval{
+		RequestID: "apr_state", RunID: "run_state", ActionID: "service.enable",
+		RunnerRef: "prod~abc", Status: "running",
+		RunURL: "https://emisar.dev/app/acme/runs/run_state",
+	}
+	running := EmisarApprovalStateMessage(approval, false)
+	if running.Header != "Emisar is running the approved action" ||
+		!strings.Contains(strings.Join(running.Sections, "\n"), "keep using Slack") ||
+		len(running.Actions) != 1 || running.Actions[0].Label != "Open run in Emisar" {
+		t.Fatalf("running approval state = %+v", running)
+	}
+	approval.Status = "success"
+	completed := EmisarApprovalStateMessage(approval, true)
+	if completed.Header != "Emisar action completed" ||
+		!strings.Contains(strings.Join(completed.Sections, "\n"), "concise follow-up") ||
+		!strings.Contains(strings.Join(completed.Context, "\n"), "authoritative") {
+		t.Fatalf("completed approval state = %+v", completed)
 	}
 }
 

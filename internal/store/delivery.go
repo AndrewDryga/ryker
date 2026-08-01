@@ -345,6 +345,18 @@ func (s *Store) FinishSlackDelivery(
 			return err
 		}
 	}
+	if messageTS != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE emisar_approvals
+			SET message_ts = ?, updated_at = ?
+			WHERE delivery_id = ? AND message_ts = ''`,
+			messageTS,
+			nowText(),
+			id,
+		); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 

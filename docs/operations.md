@@ -287,12 +287,15 @@ and follow-up explicitly unassigned.
 
 Model-proposed and autonomous operational actions are disabled. A configured operator can directly
 request one exact action from any Slack conversation; Responder must use Emisar's governed action
-flow and does not require an incident. A `pending_approval` result is stored and rendered with a link to the exact
-Emisar approval request. Slack never records the decision and never bypasses Emisar policy.
-After the operator decides in Emisar, reply `check approval` in the same conversation. In an
-incident, **Ask agent for update** is also available;
-Responder follows the same `wait_for_run` continuation and reports the authoritative terminal
-result plus post-action verification.
+flow and does not require an incident. A `pending_approval` result is stored and rendered with a
+link to the exact Emisar approval request. Slack never records the decision and never bypasses
+Emisar policy. Responder monitors the exact run in its durable background queue, updates the
+original Slack card as the run advances, and automatically resumes the same conversation when the
+run becomes terminal. Waiting does not occupy a Slack conversation lane or a Coop/model turn. The
+terminal continuation calls `wait_for_run` for the original run, cannot repeat `run_action`, and
+uses only read-only tools to verify the live effect before posting a concise result. Restart
+recovery rehydrates unfinished monitors from `responder.db`; transient status-check failures use
+bounded backoff without losing the run identity.
 
 ## Evaluation rollout
 

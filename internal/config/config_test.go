@@ -52,6 +52,7 @@ webhooks:
 	if cfg.Coop.EmisarTokenEnv != "EMISAR_API_KEY" || cfg.Coop.Binary != "coop" ||
 		cfg.Coop.RestartDelay.Duration != 5*time.Second || cfg.Coop.TurnLimit != 1000 ||
 		cfg.Coop.PollInterval.Duration != 250*time.Millisecond ||
+		cfg.Coop.ApprovalPoll.Duration != 3*time.Second ||
 		cfg.Coop.WatchSessionTurns != 40 ||
 		cfg.Coop.WatchSessionAge.Duration != 24*time.Hour ||
 		cfg.Slack.ChannelPrefix != "ems" || cfg.Slack.WatchContext != 20 ||

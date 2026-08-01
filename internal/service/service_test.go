@@ -18,6 +18,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
@@ -134,6 +135,235 @@ func TestGeneratedVisualDeliveryRejectsUnknownAndMismatchedArtifacts(t *testing.
 			}
 		})
 	}
+}
+
+func TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack_approval_monitor", EnvelopeID: "env_approval_monitor",
+		EventID: "EvApprovalMonitor", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "Enable the exact governed setting.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, err)
+	}
+	approval, created, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+		RequestID: "apr_monitor", ChannelID: input.ChannelID,
+		SourceInput: input.ID, RequestedBy: input.UserID,
+		RunID: "run_monitor", OperationID: "op_monitor",
+		ActionID: "service.enable", PackRef: "service@1#sha256:abc",
+		RunnerRef: "prod~abc", Status: "pending_approval",
+		ApprovalURL: "https://emisar.dev/app/acme/approvals/apr_monitor",
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil || !created {
+		t.Fatalf("record approval = %+v, %t, %v", approval, created, err)
+	}
+	body, err := slackui.Encode(slackui.WithEmisarApproval(
+		slackui.ConversationResponse("Ready for approval.", slackui.NewSanitizer(12000)),
+		approval,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deliveryID := "watch_reply_" + input.ID
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: deliveryID, Operation: "post", Kind: "notice",
+		ChannelID: input.ChannelID, ThreadTS: input.MessageTS, Body: body,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BindEmisarApprovalDelivery(ctx, approval.RequestID, deliveryID); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	emisarClient := &fakeEmisar{state: emisar.RunState{
+		RunID: approval.RunID, OperationID: approval.OperationID,
+		ActionID: approval.ActionID, PackRef: approval.PackRef,
+		RunnerRef: approval.RunnerRef, Status: "success",
+		RunURL: "https://emisar.dev/app/acme/runs/run_monitor",
+	}}
+	svc.SetEmisar(emisarClient)
+	if err := svc.processSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processEmisarApproval(ctx, approval.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetEmisarApproval(ctx, approval.RequestID)
+	if err != nil || stored.Status != "success" || !stored.ContinuationQueued ||
+		stored.MessageTS == "" || stored.RunURL == "" {
+		t.Fatalf("monitored approval = %+v, %v", stored, err)
+	}
+	run, err := st.GetAgentRunBySource(
+		ctx,
+		"emisar_approval:"+approval.RequestID,
+		input.ID,
+	)
+	if err != nil || run.Prompt == "" || run.Mode != core.AgentRunTriage {
+		t.Fatalf("approval continuation = %+v, %v", run, err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil || !state.ApprovalContinuation ||
+		state.ReplyDeliveryID != "emisar_approval_reply_"+approval.RequestID {
+		t.Fatalf("approval continuation state = %+v, %v", state, err)
+	}
+	if err := svc.processEmisarApproval(ctx, approval.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	if emisarClient.calls != 1 {
+		t.Fatalf("terminal approval was polled again: %d calls", emisarClient.calls)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.updates) != 1 ||
+		slackClient.updates[0].message.Header != "Emisar action completed" {
+		t.Fatalf("approval Slack update = %+v", slackClient.updates)
+	}
+}
+
+func TestEmisarApprovalMonitorFailsClosedOnIdentityMismatch(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	approval, _, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+		RequestID: "apr_mismatch", ChannelID: "CWATCH",
+		SourceInput: "slack_mismatch", RequestedBy: "U123ABC",
+		RunID: "run_mismatch", OperationID: "op_expected",
+		ActionID: "service.enable", PackRef: "service@1#sha256:abc",
+		RunnerRef: "prod~abc", Status: "pending_approval",
+		ApprovalURL: "https://emisar.dev/app/acme/approvals/apr_mismatch",
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.SetEmisar(&fakeEmisar{state: emisar.RunState{
+		RunID: approval.RunID, OperationID: "op_other",
+		ActionID: approval.ActionID, PackRef: approval.PackRef,
+		RunnerRef: approval.RunnerRef, Status: "success",
+	}})
+	if err := svc.processEmisarApproval(ctx, approval.RequestID); err == nil ||
+		!strings.Contains(err.Error(), "immutable identity") {
+		t.Fatalf("identity mismatch error = %v", err)
+	}
+	stored, err := st.GetEmisarApproval(ctx, approval.RequestID)
+	if err != nil || stored.Status != "pending_approval" || stored.ContinuationQueued {
+		t.Fatalf("mismatched approval was advanced = %+v, %v", stored, err)
+	}
+}
+
+func TestEmisarApprovalMonitorPersistsProgressWithoutQueueingContinuation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	approval, _, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+		RequestID: "apr_running", ChannelID: "CWATCH",
+		SourceInput: "slack_running", RequestedBy: "U123ABC",
+		RunID: "run_running", OperationID: "op_running",
+		ActionID: "service.enable", PackRef: "service@1#sha256:abc",
+		RunnerRef: "prod~abc", Status: "pending_approval",
+		ApprovalURL: "https://emisar.dev/app/acme/approvals/apr_running",
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	emisarClient := &fakeEmisar{state: emisar.RunState{
+		RunID: approval.RunID, OperationID: approval.OperationID,
+		ActionID: approval.ActionID, PackRef: approval.PackRef,
+		RunnerRef: approval.RunnerRef, Status: "running",
+		RunURL: "https://emisar.dev/app/acme/runs/run_running",
+	}}
+	svc.SetEmisar(emisarClient)
+	if err := svc.processEmisarApproval(ctx, approval.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetEmisarApproval(ctx, approval.RequestID)
+	if err != nil || stored.Status != "running" || stored.ContinuationQueued ||
+		stored.RunURL == "" || !stored.NextCheckAt.After(stored.UpdatedAt) {
+		t.Fatalf("running approval = %+v, %v", stored, err)
+	}
+	if _, err := st.GetAgentRunBySource(
+		ctx,
+		"emisar_approval:"+approval.RequestID,
+		approval.SourceInput,
+	); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("nonterminal approval queued a model continuation: %v", err)
+	}
+}
+
+func TestEmisarApprovalSchedulerRecoversPersistedTerminalRun(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	approval, _, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+		RequestID: "apr_restart", ChannelID: "CWATCH",
+		SourceInput: "slack_restart", RequestedBy: "U123ABC",
+		RunID: "run_restart", OperationID: "op_restart",
+		ActionID: "service.enable", PackRef: "service@1#sha256:abc",
+		RunnerRef: "prod~abc", Status: "pending_approval",
+		ApprovalURL: "https://emisar.dev/app/acme/approvals/apr_restart",
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, _, err = st.AdvanceEmisarApproval(
+		ctx,
+		approval.RequestID,
+		"success",
+		"https://emisar.dev/app/acme/runs/run_restart",
+		"",
+		time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.seedEmisarApprovalWork(ctx); err != nil {
+		t.Fatal(err)
+	}
+	work, err := st.LeaseWork(ctx, store.WorkLaneBackground, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if work.Kind != workEmisarApproval || work.SubjectID != approval.RequestID {
+		t.Fatalf("recovered approval work = %+v", work)
+	}
+}
+
+type fakeEmisar struct {
+	state emisar.RunState
+	err   error
+	calls int
+}
+
+func (f *fakeEmisar) WaitForRun(context.Context, string) (emisar.RunState, error) {
+	f.calls++
+	return f.state, f.err
 }
 
 func TestChangesCursorAndNavigationBindPagesToIncidentAndDigest(t *testing.T) {
@@ -3119,13 +3349,15 @@ func TestWatchedChannelDecisions(t *testing.T) {
 					len(message.Actions) != 1 ||
 					message.Actions[0].ID != slackui.ActionOpenApproval ||
 					message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_watch_1" ||
-					!strings.Contains(strings.Join(message.Sections, "\n"), "reply `check approval` here") ||
+					!strings.Contains(strings.Join(message.Sections, "\n"), "update this card automatically") ||
 					strings.Contains(strings.Join(message.Sections, "\n"), "pinned card") {
 					t.Fatalf("shared conversation approval card = %+v", message)
 				}
 				approval, err := st.GetEmisarApproval(ctx, "apr_watch_1")
 				if err != nil || approval.IncidentID != "" ||
-					approval.ChannelID != input.ChannelID || approval.SourceInput != input.ID {
+					approval.ChannelID != input.ChannelID || approval.SourceInput != input.ID ||
+					approval.RequestedBy != input.UserID || approval.DeliveryID == "" ||
+					approval.MessageTS == "" {
 					t.Fatalf("shared conversation approval = %+v, %v", approval, err)
 				}
 			}
