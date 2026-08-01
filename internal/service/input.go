@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -223,6 +224,13 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		handled, configurationErr := s.processConfigurationReply(ctx, input)
 		if configurationErr != nil {
 			return s.retrySlackInput(ctx, input, configurationErr)
+		}
+		if handled {
+			return nil
+		}
+		handled, visualErr := s.retryRetainedGeneratedVisual(ctx, input)
+		if visualErr != nil {
+			return s.retrySlackInput(ctx, input, visualErr)
 		}
 		if handled {
 			return nil
@@ -517,6 +525,75 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.retrySlackInput(ctx, input, err)
 	}
 	return s.finishSlackInput(ctx, input)
+}
+
+func (s *Service) retryRetainedGeneratedVisual(
+	ctx context.Context,
+	input core.SlackInput,
+) (bool, error) {
+	if !generatedVisualRetryRequest(s.stripBotMention(input.Text)) {
+		return false, nil
+	}
+	allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
+	if err != nil {
+		return false, err
+	}
+	if !allowed {
+		return false, nil
+	}
+	delivery, err := s.store.RetryLatestGeneratedVisual(
+		ctx,
+		input.ChannelID,
+		conversationalResponseThread(input),
+	)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_ = s.store.Audit(ctx, core.AuditEvent{
+		Kind:     "slack.visual.retry",
+		ActorID:  input.UserID,
+		ObjectID: delivery.ID,
+		Outcome:  "queued",
+		Detail:   input.ChannelID + ":" + delivery.ThreadTS,
+	})
+	return true, s.finishSlackInput(ctx, input)
+}
+
+func generatedVisualRetryRequest(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return false
+	}
+	words := strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	present := make(map[string]bool, len(words))
+	for _, word := range words {
+		present[word] = true
+	}
+	hasVisual := false
+	for _, noun := range []string{
+		"image", "picture", "chart", "graph", "plot", "figure", "visual", "attachment",
+	} {
+		if present[noun] {
+			hasVisual = true
+			break
+		}
+	}
+	if !hasVisual {
+		return false
+	}
+	for _, verb := range []string{
+		"show", "send", "post", "upload", "attach", "retry", "resend",
+	} {
+		if present[verb] {
+			return true
+		}
+	}
+	return present["try"] && present["again"]
 }
 
 func (s *Service) handleOpenEmisarApproval(

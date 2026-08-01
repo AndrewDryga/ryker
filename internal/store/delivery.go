@@ -203,6 +203,59 @@ func (s *Store) GetSlackDelivery(
 	))
 }
 
+func (s *Store) RetryLatestGeneratedVisual(
+	ctx context.Context,
+	channelID string,
+	threadTS string,
+) (core.SlackDelivery, error) {
+	if channelID == "" {
+		return core.SlackDelivery{}, errors.New("Slack visual retry channel is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.SlackDelivery{}, err
+	}
+	defer tx.Rollback()
+	delivery, err := scanSlackDelivery(tx.QueryRowContext(ctx, `
+		SELECT `+slackDeliveryColumns+`
+		FROM slack_deliveries
+		WHERE operation = 'file'
+		  AND kind = 'generated_visual'
+		  AND channel_id = ?
+		  AND thread_ts = ?
+		  AND state IN ('pending', 'retry', 'failed')
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1`,
+		channelID,
+		threadTS,
+	))
+	if err != nil {
+		return core.SlackDelivery{}, err
+	}
+	now := nowText()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE slack_deliveries
+		SET state = 'retry', failure_count = 0, next_attempt_at = ?,
+		    last_error = '', updated_at = ?
+		WHERE id = ? AND state = ?`,
+		now,
+		now,
+		delivery.ID,
+		delivery.State,
+	)
+	if err := expectOne(result, err, "retry retained Slack visual"); err != nil {
+		return core.SlackDelivery{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.SlackDelivery{}, err
+	}
+	delivery.State = "retry"
+	delivery.Attempts = 0
+	delivery.NextAttemptAt = parseTime(now)
+	delivery.LastError = ""
+	return delivery, nil
+}
+
 func (s *Store) GetLatestSentSlackMessageDelivery(
 	ctx context.Context,
 	incidentID string,

@@ -364,6 +364,37 @@ func TestConversationResponseUsesSlackMarkdownBlock(t *testing.T) {
 	}
 }
 
+func TestFileBlocksReplaceUnsupportedMarkdownAndKeepActions(t *testing.T) {
+	message := Message{
+		Text:     "Fallback",
+		Header:   "CPU report",
+		Markdown: strings.Repeat("The chart uses `fresh` data.\n", 150),
+		Sections: []string{"No saturation was found."},
+		Fields:   []Field{{Label: "Window", Value: "7 days"}},
+		Context:  []string{"1 finding saved"},
+		Actions:  []Action{{ID: "review", Label: "Review", Value: "x"}},
+	}
+	blocks := message.FileBlocks()
+	var sections int
+	var actions int
+	for _, block := range blocks {
+		switch typed := block.(type) {
+		case *slack.MarkdownBlock:
+			t.Fatalf("file blocks contain unsupported markdown block: %+v", typed)
+		case *slack.SectionBlock:
+			sections++
+			if typed.Text != nil && len(typed.Text.Text) > 2900 {
+				t.Fatalf("file section exceeds Slack bound: %d", len(typed.Text.Text))
+			}
+		case *slack.ActionBlock:
+			actions++
+		}
+	}
+	if sections < 3 || actions != 1 {
+		t.Fatalf("file blocks lost content or controls: sections=%d actions=%d", sections, actions)
+	}
+}
+
 func TestConversationIncidentOfferExplainsAndConfirmsCreation(t *testing.T) {
 	message := ConversationResponseWithIncidentOffer(
 		"Two production runners are disconnected.",

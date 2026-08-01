@@ -30,6 +30,56 @@ func TestRetryAfterRecognizesWrappedSlackRateLimit(t *testing.T) {
 	}
 }
 
+func TestUploadFileUsesFileCompatibleBlocks(t *testing.T) {
+	var server *httptest.Server
+	var blocks string
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/files.getUploadURLExternal":
+			_, _ = fmt.Fprintf(
+				w,
+				`{"ok":true,"upload_url":%q,"file_id":"F123"}`,
+				server.URL+"/upload",
+			)
+		case "/upload":
+			_, _ = fmt.Fprint(w, "ok")
+		case "/files.completeUploadExternal":
+			if err := r.ParseForm(); err != nil {
+				t.Error(err)
+			}
+			blocks = r.FormValue("blocks")
+			_, _ = fmt.Fprint(w, `{"ok":true,"files":[{"id":"F123","title":"Chart"}]}`)
+		default:
+			t.Errorf("unexpected Slack API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+	message := Message{Text: "CPU summary", Markdown: "CPU is `healthy`."}
+	fileID, err := client.UploadFile(context.Background(), "C123", "1700.1", FileUpload{
+		Filename: "cpu.png", Title: "Chart", AltText: "CPU chart",
+		Data: []byte("png"), Message: &message,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileID != "F123" ||
+		!strings.Contains(blocks, `"type":"section"`) ||
+		!strings.Contains(blocks, "CPU is `healthy`.") ||
+		strings.Contains(blocks, `"type":"markdown"`) {
+		t.Fatalf(
+			"upload result file=%q blocks=%q",
+			fileID,
+			blocks,
+		)
+	}
+}
+
 func TestSelectThreadHistoryKeepsRootAndNewestReplies(t *testing.T) {
 	history := []HistoryMessage{{
 		Timestamp: "1700.000001",

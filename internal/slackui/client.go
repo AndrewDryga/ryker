@@ -328,7 +328,7 @@ func (c *Client) DownloadFile(ctx context.Context, downloadURL string, writer io
 func (c *Client) UploadFile(ctx context.Context, channel, threadTS string, upload FileUpload) (string, error) {
 	var blocks slack.Blocks
 	if upload.Message != nil {
-		blocks = slack.Blocks{BlockSet: upload.Message.Blocks()}
+		blocks = slack.Blocks{BlockSet: upload.Message.FileBlocks()}
 	}
 	file, err := c.api.UploadFileContext(ctx, slack.UploadFileParameters{
 		Reader: bytes.NewReader(upload.Data), FileSize: len(upload.Data),

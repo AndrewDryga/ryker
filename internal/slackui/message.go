@@ -286,6 +286,52 @@ func (m Message) Blocks() []slack.Block {
 	return blocks
 }
 
+func (m Message) FileBlocks() []slack.Block {
+	blocks := m.Blocks()
+	result := make([]slack.Block, 0, len(blocks)+4)
+	for _, block := range blocks {
+		markdown, ok := block.(*slack.MarkdownBlock)
+		if !ok {
+			result = append(result, block)
+			continue
+		}
+		for _, chunk := range splitSlackBlockText(markdown.Text, 2900) {
+			result = append(result, slack.NewSectionBlock(
+				slack.NewTextBlockObject(slack.MarkdownType, chunk, false, true),
+				nil,
+				nil,
+			))
+		}
+	}
+	return result
+}
+
+func splitSlackBlockText(value string, limit int) []string {
+	value = strings.TrimSpace(value)
+	if value == "" || limit < 1 {
+		return nil
+	}
+	result := make([]string, 0, len(value)/limit+1)
+	for len(value) > limit {
+		end := limit
+		for !utf8.ValidString(value[:end]) {
+			end--
+		}
+		if split := strings.LastIndexByte(value[:end], '\n'); split >= limit/2 {
+			end = split + 1
+		}
+		chunk := strings.TrimSpace(value[:end])
+		if chunk != "" {
+			result = append(result, chunk)
+		}
+		value = strings.TrimSpace(value[end:])
+	}
+	if value != "" {
+		result = append(result, value)
+	}
+	return result
+}
+
 func IncidentCard(
 	incident core.Incident,
 	repositoryName string,

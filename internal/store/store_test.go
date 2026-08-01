@@ -159,6 +159,55 @@ func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 	}
 }
 
+func TestRetryLatestGeneratedVisualIsConversationScoped(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	for _, delivery := range []core.SlackDelivery{
+		{
+			ID: "visual-channel", Operation: "file", Kind: "generated_visual",
+			ChannelID: "C123", Body: []byte(`{"filename":"channel.png"}`),
+		},
+		{
+			ID: "visual-thread", Operation: "file", Kind: "generated_visual",
+			ChannelID: "C123", ThreadTS: "1700.1", Body: []byte(`{"filename":"thread.png"}`),
+		},
+	} {
+		if created, err := st.EnqueueSlackDelivery(ctx, delivery); err != nil || !created {
+			t.Fatalf("enqueue %s = %t, %v", delivery.ID, created, err)
+		}
+		leased, err := st.LeaseSlackDelivery(ctx)
+		if err != nil || leased.ID != delivery.ID {
+			t.Fatalf("lease %s = %+v, %v", delivery.ID, leased, err)
+		}
+		if err := st.RetrySlackDelivery(
+			ctx, leased.ID, "old failure", time.Now().Add(time.Hour), false, true,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	retried, err := st.RetryLatestGeneratedVisual(ctx, "C123", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.ID != "visual-channel" || retried.State != "retry" ||
+		retried.Attempts != 0 || retried.LastError != "" || retried.NextAttemptAt.After(time.Now()) {
+		t.Fatalf("retried channel visual = %+v", retried)
+	}
+	thread, err := st.GetSlackDelivery(ctx, "visual-thread")
+	if err != nil || thread.State != "failed" || thread.LastError != "old failure" {
+		t.Fatalf("unrelated thread visual = %+v, %v", thread, err)
+	}
+	if _, err := st.RetryLatestGeneratedVisual(ctx, "C999", ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing visual retry error = %v", err)
+	}
+}
+
 func TestSlackDeliveryCoalescingIsIdempotentAndSupersedesOnlyOlderVersions(t *testing.T) {
 	ctx := context.Background()
 	t.Run("identical delivery stays pending", func(t *testing.T) {
