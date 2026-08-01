@@ -209,8 +209,11 @@ evidence route, entity relationship, or open-ended collaboration guidance.
 The button shows the scope and expiry before writing. Entries are unique by scope, subject, and
 predicate, so a correction replaces the prior value rather than creating a duplicate. App Home
 shows workspace-visible and operator-visible entries; `/responder memory` shows the exact entries
-visible in the current channel and provides permanent forget controls. Forgotten values are
-removed; audit records retain only the entry ID, scope, predicate, actor, and outcome.
+visible in the current channel, memory capacity, recall activity, and consolidation status.
+`/responder memory review` presents stale or duplicate candidates one at a time. No review mutates
+memory until a full workspace operator chooses keep, merge, or forget. Forgotten values are
+removed; audit records retain only the entry ID, scope, predicate, actor, and outcome. Replacement
+history stores hashes rather than old memory values.
 
 `limits.max_memory_entries` and `limits.max_memory_entries_per_scope` bound active memory. Entries
 expire after 7, 30, 90, or 365 days and maintenance deletes expired values. A confirmed Slack
@@ -222,6 +225,22 @@ and host safety policy take precedence, and guidance cannot trigger work, count 
 authorize incidents, changes, approvals, or mutations. Personal workspace guidance is visible only
 to its operator and can follow them across channels. Recent source-attributed evidence is retrieved
 from the existing same-channel evidence ledger and is not duplicated into memory.
+
+The background memory pass runs every `memory.dreaming_interval`. It compacts conversation
+summaries older than `memory.compact_after` into weekly rollups. Public conversations are grouped by
+repository; private conversations are grouped only within their Slack channel. Each rollup retains
+bounded goals, topics, open loops, topology, decisions, unresolved questions, and source references.
+The source rows are deleted only in the same transaction that saves their rollup. At
+`memory.pressure_percent` of `memory.max_conversation_summaries`, compaction accelerates toward
+`memory.target_percent` but never compacts the latest hour. Rollups are capped by
+`memory.max_rollups` and expire on the normal conversation-memory schedule.
+
+Operator-confirmed entries remain outside this automatic synthesis. Recall counts and timestamps
+drive review suggestions after `memory.review_stale_after`; exact duplicate guidance is also
+flagged. Reviews are proposals, not background edits. This follows the continuity, freshness, and
+reviewability goals described in OpenAI's
+[Memory and new controls for ChatGPT](https://openai.com/index/chatgpt-memory-dreaming/) without
+making remembered prose executable or authoritative.
 
 Operator-confirmed behavior is stored separately from factual operational memory:
 

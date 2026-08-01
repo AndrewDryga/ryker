@@ -218,15 +218,32 @@ func (s *Store) DeleteConversationMemories(
 	if channelID == "" {
 		return 0, errors.New("conversation memory channel is required")
 	}
-	result, err := s.db.ExecContext(
-		ctx,
-		`DELETE FROM conversation_memories WHERE channel_id = ?`,
-		channelID,
-	)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `DELETE FROM conversation_memories WHERE channel_id = ?`, channelID)
+	if err != nil {
+		return 0, err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	result, err = tx.ExecContext(ctx, `
+		DELETE FROM memory_rollups WHERE scope_kind = 'channel' AND scope_key = ?`, channelID)
+	if err != nil {
+		return 0, err
+	}
+	rollups, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted + rollups, nil
 }
 
 func (s *Store) BindChannelSession(

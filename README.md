@@ -330,7 +330,13 @@ the same channel, and recent summaries from public channels across the workspace
 work is preferred, while private-channel summaries never cross into another channel without a
 membership proof. Responder rotates the underlying per-channel Coop session
 after `coop.watch_session_max_turns` or `coop.watch_session_max_age` while preserving that summary.
-Compact conversation summaries expire after `retention.conversation_memory`, 90 days by default.
+Recent conversation summaries are consolidated into privacy-scoped weekly continuity rollups after
+`memory.compact_after`, seven days by default, and expire after
+`retention.conversation_memory`, 90 days by default. The background pass is deterministic: it
+groups and bounds summaries the model already produced, so it adds no second model call. Public
+channel summaries may roll up by repository; private summaries remain scoped to their channel.
+Storage pressure can trigger earlier compaction while preserving the latest hour of conversation
+context.
 This session summary is separate from operator-confirmed durable memory. An operator can ask
 Responder to remember an alias, channel-to-repository binding, evidence route, entity relationship
 correction, or open-ended guidance such as `when explaining a fix to me, start with a simple
@@ -344,6 +350,15 @@ safety policy, fresh live evidence, current repository content, and Responder co
 take precedence. Recent structured evidence remains
 source-attributed; compact related summaries carry continuity across channels without becoming
 current-health proof.
+
+Responder records when confirmed memory and continuity rollups are recalled. A scheduled review
+flags confirmed entries that have not been used or reviewed recently and identifies exact duplicate
+guidance, but it never silently edits operator-confirmed memory. `/responder memory` shows memory
+health and `/responder memory review` provides keep, merge, and forget decisions. Replacements keep
+a hash-only supersession record; old values are not copied into audit state. These mechanisms are
+inspired by the freshness, continuity, and reviewability goals in OpenAI's
+[Memory and new controls for ChatGPT](https://openai.com/index/chatgpt-memory-dreaming/), while
+retaining Responder's stricter operational evidence and approval boundaries.
 
 Responder also supports two operator-confirmed behavior catalogs. Preferences are typed defaults
 such as `health_check_depth=deep`, `response_detail=concise`, or

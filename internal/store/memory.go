@@ -42,13 +42,13 @@ func (s *Store) UpsertMemoryEntry(
 		return core.MemoryEntry{}, false, err
 	}
 	defer tx.Rollback()
-	var existingID, createdAt string
+	var existingID, createdAt, existingHash string
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, created_at
+		SELECT id, created_at, value_hash
 		FROM memory_entries
 		WHERE scope_kind = ? AND scope_key = ? AND subject_key = ? AND predicate = ?`,
 		entry.ScopeKind, entry.ScopeKey, entry.SubjectKey, entry.Predicate,
-	).Scan(&existingID, &createdAt)
+	).Scan(&existingID, &createdAt, &existingHash)
 	replaced := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return core.MemoryEntry{}, false, err
@@ -89,12 +89,13 @@ func (s *Store) UpsertMemoryEntry(
 		entry.CreatedAt = parseTime(createdAt)
 	}
 	entry.UpdatedAt = now
+	entry.LastReviewedAt = now
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO memory_entries (
 		  id, scope_kind, scope_key, subject_key, predicate, value_json, value_hash,
 		  source_ref, source_revision, actor_id, visibility_kind, visibility_id,
-		  expires_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		  expires_at, last_reviewed_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(scope_kind, scope_key, subject_key, predicate) DO UPDATE SET
 		  value_json = excluded.value_json,
 		  value_hash = excluded.value_hash,
@@ -104,15 +105,37 @@ func (s *Store) UpsertMemoryEntry(
 		  visibility_kind = excluded.visibility_kind,
 		  visibility_id = excluded.visibility_id,
 		  expires_at = excluded.expires_at,
+		  last_recalled_at = CASE
+		    WHEN memory_entries.value_hash = excluded.value_hash
+		    THEN memory_entries.last_recalled_at ELSE NULL END,
+		  recall_count = CASE
+		    WHEN memory_entries.value_hash = excluded.value_hash
+		    THEN memory_entries.recall_count ELSE 0 END,
+		  last_reviewed_at = excluded.updated_at,
 		  updated_at = excluded.updated_at`,
 		entry.ID, entry.ScopeKind, entry.ScopeKey, entry.SubjectKey, entry.Predicate,
 		string(valueJSON), entry.ValueHash, entry.SourceRef, entry.SourceRevision,
 		entry.ActorID, entry.VisibilityKind, entry.VisibilityID,
 		entry.ExpiresAt.UTC().Format(timestampFormat),
+		entry.LastReviewedAt.UTC().Format(timestampFormat),
 		entry.CreatedAt.UTC().Format(timestampFormat), entry.UpdatedAt.Format(timestampFormat),
 	)
 	if err != nil {
 		return core.MemoryEntry{}, false, err
+	}
+	if replaced && existingHash != entry.ValueHash {
+		supersessionID, idErr := core.NewID("memsup")
+		if idErr != nil {
+			return core.MemoryEntry{}, false, idErr
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO memory_supersessions (
+			  id, entry_id, previous_value_hash, replacement_value_hash, reason, created_at
+			) VALUES (?, ?, ?, ?, 'operator replacement', ?)`,
+			supersessionID, entry.ID, existingHash, entry.ValueHash, nowText(),
+		); err != nil {
+			return core.MemoryEntry{}, false, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return core.MemoryEntry{}, false, err
@@ -287,7 +310,12 @@ func (s *Store) DeleteMemoryEntry(ctx context.Context, id string) (core.MemoryEn
 }
 
 func (s *Store) DeleteChannelMemoryEntries(ctx context.Context, channelID string) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
 		DELETE FROM memory_entries
 		WHERE (scope_kind = 'channel' AND scope_key = ?)
 		   OR (visibility_kind = 'channel' AND visibility_id = ?)`,
@@ -296,7 +324,22 @@ func (s *Store) DeleteChannelMemoryEntries(ctx context.Context, channelID string
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE memory_review_items SET status = 'dismissed', updated_at = ?
+		WHERE status = 'pending' AND NOT EXISTS (
+		  SELECT 1 FROM json_each(memory_review_items.entry_ids_json) AS ref
+		  JOIN memory_entries ON memory_entries.id = ref.value
+		)`, nowText()); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted, nil
 }
 
 func (s *Store) PruneOrphanMemoryEntries(
@@ -314,7 +357,12 @@ func (s *Store) PruneOrphanMemoryEntries(
 	for _, repository := range validRepositories {
 		args = append(args, repository)
 	}
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
 		DELETE FROM memory_entries
 		WHERE (scope_kind = 'repository' AND scope_key NOT IN (`+placeholders+`))
 		   OR (
@@ -326,7 +374,36 @@ func (s *Store) PruneOrphanMemoryEntries(
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	rollupArgs := make([]any, 0, len(validRepositories))
+	for _, repository := range validRepositories {
+		rollupArgs = append(rollupArgs, repository)
+	}
+	result, err = tx.ExecContext(ctx, `
+		DELETE FROM memory_rollups
+		WHERE scope_kind = 'repository' AND scope_key NOT IN (`+placeholders+`)`, rollupArgs...)
+	if err != nil {
+		return 0, err
+	}
+	rollups, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE memory_review_items SET status = 'dismissed', updated_at = ?
+		WHERE status = 'pending' AND NOT EXISTS (
+		  SELECT 1 FROM json_each(memory_review_items.entry_ids_json) AS ref
+		  JOIN memory_entries ON memory_entries.id = ref.value
+		)`, nowText()); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted + rollups, nil
 }
 
 func (s *Store) ListRecentChannelEvidence(
@@ -377,7 +454,8 @@ func (s *Store) ListRecentChannelEvidence(
 const memorySelect = `
 	SELECT id, scope_kind, scope_key, subject_key, predicate, value_json, value_hash,
 	  source_ref, source_revision, actor_id, visibility_kind, visibility_id,
-	  expires_at, created_at, updated_at
+	  expires_at, last_recalled_at, recall_count, last_reviewed_at,
+	  created_at, updated_at
 	FROM memory_entries`
 
 type rowScanner interface {
@@ -387,11 +465,13 @@ type rowScanner interface {
 func scanMemoryEntry(row rowScanner) (core.MemoryEntry, error) {
 	var entry core.MemoryEntry
 	var valueJSON, expires, created, updated string
+	var recalled, reviewed sql.NullString
 	err := row.Scan(
 		&entry.ID, &entry.ScopeKind, &entry.ScopeKey, &entry.SubjectKey,
 		&entry.Predicate, &valueJSON, &entry.ValueHash, &entry.SourceRef,
 		&entry.SourceRevision, &entry.ActorID, &entry.VisibilityKind,
-		&entry.VisibilityID, &expires, &created, &updated,
+		&entry.VisibilityID, &expires, &recalled, &entry.RecallCount, &reviewed,
+		&created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.MemoryEntry{}, ErrNotFound
@@ -403,9 +483,34 @@ func scanMemoryEntry(row rowScanner) (core.MemoryEntry, error) {
 		return core.MemoryEntry{}, fmt.Errorf("decode memory value: %w", err)
 	}
 	entry.ExpiresAt = parseTime(expires)
+	entry.LastRecalledAt = scanTime(recalled)
+	entry.LastReviewedAt = scanTime(reviewed)
 	entry.CreatedAt = parseTime(created)
 	entry.UpdatedAt = parseTime(updated)
 	return entry, nil
+}
+
+func (s *Store) MarkMemoryEntriesRecalled(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE memory_entries
+			SET last_recalled_at = ?, recall_count = recall_count + 1
+			WHERE id = ?`, nowText(), id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func scanMemoryEntries(rows *sql.Rows) ([]core.MemoryEntry, error) {

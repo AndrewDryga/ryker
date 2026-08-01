@@ -18,6 +18,9 @@ import (
 
 func (s *Service) maintainLifecycle(ctx context.Context) {
 	now := time.Now().UTC()
+	if err := s.maintainMemory(ctx, now); err != nil && ctx.Err() == nil {
+		s.log.Warn("memory consolidation failed", "error", err)
+	}
 	grace := s.cfg.Retention.ClosedSessionGrace.Duration
 	if err := s.reconcileOrphanedResponderSessions(ctx, now.Add(-grace), now); err != nil &&
 		ctx.Err() == nil {
@@ -106,6 +109,9 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"channel_intelligence", result.ChannelIntelligence,
 			"conversation_memories", result.ConversationMemories,
 			"memory_entries", result.MemoryEntries,
+			"memory_rollups", result.MemoryRollups,
+			"memory_reviews", result.MemoryReviews,
+			"memory_supersessions", result.MemorySupersessions,
 			"preferences", result.Preferences,
 			"standing_rules", result.StandingRules,
 			"standing_rule_runs", result.StandingRuleRuns,

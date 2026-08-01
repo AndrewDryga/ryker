@@ -260,8 +260,11 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 		}
 		return s.finishSlashCommitments(ctx, input)
 	case "memory":
-		if len(fields) != 1 {
+		if len(fields) > 2 || (len(fields) == 2 && fields[1] != "review") {
 			return s.finishSlashInput(ctx, input, slashUsage("memory"))
+		}
+		if len(fields) == 2 {
+			return s.finishMemoryReview(ctx, input)
 		}
 		return s.finishSlashMemory(ctx, input)
 	case "preferences", "preference":
@@ -334,7 +337,19 @@ func (s *Service) finishSlashMemory(
 	if err != nil {
 		return err
 	}
-	return s.finishSlashMessage(ctx, input, slackui.MemoryDirectoryMessage(entries))
+	health, err := s.store.MemoryHealth(ctx)
+	if err != nil {
+		return err
+	}
+	rollups, err := s.store.ListMemoryRollupsForContext(
+		ctx, input.ChannelID, repository, 4,
+	)
+	if err != nil {
+		return err
+	}
+	return s.finishSlashMessage(
+		ctx, input, slackui.MemoryHealthMessage(entries, rollups, health),
+	)
 }
 
 func (s *Service) finishSlashPreferences(
@@ -839,7 +854,8 @@ func slashHelpSections() []string {
 			"`/responder work` - show what Emisar owes the team\n" +
 			"`/responder incidents` - show open incidents and engineering tasks\n" +
 			"`/responder incidents all [page]` - include closed work history\n" +
-			"`/responder memory` - inspect and forget saved operational facts\n" +
+			"`/responder memory` - inspect saved memory and consolidation health\n" +
+			"`/responder memory review` - review stale or redundant saved memory\n" +
 			"`/responder preferences` - manage investigation and response defaults\n" +
 			"`/responder rules` - manage typed read-only channel automations",
 		"*Control listening*\n" +
@@ -906,7 +922,10 @@ func slashUsage(command string) string {
 		return "*Inspect operational memory visible here.*\n\n" +
 			"`/responder memory` lists active operator-confirmed hints matching this channel, " +
 			"its configured repository, workspace visibility, or your operator visibility. " +
-			"Each entry has an explicit forget control. Saved memory never establishes current " +
+			"It also reports conversation-summary and continuity-rollup health. " +
+			"`/responder memory review` opens one stale or duplicate review at a time; Responder " +
+			"does not rewrite confirmed memory automatically. Each entry has an explicit forget " +
+			"control. Saved memory never establishes current " +
 			"health or authorizes a change; live evidence and current repository state win."
 	case "preferences":
 		return "*Manage durable Responder preferences.*\n\n" +

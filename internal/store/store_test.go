@@ -1115,6 +1115,63 @@ func TestSchemaV24PreservesExistingPendingApproval(t *testing.T) {
 	}
 }
 
+func TestSchemaV25PreservesMemoryAndAddsLifecycleState(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:24] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := db.Exec(`
+		INSERT INTO schema_version(version) VALUES (24);
+		INSERT INTO memory_entries (
+		  id, scope_kind, scope_key, subject_key, predicate, value_json, value_hash,
+		  source_ref, source_revision, actor_id, visibility_kind, visibility_id,
+		  expires_at, created_at, updated_at
+		) VALUES (
+		  'mem_v24', 'workspace', 'TWORKSPACE', 'style', 'guidance',
+		  '"Use plain language."', 'old_hash', 'slack_old', '', 'UOPERATOR',
+		  'workspace', 'TWORKSPACE', ?, ?, ?
+		);
+		INSERT INTO conversation_memories (
+		  channel_id, thread_ts, repository, last_message_ts, state_json, updated_at
+		) VALUES ('COPS', '1700.1', 'repo', '1700.2', '{"goal":"keep context"}', ?);`,
+		now.Add(30*24*time.Hour).Format(timestampFormat),
+		now.Format(timestampFormat), now.Format(timestampFormat),
+		now.Format(timestampFormat),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	entry, err := st.GetMemoryEntry(context.Background(), "mem_v24")
+	if err != nil || entry.Value != "Use plain language." || entry.RecallCount != 0 {
+		t.Fatalf("migrated memory = %+v, %v", entry, err)
+	}
+	conversation, err := st.GetConversationMemory(context.Background(), "COPS", "1700.1")
+	if err != nil || conversation.State.Goal != "keep context" {
+		t.Fatalf("migrated conversation = %+v, %v", conversation, err)
+	}
+	if health, err := st.MemoryHealth(context.Background()); err != nil ||
+		health.ExplicitActive != 1 || health.ConversationSummaries != 1 {
+		t.Fatalf("memory health = %+v, %v", health, err)
+	}
+}
+
 func TestEmisarApprovalLifecycleBindsDeliveryAndSurvivesTerminalReplay(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

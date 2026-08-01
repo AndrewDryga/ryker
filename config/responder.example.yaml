@@ -96,6 +96,20 @@ retention:
   closed_work: 168h
   audit_data: 720h
 
+memory:
+  # Consolidate older, already-bounded conversation summaries without another model call.
+  dreaming_enabled: true
+  dreaming_interval: 6h
+  compact_after: 168h
+  # Confirmed operator memory is only flagged for review; it is never silently rewritten.
+  review_stale_after: 720h
+  # Start early enough to avoid rejecting new summaries and compact toward a stable reserve.
+  pressure_percent: 70
+  target_percent: 50
+  max_conversation_summaries: 2000
+  max_rollups: 256
+  min_rollup_sources: 2
+
 repositories:
   infrastructure:
     display_name: Infrastructure

@@ -98,6 +98,11 @@ func (s *Service) assembleAgentContext(
 			if conversationErr == nil {
 				result.Situation = conversation.State
 				sinceTS = conversation.LastMessage
+				if err := s.store.MarkConversationMemoriesRecalled(
+					ctx, []core.ConversationMemory{conversation},
+				); err != nil {
+					return assembledAgentContext{}, err
+				}
 			} else if !errors.Is(conversationErr, store.ErrNotFound) {
 				return assembledAgentContext{}, conversationErr
 			} else if threadTS != "" {
@@ -113,6 +118,9 @@ func (s *Service) assembleAgentContext(
 		)
 		if relatedErr != nil {
 			return assembledAgentContext{}, relatedErr
+		}
+		if err := s.store.MarkConversationMemoriesRecalled(ctx, related); err != nil {
+			return assembledAgentContext{}, err
 		}
 		result.RelatedSituations = make(
 			[]conversationSituationContext,
@@ -182,6 +190,11 @@ func (s *Service) assembleAgentContext(
 		if conversationErr == nil {
 			referenced.LastMessageTS = conversation.LastMessage
 			referenced.Summary = sanitizeMemory(conversation.State)
+			if err := s.store.MarkConversationMemoriesRecalled(
+				ctx, []core.ConversationMemory{conversation},
+			); err != nil {
+				return assembledAgentContext{}, err
+			}
 		} else if !errors.Is(conversationErr, store.ErrNotFound) {
 			return assembledAgentContext{}, conversationErr
 		}

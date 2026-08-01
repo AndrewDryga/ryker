@@ -38,6 +38,12 @@ const (
 	ActionOpenApproval        = "responder_open_emisar_approval"
 	ActionRememberMemory      = "responder_remember_memory"
 	ActionForgetMemory        = "responder_forget_memory"
+	ActionForgetMemoryRollup  = "responder_forget_memory_rollup"
+	ActionReviewMemory        = "responder_review_memory"
+	ActionKeepMemoryReview    = "responder_keep_memory_review"
+	ActionForgetMemoryReview  = "responder_forget_memory_review"
+	ActionMergeMemoryReview   = "responder_merge_memory_review"
+	ActionDismissMemoryReview = "responder_dismiss_memory_review"
 	ActionRememberPreference  = "responder_remember_preference"
 	ActionTogglePreference    = "responder_toggle_preference"
 	ActionEditPreference      = "responder_edit_preference"
@@ -1236,6 +1242,142 @@ func MemoryDirectoryMessage(entries []core.MemoryEntry) Message {
 			Style:   "danger",
 			Confirm: "Permanently forget this saved memory? The audit trail will retain only the entry ID and outcome, not its value.",
 		})
+	}
+	return message
+}
+
+func MemoryHealthMessage(
+	entries []core.MemoryEntry,
+	rollups []core.MemoryRollup,
+	health core.MemoryHealth,
+) Message {
+	message := MemoryDirectoryMessage(entries)
+	lastDreamed := "not run yet"
+	if !health.LastDreamedAt.IsZero() {
+		lastDreamed = health.LastDreamedAt.UTC().Format("2006-01-02 15:04 UTC")
+	}
+	message.Sections = append([]string{fmt.Sprintf(
+		"*Memory health*\n%d confirmed memories · %d recalled · %d recent conversation summaries · %d continuity rollups\nLast consolidation: %s",
+		health.ExplicitActive,
+		health.ExplicitRecalled,
+		health.ConversationSummaries,
+		health.Rollups,
+		lastDreamed,
+	)}, message.Sections...)
+	if health.PendingReviews > 0 {
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"*Review needed*\n%d saved memory item%s may be stale or redundant. Nothing will be changed automatically.",
+			health.PendingReviews,
+			map[bool]string{true: "", false: "s"}[health.PendingReviews == 1],
+		))
+		message.Actions = append([]Action{{
+			ID: ActionReviewMemory, Label: "Review memory", Value: "next",
+		}}, message.Actions...)
+	}
+	if len(rollups) > 0 {
+		var continuity strings.Builder
+		continuity.WriteString("*Older conversation continuity*")
+		for index, rollup := range rollups[:min(len(rollups), 4)] {
+			summary := strings.TrimSpace(rollup.State.SituationSummary)
+			if summary == "" {
+				summary = displayOr(strings.TrimSpace(rollup.State.Goal), "No situation summary")
+			}
+			fmt.Fprintf(
+				&continuity,
+				"\n%d. %s · %s to %s · %d source summaries\n> %s",
+				index+1,
+				escapeSlackText(rollup.ScopeKind+":"+rollup.ScopeKey),
+				rollup.PeriodStart.UTC().Format("2006-01-02"),
+				rollup.PeriodEnd.UTC().Format("2006-01-02"),
+				rollup.SourceCount,
+				escapeSlackText(summary),
+			)
+			message.Actions = append(message.Actions, Action{
+				ID: ActionForgetMemoryRollup, Label: fmt.Sprintf("Discard continuity %d", index+1),
+				Value: rollup.ID, Style: "danger",
+				Confirm: "Discard this synthesized continuity summary? Its already-compacted source summaries cannot be restored.",
+			})
+		}
+		message.Sections = append(message.Sections, continuity.String())
+		message.Context = append(message.Context,
+			"Continuity rollups are lossy summaries of older conversations, not instructions or operational evidence.")
+	}
+	return message
+}
+
+func MemoryRollupForgottenMessage() Message {
+	return Message{
+		Text:   "Older conversation continuity discarded.",
+		Header: "Continuity summary discarded",
+		Sections: []string{
+			"The selected synthesized summary was removed and will no longer appear in future context.",
+		},
+		Context: []string{"Current conversation summaries and operator-confirmed memory were not changed."},
+	}
+}
+
+func MemoryReviewMessage(item core.MemoryReviewItem, entries []core.MemoryEntry) Message {
+	header := "Review saved memory"
+	intro := "This saved memory has not been used recently. Keep it if it is still useful, or forget it."
+	if item.Kind == "duplicate" {
+		header = "Possible duplicate memory"
+		intro = "These entries remember the same guidance in the same scope. Merge them to keep the newest copy, or keep them separate."
+	}
+	message := Message{
+		Text:     header + ". " + item.Reason,
+		Header:   header,
+		Sections: []string{intro},
+		Context: []string{
+			"This review never changes memory until you choose an action. Fresh evidence and current repository state still take precedence over anything kept.",
+		},
+	}
+	for index, entry := range entries {
+		lastUsed := "never recalled"
+		if !entry.LastRecalledAt.IsZero() {
+			lastUsed = "last used " + entry.LastRecalledAt.UTC().Format("2006-01-02")
+		}
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"*%d. %s*\n> %s\n%s · %s · expires %s",
+			index+1,
+			escapeSlackText(strings.ReplaceAll(entry.SubjectKey, "_", " ")),
+			escapeSlackText(entry.Value),
+			guidanceEntryScopeLabel(entry),
+			lastUsed,
+			entry.ExpiresAt.UTC().Format("2006-01-02"),
+		))
+	}
+	if item.Kind == "duplicate" {
+		message.Actions = []Action{
+			{ID: ActionMergeMemoryReview, Label: "Merge copies", Value: item.ID, Style: "primary", Confirm: "Keep the newest copy and permanently remove the redundant copies?"},
+			{ID: ActionDismissMemoryReview, Label: "Keep separate", Value: item.ID},
+		}
+	} else {
+		message.Actions = []Action{
+			{ID: ActionKeepMemoryReview, Label: "Keep it", Value: item.ID, Style: "primary"},
+			{ID: ActionForgetMemoryReview, Label: "Forget it", Value: item.ID, Style: "danger", Confirm: "Permanently forget this saved memory?"},
+		}
+	}
+	return message
+}
+
+func MemoryReviewCompleteMessage(action string, remaining int) Message {
+	result := "Memory kept."
+	switch action {
+	case "forget":
+		result = "Memory forgotten."
+	case "merge":
+		result = "Duplicate copies merged."
+	case "dismiss":
+		result = "Entries kept separately."
+	}
+	message := Message{
+		Text:     result,
+		Header:   "Memory review complete",
+		Sections: []string{result},
+	}
+	if remaining > 0 {
+		message.Context = []string{fmt.Sprintf("%d memory review item(s) remain.", remaining)}
+		message.Actions = []Action{{ID: ActionReviewMemory, Label: "Review next", Value: "next"}}
 	}
 	return message
 }

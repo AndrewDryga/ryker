@@ -54,6 +54,7 @@ type Config struct {
 	Coop           CoopConfig               `yaml:"coop"`
 	GitHub         GitHubConfig             `yaml:"github"`
 	Retention      RetentionConfig          `yaml:"retention"`
+	Memory         MemoryConfig             `yaml:"memory"`
 	Repositories   map[string]Repository    `yaml:"repositories"`
 	RepositorySets map[string]RepositorySet `yaml:"repository_sets"`
 	Webhooks       map[string]Webhook       `yaml:"webhooks"`
@@ -175,6 +176,21 @@ type RetentionConfig struct {
 	AuditData           Duration `yaml:"audit_data"`
 }
 
+// MemoryConfig controls deterministic background consolidation. The source
+// summaries are already model-produced; this pass only bounds, groups, and ages
+// them, so it does not consume another model turn or grant new authority.
+type MemoryConfig struct {
+	DreamingEnabled          bool     `yaml:"dreaming_enabled"`
+	DreamingInterval         Duration `yaml:"dreaming_interval"`
+	CompactAfter             Duration `yaml:"compact_after"`
+	ReviewStaleAfter         Duration `yaml:"review_stale_after"`
+	PressurePercent          int      `yaml:"pressure_percent"`
+	TargetPercent            int      `yaml:"target_percent"`
+	MaxConversationSummaries int      `yaml:"max_conversation_summaries"`
+	MaxRollups               int      `yaml:"max_rollups"`
+	MinRollupSources         int      `yaml:"min_rollup_sources"`
+}
+
 type Webhook struct {
 	Name              string         `yaml:"-"`
 	Kind              string         `yaml:"kind"`
@@ -288,6 +304,17 @@ func defaults() Config {
 			ConversationMemory:  Duration{90 * 24 * time.Hour},
 			ClosedWork:          Duration{7 * 24 * time.Hour},
 			AuditData:           Duration{30 * 24 * time.Hour},
+		},
+		Memory: MemoryConfig{
+			DreamingEnabled:          true,
+			DreamingInterval:         Duration{6 * time.Hour},
+			CompactAfter:             Duration{7 * 24 * time.Hour},
+			ReviewStaleAfter:         Duration{30 * 24 * time.Hour},
+			PressurePercent:          70,
+			TargetPercent:            50,
+			MaxConversationSummaries: 2000,
+			MaxRollups:               256,
+			MinRollupSources:         2,
 		},
 		Limits: Limits{
 			MaxWebhookBytes:              1 << 20,
@@ -525,6 +552,9 @@ func (c Config) Validate() error {
 	if err := validateRetention(c.Retention); err != nil {
 		return fmt.Errorf("retention: %w", err)
 	}
+	if err := validateMemory(c.Memory, c.Retention); err != nil {
+		return fmt.Errorf("memory: %w", err)
+	}
 	if _, ok := c.RepositoryContext(c.Slack.DefaultRepository); !ok {
 		return fmt.Errorf(
 			"slack.default_repository names unknown repository or set %q",
@@ -715,6 +745,31 @@ func validateRetention(c RetentionConfig) error {
 	case c.AuditData.Duration < c.ClosedWork.Duration ||
 		c.AuditData.Duration > 5*365*24*time.Hour:
 		return errors.New("audit_data must be at least closed_work and at most 43800h")
+	}
+	return nil
+}
+
+func validateMemory(c MemoryConfig, retention RetentionConfig) error {
+	switch {
+	case c.DreamingInterval.Duration < time.Minute ||
+		c.DreamingInterval.Duration > 7*24*time.Hour:
+		return errors.New("dreaming_interval must be between 1m and 168h")
+	case c.CompactAfter.Duration < time.Hour ||
+		c.CompactAfter.Duration >= retention.ConversationMemory.Duration:
+		return errors.New("compact_after must be at least 1h and less than retention.conversation_memory")
+	case c.ReviewStaleAfter.Duration < 24*time.Hour ||
+		c.ReviewStaleAfter.Duration > 365*24*time.Hour:
+		return errors.New("review_stale_after must be between 24h and 8760h")
+	case c.PressurePercent < 50 || c.PressurePercent > 95:
+		return errors.New("pressure_percent must be between 50 and 95")
+	case c.TargetPercent < 25 || c.TargetPercent >= c.PressurePercent:
+		return errors.New("target_percent must be between 25 and pressure_percent")
+	case c.MaxConversationSummaries < 100 || c.MaxConversationSummaries > 100000:
+		return errors.New("max_conversation_summaries must be between 100 and 100000")
+	case c.MaxRollups < 10 || c.MaxRollups > 10000:
+		return errors.New("max_rollups must be between 10 and 10000")
+	case c.MinRollupSources < 1 || c.MinRollupSources > 50:
+		return errors.New("min_rollup_sources must be between 1 and 50")
 	}
 	return nil
 }

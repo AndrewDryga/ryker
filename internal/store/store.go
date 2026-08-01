@@ -45,6 +45,9 @@ type Metrics struct {
 	WorkFailed             int `json:"work_failed"`
 	MemoryActive           int `json:"memory_active"`
 	MemoryExpired          int `json:"memory_expired"`
+	MemoryRollups          int `json:"memory_rollups"`
+	MemoryReviewsPending   int `json:"memory_reviews_pending"`
+	ConversationMemories   int `json:"conversation_memories"`
 	PreferencesActive      int `json:"preferences_active"`
 	PreferencesDisabled    int `json:"preferences_disabled"`
 	RulesActive            int `json:"rules_active"`
@@ -598,6 +601,9 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 		{&result.AgentRunsPending, `SELECT count(*) FROM agent_runs WHERE state IN ('pending', 'preparing', 'running', 'applying', 'finalizing')`},
 		{&result.MemoryActive, `SELECT count(*) FROM memory_entries WHERE julianday(expires_at) > julianday('now')`},
 		{&result.MemoryExpired, `SELECT count(*) FROM memory_entries WHERE julianday(expires_at) <= julianday('now')`},
+		{&result.MemoryRollups, `SELECT count(*) FROM memory_rollups WHERE julianday(expires_at) > julianday('now')`},
+		{&result.MemoryReviewsPending, `SELECT count(*) FROM memory_review_items WHERE status = 'pending'`},
+		{&result.ConversationMemories, `SELECT count(*) FROM conversation_memories`},
 		{&result.PreferencesActive, `SELECT count(*) FROM responder_preferences WHERE enabled = 1 AND julianday(expires_at) > julianday('now')`},
 		{&result.PreferencesDisabled, `SELECT count(*) FROM responder_preferences WHERE enabled = 0 AND julianday(expires_at) > julianday('now')`},
 		{&result.RulesActive, `SELECT count(*) FROM standing_rules WHERE enabled = 1 AND julianday(expires_at) > julianday('now')`},

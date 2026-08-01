@@ -153,6 +153,27 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			}
 			return nil
 		}
+		if input.ActionID == slackui.ActionForgetMemoryRollup {
+			if err := s.handleForgetMemoryRollup(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
+		if input.ActionID == slackui.ActionReviewMemory {
+			if err := s.finishMemoryReview(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
+		if input.ActionID == slackui.ActionKeepMemoryReview ||
+			input.ActionID == slackui.ActionForgetMemoryReview ||
+			input.ActionID == slackui.ActionMergeMemoryReview ||
+			input.ActionID == slackui.ActionDismissMemoryReview {
+			if err := s.handleMemoryReview(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
 		switch input.ActionID {
 		case slackui.ActionRememberPreference:
 			if err := s.handleRememberPreference(ctx, input); err != nil {

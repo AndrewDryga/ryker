@@ -563,7 +563,11 @@ Key properties:
   work, and it accepts unmerged work only after the exact reviewed tree has been durably published.
 - Channel deletion removes conversation summaries, channel-scoped memory, preferences, and rules.
   Repository reconciliation removes orphaned repository-scoped state. Normal maintenance prunes raw
-  operational data and compact conversation summaries on their separate schedules.
+  operational data and compact conversation summaries on their separate schedules. Older summaries
+  are first consolidated into bounded weekly rollups: public channels by repository and private
+  channels only within that channel. Source summaries are removed transactionally only after their
+  rollup is durable. Confirmed operator memory is never rewritten by this process; stale and exact
+  duplicate candidates enter a separate operator review queue.
 
 ## 8. Main durable records
 
@@ -589,7 +593,11 @@ flowchart TB
 
   ChannelMemory[("channel_memories")] --> Evaluation
   ConversationMemory[("conversation_memories")] --> PromptContext
+  ConversationMemory --> Dreaming["deterministic memory consolidation"]
+  Dreaming --> Rollups[("memory_rollups")]
+  Rollups --> PromptContext
   Memory[("memory_entries")] --> PromptContext["Future prompt context"]
+  Memory --> Reviews[("memory_review_items")]
   Preferences[("responder_preferences")] --> PromptContext
   Rules[("standing_rules")] --> RuleRun
   Evidence --> PromptContext

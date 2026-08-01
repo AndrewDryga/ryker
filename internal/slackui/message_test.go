@@ -907,6 +907,36 @@ func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
 	}
 }
 
+func TestMemoryHealthAndReviewCardsAreExplicit(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	entry := core.MemoryEntry{
+		ID: "mem_1", ScopeKind: "workspace", ScopeKey: "TWORKSPACE",
+		SubjectKey: "plain_language", Predicate: "guidance",
+		Value: "Start with plain language.", VisibilityKind: "workspace",
+		VisibilityID: "TWORKSPACE", ExpiresAt: now.Add(30 * 24 * time.Hour),
+	}
+	health := MemoryHealthMessage([]core.MemoryEntry{entry}, []core.MemoryRollup{{
+		ID: "dream_1", ScopeKind: "repository", ScopeKey: "repo",
+		PeriodStart: now.Add(-7 * 24 * time.Hour), PeriodEnd: now,
+		SourceCount: 3, State: core.AgentMemory{SituationSummary: "Prior deployment context."},
+	}}, core.MemoryHealth{
+		ExplicitActive: 1, ConversationSummaries: 12, Rollups: 4,
+		PendingReviews: 1, LastDreamedAt: now,
+	})
+	if len(health.Actions) < 3 || health.Actions[0].ID != ActionReviewMemory ||
+		!strings.Contains(strings.Join(health.Sections, "\n"), "Last consolidation") {
+		t.Fatalf("health = %+v", health)
+	}
+	review := MemoryReviewMessage(core.MemoryReviewItem{
+		ID: "review_1", Kind: "stale", Reason: "Not recently recalled.",
+	}, []core.MemoryEntry{entry})
+	if len(review.Actions) != 2 || review.Actions[0].ID != ActionKeepMemoryReview ||
+		review.Actions[1].ID != ActionForgetMemoryReview ||
+		!strings.Contains(strings.Join(review.Context, "\n"), "never changes memory") {
+		t.Fatalf("review = %+v", review)
+	}
+}
+
 func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	preference := core.ResponderPreference{

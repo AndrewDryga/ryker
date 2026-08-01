@@ -73,7 +73,13 @@ webhooks:
 		cfg.Limits.MaxPreferencesPerScope != 50 ||
 		cfg.Limits.MaxStandingRules != 500 ||
 		cfg.Limits.MaxRulesPerChannel != 25 ||
-		cfg.Retention.ConversationMemory.Duration != 90*24*time.Hour {
+		cfg.Retention.ConversationMemory.Duration != 90*24*time.Hour ||
+		!cfg.Memory.DreamingEnabled ||
+		cfg.Memory.DreamingInterval.Duration != 6*time.Hour ||
+		cfg.Memory.CompactAfter.Duration != 7*24*time.Hour ||
+		cfg.Memory.ReviewStaleAfter.Duration != 30*24*time.Hour ||
+		cfg.Memory.MaxConversationSummaries != 2000 ||
+		cfg.Memory.MaxRollups != 256 {
 		t.Fatalf("defaults missing: %+v %+v", cfg.Coop, cfg.Slack)
 	}
 	if cfg.Coop.StateDir != filepath.Join(cfg.StateDir, "coop") ||

@@ -331,8 +331,52 @@ type MemoryEntry struct {
 	VisibilityKind string    `json:"visibility_kind"`
 	VisibilityID   string    `json:"visibility_id"`
 	ExpiresAt      time.Time `json:"expires_at"`
+	LastRecalledAt time.Time `json:"last_recalled_at,omitempty"`
+	RecallCount    int       `json:"recall_count"`
+	LastReviewedAt time.Time `json:"last_reviewed_at,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// MemoryRollup is an automatically synthesized continuity summary. It is derived
+// from already bounded conversation summaries and is never operational evidence.
+type MemoryRollup struct {
+	ID             string
+	ScopeKind      string
+	ScopeKey       string
+	Repository     string
+	PeriodStart    time.Time
+	PeriodEnd      time.Time
+	State          AgentMemory
+	SourceRefs     []string
+	SourceCount    int
+	LastRecalledAt time.Time
+	RecallCount    int
+	ExpiresAt      time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type MemoryReviewItem struct {
+	ID           string
+	Kind         string
+	EntryIDs     []string
+	Reason       string
+	SourceDigest string
+	Status       string
+	ReviewedBy   string
+	ReviewedAt   time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type MemoryHealth struct {
+	ExplicitActive        int
+	ExplicitRecalled      int
+	ConversationSummaries int
+	Rollups               int
+	PendingReviews        int
+	LastDreamedAt         time.Time
 }
 
 type PreferenceOffer struct {
@@ -500,13 +544,15 @@ type ChannelMemory struct {
 }
 
 type ConversationMemory struct {
-	ChannelID   string
-	ChannelName string
-	ThreadTS    string
-	Repository  string
-	LastMessage string
-	State       AgentMemory
-	UpdatedAt   time.Time
+	ChannelID      string
+	ChannelName    string
+	ThreadTS       string
+	Repository     string
+	LastMessage    string
+	State          AgentMemory
+	LastRecalledAt time.Time
+	RecallCount    int
+	UpdatedAt      time.Time
 }
 
 type ConversationSession struct {
@@ -743,6 +789,9 @@ type PruneResult struct {
 	ChannelIntelligence   int64
 	ConversationMemories  int64
 	MemoryEntries         int64
+	MemoryRollups         int64
+	MemoryReviews         int64
+	MemorySupersessions   int64
 	Preferences           int64
 	StandingRules         int64
 	StandingRuleRuns      int64
@@ -756,7 +805,8 @@ type PruneResult struct {
 func (r PruneResult) Total() int64 {
 	return r.SlackInputs + r.WebhookEvents + r.SlackDeliveries + r.AgentRuns +
 		r.EvaluationDecisions + r.ChannelIntelligence + r.ConversationMemories +
-		r.MemoryEntries + r.ActionProposals + r.Preferences + r.StandingRules +
+		r.MemoryEntries + r.MemoryRollups + r.MemoryReviews + r.MemorySupersessions +
+		r.ActionProposals + r.Preferences + r.StandingRules +
 		r.StandingRuleRuns + r.EmisarApprovals + r.ConfigurationSessions +
 		r.ClosedIncidents + r.AuditEvents
 }

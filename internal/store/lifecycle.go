@@ -417,6 +417,10 @@ func (s *Store) Prune(
 		DELETE FROM memory_entries WHERE expires_at <= ?`, nowText()); err != nil {
 		return result, err
 	}
+	if result.MemoryRollups, err = deleteCount(`
+		DELETE FROM memory_rollups WHERE expires_at <= ?`, nowText()); err != nil {
+		return result, err
+	}
 	if result.StandingRuleRuns, err = deleteCount(`
 		DELETE FROM standing_rule_runs WHERE created_at < ?`, operational); err != nil {
 		return result, err
@@ -438,6 +442,20 @@ func (s *Store) Prune(
 		WHERE (status IN ('saved', 'cancelled', 'expired') AND updated_at < ?)
 		   OR expires_at < ?`,
 		operational, operational); err != nil {
+		return result, err
+	}
+	if result.MemoryReviews, err = deleteCount(`
+		DELETE FROM memory_review_items
+		WHERE (status != 'pending' AND updated_at < ?)
+		   OR (status = 'pending' AND NOT EXISTS (
+		     SELECT 1 FROM json_each(memory_review_items.entry_ids_json) AS ref
+		     JOIN memory_entries ON memory_entries.id = ref.value
+		   ))`, auditBefore.UTC().Format(timestampFormat)); err != nil {
+		return result, err
+	}
+	if result.MemorySupersessions, err = deleteCount(`
+		DELETE FROM memory_supersessions WHERE created_at < ?`,
+		auditBefore.UTC().Format(timestampFormat)); err != nil {
 		return result, err
 	}
 

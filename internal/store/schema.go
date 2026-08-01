@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 24
+const currentSchemaVersion = 25
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1162,6 +1162,67 @@ CREATE UNIQUE INDEX emisar_approvals_source_once_idx
   ON emisar_approvals(source_input, request_id);
 `
 
+const schemaV25 = `
+ALTER TABLE memory_entries ADD COLUMN last_recalled_at TEXT;
+ALTER TABLE memory_entries ADD COLUMN recall_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE memory_entries ADD COLUMN last_reviewed_at TEXT;
+
+ALTER TABLE conversation_memories ADD COLUMN last_recalled_at TEXT;
+ALTER TABLE conversation_memories ADD COLUMN recall_count INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE memory_rollups (
+  id TEXT PRIMARY KEY,
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('channel', 'repository')),
+  scope_key TEXT NOT NULL,
+  repository TEXT NOT NULL,
+  period_start TEXT NOT NULL,
+  period_end TEXT NOT NULL,
+  state_json TEXT NOT NULL,
+  source_refs_json TEXT NOT NULL,
+  source_count INTEGER NOT NULL,
+  last_recalled_at TEXT,
+  recall_count INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(scope_kind, scope_key, period_start)
+);
+
+CREATE INDEX memory_rollups_context_idx
+  ON memory_rollups(scope_kind, scope_key, period_end DESC, expires_at);
+CREATE INDEX memory_rollups_expiry_idx ON memory_rollups(expires_at);
+
+CREATE TABLE memory_review_items (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('stale', 'duplicate')),
+  entry_ids_json TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  source_digest TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'kept', 'applied', 'dismissed')
+  ),
+  reviewed_by TEXT NOT NULL DEFAULT '',
+  reviewed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX memory_review_pending_idx
+  ON memory_review_items(status, created_at);
+
+CREATE TABLE memory_supersessions (
+  id TEXT PRIMARY KEY,
+  entry_id TEXT NOT NULL,
+  previous_value_hash TEXT NOT NULL,
+  replacement_value_hash TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX memory_supersessions_entry_idx
+  ON memory_supersessions(entry_id, created_at DESC);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1187,4 +1248,5 @@ var migrations = []string{
 	schemaV22,
 	schemaV23,
 	schemaV24,
+	schemaV25,
 }
