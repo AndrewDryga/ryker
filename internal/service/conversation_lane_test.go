@@ -329,6 +329,50 @@ func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 	}
 }
 
+func TestSlackVerificationReplayBypassesBoundedConversationLane(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "replayed-conversation", EnvelopeID: "replay:source-envelope",
+		EventID: "replay:source-event", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1700.150", UserID: "U123ABC",
+		Text: "<@UBOT> Give me a decision-ready production health assessment.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.createPolicies) != 1 ||
+		coopClient.createPolicies[0] != "repo-observe" {
+		t.Fatalf("created policies = %v", coopClient.createPolicies)
+	}
+	if len(coopClient.submitPrompts) != 1 ||
+		!strings.Contains(coopClient.submitPrompts[0], "explicit host verification replay") ||
+		!strings.Contains(coopClient.submitPrompts[0], "Run independent read-only") ||
+		strings.Contains(coopClient.submitPrompts[0], "bounded conversation turn") {
+		t.Fatalf("verification replay prompt = %q", coopClient.submitPrompts)
+	}
+}
+
 func TestConversationLaneEscalatesOperationalWorkWithoutRetryPenalty(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

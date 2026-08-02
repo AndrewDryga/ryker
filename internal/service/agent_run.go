@@ -594,7 +594,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	}
 	if state.Lane == "" {
 		state.Lane = "investigation"
-		if repository.ConversationPolicy != "" &&
+		if !isSlackVerificationReplay(input) &&
+			repository.ConversationPolicy != "" &&
 			len(input.Attachments) == 0 &&
 			len(state.MatchedRules) == 0 &&
 			(input.Kind == "message" || input.Kind == "mention" ||

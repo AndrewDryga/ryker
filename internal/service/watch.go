@@ -2203,6 +2203,10 @@ func watchPromptMessage(
 	}
 }
 
+func isSlackVerificationReplay(input core.SlackInput) bool {
+	return strings.HasPrefix(input.EnvelopeID, "replay:")
+}
+
 func (s *Service) watchPrompt(
 	input core.SlackInput,
 	botUserID string,
@@ -2216,7 +2220,7 @@ func (s *Service) watchPrompt(
 	matchedRules []core.StandingRule,
 ) string {
 	replayPolicy := ""
-	if strings.HasPrefix(input.EnvelopeID, "replay:") {
+	if isSlackVerificationReplay(input) {
 		replayPolicy = `
 This target is an explicit host verification replay of an earlier Slack message. Re-execute the
 original target request now with fresh evidence and return the action that the original message
