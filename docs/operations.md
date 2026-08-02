@@ -71,6 +71,32 @@ it and do not require Slack or Coop. Stop Responder before upgrading to a binary
 database migration; startup holds the process lock, creates and verifies a private pre-migration
 snapshot, then applies migrations.
 
+## Post-fix Slack replay
+
+Use a saved Slack message to verify the complete deployed path after a fix:
+
+```bash
+responder replay slack \
+  --config /etc/responder/responder.yaml \
+  --url 'https://workspace.slack.com/archives/C0123/p1785652207489039' \
+  --expect reply \
+  --timeout 20m
+```
+
+The owning `responder serve` process must be running. The command opens the current schema without
+migrating it, clones the original persisted Slack payload behind a fresh envelope and event ID,
+and lets the live scheduler process it. Text, attachments, actor, channel, thread, and source
+timestamp are preserved. A saved ambient human message is treated as explicitly addressed for
+the replay so normal stale-message coalescing cannot turn the verification into a false success.
+
+The command returns successfully only after the replayed input is complete, its watch agent run is
+complete with the expected action, and every deterministic reply or generated-file delivery is
+confirmed `sent`. It fails on a terminal input or agent error, a different action, a failed Slack
+delivery, or timeout. `--input slack_...` targets a durable input directly; `--channel C...` with
+`--message-ts 1785652207.489039` is useful when a permalink is unavailable. Use `--json` in
+automation. Replay creates another visible Slack response and may repeat read-only tool calls; do
+not use it for an old message whose current processing could request an operational mutation.
+
 ## Retries
 
 Webhook, Slack input, Slack delivery, and agent-run work retain their typed bounded retry state. A

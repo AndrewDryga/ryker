@@ -203,6 +203,38 @@ func (s *Store) GetSlackDelivery(
 	))
 }
 
+// ListSlackDeliveriesByPrefix returns every delivery produced by one
+// deterministic reply key, including multipart messages and generated files.
+func (s *Store) ListSlackDeliveriesByPrefix(
+	ctx context.Context,
+	prefix string,
+) ([]core.SlackDelivery, error) {
+	if prefix == "" {
+		return nil, errors.New("Slack delivery prefix is required")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+slackDeliveryColumns+`
+		FROM slack_deliveries
+		WHERE substr(id, 1, length(?)) = ?
+		ORDER BY created_at, id`, prefix, prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.SlackDelivery, 0)
+	for rows.Next() {
+		delivery, err := scanSlackDelivery(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, delivery)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (s *Store) RetryLatestGeneratedVisual(
 	ctx context.Context,
 	channelID string,

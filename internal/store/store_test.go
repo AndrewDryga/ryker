@@ -159,6 +159,64 @@ func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 	}
 }
 
+func TestOpenLiveWritesCurrentDatabaseWithoutMigration(t *testing.T) {
+	ctx := context.Background()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	owner, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	live, err := OpenLive(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.Close()
+	input := core.SlackInput{
+		ID: "slack_live_control", EnvelopeID: "env_live_control",
+		EventID: "event_live_control", Kind: "mention", TeamID: "T123",
+		ChannelID: "C123", MessageTS: "1700.001", UserID: "U123", Text: "verify",
+	}
+	if created, err := live.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit through live store = %v, %v", created, err)
+	}
+	stored, err := owner.GetSlackInput(ctx, input.ID)
+	if err != nil || stored.Text != input.Text {
+		t.Fatalf("owner observed live write = %+v, %v", stored, err)
+	}
+}
+
+func TestListSlackDeliveriesByPrefixIncludesMultipartAndFilesOnly(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, delivery := range []core.SlackDelivery{
+		{ID: "watch_reply_replay_part_001", Operation: "post", Kind: "notice", ChannelID: "C123", Body: []byte(`{"text":"one"}`)},
+		{ID: "watch_reply_replay_part_999", Operation: "post", Kind: "notice", ChannelID: "C123", Body: []byte(`{"text":"two"}`)},
+		{ID: "watch_reply_replay_visual_01", Operation: "file", Kind: "generated_visual", ChannelID: "C123", Body: []byte(`{"file":"chart"}`)},
+		{ID: "watch_reply_other", Operation: "post", Kind: "notice", ChannelID: "C123", Body: []byte(`{"text":"other"}`)},
+	} {
+		if created, err := st.EnqueueSlackDelivery(ctx, delivery); err != nil || !created {
+			t.Fatalf("enqueue %s = %v, %v", delivery.ID, created, err)
+		}
+	}
+	deliveries, err := st.ListSlackDeliveriesByPrefix(ctx, "watch_reply_replay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deliveries) != 3 {
+		t.Fatalf("prefix deliveries = %+v", deliveries)
+	}
+	for _, delivery := range deliveries {
+		if !strings.HasPrefix(delivery.ID, "watch_reply_replay") || delivery.ID == "watch_reply_other" {
+			t.Fatalf("unexpected prefix delivery = %+v", delivery)
+		}
+	}
+}
+
 func TestRetryLatestGeneratedVisualIsConversationScoped(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

@@ -449,6 +449,8 @@ responder status --config /etc/responder/responder.yaml
 responder status --config /etc/responder/responder.yaml --json
 responder failures --config /etc/responder/responder.yaml
 responder retry --config /etc/responder/responder.yaml delivery delivery_...
+responder replay slack --config /etc/responder/responder.yaml \
+  --url 'https://workspace.slack.com/archives/C0123/p1785652207489039'
 curl -f http://127.0.0.1:8080/healthz
 curl -f http://127.0.0.1:8080/readyz
 curl -f http://127.0.0.1:8080/metrics
@@ -457,6 +459,14 @@ curl -f http://127.0.0.1:8080/metrics
 `responder status --json` returns both lifecycle counters and the bounded incident directory.
 `responder failures` lists retryability and the retained error for failed Slack inputs, webhooks,
 Slack deliveries, agent runs, publications, and cleanup work.
+`responder replay slack` is a post-fix live verification tool. It clones the saved text,
+attachments, actor, channel, thread, and timestamp behind a Slack permalink (or accepts
+`--input` or `--channel` plus `--message-ts`), gives the clone a fresh idempotency identity, and
+queues it through the running service. The command waits for a valid agent result and a confirmed
+Slack delivery; its default `--expect reply` makes silence, supersession, model failure, and
+delivery failure fail the command. Use `--expect react`, `ignore`, `incident`, or `any` only when
+that outcome is intentional. The replay posts another real response in Slack and therefore is an
+operator verification action, not an offline eval.
 
 State is one owner-private SQLite database in `state_dir`. Slack inputs, webhook events, outgoing
 Slack deliveries, agent runs, incident mappings, channel lifecycle, structured evidence, coverage,

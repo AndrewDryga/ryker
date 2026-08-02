@@ -269,6 +269,17 @@ func ensureIncrementalVacuum(db *sql.DB) error {
 // OpenCurrent opens an existing database for inspection without changing its
 // schema or persistent settings. It is safe to use while Responder is running.
 func OpenCurrent(stateDir string) (*Store, error) {
+	return openCurrent(stateDir, true)
+}
+
+// OpenLive opens an existing database for a bounded local control operation
+// without migrating it or changing persistent settings. The caller must first
+// confirm that the owning Responder process is running.
+func OpenLive(stateDir string) (*Store, error) {
+	return openCurrent(stateDir, false)
+}
+
+func openCurrent(stateDir string, readOnly bool) (*Store, error) {
 	if !filepath.IsAbs(stateDir) || filepath.Clean(stateDir) != stateDir {
 		return nil, errors.New("state directory must be an absolute clean path")
 	}
@@ -298,9 +309,13 @@ func OpenCurrent(stateDir string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	if _, err := db.Exec(connectionPragmas + "\nPRAGMA query_only = ON;"); err != nil {
+	pragmas := connectionPragmas
+	if readOnly {
+		pragmas += "\nPRAGMA query_only = ON;"
+	}
+	if _, err := db.Exec(pragmas); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("configure database inspection: %w", err)
+		return nil, fmt.Errorf("configure current database: %w", err)
 	}
 	version, err := schemaVersion(db)
 	if err != nil {
@@ -1998,7 +2013,8 @@ func (s *Store) GetSlackInputForMessage(
 		FROM slack_inputs
 		WHERE channel_id = ? AND message_ts = ?
 		  AND kind IN ('message', 'bot_message', 'mention', 'direct', 'shortcut')
-		ORDER BY received_at DESC, id DESC
+		ORDER BY CASE WHEN event_id LIKE 'replay:%' THEN 1 ELSE 0 END,
+		  received_at DESC, id DESC
 		LIMIT 1`, channelID, messageTS))
 }
 

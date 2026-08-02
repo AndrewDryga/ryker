@@ -1856,6 +1856,17 @@ func parseWatchDecision(message string) (watchDecision, error) {
 	return watchDecision{}, candidateErr
 }
 
+// WatchDecisionAction validates a persisted Coop transcript with the same
+// production parser used during finalization and returns its terminal action.
+// Local replay verification uses this instead of maintaining a second parser.
+func WatchDecisionAction(message string) (string, error) {
+	decision, err := parseWatchDecision(message)
+	if err != nil {
+		return "", err
+	}
+	return decision.Action, nil
+}
+
 func decodeWatchDecision(message string) (watchDecision, error) {
 	normalized, err := normalizeEmptyStructuredTimestamps(message)
 	if err != nil {

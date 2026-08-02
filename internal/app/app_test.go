@@ -443,4 +443,173 @@ func TestSubcommandHelpSucceedsAndStrayArgumentsFail(t *testing.T) {
 			}
 		})
 	}
+	var replayStdout, replayStderr bytes.Buffer
+	if err := Run(
+		[]string{"replay", "slack", "--help"},
+		&replayStdout,
+		&replayStderr,
+		"test",
+	); err != nil || !strings.Contains(replayStderr.String(), "Usage of replay slack") {
+		t.Fatalf("replay help = %v, %q", err, replayStderr.String())
+	}
+}
+
+func TestSlackReplayParsingAndPayloadFidelity(t *testing.T) {
+	channel, timestamp, err := parseSlackPermalink(
+		"https://example.slack.com/archives/C012ABC34/p1785652207489039?thread_ts=1785652000.000001",
+	)
+	if err != nil || channel != "C012ABC34" || timestamp != "1785652207.489039" {
+		t.Fatalf("parse permalink = %q, %q, %v", channel, timestamp, err)
+	}
+	for _, invalid := range []string{
+		"http://example.slack.com/archives/C1/p1785652207489039",
+		"https://example.slack.com/client/C1/p1785652207489039",
+		"https://example.slack.com/archives/C1/pnot-a-time",
+	} {
+		if _, _, err := parseSlackPermalink(invalid); err == nil {
+			t.Fatalf("invalid permalink accepted: %s", invalid)
+		}
+	}
+	source := core.SlackInput{
+		ID: "slack_original", Kind: "message", TeamID: "T123", ChannelID: "C123",
+		ThreadTS: "1700.001", MessageTS: "1700.002", UserID: "U123", Text: "check this",
+		Attachments: []core.SlackAttachment{{ID: "F1", Name: "failure.png", MediaType: "image/png", Size: 42, URLPrivate: "https://files.example.test/F1"}},
+	}
+	replay, err := cloneSlackReplay(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.ID == source.ID || replay.Kind != "mention" || replay.TeamID != source.TeamID ||
+		replay.ChannelID != source.ChannelID || replay.ThreadTS != source.ThreadTS ||
+		replay.MessageTS != source.MessageTS || replay.UserID != source.UserID ||
+		replay.Text != source.Text || len(replay.Attachments) != 1 ||
+		replay.Attachments[0] != source.Attachments[0] ||
+		!strings.HasPrefix(replay.EnvelopeID, "replay:") || replay.EventID != replay.EnvelopeID {
+		t.Fatalf("replay payload = %+v", replay)
+	}
+	replay.Attachments[0].Name = "changed.png"
+	if source.Attachments[0].Name != "failure.png" {
+		t.Fatal("replay attachment mutation changed the source")
+	}
+}
+
+func TestSlackReplayMessageLookupPrefersOriginalOverEarlierReplay(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	original := core.SlackInput{
+		ID: "slack_original_lookup", EnvelopeID: "env_original_lookup",
+		EventID: "event_original_lookup", Kind: "mention", TeamID: "T123",
+		ChannelID: "C123", MessageTS: "1700.001", UserID: "U123", Text: "verify",
+		ReceivedAt: time.Now().Add(-time.Minute),
+	}
+	if created, err := st.AdmitSlackInput(ctx, original); err != nil || !created {
+		t.Fatalf("admit original = %v, %v", created, err)
+	}
+	replay, err := cloneSlackReplay(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created, err := st.AdmitSlackInput(ctx, replay); err != nil || !created {
+		t.Fatalf("admit earlier replay = %v, %v", created, err)
+	}
+	selected, err := findSlackReplaySource(ctx, st, "", original.ChannelID, original.MessageTS)
+	if err != nil || selected.ID != original.ID {
+		t.Fatalf("selected replay source = %+v, %v", selected, err)
+	}
+}
+
+func TestWaitForSlackReplayRequiresCompletedRunAndSentReply(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack_replay_test", EnvelopeID: "replay:slack_replay_test",
+		EventID: "replay:slack_replay_test", Kind: "mention", TeamID: "T123",
+		ChannelID: "C123", MessageTS: "1700.001", UserID: "U123", Text: "verify",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit replay = %v, %v", created, err)
+	}
+	leasedInput, err := st.LeaseSlackInput(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		ID: "run_replay_test", Mode: core.AgentRunTriage,
+		ChannelID: input.ChannelID, ThreadTS: input.ThreadTS,
+		ConversationKey: "channel:" + input.ChannelID,
+		SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
+		Repository: "repo", Prompt: "verify",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue replay run = %+v, %v, %v", run, created, err)
+	}
+	leasedRun, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindAgentRunSession(ctx, leasedRun.ID, "session_replay", 1, "repo", 0, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(ctx, leasedRun.ID, "turn_replay", 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(ctx, leasedRun.ID, "completed", []byte(`{"action":"reply","message":"verified"}`), "", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BeginAgentRunFinalization(ctx, leasedRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishAgentRun(ctx, leasedRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackInput(ctx, leasedInput.ID); err != nil {
+		t.Fatal(err)
+	}
+	deliveryID := "watch_reply_" + input.ID
+	if created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: deliveryID, Operation: "post", Kind: "notice",
+		ChannelID: input.ChannelID, ThreadTS: input.ThreadTS,
+		Body: []byte(`{"text":"verified"}`),
+	}); err != nil || !created {
+		t.Fatalf("enqueue replay delivery = %v, %v", created, err)
+	}
+	delivery, err := st.LeaseSlackDelivery(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, delivery.ID, "1700.003", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	result, err := waitForSlackReplay(waitCtx, st, "slack_original", input.ID, "reply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "reply" || result.RunState != core.AgentRunCompleted ||
+		result.InputState != "done" || len(result.Deliveries) != 1 ||
+		result.Deliveries[0].State != "sent" {
+		t.Fatalf("replay verification = %+v", result)
+	}
+	if _, err := waitForSlackReplay(waitCtx, st, "slack_original", input.ID, "ignore"); err == nil || !strings.Contains(err.Error(), `action was "reply", want "ignore"`) {
+		t.Fatalf("mismatched replay expectation = %v", err)
+	}
+}
+
+func TestReplayActionUsesProductionTranscriptParser(t *testing.T) {
+	action, err := replayAction([]byte(
+		"I’m checking declared and live state first.\n" +
+			`{"action":"reply","message":"Verified result.","reason":"direct request"}`,
+	))
+	if err != nil || action != "reply" {
+		t.Fatalf("replay transcript action = %q, %v", action, err)
+	}
 }
