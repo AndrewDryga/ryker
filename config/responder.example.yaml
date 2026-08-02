@@ -85,6 +85,10 @@ github:
   branch_prefix: responder
   commit_name: Emisar Responder
   commit_email: responder@emisar.dev
+  # Poll open PR checks and merge state without requiring another Slack message.
+  followup_interval: 2m
+  # Keep exact PR/branch/SHA delivery and Terraform signals linked after merge.
+  delivery_correlation_window: 336h
 
 retention:
   # Reclaim only Responder-recorded Coop sessions. Unpublished or dirty work is never auto-discarded.

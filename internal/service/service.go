@@ -49,6 +49,10 @@ type PublicationAPI interface {
 	VerifyPublication(context.Context, core.Publication) error
 }
 
+type publicationStatusAPI interface {
+	PublicationStatus(context.Context, core.Publication) (core.PublicationLifecycleStatus, error)
+}
+
 type EmisarAPI interface {
 	WaitForRun(context.Context, string) (emisar.RunState, error)
 }

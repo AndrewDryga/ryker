@@ -545,7 +545,10 @@ func TestPublicationGateRecommendationIsAdvisory(t *testing.T) {
 		PRURL:    "https://github.example/owner/repository/pull/42",
 	}, false))
 	if message.Header != "Draft PR ready" ||
-		!strings.Contains(strings.Join(message.Context, "\n"), "add `gate:`") {
+		!strings.Contains(strings.Join(message.Context, "\n"), "add `gate:`") ||
+		!slices.ContainsFunc(message.Actions, func(action Action) bool {
+			return action.ID == ActionCheckDelivery && action.Label == "Check delivery"
+		}) {
 		t.Fatalf("ungated publication message = %+v", message)
 	}
 }

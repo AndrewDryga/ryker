@@ -26,6 +26,7 @@ const (
 	ActionReview              = "responder_review"
 	ActionPublishPR           = "responder_publish_pr"
 	ActionViewPR              = "responder_view_pr"
+	ActionCheckDelivery       = "responder_check_delivery"
 	ActionDiscardWork         = "responder_discard_work"
 	ActionStop                = "responder_stop"
 	ActionExtend              = "responder_extend"
@@ -1570,7 +1571,59 @@ func PublicationMessage(publication core.Publication, updated bool) Message {
 		Context: []string{
 			"Draft only. Responder did not merge, deploy, sign, or change infrastructure.",
 		},
+		Actions: []Action{
+			{ID: ActionViewPR, Label: "Open PR", Value: publication.IncidentID, URL: publication.PRURL},
+			{ID: ActionCheckDelivery, Label: "Check delivery", Value: publication.IncidentID},
+		},
 	}
+}
+
+func PublicationLifecycleMessage(
+	publication core.Publication,
+	taskTitle string,
+	kind string,
+	state string,
+	summary string,
+	status core.PublicationLifecycleStatus,
+) Message {
+	header := "Delivery update"
+	switch kind {
+	case "merged":
+		header = "PR merged"
+	case "checks":
+		if state == "succeeded" {
+			header = "Checks passed"
+		} else {
+			header = "Checks need attention"
+		}
+	case "closed":
+		header = "PR closed"
+	case "terraform":
+		header = "Terraform update"
+	case "deployment":
+		header = "Deployment update"
+	}
+	context := []string{"Task: " + escapeSlackText(taskTitle)}
+	if status.MergeSHA != "" {
+		context = append(context, "Merge commit: `"+escapeSlackText(shortSHA(status.MergeSHA))+"`")
+	}
+	return Message{
+		Text:     header + " for PR #" + fmt.Sprint(publication.PRNumber) + ": " + summary,
+		Header:   header,
+		Sections: []string{summary},
+		Context:  context,
+		Actions: []Action{
+			{ID: ActionViewPR, Label: "Open PR", Value: publication.IncidentID, URL: publication.PRURL},
+			{ID: ActionCheckDelivery, Label: "Refresh status", Value: publication.IncidentID},
+		},
+	}
+}
+
+func shortSHA(value string) string {
+	if len(value) > 12 {
+		return value[:12]
+	}
+	return value
 }
 
 func WithRepositoryGateRecommendation(message Message) Message {
@@ -2516,8 +2569,11 @@ func incidentActions(
 		publish.Label = "Retry draft PR"
 	}
 	viewPR := Action{
-		ID: ActionViewPR, Label: "View draft PR", Value: incident.ID,
+		ID: ActionViewPR, Label: "Open PR", Value: incident.ID,
 		URL: publication.PRURL,
+	}
+	checkDelivery := Action{
+		ID: ActionCheckDelivery, Label: "Check delivery", Value: incident.ID,
 	}
 	closeIncident := Action{
 		ID: ActionResolve, Label: "Close incident", Value: incident.ID, Style: "danger",
@@ -2533,7 +2589,7 @@ func incidentActions(
 		if hasCodeChanges {
 			actions := []Action{changes}
 			if publication.Published() {
-				actions = append(actions, viewPR)
+				actions = append(actions, viewPR, checkDelivery)
 			} else if incident.IsEngineeringTask() {
 				actions = append(actions, Action{
 					ID: ActionDiscardWork, Label: "Discard retained work",
@@ -2578,7 +2634,7 @@ func incidentActions(
 		if incident.IsEngineeringTask() {
 			actions = append(actions, publish)
 			if publication.Published() {
-				actions = append(actions, viewPR)
+				actions = append(actions, viewPR, checkDelivery)
 			}
 		}
 	}

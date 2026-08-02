@@ -92,6 +92,115 @@ func TestPublicationReviewDeliveryIDDeduplicatesOnlyIdenticalResults(t *testing.
 	}
 }
 
+func TestPublicationTransitionsAndExactReferenceMatching(t *testing.T) {
+	publication := core.Publication{PRNumber: 493}
+	old := core.PublicationFollowup{PRState: "open", ChecksState: "pending"}
+	current := core.PublicationFollowup{PRState: "open", ChecksState: "passing"}
+	kind, state, summary := publicationTransition(
+		publication, old, current,
+		core.PublicationLifecycleStatus{ChecksTotal: 4, ChecksPassed: 4}, false,
+		14*24*time.Hour,
+	)
+	if kind != "checks" || state != "succeeded" || !strings.Contains(summary, "4 of 4") {
+		t.Fatalf("passing transition = %q, %q, %q", kind, state, summary)
+	}
+
+	context := core.PublicationContext{
+		PRNumber: 493, PRURL: "https://github.com/org/repo/pull/493",
+		HeadBranch: "responder/reduce-redis", HeadSHA: "0123456789abcdef",
+		MergeSHA: "abcdef0123456789",
+	}
+	if !publicationReferenceMatches(
+		"Deployed commit abcdef0 to production", "abcdef0", context,
+	) {
+		t.Fatal("exact merge SHA prefix was not accepted")
+	}
+	if publicationReferenceMatches(
+		"A deploy happened in org/repo", "org/repo", context,
+	) {
+		t.Fatal("repository-only correlation was accepted")
+	}
+	if publicationReferenceMatches(
+		"Deployed a different commit", "0123456", context,
+	) {
+		t.Fatal("reference absent from the source message was accepted")
+	}
+	if !publicationContextAppearsInText(
+		"Terraform applied main at abcdef0123456789", context,
+	) {
+		t.Fatal("exact merge SHA did not activate delivery correlation")
+	}
+	if publicationContextAppearsInText("Terraform applied org/repo", context) {
+		t.Fatal("repository-only text activated delivery correlation")
+	}
+}
+
+func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-publication", "Reduce Redis pool", "summary",
+		"U123ABC", "CTASKS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication := core.Publication{
+		IncidentID: incident.ID, Repository: "owner/repository", BaseBranch: "main",
+		HeadBranch: "responder/reduce-redis", ParentHead: "parent", CandidateTree: "tree",
+		CommitSHA: "commit", RemoteSHA: "0123456789abcdef", PRNumber: 493,
+		PRURL: "https://github.com/owner/repository/pull/493", State: "published",
+		PublishedAt: time.Now().UTC(),
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnsurePublicationFollowup(ctx, incident.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	input := core.SlackInput{
+		ID: "input-deploy-1", Kind: "bot_message", ChannelID: "CDEPLOY",
+		MessageTS: "1700.200", Text: "Deployment of 0123456 completed successfully.",
+	}
+	state := watchTurnState{ActivePublications: []core.PublicationContext{{
+		IncidentID: incident.ID, PRNumber: 493, PRURL: publication.PRURL,
+		HeadBranch: publication.HeadBranch, HeadSHA: publication.RemoteSHA,
+	}}}
+	updates := []publicationUpdate{{
+		IncidentID: incident.ID, Kind: "deployment", State: "succeeded",
+		Reference: "0123456", Summary: "Production deployment completed successfully.",
+	}}
+	if err := svc.applyPublicationUpdates(ctx, input, state, updates); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.applyPublicationUpdates(ctx, input, state, updates); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("publication update posts = %d, want 1", len(slackClient.posts))
+	}
+	post := slackClient.posts[0]
+	if post.channel != "CTASKS" || post.thread != "1700.100" ||
+		!strings.Contains(post.message.Text, "Production deployment completed") {
+		t.Fatalf("publication update post = %+v", post)
+	}
+}
+
 func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -5761,6 +5870,7 @@ func TestWatchedRunRepairsStaleRotatedEventCursor(t *testing.T) {
 func TestParseWatchDecisionIsStrict(t *testing.T) {
 	valid := []string{
 		`{"action":"ignore"}`,
+		`{"action":"ignore","publication_updates":[{"incident_id":"inc_123","kind":"deployment","state":"succeeded","reference":"0123456","summary":"Production rollout completed."}]}`,
 		`{"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1}}`,
 		`{"action":"react","reaction":"thumbsup"}`,
 		`{"action":"react","reaction":"wave::skin-tone-3"}`,
@@ -5787,6 +5897,9 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"reply","message":"Prepare it.","task_prompt":"Change the code."}`,
 		`{"action":"reply","message":"Prepare it.","task_title":"Fix it","task_repository":"repo","task_prompt":"Change the code.","alert_assessment":{"verdict":"confirmed_issue","impact":"Requests fail.","cause_status":"identified","cause":"The decoder rejects a value.","immediate_action":"Fail soft.","verification":"Confirm errors stop.","long_term_solution":"Use forward-compatible decoding."},"completion":{"status":"decision_ready","summary":"The failure is bounded."},"evidence":[{"claim":"requests fail","observation":"fresh logs contain failures","source_type":"emisar","source_name":"logs"}]}`,
 		`{"action":"ignore","unknown":true}`,
+		`{"action":"ignore","publication_updates":[{"incident_id":"inc_123","kind":"build","state":"succeeded","reference":"0123456","summary":"Build completed."}]}`,
+		`{"action":"ignore","publication_updates":[{"incident_id":"inc_123","kind":"terraform","state":"maybe","reference":"0123456","summary":"Plan changed."}]}`,
+		`{"action":"ignore","publication_updates":[{"incident_id":"inc_123","kind":"terraform","state":"pending","reference":"repo","summary":""}]}`,
 		`{"action":"react","reaction":"✅"}`,
 		`{"action":"react","reaction":"wave::skin-tone-9"}`,
 		`{"action":"react","reaction":"not/an/emoji"}`,

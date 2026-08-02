@@ -169,6 +169,14 @@ is recommended validation rather than publication authority: absence is reported
 while a configured gate failure, startup error, source mutation, rebase conflict, or policy finding
 still prevents publication.
 
+Published work remains a durable delivery commitment. A host-owned scheduler polls GitHub for
+check, close, and merge transitions and writes deduplicated lifecycle events back to the original
+engineering-task thread. Watched external-app messages may contribute deployment or Terraform
+events after a model classifies them, but the host accepts the correlation only when the message
+contains an exact recorded PR number, branch, head SHA, or merge SHA. The model cannot broaden that
+binding. Existing publications are baselined during migration so an upgrade cannot announce every
+historical merged PR; subsequent transitions remain observable.
+
 Closed-session cleanup is ownership-based rather than name-based. Responder records the exact Coop
 session ID before requesting a discard plan. The plan pins revision, workspace identity, branch,
 head, status digest, dirty state, and unmerged state. Automatic cleanup never accepts dirty work and

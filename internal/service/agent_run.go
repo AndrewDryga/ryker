@@ -101,6 +101,20 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		state.MatchedRules = rules
 		state.RulesCaptured = true
 	}
+	if !state.PublicationsCaptured {
+		if input.Kind == "bot_message" {
+			publications, err := s.store.ListActivePublicationContexts(
+				ctx,
+				time.Now().UTC().Add(-s.cfg.GitHub.DeliveryCorrelationWindow.Duration),
+				20,
+			)
+			if err != nil {
+				return err
+			}
+			state.ActivePublications = publications
+		}
+		state.PublicationsCaptured = true
+	}
 	if !state.RuleAcknowledged && len(state.MatchedRules) > 0 {
 		s.acknowledgeMatchedAlertRule(ctx, input, state.MatchedRules)
 		state.RuleAcknowledged = true
@@ -747,6 +761,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			"request because: " + boundedOperatorText(state.EscalationReason) +
 			". Perform the full evidence-backed work now.\n</host-escalation>"
 	}
+	prompt += activePublicationPrompt(state.ActivePublications)
 	prompt += watchDecisionCorrectionPrompt(state.FailureDetail)
 	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 	if episodeErr != nil {

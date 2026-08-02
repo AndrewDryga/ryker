@@ -189,6 +189,46 @@ func TestVerifyPublicationRequiresExactCurrentPullRequestHead(t *testing.T) {
 	}
 }
 
+func TestPublicationStatusAggregatesChecksAndMergedState(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repository/pulls/41":
+			_, _ = w.Write([]byte(`{
+				"number":41,"state":"closed","merged":true,"draft":false,
+				"merge_commit_sha":"abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+				"merged_at":"2026-08-02T10:00:00Z",
+				"head":{"ref":"responder/change-123","sha":"` + sha + `"}
+			}`))
+		case "/repos/owner/repository/commits/" + sha + "/check-runs":
+			_, _ = w.Write([]byte(`{"check_runs":[
+				{"status":"completed","conclusion":"success"},
+				{"status":"completed","conclusion":"skipped"}
+			]}`))
+		case "/repos/owner/repository/commits/" + sha + "/status":
+			_, _ = w.Write([]byte(`{"statuses":[{"state":"success"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("TEST_GITHUB_TOKEN", "test-token")
+	client := New(config.GitHubConfig{
+		Enabled: true, APIURL: server.URL, TokenEnv: "TEST_GITHUB_TOKEN",
+	})
+	status, err := client.PublicationStatus(context.Background(), core.Publication{
+		Repository: "owner/repository", PRNumber: 41, RemoteSHA: sha,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.PRState != "merged" || status.ChecksState != "passing" ||
+		status.ChecksTotal != 3 || status.ChecksPassed != 3 || status.ChecksFailed != 0 ||
+		status.MergeSHA == "" || status.MergedAt.IsZero() {
+		t.Fatalf("publication status = %+v", status)
+	}
+}
+
 func mustWrite(t *testing.T, path, value string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(value), 0o600); err != nil {

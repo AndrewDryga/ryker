@@ -474,7 +474,10 @@ flowchart TD
   Changes --> Publish{"Publish requested<br/>and publishable?"}
   Publish -- No --> Retain["Retain reviewed work"]
   Publish -- Yes --> DraftPR["Lease-protected branch<br/>and draft PR"]
-  DraftPR --> External["Human merge/deploy workflow"]
+  DraftPR --> Followup["Durable GitHub checks<br/>and merge follow-up"]
+  Followup --> External["Human merge/deploy workflow"]
+  External --> Correlate["Exact PR / branch / SHA<br/>delivery correlation"]
+  Correlate --> ThreadTask
 ```
 
 An engineering task uses the same durable work model as incident work but stays attached to the
@@ -624,6 +627,8 @@ flowchart TB
   Incident --> Proposals[("action_proposals")]
   Incident --> Approvals[("emisar_approvals")]
   Incident --> Publication[("publications")]
+  Publication --> PublicationFollowup[("publication_followups")]
+  PublicationFollowup --> PublicationEvents[("publication_lifecycle_events")]
 
   Signals --> Remediation["derived remediation record"]
   AgentRuns --> Remediation
@@ -632,6 +637,7 @@ flowchart TB
   Proposals --> Remediation
   Approvals --> Remediation
   Publication --> Remediation
+  PublicationEvents --> Timeline
   Remediation --> SlackViews["timeline / handoff / postmortem"]
 
   ChannelMemory[("channel_memories")] --> Evaluation

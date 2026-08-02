@@ -233,6 +233,7 @@ The customer journeys are distributed across package tests at the boundary that 
 | Scheduled tasks are typed, confirmed, DST-aware, non-overlapping, restart-safe, and dispatched through the normal agent pipeline | `internal/service/schedule_test.go`, `internal/store/schedule_test.go`, `internal/slackui/message_test.go`, `testdata/eval/proactive.jsonl` |
 | Evidence, coverage, approvals, and Slack controls are host validated | `internal/service/report_test.go`, `internal/slackui/message_test.go` |
 | Draft PR publication uses the exact reviewed task tree and is unavailable to incidents | `internal/service/customer_journey_test.go`, `internal/publisher/github_test.go` |
+| Published tasks follow GitHub checks and merge state, deduplicate replays, and route exactly matched deployment/Terraform signals back to the original thread | `internal/publisher/github_test.go`, `internal/store/lifecycle_test.go`, `internal/service/service_test.go`, `internal/slackui/message_test.go` |
 | Interrupted work resumes, retries remain bounded, and cleanup preserves unpublished changes | `internal/service/service_test.go`, `internal/store/work_test.go` |
 | Resolved work whose Slack room was deleted is closed and ownership-checked before cleanup | `internal/store/lifecycle_test.go`, `internal/service/service_test.go` |
 | Slack app manifest, scopes, membership diagnostics, and managed Coop supervision remain usable | `internal/slackui/client_test.go`, `internal/app/coop_supervisor_test.go` |

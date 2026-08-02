@@ -447,6 +447,14 @@ uses only read-only tools to verify the live effect before posting a concise res
 recovery rehydrates unfinished monitors from `responder.db`; transient status-check failures use
 bounded backoff without losing the run identity.
 
+Draft-PR follow-up uses the same durable-worker pattern. `github.followup_interval` controls GitHub
+check and merge polling; `github.delivery_correlation_window` controls how long a merged
+publication remains eligible for exact cross-channel deployment and Terraform correlation. The
+operator can use **Check delivery** in the task thread for an immediate read-only refresh. The
+`publication_followups` row is the current polling cursor, while `publication_lifecycle_events`
+is the deduplicated event ledger used by the task timeline. Neither path grants merge, deploy, or
+infrastructure authority.
+
 ## Evaluation rollout
 
 Use channel or workspace shadow mode before enabling proactive replies broadly:

@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 27
+const currentSchemaVersion = 28
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1379,6 +1379,62 @@ FROM agent_runs AS r
 JOIN commitments AS c ON c.agent_run_id = r.id;
 `
 
+const schemaV28 = `
+CREATE TABLE publication_followups (
+  incident_id TEXT PRIMARY KEY,
+  pr_state TEXT NOT NULL DEFAULT 'open',
+  checks_state TEXT NOT NULL DEFAULT 'unknown',
+  merge_sha TEXT NOT NULL DEFAULT '',
+  merged_at TEXT,
+  next_check_at TEXT NOT NULL,
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NOT NULL DEFAULT '',
+  last_event_key TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(incident_id) REFERENCES publications(incident_id) ON DELETE CASCADE
+);
+
+CREATE INDEX publication_followups_due_idx
+  ON publication_followups(next_check_at, updated_at);
+
+CREATE TABLE publication_lifecycle_events (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  state TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  source_channel_id TEXT NOT NULL DEFAULT '',
+  source_message_ts TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(incident_id) REFERENCES publications(incident_id) ON DELETE CASCADE
+);
+
+CREATE INDEX publication_lifecycle_events_incident_idx
+  ON publication_lifecycle_events(incident_id, created_at);
+
+INSERT INTO publication_followups (
+  incident_id, next_check_at, last_event_key, created_at, updated_at
+)
+SELECT
+  incident_id,
+  updated_at,
+  CASE
+    WHEN incident_id = (
+      SELECT incident_id
+      FROM publications
+      WHERE state = 'published'
+      ORDER BY published_at DESC, updated_at DESC, incident_id DESC
+      LIMIT 1
+    ) THEN ''
+    ELSE 'baseline'
+  END,
+  updated_at,
+  updated_at
+FROM publications
+WHERE state = 'published';
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1407,4 +1463,5 @@ var migrations = []string{
 	schemaV25,
 	schemaV26,
 	schemaV27,
+	schemaV28,
 }

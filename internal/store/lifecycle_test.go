@@ -2,13 +2,80 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
+
+func TestSchemaV28BackfillsPublicationFollowupsWithoutHistoricalSpam(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:27] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO schema_version(version) VALUES (27)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	for index, id := range []string{"inc_old", "inc_latest"} {
+		published := now.Add(time.Duration(index-1) * time.Hour).Format(timestampFormat)
+		if _, err := db.Exec(`
+			INSERT INTO incidents (
+			  id, route, repository, correlation_key, title, status, workflow,
+			  work_kind, work_scope, origin_channel_id, origin_thread_ts,
+			  created_at, updated_at
+			) VALUES (?, 'manual', 'repo', ?, ?, 'active', 'idle',
+			  'engineering_task', 'thread', 'CTASK', ?, ?, ?)`,
+			id, "correlation:"+id, "Task "+id, "1700."+id,
+			published, published,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`
+			INSERT INTO publications (
+			  incident_id, repository, base_branch, head_branch, parent_head,
+			  candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
+			  created_at, updated_at, published_at
+			) VALUES (?, 'owner/repo', 'main', ?, 'parent', 'tree', 'commit', ?, ?, ?,
+			  'published', ?, ?, ?)`,
+			id, "responder/"+id, "0123456789abcdef"+id, 100+index,
+			"https://github.com/owner/repo/pull/"+fmt.Sprint(100+index),
+			published, published, published,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	old, err := st.GetPublicationFollowup(context.Background(), "inc_old")
+	if err != nil || old.LastEventKey != "baseline" {
+		t.Fatalf("historical follow-up = %+v, %v", old, err)
+	}
+	latest, err := st.GetPublicationFollowup(context.Background(), "inc_latest")
+	if err != nil || latest.LastEventKey != "" {
+		t.Fatalf("latest follow-up = %+v, %v", latest, err)
+	}
+}
 
 func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
 	ctx := context.Background()
@@ -46,6 +113,65 @@ func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
 	publication.PublishedAt = time.Now().UTC()
 	if err := st.SavePublication(ctx, publication); err != nil {
 		t.Fatalf("save proved publication: %v", err)
+	}
+}
+
+func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident, _, err := st.CreateEngineeringTask(
+		ctx, "tenant-infra", "source-1", "Reduce Redis pool", "summary", "UOP",
+		"COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	publication := core.Publication{
+		IncidentID: incident.ID, Repository: "owner/tenant-infra", BaseBranch: "main",
+		HeadBranch: "responder/reduce-redis", ParentHead: "parent", CandidateTree: "tree",
+		CommitSHA: "commit", RemoteSHA: "0123456789abcdef", PRNumber: 493,
+		PRURL: "https://github.example/owner/tenant-infra/pull/493",
+		State: "published", PublishedAt: now,
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnsurePublicationFollowup(ctx, incident.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	followup, gotPublication, err := st.NextPublicationFollowup(ctx, now.Add(time.Second))
+	if err != nil || followup.IncidentID != incident.ID || gotPublication.PRNumber != 493 {
+		t.Fatalf("due follow-up = %+v, %+v, %v", followup, gotPublication, err)
+	}
+	followup.PRState = "merged"
+	followup.ChecksState = "passing"
+	followup.MergeSHA = "abcdefabcdef"
+	followup.MergedAt = now
+	followup.NextCheckAt = now.Add(24 * time.Hour)
+	if err := st.SavePublicationFollowup(ctx, followup); err != nil {
+		t.Fatal(err)
+	}
+	contexts, err := st.ListActivePublicationContexts(ctx, now.Add(-time.Hour), 10)
+	if err != nil || len(contexts) != 1 || contexts[0].ThreadTS != "1700.100" ||
+		contexts[0].RepositoryKey != "tenant-infra" || contexts[0].MergeSHA == "" {
+		t.Fatalf("active publication contexts = %+v, %v", contexts, err)
+	}
+	event := core.PublicationLifecycleEvent{
+		ID: "event-1", IncidentID: incident.ID, Kind: "deployment",
+		State: "succeeded", Summary: "Production rollout completed.",
+	}
+	inserted, err := st.RecordPublicationLifecycleEvent(ctx, event)
+	if err != nil || !inserted {
+		t.Fatalf("first lifecycle event = %v, %v", inserted, err)
+	}
+	inserted, err = st.RecordPublicationLifecycleEvent(ctx, event)
+	if err != nil || inserted {
+		t.Fatalf("duplicate lifecycle event = %v, %v", inserted, err)
 	}
 }
 

@@ -907,6 +907,59 @@ func (p Publication) Published() bool {
 	return p.State == "published" && p.PRNumber > 0 && p.PRURL != ""
 }
 
+type PublicationFollowup struct {
+	IncidentID   string
+	PRState      string
+	ChecksState  string
+	MergeSHA     string
+	MergedAt     time.Time
+	NextCheckAt  time.Time
+	FailureCount int
+	LastError    string
+	LastEventKey string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type PublicationContext struct {
+	IncidentID    string `json:"incident_id"`
+	RepositoryKey string `json:"repository_key"`
+	Repository    string `json:"repository"`
+	Title         string `json:"title"`
+	PRNumber      int    `json:"pr_number"`
+	PRURL         string `json:"pr_url"`
+	HeadBranch    string `json:"head_branch"`
+	HeadSHA       string `json:"head_sha"`
+	MergeSHA      string `json:"merge_sha,omitempty"`
+	PRState       string `json:"pr_state"`
+	ChecksState   string `json:"checks_state"`
+	ChannelID     string `json:"channel_id"`
+	ThreadTS      string `json:"thread_ts"`
+}
+
+type PublicationLifecycleEvent struct {
+	ID              string
+	IncidentID      string
+	Kind            string
+	State           string
+	Summary         string
+	SourceChannelID string
+	SourceMessageTS string
+	CreatedAt       time.Time
+}
+
+type PublicationLifecycleStatus struct {
+	PRState      string
+	Draft        bool
+	HeadSHA      string
+	MergeSHA     string
+	ChecksState  string
+	ChecksTotal  int
+	ChecksPassed int
+	ChecksFailed int
+	MergedAt     time.Time
+}
+
 type CoopCleanup struct {
 	SessionID       string
 	IncidentID      string

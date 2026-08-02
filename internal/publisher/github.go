@@ -310,6 +310,122 @@ func (g *GitHub) VerifyPublication(
 	return nil
 }
 
+func (g *GitHub) PublicationStatus(
+	ctx context.Context,
+	publication core.Publication,
+) (core.PublicationLifecycleStatus, error) {
+	if !g.Enabled() {
+		return core.PublicationLifecycleStatus{}, errors.New("GitHub publication status is not enabled")
+	}
+	if publication.Repository == "" || publication.PRNumber < 1 {
+		return core.PublicationLifecycleStatus{}, errors.New("publication identity is incomplete")
+	}
+	token, err := g.token(ctx)
+	if err != nil {
+		return core.PublicationLifecycleStatus{}, err
+	}
+	var current pullRequest
+	path := "/repos/" + publication.Repository + "/pulls/" +
+		strconv.Itoa(publication.PRNumber)
+	if err := g.api(ctx, token, http.MethodGet, path, nil, &current); err != nil {
+		return core.PublicationLifecycleStatus{}, fmt.Errorf("inspect published pull request: %w", err)
+	}
+	status := core.PublicationLifecycleStatus{
+		PRState: current.State, Draft: current.Draft, HeadSHA: current.Head.SHA,
+		MergeSHA: current.MergeCommitSHA, MergedAt: current.MergedAt,
+	}
+	if current.Merged {
+		status.PRState = "merged"
+	}
+	if status.HeadSHA == "" {
+		status.HeadSHA = publication.RemoteSHA
+	}
+	if status.HeadSHA == "" {
+		status.ChecksState = "unknown"
+		return status, nil
+	}
+	checks, err := g.commitChecks(ctx, token, publication.Repository, status.HeadSHA)
+	if err != nil {
+		return core.PublicationLifecycleStatus{}, err
+	}
+	status.ChecksState = checks.state
+	status.ChecksTotal = checks.total
+	status.ChecksPassed = checks.passed
+	status.ChecksFailed = checks.failed
+	return status, nil
+}
+
+type commitCheckSummary struct {
+	state  string
+	total  int
+	passed int
+	failed int
+}
+
+func (g *GitHub) commitChecks(
+	ctx context.Context,
+	token string,
+	repository string,
+	sha string,
+) (commitCheckSummary, error) {
+	var checkRuns struct {
+		CheckRuns []struct {
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+		} `json:"check_runs"`
+	}
+	path := "/repos/" + repository + "/commits/" + sha + "/check-runs?per_page=100"
+	if err := g.api(ctx, token, http.MethodGet, path, nil, &checkRuns); err != nil {
+		return commitCheckSummary{}, fmt.Errorf("inspect GitHub checks: %w", err)
+	}
+	var combined struct {
+		Statuses []struct {
+			State string `json:"state"`
+		} `json:"statuses"`
+	}
+	path = "/repos/" + repository + "/commits/" + sha + "/status"
+	if err := g.api(ctx, token, http.MethodGet, path, nil, &combined); err != nil {
+		return commitCheckSummary{}, fmt.Errorf("inspect GitHub commit statuses: %w", err)
+	}
+	result := commitCheckSummary{}
+	pending := 0
+	for _, check := range checkRuns.CheckRuns {
+		result.total++
+		if check.Status != "completed" || check.Conclusion == "" {
+			pending++
+			continue
+		}
+		switch check.Conclusion {
+		case "success", "neutral", "skipped":
+			result.passed++
+		default:
+			result.failed++
+		}
+	}
+	for _, check := range combined.Statuses {
+		result.total++
+		switch check.State {
+		case "success":
+			result.passed++
+		case "failure", "error":
+			result.failed++
+		default:
+			pending++
+		}
+	}
+	switch {
+	case result.failed > 0:
+		result.state = "failing"
+	case pending > 0:
+		result.state = "pending"
+	case result.total > 0:
+		result.state = "passing"
+	default:
+		result.state = "none"
+	}
+	return result, nil
+}
+
 func (g *GitHub) token(ctx context.Context) (string, error) {
 	if g.cfg.TokenEnv != "" {
 		if token := strings.TrimSpace(os.Getenv(g.cfg.TokenEnv)); token != "" {
@@ -415,10 +531,14 @@ func (g *GitHub) remoteRef(
 }
 
 type pullRequest struct {
-	Number  int    `json:"number"`
-	HTMLURL string `json:"html_url"`
-	Draft   bool   `json:"draft"`
-	Head    struct {
+	Number         int       `json:"number"`
+	HTMLURL        string    `json:"html_url"`
+	State          string    `json:"state"`
+	Draft          bool      `json:"draft"`
+	Merged         bool      `json:"merged"`
+	MergeCommitSHA string    `json:"merge_commit_sha"`
+	MergedAt       time.Time `json:"merged_at"`
+	Head           struct {
 		Ref string `json:"ref"`
 		SHA string `json:"sha"`
 	} `json:"head"`

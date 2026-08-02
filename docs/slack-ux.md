@@ -444,8 +444,15 @@ Card buttons change with state rather than presenting actions that cannot succee
   approved tree in an isolated checkout, and publishes only a lease-protected Responder branch.
   Repositories without `gate:` can still publish a draft PR after a clean rebase and policy review;
   the result warns that repository-defined validation was not run.
-  After publication the task shows **View draft PR** and **Update draft PR**. These controls cannot
-  merge or deploy.
+  After publication the task shows **Open PR** and **Check delivery**. Responder polls GitHub for
+  check and merge transitions without occupying a model turn. After merge, matching deployment and
+  Terraform app messages from other watched channels return to the original task thread only when
+  the source message contains that publication's exact PR, branch, head SHA, or merge SHA. Loose
+  topic, repository-name, and timing matches are rejected. An exact reference activates this
+  correlation path even when ordinary proactive participation is off in the source channel; other
+  app messages retain the channel's configured behavior. The poll interval and post-merge
+  correlation window are configured under `github`; **Check delivery** refreshes GitHub state
+  immediately. These controls cannot merge or deploy.
 - **Stop current run** cancels only the active agent turn. The session, queue, and fork remain.
 - **Close incident/task** closes the Coop session. Clean zero-change or durably published workspace
   state is reclaimed after the configured grace period; dirty or unpublished changes are retained.

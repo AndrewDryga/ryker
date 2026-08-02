@@ -174,6 +174,13 @@ func (s *Service) publishDraftPR(
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
+	if err := s.store.EnsurePublicationFollowup(
+		ctx, record.IncidentID,
+		time.Now().UTC().Add(s.cfg.GitHub.FollowupInterval.Duration),
+	); err != nil {
+		s.clearNativeStatus(ctx, incident)
+		return err
+	}
 	_ = s.store.Audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "publication.draft_pr",
 		ActorID: input.UserID, ObjectID: fmt.Sprintf("%s#%d", record.Repository, record.PRNumber),

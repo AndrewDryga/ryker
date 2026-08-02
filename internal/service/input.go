@@ -350,7 +350,15 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		if directRequest || conversationFollowup {
 			watched = true
 		} else {
-			watched, err = s.proactiveEnabled(ctx, input.ChannelID)
+			if input.Kind == "bot_message" {
+				watched, err = s.inputReferencesActivePublication(ctx, input)
+				if err != nil {
+					return s.retrySlackInput(ctx, input, err)
+				}
+			}
+			if !watched {
+				watched, err = s.proactiveEnabled(ctx, input.ChannelID)
+			}
 			if err != nil {
 				return s.retrySlackInput(ctx, input, err)
 			}
@@ -515,6 +523,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			input.ActionID != slackui.ActionChangesRefresh &&
 			input.ActionID != slackui.ActionReview &&
 			input.ActionID != slackui.ActionViewPR &&
+			input.ActionID != slackui.ActionCheckDelivery &&
 			input.ActionID != slackui.ActionDiscardWork {
 			return s.finishSlashInput(
 				ctx,
@@ -1134,6 +1143,8 @@ func (s *Service) handleControl(
 		return s.publishDraftPR(ctx, input, incident)
 	case slackui.ActionViewPR:
 		return nil
+	case slackui.ActionCheckDelivery:
+		return s.checkPublicationFollowup(ctx, input, incident)
 	case slackui.ActionDiscardWork:
 		return s.discardRetainedWork(ctx, input, incident)
 	case slackui.ActionStop:

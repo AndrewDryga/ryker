@@ -158,13 +158,15 @@ func (c Config) RepositoryContextKeys() []string {
 }
 
 type GitHubConfig struct {
-	Enabled      bool   `yaml:"enabled"`
-	APIURL       string `yaml:"api_url"`
-	TokenEnv     string `yaml:"token_env"`
-	UseCLIAuth   bool   `yaml:"use_gh_cli_auth"`
-	BranchPrefix string `yaml:"branch_prefix"`
-	CommitName   string `yaml:"commit_name"`
-	CommitEmail  string `yaml:"commit_email"`
+	Enabled                   bool     `yaml:"enabled"`
+	APIURL                    string   `yaml:"api_url"`
+	TokenEnv                  string   `yaml:"token_env"`
+	UseCLIAuth                bool     `yaml:"use_gh_cli_auth"`
+	BranchPrefix              string   `yaml:"branch_prefix"`
+	CommitName                string   `yaml:"commit_name"`
+	CommitEmail               string   `yaml:"commit_email"`
+	FollowupInterval          Duration `yaml:"followup_interval"`
+	DeliveryCorrelationWindow Duration `yaml:"delivery_correlation_window"`
 }
 
 type RetentionConfig struct {
@@ -295,11 +297,13 @@ func defaults() Config {
 				"When repository changes are justified, explain the change and let Responder offer an operator-confirmed engineering task. Ask a concise question when operator input is required.",
 		},
 		GitHub: GitHubConfig{
-			APIURL:       "https://api.github.com",
-			TokenEnv:     "GITHUB_TOKEN",
-			BranchPrefix: "responder",
-			CommitName:   "Emisar Responder",
-			CommitEmail:  "responder@emisar.dev",
+			APIURL:                    "https://api.github.com",
+			TokenEnv:                  "GITHUB_TOKEN",
+			BranchPrefix:              "responder",
+			CommitName:                "Emisar Responder",
+			CommitEmail:               "responder@emisar.dev",
+			FollowupInterval:          Duration{2 * time.Minute},
+			DeliveryCorrelationWindow: Duration{14 * 24 * time.Hour},
 		},
 		Retention: RetentionConfig{
 			MaintenanceInterval: Duration{time.Minute},
@@ -746,6 +750,14 @@ func validateGitHub(c GitHubConfig) error {
 	if strings.TrimSpace(c.CommitEmail) == "" || strings.ContainsAny(c.CommitEmail, "\r\n<>") ||
 		!strings.Contains(c.CommitEmail, "@") {
 		return errors.New("commit_email must be an email address")
+	}
+	if c.FollowupInterval.Duration < 30*time.Second ||
+		c.FollowupInterval.Duration > time.Hour {
+		return errors.New("followup_interval must be between 30s and 1h")
+	}
+	if c.DeliveryCorrelationWindow.Duration < time.Hour ||
+		c.DeliveryCorrelationWindow.Duration > 90*24*time.Hour {
+		return errors.New("delivery_correlation_window must be between 1h and 2160h")
 	}
 	return nil
 }

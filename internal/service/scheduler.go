@@ -27,6 +27,7 @@ const (
 	workCoopPoll         = "coop_poll"
 	workMaintenance      = "maintenance"
 	workScheduledTask    = "scheduled_task"
+	workPublicationTrack = "publication_followup"
 	schedulerSingletonID = "drain"
 )
 
@@ -76,6 +77,7 @@ func (s *Service) seedScheduledWork(ctx context.Context) error {
 		{Kind: workIncidentDiscover, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 25},
 		{Kind: workAgentRun, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 50},
 		{Kind: workScheduledTask, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 45},
+		{Kind: workPublicationTrack, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 47},
 		{Kind: workCoopPoll, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 60},
 		{Kind: workMaintenance, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 10},
 	}
@@ -253,7 +255,8 @@ func recurringScheduledWork(kind string) bool {
 		workAgentFinalize,
 		workCoopPoll,
 		workMaintenance,
-		workScheduledTask:
+		workScheduledTask,
+		workPublicationTrack:
 		return true
 	default:
 		return false
@@ -266,6 +269,8 @@ func (s *Service) scheduledIdleDelay(kind string) time.Duration {
 		return s.cfg.Coop.PollInterval.Duration
 	case workSlackMembership:
 		return time.Minute
+	case workPublicationTrack:
+		return s.cfg.GitHub.FollowupInterval.Duration
 	case workMaintenance:
 		return s.cfg.Retention.MaintenanceInterval.Duration
 	default:
@@ -309,6 +314,8 @@ func (s *Service) runScheduledWork(
 		return store.ErrNotFound
 	case workScheduledTask:
 		return s.processScheduledTasks(ctx)
+	case workPublicationTrack:
+		return s.processPublicationFollowup(ctx)
 	default:
 		return fmt.Errorf("unsupported scheduled work kind %q", item.Kind)
 	}
