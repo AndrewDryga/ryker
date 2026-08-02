@@ -4205,6 +4205,16 @@ func TestStructuredCorrectionBudgetIsBounded(t *testing.T) {
 	}
 }
 
+func TestWatchStructuredCorrectionBudgetIsIndependentFromRunFailures(t *testing.T) {
+	state := watchTurnState{}
+	if consumeWatchStructuredCorrection(&state, 20) ||
+		consumeWatchStructuredCorrection(&state, 20) ||
+		!consumeWatchStructuredCorrection(&state, 20) ||
+		state.StructuredCorrections != 3 {
+		t.Fatalf("watch correction state = %+v", state)
+	}
+}
+
 func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

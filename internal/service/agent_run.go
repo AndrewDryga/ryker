@@ -1032,8 +1032,8 @@ func (s *Service) stagePolledAgentRunTerminal(
 		}
 		if decisionErr != nil {
 			correction := "the structured Slack response is invalid: " + trimError(decisionErr)
-			if !terminalStructuredCorrection(
-				run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+			if !consumeWatchStructuredCorrection(
+				&state, s.cfg.Limits.MaxAgentRunAttempts,
 			) {
 				state.FailureDetail = correction
 				contextJSON, marshalErr := json.Marshal(state)
@@ -1103,8 +1103,8 @@ func (s *Service) stagePolledAgentRunTerminal(
 				}
 			}
 			if correction != "" {
-				if !terminalStructuredCorrection(
-					run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+				if !consumeWatchStructuredCorrection(
+					&state, s.cfg.Limits.MaxAgentRunAttempts,
 				) {
 					state.FailureDetail = correction
 					contextJSON, marshalErr := json.Marshal(state)
@@ -1191,6 +1191,11 @@ func terminalStructuredCorrection(attempt, maximum int) bool {
 	const maximumStructuredCorrections = 3
 
 	return terminalAttempt(attempt, min(maximum, maximumStructuredCorrections))
+}
+
+func consumeWatchStructuredCorrection(state *watchTurnState, maximum int) bool {
+	state.StructuredCorrections++
+	return terminalStructuredCorrection(state.StructuredCorrections, maximum)
 }
 
 func (s *Service) advanceTriageSessionEvents(
