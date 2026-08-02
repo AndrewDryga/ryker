@@ -360,6 +360,7 @@ func (s *Service) persistAgentReport(
 		report.ScheduleOffer.Title = s.cleanStructuredField(report.ScheduleOffer.Title, 160)
 		report.ScheduleOffer.Prompt = s.cleanStructuredField(report.ScheduleOffer.Prompt, 1200)
 		report.ScheduleOffer.Repository = s.cleanStructuredField(report.ScheduleOffer.Repository, 63)
+		report.ScheduleOffer.DeliveryChannel = s.cleanStructuredField(report.ScheduleOffer.DeliveryChannel, 64)
 		report.ScheduleOffer.Recurrence = s.cleanStructuredField(report.ScheduleOffer.Recurrence, 20)
 		report.ScheduleOffer.StartAt = s.cleanStructuredField(report.ScheduleOffer.StartAt, 40)
 		report.ScheduleOffer.LocalTime = s.cleanStructuredField(report.ScheduleOffer.LocalTime, 5)
@@ -820,6 +821,7 @@ func structuredResponseInstructions() string {
     "title": "short task title",
     "prompt": "self-contained task to execute on each occurrence",
     "repository": "exact configured repository key",
+	"delivery_channel_id": "exact Slack channel ID when the user requests delivery somewhere other than the current conversation",
     "recurrence": "once|interval|daily|weekly|monthly",
     "start_at": "future RFC3339; required for once, optional otherwise",
     "interval_seconds": 3600,

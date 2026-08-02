@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -29,12 +30,14 @@ func (f *scheduleSlack) UserAllowed(_ context.Context, userID, teamID string) (b
 
 func TestScheduleOfferRequiresOperatorIntentAndNormalizesTypedCalendar(t *testing.T) {
 	cfg := serviceConfig(t)
-	s := &Service{cfg: cfg}
+	s := &Service{cfg: cfg, slack: &fakeSlack{channel: slackui.Channel{
+		ID: "CREPORT", Name: "health-reports", Member: true,
+	}}}
 	start := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
 	input := core.SlackInput{ID: "slack_schedule", EventID: "EvSchedule", TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1", UserID: cfg.Slack.Operators[0], Text: "Every Monday at 09:00 schedule a deep production health report."}
-	offer := &core.ScheduleOffer{Title: "Weekly production health", Prompt: "Run a deep production health check and report material changes.", Repository: "repo", Recurrence: "weekly", StartAt: start.Format(time.RFC3339), Weekdays: []string{"monday"}, LocalTime: "09:00", Timezone: "UTC", CatchUp: "latest", ExpiresIn: "90d"}
+	offer := &core.ScheduleOffer{Title: "Weekly production health", Prompt: "Run a deep production health check and report material changes.", Repository: "repo", DeliveryChannel: "CREPORT", Recurrence: "weekly", StartAt: start.Format(time.RFC3339), Weekdays: []string{"monday"}, LocalTime: "09:00", Timezone: "UTC", CatchUp: "latest", ExpiresIn: "90d"}
 	value, task, when, ok := s.prepareScheduleOfferAction(context.Background(), input, offer)
-	if !ok || !strings.Contains(value, `"version":1`) || !strings.Contains(value, `"expires_in":"90d"`) || task.ChannelID != "COPS" || task.ThreadTS != "100.1" || task.Recurrence != "weekly" || !strings.Contains(when, "monday") {
+	if !ok || !strings.Contains(value, `"version":1`) || !strings.Contains(value, `"expires_in":"90d"`) || task.ChannelID != "COPS" || task.DeliveryChannel != "CREPORT" || task.ThreadTS != "100.1" || task.Recurrence != "weekly" || !strings.Contains(when, "monday") {
 		t.Fatalf("schedule offer = ok=%t value=%q task=%+v when=%q", ok, value, task, when)
 	}
 	var payload scheduleActionPayload
@@ -167,7 +170,8 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 	now := time.Now().UTC()
 	task, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
 		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1",
-		Repository: "repo", Title: "Production health", Prompt: "Check production health.",
+		DeliveryChannel: "CREPORT",
+		Repository:      "repo", Title: "Production health", Prompt: "Check production health.",
 		Recurrence: "once", StartAt: now, NextRunAt: now, Timezone: "UTC",
 		CatchUp: "latest", ActorID: cfg.Slack.Operators[0], SourceRef: "EvSchedule",
 		ExpiresAt: now.Add(7 * 24 * time.Hour),
@@ -176,6 +180,7 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	slack := &scheduleSlack{t: t, wantUser: task.ActorID, wantTeam: task.TeamID}
+	slack.channel = slackui.Channel{ID: "CREPORT", Name: "health-reports", Member: true}
 	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
 	if err := svc.processScheduledTasks(ctx); err != nil {
 		t.Fatal(err)
@@ -185,12 +190,18 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 		t.Fatalf("scheduled runs = %+v, err=%v", runs, err)
 	}
 	agent, err := st.GetAgentRun(ctx, runs[0].AgentRunID)
-	if err != nil || agent.SourceKind != "watch" || agent.SourceID != runs[0].SourceInput || agent.ChannelID != task.ChannelID {
+	if err != nil || agent.SourceKind != "watch" || agent.SourceID != runs[0].SourceInput || agent.ChannelID != task.DeliveryChannel {
 		t.Fatalf("agent run = %+v, err=%v", agent, err)
 	}
 	input, err := st.GetSlackInput(ctx, runs[0].SourceInput)
-	if err != nil || input.Kind != "scheduled" || input.Text != task.Prompt {
+	if err != nil || input.Kind != "scheduled" || input.Text != task.Prompt || input.ChannelID != task.DeliveryChannel || input.ThreadTS != "" {
 		t.Fatalf("synthetic input = %+v, err=%v", input, err)
+	}
+	var state watchTurnState
+	if err := json.Unmarshal(input.Frozen, &state); err != nil ||
+		!state.RepositoryPinned || state.Repository != task.Repository ||
+		state.ResponseThreadTS != "" {
+		t.Fatalf("scheduled state = %+v, err=%v", state, err)
 	}
 	if err := svc.processScheduledTasks(ctx); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("second scheduler pass = %v, want no due work", err)

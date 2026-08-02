@@ -95,6 +95,7 @@ func (s *Service) prepareScheduleOfferAction(
 	offer.Title = task.Title
 	offer.Prompt = task.Prompt
 	offer.Repository = task.Repository
+	offer.DeliveryChannel = task.DeliveryChannel
 	offer.Recurrence = task.Recurrence
 	offer.StartAt = task.StartAt.Format(time.RFC3339)
 	offer.IntervalSeconds = task.IntervalSeconds
@@ -125,6 +126,7 @@ func (s *Service) scheduledTaskFromOffer(
 	offer.Title = strings.TrimSpace(offer.Title)
 	offer.Prompt = strings.TrimSpace(offer.Prompt)
 	offer.Repository = strings.ToLower(strings.TrimSpace(offer.Repository))
+	offer.DeliveryChannel = strings.TrimSpace(offer.DeliveryChannel)
 	offer.Recurrence = strings.ToLower(strings.TrimSpace(offer.Recurrence))
 	offer.Timezone = strings.TrimSpace(offer.Timezone)
 	offer.LocalTime = strings.TrimSpace(offer.LocalTime)
@@ -151,6 +153,18 @@ func (s *Service) scheduledTaskFromOffer(
 	if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
 		return core.ScheduledTask{}, fmt.Errorf("repository %q is not configured", offer.Repository)
 	}
+	if offer.DeliveryChannel == "" {
+		offer.DeliveryChannel = input.ChannelID
+	}
+	if offer.DeliveryChannel != input.ChannelID {
+		channel, channelErr := s.slack.GetChannel(ctx, offer.DeliveryChannel)
+		if channelErr != nil {
+			return core.ScheduledTask{}, fmt.Errorf("read scheduled delivery channel: %w", channelErr)
+		}
+		if channel.ID != offer.DeliveryChannel || channel.Archived || !channel.Member {
+			return core.ScheduledTask{}, errors.New("Emisar must be an active member of the scheduled delivery channel")
+		}
+	}
 	if containsSecretLikeValue(offer.Prompt) {
 		return core.ScheduledTask{}, errors.New("scheduled task cannot contain a credential-like value")
 	}
@@ -160,7 +174,8 @@ func (s *Service) scheduledTaskFromOffer(
 	}
 	task := core.ScheduledTask{
 		TeamID: s.cfg.Slack.TeamID, ChannelID: input.ChannelID,
-		ThreadTS: conversationalResponseThread(input), Repository: offer.Repository,
+		ThreadTS:        conversationalResponseThread(input),
+		DeliveryChannel: offer.DeliveryChannel, Repository: offer.Repository,
 		Title: offer.Title, Prompt: offer.Prompt, Recurrence: offer.Recurrence,
 		IntervalSeconds: offer.IntervalSeconds,
 		DayOfMonth:      offer.DayOfMonth, LocalTime: offer.LocalTime,
@@ -551,9 +566,15 @@ func (s *Service) processScheduledTasks(ctx context.Context) error {
 func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.ScheduledTask, occurrence core.ScheduledTaskRun) error {
 	input, err := s.store.GetSlackInput(ctx, occurrence.SourceInput)
 	if errors.Is(err, store.ErrNotFound) {
+		deliveryChannel := firstNonempty(task.DeliveryChannel, task.ChannelID)
+		deliveryThread := task.ThreadTS
+		if deliveryChannel != task.ChannelID {
+			deliveryThread = ""
+		}
 		state := watchTurnState{
 			Lane: "investigation", Repository: task.Repository,
-			ResponseThreadTS: task.ThreadTS, RouteCaptured: true,
+			RepositoryPinned: true,
+			ResponseThreadTS: deliveryThread, RouteCaptured: true,
 			RulesCaptured: true, ConversationFollowup: true,
 		}
 		frozen, marshalErr := json.Marshal(state)
@@ -563,7 +584,7 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 		input = core.SlackInput{
 			ID: occurrence.SourceInput, EnvelopeID: occurrence.SourceInput,
 			EventID: occurrence.SourceInput, Kind: "scheduled", TeamID: task.TeamID,
-			ChannelID: task.ChannelID, ThreadTS: task.ThreadTS, UserID: task.ActorID,
+			ChannelID: deliveryChannel, ThreadTS: deliveryThread, UserID: task.ActorID,
 			Text: task.Prompt, Frozen: frozen, ReceivedAt: occurrence.ScheduledFor,
 		}
 		admitted, admitErr := s.store.AdmitSyntheticSlackInput(ctx, input)

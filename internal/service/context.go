@@ -17,6 +17,7 @@ import (
 type agentContextRequest struct {
 	ChannelID          string
 	Repository         string
+	RepositoryPinned   bool
 	OperatorID         string
 	SourceInputID      string
 	TargetInput        *core.SlackInput
@@ -56,12 +57,16 @@ func (s *Service) assembleAgentContext(
 	ctx context.Context,
 	request agentContextRequest,
 ) (assembledAgentContext, error) {
-	repository, err := s.effectiveRepository(
-		ctx,
-		request.ChannelID,
-		request.OperatorID,
-		request.Repository,
-	)
+	repository := request.Repository
+	var err error
+	if !request.RepositoryPinned {
+		repository, err = s.effectiveRepository(
+			ctx,
+			request.ChannelID,
+			request.OperatorID,
+			request.Repository,
+		)
+	}
 	if err != nil {
 		return assembledAgentContext{}, err
 	}

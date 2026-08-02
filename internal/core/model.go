@@ -434,6 +434,7 @@ type ScheduleOffer struct {
 	Title           string   `json:"title"`
 	Prompt          string   `json:"prompt"`
 	Repository      string   `json:"repository"`
+	DeliveryChannel string   `json:"delivery_channel_id,omitempty"`
 	Recurrence      string   `json:"recurrence"`
 	StartAt         string   `json:"start_at"`
 	IntervalSeconds int64    `json:"interval_seconds,omitempty"`
@@ -450,6 +451,7 @@ type ScheduledTask struct {
 	TeamID          string
 	ChannelID       string
 	ThreadTS        string
+	DeliveryChannel string
 	Repository      string
 	Title           string
 	Prompt          string

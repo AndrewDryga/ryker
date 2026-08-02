@@ -748,8 +748,9 @@ func WithScheduleOffer(
 ) Message {
 	message.Text = conditionalScheduleOfferLead(message.Text)
 	message.Markdown = conditionalScheduleOfferLead(message.Markdown)
-	destination := "this channel"
-	if task.ThreadTS != "" {
+	destination := "<#" + firstNonemptyUI(task.DeliveryChannel, task.ChannelID) + ">"
+	if task.ThreadTS != "" &&
+		firstNonemptyUI(task.DeliveryChannel, task.ChannelID) == task.ChannelID {
 		destination = "this thread"
 	}
 	message.Sections = append(message.Sections, fmt.Sprintf(
@@ -825,10 +826,14 @@ func scheduleDirectoryActions(task core.ScheduledTask, number int) []Action {
 }
 
 func ScheduleSavedMessage(task core.ScheduledTask) Message {
+	destination := "<#" + firstNonemptyUI(task.DeliveryChannel, task.ChannelID) + ">"
+	if task.ThreadTS != "" && firstNonemptyUI(task.DeliveryChannel, task.ChannelID) == task.ChannelID {
+		destination = "this thread"
+	}
 	return Message{
 		Text:     "Scheduled " + task.Title + ". Next run: " + task.NextRunAt.Format(time.RFC3339),
 		Header:   "Scheduled task created",
-		Sections: []string{fmt.Sprintf("*%s*\n%s\n\nNext run: %s\nRepository: `%s`", escapeSlackText(task.Title), escapeSlackText(task.Prompt), task.NextRunAt.In(timeLocation(task.Timezone)).Format("Mon, 02 Jan 2006 15:04 MST"), safeInlineCode(task.Repository))},
+		Sections: []string{fmt.Sprintf("*%s*\n%s\n\nNext run: %s\nDelivery: %s\nRepository: `%s`", escapeSlackText(task.Title), escapeSlackText(task.Prompt), task.NextRunAt.In(timeLocation(task.Timezone)).Format("Mon, 02 Jan 2006 15:04 MST"), destination, safeInlineCode(task.Repository))},
 		Context:  []string{"I’ll run only one copy at a time. Each occurrence uses current access and approval rules."},
 		Actions:  scheduleActions(task),
 	}

@@ -13,7 +13,7 @@ import (
 )
 
 const scheduledTaskSelect = `
-	SELECT id, team_id, channel_id, thread_ts, repository, title, prompt,
+	SELECT id, team_id, channel_id, thread_ts, delivery_channel_id, repository, title, prompt,
 	  recurrence, start_at, interval_seconds, weekdays_json, day_of_month,
 	  local_time, timezone, catch_up, enabled, actor_id, source_ref,
 	  next_run_at, last_run_at, last_outcome, expires_at, created_at, updated_at
@@ -80,12 +80,13 @@ func (s *Store) CreateScheduledTask(
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO scheduled_tasks (
-		  id, team_id, channel_id, thread_ts, repository, title, prompt,
+		  id, team_id, channel_id, thread_ts, delivery_channel_id, repository, title, prompt,
 		  recurrence, start_at, interval_seconds, weekdays_json, day_of_month,
 		  local_time, timezone, catch_up, enabled, actor_id, source_ref,
 		  next_run_at, last_outcome, expires_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, '', ?, ?, ?)`,
-		task.ID, task.TeamID, task.ChannelID, task.ThreadTS, task.Repository,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, '', ?, ?, ?)`,
+		task.ID, task.TeamID, task.ChannelID, task.ThreadTS,
+		firstNonemptySchedule(task.DeliveryChannel, task.ChannelID), task.Repository,
 		task.Title, task.Prompt, task.Recurrence,
 		task.StartAt.UTC().Format(timestampFormat), task.IntervalSeconds, weekdays,
 		task.DayOfMonth, task.LocalTime, task.Timezone, task.CatchUp,
@@ -113,6 +114,7 @@ func validateScheduledTask(task core.ScheduledTask) error {
 		}
 	}
 	if len(task.TeamID) > 64 || len(task.ChannelID) > 64 || len(task.ThreadTS) > 64 ||
+		len(task.DeliveryChannel) > 64 ||
 		len(task.Repository) > 63 || len(task.Title) > 160 || len(task.Prompt) > 1200 ||
 		len(task.ActorID) > 64 || len(task.SourceRef) > 200 {
 		return errors.New("scheduled task contains an oversized field")
@@ -355,7 +357,12 @@ func scanScheduledTask(row rowScanner) (core.ScheduledTask, error) {
 	var startAt, nextRun, lastRun, expiresAt, createdAt, updatedAt sql.NullString
 	var weekdays []byte
 	var enabled int
-	err := row.Scan(&task.ID, &task.TeamID, &task.ChannelID, &task.ThreadTS, &task.Repository, &task.Title, &task.Prompt, &task.Recurrence, &startAt, &task.IntervalSeconds, &weekdays, &task.DayOfMonth, &task.LocalTime, &task.Timezone, &task.CatchUp, &enabled, &task.ActorID, &task.SourceRef, &nextRun, &lastRun, &task.LastOutcome, &expiresAt, &createdAt, &updatedAt)
+	err := row.Scan(&task.ID, &task.TeamID, &task.ChannelID, &task.ThreadTS,
+		&task.DeliveryChannel, &task.Repository, &task.Title, &task.Prompt,
+		&task.Recurrence, &startAt, &task.IntervalSeconds, &weekdays,
+		&task.DayOfMonth, &task.LocalTime, &task.Timezone, &task.CatchUp,
+		&enabled, &task.ActorID, &task.SourceRef, &nextRun, &lastRun,
+		&task.LastOutcome, &expiresAt, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.ScheduledTask{}, ErrNotFound
 	}
@@ -385,6 +392,15 @@ func scanScheduledTasks(rows *sql.Rows) ([]core.ScheduledTask, error) {
 		result = append(result, task)
 	}
 	return result, rows.Err()
+}
+
+func firstNonemptySchedule(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func parseNullTime(value sql.NullString) time.Time {

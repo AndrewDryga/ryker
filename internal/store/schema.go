@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 28
+const currentSchemaVersion = 29
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1435,6 +1435,13 @@ FROM publications
 WHERE state = 'published';
 `
 
+const schemaV29 = `
+ALTER TABLE scheduled_tasks ADD COLUMN delivery_channel_id TEXT NOT NULL DEFAULT '';
+UPDATE scheduled_tasks
+SET delivery_channel_id = channel_id
+WHERE delivery_channel_id = '';
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1464,4 +1471,5 @@ var migrations = []string{
 	schemaV26,
 	schemaV27,
 	schemaV28,
+	schemaV29,
 }
