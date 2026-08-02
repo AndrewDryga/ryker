@@ -127,7 +127,13 @@ run_watch() {
     "$repository/scripts/quality-watch.sh" "${@:2}"
 }
 
+mkdir -p "$state_dir/quality-watch/lock"
+printf '999999\n' >"$state_dir/quality-watch/lock/pid"
 run_watch clean --from-now --once
+if [[ -d "$state_dir/quality-watch/lock" ]]; then
+  printf 'quality-watch test: stale lock was not reclaimed\n' >&2
+  exit 1
+fi
 sqlite3 "$state_dir/responder.db" <<'SQL'
 INSERT INTO slack_inputs (
   id, kind, channel_id, thread_ts, user_id, message_ts, text, state,

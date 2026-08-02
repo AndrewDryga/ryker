@@ -177,6 +177,43 @@ cleanup_worktree() {
   git -C "$repository" branch -D "$branch" >/dev/null 2>&1 || true
 }
 
+acquire_lock() {
+  if mkdir "$lock_dir" 2>/dev/null; then
+    printf '%s\n' "$$" >"$lock_dir/pid"
+    return 0
+  fi
+
+  local owner command stale
+  owner=$(cat "$lock_dir/pid" 2>/dev/null || true)
+  if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
+    command=$(ps -p "$owner" -o command= 2>/dev/null || true)
+    if [[ "$command" == *quality-watch.sh* ]]; then
+      return 1
+    fi
+  fi
+
+  stale="$lock_dir.stale.$$"
+  if ! mv "$lock_dir" "$stale" 2>/dev/null; then
+    return 1
+  fi
+  rm -f "$stale/pid"
+  rmdir "$stale" 2>/dev/null || return 1
+  if ! mkdir "$lock_dir" 2>/dev/null; then
+    return 1
+  fi
+  printf '%s\n' "$$" >"$lock_dir/pid"
+}
+
+release_lock() {
+  local owner
+  owner=$(cat "$lock_dir/pid" 2>/dev/null || true)
+  if [[ "$owner" != "$$" ]]; then
+    return
+  fi
+  rm -f "$lock_dir/pid"
+  rmdir "$lock_dir" 2>/dev/null || true
+}
+
 codex_args() {
   local sandbox=$1
   CODEX_ARGS=(
@@ -576,10 +613,10 @@ LIMIT $batch_size;"
   advance_from_batch "$batch_path"
 }
 
-if ! mkdir "$lock_dir" 2>/dev/null; then
+if ! acquire_lock; then
   exit 0
 fi
-trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT INT TERM
+trap release_lock EXIT INT TERM
 
 if [[ "$mode" == once ]]; then
   review_once
