@@ -1840,6 +1840,15 @@ func withEngineeringTaskOffer(
 	label string,
 	suggested bool,
 ) Message {
+	const confirmationRequired = "Confirm the engineering task below before I start repository work."
+	message.Text = truncateUTF8(
+		strings.TrimSpace(confirmationRequired+" "+message.Text),
+		4000,
+	)
+	message.Markdown = truncateMarkdown(
+		strings.TrimSpace(confirmationRequired+" "+message.Markdown),
+		12000,
+	)
 	if taskTitle = strings.TrimSpace(taskTitle); taskTitle != "" {
 		message.Sections = append(message.Sections, fmt.Sprintf(
 			"*Optional engineering task: %s*\nRepository: %s",

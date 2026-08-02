@@ -4977,6 +4977,64 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	}
 }
 
+func TestWatchedEngineeringOfferConditionsPrimaryReplyOnConfirmation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	slackClient := &fakeSlack{dedupePosts: true}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},
+		"message":"Yes — I’ll prepare a PR to require a sustained latency condition before this warning fires. I’ll also review the device wording.",
+		"task_title":"Reduce Cassandra disk-latency alert noise",
+		"task_repository":"repo"
+	}`
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	source := core.SlackInput{
+		ID:         "slack-conditional-engineering-offer",
+		EnvelopeID: "env-conditional-engineering-offer",
+		EventID:    "event-conditional-engineering-offer",
+		Kind:       "message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+		MessageTS: "1700.950", UserID: "U123ABC",
+		Text: "Make a PR to reduce noise from brief latency spikes.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
+		t.Fatalf("admit source = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("engineering task offer posts = %+v", slackClient.posts)
+	}
+	offer := slackClient.posts[0].message
+	for field, content := range map[string]string{
+		"text": offer.Text, "markdown": offer.Markdown,
+	} {
+		if !strings.Contains(content, "Confirm the engineering task below before I start repository work.") {
+			t.Errorf("engineering task offer %s does not condition work on confirmation: %q", field, content)
+		}
+	}
+	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
+		t.Fatalf("engineering task started before confirmation = %+v, %v", incidents, err)
+	}
+}
+
 func TestDecisionReadyDiagnosisOffersIncidentAndPreparedFix(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
