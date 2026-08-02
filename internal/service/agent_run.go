@@ -1023,7 +1023,35 @@ func (s *Service) stagePolledAgentRunTerminal(
 		input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 		state, stateErr := decodeWatchRunContext(run)
 		decision, decisionErr := parseWatchDecision(turn.AssistantMessage)
-		if inputErr == nil && stateErr == nil && decisionErr == nil {
+		if inputErr != nil {
+			return inputErr
+		}
+		if stateErr != nil {
+			return stateErr
+		}
+		if decisionErr != nil {
+			correction := "the structured Slack response is invalid: " + trimError(decisionErr)
+			if !terminalAttempt(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts) {
+				state.FailureDetail = correction
+				contextJSON, marshalErr := json.Marshal(state)
+				if marshalErr != nil {
+					return marshalErr
+				}
+				if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
+					return err
+				}
+				if err := s.store.RequeueAgentRun(
+					ctx, run.ID, correction, cursor, time.Now(),
+				); err != nil {
+					return err
+				}
+				_ = s.advanceTriageSessionEvents(ctx, run, cursor)
+				return nil
+			}
+			terminalState = "failed"
+			result = nil
+			detail = correction
+		} else {
 			if state.Lane == "conversation" && decision.Action == "escalate" {
 				if err := s.store.AdvanceConversationSessionEvents(
 					ctx, run.ChannelID, run.SessionID, cursor,
@@ -1090,9 +1118,23 @@ func (s *Service) stagePolledAgentRunTerminal(
 			}
 		}
 	}
-	if run.Mode == core.AgentRunIncident && terminalState == "completed" {
+	if (run.Mode == core.AgentRunIncident || run.Mode == core.AgentRunEngineeringTask) &&
+		terminalState == "completed" {
 		report, _, reportErr := parseAgentReport(turn.AssistantMessage)
-		if reportErr == nil {
+		if reportErr != nil {
+			correction := "the structured agent report is invalid: " + trimError(reportErr)
+			if !terminalAttempt(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts) {
+				if err := s.store.RequeueAgentRun(
+					ctx, run.ID, correction, cursor, time.Now(),
+				); err != nil {
+					return err
+				}
+				return nil
+			}
+			terminalState = "failed"
+			result = nil
+			detail = correction
+		} else {
 			episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 			if episodeErr != nil {
 				return episodeErr

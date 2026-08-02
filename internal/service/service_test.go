@@ -3767,6 +3767,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 		wantIncidents int
 		wantOffer     bool
 		wantApproval  bool
+		maxAttempts   int
 	}{
 		{
 			name: "ignore", kind: "bot_message",
@@ -3832,7 +3833,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 		},
 		{
 			name: "malformed", kind: "bot_message", decision: `I would ignore this.`,
-			wantState: "done", wantPosts: 1,
+			wantState: "done", wantPosts: 1, maxAttempts: 1,
 		},
 	}
 	for _, test := range tests {
@@ -3840,6 +3841,9 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			ctx := context.Background()
 			cfg := serviceConfig(t)
 			cfg.Slack.WatchChannels = []string{"CWATCH"}
+			if test.maxAttempts > 0 {
+				cfg.Limits.MaxAgentRunAttempts = test.maxAttempts
+			}
 			st, err := store.Open(cfg.StateDir)
 			if err != nil {
 				t.Fatal(err)
@@ -4037,6 +4041,7 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 func TestWatchedFailureKeepsPendingStatusUntilNoticeIsPosted(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 1
 	cfg.Slack.WatchChannels = []string{"CWATCH"}
 	st, err := store.Open(cfg.StateDir)
 	if err != nil {
@@ -4089,6 +4094,93 @@ func TestWatchedFailureKeepsPendingStatusUntilNoticeIsPosted(t *testing.T) {
 	}
 	if len(slack.statuses) != 0 {
 		t.Fatalf("ambient failure exposed a thread status: %+v", slack.statuses)
+	}
+}
+
+func TestMalformedDeepCompletionIsCorrectedAndRetried(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 3
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{
+		  "action":"reply",
+		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3},
+		  "message":"Application impact still needs investigation.",
+		  "coverage":[
+		    {"layer":"change","status":"healthy","detail":"revision is current"},
+		    {"layer":"host","status":"healthy","detail":"hosts respond"},
+		    {"layer":"runtime","status":"healthy","detail":"runtime responds"},
+		    {"layer":"workload","status":"healthy","detail":"workloads run"},
+		    {"layer":"dependency","status":"healthy","detail":"dependencies respond"},
+		    {"layer":"application","status":"unknown","detail":"not queried"},
+		    {"layer":"slo","status":"unknown","detail":"not queried"}
+		  ],
+		  "completion":{"status":"blocked","summary":"Impact is unknown.","material_gaps":["application and SLO impact"],"next_action":"Query application and SLO telemetry"}
+		}`,
+		`{
+		  "action":"reply",
+		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3},
+		  "message":"Core infrastructure responds, but customer impact cannot be verified with the configured sources.",
+		  "coverage":[
+		    {"layer":"change","status":"healthy","detail":"revision is current"},
+		    {"layer":"host","status":"healthy","detail":"hosts respond"},
+		    {"layer":"runtime","status":"healthy","detail":"runtime responds"},
+		    {"layer":"workload","status":"healthy","detail":"workloads run"},
+		    {"layer":"dependency","status":"healthy","detail":"dependencies respond"},
+		    {"layer":"application","status":"unknown","detail":"the application telemetry source denied access"},
+		    {"layer":"slo","status":"unknown","detail":"the SLO telemetry source denied access"}
+		  ],
+		  "completion":{"status":"blocked","summary":"Customer impact cannot be verified because monitoring access is denied.","material_gaps":["application and SLO impact"],"blocker_kind":"access_denied","attempts":["Queried the configured application and SLO source; it returned permission denied"],"next_action":"Grant the monitoring identity read access, then retry"}
+		}`,
+	}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-completion-retry", EnvelopeID: "env-completion-retry",
+		EventID: "EvCompletionRetry", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.710", UserID: "U123ABC",
+		Text: "<@U999BOT> Give me a decision-ready production health assessment.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 ||
+		!strings.Contains(run.LastError, "blocker_kind") {
+		t.Fatalf("corrected run = %+v, %v", run, err)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("invalid partial result reached Slack: %+v", slackClient.posts)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunCompleted {
+		t.Fatalf("retried run = %+v, %v", run, err)
+	}
+	if len(slackClient.posts) != 1 ||
+		!strings.Contains(strings.Join(slackClient.posts[0].message.Sections, "\n"), "Assessment incomplete") {
+		t.Fatalf("retried Slack result = %+v", slackClient.posts)
+	}
+	if len(coopClient.submitPrompts) != 2 ||
+		!strings.Contains(coopClient.submitPrompts[1], "blocker_kind") {
+		t.Fatalf("correction prompt was not carried into retry: %v", coopClient.submitPrompts)
 	}
 }
 
