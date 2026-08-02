@@ -6195,6 +6195,7 @@ type fakeSlack struct {
 	updates            []slackUpdate
 	statuses           []slackStatus
 	reactions          []slackReaction
+	removedReactions   []slackReaction
 	suggested          []slackStatus
 	homes              []slackPost
 	postErr            error
@@ -6308,6 +6309,17 @@ func (f *fakeSlack) React(
 	reaction string,
 ) error {
 	f.reactions = append(f.reactions, slackReaction{
+		channel: channel, timestamp: timestamp, name: reaction,
+	})
+	return nil
+}
+func (f *fakeSlack) Unreact(
+	_ context.Context,
+	channel string,
+	timestamp string,
+	reaction string,
+) error {
+	f.removedReactions = append(f.removedReactions, slackReaction{
 		channel: channel, timestamp: timestamp, name: reaction,
 	})
 	return nil

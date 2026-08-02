@@ -1361,12 +1361,14 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		}
 		return s.store.FinishAgentRun(ctx, run.ID)
 	}
-	if len(state.MatchedRules) > 0 &&
-		decision.Action != "ignore" && decision.Action != "react" && decision.Action != "reply" {
-		decision = suppressWatchDecision(
-			decision,
-			"host standing-rule policy suppressed an outcome outside ignore, react, or reply",
-		)
+	if len(state.MatchedRules) > 0 && decision.Action == "incident" {
+		alertPolicy, policyErr := s.channelAlertPolicy(ctx, input.ChannelID)
+		if policyErr != nil {
+			return policyErr
+		}
+		if alertPolicy != "automatic" {
+			decision = standingRuleIncidentAsReply(decision, alertPolicy == "offer")
+		}
 	}
 	if err := s.applyWatchDecision(ctx, input, state, decision); err != nil {
 		return err

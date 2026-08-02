@@ -581,6 +581,10 @@ func (s *Service) applyWatchDecision(
 	}, state.Lane, session.Revision, decision.Memory); err != nil {
 		return err
 	}
+	if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil {
+		return err
+	}
+	state.RuleAcknowledged = false
 	if shadow {
 		_ = s.store.Audit(ctx, core.AuditEvent{
 			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
@@ -1020,6 +1024,45 @@ func suppressWatchDecision(decision watchDecision, reason string) watchDecision 
 	decision.PendingApproval = nil
 	decision.Reason = strings.TrimSpace(
 		decision.Reason + "; " + reason,
+	)
+	return decision
+}
+
+func standingRuleIncidentAsReply(decision watchDecision, offerIncident bool) watchDecision {
+	title := strings.TrimSpace(decision.Title)
+	message := strings.TrimSpace(decision.Reason)
+	if message == "" {
+		message = "This alert needs investigation."
+	}
+	if title != "" && !strings.Contains(strings.ToLower(message), strings.ToLower(title)) {
+		message = "**" + title + "**\n\n" + message
+	}
+	decision.Action = "reply"
+	decision.Message = message
+	if offerIncident {
+		decision.IncidentTitle = title
+	}
+	decision.Title = ""
+	decision.Memory.SituationSummary = "The alert `" + title +
+		"` requires investigation in its source thread. No incident was created."
+	decisions := make([]string, 0, len(decision.Memory.Decisions)+1)
+	for _, item := range decision.Memory.Decisions {
+		if !strings.Contains(strings.ToLower(item), "incident") {
+			decisions = append(decisions, item)
+		}
+	}
+	if offerIncident {
+		decisions = append(decisions,
+			"Offer incident escalation for operator confirmation; no incident was created.",
+		)
+	} else {
+		decisions = append(decisions,
+			"Keep this alert's triage in its source thread; no incident was created.",
+		)
+	}
+	decision.Memory.Decisions = decisions
+	decision.Reason = strings.TrimSpace(
+		decision.Reason + "; host routed the matched standing-rule result through the channel alert policy",
 	)
 	return decision
 }
@@ -1632,6 +1675,9 @@ func (s *Service) clearWatchPendingStatus(
 	input core.SlackInput,
 	state watchTurnState,
 ) error {
+	if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil {
+		return err
+	}
 	if !s.cfg.Slack.NativeStatus || !state.PendingStatusSet {
 		return nil
 	}
@@ -1649,6 +1695,34 @@ func (s *Service) clearWatchPendingStatus(
 	); err != nil {
 		return fmt.Errorf("clear watched Slack thread status: %w", err)
 	}
+	return nil
+}
+
+func (s *Service) clearWatchRuleAcknowledgement(
+	ctx context.Context,
+	input core.SlackInput,
+	state watchTurnState,
+) error {
+	if !state.RuleAcknowledged || input.MessageTS == "" {
+		return nil
+	}
+	client, ok := s.slack.(interface {
+		Unreact(context.Context, string, string, string) error
+	})
+	if !ok {
+		return nil
+	}
+	if err := client.Unreact(ctx, input.ChannelID, input.MessageTS, "eyes"); err != nil {
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			Kind: "standing_rule.acknowledgement_clear_failed", ActorID: "responder",
+			ObjectID: input.ID, Outcome: "failed", Detail: s.cleanStructuredField(err.Error(), 500),
+		})
+		return nil
+	}
+	_ = s.store.Audit(ctx, core.AuditEvent{
+		Kind: "standing_rule.acknowledgement_cleared", ActorID: "responder",
+		ObjectID: input.ID, Outcome: "unreacted", Detail: "eyes",
+	})
 	return nil
 }
 
@@ -2082,15 +2156,20 @@ Choose exactly one action:
 - ignore: routine noise, informational chatter, successful or recovered notifications, duplicates, or messages where a human teammate would reasonably stay silent.
 - react: acknowledge useful information without interrupting the channel. Prefer this over reply when the sender explicitly asks for acknowledgement without a written response, or when a teammate would naturally use only an emoji. Choose one context-appropriate standard Slack emoji or a workspace custom emoji whose name is visible in the supplied Slack context. Return its Slack name without surrounding colons, for example ` + "`eyes`" + `, ` + "`white_check_mark`" + `, ` + "`thumbsup`" + `, ` + "`tada`" + `, ` + "`warning`" + `, or ` + "`bulb`" + `. Use ` + "`white_check_mark`" + ` for a completed handoff or explicitly completed task unless the context calls for a different reaction. Prefer familiar, unambiguous reactions; avoid playful or ambiguous choices for incidents and high-severity alerts. A reaction is social acknowledgement only: it must not claim verification, approval, remediation, or future work. Do not attach prose, evidence, offers, or coverage.
 - reply: answer a human's question concisely when channel context or a bounded read-only investigation provides enough evidence. State uncertainty and material gaps. If coordinated incident work may be useful, include incident_title; Responder will show an operator confirmation button without creating an incident. If the human explicitly asks Responder to change repository files or code, or continues that request in the visible conversation, include task_title; Responder will show an operator confirmation button for a thread-scoped engineering task and writable isolated fork.
-- incident: automatically open a dedicated incident only for a credible unresolved alert from an external_app, or when the target human message explicitly asks to open, create, start, or declare an incident. Use a concise factual title.
+- incident: automatically open a dedicated incident only for a credible unresolved alert from an
+  external_app that did not match a trusted standing rule, or when the target human message
+  explicitly asks to open, create, start, or declare an incident. A matched standing rule must
+  follow its action semantics and return reply; include incident_title when escalation is useful,
+  and let the host apply the channel's configured alert policy. Use a concise factual title.
 
 For a human target, an operational problem or health question is not by itself permission to create an incident. Investigate read-only and choose reply. Add incident_title when escalation is worth offering. Never choose incident for a human merely because the answer identifies an unhealthy component; the host will require explicit human intent. A task_title is only for explicit repository-change requests, never for infrastructure mutation, and never creates work until an operator confirms the button.
 
-Incident admission is classification, not the investigation itself. When a credible unresolved
+Incident admission is classification, not the investigation itself. When an unmatched credible
 external_app alert or an explicit configured-operator request already authorizes action=incident,
-decide from the supplied Slack context without repository or MCP tool calls. The dedicated incident
-session will perform the evidence-backed investigation after Responder creates it. Use tools in this
-shared-channel turn only when they are needed to produce a substantive reply.
+decide from the supplied Slack context without repository or MCP tool calls. A matched standing
+rule is different: perform its bounded read-only work now and return reply, never incident. The
+dedicated incident session will investigate only after Responder actually creates an incident. Use
+tools in this shared-channel turn only when they are needed to produce a substantive reply.
 
 Return exactly one JSON object, with no code fence or text outside the JSON. The message value is
 standard Markdown rendered by Slack; the outer JSON is only the transport envelope. Include a

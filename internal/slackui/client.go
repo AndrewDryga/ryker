@@ -595,6 +595,23 @@ func (c *Client) React(
 	return nil
 }
 
+func (c *Client) Unreact(
+	ctx context.Context,
+	channel string,
+	timestamp string,
+	reaction string,
+) error {
+	err := c.api.RemoveReactionContext(
+		ctx,
+		reaction,
+		slack.NewRefToMessage(channel, timestamp),
+	)
+	if err != nil && !strings.Contains(err.Error(), "no_reaction") {
+		return err
+	}
+	return nil
+}
+
 func (c *Client) SetStatus(ctx context.Context, channel, threadTS, status string) error {
 	return c.SetProgress(ctx, channel, threadTS, status, nil)
 }

@@ -243,7 +243,10 @@ Action meanings:
   repository topology, and fresh live evidence. Distinguish impact, likely scope, and unknowns.
   Suggest focused fixes supported by the evidence. For a critical alert, identify the safest
   immediate remediation an operator could request, but do not execute it or automatically create
-  an incident. Responder adds an eyes reaction while this investigation is pending.
+  an incident. Choose action=reply after the investigation, and include incident_title only when
+  escalation is useful; the host applies the channel's separately configured app-alert policy.
+  Never choose action=incident for a matched standing rule. Responder adds an eyes reaction only
+  while this investigation is pending and removes it when the evaluation finishes.
 
 <trusted-responder-standing-rules>
 ` + string(data) + `

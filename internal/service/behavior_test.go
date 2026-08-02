@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -178,7 +179,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
 		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"lasting channel behavior","message":"I can remember the thread preference.","preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"},"memory":{}}`,
-		`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":2,"ownership":3},"reason":"matched alert triage rule","message":"The alert is critical. I verified the likely scope and recommend the smallest reversible remediation while the owner checks the affected service.","memory":{}}`,
+		`{"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"The critical checkout alert needs investigation.","title":"Critical checkout error rate","evidence":[{"claim":"checkout errors are firing","observation":"the app reports an error rate above 20 percent","source_type":"slack","source_name":"Grafana alert"}],"memory":{}}`,
 	}
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -253,6 +254,12 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 		rules[0].Action != "triage_alert" || rules[0].SourceKind != "app" {
 		t.Fatalf("saved compound rules = %+v, %v", rules, err)
 	}
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: request.ChannelID, Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: request.UserID,
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	alert := core.SlackInput{
 		ID: "slack_compound_alert", EnvelopeID: "env_compound_alert",
@@ -271,9 +278,32 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 		t.Fatalf("alert acknowledgement = %+v", slackClient.reactions)
 	}
 	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.removedReactions) != 1 ||
+		slackClient.removedReactions[0].name != "eyes" ||
+		slackClient.removedReactions[0].timestamp != alert.MessageTS {
+		t.Fatalf("cleared alert acknowledgement = %+v", slackClient.removedReactions)
+	}
 	last := slackClient.posts[len(slackClient.posts)-1]
 	if last.thread != alert.MessageTS || !strings.Contains(last.message.Text, "critical") {
 		t.Fatalf("alert triage reply = %+v", last)
+	}
+	incidents, err := st.ListIncidents(ctx, 10)
+	if err != nil || len(incidents) != 0 {
+		t.Fatalf("reply-only alert policy created incidents = %+v, %v", incidents, err)
+	}
+	memory, err := st.GetChannelMemory(ctx, alert.ChannelID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryJSON, err := json.Marshal(memory.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryText := strings.ToLower(string(memoryJSON))
+	if strings.Contains(memoryText, "existing incident") ||
+		strings.Contains(memoryText, "incident is being opened") ||
+		!strings.Contains(memoryText, "no incident was created") {
+		t.Fatalf("normalized alert memory = %s", memoryJSON)
 	}
 }
 
