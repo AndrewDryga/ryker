@@ -2215,6 +2215,15 @@ func (s *Service) watchPrompt(
 	activeRepository string,
 	matchedRules []core.StandingRule,
 ) string {
+	replayPolicy := ""
+	if strings.HasPrefix(input.EnvelopeID, "replay:") {
+		replayPolicy = `
+This target is an explicit host verification replay of an earlier Slack message. Re-execute the
+original target request now with fresh evidence and return the action that the original message
+should produce. Later replies, prior answers, duplicate detection, and conversation memory are
+context for comparison only; they must not cause action=ignore or replace the requested work.
+`
+	}
 	repositoryCatalog, _ := json.Marshal(struct {
 		Default          string                  `json:"default"`
 		Repositories     []watchPromptRepository `json:"repositories"`
@@ -2246,6 +2255,7 @@ func (s *Service) watchPrompt(
 		Prior:          prior,
 	})
 	return `You are Responder participating in a shared Slack operations feed. Decide whether to act on target_message. Use both the earlier Coop conversation and recent_channel_messages, which is a bounded chronological transcript centered on the target and may include a few messages posted shortly after it.
+` + replayPolicy + `
 
 structured_memory is the compact summary of this exact Slack conversation. related_situations are compact summaries from other recent conversations in this channel and from public channels in the same workspace. Use them to carry decisions, ownership, topology, and open loops across channels without pretending they are fresh operational proof. Prefer same_channel and same_repository summaries when relevant. Do not merge unrelated incidents or assume the target author can access another channel merely because a summary is present.
 

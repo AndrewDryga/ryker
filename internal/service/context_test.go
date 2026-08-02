@@ -95,6 +95,37 @@ func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 	}
 }
 
+func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) {
+	svc := &Service{}
+	input := core.SlackInput{
+		EnvelopeID: "replay:slack_replay_1", ChannelID: "COPS",
+		MessageTS: "1700.2", UserID: "U1", Text: "Check production health",
+	}
+	prompt := svc.watchPrompt(
+		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
+		operationalMemoryContext{}, "repo", nil,
+	)
+	for _, required := range []string{
+		"explicit host verification replay",
+		"Re-execute the",
+		"original target request now with fresh evidence",
+		"must not cause action=ignore",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("replay prompt missing %q:\n%s", required, prompt)
+		}
+	}
+
+	input.EnvelopeID = "env:ordinary"
+	ordinary := svc.watchPrompt(
+		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
+		operationalMemoryContext{}, "repo", nil,
+	)
+	if strings.Contains(ordinary, "explicit host verification replay") {
+		t.Fatalf("ordinary prompt contains replay policy:\n%s", ordinary)
+	}
+}
+
 func TestAssembleAgentContextUsesConversationSummaryAsThreadCursor(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
