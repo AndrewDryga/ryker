@@ -112,7 +112,15 @@ type watchDecision struct {
 	RuleOffer        *core.RuleOffer        `json:"rule_offer,omitempty"`
 	ScheduleOffer    *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
 	PendingApproval  *core.EmisarApproval   `json:"pending_approval,omitempty"`
+	AlertAssessment  *alertAssessment       `json:"alert_assessment,omitempty"`
 	Reason           string                 `json:"reason,omitempty"`
+}
+
+type alertAssessment struct {
+	Verdict          string `json:"verdict"`
+	Impact           string `json:"impact"`
+	ImmediateAction  string `json:"immediate_action,omitempty"`
+	LongTermSolution string `json:"long_term_solution,omitempty"`
 }
 
 type attentionAssessment struct {
@@ -1072,6 +1080,31 @@ func watchDecisionCorrection(
 	state watchTurnState,
 	decision watchDecision,
 ) string {
+	if matchedOperationalAlertRule(state.MatchedRules) {
+		if state.FailureDetail != "" && decision.Action != "reply" {
+			return "the prior alert assessment was incomplete; continue that investigation and " +
+				"return its decision-ready reply instead of abandoning it"
+		}
+		if decision.Action == "incident" {
+			return "a matched operational-alert rule requires an in-place read-only investigation; " +
+				"return reply with a decision-ready alert assessment, never incident"
+		}
+		if decision.Action == "reply" {
+			if decision.AlertAssessment == nil {
+				return "the alert reply has no alert_assessment; continue the read-only investigation " +
+					"until you can state a verdict, impact, immediate action, and durable solution"
+			}
+			evidence := sanitizeEvidence(decision.Evidence, "", "", "")
+			if !watchDecisionHasEvidenceSource(evidence, "repository") {
+				return "the alert reply does not reconcile the live signal with declared repository " +
+					"topology; inspect the configured repository before deciding"
+			}
+			if !hasFreshOperationalEvidence(evidence, time.Now().UTC()) {
+				return "the alert reply has no fresh Emisar or monitoring observation; use the " +
+					"available read-only operational tools and verify the current state before deciding"
+			}
+		}
+	}
 	if requestedConversationLocation(input.Text) != conversationLocationFollow &&
 		!locationOnlyRequest(input.Text) &&
 		decision.Action != "reply" &&
@@ -1087,6 +1120,39 @@ func watchDecisionCorrection(
 			"answer the current message instead of treating it as a duplicate of an earlier turn"
 	}
 	return ""
+}
+
+func matchedOperationalAlertRule(rules []core.StandingRule) bool {
+	for _, rule := range rules {
+		if rule.Trigger == "operational_alert" && rule.Action == "triage_alert" {
+			return true
+		}
+	}
+	return false
+}
+
+func watchDecisionHasEvidenceSource(evidence []core.Evidence, sourceType string) bool {
+	for _, item := range evidence {
+		if item.SourceType == sourceType {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFreshOperationalEvidence(evidence []core.Evidence, now time.Time) bool {
+	for _, item := range evidence {
+		if item.SourceType != "emisar" && item.SourceType != "monitoring" {
+			continue
+		}
+		if item.ObservedAt.IsZero() || item.ObservedAt.After(now.Add(5*time.Minute)) {
+			continue
+		}
+		if now.Sub(item.ObservedAt) <= 30*time.Minute {
+			return true
+		}
+	}
+	return false
 }
 
 func watchDecisionCorrectionPrompt(detail string) string {
@@ -1784,7 +1850,8 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.Title != "" || decision.IncidentTitle != "" ||
 			decision.TaskTitle != "" || decision.TaskRepository != "" ||
 			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-			decision.RuleOffer != nil || decision.ScheduleOffer != nil || decision.PendingApproval != nil || len(decision.Evidence) != 0 ||
+			decision.RuleOffer != nil || decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
+			decision.AlertAssessment != nil || len(decision.Evidence) != 0 ||
 			len(decision.Coverage) != 0 || len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New(
 				"escalation decision has unexpected fields",
@@ -1795,7 +1862,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
 			decision.PreferenceOffer != nil || decision.RuleOffer != nil || decision.ScheduleOffer != nil ||
-			decision.PendingApproval != nil ||
+			decision.PendingApproval != nil || decision.AlertAssessment != nil ||
 			len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("ignore decision has unexpected fields")
 		}
@@ -1809,7 +1876,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.MemoryOffer != nil ||
 			decision.PreferenceOffer != nil || decision.RuleOffer != nil || decision.ScheduleOffer != nil ||
-			decision.PendingApproval != nil ||
+			decision.PendingApproval != nil || decision.AlertAssessment != nil ||
 			len(decision.Evidence) != 0 || len(decision.Coverage) != 0 ||
 			len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("react decision has unexpected fields")
@@ -1886,6 +1953,11 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if offerCount > 0 && len(decision.Visuals) > 0 {
 			return watchDecision{}, errors.New("reply decision cannot combine durable behavior and generated visuals")
 		}
+		if decision.AlertAssessment != nil {
+			if err := validateAlertAssessment(decision.AlertAssessment); err != nil {
+				return watchDecision{}, err
+			}
+		}
 	case "incident":
 		decision.Title = strings.TrimSpace(decision.Title)
 		if decision.Title == "" {
@@ -1897,7 +1969,8 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.Reaction != "" || decision.Message != "" || len(decision.FollowupMessages) != 0 || decision.IncidentTitle != "" ||
 			decision.TaskTitle != "" || decision.TaskRepository != "" ||
 			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-			decision.RuleOffer != nil || decision.ScheduleOffer != nil || decision.PendingApproval != nil || len(decision.Visuals) != 0 {
+			decision.RuleOffer != nil || decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
+			decision.AlertAssessment != nil || len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("incident decision has unexpected fields")
 		}
 	default:
@@ -1907,6 +1980,41 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		return watchDecision{}, err
 	}
 	return decision, nil
+}
+
+func validateAlertAssessment(assessment *alertAssessment) error {
+	assessment.Verdict = strings.TrimSpace(assessment.Verdict)
+	assessment.Impact = strings.TrimSpace(assessment.Impact)
+	assessment.ImmediateAction = strings.TrimSpace(assessment.ImmediateAction)
+	assessment.LongTermSolution = strings.TrimSpace(assessment.LongTermSolution)
+	if len(assessment.Verdict) > 32 || len(assessment.Impact) > 2000 ||
+		len(assessment.ImmediateAction) > 2000 || len(assessment.LongTermSolution) > 2000 {
+		return errors.New("alert assessment exceeds its field bounds")
+	}
+	switch assessment.Verdict {
+	case "confirmed_issue", "likely_issue":
+		if assessment.Impact == "" || assessment.ImmediateAction == "" ||
+			assessment.LongTermSolution == "" {
+			return errors.New(
+				"confirmed or likely alert assessment requires impact, immediate_action, and long_term_solution",
+			)
+		}
+	case "not_issue":
+		if assessment.Impact == "" {
+			return errors.New("not_issue alert assessment requires impact")
+		}
+	case "unverified":
+		if assessment.Impact == "" || assessment.ImmediateAction == "" {
+			return errors.New(
+				"unverified alert assessment requires impact and the next verification in immediate_action",
+			)
+		}
+	default:
+		return errors.New(
+			"alert assessment verdict must be confirmed_issue, likely_issue, not_issue, or unverified",
+		)
+	}
+	return nil
 }
 
 func normalizeSlackReactionName(name string) (string, error) {
@@ -2185,7 +2293,7 @@ so Responder can render the approval URL in this conversation. Do not create or 
 merely because an operational action is requested:
 {"action":"ignore","attention":{"addressee":"human","urgency":0,"confidence":3,"novelty":0,"ownership":0},"reason":"why silence is appropriate","evidence":[],"coverage":[],"memory":{}}
 {"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1},"reason":"why acknowledgement is enough","memory":{}}
-{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"first Slack Markdown outcome","followup_messages":["optional second outcome","optional third outcome"],"visuals":[{"artifact":"chart.png","title":"Production load","alt_text":"Line chart of production load over 24 hours, peaking at 82 percent at 14:00 UTC"}],"incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","pending_approval":{"request_id":"exact approval request ID","run_id":"exact run ID","operation_id":"exact operation ID","action_id":"exact action ID","pack_ref":"exact immutable pack ref","runner_ref":"exact immutable runner ref","status":"pending_approval","approval_url":"exact Emisar approval URL","expires_at":"exact RFC3339 expiry"},"memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"schedule_offer":{"title":"short task title","prompt":"self-contained task to execute","repository":"exact configured repository key","recurrence":"once|interval|daily|weekly|monthly","start_at":"exact future RFC3339 timestamp","interval_seconds":3600,"weekdays":["monday"],"day_of_month":1,"local_time":"09:00","timezone":"IANA timezone","catch_up":"latest|skip","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
+{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"first Slack Markdown outcome","followup_messages":["optional second outcome","optional third outcome"],"visuals":[{"artifact":"chart.png","title":"Production load","alt_text":"Line chart of production load over 24 hours, peaking at 82 percent at 14:00 UTC"}],"incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","pending_approval":{"request_id":"exact approval request ID","run_id":"exact run ID","operation_id":"exact operation ID","action_id":"exact action ID","pack_ref":"exact immutable pack ref","runner_ref":"exact immutable runner ref","status":"pending_approval","approval_url":"exact Emisar approval URL","expires_at":"exact RFC3339 expiry"},"alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"verified current impact or explicit gap","immediate_action":"safest mitigation or next verification","long_term_solution":"durable root-cause solution"},"memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"schedule_offer":{"title":"short task title","prompt":"self-contained task to execute","repository":"exact configured repository key","recurrence":"once|interval|daily|weekly|monthly","start_at":"exact future RFC3339 timestamp","interval_seconds":3600,"weekdays":["monday"],"day_of_month":1,"local_time":"09:00","timezone":"IANA timezone","catch_up":"latest|skip","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
 {"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"why creation is authorized","title":"concise title","evidence":[],"coverage":[],"memory":{}}
 
 Evidence objects require claim, observation, source_type, and source_name. source_type must be

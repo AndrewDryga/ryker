@@ -240,13 +240,22 @@ Action meanings:
 - verify_deployment: reconcile the deployment claim with repository and live evidence; report the
   deployed revision, rollout health, user-facing behavior, and gaps.
 - triage_alert: acknowledge the alert naturally, then investigate it from channel context,
-  repository topology, and fresh live evidence. Distinguish impact, likely scope, and unknowns.
-  Suggest focused fixes supported by the evidence. For a critical alert, identify the safest
-  immediate remediation an operator could request, but do not execute it or automatically create
-  an incident. Choose action=reply after the investigation, and include incident_title only when
-  escalation is useful; the host applies the channel's separately configured app-alert policy.
-  Never choose action=incident for a matched standing rule. Responder adds an eyes reaction only
-  while this investigation is pending and removes it when the evaluation finishes.
+  repository topology, and fresh live evidence. Do not stop after correlating alert symptoms or
+  listing checks that somebody else should perform. Build the expected topology from the configured
+  repository and companions, use Emisar and any available monitoring tools to perform the relevant
+  read-only checks, reconcile conflicting sources, and continue until one decision-ready verdict is
+  justified: confirmed_issue, likely_issue, not_issue, or unverified. Distinguish signal validity,
+  affected scope, current component health, and user or SLO impact. For confirmed_issue or
+  likely_issue, state the safest immediate mitigation and the durable root-cause solution, including
+  the condition that would validate each. For not_issue, state the fresh evidence that disproves or
+  explains the alert. For unverified, name the exact exhausted evidence gap and the highest-value
+  next verification rather than emitting a generic checklist. Lead the Slack message with the
+  verdict and why it matters. Return the same conclusion in alert_assessment with verdict, impact,
+  immediate_action, and long_term_solution. Choose action=reply after the investigation, and include
+  incident_title only when escalation is useful; the host applies the channel's separately
+  configured app-alert policy. Never choose action=incident for a matched standing rule. Responder
+  adds an eyes reaction only while this investigation is pending and removes it when the evaluation
+  finishes.
 
 <trusted-responder-standing-rules>
 ` + string(data) + `

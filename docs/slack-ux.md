@@ -254,6 +254,12 @@ off. The resulting turn uses the current channel transcript and available read-o
 is an evaluation request, not an order to reply: the model may ignore an intermediate or duplicate
 event, react when that is sufficient, or reply in the source thread when it has a useful result. It
 cannot silently convert the message into an incident. Later lifecycle updates are evaluated fresh.
+An operational-alert reply must be decision-ready: Responder rejects a completion that merely
+paraphrases symptoms or hands operators a generic checklist. The agent must reconcile declared
+repository topology with fresh Emisar or monitoring evidence, classify the alert as confirmed,
+likely, disproved, or still unverified, and explain impact. Confirmed or likely issues also require
+an immediate mitigation and a durable root-cause solution. The same Coop run continues when this
+quality contract is not met; the pending indicator remains visible while it gathers more evidence.
 For Terraform review, the exact plan must come from the message or an available read-only tool,
 never an inferred repository diff. The channel queue preserves Slack timestamp order, and a
 durable rule/source-event key prevents duplicate execution after redelivery or restart. Shadow mode records

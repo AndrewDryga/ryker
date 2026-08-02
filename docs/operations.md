@@ -203,6 +203,23 @@ repository and MCP tools as the investigation policy; the model decides which ev
 Requests that require a writable isolated fork still use the separately confirmed engineering-task
 path. Omitting `conversation_policy` preserves the single investigation-lane behavior.
 
+The Coop session policy controls the provider, model, reasoning effort, and authenticated account:
+
+```yaml
+policies:
+  platform-observe:
+    target: codex:gpt-5.6-sol/xhigh@oncall
+  platform-conversation:
+    target: codex:gpt-5.6-terra/low@oncall
+```
+
+The target syntax is `agent:model/effort@account`. Responder does not silently override it. A
+conversation policy is the fast bounded lane for ordinary replies; current-state questions,
+standing-rule alerts, and other tool-backed work escalate to the repository or repository-set
+`coop_policy`. Edit the owner-private session policy to change either lane, then restart Responder's
+managed Coop so new or rotated sessions bind the updated target. There is intentionally no Slack
+command that lets a channel member change the provider account or model policy.
+
 The corresponding owner-private Coop policy is the only place that binds companion aliases to host
 paths:
 

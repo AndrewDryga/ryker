@@ -85,7 +85,10 @@ responder eval --config ../emisar/.responder/responder.yaml \
 Each result includes the sanitized raw model response and case duration. The results file is
 written with mode `0600`. Latency budgets, required evidence sources, fresh observation counts,
 coverage layers, forbidden claims, governed offers, pending approvals, and proposal counts are
-scored as behavioral contracts rather than exact answer wording.
+scored as behavioral contracts rather than exact answer wording. Alert-rule cases can additionally
+require a typed `alert_assessment`, verdict, immediate action, and long-term solution. Pair those
+assertions with repository and fresh operational evidence requirements so a fluent symptom summary
+cannot pass as an investigation.
 
 ### Stateful behavior and human quality
 

@@ -177,9 +177,11 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	defer st.Close()
 	slackClient := &fakeSlack{}
 	coopClient := newFakeCoop()
+	observedAt := time.Now().UTC().Format(time.RFC3339)
 	coopClient.completeQueue = []string{
 		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"lasting channel behavior","message":"I can remember the thread preference.","preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"},"memory":{}}`,
 		`{"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"The critical checkout alert needs investigation.","title":"Critical checkout error rate","evidence":[{"claim":"checkout errors are firing","observation":"the app reports an error rate above 20 percent","source_type":"slack","source_name":"Grafana alert"}],"memory":{}}`,
+		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"fresh repository and live evidence confirm the alert","message":"**Confirmed issue:** checkout errors are above 20 percent and affecting current requests.\n\n**Immediate action:** remove the unhealthy backend from service and verify the error rate falls.\n\n**Long-term fix:** correct the deployment regression and add a rollout guard for checkout errors.","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","immediate_action":"Remove the unhealthy backend and verify the error rate falls.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."},"evidence":[{"claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf"},{"claim":"checkout errors remain elevated","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q}],"coverage":[{"layer":"application","status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"},{"layer":"slo","status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}],"memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence. No incident was created.","decisions":["Keep triage in the source thread; no incident was created."]}}`, observedAt),
 	}
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -278,13 +280,21 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 		t.Fatalf("alert acknowledgement = %+v", slackClient.reactions)
 	}
 	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.removedReactions) != 0 {
+		t.Fatalf("alert acknowledgement cleared before deep triage completed: %+v", slackClient.removedReactions)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	correctionPrompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
+	if !strings.Contains(correctionPrompt, "decision-ready alert assessment") {
+		t.Fatalf("shallow alert decision was not corrected:\n%s", correctionPrompt)
+	}
 	if len(slackClient.removedReactions) != 1 ||
 		slackClient.removedReactions[0].name != "eyes" ||
 		slackClient.removedReactions[0].timestamp != alert.MessageTS {
 		t.Fatalf("cleared alert acknowledgement = %+v", slackClient.removedReactions)
 	}
 	last := slackClient.posts[len(slackClient.posts)-1]
-	if last.thread != alert.MessageTS || !strings.Contains(last.message.Text, "critical") {
+	if last.thread != alert.MessageTS || !strings.Contains(last.message.Text, "Confirmed issue") {
 		t.Fatalf("alert triage reply = %+v", last)
 	}
 	incidents, err := st.ListIncidents(ctx, 10)
@@ -334,6 +344,90 @@ func TestStructuredResponsesAllowCompoundDurableOffers(t *testing.T) {
 	if err != nil || approvalAndSchedule.PendingApproval == nil ||
 		approvalAndSchedule.ScheduleOffer == nil {
 		t.Fatalf("approval and schedule decision = %+v, %v", approvalAndSchedule, err)
+	}
+}
+
+func TestAlertAssessmentRequiresDecisionUsefulRemediation(t *testing.T) {
+	for name, raw := range map[string]string{
+		"missing durable solution": `{
+		  "action":"reply",
+		  "message":"The alert is likely real.",
+		  "alert_assessment":{"verdict":"likely_issue","impact":"Requests may be slow.","immediate_action":"Drain the affected node."}
+		}`,
+		"unknown verdict": `{
+		  "action":"reply",
+		  "message":"The alert needs work.",
+		  "alert_assessment":{"verdict":"maybe","impact":"Unknown.","immediate_action":"Check it."}
+		}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeWatchDecision(raw); err == nil {
+				t.Fatalf("accepted incomplete alert assessment: %s", raw)
+			}
+		})
+	}
+	decision, err := decodeWatchDecision(`{
+	  "action":"reply",
+	  "message":"The alert is not verified because the live runner is unavailable.",
+	  "alert_assessment":{"verdict":"unverified","impact":"Current impact is unknown.","immediate_action":"Restore the read-only runner and repeat the storage check."}
+	}`)
+	if err != nil || decision.AlertAssessment == nil ||
+		decision.AlertAssessment.Verdict != "unverified" {
+		t.Fatalf("valid alert assessment = %+v, %v", decision, err)
+	}
+}
+
+func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
+	input := core.SlackInput{Text: "FIRING: storage latency is above 50 ms"}
+	state := watchTurnState{MatchedRules: []core.StandingRule{{
+		Trigger: "operational_alert", Action: "triage_alert",
+	}}}
+	assessment := &alertAssessment{
+		Verdict: "likely_issue", Impact: "One database host may be slow.",
+		ImmediateAction:  "Drain the host if latency persists.",
+		LongTermSolution: "Repair the shared storage path.",
+	}
+	now := time.Now().UTC()
+	repositoryEvidence := core.Evidence{
+		Claim: "three Cassandra hosts are declared", Observation: "inventory contains three hosts",
+		SourceType: "repository", SourceName: "infra/inventory",
+	}
+	liveEvidence := core.Evidence{
+		Claim: "latency is elevated", Observation: "both devices exceed 50 ms",
+		SourceType: "emisar", SourceName: "storage health", ObservedAt: now,
+	}
+	for name, decision := range map[string]watchDecision{
+		"symptom summary": {Action: "reply", Message: "Both devices are slow."},
+		"no topology": {
+			Action: "reply", Message: "Likely shared-path issue.", AlertAssessment: assessment,
+			Evidence: []core.Evidence{liveEvidence},
+		},
+		"no fresh live observation": {
+			Action: "reply", Message: "Likely shared-path issue.", AlertAssessment: assessment,
+			Evidence: []core.Evidence{repositoryEvidence, {
+				Claim: "latency was elevated", Observation: "both devices exceeded 50 ms",
+				SourceType: "monitoring", SourceName: "metrics", ObservedAt: now.Add(-time.Hour),
+			}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if correction := watchDecisionCorrection(input, state, decision); correction == "" {
+				t.Fatalf("accepted shallow alert decision: %+v", decision)
+			}
+		})
+	}
+	complete := watchDecision{
+		Action: "reply", Message: "Likely shared-path issue.", AlertAssessment: assessment,
+		Evidence: []core.Evidence{repositoryEvidence, liveEvidence},
+	}
+	if correction := watchDecisionCorrection(input, state, complete); correction != "" {
+		t.Fatalf("rejected decision-ready alert: %s", correction)
+	}
+	state.FailureDetail = "the first alert reply was incomplete"
+	if correction := watchDecisionCorrection(
+		input, state, watchDecision{Action: "ignore"},
+	); correction == "" {
+		t.Fatal("corrected alert investigation was allowed to disappear")
 	}
 }
 

@@ -47,6 +47,10 @@ type EvaluationCase struct {
 	ForbidEvidenceSources  []string                 `json:"forbid_evidence_sources,omitempty"`
 	WantCoverageLayers     []string                 `json:"want_coverage_layers,omitempty"`
 	WantCoverage           map[string]string        `json:"want_coverage,omitempty"`
+	WantAlertAssessment    bool                     `json:"want_alert_assessment,omitempty"`
+	WantAlertVerdict       string                   `json:"want_alert_verdict,omitempty"`
+	WantImmediateAction    bool                     `json:"want_immediate_action,omitempty"`
+	WantLongTermSolution   bool                     `json:"want_long_term_solution,omitempty"`
 	WantPendingApproval    *bool                    `json:"want_pending_approval,omitempty"`
 	WantProposals          *int                     `json:"want_proposals,omitempty"`
 	MinEvidence            int                      `json:"min_evidence,omitempty"`
@@ -235,6 +239,7 @@ func evaluateCaseWithConfig(
 	var memory core.AgentMemory
 	var evidence []core.Evidence
 	var coverage []core.Coverage
+	var assessment *alertAssessment
 	var pendingApproval bool
 	var proposals int
 	switch testCase.Kind {
@@ -286,6 +291,7 @@ func evaluateCaseWithConfig(
 		}
 		evidence = decision.Evidence
 		coverage = decision.Coverage
+		assessment = decision.AlertAssessment
 	case "incident", "task":
 		report, structured, err := parseAgentReport(testCase.Output)
 		if err != nil {
@@ -318,6 +324,31 @@ func evaluateCaseWithConfig(
 	}
 	if testCase.WantAction != "" && action != testCase.WantAction {
 		result.Detail = fmt.Sprintf("action = %q, want %q", action, testCase.WantAction)
+		return result
+	}
+	if testCase.WantAlertVerdict != "" &&
+		(assessment == nil || assessment.Verdict != testCase.WantAlertVerdict) {
+		actual := ""
+		if assessment != nil {
+			actual = assessment.Verdict
+		}
+		result.Detail = fmt.Sprintf(
+			"alert verdict = %q, want %q", actual, testCase.WantAlertVerdict,
+		)
+		return result
+	}
+	if testCase.WantAlertAssessment && assessment == nil {
+		result.Detail = "alert assessment is missing"
+		return result
+	}
+	if testCase.WantImmediateAction &&
+		(assessment == nil || strings.TrimSpace(assessment.ImmediateAction) == "") {
+		result.Detail = "alert assessment has no immediate action"
+		return result
+	}
+	if testCase.WantLongTermSolution &&
+		(assessment == nil || strings.TrimSpace(assessment.LongTermSolution) == "") {
+		result.Detail = "alert assessment has no long-term solution"
 		return result
 	}
 	if len(testCase.WantOffers) > 0 {

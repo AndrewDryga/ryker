@@ -812,9 +812,13 @@ func liveEvaluationPrompt(
 		}
 		rules := make([]core.StandingRule, 0, len(testCase.StandingRules))
 		for _, rule := range testCase.StandingRules {
+			ruleRepository := strings.TrimSpace(rule.Repository)
+			if ruleRepository == "" || ruleRepository == "$default" {
+				ruleRepository = repositoryKey
+			}
 			rules = append(rules, core.StandingRule{
 				ID: rule.ID, ChannelID: input.ChannelID,
-				Repository: rule.Repository, Trigger: rule.Trigger,
+				Repository: ruleRepository, Trigger: rule.Trigger,
 				Action: rule.Action, SourceKind: rule.SourceKind, Enabled: true,
 			})
 		}

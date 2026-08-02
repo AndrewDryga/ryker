@@ -152,6 +152,32 @@ func TestEvaluationChecksCustomerVisibleContract(t *testing.T) {
 	}
 }
 
+func TestEvaluationRequiresDecisionReadyAlertAssessment(t *testing.T) {
+	passing := EvaluationCase{
+		Name: "decision-ready alert", Kind: "watch", WantAction: "reply",
+		WantAlertAssessment: true, WantAlertVerdict: "likely_issue",
+		WantImmediateAction: true, WantLongTermSolution: true,
+		Output: `{
+		  "action":"reply",
+		  "message":"Likely storage-path issue. Drain the host if latency persists.",
+		  "alert_assessment":{
+		    "verdict":"likely_issue",
+		    "impact":"Cassandra latency may affect requests on one host.",
+		    "immediate_action":"Drain the host if latency persists.",
+		    "long_term_solution":"Repair the shared NVMe/TCP path and alert on path saturation."
+		  }
+		}`,
+	}
+	if result := evaluateCase(passing); !result.Passed {
+		t.Fatalf("passing alert assessment = %+v", result)
+	}
+	passing.WantAlertVerdict = "confirmed_issue"
+	if result := evaluateCase(passing); result.Passed ||
+		!strings.Contains(result.Detail, "alert verdict") {
+		t.Fatalf("wrong alert verdict passed = %+v", result)
+	}
+}
+
 func TestEvaluationRequiresCompoundReplyCoverage(t *testing.T) {
 	testCase := EvaluationCase{
 		Name: "three independent outcomes",
@@ -407,7 +433,7 @@ func TestLiveEvaluationPromptIncludesConfirmedBehaviorContext(t *testing.T) {
 			}},
 			StandingRules: []EvaluationStandingRule{{
 				ID: "rule_eval", Trigger: "terraform_plan",
-				Action: "review_terraform_plan", Repository: "repo",
+				Action: "review_terraform_plan", Repository: "$default",
 				SourceKind: "app",
 			}},
 		},
@@ -424,6 +450,7 @@ func TestLiveEvaluationPromptIncludesConfirmedBehaviorContext(t *testing.T) {
 		`"name":"response_detail"`,
 		"<trusted-responder-standing-rules>",
 		`"id":"rule_eval"`,
+		`"repository":"repo"`,
 		`"safety":"read_only"`,
 	} {
 		if !strings.Contains(prompt, expected) {
