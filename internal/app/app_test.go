@@ -13,6 +13,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -519,6 +520,35 @@ func TestSlackReplayMessageLookupPrefersOriginalOverEarlierReplay(t *testing.T) 
 	selected, err := findSlackReplaySource(ctx, st, "", original.ChannelID, original.MessageTS)
 	if err != nil || selected.ID != original.ID {
 		t.Fatalf("selected replay source = %+v, %v", selected, err)
+	}
+}
+
+func TestSlackReplaySourceFromHistoryPreservesMessageContext(t *testing.T) {
+	source := slackReplaySourceFromHistory("T123", "C123", slackui.HistoryMessage{
+		Timestamp: "1700.002", ThreadTS: "1700.001", UserID: "U123",
+		Text: "check this screenshot",
+		Files: []slackui.HistoryFile{{
+			ID: "F1", Name: "failure.png", MediaType: "image/png",
+			Size: 42, URLPrivate: "https://files.example.test/F1",
+		}},
+		Reactions: []slackui.HistoryReaction{{
+			Name: "eyes", Count: 2, UserIDs: []string{"U1", "U2"},
+		}},
+	})
+	if source.Kind != "message" || source.TeamID != "T123" ||
+		source.ChannelID != "C123" || source.ThreadTS != "1700.001" ||
+		source.MessageTS != "1700.002" || source.UserID != "U123" ||
+		source.Text != "check this screenshot" || len(source.Attachments) != 1 ||
+		source.Attachments[0].ID != "F1" || len(source.Reactions) != 1 ||
+		source.Reactions[0].Name != "eyes" {
+		t.Fatalf("history replay source = %+v", source)
+	}
+
+	bot := slackReplaySourceFromHistory("T123", "C123", slackui.HistoryMessage{
+		Timestamp: "1700.003", BotID: "B123", Text: "alert",
+	})
+	if bot.Kind != "bot_message" || bot.UserID != "B123" {
+		t.Fatalf("bot replay source = %+v", bot)
 	}
 }
 

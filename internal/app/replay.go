@@ -8,16 +8,20 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
 const slackReplayPollInterval = 250 * time.Millisecond
+
+var errSlackReplaySourceNotFound = errors.New("saved Slack replay source not found")
 
 type slackReplayResult struct {
 	SourceInputID string                `json:"source_input_id"`
@@ -112,6 +116,11 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 		ctx, st, strings.TrimSpace(*inputID), strings.TrimSpace(*channelID),
 		strings.TrimSpace(*messageTS),
 	)
+	if errors.Is(err, errSlackReplaySourceNotFound) && strings.TrimSpace(*inputID) == "" {
+		source, err = fetchSlackReplaySource(
+			ctx, cfg, strings.TrimSpace(*channelID), strings.TrimSpace(*messageTS),
+		)
+	}
 	if err != nil {
 		return err
 	}
@@ -198,7 +207,7 @@ func findSlackReplaySource(
 		input, err = st.GetSlackInputForMessage(ctx, channelID, messageTS)
 	}
 	if errors.Is(err, store.ErrNotFound) {
-		return core.SlackInput{}, errors.New("saved Slack input was not found; it may have expired from local retention")
+		return core.SlackInput{}, errSlackReplaySourceNotFound
 	}
 	if err != nil {
 		return core.SlackInput{}, err
@@ -212,6 +221,71 @@ func findSlackReplaySource(
 			input.ID,
 			input.Kind,
 		)
+	}
+}
+
+func fetchSlackReplaySource(
+	ctx context.Context,
+	cfg config.Config,
+	channelID string,
+	messageTS string,
+) (core.SlackInput, error) {
+	token := strings.TrimSpace(os.Getenv(cfg.Slack.BotTokenEnv))
+	if token == "" {
+		return core.SlackInput{}, fmt.Errorf(
+			"saved Slack input expired and %s is unavailable for live history lookup",
+			cfg.Slack.BotTokenEnv,
+		)
+	}
+	history, err := slackui.New(token, "").RecentMessages(
+		ctx, channelID, "", messageTS, messageTS, 10,
+	)
+	if err != nil {
+		return core.SlackInput{}, fmt.Errorf("fetch Slack replay source: %w", err)
+	}
+	for _, message := range history {
+		if message.Timestamp == messageTS {
+			return slackReplaySourceFromHistory(cfg.Slack.TeamID, channelID, message), nil
+		}
+	}
+	return core.SlackInput{}, errors.New(
+		"Slack message was not found in local retention or accessible Slack history",
+	)
+}
+
+func slackReplaySourceFromHistory(
+	teamID string,
+	channelID string,
+	message slackui.HistoryMessage,
+) core.SlackInput {
+	kind := "message"
+	userID := message.UserID
+	if message.BotID != "" {
+		kind = "bot_message"
+		if userID == "" {
+			userID = message.BotID
+		}
+	}
+	attachments := make([]core.SlackAttachment, 0, len(message.Files))
+	for _, file := range message.Files {
+		attachments = append(attachments, core.SlackAttachment{
+			ID: file.ID, Name: file.Name, MediaType: file.MediaType,
+			Size: file.Size, URLPrivate: file.URLPrivate,
+		})
+	}
+	reactions := make([]core.SlackReaction, 0, len(message.Reactions))
+	for _, reaction := range message.Reactions {
+		reactions = append(reactions, core.SlackReaction{
+			Name: reaction.Name, Count: reaction.Count,
+			UserIDs: append([]string(nil), reaction.UserIDs...),
+		})
+	}
+	return core.SlackInput{
+		ID:   "slack_history:" + channelID + ":" + message.Timestamp,
+		Kind: kind, TeamID: teamID, ChannelID: channelID,
+		ThreadTS: message.ThreadTS, MessageTS: message.Timestamp,
+		UserID: userID, Text: message.Text, Attachments: attachments,
+		Reactions: reactions, ReceivedAt: time.Now().UTC(),
 	}
 }
 
