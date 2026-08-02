@@ -161,6 +161,11 @@ Progress events report phases and material milestones, never hidden reasoning or
 Slack controls stay on the control lane while long-running Coop turns remain on the background
 lane, so an approval, stop, or configuration action is not blocked by investigation work.
 
+An exact blocker is an external boundary, not a remaining investigation step. The structured result
+records its kind, attempted evidence routes, material gaps, and external unblock action. Responder
+retries a deep turn that merely proposes more read-only queries, while a genuine blocked result stays
+open and renders those details explicitly in Slack.
+
 Bot channel joins create a durable `configuration_sessions` row with a 30-minute expiry. The setup
 root timestamp, initiator, current question, typed draft, revision, and status are stored before
 later answers can advance it. Thread answers must match the root; top-level answers require a

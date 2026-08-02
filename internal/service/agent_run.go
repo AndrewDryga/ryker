@@ -1622,6 +1622,16 @@ func (s *Service) finalizeIncidentAgentRun(
 				message = slackui.WithEmisarApproval(message, *report.PendingApproval)
 				pendingApproval = report.PendingApproval
 			}
+			if report.Completion != nil && report.Completion.Status == "blocked" {
+				message = slackui.WithBlockedAssessment(
+					message,
+					report.Completion.Summary,
+					report.Completion.MaterialGaps,
+					report.Completion.Attempts,
+					report.Completion.NextAction,
+					s.sanitizer,
+				)
+			}
 			evidenceIDs := make([]string, 0, len(report.Evidence))
 			for _, evidence := range report.Evidence {
 				evidenceIDs = append(evidenceIDs, evidence.ID)

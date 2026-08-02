@@ -1641,6 +1641,53 @@ func ConciseEvidenceResponse(
 	return message
 }
 
+func WithBlockedAssessment(
+	message Message,
+	summary string,
+	materialGaps []string,
+	attempts []string,
+	nextAction string,
+	sanitizer *Sanitizer,
+) Message {
+	clean := func(value string) string {
+		value = strings.TrimSpace(value)
+		if sanitizer != nil {
+			value = sanitizer.Text(value)
+		}
+		return escapeSlackText(value)
+	}
+	var section strings.Builder
+	section.WriteString("*Assessment incomplete*")
+	if summary = clean(summary); summary != "" {
+		section.WriteString("\n")
+		section.WriteString(summary)
+	}
+	if len(materialGaps) > 0 {
+		section.WriteString("\n\n*Still unverified*")
+		for _, gap := range materialGaps[:min(len(materialGaps), 5)] {
+			if gap = clean(gap); gap != "" {
+				section.WriteString("\n• ")
+				section.WriteString(gap)
+			}
+		}
+	}
+	if len(attempts) > 0 {
+		section.WriteString("\n\n*Already tried*")
+		for _, attempt := range attempts[:min(len(attempts), 3)] {
+			if attempt = clean(attempt); attempt != "" {
+				section.WriteString("\n• ")
+				section.WriteString(attempt)
+			}
+		}
+	}
+	if nextAction = clean(nextAction); nextAction != "" {
+		section.WriteString("\n\n*To finish:* ")
+		section.WriteString(nextAction)
+	}
+	message.Sections = append(message.Sections, truncateUTF8(section.String(), 2900))
+	return message
+}
+
 func EvidenceResponseWithIncidentOffer(
 	text string,
 	evidence []core.Evidence,

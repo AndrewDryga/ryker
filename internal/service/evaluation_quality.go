@@ -202,13 +202,24 @@ func renderEvaluationMessage(
 			replies := replySequence(decision.Message, decision.FollowupMessages)
 			finalReply := replies[len(replies)-1]
 			if decision.IncidentTitle != "" {
-				return slackui.EvidenceResponseWithIncidentOffer(
+				message := slackui.EvidenceResponseWithIncidentOffer(
 					finalReply,
 					decision.Evidence,
 					decision.Coverage,
 					"evaluation-source",
 					sanitizer,
-				), decision.Action, nil
+				)
+				if decision.Completion != nil && decision.Completion.Status == "blocked" {
+					message = slackui.WithBlockedAssessment(
+						message,
+						decision.Completion.Summary,
+						decision.Completion.MaterialGaps,
+						decision.Completion.Attempts,
+						decision.Completion.NextAction,
+						sanitizer,
+					)
+				}
+				return message, decision.Action, nil
 			}
 			message := slackui.ConciseEvidenceResponse(
 				finalReply,
@@ -242,6 +253,16 @@ func renderEvaluationMessage(
 					label,
 				)
 			}
+			if decision.Completion != nil && decision.Completion.Status == "blocked" {
+				message = slackui.WithBlockedAssessment(
+					message,
+					decision.Completion.Summary,
+					decision.Completion.MaterialGaps,
+					decision.Completion.Attempts,
+					decision.Completion.NextAction,
+					sanitizer,
+				)
+			}
 			return message, decision.Action, nil
 		case "incident":
 			return slackui.Message{
@@ -272,6 +293,16 @@ func renderEvaluationMessage(
 		)
 		if report.PendingApproval != nil {
 			message = slackui.WithEmisarApproval(message, *report.PendingApproval)
+		}
+		if report.Completion != nil && report.Completion.Status == "blocked" {
+			message = slackui.WithBlockedAssessment(
+				message,
+				report.Completion.Summary,
+				report.Completion.MaterialGaps,
+				report.Completion.Attempts,
+				report.Completion.NextAction,
+				sanitizer,
+			)
 		}
 		return message, "reply", nil
 	default:

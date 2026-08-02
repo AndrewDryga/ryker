@@ -177,7 +177,15 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 		{
 			name: "blocked without action", action: "reply", coverage: completeCoverage,
 			completion: &completionAssessment{Status: "blocked", Summary: "Impact is unknown", MaterialGaps: []string{"SLO source"}},
-			want:       "must state the concrete next action",
+			want:       "external blocker_kind",
+		},
+		{
+			name: "unfinished investigation is not a blocker", action: "reply", coverage: completeCoverage,
+			completion: &completionAssessment{
+				Status: "blocked", Summary: "Impact needs more investigation.",
+				MaterialGaps: []string{"SLO evidence"}, NextAction: "Query the SLO source",
+			},
+			want: "external blocker_kind",
 		},
 		{
 			name: "exact blocker", action: "reply",
@@ -188,7 +196,12 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 			},
 			completion: &completionAssessment{
 				Status: "blocked", Summary: "Host health is known but customer impact is not.",
-				MaterialGaps: []string{"application and SLO evidence"}, NextAction: "Restore monitoring access and rerun the probes",
+				MaterialGaps: []string{"application and SLO evidence"},
+				BlockerKind:  "access_denied",
+				Attempts: []string{
+					"Queried the configured monitoring source; it returned permission denied",
+				},
+				NextAction: "Grant the monitoring account read access, then retry this assessment",
 			},
 		},
 		{
@@ -218,7 +231,9 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 		{name: "omitted"},
 		{name: "decision ready", completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy"}},
 		{name: "decision with gap", completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy", MaterialGaps: []string{"database"}}, wantError: true},
-		{name: "blocked", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, NextAction: "Restore access"}},
+		{name: "blocked", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", Attempts: []string{"Monitoring query returned permission denied"}, NextAction: "Restore access"}},
+		{name: "blocked without kind", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, Attempts: []string{"Queried monitoring"}, NextAction: "Restore access"}, wantError: true},
+		{name: "blocked without attempts", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", NextAction: "Restore access"}, wantError: true},
 		{name: "blocked without action", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}}, wantError: true},
 		{name: "unknown state", completion: &completionAssessment{Status: "working", Summary: "Partial"}, wantError: true},
 	}

@@ -740,6 +740,34 @@ func TestConciseEvidenceResponseKeepsLedgerOutOfRoutineSlackReply(t *testing.T) 
 	}
 }
 
+func TestBlockedAssessmentExplainsWhatStoppedAndHowToContinue(t *testing.T) {
+	message := WithBlockedAssessment(
+		ConciseEvidenceResponse(
+			"Core infrastructure is available, but customer impact is not verified.",
+			nil,
+			nil,
+			nil,
+			NewSanitizer(12000),
+		),
+		"The configured SLO source could not be read.",
+		[]string{"Current availability and error-budget consumption"},
+		[]string{"Queried the configured monitoring connector; access was denied"},
+		"Grant the monitoring account read access, then retry the assessment",
+		NewSanitizer(12000),
+	)
+	sections := strings.Join(message.Sections, "\n")
+	for _, want := range []string{
+		"Assessment incomplete",
+		"Still unverified",
+		"Already tried",
+		"Grant the monitoring account read access",
+	} {
+		if !strings.Contains(sections, want) {
+			t.Fatalf("blocked assessment lacks %q: %+v", want, message)
+		}
+	}
+}
+
 func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
 	message := ConciseEvidenceResponse(
 		"Summary",

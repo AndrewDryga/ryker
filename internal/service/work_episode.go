@@ -15,6 +15,8 @@ type completionAssessment struct {
 	Status       string   `json:"status"`
 	Summary      string   `json:"summary"`
 	MaterialGaps []string `json:"material_gaps,omitempty"`
+	BlockerKind  string   `json:"blocker_kind,omitempty"`
+	Attempts     []string `json:"attempts,omitempty"`
 	NextAction   string   `json:"next_action,omitempty"`
 }
 
@@ -24,9 +26,13 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	}
 	completion.Status = strings.TrimSpace(completion.Status)
 	completion.Summary = strings.TrimSpace(completion.Summary)
+	completion.BlockerKind = strings.TrimSpace(completion.BlockerKind)
 	completion.NextAction = strings.TrimSpace(completion.NextAction)
 	if len(completion.MaterialGaps) > 20 {
 		return errors.New("completion assessment has too many material gaps")
+	}
+	if len(completion.Attempts) > 12 {
+		return errors.New("completion assessment has too many blocker attempts")
 	}
 	for _, gap := range completion.MaterialGaps {
 		if len(strings.TrimSpace(gap)) > 500 {
@@ -34,8 +40,9 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 		}
 	}
 	completion.MaterialGaps = normalizedCompletionGaps(completion.MaterialGaps)
+	completion.Attempts = normalizedCompletionAttempts(completion.Attempts)
 	if len(completion.Status) > 32 || len(completion.Summary) > 1000 ||
-		len(completion.NextAction) > 1000 {
+		len(completion.BlockerKind) > 64 || len(completion.NextAction) > 1000 {
 		return errors.New("completion assessment exceeds its field bounds")
 	}
 	switch completion.Status {
@@ -46,17 +53,35 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 		if len(completion.MaterialGaps) > 0 {
 			return errors.New("decision-ready completion cannot contain material gaps")
 		}
+		if completion.BlockerKind != "" || len(completion.Attempts) > 0 ||
+			completion.NextAction != "" {
+			return errors.New("decision-ready completion cannot contain blocker fields")
+		}
 	case "blocked":
 		if completion.Summary == "" || len(completion.MaterialGaps) == 0 ||
+			completion.BlockerKind == "" || len(completion.Attempts) == 0 ||
 			completion.NextAction == "" {
 			return errors.New(
-				"blocked completion requires summary, material_gaps, and next_action",
+				"blocked completion requires summary, material_gaps, blocker_kind, attempts, and next_action",
 			)
+		}
+		if !validCompletionBlockerKind(completion.BlockerKind) {
+			return fmt.Errorf("unsupported completion blocker kind %q", completion.BlockerKind)
 		}
 	default:
 		return fmt.Errorf("unsupported completion status %q", completion.Status)
 	}
 	return nil
+}
+
+func validCompletionBlockerKind(value string) bool {
+	switch value {
+	case "source_unavailable", "access_denied", "operator_input_required",
+		"authority_boundary", "tool_failure":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizedCompletionGaps(values []string) []string {
@@ -73,6 +98,26 @@ func normalizedCompletionGaps(values []string) []string {
 		seen[value] = struct{}{}
 		result = append(result, value)
 		if len(result) == 20 {
+			break
+		}
+	}
+	return result
+}
+
+func normalizedCompletionAttempts(values []string) []string {
+	result := make([]string, 0, min(len(values), 12))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || len(value) > 500 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+		if len(result) == 12 {
 			break
 		}
 	}
@@ -302,8 +347,13 @@ This contract controls effort, not permission. Work until its completion criteri
 you are genuinely blocked. For operational_assessment and incident_investigation, assess every
 required coverage layer; use status unknown with a precise detail when authoritative evidence is
 unavailable. Return completion.status=decision_ready only when no material gap could change the
-decision. Otherwise return completion.status=blocked with every material gap and the concrete next
-action. Never broaden the authority boundary.
+decision. A blocker is an external boundary, not unfinished work: use completion.status=blocked only
+after relevant available evidence routes were attempted and access, unavailable telemetry, required
+operator input, an authority boundary, or a tool failure prevents further progress. Include the typed
+blocker_kind, the attempts already made, every material gap, and the external action that unblocks
+the work. "Query", "inspect", "check", or "investigate" is work to continue now when it is within
+the current authority, not a valid next_action for a blocked result. Never broaden the authority
+boundary.
 </host-work-episode>`
 }
 
@@ -354,6 +404,12 @@ func episodeCompletionCorrection(
 	if completion.Status == "blocked" {
 		if len(completion.MaterialGaps) == 0 {
 			return "a blocked completion must list the material evidence or authority gaps"
+		}
+		if !validCompletionBlockerKind(completion.BlockerKind) {
+			return "a blocked completion must identify an external blocker_kind: source_unavailable, access_denied, operator_input_required, authority_boundary, or tool_failure"
+		}
+		if len(completion.Attempts) == 0 {
+			return "a blocked completion must state which relevant evidence routes or actions were already attempted"
 		}
 		if strings.TrimSpace(completion.NextAction) == "" {
 			return "a blocked completion must state the concrete next action that unblocks the work"

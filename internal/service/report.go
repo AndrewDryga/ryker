@@ -845,7 +845,9 @@ func structuredResponseInstructions() string {
     "status": "decision_ready|blocked",
     "summary": "concise decision or exact blocker",
     "material_gaps": ["gap that could change the decision"],
-    "next_action": "concrete action required when blocked"
+    "blocker_kind": "source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure",
+    "attempts": ["relevant evidence route or action already attempted"],
+    "next_action": "external action required to unblock the work"
   },
   "proposals": [{
     "action_name": "one configured action name only",

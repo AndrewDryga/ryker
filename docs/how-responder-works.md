@@ -105,10 +105,17 @@ progress ledger. This state survives process restarts and is also the source of 
 bookkeeping.
 
 Operational assessments and incident investigations may finish only when every required layer is
-assessed and the result is decision-ready, or when Responder names the exact material gap and the
-concrete action needed to unblock it. A healthy host probe alone therefore cannot complete an
-end-to-end production-health request. Partial model answers are requeued within the configured run
-attempt budget instead of being presented as final.
+assessed and the result is decision-ready, or when Responder reaches a real external boundary. A
+blocked result must classify that boundary as an unavailable source, denied access, required
+operator input, an authority boundary, or a tool failure; record what it already attempted; name
+every material gap; and state the external action that unblocks the work. "Query the metrics" or
+"investigate the errors" is unfinished read-only work, not a blocker. The host rejects and retries
+that result instead of presenting it as final.
+
+A healthy host probe alone therefore cannot complete an end-to-end production-health request.
+When a genuine blocker remains, Slack adds a compact *Assessment incomplete* section showing what
+is still unverified, what Responder already tried, and what must happen next. The durable episode
+remains open rather than silently turning a partial assessment into completed work.
 
 ## 2. Slack event admission and routing
 

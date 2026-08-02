@@ -189,6 +189,64 @@ func TestEvaluationRejectsPrematureDeepCompletion(t *testing.T) {
 	}
 }
 
+func TestEvaluationRejectsUnsubstantiatedDeepWorkBlocker(t *testing.T) {
+	cfg := serviceConfig(t)
+	testCase := EvaluationCase{
+		Name: "unfinished investigation", Kind: "watch",
+		Input: "Give me a deep production health assessment", MentionsResponder: true,
+		Output: `{
+			"action":"reply",
+			"message":"Application health still needs investigation.",
+			"completion":{
+				"status":"blocked",
+				"summary":"Application impact is unknown.",
+				"material_gaps":["application impact"],
+				"next_action":"Query application logs and SLO metrics"
+			},
+			"coverage":[
+				{"layer":"change","status":"healthy","detail":"revision is current"},
+				{"layer":"host","status":"healthy","detail":"hosts respond"},
+				{"layer":"runtime","status":"healthy","detail":"runtime responds"},
+				{"layer":"workload","status":"healthy","detail":"workloads run"},
+				{"layer":"dependency","status":"healthy","detail":"dependencies respond"},
+				{"layer":"application","status":"unknown","detail":"not queried"},
+				{"layer":"slo","status":"unknown","detail":"not queried"}
+			]
+		}`,
+	}
+	result := evaluateCaseWithConfig(testCase, &cfg, time.Now().UTC())
+	if result.Passed || !strings.Contains(result.Detail, "blocker_kind") {
+		t.Fatalf("unsubstantiated blocker = %+v", result)
+	}
+}
+
+func TestEvaluationRendersGenuineBlockerAsSlackGuidance(t *testing.T) {
+	cfg := serviceConfig(t)
+	message, action, err := renderEvaluationMessage(cfg, EvaluationCase{
+		Name: "blocked health", Kind: "watch",
+	}, `{
+		"action":"reply",
+		"message":"Scheduler state is healthy, but SLO impact is not available.",
+		"completion":{
+			"status":"blocked",
+			"summary":"The configured SLO source denied access.",
+			"material_gaps":["Current SLO and customer impact"],
+			"blocker_kind":"access_denied",
+			"attempts":["Queried the configured SLO source; it returned permission denied"],
+			"next_action":"Grant the monitoring identity SLO read access, then retry"
+		}
+	}`)
+	if err != nil || action != "reply" {
+		t.Fatalf("render blocked assessment: action=%q err=%v", action, err)
+	}
+	sections := strings.Join(message.Sections, "\n")
+	if !strings.Contains(sections, "Assessment incomplete") ||
+		!strings.Contains(sections, "Already tried") ||
+		!strings.Contains(sections, "Grant the monitoring identity") {
+		t.Fatalf("rendered blocker = %+v", message)
+	}
+}
+
 func TestLiveEvaluationPromptCarriesProductionWorkContract(t *testing.T) {
 	cfg := serviceConfig(t)
 	prompt, err := liveEvaluationPrompt(cfg, EvaluationCase{
@@ -198,7 +256,13 @@ func TestLiveEvaluationPromptCarriesProductionWorkContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"<host-work-episode>", `"effort":"operational_assessment"`, `"authority":"read_only"`} {
+	for _, want := range []string{
+		"<host-work-episode>",
+		`"effort":"operational_assessment"`,
+		`"authority":"read_only"`,
+		"A blocker is an external boundary, not unfinished work",
+		"blocker_kind",
+	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("live prompt lacks %q", want)
 		}

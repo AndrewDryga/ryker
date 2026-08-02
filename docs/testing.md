@@ -243,8 +243,10 @@ The customer journeys are distributed across package tests at the boundary that 
 Real-model prompts receive the same host work-episode contract as production. Deep health, incident,
 and matched-alert cases require a completion assessment; the evaluator rejects a final answer that
 omits required layers, labels material unknowns decision-ready, or reports a blocker without an
-action that would unblock it. This makes premature-final-answer regressions visible in the ordinary
-model release gate rather than only during manual Slack testing.
+external blocker type, evidence of attempted routes, and an action that would actually unblock it.
+The regression suite also rejects "query more data" as a blocker when the current read-only session
+can continue that work. This makes premature-final-answer regressions visible in the ordinary model
+release gate rather than only during manual Slack testing.
 
 ## Live acceptance
 

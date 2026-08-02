@@ -131,7 +131,7 @@ func TestWatchedShadowModeRecordsWithoutPosting(t *testing.T) {
 	    {"layer":"application","status":"degraded","source":"status","detail":"The API workload cannot serve normally"},
 	    {"layer":"slo","status":"unknown","detail":"No SLO source was available"}
 	  ],
-	  "completion":{"status":"blocked","summary":"Production is degraded but impact is not fully bounded.","material_gaps":["host, dependency, and SLO evidence"],"next_action":"Query the authoritative host and SLO sources"}
+	  "completion":{"status":"blocked","summary":"Production is degraded but impact is not fully bounded.","material_gaps":["host, dependency, and SLO evidence"],"blocker_kind":"source_unavailable","attempts":["The configured live status source exposed the workload failure but no host, dependency, or SLO telemetry"],"next_action":"Connect an authoritative host and SLO telemetry source, then rerun the assessment"}
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,

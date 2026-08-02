@@ -4117,7 +4117,7 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	    {"layer":"application","status":"unknown","detail":"Application probes were not available"},
 	    {"layer":"slo","status":"unknown","detail":"Customer impact was not available"}
 	  ],
-	  "completion":{"status":"blocked","summary":"Two runners are disconnected and the production impact needs investigation.","material_gaps":["workload placement and customer impact"],"next_action":"Open an incident investigation to establish impact"}
+	  "completion":{"status":"blocked","summary":"Two runners are disconnected and the production impact cannot yet be bounded.","material_gaps":["workload placement and customer impact"],"blocker_kind":"source_unavailable","attempts":["Queried the configured live source; disconnected runners could not return workload or application evidence"],"next_action":"Restore runner connectivity or provide an authoritative workload and customer-impact source"}
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
