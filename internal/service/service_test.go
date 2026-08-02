@@ -3874,7 +3874,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 		},
 		{
 			name: "malformed", kind: "bot_message", decision: `I would ignore this.`,
-			wantState: "done", wantPosts: 1, maxAttempts: 1,
+			wantState: "done", wantPosts: 0, maxAttempts: 1,
 		},
 	}
 	for _, test := range tests {
@@ -3963,12 +3963,6 @@ func TestWatchedChannelDecisions(t *testing.T) {
 				run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
 				if err != nil || run.State != core.AgentRunFailed {
 					t.Fatalf("malformed agent run = %+v, %v", run, err)
-				}
-				if slack.posts[0].thread != input.MessageTS ||
-					!strings.Contains(slack.posts[0].message.Text, "couldn't finish this assessment") ||
-					!strings.Contains(slack.posts[0].message.Text, "nothing was changed") ||
-					strings.Contains(slack.posts[0].message.Text, "completion assessment") {
-					t.Fatalf("watched failure reply = %+v", slack.posts[0])
 				}
 			}
 			if test.wantOffer {

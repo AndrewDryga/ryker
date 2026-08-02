@@ -518,6 +518,47 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	}
 }
 
+func TestAmbientBotAlertFailureDoesNotPostToSlack(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "slack_failed_grafana_alert", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CALERTS",
+		MessageTS: "1700.900", UserID: "B_GRAFANA",
+		Text: "FIRING: allocation memory is near its limit",
+	}
+	if err := svc.finishTriageRunFailure(
+		ctx,
+		core.AgentRun{ID: "run_failed_grafana_alert"},
+		input,
+		watchTurnState{},
+		"Coop API invalid_request (400): prompt must be bounded UTF-8 text",
+	); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("ambient alert failure posts = %+v", slackClient.posts)
+	}
+	if publishTriageFailure(input, watchTurnState{}) {
+		t.Fatal("ambient app alert failure is publishable")
+	}
+	if !publishTriageFailure(input, watchTurnState{ApprovalContinuation: true}) {
+		t.Fatal("approval continuation failure was suppressed")
+	}
+}
+
 func TestWatchSessionTerminalIncludesDiscarded(t *testing.T) {
 	for state, want := range map[string]bool{
 		"open": false, "exhausted": false, "closed": true, "discarded": true,

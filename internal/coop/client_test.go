@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestClientUsesUnixSocketAndExactMutationHeaders(t *testing.T) {
@@ -96,6 +98,58 @@ func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
 	)
 	if err != nil || turn.ID != "turn_1" || operation.ID != "op_turn" {
 		t.Fatalf("response = %+v %+v, %v", turn, operation, err)
+	}
+}
+
+func TestClientBoundsTurnPromptAndPreservesInstructionsAndTarget(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	received := make(chan string, 1)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Prompt string `json:"prompt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		received <- body.Prompt
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "operation":{"id":"op_turn","method":"SubmitTurn","state":"succeeded"},
+		  "turn":{"id":"turn_1","session_id":"ses_1","state":"queued"}
+		}`))
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	prompt := "GOVERNING INSTRUCTIONS\n" +
+		strings.Repeat("old context ", 9000) +
+		"\nCURRENT TARGET: investigate the memory alert \U0001F9E0"
+	prompt = string([]byte(prompt[:len(prompt)-1])) + "\xff\x00" +
+		"\nCURRENT TARGET: investigate the memory alert \U0001F9E0"
+
+	if _, _, err := New(socket, time.Second).SubmitTurn(
+		context.Background(), "turn-bounded", "ses_1", 1, prompt,
+	); err != nil {
+		t.Fatal(err)
+	}
+	bounded := <-received
+	if len(bounded) > maxPromptBytes || !utf8.ValidString(bounded) ||
+		strings.ContainsRune(bounded, 0) {
+		t.Fatalf("bounded prompt bytes=%d valid=%t contains_nul=%t", len(bounded), utf8.ValidString(bounded), strings.ContainsRune(bounded, 0))
+	}
+	for _, required := range []string{
+		"GOVERNING INSTRUCTIONS",
+		"<responder-context-elided>",
+		"CURRENT TARGET: investigate the memory alert",
+	} {
+		if !strings.Contains(bounded, required) {
+			t.Fatalf("bounded prompt omitted %q", required)
+		}
 	}
 }
 

@@ -13,13 +13,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
 	maxResponseBytes       = 3 << 20
 	maxReviewPatchBytes    = 64 << 20
 	maxOutputArtifactBytes = 8 << 20
+	maxPromptBytes         = 64 << 10
+	promptTailBytes        = 20 << 10
 )
+
+const promptElisionMarker = "\n\n<responder-context-elided>\nOlder bounded context was omitted to fit the Coop turn limit.\n</responder-context-elided>\n\n"
 
 type Client struct {
 	socket string
@@ -307,6 +312,7 @@ func (c *Client) SubmitTurnWithArtifacts(
 	prompt string,
 	artifacts []InputArtifact,
 ) (Turn, Operation, error) {
+	prompt = boundedPrompt(prompt)
 	var response turnResponse
 	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/turns", key, map[string]any{
 		"expected_revision": expectedRevision,
@@ -314,6 +320,23 @@ func (c *Client) SubmitTurnWithArtifacts(
 		"artifacts":         artifacts,
 	}, &response)
 	return response.Turn, response.Operation, err
+}
+
+func boundedPrompt(prompt string) string {
+	prompt = strings.ToValidUTF8(prompt, "\uFFFD")
+	prompt = strings.ReplaceAll(prompt, "\x00", "\uFFFD")
+	if len(prompt) <= maxPromptBytes {
+		return prompt
+	}
+	tailStart := len(prompt) - promptTailBytes
+	for tailStart < len(prompt) && !utf8.RuneStart(prompt[tailStart]) {
+		tailStart++
+	}
+	headBytes := maxPromptBytes - len(promptElisionMarker) - (len(prompt) - tailStart)
+	for headBytes > 0 && !utf8.ValidString(prompt[:headBytes]) {
+		headBytes--
+	}
+	return prompt[:headBytes] + promptElisionMarker + prompt[tailStart:]
 }
 
 func (c *Client) GetTurn(ctx context.Context, sessionID, turnID string) (Turn, error) {

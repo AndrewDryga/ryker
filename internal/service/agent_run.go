@@ -837,19 +837,22 @@ func (s *Service) failPreparingTriageRun(
 	state watchTurnState,
 	detail string,
 ) error {
-	if err := s.postInputNotice(
-		ctx,
-		"watch_failure_"+input.ID,
-		input,
-		watchFailureNotice(detail),
-	); err != nil {
-		return s.store.RetryAgentRun(
+	publish := publishTriageFailure(input, state)
+	if publish {
+		if err := s.postInputNotice(
 			ctx,
-			run.ID,
-			"deliver terminal triage failure: "+trimError(err),
-			queueDelay(run.Failures+1),
-			false,
-		)
+			"watch_failure_"+input.ID,
+			input,
+			watchFailureNotice(detail),
+		); err != nil {
+			return s.store.RetryAgentRun(
+				ctx,
+				run.ID,
+				"deliver terminal triage failure: "+trimError(err),
+				queueDelay(run.Failures+1),
+				false,
+			)
+		}
 	}
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return s.store.RetryAgentRun(
@@ -863,7 +866,7 @@ func (s *Service) failPreparingTriageRun(
 	_ = s.retireFailedWatchSession(ctx, input, state)
 	_ = s.store.Audit(ctx, core.AuditEvent{
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-		Outcome: "failed", Detail: detail,
+		Outcome: triageFailureOutcome(publish), Detail: detail,
 	})
 	return s.store.RetryAgentRun(ctx, run.ID, detail, time.Now(), true)
 }
@@ -1425,14 +1428,22 @@ func (s *Service) stageTerminalFinalizationFailure(
 			})
 			return nil
 		}
-		if err := s.postInputNotice(
-			ctx,
-			"watch_finalization_failure_"+run.ID,
-			input,
-			watchFailureNotice(detail),
-		); err != nil {
-			return err
+		state, _ := decodeWatchRunContext(run)
+		publish := publishTriageFailure(input, state)
+		if publish {
+			if err := s.postInputNotice(
+				ctx,
+				"watch_finalization_failure_"+run.ID,
+				input,
+				watchFailureNotice(detail),
+			); err != nil {
+				return err
+			}
 		}
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			Kind: "agent.finalization", ObjectID: run.ID,
+			Outcome: triageFailureOutcome(publish), Detail: detail,
+		})
 		if !s.cfg.Slack.NativeStatus {
 			return nil
 		}
@@ -1847,13 +1858,15 @@ func (s *Service) finishTriageRunFailure(
 		}
 		return s.clearWatchPendingStatus(ctx, input, state)
 	}
-	post := s.postInputMessage
-	if input.Kind == "bot_message" || input.Kind == "shortcut" ||
-		len(state.MatchedRules) > 0 {
-		post = s.postInputMessageInSourceThread
-	}
-	if err := post(ctx, "watch_failure_"+input.ID, input, message); err != nil {
-		return err
+	publish := publishTriageFailure(input, state)
+	if publish {
+		post := s.postInputMessage
+		if input.Kind == "shortcut" || len(state.MatchedRules) > 0 {
+			post = s.postInputMessageInSourceThread
+		}
+		if err := post(ctx, "watch_failure_"+input.ID, input, message); err != nil {
+			return err
+		}
 	}
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return err
@@ -1863,7 +1876,18 @@ func (s *Service) finishTriageRunFailure(
 	}
 	_ = s.store.Audit(ctx, core.AuditEvent{
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-		Outcome: "failed", Detail: detail,
+		Outcome: triageFailureOutcome(publish), Detail: detail,
 	})
 	return nil
+}
+
+func publishTriageFailure(input core.SlackInput, state watchTurnState) bool {
+	return state.ApprovalContinuation || input.Kind != "bot_message"
+}
+
+func triageFailureOutcome(published bool) string {
+	if published {
+		return "failed"
+	}
+	return "failed_suppressed"
 }

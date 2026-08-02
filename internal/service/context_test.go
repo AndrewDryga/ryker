@@ -126,6 +126,43 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	}
 }
 
+func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
+	recent := make([]watchContextMessage, 0, 20)
+	for index := 0; index < 20; index++ {
+		recent = append(recent, watchContextMessage{
+			MessageTS: fmt.Sprintf("1700.%06d", index),
+			SenderID:  "B_GRAFANA", SenderType: "external_app",
+			Text: strings.Repeat(fmt.Sprintf("old-alert-%02d ", index), 260),
+		})
+	}
+	input := core.SlackInput{
+		ID: "target-alert", Kind: "bot_message", ChannelID: "CALERTS",
+		MessageTS: "1700.999999", UserID: "B_GRAFANA",
+		Text: "CURRENT TARGET: allocation resident memory near limit",
+	}
+	svc := &Service{}
+	raw := svc.unboundedWatchPrompt(
+		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
+		operationalMemoryContext{}, "repo", nil,
+	)
+	if len(raw) <= maxAssembledWatchPromptBytes {
+		t.Fatalf("test prompt did not exceed assembly bound: %d", len(raw))
+	}
+	prompt := svc.watchPrompt(
+		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
+		operationalMemoryContext{}, "repo", nil,
+	)
+	if len(prompt) > maxAssembledWatchPromptBytes {
+		t.Fatalf("watch prompt bytes = %d", len(prompt))
+	}
+	if !strings.Contains(prompt, input.Text) || strings.Contains(prompt, "old-alert-00") {
+		t.Fatalf("bounded watch prompt did not preserve target and drop oldest context")
+	}
+	if strings.LastIndex(prompt, `"target_message"`) < strings.LastIndex(prompt, `"recent_channel_messages"`) {
+		t.Fatal("current target is not serialized after disposable recent context")
+	}
+}
+
 func TestAssembleAgentContextUsesConversationSummaryAsThreadCursor(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

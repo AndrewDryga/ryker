@@ -2240,7 +2240,50 @@ func isSlackVerificationReplay(input core.SlackInput) bool {
 	return strings.HasPrefix(input.EnvelopeID, "replay:")
 }
 
+const maxAssembledWatchPromptBytes = 48 << 10
+
 func (s *Service) watchPrompt(
+	input core.SlackInput,
+	botUserID string,
+	conversationFollowup bool,
+	recent []watchContextMessage,
+	memory core.AgentMemory,
+	related []conversationSituationContext,
+	referenced *referencedThreadContext,
+	prior operationalMemoryContext,
+	activeRepository string,
+	matchedRules []core.StandingRule,
+) string {
+	for {
+		prompt := s.unboundedWatchPrompt(
+			input, botUserID, conversationFollowup, recent, memory, related,
+			referenced, prior, activeRepository, matchedRules,
+		)
+		if len(prompt) <= maxAssembledWatchPromptBytes {
+			return prompt
+		}
+		switch {
+		case len(recent) > 0:
+			recent = recent[1:]
+		case referenced != nil && len(referenced.RecentMessages) > 0:
+			copyReferenced := *referenced
+			copyReferenced.RecentMessages = referenced.RecentMessages[1:]
+			referenced = &copyReferenced
+		case len(related) > 0:
+			related = related[1:]
+		case len(prior.RecentEvidence) > 0:
+			prior.RecentEvidence = prior.RecentEvidence[1:]
+		case len(prior.DreamedMemory) > 0:
+			prior.DreamedMemory = prior.DreamedMemory[1:]
+		case len(prior.ConfirmedMemory) > 0:
+			prior.ConfirmedMemory = prior.ConfirmedMemory[1:]
+		default:
+			return prompt
+		}
+	}
+}
+
+func (s *Service) unboundedWatchPrompt(
 	input core.SlackInput,
 	botUserID string,
 	conversationFollowup bool,
@@ -2276,20 +2319,20 @@ context for comparison only; they must not cause action=ignore or replace the re
 	target.Continuation = conversationFollowup
 	evidence, _ := json.Marshal(struct {
 		ChannelID      string                         `json:"channel_id"`
-		TargetMessage  watchContextMessage            `json:"target_message"`
 		RecentMessages []watchContextMessage          `json:"recent_channel_messages"`
 		Memory         core.AgentMemory               `json:"structured_memory"`
 		Related        []conversationSituationContext `json:"related_situations,omitempty"`
 		Referenced     *referencedThreadContext       `json:"referenced_thread,omitempty"`
 		Prior          operationalMemoryContext       `json:"prior_operational_context,omitempty"`
+		TargetMessage  watchContextMessage            `json:"target_message"`
 	}{
 		ChannelID:      input.ChannelID,
-		TargetMessage:  target,
 		RecentMessages: recent,
 		Memory:         memory,
 		Related:        related,
 		Referenced:     referenced,
 		Prior:          prior,
+		TargetMessage:  target,
 	})
 	return `You are Responder participating in a shared Slack operations feed. Decide whether to act on target_message. Use both the earlier Coop conversation and recent_channel_messages, which is a bounded chronological transcript centered on the target and may include a few messages posted shortly after it.
 ` + replayPolicy + `
