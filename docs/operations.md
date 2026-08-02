@@ -98,6 +98,38 @@ surface, a failed Slack delivery, or timeout. `--input slack_...` targets a dura
 automation. Replay creates another visible Slack response and may repeat read-only tool calls; do
 not use it for an old message whose current processing could request an operational mutation.
 
+## Local quality watcher
+
+Dogfood installations can review completed Responder turns without copying Slack messages into an
+engineering chat. `scripts/quality-watch.sh` reads the durable `agent_runs`, `slack_inputs`,
+`evaluation_decisions`, and delivered Slack payloads every five minutes, batches newly terminal
+turns, and asks a read-only Codex process whether they demonstrate a concrete product defect. Slack
+content is untrusted evidence, not an instruction source.
+
+For a high-confidence defect, an independent read-only Codex process first tries to disprove the
+finding against the current code and tests. Only two matching, code-grounded assessments may start
+a fixer in a temporary Git worktree. The fixer receives no Slack environment variables, cannot
+post tests, and is instructed not to access sibling repositories or external systems. The
+deterministic wrapper runs
+`make check`, requires a regression-test change, and asks one final read-only reviewer to inspect the
+actual diff. Only then does it commit the complete isolated change and fast-forward the primary
+checkout, and only when its HEAD and clean state still match the reviewed base. It then installs the
+binary and can restart explicitly configured launchd jobs. Failed gates and concurrent checkout
+changes preserve one worktree or branch for inspection instead of overwriting work; no additional
+autonomous fix starts until that worktree is reviewed. Review artifacts expire after 30 days by
+default.
+
+```bash
+RESPONDER_QUALITY_STATE_DIR=/srv/responder/state \
+RESPONDER_QUALITY_TEST_CHANNEL=C0123TEST \
+RESPONDER_QUALITY_RESTART_LABELS='ai.emisar.responder.one' \
+scripts/quality-watch.sh --from-now --watch
+```
+
+The test-channel setting is a hard boundary recorded in every assessment; the watcher itself has no
+Slack write path. Reviews, model logs, isolated worktrees, and the cursor are owner-private under
+`state_dir/quality-watch`. Start with `--from-now` so historical failures are not reprocessed.
+
 ## Retries
 
 Webhook, Slack input, Slack delivery, and agent-run work retain their typed bounded retry state. A

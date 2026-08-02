@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "needs_fix",
+    "confidence",
+    "severity",
+    "summary",
+    "evidence",
+    "code_evidence",
+    "expected_behavior",
+    "suspected_components",
+    "regression_test"
+  ],
+  "properties": {
+    "needs_fix": {"type": "boolean"},
+    "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    "severity": {"type": "string", "enum": ["none", "low", "medium", "high", "critical"]},
+    "summary": {"type": "string", "maxLength": 500},
+    "evidence": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {"type": "string", "maxLength": 1000}
+    },
+    "code_evidence": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {"type": "string", "maxLength": 1000}
+    },
+    "expected_behavior": {"type": "string", "maxLength": 2000},
+    "suspected_components": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {"type": "string", "maxLength": 200}
+    },
+    "regression_test": {"type": "string", "maxLength": 2000}
+  }
+}

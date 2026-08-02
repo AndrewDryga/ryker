@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "approve",
+    "confidence",
+    "summary",
+    "concerns",
+    "test_evidence"
+  ],
+  "properties": {
+    "approve": {"type": "boolean"},
+    "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    "summary": {"type": "string", "maxLength": 1000},
+    "concerns": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {"type": "string", "maxLength": 1000}
+    },
+    "test_evidence": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {"type": "string", "maxLength": 1000}
+    }
+  }
+}

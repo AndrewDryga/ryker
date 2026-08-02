@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := check
 
-.PHONY: build install test product-e2e live-acceptance eval eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity model-release-check eval-replay customer-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: build install test product-e2e live-acceptance eval eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity model-release-check eval-replay customer-check quality-watch-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -20,6 +20,12 @@ install:
 
 test:
 	go test ./...
+
+quality-watch-check:
+	scripts/quality-watch.sh --help >/dev/null
+	jq -e '.type == "object" and .additionalProperties == false' scripts/quality-watch-assessment.schema.json >/dev/null
+	jq -e '.type == "object" and .additionalProperties == false' scripts/quality-watch-fix-review.schema.json >/dev/null
+	scripts/test-quality-watch.sh
 
 product-e2e:
 	go test ./internal/service -run '^(TestCustomerJourney|TestProductJourney)' -count=1 -v
@@ -95,7 +101,7 @@ staticcheck:
 vulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 
-check: tidy-check lint actionlint staticcheck test eval-replay race build vulncheck
+check: tidy-check lint quality-watch-check actionlint staticcheck test eval-replay race build vulncheck
 
 # Signing is CI-only because keyless Sigstore needs GitHub's OIDC identity.
 snapshot:
