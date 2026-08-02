@@ -726,8 +726,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		state.Prior,
 		firstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 		state.MatchedRules,
-	) + "\n\n" + repositorySetPrompt(session) +
-		watchDecisionCorrectionPrompt(state.FailureDetail)
+	) + "\n\n" + repositorySetPrompt(session)
 	if state.ApprovalContinuation && strings.TrimSpace(run.Prompt) != "" {
 		prompt += "\n\n<emisar-run-continuation>\n" + run.Prompt +
 			"\n</emisar-run-continuation>"
@@ -747,6 +746,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			"request because: " + boundedOperatorText(state.EscalationReason) +
 			". Perform the full evidence-backed work now.\n</host-escalation>"
 	}
+	prompt += watchDecisionCorrectionPrompt(state.FailureDetail)
 	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 	if episodeErr != nil {
 		return s.retryAgentRun(ctx, run, episodeErr)
@@ -1031,7 +1031,9 @@ func (s *Service) stagePolledAgentRunTerminal(
 		}
 		if decisionErr != nil {
 			correction := "the structured Slack response is invalid: " + trimError(decisionErr)
-			if !terminalAttempt(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts) {
+			if !terminalStructuredCorrection(
+				run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+			) {
 				state.FailureDetail = correction
 				contextJSON, marshalErr := json.Marshal(state)
 				if marshalErr != nil {
@@ -1091,7 +1093,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 				)
 			}
 			if correction != "" {
-				if !terminalAttempt(
+				if !terminalStructuredCorrection(
 					run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
 				) {
 					state.FailureDetail = correction
@@ -1123,7 +1125,9 @@ func (s *Service) stagePolledAgentRunTerminal(
 		report, _, reportErr := parseAgentReport(turn.AssistantMessage)
 		if reportErr != nil {
 			correction := "the structured agent report is invalid: " + trimError(reportErr)
-			if !terminalAttempt(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts) {
+			if !terminalStructuredCorrection(
+				run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+			) {
 				if err := s.store.RequeueAgentRun(
 					ctx, run.ID, correction, cursor, time.Now(),
 				); err != nil {
@@ -1146,7 +1150,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 				report.Completion,
 			)
 			if correction != "" {
-				if !terminalAttempt(
+				if !terminalStructuredCorrection(
 					run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
 				) {
 					if err := s.store.RequeueAgentRun(
@@ -1171,6 +1175,12 @@ func (s *Service) stagePolledAgentRunTerminal(
 		_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 	}
 	return nil
+}
+
+func terminalStructuredCorrection(attempt, maximum int) bool {
+	const maximumStructuredCorrections = 3
+
+	return terminalAttempt(attempt, min(maximum, maximumStructuredCorrections))
 }
 
 func (s *Service) advanceTriageSessionEvents(

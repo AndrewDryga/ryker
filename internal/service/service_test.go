@@ -3924,8 +3924,9 @@ func TestWatchedChannelDecisions(t *testing.T) {
 					t.Fatalf("malformed agent run = %+v, %v", run, err)
 				}
 				if slack.posts[0].thread != input.MessageTS ||
-					!strings.Contains(slack.posts[0].message.Text, "could not complete this check") ||
-					!strings.Contains(slack.posts[0].message.Text, "No incident was created") {
+					!strings.Contains(slack.posts[0].message.Text, "couldn't finish this assessment") ||
+					!strings.Contains(slack.posts[0].message.Text, "nothing was changed") ||
+					strings.Contains(slack.posts[0].message.Text, "completion assessment") {
 					t.Fatalf("watched failure reply = %+v", slack.posts[0])
 				}
 			}
@@ -4089,7 +4090,7 @@ func TestWatchedFailureKeepsPendingStatusUntilNoticeIsPosted(t *testing.T) {
 		t.Fatalf("finalized failed run = %+v, %v", run, err)
 	}
 	if len(slack.posts) != 1 ||
-		!strings.Contains(slack.posts[0].message.Text, "could not complete this check") {
+		!strings.Contains(slack.posts[0].message.Text, "couldn't finish this assessment") {
 		t.Fatalf("failure notice attempt = %+v", slack.posts)
 	}
 	if len(slack.statuses) != 0 {
@@ -4181,6 +4182,26 @@ func TestMalformedDeepCompletionIsCorrectedAndRetried(t *testing.T) {
 	if len(coopClient.submitPrompts) != 2 ||
 		!strings.Contains(coopClient.submitPrompts[1], "blocker_kind") {
 		t.Fatalf("correction prompt was not carried into retry: %v", coopClient.submitPrompts)
+	}
+}
+
+func TestStructuredResultFailureNoticeIsOperatorFacing(t *testing.T) {
+	detail := "the deep work episode has no completion assessment; continue until ready"
+	notice := watchFailureNotice(detail)
+	if !strings.Contains(notice, "couldn't finish this assessment") ||
+		!strings.Contains(notice, "completeness checks after retrying") ||
+		strings.Contains(notice, detail) ||
+		strings.Contains(notice, "Reason reported by Coop") {
+		t.Fatalf("structured failure notice = %q", notice)
+	}
+}
+
+func TestStructuredCorrectionBudgetIsBounded(t *testing.T) {
+	if terminalStructuredCorrection(1, 20) ||
+		terminalStructuredCorrection(2, 20) ||
+		!terminalStructuredCorrection(3, 20) ||
+		!terminalStructuredCorrection(1, 1) {
+		t.Fatal("structured correction budget does not stop after three attempts")
 	}
 }
 

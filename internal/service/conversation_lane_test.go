@@ -397,3 +397,91 @@ func TestConversationLaneEscalatesOperationalWorkWithoutRetryPenalty(t *testing.
 		t.Fatalf("escalated reply = %+v", slack.posts)
 	}
 }
+
+func TestEscalatedDeepWorkReceivesStructuredCorrection(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"escalate","attention":{"addressee":"responder","confidence":3,"ownership":2},"reason":"requires current production evidence","memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"checked production","message":"Production is healthy.","evidence":[],"coverage":[],"memory":{}}`,
+		`{
+		  "action":"reply",
+		  "attention":{"addressee":"responder","confidence":3,"ownership":3},
+		  "reason":"completed every required check",
+		  "message":"Production is healthy across the requested scope.",
+		  "coverage":[
+		    {"layer":"change","status":"healthy","detail":"current revision verified"},
+		    {"layer":"host","status":"healthy","detail":"hosts verified"},
+		    {"layer":"runtime","status":"healthy","detail":"runtime verified"},
+		    {"layer":"workload","status":"healthy","detail":"workloads verified"},
+		    {"layer":"dependency","status":"healthy","detail":"dependencies verified"},
+		    {"layer":"application","status":"healthy","detail":"application verified"},
+		    {"layer":"slo","status":"healthy","detail":"SLO verified"}
+		  ],
+		  "completion":{"status":"decision_ready","summary":"Production is healthy across the requested scope."},
+		  "memory":{}
+		}`,
+	}
+	slack := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "deep-escalated-conversation", EnvelopeID: "deep-escalated-envelope",
+		EventID: "deep-escalated-event", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1700.200", UserID: "U123ABC",
+		Text: "<@UBOT> Give me a decision-ready production health assessment. " +
+			"Cover recent changes, hosts, workloads, dependencies, application behavior, and SLOs.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 {
+		t.Fatalf("corrected deep run = %+v, %v", run, err)
+	}
+	if len(slack.posts) != 0 {
+		t.Fatalf("invalid deep answer reached Slack: %+v", slack.posts)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(coopClient.submitPrompts) != 3 ||
+		!strings.Contains(coopClient.submitPrompts[1], "full evidence-backed work") ||
+		!strings.Contains(coopClient.submitPrompts[2], "host-decision-correction") ||
+		!strings.Contains(coopClient.submitPrompts[2], "no completion assessment") ||
+		strings.Contains(coopClient.submitPrompts[2], "bounded conversation turn") {
+		t.Fatalf("deep correction prompts = %q", coopClient.submitPrompts)
+	}
+	if len(slack.posts) != 1 ||
+		!strings.Contains(slack.posts[0].message.Text, "Production is healthy") {
+		t.Fatalf("corrected deep reply = %+v", slack.posts)
+	}
+}

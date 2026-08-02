@@ -1740,11 +1740,25 @@ func (s *Service) retireFailedWatchSession(
 
 func watchFailureNotice(detail string) string {
 	detail = trimError(errors.New(detail))
+	if structuredResultFailure(detail) {
+		return "*I couldn't finish this assessment.*\n\n" +
+			"I gathered evidence, but the final answer still did not pass Responder's " +
+			"completeness checks after retrying. No incident was created and nothing was changed. " +
+			"Try the request once more; if it repeats, check the Responder and Coop logs."
+	}
 	failure := classifyProviderFailure(detail)
 	return "*Responder could not complete this check.*\n\n" +
 		failure.Summary + "\n\nReason reported by Coop: `" + detail + "`\n\n" +
 		"No incident was created, and Responder made no repository or infrastructure changes. " +
 		failure.OperatorFix
+}
+
+func structuredResultFailure(detail string) bool {
+	detail = strings.ToLower(strings.TrimSpace(detail))
+	return strings.Contains(detail, "structured slack response is invalid") ||
+		strings.Contains(detail, "structured agent report is invalid") ||
+		strings.Contains(detail, "completion assessment") ||
+		strings.Contains(detail, "blocked completion")
 }
 
 func (s *Service) clearWatchPendingStatus(
