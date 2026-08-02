@@ -281,9 +281,25 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		if handled {
 			return nil
 		}
+		text := strings.TrimSpace(s.stripBotMention(input.Text))
+		if text == "" && len(input.Attachments) == 0 {
+			if input.Kind == "mention" || input.Kind == "direct" {
+				if err := s.postInputMessageInSourceThread(
+					ctx,
+					"mention_prompt_"+input.ID,
+					input,
+					slackui.ConversationResponse(
+						"What should I check?",
+						s.sanitizer,
+					),
+				); err != nil {
+					return s.retrySlackInput(ctx, input, err)
+				}
+			}
+			return s.finishSlackInput(ctx, input)
+		}
 		if input.Kind == "mention" || input.Kind == "direct" ||
 			(input.Kind == "message" && s.cfg.IsOperator(input.UserID)) {
-			text := s.stripBotMention(input.Text)
 			if explicitChannelConfigurationRequest(text) {
 				if !s.cfg.IsOperator(input.UserID) {
 					return s.finishSlashInput(
@@ -543,8 +559,6 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		}
 		if command, ok := exactCommand(text); ok {
 			err = s.handleControl(ctx, input, incident, command)
-		} else if text == "" && len(input.Attachments) == 0 {
-			err = errors.New("empty Slack message")
 		} else {
 			if text == "" {
 				text = "Please inspect the attached file."

@@ -284,6 +284,98 @@ func TestCustomerJourneySchedulesEngineeringFollowupWithoutStalePRControls(t *te
 	}
 }
 
+func TestCustomerJourneyMentionOnlyPromptsOnceWithoutRetrying(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-mention-only", EnvelopeID: "env-mention-only",
+		EventID: "EvMentionOnly", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: incident.ChannelID,
+		ThreadTS: incident.ConversationThreadTS(), MessageTS: "1700.400",
+		UserID: cfg.Slack.Operators[0], Text: "<@U999BOT>",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit mention-only input = %v, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	if len(slackClient.posts) != 1 ||
+		slackClient.posts[0].message.Text != "What should I check?" ||
+		slackClient.posts[0].thread != incident.ConversationThreadTS() {
+		t.Fatalf("mention-only reply = %+v", slackClient.posts)
+	}
+	stored, err := st.GetSlackInput(ctx, input.ID)
+	if err != nil || stored.State != "done" || stored.Failures != 0 {
+		t.Fatalf("mention-only input = %+v, %v", stored, err)
+	}
+	if _, err := st.GetAgentRunBySource(ctx, "slack", input.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("mention-only input created an agent run: %v", err)
+	}
+}
+
+func TestCustomerJourneyMentionOnlyOutsideIncidentPromptsWithoutCoop(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-channel-mention-only", EnvelopeID: "env-channel-mention-only",
+		EventID: "EvChannelMentionOnly", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "C000CHANNEL",
+		MessageTS: "1700.401", UserID: cfg.Slack.Operators[0], Text: "<@U999BOT>",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit channel mention-only input = %v, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	if len(slackClient.posts) != 1 ||
+		slackClient.posts[0].message.Text != "What should I check?" ||
+		slackClient.posts[0].thread != input.MessageTS {
+		t.Fatalf("channel mention-only reply = %+v", slackClient.posts)
+	}
+	stored, err := st.GetSlackInput(ctx, input.ID)
+	if err != nil || stored.State != "done" || stored.Failures != 0 {
+		t.Fatalf("channel mention-only input = %+v, %v", stored, err)
+	}
+	if _, err := st.GetAgentRunBySource(ctx, "slack", input.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("channel mention-only input created an agent run: %v", err)
+	}
+}
+
 func TestCustomerJourneyIncidentCannotPublishDraftPR(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

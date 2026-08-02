@@ -86,9 +86,16 @@ CREATE TABLE agent_runs (
 CREATE TABLE slack_inputs (
   id TEXT PRIMARY KEY,
   kind TEXT,
+  channel_id TEXT,
+  thread_ts TEXT,
   user_id TEXT,
   message_ts TEXT,
-  text TEXT
+  text TEXT,
+  state TEXT,
+  failure_count INTEGER,
+  last_error TEXT,
+  received_at TEXT,
+  updated_at TEXT
 );
 CREATE TABLE evaluation_decisions (
   source_input TEXT,
@@ -122,8 +129,13 @@ run_watch() {
 
 run_watch clean --from-now --once
 sqlite3 "$state_dir/responder.db" <<'SQL'
-INSERT INTO slack_inputs VALUES (
-  'slack_one', 'mention', 'U123', '2999.001', 'check production health'
+INSERT INTO slack_inputs (
+  id, kind, channel_id, thread_ts, user_id, message_ts, text, state,
+  failure_count, last_error, received_at, updated_at
+) VALUES (
+  'slack_one', 'mention', 'C0TENANTX01', '', 'U123', '2999.001',
+  'check production health', 'done', 0, '',
+  '2999-01-01T00:00:00.000Z', '2999-01-01T00:00:02.000Z'
 );
 INSERT INTO agent_runs VALUES (
   'run_one', 'triage', 'completed', 'completed', 'C0TENANTX01', '',
@@ -144,8 +156,13 @@ grep -Fq $'2999-01-01T00:00:02.000Z\trun_one' "$state_dir/quality-watch/cursor.t
 
 rm -f "$count_file"
 sqlite3 "$state_dir/responder.db" <<'SQL'
-INSERT INTO slack_inputs VALUES (
-  'slack_two', 'mention', 'U123', '2999.003', 'check the deployment'
+INSERT INTO slack_inputs (
+  id, kind, channel_id, thread_ts, user_id, message_ts, text, state,
+  failure_count, last_error, received_at, updated_at
+) VALUES (
+  'slack_two', 'mention', 'C0TENANTX01', '', 'U123', '2999.003',
+  'check the deployment', 'done', 0, '',
+  '2999-01-01T00:00:03.000Z', '2999-01-01T00:00:05.000Z'
 );
 INSERT INTO agent_runs VALUES (
   'run_two', 'triage', 'completed', 'completed', 'C0TENANTX01', '',
@@ -166,5 +183,27 @@ if find "$state_dir/quality-watch/worktrees" -mindepth 1 -print -quit | grep -q 
   printf 'quality-watch test: adversarial rejection created a worktree\n' >&2
   exit 1
 fi
+
+rm -f "$count_file"
+sqlite3 "$state_dir/responder.db" <<'SQL'
+INSERT INTO slack_inputs (
+  id, kind, channel_id, thread_ts, user_id, message_ts, text, state,
+  failure_count, last_error, received_at, updated_at
+) VALUES (
+  'slack_three', 'mention', 'C0TENANTX01', '2999.006', 'U123', '2999.006',
+  '<@U999BOT>', 'failed', 12, 'empty Slack message',
+  '2999-01-01T00:00:06.000Z', '2999-01-01T00:00:07.000Z'
+);
+INSERT INTO slack_deliveries VALUES (
+  'out_input_error_slack_three', 'sent', 'post', 'notice', '2999.007', '',
+  '{"text":"Responder could not complete that request after retrying.","reason":"empty Slack message"}'
+);
+SQL
+run_watch clean --once
+grep -Fq '"mode": "input"' "$capture"
+grep -Fq 'empty Slack message' "$capture"
+grep -Fq 'Responder could not complete that request after retrying.' "$capture"
+grep -Fq $'2999-01-01T00:00:07.000Z\tinput_error_slack_three' \
+  "$state_dir/quality-watch/cursor.tsv"
 
 printf 'quality-watch test: ok\n'
