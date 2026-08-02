@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 26
+const currentSchemaVersion = 27
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1279,6 +1279,106 @@ CREATE UNIQUE INDEX scheduled_task_runs_input_once_idx
   ON scheduled_task_runs(source_input) WHERE source_input != '';
 `
 
+const schemaV27 = `
+CREATE TABLE work_episodes (
+  id TEXT PRIMARY KEY,
+  agent_run_id TEXT NOT NULL UNIQUE,
+  effort TEXT NOT NULL CHECK (effort IN (
+    'conversational', 'focused_check', 'operational_assessment',
+    'incident_investigation', 'engineering_task'
+  )),
+  authority TEXT NOT NULL CHECK (authority IN (
+    'read_only', 'repository_write', 'governed_operation'
+  )),
+  state TEXT NOT NULL CHECK (state IN (
+    'acknowledged', 'planning', 'working', 'blocked', 'waiting_approval',
+    'verifying', 'completed', 'failed', 'cancelled', 'superseded'
+  )),
+  objective TEXT NOT NULL,
+  required_coverage_json TEXT NOT NULL DEFAULT '[]',
+  completion_criteria_json TEXT NOT NULL DEFAULT '[]',
+  phase TEXT NOT NULL DEFAULT 'accepted',
+  status TEXT NOT NULL DEFAULT 'Accepted',
+  next_action TEXT NOT NULL DEFAULT 'Plan the work',
+  progress_sequence INTEGER NOT NULL DEFAULT 0,
+  last_progress_at TEXT,
+  progress_due_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  FOREIGN KEY(agent_run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX work_episodes_state_idx
+  ON work_episodes(state, progress_due_at, updated_at);
+
+CREATE TABLE work_episode_progress (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL,
+  phase TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(episode_id, sequence),
+  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX work_episode_progress_episode_idx
+  ON work_episode_progress(episode_id, sequence);
+
+INSERT INTO work_episodes (
+  id, agent_run_id, effort, authority, state, objective,
+  required_coverage_json, completion_criteria_json, phase, status, next_action,
+  created_at, updated_at, completed_at
+)
+SELECT
+  'episode_' || r.id,
+  r.id,
+  CASE
+    WHEN r.mode = 'engineering_task' THEN 'engineering_task'
+    WHEN r.mode = 'incident' THEN 'incident_investigation'
+    ELSE 'focused_check'
+  END,
+  CASE WHEN r.mode = 'engineering_task' THEN 'repository_write' ELSE 'read_only' END,
+  CASE
+    WHEN r.state IN ('pending', 'preparing') THEN 'acknowledged'
+    WHEN r.state = 'running' THEN 'working'
+    WHEN r.state IN ('applying', 'finalizing') THEN 'verifying'
+    WHEN r.state = 'completed' THEN 'completed'
+    WHEN r.state = 'failed' THEN 'failed'
+    WHEN r.state = 'cancelled' THEN 'cancelled'
+    ELSE 'superseded'
+  END,
+  c.title,
+  '[]',
+  '[]',
+  CASE
+    WHEN r.state = 'running' THEN 'investigating'
+    WHEN r.state IN ('applying', 'finalizing') THEN 'delivering'
+    WHEN r.state IN ('completed', 'failed', 'cancelled', 'superseded') THEN 'finished'
+    ELSE 'accepted'
+  END,
+  CASE
+    WHEN r.state = 'running' THEN 'Investigating'
+    WHEN r.state IN ('applying', 'finalizing') THEN 'Preparing the result'
+    WHEN r.state = 'completed' THEN 'Completed'
+    WHEN r.state = 'failed' THEN COALESCE(NULLIF(r.last_error, ''), 'Needs operator attention')
+    WHEN r.state IN ('cancelled', 'superseded') THEN 'Cancelled'
+    ELSE 'Accepted'
+  END,
+  CASE
+    WHEN r.state = 'running' THEN 'Complete the evidence plan'
+    WHEN r.state IN ('applying', 'finalizing') THEN 'Deliver the result'
+    WHEN r.state = 'failed' THEN 'Review the blocker or retry'
+    ELSE 'Plan the work'
+  END,
+  r.created_at,
+  r.updated_at,
+  r.completed_at
+FROM agent_runs AS r
+JOIN commitments AS c ON c.agent_run_id = r.id;
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1306,4 +1406,5 @@ var migrations = []string{
 	schemaV24,
 	schemaV25,
 	schemaV26,
+	schemaV27,
 }

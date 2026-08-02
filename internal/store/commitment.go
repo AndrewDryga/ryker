@@ -12,28 +12,15 @@ import (
 const commitmentProjectionColumns = `
 	'commitment_' || r.id, r.id, r.channel_id, r.thread_ts, r.user_id, r.repository, c.title,
 	CASE
-	  WHEN r.state IN ('pending', 'preparing') THEN 'queued'
-	  WHEN r.state = 'running' THEN 'working'
-	  WHEN r.state IN ('applying', 'finalizing') THEN 'finishing'
-	  WHEN r.state = 'completed' THEN 'done'
-	  WHEN r.state = 'failed' THEN 'blocked'
+	  WHEN e.state IN ('acknowledged', 'planning') THEN 'queued'
+	  WHEN e.state = 'working' THEN 'working'
+	  WHEN e.state IN ('verifying', 'waiting_approval') THEN 'finishing'
+	  WHEN e.state = 'completed' THEN 'done'
+	  WHEN e.state IN ('blocked', 'failed') THEN 'blocked'
 	  ELSE 'cancelled'
 	END,
-	CASE
-	  WHEN r.state IN ('pending', 'preparing') THEN 'Waiting to start'
-	  WHEN r.state = 'running' THEN 'Investigating'
-	  WHEN r.state IN ('applying', 'finalizing') THEN 'Preparing the Slack response'
-	  WHEN r.state = 'completed' THEN 'Completed'
-	  WHEN r.state = 'failed' THEN COALESCE(NULLIF(r.last_error, ''), 'Needs operator attention')
-	  ELSE 'Cancelled'
-	END,
-	CASE
-	  WHEN r.state IN ('pending', 'preparing') THEN 'Start the investigation'
-	  WHEN r.state = 'running' THEN 'Finish the evidence check'
-	  WHEN r.state IN ('applying', 'finalizing') THEN 'Deliver the result'
-	  WHEN r.state = 'failed' THEN 'Operator review or retry'
-	  ELSE ''
-	END,
+	e.status,
+	e.next_action,
 	r.source_kind, r.source_id, r.created_at, r.updated_at, r.completed_at`
 
 func (s *Store) ensureCommitment(ctx context.Context, run core.AgentRun) error {
@@ -102,6 +89,7 @@ func (s *Store) GetCommitmentByRun(
 		`SELECT `+commitmentProjectionColumns+`
 		 FROM commitments AS c
 		 JOIN agent_runs AS r ON r.id = c.agent_run_id
+		 JOIN work_episodes AS e ON e.agent_run_id = r.id
 		 WHERE c.agent_run_id = ?`,
 		runID,
 	))
@@ -118,16 +106,21 @@ func (s *Store) ListActiveCommitments(
 		SELECT `+commitmentProjectionColumns+`
 		FROM commitments AS c
 		JOIN agent_runs AS r ON r.id = c.agent_run_id
-		WHERE r.state IN ('pending', 'preparing', 'running', 'applying', 'finalizing', 'failed')
+		JOIN work_episodes AS e ON e.agent_run_id = r.id
+		WHERE e.state IN (
+		  'acknowledged', 'planning', 'working', 'verifying',
+		  'waiting_approval', 'blocked', 'failed'
+		)
 		ORDER BY
-		  CASE r.state
+		  CASE e.state
+		    WHEN 'blocked' THEN 0
 		    WHEN 'failed' THEN 0
-		    WHEN 'running' THEN 1
-		    WHEN 'applying' THEN 2
-		    WHEN 'finalizing' THEN 2
+		    WHEN 'waiting_approval' THEN 1
+		    WHEN 'working' THEN 2
+		    WHEN 'verifying' THEN 3
 		    ELSE 3
 		  END,
-		  r.updated_at DESC
+		  e.updated_at DESC
 		LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -150,7 +143,11 @@ func (s *Store) CountActiveCommitments(ctx context.Context) (int, error) {
 		SELECT count(*)
 		FROM commitments AS c
 		JOIN agent_runs AS r ON r.id = c.agent_run_id
-		WHERE r.state IN ('pending', 'preparing', 'running', 'applying', 'finalizing', 'failed')`,
+		JOIN work_episodes AS e ON e.agent_run_id = r.id
+		WHERE e.state IN (
+		  'acknowledged', 'planning', 'working', 'verifying',
+		  'waiting_approval', 'blocked', 'failed'
+		)`,
 	).Scan(&count)
 	return count, err
 }

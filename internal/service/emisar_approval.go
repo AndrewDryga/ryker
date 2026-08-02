@@ -143,6 +143,14 @@ func (s *Service) finishTerminalEmisarApproval(
 		updated.NextCheckAt = time.Now().UTC().Add(time.Second)
 		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(updated))
 	}
+	if err := s.store.ResolveWaitingApprovalEpisodes(
+		ctx,
+		updated.IncidentID,
+		updated.SourceInput,
+		updated.Status,
+	); err != nil {
+		return err
+	}
 	if _, _, err := s.queueEmisarApprovalContinuation(ctx, updated); err != nil {
 		return err
 	}
@@ -272,6 +280,7 @@ func (s *Service) queueEmisarApprovalContinuation(
 		SourceKind: sourceKind, SourceID: input.ID, UserID: approval.RequestedBy,
 		Repository: repository, Prompt: prompt, Context: contextJSON,
 		CommitmentTitle: "Verify " + approval.ActionID + " after Emisar completed it",
+		Episode:         approvalContinuationEpisode(approval.ActionID),
 	})
 }
 

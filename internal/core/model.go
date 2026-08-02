@@ -658,6 +658,73 @@ const (
 	AgentRunSuperseded AgentRunState = "superseded"
 )
 
+// EffortContract describes how complete a work episode must be before the host
+// accepts its result. It is intentionally independent from AuthorityBoundary.
+type EffortContract string
+
+const (
+	EffortConversational        EffortContract = "conversational"
+	EffortFocusedCheck          EffortContract = "focused_check"
+	EffortOperationalAssessment EffortContract = "operational_assessment"
+	EffortIncidentInvestigation EffortContract = "incident_investigation"
+	EffortEngineeringTask       EffortContract = "engineering_task"
+)
+
+type AuthorityBoundary string
+
+const (
+	AuthorityReadOnly          AuthorityBoundary = "read_only"
+	AuthorityRepositoryWrite   AuthorityBoundary = "repository_write"
+	AuthorityGovernedOperation AuthorityBoundary = "governed_operation"
+)
+
+type WorkEpisodeState string
+
+const (
+	EpisodeAcknowledged    WorkEpisodeState = "acknowledged"
+	EpisodePlanning        WorkEpisodeState = "planning"
+	EpisodeWorking         WorkEpisodeState = "working"
+	EpisodeBlocked         WorkEpisodeState = "blocked"
+	EpisodeWaitingApproval WorkEpisodeState = "waiting_approval"
+	EpisodeVerifying       WorkEpisodeState = "verifying"
+	EpisodeCompleted       WorkEpisodeState = "completed"
+	EpisodeFailed          WorkEpisodeState = "failed"
+	EpisodeCancelled       WorkEpisodeState = "cancelled"
+	EpisodeSuperseded      WorkEpisodeState = "superseded"
+)
+
+// WorkEpisode is the host-owned execution contract for one accepted unit of
+// work. AgentRun remains the transport record; this record says what must be
+// accomplished, what authority is available, and what the team is waiting for.
+type WorkEpisode struct {
+	ID                 string
+	AgentRunID         string
+	Effort             EffortContract
+	Authority          AuthorityBoundary
+	State              WorkEpisodeState
+	Objective          string
+	RequiredCoverage   []string
+	CompletionCriteria []string
+	Phase              string
+	Status             string
+	NextAction         string
+	ProgressSequence   int
+	LastProgressAt     time.Time
+	ProgressDueAt      time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	CompletedAt        time.Time
+}
+
+type WorkEpisodeProgress struct {
+	ID        string
+	EpisodeID string
+	Sequence  int
+	Phase     string
+	Summary   string
+	CreatedAt time.Time
+}
+
 type AgentRun struct {
 	ID                string
 	Mode              AgentRunMode
@@ -688,6 +755,7 @@ type AgentRun struct {
 	StartedAt         time.Time
 	CompletedAt       time.Time
 	CommitmentTitle   string
+	Episode           *WorkEpisode
 }
 
 type CommitmentState string

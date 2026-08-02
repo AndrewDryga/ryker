@@ -27,6 +27,17 @@ func (s *Service) queueIncidentAgentRun(
 	if incident.IsEngineeringTask() {
 		mode = core.AgentRunEngineeringTask
 	}
+	episode := s.episodeForIncident(incident, mode, sourceKind, incident.Title)
+	if sourceKind == "slack" && mode == core.AgentRunIncident {
+		input, err := s.store.GetSlackInput(ctx, sourceID)
+		if err != nil {
+			return core.AgentRun{}, false, err
+		}
+		episode = s.episodeForWatchedInput(
+			input,
+			watchTurnState{ConversationFollowup: true},
+		)
+	}
 	return s.store.QueueAgentRun(ctx, core.AgentRun{
 		Mode: mode, IncidentID: incident.ID, ChannelID: incident.ChannelID,
 		ThreadTS:        incident.ConversationThreadTS(),
@@ -35,6 +46,7 @@ func (s *Service) queueIncidentAgentRun(
 		Repository: incident.Repository, Prompt: prompt,
 		SessionID:       incident.CoopSessionID,
 		CommitmentTitle: incident.Title,
+		Episode:         episode,
 	})
 }
 
@@ -72,6 +84,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 				Context:           contextJSON, State: core.AgentRunRunning,
 				StartedAt:       time.Now().UTC(),
 				CommitmentTitle: commitmentTitleForInput(input),
+				Episode:         s.episodeForWatchedInput(input, legacy),
 			})
 			if queueErr != nil {
 				return queueErr
@@ -154,6 +167,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		Context:         contextJSON,
 		NextAttemptAt:   readyAt,
 		CommitmentTitle: commitmentTitleForInput(input),
+		Episode:         s.episodeForWatchedInput(input, state),
 	})
 	if err != nil {
 		return err
@@ -361,6 +375,11 @@ func (s *Service) prepareIncidentAgentRun(
 	if repositoryPrompt := repositorySetPrompt(session); repositoryPrompt != "" {
 		prompt += "\n\n" + repositoryPrompt
 	}
+	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
+	if episodeErr != nil {
+		return s.retryIncidentAgentRun(ctx, run, incident, episodeErr, false)
+	}
+	prompt += "\n\n" + workEpisodePrompt(episode)
 	revision, err := s.store.FreezeAgentRunRevision(ctx, run.ID, session.Revision)
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, true)
@@ -728,6 +747,11 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			"request because: " + boundedOperatorText(state.EscalationReason) +
 			". Perform the full evidence-backed work now.\n</host-escalation>"
 	}
+	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
+	if episodeErr != nil {
+		return s.retryAgentRun(ctx, run, episodeErr)
+	}
+	prompt += "\n\n" + workEpisodePrompt(episode)
 	prompt += agentRunContinuationPrompt(run)
 	turn, _, err := s.coop.SubmitTurnWithArtifacts(
 		ctx,
@@ -943,6 +967,9 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 			}
 		}
 	}
+	if err := s.refreshWorkEpisodeProgress(ctx, run); err != nil {
+		s.log.Warn("refresh work episode progress", "run", run.ID, "error", err)
+	}
 	return nil
 }
 
@@ -1022,7 +1049,20 @@ func (s *Service) stagePolledAgentRunTerminal(
 					time.Now(),
 				)
 			}
-			if correction := watchDecisionCorrection(input, state, decision); correction != "" {
+			correction := watchDecisionCorrection(input, state, decision)
+			if correction == "" {
+				episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
+				if episodeErr != nil {
+					return episodeErr
+				}
+				correction = episodeCompletionCorrection(
+					episode,
+					decision.Action,
+					sanitizeCoverage(decision.Coverage, "", "", ""),
+					decision.Completion,
+				)
+			}
+			if correction != "" {
 				if !terminalAttempt(
 					run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
 				) {
@@ -1042,6 +1082,36 @@ func (s *Service) stagePolledAgentRunTerminal(
 						return err
 					}
 					_ = s.advanceTriageSessionEvents(ctx, run, cursor)
+					return nil
+				}
+				terminalState = "failed"
+				result = nil
+				detail = correction
+			}
+		}
+	}
+	if run.Mode == core.AgentRunIncident && terminalState == "completed" {
+		report, _, reportErr := parseAgentReport(turn.AssistantMessage)
+		if reportErr == nil {
+			episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
+			if episodeErr != nil {
+				return episodeErr
+			}
+			correction := episodeCompletionCorrection(
+				episode,
+				"reply",
+				sanitizeCoverage(report.Coverage, "", "", ""),
+				report.Completion,
+			)
+			if correction != "" {
+				if !terminalAttempt(
+					run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+				) {
+					if err := s.store.RequeueAgentRun(
+						ctx, run.ID, correction, cursor, time.Now(),
+					); err != nil {
+						return err
+					}
 					return nil
 				}
 				terminalState = "failed"
@@ -1373,6 +1443,15 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	if err := s.applyWatchDecision(ctx, input, state, decision); err != nil {
 		return err
 	}
+	episodeState, phase, status, nextAction := completionEpisodePhase(
+		decision.Completion,
+		decision.PendingApproval,
+	)
+	if err := s.store.SetWorkEpisodePhase(
+		ctx, run.ID, episodeState, phase, status, nextAction, time.Time{},
+	); err != nil {
+		return err
+	}
 	return s.store.FinishAgentRun(ctx, run.ID)
 }
 
@@ -1402,6 +1481,7 @@ func (s *Service) finalizeIncidentAgentRun(
 	var message slackui.Message
 	var visuals []core.GeneratedVisual
 	var pendingApproval *core.EmisarApproval
+	var episodeCompletion *completionAssessment
 	var reportReplyParts []string
 	if state == "completed" {
 		report, structured, reportErr := parseAgentReport(string(run.Result))
@@ -1431,6 +1511,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				Detail: boundedField(trimError(reportErr), 1000),
 			})
 		} else {
+			episodeCompletion = report.Completion
 			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
 				if offer, ok := normalizeOperationalAlertRule(
 					conversationInput,
@@ -1650,6 +1731,17 @@ func (s *Service) finalizeIncidentAgentRun(
 	}
 	if err := s.requireNativeStatusClear(ctx, incident, run.ID); err != nil {
 		return err
+	}
+	if state == "completed" {
+		episodeState, phase, status, nextAction := completionEpisodePhase(
+			episodeCompletion,
+			pendingApproval,
+		)
+		if err := s.store.SetWorkEpisodePhase(
+			ctx, run.ID, episodeState, phase, status, nextAction, time.Time{},
+		); err != nil {
+			return err
+		}
 	}
 	if err := s.store.FinishAgentRun(ctx, run.ID); err != nil {
 		return err

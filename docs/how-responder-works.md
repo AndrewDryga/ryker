@@ -86,6 +86,30 @@ Slack and webhook secrets stay in Responder. The Emisar key is projected into th
 box through Coop's private configuration; it is not sent in prompts. Slack never receives Coop's
 filesystem or terminal protocol.
 
+### The work-episode kernel
+
+Every accepted model-backed request creates one durable work episode before execution. Four
+independent decisions define it:
+
+| Policy | Stored decision | What it controls |
+| --- | --- | --- |
+| Engagement | Slack admission and attention score | Whether Responder should participate |
+| Effort | `conversational`, `focused_check`, `operational_assessment`, `incident_investigation`, or `engineering_task` | How much evidence and validation completion requires |
+| Authority | `read_only`, `repository_write`, or `governed_operation` | Which external effects the host and downstream policy may permit |
+| Communication | channel context, reply location, preferences, and native status | Where and how Responder communicates |
+
+Effort never grants authority. A deep health review can remain read-only, and a narrowly scoped
+governed operation can require approval without becoming an incident investigation. The episode
+stores its objective, required coverage, completion criteria, phase, next action, and an ordered
+progress ledger. This state survives process restarts and is also the source of active commitment
+bookkeeping.
+
+Operational assessments and incident investigations may finish only when every required layer is
+assessed and the result is decision-ready, or when Responder names the exact material gap and the
+concrete action needed to unblock it. A healthy host probe alone therefore cannot complete an
+end-to-end production-health request. Partial model answers are requeued within the configured run
+attempt budget instead of being presented as final.
+
 ## 2. Slack event admission and routing
 
 Socket Mode handlers do minimal synchronous work: validate the workspace and event shape, persist a
@@ -197,7 +221,7 @@ sequenceDiagram
   W->>DB: Lease next eligible Slack input
   Note over W,DB: Slash/actions are prioritized.<br/>Only active admission work serializes a channel.
   W->>DB: Match standing rules and INSERT agent_runs
-  W->>DB: Project durable commitment<br/>queued before execution
+  W->>DB: Create durable work episode + commitment<br/>effort, authority, coverage, completion criteria
   W->>DB: Mark Slack input done
   W->>DB: Queue native pending status
   Note over W,DB: Slack input retry budget stops here.<br/>Long model work has its own failure budget.
@@ -240,9 +264,11 @@ sequenceDiagram
   C-->>W: Terminal turn
 
   W->>W: Strict parse, bound, sanitize, validate
+  W->>W: Enforce episode completion<br/>or continue the same accepted work
   W->>W: Enforce host attention threshold<br/>after addressee and interruption scoring
   W->>DB: Stage terminal result on agent_runs
   W->>DB: Persist evidence and coverage separately
+  W->>DB: Append terminal or blocked episode progress
   W->>DB: Transaction: decision once + channel session state<br/>+ conversation summary update
 
   alt ignore

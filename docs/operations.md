@@ -148,6 +148,19 @@ The scheduler limits are `limits.max_scheduled_tasks`, `limits.max_schedules_per
 repository binding prunes its schedules during maintenance. Expired tasks and terminal occurrence
 records age out with operational retention.
 
+## Long-running work progress
+
+Accepted model-backed work has a durable episode and remains an active commitment until it reaches
+a terminal state, an exact blocker, or an Emisar approval hold. Responder refreshes native Slack
+status and appends a bounded progress event while a run remains active. Configure the quiet
+interval with `limits.episode_progress_interval` (default `2m`, allowed `30s` through `1h`). This is
+an observability interval, not a deadline: deep investigations continue until their coverage and
+completion contract is satisfied or the run's normal retry policy is exhausted.
+
+Progress events report phases and material milestones, never hidden reasoning or raw tool output.
+Slack controls stay on the control lane while long-running Coop turns remain on the background
+lane, so an approval, stop, or configuration action is not blocked by investigation work.
+
 Bot channel joins create a durable `configuration_sessions` row with a 30-minute expiry. The setup
 root timestamp, initiator, current question, typed draft, revision, and status are stored before
 later answers can advance it. Thread answers must match the root; top-level answers require a

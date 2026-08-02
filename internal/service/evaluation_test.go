@@ -152,6 +152,59 @@ func TestEvaluationChecksCustomerVisibleContract(t *testing.T) {
 	}
 }
 
+func TestEvaluationRejectsPrematureDeepCompletion(t *testing.T) {
+	cfg := serviceConfig(t)
+	base := EvaluationCase{
+		Name: "deep completion", Kind: "watch",
+		Input: "Give me a deep production health assessment", MentionsResponder: true,
+		RequireCompletion:    true,
+		WantCompletionStatus: "decision_ready",
+		Output: `{
+			"action":"reply",
+			"message":"The checked scope is healthy.",
+			"completion":{"status":"decision_ready","summary":"Healthy"},
+			"coverage":[
+				{"layer":"change","status":"healthy","detail":"revision is current"},
+				{"layer":"host","status":"healthy","detail":"hosts respond"},
+				{"layer":"runtime","status":"healthy","detail":"runtime responds"},
+				{"layer":"workload","status":"healthy","detail":"workloads run"},
+				{"layer":"dependency","status":"healthy","detail":"dependencies respond"},
+				{"layer":"application","status":"healthy","detail":"transactions pass"},
+				{"layer":"slo","status":"healthy","detail":"SLO is within target"}
+			]
+		}`,
+	}
+	if result := evaluateCaseWithConfig(base, &cfg, time.Now().UTC()); !result.Passed {
+		t.Fatalf("decision-ready completion = %+v", result)
+	}
+	premature := base
+	premature.Output = `{
+		"action":"reply","message":"Hosts look healthy.",
+		"completion":{"status":"decision_ready","summary":"Healthy"},
+		"coverage":[{"layer":"host","status":"healthy","detail":"hosts respond"}]
+	}`
+	if result := evaluateCaseWithConfig(premature, &cfg, time.Now().UTC()); result.Passed ||
+		!strings.Contains(result.Detail, "premature completion") {
+		t.Fatalf("premature completion = %+v", result)
+	}
+}
+
+func TestLiveEvaluationPromptCarriesProductionWorkContract(t *testing.T) {
+	cfg := serviceConfig(t)
+	prompt, err := liveEvaluationPrompt(cfg, EvaluationCase{
+		Name: "deep health", Kind: "watch", Repository: "repo",
+		Input: "Give me a deep production health assessment", MentionsResponder: true,
+	}, "repo", "eval_contract")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"<host-work-episode>", `"effort":"operational_assessment"`, `"authority":"read_only"`} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("live prompt lacks %q", want)
+		}
+	}
+}
+
 func TestEvaluationRequiresDecisionReadyAlertAssessment(t *testing.T) {
 	passing := EvaluationCase{
 		Name: "decision-ready alert", Kind: "watch", WantAction: "reply",

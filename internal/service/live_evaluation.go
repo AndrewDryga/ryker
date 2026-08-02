@@ -833,6 +833,8 @@ func liveEvaluationPrompt(
 				repositoryKey,
 			), nil
 		}
+		state := watchTurnState{MatchedRules: rules}
+		episode := evaluator.episodeForWatchedInput(input, state)
 		return evaluator.watchPrompt(
 			input,
 			"UEVALBOT",
@@ -844,7 +846,7 @@ func liveEvaluationPrompt(
 			prior,
 			repositoryKey,
 			rules,
-		), nil
+		) + "\n\n" + workEpisodePrompt(*episode), nil
 	case "incident", "task":
 		incident := core.Incident{
 			ID:         caseID,
@@ -873,7 +875,13 @@ func liveEvaluationPrompt(
 		if err != nil {
 			return "", err
 		}
-		return prompt + "\n\n" + evaluator.structuredResponsePolicy(), nil
+		mode := core.AgentRunIncident
+		if testCase.Kind == "task" {
+			mode = core.AgentRunEngineeringTask
+		}
+		episode := evaluator.episodeForIncident(incident, mode, "evaluation", testCase.Input)
+		return prompt + "\n\n" + evaluator.structuredResponsePolicy() +
+			"\n\n" + workEpisodePrompt(*episode), nil
 	default:
 		return "", errors.New("live case kind must be watch, incident, or task")
 	}

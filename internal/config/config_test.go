@@ -76,6 +76,7 @@ webhooks:
 		cfg.Limits.MaxScheduledTasks != 500 ||
 		cfg.Limits.MaxSchedulesPerChannel != 25 ||
 		cfg.Limits.ScheduleMisfireGrace.Duration != 15*time.Minute ||
+		cfg.Limits.EpisodeProgressInterval.Duration != 2*time.Minute ||
 		cfg.Retention.ConversationMemory.Duration != 90*24*time.Hour ||
 		!cfg.Memory.DreamingEnabled ||
 		cfg.Memory.DreamingInterval.Duration != 6*time.Hour ||

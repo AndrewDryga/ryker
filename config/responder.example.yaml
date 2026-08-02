@@ -201,6 +201,9 @@ limits:
   max_scheduled_tasks: 500
   max_schedules_per_channel: 25
   schedule_misfire_grace: 15m
+  # Refresh durable work-episode progress while a long Coop turn is running. This updates
+  # operator-visible commitment state without posting noisy Slack heartbeat messages.
+  episode_progress_interval: 2m
   worker_interval: 250ms
   work_lease: 3m
   worker_stall_after: 2m

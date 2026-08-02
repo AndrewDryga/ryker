@@ -31,15 +31,14 @@ func TestAgentRunsProjectDurableOperatorCommitments(t *testing.T) {
 	}
 	if commitment.Title != "Check production health" ||
 		commitment.State != core.CommitmentQueued ||
-		commitment.NextAction != "Start the investigation" {
+		commitment.Status != "Accepted" ||
+		commitment.NextAction != "Plan the work" {
 		t.Fatalf("queued commitment = %+v", commitment)
 	}
 
-	if _, err := st.db.ExecContext(ctx, `
-		UPDATE agent_runs
-		SET state = 'running', started_at = ?, updated_at = ?
-		WHERE id = ?`,
-		nowText(), nowText(), run.ID,
+	if err := st.SetWorkEpisodePhase(
+		ctx, run.ID, core.EpisodeWorking, "investigating", "Investigating",
+		"Complete the evidence plan", time.Time{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -49,12 +48,9 @@ func TestAgentRunsProjectDurableOperatorCommitments(t *testing.T) {
 		t.Fatalf("working commitment = %+v, %v", commitment, err)
 	}
 
-	if _, err := st.db.ExecContext(ctx, `
-		UPDATE agent_runs
-		SET state = 'failed', last_error = 'provider unavailable',
-		    completed_at = ?, updated_at = ?
-		WHERE id = ?`,
-		nowText(), nowText(), run.ID,
+	if err := st.SetWorkEpisodePhase(
+		ctx, run.ID, core.EpisodeBlocked, "blocked", "provider unavailable",
+		"Restore provider access", time.Time{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -72,13 +68,9 @@ func TestAgentRunsProjectDurableOperatorCommitments(t *testing.T) {
 		t.Fatalf("active count = %d, %v", count, err)
 	}
 
-	if _, err := st.db.ExecContext(ctx, `
-		UPDATE agent_runs
-		SET state = 'completed', last_error = '', completed_at = ?, updated_at = ?
-		WHERE id = ?`,
-		time.Now().UTC().Format(timestampFormat),
-		nowText(),
-		run.ID,
+	if err := st.SetWorkEpisodePhase(
+		ctx, run.ID, core.EpisodeCompleted, "finished", "Completed", "",
+		time.Now().UTC(),
 	); err != nil {
 		t.Fatal(err)
 	}

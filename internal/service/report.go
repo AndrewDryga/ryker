@@ -28,6 +28,7 @@ type agentReport struct {
 	ScheduleOffer    *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
 	PendingApproval  *core.EmisarApproval   `json:"pending_approval,omitempty"`
 	Proposals        []core.ActionProposal  `json:"proposals,omitempty"`
+	Completion       *completionAssessment  `json:"completion,omitempty"`
 }
 
 const (
@@ -159,6 +160,9 @@ func decodeAgentReport(message string) (agentReport, error) {
 	}
 	if offerCount > 0 && len(report.Visuals) > 0 {
 		return agentReport{}, errors.New("structured agent response cannot combine a durable behavior offer with generated visuals")
+	}
+	if err := validateCompletionAssessment(report.Completion); err != nil {
+		return agentReport{}, err
 	}
 	return report, nil
 }
@@ -836,6 +840,12 @@ func structuredResponseInstructions() string {
     "status": "pending_approval",
     "approval_url": "exact approval.url returned by Emisar",
     "expires_at": "exact RFC3339 approval.expires_at returned by Emisar"
+  },
+  "completion": {
+    "status": "decision_ready|blocked",
+    "summary": "concise decision or exact blocker",
+    "material_gaps": ["gap that could change the decision"],
+    "next_action": "concrete action required when blocked"
   },
   "proposals": [{
     "action_name": "one configured action name only",

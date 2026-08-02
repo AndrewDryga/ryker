@@ -62,6 +62,8 @@ SQLite runs in WAL mode with full synchronous writes and one connection. It stor
 - Slack posts, updates, and native statuses in one delivery ledger;
 - a small durable scheduling index with lane, subject, conversation, due time, lease token, and retry state;
 - agent runs with stable idempotency keys, frozen revisions, and persisted context snapshots;
+- durable work episodes with independent effort and authority contracts, required evidence
+  coverage, completion criteria, current phase, and an ordered progress ledger;
 - operator-confirmed scheduled tasks plus an immutable occurrence ledger keyed by task and due time;
 - Slack channel, root timestamp, Coop session, and event cursor mappings;
 - source-attributed evidence and health-layer coverage independent of answer prose;
@@ -80,6 +82,13 @@ conversation key prevents concurrent work in the same Slack conversation. Per-in
 provisioning retries cannot head-of-line block unrelated incidents. SQLite still has one writer
 connection, and network calls happen outside transactions. Long-running Coop work therefore cannot
 block operator controls or consume the source Slack input's retry budget.
+
+The work episode is the lifecycle authority for accepted model-backed work. Agent-run transport
+states describe queueing, Coop submission, and finalization; episode states describe the product
+promise: acknowledged, planning, working, blocked, waiting for approval, verifying, or terminal.
+Active commitments are projected from non-terminal episode states. Emisar approval resolves the
+original waiting episode and queues a separate verification episode, so approval is never treated
+as proof that the requested live effect succeeded.
 
 A scheduled occurrence is not a separate execution engine. The scheduler atomically records and
 advances it, creates an idempotent synthetic Slack input, and queues the ordinary triage agent run.

@@ -238,6 +238,13 @@ The customer journeys are distributed across package tests at the boundary that 
 | Slack app manifest, scopes, membership diagnostics, and managed Coop supervision remain usable | `internal/slackui/client_test.go`, `internal/app/coop_supervisor_test.go` |
 | Slack screenshots and documents are bounded, authenticated, type-checked, passed to Coop, retained only for the turn, and preserved when an engineering task is accepted | `internal/service/attachments_test.go`, `internal/service/service_test.go`, `internal/coop/client_test.go`, Coop `internal/session/store_test.go` and `internal/cli/session_artifact_test.go` |
 | Generated images and charts remain outside the text transcript, are tied to one completed turn, digest-checked, uploaded to the same conversation, and reconciled without duplicates | `internal/service/service_test.go`, `internal/coop/client_test.go`, Coop `internal/cli/session_acp_test.go`, `internal/cli/session_output_test.go`, and `internal/session/store_test.go` |
+| Accepted work has a durable effort/authority contract, rate-limited progress, restart-safe commitments, and coverage-driven completion | `internal/service/work_episode_test.go`, `internal/store/work_episode_test.go`, `testdata/eval/live.jsonl` |
+
+Real-model prompts receive the same host work-episode contract as production. Deep health, incident,
+and matched-alert cases require a completion assessment; the evaluator rejects a final answer that
+omits required layers, labels material unknowns decision-ready, or reports a blocker without an
+action that would unblock it. This makes premature-final-answer regressions visible in the ordinary
+model release gate rather than only during manual Slack testing.
 
 ## Live acceptance
 

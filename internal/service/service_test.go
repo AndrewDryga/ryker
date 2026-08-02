@@ -555,7 +555,19 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 		t.Fatalf("active turn status = %+v", slack.statuses)
 	}
 
-	coopClient.complete("Verified the alert. The API process is healthy; the load balancer target is stale.")
+	coopClient.complete(`{
+	  "message":"Verified the alert. The API process is healthy; the load balancer target is stale.",
+	  "coverage":[
+	    {"layer":"change","status":"healthy","source":"repository","detail":"The declared backend topology was checked"},
+	    {"layer":"host","status":"healthy","source":"Emisar","detail":"The API host is responsive"},
+	    {"layer":"runtime","status":"healthy","source":"Emisar","detail":"The API runtime is responsive"},
+	    {"layer":"workload","status":"healthy","source":"Emisar","detail":"The API process is running"},
+	    {"layer":"dependency","status":"unhealthy","source":"Emisar","detail":"The load balancer target is stale"},
+	    {"layer":"application","status":"healthy","source":"Emisar","detail":"The API process responds locally"},
+	    {"layer":"slo","status":"degraded","source":"Grafana","detail":"The availability alert is firing"}
+	  ],
+	  "completion":{"status":"decision_ready","summary":"The stale load balancer target is the bounded failure and should be corrected."}
+	}`)
 	incident, _ = st.GetIncident(ctx, incident.ID)
 	if err := svc.pollIncident(ctx, incident); err != nil {
 		t.Fatal(err)
@@ -1400,7 +1412,20 @@ func TestExplicitMentionRepliesOutsideConfiguredChannelsWithoutCreatingIncident(
 	}
 	slackClient := &fakeSlack{}
 	coopClient := newFakeCoop()
-	coopClient.completeOnSubmit = `{"action":"reply","message":"I checked current infrastructure state and found no active alerts."}`
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "message":"I checked current infrastructure state and found no active alerts.",
+	  "coverage":[
+	    {"layer":"change","status":"healthy","source":"repository","detail":"The deployed revision matches the declared revision"},
+	    {"layer":"host","status":"healthy","source":"Emisar","detail":"All declared hosts are connected"},
+	    {"layer":"runtime","status":"healthy","source":"Emisar","detail":"The host runtimes are responsive"},
+	    {"layer":"workload","status":"healthy","source":"Emisar","detail":"All declared workloads are running"},
+	    {"layer":"dependency","status":"healthy","source":"Emisar","detail":"Declared dependencies passed their checks"},
+	    {"layer":"application","status":"healthy","source":"monitoring","detail":"Application probes are passing"},
+	    {"layer":"slo","status":"healthy","source":"monitoring","detail":"No SLO alerts are active"}
+	  ],
+	  "completion":{"status":"decision_ready","summary":"The checked production scope is healthy."}
+	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
 		slackui.NewSanitizer(12000), nil,
@@ -4078,7 +4103,22 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	defer st.Close()
 	slackClient := &fakeSlack{dedupePosts: true}
 	coopClient := newFakeCoop()
-	coopClient.completeOnSubmit = `{"action":"reply","attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},"message":"Two production runners are disconnected.","incident_title":"Two production runners disconnected"}`
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},
+	  "message":"Two production runners are disconnected.",
+	  "incident_title":"Two production runners disconnected",
+	  "coverage":[
+	    {"layer":"change","status":"unknown","detail":"The deployed revision was not available"},
+	    {"layer":"host","status":"unhealthy","source":"Emisar","detail":"Two production runners are disconnected"},
+	    {"layer":"runtime","status":"unknown","detail":"Disconnected runners cannot be queried"},
+	    {"layer":"workload","status":"unknown","detail":"Workload placement was not available"},
+	    {"layer":"dependency","status":"unknown","detail":"Dependency health was not available"},
+	    {"layer":"application","status":"unknown","detail":"Application probes were not available"},
+	    {"layer":"slo","status":"unknown","detail":"Customer impact was not available"}
+	  ],
+	  "completion":{"status":"blocked","summary":"Two runners are disconnected and the production impact needs investigation.","material_gaps":["workload placement and customer impact"],"next_action":"Open an incident investigation to establish impact"}
+	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
 		slackui.NewSanitizer(12000), nil,

@@ -250,6 +250,7 @@ type Limits struct {
 	MaxScheduledTasks            int      `yaml:"max_scheduled_tasks"`
 	MaxSchedulesPerChannel       int      `yaml:"max_schedules_per_channel"`
 	ScheduleMisfireGrace         Duration `yaml:"schedule_misfire_grace"`
+	EpisodeProgressInterval      Duration `yaml:"episode_progress_interval"`
 	WorkerInterval               Duration `yaml:"worker_interval"`
 	WorkLease                    Duration `yaml:"work_lease"`
 	WorkerStallAfter             Duration `yaml:"worker_stall_after"`
@@ -344,6 +345,7 @@ func defaults() Config {
 			MaxScheduledTasks:            500,
 			MaxSchedulesPerChannel:       25,
 			ScheduleMisfireGrace:         Duration{15 * time.Minute},
+			EpisodeProgressInterval:      Duration{2 * time.Minute},
 			WorkerInterval:               Duration{250 * time.Millisecond},
 			WorkLease:                    Duration{3 * time.Minute},
 			WorkerStallAfter:             Duration{2 * time.Minute},
@@ -693,6 +695,10 @@ func (c Config) Validate() error {
 	if c.Limits.ScheduleMisfireGrace.Duration < time.Minute ||
 		c.Limits.ScheduleMisfireGrace.Duration > 24*time.Hour {
 		return errors.New("limits.schedule_misfire_grace must be between 1m and 24h")
+	}
+	if c.Limits.EpisodeProgressInterval.Duration < 30*time.Second ||
+		c.Limits.EpisodeProgressInterval.Duration > time.Hour {
+		return errors.New("limits.episode_progress_interval must be between 30s and 1h")
 	}
 	if c.Limits.WorkerInterval.Duration < 50*time.Millisecond || c.Limits.WorkerInterval.Duration > 10*time.Second {
 		return errors.New("limits.worker_interval must be between 50ms and 10s")

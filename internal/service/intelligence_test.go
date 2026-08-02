@@ -121,7 +121,17 @@ func TestWatchedShadowModeRecordsWithoutPosting(t *testing.T) {
 	    "source_type":"emisar",
 	    "source_name":"status",
 	    "target":"job/api"
-	  }]
+	  }],
+	  "coverage":[
+	    {"layer":"change","status":"unknown","detail":"No deployment source was available"},
+	    {"layer":"host","status":"unknown","detail":"No host source was available"},
+	    {"layer":"runtime","status":"unknown","detail":"No runtime source was available"},
+	    {"layer":"workload","status":"unhealthy","source":"status","detail":"The API workload is failed"},
+	    {"layer":"dependency","status":"unknown","detail":"No dependency source was available"},
+	    {"layer":"application","status":"degraded","source":"status","detail":"The API workload cannot serve normally"},
+	    {"layer":"slo","status":"unknown","detail":"No SLO source was available"}
+	  ],
+	  "completion":{"status":"blocked","summary":"Production is degraded but impact is not fully bounded.","material_gaps":["host, dependency, and SLO evidence"],"next_action":"Query the authoritative host and SLO sources"}
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,

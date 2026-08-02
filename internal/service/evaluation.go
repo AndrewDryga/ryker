@@ -51,6 +51,8 @@ type EvaluationCase struct {
 	WantAlertVerdict       string                   `json:"want_alert_verdict,omitempty"`
 	WantImmediateAction    bool                     `json:"want_immediate_action,omitempty"`
 	WantLongTermSolution   bool                     `json:"want_long_term_solution,omitempty"`
+	RequireCompletion      bool                     `json:"require_completion,omitempty"`
+	WantCompletionStatus   string                   `json:"want_completion_status,omitempty"`
 	WantPendingApproval    *bool                    `json:"want_pending_approval,omitempty"`
 	WantProposals          *int                     `json:"want_proposals,omitempty"`
 	MinEvidence            int                      `json:"min_evidence,omitempty"`
@@ -211,6 +213,11 @@ func validateEvaluationCase(testCase EvaluationCase) error {
 	if testCase.MinQualityScore < 0 || testCase.MinQualityScore > 5 {
 		return errors.New("min_quality_score must be between 0 and 5")
 	}
+	switch testCase.WantCompletionStatus {
+	case "", "decision_ready", "blocked":
+	default:
+		return errors.New("want_completion_status must be decision_ready or blocked")
+	}
 	return nil
 }
 
@@ -240,6 +247,8 @@ func evaluateCaseWithConfig(
 	var evidence []core.Evidence
 	var coverage []core.Coverage
 	var assessment *alertAssessment
+	var completion *completionAssessment
+	var episode *core.WorkEpisode
 	var pendingApproval bool
 	var proposals int
 	switch testCase.Kind {
@@ -264,9 +273,13 @@ func evaluateCaseWithConfig(
 				return result
 			}
 			state := watchTurnState{}
-			if len(testCase.StandingRules) > 0 {
-				state.MatchedRules = []core.StandingRule{{ID: "evaluation-rule"}}
+			for _, rule := range testCase.StandingRules {
+				state.MatchedRules = append(state.MatchedRules, core.StandingRule{
+					ID: rule.ID, Trigger: rule.Trigger, Action: rule.Action,
+					Repository: rule.Repository, SourceKind: rule.SourceKind,
+				})
 			}
+			episode = (&Service{cfg: *cfg}).episodeForWatchedInput(input, state)
 			decision = enforceAttentionPolicy(
 				input,
 				state,
@@ -292,6 +305,7 @@ func evaluateCaseWithConfig(
 		evidence = decision.Evidence
 		coverage = decision.Coverage
 		assessment = decision.AlertAssessment
+		completion = decision.Completion
 	case "incident", "task":
 		report, structured, err := parseAgentReport(testCase.Output)
 		if err != nil {
@@ -309,8 +323,18 @@ func evaluateCaseWithConfig(
 		replyMessageCount = len(replies)
 		evidence = report.Evidence
 		coverage = report.Coverage
+		completion = report.Completion
 		pendingApproval = report.PendingApproval != nil
 		proposals = len(report.Proposals)
+		if cfg != nil {
+			mode := core.AgentRunIncident
+			if testCase.Kind == "task" {
+				mode = core.AgentRunEngineeringTask
+			}
+			episode = (&Service{cfg: *cfg}).episodeForIncident(
+				core.Incident{Title: testCase.Name}, mode, "evaluation", testCase.Input,
+			)
+		}
 	default:
 		result.Detail = "kind must be watch, incident, or task"
 		return result
@@ -321,6 +345,22 @@ func evaluateCaseWithConfig(
 		sanitizer := slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes)
 		message = sanitizer.Text(message)
 		reason = sanitizer.Text(reason)
+	}
+	if testCase.RequireCompletion && completion == nil {
+		result.Detail = "completion assessment is missing"
+		return result
+	}
+	if episode != nil {
+		completionAction := action
+		if testCase.Kind != "watch" {
+			completionAction = "reply"
+		}
+		if correction := episodeCompletionCorrection(
+			*episode, completionAction, coverage, completion,
+		); correction != "" {
+			result.Detail = "premature completion: " + correction
+			return result
+		}
 	}
 	if testCase.WantAction != "" && action != testCase.WantAction {
 		result.Detail = fmt.Sprintf("action = %q, want %q", action, testCase.WantAction)
@@ -349,6 +389,19 @@ func evaluateCaseWithConfig(
 	if testCase.WantLongTermSolution &&
 		(assessment == nil || strings.TrimSpace(assessment.LongTermSolution) == "") {
 		result.Detail = "alert assessment has no long-term solution"
+		return result
+	}
+	if testCase.WantCompletionStatus != "" &&
+		(completion == nil || completion.Status != testCase.WantCompletionStatus) {
+		actual := ""
+		if completion != nil {
+			actual = completion.Status
+		}
+		result.Detail = fmt.Sprintf(
+			"completion status = %q, want %q",
+			actual,
+			testCase.WantCompletionStatus,
+		)
 		return result
 	}
 	if len(testCase.WantOffers) > 0 {
