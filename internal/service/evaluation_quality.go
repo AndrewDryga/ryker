@@ -201,26 +201,6 @@ func renderEvaluationMessage(
 		case "reply":
 			replies := replySequence(decision.Message, decision.FollowupMessages)
 			finalReply := replies[len(replies)-1]
-			if decision.IncidentTitle != "" {
-				message := slackui.EvidenceResponseWithIncidentOffer(
-					finalReply,
-					decision.Evidence,
-					decision.Coverage,
-					"evaluation-source",
-					sanitizer,
-				)
-				if decision.Completion != nil && decision.Completion.Status == "blocked" {
-					message = slackui.WithBlockedAssessment(
-						message,
-						decision.Completion.Summary,
-						decision.Completion.MaterialGaps,
-						decision.Completion.Attempts,
-						decision.Completion.NextAction,
-						sanitizer,
-					)
-				}
-				return message, decision.Action, nil
-			}
 			message := slackui.ConciseEvidenceResponse(
 				finalReply,
 				decision.Evidence,
@@ -228,6 +208,9 @@ func renderEvaluationMessage(
 				nil,
 				sanitizer,
 			)
+			if decision.IncidentTitle != "" {
+				message = slackui.WithIncidentOffer(message, "evaluation-source")
+			}
 			if decision.ScheduleOffer != nil {
 				operatorID := "UEVALOPERATOR"
 				if len(cfg.Slack.Operators) > 0 {
@@ -246,12 +229,15 @@ func renderEvaluationMessage(
 			}
 			if decision.TaskTitle != "" {
 				label := "`" + firstNonempty(decision.TaskRepository, testCase.Repository) + "`"
-				message = slackui.WithEngineeringTaskOffer(
-					message,
-					decision.TaskTitle,
-					"evaluation-source",
-					label,
-				)
+				if decision.TaskPrompt != "" {
+					message = slackui.WithSuggestedEngineeringTaskOffer(
+						message, decision.TaskTitle, "evaluation-source", label,
+					)
+				} else {
+					message = slackui.WithEngineeringTaskOffer(
+						message, decision.TaskTitle, "evaluation-source", label,
+					)
+				}
 			}
 			if decision.Completion != nil && decision.Completion.Status == "blocked" {
 				message = slackui.WithBlockedAssessment(

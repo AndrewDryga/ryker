@@ -328,6 +328,7 @@ For shared-channel work, accepted decisions are:
 | `reply` | Post a bounded rich response where a human is speaking; keep app alerts and standing rules in the source thread |
 | Reply plus incident offer | Show **Open incident room**; create nothing until confirmed |
 | Reply plus engineering-task offer | Show **Start engineering task**; create no writable fork until confirmed |
+| Reply plus incident and prepared-fix offers | Show **Open incident room** and **Prepare code fix** independently; carry the confirmed fix objective into a thread task only after operator confirmation |
 | Reply plus memory/preference/rule offer | Show a typed confirmation; save nothing until confirmed |
 | Automatic incident | Allowed for a credible unresolved monitoring-app alert, not an ordinary human health question |
 

@@ -4786,6 +4786,101 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	}
 }
 
+func TestDecisionReadyDiagnosisOffersIncidentAndPreparedFix(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{dedupePosts: true}
+	coopClient := newFakeCoop()
+	const taskPrompt = "Update the LoL rank decoder to treat unknown upstream rank values as unranked, add focused regression tests for WOOD and SALT, and verify the exact production error signature is absent after deployment."
+	coopClient.completeOnSubmit = `{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3},
+		"message":"LoL requests are failing because the rank decoder rejects new upstream values.",
+		"incident_title":"Coordinate LoL request degradation",
+		"task_title":"Make LoL rank decoding forward-compatible",
+		"task_repository":"repo",
+		"task_prompt":` + fmt.Sprintf("%q", taskPrompt) + `,
+		"alert_assessment":{
+			"verdict":"confirmed_issue",
+			"impact":"LoL requests fail continuously.",
+			"cause_status":"identified",
+			"cause":"The decoder rejects WOOD and SALT rank values.",
+			"immediate_action":"Treat unknown values as unranked.",
+			"verification":"Confirm the exact errors disappear after deployment.",
+			"long_term_solution":"Use forward-compatible rank decoding with telemetry."
+		},
+		"completion":{"status":"decision_ready","summary":"The failure and fix boundary are established."},
+		"evidence":[{"claim":"the decoder is strict","observation":"the repository decoder enumerates rank values","source_type":"repository","source_name":"lib/rank.ex"}],
+		"coverage":[{"layer":"application","status":"degraded","detail":"LoL requests fail on new rank values"}]
+	}`
+	if _, err := parseWatchDecision(coopClient.completeOnSubmit); err != nil {
+		t.Fatalf("parse diagnosis decision: %v", err)
+	}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	source := core.SlackInput{
+		ID: "slack-diagnosed-fix", EnvelopeID: "env-diagnosed-fix",
+		EventID: "event-diagnosed-fix", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1701.100", UserID: "U123ABC",
+		Text: "<@U999BOT> Why are LoL requests failing?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
+		t.Fatalf("admit source = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 || len(slackClient.posts[0].message.Actions) != 2 ||
+		slackClient.posts[0].message.Actions[0].ID != slackui.ActionOpenIncident ||
+		slackClient.posts[0].message.Actions[1].ID != slackui.ActionStartTask ||
+		slackClient.posts[0].message.Actions[1].Label != "Prepare code fix" {
+		run, _ := st.GetAgentRunBySource(ctx, "watch", source.ID)
+		t.Fatalf("diagnosis offers = %+v; run = %+v", slackClient.posts, run)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil || state.OfferedTaskPrompt != taskPrompt ||
+		state.OfferedIncidentTitle == "" || state.OfferedTaskTitle == "" {
+		t.Fatalf("persisted diagnosis offers = %+v, %v", state, err)
+	}
+	click := core.SlackInput{
+		ID: "prepare-diagnosed-fix", EnvelopeID: "env-prepare-diagnosed-fix",
+		EventID: "event-prepare-diagnosed-fix", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: source.ChannelID,
+		MessageTS: "1700.001", UserID: "U123ABC",
+		ActionID: slackui.ActionStartTask, ActionValue: source.ID,
+	}
+	if created, err := st.AdmitSlackInput(ctx, click); err != nil || !created {
+		t.Fatalf("admit click = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	incidents, err := st.ListIncidents(ctx, 10)
+	if err != nil || len(incidents) != 1 || !incidents[0].IsEngineeringTask() {
+		t.Fatalf("prepared fix task = %+v, %v", incidents, err)
+	}
+	signals, err := st.ListSignals(ctx, incidents[0].ID)
+	if err != nil || len(signals) != 1 || signals[0].Summary != taskPrompt {
+		t.Fatalf("prepared fix objective = %+v, %v", signals, err)
+	}
+}
+
 func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -5628,6 +5723,7 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"reply","message":"Waiting for Emisar approval.","pending_approval":{"request_id":"apr_1","run_id":"run_1","operation_id":"op_1","action_id":"service.enable","pack_ref":"service@1#sha256:abc","runner_ref":"prod~abc","status":"pending_approval","approval_url":"https://emisar.dev/app/acme/approvals/apr_1","expires_at":"2099-08-01T00:00:00Z"}}`,
 		`{"action":"reply","message":"Two runners are offline.","incident_title":"Two runners offline"}`,
 		`{"action":"reply","message":"I can make that change.","task_title":"Audit infrastructure packs","task_repository":"repo","memory":{"topology":{"portal_hosts_declared":2,"runner_mapping":"Two current runners"}}}`,
+		`{"action":"reply","message":"The issue is bounded.","incident_title":"Coordinate API degradation","task_title":"Fix API decoder","task_repository":"repo","task_prompt":"Update the decoder to fail soft on unknown values and run focused tests.","alert_assessment":{"verdict":"confirmed_issue","impact":"API requests fail.","cause_status":"identified","cause":"The decoder rejects a new upstream value.","immediate_action":"Fail soft on the new value.","verification":"Confirm the exact error disappears.","long_term_solution":"Use forward-compatible decoding."},"completion":{"status":"decision_ready","summary":"The failure is bounded."},"evidence":[{"claim":"the decoder is strict","observation":"the repository decoder enumerates rank values","source_type":"repository","source_name":"lib/rank.ex"}]}`,
 		`{"action":"incident","title":"API unavailable"}`,
 	}
 	for _, input := range valid {
@@ -5641,6 +5737,9 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"incident"}`,
 		`{"action":"incident","title":"API unavailable","incident_title":"duplicate"}`,
 		`{"action":"reply","message":"Choose a repository.","task_repository":"repo"}`,
+		`{"action":"reply","message":"Prepare it.","task_title":"Fix it","task_repository":"repo","task_prompt":"Change the code."}`,
+		`{"action":"reply","message":"Prepare it.","task_prompt":"Change the code."}`,
+		`{"action":"reply","message":"Prepare it.","task_title":"Fix it","task_repository":"repo","task_prompt":"Change the code.","alert_assessment":{"verdict":"confirmed_issue","impact":"Requests fail.","cause_status":"identified","cause":"The decoder rejects a value.","immediate_action":"Fail soft.","verification":"Confirm errors stop.","long_term_solution":"Use forward-compatible decoding."},"completion":{"status":"decision_ready","summary":"The failure is bounded."},"evidence":[{"claim":"requests fail","observation":"fresh logs contain failures","source_type":"emisar","source_name":"logs"}]}`,
 		`{"action":"ignore","unknown":true}`,
 		`{"action":"react","reaction":"✅"}`,
 		`{"action":"react","reaction":"wave::skin-tone-9"}`,

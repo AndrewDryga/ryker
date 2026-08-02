@@ -1693,15 +1693,19 @@ func EvidenceResponseWithIncidentOffer(
 	sanitizer *Sanitizer,
 ) Message {
 	message := ConciseEvidenceResponse(text, evidence, coverage, nil, sanitizer)
+	message.Context = nil
+	return WithIncidentOffer(message, sourceInputID)
+}
+
+func WithIncidentOffer(message Message, sourceInputID string) Message {
 	// The incident button and confirmation dialog carry the boundary. A context
 	// footer is redundant and is concatenated to copied Slack Markdown.
-	message.Context = nil
-	message.Actions = []Action{{
+	message.Actions = append(message.Actions, Action{
 		ID: ActionOpenIncident, Label: "Open incident room", Value: sourceInputID,
 		Style: "primary",
 		Confirm: "Create a dedicated incident room and isolated Coop working copy from this message? " +
 			"No merge, push, deployment, or infrastructure change will occur.",
-	}}
+	})
 	return message
 }
 
@@ -1723,18 +1727,47 @@ func WithEngineeringTaskOffer(
 	sourceInputID string,
 	repositoryLabel string,
 ) Message {
+	return withEngineeringTaskOffer(
+		message, taskTitle, sourceInputID, repositoryLabel,
+		"Start engineering task", false,
+	)
+}
+
+func WithSuggestedEngineeringTaskOffer(
+	message Message,
+	taskTitle string,
+	sourceInputID string,
+	repositoryLabel string,
+) Message {
+	return withEngineeringTaskOffer(
+		message, taskTitle, sourceInputID, repositoryLabel,
+		"Prepare code fix", true,
+	)
+}
+
+func withEngineeringTaskOffer(
+	message Message,
+	taskTitle string,
+	sourceInputID string,
+	repositoryLabel string,
+	label string,
+	suggested bool,
+) Message {
 	if taskTitle = strings.TrimSpace(taskTitle); taskTitle != "" {
 		message.Sections = append(message.Sections, fmt.Sprintf(
 			"*Optional engineering task: %s*\nRepository: %s",
 			escapeSlackText(taskTitle), repositoryLabel,
 		))
 	}
-	message.Context = append(message.Context,
-		"No engineering task has been created. Starting one keeps the work in this Slack thread and creates an isolated writable Coop working copy for "+
-			repositoryLabel+". It does not merge, push, deploy, or change infrastructure.",
-	)
+	context := "No engineering task has been created. Starting one keeps the work in this Slack thread and creates an isolated writable Coop working copy for " +
+		repositoryLabel + ". It does not merge, push, deploy, or change infrastructure."
+	if suggested {
+		context = "No code change has been made. Preparing the fix creates an isolated writable task in this thread for " +
+			repositoryLabel + ". Review the diff before using the separate draft-PR control."
+	}
+	message.Context = append(message.Context, context)
 	message.Actions = append(message.Actions, Action{
-		ID: ActionStartTask, Label: "Start engineering task", Value: sourceInputID,
+		ID: ActionStartTask, Label: label, Value: sourceInputID,
 		Style: "primary",
 		Confirm: "Start an engineering task for " + repositoryLabel +
 			" in this thread with an isolated Coop working copy? " +

@@ -292,14 +292,17 @@ accepts only one validated decision:
   coordinated investigation, without creating anything yet;
 - attach a `Start engineering task` confirmation when an operator explicitly requests repository
   changes, without weakening the shared channel's read-only boundary;
+- attach a `Prepare code fix` confirmation when a decision-ready confirmed or likely issue has a
+  narrow repository-backed remediation; this can appear beside `Open incident room`, carries the
+  exact fix objective into the task, and still requires diff review before draft-PR publication;
 - open a normal dedicated incident automatically for a credible unresolved monitoring-app alert, or
   directly when a human explicitly asks to open, create, start, or declare an incident.
 
 An ordinary human health question is never sufficient host authorization for automatic incident
 creation, even if the model identifies an unhealthy component. The offer button explains that no
 incident exists yet and requires a configured full-member operator. The original Slack input stores
-the offered title durably, so a restart does not change what the button approves. Repeated clicks are
-idempotent.
+the offered title, repository, and optional fix objective durably, so a restart does not change what
+the button approves. Repeated clicks are idempotent.
 
 Every decision includes a bounded attention assessment: intended addressee plus urgency,
 confidence, novelty, and ownership scores. Responder applies this after the model returns, so a

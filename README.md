@@ -319,6 +319,12 @@ offer a **Start engineering task** transition in the same thread to a writable i
 mention starts the same read-only triage conversation; explicit incident wording remains
 deterministic.
 
+When a decision-ready diagnosis establishes a narrow repository fix, Responder may also show
+**Prepare code fix** beside **Open incident room**. The choices are independent: the incident room
+coordinates operations, while the engineering task edits and validates code in the source thread.
+The fix button creates no PR by itself; after a real diff exists, the task card exposes the separate
+**Create draft PR** review control.
+
 The Agent Messages tab supplies suggested health, alert, incident, and handoff prompts. The
 message shortcut **Investigate message** starts the same read-only triage for a selected
 message even when ordinary proactive listening is off. Long checks keep a native Slack progress

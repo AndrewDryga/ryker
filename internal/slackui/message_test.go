@@ -518,6 +518,27 @@ func TestScheduleAndEngineeringTaskOffersComposeWithoutOverwriting(t *testing.T)
 	}
 }
 
+func TestIncidentAndSuggestedFixOffersCompose(t *testing.T) {
+	message := ConciseEvidenceResponse(
+		"The API is degraded and the decoder failure is bounded.",
+		nil, nil, nil, NewSanitizer(12000),
+	)
+	message = WithIncidentOffer(message, "slack-source-diagnosis")
+	message = WithSuggestedEngineeringTaskOffer(
+		message,
+		"Make rank decoding forward-compatible",
+		"slack-source-diagnosis",
+		"Tenant platform (`tenant-platform`)",
+	)
+	if len(message.Actions) != 2 ||
+		message.Actions[0].ID != ActionOpenIncident ||
+		message.Actions[1].ID != ActionStartTask ||
+		message.Actions[1].Label != "Prepare code fix" ||
+		!strings.Contains(message.Context[len(message.Context)-1], "draft-PR control") {
+		t.Fatalf("combined diagnosis actions = %+v", message)
+	}
+}
+
 func TestTurnFailureAndManualHandoffPreserveTheNextStep(t *testing.T) {
 	failure := TurnFailureMessage("failed", "MCP request timed out.")
 	if failure.Header != "Investigation could not finish" ||
