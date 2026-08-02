@@ -18,7 +18,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-func TestCustomerJourneyDraftPRPublishesOnlyReviewedEngineeringTask(t *testing.T) {
+func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithoutConfiguredGate(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Slack.NativeStatus = true
@@ -79,9 +79,12 @@ func TestCustomerJourneyDraftPRPublishesOnlyReviewedEngineeringTask(t *testing.T
 			ParentHead:      "parent-head",
 			CandidateTree:   "candidate-tree",
 			Rebase:          "clean",
-			Gate:            "passed",
+			Gate:            "none",
 			Patch:           []byte("+runtime-pack: enabled\n"),
-			Publishable:     true,
+			Publishable:     false,
+			NotPublishableReasons: []string{
+				"gate_not_configured",
+			},
 		},
 	}
 	slackClient := &fakeSlack{}
@@ -130,7 +133,9 @@ func TestCustomerJourneyDraftPRPublishesOnlyReviewedEngineeringTask(t *testing.T
 		t.Fatalf("publisher calls = %d", publisherClient.publishCalls)
 	}
 	if publisherClient.request.Incident.ID != task.ID ||
-		publisherClient.request.Review.CandidateTree != "candidate-tree" {
+		publisherClient.request.Review.CandidateTree != "candidate-tree" ||
+		!publisherClient.request.Review.Publishable ||
+		len(publisherClient.request.Review.NotPublishableReasons) != 0 {
 		t.Fatalf("publication request = %+v", publisherClient.request)
 	}
 	publicationRecord, err := st.GetPublication(ctx, task.ID)
@@ -150,6 +155,7 @@ func TestCustomerJourneyDraftPRPublishesOnlyReviewedEngineeringTask(t *testing.T
 		strings.Join(slackClient.posts[0].message.Context, "\n")
 	if !strings.Contains(rendered, "Draft PR ready") ||
 		!strings.Contains(rendered, publisherClient.result.PRURL) ||
+		!strings.Contains(rendered, "add `gate:`") ||
 		strings.Contains(strings.ToLower(rendered), "has been merged") ||
 		strings.Contains(strings.ToLower(rendered), "deployed to") {
 		t.Fatalf("publication message = %+v", slackClient.posts[0].message)

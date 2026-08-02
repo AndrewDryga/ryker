@@ -1573,6 +1573,13 @@ func PublicationMessage(publication core.Publication, updated bool) Message {
 	}
 }
 
+func WithRepositoryGateRecommendation(message Message) Message {
+	message.Context = append(message.Context,
+		"Recommendation: add `gate:` to `.agent/project.yaml` so future draft-PR reviews run the repository's validation command.",
+	)
+	return message
+}
+
 func ConversationResponseWithIncidentOffer(
 	text string,
 	sourceInputID string,

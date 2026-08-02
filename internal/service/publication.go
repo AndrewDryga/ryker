@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/coop"
@@ -86,9 +87,10 @@ func (s *Service) publishDraftPR(
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
+	review = publicationReview(review)
 	if !review.Publishable {
 		s.clearNativeStatus(ctx, incident)
-		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "review", threadTS,
+		return s.enqueue(ctx, publicationReviewDeliveryID(incident.ID, review), incident, "review", threadTS,
 			slackui.ReviewMessage(incident, reviewSummary(review), false))
 	}
 	review, err = s.completeReviewPatch(ctx, review)
@@ -178,8 +180,25 @@ func (s *Service) publishDraftPR(
 		Outcome: "succeeded", Detail: record.PRURL,
 	})
 	s.clearNativeStatus(ctx, incident)
+	message := slackui.PublicationMessage(record, wasPublished)
+	if review.Gate == "none" {
+		message = slackui.WithRepositoryGateRecommendation(message)
+	}
 	return s.enqueue(ctx, "out_publish_"+input.ID, incident, "publication", threadTS,
-		slackui.PublicationMessage(record, wasPublished))
+		message)
+}
+
+func publicationReviewDeliveryID(incidentID string, review coop.Review) string {
+	payload := strings.Join([]string{
+		review.CandidateTree,
+		review.Rebase,
+		review.Gate,
+		review.GateError,
+		strings.Join(review.NotPublishableReasons, ","),
+		strings.Join(review.PolicyFindings, ","),
+	}, "\x00")
+	digest := sha256.Sum256([]byte(payload))
+	return "out_publish_review_" + incidentID + "_" + hex.EncodeToString(digest[:8])
 }
 
 func (s *Service) completeReviewPatch(

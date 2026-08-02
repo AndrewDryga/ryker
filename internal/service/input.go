@@ -1380,6 +1380,7 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
+	review = publicationReview(review)
 	err = s.enqueue(
 		ctx, "out_review_"+input.ID, incident, "review", incident.ConversationThreadTS(),
 		slackui.ReviewMessage(incident, reviewSummary(review), review.Publishable))

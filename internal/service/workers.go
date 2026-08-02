@@ -1156,8 +1156,9 @@ func coopChangesPresent(changes coop.Changes) bool {
 }
 
 func reviewSummary(review coop.Review) string {
+	review = publicationReview(review)
 	gate := map[string]string{
-		"none":          "not configured",
+		"none":          "not configured (recommended)",
 		"passed":        "passed",
 		"failed":        "failed",
 		"startup_error": "could not start",
@@ -1196,13 +1197,40 @@ func reviewSummary(review coop.Review) string {
 	if detail := strings.TrimSpace(review.GateError); detail != "" {
 		lines = append(lines, "", "*Gate error*", "`"+strings.ReplaceAll(detail, "`", "'")+"`")
 	}
+	if review.Gate == "none" {
+		lines = append(lines, "", "*Recommendation*")
+		lines = append(lines,
+			"• Add `gate:` to `.agent/project.yaml` for repeatable repository validation. "+
+				"Responder can still open a draft PR, but this review did not run a repository-defined gate.",
+		)
+	}
 	return strings.Join(lines, "\n")
+}
+
+func publicationReview(review coop.Review) coop.Review {
+	filtered := make([]string, 0, len(review.NotPublishableReasons))
+	missingGate := false
+	for _, reason := range review.NotPublishableReasons {
+		if strings.TrimSpace(reason) == "gate_not_configured" {
+			missingGate = true
+			continue
+		}
+		filtered = append(filtered, reason)
+	}
+	if !missingGate {
+		return review
+	}
+	review.NotPublishableReasons = filtered
+	review.Publishable = review.Rebase == "clean" &&
+		len(filtered) == 0 && len(review.PolicyFindings) == 0 &&
+		strings.TrimSpace(review.GateError) == ""
+	return review
 }
 
 func reviewReasonMessage(reason string) string {
 	switch strings.TrimSpace(reason) {
 	case "gate_not_configured":
-		return "This repository has no trusted publication gate. Add `gate:` to `.agent/project.yaml`, then retry."
+		return "Add `gate:` to `.agent/project.yaml` for repeatable repository validation."
 	case "gate_failed":
 		return "The repository gate failed. Fix the reported check, then retry the draft PR."
 	case "gate_startup_error":

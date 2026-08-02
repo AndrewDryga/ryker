@@ -164,7 +164,10 @@ exact parent commit, and candidate tree. Responder applies that patch to the exa
 isolated checkout and refuses publication unless `git write-tree` equals Coop's candidate tree. It
 then pushes a deterministic Responder-owned branch with `--force-with-lease` and creates or updates
 a draft PR. GitHub credentials are held only by Responder and are not projected into the agent box.
-Responder has no merge, signing, deployment, or arbitrary branch-push operation.
+Responder has no merge, signing, deployment, or arbitrary branch-push operation. A repository gate
+is recommended validation rather than publication authority: absence is reported as a warning,
+while a configured gate failure, startup error, source mutation, rebase conflict, or policy finding
+still prevents publication.
 
 Closed-session cleanup is ownership-based rather than name-based. Responder records the exact Coop
 session ID before requesting a discard plan. The plan pins revision, workspace identity, branch,

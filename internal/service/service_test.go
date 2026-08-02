@@ -26,7 +26,7 @@ import (
 	"github.com/slack-go/slack/socketmode"
 )
 
-func TestReviewSummaryExplainsMachineReasons(t *testing.T) {
+func TestReviewSummaryTreatsMissingGateAsRecommendation(t *testing.T) {
 	summary := reviewSummary(coop.Review{
 		Gate:   "none",
 		Rebase: "clean",
@@ -36,8 +36,8 @@ func TestReviewSummaryExplainsMachineReasons(t *testing.T) {
 		},
 	})
 	for _, want := range []string{
-		"Repository gate: not configured",
-		"no trusted publication gate",
+		"Repository gate: not configured (recommended)",
+		"can still open a draft PR",
 		"must leave the reviewed source unchanged",
 	} {
 		if !strings.Contains(summary, want) {
@@ -48,6 +48,47 @@ func TestReviewSummaryExplainsMachineReasons(t *testing.T) {
 		if strings.Contains(summary, raw) {
 			t.Fatalf("summary leaked machine reason %q:\n%s", raw, summary)
 		}
+	}
+}
+
+func TestPublicationReviewDoesNotHideRealBlockers(t *testing.T) {
+	review := publicationReview(coop.Review{
+		Gate:      "none",
+		Rebase:    "conflict",
+		GateError: "",
+		NotPublishableReasons: []string{
+			"gate_not_configured",
+			"rebase_conflict",
+		},
+	})
+	if review.Publishable || len(review.NotPublishableReasons) != 1 ||
+		review.NotPublishableReasons[0] != "rebase_conflict" {
+		t.Fatalf("ungated review hid blocker = %+v", review)
+	}
+
+	review = publicationReview(coop.Review{
+		Gate: "none", Rebase: "clean",
+		NotPublishableReasons: []string{"gate_not_configured"},
+		PolicyFindings:        []string{"generated file is not allowed"},
+	})
+	if review.Publishable {
+		t.Fatalf("ungated review ignored policy finding = %+v", review)
+	}
+}
+
+func TestPublicationReviewDeliveryIDDeduplicatesOnlyIdenticalResults(t *testing.T) {
+	base := coop.Review{
+		CandidateTree: "candidate-tree", Rebase: "conflict", Gate: "none",
+		NotPublishableReasons: []string{"rebase_conflict"},
+	}
+	first := publicationReviewDeliveryID("inc_1", base)
+	if again := publicationReviewDeliveryID("inc_1", base); again != first {
+		t.Fatalf("identical review delivery IDs differ: %q != %q", first, again)
+	}
+	base.Rebase = "clean"
+	base.NotPublishableReasons = nil
+	if changed := publicationReviewDeliveryID("inc_1", base); changed == first {
+		t.Fatalf("changed review reused delivery ID %q", changed)
 	}
 }
 

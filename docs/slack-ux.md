@@ -436,10 +436,14 @@ Card buttons change with state rather than presenting actions that cannot succee
   It does not start an agent turn.
 - **Run readiness check** compares the isolated changes with the current repository, checks rebase,
   runs configured validation and policy gates, and reports whether the result is ready for external
-  review. It never publishes, merges, signs, or deploys.
+  review. A missing repository `gate:` is shown as a recommendation, not a blocker; an explicitly
+  configured gate that fails, cannot start, or modifies the reviewed source remains a blocker. It
+  never publishes, merges, signs, or deploys.
 - **Create draft PR** repeats the readiness review, retrieves and verifies Coop's complete
   content-addressed patch artifact when the inline preview is truncated, reproduces the exact
   approved tree in an isolated checkout, and publishes only a lease-protected Responder branch.
+  Repositories without `gate:` can still publish a draft PR after a clean rebase and policy review;
+  the result warns that repository-defined validation was not run.
   After publication the task shows **View draft PR** and **Update draft PR**. These controls cannot
   merge or deploy.
 - **Stop current run** cancels only the active agent turn. The session, queue, and fork remain.

@@ -539,6 +539,17 @@ func TestIncidentAndSuggestedFixOffersCompose(t *testing.T) {
 	}
 }
 
+func TestPublicationGateRecommendationIsAdvisory(t *testing.T) {
+	message := WithRepositoryGateRecommendation(PublicationMessage(core.Publication{
+		PRNumber: 42,
+		PRURL:    "https://github.example/owner/repository/pull/42",
+	}, false))
+	if message.Header != "Draft PR ready" ||
+		!strings.Contains(strings.Join(message.Context, "\n"), "add `gate:`") {
+		t.Fatalf("ungated publication message = %+v", message)
+	}
+}
+
 func TestTurnFailureAndManualHandoffPreserveTheNextStep(t *testing.T) {
 	failure := TurnFailureMessage("failed", "MCP request timed out.")
 	if failure.Header != "Investigation could not finish" ||
