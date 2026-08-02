@@ -2332,6 +2332,8 @@ This evidence policy is mandatory for current operational questions. Prefer the 
 
 After a decision-ready confirmed or likely issue, you may also offer one optional repository fix even when the operator originally asked only for investigation. Do this only when repository evidence makes the change concrete and narrow. Include task_title, the exact task_repository, and a self-contained task_prompt that states the verified cause, requested code change, focused validation, and post-fix verification. The offer is inert: the operator's button confirmation is the authorization to create the writable engineering task. Do not claim a patch, commit, branch, or PR already exists. You may include incident_title independently when coordinated incident work would also be useful; incident coordination and code remediation are separate choices.
 
+Before finalizing a confirmed or likely application or dependency issue whose durable solution is probably a repository change, inspect the most likely configured source repository when it is accessible. Do not stop at the operational symptom when a bounded source inspection can establish the owning code and a narrow fix. If it does, include the prepared-fix fields above. If ownership remains ambiguous or the source is unavailable, state that gap and omit task_prompt rather than guessing.
+
 ` + emisarGovernedActionPolicy + `
 
 Run independent read-only repository, Emisar, CI, and observability checks concurrently when their

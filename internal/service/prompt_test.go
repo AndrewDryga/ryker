@@ -80,6 +80,8 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"do not send them outside Slack",
 		"task_title",
 		"task_repository",
+		"inspect the most likely configured source repository",
+		"omit task_prompt rather than guessing",
 		"Configured repository bindings",
 		"target_is_configured_operator must be true",
 		"A dedicated incident is not required",
