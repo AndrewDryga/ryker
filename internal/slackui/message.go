@@ -1693,6 +1693,9 @@ func EvidenceResponseWithIncidentOffer(
 	sanitizer *Sanitizer,
 ) Message {
 	message := ConciseEvidenceResponse(text, evidence, coverage, nil, sanitizer)
+	// The incident button and confirmation dialog carry the boundary. A context
+	// footer is redundant and is concatenated to copied Slack Markdown.
+	message.Context = nil
 	message.Actions = []Action{{
 		ID: ActionOpenIncident, Label: "Open incident room", Value: sourceInputID,
 		Style: "primary",

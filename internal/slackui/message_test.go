@@ -411,6 +411,17 @@ func TestConversationIncidentOfferExplainsAndConfirmsCreation(t *testing.T) {
 		len(message.Context) != 0 {
 		t.Fatalf("incident offer = %+v", message)
 	}
+
+	evidenceOffer := EvidenceResponseWithIncidentOffer(
+		"Production is degraded.",
+		[]core.Evidence{{Claim: "Errors are elevated."}},
+		[]core.Coverage{{Layer: "application", Status: "degraded"}},
+		"slack-source-2",
+		NewSanitizer(12000),
+	)
+	if len(evidenceOffer.Context) != 0 || len(evidenceOffer.Actions) != 1 {
+		t.Fatalf("evidence incident offer has redundant footer: %+v", evidenceOffer)
+	}
 }
 
 func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {

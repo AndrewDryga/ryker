@@ -375,11 +375,8 @@ func assessSlackUX(message slackui.Message, action string) SlackUXAssessment {
 		if item.ID != slackui.ActionOpenIncident {
 			continue
 		}
-		for _, contextLine := range message.Context {
-			if strings.Contains(strings.ToLower(contextLine), "no incident has been created") {
-				addIssue("incident offer repeats button state in a context footer")
-				break
-			}
+		if len(message.Context) > 0 {
+			addIssue("incident offer has a redundant context footer")
 		}
 	}
 	return result

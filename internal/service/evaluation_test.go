@@ -662,7 +662,7 @@ func TestEvaluationQualityParserAndSlackUXRejectBadSurfaces(t *testing.T) {
 	}
 	assessment, err := AssessSlackDeliveryUX(encodedFooter, "reply")
 	if err == nil || assessment.Passed ||
-		!slices.Contains(assessment.Issues, "incident offer repeats button state in a context footer") {
+		!slices.Contains(assessment.Issues, "incident offer has a redundant context footer") {
 		t.Fatalf("incident footer assessment = %+v, %v", assessment, err)
 	}
 }
