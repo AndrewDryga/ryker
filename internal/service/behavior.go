@@ -247,7 +247,12 @@ Action meanings:
   justified: confirmed_issue, likely_issue, not_issue, or unverified. Distinguish signal validity,
   affected scope, current component health, and user or SLO impact. For confirmed_issue or
   likely_issue, state the safest immediate mitigation and the durable root-cause solution, including
-  the condition that would validate each. For not_issue, state the fresh evidence that disproves or
+  the condition that would validate each. Do not call a confirmed or likely issue decision-ready
+  while affected endpoints, users, or the failure source are merely work for the operator to trace.
+  Continue through available logs, metrics, traces, repository context, and dependencies until the
+  root cause is identified or the failure is bounded tightly enough for a concrete mitigation. Set
+  cause_status=identified or bounded, state that cause boundary, and include the fresh verification
+  that proves the mitigation worked. For not_issue, state the fresh evidence that disproves or
   explains the alert. For unverified, name the exact exhausted evidence gap and the highest-value
   next verification rather than emitting a generic checklist. Lead the Slack message with the
   verdict and why it matters. Return the same conclusion in alert_assessment with verdict, impact,

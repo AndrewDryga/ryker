@@ -280,7 +280,10 @@ func TestEvaluationRequiresDecisionReadyAlertAssessment(t *testing.T) {
 		  "alert_assessment":{
 		    "verdict":"likely_issue",
 		    "impact":"Cassandra latency may affect requests on one host.",
+		    "cause_status":"bounded",
+		    "cause":"Both affected devices share the same storage path on one host.",
 		    "immediate_action":"Drain the host if latency persists.",
+		    "verification":"Confirm device latency returns below 50 ms after draining.",
 		    "long_term_solution":"Repair the shared NVMe/TCP path and alert on path saturation."
 		  }
 		}`,

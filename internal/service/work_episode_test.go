@@ -249,3 +249,51 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 		t.Fatal("reaction accepted a completion assessment")
 	}
 }
+
+func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
+	episode := core.WorkEpisode{Effort: core.EffortOperationalAssessment}
+	coverage := []core.Coverage{
+		{Layer: "application", Status: "degraded", Detail: "LoL and Rivals errors persist"},
+	}
+	completion := &completionAssessment{
+		Status: "decision_ready", Summary: "Production is operational but degraded.",
+	}
+	unfinished := &alertAssessment{
+		Verdict:          "confirmed_issue",
+		Impact:           "LoL and Rivals requests are failing, but affected endpoints remain unattributed.",
+		ImmediateAction:  "Prioritize endpoint attribution and trace the timeout source.",
+		LongTermSolution: "Fix the LoL and Rivals request paths.",
+	}
+	if got := episodeDiagnosisCorrection(
+		episode, "reply", coverage, unfinished, completion,
+	); !strings.Contains(got, "identified or bounded cause") {
+		t.Fatalf("unfinished diagnosis correction = %q", got)
+	}
+
+	bounded := &alertAssessment{
+		Verdict:          "confirmed_issue",
+		Impact:           "LoL requests using the ranked-profile endpoint fail for affected accounts.",
+		CauseStatus:      "bounded",
+		Cause:            "The ranked-profile decoder rejects the newly returned rank values.",
+		ImmediateAction:  "Disable ranked-profile enrichment while preserving the base request.",
+		Verification:     "Repeat affected requests and confirm ingress 5xx returns below 0.1 percent.",
+		LongTermSolution: "Accept the new rank values and add compatibility fixtures.",
+	}
+	if got := episodeDiagnosisCorrection(
+		episode, "reply", coverage, bounded, completion,
+	); got != "" {
+		t.Fatalf("bounded diagnosis rejected: %s", got)
+	}
+
+	blocked := &completionAssessment{
+		Status: "blocked", Summary: "Endpoint attribution is unavailable.",
+		MaterialGaps: []string{"endpoint labels"}, BlockerKind: "source_unavailable",
+		Attempts:   []string{"Queried the configured log and trace sources; neither contains endpoint labels"},
+		NextAction: "Restore endpoint labels in the application telemetry, then retry",
+	}
+	if got := episodeDiagnosisCorrection(
+		episode, "reply", coverage, nil, blocked,
+	); got != "" {
+		t.Fatalf("exact diagnostic blocker rejected: %s", got)
+	}
+}

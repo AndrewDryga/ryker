@@ -120,7 +120,10 @@ type watchDecision struct {
 type alertAssessment struct {
 	Verdict          string `json:"verdict"`
 	Impact           string `json:"impact"`
+	CauseStatus      string `json:"cause_status,omitempty"`
+	Cause            string `json:"cause,omitempty"`
 	ImmediateAction  string `json:"immediate_action,omitempty"`
+	Verification     string `json:"verification,omitempty"`
 	LongTermSolution string `json:"long_term_solution,omitempty"`
 }
 
@@ -2024,18 +2027,29 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 func validateAlertAssessment(assessment *alertAssessment) error {
 	assessment.Verdict = strings.TrimSpace(assessment.Verdict)
 	assessment.Impact = strings.TrimSpace(assessment.Impact)
+	assessment.CauseStatus = strings.TrimSpace(assessment.CauseStatus)
+	assessment.Cause = strings.TrimSpace(assessment.Cause)
 	assessment.ImmediateAction = strings.TrimSpace(assessment.ImmediateAction)
+	assessment.Verification = strings.TrimSpace(assessment.Verification)
 	assessment.LongTermSolution = strings.TrimSpace(assessment.LongTermSolution)
 	if len(assessment.Verdict) > 32 || len(assessment.Impact) > 2000 ||
-		len(assessment.ImmediateAction) > 2000 || len(assessment.LongTermSolution) > 2000 {
+		len(assessment.CauseStatus) > 32 || len(assessment.Cause) > 2000 ||
+		len(assessment.ImmediateAction) > 2000 || len(assessment.Verification) > 2000 ||
+		len(assessment.LongTermSolution) > 2000 {
 		return errors.New("alert assessment exceeds its field bounds")
 	}
 	switch assessment.Verdict {
 	case "confirmed_issue", "likely_issue":
-		if assessment.Impact == "" || assessment.ImmediateAction == "" ||
+		if assessment.Impact == "" || assessment.Cause == "" ||
+			assessment.ImmediateAction == "" || assessment.Verification == "" ||
 			assessment.LongTermSolution == "" {
 			return errors.New(
-				"confirmed or likely alert assessment requires impact, immediate_action, and long_term_solution",
+				"confirmed or likely alert assessment requires impact, cause, immediate_action, verification, and long_term_solution",
+			)
+		}
+		if assessment.CauseStatus != "identified" && assessment.CauseStatus != "bounded" {
+			return errors.New(
+				"confirmed or likely alert assessment requires cause_status identified or bounded",
 			)
 		}
 	case "not_issue":
@@ -2332,7 +2346,7 @@ so Responder can render the approval URL in this conversation. Do not create or 
 merely because an operational action is requested:
 {"action":"ignore","attention":{"addressee":"human","urgency":0,"confidence":3,"novelty":0,"ownership":0},"reason":"why silence is appropriate","evidence":[],"coverage":[],"memory":{}}
 {"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1},"reason":"why acknowledgement is enough","memory":{}}
-{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"first Slack Markdown outcome","followup_messages":["optional second outcome","optional third outcome"],"visuals":[{"artifact":"chart.png","title":"Production load","alt_text":"Line chart of production load over 24 hours, peaking at 82 percent at 14:00 UTC"}],"incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","pending_approval":{"request_id":"exact approval request ID","run_id":"exact run ID","operation_id":"exact operation ID","action_id":"exact action ID","pack_ref":"exact immutable pack ref","runner_ref":"exact immutable runner ref","status":"pending_approval","approval_url":"exact Emisar approval URL","expires_at":"exact RFC3339 expiry"},"alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"verified current impact or explicit gap","immediate_action":"safest mitigation or next verification","long_term_solution":"durable root-cause solution"},"completion":{"status":"decision_ready|blocked","summary":"decision or blocker","material_gaps":[],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure","attempts":["relevant evidence route or action already attempted"],"next_action":"external action required when blocked"},"memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"schedule_offer":{"title":"short task title","prompt":"self-contained task to execute","repository":"exact configured repository key","recurrence":"once|interval|daily|weekly|monthly","start_at":"exact future RFC3339 timestamp","interval_seconds":3600,"weekdays":["monday"],"day_of_month":1,"local_time":"09:00","timezone":"IANA timezone","catch_up":"latest|skip","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
+{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"why to answer","message":"first Slack Markdown outcome","followup_messages":["optional second outcome","optional third outcome"],"visuals":[{"artifact":"chart.png","title":"Production load","alt_text":"Line chart of production load over 24 hours, peaking at 82 percent at 14:00 UTC"}],"incident_title":"optional incident title","task_title":"optional engineering task title","task_repository":"exact configured repository key when task_title is set","pending_approval":{"request_id":"exact approval request ID","run_id":"exact run ID","operation_id":"exact operation ID","action_id":"exact action ID","pack_ref":"exact immutable pack ref","runner_ref":"exact immutable runner ref","status":"pending_approval","approval_url":"exact Emisar approval URL","expires_at":"exact RFC3339 expiry"},"alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"verified current impact or explicit gap","cause_status":"identified|bounded","cause":"verified root cause or actionable failure boundary","immediate_action":"concrete mitigation, not more investigation","verification":"fresh check that proves the mitigation worked","long_term_solution":"durable root-cause solution"},"completion":{"status":"decision_ready|blocked","summary":"decision or blocker","material_gaps":[],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure","attempts":["relevant evidence route or action already attempted"],"next_action":"external action required when blocked"},"memory_offer":{"scope":"channel|workspace|repository","repository":"required repository key for repository scope","subject":"short stable topic","predicate":"alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance","value":"canonical value or self-contained operator advice","visibility":"channel|workspace|operator","expires_in":"7d|30d|90d|365d","source_revision":"optional immutable revision"},"preference_offer":{"scope":"operator|channel|repository|workspace","repository":"required repository key for repository scope","name":"health_check_depth|response_detail|response_location","value":"supported typed value","expires_in":"7d|30d|90d|365d"},"rule_offer":{"scope":"channel","repository":"exact configured repository key","trigger":"terraform_plan|deployment|operational_alert","action":"review_terraform_plan|verify_deployment|triage_alert","source_kind":"any|human|app","expires_in":"7d|30d|90d|365d"},"schedule_offer":{"title":"short task title","prompt":"self-contained task to execute","repository":"exact configured repository key","recurrence":"once|interval|daily|weekly|monthly","start_at":"exact future RFC3339 timestamp","interval_seconds":3600,"weekdays":["monday"],"day_of_month":1,"local_time":"09:00","timezone":"IANA timezone","catch_up":"latest|skip","expires_in":"7d|30d|90d|365d"},"evidence":[],"coverage":[],"memory":{}}
 {"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"why creation is authorized","title":"concise title","evidence":[],"coverage":[],"memory":{}}
 
 Evidence objects require claim, observation, source_type, and source_name. source_type must be

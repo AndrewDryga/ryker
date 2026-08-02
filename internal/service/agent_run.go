@@ -1091,6 +1091,15 @@ func (s *Service) stagePolledAgentRunTerminal(
 					sanitizeCoverage(decision.Coverage, "", "", ""),
 					decision.Completion,
 				)
+				if correction == "" {
+					correction = episodeDiagnosisCorrection(
+						episode,
+						decision.Action,
+						sanitizeCoverage(decision.Coverage, "", "", ""),
+						decision.AlertAssessment,
+						decision.Completion,
+					)
+				}
 			}
 			if correction != "" {
 				if !terminalStructuredCorrection(

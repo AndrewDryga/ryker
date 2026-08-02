@@ -347,7 +347,15 @@ This contract controls effort, not permission. Work until its completion criteri
 you are genuinely blocked. For operational_assessment and incident_investigation, assess every
 required coverage layer; use status unknown with a precise detail when authoritative evidence is
 unavailable. Return completion.status=decision_ready only when no material gap could change the
-decision. A blocker is an external boundary, not unfinished work: use completion.status=blocked only
+decision. Discovering confirmed or likely active degradation expands the episode: do not stop at
+symptom counts, broad service names, or a recommendation that somebody investigate next. Use the
+available repository, logs, metrics, traces, and operational tools to identify the affected request
+paths, users or blast radius, correlate likely changes and dependencies, and establish either a
+verified root cause or an actionable cause boundary. A decision-ready active issue must include an
+alert_assessment with cause_status identified or bounded, the cause boundary, a concrete immediate
+mitigation, the fresh verification that would prove it worked, and the durable solution. If an
+authoritative route needed for that diagnosis is externally unavailable, return blocked and name it
+exactly. A blocker is an external boundary, not unfinished work: use completion.status=blocked only
 after relevant available evidence routes were attempted and access, unavailable telemetry, required
 operator input, an authority boundary, or a tool failure prevents further progress. Include the typed
 blocker_kind, the attempts already made, every material gap, and the external action that unblocks
@@ -355,6 +363,48 @@ the work. "Query", "inspect", "check", or "investigate" is work to continue now 
 the current authority, not a valid next_action for a blocked result. Never broaden the authority
 boundary.
 </host-work-episode>`
+}
+
+func episodeDiagnosisCorrection(
+	episode core.WorkEpisode,
+	action string,
+	coverage []core.Coverage,
+	assessment *alertAssessment,
+	completion *completionAssessment,
+) string {
+	if action != "reply" || (episode.Effort != core.EffortOperationalAssessment &&
+		episode.Effort != core.EffortIncidentInvestigation) {
+		return ""
+	}
+	activeDegradation := false
+	for _, item := range coverage {
+		if item.Status == "degraded" || item.Status == "unhealthy" {
+			activeDegradation = true
+			break
+		}
+	}
+	if !activeDegradation {
+		return ""
+	}
+	if completion != nil && completion.Status == "blocked" {
+		return ""
+	}
+	if assessment == nil {
+		return "the deep work episode found active degradation but has no diagnostic closure; continue until the affected scope, cause boundary, mitigation, and verification are established"
+	}
+	if assessment.Verdict != "confirmed_issue" && assessment.Verdict != "likely_issue" {
+		return "degraded or unhealthy coverage conflicts with an alert assessment that does not identify an active issue; reconcile the evidence before finishing"
+	}
+	if assessment.CauseStatus != "identified" && assessment.CauseStatus != "bounded" {
+		return "the active issue has no identified or bounded cause; continue through available logs, metrics, traces, repository context, and dependencies instead of assigning that investigation to the operator"
+	}
+	if strings.TrimSpace(assessment.Cause) == "" {
+		return "the active issue has no actionable cause boundary; continue the diagnosis or return an exact external blocker"
+	}
+	if strings.TrimSpace(assessment.Verification) == "" {
+		return "the active issue has no fresh verification plan for its mitigation; continue until the result is operationally testable"
+	}
+	return ""
 }
 
 func episodeCompletionCorrection(

@@ -361,6 +361,14 @@ func evaluateCaseWithConfig(
 			result.Detail = "premature completion: " + correction
 			return result
 		}
+		if testCase.Kind == "watch" {
+			if correction := episodeDiagnosisCorrection(
+				*episode, completionAction, coverage, assessment, completion,
+			); correction != "" {
+				result.Detail = "premature diagnosis: " + correction
+				return result
+			}
+		}
 	}
 	if testCase.WantAction != "" && action != testCase.WantAction {
 		result.Detail = fmt.Sprintf("action = %q, want %q", action, testCase.WantAction)
