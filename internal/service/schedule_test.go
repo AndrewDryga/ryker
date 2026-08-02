@@ -200,8 +200,13 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 	var state watchTurnState
 	if err := json.Unmarshal(input.Frozen, &state); err != nil ||
 		!state.RepositoryPinned || state.Repository != task.Repository ||
+		state.SessionChannelID != "scheduled:"+task.ID ||
 		state.ResponseThreadTS != "" {
 		t.Fatalf("scheduled state = %+v, err=%v", state, err)
+	}
+	deliveryMemory, err := st.GetChannelMemory(ctx, task.DeliveryChannel)
+	if err != nil || deliveryMemory.Repository != cfg.Slack.DefaultRepository {
+		t.Fatalf("delivery channel memory = %+v, err=%v", deliveryMemory, err)
 	}
 	if err := svc.processScheduledTasks(ctx); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("second scheduler pass = %v, want no due work", err)

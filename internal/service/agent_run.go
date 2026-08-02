@@ -233,6 +233,9 @@ func watchInputWantsPendingStatus(
 	input core.SlackInput,
 	state watchTurnState,
 ) bool {
+	if input.Kind == "scheduled" {
+		return false
+	}
 	return watchInputTargeted(input, state) ||
 		requestedConversationLocation(input.Text) != conversationLocationFollow
 }
@@ -686,9 +689,17 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		generation = conversation.Generation
 		eventSequence = conversation.CoopEventSequence
 	} else {
+		sessionChannelID := firstNonempty(state.SessionChannelID, input.ChannelID)
+		pinnedRepository := ""
+		if state.RepositoryPinned {
+			pinnedRepository = state.Repository
+		}
 		memory, investigationSession, investigationErr :=
-			s.ensureWatchSessionAtGeneration(
-				ctx, input.ChannelID, max(state.Generation, 1),
+			s.ensureWatchSessionForRepositoryAtGeneration(
+				ctx,
+				sessionChannelID,
+				pinnedRepository,
+				max(state.Generation, 1),
 			)
 		if investigationErr != nil {
 			if advanceFailedSessionGeneration(investigationErr) &&
@@ -1258,8 +1269,12 @@ func (s *Service) advanceTriageSessionEvents(
 			ctx, run.ChannelID, run.SessionID, cursor,
 		)
 	}
+	sessionChannelID := run.ChannelID
+	if err == nil {
+		sessionChannelID = firstNonempty(state.SessionChannelID, run.ChannelID)
+	}
 	return s.store.AdvanceChannelEvents(
-		ctx, run.ChannelID, run.SessionID, cursor,
+		ctx, sessionChannelID, run.SessionID, cursor,
 	)
 }
 

@@ -444,6 +444,54 @@ func TestDetachChannelSessionPreservesDurableMemory(t *testing.T) {
 	}
 }
 
+func TestScheduledDecisionAdvancesItsPinnedSessionWithoutReplacingChannelSession(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	started := time.Now().UTC().Add(-time.Minute)
+	if err := st.BindChannelSession(
+		ctx, "CREPORT", "default-repo", "ses_channel", 4, 1, started,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindChannelSession(
+		ctx, "scheduled:health", "infra-repo", "ses_schedule", 7, 1, started,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	state := core.AgentMemory{SituationSummary: "Scheduled infrastructure review completed."}
+	applied, err := st.ApplyWatchDecision(ctx, core.EvaluationDecision{
+		ChannelID: "CREPORT", SessionChannelID: "scheduled:health",
+		Repository: "infra-repo", SourceInput: "scheduled-input",
+		Mode: "live", Action: "reply",
+	}, "investigation", 8, state)
+	if err != nil || !applied {
+		t.Fatalf("apply scheduled decision = %t, %v", applied, err)
+	}
+
+	channel, err := st.GetChannelMemory(ctx, "CREPORT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if channel.SessionID != "ses_channel" || channel.SessionRevision != 4 ||
+		channel.TurnCount != 0 || channel.State.SituationSummary != state.SituationSummary {
+		t.Fatalf("delivery channel memory = %+v", channel)
+	}
+	scheduled, err := st.GetChannelMemory(ctx, "scheduled:health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled.SessionID != "ses_schedule" || scheduled.SessionRevision != 8 ||
+		scheduled.TurnCount != 1 || scheduled.State.SituationSummary != state.SituationSummary {
+		t.Fatalf("scheduled session memory = %+v", scheduled)
+	}
+}
+
 func TestActionProposalRequiresDistinctApprovers(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

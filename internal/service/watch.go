@@ -35,6 +35,7 @@ var slackReactionNamePattern = regexp.MustCompile(
 type watchTurnState struct {
 	Lane                  string                         `json:"lane,omitempty"`
 	SessionID             string                         `json:"session_id"`
+	SessionChannelID      string                         `json:"session_channel_id,omitempty"`
 	Repository            string                         `json:"repository,omitempty"`
 	RepositoryPinned      bool                           `json:"repository_pinned,omitempty"`
 	Generation            int                            `json:"generation,omitempty"`
@@ -176,9 +177,23 @@ func (s *Service) ensureWatchSessionAtGeneration(
 	channelID string,
 	minimumGeneration int,
 ) (core.ChannelMemory, coop.Session, error) {
-	repositoryKey, err := s.effectiveRepository(
-		ctx, channelID, "", s.cfg.Slack.DefaultRepository,
+	return s.ensureWatchSessionForRepositoryAtGeneration(
+		ctx, channelID, "", minimumGeneration,
 	)
+}
+
+func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
+	ctx context.Context,
+	channelID string,
+	repositoryKey string,
+	minimumGeneration int,
+) (core.ChannelMemory, coop.Session, error) {
+	var err error
+	if repositoryKey == "" {
+		repositoryKey, err = s.effectiveRepository(
+			ctx, channelID, "", s.cfg.Slack.DefaultRepository,
+		)
+	}
 	if err != nil {
 		return core.ChannelMemory{}, coop.Session{}, err
 	}
@@ -600,7 +615,8 @@ func (s *Service) applyWatchDecision(
 		mode = "shadow"
 	}
 	if _, err := s.store.ApplyWatchDecision(ctx, core.EvaluationDecision{
-		ChannelID: input.ChannelID, ThreadTS: input.ThreadTS,
+		ChannelID: input.ChannelID, SessionChannelID: state.SessionChannelID,
+		ThreadTS:  input.ThreadTS,
 		MessageTS: input.MessageTS, Repository: state.Repository,
 		SourceInput: sourceInput, Mode: mode,
 		Action: decision.Action, Reason: s.cleanStructuredField(decision.Reason, 1000),
@@ -1747,8 +1763,9 @@ func (s *Service) retireFailedWatchSession(
 			ctx, input.ChannelID, state.SessionID,
 		)
 	} else {
+		sessionChannelID := firstNonempty(state.SessionChannelID, input.ChannelID)
 		_, detachErr = s.store.DetachChannelSession(
-			ctx, input.ChannelID, state.SessionID,
+			ctx, sessionChannelID, state.SessionID,
 		)
 	}
 	if detachErr != nil {

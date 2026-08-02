@@ -52,6 +52,7 @@ func (s *Store) ListChannelSituations(
 		  coop_event_sequence, state_json, session_started_at, rotated_at, updated_at
 		FROM channel_memories
 		WHERE state_json != '{}' AND state_json != ''
+		  AND channel_id NOT LIKE 'scheduled:%'
 		ORDER BY updated_at DESC
 		LIMIT ?`, limit)
 	if err != nil {
@@ -421,15 +422,30 @@ func (s *Store) ApplyWatchDecision(
 	}
 	switch lane {
 	case "", "investigation":
+		sessionChannelID := decision.SessionChannelID
+		if sessionChannelID == "" {
+			sessionChannelID = decision.ChannelID
+		}
 		update, err := tx.ExecContext(ctx, `
 			UPDATE channel_memories
 			SET session_revision = ?, turn_count = turn_count + 1,
 			    state_json = ?, updated_at = ?
 			WHERE channel_id = ?`,
-			sessionRevision, memory, nowText(), decision.ChannelID,
+			sessionRevision, memory, nowText(), sessionChannelID,
 		)
 		if err := expectOne(update, err, "apply watch decision memory"); err != nil {
 			return false, err
+		}
+		if sessionChannelID != decision.ChannelID {
+			update, err = tx.ExecContext(ctx, `
+				UPDATE channel_memories
+				SET state_json = ?, updated_at = ?
+				WHERE channel_id = ?`,
+				memory, nowText(), decision.ChannelID,
+			)
+			if err := expectOne(update, err, "apply scheduled decision channel memory"); err != nil {
+				return false, err
+			}
 		}
 	case "conversation":
 		update, err := tx.ExecContext(ctx, `

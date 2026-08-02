@@ -571,9 +571,24 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 		if deliveryChannel != task.ChannelID {
 			deliveryThread = ""
 		}
+		deliveryRepository, repositoryErr := s.effectiveRepository(
+			ctx,
+			deliveryChannel,
+			task.ActorID,
+			s.cfg.Slack.DefaultRepository,
+		)
+		if repositoryErr != nil {
+			return repositoryErr
+		}
+		if err := s.store.EnsureChannelMemory(
+			ctx, deliveryChannel, deliveryRepository,
+		); err != nil {
+			return err
+		}
 		state := watchTurnState{
 			Lane: "investigation", Repository: task.Repository,
 			RepositoryPinned: true,
+			SessionChannelID: "scheduled:" + task.ID,
 			ResponseThreadTS: deliveryThread, RouteCaptured: true,
 			RulesCaptured: true, ConversationFollowup: true,
 		}

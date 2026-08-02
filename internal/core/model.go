@@ -873,18 +873,19 @@ type EmisarApproval struct {
 }
 
 type EvaluationDecision struct {
-	ID          string
-	ChannelID   string
-	ThreadTS    string
-	MessageTS   string
-	Repository  string
-	SourceInput string
-	Mode        string
-	Action      string
-	Reason      string
-	Evidence    int
-	Coverage    int
-	CreatedAt   time.Time
+	ID               string
+	ChannelID        string
+	SessionChannelID string
+	ThreadTS         string
+	MessageTS        string
+	Repository       string
+	SourceInput      string
+	Mode             string
+	Action           string
+	Reason           string
+	Evidence         int
+	Coverage         int
+	CreatedAt        time.Time
 }
 
 type Publication struct {

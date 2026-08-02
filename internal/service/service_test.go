@@ -6384,6 +6384,49 @@ func TestWatchRepositorySetSelectsItsCoopPolicy(t *testing.T) {
 	}
 }
 
+func TestPinnedScheduledSessionUsesTaskRepositoryWithoutReplacingChannelSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Repositories["infra"] = config.Repository{
+		DisplayName: "Infrastructure",
+		CoopPolicy:  "infra-observe",
+	}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.BindChannelSession(
+		ctx, "CREPORT", "repo", "ses_channel", 1, 1, time.Now().UTC(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	memory, _, err := svc.ensureWatchSessionForRepositoryAtGeneration(
+		ctx, "scheduled:health", "infra", 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if memory.Repository != "infra" || memory.ChannelID != "scheduled:health" {
+		t.Fatalf("scheduled memory = %+v", memory)
+	}
+	if !slices.Equal(coopClient.createPolicies, []string{"infra-observe"}) {
+		t.Fatalf("Coop create policies = %v", coopClient.createPolicies)
+	}
+	channel, err := st.GetChannelMemory(ctx, "CREPORT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if channel.Repository != "repo" || channel.SessionID != "ses_channel" {
+		t.Fatalf("delivery channel session was replaced: %+v", channel)
+	}
+}
+
 func (f *fakeCoop) ListSessions(context.Context, int) ([]coop.Session, error) {
 	return append([]coop.Session(nil), f.listSessions...), nil
 }
