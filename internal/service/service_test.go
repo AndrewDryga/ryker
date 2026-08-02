@@ -4207,9 +4207,10 @@ func TestStructuredCorrectionBudgetIsBounded(t *testing.T) {
 
 func TestWatchStructuredCorrectionBudgetIsIndependentFromRunFailures(t *testing.T) {
 	state := watchTurnState{}
-	if consumeWatchStructuredCorrection(&state, 20) ||
-		consumeWatchStructuredCorrection(&state, 20) ||
-		!consumeWatchStructuredCorrection(&state, 20) ||
+	first := consumeWatchStructuredCorrection(&state, 20)
+	second := consumeWatchStructuredCorrection(&state, 20)
+	third := consumeWatchStructuredCorrection(&state, 20)
+	if first || second || !third ||
 		state.StructuredCorrections != 3 {
 		t.Fatalf("watch correction state = %+v", state)
 	}
