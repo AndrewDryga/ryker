@@ -596,7 +596,8 @@ func TestWaitForSlackReplayRequiresCompletedRunAndSentReply(t *testing.T) {
 	}
 	if result.Action != "reply" || result.RunState != core.AgentRunCompleted ||
 		result.InputState != "done" || len(result.Deliveries) != 1 ||
-		result.Deliveries[0].State != "sent" {
+		result.Deliveries[0].State != "sent" ||
+		!result.Deliveries[0].SlackUX.Passed {
 		t.Fatalf("replay verification = %+v", result)
 	}
 	if _, err := waitForSlackReplay(waitCtx, st, "slack_original", input.ID, "ignore"); err == nil || !strings.Contains(err.Error(), `action was "reply", want "ignore"`) {

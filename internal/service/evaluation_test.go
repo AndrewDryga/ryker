@@ -649,6 +649,22 @@ func TestEvaluationQualityParserAndSlackUXRejectBadSurfaces(t *testing.T) {
 		!slices.Contains(ux.Issues, "duplicate action ID same") {
 		t.Fatalf("bad Slack UX = %+v", ux)
 	}
+
+	incidentFooter := slackui.ConversationResponseWithIncidentOffer(
+		"Production is degraded.", "slack-source", slackui.NewSanitizer(12000),
+	)
+	incidentFooter.Context = []string{
+		"No incident has been created. Opening one creates a dedicated room.",
+	}
+	encodedFooter, err := slackui.Encode(incidentFooter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment, err := AssessSlackDeliveryUX(encodedFooter, "reply")
+	if err == nil || assessment.Passed ||
+		!slices.Contains(assessment.Issues, "incident offer repeats button state in a context footer") {
+		t.Fatalf("incident footer assessment = %+v, %v", assessment, err)
+	}
 }
 
 func TestEvaluationMetricsAndRegressionGate(t *testing.T) {

@@ -31,12 +31,13 @@ type slackReplayResult struct {
 }
 
 type slackReplayDelivery struct {
-	ID        string `json:"id"`
-	Operation string `json:"operation"`
-	State     string `json:"state"`
-	ChannelID string `json:"channel_id"`
-	ThreadTS  string `json:"thread_ts,omitempty"`
-	MessageTS string `json:"message_ts,omitempty"`
+	ID        string                    `json:"id"`
+	Operation string                    `json:"operation"`
+	State     string                    `json:"state"`
+	ChannelID string                    `json:"channel_id"`
+	ThreadTS  string                    `json:"thread_ts,omitempty"`
+	MessageTS string                    `json:"message_ts,omitempty"`
+	SlackUX   service.SlackUXAssessment `json:"slack_ux,omitempty"`
 }
 
 func runReplay(args []string, stdout, stderr io.Writer) error {
@@ -156,12 +157,13 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 	for _, delivery := range result.Deliveries {
 		fmt.Fprintf(
 			stdout,
-			"  %s %s sent to %s (thread=%s message=%s)\n",
+			"  %s %s sent to %s (thread=%s message=%s ux=%s)\n",
 			delivery.ID,
 			delivery.Operation,
 			delivery.ChannelID,
 			displayOr(delivery.ThreadTS, "channel"),
 			delivery.MessageTS,
+			displayOr(replayUXState(delivery.SlackUX), "not-applicable"),
 		)
 	}
 	return nil
@@ -327,10 +329,22 @@ func waitForSlackReplay(
 					Deliveries:    make([]slackReplayDelivery, 0, len(deliveries)),
 				}
 				for _, delivery := range deliveries {
+					var ux service.SlackUXAssessment
+					if delivery.Operation == "post" || delivery.Operation == "update" {
+						ux, err = service.AssessSlackDeliveryUX(delivery.Body, action)
+						if err != nil {
+							return slackReplayResult{}, fmt.Errorf(
+								"verify Slack replay delivery %s: %w",
+								delivery.ID,
+								err,
+							)
+						}
+					}
 					result.Deliveries = append(result.Deliveries, slackReplayDelivery{
 						ID: delivery.ID, Operation: delivery.Operation,
 						State: delivery.State, ChannelID: delivery.ChannelID,
 						ThreadTS: delivery.ThreadTS, MessageTS: delivery.MessageTS,
+						SlackUX: ux,
 					})
 				}
 				return result, nil
@@ -351,6 +365,16 @@ func waitForSlackReplay(
 		case <-ticker.C:
 		}
 	}
+}
+
+func replayUXState(assessment service.SlackUXAssessment) string {
+	if !assessment.Evaluated {
+		return ""
+	}
+	if assessment.Passed {
+		return "passed"
+	}
+	return "failed"
 }
 
 func replayAction(result []byte) (string, error) {

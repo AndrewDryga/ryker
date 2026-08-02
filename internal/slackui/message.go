@@ -1579,9 +1579,6 @@ func ConversationResponseWithIncidentOffer(
 	sanitizer *Sanitizer,
 ) Message {
 	message := ConversationResponse(text, sanitizer)
-	message.Context = []string{
-		"No incident has been created. Opening one creates a dedicated Slack room and isolated Coop working copy; it does not merge, push, deploy, or change infrastructure.",
-	}
 	message.Actions = []Action{{
 		ID:    ActionOpenIncident,
 		Label: "Open incident room",
@@ -1696,9 +1693,6 @@ func EvidenceResponseWithIncidentOffer(
 	sanitizer *Sanitizer,
 ) Message {
 	message := ConciseEvidenceResponse(text, evidence, coverage, nil, sanitizer)
-	message.Context = []string{
-		"No incident has been created. Opening one creates a dedicated Slack room and isolated Coop working copy; it does not merge, push, deploy, or change infrastructure.",
-	}
 	message.Actions = []Action{{
 		ID: ActionOpenIncident, Label: "Open incident room", Value: sourceInputID,
 		Style: "primary",

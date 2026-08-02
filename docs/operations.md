@@ -90,9 +90,10 @@ timestamp are preserved. A saved ambient human message is treated as explicitly 
 the replay so normal stale-message coalescing cannot turn the verification into a false success.
 
 The command returns successfully only after the replayed input is complete, its watch agent run is
-complete with the expected action, and every deterministic reply or generated-file delivery is
-confirmed `sent`. It fails on a terminal input or agent error, a different action, a failed Slack
-delivery, or timeout. `--input slack_...` targets a durable input directly; `--channel C...` with
+complete with the expected action, every persisted message payload passes the deterministic Slack
+UX checks used by live evaluations, and every deterministic reply or generated-file delivery is
+confirmed `sent`. It fails on a terminal input or agent error, a different action, an invalid Slack
+surface, a failed Slack delivery, or timeout. `--input slack_...` targets a durable input directly; `--channel C...` with
 `--message-ts 1785652207.489039` is useful when a permalink is unavailable. Use `--json` in
 automation. Replay creates another visible Slack response and may repeat read-only tool calls; do
 not use it for an old message whose current processing could request an operational mutation.

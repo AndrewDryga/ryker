@@ -462,11 +462,12 @@ Slack deliveries, agent runs, publications, and cleanup work.
 `responder replay slack` is a post-fix live verification tool. It clones the saved text,
 attachments, actor, channel, thread, and timestamp behind a Slack permalink (or accepts
 `--input` or `--channel` plus `--message-ts`), gives the clone a fresh idempotency identity, and
-queues it through the running service. The command waits for a valid agent result and a confirmed
-Slack delivery; its default `--expect reply` makes silence, supersession, model failure, and
-delivery failure fail the command. Use `--expect react`, `ignore`, `incident`, or `any` only when
-that outcome is intentional. The replay posts another real response in Slack and therefore is an
-operator verification action, not an offline eval.
+queues it through the running service. The command waits for a valid agent result, a confirmed
+Slack delivery, and deterministic UX validation of the exact persisted message payload; its
+default `--expect reply` makes silence, supersession, model failure, malformed or invalid Slack
+surfaces, and delivery failure fail the command. Use `--expect react`, `ignore`, `incident`, or
+`any` only when that outcome is intentional. The replay posts another real response in Slack and
+therefore is an operator verification action, not an offline eval.
 
 State is one owner-private SQLite database in `state_dir`. Slack inputs, webhook events, outgoing
 Slack deliveries, agent runs, incident mappings, channel lifecycle, structured evidence, coverage,

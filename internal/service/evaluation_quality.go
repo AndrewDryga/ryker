@@ -371,7 +371,35 @@ func assessSlackUX(message slackui.Message, action string) SlackUXAssessment {
 	if strings.Count(surface, "no merge") > 2 {
 		addIssue("safety boilerplate is repeated more than twice")
 	}
+	for _, item := range message.Actions {
+		if item.ID != slackui.ActionOpenIncident {
+			continue
+		}
+		for _, contextLine := range message.Context {
+			if strings.Contains(strings.ToLower(contextLine), "no incident has been created") {
+				addIssue("incident offer repeats button state in a context footer")
+				break
+			}
+		}
+	}
 	return result
+}
+
+// AssessSlackDeliveryUX decodes the exact durable Slack payload and applies
+// the same deterministic surface checks used by live evaluations.
+func AssessSlackDeliveryUX(body []byte, action string) (SlackUXAssessment, error) {
+	message, err := slackui.Decode(body)
+	if err != nil {
+		return SlackUXAssessment{}, fmt.Errorf("decode Slack delivery: %w", err)
+	}
+	assessment := assessSlackUX(message, action)
+	if !assessment.Passed {
+		return assessment, fmt.Errorf(
+			"Slack delivery failed UX checks: %s",
+			strings.Join(assessment.Issues, "; "),
+		)
+	}
+	return assessment, nil
 }
 
 func qualityJudgePrompt(

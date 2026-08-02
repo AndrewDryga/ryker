@@ -408,8 +408,7 @@ func TestConversationIncidentOfferExplainsAndConfirmsCreation(t *testing.T) {
 		message.Actions[0].Label != "Open incident room" ||
 		message.Actions[0].Style != "primary" ||
 		!strings.Contains(message.Actions[0].Confirm, "No merge, push, deployment") ||
-		len(message.Context) != 1 ||
-		!strings.Contains(message.Context[0], "No incident has been created") {
+		len(message.Context) != 0 {
 		t.Fatalf("incident offer = %+v", message)
 	}
 }
