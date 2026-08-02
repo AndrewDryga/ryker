@@ -25,13 +25,14 @@ type agentContextRequest struct {
 }
 
 type assembledAgentContext struct {
-	Repository        string                         `json:"repository"`
-	Prior             operationalMemoryContext       `json:"prior_operational_context,omitempty"`
-	Situation         core.AgentMemory               `json:"conversation_situation,omitempty"`
-	RelatedSituations []conversationSituationContext `json:"related_situations,omitempty"`
-	RecentMessages    []watchContextMessage          `json:"recent_messages_around_target,omitempty"`
-	ReferencedThread  *referencedThreadContext       `json:"referenced_thread,omitempty"`
-	CapturedAt        time.Time                      `json:"captured_at"`
+	Repository                    string                         `json:"repository"`
+	Prior                         operationalMemoryContext       `json:"prior_operational_context,omitempty"`
+	Situation                     core.AgentMemory               `json:"conversation_situation,omitempty"`
+	RelatedSituations             []conversationSituationContext `json:"related_situations,omitempty"`
+	RecentMessages                []watchContextMessage          `json:"recent_messages_around_target,omitempty"`
+	ReferencedThread              *referencedThreadContext       `json:"referenced_thread,omitempty"`
+	InitialTaskChangesFingerprint string                         `json:"initial_task_changes_fingerprint,omitempty"`
+	CapturedAt                    time.Time                      `json:"captured_at"`
 }
 
 type referencedThreadContext struct {

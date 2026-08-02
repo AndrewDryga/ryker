@@ -1023,6 +1023,11 @@ func progressMilestones(status string) []string {
 			"Reading the earlier answer",
 			"Writing a simpler explanation",
 		}
+	case strings.Contains(status, "scheduling"):
+		return []string{
+			"Checking the requested timing",
+			"Preparing the follow-up for confirmation",
+		}
 	case strings.Contains(status, "approved action"):
 		return []string{
 			"Checking that the information is still current",

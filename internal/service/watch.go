@@ -723,13 +723,19 @@ func (s *Service) applyWatchDecision(
 			scheduleInput,
 			state.RecentMessages,
 		)
+		schedulePresent := decision.ScheduleOffer != nil
 		scheduleOffered := false
-		if actionValue, task, when, ok := s.prepareScheduleOfferAction(
-			ctx, scheduleInput, decision.ScheduleOffer,
-		); ok {
-			message = slackui.WithScheduleOffer(message, task, actionValue, when)
-			outcome = "schedule_offered"
-			scheduleOffered = true
+		if schedulePresent {
+			if actionValue, task, when, ok := s.prepareScheduleOfferAction(
+				ctx, scheduleInput, decision.ScheduleOffer,
+			); ok {
+				message = slackui.WithScheduleOffer(message, task, actionValue, when)
+				outcome = "schedule_offered"
+				scheduleOffered = true
+			} else {
+				message = slackui.ScheduleOfferUnavailable(message)
+				outcome = "schedule_offer_invalid"
+			}
 		}
 		if decision.PendingApproval != nil {
 			message = slackui.WithEmisarApproval(message, *decision.PendingApproval)
@@ -766,7 +772,7 @@ func (s *Service) applyWatchDecision(
 			repository, err := s.resolveTaskOfferRepository(decision.TaskRepository)
 			if err != nil {
 				question := taskRepositoryQuestion("", s.repositoryChoices())
-				if scheduleOffered {
+				if schedulePresent {
 					message.Sections = append(message.Sections, question)
 				} else {
 					message = slackui.ConciseEvidenceResponse(

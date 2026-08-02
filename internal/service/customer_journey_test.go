@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -163,6 +164,123 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithoutConfigured
 	if len(slackClient.statuses) == 0 ||
 		slackClient.statuses[len(slackClient.statuses)-1].text != "" {
 		t.Fatalf("publication pending status = %+v", slackClient.statuses)
+	}
+}
+
+func TestCustomerJourneySchedulesEngineeringFollowupWithoutStalePRControls(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.NativeStatus = true
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	task, created, err := st.CreateEngineeringTask(
+		ctx,
+		"repo",
+		"EvScheduleFollowup",
+		"Reduce cms-web Redis pool size",
+		"Make the focused configuration change and publish a draft PR.",
+		cfg.Slack.Operators[0],
+		"COPS",
+		"1700.300",
+		cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil || !created {
+		t.Fatalf("create engineering task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.301"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_followup", "task-cms", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startAt := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
+	coopClient := newFakeCoop()
+	coopClient.session.ID = "ses_followup"
+	coopClient.session.ForkName = "task-cms"
+	coopClient.session.Revision = 1
+	coopClient.changes = coop.Changes{
+		BaseCommit: "base", ForkHead: "existing-change",
+		Committed:   []coop.Change{{Path: "cms.tf", Status: "M"}},
+		PatchDigest: "existing-diff", PatchBytes: 100,
+	}
+	coopClient.completeOnSubmit = fmt.Sprintf(`{
+	  "message":"I’ll recheck cms-web in 24 hours and report the result here.",
+	  "schedule_offer":{
+	    "title":"Recheck cms-web after 24 hours",
+	    "prompt":"Perform a fresh read-only post-deployment assessment of cms-web.",
+	    "repository":"repo",
+	    "recurrence":"once",
+	    "start_at":%q,
+	    "timezone":"UTC",
+	    "catch_up":"latest",
+	    "expires_in":"7d"
+	  },
+	  "completion":{
+	    "status":"decision_ready",
+	    "summary":"The follow-up is ready for confirmation.",
+	    "next_action":"Confirm the one-time schedule."
+	  }
+	}`, startAt.Format(time.RFC3339))
+	slackClient := &fakeSlack{dedupePosts: true}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-schedule-followup", EnvelopeID: "env-schedule-followup",
+		EventID: "EvScheduleFollowupInput", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: task.ChannelID,
+		ThreadTS: task.ConversationThreadTS(), MessageTS: "1700.400",
+		UserID: cfg.Slack.Operators[0],
+		Text:   "Check it in 24 hours and report me again",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit follow-up = %v, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("follow-up posts = %+v", slackClient.posts)
+	}
+	message := slackClient.posts[0].message
+	ids := make([]string, 0, len(message.Actions))
+	for _, action := range message.Actions {
+		ids = append(ids, action.ID)
+	}
+	if !slices.Contains(ids, slackui.ActionRememberSchedule) ||
+		slices.Contains(ids, slackui.ActionChanges) ||
+		slices.Contains(ids, slackui.ActionPublishPR) {
+		t.Fatalf("follow-up controls = %+v", message.Actions)
+	}
+	if !strings.HasPrefix(message.Text, "Confirm the schedule below") ||
+		strings.Contains(strings.Join(message.Context, "\n"), "View the diff") {
+		t.Fatalf("follow-up message = %+v", message)
+	}
+	if len(slackClient.statuses) != 2 ||
+		slackClient.statuses[0].text != "is scheduling the follow-up..." ||
+		slackClient.statuses[1].text != "" {
+		t.Fatalf("follow-up status lifecycle = %+v", slackClient.statuses)
+	}
+	if schedules, listErr := st.ListScheduledTasksForChannel(ctx, task.ChannelID, 10); listErr != nil || len(schedules) != 0 {
+		t.Fatalf("schedule was saved before confirmation = %+v, %v", schedules, listErr)
 	}
 }
 

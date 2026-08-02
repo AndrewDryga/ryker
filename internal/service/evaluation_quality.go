@@ -225,6 +225,8 @@ func renderEvaluationMessage(
 					context.Background(), input, decision.ScheduleOffer,
 				); ok {
 					message = slackui.WithScheduleOffer(message, task, actionValue, when)
+				} else {
+					message = slackui.ScheduleOfferUnavailable(message)
 				}
 			}
 			if decision.TaskTitle != "" {

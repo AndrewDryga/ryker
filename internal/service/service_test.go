@@ -2109,10 +2109,10 @@ func TestAcceptedOperatorReplySetsAndRefreshesNativeStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	if len(slack.statuses) != 1 || slack.statuses[0].text != "is investigating your message..." {
+	if len(slack.statuses) != 1 || slack.statuses[0].text != "is investigating..." {
 		t.Fatalf("accepted reply status = %+v", slack.statuses)
 	}
-	svc.setNativeStatus(ctx, incident, "is investigating your message...")
+	svc.setNativeStatus(ctx, incident, "is investigating...")
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.statuses) != 1 {
 		t.Fatalf("status refreshed too early: %+v", slack.statuses)
@@ -2121,7 +2121,7 @@ func TestAcceptedOperatorReplySetsAndRefreshesNativeStatus(t *testing.T) {
 	status := svc.nativeStatus[statusKey]
 	status.at = time.Now().Add(-76 * time.Second)
 	svc.nativeStatus[statusKey] = status
-	svc.setNativeStatus(ctx, incident, "is investigating your message...")
+	svc.setNativeStatus(ctx, incident, "is investigating...")
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.statuses) != 2 {
 		t.Fatalf("long-running status was not refreshed: %+v", slack.statuses)
@@ -2179,16 +2179,52 @@ func TestIncidentSubthreadKeepsProgressOnTheSourceConversation(t *testing.T) {
 	}
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.statuses) != 1 || slack.statuses[0].thread != input.ThreadTS ||
-		slack.statuses[0].text != "is investigating your message..." {
+		slack.statuses[0].text != "is investigating..." {
 		t.Fatalf("accepted subthread status = %+v", slack.statuses)
 	}
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	if len(slack.statuses) != 2 || slack.statuses[1].thread != input.ThreadTS ||
-		slack.statuses[1].text != "is investigating..." {
-		t.Fatalf("running subthread status = %+v", slack.statuses)
+	if len(slack.statuses) != 1 || slack.statuses[0].thread != input.ThreadTS ||
+		slack.statuses[0].text != "is investigating..." {
+		t.Fatalf("running subthread replaced the pending status: %+v", slack.statuses)
+	}
+}
+
+func TestRequestNativeStatusIsStableAndScheduleSpecific(t *testing.T) {
+	if got := requestNativeStatus("Check this in 24 hours and report again"); got != "is scheduling the follow-up..." {
+		t.Fatalf("schedule status = %q", got)
+	}
+	if got := requestNativeStatus("Check whether the deployment is healthy"); got != "is investigating..." {
+		t.Fatalf("investigation status = %q", got)
+	}
+	if got := requestNativeStatus("Explain the earlier answer in simple terms"); got != "is explaining the earlier answer..." {
+		t.Fatalf("explanation status = %q", got)
+	}
+}
+
+func TestEngineeringTaskDeliveryRequiresChangesFromCurrentTurn(t *testing.T) {
+	before := coop.Changes{
+		BaseCommit: "base", ForkHead: "existing",
+		Committed:   []coop.Change{{Path: "infra.tf", Status: "M"}},
+		PatchDigest: "existing-diff", PatchBytes: 100,
+	}
+	if engineeringTaskTurnCreatedChanges(coopChangesFingerprint(before), before) {
+		t.Fatal("unchanged task work was attributed to the current turn")
+	}
+	after := before
+	after.ForkHead = "new-head"
+	after.Committed = append(
+		after.Committed,
+		coop.Change{Path: "followup.tf", Status: "M"},
+	)
+	after.PatchDigest = "new-diff"
+	if !engineeringTaskTurnCreatedChanges(coopChangesFingerprint(before), after) {
+		t.Fatal("new task work was not attributed to the current turn")
+	}
+	if engineeringTaskTurnCreatedChanges("unavailable", after) {
+		t.Fatal("unknown initial state exposed stale task controls")
 	}
 }
 
@@ -6198,6 +6234,7 @@ func stageAgentRunWithMissingConversationSource(
 type fakeCoop struct {
 	session            coop.Session
 	turn               coop.Turn
+	changes            coop.Changes
 	events             []coop.Event
 	createKeys         []string
 	createPolicies     []string
@@ -6380,7 +6417,7 @@ func (f *fakeCoop) Events(_ context.Context, _ string, after int64, _ int) ([]co
 	return result, nil
 }
 func (f *fakeCoop) Changes(context.Context, string) (coop.Changes, error) {
-	return coop.Changes{}, nil
+	return f.changes, nil
 }
 func (f *fakeCoop) Review(context.Context, string, string, int64) (coop.Review, coop.Operation, error) {
 	return coop.Review{}, coop.Operation{}, nil

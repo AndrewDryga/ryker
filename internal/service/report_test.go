@@ -117,6 +117,31 @@ func TestAgentReportPreservesMessageWhenOptionalEnvelopeIsMalformed(t *testing.T
 	}
 }
 
+func TestAgentReportPreservesScheduleOfferWithDecisionReadyFollowup(t *testing.T) {
+	report, structured, err := parseAgentReport(`{
+	  "message":"I’ll recheck cms-web in 24 hours and report here.",
+	  "schedule_offer":{
+	    "title":"Recheck cms-web after 24 hours",
+	    "prompt":"Perform a fresh read-only cms-web health assessment.",
+	    "repository":"repo",
+	    "recurrence":"once",
+	    "start_at":"2026-08-03T19:18:03Z",
+	    "timezone":"UTC",
+	    "catch_up":"latest",
+	    "expires_in":"7d"
+	  },
+	  "completion":{
+	    "status":"decision_ready",
+	    "summary":"The follow-up is ready for confirmation.",
+	    "next_action":"Confirm the schedule."
+	  }
+	}`)
+	if err != nil || !structured || report.ScheduleOffer == nil ||
+		report.Completion == nil || report.Completion.NextAction == "" {
+		t.Fatalf("schedule report = %+v, structured=%v, err=%v", report, structured, err)
+	}
+}
+
 func TestAgentReportExtractsFinalEnvelopeAfterCoopProgress(t *testing.T) {
 	output := "I’m inspecting declared and live state." +
 		"The audit is converging; I’m running validation now." +

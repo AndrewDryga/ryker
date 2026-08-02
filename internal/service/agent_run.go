@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -343,6 +344,7 @@ func (s *Service) prepareIncidentAgentRun(
 		)
 	}
 	assembled, captured := decodeAssembledAgentContext(run.Context)
+	contextChanged := false
 	if !captured {
 		assembled, err = s.assembleAgentContext(
 			ctx,
@@ -354,6 +356,25 @@ func (s *Service) prepareIncidentAgentRun(
 		if err != nil {
 			return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 		}
+		contextChanged = true
+		run.Repository = assembled.Repository
+	}
+	if incident.IsEngineeringTask() && assembled.InitialTaskChangesFingerprint == "" {
+		changes, changesErr := s.coop.Changes(ctx, incident.CoopSessionID)
+		if changesErr != nil {
+			assembled.InitialTaskChangesFingerprint = "unavailable"
+			s.log.Warn(
+				"capture engineering task changes before turn failed",
+				"incident", incident.ID,
+				"run", run.ID,
+				"error", changesErr,
+			)
+		} else {
+			assembled.InitialTaskChangesFingerprint = coopChangesFingerprint(changes)
+		}
+		contextChanged = true
+	}
+	if contextChanged {
 		contextJSON, marshalErr := json.Marshal(assembled)
 		if marshalErr != nil {
 			return s.retryIncidentAgentRun(
@@ -361,7 +382,6 @@ func (s *Service) prepareIncidentAgentRun(
 			)
 		}
 		run.Context = contextJSON
-		run.Repository = assembled.Repository
 	}
 	if err := s.store.BindAgentRunSession(
 		ctx,
@@ -437,12 +457,22 @@ func (s *Service) prepareIncidentAgentRun(
 
 func (s *Service) agentRunNativeStatus(ctx context.Context, run core.AgentRun) string {
 	if run.SourceKind == "slack" {
-		if input, err := s.store.GetSlackInput(ctx, run.SourceID); err == nil &&
-			simpleExplanationRequest(input.Text) {
-			return "is explaining the earlier answer..."
+		if input, err := s.store.GetSlackInput(ctx, run.SourceID); err == nil {
+			return requestNativeStatus(input.Text)
 		}
 	}
 	return "is investigating..."
+}
+
+func requestNativeStatus(text string) string {
+	switch {
+	case simpleExplanationRequest(text):
+		return "is explaining the earlier answer..."
+	case explicitScheduleRequest(text):
+		return "is scheduling the follow-up..."
+	default:
+		return "is investigating..."
+	}
 }
 
 func channelSituationPrompt(memory core.AgentMemory) string {
@@ -1696,10 +1726,14 @@ func (s *Service) finalizeIncidentAgentRun(
 						expires,
 					)
 				}
-				if actionValue, task, when, ok := s.prepareScheduleOfferAction(
-					ctx, conversationInput, report.ScheduleOffer,
-				); ok {
-					message = slackui.WithScheduleOffer(message, task, actionValue, when)
+				if report.ScheduleOffer != nil {
+					if actionValue, task, when, ok := s.prepareScheduleOfferAction(
+						ctx, conversationInput, report.ScheduleOffer,
+					); ok {
+						message = slackui.WithScheduleOffer(message, task, actionValue, when)
+					} else {
+						message = slackui.ScheduleOfferUnavailable(message)
+					}
 				}
 			} else {
 				report.Message = reportReplyParts[len(reportReplyParts)-1]
@@ -1757,11 +1791,17 @@ func (s *Service) finalizeIncidentAgentRun(
 		if changes, changesErr := s.coop.Changes(
 			ctx, incident.CoopSessionID,
 		); changesErr == nil {
-			message = slackui.WithEngineeringTaskDelivery(
-				message,
-				incident,
-				coopChangesPresent(changes),
-			)
+			assembled, _ := decodeAssembledAgentContext(run.Context)
+			if engineeringTaskTurnCreatedChanges(
+				assembled.InitialTaskChangesFingerprint,
+				changes,
+			) {
+				message = slackui.WithEngineeringTaskDelivery(
+					message,
+					incident,
+					true,
+				)
+			}
 		} else {
 			s.log.Warn(
 				"inspect completed engineering task changes failed",
@@ -1851,6 +1891,39 @@ func (s *Service) finalizeIncidentAgentRun(
 	}
 	s.forgetNativeStatus(incident.ID)
 	return nil
+}
+
+type taskChangesFingerprint struct {
+	BaseCommit  string        `json:"base_commit"`
+	ForkHead    string        `json:"fork_head"`
+	ParentHead  string        `json:"parent_head"`
+	Committed   []coop.Change `json:"committed,omitempty"`
+	Staged      []coop.Change `json:"staged,omitempty"`
+	Unstaged    []coop.Change `json:"unstaged,omitempty"`
+	Untracked   []coop.Change `json:"untracked,omitempty"`
+	Conflicts   []coop.Change `json:"conflicts,omitempty"`
+	PatchDigest string        `json:"patch_digest,omitempty"`
+	PatchBytes  int64         `json:"patch_bytes"`
+}
+
+func coopChangesFingerprint(changes coop.Changes) string {
+	data, _ := json.Marshal(taskChangesFingerprint{
+		BaseCommit: changes.BaseCommit, ForkHead: changes.ForkHead,
+		ParentHead: changes.ParentHead, Committed: changes.Committed,
+		Staged: changes.Staged, Unstaged: changes.Unstaged,
+		Untracked: changes.Untracked, Conflicts: changes.Conflicts,
+		PatchDigest: changes.PatchDigest, PatchBytes: changes.PatchBytes,
+	})
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+func engineeringTaskTurnCreatedChanges(
+	initialFingerprint string,
+	changes coop.Changes,
+) bool {
+	return initialFingerprint != "" && initialFingerprint != "unavailable" &&
+		coopChangesPresent(changes) &&
+		initialFingerprint != coopChangesFingerprint(changes)
 }
 
 func (s *Service) finishTriageRunFailure(

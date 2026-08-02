@@ -230,6 +230,7 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 	}{
 		{name: "omitted"},
 		{name: "decision ready", completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy"}},
+		{name: "decision ready with follow-up", completion: &completionAssessment{Status: "decision_ready", Summary: "The schedule is ready for confirmation", NextAction: "Confirm the schedule"}},
 		{name: "decision with gap", completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy", MaterialGaps: []string{"database"}}, wantError: true},
 		{name: "blocked", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", Attempts: []string{"Monitoring query returned permission denied"}, NextAction: "Restore access"}},
 		{name: "blocked without kind", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, Attempts: []string{"Queried monitoring"}, NextAction: "Restore access"}, wantError: true},

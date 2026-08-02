@@ -397,8 +397,15 @@ func TestSlackStatusGenerationMakesClearMonotonic(t *testing.T) {
 		t.Fatalf("persisted status generation = %d, %v", nextGeneration, err)
 	}
 	leased, err := st.LeaseSlackDelivery(ctx)
+	if err != nil || leased.ID != active.ID || leased.Status == "" {
+		t.Fatalf("pending status was not delivered before clear = %+v, %v", leased, err)
+	}
+	if err := st.FinishSlackDelivery(ctx, leased.ID, "", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	leased, err = st.LeaseSlackDelivery(ctx)
 	if err != nil || leased.ID != clear.ID || leased.Status != "" {
-		t.Fatalf("monotonic status delivery = %+v, %v", leased, err)
+		t.Fatalf("monotonic status clear = %+v, %v", leased, err)
 	}
 }
 

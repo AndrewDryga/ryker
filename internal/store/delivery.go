@@ -140,12 +140,18 @@ func (s *Store) EnqueueSlackDelivery(
 			SET state = 'superseded', updated_at = ?
 			WHERE coalesce_key = ? AND id != ?
 			  AND state IN ('pending', 'retry')
-			  AND (? = 0 OR card_version <= ?)`,
+			  AND (? = 0 OR card_version <= ?)
+			  AND NOT (
+			    ? = 'status' AND ? = '' AND
+			    operation = 'status' AND status_text != ''
+			  )`,
 			now,
 			delivery.CoalesceKey,
 			delivery.ID,
 			delivery.CardVersion,
 			delivery.CardVersion,
+			delivery.Operation,
+			delivery.Status,
 		); err != nil {
 			return false, err
 		}

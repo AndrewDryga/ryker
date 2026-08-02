@@ -1007,6 +1007,40 @@ func TestScheduleOfferAndDirectoryExplainExecutionBoundary(t *testing.T) {
 	}
 }
 
+func TestScheduleOfferMakesFutureCommitmentConditional(t *testing.T) {
+	task := core.ScheduledTask{
+		ChannelID: "COPS", ThreadTS: "100.1", Repository: "repo",
+		Title:  "Recheck cms-web after 24 hours",
+		Prompt: "Run a fresh cms-web health check and report the result.",
+	}
+	message := WithScheduleOffer(
+		ConversationResponse(
+			"I’ll recheck cms-web in 24 hours and report here.",
+			NewSanitizer(12000),
+		),
+		task,
+		`{"version":1}`,
+		"Once on Aug 3, 2026 at 19:18 UTC",
+	)
+	content := message.Text + "\n" + message.Markdown + "\n" +
+		strings.Join(message.Sections, "\n") + "\n" +
+		strings.Join(message.Context, "\n")
+	if len(message.Actions) != 1 || message.Actions[0].ID != ActionRememberSchedule {
+		t.Fatalf("schedule confirmation action = %+v", message.Actions)
+	}
+	if !strings.Contains(content, "Confirm the schedule below") ||
+		!strings.Contains(content, "Nothing is scheduled yet") ||
+		message.Text == "I’ll recheck cms-web in 24 hours and report here." {
+		t.Fatalf("schedule offer retained an unconditional commitment: %+v", message)
+	}
+
+	unavailable := ScheduleOfferUnavailable(message)
+	if len(unavailable.Actions) != 0 ||
+		!strings.Contains(unavailable.Text, "nothing was scheduled") {
+		t.Fatalf("invalid schedule offer = %+v", unavailable)
+	}
+}
+
 func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
 	offer := core.MemoryOffer{
 		Scope: "workspace", Subject: "fix_explanation_style", Predicate: "guidance",

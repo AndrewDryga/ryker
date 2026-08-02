@@ -91,7 +91,8 @@ var (
 		regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{20,}\b`),
 		regexp.MustCompile(`\bAKIA[A-Z0-9]{16}\b`),
 	}
-	slackMentionPattern = regexp.MustCompile(`<(?:@[A-Z0-9]+|![^>]+)>`)
+	slackMentionPattern       = regexp.MustCompile(`<(?:@[A-Z0-9]+|![^>]+)>`)
+	scheduleCommitmentPattern = regexp.MustCompile(`(?i)^\s*i(?:['’]ll| will)\s+`)
 )
 
 type Message struct {
@@ -745,6 +746,8 @@ func WithScheduleOffer(
 	actionValue string,
 	when string,
 ) Message {
+	message.Text = conditionalScheduleOfferLead(message.Text)
+	message.Markdown = conditionalScheduleOfferLead(message.Markdown)
 	destination := "this channel"
 	if task.ThreadTS != "" {
 		destination = "this thread"
@@ -762,6 +765,30 @@ func WithScheduleOffer(
 		Style:   "primary",
 		Confirm: "Create this scheduled task? Future runs use the current policies and may still require operator approval.",
 	})
+	return message
+}
+
+func conditionalScheduleOfferLead(value string) string {
+	if match := scheduleCommitmentPattern.FindStringIndex(value); match != nil {
+		return "Confirm the schedule below and I’ll " +
+			strings.TrimSpace(value[match[1]:])
+	}
+	lower := strings.ToLower(value)
+	if strings.Contains(lower, "confirm") && strings.Contains(lower, "schedule") {
+		return value
+	}
+	return "Confirm the schedule below to create this task.\n\n" + value
+}
+
+func ScheduleOfferUnavailable(message Message) Message {
+	message.Text = "I couldn’t safely prepare that schedule, so nothing was scheduled."
+	message.Markdown = message.Text
+	message.Sections = nil
+	message.Fields = nil
+	message.Context = []string{
+		"Please restate the timing and task. Responder will show the exact schedule for confirmation before saving it.",
+	}
+	message.Actions = nil
 	return message
 }
 

@@ -262,7 +262,20 @@ LEFT JOIN slack_inputs AS input ON input.id = r.source_id
 LEFT JOIN evaluation_decisions AS decision
   ON decision.source_input = r.source_id AND decision.mode = 'watch'
 LEFT JOIN slack_deliveries AS delivery
-  ON delivery.id = 'watch_reply_' || r.source_id
+  ON delivery.id = COALESCE(
+    (
+      SELECT candidate.id FROM slack_deliveries AS candidate
+      WHERE candidate.id = 'out_run_' || r.id LIMIT 1
+    ),
+    (
+      SELECT candidate.id FROM slack_deliveries AS candidate
+      WHERE candidate.id = 'out_run_' || r.id || '_part_999' LIMIT 1
+    ),
+    (
+      SELECT candidate.id FROM slack_deliveries AS candidate
+      WHERE candidate.id = 'watch_reply_' || r.source_id LIMIT 1
+    )
+  )
 WHERE r.sort_time > '$quoted_time'
    OR (r.sort_time = '$quoted_time' AND r.id > '$quoted_id')
 ORDER BY r.sort_time, r.id
@@ -433,7 +446,8 @@ LIMIT $batch_size;"
     advance_from_batch "$batch_path"
     return 0
   fi
-  if ! (cd "$worktree" && make check) >>"$fixer_log" 2>&1; then
+  mkdir -p "$watch_dir/go-cache"
+  if ! (cd "$worktree" && GOCACHE="$watch_dir/go-cache" make check) >>"$fixer_log" 2>&1; then
     log "full gate failed for $batch_id; worktree preserved at $worktree"
     advance_from_batch "$batch_path"
     return 0

@@ -53,8 +53,7 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 		if len(completion.MaterialGaps) > 0 {
 			return errors.New("decision-ready completion cannot contain material gaps")
 		}
-		if completion.BlockerKind != "" || len(completion.Attempts) > 0 ||
-			completion.NextAction != "" {
+		if completion.BlockerKind != "" || len(completion.Attempts) > 0 {
 			return errors.New("decision-ready completion cannot contain blocker fields")
 		}
 	case "blocked":

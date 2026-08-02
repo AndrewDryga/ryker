@@ -154,11 +154,12 @@ INSERT INTO agent_runs VALUES (
   '2999-01-01T00:00:05.000Z', '2999-01-01T00:00:05.000Z', '{"action":"reply"}'
 );
 INSERT INTO slack_deliveries VALUES (
-  'watch_reply_slack_two', 'sent', 'post', 'notice', '2999.004', '',
-  '{"text":"The deployment is healthy."}'
+  'out_run_run_two', 'sent', 'post', 'assistant', '2999.004', '',
+  '{"text":"The deployment is healthy.","actions":[{"id":"stale_control","label":"Create draft PR"}]}'
 );
 SQL
 run_watch challenge --once
+grep -Fq 'Create draft PR' "$capture"
 grep -Fq 'adversarial review rejected the proposed defect' \
   "$state_dir/quality-watch/quality-watch.log"
 if find "$state_dir/quality-watch/worktrees" -mindepth 1 -print -quit | grep -q .; then
