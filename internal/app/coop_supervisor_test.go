@@ -43,6 +43,68 @@ func TestDoctorUsesAlreadyRunningManagedCoop(t *testing.T) {
 	}
 }
 
+func TestEnsureManagedCoopImageBuildsOnlyWhenMissing(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repo")
+	if err := os.Mkdir(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(root, "image-ready")
+	trace := filepath.Join(root, "trace")
+	script := writeSupervisorScript(t, `#!/bin/sh
+printf '%s\n' "$1" >> "$TRACE"
+case "$1" in
+  doctor)
+    if [ ! -f "$IMAGE_READY" ]; then
+      echo "real box image not built — probing a stock alpine stand-in"
+    fi
+    ;;
+  build)
+    : > "$IMAGE_READY"
+    ;;
+esac
+`)
+	t.Setenv("TRACE", trace)
+	t.Setenv("IMAGE_READY", state)
+	cfg := supervisorTestConfig(root, script)
+	cfg.Slack.DefaultRepository = "repo"
+	cfg.Repositories = map[string]config.Repository{"repo": {Path: repository}}
+	var output strings.Builder
+	if err := ensureManagedCoopImage(cfg, &output); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureManagedCoopImage(cfg, &output); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "doctor\nbuild\ndoctor\ndoctor\n" {
+		t.Fatalf("runtime commands = %q", got)
+	}
+	if !strings.Contains(output.String(), "building it now") {
+		t.Fatalf("build output = %q", output.String())
+	}
+}
+
+func TestCheckManagedCoopImageExplainsRemediation(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repo")
+	if err := os.Mkdir(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	script := writeSupervisorScript(t, "#!/bin/sh\necho 'real box image not built'\n")
+	cfg := supervisorTestConfig(root, script)
+	cfg.Slack.DefaultRepository = "repo"
+	cfg.Repositories = map[string]config.Repository{"repo": {Path: repository}}
+	err := checkManagedCoopImage(cfg)
+	if err == nil || !strings.Contains(err.Error(), "Responder cannot execute agent turns") ||
+		!strings.Contains(err.Error(), "build") {
+		t.Fatalf("missing image remediation = %v", err)
+	}
+}
+
 func TestCoopSupervisorBuildsRestrictedProcessAndStopsIt(t *testing.T) {
 	root := t.TempDir()
 	argsPath := filepath.Join(root, "args")

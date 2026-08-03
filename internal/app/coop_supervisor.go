@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -40,6 +41,8 @@ type coopSupervisor struct {
 }
 
 const coopStartupOutputLimit = 16 << 10
+
+const coopMissingImageDiagnostic = "real box image not built"
 
 type coopProcessOutput struct {
 	mu          sync.Mutex
@@ -89,6 +92,83 @@ func startCoopSupervisor(cfg config.Config, output io.Writer, logger *slog.Logge
 	}
 	go supervisor.run(command)
 	return supervisor, nil
+}
+
+func ensureManagedCoopImage(cfg config.Config, output io.Writer) error {
+	missing, err := inspectManagedCoopImage(cfg)
+	if err != nil {
+		return err
+	}
+	if !missing {
+		return nil
+	}
+	fmt.Fprintln(output, "Managed Coop box image is missing; building it now.")
+	command, err := managedCoopCommand(cfg, "build")
+	if err != nil {
+		return err
+	}
+	command.Stdout = output
+	command.Stderr = output
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("build managed Coop box image: %w", err)
+	}
+	missing, err = inspectManagedCoopImage(cfg)
+	if err != nil {
+		return err
+	}
+	if missing {
+		return errors.New("managed Coop build completed without producing its box image")
+	}
+	return nil
+}
+
+func checkManagedCoopImage(cfg config.Config) error {
+	missing, err := inspectManagedCoopImage(cfg)
+	if err != nil {
+		return err
+	}
+	if !missing {
+		return nil
+	}
+	return fmt.Errorf(
+		"managed Coop box image is missing; Responder cannot execute agent turns; run:\n  cd %s && COOP_CONFIG_DIR=%s %s build\nthen retry Responder",
+		shellWord(managedCoopRepository(cfg)),
+		shellWord(cfg.Coop.BootstrapDir),
+		shellWord(cfg.Coop.Binary),
+	)
+}
+
+func inspectManagedCoopImage(cfg config.Config) (bool, error) {
+	command, err := managedCoopCommand(cfg, "doctor")
+	if err != nil {
+		return false, err
+	}
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	if err := command.Run(); err != nil {
+		return false, fmt.Errorf("preflight managed Coop execution image: %w: %s", err, strings.TrimSpace(output.String()))
+	}
+	return strings.Contains(output.String(), coopMissingImageDiagnostic), nil
+}
+
+func managedCoopCommand(cfg config.Config, args ...string) (*exec.Cmd, error) {
+	repository := managedCoopRepository(cfg)
+	if repository == "" {
+		return nil, fmt.Errorf("default repository %q has no path for managed Coop runtime preflight", cfg.Slack.DefaultRepository)
+	}
+	command := exec.Command(cfg.Coop.Binary, args...)
+	command.Dir = repository
+	command.Env = append(coopEnvironment(cfg), "COOP_REPO="+repository)
+	return command, nil
+}
+
+func managedCoopRepository(cfg config.Config) string {
+	repository, ok := cfg.RepositoryContext(cfg.Slack.DefaultRepository)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(repository.Path)
 }
 
 func startManagedCoop(
@@ -356,6 +436,7 @@ func (s *coopSupervisor) signal(signal syscall.Signal) {
 func coopEnvironment(cfg config.Config) []string {
 	blocked := map[string]bool{
 		"COOP_CONFIG_DIR": true,
+		"COOP_REPO":       true,
 		"COOP_SPINNER":    true,
 		"NO_COLOR":        true,
 		"TERM":            true,

@@ -141,6 +141,9 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		if err := checkPrivateCoopConfig(cfg.Coop.BootstrapDir, expectedBootstrap); err != nil {
 			return err
 		}
+		if err := ensureManagedCoopImage(cfg, stderr); err != nil {
+			return err
+		}
 	}
 	if err := ensurePrivateDirectory(cfg.StateDir); err != nil {
 		return err
@@ -275,6 +278,9 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return err
 	}
 	if err := checkPrivateCoopConfig(cfg.Coop.BootstrapDir, expectedBootstrap); err != nil {
+		return err
+	}
+	if err := checkManagedCoopImage(cfg); err != nil {
 		return err
 	}
 	logger := newLogger(stderr, cfg.LogLevel)

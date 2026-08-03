@@ -141,7 +141,9 @@ sudo -u responder git clone <backend-repository-url> /srv/repos/backend
 For a one-command foreground trial, set `coop.supervise: true` in Responder's configuration. Both
 `doctor` and `serve` then launch Coop with the configured binary, state, policies, socket, and
 private agent configuration. `doctor` stops its temporary child after preflight; `serve` restarts
-Coop after unexpected exits and stops it when Responder shuts down:
+Coop after unexpected exits and stops it when Responder shuts down. Before accepting Slack work,
+managed startup verifies the real Coop box image and builds it when missing. `responder doctor`
+fails with the exact `coop build` remediation when the execution image is unavailable:
 
 ```bash
 sudo -u responder -g docker env \
