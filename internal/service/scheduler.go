@@ -316,6 +316,8 @@ func (s *Service) runScheduledWork(
 		return s.processScheduledTasks(ctx)
 	case workPublicationTrack:
 		return s.processPublicationFollowup(ctx)
+	case workExternalMessageReconcile:
+		return s.reconcileExternalMessage(ctx, item)
 	default:
 		return fmt.Errorf("unsupported scheduled work kind %q", item.Kind)
 	}

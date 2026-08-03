@@ -174,6 +174,14 @@ later inputs can still be admitted and included in subsequent context. A delayed
 an already completed decision is retained and audited but cannot produce an out-of-order reply.
 Slash commands and button controls have priority over ordinary conversation delivery.
 
+Slack apps can update an existing notification as work moves from planning to applied, errored,
+discarded, or another terminal state. Slack does not reliably deliver every attachment-only edit as
+an Events API message. Responder therefore re-reads only external-app messages that visibly describe
+an in-progress lifecycle. `slack.external_message_reconcile_interval` controls the polling interval;
+`slack.external_message_reconcile_window` bounds how long the exact message is followed. A changed
+message is admitted as a new ordered input and evaluated normally. This is lifecycle synchronization,
+not Terraform-specific classification.
+
 ## Scheduled tasks
 
 A configured operator creates a schedule by mentioning Emisar with a task and time, for example:

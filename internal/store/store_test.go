@@ -720,6 +720,44 @@ func TestRecentWatchContextIsBoundedChronologicalAndTracksNewerDecisions(t *test
 	}
 }
 
+func TestListLatestSlackInputsByKindReturnsNewestMessageRevision(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	for _, input := range []core.SlackInput{
+		{
+			ID: "slack-old", EnvelopeID: "env-old", EventID: "event-old", Kind: "bot_message",
+			TeamID: "T1", ChannelID: "C1", MessageTS: "1700.1", UserID: "B1",
+			Text: "Run Planning", ReceivedAt: now.Add(-time.Minute),
+		},
+		{
+			ID: "slack-new", EnvelopeID: "env-new", EventID: "event-new", Kind: "bot_message",
+			TeamID: "T1", ChannelID: "C1", MessageTS: "1700.1", UserID: "B1",
+			Text: "Run Errored", ReceivedAt: now,
+		},
+		{
+			ID: "slack-human", EnvelopeID: "env-human", EventID: "event-human", Kind: "message",
+			TeamID: "T1", ChannelID: "C1", MessageTS: "1700.2", UserID: "U1",
+			Text: "hello", ReceivedAt: now,
+		},
+	} {
+		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, err)
+		}
+	}
+	inputs, err := st.ListLatestSlackInputsByKind(ctx, "bot_message", now.Add(-time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 1 || inputs[0].ID != "slack-new" || inputs[0].Text != "Run Errored" {
+		t.Fatalf("latest bot inputs = %+v", inputs)
+	}
+}
+
 func TestSlackControlsCanOvertakeRunningChannelConversation(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

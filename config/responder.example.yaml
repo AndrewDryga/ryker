@@ -20,6 +20,10 @@ slack:
   # Give triage a fresh chronological transcript and a short window for nearby human replies.
   watch_context_messages: 20
   watch_settle_delay: 350ms
+  # Some Slack apps edit an existing notification without reliably emitting a usable event.
+  # Re-read in-progress app lifecycle messages until they become terminal or this window expires.
+  external_message_reconcile_interval: 1m
+  external_message_reconcile_window: 24h
   # Ambient replies require stronger urgency, novelty, confidence, and ownership than reactions.
   # Scores range from 0 to 12; higher values make Emisar quieter.
   proactive_reply_attention_threshold: 7

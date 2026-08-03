@@ -63,23 +63,25 @@ type Config struct {
 }
 
 type SlackConfig struct {
-	BotTokenEnv         string   `yaml:"bot_token_env"`
-	AppTokenEnv         string   `yaml:"app_token_env"`
-	TeamID              string   `yaml:"team_id"`
-	DefaultRepository   string   `yaml:"default_repository"`
-	Operators           []string `yaml:"operators"`
-	InviteUsers         []string `yaml:"invite_users"`
-	SummonChannels      []string `yaml:"summon_channels"`
-	WatchChannels       []string `yaml:"watch_channels"`
-	WatchContext        int      `yaml:"watch_context_messages"`
-	WatchSettleDelay    Duration `yaml:"watch_settle_delay"`
-	ReplyAttention      int      `yaml:"proactive_reply_attention_threshold"`
-	ReactionAttention   int      `yaml:"proactive_reaction_attention_threshold"`
-	ChannelPrefix       string   `yaml:"channel_prefix"`
-	PrivateChannels     bool     `yaml:"private_channels"`
-	NativeStatus        bool     `yaml:"native_status"`
-	AssistantExperience bool     `yaml:"assistant_experience"`
-	ShadowChannels      []string `yaml:"shadow_channels"`
+	BotTokenEnv                      string   `yaml:"bot_token_env"`
+	AppTokenEnv                      string   `yaml:"app_token_env"`
+	TeamID                           string   `yaml:"team_id"`
+	DefaultRepository                string   `yaml:"default_repository"`
+	Operators                        []string `yaml:"operators"`
+	InviteUsers                      []string `yaml:"invite_users"`
+	SummonChannels                   []string `yaml:"summon_channels"`
+	WatchChannels                    []string `yaml:"watch_channels"`
+	WatchContext                     int      `yaml:"watch_context_messages"`
+	WatchSettleDelay                 Duration `yaml:"watch_settle_delay"`
+	ExternalMessageReconcileInterval Duration `yaml:"external_message_reconcile_interval"`
+	ExternalMessageReconcileWindow   Duration `yaml:"external_message_reconcile_window"`
+	ReplyAttention                   int      `yaml:"proactive_reply_attention_threshold"`
+	ReactionAttention                int      `yaml:"proactive_reaction_attention_threshold"`
+	ChannelPrefix                    string   `yaml:"channel_prefix"`
+	PrivateChannels                  bool     `yaml:"private_channels"`
+	NativeStatus                     bool     `yaml:"native_status"`
+	AssistantExperience              bool     `yaml:"assistant_experience"`
+	ShadowChannels                   []string `yaml:"shadow_channels"`
 }
 
 type CoopConfig struct {
@@ -270,12 +272,14 @@ func defaults() Config {
 			WatchSettleDelay: Duration{
 				Duration: 350 * time.Millisecond,
 			},
-			ReplyAttention:      7,
-			ReactionAttention:   4,
-			ChannelPrefix:       "ems",
-			PrivateChannels:     true,
-			NativeStatus:        true,
-			AssistantExperience: true,
+			ExternalMessageReconcileInterval: Duration{time.Minute},
+			ExternalMessageReconcileWindow:   Duration{24 * time.Hour},
+			ReplyAttention:                   7,
+			ReactionAttention:                4,
+			ChannelPrefix:                    "ems",
+			PrivateChannels:                  true,
+			NativeStatus:                     true,
+			AssistantExperience:              true,
 		},
 		Coop: CoopConfig{
 			Binary:            "coop",
@@ -852,6 +856,14 @@ func validateSlack(c SlackConfig) error {
 	}
 	if c.WatchSettleDelay.Duration < 0 || c.WatchSettleDelay.Duration > 10*time.Second {
 		return errors.New("watch_settle_delay must be between 0s and 10s")
+	}
+	if c.ExternalMessageReconcileInterval.Duration < 15*time.Second ||
+		c.ExternalMessageReconcileInterval.Duration > 15*time.Minute {
+		return errors.New("external_message_reconcile_interval must be between 15s and 15m")
+	}
+	if c.ExternalMessageReconcileWindow.Duration < 5*time.Minute ||
+		c.ExternalMessageReconcileWindow.Duration > 7*24*time.Hour {
+		return errors.New("external_message_reconcile_window must be between 5m and 168h")
 	}
 	if c.ReplyAttention < 1 || c.ReplyAttention > 12 {
 		return errors.New("proactive_reply_attention_threshold must be between 1 and 12")
