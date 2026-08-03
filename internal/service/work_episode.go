@@ -293,7 +293,8 @@ func isOperationalAssessmentRequest(text string) bool {
 
 func isFocusedCheckRequest(text string) bool {
 	return episodeContainsAny(text,
-		"check ", "review ", "verify ", "inspect ", "look into", "investigate", "assess", "assessment",
+		"check ", "review ", "verify ", "inspect ", "look into", "investigate", "analyze", "analyse",
+		"assess", "assessment",
 		"rollout", "recovered", "recovery", "is it green", "is it healthy", "what failed",
 		"what changed", "explain this alert", "extend ", "test ", "validate ",
 	)
@@ -338,7 +339,7 @@ func focusedCoverage(text string) []string {
 		layer string
 		terms []string
 	}{
-		{"change", []string{"ci", "cd", "deploy", "release", "rollout", "revision", "terraform", "plan", "diff", "change", "repository", "validation command", "runbook", "publish", "draft"}},
+		{"change", []string{"ci", "cd", "deploy", "release", "rollout", "revision", "terraform", "plan", "diff", "change", "repository", "validation command", "runbook", "publish", "draft", "cost", "billing", "spend"}},
 		{"host", []string{"host", "vm", "disk", "cpu", "memory", "systemd"}},
 		{"runtime", []string{"runtime", "docker", "container"}},
 		{"scheduler", []string{"nomad", "kubernetes", "scheduler", "allocation"}},

@@ -206,6 +206,10 @@ func TestWatchSessionRotatesAndCarriesDurableMemory(t *testing.T) {
 			memory, rotated, coopClient.createKeys,
 		)
 	}
+	cleanup, err := st.NextCleanup(ctx, time.Now().UTC())
+	if err != nil || cleanup.SessionID != session.ID {
+		t.Fatalf("rotated session was not immediately eligible for cleanup: %+v, %v", cleanup, err)
+	}
 }
 
 func TestFailedWatchSessionCreateAdvancesIdempotencyGeneration(t *testing.T) {

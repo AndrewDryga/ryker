@@ -966,7 +966,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		ErrorDetail: "ACP child closed before its response",
 	}
 	run.Mode = core.AgentRunTriage
-	for failures := 0; failures < 5; failures++ {
+	for failures := 0; failures < 19; failures++ {
 		run.Failures = failures
 		if reason, replay := replayAgentRunFailure(
 			run, "turn.failed", childClosed, 20,
@@ -979,7 +979,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 			)
 		}
 	}
-	run.Failures = 5
+	run.Failures = 19
 	if reason, replay := replayAgentRunFailure(
 		run, "turn.failed", childClosed, 20,
 	); replay || reason != "" {
@@ -6263,6 +6263,7 @@ type fakeCoop struct {
 	submitTurns        []coop.Turn
 	discardPlan        coop.DiscardPlan
 	discardCalls       int
+	discardAccepts     []bool
 	outputArtifacts    map[string]coop.OutputArtifact
 }
 
@@ -6489,10 +6490,13 @@ func (f *fakeCoop) Close(context.Context, string, string, int64) (coop.Session, 
 	return f.session, coop.Operation{}, nil
 }
 func (f *fakeCoop) PlanDiscard(
-	context.Context, string, string, int64, bool, bool,
+	_ context.Context, _ string, _ string, _ int64, _ bool, acceptUnmerged bool,
 ) (coop.DiscardPlan, coop.Operation, error) {
+	f.discardAccepts = append(f.discardAccepts, acceptUnmerged)
 	if f.discardPlan.OperationID != "" {
-		return f.discardPlan, coop.Operation{}, nil
+		plan := f.discardPlan
+		plan.Plan.Workspace.AcceptedUnmerged = acceptUnmerged
+		return plan, coop.Operation{}, nil
 	}
 	var plan coop.DiscardPlan
 	plan.OperationID = "op_discard_plan"
@@ -6559,6 +6563,76 @@ func TestCleanupRetainsDirtySession(t *testing.T) {
 	if coopClient.discardCalls != 0 || coopClient.session.State != "closed" {
 		t.Fatalf("dirty session was discarded: calls=%d state=%s",
 			coopClient.discardCalls, coopClient.session.State)
+	}
+}
+
+func TestCleanupDiscardsCleanSessionWhoseBaseBranchAdvanced(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.State = "closed"
+	coopClient.session.BaseCommit = "abc123"
+	coopClient.discardPlan.OperationID = "op_stale_base"
+	coopClient.discardPlan.Plan.SessionID = coopClient.session.ID
+	coopClient.discardPlan.Plan.Revision = coopClient.session.Revision
+	coopClient.discardPlan.Plan.Workspace.Head = "abc123"
+	coopClient.discardPlan.Plan.Workspace.Unmerged = true
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := st.ScheduleCleanup(
+		ctx, coopClient.session.ID, "", "rotated watch state", false,
+		time.Now().Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processCleanup(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if coopClient.discardCalls != 1 || coopClient.session.State != "discarded" {
+		t.Fatalf("clean stale-base session was not discarded: calls=%d state=%s",
+			coopClient.discardCalls, coopClient.session.State)
+	}
+	if !slices.Equal(coopClient.discardAccepts, []bool{false, true}) {
+		t.Fatalf("discard plan acceptance = %v", coopClient.discardAccepts)
+	}
+}
+
+func TestCleanupRetainsCleanSessionWithUnpublishedCommit(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.State = "closed"
+	coopClient.session.BaseCommit = "abc123"
+	coopClient.discardPlan.OperationID = "op_unpublished"
+	coopClient.discardPlan.Plan.SessionID = coopClient.session.ID
+	coopClient.discardPlan.Plan.Revision = coopClient.session.Revision
+	coopClient.discardPlan.Plan.Workspace.Head = "def456"
+	coopClient.discardPlan.Plan.Workspace.Unmerged = true
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := st.ScheduleCleanup(
+		ctx, coopClient.session.ID, "", "closed task", false,
+		time.Now().Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processCleanup(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if coopClient.discardCalls != 0 || coopClient.session.State != "closed" {
+		t.Fatalf("unpublished commit was discarded: calls=%d state=%s",
+			coopClient.discardCalls, coopClient.session.State)
+	}
+	if !slices.Equal(coopClient.discardAccepts, []bool{false}) {
+		t.Fatalf("discard plan acceptance = %v", coopClient.discardAccepts)
 	}
 }
 

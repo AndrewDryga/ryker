@@ -29,7 +29,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	if _, err := s.store.ScheduleExpiredChannelMemoryCleanup(
 		ctx,
 		now.Add(-s.cfg.Coop.WatchSessionAge.Duration),
-		now.Add(grace),
+		now,
 	); err != nil && ctx.Err() == nil {
 		s.log.Warn("schedule expired Slack channel memory cleanup failed", "error", err)
 	}
@@ -54,7 +54,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	} else if retired > 0 {
 		s.log.Info("retired disabled action proposals", "records", retired)
 	}
-	const cleanupBatch = 16
+	const cleanupBatch = 128
 	for range cleanupBatch {
 		err := s.processCleanup(ctx, now)
 		if errors.Is(err, store.ErrNotFound) {
@@ -64,7 +64,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			if ctx.Err() == nil {
 				s.log.Warn("Coop cleanup failed", "error", err)
 			}
-			break
+			continue
 		}
 	}
 	repositories := s.cfg.RepositoryContextKeys()
@@ -223,23 +223,27 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 			now,
 		)
 	}
-	if plan.Plan.Workspace.Unmerged && !item.AllowUnmerged {
-		return s.store.SetCleanupState(
-			ctx, item.SessionID, "blocked", plan.OperationID,
-			"workspace has unpublished committed changes; publish or explicitly discard them",
-			now,
-		)
-	}
 	if plan.Plan.Workspace.Unmerged {
-		if err := s.verifyPublishedCleanupTree(ctx, item, plan); err != nil {
+		cleanAtBase := !plan.Plan.Workspace.Dirty && session.BaseCommit != "" &&
+			plan.Plan.Workspace.Head == session.BaseCommit
+		if !item.AllowUnmerged && !cleanAtBase {
 			return s.store.SetCleanupState(
 				ctx, item.SessionID, "blocked", plan.OperationID,
-				trimError(err), now,
+				"workspace has unpublished committed changes; publish or explicitly discard them",
+				now,
 			)
 		}
+		if item.AllowUnmerged {
+			if err := s.verifyPublishedCleanupTree(ctx, item, plan); err != nil {
+				return s.store.SetCleanupState(
+					ctx, item.SessionID, "blocked", plan.OperationID,
+					trimError(err), now,
+				)
+			}
+		}
 		plan, _, err = s.coop.PlanDiscard(
-			ctx,
-			"responder:gc-plan-published:"+item.SessionID+":"+fmt.Sprint(session.Revision),
+			ctx, "responder:gc-plan-accept-unmerged:"+item.SessionID+":"+
+				fmt.Sprint(session.Revision),
 			item.SessionID,
 			session.Revision,
 			false,

@@ -240,7 +240,7 @@ func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
 				"",
 				"rotated Slack channel memory",
 				false,
-				time.Now().UTC().Add(s.cfg.Retention.ClosedSessionGrace.Duration),
+				time.Now().UTC(),
 			); cleanupErr != nil {
 				return core.ChannelMemory{}, coop.Session{}, cleanupErr
 			}
@@ -367,7 +367,7 @@ func (s *Service) ensureConversationSessionAtGeneration(
 				"",
 				"rotated Slack conversation session",
 				false,
-				time.Now().UTC().Add(s.cfg.Retention.ClosedSessionGrace.Duration),
+				time.Now().UTC(),
 			); cleanupErr != nil {
 				return core.ConversationSession{}, coop.Session{}, cleanupErr
 			}
@@ -1774,7 +1774,7 @@ func (s *Service) retireFailedWatchSession(
 			"",
 			"failed Slack channel triage session",
 			false,
-			time.Now().UTC().Add(s.cfg.Retention.ClosedSessionGrace.Duration),
+			time.Now().UTC(),
 		); err != nil {
 			errs = append(errs, err)
 		}

@@ -1359,7 +1359,7 @@ func replayAgentRunFailure(
 		strings.Contains(
 			strings.ToLower(detail),
 			"acp child closed before its response",
-		) && run.Failures < min(maximumAttempts-1, 5) {
+		) && run.Failures < maximumAttempts-1 {
 		return "Coop ACP child closed unexpectedly; retrying in a fresh read-only session", true
 	}
 	return "", false

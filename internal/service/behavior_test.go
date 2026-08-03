@@ -512,6 +512,10 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	if metrics.CleanupPending != 1 {
 		t.Fatalf("cleanup pending = %d", metrics.CleanupPending)
 	}
+	cleanup, err := st.NextCleanup(ctx, time.Now().UTC())
+	if err != nil || cleanup.SessionID != "ses_1" {
+		t.Fatalf("failed session was not immediately eligible for cleanup: %+v, %v", cleanup, err)
+	}
 	if len(slackClient.posts) != 1 ||
 		!strings.Contains(slackClient.posts[0].message.Text, "could not complete") {
 		t.Fatalf("failure posts = %+v", slackClient.posts)

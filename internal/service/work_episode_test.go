@@ -43,6 +43,12 @@ func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
 			coverage: []string{"change"},
 		},
 		{
+			name:   "cost change analysis is focused",
+			input:  core.SlackInput{Kind: "mention", UserID: "UOTHER", Text: "<@U999BOT> analyze recent changes in our GCP costs"},
+			effort: core.EffortFocusedCheck, authority: core.AuthorityReadOnly,
+			coverage: []string{"change"},
+		},
+		{
 			name:   "rollout assessment is focused",
 			input:  core.SlackInput{Kind: "mention", UserID: "UOTHER", Text: "Assess whether the production portal rollout recovered"},
 			effort: core.EffortFocusedCheck, authority: core.AuthorityReadOnly,
