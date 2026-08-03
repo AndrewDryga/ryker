@@ -511,9 +511,11 @@ func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([
 		item.Observation = strings.TrimSpace(item.Observation)
 		item.SourceType = strings.TrimSpace(item.SourceType)
 		item.SourceName = strings.TrimSpace(item.SourceName)
-		if item.Claim == "" || item.Observation == "" ||
+		item.ScopeNote = strings.TrimSpace(item.ScopeNote)
+		if (strings.TrimSpace(item.ClaimID) == "" && item.Claim == "") ||
+			(item.Observation == "" && len(item.Dimensions) == 0) ||
 			item.SourceType == "" || item.SourceName == "" {
-			return nil, errors.New("evidence requires claim, observation, source_type, and source_name")
+			return nil, errors.New("evidence requires claim_id or claim, observation or dimensions, source_type, and source_name")
 		}
 		if item.ID == "" {
 			item.ID, err = core.NewID("ev")
@@ -528,15 +530,27 @@ func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([
 		if err != nil {
 			return nil, err
 		}
+		dimensions, err := json.Marshal(item.Dimensions)
+		if err != nil {
+			return nil, err
+		}
+		relation := strings.ToLower(strings.TrimSpace(item.Relation))
+		if relation == "" {
+			relation = "supports"
+		}
+		if relation != "supports" && relation != "contradicts" {
+			return nil, fmt.Errorf("unsupported evidence relation %q", item.Relation)
+		}
+		item.Relation = relation
 		insert, err := tx.ExecContext(ctx, `
 			INSERT OR IGNORE INTO evidence
-			  (id, incident_id, channel_id, source_input, claim, observation, source_type,
-			   source_name, source_url, target, freshness, confidence, observed_at,
-			   metadata_json, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			item.ID, item.IncidentID, item.ChannelID, item.SourceInput, item.Claim,
-			item.Observation, item.SourceType, item.SourceName, item.SourceURL, item.Target,
-			item.Freshness, item.Confidence, timeText(item.ObservedAt), metadata,
+			  (id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, source_type,
+			   source_id, source_name, source_url, target, scope_note, freshness, confidence, observed_at,
+			   valid_until, dimensions_json, metadata_json, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			item.ID, item.IncidentID, item.ChannelID, item.SourceInput, item.ClaimID, item.Claim,
+			item.Observation, item.Relation, item.SourceType, item.SourceID, item.SourceName, item.SourceURL, item.Target, item.ScopeNote,
+			item.Freshness, item.Confidence, timeText(item.ObservedAt), timeText(item.ValidUntil), dimensions, metadata,
 			item.CreatedAt.UTC().Format(timestampFormat),
 		)
 		if err != nil {
@@ -589,13 +603,18 @@ func (s *Store) RecordCoverage(ctx context.Context, coverage []core.Coverage) er
 		if item.CreatedAt.IsZero() {
 			item.CreatedAt = time.Now().UTC()
 		}
+		claimIDs, err := json.Marshal(item.ClaimIDs)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT OR IGNORE INTO coverage
 			  (id, incident_id, channel_id, source_input, layer, status, source, detail,
-			   observed_at, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			   observed_at, claim_ids_json, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			item.ID, item.IncidentID, item.ChannelID, item.SourceInput, item.Layer,
 			item.Status, item.Source, item.Detail, timeText(item.ObservedAt),
+			claimIDs,
 			item.CreatedAt.UTC().Format(timestampFormat),
 		); err != nil {
 			return err
@@ -614,9 +633,9 @@ func (s *Store) ListEvidence(
 		return nil, errors.New("evidence limit must be between 1 and 200")
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, incident_id, channel_id, source_input, claim, observation, source_type,
-		  source_name, source_url, target, freshness, confidence, observed_at,
-		  metadata_json, created_at
+		SELECT id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, source_type,
+		  source_id, source_name, source_url, target, scope_note, freshness, confidence, observed_at, valid_until,
+		  dimensions_json, metadata_json, created_at
 		FROM evidence
 		WHERE (? != '' AND incident_id = ?) OR (? = '' AND channel_id = ?)
 		ORDER BY created_at DESC LIMIT ?`,
@@ -629,20 +648,25 @@ func (s *Store) ListEvidence(
 	var result []core.Evidence
 	for rows.Next() {
 		var item core.Evidence
-		var observed sql.NullString
-		var metadata []byte
+		var observed, validUntil sql.NullString
+		var dimensions, metadata []byte
 		var created string
 		if err := rows.Scan(
-			&item.ID, &item.IncidentID, &item.ChannelID, &item.SourceInput, &item.Claim,
-			&item.Observation, &item.SourceType, &item.SourceName, &item.SourceURL,
-			&item.Target, &item.Freshness, &item.Confidence, &observed, &metadata, &created,
+			&item.ID, &item.IncidentID, &item.ChannelID, &item.SourceInput, &item.ClaimID, &item.Claim,
+			&item.Observation, &item.Relation, &item.SourceType, &item.SourceID, &item.SourceName, &item.SourceURL,
+			&item.Target, &item.ScopeNote, &item.Freshness, &item.Confidence, &observed, &validUntil,
+			&dimensions, &metadata, &created,
 		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(dimensions, &item.Dimensions); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(metadata, &item.Metadata); err != nil {
 			return nil, err
 		}
 		item.ObservedAt = scanTime(observed)
+		item.ValidUntil = scanTime(validUntil)
 		item.CreatedAt = parseTime(created)
 		result = append(result, item)
 	}
@@ -660,7 +684,7 @@ func (s *Store) ListCoverage(
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, incident_id, channel_id, source_input, layer, status, source, detail,
-		  observed_at, created_at
+		  observed_at, claim_ids_json, created_at
 		FROM coverage
 		WHERE (? != '' AND incident_id = ?) OR (? = '' AND channel_id = ?)
 		ORDER BY created_at DESC LIMIT ?`,
@@ -674,15 +698,107 @@ func (s *Store) ListCoverage(
 	for rows.Next() {
 		var item core.Coverage
 		var observed sql.NullString
+		var claimIDs []byte
 		var created string
 		if err := rows.Scan(
 			&item.ID, &item.IncidentID, &item.ChannelID, &item.SourceInput, &item.Layer,
-			&item.Status, &item.Source, &item.Detail, &observed, &created,
+			&item.Status, &item.Source, &item.Detail, &observed, &claimIDs, &created,
 		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(claimIDs, &item.ClaimIDs); err != nil {
 			return nil, err
 		}
 		item.ObservedAt = scanTime(observed)
 		item.CreatedAt = parseTime(created)
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) RecordClaimAssessments(ctx context.Context, items []core.ClaimAssessment) error {
+	if len(items) > 50 {
+		return errors.New("one episode cannot record more than 50 claim assessments")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, item := range items {
+		if strings.TrimSpace(item.EpisodeID) == "" || strings.TrimSpace(item.ClaimID) == "" {
+			return errors.New("claim assessment requires episode_id and claim_id")
+		}
+		switch item.Status {
+		case "supported", "contradicted", "mixed", "unknown", "not_applicable":
+		default:
+			return fmt.Errorf("unsupported claim assessment status %q", item.Status)
+		}
+		if item.ID == "" {
+			item.ID, err = core.NewID("claim")
+			if err != nil {
+				return err
+			}
+		}
+		evidenceIDs, marshalErr := json.Marshal(item.EvidenceIDs)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		contradictions, marshalErr := json.Marshal(item.ContradictionIDs)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		updated := item.UpdatedAt
+		if updated.IsZero() {
+			updated = time.Now().UTC()
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO claim_assessments
+			  (id, episode_id, claim_id, status, confidence, evidence_ids_json,
+			   contradiction_ids_json, detail, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(episode_id, claim_id) DO UPDATE SET
+			  status = excluded.status,
+			  confidence = excluded.confidence,
+			  evidence_ids_json = excluded.evidence_ids_json,
+			  contradiction_ids_json = excluded.contradiction_ids_json,
+			  detail = excluded.detail,
+			  updated_at = excluded.updated_at`,
+			item.ID, item.EpisodeID, item.ClaimID, item.Status, item.Confidence,
+			evidenceIDs, contradictions, item.Detail, updated.UTC().Format(timestampFormat),
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ListClaimAssessments(ctx context.Context, episodeID string) ([]core.ClaimAssessment, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, episode_id, claim_id, status, confidence, evidence_ids_json,
+		  contradiction_ids_json, detail, updated_at
+		FROM claim_assessments WHERE episode_id = ? ORDER BY claim_id`, episodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []core.ClaimAssessment
+	for rows.Next() {
+		var item core.ClaimAssessment
+		var evidenceIDs, contradictions []byte
+		var updated string
+		if err := rows.Scan(&item.ID, &item.EpisodeID, &item.ClaimID, &item.Status,
+			&item.Confidence, &evidenceIDs, &contradictions, &item.Detail, &updated); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(evidenceIDs, &item.EvidenceIDs); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(contradictions, &item.ContradictionIDs); err != nil {
+			return nil, err
+		}
+		item.UpdatedAt = parseTime(updated)
 		result = append(result, item)
 	}
 	return result, rows.Err()

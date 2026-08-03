@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -14,7 +16,7 @@ import (
 const slackDeliveryColumns = `
 	id, COALESCE(incident_id, ''), operation, kind, channel_id, thread_ts,
 	message_ts, body_json, status_text, steps_json, coalesce_key, card_version,
-	state, failure_count, next_attempt_at, last_error, created_at`
+	sequence_key, sequence_index, state, failure_count, next_attempt_at, last_error, created_at`
 
 func (s *Store) NextSlackStatusGeneration(
 	ctx context.Context,
@@ -92,6 +94,7 @@ func (s *Store) EnqueueSlackDelivery(
 	if delivery.IncidentID != "" {
 		incidentID = delivery.IncidentID
 	}
+	sequenceKey, sequenceIndex := slackDeliverySequence(delivery.ID)
 	now := nowText()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -120,12 +123,13 @@ func (s *Store) EnqueueSlackDelivery(
 		INSERT OR IGNORE INTO slack_deliveries (
 		  id, incident_id, operation, kind, channel_id, thread_ts, message_ts,
 		  body_json, status_text, steps_json, coalesce_key, card_version,
-		  state, next_attempt_at, created_at, updated_at
+		  sequence_key, sequence_index, state, next_attempt_at, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
 		delivery.ID, incidentID, delivery.Operation, delivery.Kind,
 		delivery.ChannelID, delivery.ThreadTS, delivery.MessageTS, delivery.Body,
 		delivery.Status, steps, delivery.CoalesceKey, delivery.CardVersion,
+		sequenceKey, sequenceIndex,
 		now, now, now)
 	if err != nil {
 		return false, err
@@ -167,12 +171,15 @@ func scanSlackDelivery(
 ) (core.SlackDelivery, error) {
 	var delivery core.SlackDelivery
 	var steps []byte
+	var sequenceKey string
+	var sequenceIndex int
 	var next, created string
 	err := row.Scan(
 		&delivery.ID, &delivery.IncidentID, &delivery.Operation, &delivery.Kind,
 		&delivery.ChannelID, &delivery.ThreadTS, &delivery.MessageTS,
 		&delivery.Body, &delivery.Status, &steps, &delivery.CoalesceKey,
-		&delivery.CardVersion, &delivery.State, &delivery.Attempts, &next,
+		&delivery.CardVersion, &sequenceKey, &sequenceIndex,
+		&delivery.State, &delivery.Attempts, &next,
 		&delivery.LastError, &created,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -356,13 +363,22 @@ func (s *Store) LeaseSlackDelivery(
 	now := nowText()
 	delivery, err := scanSlackDelivery(tx.QueryRowContext(ctx, `
 		SELECT `+slackDeliveryColumns+`
-		FROM slack_deliveries
-		WHERE state IN ('pending', 'retry')
-		  AND julianday(next_attempt_at) <= julianday(?)
+		FROM slack_deliveries AS candidate
+		WHERE candidate.state IN ('pending', 'retry')
+		  AND julianday(candidate.next_attempt_at) <= julianday(?)
+		  AND (
+		    candidate.sequence_key = '' OR NOT EXISTS (
+		      SELECT 1
+		      FROM slack_deliveries AS predecessor
+		      WHERE predecessor.sequence_key = candidate.sequence_key
+		        AND predecessor.sequence_index < candidate.sequence_index
+		        AND predecessor.state NOT IN ('sent', 'superseded')
+		    )
+		  )
 		ORDER BY
-		  CASE operation WHEN 'status' THEN 0 WHEN 'update' THEN 1 ELSE 2 END,
-		  created_at,
-		  id
+		  CASE candidate.operation WHEN 'status' THEN 0 WHEN 'update' THEN 1 ELSE 2 END,
+		  candidate.created_at,
+		  candidate.id
 		LIMIT 1`, now))
 	if err != nil {
 		return core.SlackDelivery{}, err
@@ -381,6 +397,19 @@ func (s *Store) LeaseSlackDelivery(
 	delivery.State = "sending"
 	delivery.Attempts++
 	return delivery, nil
+}
+
+func slackDeliverySequence(id string) (string, int) {
+	const marker = "_part_"
+	index := strings.LastIndex(id, marker)
+	if index <= 0 || len(id[index+len(marker):]) != 3 {
+		return "", 0
+	}
+	sequence, err := strconv.Atoi(id[index+len(marker):])
+	if err != nil || sequence <= 0 {
+		return "", 0
+	}
+	return id[:index], sequence
 }
 
 func (s *Store) FinishSlackDelivery(

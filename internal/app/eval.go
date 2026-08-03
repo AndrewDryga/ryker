@@ -37,6 +37,16 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		false,
 		"replay checked-in outputs without calling the model",
 	)
+	episodeReplay := flags.Bool(
+		"episode-replay",
+		false,
+		"call the real model with recorded sanitized episode events and tool results",
+	)
+	canary := flags.Bool(
+		"canary",
+		false,
+		"run only real-model cases tagged canary",
+	)
 	configPath := flags.String("config", defaultConfigPath(), "configuration file")
 	caseTimeout := flags.Duration(
 		"case-timeout",
@@ -156,8 +166,14 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if *minMeanQuality < 0 || *minMeanQuality > 5 {
 		return errors.New("eval --min-mean-quality must be between 0 and 5")
 	}
-	if *scenarios && *calibrateJudge {
-		return errors.New("eval --scenarios and --calibrate-judge are mutually exclusive")
+	modeCount := 0
+	for _, enabled := range []bool{*replay, *episodeReplay, *scenarios, *calibrateJudge} {
+		if enabled {
+			modeCount++
+		}
+	}
+	if modeCount > 1 {
+		return errors.New("eval --replay, --episode-replay, --scenarios, and --calibrate-judge are mutually exclusive")
 	}
 	if *calibrateJudge && *repeat != 1 {
 		return errors.New("eval --repeat is not supported with --calibrate-judge")
@@ -169,8 +185,17 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 			"eval --case, --repeat, --scenarios, --calibrate-judge, --judge, and --verify-evidence require a real model run",
 		)
 	}
+	if *canary && *caseFilter != "" {
+		return errors.New("eval --canary and --case are mutually exclusive")
+	}
+	if *canary {
+		*caseFilter = "canary"
+	}
 	if *inputPath == "" && *replay {
 		*inputPath = "testdata/eval/golden.jsonl"
+	}
+	if *inputPath == "" && *episodeReplay {
+		*inputPath = "testdata/eval/episode-replay.jsonl"
 	}
 	if *inputPath == "" {
 		*inputPath = "testdata/eval/live.jsonl"
@@ -247,6 +272,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 			Judge:          *judge,
 			VerifyEvidence: *verifyEvidence,
 			TaskPolicy:     *taskPolicy,
+			EpisodeReplay:  *episodeReplay,
 			SanitizeResponse: func(value string) string {
 				return sanitizer.Text(value)
 			},
@@ -331,6 +357,10 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		label := "Model evaluation"
 		if *replay {
 			label = "Contract replay"
+		} else if *episodeReplay {
+			label = "Real-model episode replay"
+		} else if *canary {
+			label = "Live canary"
 		}
 		var line strings.Builder
 		fmt.Fprintf(

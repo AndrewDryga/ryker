@@ -33,6 +33,21 @@ func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
 			coverage: []string{"change"},
 		},
 		{
+			name: "focused repository inspection",
+			input: core.SlackInput{
+				Kind: "mention", UserID: "UOTHER",
+				Text: "<@U999BOT> inspect this repository and report its validation commands",
+			},
+			effort: core.EffortFocusedCheck, authority: core.AuthorityReadOnly,
+			coverage: []string{"change"},
+		},
+		{
+			name:   "rollout assessment is focused",
+			input:  core.SlackInput{Kind: "mention", UserID: "UOTHER", Text: "Assess whether the production portal rollout recovered"},
+			effort: core.EffortFocusedCheck, authority: core.AuthorityReadOnly,
+			coverage: []string{"change", "application"},
+		},
+		{
 			name:   "unassigned app event",
 			input:  core.SlackInput{Kind: "bot_message", UserID: "BGRAFANA", Text: "Grafana notification"},
 			effort: core.EffortFocusedCheck, authority: core.AuthorityReadOnly,
@@ -321,5 +336,31 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		episode, "reply", coverage, nil, blocked,
 	); got != "" {
 		t.Fatalf("exact diagnostic blocker rejected: %s", got)
+	}
+}
+
+func TestEpisodeClaimCorrectionRequiresTypedEvidenceAndCoverageBinding(t *testing.T) {
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	episode := core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"change"},
+	}
+	completion := &completionAssessment{Status: "decision_ready", Summary: "Validation commands identified."}
+	coverage := []core.Coverage{{
+		Layer: "change", Status: "healthy", Detail: "Current repository manuals define the validation commands.",
+	}}
+	if got := episodeClaimCorrection(episode, "reply", nil, coverage, completion, now, true); !strings.Contains(got, "no typed evidence") {
+		t.Fatalf("missing evidence correction = %q", got)
+	}
+	evidence := []core.Evidence{{
+		ClaimID: "change.recent", Relation: "supports", SourceType: "repository", SourceName: "AGENTS.md",
+		Observation: "The repository defines ./run gate all.", ObservedAt: now, Confidence: "high",
+		Dimensions: map[string]string{"repository": "emisar", "environment": "checkout", "revision": "current"},
+	}}
+	if got := episodeClaimCorrection(episode, "reply", evidence, coverage, completion, now, true); !strings.Contains(got, "must include its exact claim_id") {
+		t.Fatalf("unbound coverage correction = %q", got)
+	}
+	coverage[0].ClaimIDs = []string{"change.recent"}
+	if got := episodeClaimCorrection(episode, "reply", evidence, coverage, completion, now, true); got != "" {
+		t.Fatalf("bound evidence rejected = %q", got)
 	}
 }

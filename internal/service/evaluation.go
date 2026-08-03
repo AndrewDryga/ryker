@@ -16,64 +16,83 @@ import (
 )
 
 type EvaluationCase struct {
-	Name                   string                   `json:"name"`
-	Tags                   []string                 `json:"tags,omitempty"`
-	Kind                   string                   `json:"kind"`
-	Lane                   string                   `json:"lane,omitempty"`
-	Input                  string                   `json:"input,omitempty"`
-	Repository             string                   `json:"repository,omitempty"`
-	SenderType             string                   `json:"sender_type,omitempty"`
-	SenderRole             string                   `json:"sender_role,omitempty"`
-	MentionsResponder      bool                     `json:"mentions_responder,omitempty"`
-	RecentMessages         []EvaluationMessage      `json:"recent_messages,omitempty"`
-	FollowingMessages      []EvaluationMessage      `json:"following_messages,omitempty"`
-	Memories               []EvaluationMemory       `json:"memories,omitempty"`
-	Preferences            []EvaluationPreference   `json:"preferences,omitempty"`
-	StandingRules          []EvaluationStandingRule `json:"standing_rules,omitempty"`
-	Output                 string                   `json:"output,omitempty"`
-	WantAction             string                   `json:"want_action,omitempty"`
-	WantReaction           string                   `json:"want_reaction,omitempty"`
-	WantReactionOneOf      []string                 `json:"want_reaction_one_of,omitempty"`
-	WantAttentionAddressee string                   `json:"want_attention_addressee,omitempty"`
-	MinAttentionScore      int                      `json:"min_attention_score,omitempty"`
-	WantOffer              string                   `json:"want_offer,omitempty"`
-	WantOffers             []string                 `json:"want_offers,omitempty"`
-	WantMemoryContains     []string                 `json:"want_memory_contains,omitempty"`
-	WantMessageContains    []string                 `json:"want_message_contains,omitempty"`
-	ForbidMessageContains  []string                 `json:"forbid_message_contains,omitempty"`
-	WantReasonContains     []string                 `json:"want_reason_contains,omitempty"`
-	ForbidReasonContains   []string                 `json:"forbid_reason_contains,omitempty"`
-	WantEvidenceSources    []string                 `json:"want_evidence_sources,omitempty"`
-	ForbidEvidenceSources  []string                 `json:"forbid_evidence_sources,omitempty"`
-	WantCoverageLayers     []string                 `json:"want_coverage_layers,omitempty"`
-	WantCoverage           map[string]string        `json:"want_coverage,omitempty"`
-	WantAlertAssessment    bool                     `json:"want_alert_assessment,omitempty"`
-	WantAlertVerdict       string                   `json:"want_alert_verdict,omitempty"`
-	WantImmediateAction    bool                     `json:"want_immediate_action,omitempty"`
-	WantLongTermSolution   bool                     `json:"want_long_term_solution,omitempty"`
-	RequireCompletion      bool                     `json:"require_completion,omitempty"`
-	WantCompletionStatus   string                   `json:"want_completion_status,omitempty"`
-	WantPendingApproval    *bool                    `json:"want_pending_approval,omitempty"`
-	WantProposals          *int                     `json:"want_proposals,omitempty"`
-	MinEvidence            int                      `json:"min_evidence,omitempty"`
-	MaxEvidence            *int                     `json:"max_evidence,omitempty"`
-	MinFreshEvidence       int                      `json:"min_fresh_evidence,omitempty"`
-	MaxEvidenceAgeSeconds  int                      `json:"max_evidence_age_seconds,omitempty"`
-	MinCoverage            int                      `json:"min_coverage,omitempty"`
-	MaxCoverage            *int                     `json:"max_coverage,omitempty"`
-	MinReplyMessages       int                      `json:"min_reply_messages,omitempty"`
-	MaxMessageBytes        int                      `json:"max_message_bytes,omitempty"`
-	MaxDurationMS          int64                    `json:"max_duration_ms,omitempty"`
-	ProactiveLabel         string                   `json:"proactive_label,omitempty"`
-	Judge                  bool                     `json:"judge,omitempty"`
-	VerifyEvidence         bool                     `json:"verify_evidence,omitempty"`
-	MinQualityScore        float64                  `json:"min_quality_score,omitempty"`
-	CoopPolicy             string                   `json:"coop_policy,omitempty"`
-	WantCommittedChanges   *bool                    `json:"want_committed_changes,omitempty"`
-	WantChangedPaths       []string                 `json:"want_changed_paths,omitempty"`
-	ForbidChangedPaths     []string                 `json:"forbid_changed_paths,omitempty"`
-	WantReviewPublishable  *bool                    `json:"want_review_publishable,omitempty"`
-	WantReviewGate         string                   `json:"want_review_gate,omitempty"`
+	Name                   string                    `json:"name"`
+	Tags                   []string                  `json:"tags,omitempty"`
+	Kind                   string                    `json:"kind"`
+	Lane                   string                    `json:"lane,omitempty"`
+	Input                  string                    `json:"input,omitempty"`
+	Repository             string                    `json:"repository,omitempty"`
+	SenderType             string                    `json:"sender_type,omitempty"`
+	SenderRole             string                    `json:"sender_role,omitempty"`
+	MentionsResponder      bool                      `json:"mentions_responder,omitempty"`
+	RecentMessages         []EvaluationMessage       `json:"recent_messages,omitempty"`
+	FollowingMessages      []EvaluationMessage       `json:"following_messages,omitempty"`
+	Memories               []EvaluationMemory        `json:"memories,omitempty"`
+	Preferences            []EvaluationPreference    `json:"preferences,omitempty"`
+	StandingRules          []EvaluationStandingRule  `json:"standing_rules,omitempty"`
+	RecordedEvents         []EvaluationRecordedEvent `json:"recorded_events,omitempty"`
+	RecordedToolResults    []EvaluationToolResult    `json:"recorded_tool_results,omitempty"`
+	Output                 string                    `json:"output,omitempty"`
+	WantAction             string                    `json:"want_action,omitempty"`
+	WantReaction           string                    `json:"want_reaction,omitempty"`
+	WantReactionOneOf      []string                  `json:"want_reaction_one_of,omitempty"`
+	WantAttentionAddressee string                    `json:"want_attention_addressee,omitempty"`
+	MinAttentionScore      int                       `json:"min_attention_score,omitempty"`
+	WantOffer              string                    `json:"want_offer,omitempty"`
+	WantOffers             []string                  `json:"want_offers,omitempty"`
+	WantMemoryContains     []string                  `json:"want_memory_contains,omitempty"`
+	WantMessageContains    []string                  `json:"want_message_contains,omitempty"`
+	ForbidMessageContains  []string                  `json:"forbid_message_contains,omitempty"`
+	WantReasonContains     []string                  `json:"want_reason_contains,omitempty"`
+	ForbidReasonContains   []string                  `json:"forbid_reason_contains,omitempty"`
+	WantEvidenceSources    []string                  `json:"want_evidence_sources,omitempty"`
+	ForbidEvidenceSources  []string                  `json:"forbid_evidence_sources,omitempty"`
+	WantCoverageLayers     []string                  `json:"want_coverage_layers,omitempty"`
+	WantCoverage           map[string]string         `json:"want_coverage,omitempty"`
+	WantAlertAssessment    bool                      `json:"want_alert_assessment,omitempty"`
+	WantAlertVerdict       string                    `json:"want_alert_verdict,omitempty"`
+	WantImmediateAction    bool                      `json:"want_immediate_action,omitempty"`
+	WantLongTermSolution   bool                      `json:"want_long_term_solution,omitempty"`
+	RequireCompletion      bool                      `json:"require_completion,omitempty"`
+	WantCompletionStatus   string                    `json:"want_completion_status,omitempty"`
+	WantPendingApproval    *bool                     `json:"want_pending_approval,omitempty"`
+	WantProposals          *int                      `json:"want_proposals,omitempty"`
+	MinEvidence            int                       `json:"min_evidence,omitempty"`
+	MaxEvidence            *int                      `json:"max_evidence,omitempty"`
+	MinFreshEvidence       int                       `json:"min_fresh_evidence,omitempty"`
+	MaxEvidenceAgeSeconds  int                       `json:"max_evidence_age_seconds,omitempty"`
+	MinCoverage            int                       `json:"min_coverage,omitempty"`
+	MaxCoverage            *int                      `json:"max_coverage,omitempty"`
+	MinReplyMessages       int                       `json:"min_reply_messages,omitempty"`
+	MaxMessageBytes        int                       `json:"max_message_bytes,omitempty"`
+	MaxDurationMS          int64                     `json:"max_duration_ms,omitempty"`
+	ProactiveLabel         string                    `json:"proactive_label,omitempty"`
+	Judge                  bool                      `json:"judge,omitempty"`
+	VerifyEvidence         bool                      `json:"verify_evidence,omitempty"`
+	MinQualityScore        float64                   `json:"min_quality_score,omitempty"`
+	CoopPolicy             string                    `json:"coop_policy,omitempty"`
+	WantCommittedChanges   *bool                     `json:"want_committed_changes,omitempty"`
+	WantChangedPaths       []string                  `json:"want_changed_paths,omitempty"`
+	ForbidChangedPaths     []string                  `json:"forbid_changed_paths,omitempty"`
+	WantReviewPublishable  *bool                     `json:"want_review_publishable,omitempty"`
+	WantReviewGate         string                    `json:"want_review_gate,omitempty"`
+}
+
+type EvaluationRecordedEvent struct {
+	Sequence   int64           `json:"sequence"`
+	Kind       string          `json:"kind"`
+	Actor      string          `json:"actor,omitempty"`
+	OccurredAt string          `json:"occurred_at"`
+	Payload    json.RawMessage `json:"payload"`
+}
+
+type EvaluationToolResult struct {
+	ID         string          `json:"id"`
+	Tool       string          `json:"tool"`
+	SourceType string          `json:"source_type"`
+	ObservedAt string          `json:"observed_at"`
+	Sanitized  bool            `json:"sanitized"`
+	Output     json.RawMessage `json:"output"`
 }
 
 type EvaluationMessage struct {
@@ -218,11 +237,58 @@ func validateEvaluationCase(testCase EvaluationCase) error {
 	default:
 		return errors.New("want_completion_status must be decision_ready or blocked")
 	}
+	lastSequence := int64(0)
+	for index, event := range testCase.RecordedEvents {
+		if event.Sequence <= lastSequence || strings.TrimSpace(event.Kind) == "" ||
+			strings.TrimSpace(event.OccurredAt) == "" || len(event.Payload) == 0 ||
+			!json.Valid(event.Payload) {
+			return fmt.Errorf("recorded event %d is not a valid ordered sanitized event", index+1)
+		}
+		if _, err := time.Parse(time.RFC3339, event.OccurredAt); err != nil {
+			return fmt.Errorf("recorded event %d occurred_at: %w", index+1, err)
+		}
+		lastSequence = event.Sequence
+	}
+	seenResults := make(map[string]struct{}, len(testCase.RecordedToolResults))
+	for index, result := range testCase.RecordedToolResults {
+		if strings.TrimSpace(result.ID) == "" || strings.TrimSpace(result.Tool) == "" ||
+			strings.TrimSpace(result.SourceType) == "" || !result.Sanitized ||
+			len(result.Output) == 0 || !json.Valid(result.Output) {
+			return fmt.Errorf("recorded tool result %d is not a valid sanitized result", index+1)
+		}
+		if _, ok := seenResults[result.ID]; ok {
+			return fmt.Errorf("recorded tool result %q is duplicated", result.ID)
+		}
+		seenResults[result.ID] = struct{}{}
+		if _, err := time.Parse(time.RFC3339, result.ObservedAt); err != nil {
+			return fmt.Errorf("recorded tool result %d observed_at: %w", index+1, err)
+		}
+	}
 	return nil
 }
 
 func evaluateCase(testCase EvaluationCase) EvaluationResult {
 	return evaluateCaseWithConfig(testCase, nil, time.Now().UTC())
+}
+
+func evaluationReferenceTime(testCase EvaluationCase, fallback time.Time) time.Time {
+	reference := time.Time{}
+	for _, event := range testCase.RecordedEvents {
+		observed, err := time.Parse(time.RFC3339, event.OccurredAt)
+		if err == nil && observed.After(reference) {
+			reference = observed
+		}
+	}
+	for _, result := range testCase.RecordedToolResults {
+		observed, err := time.Parse(time.RFC3339, result.ObservedAt)
+		if err == nil && observed.After(reference) {
+			reference = observed
+		}
+	}
+	if reference.IsZero() {
+		return fallback
+	}
+	return reference
 }
 
 func evaluateCaseWithConfig(
@@ -251,6 +317,7 @@ func evaluateCaseWithConfig(
 	var episode *core.WorkEpisode
 	var pendingApproval bool
 	var proposals int
+	var strictOperations bool
 	switch testCase.Kind {
 	case "watch":
 		decision, err := parseWatchDecision(testCase.Output)
@@ -306,6 +373,7 @@ func evaluateCaseWithConfig(
 		coverage = decision.Coverage
 		assessment = decision.AlertAssessment
 		completion = decision.Completion
+		strictOperations = len(decision.AppliedOperations) > 0
 	case "incident", "task":
 		report, structured, err := parseAgentReport(testCase.Output)
 		if err != nil {
@@ -326,6 +394,7 @@ func evaluateCaseWithConfig(
 		completion = report.Completion
 		pendingApproval = report.PendingApproval != nil
 		proposals = len(report.Proposals)
+		strictOperations = len(report.AppliedOperations) > 0
 		if cfg != nil {
 			mode := core.AgentRunIncident
 			if testCase.Kind == "task" {
@@ -359,6 +428,12 @@ func evaluateCaseWithConfig(
 			*episode, completionAction, coverage, completion,
 		); correction != "" {
 			result.Detail = "premature completion: " + correction
+			return result
+		}
+		if correction := episodeClaimCorrection(
+			*episode, completionAction, evidence, coverage, completion, now, strictOperations,
+		); correction != "" {
+			result.Detail = "unsupported completion: " + correction
 			return result
 		}
 		if testCase.Kind == "watch" {

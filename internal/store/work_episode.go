@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,12 +12,13 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 )
 
 const workEpisodeColumns = `
-	id, agent_run_id, effort, authority, state, objective,
+	id, agent_run_id, effort, authority, activity, state, objective,
 	required_coverage_json, completion_criteria_json, phase, status, next_action,
-	progress_sequence, last_progress_at, progress_due_at, created_at, updated_at,
+	event_sequence, progress_sequence, last_progress_at, progress_due_at, created_at, updated_at,
 	completed_at`
 
 func defaultWorkEpisode(run core.AgentRun) core.WorkEpisode {
@@ -24,6 +27,7 @@ func defaultWorkEpisode(run core.AgentRun) core.WorkEpisode {
 		AgentRunID: run.ID,
 		Effort:     core.EffortFocusedCheck,
 		Authority:  core.AuthorityReadOnly,
+		Activity:   core.ActivityInvestigating,
 		State:      core.EpisodeAcknowledged,
 		Objective:  strings.TrimSpace(run.CommitmentTitle),
 		Phase:      "accepted",
@@ -59,6 +63,9 @@ func normalizeWorkEpisode(run core.AgentRun) (core.WorkEpisode, error) {
 		if candidate.Authority != "" {
 			episode.Authority = candidate.Authority
 		}
+		if candidate.Activity != "" {
+			episode.Activity = candidate.Activity
+		}
 		if strings.TrimSpace(candidate.Objective) != "" {
 			episode.Objective = strings.TrimSpace(candidate.Objective)
 		}
@@ -71,6 +78,9 @@ func normalizeWorkEpisode(run core.AgentRun) (core.WorkEpisode, error) {
 	}
 	if !validAuthority(string(episode.Authority)) {
 		return core.WorkEpisode{}, fmt.Errorf("unsupported work episode authority %q", episode.Authority)
+	}
+	if !validActivity(episode.Activity) {
+		return core.WorkEpisode{}, fmt.Errorf("unsupported work episode activity %q", episode.Activity)
 	}
 	episode.RequiredCoverage = normalizedUniqueStrings(episode.RequiredCoverage, 9)
 	episode.CompletionCriteria = normalizedUniqueStrings(episode.CompletionCriteria, 12)
@@ -97,6 +107,16 @@ func validAuthority(value string) bool {
 	switch core.AuthorityBoundary(value) {
 	case core.AuthorityReadOnly, core.AuthorityRepositoryWrite,
 		core.AuthorityGovernedOperation:
+		return true
+	default:
+		return false
+	}
+}
+
+func validActivity(value core.EpisodeActivity) bool {
+	switch value {
+	case core.ActivityInvestigating, core.ActivityExplaining, core.ActivityScheduling,
+		core.ActivityEngineering, core.ActivityOperating:
 		return true
 	default:
 		return false
@@ -155,12 +175,12 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO work_episodes (
-		  id, agent_run_id, effort, authority, state, objective,
+		  id, agent_run_id, effort, authority, activity, state, objective,
 		  required_coverage_json, completion_criteria_json,
 		  phase, status, next_action, created_at, updated_at
-		) VALUES (?, ?, ?, ?, 'acknowledged', ?, ?, ?, 'accepted', 'Accepted',
+		) VALUES (?, ?, ?, ?, ?, 'acknowledged', ?, ?, ?, 'accepted', 'Accepted',
 		          'Plan the work', ?, ?)`,
-		episode.ID, run.ID, episode.Effort, episode.Authority, episode.Objective,
+		episode.ID, run.ID, episode.Effort, episode.Authority, episode.Activity, episode.Objective,
 		required, criteria, nowText(), nowText(),
 	)
 	if err != nil {
@@ -181,8 +201,17 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 	}
 	if _, err = tx.ExecContext(ctx, `
 		UPDATE work_episodes
-		SET progress_sequence = 1, last_progress_at = ?, updated_at = ?
+		SET event_sequence = 1, progress_sequence = 1, last_progress_at = ?, updated_at = ?
 		WHERE id = ?`, now, now, episode.ID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO work_episode_events
+		  (id, episode_id, sequence, kind, actor, idempotency_key, payload_json, created_at)
+		VALUES (?, ?, 1, ?, 'host', ?, ?, ?)`,
+		"episode_event_"+episode.ID+"_000001", episode.ID, episodepkg.EventCreated,
+		"created:"+episode.ID, `{"phase":"accepted","summary":"Accepted"}`, now,
+	); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -194,9 +223,9 @@ func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, err
 	var lastProgress, progressDue, completed sql.NullString
 	var created, updated string
 	err := row.Scan(
-		&item.ID, &item.AgentRunID, &item.Effort, &item.Authority, &item.State,
+		&item.ID, &item.AgentRunID, &item.Effort, &item.Authority, &item.Activity, &item.State,
 		&item.Objective, &requiredJSON, &criteriaJSON, &item.Phase, &item.Status,
-		&item.NextAction, &item.ProgressSequence, &lastProgress, &progressDue,
+		&item.NextAction, &item.EventSequence, &item.ProgressSequence, &lastProgress, &progressDue,
 		&created, &updated, &completed,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -230,6 +259,23 @@ func (s *Store) GetWorkEpisodeByRun(
 	))
 }
 
+func (s *Store) GetWorkEpisodeBySource(
+	ctx context.Context,
+	sourceID string,
+) (core.WorkEpisode, error) {
+	var runID string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id FROM agent_runs WHERE source_id = ?
+		ORDER BY created_at DESC LIMIT 1`, sourceID).Scan(&runID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.WorkEpisode{}, ErrNotFound
+	}
+	if err != nil {
+		return core.WorkEpisode{}, err
+	}
+	return s.GetWorkEpisodeByRun(ctx, runID)
+}
+
 func (s *Store) SetWorkEpisodePhase(
 	ctx context.Context,
 	runID string,
@@ -245,52 +291,22 @@ func (s *Store) SetWorkEpisodePhase(
 	if !validWorkEpisodeState(state) {
 		return fmt.Errorf("unsupported work episode state %q", state)
 	}
-	completedAt := any(nil)
-	if state == core.EpisodeCompleted || state == core.EpisodeFailed ||
-		state == core.EpisodeCancelled || state == core.EpisodeSuperseded {
-		completedAt = nowText()
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	payload, err := episodepkg.Encode(episodepkg.Transition{
+		State: state, Phase: phase, Status: status, NextAction: nextAction,
+		ProgressDue: progressDue,
+	})
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	var episodeID string
-	var sequence int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT id, progress_sequence + 1
-		FROM work_episodes WHERE agent_run_id = ?`, runID,
-	).Scan(&episodeID, &sequence); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
-		return err
-	}
-	now := nowText()
-	result, err := tx.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = ?, phase = ?, status = ?, next_action = ?, progress_due_at = ?,
-		    progress_sequence = ?, last_progress_at = ?,
-		    completed_at = COALESCE(?, completed_at), updated_at = ?
-		WHERE agent_run_id = ? AND progress_sequence = ?`,
-		state, strings.TrimSpace(phase), boundedError(status),
-		boundedError(nextAction), nullableTime(progressDue), sequence, now,
-		completedAt, now, runID, sequence-1,
-	)
-	if err := expectOne(result, err, "set work episode phase"); err != nil {
-		return err
-	}
-	progressID := fmt.Sprintf("episode_progress_%s_%06d", episodeID, sequence)
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO work_episode_progress
-		  (id, episode_id, sequence, phase, summary, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		progressID, episodeID, sequence, strings.TrimSpace(phase),
-		boundedError(status), now,
-	); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err = s.AppendWorkEpisodeEvent(ctx, runID, core.WorkEpisodeEvent{
+		Kind: episodepkg.EventPhaseChanged, Actor: "host",
+		IdempotencyKey: episodeEventKey(
+			"phase", string(state), phase, status, nextAction,
+			progressDue.UTC().Format(time.RFC3339Nano),
+		),
+		Payload: payload,
+	})
+	return err
 }
 
 // ResolveWaitingApprovalEpisodes closes the accepted work that reached an
@@ -359,50 +375,259 @@ func (s *Store) RecordWorkEpisodeProgress(
 	if phase == "" || summary == "" {
 		return core.WorkEpisodeProgress{}, errors.New("work episode progress requires phase and summary")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	payload, err := episodepkg.Encode(episodepkg.Transition{
+		Phase: phase, Summary: summary, ProgressDue: nextDue,
+	})
 	if err != nil {
 		return core.WorkEpisodeProgress{}, err
 	}
+	_, err = s.AppendWorkEpisodeEvent(ctx, runID, core.WorkEpisodeEvent{
+		Kind: episodepkg.EventProgressReported, Actor: "host",
+		IdempotencyKey: episodeEventKey(
+			"progress", phase, summary, nextDue.UTC().Format(time.RFC3339Nano),
+		),
+		Payload: payload,
+	})
+	if err != nil {
+		return core.WorkEpisodeProgress{}, err
+	}
+	progress, err := s.ListWorkEpisodeProgress(ctx, runID, 1)
+	if err != nil {
+		return core.WorkEpisodeProgress{}, err
+	}
+	if len(progress) == 0 {
+		return core.WorkEpisodeProgress{}, errors.New("episode event did not project progress")
+	}
+	return progress[0], nil
+}
+
+func episodeEventKey(prefix string, values ...string) string {
+	digest := sha256.Sum256([]byte(strings.Join(values, "\x00")))
+	return prefix + ":" + hex.EncodeToString(digest[:16])
+}
+
+// AppendWorkEpisodeEvent is the single durable transition path for accepted
+// work. Slack cards, commitments, and progress rows are projections of this
+// ordered stream rather than independent lifecycle state.
+func (s *Store) AppendWorkEpisodeEvent(
+	ctx context.Context,
+	runID string,
+	event core.WorkEpisodeEvent,
+) (core.WorkEpisodeEvent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
 	defer tx.Rollback()
-	var episodeID string
-	var sequence int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT id, progress_sequence + 1
-		FROM work_episodes WHERE agent_run_id = ?`, runID,
-	).Scan(&episodeID, &sequence); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return core.WorkEpisodeProgress{}, ErrNotFound
-		}
-		return core.WorkEpisodeProgress{}, err
-	}
-	id := fmt.Sprintf("episode_progress_%s_%06d", episodeID, sequence)
-	now := nowText()
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO work_episode_progress
-		  (id, episode_id, sequence, phase, summary, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		id, episodeID, sequence, phase, boundedError(summary), now,
-	); err != nil {
-		return core.WorkEpisodeProgress{}, err
-	}
-	result, err := tx.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET phase = ?, status = ?, progress_sequence = ?, last_progress_at = ?,
-		    progress_due_at = ?, updated_at = ?
-		WHERE id = ? AND progress_sequence = ?`,
-		phase, boundedError(summary), sequence, now, nullableTime(nextDue), now,
-		episodeID, sequence-1,
-	)
-	if err := expectOne(result, err, "advance work episode progress"); err != nil {
-		return core.WorkEpisodeProgress{}, err
+	event, err = appendWorkEpisodeEventTx(ctx, tx, runID, event)
+	if err != nil {
+		return core.WorkEpisodeEvent{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return core.WorkEpisodeProgress{}, err
+		return core.WorkEpisodeEvent{}, err
 	}
-	return core.WorkEpisodeProgress{
-		ID: id, EpisodeID: episodeID, Sequence: sequence,
-		Phase: phase, Summary: summary, CreatedAt: parseTime(now),
-	}, nil
+	return event, nil
+}
+
+func appendWorkEpisodeEventTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID string,
+	event core.WorkEpisodeEvent,
+) (core.WorkEpisodeEvent, error) {
+	event.Kind = strings.TrimSpace(event.Kind)
+	event.Actor = strings.TrimSpace(event.Actor)
+	event.IdempotencyKey = strings.TrimSpace(event.IdempotencyKey)
+	if event.Kind == "" || event.IdempotencyKey == "" {
+		return core.WorkEpisodeEvent{}, errors.New("episode event requires kind and idempotency key")
+	}
+	if event.Actor == "" {
+		event.Actor = "host"
+	}
+	current, err := scanWorkEpisode(tx.QueryRowContext(
+		ctx,
+		`SELECT `+workEpisodeColumns+` FROM work_episodes WHERE agent_run_id = ?`,
+		runID,
+	))
+	if err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
+
+	existing, err := scanWorkEpisodeEvent(tx.QueryRowContext(ctx, `
+		SELECT id, episode_id, sequence, kind, actor, idempotency_key,
+		       payload_json, created_at
+		FROM work_episode_events
+		WHERE episode_id = ? AND idempotency_key = ?`,
+		current.ID, event.IdempotencyKey,
+	))
+	if err == nil {
+		if existing.Kind != event.Kind {
+			return core.WorkEpisodeEvent{}, fmt.Errorf(
+				"episode idempotency key %q already belongs to %s",
+				event.IdempotencyKey, existing.Kind,
+			)
+		}
+		return existing, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return core.WorkEpisodeEvent{}, err
+	}
+
+	event.EpisodeID = current.ID
+	event.Sequence = current.EventSequence + 1
+	if event.ID == "" {
+		event.ID = fmt.Sprintf("episode_event_%s_%06d", current.ID, event.Sequence)
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	if len(event.Payload) == 0 {
+		event.Payload = json.RawMessage(`{}`)
+	}
+	next, err := episodepkg.Reduce(current, event)
+	if err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO work_episode_events
+		  (id, episode_id, sequence, kind, actor, idempotency_key, payload_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.ID, event.EpisodeID, event.Sequence, event.Kind, event.Actor,
+		event.IdempotencyKey, string(event.Payload), event.CreatedAt.Format(time.RFC3339Nano),
+	); err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
+
+	if eventProjectsProgress(event.Kind) {
+		transition, err := episodepkg.DecodeTransition(event)
+		if err != nil {
+			return core.WorkEpisodeEvent{}, err
+		}
+		summary := transition.Summary
+		if summary == "" {
+			summary = transition.Status
+		}
+		next.ProgressSequence = current.ProgressSequence + 1
+		next.LastProgressAt = event.CreatedAt
+		progressID := fmt.Sprintf("episode_progress_%s_%06d", current.ID, next.ProgressSequence)
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO work_episode_progress
+			  (id, episode_id, sequence, phase, summary, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			progressID, current.ID, next.ProgressSequence,
+			strings.TrimSpace(transition.Phase), boundedError(summary),
+			event.CreatedAt.Format(time.RFC3339Nano),
+		); err != nil {
+			return core.WorkEpisodeEvent{}, err
+		}
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE work_episodes
+		SET state = ?, phase = ?, status = ?, next_action = ?,
+		    event_sequence = ?, progress_sequence = ?, last_progress_at = ?,
+		    progress_due_at = ?, completed_at = ?, updated_at = ?
+		WHERE id = ? AND event_sequence = ?`,
+		next.State, next.Phase, boundedError(next.Status), boundedError(next.NextAction),
+		next.EventSequence, next.ProgressSequence, nullableTime(next.LastProgressAt),
+		nullableTime(next.ProgressDueAt), nullableTime(next.CompletedAt),
+		event.CreatedAt.Format(time.RFC3339Nano), current.ID, current.EventSequence,
+	)
+	if err := expectOne(result, err, "append work episode event"); err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
+	return event, nil
+}
+
+func setWorkEpisodePhaseTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID string,
+	state core.WorkEpisodeState,
+	phase string,
+	status string,
+	nextAction string,
+	progressDue time.Time,
+	idempotencyKey string,
+) error {
+	if strings.TrimSpace(phase) == "" || strings.TrimSpace(status) == "" {
+		return errors.New("work episode phase and status are required")
+	}
+	if !validWorkEpisodeState(state) {
+		return fmt.Errorf("unsupported work episode state %q", state)
+	}
+	payload, err := episodepkg.Encode(episodepkg.Transition{
+		State: state, Phase: phase, Status: status, NextAction: nextAction,
+		ProgressDue: progressDue,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = appendWorkEpisodeEventTx(ctx, tx, runID, core.WorkEpisodeEvent{
+		Kind: episodepkg.EventPhaseChanged, Actor: "host",
+		IdempotencyKey: idempotencyKey,
+		Payload:        payload,
+	})
+	return err
+}
+
+func eventProjectsProgress(kind string) bool {
+	switch kind {
+	case episodepkg.EventPhaseChanged, episodepkg.EventProgressReported,
+		episodepkg.EventCompletionAccepted:
+		return true
+	default:
+		return false
+	}
+}
+
+func scanWorkEpisodeEvent(row interface{ Scan(...any) error }) (core.WorkEpisodeEvent, error) {
+	var event core.WorkEpisodeEvent
+	var payload, created string
+	err := row.Scan(
+		&event.ID, &event.EpisodeID, &event.Sequence, &event.Kind, &event.Actor,
+		&event.IdempotencyKey, &payload, &created,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.WorkEpisodeEvent{}, ErrNotFound
+	}
+	if err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
+	event.Payload = json.RawMessage(payload)
+	event.CreatedAt = parseTime(created)
+	return event, nil
+}
+
+func (s *Store) ListWorkEpisodeEvents(
+	ctx context.Context,
+	runID string,
+	limit int,
+) ([]core.WorkEpisodeEvent, error) {
+	if limit < 1 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT v.id, v.episode_id, v.sequence, v.kind, v.actor,
+		       v.idempotency_key, v.payload_json, v.created_at
+		FROM work_episode_events AS v
+		JOIN work_episodes AS e ON e.id = v.episode_id
+		WHERE e.agent_run_id = ?
+		ORDER BY v.sequence ASC LIMIT ?`, runID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.WorkEpisodeEvent, 0)
+	for rows.Next() {
+		event, err := scanWorkEpisodeEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, event)
+	}
+	return result, rows.Err()
 }
 
 func (s *Store) ListWorkEpisodeProgress(

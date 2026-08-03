@@ -114,6 +114,59 @@ func startManagedCoop(
 	return supervisor, nil
 }
 
+func validateConversationPrewarmPolicies(cfg config.Config) error {
+	if cfg.Coop.PrewarmSessions <= 0 {
+		return nil
+	}
+	if strings.TrimSpace(cfg.Coop.Policies) == "" {
+		return errors.New(
+			"prewarm_conversation_sessions requires a readable Coop policies file",
+		)
+	}
+	data, err := os.ReadFile(cfg.Coop.Policies)
+	if err != nil {
+		return fmt.Errorf("read Coop policies for conversation prewarming: %w", err)
+	}
+	var policyFile struct {
+		Policies map[string]struct {
+			WarmIdleTimeout string `yaml:"warm_idle_timeout"`
+		} `yaml:"policies"`
+	}
+	if err := yaml.Unmarshal(data, &policyFile); err != nil {
+		return fmt.Errorf("parse Coop policies for conversation prewarming: %w", err)
+	}
+	seen := make(map[string]struct{})
+	for _, repositoryKey := range cfg.RepositoryContextKeys() {
+		repository, ok := cfg.RepositoryContext(repositoryKey)
+		if !ok {
+			continue
+		}
+		policyName := strings.TrimSpace(repository.ConversationPolicy)
+		if policyName == "" {
+			continue
+		}
+		if _, ok := seen[policyName]; ok {
+			continue
+		}
+		seen[policyName] = struct{}{}
+		policy, ok := policyFile.Policies[policyName]
+		if !ok {
+			return fmt.Errorf(
+				"conversation prewarming requires Coop policy %q, but it is not defined in %s",
+				policyName, cfg.Coop.Policies,
+			)
+		}
+		idle, parseErr := time.ParseDuration(strings.TrimSpace(policy.WarmIdleTimeout))
+		if parseErr != nil || idle <= 0 {
+			return fmt.Errorf(
+				"conversation prewarming requires Coop policy %q to set a positive warm_idle_timeout (for example, warm_idle_timeout: 15m)",
+				policyName,
+			)
+		}
+	}
+	return nil
+}
+
 func startDoctorCoop(
 	cfg config.Config,
 	output io.Writer,

@@ -571,6 +571,14 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 		if deliveryChannel != task.ChannelID {
 			deliveryThread = ""
 		}
+		if deliveryThread == "" && s.cfg.Slack.NativeStatus {
+			deliveryThread, err = s.ensureScheduledRunAnchor(
+				ctx, task, occurrence, deliveryChannel,
+			)
+			if err != nil {
+				return err
+			}
+		}
 		deliveryRepository, repositoryErr := s.effectiveRepository(
 			ctx,
 			deliveryChannel,
@@ -626,6 +634,39 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 		return err
 	}
 	return s.store.LinkScheduledTaskRun(ctx, task.ID, occurrence.ScheduledFor, agentRun.ID)
+}
+
+func (s *Service) ensureScheduledRunAnchor(
+	ctx context.Context,
+	task core.ScheduledTask,
+	occurrence core.ScheduledTaskRun,
+	channelID string,
+) (string, error) {
+	deliveryID := "scheduled_run_anchor_" + occurrence.SourceInput
+	if timestamp, err := s.slack.FindDeliveryMessage(
+		ctx, channelID, "", deliveryID,
+	); err == nil && timestamp != "" {
+		return timestamp, nil
+	} else if err != nil && !errors.Is(err, slackui.ErrNotFound) {
+		return "", err
+	}
+	timestamp, err := s.slack.Post(
+		ctx,
+		deliveryID,
+		channelID,
+		"",
+		slackui.ScheduledRunStartedMessage(task, occurrence.ScheduledFor),
+	)
+	if err == nil {
+		return timestamp, nil
+	}
+	// Slack may accept a message even when the response is lost. Resolve that
+	// uncertainty from the delivery metadata before allowing a retry to post.
+	recovered, findErr := s.slack.FindDeliveryMessage(ctx, channelID, "", deliveryID)
+	if findErr == nil && recovered != "" {
+		return recovered, nil
+	}
+	return "", err
 }
 
 func (s *Service) reconcileScheduledTaskRuns(ctx context.Context) error {

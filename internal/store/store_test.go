@@ -217,6 +217,44 @@ func TestListSlackDeliveriesByPrefixIncludesMultipartAndFilesOnly(t *testing.T) 
 	}
 }
 
+func TestLeaseSlackDeliveryPreservesMultipartSequence(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, id := range []string{
+		"watch_reply_ordered_part_999",
+		"watch_reply_ordered_part_002",
+		"watch_reply_ordered_part_001",
+	} {
+		created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+			ID: id, Operation: "post", Kind: "notice", ChannelID: "C123",
+			Body: []byte(`{"text":"part"}`),
+		})
+		if err != nil || !created {
+			t.Fatalf("enqueue %s = %t, %v", id, created, err)
+		}
+	}
+	for _, expected := range []string{
+		"watch_reply_ordered_part_001",
+		"watch_reply_ordered_part_002",
+		"watch_reply_ordered_part_999",
+	} {
+		delivery, err := st.LeaseSlackDelivery(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if delivery.ID != expected {
+			t.Fatalf("leased multipart delivery %q, want %q", delivery.ID, expected)
+		}
+		if err := st.FinishSlackDelivery(ctx, delivery.ID, "1700.1", "sending"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestRetryLatestGeneratedVisualIsConversationScoped(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

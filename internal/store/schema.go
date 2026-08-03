@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 29
+const currentSchemaVersion = 35
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1442,6 +1442,105 @@ SET delivery_channel_id = channel_id
 WHERE delivery_channel_id = '';
 `
 
+const schemaV30 = `
+ALTER TABLE evidence ADD COLUMN claim_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE evidence ADD COLUMN relation TEXT NOT NULL DEFAULT 'supports';
+ALTER TABLE evidence ADD COLUMN dimensions_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE evidence ADD COLUMN valid_until TEXT;
+ALTER TABLE coverage ADD COLUMN claim_ids_json TEXT NOT NULL DEFAULT '[]';
+
+CREATE TABLE claim_assessments (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  claim_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN (
+    'supported', 'contradicted', 'mixed', 'unknown', 'not_applicable'
+  )),
+  confidence TEXT NOT NULL DEFAULT '',
+  evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+  contradiction_ids_json TEXT NOT NULL DEFAULT '[]',
+  detail TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  UNIQUE(episode_id, claim_id),
+  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX claim_assessments_episode_idx
+  ON claim_assessments(episode_id, claim_id);
+`
+
+const schemaV31 = `
+ALTER TABLE work_episodes ADD COLUMN event_sequence INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE work_episode_events (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(episode_id, sequence),
+  UNIQUE(episode_id, idempotency_key),
+  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX work_episode_events_episode_idx
+  ON work_episode_events(episode_id, sequence);
+
+INSERT INTO work_episode_events (
+  id, episode_id, sequence, kind, actor, idempotency_key, payload_json, created_at
+)
+SELECT
+  'episode_event_' || p.id,
+  p.episode_id,
+  p.sequence,
+  CASE WHEN p.sequence = 1 THEN 'episode_created' ELSE 'progress_reported' END,
+  'host',
+  'legacy:' || p.id,
+  json_object('phase', p.phase, 'summary', p.summary),
+  p.created_at
+FROM work_episode_progress AS p;
+
+UPDATE work_episodes SET event_sequence = progress_sequence;
+`
+
+const schemaV32 = `
+ALTER TABLE slack_deliveries ADD COLUMN sequence_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE slack_deliveries ADD COLUMN sequence_index INTEGER NOT NULL DEFAULT 0;
+
+UPDATE slack_deliveries
+SET
+  sequence_key = substr(id, 1, length(id) - 9),
+  sequence_index = CAST(substr(id, length(id) - 2, 3) AS INTEGER)
+WHERE substr(id, length(id) - 8, 6) = '_part_'
+  AND substr(id, length(id) - 2, 3) GLOB '[0-9][0-9][0-9]';
+
+CREATE INDEX slack_delivery_sequence_idx
+  ON slack_deliveries(sequence_key, sequence_index, state)
+  WHERE sequence_key != '';
+`
+
+const schemaV33 = `
+ALTER TABLE work_episodes ADD COLUMN activity TEXT NOT NULL DEFAULT 'investigating';
+
+UPDATE work_episodes
+SET activity = CASE
+  WHEN effort = 'engineering_task' THEN 'engineering'
+  WHEN authority = 'governed_operation' THEN 'operating'
+  ELSE 'investigating'
+END;
+`
+
+const schemaV34 = `
+ALTER TABLE evidence ADD COLUMN source_id TEXT NOT NULL DEFAULT '';
+`
+
+const schemaV35 = `
+ALTER TABLE evidence ADD COLUMN scope_note TEXT NOT NULL DEFAULT '';
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1472,4 +1571,10 @@ var migrations = []string{
 	schemaV27,
 	schemaV28,
 	schemaV29,
+	schemaV30,
+	schemaV31,
+	schemaV32,
+	schemaV33,
+	schemaV34,
+	schemaV35,
 }

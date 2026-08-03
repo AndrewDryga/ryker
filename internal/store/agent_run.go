@@ -254,11 +254,11 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 	if err := expectOne(result, err, "lease agent run"); err != nil {
 		return core.AgentRun{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = 'planning', phase = 'planning', status = 'Planning the work',
-		    next_action = 'Establish the evidence plan', updated_at = ?
-		WHERE agent_run_id = ?`, nowText(), run.ID); err != nil {
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, run.ID, core.EpisodePlanning, "planning", "Planning the work",
+		"Establish the evidence plan", time.Time{},
+		fmt.Sprintf("agent-run:%s:leased:%d", run.ID, run.Failures+1),
+	); err != nil {
 		return core.AgentRun{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -469,11 +469,10 @@ func (s *Store) MarkAgentRunSubmitted(
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = 'working', phase = 'investigating', status = 'Investigating',
-		    next_action = 'Complete the evidence plan', last_progress_at = ?, updated_at = ?
-		WHERE agent_run_id = ?`, now, now, id); err != nil {
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, id, core.EpisodeWorking, "investigating", "Investigating",
+		"Complete the evidence plan", time.Time{}, "agent-turn:"+coopTurnID+":started",
+	); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -528,11 +527,10 @@ func (s *Store) MarkTriageAgentRunSubmitted(
 	if err := expectOne(result, err, "advance submitted conversation session"); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = 'working', phase = 'investigating', status = 'Investigating',
-		    next_action = 'Complete the requested work', last_progress_at = ?, updated_at = ?
-		WHERE agent_run_id = ?`, now, now, id); err != nil {
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, id, core.EpisodeWorking, "investigating", "Investigating",
+		"Complete the requested work", time.Time{}, "agent-turn:"+coopTurnID+":started",
+	); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -544,7 +542,12 @@ func (s *Store) DeferAgentRun(
 	detail string,
 	next time.Time,
 ) error {
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'preparing'`,
@@ -552,12 +555,14 @@ func (s *Store) DeferAgentRun(
 	if err := expectOne(result, err, "defer agent run"); err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = 'acknowledged', phase = 'queued', status = ?,
-		    next_action = 'Resume when the dependency is ready', updated_at = ?
-		WHERE agent_run_id = ?`, boundedError(detail), nowText(), id)
-	return err
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, id, core.EpisodeAcknowledged, "queued", boundedError(detail),
+		"Resume when the dependency is ready", time.Time{},
+		"agent-run:"+id+":deferred:"+next.UTC().Format(time.RFC3339Nano),
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) RetryAgentRun(
@@ -573,7 +578,12 @@ func (s *Store) RetryAgentRun(
 		state = core.AgentRunFailed
 		completedAt = nowText()
 	}
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = ?, failure_count = failure_count + 1, last_error = ?,
 		    next_attempt_at = ?, completed_at = ?, updated_at = ?
@@ -591,13 +601,15 @@ func (s *Store) RetryAgentRun(
 		phase = "failed"
 		nextAction = "Review the blocker or retry"
 	}
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = ?, phase = ?, status = ?, next_action = ?,
-		    completed_at = ?, updated_at = ?
-		WHERE agent_run_id = ?`, episodeState, phase, boundedError(detail),
-		nextAction, completedAt, nowText(), id)
-	return err
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, id, episodeState, phase, boundedError(detail), nextAction,
+		time.Time{}, fmt.Sprintf(
+			"agent-run:%s:retry:%s:%t", id, next.UTC().Format(time.RFC3339Nano), terminal,
+		),
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ListRunningAgentRuns(
@@ -633,12 +645,20 @@ func (s *Store) AdvanceAgentRunEvents(
 	id string,
 	sequence int64,
 ) error {
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET coop_event_sequence = MAX(coop_event_sequence, ?), updated_at = ?
 		WHERE id = ? AND state = 'running'`,
 		sequence, nowText(), id)
-	return expectOne(result, err, "advance agent run events")
+	if err := expectOne(result, err, "advance agent run events"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) RepairAgentRunEventCursor(
@@ -683,18 +703,22 @@ func (s *Store) RepairAgentRunEventCursor(
 			WHERE id = ? AND coop_session_id = ?`,
 			nowText(), incidentID.String, sessionID,
 		)
-	} else if conversationLane {
-		_, err = tx.ExecContext(ctx, `
-			UPDATE conversation_sessions SET coop_event_sequence = 0, updated_at = ?
-			WHERE channel_id = ? AND session_id = ?`,
-			nowText(), channelID, sessionID,
-		)
 	} else {
+		// A conversation lane can share the same Coop session with the channel
+		// memory projection. A rotated session invalidates both cursors, even
+		// when only one projection is active for the current run.
 		_, err = tx.ExecContext(ctx, `
 			UPDATE channel_memories SET coop_event_sequence = 0, updated_at = ?
 			WHERE channel_id = ? AND session_id = ?`,
 			nowText(), channelID, sessionID,
 		)
+		if err == nil && conversationLane {
+			_, err = tx.ExecContext(ctx, `
+				UPDATE conversation_sessions SET coop_event_sequence = 0, updated_at = ?
+				WHERE channel_id = ? AND session_id = ?`,
+				nowText(), channelID, sessionID,
+			)
+		}
 	}
 	if err != nil {
 		return err
@@ -763,11 +787,11 @@ func (s *Store) RequeueAgentRun(
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = 'acknowledged', phase = 'continuing', status = ?,
-		    next_action = 'Continue unfinished work', updated_at = ?
-		WHERE agent_run_id = ?`, boundedError(detail), now, id); err != nil {
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, id, core.EpisodeAcknowledged, "continuing", boundedError(detail),
+		"Continue unfinished work", time.Time{},
+		fmt.Sprintf("agent-run:%s:recovery:%d", id, attempt),
+	); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -780,7 +804,12 @@ func (s *Store) EscalateAgentRun(
 	contextJSON []byte,
 	next time.Time,
 ) error {
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending',
 		    idempotency_key = ?,
@@ -807,12 +836,14 @@ func (s *Store) EscalateAgentRun(
 	if err := expectOne(result, err, "escalate agent run"); err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = 'planning', phase = 'expanding_scope', status = ?,
-		    next_action = 'Continue in the full investigation lane', updated_at = ?
-		WHERE agent_run_id = ?`, boundedError(detail), nowText(), id)
-	return err
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, id, core.EpisodePlanning, "expanding_scope", boundedError(detail),
+		"Continue in the full investigation lane", time.Time{},
+		"agent-run:"+id+":escalated",
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) StageAgentRunResult(
@@ -833,14 +864,21 @@ func (s *Store) StageAgentRunResult(
 	if resultJSON == nil {
 		resultJSON = []byte{}
 	}
-	update, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	update, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'applying', terminal_state = ?, result_json = ?,
 		    coop_event_sequence = MAX(coop_event_sequence, ?), last_error = ?, updated_at = ?
 		WHERE id = ? AND state = 'running'`,
 		terminalState, resultJSON, eventSequence, boundedError(detail), nowText(), id)
 	if err := expectOne(update, err, "stage agent run result"); err != nil {
-		current, getErr := s.GetAgentRun(ctx, id)
+		current, getErr := scanAgentRun(tx.QueryRowContext(
+			ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE id = ?`, id,
+		))
 		if getErr == nil && (current.State == core.AgentRunApplying ||
 			current.State == core.AgentRunFinalizing ||
 			current.State == core.AgentRunCompleted ||
@@ -850,14 +888,14 @@ func (s *Store) StageAgentRunResult(
 		}
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = 'verifying', phase = 'finalizing', status = 'Preparing the result',
-		    next_action = 'Validate and deliver the result', updated_at = ?
-		WHERE agent_run_id = ?`, nowText(), id); err != nil {
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, id, core.EpisodeVerifying, "finalizing", "Preparing the result",
+		"Validate and deliver the result", time.Time{},
+		fmt.Sprintf("agent-turn:%s:terminal:%s:%d", id, terminalState, eventSequence),
+	); err != nil {
 		return err
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
@@ -911,44 +949,35 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	episodeState := "completed"
+	episodeState := core.EpisodeCompleted
 	episodeStatus := "Completed"
 	episodeNextAction := ""
 	if finalState == core.AgentRunFailed {
-		episodeState = "failed"
+		episodeState = core.EpisodeFailed
 		episodeStatus = "Needs operator attention"
 		episodeNextAction = "Review the blocker or retry"
 	} else if finalState == core.AgentRunCancelled {
-		episodeState = "cancelled"
+		episodeState = core.EpisodeCancelled
 		episodeStatus = "Cancelled"
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = CASE
-		      WHEN state IN ('blocked', 'waiting_approval') THEN state
-		      ELSE ?
-		    END,
-		    phase = CASE
-		      WHEN state IN ('blocked', 'waiting_approval') THEN phase
-		      ELSE 'finished'
-		    END,
-		    status = CASE
-		      WHEN state IN ('blocked', 'waiting_approval') THEN status
-		      ELSE ?
-		    END,
-		    next_action = CASE
-		      WHEN state IN ('blocked', 'waiting_approval') THEN next_action
-		      ELSE ?
-		    END,
-		    completed_at = CASE
-		      WHEN state IN ('blocked', 'waiting_approval') THEN completed_at
-		      ELSE ?
-		    END,
-		    updated_at = ?
-		WHERE agent_run_id = ?`,
-		episodeState, episodeStatus, episodeNextAction, now, now, id,
-	); err != nil {
+	var currentEpisodeState core.WorkEpisodeState
+	if err := tx.QueryRowContext(
+		ctx, `SELECT state FROM work_episodes WHERE agent_run_id = ?`, id,
+	).Scan(&currentEpisodeState); err != nil {
 		return err
+	}
+	if currentEpisodeState != core.EpisodeBlocked &&
+		currentEpisodeState != core.EpisodeWaitingApproval &&
+		currentEpisodeState != core.EpisodeCompleted &&
+		currentEpisodeState != core.EpisodeFailed &&
+		currentEpisodeState != core.EpisodeCancelled &&
+		currentEpisodeState != core.EpisodeSuperseded {
+		if err := setWorkEpisodePhaseTx(
+			ctx, tx, id, episodeState, "finished", episodeStatus, episodeNextAction,
+			time.Time{}, "agent-run:"+id+":finished:"+string(finalState),
+		); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -982,7 +1011,12 @@ func (s *Store) FailAgentRunFinalization(
 }
 
 func (s *Store) SupersedeAgentRun(ctx context.Context, id, detail string) error {
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'superseded', last_error = ?, completed_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'preparing'`,
@@ -990,12 +1024,13 @@ func (s *Store) SupersedeAgentRun(ctx context.Context, id, detail string) error 
 	if err := expectOne(result, err, "supersede agent run"); err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE work_episodes
-		SET state = 'superseded', phase = 'finished', status = ?, next_action = '',
-		    completed_at = ?, updated_at = ?
-		WHERE agent_run_id = ?`, boundedError(detail), nowText(), nowText(), id)
-	return err
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, id, core.EpisodeSuperseded, "finished", boundedError(detail), "",
+		time.Time{}, "agent-run:"+id+":superseded",
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) HasNewerPendingAgentRun(

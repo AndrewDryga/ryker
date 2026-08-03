@@ -268,17 +268,79 @@ type Evidence struct {
 	IncidentID  string            `json:"incident_id,omitempty"`
 	ChannelID   string            `json:"channel_id,omitempty"`
 	SourceInput string            `json:"source_input,omitempty"`
+	ClaimID     string            `json:"claim_id,omitempty"`
 	Claim       string            `json:"claim"`
 	Observation string            `json:"observation"`
+	Relation    string            `json:"relation,omitempty"`
 	SourceType  string            `json:"source_type"`
+	SourceID    string            `json:"source_id,omitempty"`
 	SourceName  string            `json:"source_name"`
 	SourceURL   string            `json:"source_url,omitempty"`
 	Target      string            `json:"target,omitempty"`
+	ScopeNote   string            `json:"scope_note,omitempty"`
 	Freshness   string            `json:"freshness,omitempty"`
 	Confidence  string            `json:"confidence,omitempty"`
 	ObservedAt  time.Time         `json:"observed_at,omitempty"`
+	ValidUntil  time.Time         `json:"valid_until,omitempty"`
+	Dimensions  map[string]string `json:"dimensions,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	CreatedAt   time.Time         `json:"created_at,omitempty"`
+}
+
+// UnmarshalJSON accepts scalar dimension values and normalizes them to their
+// lossless textual form. Models commonly emit counts and boolean scope axes as
+// JSON numbers or booleans; rejecting those values would not improve evidence
+// integrity because dimensions are labels rather than measurements.
+func (item *Evidence) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	allowed := map[string]struct{}{
+		"id": {}, "incident_id": {}, "channel_id": {}, "source_input": {},
+		"claim_id": {}, "claim": {}, "observation": {}, "relation": {},
+		"source_type": {}, "source_id": {}, "source_name": {}, "source_url": {},
+		"target": {}, "scope_note": {}, "freshness": {}, "confidence": {},
+		"observed_at": {}, "valid_until": {}, "dimensions": {}, "metadata": {},
+		"created_at": {},
+	}
+	for key := range fields {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("unknown evidence field %q", key)
+		}
+	}
+	*item = Evidence{}
+	type evidenceAlias Evidence
+	wire := struct {
+		*evidenceAlias
+		Dimensions map[string]json.RawMessage `json:"dimensions,omitempty"`
+	}{evidenceAlias: (*evidenceAlias)(item)}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if wire.Dimensions == nil {
+		return nil
+	}
+	item.Dimensions = make(map[string]string, len(wire.Dimensions))
+	for key, raw := range wire.Dimensions {
+		var value string
+		if err := json.Unmarshal(raw, &value); err == nil {
+			item.Dimensions[key] = value
+			continue
+		}
+		text := strings.TrimSpace(string(raw))
+		if text == "true" || text == "false" || json.Valid(raw) && jsonScalarNumber(text) {
+			item.Dimensions[key] = text
+			continue
+		}
+		return fmt.Errorf("evidence dimension %q must be a string, number, or boolean", key)
+	}
+	return nil
+}
+
+func jsonScalarNumber(value string) bool {
+	var number json.Number
+	return json.Unmarshal([]byte(value), &number) == nil && number.String() == value
 }
 
 type Coverage struct {
@@ -287,11 +349,24 @@ type Coverage struct {
 	ChannelID   string    `json:"channel_id,omitempty"`
 	SourceInput string    `json:"source_input,omitempty"`
 	Layer       string    `json:"layer"`
+	ClaimIDs    []string  `json:"claim_ids,omitempty"`
 	Status      string    `json:"status"`
 	Source      string    `json:"source,omitempty"`
 	Detail      string    `json:"detail,omitempty"`
 	ObservedAt  time.Time `json:"observed_at,omitempty"`
 	CreatedAt   time.Time `json:"created_at,omitempty"`
+}
+
+type ClaimAssessment struct {
+	ID               string    `json:"id,omitempty"`
+	EpisodeID        string    `json:"episode_id,omitempty"`
+	ClaimID          string    `json:"claim_id"`
+	Status           string    `json:"status"`
+	Confidence       string    `json:"confidence,omitempty"`
+	EvidenceIDs      []string  `json:"evidence_ids,omitempty"`
+	ContradictionIDs []string  `json:"contradiction_ids,omitempty"`
+	Detail           string    `json:"detail,omitempty"`
+	UpdatedAt        time.Time `json:"updated_at,omitempty"`
 }
 
 type AgentMemory struct {
@@ -680,6 +755,16 @@ const (
 	AuthorityGovernedOperation AuthorityBoundary = "governed_operation"
 )
 
+type EpisodeActivity string
+
+const (
+	ActivityInvestigating EpisodeActivity = "investigating"
+	ActivityExplaining    EpisodeActivity = "explaining"
+	ActivityScheduling    EpisodeActivity = "scheduling"
+	ActivityEngineering   EpisodeActivity = "engineering"
+	ActivityOperating     EpisodeActivity = "operating"
+)
+
 type WorkEpisodeState string
 
 const (
@@ -703,6 +788,7 @@ type WorkEpisode struct {
 	AgentRunID         string
 	Effort             EffortContract
 	Authority          AuthorityBoundary
+	Activity           EpisodeActivity
 	State              WorkEpisodeState
 	Objective          string
 	RequiredCoverage   []string
@@ -710,12 +796,24 @@ type WorkEpisode struct {
 	Phase              string
 	Status             string
 	NextAction         string
+	EventSequence      int
 	ProgressSequence   int
 	LastProgressAt     time.Time
 	ProgressDueAt      time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	CompletedAt        time.Time
+}
+
+type WorkEpisodeEvent struct {
+	ID             string          `json:"id"`
+	EpisodeID      string          `json:"episode_id"`
+	Sequence       int             `json:"sequence"`
+	Kind           string          `json:"kind"`
+	Actor          string          `json:"actor"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	Payload        json.RawMessage `json:"payload"`
+	CreatedAt      time.Time       `json:"created_at"`
 }
 
 type WorkEpisodeProgress struct {

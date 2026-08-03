@@ -81,6 +81,9 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if err != nil {
 		return err
 	}
+	if err := validateConversationPrewarmPolicies(cfg); err != nil {
+		return err
+	}
 	logger := newLogger(stderr, cfg.LogLevel)
 	secrets, botToken, appToken, err := runtimeSecrets(cfg)
 	if err != nil {
@@ -231,6 +234,9 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	cfg, err := config.Load(*configPath)
 	if err != nil {
+		return err
+	}
+	if err := validateConversationPrewarmPolicies(cfg); err != nil {
 		return err
 	}
 	checks := map[string]string{"config": "ok"}

@@ -839,6 +839,19 @@ func ScheduleSavedMessage(task core.ScheduledTask) Message {
 	}
 }
 
+func ScheduledRunStartedMessage(task core.ScheduledTask, scheduledFor time.Time) Message {
+	title := strings.TrimSpace(task.Title)
+	if title == "" {
+		title = "Scheduled check"
+	}
+	return Message{
+		Text:     fmt.Sprintf("%s started", title),
+		Header:   title,
+		Sections: []string{"Scheduled check started. Emisar is gathering fresh evidence and will report in this thread."},
+		Context:  []string{"Scheduled for " + scheduledFor.UTC().Format("2006-01-02 15:04 UTC")},
+	}
+}
+
 func ScheduleStateMessage(task core.ScheduledTask) Message {
 	state := "paused"
 	if task.Enabled {

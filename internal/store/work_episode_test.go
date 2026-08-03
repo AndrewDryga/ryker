@@ -45,6 +45,7 @@ func TestWorkEpisodePersistsExecutionContractAndProgress(t *testing.T) {
 		episode.Authority != core.AuthorityReadOnly ||
 		episode.State != core.EpisodeAcknowledged ||
 		episode.Objective != "Reconcile declared and live production health" ||
+		episode.EventSequence != 1 ||
 		!slices.Equal(episode.RequiredCoverage, []string{"change", "host", "application", "slo"}) {
 		t.Fatalf("episode = %+v", episode)
 	}
@@ -67,13 +68,26 @@ func TestWorkEpisodePersistsExecutionContractAndProgress(t *testing.T) {
 	}
 	episode, err = st.GetWorkEpisodeByRun(ctx, run.ID)
 	if err != nil || episode.State != core.EpisodeWorking ||
-		episode.Phase != "verifying_impact" || episode.ProgressSequence != 3 {
+		episode.Phase != "verifying_impact" || episode.ProgressSequence != 3 ||
+		episode.EventSequence != 3 {
 		t.Fatalf("advanced episode = %+v, %v", episode, err)
 	}
 	progress, err = st.ListWorkEpisodeProgress(ctx, run.ID, 20)
 	if err != nil || len(progress) != 3 || progress[0].Sequence != 3 ||
 		progress[1].Sequence != 2 || progress[2].Sequence != 1 {
 		t.Fatalf("progress timeline = %+v, %v", progress, err)
+	}
+	events, err := st.ListWorkEpisodeEvents(ctx, run.ID, 20)
+	if err != nil || len(events) != 3 || events[0].Kind != "episode_created" ||
+		events[2].Kind != "progress_reported" {
+		t.Fatalf("episode events = %+v, %v", events, err)
+	}
+	if _, err := st.AppendWorkEpisodeEvent(ctx, run.ID, events[2]); err != nil {
+		t.Fatal(err)
+	}
+	episode, err = st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil || episode.EventSequence != 3 {
+		t.Fatalf("idempotent event changed projection = %+v, %v", episode, err)
 	}
 }
 

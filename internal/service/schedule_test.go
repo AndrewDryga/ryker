@@ -217,6 +217,57 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 	}
 }
 
+func TestDueScheduleCreatesRecoverableNativeStatusAnchor(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.NativeStatus = true
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC().Truncate(time.Second)
+	task, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", DeliveryChannel: "CREPORT",
+		Repository: "repo", Title: "Production health", Prompt: "Check production health.",
+		Recurrence: "once", StartAt: now, NextRunAt: now, Timezone: "UTC",
+		CatchUp: "latest", ActorID: cfg.Slack.Operators[0], SourceRef: "EvNativeSchedule",
+		ExpiresAt: now.Add(24 * time.Hour),
+	}, cfg.Limits.MaxScheduledTasks, cfg.Limits.MaxSchedulesPerChannel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slack := &scheduleSlack{t: t, wantUser: task.ActorID, wantTeam: task.TeamID}
+	slack.channel = slackui.Channel{ID: "CREPORT", Name: "health-reports", Member: true}
+	slack.dedupePosts = true
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.processScheduledTasks(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slack.posts) != 1 || slack.posts[0].thread != "" ||
+		!strings.Contains(slack.posts[0].message.Text, "Production health") {
+		t.Fatalf("scheduled anchor = %+v", slack.posts)
+	}
+	runs, err := st.ListActiveScheduledTaskRuns(ctx, 10)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("scheduled runs = %+v, err=%v", runs, err)
+	}
+	input, err := st.GetSlackInput(ctx, runs[0].SourceInput)
+	if err != nil || input.ThreadTS == "" || !watchInputWantsPendingStatus(input, watchTurnState{ConversationFollowup: true}) {
+		t.Fatalf("scheduled input = %+v, err=%v", input, err)
+	}
+	var state watchTurnState
+	if err := json.Unmarshal(input.Frozen, &state); err != nil || state.ResponseThreadTS != input.ThreadTS {
+		t.Fatalf("scheduled route = %+v, err=%v", state, err)
+	}
+	if _, err := svc.ensureScheduledRunAnchor(ctx, task, runs[0], "CREPORT"); err != nil {
+		t.Fatal(err)
+	}
+	if len(slack.posts) != 1 {
+		t.Fatalf("anchor replay posted %d messages", len(slack.posts))
+	}
+}
+
 func TestDueScheduleStopsWhenCreatorIsNoLongerAnOperator(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -29,15 +30,19 @@ func (s *Service) queueIncidentAgentRun(
 		mode = core.AgentRunEngineeringTask
 	}
 	episode := s.episodeForIncident(incident, mode, sourceKind, incident.Title)
-	if sourceKind == "slack" && mode == core.AgentRunIncident {
+	if sourceKind == "slack" {
 		input, err := s.store.GetSlackInput(ctx, sourceID)
 		if err != nil {
 			return core.AgentRun{}, false, err
 		}
-		episode = s.episodeForWatchedInput(
-			input,
-			watchTurnState{ConversationFollowup: true},
-		)
+		if mode == core.AgentRunIncident {
+			episode = s.episodeForWatchedInput(
+				input,
+				watchTurnState{ConversationFollowup: true},
+			)
+		} else if activity := requestEpisodeActivity(input.Text); activity != core.ActivityInvestigating {
+			episode.Activity = activity
+		}
 	}
 	return s.store.QueueAgentRun(ctx, core.AgentRun{
 		Mode: mode, IncidentID: incident.ID, ChannelID: incident.ChannelID,
@@ -233,11 +238,9 @@ func watchInputWantsPendingStatus(
 	input core.SlackInput,
 	state watchTurnState,
 ) bool {
-	if input.Kind == "scheduled" {
-		return false
-	}
-	return watchInputTargeted(input, state) ||
-		requestedConversationLocation(input.Text) != conversationLocationFollow
+	return slackReplyThread(input) != "" &&
+		(watchInputTargeted(input, state) ||
+			requestedConversationLocation(input.Text) != conversationLocationFollow)
 }
 
 func watchInputExplicitlyTargeted(input core.SlackInput, state watchTurnState) bool {
@@ -460,6 +463,11 @@ func (s *Service) prepareIncidentAgentRun(
 }
 
 func (s *Service) agentRunNativeStatus(ctx context.Context, run core.AgentRun) string {
+	if value, err := s.store.GetWorkEpisodeByRun(ctx, run.ID); err == nil {
+		if status := episodepkg.Project(value).NativeStatus; status != "" {
+			return status
+		}
+	}
 	if run.SourceKind == "slack" {
 		if input, err := s.store.GetSlackInput(ctx, run.SourceID); err == nil {
 			return requestNativeStatus(input.Text)
@@ -469,10 +477,10 @@ func (s *Service) agentRunNativeStatus(ctx context.Context, run core.AgentRun) s
 }
 
 func requestNativeStatus(text string) string {
-	switch {
-	case simpleExplanationRequest(text):
+	switch requestEpisodeActivity(text) {
+	case core.ActivityExplaining:
 		return "is explaining the earlier answer..."
-	case explicitScheduleRequest(text):
+	case core.ActivityScheduling:
 		return "is scheduling the follow-up..."
 	default:
 		return "is investigating..."
@@ -1155,6 +1163,17 @@ func (s *Service) stagePolledAgentRunTerminal(
 					decision.Completion,
 				)
 				if correction == "" {
+					correction = episodeClaimCorrection(
+						episode,
+						decision.Action,
+						sanitizeEvidence(decision.Evidence, "", "", ""),
+						sanitizeCoverage(decision.Coverage, "", "", ""),
+						decision.Completion,
+						time.Now(),
+						len(decision.AppliedOperations) > 0,
+					)
+				}
+				if correction == "" {
 					correction = episodeDiagnosisCorrection(
 						episode,
 						decision.Action,
@@ -1189,6 +1208,10 @@ func (s *Service) stagePolledAgentRunTerminal(
 				terminalState = "failed"
 				result = nil
 				detail = correction
+			} else if err := s.recordResultOperationEvents(
+				ctx, run.ID, decision.AppliedOperations,
+			); err != nil {
+				return err
 			}
 		}
 	}
@@ -1221,6 +1244,17 @@ func (s *Service) stagePolledAgentRunTerminal(
 				sanitizeCoverage(report.Coverage, "", "", ""),
 				report.Completion,
 			)
+			if correction == "" {
+				correction = episodeClaimCorrection(
+					episode,
+					"reply",
+					sanitizeEvidence(report.Evidence, "", "", ""),
+					sanitizeCoverage(report.Coverage, "", "", ""),
+					report.Completion,
+					time.Now(),
+					len(report.AppliedOperations) > 0,
+				)
+			}
 			if correction != "" {
 				if !terminalStructuredCorrection(
 					run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
@@ -1235,6 +1269,10 @@ func (s *Service) stagePolledAgentRunTerminal(
 				terminalState = "failed"
 				result = nil
 				detail = correction
+			} else if err := s.recordResultOperationEvents(
+				ctx, run.ID, report.AppliedOperations,
+			); err != nil {
+				return err
 			}
 		}
 	}

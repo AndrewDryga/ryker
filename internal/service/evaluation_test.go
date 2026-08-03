@@ -257,7 +257,7 @@ func TestLiveEvaluationPromptCarriesProductionWorkContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"<host-work-episode>",
+		"<host-investigation-contract>",
 		`"effort":"operational_assessment"`,
 		`"authority":"read_only"`,
 		"A blocker is an external boundary, not unfinished work",
@@ -801,6 +801,7 @@ func TestAllEvaluationCorporaDecode(t *testing.T) {
 		"proactive.jsonl",
 		"evidence.jsonl",
 		"productivity.jsonl",
+		"episode-replay.jsonl",
 	} {
 		file, err := os.Open(filepath.Join("..", "..", "testdata", "eval", name))
 		if err != nil {
@@ -835,5 +836,79 @@ func TestAllEvaluationCorporaDecode(t *testing.T) {
 			len(calibrationCases),
 			err,
 		)
+	}
+}
+
+func TestDeterministicEpisodeReplayPromptIsBoundedToRecordedEvidence(t *testing.T) {
+	cases, err := decodeEvaluationCases(strings.NewReader(`{"name":"recorded","kind":"watch","input":"assess rollout","recorded_events":[{"sequence":1,"kind":"episode.created","occurred_at":"2026-08-02T12:00:00Z","payload":{"objective":"assess rollout"}}],"recorded_tool_results":[{"id":"rollout","tool":"emisar.wait_for_run","source_type":"emisar","observed_at":"2026-08-02T12:01:00Z","sanitized":true,"output":{"state":"successful"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := deterministicEpisodeReplayPrompt("production contract", cases[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"<host-deterministic-episode-replay>",
+		"Do not call any tool",
+		`"sequence":1`,
+		`"tool":"emisar.wait_for_run"`,
+		"produce the same typed result operations",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("episode replay prompt lacks %q: %s", required, prompt)
+		}
+	}
+}
+
+func TestEvaluationReferenceTimeUsesLatestRecordedObservation(t *testing.T) {
+	testCase := EvaluationCase{
+		RecordedEvents: []EvaluationRecordedEvent{
+			{OccurredAt: "2026-08-02T12:00:00Z"},
+			{OccurredAt: "2026-08-02T12:03:00Z"},
+		},
+		RecordedToolResults: []EvaluationToolResult{
+			{ObservedAt: "2026-08-02T12:02:00Z"},
+			{ObservedAt: "2026-08-02T12:04:00Z"},
+		},
+	}
+	got := evaluationReferenceTime(testCase, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	want := time.Date(2026, 8, 2, 12, 4, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("reference time = %s, want %s", got, want)
+	}
+}
+
+func TestEvaluationStructuredCorrectionUsesProductionContract(t *testing.T) {
+	cfg := serviceConfig(t)
+	testCase := EvaluationCase{
+		Name: "typed evidence", Kind: "watch", Input: "Check whether CI is green",
+		MentionsResponder: true, WantAction: "reply",
+	}
+	response := `{"action":"reply","operations":[{"id":"complete-1","type":"complete_episode","completion":{"message":"CI is green.","coverage":[{"layer":"change","claim_ids":[],"status":"healthy","detail":"checks passed"}],"completion":{"status":"decision_ready","summary":"CI is green"}}}]}`
+	correction := evaluationStructuredCorrection(
+		cfg, testCase, response, time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC),
+	)
+	if !strings.Contains(correction, "no typed evidence") {
+		t.Fatalf("correction = %q", correction)
+	}
+}
+
+func TestEpisodeReplayRequiresCompleteSanitizedFixtures(t *testing.T) {
+	cases := strings.NewReader(`{"name":"incomplete replay","kind":"watch","input":"assess rollout","recorded_events":[{"sequence":1,"kind":"episode.created","occurred_at":"2026-08-02T12:00:00Z","payload":{"objective":"assess rollout"}}]}`)
+	_, err := EvaluateLiveJSONL(
+		context.Background(),
+		cases,
+		serviceConfig(t),
+		newFakeCoop(),
+		LiveEvaluationOptions{EpisodeReplay: true},
+	)
+	if err == nil || !strings.Contains(err.Error(), "requires recorded_events and recorded_tool_results") {
+		t.Fatalf("incomplete episode replay = %v", err)
+	}
+
+	_, err = decodeEvaluationCases(strings.NewReader(`{"name":"unsafe replay","kind":"watch","input":"assess rollout","recorded_events":[{"sequence":1,"kind":"episode.created","occurred_at":"2026-08-02T12:00:00Z","payload":{"objective":"assess rollout"}}],"recorded_tool_results":[{"id":"rollout","tool":"emisar.wait_for_run","source_type":"emisar","observed_at":"2026-08-02T12:01:00Z","sanitized":false,"output":{"state":"successful"}}]}`))
+	if err == nil || !strings.Contains(err.Error(), "valid sanitized result") {
+		t.Fatalf("unsafe episode replay fixture = %v", err)
 	}
 }

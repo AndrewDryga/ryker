@@ -62,8 +62,12 @@ SQLite runs in WAL mode with full synchronous writes and one connection. It stor
 - Slack posts, updates, and native statuses in one delivery ledger;
 - a small durable scheduling index with lane, subject, conversation, due time, lease token, and retry state;
 - agent runs with stable idempotency keys, frozen revisions, and persisted context snapshots;
-- durable work episodes with independent effort and authority contracts, required evidence
-  coverage, completion criteria, current phase, and an ordered progress ledger;
+- durable work episodes with independent effort and authority contracts and one append-only event
+  stream. Phase, native status, controls, commitments, and next action are projections of that stream;
+- a versioned typed investigation contract compiled from each work episode into model prompts,
+  accepted result operations, required claims, completion rules, validators, and evaluation inputs;
+- a claim/evidence ledger that records atomic supporting or contradicting evidence, source time,
+  validity, dimensions, freshness, confidence, and host-derived claim assessments;
 - operator-confirmed scheduled tasks plus an immutable occurrence ledger keyed by task and due time;
 - Slack channel, root timestamp, Coop session, and event cursor mappings;
 - source-attributed evidence and health-layer coverage independent of answer prose;
@@ -84,11 +88,20 @@ connection, and network calls happen outside transactions. Long-running Coop wor
 block operator controls or consume the source Slack input's retry budget.
 
 The work episode is the lifecycle authority for accepted model-backed work. Agent-run transport
-states describe queueing, Coop submission, and finalization; episode states describe the product
-promise: acknowledged, planning, working, blocked, waiting for approval, verifying, or terminal.
-Active commitments are projected from non-terminal episode states. Emisar approval resolves the
-original waiting episode and queues a separate verification episode, so approval is never treated
-as proof that the requested live effect succeeded.
+states describe queueing, Coop submission, and finalization; every product transition is appended as
+an idempotent episode event and reduced into acknowledged, planning, working, blocked, waiting for
+approval, verifying, or terminal. Active commitments and native status are projections of that same
+state rather than independently updated flags. Emisar approval resolves the original waiting episode
+and queues a separate verification episode, so approval is never treated as proof that the requested
+live effect succeeded.
+
+Coop returns a small ordered result program instead of one undifferentiated report object:
+`record_evidence`, `report_progress`, `request_approval`, `offer_task`, and `complete_episode`.
+Responder validates each typed operation, rejects mixed legacy and typed payloads, records accepted
+operations in the episode stream, then renders the host-owned Slack controls. A completion is accepted
+only when the compiled investigation contract and claim ledger support it or it names an exact external
+blocker. Multipart Slack deliveries carry a durable sequence key so retries and concurrent workers
+cannot reorder a response.
 
 A scheduled occurrence is not a separate execution engine. The scheduler atomically records and
 advances it, creates an idempotent synthetic Slack input, and queues the ordinary triage agent run.

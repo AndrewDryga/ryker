@@ -90,6 +90,37 @@ require a typed `alert_assessment`, verdict, immediate action, and long-term sol
 assertions with repository and fresh operational evidence requirements so a fluent symptom summary
 cannot pass as an investigation.
 
+### Deterministic episode replay
+
+Use real-model episode replay for reproducible, multi-step operational behavior without depending
+on today's production state:
+
+```bash
+make eval-episode-replay CONFIG=../emisar/.responder/responder.yaml
+```
+
+Cases in `testdata/eval/episode-replay.jsonl` contain an ordered, sanitized episode timeline and
+sanitized recorded tool results. Responder still calls the configured real model through Coop and
+uses the production prompt, parser, typed result operations, Slack renderer, and behavioral scorer.
+The replay prompt forbids live tool calls and makes the recording the complete evidence boundary.
+Every case must include both event and tool-result fixtures; unsanitized, duplicate, unordered, or
+malformed fixtures are rejected before a model session starts.
+
+This differs from `--replay`: checked-output replay calls no model, while episode replay tests how
+the real model reasons over a stable work episode. Recordings should contain atomic source results,
+timestamps, contradictions, and terminal events rather than copied transcripts or secrets.
+
+After deterministic episode replay, run the small changing-world canary:
+
+```bash
+make eval-live-canary CONFIG=../emisar/.responder/responder.yaml
+```
+
+The canary uses only cases tagged `canary` in the live corpus. It verifies that the configured model,
+authenticated Coop account, repository projection, and current read-only tools still work together.
+`make model-release-check` runs deterministic episode replay and then this canary in addition to the
+quality, proactivity, scenario, and evidence gates.
+
 ### Stateful behavior and human quality
 
 Single-turn cases are necessary but insufficient. Run the stateful scenarios to keep one real Coop

@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := check
 
-.PHONY: build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity model-release-check eval-replay customer-check quality-watch-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-episode-replay eval-live-canary model-release-check eval-replay customer-check quality-watch-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -77,7 +77,15 @@ eval-productivity:
 		--task-policy "$(TASK_EVAL_POLICY)" --judge \
 		--min-overall-pass-rate 1 --min-case-pass-rate 1 --min-mean-quality 4
 
-model-release-check: eval-judge-calibration eval-quality eval-proactive eval-scenarios eval-evidence
+eval-episode-replay:
+	go run ./cmd/responder eval --config "$(CONFIG)" --episode-replay \
+		--input testdata/eval/episode-replay.jsonl --min-overall-pass-rate 1
+
+eval-live-canary:
+	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/live.jsonl --canary \
+		--min-overall-pass-rate 1 --min-case-pass-rate 1
+
+model-release-check: eval-judge-calibration eval-quality eval-proactive eval-scenarios eval-evidence eval-episode-replay eval-live-canary
 
 eval-replay:
 	go run ./cmd/responder eval --replay --input testdata/eval/golden.jsonl

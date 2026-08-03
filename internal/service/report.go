@@ -13,22 +13,26 @@ import (
 	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/store"
 )
 
 type agentReport struct {
-	Message          string                 `json:"message"`
-	FollowupMessages []string               `json:"followup_messages,omitempty"`
-	Visuals          []core.GeneratedVisual `json:"visuals,omitempty"`
-	Evidence         []core.Evidence        `json:"evidence,omitempty"`
-	Coverage         []core.Coverage        `json:"coverage,omitempty"`
-	Memory           core.AgentMemory       `json:"memory,omitempty"`
-	MemoryOffer      *core.MemoryOffer      `json:"memory_offer,omitempty"`
-	PreferenceOffer  *core.PreferenceOffer  `json:"preference_offer,omitempty"`
-	RuleOffer        *core.RuleOffer        `json:"rule_offer,omitempty"`
-	ScheduleOffer    *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
-	PendingApproval  *core.EmisarApproval   `json:"pending_approval,omitempty"`
-	Proposals        []core.ActionProposal  `json:"proposals,omitempty"`
-	Completion       *completionAssessment  `json:"completion,omitempty"`
+	Message           string                          `json:"message"`
+	FollowupMessages  []string                        `json:"followup_messages,omitempty"`
+	Visuals           []core.GeneratedVisual          `json:"visuals,omitempty"`
+	Evidence          []core.Evidence                 `json:"evidence,omitempty"`
+	Coverage          []core.Coverage                 `json:"coverage,omitempty"`
+	Memory            core.AgentMemory                `json:"memory,omitempty"`
+	MemoryOffer       *core.MemoryOffer               `json:"memory_offer,omitempty"`
+	PreferenceOffer   *core.PreferenceOffer           `json:"preference_offer,omitempty"`
+	RuleOffer         *core.RuleOffer                 `json:"rule_offer,omitempty"`
+	ScheduleOffer     *core.ScheduleOffer             `json:"schedule_offer,omitempty"`
+	PendingApproval   *core.EmisarApproval            `json:"pending_approval,omitempty"`
+	Proposals         []core.ActionProposal           `json:"proposals,omitempty"`
+	Completion        *completionAssessment           `json:"completion,omitempty"`
+	Operations        []investigation.ResultOperation `json:"operations,omitempty"`
+	AppliedOperations []investigation.ResultOperation `json:"-"`
 }
 
 const (
@@ -134,6 +138,9 @@ func decodeAgentReport(message string) (agentReport, error) {
 	var report agentReport
 	if err := decodeStrictJSON(normalized, &report); err != nil {
 		return agentReport{}, fmt.Errorf("decode structured agent response: %w", err)
+	}
+	if err := applyAgentResultOperations(&report); err != nil {
+		return agentReport{}, err
 	}
 	report.Message, report.FollowupMessages, err = normalizeReplySequence(
 		report.Message,
@@ -272,14 +279,18 @@ func (s *Service) persistAgentReport(
 	report.Memory = sanitizeMemory(report.Memory)
 	for index := range report.Evidence {
 		item := &report.Evidence[index]
+		item.ClaimID = s.cleanStructuredField(item.ClaimID, 120)
 		item.Claim = s.cleanStructuredField(item.Claim, 1000)
 		item.Observation = s.cleanStructuredField(item.Observation, 2000)
+		item.Relation = s.cleanStructuredField(item.Relation, 20)
 		item.SourceType = s.cleanStructuredField(item.SourceType, 80)
+		item.SourceID = s.cleanStructuredField(item.SourceID, 240)
 		item.SourceName = s.cleanStructuredField(item.SourceName, 200)
 		item.Target = s.cleanStructuredField(item.Target, 300)
 		item.Freshness = s.cleanStructuredField(item.Freshness, 120)
 		item.Confidence = s.cleanStructuredField(item.Confidence, 40)
 		item.Metadata = s.cleanStructuredMetadata(item.Metadata)
+		item.Dimensions = s.cleanStructuredMetadata(item.Dimensions)
 	}
 	for index := range report.Coverage {
 		item := &report.Coverage[index]
@@ -287,6 +298,7 @@ func (s *Service) persistAgentReport(
 		item.Status = s.cleanStructuredField(item.Status, 40)
 		item.Source = s.cleanStructuredField(item.Source, 200)
 		item.Detail = s.cleanStructuredField(item.Detail, 1000)
+		item.ClaimIDs = s.cleanStructuredStrings(item.ClaimIDs, 20, 120)
 	}
 	report.Memory.Goal = s.cleanStructuredField(report.Memory.Goal, 1000)
 	report.Memory.ChannelPurpose = s.cleanStructuredField(
@@ -389,6 +401,21 @@ func (s *Service) persistAgentReport(
 	if err := s.store.RecordCoverage(ctx, report.Coverage); err != nil {
 		return agentReport{}, err
 	}
+	if sourceInput != "" {
+		episode, episodeErr := s.store.GetWorkEpisodeBySource(ctx, sourceInput)
+		if episodeErr == nil {
+			ledger := investigation.BuildLedger(
+				investigation.Compile(episode), report.Evidence, report.Coverage, time.Now().UTC(),
+			)
+			if err := s.store.RecordClaimAssessments(
+				ctx, ledger.Assessments(episode.ID, time.Now().UTC()),
+			); err != nil {
+				return agentReport{}, err
+			}
+		} else if !errors.Is(episodeErr, store.ErrNotFound) {
+			return agentReport{}, episodeErr
+		}
+	}
 	if incident.ID != "" {
 		proposals, err := s.prepareActionProposals(
 			report.Proposals, incident, sourceInput, requestedBy,
@@ -432,15 +459,22 @@ func sanitizeEvidence(
 		item.IncidentID = incidentID
 		item.ChannelID = channelID
 		item.SourceInput = sourceInput
+		item.ClaimID = boundedField(item.ClaimID, 120)
 		item.Claim = boundedField(item.Claim, 1000)
 		item.Observation = boundedField(item.Observation, 2000)
+		item.Relation = strings.ToLower(boundedField(item.Relation, 20))
+		if item.Relation == "" {
+			item.Relation = "supports"
+		}
 		item.SourceType = boundedField(item.SourceType, 80)
 		item.SourceName = boundedField(item.SourceName, 200)
 		item.Target = boundedField(item.Target, 300)
+		item.ScopeNote = boundedField(item.ScopeNote, 1000)
 		item.Freshness = boundedField(item.Freshness, 120)
 		item.Confidence = boundedField(item.Confidence, 40)
 		item.SourceURL = safeEvidenceURL(item.SourceURL)
 		item.Metadata = boundedMetadata(item.Metadata)
+		item.Dimensions = boundedMetadata(item.Dimensions)
 		if !validEvidenceSourceType(item.SourceType) {
 			item.SourceType = "other"
 		}
@@ -450,7 +484,8 @@ func sanitizeEvidence(
 		if item.ObservedAt.After(time.Now().Add(5 * time.Minute)) {
 			item.ObservedAt = time.Time{}
 		}
-		if item.Claim == "" || item.Observation == "" ||
+		if (item.ClaimID == "" && item.Claim == "") ||
+			(item.Observation == "" && len(item.Dimensions) == 0) ||
 			item.SourceType == "" || item.SourceName == "" {
 			continue
 		}
@@ -474,6 +509,7 @@ func sanitizeCoverage(
 		item.Status = boundedField(item.Status, 40)
 		item.Source = boundedField(item.Source, 200)
 		item.Detail = boundedField(item.Detail, 1000)
+		item.ClaimIDs = boundedUniqueFields(item.ClaimIDs, 20, 120)
 		if !validCoverageLayer(item.Layer) || !validCoverageStatus(item.Status) {
 			continue
 		}
@@ -484,6 +520,26 @@ func sanitizeCoverage(
 			continue
 		}
 		result = append(result, item)
+	}
+	return result
+}
+
+func boundedUniqueFields(values []string, limit int, bound int) []string {
+	result := make([]string, 0, min(len(values), limit))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = boundedField(value, bound)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+		if len(result) == limit {
+			break
+		}
 	}
 	return result
 }
@@ -754,153 +810,20 @@ func safeEmisarApprovalURL(value, emisarRPCURL, requestID string) string {
 }
 
 func structuredResponseInstructions() string {
-	return `Return exactly one JSON object and no code fence:
-{
-  "message": "plain-language, operator-facing standard Markdown that answers the question first",
-  "followup_messages": ["optional ordered Markdown outcomes for distinct additional instructions"],
-  "visuals": [{
-    "artifact": "exact generated output filename or artifact ID from this turn",
-    "title": "short human-readable image title",
-    "alt_text": "specific description of what the image shows, including chart trends and axes when applicable"
-  }],
-  "evidence": [{
-    "claim": "the operational claim this supports",
-    "observation": "the exact verified observation",
-    "source_type": "repository|emisar|monitoring|slack|other",
-    "source_name": "specific tool, file, action, or system",
-    "source_url": "optional https URL without credentials",
-    "target": "specific entity",
-    "observed_at": "RFC3339 timestamp; omit this field when unknown",
-    "freshness": "why this is current enough",
-    "confidence": "high|medium|low"
-  }],
-  "coverage": [{
-    "layer": "hardware|host|runtime|scheduler|workload|dependency|application|slo|change",
-    "status": "healthy|degraded|unhealthy|unknown|not_applicable",
-    "source": "evidence source",
-    "detail": "what was checked or why it remains unknown",
-    "observed_at": "RFC3339 timestamp; omit this field when unknown"
-  }],
-  "memory": {
-    "goal": "current user goal",
-    "channel_purpose": "stable role of this Slack channel when known",
-    "situation_summary": "short current shared situation",
-    "active_topics": ["topic still active in the conversation"],
-    "open_loops": ["unfinished question, promise, approval, or follow-up"],
-    "topology": ["durable declared or verified topology fact"],
-    "decisions": ["durable decision or correction"],
-    "unresolved_questions": ["important open question"],
-    "evidence_refs": ["stable evidence source name or identifier"]
-  },
-  "memory_offer": {
-    "scope": "channel|workspace|repository",
-    "repository": "exact configured repository key when scope is repository",
-    "subject": "canonical source ID, except a normalized human alias for alias_of",
-    "predicate": "alias_of|repository_for_channel|evidence_route|entity_relationship_correction|guidance",
-    "value": "validated canonical value, or self-contained operator advice for guidance",
-    "visibility": "channel|workspace|operator",
-    "expires_in": "7d|30d|90d|365d",
-    "source_revision": "optional immutable repository revision"
-  },
-  "preference_offer": {
-    "scope": "operator|channel|repository|workspace",
-    "repository": "exact configured repository key when scope is repository",
-    "name": "health_check_depth|response_detail|response_location",
-    "value": "typed value from the supported preference catalog",
-    "expires_in": "7d|30d|90d|365d"
-  },
-  "rule_offer": {
-    "scope": "channel",
-    "repository": "exact configured repository key",
-    "trigger": "terraform_plan|deployment|operational_alert",
-    "action": "review_terraform_plan|verify_deployment|triage_alert",
-    "source_kind": "any|human|app",
-    "expires_in": "7d|30d|90d|365d"
-  },
-  "schedule_offer": {
-    "title": "short task title",
-    "prompt": "self-contained task to execute on each occurrence",
-    "repository": "exact configured repository key",
-	"delivery_channel_id": "exact Slack channel ID when the user requests delivery somewhere other than the current conversation",
-    "recurrence": "once|interval|daily|weekly|monthly",
-    "start_at": "future RFC3339; required for once, optional otherwise",
-    "interval_seconds": 3600,
-    "weekdays": ["monday"],
-    "day_of_month": 1,
-    "local_time": "09:00",
-    "timezone": "IANA timezone or empty for the requester's Slack profile timezone",
-    "catch_up": "latest|skip",
-    "expires_in": "7d|30d|90d|365d"
-  },
-  "pending_approval": {
-    "request_id": "exact approval.request_id returned by Emisar",
-    "run_id": "exact run_id returned by Emisar",
-    "operation_id": "exact operation_id returned by Emisar",
-    "action_id": "exact action_id returned by Emisar",
-    "pack_ref": "exact immutable pack_ref returned by Emisar",
-    "runner_ref": "exact immutable runner_ref returned by Emisar",
-    "status": "pending_approval",
-    "approval_url": "exact approval.url returned by Emisar",
-    "expires_at": "exact RFC3339 approval.expires_at returned by Emisar"
-  },
-  "completion": {
-    "status": "decision_ready|blocked",
-    "verdict": "healthy|degraded|unhealthy only when decision_ready for operational assessments",
-    "summary": "concise decision or exact blocker",
-    "material_gaps": ["blocked only: gap that prevents a decision; always empty for decision_ready"],
-    "blocker_kind": "source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure",
-    "attempts": ["relevant evidence route or action already attempted"],
-    "next_action": "external action required to unblock the work"
-  },
-  "proposals": [{
-    "action_name": "one configured action name only",
-    "title": "plain-language proposed action",
-    "summary": "why it is justified",
-    "target": "exact target",
-    "parameters": {"name": "value"},
-    "blast_radius": "what could be affected",
-    "rollback": "how to reverse it",
-    "verification": "how success will be verified",
-    "authority": "emisar",
-    "risk": "low|medium|high"
-  }]
-}
+	return `Return exactly one JSON object and no code fence: {"operations": [...]}
 
-When the user asks for an image or chart and an appropriate tool is available, create it and save it
-in the exact Coop output directory named earlier in the prompt. Reference each intended Slack image
-in visuals. Never inline base64, a data URL, binary content, or a local path in message or JSON. Do
-not say that a file is attached or uploaded; Responder owns Slack delivery and reports upload failures. For
-charts, use verified data, label axes and units, and state the source, time range, freshness, and
-material gaps in message/evidence. A generated chart is presentation of evidence, not evidence by
-itself. For creative images, evidence may be empty. If no capable image tool is available, say so
-plainly and return no visuals. Do not include visuals with a memory, preference, rule, or schedule offer.
-Omit memory_offer unless the current configured operator explicitly asked Responder to remember,
-save, or correct durable context, or clearly requested lasting guidance with language such as
-"from now on", "always", or "keep this in mind". A memory offer is inert until the host displays an
-exact confirmation and an operator clicks it. For open-ended collaboration advice that does not fit
-the typed preference or standing-rule catalogs, use predicate guidance, a short stable normalized
-topic in subject, and the user's self-contained advice in value. Use workspace scope with operator
-visibility for a personal cross-channel memory, channel scope with channel visibility for a shared
-channel convention, and workspace visibility only for an explicit team-wide request. Guidance can
-steer future model turns but cannot trigger work, establish current health, grant credentials,
-authorize incidents or changes, approve actions, or override the current request or host policy.
-Never use memory_offer for secrets, credentials, approvals, or transient observations.
+` + investigation.ResultOperationsPrompt() + `
 
-` + behaviorOfferPolicy + `
+Evidence requires claim_id when it satisfies a contract claim, claim, observation, source_type,
+source_name, relation=supports|contradicts, dimensions, observed_at when known, freshness, and
+confidence. Coverage requires layer, status, source, detail, observed_at when known, and claim_ids.
+Never invent a source, evidence, timestamp, action, target, approval, or outcome. The complete_episode
+message uses concise Slack-supported standard Markdown and leads with the decision. A pending Emisar
+approval belongs in request_approval with the exact approval.url. Do not place the approval URL in message;
+Responder validates and renders it. Generated visuals reference only artifacts created in the
+exact Coop output directory; never inline bytes, base64, data URLs, or local paths.
 
-Return at most one memory_offer, one preference_offer, one rule_offer, and one schedule_offer. A compound lasting request may include more
-than one kind; cover every independent clause or explain what cannot be represented safely. Use an empty array when no evidence, coverage, or
-action proposal exists. Omit pending_approval unless the latest exact Emisar run response has
-status pending_approval and includes its approval object. Copy only the exact Emisar run and
-approval fields into pending_approval; never infer, rewrite, or invent any identifier, URL, expiry,
-target, approval, or successful outcome. Do not place the approval URL in message because
-Responder validates and renders the control. A pending approval means nothing has executed.
-Never invent a source, timestamp, action name, target, approval, or successful outcome. The message must lead with the
-answer, distinguish declared configuration from live observation, state material coverage gaps,
-and follow the compound-request policy in the session instructions. followup_messages is optional,
-ordered, and limited to five entries. Use it only for materially distinct outcomes, never incremental
-thinking or repeated status. Use Slack-supported standard Markdown: short headings, bullets, tables when comparison helps,
-links, block quotes for quoted alert text, and fenced language-tagged code only for code or logs.`
+` + behaviorOfferPolicy
 }
 
 func (s *Service) structuredResponsePolicy() string {

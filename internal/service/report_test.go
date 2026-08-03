@@ -220,6 +220,57 @@ func TestStructuredResponsePolicyOwnsFormattingAndActionCatalog(t *testing.T) {
 	}
 }
 
+func TestTypedResultOperationsFoldIntoAgentAndWatchResults(t *testing.T) {
+	report, structured, err := parseAgentReport(`{
+  "operations": [
+    {"id":"e1","type":"record_evidence","evidence":{"claim_id":"host.current_state","relation":"supports","claim":"host responds","observation":"api-1 responded","source_type":"emisar","source_name":"host check","dimensions":{"host":"api-1","environment":"production"}}},
+    {"id":"p1","type":"report_progress","progress":{"phase":"verifying","summary":"Host evidence is complete"}},
+    {"id":"c1","type":"complete_episode","completion":{"message":"**Healthy in the checked scope.**","coverage":[{"layer":"host","status":"healthy","claim_ids":["host.current_state"]}],"completion":{"status":"decision_ready","verdict":"healthy","summary":"Healthy"}}}
+  ]
+}`)
+	if err != nil || !structured || report.Message != "**Healthy in the checked scope.**" ||
+		len(report.Evidence) != 1 || len(report.AppliedOperations) != 3 {
+		t.Fatalf("typed report = %+v, structured = %t, err = %v", report, structured, err)
+	}
+
+	decision, err := parseWatchDecision(`{
+  "action":"reply",
+  "attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":1,"ownership":3},
+  "reason":"direct request",
+  "operations":[
+    {"id":"c1","type":"complete_episode","completion":{"message":"The check passed.","completion":{"status":"decision_ready","summary":"Passed"}}}
+  ]
+}`)
+	if err != nil || decision.Message != "The check passed." || len(decision.AppliedOperations) != 1 {
+		t.Fatalf("typed decision = %+v, err = %v", decision, err)
+	}
+}
+
+func TestTypedResultOperationsReturnExactOperationError(t *testing.T) {
+	_, _, err := parseAgentReport(`{
+  "operations":[
+    {"id":"e1","type":"record_evidence","evidence":{"claim_id":"host.current_state","claim":"host state","observation":"host responded","relation":"supports","source_type":"emisar","source_name":"host check"}},
+    {"id":"bad","type":"request_approval","task":{"kind":"incident","title":"wrong payload"}}
+  ]
+}`)
+	if err == nil || !strings.Contains(err.Error(), `result operation 2`) ||
+		!strings.Contains(err.Error(), `requires approval`) {
+		t.Fatalf("operation error = %v", err)
+	}
+}
+
+func TestTypedResultOperationsReturnActionableCompletionShapeError(t *testing.T) {
+	_, _, err := parseAgentReport(`{
+  "operations":[
+    {"id":"c1","type":"complete_episode","completion":{"message":"Blocked.","completion":{"status":"blocked","blocker_kind":"source_unavailable","blocker":"missing later evidence"}}}
+  ]
+}`)
+	if err == nil || !strings.Contains(err.Error(), "material_gaps") ||
+		!strings.Contains(err.Error(), "next_action") {
+		t.Fatalf("completion shape error = %v", err)
+	}
+}
+
 func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

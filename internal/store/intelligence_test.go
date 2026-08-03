@@ -350,9 +350,9 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		IncidentID: "inc_1", ChannelID: "COPS", SourceInput: "slack_1",
 		Claim:       "Expected production capacity is two instances",
 		Observation: "infra/main.tf sets target_size to 2",
-		SourceType:  "repository", SourceName: "infra/main.tf",
+		SourceType:  "repository", SourceID: "revision-1", SourceName: "infra/main.tf",
 		SourceURL: "https://example.test/repo/blob/main/infra/main.tf",
-		Target:    "production-mig", ObservedAt: observed,
+		Target:    "production-mig", ScopeNote: "declared intent only", ObservedAt: observed,
 		Metadata: map[string]string{"revision": "abc123"},
 	}})
 	if err != nil || len(items) != 1 || items[0].ID == "" {
@@ -372,6 +372,9 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	if err != nil || len(evidence) != 1 ||
 		evidence[0].Metadata["revision"] != "abc123" {
 		t.Fatalf("evidence = %+v, %v", evidence, err)
+	}
+	if evidence[0].SourceID != "revision-1" || evidence[0].ScopeNote != "declared intent only" {
+		t.Fatalf("evidence source = %+v", evidence[0])
 	}
 
 	if err := st.RecordCoverage(ctx, []core.Coverage{{

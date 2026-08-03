@@ -7,18 +7,12 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/episode"
 )
 
 const commitmentProjectionColumns = `
 	'commitment_' || r.id, r.id, r.channel_id, r.thread_ts, r.user_id, r.repository, c.title,
-	CASE
-	  WHEN e.state IN ('acknowledged', 'planning') THEN 'queued'
-	  WHEN e.state = 'working' THEN 'working'
-	  WHEN e.state IN ('verifying', 'waiting_approval') THEN 'finishing'
-	  WHEN e.state = 'completed' THEN 'done'
-	  WHEN e.state IN ('blocked', 'failed') THEN 'blocked'
-	  ELSE 'cancelled'
-	END,
+	e.state,
 	e.status,
 	e.next_action,
 	r.source_kind, r.source_id, r.created_at, r.updated_at, r.completed_at`
@@ -49,6 +43,7 @@ func (s *Store) ensureCommitment(ctx context.Context, run core.AgentRun) error {
 
 func scanCommitment(row interface{ Scan(...any) error }) (core.Commitment, error) {
 	var item core.Commitment
+	var episodeState core.WorkEpisodeState
 	var created, updated string
 	var completed sql.NullString
 	err := row.Scan(
@@ -59,7 +54,7 @@ func scanCommitment(row interface{ Scan(...any) error }) (core.Commitment, error
 		&item.UserID,
 		&item.Repository,
 		&item.Title,
-		&item.State,
+		&episodeState,
 		&item.Status,
 		&item.NextAction,
 		&item.SourceKind,
@@ -77,6 +72,9 @@ func scanCommitment(row interface{ Scan(...any) error }) (core.Commitment, error
 	item.CreatedAt = parseTime(created)
 	item.UpdatedAt = parseTime(updated)
 	item.CompletedAt = scanTime(completed)
+	item.State = core.CommitmentState(
+		episode.Project(core.WorkEpisode{State: episodeState}).CommitmentState,
+	)
 	return item, nil
 }
 

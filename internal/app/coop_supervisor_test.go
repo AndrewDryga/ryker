@@ -232,6 +232,42 @@ policies:
 	}
 }
 
+func TestValidateConversationPrewarmPolicies(t *testing.T) {
+	root := t.TempDir()
+	cfg := supervisorTestConfig(root, "/bin/true")
+	cfg.Coop.PrewarmSessions = 2
+	cfg.Repositories = map[string]config.Repository{
+		"repo": {ConversationPolicy: "repo-conversation"},
+	}
+	writePolicies := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(cfg.Coop.Policies, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writePolicies(`version: 1
+policies:
+  repo-conversation:
+    repository: /tmp/repo
+    target: codex:gpt-5.6/medium@personal
+`)
+	if err := validateConversationPrewarmPolicies(cfg); err == nil ||
+		!strings.Contains(err.Error(), `policy "repo-conversation"`) ||
+		!strings.Contains(err.Error(), "warm_idle_timeout: 15m") {
+		t.Fatalf("missing warm lease error = %v", err)
+	}
+	writePolicies(`version: 1
+policies:
+  repo-conversation:
+    repository: /tmp/repo
+    target: codex:gpt-5.6/medium@personal
+    warm_idle_timeout: 15m
+`)
+	if err := validateConversationPrewarmPolicies(cfg); err != nil {
+		t.Fatalf("valid warm policy = %v", err)
+	}
+}
+
 func supervisorTestConfig(root, binary string) config.Config {
 	return config.Config{
 		Slack: config.SlackConfig{

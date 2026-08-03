@@ -2,24 +2,17 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
 )
 
-type completionAssessment struct {
-	Status       string   `json:"status"`
-	Verdict      string   `json:"verdict,omitempty"`
-	Summary      string   `json:"summary"`
-	MaterialGaps []string `json:"material_gaps,omitempty"`
-	BlockerKind  string   `json:"blocker_kind,omitempty"`
-	Attempts     []string `json:"attempts,omitempty"`
-	NextAction   string   `json:"next_action,omitempty"`
-}
+type completionAssessment = investigation.CompletionAssessment
 
 func validateCompletionAssessment(completion *completionAssessment) error {
 	if completion == nil {
@@ -29,6 +22,7 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	completion.Verdict = strings.TrimSpace(completion.Verdict)
 	completion.Summary = strings.TrimSpace(completion.Summary)
 	completion.BlockerKind = strings.TrimSpace(completion.BlockerKind)
+	completion.Blocker = strings.TrimSpace(completion.Blocker)
 	completion.NextAction = strings.TrimSpace(completion.NextAction)
 	if len(completion.MaterialGaps) > 20 {
 		return errors.New("completion assessment has too many material gaps")
@@ -44,8 +38,11 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	completion.MaterialGaps = normalizedCompletionGaps(completion.MaterialGaps)
 	completion.Attempts = normalizedCompletionAttempts(completion.Attempts)
 	if len(completion.Status) > 32 || len(completion.Verdict) > 32 || len(completion.Summary) > 1000 ||
-		len(completion.BlockerKind) > 64 || len(completion.NextAction) > 1000 {
+		len(completion.BlockerKind) > 64 || len(completion.Blocker) > 1000 || len(completion.NextAction) > 1000 {
 		return errors.New("completion assessment exceeds its field bounds")
+	}
+	if completion.Blocker != "" {
+		return errors.New("completion.blocker is descriptive but incomplete; use summary, material_gaps, blocker_kind, attempts, and next_action")
 	}
 	switch completion.Status {
 	case "decision_ready":
@@ -149,6 +146,7 @@ func (s *Service) episodeForIncident(
 	episode := &core.WorkEpisode{
 		Effort:    core.EffortIncidentInvestigation,
 		Authority: core.AuthorityReadOnly,
+		Activity:  core.ActivityInvestigating,
 		Objective: strings.TrimSpace(objective),
 		RequiredCoverage: []string{
 			"change", "host", "runtime", "workload", "dependency", "application", "slo",
@@ -162,6 +160,7 @@ func (s *Service) episodeForIncident(
 	if mode == core.AgentRunEngineeringTask {
 		episode.Effort = core.EffortEngineeringTask
 		episode.Authority = core.AuthorityRepositoryWrite
+		episode.Activity = core.ActivityEngineering
 		episode.RequiredCoverage = nil
 		episode.CompletionCriteria = []string{
 			"inspect the relevant implementation and constraints",
@@ -171,6 +170,7 @@ func (s *Service) episodeForIncident(
 		}
 	} else if sourceKind == "proposal" || strings.HasPrefix(sourceKind, "emisar_approval:") {
 		episode.Authority = core.AuthorityGovernedOperation
+		episode.Activity = core.ActivityOperating
 	}
 	if episode.Objective == "" {
 		episode.Objective = incident.Title
@@ -182,6 +182,7 @@ func approvalContinuationEpisode(actionID string) *core.WorkEpisode {
 	return &core.WorkEpisode{
 		Effort:    core.EffortFocusedCheck,
 		Authority: core.AuthorityGovernedOperation,
+		Activity:  core.ActivityOperating,
 		Objective: "Verify " + actionID + " after the Emisar decision",
 		CompletionCriteria: []string{
 			"inspect the exact terminal Emisar run",
@@ -199,6 +200,7 @@ func (s *Service) episodeForWatchedInput(
 	episode := &core.WorkEpisode{
 		Effort:    core.EffortConversational,
 		Authority: core.AuthorityReadOnly,
+		Activity:  requestEpisodeActivity(input.Text),
 		Objective: commitmentTitleForInput(input),
 		CompletionCriteria: []string{
 			"answer the current request directly",
@@ -253,22 +255,31 @@ func (s *Service) episodeForWatchedInput(
 	return episode
 }
 
+func requestEpisodeActivity(text string) core.EpisodeActivity {
+	switch {
+	case simpleExplanationRequest(text):
+		return core.ActivityExplaining
+	case explicitScheduleRequest(text):
+		return core.ActivityScheduling
+	default:
+		return core.ActivityInvestigating
+	}
+}
+
 func isOperationalAssessmentRequest(text string) bool {
-	broadScope := episodeContainsAny(text,
+	return episodeContainsAny(text,
 		"infrastructure health", "infra health", "production health", "system health",
 		"health of our", "health of everything", "end-to-end", "end to end",
 		"deep health", "deep check", "health review", "health assessment",
 		"platform healthy", "full assessment", "overall health",
 	)
-	return broadScope ||
-		(episodeContainsAny(text, "assess", "assessment", "investigate") &&
-			episodeContainsAny(text, "production", "infrastructure", "platform", "service"))
 }
 
 func isFocusedCheckRequest(text string) bool {
 	return episodeContainsAny(text,
-		"check ", "review ", "verify ", "look into", "investigate", "is it green",
-		"is it healthy", "what failed", "what changed", "explain this alert",
+		"check ", "review ", "verify ", "inspect ", "look into", "investigate", "assess", "assessment",
+		"rollout", "recovered", "recovery", "is it green", "is it healthy", "what failed",
+		"what changed", "explain this alert",
 	)
 }
 
@@ -311,13 +322,13 @@ func focusedCoverage(text string) []string {
 		layer string
 		terms []string
 	}{
-		{"change", []string{"ci", "cd", "deploy", "release", "terraform", "plan", "diff", "change"}},
+		{"change", []string{"ci", "cd", "deploy", "release", "rollout", "revision", "terraform", "plan", "diff", "change", "repository", "validation command"}},
 		{"host", []string{"host", "vm", "disk", "cpu", "memory", "systemd"}},
 		{"runtime", []string{"runtime", "docker", "container"}},
 		{"scheduler", []string{"nomad", "kubernetes", "scheduler", "allocation"}},
 		{"workload", []string{"workload", "job", "process", "service"}},
 		{"dependency", []string{"database", "postgres", "cassandra", "redis", "dependency", "upstream"}},
-		{"application", []string{"application", "api", "endpoint", "request", "error"}},
+		{"application", []string{"application", "api", "endpoint", "request", "error", "health", "healthy", "recover", "rollout"}},
 		{"slo", []string{"slo", "customer", "impact", "latency", "availability"}},
 	} {
 		if episodeContainsAny(text, candidate.terms...) {
@@ -344,82 +355,7 @@ func episodeContainsAny(value string, terms ...string) bool {
 }
 
 func workEpisodePrompt(episode core.WorkEpisode) string {
-	data, err := json.Marshal(struct {
-		Effort             core.EffortContract    `json:"effort"`
-		Authority          core.AuthorityBoundary `json:"authority"`
-		Objective          string                 `json:"objective"`
-		RequiredCoverage   []string               `json:"required_coverage"`
-		CompletionCriteria []string               `json:"completion_criteria"`
-	}{
-		Effort: episode.Effort, Authority: episode.Authority,
-		Objective: episode.Objective, RequiredCoverage: episode.RequiredCoverage,
-		CompletionCriteria: episode.CompletionCriteria,
-	})
-	if err != nil {
-		return ""
-	}
-	return `<host-work-episode>
-` + string(data) + `
-This contract controls effort, not permission. Work until its completion criteria are satisfied or
-you are genuinely blocked. For operational_assessment and incident_investigation, assess every
-required coverage layer; use status unknown with a precise detail when authoritative evidence is
-unavailable. For an operational_assessment, return completion.verdict as exactly healthy, degraded,
-or unhealthy. Formal SLOs are not required for that verdict: when the organization has none, use
-fresh functional behavior, errors and timeouts, alerts, failures, saturation, dependencies, and
-recent-change evidence, and mark slo coverage not_applicable. Never use unknown as the overall
-health verdict. Treat a pinned or scheduled runbook as a reproducible baseline rather than the whole
-assessment: inspect what it proved, then continue through all relevant read-only routes for material
-claims it did not cover. Discover evidence by claim and retry with narrower operational language when
-the first discovery result is empty or indirect. Explicitly seek functional or synthetic behavior,
-current error and timeout trends against a recent baseline, active alerts, workload failures,
-dependency health, saturation or capacity pressure, and recent deployments or configuration changes.
-Do not declare a source unavailable merely because a preferred connector is absent when an equivalent
-repository, log, metric, trace, provider, or Emisar route exists. Missing evidence alone is not
-degradation. Do not generalize one shallow probe, one CDN aggregate, an empty alert list, or running
-workloads into platform-wide healthy application behavior. Combine representative functional checks
-with the broadest available application error and timeout trend, reconcile service-specific anomalies,
-and compare rates only across equivalent time windows, populations, and denominators. Separate
-observation, correlation, bounded cause, and proven causation: concurrent upstream and downstream
-errors bound a failure path but do not prove an implementation mapping without code, trace, or other
-direct evidence. Preserve metric window and aggregation semantics, and quote an exact maximum, rate,
-or comparison only when the cited result directly supports it. Scope functional claims exactly to
-the tested workflows and endpoints; a few successful URLs do not prove that the whole website,
-application, or platform is functional. Recommend rollback only after identifying an exact candidate
-version and evidence that it was previously healthy; otherwise state a bounded containment option and
-what must be verified before any version-changing action. Keep evidence claims atomic: every clause
-must be supported by the cited source, without joining a verified parser error, timeout, status code,
-deployment, or dependency event to an inferred surrounding event. The overall verdict is a
-classification, not proof that every unnamed component works. In degraded or unhealthy reports, lead
-with the verified failing scope and impact; do not broadly reassure that the platform, website, or
-users are otherwise being served without direct user-facing evidence. Metrics can establish impact,
-but not by themselves a cause or safe containment control. For an active issue, use at least one
-diagnostic source such as logs, traces, an affected functional check, dependency evidence, or owning
-repository code before stating a cause boundary or mitigation. Do not invent rollback, edge shedding,
-caching, failover, throttling, or another control unless evidence proves it exists and applies. If no
-safe containment is established after available diagnosis, say so and recommend freezing related
-nonessential changes plus the exact owner or evidence route needed next. Return
-completion.status=decision_ready only when no material gap could change the decision.
-Set completion.verdict only for decision_ready; a blocked result has no operational verdict. Keep its
-Slack synthesis decision-first and compact, normally one short verdict paragraph and at most six
-evidence-rich bullets. For decision_ready, return material_gaps as an empty list; keep non-blocking
-uncertainty in the relevant coverage detail and mention it only when it changes how the verdict should
-be used. material_gaps is reserved for external blockers that make completion.status=blocked.
-Discovering confirmed or likely active degradation expands the episode: do not stop at
-symptom counts, broad service names, or a recommendation that somebody investigate next. Use the
-available repository, logs, metrics, traces, and operational tools to identify the affected request
-paths, users or blast radius, correlate likely changes and dependencies, and establish either a
-verified root cause or an actionable cause boundary. A decision-ready active issue must include an
-alert_assessment with cause_status identified or bounded, the cause boundary, a concrete immediate
-mitigation, the fresh verification that would prove it worked, and the durable solution. If an
-authoritative route needed for that diagnosis is externally unavailable, return blocked and name it
-exactly. A blocker is an external boundary, not unfinished work: use completion.status=blocked only
-after relevant available evidence routes were attempted and access, unavailable telemetry, required
-operator input, an authority boundary, or a tool failure prevents further progress. Include the typed
-blocker_kind, the attempts already made, every material gap, and the external action that unblocks
-the work. "Query", "inspect", "check", or "investigate" is work to continue now when it is within
-the current authority, not a valid next_action for a blocked result. Never broaden the authority
-boundary.
-</host-work-episode>`
+	return investigation.Compile(episode).Prompt()
 }
 
 func episodeDiagnosisCorrection(
@@ -533,6 +469,60 @@ func episodeCompletionCorrection(
 		}
 	}
 	return ""
+}
+
+func episodeClaimCorrection(
+	episode core.WorkEpisode,
+	action string,
+	evidence []core.Evidence,
+	coverage []core.Coverage,
+	completion *completionAssessment,
+	now time.Time,
+	strict bool,
+) string {
+	if action != "reply" || completion == nil || completion.Status == "blocked" {
+		return ""
+	}
+	contract := investigation.Compile(episode)
+	typed := false
+	for _, item := range evidence {
+		if claimRequired(contract, item.ClaimID) {
+			typed = true
+			break
+		}
+	}
+	if strict && len(contract.Claims) > 0 && !typed {
+		return "the completed episode has no typed evidence bound to a required claim; emit record_evidence with an exact required claim_id before completing"
+	}
+	if !typed {
+		return ""
+	}
+	for _, requirement := range contract.Claims {
+		if !requirement.Required {
+			continue
+		}
+		matched := false
+		for _, item := range coverage {
+			if item.Layer == requirement.Layer && slices.Contains(item.ClaimIDs, requirement.ID) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return "coverage for required claim " + requirement.ID + " must include its exact claim_id"
+		}
+	}
+	ledger := investigation.BuildLedger(contract, evidence, coverage, now.UTC())
+	return ledger.CompletionCorrection(completion.Status)
+}
+
+func claimRequired(contract investigation.Contract, claimID string) bool {
+	for _, requirement := range contract.Claims {
+		if requirement.Required && requirement.ID == strings.TrimSpace(claimID) {
+			return true
+		}
+	}
+	return false
 }
 
 func operationalHealthVerdictCorrection(
