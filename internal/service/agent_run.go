@@ -417,6 +417,7 @@ func (s *Service) prepareIncidentAgentRun(
 		return s.retryIncidentAgentRun(ctx, run, incident, episodeErr, false)
 	}
 	prompt += "\n\n" + workEpisodePrompt(episode)
+	prompt += agentToolTransportPrompt()
 	revision, err := s.store.FreezeAgentRunRevision(ctx, run.ID, session.Revision)
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, true)
@@ -810,6 +811,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		return s.retryAgentRun(ctx, run, episodeErr)
 	}
 	prompt += "\n\n" + workEpisodePrompt(episode)
+	prompt += agentToolTransportPrompt()
 	prompt += agentRunContinuationPrompt(run)
 	turn, _, err := s.coop.SubmitTurnWithArtifacts(
 		ctx,
@@ -1297,9 +1299,9 @@ func replayAgentRunFailure(
 		strings.Contains(detail, "ACP frame exceeded its bound") {
 		return "Coop returned an oversized ACP frame; retrying the turn once", true
 	}
-	if turn.ErrorCode == "acp_protocol_error" &&
-		strings.Contains(strings.ToLower(detail), "acp transcript exceeded its bound") {
-		return "Coop ACP transcript reached its per-turn bound; continuing from completed work", true
+	if run.Mode == core.AgentRunTriage && transcriptOverflow(turn) &&
+		run.Failures < min(maximumAttempts-1, 3) {
+		return "Coop ACP transcript exceeded its bound; retrying in a fresh read-only session with narrower evidence queries", true
 	}
 	if run.Failures < 2 &&
 		strings.Contains(strings.ToLower(detail), "turn cleanup failed") {
@@ -1320,12 +1322,47 @@ func replayAgentRunInFreshSession(turn coop.Turn) bool {
 	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
 	return (turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled") ||
 		(turn.ErrorCode == "acp_process_error" &&
-			strings.Contains(detail, "acp child closed before its response"))
+			strings.Contains(detail, "acp child closed before its response")) ||
+		transcriptOverflow(turn)
+}
+
+func transcriptOverflow(turn coop.Turn) bool {
+	return turn.ErrorCode == "acp_protocol_error" && strings.Contains(
+		strings.ToLower(strings.TrimSpace(turn.ErrorDetail)),
+		"acp transcript exceeded its bound",
+	)
+}
+
+func agentToolTransportPrompt() string {
+	return `
+
+<host-tool-transport>
+Keep tool output bounded without reducing investigation quality. Prefer precise filters, narrow time
+windows, server-side aggregation, counts or top-N results, and pagination when the tool supports it.
+Do not request complete logs, histories, inventories, or source trees when narrower queries can answer
+the claim. If a result is truncated or unexpectedly large, refine the next query instead of repeating
+the broad call. Maintain a concise working summary of verified facts as you go. Transport limits are
+not a reason to stop: continue until the work episode is decision-ready or has an exact external
+blocker.
+</host-tool-transport>`
 }
 
 func agentRunContinuationPrompt(run core.AgentRun) string {
-	if strings.Contains(strings.ToLower(run.LastError), "acp child closed") ||
-		strings.Contains(strings.ToLower(run.LastError), "turn was interrupted") {
+	lower := strings.ToLower(run.LastError)
+	if strings.Contains(lower, "acp transcript") {
+		return `
+
+<host-transport-recovery>
+The previous read-only session exceeded Coop's ACP transcript bound and returned no usable final
+answer. This is a fresh authenticated session with the original Slack request and saved Responder
+context. Restart the required checks from current authoritative evidence. Avoid the prior failure by
+using tightly filtered queries, short time windows, aggregation, top-N results, and pagination rather
+than broad raw output. Do not assume that observations from the failed session are valid. Complete the
+full effort contract and return the exact structured response requested by the host.
+</host-transport-recovery>`
+	}
+	if strings.Contains(lower, "acp child closed") ||
+		strings.Contains(lower, "turn was interrupted") {
 		return `
 
 <host-transport-recovery>
@@ -1336,21 +1373,7 @@ valid. Long task duration is not a reason to stop. Return the exact structured r
 the host when the task is complete.
 </host-transport-recovery>`
 	}
-	if !strings.Contains(
-		strings.ToLower(run.LastError),
-		"acp transcript",
-	) {
-		return ""
-	}
-	return `
-
-<host-transport-continuation>
-The previous Coop turn reached its bounded ACP transport transcript after doing work. Continue from
-the existing authenticated session and the progress already made. Do not restart the task or repeat
-completed checks. Continue only unfinished work, keep individual tool results focused, and return
-the exact structured response requested by the host when the task is complete. This is a transport
-continuation, not evidence that an earlier check failed, and elapsed task time is not a reason to stop.
-</host-transport-continuation>`
+	return ""
 }
 
 func (s *Service) ensureWatchRunPendingStatus(

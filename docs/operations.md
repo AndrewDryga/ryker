@@ -115,9 +115,9 @@ deterministic wrapper runs
 actual diff. Only then does it commit the complete isolated change and fast-forward the primary
 checkout, and only when its HEAD and clean state still match the reviewed base. It then installs the
 binary and can restart explicitly configured launchd jobs. Failed gates and concurrent checkout
-changes preserve one worktree or branch for inspection instead of overwriting work; no additional
-autonomous fix starts until that worktree is reviewed. Review artifacts expire after 30 days by
-default.
+changes quarantine that candidate worktree and branch for inspection instead of overwriting work.
+Quarantined candidates do not block unrelated later reviews or fixes, and expire with the configured
+review retention period. Review artifacts expire after 30 days by default.
 
 ```bash
 RESPONDER_QUALITY_STATE_DIR=/srv/responder/state \

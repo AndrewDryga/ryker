@@ -137,11 +137,12 @@ cursor_file="$watch_dir/cursor.tsv"
 lock_dir="$watch_dir/lock"
 review_dir="$watch_dir/reviews"
 worktree_dir="$watch_dir/worktrees"
+quarantine_dir="$watch_dir/quarantine"
 log_file="$watch_dir/quality-watch.log"
 
 umask 077
-mkdir -p "$review_dir" "$worktree_dir"
-chmod 700 "$watch_dir" "$review_dir" "$worktree_dir"
+mkdir -p "$review_dir" "$worktree_dir" "$quarantine_dir"
+chmod 700 "$watch_dir" "$review_dir" "$worktree_dir" "$quarantine_dir"
 touch "$log_file"
 chmod 600 "$log_file"
 find "$review_dir" -type f -mtime "+$retention_days" -delete
@@ -175,6 +176,39 @@ cleanup_worktree() {
   local branch=$2
   git -C "$repository" worktree remove --force "$path" >/dev/null 2>&1 || true
   git -C "$repository" branch -D "$branch" >/dev/null 2>&1 || true
+}
+
+quarantine_worktree() {
+  local path=$1
+  local branch=$2
+  local reason=$3
+  local marker
+  marker="$quarantine_dir/$(basename "$path").meta"
+  printf '%s\n%s\n%s\n' "$path" "$branch" "$reason" >"$marker"
+  chmod 600 "$marker"
+  log "$reason; worktree quarantined at $path"
+}
+
+quarantine_orphaned_worktrees() {
+  local path branch
+  for path in "$worktree_dir"/*; do
+    [[ -d "$path" ]] || continue
+    [[ -f "$quarantine_dir/$(basename "$path").meta" ]] && continue
+    branch=$(git -C "$path" branch --show-current 2>/dev/null || true)
+    quarantine_worktree "$path" "$branch" "orphaned quality-fix worktree found after restart"
+  done
+}
+
+prune_quarantined_worktrees() {
+  local marker path branch
+  while IFS= read -r -d '' marker; do
+    path=$(sed -n '1p' "$marker" 2>/dev/null || true)
+    branch=$(sed -n '2p' "$marker" 2>/dev/null || true)
+    cleanup_worktree "$path" "$branch"
+    rm -f "$marker"
+    log "removed expired quarantined quality-fix worktree $path"
+  done < <(find "$quarantine_dir" -type f -name '*.meta' \
+    -mtime "+$retention_days" -print0)
 }
 
 acquire_lock() {
@@ -265,6 +299,7 @@ WITH terminal AS (
     r.source_kind,
     r.source_id,
     r.repository,
+    r.failure_count,
     r.last_error,
     r.created_at,
     r.started_at,
@@ -287,6 +322,7 @@ WITH terminal AS (
     'slack_input' AS source_kind,
     input.id AS source_id,
     '' AS repository,
+    input.failure_count,
     input.last_error,
     input.received_at AS created_at,
     '' AS started_at,
@@ -310,6 +346,7 @@ SELECT
   r.source_kind,
   r.source_id,
   r.repository,
+  r.failure_count,
   substr(r.last_error, 1, 4000) AS last_error,
   r.created_at,
   r.started_at,
@@ -318,6 +355,7 @@ SELECT
   input.kind AS input_kind,
   input.user_id AS input_user_id,
   input.message_ts AS input_message_ts,
+  input.failure_count AS input_failure_count,
   substr(input.text, 1, 12000) AS input_text,
   substr(CAST(r.result_json AS TEXT), 1, 30000) AS result_text,
   decision.action AS recorded_action,
@@ -347,6 +385,10 @@ LEFT JOIN slack_deliveries AS delivery
     (
       SELECT candidate.id FROM slack_deliveries AS candidate
       WHERE candidate.id = 'watch_reply_' || r.source_id LIMIT 1
+    ),
+    (
+      SELECT candidate.id FROM slack_deliveries AS candidate
+      WHERE candidate.id = 'watch_failure_' || r.source_id LIMIT 1
     ),
     (
       SELECT candidate.id FROM slack_deliveries AS candidate
@@ -389,6 +431,7 @@ LIMIT $batch_size;"
       'Run completion and evidence observation times are historical facts. Do not manufacture staleness from replayed or altered fixtures.' \
       'A user asking Responder to do work is not a defect. Tool unavailability, correct uncertainty, or a subjective wording preference alone is not a defect.' \
       'Failures, unsupported claims, abandoned accepted work, wrong routing, unsafe authority, repetitive spam, malformed Slack output, and clearly premature conclusions are defects when supported by the record.' \
+      'A terminal provider or transport failure after repeated retries is itself a reliability defect candidate. Inspect the retry and session-recovery path before preferring an observer-only defect.' \
       'Set needs_fix=true only with high-confidence evidence and a regression test that can fail before the fix.' \
       'Prefer the highest-impact common cause when a batch contains several related turns.' \
       "The only channel authorized for any later human-approved live test is $test_channel; this review itself must not send one."
@@ -460,11 +503,6 @@ LIMIT $batch_size;"
   fi
 
   local base branch worktree fixer_prompt fixer_log fixer_report
-  if find "$worktree_dir" -mindepth 1 -maxdepth 1 -type d -print -quit | grep -q .; then
-    log "a preserved failed worktree needs manual review; no additional autonomous fix was attempted"
-    advance_from_batch "$batch_path"
-    return 0
-  fi
   base=$(git -C "$repository" rev-parse HEAD)
   branch="quality-watch/$batch_id"
   worktree="$worktree_dir/$batch_id"
@@ -500,7 +538,7 @@ LIMIT $batch_size;"
     --output-last-message "$fixer_report" - <"$fixer_prompt" >"$fixer_log" 2>&1; then
     rm -f "$fixer_prompt"
     chmod 600 "$fixer_log" "$fixer_report" 2>/dev/null || true
-    log "isolated fixer failed for $batch_id; worktree preserved at $worktree"
+    quarantine_worktree "$worktree" "$branch" "isolated fixer failed for $batch_id"
     advance_from_batch "$batch_path"
     return 0
   fi
@@ -519,13 +557,13 @@ LIMIT $batch_size;"
     git -C "$worktree" ls-files --others --exclude-standard
   } | grep -E '(^|/)(\.env($|\.)|\.responder($|/)|dist($|/)|bin($|/)|responder\.db($|[-.]))' || true)
   if [[ -n "$unsafe_paths" ]]; then
-    log "fixer touched forbidden paths for $batch_id; worktree preserved at $worktree"
+    quarantine_worktree "$worktree" "$branch" "fixer touched forbidden paths for $batch_id"
     advance_from_batch "$batch_path"
     return 0
   fi
   mkdir -p "$watch_dir/go-cache"
   if ! (cd "$worktree" && GOCACHE="$watch_dir/go-cache" make check) >>"$fixer_log" 2>&1; then
-    log "full gate failed for $batch_id; worktree preserved at $worktree"
+    quarantine_worktree "$worktree" "$branch" "full gate failed for $batch_id"
     advance_from_batch "$batch_path"
     return 0
   fi
@@ -534,7 +572,7 @@ LIMIT $batch_size;"
     git -C "$worktree" ls-files --others --exclude-standard
   } | grep -E '(^|/)(\.env($|\.)|\.responder($|/)|dist($|/)|bin($|/)|responder\.db($|[-.]))' || true)
   if [[ -n "$unsafe_paths" ]]; then
-    log "full gate left forbidden paths for $batch_id; worktree preserved at $worktree"
+    quarantine_worktree "$worktree" "$branch" "full gate left forbidden paths for $batch_id"
     advance_from_batch "$batch_path"
     return 0
   fi
@@ -542,7 +580,7 @@ LIMIT $batch_size;"
     git -C "$worktree" diff --name-only
     git -C "$worktree" ls-files --others --exclude-standard
   } | grep -Eq '(_test\.go$|^scripts/test-|^eval/)'; then
-    log "fix for $batch_id has no regression-test change; worktree preserved at $worktree"
+    quarantine_worktree "$worktree" "$branch" "fix for $batch_id has no regression-test change"
     advance_from_batch "$batch_path"
     return 0
   fi
@@ -569,14 +607,14 @@ LIMIT $batch_size;"
     <"$review_prompt" >"$review_log" 2>&1; then
     rm -f "$review_prompt"
     chmod 600 "$review_log"
-    log "final fix review failed for $batch_id; worktree preserved at $worktree"
+    quarantine_worktree "$worktree" "$branch" "final fix review failed for $batch_id"
     advance_from_batch "$batch_path"
     return 0
   fi
   rm -f "$review_prompt"
   chmod 600 "$review_path" "$review_log"
   if [[ $(jq -r '.approve and .confidence == "high"' "$review_path") != true ]]; then
-    log "final fix review rejected $batch_id; worktree preserved at $worktree"
+    quarantine_worktree "$worktree" "$branch" "final fix review rejected $batch_id"
     advance_from_batch "$batch_path"
     return 0
   fi
@@ -586,12 +624,12 @@ LIMIT $batch_size;"
   fix_commit=$(git -C "$worktree" rev-parse HEAD)
 
   if [[ $(git -C "$repository" rev-parse HEAD) != "$base" || -n $(git -C "$repository" status --porcelain) ]]; then
-    log "validated fix $fix_commit is ready on $branch, but the primary checkout moved or is dirty; no integration occurred"
+    quarantine_worktree "$worktree" "$branch" "validated fix $fix_commit is ready, but the primary checkout moved or is dirty"
     advance_from_batch "$batch_path"
     return 0
   fi
   if ! git -C "$repository" merge --ff-only "$branch" >>"$fixer_log" 2>&1; then
-    log "validated fix $fix_commit could not fast-forward the primary checkout; branch preserved as $branch"
+    quarantine_worktree "$worktree" "$branch" "validated fix $fix_commit could not fast-forward the primary checkout"
     advance_from_batch "$batch_path"
     return 0
   fi
@@ -617,6 +655,8 @@ if ! acquire_lock; then
   exit 0
 fi
 trap release_lock EXIT INT TERM
+quarantine_orphaned_worktrees
+prune_quarantined_worktrees
 
 if [[ "$mode" == once ]]; then
   review_once

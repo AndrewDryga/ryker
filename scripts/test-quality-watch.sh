@@ -32,7 +32,8 @@ fi
 count=$((count + 1))
 printf '%s\n' "$count" >"$QUALITY_WATCH_TEST_COUNT"
 
-if [[ ${QUALITY_WATCH_TEST_MODE:-clean} == challenge && $count -eq 1 ]]; then
+if [[ ${QUALITY_WATCH_TEST_MODE:-clean} == challenge && $count -eq 1 ]] ||
+   [[ ${QUALITY_WATCH_TEST_MODE:-clean} == confirmed && $count -le 2 ]]; then
   needs_fix=true
   confidence=high
   severity=high
@@ -81,7 +82,8 @@ CREATE TABLE agent_runs (
   started_at TEXT,
   completed_at TEXT,
   updated_at TEXT,
-  result_json TEXT
+  result_json TEXT,
+  failure_count INTEGER
 );
 CREATE TABLE slack_inputs (
   id TEXT PRIMARY KEY,
@@ -147,7 +149,7 @@ INSERT INTO agent_runs VALUES (
   'run_one', 'triage', 'completed', 'completed', 'C0TENANTX01', '',
   'watch', 'slack_one', 'emisar', '',
   '2999-01-01T00:00:00.000Z', '2999-01-01T00:00:01.000Z',
-  '2999-01-01T00:00:02.000Z', '2999-01-01T00:00:02.000Z', '{"action":"reply"}'
+  '2999-01-01T00:00:02.000Z', '2999-01-01T00:00:02.000Z', '{"action":"reply"}', 0
 );
 INSERT INTO slack_deliveries VALUES (
   'watch_reply_slack_one', 'sent', 'post', 'notice', '2999.002', '',
@@ -174,7 +176,7 @@ INSERT INTO agent_runs VALUES (
   'run_two', 'triage', 'completed', 'completed', 'C0TENANTX01', '',
   'watch', 'slack_two', 'emisar', '',
   '2999-01-01T00:00:03.000Z', '2999-01-01T00:00:04.000Z',
-  '2999-01-01T00:00:05.000Z', '2999-01-01T00:00:05.000Z', '{"action":"reply"}'
+  '2999-01-01T00:00:05.000Z', '2999-01-01T00:00:05.000Z', '{"action":"reply"}', 0
 );
 INSERT INTO slack_deliveries VALUES (
   'out_run_run_two', 'sent', 'post', 'assistant', '2999.004', '',
@@ -211,5 +213,61 @@ grep -Fq 'empty Slack message' "$capture"
 grep -Fq 'Responder could not complete that request after retrying.' "$capture"
 grep -Fq $'2999-01-01T00:00:07.000Z\tinput_error_slack_three' \
   "$state_dir/quality-watch/cursor.tsv"
+
+rm -f "$count_file"
+sqlite3 "$state_dir/responder.db" <<'SQL'
+INSERT INTO slack_inputs (
+  id, kind, channel_id, thread_ts, user_id, message_ts, text, state,
+  failure_count, last_error, received_at, updated_at
+) VALUES (
+  'slack_four', 'mention', 'C0TENANTX01', '', 'U123', '2999.008',
+  'check every pull zone for unresolved traffic spikes', 'done', 0, '',
+  '2999-01-01T00:00:08.000Z', '2999-01-01T00:00:10.000Z'
+);
+INSERT INTO agent_runs VALUES (
+  'run_four', 'triage', 'completed', 'failed', 'C0TENANTX01', '',
+  'watch', 'slack_four', 'tenant-platform', 'ACP transcript exceeded its bound',
+  '2999-01-01T00:00:08.000Z', '2999-01-01T00:00:09.000Z',
+  '2999-01-01T00:00:10.000Z', '2999-01-01T00:00:10.000Z', '', 20
+);
+INSERT INTO slack_deliveries VALUES (
+  'watch_failure_slack_four', 'sent', 'post', 'notice', '2999.009', '',
+  '{"text":"Responder could not complete this check.","reason":"ACP transcript exceeded its bound"}'
+);
+SQL
+run_watch clean --once
+grep -Fq 'Responder could not complete this check.' "$capture"
+grep -Fq '"reply_delivery_state": "sent"' "$capture"
+grep -Fq '"failure_count": 20' "$capture"
+
+rm -f "$count_file"
+mkdir -p "$state_dir/quality-watch/worktrees/old-failure"
+sqlite3 "$state_dir/responder.db" <<'SQL'
+INSERT INTO slack_inputs (
+  id, kind, channel_id, thread_ts, user_id, message_ts, text, state,
+  failure_count, last_error, received_at, updated_at
+) VALUES (
+  'slack_five', 'mention', 'C0TENANTX01', '', 'U123', '2999.011',
+  'check another failure', 'done', 0, '',
+  '2999-01-01T00:00:11.000Z', '2999-01-01T00:00:13.000Z'
+);
+INSERT INTO agent_runs VALUES (
+  'run_five', 'triage', 'completed', 'failed', 'C0TENANTX01', '',
+  'watch', 'slack_five', 'tenant-platform', 'reproducible failure',
+  '2999-01-01T00:00:11.000Z', '2999-01-01T00:00:12.000Z',
+  '2999-01-01T00:00:13.000Z', '2999-01-01T00:00:13.000Z', '', 1
+);
+SQL
+run_watch confirmed --once
+if [[ $(<"$count_file") != 3 ]]; then
+  printf 'quality-watch test: quarantined worktree blocked a later fixer\n' >&2
+  exit 1
+fi
+if [[ ! -f "$state_dir/quality-watch/quarantine/old-failure.meta" ]]; then
+  printf 'quality-watch test: orphaned worktree was not quarantined\n' >&2
+  exit 1
+fi
+grep -Fq 'fixer confirmed no code change was justified' \
+  "$state_dir/quality-watch/quality-watch.log"
 
 printf 'quality-watch test: ok\n'
