@@ -643,30 +643,31 @@ func (s *Service) ensureScheduledRunAnchor(
 	channelID string,
 ) (string, error) {
 	deliveryID := "scheduled_run_anchor_" + occurrence.SourceInput
-	if timestamp, err := s.slack.FindDeliveryMessage(
-		ctx, channelID, "", deliveryID,
-	); err == nil && timestamp != "" {
-		return timestamp, nil
-	} else if err != nil && !errors.Is(err, slackui.ErrNotFound) {
+	delivery, err := s.store.GetSlackDelivery(ctx, deliveryID)
+	switch {
+	case err == nil && delivery.State == "sent" && delivery.MessageTS != "":
+		return delivery.MessageTS, nil
+	case err == nil && delivery.State == "failed":
+		return "", fmt.Errorf("post scheduled run anchor: %s", delivery.LastError)
+	case err == nil:
+		// The durable Slack outbox owns uncertain delivery recovery. Let its
+		// worker finish before binding native status and the scheduled input.
+		return "", store.ErrNotFound
+	case !errors.Is(err, store.ErrNotFound):
 		return "", err
 	}
-	timestamp, err := s.slack.Post(
-		ctx,
-		deliveryID,
-		channelID,
-		"",
+	body, err := slackui.Encode(s.sanitizer.Message(
 		slackui.ScheduledRunStartedMessage(task, occurrence.ScheduledFor),
-	)
-	if err == nil {
-		return timestamp, nil
+	))
+	if err != nil {
+		return "", err
 	}
-	// Slack may accept a message even when the response is lost. Resolve that
-	// uncertainty from the delivery metadata before allowing a retry to post.
-	recovered, findErr := s.slack.FindDeliveryMessage(ctx, channelID, "", deliveryID)
-	if findErr == nil && recovered != "" {
-		return recovered, nil
+	if _, err := s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: deliveryID, Kind: "scheduled_anchor", ChannelID: channelID, Body: body,
+	}); err != nil {
+		return "", err
 	}
-	return "", err
+	return "", store.ErrNotFound
 }
 
 func (s *Service) reconcileScheduledTaskRuns(ctx context.Context) error {

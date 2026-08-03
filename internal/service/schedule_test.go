@@ -239,9 +239,15 @@ func TestDueScheduleCreatesRecoverableNativeStatusAnchor(t *testing.T) {
 	}
 	slack := &scheduleSlack{t: t, wantUser: task.ActorID, wantTeam: task.TeamID}
 	slack.channel = slackui.Channel{ID: "CREPORT", Name: "health-reports", Member: true}
-	slack.dedupePosts = true
 	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
-	if err := svc.processScheduledTasks(ctx); err != nil {
+	if err := svc.processScheduledTasks(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	if len(slack.posts) != 0 {
+		t.Fatalf("scheduled anchor bypassed durable outbox: %+v", slack.posts)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if err := svc.processScheduledTasks(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
 		t.Fatal(err)
 	}
 	if len(slack.posts) != 1 || slack.posts[0].thread != "" ||
