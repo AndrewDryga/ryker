@@ -1354,6 +1354,9 @@ func replayAgentRunFailure(
 		strings.Contains(strings.ToLower(detail), "turn cleanup failed") {
 		return "Coop could not clean up the agent turn; retrying in a fresh turn", true
 	}
+	if terminalACPEnvironmentFailure(turn) {
+		return "", false
+	}
 	if run.Mode == core.AgentRunTriage &&
 		turn.ErrorCode == "acp_process_error" &&
 		strings.Contains(
@@ -1366,11 +1369,32 @@ func replayAgentRunFailure(
 }
 
 func replayAgentRunInFreshSession(turn coop.Turn) bool {
+	if terminalACPEnvironmentFailure(turn) {
+		return false
+	}
 	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
 	return (turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled") ||
 		(turn.ErrorCode == "acp_process_error" &&
 			strings.Contains(detail, "acp child closed before its response")) ||
 		transcriptOverflow(turn)
+}
+
+func terminalACPEnvironmentFailure(turn coop.Turn) bool {
+	if turn.ErrorCode != "acp_process_error" {
+		return false
+	}
+	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
+	for _, diagnostic := range []string{
+		"coop box image is not built",
+		"coop runtime storage is full",
+		"coop cannot reach the docker runtime",
+		"configured coop account is not authenticated",
+	} {
+		if strings.Contains(detail, diagnostic) {
+			return true
+		}
+	}
+	return false
 }
 
 func transcriptOverflow(turn coop.Turn) bool {

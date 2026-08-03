@@ -985,6 +985,23 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 	); replay || reason != "" {
 		t.Fatalf("ACP process failure replay was not bounded = %q, %t", reason, replay)
 	}
+	for _, detail := range []string{
+		"ACP child closed before its response: Coop box image is not built; run 'coop build'",
+		"ACP child closed before its response: Coop runtime storage is full",
+		"ACP child closed before its response: Coop cannot reach the Docker runtime",
+		"ACP child closed before its response: the configured Coop account is not authenticated; run 'coop login'",
+	} {
+		environmentFailure := coop.Turn{
+			ErrorCode:   "acp_process_error",
+			ErrorDetail: detail,
+		}
+		run.Failures = 0
+		if reason, replay := replayAgentRunFailure(
+			run, "turn.failed", environmentFailure, 20,
+		); replay || reason != "" || replayAgentRunInFreshSession(environmentFailure) {
+			t.Fatalf("environment failure replayed = %q, %t, %q", reason, replay, detail)
+		}
+	}
 	run.Mode = core.AgentRunIncident
 	run.Failures = 0
 	if reason, replay := replayAgentRunFailure(
