@@ -28,6 +28,7 @@ const (
 	workMaintenance      = "maintenance"
 	workScheduledTask    = "scheduled_task"
 	workPublicationTrack = "publication_followup"
+	workEpisodeRecheck   = "episode_recheck"
 	schedulerSingletonID = "drain"
 )
 
@@ -318,6 +319,8 @@ func (s *Service) runScheduledWork(
 		return s.processPublicationFollowup(ctx)
 	case workExternalMessageReconcile:
 		return s.reconcileExternalMessage(ctx, item)
+	case workEpisodeRecheck:
+		return s.processEpisodeRecheck(ctx, item)
 	default:
 		return fmt.Errorf("unsupported scheduled work kind %q", item.Kind)
 	}

@@ -236,6 +236,10 @@ contract. The host validates each operation and completion against this contract
 
 A blocker is an external boundary, not unfinished work. Exhaust available read-only routes before
 returning one, then name the exact source, access, operator input, authority, or tool failure required.
+When an exact source or tool capability is expected to propagate shortly, include completion.recheck
+with a stable dependency key, a concrete reason, a 30-1800 second delay, and 1-4 additional attempts.
+Do not request a recheck for missing credentials, denied access, operator decisions, permanent setup,
+or open-ended monitoring. The host owns timing and deduplication; a recheck grants no authority.
 Completion evaluates the requested objective at the latest recorded observation. Missing evidence for
 a future remediation does not make a completed assessment blocked when the requested objective itself
 has a decisive answer; record the remediation gap as a next action and complete with the supported verdict.

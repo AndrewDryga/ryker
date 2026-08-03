@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 )
 
 type completionAssessment = investigation.CompletionAssessment
+
+var transientRecheckKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._/@-]{0,159}$`)
 
 func validateCompletionAssessment(completion *completionAssessment) error {
 	if completion == nil {
@@ -24,6 +27,10 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	completion.BlockerKind = strings.TrimSpace(completion.BlockerKind)
 	completion.Blocker = strings.TrimSpace(completion.Blocker)
 	completion.NextAction = strings.TrimSpace(completion.NextAction)
+	if completion.Recheck != nil {
+		completion.Recheck.Key = strings.TrimSpace(completion.Recheck.Key)
+		completion.Recheck.Reason = strings.TrimSpace(completion.Recheck.Reason)
+	}
 	if len(completion.MaterialGaps) > 20 {
 		return errors.New("completion assessment has too many material gaps")
 	}
@@ -55,6 +62,9 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 		if completion.BlockerKind != "" || len(completion.Attempts) > 0 {
 			return errors.New("decision-ready completion cannot contain blocker fields")
 		}
+		if completion.Recheck != nil {
+			return errors.New("decision-ready completion cannot request a recheck")
+		}
 	case "blocked":
 		if completion.Verdict != "" {
 			return errors.New("blocked completion cannot contain an operational verdict")
@@ -68,6 +78,23 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 		}
 		if !validCompletionBlockerKind(completion.BlockerKind) {
 			return fmt.Errorf("unsupported completion blocker kind %q", completion.BlockerKind)
+		}
+		if completion.Recheck != nil {
+			if completion.BlockerKind != "source_unavailable" && completion.BlockerKind != "tool_failure" {
+				return errors.New("only a transient source or tool blocker can request a recheck")
+			}
+			if !transientRecheckKeyPattern.MatchString(completion.Recheck.Key) {
+				return errors.New("completion recheck requires a bounded stable key")
+			}
+			if completion.Recheck.Reason == "" || len(completion.Recheck.Reason) > 500 {
+				return errors.New("completion recheck requires a bounded reason")
+			}
+			if completion.Recheck.AfterSeconds < 30 || completion.Recheck.AfterSeconds > 1800 {
+				return errors.New("completion recheck delay must be between 30 and 1800 seconds")
+			}
+			if completion.Recheck.AdditionalAttempts < 1 || completion.Recheck.AdditionalAttempts > 4 {
+				return errors.New("completion recheck attempts must be between 1 and 4")
+			}
 		}
 	default:
 		return fmt.Errorf("unsupported completion status %q", completion.Status)

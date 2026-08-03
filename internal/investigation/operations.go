@@ -8,14 +8,25 @@ import (
 )
 
 type CompletionAssessment struct {
-	Status       string   `json:"status"`
-	Verdict      string   `json:"verdict,omitempty"`
-	Summary      string   `json:"summary"`
-	MaterialGaps []string `json:"material_gaps,omitempty"`
-	BlockerKind  string   `json:"blocker_kind,omitempty"`
-	Blocker      string   `json:"blocker,omitempty"`
-	Attempts     []string `json:"attempts,omitempty"`
-	NextAction   string   `json:"next_action,omitempty"`
+	Status       string            `json:"status"`
+	Verdict      string            `json:"verdict,omitempty"`
+	Summary      string            `json:"summary"`
+	MaterialGaps []string          `json:"material_gaps,omitempty"`
+	BlockerKind  string            `json:"blocker_kind,omitempty"`
+	Blocker      string            `json:"blocker,omitempty"`
+	Attempts     []string          `json:"attempts,omitempty"`
+	NextAction   string            `json:"next_action,omitempty"`
+	Recheck      *RecheckDirective `json:"recheck,omitempty"`
+}
+
+// RecheckDirective identifies a short-lived external condition that the host
+// can revisit without asking the operator to repeat the request. It grants no
+// additional authority.
+type RecheckDirective struct {
+	Key                string `json:"key"`
+	Reason             string `json:"reason"`
+	AfterSeconds       int    `json:"after_seconds"`
+	AdditionalAttempts int    `json:"additional_attempts"`
 }
 
 type AlertAssessment struct {
@@ -125,7 +136,7 @@ accepted operations in the episode event stream.
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"coverage":[{"layer":"host","claim_ids":["host.current_state"],"status":"healthy|degraded|unhealthy|unknown|not_applicable","source":"short source label","detail":"bounded assessment","observed_at":"RFC3339 source time"}],"memory":{"topology":["two production hosts"]},"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
-- complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure","attempts":["route already attempted"],"next_action":"exact action that unblocks it"}}}
+- complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure","attempts":["route already attempted"],"next_action":"exact action that unblocks it","recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}
 
 Use record_evidence once per atomic claim. Put presentation, coverage, memory, visuals, durable
 behavior offers, alert assessment, completion assessment, and action proposals only in the final

@@ -238,7 +238,7 @@ func watchInputWantsPendingStatus(
 	input core.SlackInput,
 	state watchTurnState,
 ) bool {
-	return slackReplyThread(input) != "" &&
+	return input.Kind != "recheck" && slackReplyThread(input) != "" &&
 		(watchInputTargeted(input, state) ||
 			requestedConversationLocation(input.Text) != conversationLocationFollow)
 }
@@ -1676,6 +1676,11 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	if err := s.applyWatchDecision(ctx, input, state, decision); err != nil {
 		return err
 	}
+	if err := s.scheduleEpisodeRechecks(
+		ctx, run, input, state, decision.Completion,
+	); err != nil {
+		return err
+	}
 	episodeState, phase, status, nextAction := completionEpisodePhase(
 		decision.Completion,
 		decision.PendingApproval,
@@ -2080,7 +2085,8 @@ func (s *Service) finishTriageRunFailure(
 }
 
 func publishTriageFailure(input core.SlackInput, state watchTurnState) bool {
-	return state.ApprovalContinuation || input.Kind != "bot_message"
+	return state.RecheckOriginRunID == "" &&
+		(state.ApprovalContinuation || input.Kind != "bot_message")
 }
 
 func triageFailureOutcome(published bool) string {

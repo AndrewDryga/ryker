@@ -70,6 +70,9 @@ type watchTurnState struct {
 	ReplyDeliveryID       string                         `json:"reply_delivery_id,omitempty"`
 	PublicationsCaptured  bool                           `json:"publications_captured,omitempty"`
 	ActivePublications    []core.PublicationContext      `json:"active_publications,omitempty"`
+	RecheckOriginRunID    string                         `json:"recheck_origin_run_id,omitempty"`
+	RecheckKey            string                         `json:"recheck_key,omitempty"`
+	RecheckAttempt        int                            `json:"recheck_attempt,omitempty"`
 }
 
 type watchContextMessage struct {
@@ -2246,6 +2249,8 @@ func watchPromptMessage(
 		senderType = "human_reaction"
 	} else if input.Kind == "scheduled" {
 		senderType = "operator_schedule"
+	} else if input.Kind == "recheck" {
+		senderType = "host_recheck"
 	}
 	mentionsResponder := botUserID != "" &&
 		strings.Contains(input.Text, "<@"+botUserID+">")
@@ -2426,6 +2431,12 @@ When target_message.sender_type is operator_schedule, this is a previously confi
 occurrence, not ambient Slack prose. Execute its self-contained request now, use current tools and
 evidence, and choose reply with the result. Do not create another schedule_offer from it. Current
 authorization and Emisar approval policy still apply; the schedule itself grants no mutation.
+
+When target_message.sender_type is host_recheck, the host is revisiting an exact transient blocker
+from an earlier accepted request. Refresh that source with current tools. If the blocker and useful
+result are unchanged, choose action=ignore so Slack stays quiet. If the blocker cleared or changed
+materially, finish the original request as far as current evidence permits and choose reply with only
+the new decision-useful result. Do not repeat the earlier blocked answer or offer another recheck.
 
 ` + operationalMemoryPolicy + `
 
