@@ -3956,14 +3956,19 @@ func TestWatchedChannelDecisions(t *testing.T) {
 		{
 			name: "configured app alert offers incident", kind: "bot_message",
 			alertPolicy: "offer",
-			decision:    `{"action":"incident","title":"Checkout error rate is elevated"}`,
-			wantState:   "done", wantPosts: 1, wantOffer: true,
+			decision: `{"action":"reply","attention":{"addressee":"channel",` +
+				`"urgency":3,"confidence":3,"novelty":3,"ownership":3},` +
+				`"message":"Checkout errors are elevated and need investigation.",` +
+				`"incident_title":"Checkout error rate is elevated"}`,
+			wantState: "done", wantPosts: 1, wantOffer: true,
 		},
 		{
 			name: "configured app alert replies in place", kind: "bot_message",
 			alertPolicy: "reply",
-			decision:    `{"action":"incident","title":"Checkout error rate is elevated"}`,
-			wantState:   "done", wantPosts: 1,
+			decision: `{"action":"reply","attention":{"addressee":"channel",` +
+				`"urgency":3,"confidence":3,"novelty":3,"ownership":3},` +
+				`"message":"Checkout errors are elevated and need investigation."}`,
+			wantState: "done", wantPosts: 1,
 		},
 		{
 			name: "reply incident offer obeys automatic app policy", kind: "bot_message",
@@ -4082,9 +4087,12 @@ func TestWatchedChannelDecisions(t *testing.T) {
 				message := slack.posts[0].message
 				if len(message.Actions) != 1 ||
 					message.Actions[0].ID != slackui.ActionOpenIncident ||
-					message.Actions[0].Value != input.ID ||
-					!strings.Contains(message.Text, "have not opened an incident") {
+					message.Actions[0].Value != input.ID {
 					t.Fatalf("human incident confirmation = %+v", message)
+				}
+				if strings.Contains(strings.ToLower(message.Text), "no incident") ||
+					strings.Contains(strings.ToLower(message.Text), "channel is configured") {
+					t.Fatalf("incident policy leaked into operator prose = %+v", message)
 				}
 				run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
 				if err != nil {
@@ -4141,7 +4149,7 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 	}
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"message":"Cassandra is firing and needs investigation."}`,
+		`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"message":"Cassandra is firing and needs investigation.","coverage":[{"layer":"dependency","status":"unhealthy","source":"current alert","detail":"Cassandra throughput is below its alert threshold"}],"completion":{"status":"decision_ready","verdict":"confirmed","summary":"The current alert confirms a Cassandra issue that needs investigation."}}`,
 		`{"action":"reply","attention":{"addressee":"channel","urgency":2,"confidence":3,"novelty":3,"ownership":3},"message":"Cassandra recovered after the firing alert."}`,
 	}
 	slackClient := &fakeSlack{}
@@ -4184,6 +4192,91 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 		!strings.Contains(slackClient.posts[0].message.Text, "firing") ||
 		!strings.Contains(slackClient.posts[1].message.Text, "recovered") {
 		t.Fatalf("ordered app alert replies = %+v", slackClient.posts)
+	}
+}
+
+func TestErroredAppRunIsInvestigatedInPlaceWithoutPolicyBoilerplate(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CWATCH", Participation: "proactive", Repository: "repo",
+		AlertPolicy: "reply", ActorID: "U123ABC",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"incident","title":"Terraform apply run-R1FRs9QFdGmTbBUx errored after destructive changes began","reason":"A credible terminal apply failure may have left partial changes."}`,
+		`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"message":"**Apply failed after changes had started.** Five storage buckets and their IAM bindings were deleted before Terraform stopped; the runner replacement did not finish. Check the terminal Terraform error, restore any unintended deletions, then run a fresh plan and verify the runner before applying again.","evidence":[{"claim":"the apply failed after partial changes","observation":"HCP Terraform reports the run errored after five bucket deletions while the runner replacement remained incomplete","source_type":"monitoring","source_name":"HCP Terraform run run-R1FRs9QFdGmTbBUx"}],"coverage":[{"layer":"change","status":"unhealthy","source":"HCP Terraform","detail":"the apply reached a terminal error after partial destructive changes"}],"completion":{"status":"decision_ready","verdict":"failed","summary":"The apply failed after partial destructive changes and needs reconciliation before retrying."}}`,
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-terraform-errored", EnvelopeID: "env-terraform-errored",
+		EventID: "EvTerraformErrored", Kind: "bot_message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1785762915.000", UserID: "BTERRAFORM",
+		Text: "Run notification for SME-Tenant/tenant-infra\nRun run-R1FRs9QFdGmTbBUx\n" +
+			"Triggered via CLI\nRun Errored",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	finishQueuedAgentRun(t, ctx, svc)
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 ||
+		!strings.Contains(run.LastError, "evidence-backed in-place alert assessment") {
+		t.Fatalf("incident-only result was not corrected = %+v, %v", run, err)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("premature alert result reached Slack: %+v", slackClient.posts)
+	}
+
+	finishQueuedAgentRun(t, ctx, svc)
+	run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunCompleted {
+		t.Fatalf("completed alert investigation = %+v, %v", run, err)
+	}
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("Slack posts = %+v", slackClient.posts)
+	}
+	text := strings.ToLower(slackClient.posts[0].message.Text)
+	for _, required := range []string{"apply failed", "five storage buckets", "fresh plan"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("useful alert result missing %q: %+v", required, slackClient.posts[0])
+		}
+	}
+	for _, boilerplate := range []string{
+		"no incident", "channel is configured", "without offering", "opening one creates",
+	} {
+		if strings.Contains(text, boilerplate) {
+			t.Fatalf("alert result leaked policy boilerplate %q: %+v", boilerplate, slackClient.posts[0])
+		}
+	}
+	incidents, err := st.ListIncidents(ctx, 10)
+	if err != nil || len(incidents) != 0 {
+		t.Fatalf("in-place alert created incidents = %+v, %v", incidents, err)
+	}
+	if len(coopClient.submitPrompts) != 2 ||
+		!strings.Contains(coopClient.submitPrompts[0], "Do not explain or disclose this setting") ||
+		!strings.Contains(coopClient.submitPrompts[1], "evidence-backed in-place alert assessment") {
+		t.Fatalf("alert correction prompts = %v", coopClient.submitPrompts)
 	}
 }
 

@@ -267,9 +267,22 @@ func (s *Service) episodeForWatchedInput(
 		episode.Effort = core.EffortFocusedCheck
 		episode.Activity = core.ActivityInvestigating
 		episode.RequiredCoverage = focusedCoverage(text)
+		if input.Kind == "bot_message" && externalChangeLifecycleEvent(text) {
+			// Lifecycle words such as "errored" are not application-health evidence.
+			// Keep the required claim on the exact change; impact may still be added
+			// when an authoritative source establishes it.
+			episode.RequiredCoverage = []string{"change"}
+		}
 		episode.CompletionCriteria = []string{
 			"verify the named claim with the best available source",
 			"state the result, material gap, and next action",
+		}
+		if input.Kind == "bot_message" && state.AlertPolicy != "automatic" {
+			episode.CompletionCriteria = []string{
+				"establish the exact current or terminal state from an authoritative source",
+				"determine what failed, what may have partially changed, and the current impact",
+				"state the safest concrete next action and how its result will be verified",
+			}
 		}
 	}
 	if matchedOperationalAlertRule(state.MatchedRules) {
@@ -296,6 +309,19 @@ func (s *Service) episodeForWatchedInput(
 		}
 	}
 	return episode
+}
+
+func externalChangeLifecycleEvent(text string) bool {
+	text = strings.ToLower(strings.Join(strings.Fields(text), " "))
+	if !strings.Contains(text, "run ") && !strings.Contains(text, "apply ") &&
+		!strings.Contains(text, "deployment ") && !strings.Contains(text, "build ") {
+		return false
+	}
+	return episodeContainsAny(
+		text,
+		"planning", "planned", "applying", "applied", "errored", "failed",
+		"discarded", "canceled", "cancelled",
+	)
 }
 
 func requestEpisodeActivity(text string) core.EpisodeActivity {

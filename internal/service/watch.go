@@ -35,6 +35,7 @@ var slackReactionNamePattern = regexp.MustCompile(
 
 type watchTurnState struct {
 	Lane                  string                         `json:"lane,omitempty"`
+	AlertPolicy           string                         `json:"alert_policy,omitempty"`
 	SessionID             string                         `json:"session_id"`
 	SessionChannelID      string                         `json:"session_channel_id,omitempty"`
 	Repository            string                         `json:"repository,omitempty"`
@@ -897,43 +898,16 @@ func (s *Service) applyWatchDecision(
 			}
 			return s.createWatchedIncident(ctx, input, input, decision.Title)
 		}
-		if input.Kind == "bot_message" && alertPolicy == "reply" {
-			if err := post(
-				ctx,
-				"watch_reply_"+input.ID,
-				input,
-				slackui.Notice(
-					"**Alert needs attention, but no incident was created.**\n\n"+
-						decision.Title+"\n\nThis channel is configured to keep app-alert "+
-						"triage in place without offering or automatically opening a room.",
-				),
-			); err != nil {
-				return err
-			}
-			_ = s.store.Audit(ctx, core.AuditEvent{
-				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "alert_replied_in_place", Detail: input.ChannelID,
-			})
-			break
-		}
-		if err := s.persistWatchIncidentOffer(ctx, input.ID, decision.Title); err != nil {
-			return err
-		}
-		message := "I found an issue that may need coordinated investigation: " +
-			decision.Title + ". I have not opened an incident. Use the button below if you " +
-			"want a dedicated room and isolated working copy."
-		if err := post(
+		// A non-automatic policy changes the control surface, not the substance of
+		// the reply. New turns are corrected before finalization; this conversion
+		// keeps older persisted results concise without narrating policy boilerplate.
+		offerIncident := input.Kind != "bot_message" || alertPolicy == "offer"
+		return s.applyWatchDecision(
 			ctx,
-			"watch_reply_"+input.ID,
 			input,
-			slackui.ConversationResponseWithIncidentOffer(message, input.ID, s.sanitizer),
-		); err != nil {
-			return err
-		}
-		_ = s.store.Audit(ctx, core.AuditEvent{
-			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-			Outcome: "incident_offered", Detail: input.ChannelID,
-		})
+			state,
+			standingRuleIncidentAsReply(decision, offerIncident),
+		)
 	default:
 		return fmt.Errorf("unsupported watch decision %q", decision.Action)
 	}
@@ -1088,19 +1062,23 @@ func standingRuleIncidentAsReply(decision watchDecision, offerIncident bool) wat
 	title := strings.TrimSpace(decision.Title)
 	message := strings.TrimSpace(decision.Reason)
 	if message == "" {
-		message = "This alert needs investigation."
+		message = title
 	}
 	if title != "" && !strings.Contains(strings.ToLower(message), strings.ToLower(title)) {
 		message = "**" + title + "**\n\n" + message
 	}
 	decision.Action = "reply"
 	decision.Message = message
+	if !decision.Attention.present() {
+		decision.Attention = attentionAssessment{
+			Addressee: "channel", Urgency: 3, Confidence: 3, Novelty: 3, Ownership: 2,
+		}
+	}
 	if offerIncident {
 		decision.IncidentTitle = title
 	}
 	decision.Title = ""
-	decision.Memory.SituationSummary = "The alert `" + title +
-		"` requires investigation in its source thread. No incident was created."
+	decision.Memory.SituationSummary = title
 	decisions := make([]string, 0, len(decision.Memory.Decisions)+1)
 	for _, item := range decision.Memory.Decisions {
 		if !strings.Contains(strings.ToLower(item), "incident") {
@@ -1109,11 +1087,11 @@ func standingRuleIncidentAsReply(decision watchDecision, offerIncident bool) wat
 	}
 	if offerIncident {
 		decisions = append(decisions,
-			"Offer incident escalation for operator confirmation; no incident was created.",
+			"Offer incident coordination for operator confirmation.",
 		)
 	} else {
 		decisions = append(decisions,
-			"Keep this alert's triage in its source thread; no incident was created.",
+			"Continue this alert's investigation in its source thread.",
 		)
 	}
 	decision.Memory.Decisions = decisions
@@ -1153,6 +1131,19 @@ func watchDecisionCorrection(
 			}
 		}
 	}
+	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
+		state.AlertPolicy != "automatic" {
+		if decision.Action == "incident" {
+			return "this channel requires an evidence-backed in-place alert assessment; " +
+				"continue the read-only investigation and return reply with typed evidence, " +
+				"coverage, and a completion verdict instead of reducing the result to incident admission"
+		}
+		if externalAppEventRequiresDecision(input.Text) && decision.Action == "reply" &&
+			(decision.Completion == nil || strings.TrimSpace(decision.Completion.Verdict) == "") {
+			return "this terminal or actionable app event has no completion verdict; establish " +
+				"the exact state, impact, cause or boundary, and concrete next action before finishing"
+		}
+	}
 	if requestedConversationLocation(input.Text) != conversationLocationFollow &&
 		!locationOnlyRequest(input.Text) &&
 		decision.Action != "reply" &&
@@ -1168,6 +1159,13 @@ func watchDecisionCorrection(
 			"answer the current message instead of treating it as a duplicate of an earlier turn"
 	}
 	return ""
+}
+
+func externalAppEventRequiresDecision(text string) bool {
+	text = strings.ToLower(strings.Join(strings.Fields(text), " "))
+	return episodeContainsAny(
+		text, "errored", "failed", "failure", "firing", "critical", "warning",
+	)
 }
 
 func matchedOperationalAlertRule(rules []core.StandingRule) bool {
@@ -1215,6 +1213,38 @@ Your previous decision was rejected by Responder's deterministic conversation po
 nearby message, and do not silently ignore work that the operator directed to Emisar. Return one
 fresh valid decision for the current target.
 </host-decision-correction>`
+}
+
+func appAlertPolicyPrompt(kind, policy string) string {
+	if kind != "bot_message" || strings.TrimSpace(policy) == "" {
+		return ""
+	}
+	policy = strings.TrimSpace(policy)
+	guidance := ""
+	switch policy {
+	case "automatic":
+		guidance = `A credible unresolved alert may use action=incident for immediate coordination. ` +
+			`Incident admission is intentionally fast; the incident episode performs the investigation.`
+	case "offer":
+		guidance = `Investigate the alert in this turn and return an evidence-backed reply. ` +
+			`If coordinated incident work would help after that assessment, include incident_title so ` +
+			`the host can offer the control.`
+	case "reply":
+		guidance = `Investigate the alert in this turn and return an evidence-backed reply. ` +
+			`Do not return action=incident or incident_title.`
+	default:
+		return ""
+	}
+	return `
+
+<host-app-alert-policy>
+The target is an external app event. This channel's trusted alert policy is ` + policy + `. ` +
+		guidance + ` Do not explain or disclose this setting in the Slack answer. It controls only ` +
+		`incident routing; the answer itself must focus on what happened, impact, evidence, and the ` +
+		`next useful action. For an errored, failed, firing, critical, or warning event, complete the ` +
+		`episode with the contract's exact verdict after exhausting the relevant authoritative ` +
+		`read-only evidence routes.
+</host-app-alert-policy>`
 }
 
 func (s *Service) createWatchedIncident(

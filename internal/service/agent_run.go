@@ -99,6 +99,13 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		}
 		state = legacy
 	}
+	if input.Kind == "bot_message" && state.AlertPolicy == "" {
+		alertPolicy, err := s.channelAlertPolicy(ctx, input.ChannelID)
+		if err != nil {
+			return err
+		}
+		state.AlertPolicy = alertPolicy
+	}
 	if !state.RulesCaptured {
 		rules, err := s.matchingStandingRules(ctx, input)
 		if err != nil {
@@ -569,6 +576,12 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			ctx, run, input, state, "invalid persisted triage context: "+trimError(err),
 		)
 	}
+	if input.Kind == "bot_message" && state.AlertPolicy == "" {
+		state.AlertPolicy, err = s.channelAlertPolicy(ctx, input.ChannelID)
+		if err != nil {
+			return s.retryAgentRun(ctx, run, err)
+		}
+	}
 	if input.Kind == "message" && len(state.MatchedRules) == 0 &&
 		!state.ApprovalContinuation {
 		alreadyClassified, err := s.store.HasNewerWatchDecision(
@@ -793,6 +806,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		firstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 		state.MatchedRules,
 	) + "\n\n" + repositorySetPrompt(session)
+	prompt += appAlertPolicyPrompt(input.Kind, state.AlertPolicy)
 	if state.ApprovalContinuation && strings.TrimSpace(run.Prompt) != "" {
 		prompt += "\n\n<emisar-run-continuation>\n" + run.Prompt +
 			"\n</emisar-run-continuation>"

@@ -24,6 +24,7 @@ const slackPlainLanguagePolicy = "Write like a clear, experienced teammate speak
 	"- Explain necessary technical terms the first time they appear. Put exact field names, commands, IDs, and status values in inline code only when they help the user decide or act.\n" +
 	"- Translate evidence into meaning: what happened, why it matters, what is known, and what should happen next. Do not make the user decode internal architecture, tool names, schemas, or workflow terminology.\n" +
 	"- Preserve important nuance and uncertainty. Simpler language must not weaken evidence standards, hide risk, or turn an unknown into a conclusion.\n" +
+	"- Do not repeat routine safety, incident, isolation, or authorization boundaries in ordinary replies. Mention a boundary only when the user asks about it or it changes the immediate next step, such as a required approval or a blocked operation. Controls and audit state carry unchanged policy.\n" +
 	"- If the user asks to explain, summarize, or rephrase an established result, use the existing conversation. Do not repeat repository or live-system checks unless they ask for a fresh check or the existing context cannot support the answer."
 
 const slackHumorPolicy = "Use humor like a trusted teammate: optional, brief, and sensitive to the moment.\n\n" +
