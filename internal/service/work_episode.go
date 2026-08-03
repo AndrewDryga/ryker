@@ -516,7 +516,7 @@ func episodeClaimCorrection(
 	return ledger.CompletionCorrection(completion.Status)
 }
 
-func claimRequired(contract investigation.Contract, claimID string) bool {
+func claimRequired(contract investigation.InvestigationContract, claimID string) bool {
 	for _, requirement := range contract.Claims {
 		if requirement.Required && requirement.ID == strings.TrimSpace(claimID) {
 			return true

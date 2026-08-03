@@ -46,7 +46,7 @@ type CompletionRule struct {
 	AllowUnknownSLO     bool     `json:"allow_not_applicable_slo"`
 }
 
-type Contract struct {
+type InvestigationContract struct {
 	Version            string                 `json:"version"`
 	Effort             core.EffortContract    `json:"effort"`
 	Authority          core.AuthorityBoundary `json:"authority"`
@@ -123,7 +123,7 @@ var layerClaims = map[string]ClaimRequirement{
 	},
 }
 
-func Compile(episode core.WorkEpisode) Contract {
+func Compile(episode core.WorkEpisode) InvestigationContract {
 	claims := make([]ClaimRequirement, 0, len(episode.RequiredCoverage))
 	for _, layer := range episode.RequiredCoverage {
 		claim, ok := layerClaims[layer]
@@ -138,7 +138,7 @@ func Compile(episode core.WorkEpisode) Contract {
 		claim.Required = true
 		claims = append(claims, claim)
 	}
-	contract := Contract{
+	contract := InvestigationContract{
 		Version: Version, Effort: episode.Effort, Authority: episode.Authority,
 		Objective: strings.TrimSpace(episode.Objective), Claims: claims,
 		CompletionCriteria: slices.Clone(episode.CompletionCriteria),
@@ -157,7 +157,7 @@ func Compile(episode core.WorkEpisode) Contract {
 	return contract
 }
 
-func (contract Contract) RequiredLayers() []string {
+func (contract InvestigationContract) RequiredLayers() []string {
 	result := make([]string, 0, len(contract.Claims))
 	for _, claim := range contract.Claims {
 		if claim.Required {
@@ -167,7 +167,7 @@ func (contract Contract) RequiredLayers() []string {
 	return result
 }
 
-func (contract Contract) Prompt() string {
+func (contract InvestigationContract) Prompt() string {
 	data, err := json.Marshal(contract)
 	if err != nil {
 		return ""

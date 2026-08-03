@@ -34,11 +34,11 @@ type ClaimView struct {
 }
 
 type Ledger struct {
-	Contract Contract             `json:"contract"`
-	Claims   map[string]ClaimView `json:"claims"`
+	Contract InvestigationContract `json:"contract"`
+	Claims   map[string]ClaimView  `json:"claims"`
 }
 
-func BuildLedger(contract Contract, evidence []core.Evidence, coverage []core.Coverage, now time.Time) Ledger {
+func BuildLedger(contract InvestigationContract, evidence []core.Evidence, coverage []core.Coverage, now time.Time) Ledger {
 	ledger := Ledger{Contract: contract, Claims: make(map[string]ClaimView, len(contract.Claims))}
 	byLayer := make(map[string]core.Coverage, len(coverage))
 	for _, item := range coverage {
