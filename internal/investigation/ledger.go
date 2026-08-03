@@ -91,7 +91,7 @@ func BuildLedger(contract InvestigationContract, evidence []core.Evidence, cover
 		}
 		view.Confidence = weakestConfidence(append(append([]core.Evidence{}, view.Evidence...), view.Contradictions...))
 		view.Resolved = claimResolution(
-			view, coverageItem, covered, contract.Completion.AllowUnknownSLO,
+			view, coverageItem, covered, contract.Completion,
 		)
 		ledger.Claims[requirement.ID] = view
 	}
@@ -123,6 +123,8 @@ func (ledger Ledger) CompletionCorrection(status string) string {
 					detail += "missing dimensions: " + strings.Join(view.MissingDimensions, ", ")
 				}
 				missing = append(missing, requirement.ID+" ("+detail+")")
+			} else if !view.Resolved {
+				contradicted = append(contradicted, requirement.ID)
 			}
 		case ClaimNotApplicable:
 			if requirement.Layer != "slo" || !ledger.Contract.Completion.AllowUnknownSLO {
@@ -157,24 +159,42 @@ func claimResolution(
 	view ClaimView,
 	coverage core.Coverage,
 	covered bool,
-	allowUnknownSLO bool,
+	completion CompletionRule,
 ) bool {
 	if !covered || strings.TrimSpace(coverage.Detail) == "" {
 		return false
 	}
 	switch view.State {
 	case ClaimSupported:
-		return coverage.Status == "healthy"
+		return coverage.Status == "healthy" ||
+			(completion.ConclusionKind == "change_review" && coverage.Status == "unknown")
 	case ClaimContradicted, ClaimMixed:
-		return coverage.Status == "degraded" || coverage.Status == "unhealthy"
+		return materialHealthEffectPresent(view, coverage.Status)
 	case ClaimUnknown:
-		return allowUnknownSLO && view.Requirement.Layer == "slo" &&
+		return completion.AllowUnknownSLO && view.Requirement.Layer == "slo" &&
 			view.Requirement.Required && coverage.Status == "unknown"
 	case ClaimNotApplicable:
 		return coverage.Status == "not_applicable"
 	default:
 		return false
 	}
+}
+
+func materialHealthEffectPresent(view ClaimView, status string) bool {
+	if status != "degraded" && status != "unhealthy" {
+		return false
+	}
+	items := append(append([]core.Evidence{}, view.Evidence...), view.Contradictions...)
+	for _, item := range items {
+		effect := strings.ToLower(strings.TrimSpace(item.HealthEffect))
+		if status == "unhealthy" && effect == "unhealthy" {
+			return true
+		}
+		if status == "degraded" && (effect == "degraded" || effect == "unhealthy") {
+			return true
+		}
+	}
+	return false
 }
 
 func (ledger Ledger) Assessments(episodeID string, now time.Time) []core.ClaimAssessment {
@@ -211,6 +231,11 @@ func ValidateEvidence(item core.Evidence) error {
 	case "", "supports", "contradicts":
 	default:
 		return fmt.Errorf("unsupported evidence relation %q", item.Relation)
+	}
+	switch strings.ToLower(strings.TrimSpace(item.HealthEffect)) {
+	case "", "none", "risk", "degraded", "unhealthy", "unknown":
+	default:
+		return fmt.Errorf("unsupported evidence health_effect %q", item.HealthEffect)
 	}
 	return nil
 }

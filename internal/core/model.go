@@ -264,27 +264,28 @@ type AuditEvent struct {
 }
 
 type Evidence struct {
-	ID          string            `json:"id,omitempty"`
-	IncidentID  string            `json:"incident_id,omitempty"`
-	ChannelID   string            `json:"channel_id,omitempty"`
-	SourceInput string            `json:"source_input,omitempty"`
-	ClaimID     string            `json:"claim_id,omitempty"`
-	Claim       string            `json:"claim"`
-	Observation string            `json:"observation"`
-	Relation    string            `json:"relation,omitempty"`
-	SourceType  string            `json:"source_type"`
-	SourceID    string            `json:"source_id,omitempty"`
-	SourceName  string            `json:"source_name"`
-	SourceURL   string            `json:"source_url,omitempty"`
-	Target      string            `json:"target,omitempty"`
-	ScopeNote   string            `json:"scope_note,omitempty"`
-	Freshness   string            `json:"freshness,omitempty"`
-	Confidence  string            `json:"confidence,omitempty"`
-	ObservedAt  time.Time         `json:"observed_at,omitempty"`
-	ValidUntil  time.Time         `json:"valid_until,omitempty"`
-	Dimensions  map[string]string `json:"dimensions,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	CreatedAt   time.Time         `json:"created_at,omitempty"`
+	ID           string            `json:"id,omitempty"`
+	IncidentID   string            `json:"incident_id,omitempty"`
+	ChannelID    string            `json:"channel_id,omitempty"`
+	SourceInput  string            `json:"source_input,omitempty"`
+	ClaimID      string            `json:"claim_id,omitempty"`
+	Claim        string            `json:"claim"`
+	Observation  string            `json:"observation"`
+	Relation     string            `json:"relation,omitempty"`
+	HealthEffect string            `json:"health_effect,omitempty"`
+	SourceType   string            `json:"source_type"`
+	SourceID     string            `json:"source_id,omitempty"`
+	SourceName   string            `json:"source_name"`
+	SourceURL    string            `json:"source_url,omitempty"`
+	Target       string            `json:"target,omitempty"`
+	ScopeNote    string            `json:"scope_note,omitempty"`
+	Freshness    string            `json:"freshness,omitempty"`
+	Confidence   string            `json:"confidence,omitempty"`
+	ObservedAt   time.Time         `json:"observed_at,omitempty"`
+	ValidUntil   time.Time         `json:"valid_until,omitempty"`
+	Dimensions   map[string]string `json:"dimensions,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	CreatedAt    time.Time         `json:"created_at,omitempty"`
 }
 
 // UnmarshalJSON accepts scalar dimension values and normalizes them to their
@@ -298,7 +299,7 @@ func (item *Evidence) UnmarshalJSON(data []byte) error {
 	}
 	allowed := map[string]struct{}{
 		"id": {}, "incident_id": {}, "channel_id": {}, "source_input": {},
-		"claim_id": {}, "claim": {}, "observation": {}, "relation": {},
+		"claim_id": {}, "claim": {}, "observation": {}, "relation": {}, "health_effect": {},
 		"source_type": {}, "source_id": {}, "source_name": {}, "source_url": {},
 		"target": {}, "scope_note": {}, "freshness": {}, "confidence": {},
 		"observed_at": {}, "valid_until": {}, "dimensions": {}, "metadata": {},

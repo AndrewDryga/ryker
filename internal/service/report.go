@@ -466,6 +466,13 @@ func sanitizeEvidence(
 		if item.Relation == "" {
 			item.Relation = "supports"
 		}
+		item.HealthEffect = strings.ToLower(boundedField(item.HealthEffect, 20))
+		if item.HealthEffect == "" {
+			item.HealthEffect = "none"
+		}
+		if !validEvidenceHealthEffect(item.HealthEffect) {
+			item.HealthEffect = "unknown"
+		}
 		item.SourceType = boundedField(item.SourceType, 80)
 		item.SourceName = boundedField(item.SourceName, 200)
 		item.Target = boundedField(item.Target, 300)
@@ -492,6 +499,15 @@ func sanitizeEvidence(
 		result = append(result, item)
 	}
 	return result
+}
+
+func validEvidenceHealthEffect(value string) bool {
+	switch value {
+	case "none", "risk", "degraded", "unhealthy", "unknown":
+		return true
+	default:
+		return false
+	}
 }
 
 func sanitizeCoverage(

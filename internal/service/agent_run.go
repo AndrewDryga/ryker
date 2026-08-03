@@ -1163,6 +1163,11 @@ func (s *Service) stagePolledAgentRunTerminal(
 					decision.Completion,
 				)
 				if correction == "" {
+					correction = episodeConclusionLanguageCorrection(
+						episode, decision.Action, decision.Message,
+					)
+				}
+				if correction == "" {
 					correction = episodeClaimCorrection(
 						episode,
 						decision.Action,
@@ -1244,6 +1249,11 @@ func (s *Service) stagePolledAgentRunTerminal(
 				sanitizeCoverage(report.Coverage, "", "", ""),
 				report.Completion,
 			)
+			if correction == "" {
+				correction = episodeConclusionLanguageCorrection(
+					episode, "reply", report.Message,
+				)
+			}
 			if correction == "" {
 				correction = episodeClaimCorrection(
 					episode,

@@ -348,9 +348,9 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	observed := time.Now().UTC().Add(-30 * time.Second)
 	items, err := st.RecordEvidence(ctx, []core.Evidence{{
 		IncidentID: "inc_1", ChannelID: "COPS", SourceInput: "slack_1",
-		Claim:       "Expected production capacity is two instances",
-		Observation: "infra/main.tf sets target_size to 2",
-		SourceType:  "repository", SourceID: "revision-1", SourceName: "infra/main.tf",
+		Claim:        "Expected production capacity is two instances",
+		Observation:  "infra/main.tf sets target_size to 2",
+		HealthEffect: "risk", SourceType: "repository", SourceID: "revision-1", SourceName: "infra/main.tf",
 		SourceURL: "https://example.test/repo/blob/main/infra/main.tf",
 		Target:    "production-mig", ScopeNote: "declared intent only", ObservedAt: observed,
 		Metadata: map[string]string{"revision": "abc123"},
@@ -373,7 +373,8 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		evidence[0].Metadata["revision"] != "abc123" {
 		t.Fatalf("evidence = %+v, %v", evidence, err)
 	}
-	if evidence[0].SourceID != "revision-1" || evidence[0].ScopeNote != "declared intent only" {
+	if evidence[0].SourceID != "revision-1" || evidence[0].ScopeNote != "declared intent only" ||
+		evidence[0].HealthEffect != "risk" {
 		t.Fatalf("evidence source = %+v", evidence[0])
 	}
 

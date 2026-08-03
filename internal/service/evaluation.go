@@ -430,6 +430,12 @@ func evaluateCaseWithConfig(
 			result.Detail = "premature completion: " + correction
 			return result
 		}
+		if correction := episodeConclusionLanguageCorrection(
+			*episode, completionAction, message,
+		); correction != "" {
+			result.Detail = "wrong conclusion language: " + correction
+			return result
+		}
 		if correction := episodeClaimCorrection(
 			*episode, completionAction, evidence, coverage, completion, now, strictOperations,
 		); correction != "" {

@@ -72,10 +72,21 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	default:
 		return fmt.Errorf("unsupported completion status %q", completion.Status)
 	}
-	if completion.Verdict != "" && !validOperationalHealthVerdict(completion.Verdict) {
+	if completion.Verdict != "" && !validCompletionVerdict(completion.Verdict) {
 		return fmt.Errorf("unsupported completion verdict %q", completion.Verdict)
 	}
 	return nil
+}
+
+func validCompletionVerdict(value string) bool {
+	switch value {
+	case "healthy", "degraded", "unhealthy",
+		"in_progress", "needs_review", "succeeded", "failed", "inconclusive",
+		"confirmed", "not_confirmed", "completed", "no_change", "partial":
+		return true
+	default:
+		return false
+	}
 }
 
 func validOperationalHealthVerdict(value string) bool {
@@ -210,7 +221,11 @@ func (s *Service) episodeForWatchedInput(
 	// Configuration is accepted work, but it is not an operational assessment even
 	// when the requested preference happens to mention health checks or alerts.
 	if input.Kind != "scheduled" && explicitBehaviorRequest(input.Text) {
-		return episode
+		if explicitPreferenceRequestPattern.MatchString(input.Text) ||
+			explicitRuleRequestPattern.MatchString(input.Text) ||
+			!isFocusedCheckRequest(text) {
+			return episode
+		}
 	}
 	if isOperationalAssessmentRequest(text) {
 		episode.Effort = core.EffortOperationalAssessment
@@ -223,6 +238,7 @@ func (s *Service) episodeForWatchedInput(
 	} else if isFocusedCheckRequest(text) || len(input.Attachments) > 0 ||
 		input.Kind == "shortcut" || input.Kind == "bot_message" {
 		episode.Effort = core.EffortFocusedCheck
+		episode.Activity = core.ActivityInvestigating
 		episode.RequiredCoverage = focusedCoverage(text)
 		episode.CompletionCriteria = []string{
 			"verify the named claim with the best available source",
@@ -279,7 +295,7 @@ func isFocusedCheckRequest(text string) bool {
 	return episodeContainsAny(text,
 		"check ", "review ", "verify ", "inspect ", "look into", "investigate", "assess", "assessment",
 		"rollout", "recovered", "recovery", "is it green", "is it healthy", "what failed",
-		"what changed", "explain this alert",
+		"what changed", "explain this alert", "extend ", "test ", "validate ",
 	)
 }
 
@@ -322,7 +338,7 @@ func focusedCoverage(text string) []string {
 		layer string
 		terms []string
 	}{
-		{"change", []string{"ci", "cd", "deploy", "release", "rollout", "revision", "terraform", "plan", "diff", "change", "repository", "validation command"}},
+		{"change", []string{"ci", "cd", "deploy", "release", "rollout", "revision", "terraform", "plan", "diff", "change", "repository", "validation command", "runbook", "publish", "draft"}},
 		{"host", []string{"host", "vm", "disk", "cpu", "memory", "systemd"}},
 		{"runtime", []string{"runtime", "docker", "container"}},
 		{"scheduler", []string{"nomad", "kubernetes", "scheduler", "allocation"}},
@@ -406,11 +422,17 @@ func episodeCompletionCorrection(
 	coverage []core.Coverage,
 	completion *completionAssessment,
 ) string {
-	if action != "reply" || (episode.Effort != core.EffortOperationalAssessment &&
-		episode.Effort != core.EffortIncidentInvestigation) {
+	if action != "reply" {
 		return ""
 	}
+	contract := investigation.Compile(episode)
+	requireCompletion := contract.Completion.RequireVerdict ||
+		episode.Effort == core.EffortOperationalAssessment ||
+		episode.Effort == core.EffortIncidentInvestigation
 	if completion == nil {
+		if !requireCompletion {
+			return ""
+		}
 		return "the deep work episode has no completion assessment; continue until the result is decision-ready or return an exact blocker"
 	}
 	if completion.Status != "decision_ready" && completion.Status != "blocked" {
@@ -418,6 +440,21 @@ func episodeCompletionCorrection(
 	}
 	if strings.TrimSpace(completion.Summary) == "" {
 		return "the completion assessment has no concise decision summary"
+	}
+	if completion.Status == "decision_ready" {
+		if contract.Completion.RequireVerdict && strings.TrimSpace(completion.Verdict) == "" {
+			return "completion.verdict is required and must be one of: " +
+				strings.Join(contract.Completion.AllowedVerdicts, ", ")
+		}
+		if completion.Verdict != "" &&
+			!slices.Contains(contract.Completion.AllowedVerdicts, completion.Verdict) {
+			return fmt.Sprintf(
+				"completion.verdict %q does not match the %s contract; use one of: %s",
+				completion.Verdict,
+				contract.Completion.ConclusionKind,
+				strings.Join(contract.Completion.AllowedVerdicts, ", "),
+			)
+		}
 	}
 	covered := make(map[string]core.Coverage, len(coverage))
 	for _, item := range coverage {
@@ -442,7 +479,11 @@ func episodeCompletionCorrection(
 		return "the deep work episode has not assessed required coverage layers: " + strings.Join(missing, ", ")
 	}
 	if completion.Status == "decision_ready" && (len(completion.MaterialGaps) > 0 || len(unknown) > 0) {
-		if episode.Effort != core.EffortOperationalAssessment || len(completion.MaterialGaps) > 0 {
+		unknownAllowed := contract.Completion.ConclusionKind == "operational_health" ||
+			(contract.Completion.ConclusionKind == "change_review" &&
+				(completion.Verdict == "in_progress" || completion.Verdict == "needs_review" ||
+					completion.Verdict == "inconclusive"))
+		if !unknownAllowed || len(completion.MaterialGaps) > 0 {
 			return "the result claims decision_ready while material coverage remains unknown; either continue the investigation or return blocked with the exact next action"
 		}
 	}
@@ -452,6 +493,26 @@ func episodeCompletionCorrection(
 		}
 		if correction := operationalHealthVerdictCorrection(completion.Verdict, covered, unknown); correction != "" {
 			return correction
+		}
+	}
+	if completion.Status == "decision_ready" && contract.Completion.ConclusionKind == "change_review" {
+		change, ok := covered["change"]
+		if !ok {
+			return "a change review must assess the change coverage layer"
+		}
+		switch completion.Verdict {
+		case "succeeded":
+			if change.Status != "healthy" {
+				return "a succeeded change verdict requires healthy terminal change evidence"
+			}
+		case "failed":
+			if change.Status != "unhealthy" {
+				return "a failed change verdict requires terminal failed change evidence"
+			}
+		case "in_progress":
+			if change.Status != "unknown" {
+				return "an in_progress change verdict must keep the terminal outcome unknown"
+			}
 		}
 	}
 	if completion.Status == "blocked" {
@@ -466,6 +527,30 @@ func episodeCompletionCorrection(
 		}
 		if strings.TrimSpace(completion.NextAction) == "" {
 			return "a blocked completion must state the concrete next action that unblocks the work"
+		}
+	}
+	return ""
+}
+
+func episodeConclusionLanguageCorrection(
+	episode core.WorkEpisode,
+	action string,
+	message string,
+) string {
+	if action != "reply" || investigation.Compile(episode).Completion.ConclusionKind == "operational_health" {
+		return ""
+	}
+	opening := strings.ToLower(strings.TrimSpace(message))
+	if newline := strings.IndexByte(opening, '\n'); newline >= 0 {
+		opening = opening[:newline]
+	}
+	opening = strings.NewReplacer("**", "", "__", "", "`", "").Replace(opening)
+	opening = strings.TrimLeft(opening, "*_> ")
+	for _, label := range []string{"healthy", "degraded", "unhealthy"} {
+		if opening == label || strings.HasPrefix(opening, label+":") ||
+			strings.HasPrefix(opening, label+" -") || strings.HasPrefix(opening, label+" --") ||
+			strings.HasPrefix(opening, label+" \u2014") {
+			return "this episode is not an operational health assessment; report its task, change, publication, schedule, or factual result directly instead of opening with " + label
 		}
 	}
 	return ""

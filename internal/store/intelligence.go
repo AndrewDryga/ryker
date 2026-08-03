@@ -509,6 +509,7 @@ func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([
 	for _, item := range evidence {
 		item.Claim = strings.TrimSpace(item.Claim)
 		item.Observation = strings.TrimSpace(item.Observation)
+		item.HealthEffect = strings.ToLower(strings.TrimSpace(item.HealthEffect))
 		item.SourceType = strings.TrimSpace(item.SourceType)
 		item.SourceName = strings.TrimSpace(item.SourceName)
 		item.ScopeNote = strings.TrimSpace(item.ScopeNote)
@@ -542,14 +543,22 @@ func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([
 			return nil, fmt.Errorf("unsupported evidence relation %q", item.Relation)
 		}
 		item.Relation = relation
+		if item.HealthEffect == "" {
+			item.HealthEffect = "none"
+		}
+		switch item.HealthEffect {
+		case "none", "risk", "degraded", "unhealthy", "unknown":
+		default:
+			return nil, fmt.Errorf("unsupported evidence health_effect %q", item.HealthEffect)
+		}
 		insert, err := tx.ExecContext(ctx, `
 			INSERT OR IGNORE INTO evidence
-			  (id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, source_type,
+			  (id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, health_effect, source_type,
 			   source_id, source_name, source_url, target, scope_note, freshness, confidence, observed_at,
 			   valid_until, dimensions_json, metadata_json, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			item.ID, item.IncidentID, item.ChannelID, item.SourceInput, item.ClaimID, item.Claim,
-			item.Observation, item.Relation, item.SourceType, item.SourceID, item.SourceName, item.SourceURL, item.Target, item.ScopeNote,
+			item.Observation, item.Relation, item.HealthEffect, item.SourceType, item.SourceID, item.SourceName, item.SourceURL, item.Target, item.ScopeNote,
 			item.Freshness, item.Confidence, timeText(item.ObservedAt), timeText(item.ValidUntil), dimensions, metadata,
 			item.CreatedAt.UTC().Format(timestampFormat),
 		)
@@ -633,7 +642,7 @@ func (s *Store) ListEvidence(
 		return nil, errors.New("evidence limit must be between 1 and 200")
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, source_type,
+		SELECT id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, health_effect, source_type,
 		  source_id, source_name, source_url, target, scope_note, freshness, confidence, observed_at, valid_until,
 		  dimensions_json, metadata_json, created_at
 		FROM evidence
@@ -653,7 +662,7 @@ func (s *Store) ListEvidence(
 		var created string
 		if err := rows.Scan(
 			&item.ID, &item.IncidentID, &item.ChannelID, &item.SourceInput, &item.ClaimID, &item.Claim,
-			&item.Observation, &item.Relation, &item.SourceType, &item.SourceID, &item.SourceName, &item.SourceURL,
+			&item.Observation, &item.Relation, &item.HealthEffect, &item.SourceType, &item.SourceID, &item.SourceName, &item.SourceURL,
 			&item.Target, &item.ScopeNote, &item.Freshness, &item.Confidence, &observed, &validUntil,
 			&dimensions, &metadata, &created,
 		); err != nil {

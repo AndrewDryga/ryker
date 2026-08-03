@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -288,6 +289,57 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 	}
 	if _, err := decodeWatchDecision(`{"action":"react","reaction":"eyes","completion":{"status":"decision_ready","summary":"Done"}}`); err == nil {
 		t.Fatal("reaction accepted a completion assessment")
+	}
+}
+
+func TestFocusedChangeReviewUsesLifecycleVerdict(t *testing.T) {
+	episode := core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"change"},
+	}
+	coverage := []core.Coverage{{
+		Layer: "change", Status: "unknown",
+		Detail: "The Terraform run is applying; terminal verification is pending.",
+	}}
+	completion := &completionAssessment{
+		Status: "decision_ready", Verdict: "in_progress",
+		Summary: "The change is applying and needs terminal verification.",
+	}
+	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); got != "" {
+		t.Fatalf("in-progress change rejected: %s", got)
+	}
+	completion.Verdict = "degraded"
+	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); !strings.Contains(got, "change_review") {
+		t.Fatalf("health verdict accepted for change review: %q", got)
+	}
+	completion.Verdict = "succeeded"
+	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); got == "" {
+		t.Fatalf("success without terminal evidence accepted: %q", got)
+	}
+}
+
+func TestRunbookWorkDoesNotUseHealthVerdictLanguage(t *testing.T) {
+	svc := &Service{}
+	episode := svc.episodeForWatchedInput(core.SlackInput{
+		Kind: "mention",
+		Text: "Also extend that runbook and test it; make sure it is all we need for daily checkups.",
+	}, watchTurnState{})
+	contract := investigation.Compile(*episode)
+	if episode.Effort != core.EffortFocusedCheck || contract.Completion.ConclusionKind != "change_review" {
+		t.Fatalf("runbook episode = %+v, completion = %+v", episode, contract.Completion)
+	}
+	if got := episodeConclusionLanguageCorrection(
+		*episode,
+		"reply",
+		"**Degraded** - the expanded runbook is validated but unpublished.",
+	); !strings.Contains(got, "not an operational health assessment") {
+		t.Fatalf("runbook health heading accepted: %q", got)
+	}
+	if got := episodeConclusionLanguageCorrection(
+		*episode,
+		"reply",
+		"The expanded runbook is validated. Publication is the remaining step.",
+	); got != "" {
+		t.Fatalf("task-state answer rejected: %q", got)
 	}
 }
 

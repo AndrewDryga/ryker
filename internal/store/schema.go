@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 35
+const currentSchemaVersion = 36
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1541,6 +1541,10 @@ const schemaV35 = `
 ALTER TABLE evidence ADD COLUMN scope_note TEXT NOT NULL DEFAULT '';
 `
 
+const schemaV36 = `
+ALTER TABLE evidence ADD COLUMN health_effect TEXT NOT NULL DEFAULT 'none';
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1577,4 +1581,5 @@ var migrations = []string{
 	schemaV33,
 	schemaV34,
 	schemaV35,
+	schemaV36,
 }
