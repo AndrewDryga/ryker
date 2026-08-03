@@ -44,6 +44,12 @@ func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
 			coverage: []string{"change", "host", "runtime", "workload", "dependency", "application", "slo"},
 		},
 		{
+			name:   "scheduled health review",
+			input:  core.SlackInput{Kind: "scheduled", UserID: "UOTHER", Text: "Run the daily platform health review"},
+			effort: core.EffortOperationalAssessment, authority: core.AuthorityReadOnly,
+			coverage: []string{"change", "host", "runtime", "workload", "dependency", "application", "slo"},
+		},
+		{
 			name:   "health preference is configuration",
 			input:  core.SlackInput{Kind: "mention", UserID: "U123ABC", Text: "When I ask for infrastructure health, always do a deep check"},
 			effort: core.EffortConversational, authority: core.AuthorityReadOnly,
@@ -161,7 +167,7 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 		{name: "missing completion", action: "reply", coverage: completeCoverage, want: "no completion assessment"},
 		{
 			name: "missing layer", action: "reply", coverage: completeCoverage[:2],
-			completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy"},
+			completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "Healthy"},
 			want:       "has not assessed required coverage layers: slo",
 		},
 		{
@@ -171,8 +177,8 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 				{Layer: "application", Status: "unknown", Detail: "Probe access is unavailable"},
 				{Layer: "slo", Status: "healthy", Detail: "No alert is active"},
 			},
-			completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy"},
-			want:       "claims decision_ready",
+			completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "Healthy"},
+			want:       "healthy verdict cannot leave material operational coverage unknown",
 		},
 		{
 			name: "blocked without action", action: "reply", coverage: completeCoverage,
@@ -206,7 +212,25 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 		},
 		{
 			name: "decision ready", action: "reply", coverage: completeCoverage,
-			completion: &completionAssessment{Status: "decision_ready", Summary: "The checked scope is healthy."},
+			completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "The checked scope is healthy."},
+		},
+		{
+			name: "healthy without formal SLO", action: "reply",
+			coverage: []core.Coverage{
+				{Layer: "host", Status: "healthy", Detail: "Both hosts are responsive"},
+				{Layer: "application", Status: "healthy", Detail: "Functional checks pass and error rates are normal"},
+				{Layer: "slo", Status: "not_applicable", Detail: "No formal SLO is defined"},
+			},
+			completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "The platform is healthy."},
+		},
+		{
+			name: "verified errors decide degradation despite other unknowns", action: "reply",
+			coverage: []core.Coverage{
+				{Layer: "host", Status: "unknown", Detail: "One hardware inventory source is unavailable"},
+				{Layer: "application", Status: "degraded", Detail: "Current request errors exceed baseline"},
+				{Layer: "slo", Status: "not_applicable", Detail: "No formal SLO is defined"},
+			},
+			completion: &completionAssessment{Status: "decision_ready", Verdict: "degraded", Summary: "The platform is degraded."},
 		},
 	}
 	for _, test := range tests {
@@ -233,6 +257,7 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 		{name: "decision ready with follow-up", completion: &completionAssessment{Status: "decision_ready", Summary: "The schedule is ready for confirmation", NextAction: "Confirm the schedule"}},
 		{name: "decision with gap", completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy", MaterialGaps: []string{"database"}}, wantError: true},
 		{name: "blocked", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", Attempts: []string{"Monitoring query returned permission denied"}, NextAction: "Restore access"}},
+		{name: "blocked with verdict", completion: &completionAssessment{Status: "blocked", Verdict: "degraded", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", Attempts: []string{"Monitoring query returned permission denied"}, NextAction: "Restore access"}, wantError: true},
 		{name: "blocked without kind", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, Attempts: []string{"Queried monitoring"}, NextAction: "Restore access"}, wantError: true},
 		{name: "blocked without attempts", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", NextAction: "Restore access"}, wantError: true},
 		{name: "blocked without action", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}}, wantError: true},

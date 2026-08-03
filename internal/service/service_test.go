@@ -1574,7 +1574,7 @@ func TestExplicitMentionRepliesOutsideConfiguredChannelsWithoutCreatingIncident(
 	    {"layer":"application","status":"healthy","source":"monitoring","detail":"Application probes are passing"},
 	    {"layer":"slo","status":"healthy","source":"monitoring","detail":"No SLO alerts are active"}
 	  ],
-	  "completion":{"status":"decision_ready","summary":"The checked production scope is healthy."}
+	  "completion":{"status":"decision_ready","verdict":"healthy","summary":"The checked production scope is healthy."}
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,

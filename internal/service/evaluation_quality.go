@@ -135,7 +135,7 @@ func qualityAssessmentScore(value QualityAssessment) float64 {
 
 func parseQualityAssessment(output string) (QualityAssessment, error) {
 	var result QualityAssessment
-	if err := decodeStrictJSON([]byte(output), &result); err != nil {
+	if err := decodeEvaluationJSON(output, &result); err != nil {
 		return QualityAssessment{}, err
 	}
 	result.Evaluated = true
@@ -160,7 +160,7 @@ func parseQualityAssessment(output string) (QualityAssessment, error) {
 
 func parseEvidenceVerification(output string) (EvidenceVerification, error) {
 	var result EvidenceVerification
-	if err := decodeStrictJSON([]byte(output), &result); err != nil {
+	if err := decodeEvaluationJSON(output, &result); err != nil {
 		return EvidenceVerification{}, err
 	}
 	result.Evaluated = true
@@ -171,6 +171,31 @@ func parseEvidenceVerification(output string) (EvidenceVerification, error) {
 	}
 	result.Passed = result.Supported && len(result.UnsupportedClaims) == 0
 	return result, nil
+}
+
+func decodeEvaluationJSON(output string, target any) error {
+	trimmed := strings.TrimSpace(output)
+	if err := decodeStrictJSON([]byte(trimmed), target); err == nil || strings.HasPrefix(trimmed, "{") {
+		return err
+	}
+	var candidateErr error
+	for end := len(trimmed); end > 0; {
+		index := strings.LastIndex(trimmed[:end], "{")
+		if index < 0 {
+			break
+		}
+		candidate := strings.TrimSpace(trimmed[index:])
+		if err := decodeStrictJSON([]byte(candidate), target); err == nil {
+			return nil
+		} else {
+			candidateErr = err
+		}
+		end = index
+	}
+	if candidateErr != nil {
+		return candidateErr
+	}
+	return errors.New("evaluation response has no JSON object")
 }
 
 func renderEvaluationMessage(
@@ -448,6 +473,20 @@ response's cited evidence without re-checking it. Do not mutate files or infrast
 response supported only when each decision-material current-state claim is backed by an
 authoritative source and important gaps are honestly disclosed. A bounded conclusion may remain
 supported when it explicitly calls unverified layers unknown.
+
+Respect observation time. Live metrics, logs, alerts, and topology can change between the response
+and this verification turn. Prefer the response's cited immutable run or operation record when it is
+available. When only a fresh equivalent query is possible, a changed current value does not by itself
+make the earlier timestamped observation unsupported; reject it only when the cited source could not
+support the claim, its aggregation or units are inconsistent, or the drift changes the decision.
+
+Material means capable of changing the verdict, impact, cause boundary, or recommended action. Direct
+current error metrics and diagnostic logs can establish degradation without a synthetic for the same
+workflow; do not reject a degraded verdict merely because an additional functional probe was not
+available. When the request explicitly says the organization has no formal SLO, do not require the
+Slack prose to repeat that fact. Set supported=false only for an unsupported decision-material claim
+or a genuinely material undisclosed gap, not for optional corroboration or a caveat already reflected
+in the scope.
 
 Verify operational and repository-content claims only. Do not reject the answer because you cannot
 independently attribute pre-existing working-tree changes, prove which commands the first model

@@ -845,8 +845,9 @@ func structuredResponseInstructions() string {
   },
   "completion": {
     "status": "decision_ready|blocked",
+    "verdict": "healthy|degraded|unhealthy only when decision_ready for operational assessments",
     "summary": "concise decision or exact blocker",
-    "material_gaps": ["gap that could change the decision"],
+    "material_gaps": ["blocked only: gap that prevents a decision; always empty for decision_ready"],
     "blocker_kind": "source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure",
     "attempts": ["relevant evidence route or action already attempted"],
     "next_action": "external action required to unblock the work"

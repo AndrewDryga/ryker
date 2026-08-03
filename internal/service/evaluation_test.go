@@ -162,7 +162,7 @@ func TestEvaluationRejectsPrematureDeepCompletion(t *testing.T) {
 		Output: `{
 			"action":"reply",
 			"message":"The checked scope is healthy.",
-			"completion":{"status":"decision_ready","summary":"Healthy"},
+			"completion":{"status":"decision_ready","verdict":"healthy","summary":"Healthy"},
 			"coverage":[
 				{"layer":"change","status":"healthy","detail":"revision is current"},
 				{"layer":"host","status":"healthy","detail":"hosts respond"},
@@ -180,7 +180,7 @@ func TestEvaluationRejectsPrematureDeepCompletion(t *testing.T) {
 	premature := base
 	premature.Output = `{
 		"action":"reply","message":"Hosts look healthy.",
-		"completion":{"status":"decision_ready","summary":"Healthy"},
+		"completion":{"status":"decision_ready","verdict":"healthy","summary":"Healthy"},
 		"coverage":[{"layer":"host","status":"healthy","detail":"hosts respond"}]
 	}`
 	if result := evaluateCaseWithConfig(premature, &cfg, time.Now().UTC()); result.Passed ||
@@ -632,6 +632,19 @@ func TestEvaluationQualityParserAndSlackUXRejectBadSurfaces(t *testing.T) {
 	}`)
 	if err != nil || bad.Passed {
 		t.Fatalf("critical failure quality = %+v, %v", bad, err)
+	}
+	verification, err := parseEvidenceVerification(`I am checking the cited sources before judging the answer.
+{"supported":false,"verified_sources":["current metrics"],"unsupported_claims":["healthy application behavior"],"material_gaps":["functional probe"],"reason":"The report overstates application health."}`)
+	if err != nil || verification.Passed || len(verification.UnsupportedClaims) != 1 {
+		t.Fatalf("prefixed verification = %+v, %v", verification, err)
+	}
+	gapDetail := evidenceVerificationFailure(EvidenceVerification{
+		MaterialGaps: []string{"affected workflow was not checked"},
+		Reason:       "The verdict needs one more source.",
+	})
+	if !strings.Contains(gapDetail, "material gaps: affected workflow was not checked") ||
+		!strings.Contains(gapDetail, "reason: The verdict needs one more source.") {
+		t.Fatalf("verification failure detail = %q", gapDetail)
 	}
 
 	ux := assessSlackUX(slackui.Message{

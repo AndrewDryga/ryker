@@ -471,7 +471,7 @@ func TestEscalatedDeepWorkReceivesStructuredCorrection(t *testing.T) {
 		    {"layer":"application","status":"healthy","detail":"application verified"},
 		    {"layer":"slo","status":"healthy","detail":"SLO verified"}
 		  ],
-		  "completion":{"status":"decision_ready","summary":"Production is healthy across the requested scope."},
+		  "completion":{"status":"decision_ready","verdict":"healthy","summary":"Production is healthy across the requested scope."},
 		  "memory":{}
 		}`,
 	}
@@ -520,7 +520,7 @@ func TestEscalatedDeepWorkReceivesStructuredCorrection(t *testing.T) {
 	if len(coopClient.submitPrompts) != 3 ||
 		!strings.Contains(coopClient.submitPrompts[1], "full evidence-backed work") ||
 		!strings.Contains(coopClient.submitPrompts[2], "host-decision-correction") ||
-		!strings.Contains(coopClient.submitPrompts[2], "no completion assessment") ||
+		!strings.Contains(coopClient.submitPrompts[2], "completion.verdict") ||
 		strings.Contains(coopClient.submitPrompts[2], "bounded conversation turn") {
 		t.Fatalf("deep correction prompts = %q", coopClient.submitPrompts)
 	}

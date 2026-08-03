@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := check
 
-.PHONY: build install test product-e2e live-acceptance eval eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity model-release-check eval-replay customer-check quality-watch-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity model-release-check eval-replay customer-check quality-watch-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -37,6 +37,9 @@ live-acceptance:
 
 eval:
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/live.jsonl
+
+eval-health:
+	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/health-verdict.jsonl --judge
 
 eval-quality:
 	go run ./cmd/responder eval --config "$(CONFIG)" \

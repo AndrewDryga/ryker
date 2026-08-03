@@ -198,7 +198,17 @@ func EvaluateLiveJSONL(
 							if minimum == 0 {
 								minimum = 4
 							}
-							if !quality.Passed || quality.MeanScore < minimum {
+							if !quality.Passed {
+								result.Passed = false
+								result.Detail = appendEvaluationFailure(
+									result.Detail,
+									fmt.Sprintf(
+										"quality judge rejected the response (mean %.2f): %s",
+										quality.MeanScore,
+										quality.Reason,
+									),
+								)
+							} else if quality.MeanScore < minimum {
 								result.Passed = false
 								result.Detail = appendEvaluationFailure(
 									result.Detail,
@@ -234,11 +244,7 @@ func EvaluateLiveJSONL(
 							result.Passed = false
 							result.Detail = appendEvaluationFailure(
 								result.Detail,
-								"unsupported evidence: "+
-									strings.Join(
-										verification.UnsupportedClaims,
-										"; ",
-									),
+								evidenceVerificationFailure(verification),
 							)
 						}
 					}
@@ -291,6 +297,29 @@ func EvaluateLiveJSONL(
 	summary.DurationMS = time.Since(started).Milliseconds()
 	summarizeEvaluation(&summary)
 	return summary, nil
+}
+
+func evidenceVerificationFailure(verification EvidenceVerification) string {
+	parts := make([]string, 0, 3)
+	if len(verification.UnsupportedClaims) > 0 {
+		parts = append(parts, "unsupported claims: "+strings.Join(
+			verification.UnsupportedClaims,
+			"; ",
+		))
+	}
+	if len(verification.MaterialGaps) > 0 {
+		parts = append(parts, "material gaps: "+strings.Join(
+			verification.MaterialGaps,
+			"; ",
+		))
+	}
+	if reason := strings.TrimSpace(verification.Reason); reason != "" {
+		parts = append(parts, "reason: "+reason)
+	}
+	if len(parts) == 0 {
+		return "evidence verifier rejected the response without a reason"
+	}
+	return strings.Join(parts, " | ")
 }
 
 func evaluationCorpusDigest(cases []EvaluationCase) string {
@@ -912,6 +941,8 @@ func liveEvaluationWatchContext(
 	case "external_app":
 		kind = "bot_message"
 		userID = "BEVALAPP"
+	case "operator_schedule":
+		kind = "scheduled"
 	default:
 		return core.SlackInput{}, nil, fmt.Errorf(
 			"unsupported sender_type %q", testCase.SenderType,

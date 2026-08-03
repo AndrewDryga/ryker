@@ -13,6 +13,7 @@ import (
 
 type completionAssessment struct {
 	Status       string   `json:"status"`
+	Verdict      string   `json:"verdict,omitempty"`
 	Summary      string   `json:"summary"`
 	MaterialGaps []string `json:"material_gaps,omitempty"`
 	BlockerKind  string   `json:"blocker_kind,omitempty"`
@@ -25,6 +26,7 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 		return nil
 	}
 	completion.Status = strings.TrimSpace(completion.Status)
+	completion.Verdict = strings.TrimSpace(completion.Verdict)
 	completion.Summary = strings.TrimSpace(completion.Summary)
 	completion.BlockerKind = strings.TrimSpace(completion.BlockerKind)
 	completion.NextAction = strings.TrimSpace(completion.NextAction)
@@ -41,7 +43,7 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	}
 	completion.MaterialGaps = normalizedCompletionGaps(completion.MaterialGaps)
 	completion.Attempts = normalizedCompletionAttempts(completion.Attempts)
-	if len(completion.Status) > 32 || len(completion.Summary) > 1000 ||
+	if len(completion.Status) > 32 || len(completion.Verdict) > 32 || len(completion.Summary) > 1000 ||
 		len(completion.BlockerKind) > 64 || len(completion.NextAction) > 1000 {
 		return errors.New("completion assessment exceeds its field bounds")
 	}
@@ -57,6 +59,9 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 			return errors.New("decision-ready completion cannot contain blocker fields")
 		}
 	case "blocked":
+		if completion.Verdict != "" {
+			return errors.New("blocked completion cannot contain an operational verdict")
+		}
 		if completion.Summary == "" || len(completion.MaterialGaps) == 0 ||
 			completion.BlockerKind == "" || len(completion.Attempts) == 0 ||
 			completion.NextAction == "" {
@@ -70,7 +75,19 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	default:
 		return fmt.Errorf("unsupported completion status %q", completion.Status)
 	}
+	if completion.Verdict != "" && !validOperationalHealthVerdict(completion.Verdict) {
+		return fmt.Errorf("unsupported completion verdict %q", completion.Verdict)
+	}
 	return nil
+}
+
+func validOperationalHealthVerdict(value string) bool {
+	switch value {
+	case "healthy", "degraded", "unhealthy":
+		return true
+	default:
+		return false
+	}
 }
 
 func validCompletionBlockerKind(value string) bool {
@@ -190,7 +207,7 @@ func (s *Service) episodeForWatchedInput(
 	}
 	// Configuration is accepted work, but it is not an operational assessment even
 	// when the requested preference happens to mention health checks or alerts.
-	if explicitBehaviorRequest(input.Text) {
+	if input.Kind != "scheduled" && explicitBehaviorRequest(input.Text) {
 		return episode
 	}
 	if isOperationalAssessmentRequest(text) {
@@ -240,7 +257,8 @@ func isOperationalAssessmentRequest(text string) bool {
 	broadScope := episodeContainsAny(text,
 		"infrastructure health", "infra health", "production health", "system health",
 		"health of our", "health of everything", "end-to-end", "end to end",
-		"deep health", "deep check", "full assessment", "overall health",
+		"deep health", "deep check", "health review", "health assessment",
+		"platform healthy", "full assessment", "overall health",
 	)
 	return broadScope ||
 		(episodeContainsAny(text, "assess", "assessment", "investigate") &&
@@ -345,8 +363,48 @@ func workEpisodePrompt(episode core.WorkEpisode) string {
 This contract controls effort, not permission. Work until its completion criteria are satisfied or
 you are genuinely blocked. For operational_assessment and incident_investigation, assess every
 required coverage layer; use status unknown with a precise detail when authoritative evidence is
-unavailable. Return completion.status=decision_ready only when no material gap could change the
-decision. Discovering confirmed or likely active degradation expands the episode: do not stop at
+unavailable. For an operational_assessment, return completion.verdict as exactly healthy, degraded,
+or unhealthy. Formal SLOs are not required for that verdict: when the organization has none, use
+fresh functional behavior, errors and timeouts, alerts, failures, saturation, dependencies, and
+recent-change evidence, and mark slo coverage not_applicable. Never use unknown as the overall
+health verdict. Treat a pinned or scheduled runbook as a reproducible baseline rather than the whole
+assessment: inspect what it proved, then continue through all relevant read-only routes for material
+claims it did not cover. Discover evidence by claim and retry with narrower operational language when
+the first discovery result is empty or indirect. Explicitly seek functional or synthetic behavior,
+current error and timeout trends against a recent baseline, active alerts, workload failures,
+dependency health, saturation or capacity pressure, and recent deployments or configuration changes.
+Do not declare a source unavailable merely because a preferred connector is absent when an equivalent
+repository, log, metric, trace, provider, or Emisar route exists. Missing evidence alone is not
+degradation. Do not generalize one shallow probe, one CDN aggregate, an empty alert list, or running
+workloads into platform-wide healthy application behavior. Combine representative functional checks
+with the broadest available application error and timeout trend, reconcile service-specific anomalies,
+and compare rates only across equivalent time windows, populations, and denominators. Separate
+observation, correlation, bounded cause, and proven causation: concurrent upstream and downstream
+errors bound a failure path but do not prove an implementation mapping without code, trace, or other
+direct evidence. Preserve metric window and aggregation semantics, and quote an exact maximum, rate,
+or comparison only when the cited result directly supports it. Scope functional claims exactly to
+the tested workflows and endpoints; a few successful URLs do not prove that the whole website,
+application, or platform is functional. Recommend rollback only after identifying an exact candidate
+version and evidence that it was previously healthy; otherwise state a bounded containment option and
+what must be verified before any version-changing action. Keep evidence claims atomic: every clause
+must be supported by the cited source, without joining a verified parser error, timeout, status code,
+deployment, or dependency event to an inferred surrounding event. The overall verdict is a
+classification, not proof that every unnamed component works. In degraded or unhealthy reports, lead
+with the verified failing scope and impact; do not broadly reassure that the platform, website, or
+users are otherwise being served without direct user-facing evidence. Metrics can establish impact,
+but not by themselves a cause or safe containment control. For an active issue, use at least one
+diagnostic source such as logs, traces, an affected functional check, dependency evidence, or owning
+repository code before stating a cause boundary or mitigation. Do not invent rollback, edge shedding,
+caching, failover, throttling, or another control unless evidence proves it exists and applies. If no
+safe containment is established after available diagnosis, say so and recommend freezing related
+nonessential changes plus the exact owner or evidence route needed next. Return
+completion.status=decision_ready only when no material gap could change the decision.
+Set completion.verdict only for decision_ready; a blocked result has no operational verdict. Keep its
+Slack synthesis decision-first and compact, normally one short verdict paragraph and at most six
+evidence-rich bullets. For decision_ready, return material_gaps as an empty list; keep non-blocking
+uncertainty in the relevant coverage detail and mention it only when it changes how the verdict should
+be used. material_gaps is reserved for external blockers that make completion.status=blocked.
+Discovering confirmed or likely active degradation expands the episode: do not stop at
 symptom counts, broad service names, or a recommendation that somebody investigate next. Use the
 available repository, logs, metrics, traces, and operational tools to identify the affected request
 paths, users or blast radius, correlate likely changes and dependencies, and establish either a
@@ -448,7 +506,17 @@ func episodeCompletionCorrection(
 		return "the deep work episode has not assessed required coverage layers: " + strings.Join(missing, ", ")
 	}
 	if completion.Status == "decision_ready" && (len(completion.MaterialGaps) > 0 || len(unknown) > 0) {
-		return "the result claims decision_ready while material coverage remains unknown; either continue the investigation or return blocked with the exact next action"
+		if episode.Effort != core.EffortOperationalAssessment || len(completion.MaterialGaps) > 0 {
+			return "the result claims decision_ready while material coverage remains unknown; either continue the investigation or return blocked with the exact next action"
+		}
+	}
+	if completion.Status == "decision_ready" && episode.Effort == core.EffortOperationalAssessment {
+		if !validOperationalHealthVerdict(completion.Verdict) {
+			return "an operational assessment must set completion.verdict to healthy, degraded, or unhealthy; unknown is not an operational verdict"
+		}
+		if correction := operationalHealthVerdictCorrection(completion.Verdict, covered, unknown); correction != "" {
+			return correction
+		}
 	}
 	if completion.Status == "blocked" {
 		if len(completion.MaterialGaps) == 0 {
@@ -463,6 +531,45 @@ func episodeCompletionCorrection(
 		if strings.TrimSpace(completion.NextAction) == "" {
 			return "a blocked completion must state the concrete next action that unblocks the work"
 		}
+	}
+	return ""
+}
+
+func operationalHealthVerdictCorrection(
+	verdict string,
+	covered map[string]core.Coverage,
+	unknown []string,
+) string {
+	hasDegraded := false
+	hasUnhealthy := false
+	for _, item := range covered {
+		switch item.Status {
+		case "degraded":
+			hasDegraded = true
+		case "unhealthy":
+			hasUnhealthy = true
+		}
+	}
+	if hasUnhealthy && verdict != "unhealthy" {
+		return "unhealthy coverage requires the overall completion verdict unhealthy"
+	}
+	if !hasUnhealthy && hasDegraded && verdict != "degraded" {
+		return "degraded coverage requires the overall completion verdict degraded"
+	}
+	if !hasUnhealthy && !hasDegraded && verdict != "healthy" {
+		return "a degraded or unhealthy verdict requires matching verified coverage"
+	}
+	if verdict != "healthy" {
+		return ""
+	}
+	for _, layer := range unknown {
+		if layer != "slo" {
+			return "a healthy verdict cannot leave material operational coverage unknown; continue the available checks or return an exact blocker"
+		}
+	}
+	application, ok := covered["application"]
+	if !ok || application.Status != "healthy" {
+		return "a healthy platform verdict requires fresh application or functional behavior evidence, not only healthy infrastructure inventory"
 	}
 	return ""
 }
