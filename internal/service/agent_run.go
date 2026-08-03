@@ -1299,8 +1299,7 @@ func replayAgentRunFailure(
 		strings.Contains(detail, "ACP frame exceeded its bound") {
 		return "Coop returned an oversized ACP frame; retrying the turn once", true
 	}
-	if run.Mode == core.AgentRunTriage && transcriptOverflow(turn) &&
-		run.Failures < min(maximumAttempts-1, 3) {
+	if run.Mode == core.AgentRunTriage && transcriptOverflow(turn) {
 		return "Coop ACP transcript exceeded its bound; retrying in a fresh read-only session with narrower evidence queries", true
 	}
 	if run.Failures < 2 &&

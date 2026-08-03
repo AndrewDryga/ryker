@@ -912,7 +912,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		ErrorDetail: "ACP transcript exceeded its bound",
 	}
 	run.Mode = core.AgentRunTriage
-	for failures := 0; failures < 3; failures++ {
+	for _, failures := range []int{0, 3, 18} {
 		run.Failures = failures
 		if reason, replay := replayAgentRunFailure(
 			run, "turn.failed", transcript, 20,
@@ -925,11 +925,11 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 			)
 		}
 	}
-	run.Failures = 3
+	run.Failures = 19
 	if reason, replay := replayAgentRunFailure(
 		run, "turn.failed", transcript, 20,
 	); replay || reason != "" {
-		t.Fatalf("transcript overflow recovery was not bounded = %q, %t", reason, replay)
+		t.Fatalf("transcript overflow ignored configured poison budget = %q, %t", reason, replay)
 	}
 	run.Mode = core.AgentRunIncident
 	run.Failures = 0
