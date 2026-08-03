@@ -177,6 +177,9 @@ func (s *Service) Initialize(ctx context.Context) error {
 	if err := s.seedScheduledWork(ctx); err != nil {
 		return fmt.Errorf("initialize durable scheduler: %w", err)
 	}
+	if err := s.seedExternalMessageReconciliations(ctx); err != nil {
+		return fmt.Errorf("initialize external Slack lifecycle reconciliation: %w", err)
+	}
 	s.identity = identity
 	s.coopHealthy.Store(true)
 	s.initialized.Store(true)

@@ -2018,6 +2018,50 @@ func (s *Store) GetSlackInputForMessage(
 		LIMIT 1`, channelID, messageTS))
 }
 
+func (s *Store) ListLatestSlackInputsByKind(
+	ctx context.Context,
+	kind string,
+	since time.Time,
+	limit int,
+) ([]core.SlackInput, error) {
+	if kind == "" || limit < 1 || limit > 1000 {
+		return nil, errors.New("Slack input kind and limit between 1 and 1000 are required")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT input.id, input.envelope_id, input.event_id, input.kind, input.team_id,
+		  input.channel_id, input.thread_ts, input.message_ts, input.user_id, input.text,
+		  input.action_id, input.action_value, input.attachments_json, input.frozen_json,
+		  input.state, input.attempts, input.failure_count, input.received_at
+		FROM slack_inputs AS input
+		WHERE input.kind = ? AND input.message_ts != ''
+		  AND julianday(input.received_at) >= julianday(?)
+		  AND NOT EXISTS (
+		    SELECT 1 FROM slack_inputs AS newer
+		    WHERE newer.kind = input.kind
+		      AND newer.channel_id = input.channel_id
+		      AND newer.message_ts = input.message_ts
+		      AND (
+		        julianday(newer.received_at) > julianday(input.received_at) OR
+		        (newer.received_at = input.received_at AND newer.id > input.id)
+		      )
+		  )
+		ORDER BY julianday(input.received_at) DESC, input.id DESC
+		LIMIT ?`, kind, since.UTC().Format(timestampFormat), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.SlackInput, 0)
+	for rows.Next() {
+		input, scanErr := scanSlackInput(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		result = append(result, input)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) ListRecentWatchMessages(
 	ctx context.Context,
 	channelID string,

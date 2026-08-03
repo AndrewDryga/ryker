@@ -328,6 +328,16 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 		_, err = s.store.AdmitSlackChannelJoin(ctx, input)
 	} else {
 		_, err = s.store.AdmitSlackInput(ctx, input)
+		if err == nil {
+			if scheduleErr := s.scheduleExternalMessageReconciliation(ctx, input); scheduleErr != nil {
+				s.log.Error(
+					"schedule external Slack lifecycle reconciliation",
+					"envelope", envelopeID,
+					"input", input.ID,
+					"error", scheduleErr,
+				)
+			}
+		}
 	}
 	if err != nil {
 		s.log.Error("persist Slack event before acknowledgement", "envelope", envelopeID, "error", err)

@@ -57,6 +57,8 @@ webhooks:
 		cfg.Coop.WatchSessionAge.Duration != 24*time.Hour ||
 		cfg.Slack.ChannelPrefix != "ems" || cfg.Slack.WatchContext != 20 ||
 		cfg.Slack.WatchSettleDelay.Duration != 350*time.Millisecond ||
+		cfg.Slack.ExternalMessageReconcileInterval.Duration != time.Minute ||
+		cfg.Slack.ExternalMessageReconcileWindow.Duration != 24*time.Hour ||
 		cfg.Slack.ReplyAttention != 7 || cfg.Slack.ReactionAttention != 4 ||
 		!cfg.Slack.NativeStatus || !cfg.Slack.AssistantExperience ||
 		!cfg.IsWatchChannel("C456DEF") ||

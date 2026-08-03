@@ -36,7 +36,8 @@ var (
 	terraformPlanPattern = regexp.MustCompile(
 		`(?is)\bterraform(?:\s+\w+){0,3}\s+plan\b|` +
 			`\b(?:review|check|inspect)\b[^\n.]{0,80}\b(?:terraform\s+)?plan\b|` +
-			`\bapp\.terraform\.io\b.*\brun\s+(?:planning|planned(?:\s+and\s+saved)?)\b|` +
+			`\bapp\.terraform\.io\b.*\brun\s+(?:planning|planned(?:\s+and\s+saved)?|` +
+			`applying|applied|errored|failed|discarded|canceled|cancelled)\b|` +
 			`\bplan:\s*\d+\s+to\s+add,\s*\d+\s+to\s+change,\s*\d+\s+to\s+destroy\b|` +
 			`\bno\s+changes\.\s+your\s+infrastructure\s+matches\b`,
 	)
