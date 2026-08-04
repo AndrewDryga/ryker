@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -178,6 +179,14 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	)
 	svc.SetPublisher(githubPublisher)
 	svc.SetEmisar(emisar.New(emisarHTTP, cfg.Coop.EmisarURL, emisarToken))
+	if cfg.Coop.Supervise {
+		var repairMu sync.Mutex
+		svc.SetCoopRuntimeRepairer(func(context.Context) error {
+			repairMu.Lock()
+			defer repairMu.Unlock()
+			return ensureManagedCoopImage(cfg, stderr)
+		})
+	}
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), cfg.Coop.RequestTimeout.Duration)
 	err = svc.Initialize(startupCtx)
 	startupCancel()

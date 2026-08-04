@@ -78,15 +78,16 @@ func (s *Service) SetEmisar(value EmisarAPI) {
 }
 
 type Service struct {
-	cfg       config.Config
-	store     *store.Store
-	coop      CoopAPI
-	slack     slackui.API
-	socket    Socket
-	sanitizer *slackui.Sanitizer
-	log       *slog.Logger
-	publisher PublicationAPI
-	emisar    EmisarAPI
+	cfg               config.Config
+	store             *store.Store
+	coop              CoopAPI
+	repairCoopRuntime func(context.Context) error
+	slack             slackui.API
+	socket            Socket
+	sanitizer         *slackui.Sanitizer
+	log               *slog.Logger
+	publisher         PublicationAPI
+	emisar            EmisarAPI
 
 	identity     slackui.Identity
 	initialized  atomic.Bool
@@ -99,6 +100,12 @@ type Service struct {
 	historyMu    sync.Mutex
 	historyCache map[string]cachedSlackHistory
 	heartbeats   laneHeartbeat
+}
+
+// SetCoopRuntimeRepairer installs the managed-runtime repair hook used when a
+// turn proves that Docker removed Coop's shared execution image after startup.
+func (s *Service) SetCoopRuntimeRepairer(repair func(context.Context) error) {
+	s.repairCoopRuntime = repair
 }
 
 type nativeStatusState struct {

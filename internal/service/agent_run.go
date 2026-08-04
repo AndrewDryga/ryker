@@ -1087,6 +1087,27 @@ func (s *Service) stagePolledAgentRunTerminal(
 	detail := strings.TrimSpace(
 		firstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
 	)
+	if missingCoopImageFailure(turn) &&
+		s.repairCoopRuntime != nil &&
+		!strings.Contains(run.LastError, "Coop execution image rebuilt") &&
+		!terminalAttempt(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts) {
+		if err := s.repairCoopRuntime(ctx); err == nil {
+			const reason = "Coop execution image rebuilt; retrying the same work episode"
+			if err := s.store.RequeueAgentRun(
+				ctx, run.ID, reason, cursor, time.Now(),
+			); err != nil {
+				return err
+			}
+			if run.Mode == core.AgentRunTriage {
+				_ = s.advanceTriageSessionEvents(ctx, run, cursor)
+			}
+			s.log.Info("rebuilt missing Coop execution image", "run", run.ID)
+			return nil
+		} else {
+			detail += "; automatic Coop image rebuild failed: " + trimError(err)
+			s.log.Error("rebuild missing Coop execution image", "run", run.ID, "error", err)
+		}
+	}
 	if reason, replay := replayAgentRunFailure(
 		run, eventType, turn, s.cfg.Limits.MaxAgentRunAttempts,
 	); replay {
@@ -1428,6 +1449,13 @@ func terminalACPEnvironmentFailure(turn coop.Turn) bool {
 		}
 	}
 	return false
+}
+
+func missingCoopImageFailure(turn coop.Turn) bool {
+	return turn.ErrorCode == "acp_process_error" && strings.Contains(
+		strings.ToLower(strings.TrimSpace(turn.ErrorDetail)),
+		"coop box image is not built",
+	)
 }
 
 func transcriptOverflow(turn coop.Turn) bool {

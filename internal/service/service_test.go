@@ -1133,6 +1133,84 @@ func TestAgentRunACPProcessFailureRotatesSlackInvestigationSession(t *testing.T)
 	}
 }
 
+func TestAgentRunMissingCoopImageRepairsAndRetriesWithoutSlackFailure(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CIMAGE"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-image-recovery", EnvelopeID: "env-image-recovery",
+		EventID: "event-image-recovery", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CIMAGE", MessageTS: "1700.711", UserID: "U123ABC",
+		Text: "<@U999BOT> what is two plus two?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{
+		{
+			State:       "failed",
+			ErrorCode:   "acp_process_error",
+			ErrorDetail: "ACP child closed before its response: Coop box image is not built; run 'coop build'",
+		},
+		{
+			State: "completed",
+			AssistantMessage: `{
+				"action":"reply",
+				"message":"Four."
+			}`,
+		},
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	repairs := 0
+	svc.SetCoopRuntimeRepairer(func(context.Context) error {
+		repairs++
+		return nil
+	})
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	requeued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 ||
+		!strings.Contains(requeued.LastError, "execution image rebuilt") {
+		t.Fatalf("requeued missing image = %+v, %v", requeued, err)
+	}
+	firstSession := requeued.SessionID
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	completed, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || completed.State != core.AgentRunCompleted ||
+		completed.SessionID != firstSession || repairs != 1 {
+		t.Fatalf("recovered missing image = %+v, repairs=%d, err=%v", completed, repairs, err)
+	}
+	if len(slackClient.posts) != 1 ||
+		!strings.Contains(slackClient.posts[0].message.Text, "Four") ||
+		strings.Contains(slackClient.posts[0].message.Text, "could not complete") {
+		t.Fatalf("missing-image recovery result = %+v", slackClient.posts)
+	}
+}
+
 func TestAgentRunTranscriptOverflowRotatesSlackSession(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
