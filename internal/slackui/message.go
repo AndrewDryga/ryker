@@ -24,6 +24,7 @@ const (
 	ActionChangesNext         = "responder_changes_next"
 	ActionChangesRefresh      = "responder_changes_refresh"
 	ActionReview              = "responder_review"
+	ActionRepairReview        = "responder_repair_review"
 	ActionPublishPR           = "responder_publish_pr"
 	ActionViewPR              = "responder_view_pr"
 	ActionCheckDelivery       = "responder_check_delivery"
@@ -2889,6 +2890,14 @@ func ReviewMessage(incident core.Incident, summary string, publishable bool) Mes
 		message.Actions = []Action{{
 			ID: ActionPublishPR, Label: "Create draft PR", Value: incident.ID, Style: "primary",
 			Confirm: "Run a fresh readiness review, publish the exact approved tree on a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
+		}}
+	} else if !publishable && incident.IsEngineeringTask() {
+		message.Context = []string{
+			"The isolated change is preserved. Ask Emisar to diagnose the failed checks in the same task.",
+		}
+		message.Actions = []Action{{
+			ID: ActionRepairReview, Label: "Diagnose and fix checks",
+			Value: incident.ID, Style: "primary",
 		}}
 	}
 	return message

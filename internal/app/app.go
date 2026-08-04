@@ -616,7 +616,7 @@ Usage:
   responder status         List durable incidents
   responder failures       List terminal durable work
   responder retry          Requeue one failed work item while Responder is stopped
-  responder replay slack   Reprocess a saved Slack message through the live service and verify delivery
+  responder replay slack   Privately reprocess a saved Slack message; --publish sends the result
   responder eval           Run the real configured model against the evaluation corpus
   responder version        Print the build version
 

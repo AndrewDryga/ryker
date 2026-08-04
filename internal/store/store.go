@@ -1935,7 +1935,9 @@ func deduplicateSlackMessageInput(input core.SlackInput) bool {
 	}
 	// Explicit CLI replays intentionally process the same saved message again.
 	// cloneSlackReplay marks that transport so live idempotency remains strict.
-	if strings.HasPrefix(input.EnvelopeID, "replay:") {
+	if strings.HasPrefix(input.EnvelopeID, "replay:") ||
+		strings.HasPrefix(input.EnvelopeID, "replay-private:") ||
+		strings.HasPrefix(input.EnvelopeID, "replay-public:") {
 		return false
 	}
 	switch input.Kind {
@@ -2067,7 +2069,7 @@ func (s *Store) GetSlackInputForMessage(
 		FROM slack_inputs
 		WHERE channel_id = ? AND message_ts = ?
 		  AND kind IN ('message', 'bot_message', 'mention', 'direct', 'shortcut')
-		ORDER BY CASE WHEN event_id LIKE 'replay:%' THEN 1 ELSE 0 END,
+		ORDER BY CASE WHEN event_id LIKE 'replay%' THEN 1 ELSE 0 END,
 		  received_at DESC, id DESC
 		LIMIT 1`, channelID, messageTS))
 }

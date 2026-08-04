@@ -102,6 +102,14 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		}
 		return nil
 	}
+	// Private verification replays exercise the normal model and tool path, but
+	// cannot impersonate a new human turn or enter a delivery-producing handler.
+	if isPrivateSlackVerificationReplay(input) {
+		if err := s.queueWatchedInput(ctx, input); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		return nil
+	}
 	if input.Kind == "channel_lifecycle" {
 		if err := s.processChannelLifecycleInput(ctx, input); err != nil {
 			return s.retrySlackInput(ctx, input, err)
@@ -557,6 +565,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			input.ActionID != slackui.ActionChangesNext &&
 			input.ActionID != slackui.ActionChangesRefresh &&
 			input.ActionID != slackui.ActionReview &&
+			input.ActionID != slackui.ActionRepairReview &&
 			input.ActionID != slackui.ActionViewPR &&
 			input.ActionID != slackui.ActionCheckDelivery &&
 			input.ActionID != slackui.ActionDiscardWork {
@@ -1222,6 +1231,8 @@ func (s *Service) handleControl(
 		return s.showChanges(ctx, input, incident)
 	case slackui.ActionReview:
 		return s.reviewFix(ctx, input, incident)
+	case slackui.ActionRepairReview:
+		return s.repairReview(ctx, input, incident)
 	case slackui.ActionPublishPR:
 		return s.publishDraftPR(ctx, input, incident)
 	case slackui.ActionViewPR:
@@ -1239,6 +1250,37 @@ func (s *Service) handleControl(
 	default:
 		return errors.New("unknown Responder control")
 	}
+}
+
+func (s *Service) repairReview(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+) error {
+	if !incident.IsEngineeringTask() {
+		return errors.New("review repair is only available for engineering tasks")
+	}
+	if incident.ActiveTurnID != "" {
+		return s.enqueue(ctx, "out_repair_review_"+input.ID, incident, "notice",
+			incident.ConversationThreadTS(), slackui.Notice(
+				"I’m already working in this task. I’ll keep the readiness failure in context; "+
+					"wait for this run to finish, then retry the draft PR.",
+			))
+	}
+	request := "The latest draft-PR readiness review failed. Inspect the current task diff and " +
+		"repository gate, identify the exact failing check and every tracked file validation changed, " +
+		"fix task-owned or repository-owned causes, and rerun the appropriate validation. If the " +
+		"failure is only a missing tool or broken execution environment, report the exact command, " +
+		"error, and required environment fix instead of changing product code to hide it. Do not push, " +
+		"merge, deploy, or mutate infrastructure."
+	_, _, err := s.queueIncidentAgentRun(
+		ctx, incident, "control", input.ID, input.UserID,
+		operatorPrompt(input.UserID, request),
+	)
+	if err == nil {
+		s.setNativeStatus(ctx, incident, "is diagnosing the failed readiness checks...")
+	}
+	return err
 }
 
 func (s *Service) showChanges(

@@ -2371,7 +2371,13 @@ func watchPromptMessage(
 }
 
 func isSlackVerificationReplay(input core.SlackInput) bool {
-	return strings.HasPrefix(input.EnvelopeID, "replay:")
+	return strings.HasPrefix(input.EnvelopeID, "replay:") ||
+		strings.HasPrefix(input.EnvelopeID, "replay-private:") ||
+		strings.HasPrefix(input.EnvelopeID, "replay-public:")
+}
+
+func isPrivateSlackVerificationReplay(input core.SlackInput) bool {
+	return strings.HasPrefix(input.EnvelopeID, "replay-private:")
 }
 
 const maxAssembledWatchPromptBytes = 48 << 10

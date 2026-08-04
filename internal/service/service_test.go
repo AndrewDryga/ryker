@@ -38,7 +38,7 @@ func TestReviewSummaryTreatsMissingGateAsRecommendation(t *testing.T) {
 	for _, want := range []string{
 		"Repository gate: not configured (recommended)",
 		"can still open a draft PR",
-		"must leave the reviewed source unchanged",
+		"Validation changed tracked files",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary does not explain %q:\n%s", want, summary)
@@ -48,6 +48,62 @@ func TestReviewSummaryTreatsMissingGateAsRecommendation(t *testing.T) {
 		if strings.Contains(summary, raw) {
 			t.Fatalf("summary leaked machine reason %q:\n%s", raw, summary)
 		}
+	}
+}
+
+func TestPrivateSlackReplayRunsWithoutPublicSideEffects(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CREPLAY"}
+	cfg.Slack.NativeStatus = true
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack_replay_private", EnvelopeID: "replay-private:slack_replay_private",
+		EventID: "replay-private:slack_replay_private", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CREPLAY", ThreadTS: "1700.100",
+		MessageTS: "1700.200", UserID: "U123ABC",
+		Text: "<@U999BOT> inspect this and reply",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit private replay = %t, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.statuses) != 0 || len(slackClient.reactions) != 0 {
+		t.Fatalf("private replay acknowledged publicly: statuses=%+v reactions=%+v", slackClient.statuses, slackClient.reactions)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	coopClient.complete(`{"action":"reply","message":"Verified privately."}`)
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 0 || len(slackClient.updates) != 0 ||
+		len(slackClient.statuses) != 0 || len(slackClient.reactions) != 0 {
+		t.Fatalf("private replay produced public Slack side effects: %+v", slackClient)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunCompleted {
+		t.Fatalf("private replay run = %+v, %v", run, err)
+	}
+	incidents, err := st.ListIncidents(ctx, 10)
+	if err != nil || len(incidents) != 0 {
+		t.Fatalf("private replay created incidents = %+v, %v", incidents, err)
 	}
 }
 

@@ -1096,6 +1096,27 @@ func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
 	}
 }
 
+func TestFailedEngineeringReviewOffersSameTaskRecovery(t *testing.T) {
+	incident := core.Incident{
+		ID: "task_123", WorkKind: core.WorkKindEngineeringTask,
+	}
+	message := ReviewMessage(
+		incident,
+		"*Readiness checks*\n• Repository gate: failed",
+		false,
+	)
+	if message.Header != "Not ready for review" || len(message.Actions) != 1 ||
+		message.Actions[0].ID != ActionRepairReview ||
+		message.Actions[0].Value != incident.ID ||
+		message.Actions[0].Label != "Diagnose and fix checks" {
+		t.Fatalf("failed review recovery = %+v", message)
+	}
+	if len(message.Context) != 1 ||
+		!strings.Contains(message.Context[0], "same task") {
+		t.Fatalf("failed review context = %+v", message.Context)
+	}
+}
+
 func TestMemoryHealthAndReviewCardsAreExplicit(t *testing.T) {
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	entry := core.MemoryEntry{

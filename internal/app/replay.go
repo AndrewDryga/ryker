@@ -27,6 +27,7 @@ type slackReplayResult struct {
 	SourceInputID string                `json:"source_input_id"`
 	ReplayInputID string                `json:"replay_input_id"`
 	AgentRunID    string                `json:"agent_run_id"`
+	Published     bool                  `json:"published"`
 	Action        string                `json:"action"`
 	InputState    string                `json:"input_state"`
 	RunState      core.AgentRunState    `json:"run_state"`
@@ -56,6 +57,7 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 	channelID := flags.String("channel", "", "Slack channel ID")
 	messageTS := flags.String("message-ts", "", "Slack message timestamp")
 	expect := flags.String("expect", "reply", "expected action: reply, react, ignore, incident, or any")
+	publish := flags.Bool("publish", false, "publish the replay result to Slack (default: private verification only)")
 	timeout := flags.Duration("timeout", 20*time.Minute, "maximum time to await the live result")
 	jsonOutput := flags.Bool("json", false, "print JSON")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -124,7 +126,7 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	replay, err := cloneSlackReplay(source)
+	replay, err := cloneSlackReplay(source, *publish)
 	if err != nil {
 		return err
 	}
@@ -138,14 +140,15 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 	if !*jsonOutput {
 		fmt.Fprintf(
 			stdout,
-			"Reprocessing Slack input %s as %s through the running Responder; waiting for %s.\n",
+			"Reprocessing Slack input %s as %s through the running Responder in %s mode; waiting for %s.\n",
 			source.ID,
 			replay.ID,
+			replayModeName(*publish),
 			*expect,
 		)
 	}
 	started := time.Now()
-	result, err := waitForSlackReplay(ctx, st, source.ID, replay.ID, *expect)
+	result, err := waitForSlackReplay(ctx, st, source.ID, replay.ID, *expect, *publish)
 	if err != nil {
 		return err
 	}
@@ -155,8 +158,9 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(
 		stdout,
-		"Verified Slack replay %s: action=%s, run=%s, input=%s, deliveries=%d, duration=%s.\n",
+		"Verified Slack replay %s: mode=%s, action=%s, run=%s, input=%s, deliveries=%d, duration=%s.\n",
 		result.ReplayInputID,
+		replayModeName(result.Published),
 		result.Action,
 		result.RunState,
 		result.InputState,
@@ -289,7 +293,7 @@ func slackReplaySourceFromHistory(
 	}
 }
 
-func cloneSlackReplay(source core.SlackInput) (core.SlackInput, error) {
+func cloneSlackReplay(source core.SlackInput, publish bool) (core.SlackInput, error) {
 	id, err := core.NewID("slack_replay")
 	if err != nil {
 		return core.SlackInput{}, err
@@ -301,10 +305,14 @@ func cloneSlackReplay(source core.SlackInput) (core.SlackInput, error) {
 		// coalescing from hiding a verification run.
 		kind = "mention"
 	}
+	prefix := "replay-private:"
+	if publish {
+		prefix = "replay-public:"
+	}
 	return core.SlackInput{
 		ID:          id,
-		EnvelopeID:  "replay:" + id,
-		EventID:     "replay:" + id,
+		EnvelopeID:  prefix + id,
+		EventID:     prefix + id,
 		Kind:        kind,
 		TeamID:      source.TeamID,
 		ChannelID:   source.ChannelID,
@@ -313,6 +321,7 @@ func cloneSlackReplay(source core.SlackInput) (core.SlackInput, error) {
 		UserID:      source.UserID,
 		Text:        source.Text,
 		Attachments: append([]core.SlackAttachment(nil), source.Attachments...),
+		Reactions:   append([]core.SlackReaction(nil), source.Reactions...),
 		ReceivedAt:  time.Now().UTC(),
 	}, nil
 }
@@ -323,6 +332,7 @@ func waitForSlackReplay(
 	sourceID string,
 	replayID string,
 	expectedAction string,
+	publish bool,
 ) (slackReplayResult, error) {
 	ticker := time.NewTicker(slackReplayPollInterval)
 	defer ticker.Stop()
@@ -366,11 +376,14 @@ func waitForSlackReplay(
 				if lastInput.State != "done" {
 					break
 				}
-				deliveries, err := st.ListSlackDeliveriesByPrefix(ctx, "watch_reply_"+replayID)
-				if err != nil {
-					return slackReplayResult{}, err
+				var deliveries []core.SlackDelivery
+				if publish {
+					deliveries, err = st.ListSlackDeliveriesByPrefix(ctx, "watch_reply_"+replayID)
+					if err != nil {
+						return slackReplayResult{}, err
+					}
 				}
-				if action == "reply" {
+				if publish && action == "reply" {
 					if len(deliveries) == 0 {
 						break
 					}
@@ -397,6 +410,7 @@ func waitForSlackReplay(
 					SourceInputID: sourceID,
 					ReplayInputID: replayID,
 					AgentRunID:    run.ID,
+					Published:     publish,
 					Action:        action,
 					InputState:    lastInput.State,
 					RunState:      run.State,
@@ -439,6 +453,13 @@ func waitForSlackReplay(
 		case <-ticker.C:
 		}
 	}
+}
+
+func replayModeName(publish bool) string {
+	if publish {
+		return "published"
+	}
+	return "private"
 }
 
 func replayUXState(assessment service.SlackUXAssessment) string {

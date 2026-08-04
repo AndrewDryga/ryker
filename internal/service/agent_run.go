@@ -129,7 +129,8 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		}
 		state.PublicationsCaptured = true
 	}
-	if !state.RuleAcknowledged && len(state.MatchedRules) > 0 {
+	if !isPrivateSlackVerificationReplay(input) &&
+		!state.RuleAcknowledged && len(state.MatchedRules) > 0 {
 		s.acknowledgeMatchedAlertRule(ctx, input, state.MatchedRules)
 		state.RuleAcknowledged = true
 	}
@@ -249,7 +250,8 @@ func watchInputWantsPendingStatus(
 	input core.SlackInput,
 	state watchTurnState,
 ) bool {
-	return input.Kind != "recheck" && slackReplyThread(input) != "" &&
+	return !isPrivateSlackVerificationReplay(input) &&
+		input.Kind != "recheck" && slackReplyThread(input) != "" &&
 		(watchInputTargeted(input, state) ||
 			requestedConversationLocation(input.Text) != conversationLocationFollow)
 }
@@ -1734,6 +1736,18 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 			decision = standingRuleIncidentAsReply(decision, alertPolicy == "offer")
 		}
 	}
+	if isPrivateSlackVerificationReplay(input) {
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			Kind: "slack.replay", ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: "verified_private", Detail: decision.Action,
+		})
+		if err := s.store.SetWorkEpisodePhase(
+			ctx, run.ID, core.EpisodeCompleted, "finished", "Verified privately", "", time.Time{},
+		); err != nil {
+			return err
+		}
+		return s.store.FinishAgentRun(ctx, run.ID)
+	}
 	if err := s.applyWatchDecision(ctx, input, state, decision, run.EpisodeID); err != nil {
 		return err
 	}
@@ -2152,7 +2166,7 @@ func (s *Service) finishTriageRunFailure(
 }
 
 func publishTriageFailure(input core.SlackInput, state watchTurnState) bool {
-	return state.RecheckOriginRunID == "" &&
+	return !isPrivateSlackVerificationReplay(input) && state.RecheckOriginRunID == "" &&
 		(state.ApprovalContinuation || input.Kind != "bot_message")
 }
 

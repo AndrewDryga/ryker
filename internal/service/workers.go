@@ -1218,7 +1218,7 @@ func reviewSummary(review coop.Review) string {
 	}
 	var blockers []string
 	for _, reason := range review.NotPublishableReasons {
-		if message := reviewReasonMessage(reason); message != "" {
+		if message := reviewReasonMessage(reason, review.GateError); message != "" {
 			blockers = append(blockers, "• "+message)
 		}
 	}
@@ -1264,16 +1264,19 @@ func publicationReview(review coop.Review) coop.Review {
 	return review
 }
 
-func reviewReasonMessage(reason string) string {
+func reviewReasonMessage(reason string, gateError string) string {
 	switch strings.TrimSpace(reason) {
 	case "gate_not_configured":
 		return "Add `gate:` to `.agent/project.yaml` for repeatable repository validation."
 	case "gate_failed":
-		return "The repository gate failed. Fix the reported check, then retry the draft PR."
+		if strings.TrimSpace(gateError) == "" {
+			return "The repository gate failed, but Coop did not retain the failing command output for this card. Ask Emisar to diagnose it in the task fork."
+		}
+		return "The repository gate failed. Ask Emisar to fix the reported check, then retry the draft PR."
 	case "gate_startup_error":
 		return "Coop could not start the repository gate. Check the box runtime and project review configuration."
 	case "gate_modified_candidate":
-		return "The gate changed source files. Gates may create ignored build output, but must leave the reviewed source unchanged."
+		return "Validation changed tracked files. Emisar needs to inspect that diff and either keep an intended generated update or make the gate read-only."
 	case "rebase_conflict":
 		return "The change conflicts with the current base branch and needs a rebase."
 	case "parent_moved":
