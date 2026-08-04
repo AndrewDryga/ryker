@@ -19,7 +19,8 @@ const behaviorOfferMaxAge = 24 * time.Hour
 var (
 	explicitPreferenceRequestPattern = regexp.MustCompile(
 		`(?i)\b(?:always|from now on|going forward|when(?:ever)?\s+i\s+ask|` +
-			`prefer(?:ence)?|default\s+to|by\s+default|remember)\b`,
+			`prefer(?:ence)?|default\s+to|by\s+default|remember|` +
+			`(?:use|us)\s+threads?|answers?[^\n]{0,100}\bthreads?)\b`,
 	)
 	explicitRuleRequestPattern = regexp.MustCompile(
 		`(?i)\b(?:when(?:ever)?\s+you\s+(?:see|receive|notice)|` +
@@ -329,6 +330,7 @@ func normalizeResponseLocationPreference(
 		"prefer thread", "prefer threads", "prefer reply in thread", "prefer replies in thread",
 		"default thread", "default to thread",
 		"always use thread", "always reply in thread", "keep replies in thread",
+		"use thread", "use threads", "us thread", "us threads",
 		"thread by default", "threaded by default"):
 		value = "prefer_thread"
 	case containsAnyPhrase(normalized,
@@ -358,6 +360,78 @@ func normalizeResponseLocationPreference(
 		Scope: scope, Name: "response_location", Value: value, ExpiresIn: expiresIn,
 	}
 	return offer, responseLocationPreferenceAcknowledgement(value, scope), true
+}
+
+func (s *Service) confirmPendingPreferenceReply(
+	ctx context.Context,
+	input core.SlackInput,
+) (bool, error) {
+	if !s.cfg.IsOperator(input.UserID) || input.ThreadTS == "" ||
+		!affirmativeBehaviorConfirmation(s.stripBotMention(input.Text)) {
+		return false, nil
+	}
+	delivery, err := s.store.GetSentSlackMessageDelivery(
+		ctx, input.ChannelID, input.ThreadTS,
+	)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	sourceID, ok := watchReplySourceInputID(delivery.ID)
+	if !ok || time.Since(delivery.CreatedAt) > behaviorOfferMaxAge {
+		return false, nil
+	}
+	run, err := s.store.GetAgentRunBySource(ctx, "watch", sourceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	decision, err := parseWatchDecision(string(run.Result))
+	if err != nil || decision.PreferenceOffer == nil ||
+		decision.MemoryOffer != nil || decision.RuleOffer != nil ||
+		decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
+		decision.IncidentTitle != "" || decision.TaskTitle != "" {
+		return false, nil
+	}
+	source, err := s.store.GetSlackInput(ctx, sourceID)
+	if err != nil {
+		return false, err
+	}
+	actionValue, _, _, ok := s.preparePreferenceOfferAction(
+		source, decision.PreferenceOffer,
+	)
+	if !ok {
+		return false, nil
+	}
+	input.ActionValue = actionValue
+	return true, s.handleRememberPreference(ctx, input)
+}
+
+func affirmativeBehaviorConfirmation(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	normalized = strings.TrimRight(normalized, ".!")
+	switch normalized {
+	case "ok", "okay", "yes", "yes please", "confirm", "confirmed",
+		"save it", "remember it", "do it", "sounds good", "sgtm":
+		return true
+	default:
+		return false
+	}
+}
+
+func watchReplySourceInputID(deliveryID string) (string, bool) {
+	value := strings.TrimPrefix(deliveryID, "watch_reply_")
+	if value == deliveryID || value == "" {
+		return "", false
+	}
+	if index := strings.LastIndex(value, "_part_"); index >= 0 {
+		value = value[:index]
+	}
+	return value, value != ""
 }
 
 func containsAnyPhrase(value string, phrases ...string) bool {

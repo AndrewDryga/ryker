@@ -286,6 +286,13 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		if handled {
 			return nil
 		}
+		handled, confirmationErr := s.confirmPendingPreferenceReply(ctx, input)
+		if confirmationErr != nil {
+			return s.retrySlackInput(ctx, input, confirmationErr)
+		}
+		if handled {
+			return nil
+		}
 		handled, visualErr := s.retryRetainedGeneratedVisual(ctx, input)
 		if visualErr != nil {
 			return s.retrySlackInput(ctx, input, visualErr)
@@ -294,7 +301,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			return nil
 		}
 		text := strings.TrimSpace(s.stripBotMention(input.Text))
-		if text == "" && len(input.Attachments) == 0 {
+		if text == "" && len(input.Attachments) == 0 && input.ThreadTS == "" {
 			if input.Kind == "mention" || input.Kind == "direct" {
 				if err := s.postInputMessageInSourceThread(
 					ctx,

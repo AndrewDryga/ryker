@@ -764,6 +764,89 @@ func TestConfirmedPreferenceReachesFutureHealthPrompt(t *testing.T) {
 	}
 }
 
+func TestConversationReplyConfirmsSinglePendingPreference(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "message":"I can use threads in this channel. Confirm below so I remember it.",
+	  "preference_offer":{
+	    "scope":"channel",
+	    "name":"response_location",
+	    "value":"prefer_thread",
+	    "expires_in":"90d"
+	  }
+	}`
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	request := core.SlackInput{
+		ID: "slack_thread_preference", EnvelopeID: "env_thread_preference",
+		EventID: "EvThreadPreference", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "1700.500", UserID: cfg.Slack.Operators[0],
+		Text: "<@U999BOT> use threads in this channel; do not post answers directly to the channel",
+	}
+	if created, err := st.AdmitSlackInput(ctx, request); err != nil || !created {
+		t.Fatalf("admit preference request = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("preference offer posts = %+v", slackClient.posts)
+	}
+	findSlackAction(
+		t, slackClient.posts[0].message, slackui.ActionRememberPreference,
+	)
+
+	confirmation := core.SlackInput{
+		ID: "slack_thread_preference_ok", EnvelopeID: "env_thread_preference_ok",
+		EventID: "EvThreadPreferenceOK", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: request.ChannelID, ThreadTS: "1700.001", MessageTS: "1700.501",
+		UserID: cfg.Slack.Operators[0], Text: "Ok",
+	}
+	if created, err := st.AdmitSlackInput(ctx, confirmation); err != nil || !created {
+		t.Fatalf("admit conversational confirmation = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preferences, err := st.ListPreferencesForContext(
+		ctx, cfg.Slack.TeamID, request.ChannelID, "repo",
+		cfg.Slack.Operators[0], true, 20,
+	)
+	if err != nil || len(preferences) != 1 ||
+		preferences[0].ScopeKind != "channel" ||
+		preferences[0].Name != "response_location" ||
+		preferences[0].Value != "prefer_thread" {
+		t.Fatalf("saved conversational preference = %+v, %v", preferences, err)
+	}
+	if len(coopClient.submitPrompts) != 1 {
+		t.Fatalf("confirmation invoked Coop again: %d prompts", len(coopClient.submitPrompts))
+	}
+
+	followup := core.SlackInput{
+		ChannelID: request.ChannelID, MessageTS: "1700.600",
+		UserID: cfg.Slack.Operators[0], Text: "Check the latest apply failure.",
+	}
+	thread, _, err := svc.resolveConversationRoute(ctx, followup)
+	if err != nil || thread != followup.MessageTS {
+		t.Fatalf("confirmed thread route = %q, %v", thread, err)
+	}
+}
+
 func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

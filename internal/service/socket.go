@@ -284,7 +284,7 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 			}
 			input.Kind = "bot_message"
 			input.UserID = firstNonempty(message.BotID, message.User)
-		case inner.SubType == "" && message.User != "":
+		case humanMessageSubtype(inner.SubType) && message.User != "":
 			input.Kind = "message"
 			if strings.HasPrefix(inner.Channel, "D") {
 				input.Kind = "direct"
@@ -421,6 +421,10 @@ func normalizedSlackEventMessage(event *slackevents.MessageEvent) slack.Message 
 func supportedExternalMessageSubtype(subtype string) bool {
 	return subtype == "" || subtype == slack.MsgSubTypeBotMessage ||
 		subtype == slack.MsgSubTypeMessageChanged
+}
+
+func humanMessageSubtype(subtype string) bool {
+	return subtype == "" || subtype == slack.MsgSubTypeFileShare
 }
 
 func slackInputAttachments(files []slack.File) []core.SlackAttachment {

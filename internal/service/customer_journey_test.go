@@ -284,7 +284,7 @@ func TestCustomerJourneySchedulesEngineeringFollowupWithoutStalePRControls(t *te
 	}
 }
 
-func TestCustomerJourneyMentionOnlyPromptsOnceWithoutRetrying(t *testing.T) {
+func TestCustomerJourneyMentionOnlyContinuesIncidentThread(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -317,17 +317,16 @@ func TestCustomerJourneyMentionOnlyPromptsOnceWithoutRetrying(t *testing.T) {
 	}
 	drainSlackDeliveries(t, ctx, svc)
 
-	if len(slackClient.posts) != 1 ||
-		slackClient.posts[0].message.Text != "What should I check?" ||
-		slackClient.posts[0].thread != incident.ConversationThreadTS() {
-		t.Fatalf("mention-only reply = %+v", slackClient.posts)
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("mention-only thread prompt = %+v", slackClient.posts)
 	}
 	stored, err := st.GetSlackInput(ctx, input.ID)
 	if err != nil || stored.State != "done" || stored.Failures != 0 {
 		t.Fatalf("mention-only input = %+v, %v", stored, err)
 	}
-	if _, err := st.GetAgentRunBySource(ctx, "slack", input.ID); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("mention-only input created an agent run: %v", err)
+	if run, err := st.GetAgentRunBySource(ctx, "slack", input.ID); err != nil ||
+		run.ThreadTS != incident.ConversationThreadTS() {
+		t.Fatalf("mention-only thread run = %+v, %v", run, err)
 	}
 }
 
@@ -373,6 +372,78 @@ func TestCustomerJourneyMentionOnlyOutsideIncidentPromptsWithoutCoop(t *testing.
 	}
 	if _, err := st.GetAgentRunBySource(ctx, "slack", input.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("channel mention-only input created an agent run: %v", err)
+	}
+}
+
+func TestCustomerJourneyBareMentionUsesPreviousThreadScreenshot(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const screenshotURL = "https://files.slack.com/files-pri/T-F/failing-check.png"
+	slackClient := &fakeSlack{
+		files: map[string][]byte{screenshotURL: testPNG},
+		history: []slackui.HistoryMessage{
+			{
+				Timestamp: "1700.700", BotID: "B999BOT", UserID: "U999BOT",
+				Text: "The latest failed apply I found was va1-postgres.",
+			},
+			{
+				Timestamp: "1700.701", ThreadTS: "1700.700", UserID: cfg.Slack.Operators[0],
+				Text: "1. Use threads and do not post to the channel.\n2. See image.",
+				Files: []slackui.HistoryFile{{
+					ID: "FFAIL", Name: "failing-check.png", MediaType: "image/png",
+					Size: int64(len(testPNG)), URLPrivate: screenshotURL,
+				}},
+			},
+		},
+	}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "message":"I can see the failing va1-apps Terraform Plan check in the screenshot."
+	}`
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack_bare_thread_mention", EnvelopeID: "env_bare_thread_mention",
+		EventID: "EvBareThreadMention", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", ThreadTS: "1700.700", MessageTS: "1700.702",
+		UserID: cfg.Slack.Operators[0], Text: "<@U999BOT>",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit bare thread mention = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(coopClient.submitArtifacts) != 1 ||
+		len(coopClient.submitArtifacts[0]) != 1 ||
+		coopClient.submitArtifacts[0][0].Name != "failing-check.png" ||
+		string(coopClient.submitArtifacts[0][0].Data) != string(testPNG) {
+		t.Fatalf("contextual screenshot artifacts = %+v", coopClient.submitArtifacts)
+	}
+	if len(coopClient.submitPrompts) != 1 ||
+		!strings.Contains(coopClient.submitPrompts[0], "See image") ||
+		!strings.Contains(coopClient.submitPrompts[0], "failing-check.png") {
+		t.Fatalf("contextual screenshot prompt = %q", coopClient.submitPrompts)
+	}
+	for _, post := range slackClient.posts {
+		if post.message.Text == "What should I check?" {
+			t.Fatalf("bare mention discarded thread context: %+v", slackClient.posts)
+		}
 	}
 }
 

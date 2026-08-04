@@ -147,7 +147,46 @@ func (s *Service) agentRunArtifacts(
 	if err != nil {
 		return nil, fmt.Errorf("load Slack attachment source: %w", err)
 	}
+	if len(input.Attachments) == 0 && input.ThreadTS != "" &&
+		strings.TrimSpace(s.stripBotMention(input.Text)) == "" {
+		history, historyErr := s.recentMessages(
+			ctx,
+			input.ChannelID,
+			input.ThreadTS,
+			input.MessageTS,
+			"",
+			s.cfg.Slack.WatchContext,
+		)
+		if historyErr != nil {
+			return nil, fmt.Errorf("load Slack thread attachment context: %w", historyErr)
+		}
+		input.Attachments = latestHumanThreadAttachments(history, input.MessageTS)
+	}
 	return s.downloadSlackArtifacts(ctx, input)
+}
+
+func latestHumanThreadAttachments(
+	history []slackui.HistoryMessage,
+	targetTS string,
+) []core.SlackAttachment {
+	var latest slackui.HistoryMessage
+	for _, message := range history {
+		if message.Timestamp == "" || message.Timestamp >= targetTS ||
+			message.BotID != "" || message.UserID == "" || len(message.Files) == 0 {
+			continue
+		}
+		if latest.Timestamp == "" || message.Timestamp > latest.Timestamp {
+			latest = message
+		}
+	}
+	attachments := make([]core.SlackAttachment, 0, len(latest.Files))
+	for _, file := range latest.Files {
+		attachments = append(attachments, core.SlackAttachment{
+			ID: file.ID, Name: file.Name, MediaType: file.MediaType,
+			Size: file.Size, URLPrivate: file.URLPrivate,
+		})
+	}
+	return attachments
 }
 
 func validateSlackFileURL(raw string) error {

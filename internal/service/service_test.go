@@ -3093,6 +3093,57 @@ func TestSocketAdmitsExternalAppsOnlyInWatchChannels(t *testing.T) {
 	}
 }
 
+func TestSocketAdmitsHumanFileShareAsChannelMessage(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CFILES"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	socket := &fakeSocket{events: make(chan socketmode.Event)}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, socket,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	payload, _ := json.Marshal(map[string]any{"event_id": "EvFileShare"})
+	svc.admitEventsAPI(ctx, socketmode.Event{
+		Type: socketmode.EventTypeEventsAPI,
+		Data: slackevents.EventsAPIEvent{
+			TeamID: cfg.Slack.TeamID,
+			InnerEvent: slackevents.EventsAPIInnerEvent{Data: &slackevents.MessageEvent{
+				SubType: slack.MsgSubTypeFileShare, User: "U123ABC", Channel: "CFILES",
+				TimeStamp: "1700.650", ThreadTimeStamp: "1700.600",
+				Text: "See the failing check in this screenshot.",
+				Message: &slack.Msg{
+					SubType: slack.MsgSubTypeFileShare, User: "U123ABC",
+					Timestamp: "1700.650", ThreadTimestamp: "1700.600",
+					Text: "See the failing check in this screenshot.",
+					Files: []slack.File{{
+						ID: "FFAIL", Name: "failure.png", Mimetype: "image/png",
+						Size:               len(testPNG),
+						URLPrivateDownload: "https://files.slack.com/files-pri/T-F/failure.png",
+					}},
+				},
+			}},
+		},
+		Request: &socketmode.Request{EnvelopeID: "env-file-share", Payload: payload},
+	})
+	input, err := st.LeaseSlackInput(ctx)
+	if err != nil || input.Kind != "message" || input.ThreadTS != "1700.600" ||
+		input.Text != "See the failing check in this screenshot." ||
+		len(input.Attachments) != 1 || input.Attachments[0].ID != "FFAIL" {
+		t.Fatalf("human file share = %+v, %v", input, err)
+	}
+	if socket.acks != 1 {
+		t.Fatalf("file share acknowledgements = %d", socket.acks)
+	}
+}
+
 func TestScheduledRetryHonorsSlackRetryAfter(t *testing.T) {
 	now := time.Date(2026, time.July, 31, 12, 0, 0, 0, time.UTC)
 	next, delay, rateLimited := scheduledRetryAt(
