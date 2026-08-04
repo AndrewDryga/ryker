@@ -1990,6 +1990,29 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 	return input, nil
 }
 
+// RecoverStaleSlackInputs releases inputs whose worker deadline elapsed before
+// it could record a retry. Without this, one interrupted input can preserve
+// per-channel ordering by blocking every later message indefinitely.
+func (s *Store) RecoverStaleSlackInputs(
+	ctx context.Context,
+	staleBefore time.Time,
+) (int64, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE slack_inputs
+		SET state = 'retry', next_attempt_at = ?,
+		    last_error = CASE WHEN last_error = ''
+		      THEN 'Slack input worker stopped before completion'
+		      ELSE last_error END,
+		    updated_at = ?
+		WHERE state = 'processing' AND julianday(updated_at) <= julianday(?)`,
+		nowText(), nowText(), staleBefore.UTC().Format(timestampFormat),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("recover stale Slack inputs: %w", err)
+	}
+	return result.RowsAffected()
+}
+
 func (s *Store) GetSlackInput(ctx context.Context, id string) (core.SlackInput, error) {
 	return scanSlackInput(s.db.QueryRowContext(ctx, `
 		SELECT id, envelope_id, event_id, kind, team_id, channel_id, thread_ts,

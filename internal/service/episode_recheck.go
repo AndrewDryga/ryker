@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -20,27 +21,43 @@ func (s *Service) scheduleEpisodeRechecks(
 	run core.AgentRun,
 	input core.SlackInput,
 	state watchTurnState,
+	action string,
 	completion *completionAssessment,
 ) error {
-	if state.RecheckOriginRunID != "" || completion == nil || completion.Recheck == nil {
-		return nil
-	}
-	for attempt := 1; attempt <= completion.Recheck.AdditionalAttempts; attempt++ {
-		availableAt := time.Now().UTC().Add(
-			time.Duration(completion.Recheck.AfterSeconds*attempt) * time.Second,
-		)
-		if err := s.store.EnqueueWork(ctx, store.WorkItem{
-			Kind:            workEpisodeRecheck,
-			SubjectID:       episodeRecheckSubject(run.ID, attempt),
-			Lane:            store.WorkLaneBackground,
-			ConversationKey: watchConversationKey(input),
-			Priority:        48,
-			AvailableAt:     availableAt,
-		}); err != nil {
+	directive := (*investigation.RecheckDirective)(nil)
+	nextAttempt := 1
+	if state.RecheckOriginRunID == "" {
+		if completion != nil {
+			directive = completion.Recheck
+		}
+	} else {
+		if action != "ignore" {
+			return nil
+		}
+		origin, err := s.store.GetAgentRun(ctx, state.RecheckOriginRunID)
+		if err != nil {
 			return err
 		}
+		decision, err := parseWatchDecision(string(origin.Result))
+		if err != nil || decision.Completion == nil {
+			return nil
+		}
+		directive = decision.Completion.Recheck
+		nextAttempt = state.RecheckAttempt + 1
 	}
-	return nil
+	if directive == nil || nextAttempt > directive.AdditionalAttempts {
+		return nil
+	}
+	return s.store.EnqueueWork(ctx, store.WorkItem{
+		Kind:            workEpisodeRecheck,
+		SubjectID:       episodeRecheckSubject(firstNonempty(state.RecheckOriginRunID, run.ID), nextAttempt),
+		Lane:            store.WorkLaneBackground,
+		ConversationKey: watchConversationKey(input),
+		Priority:        48,
+		AvailableAt: time.Now().UTC().Add(
+			time.Duration(directive.AfterSeconds) * time.Second,
+		),
+	})
 }
 
 func episodeRecheckSubject(runID string, attempt int) string {
@@ -88,14 +105,20 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 			ctx, "watch", episodeRecheckInputID(originRunID, prior),
 		)
 		if errors.Is(priorErr, store.ErrNotFound) {
-			return fmt.Errorf("prior episode recheck %d has not completed", prior)
+			return deferScheduledWork(
+				time.Now().UTC().Add(time.Duration(decision.Completion.Recheck.AfterSeconds)*time.Second),
+				fmt.Sprintf("prior episode recheck %d has not completed", prior),
+			)
 		}
 		if priorErr != nil {
 			return priorErr
 		}
 		if priorRun.State != core.AgentRunCompleted && priorRun.State != core.AgentRunFailed &&
 			priorRun.State != core.AgentRunCancelled && priorRun.State != core.AgentRunSuperseded {
-			return fmt.Errorf("prior episode recheck %d is still %s", prior, priorRun.State)
+			return deferScheduledWork(
+				time.Now().UTC().Add(time.Duration(decision.Completion.Recheck.AfterSeconds)*time.Second),
+				fmt.Sprintf("prior episode recheck %d is still %s", prior, priorRun.State),
+			)
 		}
 		if priorRun.TerminalState != "completed" {
 			continue

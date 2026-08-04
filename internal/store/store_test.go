@@ -662,6 +662,53 @@ func TestSlackInputsOnlySerializeActiveChannelWork(t *testing.T) {
 	}
 }
 
+func TestRecoverStaleSlackInputUnblocksItsChannel(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, input := range []core.SlackInput{
+		{
+			ID: "slack-stale", EnvelopeID: "env-stale", EventID: "event-stale",
+			Kind: "message", TeamID: "T1", ChannelID: "CA", MessageTS: "1",
+			UserID: "U1", Text: "first",
+		},
+		{
+			ID: "slack-next", EnvelopeID: "env-next", EventID: "event-next",
+			Kind: "message", TeamID: "T1", ChannelID: "CA", MessageTS: "2",
+			UserID: "U1", Text: "second",
+		},
+	} {
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit %s = %v, %v", input.ID, created, admitErr)
+		}
+	}
+	first, err := st.LeaseSlackInput(ctx)
+	if err != nil || first.ID != "slack-stale" {
+		t.Fatalf("first lease = %+v, %v", first, err)
+	}
+	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("channel was not serialized: %v", err)
+	}
+	recovered, err := st.RecoverStaleSlackInputs(ctx, time.Now().Add(time.Second))
+	if err != nil || recovered != 1 {
+		t.Fatalf("recover stale input = %d, %v", recovered, err)
+	}
+	retried, err := st.LeaseSlackInput(ctx)
+	if err != nil || retried.ID != first.ID || retried.Attempts != 2 {
+		t.Fatalf("recovered lease = %+v, %v", retried, err)
+	}
+	if err := st.FinishSlackInput(ctx, retried.ID); err != nil {
+		t.Fatal(err)
+	}
+	next, err := st.LeaseSlackInput(ctx)
+	if err != nil || next.ID != "slack-next" {
+		t.Fatalf("next channel input = %+v, %v", next, err)
+	}
+}
+
 func TestRecentWatchContextIsBoundedChronologicalAndTracksNewerDecisions(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

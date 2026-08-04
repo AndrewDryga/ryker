@@ -73,6 +73,12 @@ func changesActionIncidentID(actionID string, value string) (string, bool) {
 }
 
 func (s *Service) processSlackInput(ctx context.Context) error {
+	if _, err := s.store.RecoverStaleSlackInputs(
+		ctx,
+		time.Now().UTC().Add(-s.cfg.Limits.WorkerStallAfter.Duration),
+	); err != nil {
+		return err
+	}
 	input, err := s.store.LeaseSlackInput(ctx)
 	if err != nil {
 		return err

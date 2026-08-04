@@ -16,6 +16,8 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
+const cleanupRetryLimit = 12
+
 func (s *Service) maintainLifecycle(ctx context.Context) {
 	now := time.Now().UTC()
 	if err := s.maintainMemory(ctx, now); err != nil && ctx.Err() == nil {
@@ -102,7 +104,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 		}
 		return
 	}
-	if result.Total() > 0 {
+	if pruneResultWorthLogging(result) {
 		s.log.Info(
 			"pruned expired Responder state",
 			"records", result.Total(),
@@ -129,6 +131,15 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"audit", result.AuditEvents,
 		)
 	}
+}
+
+func pruneResultWorthLogging(result core.PruneResult) bool {
+	if result.Total() >= 25 {
+		return true
+	}
+	return result.MemoryEntries+result.MemoryRollups+result.MemoryReviews+
+		result.MemorySupersessions+result.Preferences+result.StandingRules+
+		result.ScheduledTasks+result.ActionProposals+result.ClosedIncidents > 0
 }
 
 func (s *Service) reconcileOrphanedResponderSessions(
@@ -186,6 +197,9 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 	}
 	session, err := s.coop.GetSession(ctx, item.SessionID)
 	if err != nil {
+		if coopSessionNotFound(err) {
+			return s.store.SetCleanupState(ctx, item.SessionID, "done", "", "", now)
+		}
 		return s.retryCleanup(ctx, item, err)
 	}
 	if session.State == "discarded" {
@@ -431,7 +445,8 @@ func (s *Service) retryCleanup(
 		delay = 6 * time.Hour
 	}
 	state := "retry"
-	if !coop.Retryable(cause) && item.Attempts >= 2 {
+	if (!coop.Retryable(cause) && item.Attempts >= 2) ||
+		item.Attempts+1 >= cleanupRetryLimit {
 		state = "blocked"
 	}
 	if err := s.store.SetCleanupState(
@@ -444,4 +459,13 @@ func (s *Service) retryCleanup(
 		return nil
 	}
 	return cause
+}
+
+func coopSessionNotFound(err error) bool {
+	var apiErr *coop.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.Status == 404 || apiErr.Code == "not_found" ||
+		apiErr.Code == "session_not_found"
 }

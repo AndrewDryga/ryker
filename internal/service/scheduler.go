@@ -38,6 +38,17 @@ type laneHeartbeat struct {
 	maintenance atomic.Int64
 }
 
+type scheduledWorkDeferral struct {
+	at     time.Time
+	reason string
+}
+
+func (d scheduledWorkDeferral) Error() string { return d.reason }
+
+func deferScheduledWork(at time.Time, reason string) error {
+	return scheduledWorkDeferral{at: at, reason: reason}
+}
+
 func (h *laneHeartbeat) mark(lane string, now time.Time) {
 	value := now.UTC().UnixNano()
 	switch lane {
@@ -134,6 +145,9 @@ func (s *Service) runScheduledLane(ctx context.Context, lane string) {
 			timer.Reset(idle)
 			continue
 		case err != nil:
+			if ctx.Err() != nil {
+				return
+			}
 			s.log.Error("lease scheduled work", "lane", lane, "error", err)
 			timer.Reset(idle)
 			continue
@@ -157,6 +171,7 @@ func (s *Service) handleScheduledWork(
 		return
 	}
 	now := time.Now().UTC()
+	var deferral scheduledWorkDeferral
 	switch {
 	case err == nil:
 		var completeErr error
@@ -190,6 +205,15 @@ func (s *Service) handleScheduledWork(
 				"kind", item.Kind,
 				"subject", item.SubjectID,
 				"error", completeErr,
+			)
+		}
+	case errors.As(err, &deferral):
+		if deferErr := s.store.DeferWork(ctx, item, deferral.at); deferErr != nil {
+			s.log.Error(
+				"defer scheduled work",
+				"kind", item.Kind,
+				"subject", item.SubjectID,
+				"error", deferErr,
 			)
 		}
 	default:

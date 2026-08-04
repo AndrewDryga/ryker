@@ -955,6 +955,9 @@ func (s *Service) failPreparingTriageRun(
 func (s *Service) pollAgentRuns(ctx context.Context) {
 	runs, err := s.store.ListRunningAgentRuns(ctx, 200)
 	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		s.log.Error("list running agent runs", "error", err)
 		return
 	}
@@ -1691,7 +1694,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		return err
 	}
 	if err := s.scheduleEpisodeRechecks(
-		ctx, run, input, state, decision.Completion,
+		ctx, run, input, state, decision.Action, decision.Completion,
 	); err != nil {
 		return err
 	}

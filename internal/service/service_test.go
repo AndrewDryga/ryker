@@ -6375,6 +6375,7 @@ type fakeCoop struct {
 	discardCalls       int
 	discardAccepts     []bool
 	outputArtifacts    map[string]coop.OutputArtifact
+	getSessionErr      error
 }
 
 func newFakeCoop() *fakeCoop {
@@ -6493,6 +6494,9 @@ func (f *fakeCoop) ListSessions(context.Context, int) ([]coop.Session, error) {
 	return append([]coop.Session(nil), f.listSessions...), nil
 }
 func (f *fakeCoop) GetSession(context.Context, string) (coop.Session, error) {
+	if f.getSessionErr != nil {
+		return coop.Session{}, f.getSessionErr
+	}
 	return f.session, nil
 }
 func (f *fakeCoop) PrepareSession(_ context.Context, key, sessionID string, expectedRevision int64) (coop.Session, error) {
@@ -6644,6 +6648,69 @@ func TestCleanupDiscardsOnlyCleanOwnedSession(t *testing.T) {
 	if coopClient.discardCalls != 1 || coopClient.session.State != "discarded" {
 		t.Fatalf("clean session was not discarded: calls=%d state=%s",
 			coopClient.discardCalls, coopClient.session.State)
+	}
+}
+
+func TestCleanupTreatsMissingCoopSessionAsAlreadyDone(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.getSessionErr = &coop.APIError{Status: 404, Code: "session_not_found"}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := st.ScheduleCleanup(
+		ctx, coopClient.session.ID, "", "expired session", false, time.Now().Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processCleanup(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := st.Metrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.CleanupPending != 0 || metrics.CleanupBlocked != 0 {
+		t.Fatalf("missing cleanup was retained: %+v", metrics)
+	}
+}
+
+func TestCleanupStopsRetryingPersistentCoopFailures(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.getSessionErr = &coop.APIError{Status: 500, Code: "internal_error"}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := st.ScheduleCleanup(
+		ctx, coopClient.session.ID, "", "expired session", false, time.Now().Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt < cleanupRetryLimit; attempt++ {
+		if err := st.SetCleanupState(
+			ctx, coopClient.session.ID, "retry", "", "internal error", time.Now().Add(-time.Second),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.processCleanup(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := st.Metrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.CleanupPending != 0 || metrics.CleanupBlocked != 1 {
+		t.Fatalf("persistent cleanup was not blocked: %+v", metrics)
 	}
 }
 

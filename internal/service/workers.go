@@ -649,6 +649,9 @@ func (s *Service) queueInitialTurnWithSource(
 func (s *Service) pollCoop(ctx context.Context) {
 	incidents, err := s.store.ListBoundIncidents(ctx, 100)
 	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		s.log.Error("list Coop sessions", "error", err)
 		return
 	}

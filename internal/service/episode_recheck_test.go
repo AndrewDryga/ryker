@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/investigation"
@@ -33,6 +35,133 @@ func TestCompletionRecheckIsTypedAndBounded(t *testing.T) {
 	valid.BlockerKind = "access_denied"
 	if err := validateCompletionAssessment(valid); err == nil {
 		t.Fatal("access denial accepted as an automatic recheck")
+	}
+}
+
+func TestEpisodeRechecksAreChainedAfterEachCompletedAttempt(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	input := core.SlackInput{
+		ID: "slack_chain", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "100.2", UserID: cfg.Slack.Operators[0],
+	}
+	if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, admitErr)
+	}
+	result := []byte(`{
+  "action":"reply",
+  "message":"Waiting for propagation.",
+  "completion":{
+    "status":"blocked",
+    "summary":"Catalog propagation is pending.",
+    "material_gaps":["live catalog"],
+    "blocker_kind":"source_unavailable",
+    "attempts":["Refreshed the catalog."],
+    "next_action":"Recheck after propagation.",
+    "recheck":{"key":"catalog","reason":"Propagation is pending.","after_seconds":30,"additional_attempts":3}
+  }
+}`)
+	origin, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		ID: "run_chain", Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+		ConversationKey: "channel:" + input.ChannelID,
+		SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
+		Result: result, State: core.AgentRunRunning,
+	})
+	if err != nil || !created {
+		t.Fatalf("queue origin = %+v, %t, %v", origin, created, err)
+	}
+	svc := &Service{cfg: cfg, store: st}
+	completion := &completionAssessment{Recheck: &investigation.RecheckDirective{
+		Key: "catalog", AfterSeconds: 30, AdditionalAttempts: 3,
+	}}
+	if err := svc.scheduleEpisodeRechecks(
+		ctx, origin, input, watchTurnState{}, "reply", completion,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnqueueWork(ctx, store.WorkItem{
+		Kind: workEpisodeRecheck, SubjectID: episodeRecheckSubject(origin.ID, 1),
+		Lane: store.WorkLaneBackground, AvailableAt: time.Now().Add(-time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.LeaseWork(ctx, store.WorkLaneBackground, time.Minute)
+	if err != nil || first.SubjectID != episodeRecheckSubject(origin.ID, 1) {
+		t.Fatalf("first work = %+v, %v", first, err)
+	}
+	if err := st.CompleteWork(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.LeaseWork(ctx, store.WorkLaneBackground, time.Minute); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("later attempts were queued eagerly: %v", err)
+	}
+
+	state := watchTurnState{RecheckOriginRunID: origin.ID, RecheckAttempt: 1}
+	if err := svc.scheduleEpisodeRechecks(
+		ctx, core.AgentRun{ID: "run_chain_recheck_1"}, input, state, "ignore", nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnqueueWork(ctx, store.WorkItem{
+		Kind: workEpisodeRecheck, SubjectID: episodeRecheckSubject(origin.ID, 2),
+		Lane: store.WorkLaneBackground, AvailableAt: time.Now().Add(-time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.LeaseWork(ctx, store.WorkLaneBackground, time.Minute)
+	if err != nil || second.SubjectID != episodeRecheckSubject(origin.ID, 2) {
+		t.Fatalf("second work = %+v, %v", second, err)
+	}
+	if err := st.CompleteWork(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.LeaseWork(ctx, store.WorkLaneBackground, time.Minute); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("third attempt was queued before second completed: %v", err)
+	}
+}
+
+func TestLegacyEpisodeRecheckQuietlyDefersUntilPriorAttemptCompletes(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack_legacy", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "100.2", UserID: cfg.Slack.Operators[0],
+	}
+	if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, admitErr)
+	}
+	result := []byte(`{
+  "action":"reply","message":"Waiting.",
+  "completion":{"status":"blocked","summary":"Waiting.","material_gaps":["catalog"],
+  "blocker_kind":"source_unavailable","attempts":["Checked."],"next_action":"Wait.",
+  "recheck":{"key":"catalog","reason":"Waiting.","after_seconds":60,"additional_attempts":3}}
+}`)
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		ID: "run_legacy", Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+		ConversationKey: "channel:" + input.ChannelID,
+		SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
+		Result: result, State: core.AgentRunRunning,
+	})
+	if err != nil || !created {
+		t.Fatalf("queue origin = %+v, %t, %v", run, created, err)
+	}
+	err = (&Service{cfg: cfg, store: st}).processEpisodeRecheck(ctx, store.WorkItem{
+		Kind: workEpisodeRecheck, SubjectID: episodeRecheckSubject(run.ID, 2),
+	})
+	var deferral scheduledWorkDeferral
+	if !errors.As(err, &deferral) || !deferral.at.After(time.Now()) {
+		t.Fatalf("legacy later attempt was not quietly deferred: %#v", err)
 	}
 }
 
