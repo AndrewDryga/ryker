@@ -1217,6 +1217,14 @@ func (p Publication) Published() bool {
 	return p.State == "published" && p.PRNumber > 0 && p.PRURL != ""
 }
 
+func (p Publication) HasPR() bool {
+	return p.PRNumber > 0 && p.PRURL != ""
+}
+
+func (p Publication) NeedsUpdate() bool {
+	return p.State == "stale" && p.HasPR()
+}
+
 type PublicationFollowup struct {
 	IncidentID   string
 	PRState      string

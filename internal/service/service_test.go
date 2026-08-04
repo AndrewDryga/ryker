@@ -230,7 +230,11 @@ func TestPublicationReviewDeliveryIDDeduplicatesOnlyIdenticalResults(t *testing.
 }
 
 func TestPublicationTransitionsAndExactReferenceMatching(t *testing.T) {
-	publication := core.Publication{PRNumber: 493}
+	publication := core.Publication{
+		State: "published", PRNumber: 493,
+		PRURL:     "https://github.com/org/repo/pull/493",
+		RemoteSHA: "0123456789abcdef",
+	}
 	old := core.PublicationFollowup{PRState: "open", ChecksState: "pending"}
 	current := core.PublicationFollowup{PRState: "open", ChecksState: "passing"}
 	kind, state, summary := publicationTransition(
@@ -240,6 +244,30 @@ func TestPublicationTransitionsAndExactReferenceMatching(t *testing.T) {
 	)
 	if kind != "checks" || state != "succeeded" || !strings.Contains(summary, "4 of 4") {
 		t.Fatalf("passing transition = %q, %q, %q", kind, state, summary)
+	}
+	publication.State = "stale"
+	kind, state, summary = publicationTransition(
+		publication, old, current,
+		core.PublicationLifecycleStatus{
+			HeadSHA: publication.RemoteSHA, ChecksTotal: 4, ChecksPassed: 4,
+		},
+		false,
+		14*24*time.Hour,
+	)
+	if kind != "" || state != "" || summary != "" {
+		t.Fatalf("stale publication emitted transition = %q, %q, %q", kind, state, summary)
+	}
+	publication.State = "published"
+	kind, state, summary = publicationTransition(
+		publication, old, current,
+		core.PublicationLifecycleStatus{
+			HeadSHA: "fedcba9876543210", ChecksTotal: 4, ChecksPassed: 4,
+		},
+		false,
+		14*24*time.Hour,
+	)
+	if kind != "" || state != "" || summary != "" {
+		t.Fatalf("unverified PR head emitted transition = %q, %q, %q", kind, state, summary)
 	}
 
 	context := core.PublicationContext{
@@ -269,6 +297,45 @@ func TestPublicationTransitionsAndExactReferenceMatching(t *testing.T) {
 	}
 	if publicationContextAppearsInText("Terraform applied org/repo", context) {
 		t.Fatal("repository-only text activated delivery correlation")
+	}
+}
+
+func TestChangedEngineeringTaskInvalidatesPublishedDraftPR(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-stale-pr", "Change Terraform", "summary",
+		cfg.Slack.Operators[0], "CTASK", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication := core.Publication{
+		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
+		HeadBranch: "responder/change-terraform", ParentHead: "parent",
+		CandidateTree: "old-tree", CommitSHA: "old-commit", RemoteSHA: "old-commit",
+		PRNumber: 29, PRURL: "https://github.com/owner/repo/pull/29",
+		State: "published", PublishedAt: time.Now().UTC(),
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	got, err := svc.markTaskPublicationStale(ctx, task)
+	if err != nil || !got.NeedsUpdate() || got.PRNumber != publication.PRNumber {
+		t.Fatalf("stale task publication = %+v, %v", got, err)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || !stored.NeedsUpdate() || stored.Published() {
+		t.Fatalf("stored stale task publication = %+v, %v", stored, err)
 	}
 }
 

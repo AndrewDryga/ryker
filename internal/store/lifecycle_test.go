@@ -114,6 +114,27 @@ func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
 	if err := st.SavePublication(ctx, publication); err != nil {
 		t.Fatalf("save proved publication: %v", err)
 	}
+	changed, err := st.MarkPublicationStale(
+		ctx,
+		publication.IncidentID,
+		"The task changed after publication.",
+	)
+	if err != nil || !changed {
+		t.Fatalf("mark publication stale = %t, %v", changed, err)
+	}
+	stored, err = st.GetPublication(ctx, publication.IncidentID)
+	if err != nil || !stored.NeedsUpdate() || stored.Published() ||
+		stored.PRNumber != publication.PRNumber {
+		t.Fatalf("stale publication = %+v, %v", stored, err)
+	}
+	changed, err = st.MarkPublicationStale(
+		ctx,
+		publication.IncidentID,
+		"Repeated invalidation.",
+	)
+	if err != nil || changed {
+		t.Fatalf("repeated stale mark = %t, %v", changed, err)
+	}
 }
 
 func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
@@ -160,6 +181,14 @@ func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
 	if err != nil || len(contexts) != 1 || contexts[0].ThreadTS != "1700.100" ||
 		contexts[0].RepositoryKey != "tenant-infra" || contexts[0].MergeSHA == "" {
 		t.Fatalf("active publication contexts = %+v, %v", contexts, err)
+	}
+	if err := st.ResetPublicationFollowup(ctx, incident.ID, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	reset, err := st.GetPublicationFollowup(ctx, incident.ID)
+	if err != nil || reset.PRState != "open" || reset.ChecksState != "unknown" ||
+		reset.MergeSHA != "" || reset.LastEventKey != "" || reset.FailureCount != 0 {
+		t.Fatalf("reset publication follow-up = %+v, %v", reset, err)
 	}
 	event := core.PublicationLifecycleEvent{
 		ID: "event-1", IncidentID: incident.ID, Kind: "deployment",

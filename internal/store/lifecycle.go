@@ -43,10 +43,10 @@ func (s *Store) SavePublication(ctx context.Context, item core.Publication) erro
 	}
 	switch item.State {
 	case "publishing", "failed":
-	case "published":
+	case "published", "stale":
 		if item.HeadBranch == "" || item.CommitSHA == "" || item.RemoteSHA == "" ||
 			item.PRNumber < 1 || item.PRURL == "" || item.PublishedAt.IsZero() {
-			return errors.New("published draft PR identity and proof are required")
+			return errors.New("durable draft PR identity and proof are required")
 		}
 	default:
 		return fmt.Errorf("publication state %q is invalid", item.State)
@@ -101,6 +101,46 @@ func (s *Store) SavePublication(ctx context.Context, item core.Publication) erro
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *Store) MarkPublicationStale(
+	ctx context.Context,
+	incidentID string,
+	reason string,
+) (bool, error) {
+	if incidentID == "" || reason == "" {
+		return false, errors.New("stale publication identity and reason are required")
+	}
+	now := nowText()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE publications
+		SET state = 'stale', last_error = ?, updated_at = ?
+		WHERE incident_id = ? AND state = 'published'`,
+		reason, now, incidentID,
+	)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if changed == 0 {
+		return false, tx.Commit()
+	}
+	result, err = tx.ExecContext(ctx, `
+		UPDATE incidents
+		SET updated_at = ?, card_version = card_version + 1
+		WHERE id = ?`, now, incidentID)
+	if err := expectOne(result, err, "mark stale publication on incident"); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 func (s *Store) ScheduleCleanup(

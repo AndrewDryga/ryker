@@ -1980,7 +1980,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			Title: "Agent turn " + state, Detail: detail,
 		})
 	}
-	if state == "completed" && incident.IsEngineeringTask() {
+	if incident.IsEngineeringTask() {
 		if changes, changesErr := s.coop.Changes(
 			ctx, incident.CoopSessionID,
 		); changesErr == nil {
@@ -1989,11 +1989,25 @@ func (s *Service) finalizeIncidentAgentRun(
 				assembled.InitialTaskChangesFingerprint,
 				changes,
 			) {
-				message = slackui.WithEngineeringTaskDelivery(
-					message,
+				publication, publicationErr := s.markTaskPublicationStale(
+					ctx,
 					incident,
-					true,
 				)
+				if publicationErr != nil {
+					s.log.Error(
+						"mark changed engineering task publication stale",
+						"incident", incident.ID,
+						"error", publicationErr,
+					)
+				}
+				if state == "completed" {
+					message = slackui.WithEngineeringTaskDelivery(
+						message,
+						incident,
+						true,
+						publication,
+					)
+				}
 			}
 		} else {
 			s.log.Warn(

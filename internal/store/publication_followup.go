@@ -31,6 +31,30 @@ func (s *Store) EnsurePublicationFollowup(
 	return err
 }
 
+func (s *Store) ResetPublicationFollowup(
+	ctx context.Context,
+	incidentID string,
+	nextCheckAt time.Time,
+) error {
+	if incidentID == "" || nextCheckAt.IsZero() {
+		return errors.New("publication follow-up identity and next check are required")
+	}
+	now := nowText()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO publication_followups (
+		  incident_id, pr_state, checks_state, next_check_at,
+		  created_at, updated_at
+		) VALUES (?, 'open', 'unknown', ?, ?, ?)
+		ON CONFLICT(incident_id) DO UPDATE SET
+		  pr_state = 'open', checks_state = 'unknown', merge_sha = '',
+		  merged_at = NULL, next_check_at = excluded.next_check_at,
+		  failure_count = 0, last_error = '', last_event_key = '',
+		  updated_at = excluded.updated_at`,
+		incidentID, nextCheckAt.UTC().Format(timestampFormat), now, now,
+	)
+	return err
+}
+
 func (s *Store) GetPublicationFollowup(
 	ctx context.Context,
 	incidentID string,

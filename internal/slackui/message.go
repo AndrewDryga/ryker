@@ -514,6 +514,14 @@ func engineeringTaskCard(
 				publication.PRURL, publication.PRNumber,
 			),
 		)
+	case publication.NeedsUpdate():
+		message.Sections = append(message.Sections,
+			fmt.Sprintf(
+				"*Draft PR needs an update*\nThe task changed after <%s|draft PR #%d> was "+
+					"published. Use *Update draft PR* to review and publish the current task tree.",
+				publication.PRURL, publication.PRNumber,
+			),
+		)
 	case publication.State == "failed":
 		message.Sections = append(message.Sections,
 			"*Draft PR needs attention*\n"+truncateUTF8(
@@ -2592,7 +2600,7 @@ func incidentActions(
 		ID: ActionPublishPR, Label: "Create draft PR", Value: incident.ID, Style: "primary",
 		Confirm: "Run a fresh Coop readiness review, recreate the exact approved tree in an isolated checkout, push a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
 	}
-	if publication.Published() {
+	if publication.Published() || publication.NeedsUpdate() {
 		publish.Label = "Update draft PR"
 		publish.Confirm = "Run a fresh Coop readiness review and update the existing Responder draft PR using lease-protected branch publication? This cannot merge or deploy."
 	} else if publication.State == "failed" {
@@ -2665,6 +2673,8 @@ func incidentActions(
 			actions = append(actions, publish)
 			if publication.Published() {
 				actions = append(actions, viewPR, checkDelivery)
+			} else if publication.NeedsUpdate() {
+				actions = append(actions, viewPR)
 			}
 		}
 	}
@@ -2917,6 +2927,7 @@ func WithEngineeringTaskDelivery(
 	message Message,
 	incident core.Incident,
 	hasCodeChanges bool,
+	publication core.Publication,
 ) Message {
 	if !incident.IsEngineeringTask() {
 		return message
@@ -2928,17 +2939,28 @@ func WithEngineeringTaskDelivery(
 		)
 		return message
 	}
-	message.Context = append(
-		message.Context,
-		"Changes are preserved in the isolated task fork. View the diff, then create a draft PR for external review.",
-	)
+	context := "Changes are preserved in the isolated task fork. View the diff, then create a draft PR for external review."
+	publish := Action{
+		ID: ActionPublishPR, Label: "Create draft PR", Value: incident.ID, Style: "primary",
+		Confirm: "Run Coop's readiness review, publish the exact approved tree on a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
+	}
+	if publication.HasPR() {
+		context = fmt.Sprintf(
+			"The task changed after draft PR #%d was published. View the diff, then update the draft PR with the current reviewed tree.",
+			publication.PRNumber,
+		)
+		publish.Label = "Update draft PR"
+		publish.Confirm = "Run a fresh Coop readiness review and update the existing Responder draft PR using lease-protected branch publication? This cannot merge or deploy."
+	}
+	message.Context = append(message.Context, context)
 	message.Actions = append(message.Actions,
-		Action{ID: ActionChanges, Label: "View diff", Value: incident.ID},
-		Action{
-			ID: ActionPublishPR, Label: "Create draft PR", Value: incident.ID, Style: "primary",
-			Confirm: "Run Coop's readiness review, publish the exact approved tree on a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
-		},
+		Action{ID: ActionChanges, Label: "View diff", Value: incident.ID}, publish,
 	)
+	if publication.HasPR() {
+		message.Actions = append(message.Actions, Action{
+			ID: ActionViewPR, Label: "Open PR", Value: incident.ID, URL: publication.PRURL,
+		})
+	}
 	return message
 }
 

@@ -487,6 +487,25 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	}) || !strings.Contains(strings.Join(published.Sections, "\n"), "Draft PR ready") {
 		t.Fatalf("published task lacks durable PR state: %+v", published)
 	}
+	stalePublication := core.Publication{
+		State: "stale", PRNumber: 42, PRURL: "https://github.example/pull/42",
+	}
+	stale := IncidentCardWithPublication(task, "Emisar", nil, true, stalePublication)
+	if !slices.ContainsFunc(stale.Actions, func(action Action) bool {
+		return action.ID == ActionPublishPR && action.Label == "Update draft PR"
+	}) || !slices.ContainsFunc(stale.Actions, func(action Action) bool {
+		return action.ID == ActionViewPR && action.URL == stalePublication.PRURL
+	}) || !strings.Contains(strings.Join(stale.Sections, "\n"), "needs an update") {
+		t.Fatalf("stale task lacks update state: %+v", stale)
+	}
+	delivery := WithEngineeringTaskDelivery(
+		ConversationResponse("Done.", NewSanitizer(12000)), task, true, stalePublication,
+	)
+	if !slices.ContainsFunc(delivery.Actions, func(action Action) bool {
+		return action.ID == ActionPublishPR && action.Label == "Update draft PR"
+	}) || strings.Contains(strings.Join(delivery.Context, "\n"), "create a draft PR") {
+		t.Fatalf("stale task delivery offered a new PR: %+v", delivery)
+	}
 }
 
 func TestScheduleAndEngineeringTaskOffersComposeWithoutOverwriting(t *testing.T) {

@@ -152,6 +152,13 @@ func RemediationTimeline(record RemediationRecord) []TimelineEvent {
 				Detail:  publication.CommitSHA, URL: publication.PRURL,
 				CreatedAt: publication.PublishedAt,
 			})
+		} else if publication.NeedsUpdate() {
+			appendEvent(TimelineEvent{
+				ID: "publication:" + incident.ID + ":stale", Kind: "publication.stale",
+				ActorID: "responder", Title: fmt.Sprintf("Draft PR #%d needs an update", publication.PRNumber),
+				Detail: publication.LastError, URL: publication.PRURL,
+				CreatedAt: publication.UpdatedAt,
+			})
 		} else if publication.State == "failed" {
 			appendEvent(TimelineEvent{
 				ID: "publication:" + incident.ID + ":failed", Kind: "publication.failed",

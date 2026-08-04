@@ -52,6 +52,9 @@ func (s *Service) refreshPublicationFollowup(
 	input core.SlackInput,
 	manual bool,
 ) error {
+	if !publication.Published() {
+		return nil
+	}
 	statusClient, ok := s.publisher.(publicationStatusAPI)
 	if !ok || s.publisher == nil || !s.publisher.Enabled() {
 		return s.deferPublicationFollowup(
@@ -61,6 +64,22 @@ func (s *Service) refreshPublicationFollowup(
 	status, err := statusClient.PublicationStatus(ctx, publication)
 	if err != nil {
 		return s.deferPublicationFollowup(ctx, followup, err)
+	}
+	if status.HeadSHA != "" && status.HeadSHA != publication.RemoteSHA {
+		_, err := s.store.MarkPublicationStale(
+			ctx,
+			publication.IncidentID,
+			"The draft PR head changed after Responder's last verified publication. "+
+				"Run Update draft PR to review and bind the current task tree.",
+		)
+		return err
+	}
+	latest, err := s.store.GetPublication(ctx, publication.IncidentID)
+	if err != nil {
+		return err
+	}
+	if !latest.Published() || latest.RemoteSHA != publication.RemoteSHA {
+		return nil
 	}
 	incident, err := s.store.GetIncident(ctx, publication.IncidentID)
 	if err != nil {
@@ -142,6 +161,10 @@ func publicationTransition(
 	manual bool,
 	correlationWindow time.Duration,
 ) (string, string, string) {
+	if !publication.Published() ||
+		(status.HeadSHA != "" && status.HeadSHA != publication.RemoteSHA) {
+		return "", "", ""
+	}
 	switch {
 	case current.PRState == "merged" && old.PRState != "merged":
 		return "merged", "succeeded", fmt.Sprintf(

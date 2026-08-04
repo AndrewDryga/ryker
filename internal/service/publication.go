@@ -109,7 +109,7 @@ func (s *Service) publishDraftPR(
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	wasPublished := existing.Published()
+	wasPublished := existing.HasPR()
 	headBranch, err := s.publisher.HeadBranch(incident, existing)
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
@@ -174,7 +174,7 @@ func (s *Service) publishDraftPR(
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	if err := s.store.EnsurePublicationFollowup(
+	if err := s.store.ResetPublicationFollowup(
 		ctx, record.IncidentID,
 		time.Now().UTC().Add(s.cfg.GitHub.FollowupInterval.Duration),
 	); err != nil {
@@ -196,6 +196,41 @@ func (s *Service) publishDraftPR(
 	}
 	return s.enqueue(ctx, "out_publish_"+input.ID, incident, "publication", threadTS,
 		message)
+}
+
+func (s *Service) markTaskPublicationStale(
+	ctx context.Context,
+	incident core.Incident,
+) (core.Publication, error) {
+	publication, err := s.store.GetPublication(ctx, incident.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return core.Publication{}, nil
+	}
+	if err != nil || !publication.Published() {
+		return publication, err
+	}
+	reason := "The engineering task changed after this draft PR was published. " +
+		"Run Update draft PR to review and publish the current task tree."
+	changed, err := s.store.MarkPublicationStale(ctx, incident.ID, reason)
+	if err != nil {
+		return publication, err
+	}
+	if !changed {
+		return s.store.GetPublication(ctx, incident.ID)
+	}
+	publication.State = "stale"
+	publication.LastError = reason
+	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		ID:         "tl_publication_stale_" + incident.ID + "_" + incident.ActiveTurnID,
+		IncidentID: incident.ID,
+		ChannelID:  incident.ChannelID,
+		Kind:       "publication.stale",
+		ActorID:    "responder",
+		Title:      fmt.Sprintf("Draft PR #%d needs an update", publication.PRNumber),
+		Detail:     reason,
+		URL:        publication.PRURL,
+	})
+	return publication, nil
 }
 
 func publicationReviewDeliveryID(incidentID string, review coop.Review) string {
