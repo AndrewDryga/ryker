@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -1193,6 +1194,7 @@ func coopChangesPresent(changes coop.Changes) bool {
 }
 
 func reviewSummary(review coop.Review) string {
+	original := review
 	review = publicationReview(review)
 	gate := map[string]string{
 		"none":          "not configured (recommended)",
@@ -1241,27 +1243,58 @@ func reviewSummary(review coop.Review) string {
 				"Responder can still open a draft PR, but this review did not run a repository-defined gate.",
 		)
 	}
+	if publicationGateIncomplete(original) {
+		lines = append(lines, "", "*Validation warning*")
+		lines = append(lines,
+			"• The repository gate did not complete cleanly. Responder can still publish the exact "+
+				"reviewed tree as a draft PR; inspect its diff and GitHub checks before merging.",
+		)
+		if slices.Contains(original.NotPublishableReasons, "gate_modified_candidate") {
+			lines = append(lines,
+				"• Validation changed tracked files in its disposable checkout, so that gate result was "+
+					"discarded. Those gate-authored changes are not included in the draft.",
+			)
+		}
+	}
 	return strings.Join(lines, "\n")
 }
 
 func publicationReview(review coop.Review) coop.Review {
 	filtered := make([]string, 0, len(review.NotPublishableReasons))
-	missingGate := false
+	gateAdvisory := false
+	switch strings.TrimSpace(review.Gate) {
+	case "none", "failed", "startup_error", "not_run":
+		gateAdvisory = true
+	}
 	for _, reason := range review.NotPublishableReasons {
-		if strings.TrimSpace(reason) == "gate_not_configured" {
-			missingGate = true
+		switch strings.TrimSpace(reason) {
+		case "gate_not_configured", "gate_failed", "gate_startup_error", "gate_modified_candidate":
+			gateAdvisory = true
 			continue
 		}
 		filtered = append(filtered, reason)
 	}
-	if !missingGate {
+	if !gateAdvisory {
 		return review
 	}
 	review.NotPublishableReasons = filtered
 	review.Publishable = review.Rebase == "clean" &&
-		len(filtered) == 0 && len(review.PolicyFindings) == 0 &&
-		strings.TrimSpace(review.GateError) == ""
+		len(filtered) == 0 && len(review.PolicyFindings) == 0
 	return review
+}
+
+func publicationGateIncomplete(review coop.Review) bool {
+	switch strings.TrimSpace(review.Gate) {
+	case "failed", "startup_error", "not_run":
+		return true
+	}
+	for _, reason := range review.NotPublishableReasons {
+		switch strings.TrimSpace(reason) {
+		case "gate_failed", "gate_startup_error", "gate_modified_candidate":
+			return true
+		}
+	}
+	return false
 }
 
 func reviewReasonMessage(reason string, gateError string) string {

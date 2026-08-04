@@ -558,6 +558,22 @@ func TestPublicationGateRecommendationIsAdvisory(t *testing.T) {
 	}
 }
 
+func TestIncompleteValidationWarningKeepsDraftPublicationActionable(t *testing.T) {
+	message := WithIncompleteValidationWarning(PublicationMessage(core.Publication{
+		PRNumber: 43,
+		PRURL:    "https://github.example/owner/repository/pull/43",
+	}, false))
+	context := strings.Join(message.Context, "\n")
+	if message.Header != "Draft PR ready" ||
+		!strings.Contains(context, "Validation warning") ||
+		!strings.Contains(context, "GitHub checks") ||
+		!slices.ContainsFunc(message.Actions, func(action Action) bool {
+			return action.ID == ActionViewPR && action.Label == "Open PR"
+		}) {
+		t.Fatalf("incomplete validation publication message = %+v", message)
+	}
+}
+
 func TestTurnFailureAndManualHandoffPreserveTheNextStep(t *testing.T) {
 	failure := TurnFailureMessage("failed", "MCP request timed out.")
 	if failure.Header != "Investigation could not finish" ||

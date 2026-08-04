@@ -182,9 +182,9 @@ isolated checkout and refuses publication unless `git write-tree` equals Coop's 
 then pushes a deterministic Responder-owned branch with `--force-with-lease` and creates or updates
 a draft PR. GitHub credentials are held only by Responder and are not projected into the agent box.
 Responder has no merge, signing, deployment, or arbitrary branch-push operation. A repository gate
-is recommended validation rather than publication authority: absence is reported as a warning,
-while a configured gate failure, startup error, source mutation, rebase conflict, or policy finding
-still prevents publication.
+is validation evidence rather than publication authority: absence, failure, startup error, or gate
+source mutation is reported on the draft PR as a warning. Rebase conflicts, moving source,
+incomplete reviewed patches, and policy findings still prevent publication.
 
 Published work remains a durable delivery commitment. A host-owned scheduler polls GitHub for
 check, close, and merge transitions and writes deduplicated lifecycle events back to the original

@@ -1679,6 +1679,13 @@ func WithRepositoryGateRecommendation(message Message) Message {
 	return message
 }
 
+func WithIncompleteValidationWarning(message Message) Message {
+	message.Context = append(message.Context,
+		"Validation warning: the repository gate did not complete cleanly. Review the PR diff and GitHub checks before merging.",
+	)
+	return message
+}
+
 func ConversationResponseWithIncidentOffer(
 	text string,
 	sourceInputID string,

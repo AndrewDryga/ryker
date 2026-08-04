@@ -19,7 +19,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithoutConfiguredGate(t *testing.T) {
+func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGate(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Slack.NativeStatus = true
@@ -80,11 +80,13 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithoutConfigured
 			ParentHead:      "parent-head",
 			CandidateTree:   "candidate-tree",
 			Rebase:          "clean",
-			Gate:            "none",
+			Gate:            "failed",
+			GateError:       "./run: infra review gate failed: missing tflint",
 			Patch:           []byte("+runtime-pack: enabled\n"),
 			Publishable:     false,
 			NotPublishableReasons: []string{
-				"gate_not_configured",
+				"gate_failed",
+				"gate_modified_candidate",
 			},
 		},
 	}
@@ -156,7 +158,8 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithoutConfigured
 		strings.Join(slackClient.posts[0].message.Context, "\n")
 	if !strings.Contains(rendered, "Draft PR ready") ||
 		!strings.Contains(rendered, publisherClient.result.PRURL) ||
-		!strings.Contains(rendered, "add `gate:`") ||
+		!strings.Contains(rendered, "Validation warning") ||
+		!strings.Contains(rendered, "GitHub checks") ||
 		strings.Contains(strings.ToLower(rendered), "has been merged") ||
 		strings.Contains(strings.ToLower(rendered), "deployed to") {
 		t.Fatalf("publication message = %+v", slackClient.posts[0].message)

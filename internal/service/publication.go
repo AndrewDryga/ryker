@@ -191,6 +191,9 @@ func (s *Service) publishDraftPR(
 	if review.Gate == "none" {
 		message = slackui.WithRepositoryGateRecommendation(message)
 	}
+	if publicationGateIncomplete(review) {
+		message = slackui.WithIncompleteValidationWarning(message)
+	}
 	return s.enqueue(ctx, "out_publish_"+input.ID, incident, "publication", threadTS,
 		message)
 }

@@ -436,14 +436,15 @@ Card buttons change with state rather than presenting actions that cannot succee
   It does not start an agent turn.
 - **Run readiness check** compares the isolated changes with the current repository, checks rebase,
   runs configured validation and policy gates, and reports whether the result is ready for external
-  review. A missing repository `gate:` is shown as a recommendation, not a blocker; an explicitly
-  configured gate that fails, cannot start, or modifies the reviewed source remains a blocker. It
-  never publishes, merges, signs, or deploys.
+  review. Repository gates provide validation evidence rather than publication authority: missing,
+  failed, unavailable, or source-modifying gates are shown as warnings on a draft PR. Rebase
+  conflicts, moving source, incomplete reviewed patches, and policy findings remain blockers. It
+  never merges, signs, or deploys.
 - **Create draft PR** repeats the readiness review, retrieves and verifies Coop's complete
   content-addressed patch artifact when the inline preview is truncated, reproduces the exact
   approved tree in an isolated checkout, and publishes only a lease-protected Responder branch.
-  Repositories without `gate:` can still publish a draft PR after a clean rebase and policy review;
-  the result warns that repository-defined validation was not run.
+  A cleanly rebased, policy-compliant exact tree can still publish when repository validation is
+  incomplete; the result warns that the diff and GitHub checks require review before merge.
   After publication the task shows **Open PR** and **Check delivery**. Responder polls GitHub for
   check and merge transitions without occupying a model turn. After merge, matching deployment and
   Terraform app messages from other watched channels return to the original task thread only when

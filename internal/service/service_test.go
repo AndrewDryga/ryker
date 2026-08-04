@@ -130,6 +130,31 @@ func TestPublicationReviewDoesNotHideRealBlockers(t *testing.T) {
 	if review.Publishable {
 		t.Fatalf("ungated review ignored policy finding = %+v", review)
 	}
+
+	review = publicationReview(coop.Review{
+		Gate: "failed", Rebase: "clean", GateError: "missing tflint",
+		NotPublishableReasons: []string{"gate_failed", "gate_modified_candidate"},
+	})
+	if !review.Publishable || len(review.NotPublishableReasons) != 0 ||
+		review.GateError != "missing tflint" {
+		t.Fatalf("gate environment failure blocked draft review = %+v", review)
+	}
+
+	review = publicationReview(coop.Review{
+		Gate: "startup_error", Rebase: "clean", GateError: "tflint not installed",
+	})
+	if !review.Publishable || len(review.NotPublishableReasons) != 0 {
+		t.Fatalf("gate state without a reason code blocked draft review = %+v", review)
+	}
+
+	review = publicationReview(coop.Review{
+		Gate: "failed", Rebase: "conflict", GateError: "missing tflint",
+		NotPublishableReasons: []string{"gate_failed", "rebase_conflict"},
+	})
+	if review.Publishable || len(review.NotPublishableReasons) != 1 ||
+		review.NotPublishableReasons[0] != "rebase_conflict" {
+		t.Fatalf("gate warning hid rebase blocker = %+v", review)
+	}
 }
 
 func TestPublicationReviewDeliveryIDDeduplicatesOnlyIdenticalResults(t *testing.T) {
