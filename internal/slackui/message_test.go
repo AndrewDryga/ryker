@@ -1121,14 +1121,16 @@ func TestFailedEngineeringReviewOffersSameTaskRecovery(t *testing.T) {
 		"*Readiness checks*\n• Repository gate: failed",
 		false,
 	)
-	if message.Header != "Not ready for review" || len(message.Actions) != 1 ||
-		message.Actions[0].ID != ActionRepairReview ||
+	if message.Header != "Not ready for review" || len(message.Actions) != 2 ||
+		message.Actions[0].ID != ActionPublishPR ||
 		message.Actions[0].Value != incident.ID ||
-		message.Actions[0].Label != "Diagnose and fix checks" {
+		message.Actions[0].Label != "Retry draft PR" ||
+		message.Actions[1].ID != ActionRepairReview ||
+		message.Actions[1].Label != "Fix blocker" {
 		t.Fatalf("failed review recovery = %+v", message)
 	}
 	if len(message.Context) != 1 ||
-		!strings.Contains(message.Context[0], "same task") {
+		!strings.Contains(message.Context[0], "Retry") {
 		t.Fatalf("failed review context = %+v", message.Context)
 	}
 }

@@ -2900,12 +2900,15 @@ func ReviewMessage(incident core.Incident, summary string, publishable bool) Mes
 		}}
 	} else if !publishable && incident.IsEngineeringTask() {
 		message.Context = []string{
-			"The isolated change is preserved. Ask Emisar to diagnose the failed checks in the same task.",
+			"The isolated change is preserved. Retry after transient repository movement, or ask Emisar to fix a persistent blocker.",
 		}
-		message.Actions = []Action{{
-			ID: ActionRepairReview, Label: "Diagnose and fix checks",
-			Value: incident.ID, Style: "primary",
-		}}
+		message.Actions = []Action{
+			{
+				ID: ActionPublishPR, Label: "Retry draft PR", Value: incident.ID, Style: "primary",
+				Confirm: "Run a fresh readiness review and create a draft pull request if the exact reviewed tree is safe to publish? This cannot merge or deploy.",
+			},
+			{ID: ActionRepairReview, Label: "Fix blocker", Value: incident.ID},
+		}
 	}
 	return message
 }

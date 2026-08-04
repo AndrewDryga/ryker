@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1229,6 +1231,19 @@ func reviewSummary(review coop.Review) string {
 			blockers = append(blockers, "• Policy check: "+finding)
 		}
 	}
+	_, baselineFindings := publicationPolicyFindings(original)
+	if len(baselineFindings) > 0 {
+		noun := "value"
+		if len(baselineFindings) != 1 {
+			noun = "values"
+		}
+		lines = append(lines, "", "*Baseline scan note*")
+		lines = append(lines, fmt.Sprintf(
+			"• Coop flagged %d secret-shaped %s outside the lines changed by this task. "+
+				"Those pre-existing findings do not block the draft; newly added secrets still do.",
+			len(baselineFindings), noun,
+		))
+	}
 	if len(blockers) > 0 {
 		lines = append(lines, "", "*What needs attention*")
 		lines = append(lines, blockers[:min(len(blockers), 12)]...)
@@ -1261,6 +1276,10 @@ func reviewSummary(review coop.Review) string {
 
 func publicationReview(review coop.Review) coop.Review {
 	filtered := make([]string, 0, len(review.NotPublishableReasons))
+	originalPolicyCount := len(review.PolicyFindings)
+	actionablePolicy, _ := publicationPolicyFindings(review)
+	policyAdvisory := len(actionablePolicy) < originalPolicyCount
+	review.PolicyFindings = actionablePolicy
 	gateAdvisory := false
 	switch strings.TrimSpace(review.Gate) {
 	case "none", "failed", "startup_error", "not_run":
@@ -1271,16 +1290,85 @@ func publicationReview(review coop.Review) coop.Review {
 		case "gate_not_configured", "gate_failed", "gate_startup_error", "gate_modified_candidate":
 			gateAdvisory = true
 			continue
+		case "policy_findings":
+			if policyAdvisory && len(actionablePolicy) == 0 {
+				continue
+			}
 		}
 		filtered = append(filtered, reason)
 	}
-	if !gateAdvisory {
-		return review
-	}
 	review.NotPublishableReasons = filtered
-	review.Publishable = review.Rebase == "clean" &&
-		len(filtered) == 0 && len(review.PolicyFindings) == 0
+	if gateAdvisory || policyAdvisory {
+		review.Publishable = review.Rebase == "clean" &&
+			len(filtered) == 0 && len(review.PolicyFindings) == 0
+	}
 	return review
+}
+
+var reviewPolicyLocation = regexp.MustCompile(`\bin (.+):([0-9]+)(?:\s|$)`)
+
+func publicationPolicyFindings(review coop.Review) (actionable, baseline []string) {
+	if len(review.PolicyFindings) == 0 {
+		return nil, nil
+	}
+	if review.PatchTruncated || len(review.Patch) == 0 {
+		return slices.Clone(review.PolicyFindings), nil
+	}
+	added := addedPatchLines(review.Patch)
+	for _, finding := range review.PolicyFindings {
+		match := reviewPolicyLocation.FindStringSubmatch(strings.TrimSpace(finding))
+		if len(match) != 3 {
+			actionable = append(actionable, finding)
+			continue
+		}
+		line, err := strconv.Atoi(match[2])
+		if err != nil || added[match[1]][line] {
+			actionable = append(actionable, finding)
+			continue
+		}
+		baseline = append(baseline, finding)
+	}
+	return actionable, baseline
+}
+
+func addedPatchLines(patch []byte) map[string]map[int]bool {
+	added := make(map[string]map[int]bool)
+	path := ""
+	line := 0
+	for _, raw := range strings.Split(string(patch), "\n") {
+		switch {
+		case strings.HasPrefix(raw, "+++ b/"):
+			path = strings.TrimPrefix(raw, "+++ b/")
+		case strings.HasPrefix(raw, "@@"):
+			line = patchHunkNewLine(raw)
+		case path == "" || line == 0:
+			continue
+		case strings.HasPrefix(raw, "+"):
+			if added[path] == nil {
+				added[path] = make(map[int]bool)
+			}
+			added[path][line] = true
+			line++
+		case strings.HasPrefix(raw, "-") || strings.HasPrefix(raw, "\\"):
+			continue
+		default:
+			line++
+		}
+	}
+	return added
+}
+
+func patchHunkNewLine(header string) int {
+	plus := strings.IndexByte(header, '+')
+	if plus == -1 {
+		return 0
+	}
+	rest := header[plus+1:]
+	if end := strings.IndexAny(rest, ", "); end != -1 {
+		rest = rest[:end]
+	}
+	line, _ := strconv.Atoi(rest)
+	return line
 }
 
 func publicationGateIncomplete(review coop.Review) bool {

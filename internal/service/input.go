@@ -1509,17 +1509,17 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	review, _, err := s.coop.Review(
+	rawReview, _, err := s.coop.Review(
 		ctx, "responder:review:"+input.ID, action.SessionID, action.Revision,
 	)
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	review = publicationReview(review)
+	review := publicationReview(rawReview)
 	err = s.enqueue(
 		ctx, "out_review_"+input.ID, incident, "review", incident.ConversationThreadTS(),
-		slackui.ReviewMessage(incident, reviewSummary(review), review.Publishable))
+		slackui.ReviewMessage(incident, reviewSummary(rawReview), review.Publishable))
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
 	}

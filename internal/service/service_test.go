@@ -157,6 +157,62 @@ func TestPublicationReviewDoesNotHideRealBlockers(t *testing.T) {
 	}
 }
 
+func TestPublicationReviewIgnoresOnlyPreExistingPolicyFindings(t *testing.T) {
+	patch := []byte("" +
+		"diff --git a/tools/test.go b/tools/test.go\n" +
+		"--- a/tools/test.go\n" +
+		"+++ b/tools/test.go\n" +
+		"@@ -1,3 +1,4 @@\n" +
+		" package tools\n" +
+		"+const mode = \"balanced\"\n" +
+		" const database = \"postgres://user:password@example.test/db\"\n" +
+		" const safe = true\n")
+	review := publicationReview(coop.Review{
+		Gate: "failed", Rebase: "clean", Patch: patch,
+		PolicyFindings: []string{
+			"possible secret in tools/test.go:3 (password in a connection-string URL)",
+		},
+		NotPublishableReasons: []string{"gate_failed", "policy_findings"},
+	})
+	if !review.Publishable || len(review.PolicyFindings) != 0 ||
+		len(review.NotPublishableReasons) != 0 {
+		t.Fatalf("pre-existing policy finding blocked draft = %+v", review)
+	}
+	summary := reviewSummary(coop.Review{
+		Gate: "failed", Rebase: "clean", Patch: patch,
+		PolicyFindings: []string{
+			"possible secret in tools/test.go:3 (password in a connection-string URL)",
+		},
+		NotPublishableReasons: []string{"gate_failed", "policy_findings"},
+	})
+	if !strings.Contains(summary, "outside the lines changed by this task") {
+		t.Fatalf("summary omitted baseline policy note:\n%s", summary)
+	}
+
+	patch = []byte(strings.Replace(
+		string(patch),
+		"+const mode = \"balanced\"",
+		"+const database = \"postgres://user:password@example.test/db\"",
+		1,
+	))
+	review = publicationReview(coop.Review{
+		Gate: "passed", Rebase: "clean", Patch: patch,
+		PolicyFindings: []string{
+			"possible secret in tools/test.go:2 (password in a connection-string URL)",
+		},
+		NotPublishableReasons: []string{"policy_findings"},
+	})
+	if review.Publishable || len(review.PolicyFindings) != 1 ||
+		len(review.NotPublishableReasons) != 1 {
+		t.Fatalf("new policy finding did not block draft = %+v", review)
+	}
+
+	review = publicationReview(coop.Review{Gate: "passed", Rebase: "clean"})
+	if review.Publishable {
+		t.Fatalf("normalization overrode an unexplained non-publishable review = %+v", review)
+	}
+}
+
 func TestPublicationReviewDeliveryIDDeduplicatesOnlyIdenticalResults(t *testing.T) {
 	base := coop.Review{
 		CandidateTree: "candidate-tree", Rebase: "conflict", Gate: "none",

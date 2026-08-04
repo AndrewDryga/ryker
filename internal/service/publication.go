@@ -80,18 +80,18 @@ func (s *Service) publishDraftPR(
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	review, _, err := s.coop.Review(
+	rawReview, _, err := s.coop.Review(
 		ctx, "responder:publish-review:"+input.ID, action.SessionID, action.Revision,
 	)
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	review = publicationReview(review)
+	review := publicationReview(rawReview)
 	if !review.Publishable {
 		s.clearNativeStatus(ctx, incident)
 		return s.enqueue(ctx, publicationReviewDeliveryID(incident.ID, review), incident, "review", threadTS,
-			slackui.ReviewMessage(incident, reviewSummary(review), false))
+			slackui.ReviewMessage(incident, reviewSummary(rawReview), false))
 	}
 	review, err = s.completeReviewPatch(ctx, review)
 	if err != nil {
