@@ -147,8 +147,7 @@ func (s *Service) agentRunArtifacts(
 	if err != nil {
 		return nil, fmt.Errorf("load Slack attachment source: %w", err)
 	}
-	if len(input.Attachments) == 0 && input.ThreadTS != "" &&
-		strings.TrimSpace(s.stripBotMention(input.Text)) == "" {
+	if len(input.Attachments) == 0 && input.ThreadTS != "" {
 		history, historyErr := s.recentMessages(
 			ctx,
 			input.ChannelID,
@@ -160,12 +159,12 @@ func (s *Service) agentRunArtifacts(
 		if historyErr != nil {
 			return nil, fmt.Errorf("load Slack thread attachment context: %w", historyErr)
 		}
-		input.Attachments = latestHumanThreadAttachments(history, input.MessageTS)
+		input.Attachments = s.latestHumanThreadAttachments(history, input.MessageTS)
 	}
 	return s.downloadSlackArtifacts(ctx, input)
 }
 
-func latestHumanThreadAttachments(
+func (s *Service) latestHumanThreadAttachments(
 	history []slackui.HistoryMessage,
 	targetTS string,
 ) []core.SlackAttachment {
@@ -179,10 +178,37 @@ func latestHumanThreadAttachments(
 			latest = message
 		}
 	}
-	attachments := make([]core.SlackAttachment, 0, len(latest.Files))
+	attachments := make([]core.SlackAttachment, 0, min(
+		len(latest.Files),
+		s.cfg.Limits.MaxSlackFiles,
+	))
+	var declaredTotal int64
 	for _, file := range latest.Files {
+		if len(attachments) >= s.cfg.Limits.MaxSlackFiles {
+			break
+		}
+		if file.Size < 0 || file.Size > int64(s.cfg.Limits.MaxSlackFileBytes) {
+			continue
+		}
+		mediaType := file.MediaType
+		if mediaType != "" {
+			canonical, err := canonicalSlackMediaType(mediaType)
+			if err != nil {
+				continue
+			}
+			mediaType = canonical
+		}
+		if file.URLPrivate != "" {
+			if err := validateSlackFileURL(file.URLPrivate); err != nil {
+				continue
+			}
+		}
+		if declaredTotal > int64(s.cfg.Limits.MaxSlackFileTotalBytes)-file.Size {
+			continue
+		}
+		declaredTotal += file.Size
 		attachments = append(attachments, core.SlackAttachment{
-			ID: file.ID, Name: file.Name, MediaType: file.MediaType,
+			ID: file.ID, Name: file.Name, MediaType: mediaType,
 			Size: file.Size, URLPrivate: file.URLPrivate,
 		})
 	}

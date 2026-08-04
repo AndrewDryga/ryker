@@ -375,7 +375,7 @@ func TestCustomerJourneyMentionOnlyOutsideIncidentPromptsWithoutCoop(t *testing.
 	}
 }
 
-func TestCustomerJourneyBareMentionUsesPreviousThreadScreenshot(t *testing.T) {
+func TestCustomerJourneyThreadFollowupUsesPreviousThreadScreenshot(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	repository := cfg.Repositories["repo"]
@@ -417,13 +417,13 @@ func TestCustomerJourneyBareMentionUsesPreviousThreadScreenshot(t *testing.T) {
 		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
 	}
 	input := core.SlackInput{
-		ID: "slack_bare_thread_mention", EnvelopeID: "env_bare_thread_mention",
-		EventID: "EvBareThreadMention", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ID: "slack_thread_image_followup", EnvelopeID: "env_thread_image_followup",
+		EventID: "EvThreadImageFollowup", Kind: "mention", TeamID: cfg.Slack.TeamID,
 		ChannelID: "COPS", ThreadTS: "1700.700", MessageTS: "1700.702",
-		UserID: cfg.Slack.Operators[0], Text: "<@U999BOT>",
+		UserID: cfg.Slack.Operators[0], Text: "<@U999BOT> ^",
 	}
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
-		t.Fatalf("admit bare thread mention = %t, %v", created, err)
+		t.Fatalf("admit thread image followup = %t, %v", created, err)
 	}
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
@@ -442,7 +442,7 @@ func TestCustomerJourneyBareMentionUsesPreviousThreadScreenshot(t *testing.T) {
 	}
 	for _, post := range slackClient.posts {
 		if post.message.Text == "What should I check?" {
-			t.Fatalf("bare mention discarded thread context: %+v", slackClient.posts)
+			t.Fatalf("thread followup discarded thread context: %+v", slackClient.posts)
 		}
 	}
 }

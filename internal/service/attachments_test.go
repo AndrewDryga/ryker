@@ -240,3 +240,77 @@ func TestAgentRunArtifactRequiresExistingSlackSource(t *testing.T) {
 		t.Fatalf("missing source error = %v", err)
 	}
 }
+
+func TestAgentRunArtifactInheritsScreenshotForThreadMessageFollowup(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const privateURL = "https://files.slack.com/files-pri/T-F/failing-check.png"
+	slackClient := &fakeSlack{
+		files: map[string][]byte{privateURL: testPNG},
+		history: []slackui.HistoryMessage{
+			{
+				Timestamp: "1700.701", ThreadTS: "1700.700", UserID: "U123",
+				Text: "1. Use threads.\n2. See image.",
+				Files: []slackui.HistoryFile{{
+					ID: "FFAIL", Name: "failing-check.png", MediaType: "image/png",
+					Size: int64(len(testPNG)), URLPrivate: privateURL,
+				}},
+			},
+		},
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "slack_thread_caret", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", ThreadTS: "1700.700", MessageTS: "1700.702",
+		UserID: "U123", Text: "^",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit thread followup = %t, %v", created, err)
+	}
+	artifacts, err := svc.agentRunArtifacts(ctx, core.AgentRun{
+		SourceKind: "watch", SourceID: input.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Name != "failing-check.png" ||
+		string(artifacts[0].Data) != string(testPNG) {
+		t.Fatalf("inherited thread artifacts = %+v", artifacts)
+	}
+}
+
+func TestHistoricalThreadAttachmentsSkipUnsafeFiles(t *testing.T) {
+	cfg := serviceConfig(t)
+	svc := &Service{cfg: cfg}
+	attachments := svc.latestHumanThreadAttachments([]slackui.HistoryMessage{
+		{
+			Timestamp: "1700.100", UserID: "U123",
+			Files: []slackui.HistoryFile{
+				{
+					ID: "FZIP", Name: "archive.zip", MediaType: "application/zip",
+					Size: 100, URLPrivate: "https://files.slack.com/files-pri/T-F/archive.zip",
+				},
+				{
+					ID: "FPNG", Name: "failure.png", MediaType: "image/png",
+					Size: int64(len(testPNG)), URLPrivate: "https://files.slack.com/files-pri/T-F/failure.png",
+				},
+				{
+					ID: "FBAD", Name: "outside.png", MediaType: "image/png",
+					Size: int64(len(testPNG)), URLPrivate: "https://attacker.example/outside.png",
+				},
+			},
+		},
+	}, "1700.200")
+	if len(attachments) != 1 || attachments[0].ID != "FPNG" ||
+		attachments[0].MediaType != "image/png" {
+		t.Fatalf("historical attachments = %+v", attachments)
+	}
+}
