@@ -37,6 +37,9 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	if len(completion.Attempts) > 12 {
 		return errors.New("completion assessment has too many blocker attempts")
 	}
+	if len(completion.CapabilityGaps) > 8 {
+		return errors.New("completion assessment has too many capability gaps")
+	}
 	for _, gap := range completion.MaterialGaps {
 		if len(strings.TrimSpace(gap)) > 500 {
 			return errors.New("completion assessment material gap exceeds 500 bytes")
@@ -44,6 +47,18 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	}
 	completion.MaterialGaps = normalizedCompletionGaps(completion.MaterialGaps)
 	completion.Attempts = normalizedCompletionAttempts(completion.Attempts)
+	for index := range completion.CapabilityGaps {
+		gap := &completion.CapabilityGaps[index]
+		gap.Capability = strings.TrimSpace(gap.Capability)
+		gap.Status = strings.TrimSpace(gap.Status)
+		gap.PackID = strings.TrimSpace(gap.PackID)
+		gap.PackRef = strings.TrimSpace(gap.PackRef)
+		gap.Recommendation = strings.TrimSpace(gap.Recommendation)
+		gap.EvidenceRefs = normalizedCompletionAttempts(gap.EvidenceRefs)
+		if err := validateCapabilityGap(*gap); err != nil {
+			return fmt.Errorf("completion capability gap %d: %w", index+1, err)
+		}
+	}
 	if len(completion.Status) > 32 || len(completion.Verdict) > 32 || len(completion.Summary) > 1000 ||
 		len(completion.BlockerKind) > 64 || len(completion.Blocker) > 1000 || len(completion.NextAction) > 1000 {
 		return errors.New("completion assessment exceeds its field bounds")
@@ -78,6 +93,9 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 		}
 		if !validCompletionBlockerKind(completion.BlockerKind) {
 			return fmt.Errorf("unsupported completion blocker kind %q", completion.BlockerKind)
+		}
+		if completion.BlockerKind == "capability_unavailable" && len(completion.CapabilityGaps) == 0 {
+			return errors.New("capability_unavailable blocker requires capability_gaps")
 		}
 		if completion.Recheck != nil {
 			if completion.BlockerKind != "source_unavailable" && completion.BlockerKind != "tool_failure" {
@@ -128,11 +146,136 @@ func validOperationalHealthVerdict(value string) bool {
 func validCompletionBlockerKind(value string) bool {
 	switch value {
 	case "source_unavailable", "access_denied", "operator_input_required",
-		"authority_boundary", "tool_failure":
+		"authority_boundary", "tool_failure", "capability_unavailable":
 		return true
 	default:
 		return false
 	}
+}
+
+func validateCapabilityGap(gap investigation.CapabilityGap) error {
+	if gap.Capability == "" || len(gap.Capability) > 240 {
+		return errors.New("requires a bounded capability")
+	}
+	if len(gap.EvidenceRefs) == 0 || len(gap.EvidenceRefs) > 8 {
+		return errors.New("requires evidence_refs from pack discovery")
+	}
+	for _, ref := range gap.EvidenceRefs {
+		if len(ref) > 240 {
+			return errors.New("has an oversized evidence reference")
+		}
+	}
+	if gap.Recommendation == "" || len(gap.Recommendation) > 500 {
+		return errors.New("requires a bounded recommendation")
+	}
+	if len(gap.PackID) > 120 || len(gap.PackRef) > 300 {
+		return errors.New("has an oversized pack identity")
+	}
+	switch gap.Status {
+	case "not_installed", "not_trusted", "not_advertised", "incompatible":
+		if gap.PackID == "" {
+			return errors.New("requires an evidence-backed pack_id")
+		}
+		if !strings.Contains(strings.ToLower(gap.Recommendation), strings.ToLower(gap.PackID)) {
+			return errors.New("recommendation must name its pack_id")
+		}
+	case "not_found":
+		if gap.PackID != "" || gap.PackRef != "" {
+			return errors.New("not_found cannot name a pack")
+		}
+	default:
+		return fmt.Errorf("has unsupported status %q", gap.Status)
+	}
+	return nil
+}
+
+func validateCapabilityGapEvidence(
+	completion *completionAssessment,
+	evidence []core.Evidence,
+) error {
+	if completion == nil {
+		return nil
+	}
+	for index, gap := range completion.CapabilityGaps {
+		packObserved := gap.PackID == ""
+		for _, ref := range gap.EvidenceRefs {
+			matched := false
+			for _, item := range evidence {
+				if ref != item.ID && ref != item.SourceID && ref != item.SourceName {
+					continue
+				}
+				if item.SourceType != "emisar" && item.SourceType != "repository" {
+					return fmt.Errorf(
+						"completion capability gap %d evidence %q must come from Emisar or a repository catalog",
+						index+1,
+						ref,
+					)
+				}
+				matched = true
+				if gap.PackID != "" && containsFold(
+					strings.Join([]string{
+						item.Claim, item.Observation, item.SourceName, item.Target,
+					}, " "),
+					gap.PackID,
+				) {
+					packObserved = true
+				}
+			}
+			if !matched {
+				return fmt.Errorf(
+					"completion capability gap %d references unknown evidence %q",
+					index+1,
+					ref,
+				)
+			}
+		}
+		if !packObserved {
+			return fmt.Errorf(
+				"completion capability gap %d pack %q is not identified by its evidence",
+				index+1,
+				gap.PackID,
+			)
+		}
+	}
+	return nil
+}
+
+func appendCapabilityGuidance(
+	message string,
+	followups []string,
+	completion *completionAssessment,
+) (string, []string) {
+	if completion == nil || len(completion.CapabilityGaps) == 0 {
+		return message, followups
+	}
+	target := &message
+	if len(followups) > 0 {
+		target = &followups[len(followups)-1]
+	}
+	var recommendations []string
+	allNotFound := true
+	for _, gap := range completion.CapabilityGaps {
+		if containsFold(*target, gap.Recommendation) {
+			continue
+		}
+		if gap.Status != "not_found" {
+			allNotFound = false
+		}
+		recommendations = append(recommendations, gap.Recommendation)
+	}
+	if len(recommendations) == 0 {
+		return message, followups
+	}
+	prefix := "**Capability to add:** "
+	if allNotFound {
+		prefix = "**Capability gap:** "
+	}
+	if len(recommendations) > 1 {
+		prefix = "**Capability gaps**\n- "
+		recommendations = []string{strings.Join(recommendations, "\n- ")}
+	}
+	*target = strings.TrimSpace(*target) + "\n\n" + prefix + recommendations[0]
+	return message, followups
 }
 
 func normalizedCompletionGaps(values []string) []string {

@@ -2112,6 +2112,21 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if err := validateCompletionAssessment(decision.Completion); err != nil {
 			return watchDecision{}, err
 		}
+		if err := validateCapabilityGapEvidence(decision.Completion, decision.Evidence); err != nil {
+			return watchDecision{}, err
+		}
+		decision.Message, decision.FollowupMessages = appendCapabilityGuidance(
+			decision.Message,
+			decision.FollowupMessages,
+			decision.Completion,
+		)
+		decision.Message, decision.FollowupMessages, err = normalizeReplySequence(
+			decision.Message,
+			decision.FollowupMessages,
+		)
+		if err != nil {
+			return watchDecision{}, err
+		}
 		if decision.TaskPrompt != "" {
 			if !validSuggestedEngineeringTaskBoundary(decision) {
 				return watchDecision{}, errors.New(

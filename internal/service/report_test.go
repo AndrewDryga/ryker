@@ -173,6 +173,38 @@ func TestAgentReportAcceptsEmptyOptionalObservationTimestamps(t *testing.T) {
 	}
 }
 
+func TestAgentReportRendersOnlyEvidenceBoundPackRecommendation(t *testing.T) {
+	output := `{"operations":[` +
+		`{"id":"evidence-pack","type":"record_evidence","evidence":{` +
+		`"claim_id":"task.requested_outcome","claim":"A GitHub Actions inspection pack exists",` +
+		`"observation":"The repository pack catalog contains github-cli with workflow run view and logs actions",` +
+		`"relation":"supports","health_effect":"none","source_type":"repository",` +
+		`"source_id":"pack-catalog","source_name":"packs/github-cli/pack.yaml","confidence":"high"}},` +
+		`{"id":"complete","type":"complete_episode","completion":{` +
+		`"message":"I cannot inspect the exact workflow run from the currently advertised actions.",` +
+		`"completion":{"status":"blocked","summary":"The exact run result is unavailable",` +
+		`"material_gaps":["GitHub Actions run and job result"],` +
+		`"blocker_kind":"capability_unavailable",` +
+		`"attempts":["Searched Emisar actions and the available pack catalog"],` +
+		`"next_action":"Add the GitHub Actions inspection capability",` +
+		`"capability_gaps":[{"capability":"GitHub Actions run and job inspection",` +
+		`"status":"not_installed","pack_id":"github-cli","evidence_refs":["pack-catalog"],` +
+		`"recommendation":"Install the ` + "`github-cli`" + ` pack on a runner with repository read access."}]}}}]}`
+	report, structured, err := parseAgentReport(output)
+	if err != nil || !structured {
+		t.Fatalf("capability report = %+v, structured=%v, err=%v", report, structured, err)
+	}
+	if !strings.Contains(report.Message, "**Capability to add:** Install the `github-cli` pack") {
+		t.Fatalf("capability guidance was not rendered: %q", report.Message)
+	}
+
+	output = strings.Replace(output, "contains github-cli", "contains git provider utilities", 1)
+	output = strings.Replace(output, "packs/github-cli/pack.yaml", "packs/provider-tools/pack.yaml", 1)
+	if _, _, err := parseAgentReport(output); err == nil || !strings.Contains(err.Error(), "not identified by its evidence") {
+		t.Fatalf("fabricated pack recommendation accepted: %v", err)
+	}
+}
+
 func TestAgentReportRecoversMessageFromMalformedFinalEnvelopeAfterCoopProgress(t *testing.T) {
 	output := `I’m checking the repository.{"message":"Audit complete","tool_output":"secret"}`
 	report, structured, err := parseAgentReport(output)

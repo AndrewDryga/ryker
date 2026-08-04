@@ -10,7 +10,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
-const Version = "2026-08-03.1"
+const Version = "2026-08-04.1"
 
 type FreshnessRequirement struct {
 	Class  string        `json:"class"`
@@ -287,6 +287,17 @@ contract. The host validates each operation and completion against this contract
 
 A blocker is an external boundary, not unfinished work. Exhaust available read-only routes before
 returning one, then name the exact source, access, operator input, authority, or tool failure required.
+When a governed operational capability is missing, do not stop at "send me a link" or "the tool is
+unavailable." Search Emisar with find_actions using the capability and useful synonyms, then inspect
+list_packs with availability=all. Also inspect an available repository or published pack catalog when
+it can establish whether a matching pack exists. Distinguish missing message input from missing
+capability: request an identifier only when no configured source can identify it. For a real capability
+gap, emit completion.capability_gaps. Recommend an exact pack only when an Emisar or repository evidence
+record identifies that pack; otherwise use status not_found and say no matching pack was discovered.
+Choose the next step from observed state: install an absent pack, trust an installed untrusted pack,
+deploy or reload a trusted pack that is not advertised, or update an incompatible pack. Do not invent
+pack names, immutable refs, install commands, or availability. Keep the recommendation out of the main
+message because the host renders one concise evidence-bound capability line.
 When an exact source or tool capability is expected to propagate shortly, include completion.recheck
 with a stable dependency key, a concrete reason, a 30-1800 second delay, and 1-4 additional attempts.
 Do not request a recheck for missing credentials, denied access, operator decisions, permanent setup,
@@ -356,6 +367,13 @@ relevant configured tool merely because Emisar is available. Use the MCP tools d
 Fall back from Emisar only after an Emisar MCP tool call fails in the current turn, and
 never say Emisar is unavailable merely because a local CLI or binary is absent.
 Do not ignore a relevant configured tool merely because Emisar is available. Never say Emisar is unavailable merely because a local CLI or binary is absent.
+
+Before declaring that an operational capability is missing, search Emisar find_actions with the
+capability and useful synonyms and inspect list_packs with availability=all. If those live results or
+an available repository or published catalog identify a matching pack, return an evidence-bound
+completion.capability_gaps recommendation for the exact observed state: install, trust, deploy or reload,
+or update it. If no matching pack is found, say so without inventing one. Missing text or an identifier
+in one Slack message is not a capability gap when another configured source can resolve it.
 
 Reconcile declared topology with observed runtime entities, including identities, cardinality, timestamps,
 windows, populations, and denominators. Never equate or count runner records, hosts, VMs, nodes, allocations, containers, or services as the same thing without an explicit mapping.

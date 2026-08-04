@@ -9,15 +9,29 @@ import (
 )
 
 type CompletionAssessment struct {
-	Status       string            `json:"status"`
-	Verdict      string            `json:"verdict,omitempty"`
-	Summary      string            `json:"summary"`
-	MaterialGaps []string          `json:"material_gaps,omitempty"`
-	BlockerKind  string            `json:"blocker_kind,omitempty"`
-	Blocker      string            `json:"blocker,omitempty"`
-	Attempts     []string          `json:"attempts,omitempty"`
-	NextAction   string            `json:"next_action,omitempty"`
-	Recheck      *RecheckDirective `json:"recheck,omitempty"`
+	Status         string            `json:"status"`
+	Verdict        string            `json:"verdict,omitempty"`
+	Summary        string            `json:"summary"`
+	MaterialGaps   []string          `json:"material_gaps,omitempty"`
+	BlockerKind    string            `json:"blocker_kind,omitempty"`
+	Blocker        string            `json:"blocker,omitempty"`
+	Attempts       []string          `json:"attempts,omitempty"`
+	NextAction     string            `json:"next_action,omitempty"`
+	Recheck        *RecheckDirective `json:"recheck,omitempty"`
+	CapabilityGaps []CapabilityGap   `json:"capability_gaps,omitempty"`
+}
+
+// CapabilityGap is an evidence-bound recommendation for adding a governed
+// operational capability. PackID is deliberately optional: when discovery
+// finds no matching pack, the model must report that result instead of
+// inventing a plausible package name.
+type CapabilityGap struct {
+	Capability     string   `json:"capability"`
+	Status         string   `json:"status"`
+	PackID         string   `json:"pack_id,omitempty"`
+	PackRef        string   `json:"pack_ref,omitempty"`
+	EvidenceRefs   []string `json:"evidence_refs"`
+	Recommendation string   `json:"recommendation"`
 }
 
 // RecheckDirective identifies a short-lived external condition that the host
@@ -251,7 +265,7 @@ accepted operations in the episode event stream.
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
 - attach_visual, update_memory, offer_memory, offer_preference, offer_rule, offer_schedule, record_alert_assessment, and propose_action carry the same named typed payload that their operation name describes.
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
-- complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure","attempts":["route already attempted"],"next_action":"exact action that unblocks it","recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}
+- complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure|capability_unavailable","attempts":["route already attempted"],"next_action":"exact action that unblocks it","capability_gaps":[{"capability":"GitHub Actions run and job inspection","status":"not_installed|not_trusted|not_advertised|incompatible|not_found","pack_id":"github-cli when an evidence source identifies it; omit for not_found","pack_ref":"optional observed immutable ref","evidence_refs":["source_id or source_name from a record_evidence operation"],"recommendation":"one concise operator-facing installation, trust, deployment, or compatibility step"}],"recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}
 
 Use record_evidence once per atomic claim and record_coverage once per assessed claim group. Put
 each memory update, visual, durable behavior offer, alert assessment, and action proposal in its own

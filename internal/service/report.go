@@ -171,6 +171,21 @@ func decodeAgentReport(message string) (agentReport, error) {
 	if err := validateCompletionAssessment(report.Completion); err != nil {
 		return agentReport{}, err
 	}
+	if err := validateCapabilityGapEvidence(report.Completion, report.Evidence); err != nil {
+		return agentReport{}, err
+	}
+	report.Message, report.FollowupMessages = appendCapabilityGuidance(
+		report.Message,
+		report.FollowupMessages,
+		report.Completion,
+	)
+	report.Message, report.FollowupMessages, err = normalizeReplySequence(
+		report.Message,
+		report.FollowupMessages,
+	)
+	if err != nil {
+		return agentReport{}, err
+	}
 	return report, nil
 }
 
