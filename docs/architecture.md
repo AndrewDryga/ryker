@@ -3,6 +3,10 @@
 For end-to-end message, memory, incident, approval, and cleanup diagrams, see
 [How Responder works](how-responder-works.md).
 
+For the target modular architecture, migration sequence, historical Slack corpus, replay strategy,
+and release gates planned for the next implementation phase, see
+[Responder Target Architecture and Verification Plan](architecture-next.md).
+
 ## Boundaries
 
 Responder is the incident and conversation layer above Coop:
