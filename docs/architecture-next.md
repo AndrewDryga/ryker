@@ -1,18 +1,18 @@
 # Responder Target Architecture and Verification Plan
 
-Status: proposed target architecture  
-Last updated: 2026-08-03  
-Audience: Responder maintainers, operators, and contributors  
+Status: approved design direction
+Last updated: 2026-08-03
+Audience: Responder maintainers, operators, and contributors
 
-This document defines the architecture Responder should evolve toward. It is intentionally more
-prescriptive than [Architecture](architecture.md), which describes the currently deployed system,
-and more implementation-oriented than [How Responder Works](how-responder-works.md), which explains
-current product behavior.
+This document defines the architecture Responder should evolve toward. It is more prescriptive
+than [Architecture](architecture.md), which describes the deployed system, and more
+implementation-oriented than [How Responder Works](how-responder-works.md), which explains current
+product behavior.
 
-The purpose of this document is to preserve the product and engineering decisions required for the
-next implementation phase. A migration is complete only when the corresponding behavior is proven
-by the tests and evaluation gates defined here. Existing behavior must not be removed merely because
-the replacement type or package exists.
+The goal is not to preserve the current implementation shape. The goal is to preserve every useful
+product capability while replacing competing lifecycles with one reliable ownership model. A
+migration phase is complete only after the historical regressions and release gates in this
+document prove its behavior.
 
 ## 1. Product objective
 
@@ -22,1412 +22,1344 @@ Responder should behave like a persistent operational teammate:
 > communicates naturally while working, remembers commitments and organizational context, and never
 > confuses initiative with authority.
 
-The product is not primarily a chatbot, incident-room generator, or thin wrapper around an agent.
-It is a durable operational work system with Slack as its main human interface, Coop as its model
-execution boundary, Emisar and other tools as governed evidence and action boundaries, and
-repositories as authoritative implementation context.
+The product is not primarily a chatbot, incident-room generator, workflow engine, or thin wrapper
+around a model. It is a durable operational work system with:
 
-Success means that Responder can:
+- Slack as its main human interface;
+- Coop as its model execution and isolated engineering-work boundary;
+- Emisar and other tools as governed evidence and operational-action boundaries;
+- repositories and infrastructure definitions as authoritative implementation context;
+- a transactional local database as the durable episode, inbox, outbox, and continuity store.
+
+Success means Responder can:
 
 - understand a conversation without assuming every nearby message addresses it;
-- decide whether to remain silent, react, answer, investigate, prepare work, or ask for approval;
-- investigate broadly enough for the requested decision instead of stopping after the first check;
-- handle compound instructions without silently dropping requested outcomes;
-- make meaningful progress visible without posting repetitive status noise;
-- continue work after restarts, approvals, schedules, PR transitions, deployments, and tool outages;
-- operate across related repositories while keeping changes, review, and publication unambiguous;
-- remember durable organizational facts and preferences without treating stale prose as evidence;
-- use Coop presets, consults, and provider subscriptions without creating another model runtime;
-- explain which context and evidence informed a conclusion;
-- remain useful when an external system is slow or temporarily unavailable;
-- sound like a thoughtful human teammate, including restrained humor when appropriate;
+- decide whether to remain silent, react, answer, investigate, prepare work, or request approval;
+- acknowledge quickly and continue until the requested decision is actually supported;
+- handle several instructions in one message without silently dropping one;
+- expose meaningful progress without repetitive status noise or hidden-reasoning dumps;
+- survive restarts, provider failures, approvals, schedules, PR transitions, and deployments;
+- coordinate related repositories without making review or ownership ambiguous;
+- recall organizational context across public channels without leaking private conversations;
+- use committed Markdown knowledge without duplicating it into another source of truth;
+- explain which messages, files, memories, repositories, and evidence informed a result;
+- converse like a thoughtful human teammate, including restrained humor when appropriate;
 - preserve deterministic permission, approval, publication, and mutation boundaries.
 
-## 2. Architectural stance
+## 2. Final architectural decisions
 
-### 2.1 Modular monolith first
+### 2.1 One durable work aggregate
 
-The target is a modular monolith, not a distributed system. One Go binary and one transactional
-database remain the pragmatic deployment unit until measured scale requires separation.
+An `Episode` is the authoritative owner of accepted work. It owns the goals, execution attempts,
+bound destination, context manifests, evidence, effects, waits, and outcome.
 
-Internal modules must have explicit boundaries, narrow ports, and independent tests. Network service
-boundaries should be introduced only when deployment isolation, independent scaling, or ownership
-requires them. Splitting code into packages is not sufficient if the packages still share mutable
-state or call each other through broad interfaces.
+An episode may represent a conversational answer, proactive investigation, incident, engineering
+task, operational action, scheduled check, or follow-up. Those are modes and capabilities of an
+episode, not separate root lifecycles.
 
-### 2.2 Events are authoritative
+### 2.2 Event-source the lifecycle, not the whole database
 
-Accepted work is represented by append-only domain events. Current state, Slack surfaces,
-commitments, controls, scheduled work, and follow-up state are projections of those events.
+Episode facts are append-only events. A materialized episode snapshot makes ordinary reads cheap.
+The event log records product transitions that must survive restarts and support replay; it is not a
+generic copy of every SQL mutation.
 
-The event stream is not a generic copy of every database mutation. It records product facts that
-must survive restarts and support replay, such as:
+### 2.3 Models propose; the host decides
 
-- a Slack input was admitted;
-- an episode was accepted;
-- a goal was planned or completed;
-- an execution attempt started or failed;
-- evidence was recorded;
-- an approval was requested or resolved;
-- a publication was created or merged;
-- a deployment was observed;
-- verification passed or found a regression;
-- an operator changed, cancelled, or superseded the goal;
-- a user-facing progress or final message was durably delivered.
-
-### 2.3 Models propose; the host decides effects
-
-Every action with product consequences is typed and host-validated. The model can propose
-investigative routes, evidence, progress, a question, a task, a schedule, a consult, an approval
-request, or completion. The host validates authority, state, freshness, coverage, sizes, source
-identity, and idempotency before accepting the operation.
+The model may propose typed operations. Responder validates state, authority, visibility, evidence,
+freshness, destination, size, and idempotency before accepting them. External side effects are
+performed only from the transactional outbox.
 
 The model never directly:
 
-- writes durable memory;
-- changes permissions or authority;
-- approves an Emisar action;
-- creates an incident, engineering task, schedule, standing assignment, branch, or PR;
-- chooses arbitrary provider credentials;
-- changes the Slack reply location after host routing is resolved;
-- publishes unvalidated raw tool output;
-- declares success when the claim and evidence ledger do not support it.
+- writes durable memory or behavior configuration;
+- changes visibility, authority, or approval policy;
+- approves an Emisar request;
+- creates a schedule, incident room, branch, PR, or deployment;
+- selects arbitrary provider credentials;
+- changes the Slack destination without a validated reroute operation;
+- publishes raw tool output or claims an artifact exists before delivery succeeds;
+- declares a conclusion that the claim and evidence ledger does not support.
 
-### 2.4 Reliability before cleverness
+### 2.4 A modular monolith is the deployment unit
 
-The architecture must prefer resumable work over short turn budgets, exact blockers over vague
-failure prose, and idempotent effects over optimistic retries. No fixed turn count should be the
-normal completion boundary for deep work. Resource governance is expressed through workspace
-budgets, concurrency, deadlines, quiet intervals, and operator-visible pause states.
+One Go binary and one transactional database remain the default. Modules have narrow ports and
+independent tests, but network boundaries are introduced only when measured scale, isolation, or
+ownership requires them.
 
 ### 2.5 Privacy is structural
 
-Workspace, channel, conversation, repository, and operator visibility are carried on every piece of
-retrievable context. Retrieval intersects visibility rather than relying on prompt instructions not
-to disclose private context. Cross-workspace reads are impossible by construction.
+Workspace, conversation, repository, actor, and visibility scope travel with every retrievable
+object. Retrieval intersects the caller's visibility. Prompt instructions are not a privacy
+boundary.
 
-## 3. Four independent product policies
+## 3. Architectural center
 
-The following policies must remain separate because combining them causes unsafe or unnatural
-behavior.
+```text
+Slack / Webhooks / GitHub / Terraform / Emisar / Schedules
+                         |
+                  ingress adapters
+                         |
+                transactional inbox
+                         |
+             normalize InteractionEvent
+                         |
+                 admission policy
+                         |
+                 Episode aggregate
+       goals / attempts / context / evidence / waits
+                         |
+                 effect planning
+                         |
+                transactional outbox
+             /       |       |       \
+          Slack    Emisar   GitHub   Coop
+                         |
+              result events resume episode
+```
+
+Inbound admission, episode-event append, snapshot reduction, and effect enqueue are transactional.
+Network calls happen outside that transaction. Effect outcomes return as new normalized events.
+
+## 4. Authoritative kernel
+
+### 4.1 Durable objects
+
+| Object | Ownership and purpose |
+| --- | --- |
+| `Episode` | Root aggregate for one accepted unit of work |
+| `Goal` | One requested outcome, optionally dependent on other goals |
+| `Attempt` | One Coop/model execution; always a child of an episode |
+| `ContextManifest` | Immutable record of the eligible context used by an attempt |
+| `Evidence` | Immutable source-attributed observation supporting a typed claim |
+| `Effect` | Idempotent outbox operation with an expected episode revision |
+| `Wakeup` | Episode resumption condition: timer, retry, approval, event, or operator input |
+| `Schedule` | Recurring template that creates a new child episode for each occurrence |
+| `StandingAssignment` | Confirmed event-driven template that creates episodes within a bounded scope |
+
+`ConversationRef` is a value object rather than a lifecycle. It contains platform, workspace,
+channel, thread, anchor message, and visibility scope.
+
+Stable operator knowledge and behavior are slower-moving stores, not episode state:
+
+- `Preference` stores typed presentation or investigation preferences;
+- `ConfirmedHint` stores bounded operator-confirmed mappings or factual context;
+- `GuidanceNote` stores confirmed freeform steering with provenance, visibility, scope, and expiry;
+- committed `.agent/kb/`, `.agent/rules/`, runbooks, and repository documentation remain in Git.
+
+### 4.2 Episode identity and revision
+
+Every episode has:
+
+```text
+id
+workspace_id
+conversation_ref
+bound_destination
+destination_revision
+mode
+state
+revision
+authority_snapshot_ref
+effort_contract
+parent_episode_id
+created_at / updated_at / terminal_at
+```
+
+The revision increments for every accepted episode event. Effects and interactive controls carry the
+revision they were created from. The host refuses effects based on stale state.
+
+### 4.3 Event envelope
+
+```text
+EpisodeEvent {
+  id
+  episode_id
+  workspace_id
+  revision
+  type
+  actor
+  occurred_at
+  causation_id
+  correlation_id
+  schema_version
+  payload
+}
+```
+
+The initial event catalog should remain small:
+
+- `episode_accepted`
+- `destination_bound`
+- `destination_changed`
+- `goal_planned`
+- `goal_started`
+- `goal_completed`
+- `goal_blocked`
+- `attempt_started`
+- `attempt_failed`
+- `context_extended`
+- `evidence_recorded`
+- `progress_recorded`
+- `operator_input_requested`
+- `approval_requested`
+- `external_wait_started`
+- `wakeup_resolved`
+- `effect_planned`
+- `effect_succeeded`
+- `effect_failed`
+- `verification_started`
+- `episode_completed`
+- `episode_blocked`
+- `episode_cancelled`
+- `episode_refused`
+
+Add events only when a durable transition cannot be represented by this catalog. Do not create one
+event type per SQL table or Slack block.
+
+### 4.4 Transactional storage constraints
+
+The first storage implementation remains SQLite and uses explicit tables for inbox entries, episode
+events, episode snapshots, goals, context manifests and references, evidence, effects, delivery
+receipts, wakeups, schedules, standing assignments, leases, preferences, hints, and guidance notes.
+
+Required constraints include:
+
+- unique source identity on every inbox event;
+- unique `(episode_id, revision)` on episode events;
+- atomic append, snapshot update, and effect enqueue;
+- unique semantic idempotency key on effects;
+- fencing token on every execution lease;
+- immutable context-manifest and evidence rows;
+- versioned event and operation payloads;
+- indexed workspace, visibility, destination, due-time, and ownership columns.
+
+JSON payloads may carry versioned event-specific data, but lifecycle state, authority, identity,
+visibility, due time, and idempotency must remain queryable columns. Process-local maps and caches are
+never authoritative.
+
+### 4.5 Projections, not competing records
+
+The following are derived from episode events and current effect state:
+
+- current lifecycle state;
+- commitments and next actions;
+- native Slack status;
+- progress and final communication intents;
+- interactive controls and their enabled state;
+- incident-room and engineering-task cards;
+- evidence coverage and claim assessments;
+- publication, checks, merge, deployment, and verification state;
+- scheduled-run history;
+- operator-facing timelines and postmortem drafts.
+
+An incident is an optional escalation label and room artifact attached to an episode. An engineering
+task is an episode with a writable repository capability. Neither owns attempts, deliveries, or
+follow-ups. An incident timeline and postmortem are evidence-backed projections of episode events,
+external lifecycle observations, operator annotations, and verified effects; they are not another
+mutable incident record.
+
+## 5. Episode state machine
+
+```text
+accepted
+   |
+   v
+planning
+   |
+   v
+working <-------------------------+
+   |                               |
+   +--> waiting_operator ----------+
+   +--> waiting_external ----------+
+   +--> retrying ------------------+
+   |
+   v
+verifying
+   |
+   +--> working       more work required
+   +--> completed     decision supported
+   +--> blocked       exact unresolved blocker
+   +--> refused       policy denies requested work
+   +--> cancelled     operator cancels
+```
+
+### 5.1 State invariants
+
+- Only episode events change state.
+- An `Attempt` failure does not make the episode terminal.
+- `waiting_operator`, `waiting_external`, and approval states hold no execution lease.
+- `completed` requires every required goal to be completed or explicitly excluded by policy.
+- `blocked` names the exact missing input, unavailable capability, or exhausted configured budget.
+- `refused` names the deterministic policy boundary and does not imply technical failure.
+- Terminal episodes reject new effects; a follow-up creates a child episode or an explicit reopen
+  event under operator control.
+
+### 5.2 Attempts and continuation
+
+An episode owns zero or more attempts. A transcript limit, provider crash, rate limit, child exit,
+tool outage, or process restart records `attempt_failed`, classifies the blocker, and schedules a new
+attempt or wakeup.
+
+There is no normal fixed turn count. Governance uses workspace concurrency, spend, quiet intervals,
+deadlines, and operator-visible pause states. A configured deadline pauses or blocks the episode
+cleanly; it does not turn normal deep work into an opaque public error.
+
+### 5.3 Admission and execution concurrency
+
+Inputs are serialized only while they are deduplicated, attached to an episode, reduced, and
+enqueued. That lock should last milliseconds.
+
+Execution uses a per-episode lease with fencing tokens. A long investigation does not block a short
+question in the same channel. Workspace and provider pools enforce fair bounded concurrency across
+episodes.
+
+## 6. End-to-end processing loop
+
+1. Persist and deduplicate the inbound platform event before acknowledgement.
+2. Normalize it to an `InteractionEvent` with actor, workspace, conversation, attachments,
+   reactions, edits, blocks, and source IDs.
+3. Resolve visibility, membership, authority, repository scope, and engagement policy.
+4. Create a new episode or attach the input to an explicitly matched active episode.
+5. Bind the destination and enqueue an acknowledgement or native-status effect.
+6. Plan one or more typed goals and select an effort contract.
+7. Compile an immutable context manifest for the next attempt.
+8. Start Coop with the selected execution profile.
+9. Accept validated typed result operations incrementally.
+10. Append episode events and enqueue effects transactionally.
+11. Deliver effects through adapters and record their outcomes.
+12. Resume on new input, timer, approval, webhook, poll result, or retry.
+13. Verify the requested outcome and publish one decision-ready final synthesis.
+
+Follow-ups such as `try again`, `^`, `do that`, and `check it tomorrow` resolve through explicit
+message and episode references before a model is asked to interpret them.
+
+## 7. Independent product policies
 
 | Policy | Question | Owner |
 | --- | --- | --- |
-| Engagement | Should Responder speak, react, or start work? | Host policy plus bounded model classification |
-| Effort | How much investigation is required? | Typed effort contract and goal coverage |
-| Authority | What may be read, changed, published, or executed? | Deterministic host, Coop, and Emisar policy |
-| Communication | Where, when, and how should the result be expressed? | Host routing plus communication policy |
+| Engagement | Should Responder speak, react, or start work? | Host policy plus bounded classification |
+| Effort | What coverage is required before finishing? | Typed effort contract and goals |
+| Authority | What may be read, changed, published, or executed? | Responder, Coop, and Emisar policy |
+| Communication | Where, when, and how should the result appear? | Bound destination and communication policy |
 
 Humor cannot affect authority. Proactivity cannot imply permission. Urgency cannot relax evidence
-requirements. A channel preference can change reply location or investigation depth but cannot
-authorize a mutation.
+requirements. Preferences may change presentation or investigation depth but never authorize an
+external effect.
 
-## 4. Complete system map
+### 7.1 Effort contracts
+
+Use a small contract vocabulary:
+
+- `conversation`: answer from established context or perform a tiny focused lookup;
+- `focused_check`: verify one or two named claims;
+- `operational_assessment`: cover every material system layer for a decision;
+- `investigation`: continue until a root boundary, remediation, or exact blocker is established;
+- `engineering`: inspect, modify, validate, publish when authorized, and follow through;
+- `scheduled_verification`: gather fresh evidence for a previously defined check.
+
+Contract names describe work, not verdicts. `degraded` is a health verdict and is valid only when the
+question asks about system health and supporting evidence establishes degradation.
+
+## 8. Goals and compound requests
+
+Every episode has at least one goal. A compound message creates several goal nodes rather than
+forcing one model answer to encode all work.
 
 ```text
-Slack   Webhooks   GitHub   Terraform   Emisar   Schedules
-  \         |         |         |          |         /
-                 ingress adapters
-                        |
-                transactional inbox
-                        |
-                canonical event log
-                        |
-             workspace and service graph
-                        |
-                 engagement policy
-                        |
-                 episode reducer
-                  /            \
-             goal DAG      context assembler
-                |                 |
-         execution router    context manifest
-                |
-          Coop execution profile
-       lead / consult / delegate
-                |
-          typed result operations
-                |
-       claim and evidence ledger
-                |
-             effect planner
-                |
-            transactional outbox
-          /        |        |       \
-       Slack     Emisar   GitHub   Terraform
+Goal {
+  id
+  episode_id
+  parent_goal_id
+  prerequisite_goal_ids
+  kind
+  requested_outcome
+  completion_contract
+  repository_scope
+  authority_requirement
+  state
+}
 ```
 
-The inbox, event append, state reduction, and outbox enqueue happen transactionally. External
-network calls happen outside the transaction. A successful external effect is recorded as another
-event and may advance the episode.
+The first implementation needs an ordered dependency list with bounded execution of independent
+goals, not a general workflow scheduler. The schema permits a DAG later without requiring a DAG
+engine now.
 
-## 5. Package and dependency boundaries
+An `ExecutionPlan` is a projection of the current goals, prerequisites, selected profiles,
+repository scopes, expected waits, and operator decision points. Deep or compound work can render a
+concise plan and update it as evidence changes. The plan is explanatory and schedulable state; it
+does not grant authority or become a second owner of execution.
 
-The eventual package shape should make invalid dependencies difficult:
+Rules:
+
+- planning must account for every material instruction in the input;
+- the host validates that no requested goal disappeared during normalization;
+- independent goals may run concurrently under workspace limits;
+- dependent goals wait for their prerequisites;
+- partial completion is explicit and lists remaining or blocked goals;
+- one failed child blocks only its dependents;
+- published work is never automatically reverted as compensation; remediation is a new explicit
+  goal and communication.
+
+## 9. Destination, context, attachments, and artifacts
+
+### 9.1 Bound destination
+
+The episode binds one delivery destination at acceptance. Every acknowledgement, status, progress
+message, card, approval, file, and final response uses that destination.
+
+A validated `destination_changed` event may move subsequent effects when:
+
+- the operator explicitly requests a thread or channel move;
+- policy escalates work to a dedicated incident room;
+- Slack removes or archives the destination;
+- the platform requires a replacement conversation.
+
+The event records the typed cause. It does not move unrelated episodes in the same channel.
+
+### 9.2 Context manifests are an input contract
+
+Every attempt receives an immutable `ContextManifest` containing references to:
+
+- the target message and its full thread lineage;
+- bounded nearby channel messages centered on the target, not merely the newest messages;
+- edits, reactions, blocks, link previews, and attachment metadata;
+- eligible downloaded files and generated artifacts;
+- relevant episode and conversation summaries;
+- recalled preferences, confirmed hints, and committed knowledge cards;
+- repository paths and exact revisions;
+- tool schemas, execution profile, provider, model, and reasoning configuration;
+- investigation contract, required claims, and existing evidence;
+- omitted context with a typed reason: privacy, deletion, expiry, unsupported type, or size.
+
+Attempt N+1 includes every still-eligible immutable referent from attempt N plus new relevant
+context. Deletion, revoked visibility, or retention expiry may remove a referent and must be recorded.
+
+Large content is content-addressed. The manifest stores digests and source references instead of
+copying payloads repeatedly.
+
+### 9.3 Artifact delivery honesty
+
+Generated files and images are typed artifacts. A communication effect may reference an artifact
+only after its upload effect succeeds. If upload fails, the episode keeps the artifact, reports the
+specific delivery problem once, and can retry without regenerating it.
+
+## 10. Claims, evidence, and completion
+
+The model chooses investigative routes. The host determines whether the conclusion is supported.
 
 ```text
-internal/domain/
-  workspace/       tenants, operators, visibility, authority
-  graph/           services, dependencies, provenance
-  conversation/    platform-neutral conversations and actors
-  episode/         lifecycle state and event reducer
-  goals/           goal DAG and completion criteria
-  evidence/        claims, observations, contradictions, assessments
-  memory/          durable knowledge and continuity summaries
-  behavior/        preferences and standing assignments
+ClaimRequirement {
+  claim_id
+  question_class
+  target_identity
+  required_dimensions
+  freshness
+  acceptable_sources
+  materiality
+}
 
-internal/application/
-  ingest/          normalize and admit external events
-  engagement/      decide ignore, react, reply, or work
-  orchestration/   advance episodes and goal DAGs
-  context/         construct and persist bounded context manifests
-  execution/       select and invoke Coop execution profiles
-  subscriptions/   resume work from external lifecycle events
-  communication/   produce semantic communication intents
-  effects/         validate and enqueue side effects
+Evidence {
+  id
+  episode_id
+  goal_id
+  claim_id
+  target_identity
+  observation
+  source_type
+  source_ref
+  source_revision
+  observed_at
+  valid_until
+  confidence
+  visibility
+}
+```
 
-internal/ports/
-  conversation.go
-  executor.go
-  operations.go
-  publication.go
-  repositories.go
-  scheduler.go
-  storage.go
+The ledger derives satisfied, contradicted, unsupported, stale, and blocked claims. Evidence for a
+runner cannot satisfy a claim about an application. Evidence for one Terraform run cannot satisfy a
+claim about another run. Successful scheduling does not prove successful application behavior.
 
+An episode may finish only when:
+
+1. required claims for every required goal are supported;
+2. remaining gaps cannot materially change the requested decision; or
+3. an exact blocker identifies what is missing and how an operator can unblock it.
+
+Reports should be concise because the evidence is structured, not because investigation stopped
+early.
+
+## 11. Typed model operations
+
+Coop returns an ordered stream of typed operations rather than one giant final JSON object:
+
+- `record_evidence`
+- `report_progress`
+- `ask_operator`
+- `request_governed_action`
+- `request_approval_status`
+- `request_consult`
+- `offer_engineering_task`
+- `propose_schedule`
+- `propose_standing_assignment`
+- `propose_preference`
+- `propose_confirmed_hint`
+- `propose_guidance_note`
+- `produce_artifact`
+- `change_destination`
+- `complete_goal`
+- `complete_episode`
+
+Responder validates each operation immediately. Invalid operations receive a structured correction
+within the same attempt. Accepted operations become events; they do not fold back into a parallel
+legacy result object.
+
+Free-text model fields never become executable prompts, schedules, action arguments, or repository
+changes. Typed operands are converted into host-owned work specifications.
+
+## 12. Effects, delivery, and interactive controls
+
+```text
+Effect {
+  id
+  workspace_id
+  episode_id
+  expected_episode_revision
+  kind
+  destination_ref
+  payload_ref
+  idempotency_key
+  state
+  attempt_count
+  next_attempt_at
+  last_error_class
+}
+```
+
+The transactional outbox owns Slack posts, reactions, statuses, file uploads, Emisar requests,
+GitHub publication, provider starts, and other network actions.
+
+Idempotency keys cover the full semantic payload, target, and episode revision. Delivery receipts
+outlive optional presentation artifacts so deleting a channel or incident record cannot make a
+duplicate effect appear new.
+
+Interactive controls contain:
+
+```text
+episode_id
+issued_revision
+capability
+subject_id
+expires_at
+```
+
+On click, the host checks current episode state and authority. A stale control performs no stale
+effect and renders the current controls instead of exposing an internal error.
+
+## 13. Wakeups, schedules, and lifecycle subscriptions
+
+### 13.1 Episode wakeups
+
+A `Wakeup` resumes an existing episode:
+
+```text
+Wakeup {
+  id
+  episode_id
+  kind
+  event_matcher
+  due_at
+  poll_after
+  deadline
+  state
+  last_observation
+}
+```
+
+Kinds include retry, timer, approval, operator input, PR check, merge, deployment, Terraform run,
+alert resolution, and post-change verification.
+
+Every external-event wakeup has a polling fallback and a hard deadline. Webhooks provide low
+latency; polling prevents lost webhooks from abandoning accepted commitments.
+
+### 13.2 Recurring schedules
+
+A schedule contains a typed goal template, resolved destination, timezone, recurrence, authority
+snapshot policy, repository scope, and concurrency policy. Each occurrence creates a new child
+episode. Schedule execution never reuses stale controls or an old writable fork.
+
+Scheduled top-level work first creates a durable Slack anchor when native status requires a message
+timestamp. A scheduled episode that reaches a terminal state with no communication intent is a
+delivery failure, not a silent success.
+
+### 13.3 Standing assignments
+
+A standing assignment turns an operator-confirmed event pattern into future episodes. It is the
+primitive for requests such as:
+
+- review every Terraform plan posted in this channel;
+- own first response for checkout alerts;
+- investigate recurring CI failures and prepare a patch;
+- follow every draft PR through checks, merge, deployment, and post-change verification.
+
+```text
+StandingAssignment {
+  id
+  workspace_id
+  trigger_matcher
+  goal_template
+  service_and_repository_scope
+  destination_policy
+  allowed_outputs
+  authority_ceiling
+  effort_and_spend_budget
+  concurrency_policy
+  expires_at
+  enabled
+}
+```
+
+Every matched event creates a new episode or attaches to an explicitly correlated active episode.
+Trigger deduplication and correlation are deterministic. The assignment grants initiative within
+its scope, never permission beyond the current Responder, Coop, and Emisar policies.
+
+Conversational setup proposes the typed assignment and renders a confirmation card showing trigger,
+scope, output, expiry, budget, and authority boundary. Slash commands and App Home provide a reliable
+management surface for review, pause, edit, history, and deletion rather than a second configuration
+model.
+
+### 13.4 Approval behavior
+
+Responder may request a governed Emisar action in the current thread. If Emisar returns
+`pending_approval`, Responder records a wakeup, renders a concise approval card with the authoritative
+Emisar URL, releases all execution leases, and continues processing unrelated work. Approval or
+denial resumes the same episode for verification.
+
+Slack never approves the infrastructure action. A dedicated incident room is optional and governed
+by channel policy or operator choice.
+
+## 14. Slack adapter architecture
+
+Slack is an adapter around a platform-neutral application kernel.
+
+```text
+adapters/slack/
+  inbound       Socket Mode events, commands, buttons, reactions, edits, joins
+  context       target-centered history, threads, files, blocks, reactions
+  outbound      semantic communication intents to Block Kit and Web API calls
+  delivery      outbox consumption, retry, receipts, revision reconciliation
+  status        native status capabilities and fallback anchors
+  admin         channels, members, invitations, App Home, configuration
+```
+
+Do not replace the existing broad Slack API with another broad `ChatPlatform` interface. Use narrow
+ports such as:
+
+- `ConversationReader`
+- `MessagePublisher`
+- `StatusPublisher`
+- `ArtifactStore`
+- `ReactionPublisher`
+- `MemberDirectory`
+- `ChannelAdministrator`
+
+Adapter conformance tests must cover pagination, retries, rate limits, edits, duplicate event IDs,
+thread ancestry, removed files, private-channel visibility, stale controls, upload failures, and
+out-of-order lifecycle events.
+
+## 15. Coop execution
+
+Coop remains the only model runtime so Responder preserves authenticated subscriptions, BYOC,
+provider isolation, repository policy, and writable forks.
+
+Start with three execution profiles:
+
+| Profile | Purpose |
+| --- | --- |
+| `chat` | Conversation and small focused checks |
+| `investigate` | Deep read-only operational work with tools |
+| `engineer` | Isolated writable repository work and validation |
+
+Profiles select a provider/model ladder, reasoning effort, repository policy, tool visibility,
+resource budget, progress quiet interval, and versioned preset reference. A specialist consult is an
+additional read-only attempt inside the same episode: the lead proposes `request_consult`, the host
+selects an allowed preset and budget, and the resulting evidence returns to the lead. Consults are
+selective tools for genuine ambiguity or specialist review, not an automatic second opinion on every
+request.
+
+Coop should provide fast paths internally by:
+
+- reusing authenticated native sessions;
+- prewarming eligible chat and investigation environments;
+- retaining a bounded provider checkpoint separate from conversation memory;
+- streaming typed operations;
+- compacting or rotating transcripts without losing the episode context manifest;
+- classifying errors into retryable, capacity, authentication, policy, malformed result, and
+  terminal provider failures.
+
+Responder never parses provider error prose to decide authority or success.
+
+## 16. Governed tools and authority
+
+| Concern | Authority owner |
+| --- | --- |
+| Slack membership, operator role, and visibility | Responder |
+| Repository allowlist, fork, box, and writable policy | Coop |
+| Infrastructure identity, pack trust, action policy, approval, redaction, audit | Emisar |
+| Branch publication and lease protection | Responder plus Coop review evidence |
+| Merge and deployment | Explicit external policy; not inferred from chat |
+
+The authority snapshot used by an attempt is recorded in its context manifest. A model suggestion,
+memory entry, channel preference, urgency claim, or previous approval cannot widen it.
+
+Read-only operational tools may be used directly from conversation episodes. Mutating Emisar actions
+remain governed by Emisar policy and may pause for approval. They do not require an incident room or
+writable repository unless the requested outcome independently needs one.
+
+## 17. Multiple repositories
+
+Each goal may declare:
+
+- one primary writable repository, or none;
+- zero or more explicitly allowed read-only companion repositories;
+- exact revisions for every repository included in an attempt;
+- validation and publication contracts for the writable repository.
+
+Cross-repository work uses a parent episode with child goals. Each writable child receives an
+independent Coop fork. The parent coordinates compatibility evidence, publication ordering, and
+communication.
+
+Publication dependencies such as `must_merge_after` are typed and host-enforced. Responder refuses
+to publish a dependent change before its prerequisite reaches the required state.
+
+Do not mount an arbitrary parent directory and treat nested repositories as one writable tree. A
+real monorepo is valid. Otherwise, explicit repository sets preserve isolation, review, cleanup, and
+ownership.
+
+## 18. Memory and committed knowledge
+
+Responder does not have one undifferentiated memory system.
+
+### 18.1 Committed knowledge
+
+Stable repository and organizational knowledge belongs in version-controlled Markdown:
+
+- `.agent/kb/` for descriptive subsystem maps, traps, and non-obvious behavior;
+- `.agent/rules/` for normative engineering and operational rules;
+- runbooks and repository documentation for maintained procedures and architecture;
+- an optional dedicated organizational knowledge repository for cross-repository material.
+
+Knowledge cards include sources, subsystem, updated date, and changelog. Responder indexes cards by
+repository, path, visibility, and commit SHA, but reads the original Markdown when relevant. The
+index is disposable and rebuildable; Git remains authoritative.
+
+Ordinary conversation never silently edits committed knowledge. Responder may propose an update.
+During an authorized engineering task, Coop may update a relevant card in the same reviewed commit
+that established the knowledge.
+
+### 18.2 Derived continuity
+
+Conversation summaries and episode outcome summaries preserve:
+
+- purpose and current situation;
+- decisions and their sources;
+- open goals and commitments;
+- unresolved questions and blockers;
+- referenced evidence, artifacts, repositories, and participants.
+
+They are derived, bounded, visibility-scoped, expiring, and rebuildable. Public workspace summaries
+may be recalled across public channels when repository or service context overlaps. Private channels
+and DMs never cross their visibility boundary.
+
+Compaction is deterministic:
+
+```text
+messages -> conversation summary
+conversation summaries -> bounded continuity rollup
+episode events -> outcome summary
+```
+
+Rollups retain source references. Compaction never promotes model prose into authority or current
+evidence.
+
+### 18.3 Runtime knowledge and freeform guidance
+
+Typed preferences and operator-confirmed hints remain in the database because they require Slack
+scope, expiry, precedence, review, and immediate application.
+
+Examples:
+
+- prefer threads in a channel;
+- use deep health checks for an operator;
+- map a channel to a repository;
+- recognize an operator-confirmed service alias.
+
+Preferences affect behavior or presentation. Confirmed hints aid retrieval. Neither proves live
+health or authorizes a side effect.
+
+Not every useful memory is a setting. A `GuidanceNote` preserves operator-confirmed natural-language
+context such as "when reviewing Terraform plans for this team, lead with availability risk and
+drift, not resource counts." It stores the original text, normalized summary, author, source message, workspace and
+optional channel/service/repository scope, visibility, confirmation time, expiry, supersession, and
+review history.
+
+Guidance may steer interpretation, planning priorities, and communication. It is quoted as operator
+context, not executed as a prompt, and cannot grant authority, prove a fact, create a schedule, or
+override newer explicit input. Contradictory guidance is surfaced for review rather than silently
+merged. Operators can inspect, disable, edit, or forget it from Slack.
+
+### 18.4 Retrieval precedence
+
+1. fresh authoritative evidence;
+2. current repository, IaC, and committed knowledge at exact revisions;
+3. current authority and typed configuration;
+4. target conversation and active episode;
+5. operator-confirmed hints and applicable guidance notes;
+6. related summaries and rollups;
+7. older evidence explicitly marked stale.
+
+### 18.5 Service observation index
+
+The service graph is initially a rebuildable observation index, not another infrastructure catalog.
+It connects services, repositories, channels, owners, runbooks, dashboards, dependencies, and
+deployment pipelines using source-attributed observations from repositories, IaC, Emisar, GitHub,
+Slack configuration, and confirmed mappings. Resolution is a deterministic query over source
+priority, exact revision, visibility, and freshness.
+
+Do not add an independent contradiction lifecycle, authority ranking engine, or manually maintained
+duplicate graph. When sources genuinely disagree, expose the sources and ask for an operator
+decision. Store the resulting stable mapping as committed knowledge or a typed confirmed hint.
+
+## 19. Progress and human communication
+
+Progress is a typed episode event. Useful triggers include:
+
+- the evidence plan is established;
+- a material goal begins or completes;
+- a hypothesis changes materially;
+- an important finding is verified;
+- a required dependency is unavailable;
+- approval or operator input is required;
+- work exceeds its configured quiet interval;
+- verification begins or finds a regression.
+
+Use native Slack status for lightweight phase activity. Use durable messages only for findings,
+changed decisions, blockers, approvals, and useful handoffs.
+
+Communication policy must:
+
+- lead with the decision or useful finding;
+- use plain professional language and explain unfamiliar terms;
+- avoid repeating safety disclosures already established in the conversation;
+- avoid raw provider errors, internal schema names, or tool dumps;
+- vary acknowledgement and progress phrasing;
+- omit irrelevant evidence sections and controls;
+- use zero or one socially meaningful emoji by default;
+- permit understated humor only after the useful answer in relaxed contexts;
+- remain serious for incidents, security, approvals, customer impact, failed operations, and
+  uncertainty.
+
+Personality changes phrasing only. It never changes facts, evidence, priorities, routing, controls,
+or authority.
+
+## 20. Backpressure, failure recovery, and cleanup
+
+### 20.1 Work admission and fairness
+
+The existing durable work queue should evolve rather than be replaced. It needs:
+
+- workspace and provider concurrency pools;
+- per-episode leases and fencing;
+- fair scheduling across conversations;
+- priority for approvals, operator replies, and incident verification;
+- bounded retries with classified backoff;
+- explicit paused-capacity and blocked states.
+
+Backpressure delays work; it does not generate repeated public failures.
+
+### 20.2 Failure generations
+
+User-visible failure deduplication is keyed by `(episode_id, blocker_class)`. Replacement attempts do
+not create new public failures for the same logical blocker. A materially different blocker or a
+new operator-requested retry creates a new generation.
+
+### 20.3 Ownership-based cleanup
+
+Every temporary resource records its owning workspace, episode, attempt, and retention class:
+
+- Coop session and box;
+- writable fork;
+- downloaded attachment;
+- generated artifact;
+- provider checkpoint;
+- pending effect;
+- wakeup and subscription;
+- delivery receipt;
+- summary and rollup.
+
+Cleanup never guesses ownership from names. It refuses to remove resources owned by active episodes,
+unresolved approvals, unreviewed changes, pending publications, or live wakeups.
+
+Terminal cleanup should stop boxes promptly, retain reviewable changes according to policy, expire
+downloaded private files aggressively, and preserve durable events, evidence, receipts, and audit
+records for their configured retention.
+
+## 21. Target package boundaries
+
+Keep the package structure small enough to enforce ownership without creating ceremony:
+
+```text
+internal/core/             canonical value types and event envelopes
+internal/episode/          aggregate, reducer, projections, invariants
+internal/policy/           engagement, effort, authority, communication
+internal/evidence/         claims, ledger, completion assessment
+internal/knowledge/        committed sources, continuity, retrieval
+internal/orchestration/    application use cases and effect planning
+internal/ports/            narrow platform and execution capabilities
 internal/adapters/
   slack/
-  webhook/
   coop/
   emisar/
   github/
   terraform/
-  repositories/
+  repository/
   sqlite/
-
-internal/quality/
-  corpus/
-  replay/
-  invariants/
-  behavioral/
-  canary/
-  releasegate/
 ```
 
-The domain and application packages must not import Slack Block Kit, `slack-go`, HTTP request
-types, Coop transport structs, Emisar response structs, GitHub clients, SQL, or filesystem-specific
-repository implementations.
-
-This layout is a target, not a requirement to move every file at once. Boundaries should be
-introduced around behavior and then existing code moved behind them in tested increments.
-
-## 6. Canonical platform-neutral events and effects
-
-Inbound adapters translate external payloads into canonical events:
-
-```go
-type ConversationRef struct {
-    Platform  string
-    Workspace string
-    Channel   string
-    Thread    string
-}
-
-type InteractionEvent struct {
-    ID           string
-    Revision     string
-    Conversation ConversationRef
-    Actor        Actor
-    Kind         InteractionKind
-    Content      Content
-    OccurredAt   time.Time
-    ReceivedAt   time.Time
-    Visibility   Visibility
-    Source       SourceRef
-}
-```
-
-Application code emits semantic effects rather than provider calls:
-
-```go
-type MessageIntent struct {
-    EpisodeID    string
-    Conversation ConversationRef
-    Visibility   Visibility
-    Purpose      MessagePurpose
-    Content      StructuredMessage
-    Controls     []Control
-    Generation   int64
-}
-
-type StatusIntent struct {
-    EpisodeID    string
-    Conversation ConversationRef
-    Phase        string
-    Detail       string
-    Generation   int64
-}
-```
-
-Provider adapters decide how these intents map to Slack threads, channel posts, native agent
-status, Block Kit, reactions, file uploads, or future platforms. The domain never stores provider
-rendering as its source of truth.
-
-### 6.1 Engagement pipeline
-
-Engagement is a staged decision rather than one model classification:
-
-1. the inbound adapter identifies transport facts such as actor, app subtype, mention, thread,
-   reaction, edit, file, and source event ID;
-2. deterministic admission rejects duplicates, unauthorized actors, unsupported events, bot loops,
-   and channels outside configured visibility;
-3. configured behavior resolves mentions-only, proactive, shadow, standing-assignment, and explicit
-   summon policy;
-4. bounded model judgment decides whether an eligible ambient message deserves silence, a reaction,
-   a concise answer, or an investigation;
-5. the host validates the decision against conversation location, source identity, authority, and
-   current episode state;
-6. accepted work becomes an episode or goal event before any user-visible effect.
-
-Static rules determine eligibility and safety. Model judgment handles semantic questions such as
-whether a human conversation is already resolving the issue, whether an alert is credible, and
-whether intervention would be useful. App identity alone does not prove an incident, while an
-ordinary human message does not automatically require a response.
-
-The autonomy ladder is explicit: notice, investigate, recommend, prepare, publish within an
-authorized boundary, and escalate for approval. A standing assignment may grant initiative within
-its configured scope but never general authority.
-
-## 7. WorkEpisode state machine
-
-### 7.1 Statechart
-
-The state machine governs lifecycle and effects, not the model's private investigative reasoning.
+Dependency direction:
 
 ```text
-received -> classified
-  -> ignored
-  -> reacted
-  -> accepted -> planning -> working
-                           -> waiting_external
-                           -> waiting_for_input
-                           -> waiting_approval
-                           -> verifying
-
-verifying -> working          material evidence gap
-verifying -> completed        completion contract satisfied
-
-any active -> blocked
-any active -> failed
-any active -> cancelled
-any active -> superseded
+adapters -> ports -> orchestration -> episode/policy/evidence/knowledge -> core
 ```
 
-`waiting_external` has a typed reason such as `tool_retry`, `provider_capacity`, `scheduled_time`,
-`pr_checks`, `merge`, `deployment`, `terraform_run`, or `rate_limit`. A generic "waiting" state is
-not sufficient for resumption or useful UI.
-
-Effort, authority, approval, publication, Slack delivery, and repository state are orthogonal
-properties. Encoding every combination as a top-level state would create an unmaintainable state
-explosion.
-
-### 7.2 Transition invariants
-
-Every transition must:
-
-- be caused by an immutable event;
-- be accepted by one pure reducer;
-- carry the expected episode revision;
-- reject events from stale workers or controls;
-- be idempotent by source event or operation key;
-- emit effects only after the new state is durably committed;
-- preserve enough metadata to reproduce the decision in replay;
-- produce an operator-visible exact blocker when forward progress is impossible.
-
-The reducer has no network calls, clock reads, random values, or database queries. Time and
-identifiers arrive in events.
-
-### 7.3 Agent runs are attempts
-
-An `AgentRun` is one execution attempt. It owns Coop submission, polling, transcript bounds,
-artifacts, and transport failure. It does not own the product lifecycle. A failed or truncated run
-can be replaced by another run while the episode remains active.
-
-### 7.4 Conversation ordering
-
-Inputs are serialized by conversation key. Multiple conversations and episodes may progress in
-parallel, but only one reducer transaction can advance one episode revision at a time. Writable
-repository goals also acquire a repository-scoped lease so two episodes cannot publish conflicting
-changes from the same managed branch namespace.
-
-## 8. Goal DAG and compound work
-
-A message may contain multiple goals. Responder must preserve each explicit outcome and model their
-dependencies instead of forcing the entire request into one final response.
-
-```text
-Investigate production error
-  -> identify affected service
-  -> verify customer impact
-  -> prepare application patch
-  -> prepare infrastructure patch
-  -> open dependent draft PRs
-  -> wait for checks and merges
-  -> observe deployment
-  -> verify recovery
-  -> report resolution
-```
-
-Each goal node records:
-
-- title and normalized desired outcome;
-- parent and prerequisite goal IDs;
-- service and repository scope;
-- effort contract;
-- authority boundary;
-- execution profile;
-- completion claims and verification requirements;
-- current state and exact blocker;
-- retry, deadline, spend, and concurrency policy;
-- resulting evidence, artifacts, publications, and follow-ups.
-
-Independent read-only nodes may execute concurrently. Dependent nodes become ready only after their
-prerequisites complete. A failure blocks only affected descendants unless the parent objective
-cannot remain useful without them.
-
-The model may propose a DAG, but the host validates that every user instruction is represented,
-that cycles do not exist, and that no node has broader authority than the parent request.
-
-## 9. Planned executions, schedules, and follow-ups
-
-Planned work is part of the goal system, not a separate agent pipeline.
-
-Supported trigger classes include:
-
-- a specific time;
-- a recurring calendar or interval schedule;
-- an operator reply;
-- an Emisar approval or terminal run;
-- a PR check, review, close, or merge transition;
-- a deployment or Terraform lifecycle transition;
-- a repository revision becoming available;
-- a condition derived from authoritative evidence.
-
-```go
-type PlannedExecution struct {
-    GoalID           string
-    Trigger          Trigger
-    ExecutionProfile string
-    Authority        AuthorityBoundary
-    Preconditions    []Condition
-    Destination      ConversationRef
-    Deadline         *time.Time
-    RetryPolicy      RetryPolicy
-    IdempotencyKey   string
-}
-```
-
-When the trigger fires, Responder rehydrates the episode, refreshes relevant graph and repository
-state, rechecks authority and tool availability, freezes a new context manifest, and invokes the
-normal execution path. A schedule never carries permanent authorization.
-
-Each recurring occurrence gets a child episode linked to its parent schedule. This prevents one
-infinite event stream while retaining missed-run detection, trend summaries, and the next due time.
-
-## 10. Service graph
-
-The service graph is a derived operational index, not a second manually maintained infrastructure
-catalog.
-
-```text
-service -> repository
-service -> runtime or workload
-service -> owner or on-call group
-service -> Slack channel
-service -> dependency
-service -> runbook
-service -> dashboard
-service -> deployment pipeline
-service -> SLO or operational indicator
-```
-
-Sources can include repositories, Terraform, Nomad or Kubernetes, GitHub, Emisar, monitoring tools,
-and operator-confirmed mappings. Every node and edge records:
-
-- workspace and visibility;
-- source kind and stable source reference;
-- source revision or observation time;
-- first and last observed times;
-- confidence and authority rank;
-- expiry or refresh policy;
-- active, stale, contradicted, or superseded state.
-
-Conflicting assertions remain visible. A repository declaration and a live runtime observation may
-both be correct at different layers. Resolution policy chooses the active view for a specific claim
-without deleting history.
-
-The graph helps select repositories, tools, runbooks, owners, incident audiences, related
-conversations, required investigation claims, and lifecycle subscriptions. It cannot grant
-authority or prove current health without fresh evidence.
-
-## 11. Multiple repositories
-
-Read-only investigations may use a repository set containing a primary repository and exact-revision
-read-only companion snapshots. The context manifest records every repository and revision actually
-used.
-
-One writable engineering goal has one writable primary repository. Companion repositories remain
-read-only. A genuine cross-repository change becomes a parent episode with one child engineering
-goal and isolated Coop fork per writable repository.
-
-```text
-Parent objective
-  -> API repository patch and PR
-  -> infrastructure repository patch and PR
-  -> client repository patch and PR
-  -> coordinated compatibility validation
-  -> ordered rollout and verification
-```
-
-This preserves clean diffs, review ownership, branch publication, rollback, and cleanup. A dummy
-parent Git repository containing multiple independently writable nested repositories is not a
-replacement for explicit repository identity.
-
-Cross-repository completion requires explicit compatibility evidence and publication ordering. A
-parent episode cannot report success merely because one child PR was merged.
-
-## 12. Coop execution profiles, consults, and presets
-
-Responder continues to use Coop for every model-backed decision. It must not introduce a direct
-provider runtime for fast chat.
-
-Responder selects a typed execution profile. The profile resolves to a Coop preset and records the
-exact provider, model, effort, account, role, tool policy, peer set, and budget in the episode
-runtime version.
-
-Recommended profiles include:
-
-| Profile | Intended use |
-| --- | --- |
-| `chat-fast` | Ordinary conversation and narrow contextual questions |
-| `ops-focused` | One or two explicit operational checks |
-| `ops-deep` | Broad production assessments and persistent investigations |
-| `incident` | Incident investigation, progress, approval, and verification |
-| `change-review` | Plans, diffs, and high-risk change analysis with critics |
-| `engineering` | Isolated writable work, review, validation, and publication preparation |
-| `postmortem` | Timeline analysis, evidence synthesis, and follow-up extraction |
-
-The lead may request a read-only consult with an SRE, security, database, infrastructure, or code
-review peer. The host validates the requested role, reason, spend, timeout, data visibility, and
-profile allowlist. Consult advice is evidence or critique, never authority. The lead remains
-responsible for the final result.
-
-Consults should be used for contradictions, high-risk plans, specialist domains, major changes, or
-an explicit operator request. They should not add cost and latency to every message.
-
-## 13. Claim and evidence ledger
-
-Every decision-material conclusion is represented as claims supported or contradicted by atomic
-evidence.
-
-```text
-Claim: cms-web memory is healthy after rollout
-  supporting evidence:
-    - current allocation uses 24 percent of limit
-    - no restarts since deployment
-    - backend is ready
-  limiting evidence:
-    - observation window is only three hours
-```
-
-Evidence records source, target, dimensions, observation time, validity interval, freshness,
-confidence, content digest, and whether it supports or contradicts a claim. The host computes claim
-assessment from the ledger and the compiled investigation contract.
-
-The model may not finish an operational assessment while a required material claim is absent,
-unsupported, contradicted without resolution, or stale beyond the contract. It may finish as
-blocked only when it names an exact external blocker, attempted routes, and a real unblocking action.
-
-Health verdicts apply only to health questions. Engineering, configuration, runbook, scheduling,
-and publication tasks use task-specific completion language instead of being labeled healthy or
-degraded.
-
-## 14. Memory architecture
-
-Responder has one memory architecture but not one undifferentiated memory store. Facts, continuity,
-evidence, behavior, commitments, and provider state have different trust and retention rules.
-
-### 14.1 Memory taxonomy
-
-| Subsystem | Incorporated current data | Role |
-| --- | --- | --- |
-| Working context | Recent Slack messages, attachments, reactions | Bounded input for one execution |
-| Context manifests | Frozen agent-run context | Exact record of what informed a turn |
-| Episodic memory | Conversation summaries, episode events, timelines | What happened in conversations and work |
-| Semantic memory | Confirmed memory entries and service graph | Durable organizational knowledge |
-| Evidence ledger | Evidence, coverage, claim assessments | Source-attributed support for conclusions |
-| Behavioral policy | Preferences and standing rules | Deterministic configured behavior |
-| Execution state | Goals, commitments, schedules, subscriptions | Work owed by Responder, not reusable facts |
-| Runtime checkpoints | Coop session IDs and generations | Provider continuity only |
-
-### 14.2 Knowledge entries
-
-Confirmed semantic memory evolves into versioned assertions with:
-
-- workspace, scope, and visibility;
-- subject, predicate, and typed value;
-- source reference and source revision;
-- actor and confirmation record;
-- confidence and authority rank;
-- valid-from, observed-at, expiry, and review times;
-- active, stale, contradicted, or superseded state;
-- recall counters and downstream references.
-
-Multiple contradictory assertions may coexist. Higher-authority or fresher sources affect retrieval,
-but history is retained so an old episode can reconstruct what was known at that time.
-
-### 14.3 Conversation continuity
-
-Conversation summaries remain derived projections. They retain goal, situation, decisions, open
-loops, unresolved questions, referenced evidence, and participants. Related summaries are selected
-by service graph, repository, channel, visibility, and recency rather than copied into another
-store.
-
-Coop session checkpoints are separated from conversation memory. Rotating or discarding a provider
-session cannot delete organizational continuity.
-
-### 14.4 Memory precedence
-
-Context assembly uses this precedence:
-
-1. fresh authoritative live evidence;
-2. current repository and service graph state;
-3. current Responder configuration and authority;
-4. target conversation and active episode;
-5. operator-confirmed knowledge;
-6. related summaries and rollups;
-7. older evidence, explicitly marked stale.
-
-Memory never proves current health, contains credentials, grants approval, or authorizes a change.
-
-### 14.5 Compaction and review
-
-Compaction is a deterministic projection pipeline:
-
-```text
-messages -> conversation summary
-conversation summaries -> weekly continuity rollup
-episode events -> outcome summary
-repeated graph assertions -> refreshed graph edge
-```
-
-Rollups retain source references. Compaction does not rewrite confirmed operator memory, promote
-model prose into facts, or silently change behavior. Stale and duplicate knowledge produces review
-items for operators. Forgetting removes the active value but retains non-sensitive hashes required
-for audit and idempotency.
-
-## 15. Context manifests
-
-Every model execution and published conclusion has an immutable context manifest containing:
-
-- target Slack root, nearby messages, edits, reactions, and files;
-- relevant conversation and episode summaries;
-- knowledge and preferences recalled;
-- service graph nodes and provenance;
-- repositories, paths, and exact revisions;
-- investigation contract and required claims;
-- available tool schemas and immutable pack references;
-- recorded evidence and freshness;
-- prompt, result schema, execution profile, model, provider, and reasoning configuration;
-- inputs omitted because of privacy, expiry, retrieval score, or size limits.
-
-Large content is content-addressed and referenced rather than copied repeatedly. The manifest itself
-is bounded and safe to inspect. It enables exact replay and an operator-facing "why this answer"
-diagnostic without exposing hidden reasoning or raw credentials.
-
-## 16. Slack adapter architecture
-
-Slack is an adapter around the channel-neutral application kernel. It should be separated into:
-
-- `slack/inbound`: Socket Mode messages, commands, buttons, reactions, edits, joins, files, and app
-  lifecycle events into canonical events;
-- `slack/outbound`: semantic message, status, file, reaction, and control intents into Block Kit and
-  Slack API requests;
-- `slack/gateway`: Web API calls, scopes, pagination, timeouts, rate limits, upload and download;
-- `slack/delivery`: outbox consumption, idempotency, reconciliation, revision protection, and retry;
-- `slack/context`: bounded target-centered history, thread reconstruction, reactions, edits, and
-  attachments;
-- `slack/admin`: channels, members, invitations, App Home, and configuration surfaces.
-
-Do not replace the current broad Slack API with another broad `ChatPlatform` abstraction. Define
-narrow ports around stable capabilities such as `ConversationReader`, `MessagePublisher`,
-`StatusPublisher`, `AttachmentStore`, `MemberDirectory`, and `ChannelAdministrator`.
-
-Slack-specific features remain explicit optional capabilities. A future platform can implement the
-canonical event and effect contracts without forcing Slack behavior into the domain.
-
-## 17. Progress and communication
-
-Progress is a typed episode event, not arbitrary narration. Useful progress triggers include:
-
-- the evidence plan is established;
-- a goal begins or completes;
-- a material hypothesis changes;
-- an important finding is verified;
-- a dependency or tool becomes unavailable;
-- approval or operator input is required;
-- a long-running investigation exceeds its quiet interval;
-- verification begins or finds a regression.
-
-Two Slack surfaces are used together:
-
-- native status for frequent lightweight phase updates;
-- durable thread messages for meaningful findings, changed decisions, blockers, and approvals.
-
-The communication policy throttles and deduplicates updates. It must not publish raw tool output,
-hidden reasoning, repetitive safety disclaimers, or routine "still working" messages.
-
-The episode first produces a semantic communication intent such as finding, progress, blocker,
-question, decision, or completion. A communication policy then selects location, detail, formatting,
-reaction, tone, and humor level. Personality affects phrasing only.
-
-Serious mode is mandatory for active incidents, security, destructive operations, approvals,
-customer impact, failed actions, and material uncertainty. Relaxed conversations may use one
-meaningful emoji or understated humor when it does not distract from the answer.
-
-## 18. Durable subscriptions
-
-The subscription manager turns external lifecycle events into episode events:
-
-```text
-PR opened -> checks -> review -> merge
-deployment started -> rollout -> verification
-Terraform planned -> approved -> applied
-Emisar approval -> execution -> verification
-scheduled check -> result -> next occurrence
-```
-
-Subscriptions record an exact binding such as PR number, head SHA, branch, Terraform run ID,
-Emisar run ID, deployment revision, or immutable source event. The model may suggest correlation,
-but the host accepts it only when exact identifiers match recorded state.
-
-Subscriptions survive restarts. They are deduplicated, expire when their episode is terminal and no
-follow-up remains, and do not require a Coop process to wait continuously.
-
-## 19. Backpressure and failure recovery
-
-Database-backed work lanes provide fair scheduling and prevent one long investigation from
-blocking Slack controls or unrelated work.
-
-Required properties include:
-
-- per-conversation and per-episode serialization;
-- workspace, profile, and external-provider concurrency limits;
-- lease tokens and fencing revisions;
-- deterministic idempotency keys;
-- exponential retry with jitter for transient failures;
-- circuit breakers for failing external systems;
-- operator-visible pause or blocker only when action is required;
-- automatic resumption after provider recovery;
-- one failure message at most for a logical failure generation;
-- dead-letter inspection without silently abandoning accepted commitments;
-- no arbitrary agent-turn ceiling for decision-ready work.
-
-Resource exhaustion pauses lower-priority goals rather than failing them. Interactive controls,
-approvals, and cancellation remain responsive. Retry state is visible in diagnostics but does not
-spam the public conversation.
-
-### 19.1 Ownership-based cleanup
-
-Garbage collection is derived from durable ownership and terminal lifecycle state. Responder may
-clean only sessions, forks, artifacts, temporary files, deliveries, subscriptions, and projections
-whose exact owner episode or execution attempt is recorded.
-
-Cleanup rules include:
-
-- never discard dirty or unpublished repository work;
-- never identify owned Coop sessions or forks by name prefix alone;
-- retain artifacts referenced by an active episode, publication, approval, replay fixture, or audit;
-- close idle provider sessions while preserving conversation summaries and episode state;
-- remove expired attachment bytes after their manifest and digest are durable;
-- expire subscriptions only after their goals are terminal and no verification remains;
-- compact events only through a versioned snapshot that can be verified against replay;
-- delete channel-scoped knowledge and summaries when Slack confirms channel deletion;
-- keep cleanup retryable and idempotent after restart;
-- expose retained work and the reason it cannot yet be collected.
-
-## 20. Authority and safety boundaries
-
-Authority is checked at goal creation, execution, and effect time.
-
-| Operation | Required boundary |
-| --- | --- |
-| Read Slack or repository context | Configured visibility and read-only policy |
-| Query live infrastructure | Coop policy plus governed tool policy |
-| Prepare repository changes | Confirmed writable engineering goal and isolated fork |
-| Publish a draft PR | Exact reviewed tree plus publication policy |
-| Execute an operational action | Explicit operator request plus Emisar policy |
-| Approve an action | Emisar only; never Slack or Responder |
-| Merge or deploy | External workflow unless explicitly introduced later |
-
-A service graph edge, memory entry, standing assignment, schedule, consult, or previous approval
-cannot widen these boundaries.
-
-## 21. Storage model
-
-The target database contains typed source tables plus the event and effect backbone:
-
-- `inbox_events` for admitted external events and deduplication;
-- `episodes` for current reduced state and revision;
-- `episode_events` for append-only product history;
-- `goals` and `goal_dependencies` for the DAG;
-- `execution_attempts` for Coop and deterministic worker attempts;
-- `claims`, `evidence`, and `claim_assessments`;
-- `context_manifests` and content-addressed manifest objects;
-- `knowledge_entries`, supersessions, recalls, and reviews;
-- `conversation_summaries` and continuity rollups;
-- `graph_nodes`, `graph_edges`, and graph source observations;
-- `preferences` and `standing_assignments`;
-- `planned_executions`, `subscriptions`, and occurrence records;
-- `outbox_effects` and delivery reconciliation;
-- `runtime_checkpoints` for Coop sessions and provider cursors;
-- `runtime_versions` for prompt, contract, schema, preset, model, and tool versions.
-
-Existing specialized tables may remain during migration. New generic tables must not become JSON
-dumping grounds: stable domain fields remain queryable and constrained, while versioned payloads
-hold bounded extension data.
-
-## 22. Observability and operator diagnostics
-
-Each episode exposes an inspectable trace:
-
-- current state, revision, and active goals;
-- accepted user instructions and normalized outcomes;
-- active authority and execution profile;
-- context manifest ID;
-- evidence coverage and unresolved contradictions;
-- execution attempts, retries, and exact blockers;
-- outstanding subscriptions and next planned executions;
-- delivered messages and effect idempotency keys;
-- runtime versions used for each model execution.
-
-Metrics should cover queue latency, time to acknowledgement, time to first useful finding, time to
-decision-ready completion, retry rate, provider failures, duplicate prevention, intervention
-precision and recall, abandoned commitments, evidence coverage, correction rate, progress utility,
-and verified resolution.
-
-Logs must contain stable workspace, episode, goal, attempt, source event, and effect IDs without
-including secrets, raw private Slack content, signed URLs, or unbounded model output.
-
-## 23. Versioning and exact replay
-
-Every execution records a `RuntimeVersion`:
-
-```text
-Responder build
-prompt template and digest
-investigation contract version
-result operation schema version
-context manifest schema version
-Coop API and preset digest
-provider, model, effort, and account alias
-tool schemas and immutable pack references
-Slack renderer revision
-communication policy revision
-```
-
-Schema migrations preserve readers for retained historical events. A replay either uses the exact
-historical version or explicitly records that it is a counterfactual run using a newer version.
-
-## 24. Existing capability preservation requirements
-
-The migration must preserve the current product surface. A new architecture component is not a
-replacement until the corresponding end-to-end behavior below passes through it.
-
-| Existing capability | Required preserved behavior |
-| --- | --- |
-| Signed webhook admission | Authenticate, deduplicate, correlate firing and recovery, and retain source links safely |
-| Slack Socket Mode | Persist before acknowledgement and recover after reconnect or restart |
-| Mentions and direct requests | Respond in the correct conversation without forcing an incident |
-| Proactive and shadow participation | Use context-aware engagement, avoid human conversations, and suppress shadow effects |
-| App-alert triage | Investigate credible alerts deeply enough for a useful decision rather than restating payloads |
-| Reactions | Observe and emit meaningful reactions without treating them as arbitrary authority |
-| Thread and channel movement | Follow explicit conversation-location requests and keep subsequent work coherent |
-| Old-thread context | Reconstruct root, relevant replies, files, edits, reactions, and compact continuity |
-| Files and screenshots | Authenticate, bound, type-check, deliver to Coop, and retain only as policy permits |
-| Generated charts and images | Validate artifacts, upload once to the same conversation, and reconcile uncertain sends |
-| Native progress status | Start promptly, update semantically, survive restart, and clear only after durable outcome |
-| Multipart replies | Preserve ordered outcomes in one destination and attach controls only where relevant |
-| Channel setup | Support buttons and conversation, follow the operator between thread and channel, and confirm before saving |
-| Slash commands and App Home | Keep deterministic status, configuration, memory, schedule, incident, and failure controls |
-| Incidents | Correlate signals, optionally create dedicated rooms, invite validated audiences, and maintain timelines |
-| In-thread engineering tasks | Confirm writable transition, isolate work, show diff, review, publish draft PR, and follow lifecycle |
-| Repository sets | Use one writable primary and pinned read-only companions with explicit identity |
-| Draft PR publication | Publish the exact reviewed tree with lease protection and never merge or deploy |
-| Emisar operations | Discover current actions, preserve immutable request identity, link approvals, and verify terminal outcome |
-| Evidence and coverage | Preserve source, target, time, freshness, contradictions, and completion validation |
-| Conversation continuity | Carry target and related summaries without leaking private-channel context |
-| Confirmed memory | Require operator confirmation, scope and expire entries, and preserve review and forgetting controls |
-| Preferences | Resolve typed behavior by configured precedence without granting authority |
-| Standing rules | Match typed triggers deterministically, execute idempotently, and remain read-only unless separately authorized |
-| Schedules | Confirm typed schedules, preserve timezone semantics, avoid overlap, resume after restart, and support run-now/edit/pause/delete |
-| Commitments | Show accepted work, progress, blocker, and completion without treating execution state as factual memory |
-| External follow-ups | Correlate PR, deployment, Terraform, approval, and verification events back to the original episode |
-| Coop supervision | Preserve authenticated provider accounts, private configuration, prewarming where policy permits, and process cleanup |
-| Managed cleanup | Collect only exact owned state, preserve unpublished work, and bound retained storage |
-| Multiple workspaces | Keep credentials, state, Coop policy, database, memory, and visibility isolated per deployment |
-
-Behavioral copy may improve, and obsolete implementation details may disappear, but the user outcome
-and authority boundary must remain. A migration PR identifies the rows it changes and links their
-new automated proof.
-
-## 25. Test and evaluation strategy
-
-No single test layer proves the product. The release gate combines deterministic component tests,
-state-machine invariants, recorded historical episodes, real-model evaluation, failure injection,
-performance tests, and a small live canary.
-
-### 25.1 Component unit tests
-
-Pure domain tests cover:
-
-- every valid state transition;
-- rejection of stale, duplicate, impossible, or authority-widening events;
-- goal DAG cycle detection and readiness;
-- completion assessment from claims and evidence;
-- visibility and retrieval precedence;
-- knowledge contradiction and supersession;
-- communication throttling and serious-mode selection;
-- schedule and subscription trigger evaluation;
-- effect idempotency derivation.
-
-Use table-driven and property-based tests. Reducer tests should generate event sequences and assert
-that replaying the same sequence always produces the same state.
-
-### 25.2 Adapter conformance tests
-
-Slack adapter tests cover:
-
-- raw Socket Mode fixtures to exact canonical events;
-- threads, channel posts, edits, deletions, reactions, joins, buttons, commands, and app messages;
-- target-centered history and old-thread reconstruction;
-- attachment authorization, type validation, size limits, download, and cleanup;
-- canonical message intents to bounded valid Block Kit;
-- status start, update, clear, restart recovery, and stale-generation rejection;
-- rate limits, pagination, missing scopes, timeouts, disconnects, and partial history;
-- duplicate input, duplicate delivery, uncertain send, and update-after-retry reconciliation;
-- explicit movement between thread and channel.
-
-Equivalent contract suites cover Coop, Emisar, GitHub, Terraform, repository workspaces, and
-storage. Network adapters use recorded protocol fixtures and controllable fake servers.
-
-### 25.3 Application contract tests
-
-Application tests use fake ports and a real database transaction boundary to prove:
-
-- inbox admission and acknowledgement ordering;
-- event append, reduction, and outbox enqueue atomicity;
-- conversation serialization and independent-channel concurrency;
-- resumable agent attempts;
-- compound goal preservation;
-- progress and final message routing;
-- approval, publication, subscription, and schedule continuation;
-- backpressure without public failure spam;
-- workspace and private-channel isolation;
-- cleanup that never discards unpublished work.
-
-### 25.4 Historical Slack corpus
-
-Responder should import historical Slack behavior into a private encrypted corpus. Import is
-restricted to explicitly allowed workspaces, channels, and time ranges.
-
-The importer captures:
-
-- channel and thread message order;
-- edits, deletions, reactions, and app subtypes;
-- files and authorized file bytes when permitted;
-- timestamps and actor classes;
-- Responder inputs, deliveries, episode events, evidence, and execution attempts;
-- Coop turn and context manifest identifiers;
-- operator corrections, repeated questions, negative reactions, and abandoned threads;
-- original outcome and later lifecycle events.
-
-Sensitive fields are redacted or replaced with stable pseudonyms. Tokens, signed URLs, credentials,
-and unrelated private content are never written to checked-in fixtures. Raw captures are encrypted,
-access-controlled, retention-bounded, and excluded from the public repository.
-
-Two corpus layers are maintained:
-
-1. a private immutable capture for forensic and counterfactual replay;
-2. a minimized sanitized regression case checked into `testdata/eval` for each distinct product bug.
-
-### 25.5 Episode fixture format
-
-A fixture contains:
+Domain packages never import Slack SDKs, Coop clients, SQL drivers, GitHub clients, or Block Kit
+types. The SQLite adapter is split by repository interface instead of remaining one broad store god
+object.
+
+Package extraction happens after lifecycle ownership is corrected. Moving the current competing
+state into cleaner packages first would preserve the bugs.
+
+## 22. Observability and exact replay
+
+Every episode exposes an operator-safe timeline with:
+
+- normalized inputs;
+- destination changes;
+- goals and state transitions;
+- attempts and classified failures;
+- context manifest IDs;
+- evidence and claim assessments;
+- accepted and rejected typed operations;
+- effects, retries, and receipts;
+- wakeups and deadlines;
+- provider, model, preset, prompt, contract, and tool-schema versions.
+
+Logs and metrics use workspace, episode, goal, attempt, effect, and wakeup IDs. They never include
+credentials, private file content, raw prompts, hidden reasoning, or unredacted tool output.
+
+Required operational metrics include:
+
+- admission and acknowledgement latency;
+- time to first useful finding;
+- time to decision-ready result;
+- episode and attempt outcomes;
+- retry and blocker classes;
+- queue age and provider utilization;
+- duplicate suppression;
+- stale-control reconciliation;
+- wakeup lateness and abandoned-commitment count;
+- artifact upload failures;
+- memory and knowledge recall sources;
+- cleanup backlog and leaked-resource detection.
+
+## 23. Test and evaluation strategy
+
+### 23.1 Testing layers
+
+1. Pure reducer and policy unit tests.
+2. Storage transaction, migration, lease, and idempotency tests.
+3. Adapter conformance suites with scripted upstream behavior.
+4. Deterministic historical episode replay with fake adapters and frozen time.
+5. Recorded-tool real-model evaluation for planning, evidence use, and communication.
+6. Small live canaries in dedicated test workspaces and channels.
+
+### 23.2 Historical Slack corpus
+
+Sanitize and convert the existing dogfooding history into fixtures covering:
+
+- thread and channel routing corrections;
+- references to older messages, screenshots, and files;
+- stale controls and current-control replacement;
+- schedules, delayed verification, and missing webhooks;
+- standing assignments, event correlation, pause, expiry, and deduplication;
+- transcript bounds, provider exits, rate limits, 400/409/500 responses;
+- alerts requiring silence, reaction, focused response, or deep investigation;
+- Terraform lifecycle transitions and exact-run identity;
+- Emisar approvals without incident rooms;
+- engineering task, PR, checks, merge, deployment, and verification follow-through;
+- incident timelines and postmortem drafts derived from verified events;
+- artifact generation and failed Slack upload;
+- channel setup, cancellation, buttons, and compound preferences;
+- cross-channel public recall and private-channel isolation;
+- concurrent users, duplicate events, restarts, and cleanup.
+
+Fixtures store canonical events and adapter observations, not Slack tokens or raw private payloads.
+
+### 23.3 Corpus labeling and review
+
+Historical expectations come from several signals:
+
+- explicit operator corrections define strong labels for routing, context, depth, and usefulness;
+- later messages and external lifecycle events establish whether a commitment was fulfilled;
+- retries, duplicate failures, stale controls, and deleted channels establish hard invariants;
+- reactions are weak preference signals and never the sole correctness oracle;
+- model-generated candidate labels require human review before entering a release gate.
+
+Keep the restricted raw export separately from sanitized fixtures. A fixture retains stable source
+references so an authorized reviewer can audit how it was labeled without exposing private content
+to ordinary CI or model evaluation.
+
+### 23.4 Deterministic fixture shape
 
 ```yaml
-id: stable-case-id
-source:
-  workspace: pseudonym
-  conversation: pseudonym
-  captured_at: 2026-08-03T00:00:00Z
-runtime:
-  responder: version
-  prompt: digest
-  contract: version
+case_id: screenshot_followup_survives_retry
+initial_state: {}
 events: []
-attachments: []
-repository_snapshots: []
-recorded_tool_results: []
+adapter_fixtures: {}
 expected:
-  hard_invariants: []
-  required_outcomes: []
-  forbidden_outcomes: []
-  behavioral_rubric: {}
+  bound_destination: {}
+  context_references: []
+  required_effects: []
+  forbidden_effects: []
+  required_events: []
+  terminal_state: completed
 ```
 
-Events and tool results are ordered, content-addressed, bounded, and sanitized. Tool recordings
-include observation time and target identity. A fixture without historical tool results cannot make
-assertions about the factual correctness of a historical production conclusion.
+Global hard invariants are applied to every fixture by the harness. Individual fixtures specify only
+case-specific outcomes.
 
-### 25.6 Replay modes
+### 23.5 Global hard invariants
 
-#### Deterministic host replay
+- no effect targets anything except the episode's bound destination;
+- changing destination requires a typed event and valid visible target;
+- attempt context never loses a still-eligible referent;
+- controls affect only their episode, revision, subject, and capability;
+- stale controls render replacements;
+- one public failure exists per logical blocker generation;
+- an artifact is never claimed before upload succeeds;
+- approvals and external waits hold no execution or conversation lease;
+- schedules have a typed goal and resolved destination;
+- no accepted commitment disappears without a terminal explanation;
+- evidence target identity matches the claim target;
+- a verdict vocabulary matches the question class;
+- private context never appears outside its visibility scope;
+- no external effect occurs without a validated outbox row and idempotency key;
+- retries and restarts do not duplicate external effects;
+- no model proposal widens authority.
 
-No model and no live tools. Replays canonical events through reducers, policies, routing, effects,
-renderers, and fake adapters. It proves ordering, state, authority, idempotency, attachments, controls,
-and recovery.
+### 23.6 Real-model evaluation
 
-#### Frozen-world real-model replay
+Use real models where judgment matters, but replay sanitized recorded tool results so cases are
+repeatable. Assert typed operation kind, ordering constraints, target identity, evidence selection,
+goal coverage, and terminal classification. Do not compare exact prose.
 
-Uses the configured real model through Coop with recorded sanitized tool results and a frozen clock.
-It tests judgment and communication against a reproducible world. Live tool calls are forbidden.
+A calibrated judge scores only genuinely behavioral qualities:
 
-#### Counterfactual historical replay
+- whether intervention was useful;
+- whether the investigation was deep enough;
+- whether progress messages were useful and non-repetitive;
+- whether the answer was decision-ready;
+- whether language was clear, concise, natural, and appropriately serious;
+- whether humor, reactions, and emojis were contextually appropriate.
 
-Runs a newer Responder version against an old captured episode and compares actions, claims,
-messages, and completion with the original. It reports improvements and regressions without posting
-to Slack.
+Run selected cases across supported provider/model profiles. Record all prompt, contract, tool,
+preset, and model versions with the result.
 
-#### Shadow production replay
+### 23.7 Failure injection
 
-Processes newly arriving production events through the candidate version without effects. Proposed
-engagement, goals, evidence routes, and messages are stored for comparison with the active version.
+Inject failures before and after every durable boundary:
 
-#### Live canary
+- after inbox insert but before acknowledgement;
+- after event append but before effect enqueue;
+- after external success but before receipt persistence;
+- during file download and upload;
+- during Coop stream and typed-operation correction;
+- while waiting for approval or webhook;
+- during schedule claim and child-episode creation;
+- during publication and deployment observation;
+- during memory compaction and cleanup;
+- across process restart and lease expiry.
 
-Uses the real Slack workspace, Coop, model, and read-only tools. It may post only in the explicitly
-configured `#emisar-test` channel. Destructive actions, approval grants, production mutations, and
-arbitrary channel posting are excluded.
+### 23.8 Load, fairness, and privacy
 
-### 25.7 Historical label mining
+Test simultaneous long investigations, short questions, approvals, and schedules across several
+workspaces. Assert bounded acknowledgement latency, no conversation head-of-line blocking, fair
+provider allocation, correct ordering within an episode, and strict visibility filtering.
 
-The corpus builder should identify likely regressions from operator behavior:
+### 23.9 Initial release gate
 
-- "why did you" or "you should have" corrections;
-- requests to move to a thread or channel;
-- repeated questions after no useful response;
-- reattached screenshots or pasted IDs after context loss;
-- stale or ineffective button reports;
-- negative reactions or reaction removal;
-- long unexplained delays;
-- Responder failures followed by manual operator investigation;
-- claims later contradicted by authoritative evidence;
-- accepted work with no completion or follow-up.
+Start with four enforceable gates:
 
-A model may propose a label and minimized scenario, but a human confirms the expected behavior before
-it becomes a release-gating golden case.
+1. unit, race, storage, and adapter-contract tests;
+2. deterministic historical replay with zero hard-invariant violations;
+3. real-model evaluation above the configured semantic and communication thresholds;
+4. live canary success in the designated test channel.
 
-### 25.8 Hard invariants
+Expand the gate only when a new check has demonstrated signal and acceptable stability.
 
-Hard invariants pass on every run:
+## 24. Capability preservation matrix
 
-- no cross-workspace or unauthorized private-channel context;
-- no wrong-thread or wrong-channel reply;
-- no lost eligible attachment;
-- no duplicate public response, task, schedule, action, or publication;
-- no stale button effect;
-- no unauthorized mutation or authority widening;
-- no unsupported success, health, root-cause, or approval claim;
-- no final answer before required completion coverage or exact blocker;
-- no accepted commitment silently abandoned;
-- no public retry spam;
-- no effect after cancellation or supersession;
-- exact event ordering and deterministic state replay;
-- every published conclusion has a context manifest and evidence references.
+| Capability | Required target behavior |
+| --- | --- |
+| Mentions, DMs, and proactive messages | Normalized inbound events with target-centered context |
+| Thread and channel switching | Episode-owned destination revision |
+| Reactions | Typed signal effect; never evidence by itself |
+| Attachments and screenshots | Content-addressed manifest references with visibility |
+| Generated charts and files | Upload-before-claim invariant and retryable artifact state |
+| Channel setup and conversational configuration | Typed wizard or proposal state attached to an episode |
+| Slash commands and App Home | Management views over the same typed configuration and episode state |
+| Durable preferences and rules | Typed, confirmed, scoped, expiring records |
+| Freeform operator guidance | Confirmed, provenance-bearing, non-executable guidance notes |
+| Cross-channel memory | Public organizational recall with strict privacy intersection |
+| Standing assignments | Confirmed event template creates scoped episodes with bounded initiative |
+| Incidents | Optional episode escalation and room artifact |
+| Incident timeline and postmortem | Evidence-backed projections of episode and external lifecycle events |
+| Runbook control-plane work | Governed Emisar operation without forcing a repository task |
+| Engineering changes | Episode goal with isolated writable Coop fork |
+| Diff and draft PR controls | Revision-bound projections shown only when applicable |
+| Contextual next-step controls | Revision-bound offers generated only for valid episode capabilities |
+| PR checks, merge, deployment, verification | Durable wakeups with webhook and poll fallback |
+| Emisar actions and approvals | In-place governed action with authoritative approval URL |
+| Scheduled and recurring work | Typed schedule creates a fresh child episode |
+| Multi-repository work | Parent episode, child goals, one writable repo per child |
+| Model choice and BYOC | Coop execution profiles and exact metadata |
+| Progress updates | Typed events rendered through status and durable messages |
+| Cleanup | Ownership-based lifecycle and retention policies |
 
-### 25.9 Behavioral evaluation
+No migration may remove a capability because its replacement package exists but its behavior is not
+yet proven.
 
-Real-model judges score observable behavior rather than hidden reasoning:
+## 25. Migration plan
 
-- correct engagement and addressee inference;
-- investigation completeness;
-- decision usefulness;
-- directness and concision;
-- natural human tone and conversation fit;
-- meaningful progress and absence of repetitive progress;
-- response-location correctness;
-- appropriate use of reactions, formatting, and humor;
-- precise blockers and useful next actions;
-- productive completion of multi-step work;
-- evidence discipline and uncertainty calibration.
+The migration fixes user-visible invariants before extracting packages.
 
-Use multiple samples for nondeterministic model behavior. Hard invariants require 100 percent. Soft
-scores require a per-case pass threshold, aggregate threshold, and bounded regression from the
-previous release baseline.
+### Phase 0: Freeze regressions and instrument ownership
 
-Judge calibration includes human-labeled good and bad examples. A judge version cannot gate a
-release until it separates concise useful answers from bureaucratic, repetitive, unsupported,
-misrouted, or internally focused responses.
-
-### 25.10 Failure injection
-
-Tests must inject failures at every external boundary:
-
-- Slack accepts a message but times out before returning;
-- Slack rate limits, disconnects, or returns incomplete history;
-- Coop returns a transient error, closes a child, exceeds one transcript, or restarts;
-- a model result operation is malformed halfway through a program;
-- Emisar requires approval, expires approval, or reports an uncertain operation;
-- GitHub checks regress, a PR closes, or a branch lease conflicts;
-- Terraform emits stale, duplicated, or out-of-order lifecycle messages;
-- repository companions are missing or revisions move;
-- SQLite restarts after event append but before effect delivery;
-- the process stops during every lifecycle phase.
-
-The required outcome is resume, exact blocker, or one bounded failure notice. Losing accepted work or
-posting repeated public errors is always a failure.
-
-### 25.11 Performance, load, and fairness
-
-Load tests cover:
-
-- many simultaneous channels and workspaces;
-- bursts of app alerts and Slack replies;
-- long deep investigations beside interactive controls;
-- large but bounded threads and attachments;
-- subscription storms after a deployment;
-- scheduled tasks firing at the same minute;
-- provider degradation and recovery;
-- memory and graph retrieval under retention pressure.
-
-Measure acknowledgement latency, queue wait, time to first useful progress, effect delivery,
-database contention, retry amplification, and fairness between workspaces. Deep work has no forced
-short completion target, but interactive acknowledgement and cancellation have strict latency
-budgets.
-
-### 25.12 Security and privacy testing
-
-Tests verify:
-
-- tenant and private-channel isolation at query level;
-- prompt injection in Slack app payloads, files, repositories, and tool output;
-- secret and signed-URL redaction;
-- file authorization and deletion;
-- authority checks at planning, execution, and effect time;
-- stale memory and graph facts cannot override current evidence;
-- consults receive no context outside their profile visibility;
-- exports and replay fixtures contain no raw secrets or disallowed content.
-
-### 25.13 Release gate
-
-A production release or model, prompt, contract, tool, preset, or communication-policy change must
-pass:
-
-1. formatting, static analysis, race tests, vulnerability checks, and production build;
-2. component and adapter conformance suites;
-3. state-machine and property tests;
-4. application contract and failure-injection tests;
-5. sanitized historical deterministic replay;
-6. frozen-world real-model replay with variance thresholds;
-7. proactive engagement precision and recall gate;
-8. evidence verification and productivity evaluation;
-9. judge calibration and human-quality threshold;
-10. performance regression bounds;
-11. private counterfactual Slack corpus comparison;
-12. a small live canary restricted to `#emisar-test`.
-
-The release report records corpus digest, runtime versions, case pass distribution, hard invariant
-failures, behavioral regressions, and accepted waivers. A changed corpus invalidates the previous
-statistical baseline.
-
-## 26. Migration plan
-
-Migration is incremental. Each phase keeps the current product usable and has an explicit rollback
-path.
-
-### Phase 0: Freeze current behavior and collect evidence
-
-Deliverables:
-
-- inventory all current user-visible workflows and memory layers;
-- assign stable IDs to existing regression cases;
-- add sanitized cases for every known Slack failure reported during dogfooding;
-- capture current quality, latency, proactivity, and reliability baselines;
-- implement the private Slack corpus importer in read-only mode;
-- document current database ownership and duplicate state transitions.
+- convert the known Slack failures into deterministic host fixtures;
+- add global hard-invariant assertions;
+- inventory current incident, run, commitment, delivery, schedule, publication, and control owners;
+- record current prompt, model, preset, contract, and tool versions;
+- add metrics for attempts, duplicate public failures, stale controls, and abandoned commitments.
 
 Exit criteria:
 
-- all current critical paths have at least one deterministic journey;
-- historical cases reproduce known failures against the appropriate old version or fixture;
-- the corpus contains no secrets or disallowed private data;
-- no architecture migration has changed production behavior.
+- each known failure can be reproduced or represented by a fixture;
+- current behavior has a measurable baseline;
+- no production behavior changes yet.
 
-### Phase 1: Canonical events and Slack adapter boundaries
+### Phase 1: Episode owns attempts
 
-Deliverables:
-
-- introduce canonical conversation, actor, content, event, and intent types;
-- move Socket Mode normalization behind inbound ports;
-- move rendering and controls behind outbound ports;
-- split the Slack gateway and delivery reconciliation;
-- replace broad Slack API usage with narrow capability ports;
-- add adapter conformance and import-boundary tests.
+- remove the one-to-one ownership from work episode to agent run;
+- make every execution an attempt referencing an episode;
+- re-key commitments and attempt continuity to the episode;
+- classify attempt failures and deduplicate blocker generations;
+- resume an episode with a replacement attempt after restart or provider failure.
 
 Exit criteria:
 
-- the domain and new application packages import no Slack types;
-- recorded Slack fixtures produce byte-for-byte equivalent canonical events;
-- rendered surfaces pass size, action, URL, accessibility, and fallback checks;
-- current customer journeys and live canary remain green.
+- transcript-bound, child-closed, rate-limit, and restart fixtures preserve one episode;
+- at most one public failure appears for one blocker generation;
+- unrelated conversations continue while an episode retries.
 
-Rollback:
+### Phase 2: Bind destination and controls
 
-- retain the existing service orchestration while new adapters can translate back to current input
-  and message types.
-
-### Phase 2: Authoritative episode event stream
-
-Deliverables:
-
-- define the complete episode event catalog and versioning rules;
-- make the pure reducer the only writer of episode state;
-- project commitments, native status, controls, and next action from events;
-- add transactional inbox, event append, and outbox enqueue;
-- migrate stale-button and delivery generation checks to episode revision.
+- store bound destination and destination revision on the episode;
+- route acknowledgements, status, progress, cards, files, and finals through that binding;
+- replace conversation-scoped control generations with episode revision controls;
+- implement validated destination changes and current-control replacement.
 
 Exit criteria:
 
-- rebuilding projections from events matches stored current state;
-- crash tests at every transition produce one eventual effect;
-- commitments cannot diverge from episode state;
-- duplicate and stale events are harmless.
+- all routing and stale-control historical fixtures pass;
+- acknowledgement and subsequent work never split across surfaces accidentally;
+- controls from one episode cannot affect another episode in the same thread.
 
-Rollback:
+### Phase 3: Make context manifests monotonic
 
-- compare event-derived projections with existing tables in shadow mode before switching reads.
-
-### Phase 3: Goal DAG and planned executions
-
-Deliverables:
-
-- normalize compound instructions into typed outcomes;
-- persist goals and dependencies;
-- attach schedules, approvals, external waits, and verification to goal nodes;
-- generate child episodes for recurring occurrences;
-- project progress from goal and episode events.
+- persist one manifest lineage per episode;
+- reconstruct target-centered channel and full-thread context;
+- preserve still-eligible attachments, screenshots, reactions, edits, and referents across attempts;
+- replace process-local history caches and attachment heuristics;
+- content-address large inputs and generated artifacts.
 
 Exit criteria:
 
-- compound-message evals account for every explicit instruction;
-- independent goals can progress without reordering the conversation;
-- scheduled and approval-gated work resumes through the same execution pipeline;
-- no schedule or follow-up displays unrelated engineering controls.
+- `try again`, `^`, old-thread, screenshot, and file fixtures pass across restart;
+- privacy deletion and expiry remove context with an auditable reason;
+- replay reconstructs the exact manifest references.
 
-### Phase 4: Context manifests and memory consolidation
+### Phase 4: Use one typed result protocol
 
-Deliverables:
-
-- persist immutable manifests for every execution and conclusion;
-- split conversation summaries from runtime checkpoints;
-- introduce versioned knowledge assertions and visibility-safe retrieval;
-- migrate rollups, recalls, reviews, preferences, and rules;
-- evolve standing rules into standing assignments backed by goal templates;
-- add contradiction and supersession handling.
+- replace parallel watch and agent report schemas with ordered typed operations;
+- remove legacy folding into free-text side-effect fields;
+- validate operations incrementally and correct malformed output in the same attempt;
+- construct tasks, schedules, action requests, and artifacts from typed operands.
 
 Exit criteria:
 
-- every model execution can be replayed from its manifest and recorded tools;
-- current and new retrieval results agree in shadow comparison or differences are reviewed;
-- private context never crosses visibility boundaries;
-- memory compaction preserves source references;
-- operator-confirmed memory is never silently rewritten.
+- no model field can directly cause an external side effect;
+- empty scheduled messages and partially saved compound instructions are impossible by construction;
+- malformed operations do not discard earlier accepted evidence or progress.
 
-Rollback:
+### Phase 5: Re-anchor projections to episodes
 
-- retain old tables read-only and dual-read in diagnostics until retention and replay prove parity.
-
-### Phase 5: Service graph and repository orchestration
-
-Deliverables:
-
-- ingest graph assertions from configured authoritative sources;
-- expose provenance, freshness, contradiction, and visibility;
-- use graph retrieval for tool, repository, owner, and context selection;
-- formalize repository sets and companion snapshots;
-- implement parent and child episodes for cross-repository writable work.
+- move incident, engineering task, approval, publication, and follow-up ownership to episode IDs;
+- make incident rooms optional artifacts;
+- derive commitments, controls, coverage, status, publication state, timelines, and postmortem drafts
+  from events;
+- preserve delivery and idempotency receipts independently of optional presentation records.
 
 Exit criteria:
 
-- graph selection is explainable from source assertions;
-- stale graph data cannot override repository or live evidence;
-- cross-repository changes produce separate reviewed diffs and coordinated completion;
-- repository cleanup cannot discard another episode's work.
+- Emisar approval completes in an ordinary thread without an incident;
+- engineering work follows PR, checks, merge, deployment, and verification from a normal thread;
+- duplicate review cards and unrelated controls no longer appear.
 
-### Phase 6: Execution profiles and Coop consults
+### Phase 6: Generalize wakeups and schedules
 
-Deliverables:
-
-- define workspace-allowlisted execution profiles;
-- pass resolved Coop preset and profile metadata through the API;
-- allow typed consult requests with budget and visibility checks;
-- record lead, peer, model, account alias, effort, and preset digest;
-- add profile selection and consult evaluation cases.
+- implement typed timers, retries, approval waits, operator waits, subscriptions, polling fallback,
+  and deadlines;
+- create fresh child episodes for recurring schedules;
+- create scoped episodes from confirmed standing assignments with deterministic correlation;
+- reconcile out-of-order GitHub, Terraform, alert, and deployment events;
+- expose overdue or blocked commitments in App Home and diagnostics.
 
 Exit criteria:
 
-- ordinary conversation, deep operations, and engineering work resolve to intended profiles;
-- consults cannot widen authority or visibility;
-- profile changes are exactly replayable;
-- latency and cost remain inside workspace budgets.
+- delayed, recurring, approval, PR, deployment, and verification journeys survive restart;
+- lost webhooks are recovered through polling;
+- zero accepted commitments are silently abandoned.
 
-### Phase 7: Durable lifecycle subscriptions
+### Phase 7: Goals and multiple repositories
 
-Deliverables:
-
-- unify GitHub, Terraform, deployment, Emisar, and scheduled follow-ups;
-- attach exact external identifiers to subscriptions;
-- resume the owning goal from lifecycle events;
-- expose active subscriptions, missed events, and next verification;
-- expire terminal subscriptions safely.
+- normalize compound requests into goal nodes;
+- add prerequisite ordering and bounded independent execution;
+- bind one writable repository and explicit read-only companions per writable goal;
+- coordinate publication dependencies and parent-episode communication.
 
 Exit criteria:
 
-- PR merge, deployment, and post-deployment verification update the original thread once;
-- stale or unrelated external messages cannot attach to an episode;
-- restart and redelivery do not lose or duplicate lifecycle updates.
+- multi-instruction fixtures complete or block every requested outcome explicitly;
+- cross-repository work preserves isolation and exact revisions;
+- partial failure does not corrupt completed independent goals.
 
-### Phase 8: Backpressure, diagnostics, and release enforcement
+### Phase 8: Committed knowledge and continuity
 
-Deliverables:
-
-- implement workspace fairness, circuit breakers, and resumable pause states;
-- expose episode diagnostics and context-manifest inspection;
-- complete private historical counterfactual replay;
-- enforce the full model and product release gate;
-- remove superseded service paths and tables after retention.
+- index `.agent/kb/`, `.agent/rules/`, runbooks, and repository documentation by exact revision;
+- unify visibility-filtered continuity retrieval;
+- preserve confirmed freeform guidance separately from typed preferences and derived summaries;
+- separate provider checkpoints from conversation summaries;
+- build the minimal rebuildable service observation index;
+- add propose-to-PR knowledge updates.
 
 Exit criteria:
 
-- provider outages create no public message storms;
-- accepted commitments survive long outages and resume;
-- operators can explain every active episode and effect;
-- the full historical corpus and canary pass before deployment;
-- `internal/service` no longer owns provider-specific orchestration across unrelated workflows.
+- committed knowledge is never duplicated as independent truth;
+- public cross-channel recall and private isolation fixtures pass;
+- stale indexes can be deleted and rebuilt from sources.
 
-## 27. Migration rules
+### Phase 9: Extract modules and retire legacy paths
 
-The following rules apply to every phase:
+- extract the final package boundaries once ownership is stable;
+- split the broad store and Slack APIs behind narrow ports;
+- remove process-local lifecycle maps and caches;
+- delete old incident-root, watch-result, routing, memory, and control paths;
+- forbid new imports that violate dependency direction.
 
-- add tests before moving behavior;
-- preserve unrelated work and existing database data;
-- do not claim parity from unit tests alone;
-- shadow-read or shadow-project before switching authority;
-- keep one source of truth for each product fact;
-- never dual-write indefinitely;
-- record runtime and schema versions on new events;
-- include forward and rollback migrations;
-- update this document when a design decision changes;
-- add every production correction as a minimized regression case.
+Exit criteria:
 
-## 28. Quality targets
+- one authoritative path exists for every lifecycle and effect;
+- no indefinite dual writes or fallback reads remain;
+- the complete capability matrix and release gate pass.
 
-Long-term product targets are:
+## 26. Migration rules
 
-- zero authority-boundary violations;
+- Migrate one invariant at a time and keep each change deployable.
+- Add the historical failure fixture before changing its behavior.
+- Do not extract packages while the underlying ownership is still duplicated.
+- Do not dual-write indefinitely; compare projections, cut over, then delete the legacy path.
+- Preserve unrelated work and repository policy during schema and fork migrations.
+- Include restart, retry, stale-input, and cleanup tests in every lifecycle change.
+- Record schema, prompt, contract, and adapter versions required to replay pre-migration episodes.
+- Treat a user-visible regression as a release blocker, not a follow-up documentation item.
+
+## 27. Quality targets
+
+- zero authority or cross-workspace visibility violations;
 - zero unsupported success claims;
 - zero abandoned accepted commitments;
-- zero duplicate externally visible effects for one idempotency key;
-- under 1 percent premature final answers in the gated corpus;
-- under 2 percent regretted proactive interventions;
-- over 95 percent recall where a strong teammate should intervene;
-- over 90 percent of durable progress messages rated useful;
-- bounded acknowledgement latency even while deep work is running;
-- exact replay coverage for every high-severity production regression;
-- every production conclusion traceable to a context manifest and evidence ledger.
+- zero duplicate external effects under retry or restart;
+- under 1% premature final answers in the evaluation corpus;
+- under 2% regretted proactive interventions;
+- over 95% recall where a strong operational teammate should intervene;
+- over 90% of durable progress messages rated useful;
+- bounded acknowledgement latency under configured load;
+- every known production failure class represented by a deterministic regression;
+- every release passes deterministic replay, real-model evaluation, and live canary gates.
 
-Targets are gates only after the corpus is sufficiently representative and judge calibration is
-stable. Until then, report both absolute results and confidence intervals rather than optimizing to
-a misleading single score.
+## 28. Not yet
 
-## 29. Deliberate non-goals
+The following are compatible extension points, not committed implementation scope:
 
-This architecture does not introduce:
-
+- a separately deployed microservice architecture;
+- a general-purpose workflow or DAG scheduler;
+- a temporal knowledge graph with independent contradiction and supersession workflows;
+- manually maintained duplicate service catalogs;
+- unrestricted automatic Markdown knowledge writes from ordinary chat;
+- more than the three default Coop execution profiles;
+- automatic multi-model consultation on every request;
 - a second model runtime outside Coop;
-- autonomous merge or deployment authority;
-- Slack-based approval of Emisar operations;
-- unrestricted prose-to-automation conversion;
-- one global writable checkout containing unrelated repositories;
-- an unscoped organizational memory visible across private channels or workspaces;
-- raw hidden reasoning or tool transcripts in Slack;
-- microservices solely for package-level separation;
-- a health verdict requirement for non-health work;
-- a fixed turn limit as the normal deep-work completion rule.
+- automatic merge, deployment, rollback, or cross-repository compensation;
+- shadow execution of all production traffic;
+- counterfactual replay across every historical model;
+- a large release gate whose checks have not demonstrated stable signal.
 
-## 30. Open design decisions and recommended defaults
+## 29. Open decisions and recommended defaults
 
 | Decision | Recommended default |
 | --- | --- |
-| Database during migration | SQLite with transactional inbox and outbox |
-| Event payload format | Versioned typed columns plus bounded JSON extension |
-| Artifact storage | Content-addressed local private store with retention; object storage later |
-| Historical corpus | Encrypted private raw capture plus minimized checked-in fixtures |
-| Graph refresh | Event-driven where possible, bounded periodic reconciliation otherwise |
-| Consult selection | Host allowlist; model request with explicit reason |
-| Cross-repository writes | Parent episode plus one isolated child fork per repository |
-| Progress cadence | Event-driven, with configurable quiet-interval fallback |
-| Live tests | Only an explicitly configured test channel such as `#emisar-test` |
-| Humor | Restrained and contextual; disabled for serious-mode situations |
-| Old table removal | After shadow parity, replay parity, and retention window |
+| Event retention | Keep episode events and effect receipts longer than message bodies |
+| Episode reopen | Create a child episode unless an explicit active wait is being resolved |
+| Destination changes | Operator request or deterministic policy only |
+| Provider retries | Resume episode with a fresh attempt and preserved manifest |
+| Goal scheduling | Ordered prerequisites plus bounded independent execution |
+| External subscriptions | Webhook first, polling fallback, hard deadline |
+| Standing assignments | Confirmed typed scope, bounded outputs and budget, explicit expiry |
+| Knowledge authority | Git for committed knowledge; typed database for scoped hints/preferences |
+| Freeform guidance | Confirmed and scoped, non-executable, reviewable, expiring |
+| Service relationships | Rebuildable source observation index |
+| Cross-channel recall | Public workspace context only; private conversations stay isolated |
+| Incident rooms | Optional escalation artifact, never a prerequisite for tools |
+| Publication gates | Run when configured; recommend rather than fabricate a hard blocker |
+| Humor | Restrained, contextual, and disabled for serious operational states |
 
-## 31. First implementation slice
+## 30. Definition of architectural completion
 
-The first code change after this document should be deliberately narrow:
+The architecture is complete when:
 
-1. define `ConversationRef`, `InteractionEvent`, and semantic outbound intents;
-2. add Slack inbound fixture tests using captured sanitized payloads;
-3. add Slack outbound renderer conformance tests;
-4. adapt one ordinary mentioned-message path through the new ports;
-5. run the same path in shadow comparison with the existing implementation;
-6. add one historical bug fixture involving thread context and an attachment;
-7. prove identical routing, context, delivery, and retry behavior;
-8. expand one workflow at a time only after the comparison is green.
+- every accepted work item is owned by one episode that survives failed attempts;
+- destination, context, controls, progress, waits, and effects are episode-owned and replayable;
+- incidents, engineering tasks, commitments, schedules, and publications no longer compete as root
+  lifecycles;
+- compound and multi-repository work represents every requested outcome explicitly;
+- approvals, PRs, deployments, and scheduled verifications resume without holding workers;
+- committed Markdown knowledge, derived continuity, evidence, and typed preferences remain distinct;
+- Slack, Coop, Emisar, GitHub, repository, and storage adapters pass independent conformance tests;
+- historical failures replay deterministically with zero hard-invariant violations;
+- real-model evaluations and live canaries demonstrate natural, proactive, decision-ready behavior;
+- legacy ownership paths, process-local lifecycle state, and indefinite dual writes are deleted;
+- operators can inspect why Responder acted, which context it used, what it still owes, and exactly
+  what would happen next.
 
-This slice creates a tested boundary without prematurely rewriting the episode, memory, scheduling,
-or publication systems. Subsequent work can then move behind that boundary with reliable regression
-evidence.
-
-## 32. Definition of architectural completion
-
-The architecture migration is complete when:
-
-- external providers are reachable only through tested adapters;
-- domain and application behavior is platform-neutral;
-- every accepted work item is an event-sourced episode with a goal DAG;
-- progress, controls, commitments, schedules, approvals, and subscriptions are projections of the
-  same lifecycle;
-- every execution and conclusion has a context manifest and runtime version;
-- memory, evidence, behavior, execution state, and provider checkpoints have distinct ownership;
-- service and repository relationships are provenance-backed graph assertions;
-- cross-repository work has explicit child goals and independent review boundaries;
-- Coop presets and consults are selected through typed execution profiles;
-- historical Slack cases are reproducible through deterministic and real-model replay;
-- release gating includes component, invariant, historical, behavioral, performance, security, and
-  live-canary proof;
-- no superseded parallel orchestration path remains in `internal/service`.
-
-At that point Responder will not be bug-free, but failures will be bounded, replayable, attributable,
-and much less likely to recur after a fix. That is the practical standard required for a dependable
-operational teammate.
+The intended result is not merely cleaner code. It is a Responder that can be trusted as a durable,
+proactive teammate because its initiative, evidence, communication, memory, and authority have clear
+owners and independently testable contracts.
