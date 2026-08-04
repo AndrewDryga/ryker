@@ -167,7 +167,10 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 		return err
 	}
 	if created {
-		return s.store.SetSlackInputFrozen(ctx, input.ID, frozen)
+		if err := s.store.SetSlackInputFrozen(ctx, input.ID, frozen); err != nil {
+			return err
+		}
+		return s.queueWatchedInput(ctx, input)
 	}
 	return nil
 }

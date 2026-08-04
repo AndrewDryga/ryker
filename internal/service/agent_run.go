@@ -109,7 +109,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	if !state.RulesCaptured {
 		rules, err := s.matchingStandingRules(ctx, input)
 		if err != nil {
-			return err
+			return fmt.Errorf("match standing rules for watched input: %w", err)
 		}
 		state.MatchedRules = rules
 		state.RulesCaptured = true
@@ -144,7 +144,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 			ctx, input,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("resolve watched input conversation route: %w", err)
 		}
 		state.ResponseThreadTS = responseThreadTS
 		state.ReferencedThreadTS = referencedThreadTS
@@ -176,7 +176,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		return err
 	}
 	readyAt := time.Now().UTC()
-	if input.Kind != "scheduled" {
+	if input.Kind != "scheduled" && input.Kind != "recheck" {
 		latestAt, err := s.store.LatestSlackConversationAt(ctx, input.ChannelID)
 		if err != nil {
 			return err
@@ -197,7 +197,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		Episode:         s.episodeForWatchedInput(input, state),
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("queue watched agent run: %w", err)
 	}
 	if state.PendingStatusSet && len(run.Context) > 0 &&
 		string(run.Context) != string(contextJSON) {
@@ -205,7 +205,10 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 			return err
 		}
 	}
-	return s.finishSlackInput(ctx, input)
+	if err := s.finishSlackInput(ctx, input); err != nil {
+		return fmt.Errorf("finish watched Slack input: %w", err)
+	}
+	return nil
 }
 
 func commitmentTitleForInput(input core.SlackInput) string {

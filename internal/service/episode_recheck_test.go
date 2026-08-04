@@ -9,6 +9,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -263,5 +264,73 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 	stored, err := st.GetSlackInput(ctx, episodeRecheckInputID(run.ID, 1))
 	if err != nil || stored.ID != recheck.ID {
 		t.Fatalf("idempotent recheck = %+v, %v", stored, err)
+	}
+}
+
+func TestSyntheticRecheckBypassesHumanSlackMembershipValidation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	origin := core.SlackInput{
+		ID: "slack_external_app", EnvelopeID: "env:external-app",
+		EventID: "event:external-app", Kind: "bot_message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "1700.100", UserID: "BGRAFANA",
+		Text: "Disk latency is high.", ReceivedAt: time.Now().UTC().Add(-time.Second),
+	}
+	if created, admitErr := st.AdmitSlackInput(ctx, origin); admitErr != nil || !created {
+		t.Fatalf("admit source alert = %t, %v", created, admitErr)
+	}
+	leased, err := st.LeaseSlackInput(ctx)
+	if err != nil || leased.ID != origin.ID {
+		t.Fatalf("lease source alert = %+v, %v", leased, err)
+	}
+	if err := st.FinishSlackInput(ctx, leased.ID); err != nil {
+		t.Fatal(err)
+	}
+	frozen, err := json.Marshal(watchTurnState{
+		RouteCaptured: true, ResponseThreadTS: "1700.100", RulesCaptured: true,
+		ConversationFollowup: true, RecheckOriginRunID: "run_origin", RecheckAttempt: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := core.SlackInput{
+		ID: "slack_recheck_external_app", EnvelopeID: "recheck:external-app",
+		EventID: "recheck:external-app", Kind: "recheck", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", ThreadTS: "1700.100", MessageTS: "1700.100",
+		UserID: "BGRAFANA", Text: "Disk latency is high.", Frozen: frozen,
+		ReceivedAt: time.Now().UTC().Add(-time.Second),
+	}
+	created, err := st.AdmitSyntheticSlackInput(ctx, input)
+	if err != nil || !created {
+		t.Fatalf("admit synthetic recheck = %t, %v", created, err)
+	}
+	if err := st.RetrySlackInput(
+		ctx, input.ID, "interrupted before queueing", time.Now().Add(-time.Second), false,
+	); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetSlackInput(ctx, input.ID)
+	if err != nil || stored.State != "done" {
+		t.Fatalf("synthetic recheck input = %+v, %v", stored, err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.UserID != input.UserID || run.Mode != core.AgentRunTriage {
+		t.Fatalf("synthetic recheck run = %+v", run)
 	}
 }

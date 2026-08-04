@@ -96,6 +96,12 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		})
 		return s.finishSlackInput(ctx, input)
 	}
+	if input.Kind == "recheck" {
+		if err := s.queueWatchedInput(ctx, input); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		return nil
+	}
 	if input.Kind == "channel_lifecycle" {
 		if err := s.processChannelLifecycleInput(ctx, input); err != nil {
 			return s.retrySlackInput(ctx, input, err)
