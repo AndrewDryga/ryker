@@ -42,7 +42,7 @@ type coopSupervisor struct {
 
 const coopStartupOutputLimit = 16 << 10
 
-const coopMissingImageDiagnostic = "real box image not built"
+const coopMissingImageDiagnostic = "coop box image is not built"
 
 type coopProcessOutput struct {
 	mu          sync.Mutex
@@ -139,7 +139,11 @@ func checkManagedCoopImage(cfg config.Config) error {
 }
 
 func inspectManagedCoopImage(cfg config.Config) (bool, error) {
-	command, err := managedCoopCommand(cfg, "doctor")
+	// Coop doctor intentionally probes a self-contained fixture, so it can only
+	// prove that the shared base image exists. A repository may select its own
+	// image through .agent/Dockerfile or COOP_IMAGE. Exercise the same repository
+	// resolution and box startup path as a real turn instead.
+	command, err := managedCoopCommand(cfg, "run", "--", "true")
 	if err != nil {
 		return false, err
 	}
@@ -147,9 +151,13 @@ func inspectManagedCoopImage(cfg config.Config) (bool, error) {
 	command.Stdout = &output
 	command.Stderr = &output
 	if err := command.Run(); err != nil {
-		return false, fmt.Errorf("preflight managed Coop execution image: %w: %s", err, strings.TrimSpace(output.String()))
+		detail := strings.TrimSpace(output.String())
+		if strings.Contains(strings.ToLower(detail), coopMissingImageDiagnostic) {
+			return true, nil
+		}
+		return false, fmt.Errorf("preflight managed Coop execution image: %w: %s", err, detail)
 	}
-	return strings.Contains(output.String(), coopMissingImageDiagnostic), nil
+	return false, nil
 }
 
 func managedCoopCommand(cfg config.Config, args ...string) (*exec.Cmd, error) {

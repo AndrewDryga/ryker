@@ -54,9 +54,10 @@ func TestEnsureManagedCoopImageBuildsOnlyWhenMissing(t *testing.T) {
 	script := writeSupervisorScript(t, `#!/bin/sh
 printf '%s\n' "$1" >> "$TRACE"
 case "$1" in
-  doctor)
+  run)
     if [ ! -f "$IMAGE_READY" ]; then
-      echo "real box image not built — probing a stock alpine stand-in"
+	  echo "coop: Coop box image is not built; run 'coop build'" >&2
+	  exit 1
     fi
     ;;
   build)
@@ -80,7 +81,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "doctor\nbuild\ndoctor\ndoctor\n" {
+	if string(got) != "run\nbuild\nrun\nrun\n" {
 		t.Fatalf("runtime commands = %q", got)
 	}
 	if !strings.Contains(output.String(), "building it now") {
@@ -94,7 +95,10 @@ func TestCheckManagedCoopImageExplainsRemediation(t *testing.T) {
 	if err := os.Mkdir(repository, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script := writeSupervisorScript(t, "#!/bin/sh\necho 'real box image not built'\n")
+	script := writeSupervisorScript(t, `#!/bin/sh
+echo "coop: Coop box image is not built; run 'coop build'" >&2
+exit 1
+`)
 	cfg := supervisorTestConfig(root, script)
 	cfg.Slack.DefaultRepository = "repo"
 	cfg.Repositories = map[string]config.Repository{"repo": {Path: repository}}
