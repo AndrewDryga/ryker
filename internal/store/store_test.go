@@ -1710,6 +1710,65 @@ func TestNewerSchemaIsRejectedWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestSchemaV37RecoversOnlyLegacyFailedSyntheticRechecks(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:36] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC().Format(timestampFormat)
+	if _, err := db.Exec(`
+		INSERT INTO schema_version(version) VALUES (36);
+		INSERT INTO slack_inputs (
+		  id, envelope_id, event_id, kind, team_id, channel_id, user_id, text,
+		  state, attempts, failure_count, next_attempt_at, last_error, received_at, updated_at
+		) VALUES
+		  ('legacy_recheck', 'recheck:legacy', 'recheck:legacy', 'recheck',
+		   'T1', 'C1', 'BGRAFANA', 'Check again.', 'failed', 13, 12, ?,
+		   'user_not_found', ?, ?),
+		  ('unrelated_failure', 'env:failed', 'event:failed', 'message',
+		   'T1', 'C1', 'U1', 'Hello.', 'failed', 13, 12, ?,
+		   'user_not_found', ?, ?),
+		  ('different_recheck_failure', 'recheck:different', 'recheck:different', 'recheck',
+		   'T1', 'C1', 'BGRAFANA', 'Check again.', 'failed', 13, 12, ?,
+		   'tool_failure', ?, ?)
+	`, now, now, now, now, now, now, now, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	recovered, err := st.GetSlackInput(context.Background(), "legacy_recheck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.State != "retry" || recovered.Failures != 0 {
+		t.Fatalf("legacy recheck after migration = %+v", recovered)
+	}
+	for _, id := range []string{"unrelated_failure", "different_recheck_failure"} {
+		input, err := st.GetSlackInput(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if input.State != "failed" || input.Failures != 12 {
+			t.Fatalf("unrelated input %s changed by migration: %+v", id, input)
+		}
+	}
+}
+
 func TestIncidentChannelLifecycleBlocksAndRestoresOpenIncident(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 36
+const currentSchemaVersion = 37
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1545,6 +1545,25 @@ const schemaV36 = `
 ALTER TABLE evidence ADD COLUMN health_effect TEXT NOT NULL DEFAULT 'none';
 `
 
+const schemaV37 = `
+UPDATE slack_inputs
+SET
+  state = 'retry',
+  failure_count = 0,
+  next_attempt_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+  last_error = '',
+  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE kind = 'recheck'
+  AND state = 'failed'
+  AND last_error = 'user_not_found'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM agent_runs
+    WHERE source_kind = 'watch'
+      AND source_id = slack_inputs.id
+  );
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1582,4 +1601,5 @@ var migrations = []string{
 	schemaV34,
 	schemaV35,
 	schemaV36,
+	schemaV37,
 }
