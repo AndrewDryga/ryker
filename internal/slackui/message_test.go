@@ -800,16 +800,18 @@ func TestBlockedAssessmentExplainsWhatStoppedAndHowToContinue(t *testing.T) {
 		"Grant the monitoring account read access, then retry the assessment",
 		NewSanitizer(12000),
 	)
-	sections := strings.Join(message.Sections, "\n")
+	context := strings.Join(message.Context, "\n")
 	for _, want := range []string{
-		"Assessment incomplete",
-		"Still unverified",
-		"Already tried",
+		"Blocked:",
+		"Next:",
 		"Grant the monitoring account read access",
 	} {
-		if !strings.Contains(sections, want) {
+		if !strings.Contains(context, want) {
 			t.Fatalf("blocked assessment lacks %q: %+v", want, message)
 		}
+	}
+	if len(message.Sections) != 0 {
+		t.Fatalf("blocked assessment repeated its typed ledger in sections: %+v", message)
 	}
 }
 

@@ -240,10 +240,10 @@ func TestEvaluationRendersGenuineBlockerAsSlackGuidance(t *testing.T) {
 	if err != nil || action != "reply" {
 		t.Fatalf("render blocked assessment: action=%q err=%v", action, err)
 	}
-	sections := strings.Join(message.Sections, "\n")
-	if !strings.Contains(sections, "Assessment incomplete") ||
-		!strings.Contains(sections, "Already tried") ||
-		!strings.Contains(sections, "Grant the monitoring identity") {
+	context := strings.Join(message.Context, "\n")
+	if !strings.Contains(context, "Blocked:") ||
+		!strings.Contains(context, "Next:") ||
+		!strings.Contains(context, "Grant the monitoring identity") {
 		t.Fatalf("rendered blocker = %+v", message)
 	}
 }

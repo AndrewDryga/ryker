@@ -1758,35 +1758,22 @@ func WithBlockedAssessment(
 		}
 		return escapeSlackText(value)
 	}
-	var section strings.Builder
-	section.WriteString("*Assessment incomplete*")
+	// Completion gaps and attempted routes remain typed episode data for audit,
+	// replay, and operator inspection. The model's completion message is the
+	// human-facing explanation; projecting the whole ledger again makes Slack
+	// replies repetitive and bureaucratic.
+	_ = materialGaps
+	_ = attempts
+	parts := make([]string, 0, 2)
 	if summary = clean(summary); summary != "" {
-		section.WriteString("\n")
-		section.WriteString(summary)
-	}
-	if len(materialGaps) > 0 {
-		section.WriteString("\n\n*Still unverified*")
-		for _, gap := range materialGaps[:min(len(materialGaps), 5)] {
-			if gap = clean(gap); gap != "" {
-				section.WriteString("\n• ")
-				section.WriteString(gap)
-			}
-		}
-	}
-	if len(attempts) > 0 {
-		section.WriteString("\n\n*Already tried*")
-		for _, attempt := range attempts[:min(len(attempts), 3)] {
-			if attempt = clean(attempt); attempt != "" {
-				section.WriteString("\n• ")
-				section.WriteString(attempt)
-			}
-		}
+		parts = append(parts, "Blocked: "+summary)
 	}
 	if nextAction = clean(nextAction); nextAction != "" {
-		section.WriteString("\n\n*To finish:* ")
-		section.WriteString(nextAction)
+		parts = append(parts, "Next: "+nextAction)
 	}
-	message.Sections = append(message.Sections, truncateUTF8(section.String(), 2900))
+	if len(parts) > 0 {
+		message.Context = append(message.Context, truncateUTF8(strings.Join(parts, " · "), 700))
+	}
 	return message
 }
 

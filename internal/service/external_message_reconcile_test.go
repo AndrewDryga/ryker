@@ -139,8 +139,45 @@ func TestReconciledExternalLifecycleIDDoesNotDependOnPollingSource(t *testing.T)
 	second := reconciledExternalMessageInput("TTEST", core.SlackInput{
 		ID: "slack-applying", ChannelID: "CPLAN", UserID: "BTERRAFORM",
 	}, message)
-	if first.EventID != second.EventID || first.EnvelopeID != second.EnvelopeID {
+	if first.EventID != second.EventID || first.EnvelopeID != second.EnvelopeID ||
+		first.ID != second.ID || first.ID == "" {
 		t.Fatalf("reconciled event IDs differ: %q != %q", first.EventID, second.EventID)
+	}
+}
+
+func TestSlackMessageVersionIdentityMatchesSocketAndReconciliation(t *testing.T) {
+	socket := core.SlackInput{
+		EnvelopeID: "socket-envelope", EventID: "socket-event",
+		Kind: "bot_message", TeamID: "TTEST", ChannelID: "CPLAN",
+		MessageTS: "1700.750000", UserID: "BTERRAFORM",
+		Text: "Run run-abc\nRun Errored",
+	}
+	bindCanonicalSlackMessageInputID(&socket)
+	reconciled := reconciledExternalMessageInput(
+		"TTEST",
+		core.SlackInput{ChannelID: "CPLAN", UserID: "BTERRAFORM"},
+		slackui.HistoryMessage{
+			Timestamp: "1700.750000", BotID: "BTERRAFORM",
+			Text: "Run run-abc\nRun Errored",
+		},
+	)
+	if socket.ID == "" || socket.ID != reconciled.ID {
+		t.Fatalf("message version IDs differ: socket=%q reconcile=%q", socket.ID, reconciled.ID)
+	}
+	mention := socket
+	mention.ID = ""
+	mention.Kind = "mention"
+	bindCanonicalSlackMessageInputID(&mention)
+	if mention.ID != socket.ID {
+		t.Fatalf("event subscription changed message identity: socket=%q mention=%q", socket.ID, mention.ID)
+	}
+
+	edited := socket
+	edited.ID = ""
+	edited.Text = "Run run-abc\nRun Applied"
+	bindCanonicalSlackMessageInputID(&edited)
+	if edited.ID == socket.ID {
+		t.Fatalf("edited lifecycle reused message version ID %q", edited.ID)
 	}
 }
 

@@ -4468,7 +4468,7 @@ func TestMalformedDeepCompletionIsCorrectedAndRetried(t *testing.T) {
 		t.Fatalf("retried run = %+v, %v", run, err)
 	}
 	if len(slackClient.posts) != 1 ||
-		!strings.Contains(strings.Join(slackClient.posts[0].message.Sections, "\n"), "Assessment incomplete") {
+		!strings.Contains(strings.Join(slackClient.posts[0].message.Context, "\n"), "Blocked:") {
 		t.Fatalf("retried Slack result = %+v", slackClient.posts)
 	}
 	if len(coopClient.submitPrompts) != 2 ||

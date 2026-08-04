@@ -237,7 +237,7 @@ func reconciledExternalMessageInput(
 		source.ChannelID + "\x00" + message.Timestamp + "\x00" + fingerprint,
 	))
 	eventID := "reconcile:" + hex.EncodeToString(eventDigest[:12])
-	return core.SlackInput{
+	input := core.SlackInput{
 		EnvelopeID: eventID,
 		EventID:    eventID,
 		Kind:       "bot_message", TeamID: teamID, ChannelID: source.ChannelID,
@@ -245,6 +245,8 @@ func reconciledExternalMessageInput(
 		UserID: firstNonempty(message.BotID, message.UserID, source.UserID),
 		Text:   message.Text, Attachments: attachments, ReceivedAt: time.Now().UTC(),
 	}
+	bindCanonicalSlackMessageInputID(&input)
+	return input
 }
 
 func externalMessageFingerprint(text string, attachments []core.SlackAttachment) string {

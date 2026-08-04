@@ -805,6 +805,67 @@ func TestListLatestSlackInputsByKindReturnsNewestMessageRevision(t *testing.T) {
 	}
 }
 
+func TestAdmitSlackInputDeduplicatesOneVisibleMessageVersion(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	first := core.SlackInput{
+		ID: "slack-socket", EnvelopeID: "socket-envelope", EventID: "socket-event",
+		Kind: "bot_message", TeamID: "T1", ChannelID: "C1",
+		MessageTS: "1700.1", UserID: "B1", Text: "Run run-abc\nRun Errored",
+	}
+	created, err := st.AdmitSlackInput(ctx, first)
+	if err != nil || !created {
+		t.Fatalf("admit socket message = %t, %v", created, err)
+	}
+	duplicate := first
+	duplicate.ID = "slack-reconcile"
+	duplicate.EnvelopeID = "reconcile-envelope"
+	duplicate.EventID = "reconcile-event"
+	duplicate.Kind = "mention"
+	created, err = st.AdmitSlackInput(ctx, duplicate)
+	if err != nil || created {
+		t.Fatalf("admit reconciled duplicate = %t, %v", created, err)
+	}
+
+	edited := duplicate
+	edited.ID = "slack-applied"
+	edited.Text = "Run run-abc\nRun Applied"
+	created, err = st.AdmitSlackInput(ctx, edited)
+	if err != nil || !created {
+		t.Fatalf("admit lifecycle edit = %t, %v", created, err)
+	}
+}
+
+func TestAdmitSlackInputAllowsExplicitReplay(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	original := core.SlackInput{
+		ID: "slack-original", EnvelopeID: "socket-envelope", EventID: "socket-event",
+		Kind: "mention", TeamID: "T1", ChannelID: "C1", MessageTS: "1700.1",
+		UserID: "U1", Text: "check this run",
+	}
+	created, err := st.AdmitSlackInput(ctx, original)
+	if err != nil || !created {
+		t.Fatalf("admit original = %t, %v", created, err)
+	}
+	replay := original
+	replay.ID = "slack-replay"
+	replay.EnvelopeID = "replay:slack-replay"
+	replay.EventID = replay.EnvelopeID
+	created, err = st.AdmitSlackInput(ctx, replay)
+	if err != nil || !created {
+		t.Fatalf("admit explicit replay = %t, %v", created, err)
+	}
+}
+
 func TestSlackControlsCanOvertakeRunningChannelConversation(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

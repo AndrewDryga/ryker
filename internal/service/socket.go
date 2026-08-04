@@ -327,6 +327,7 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 	if directChannelJoin {
 		_, err = s.store.AdmitSlackChannelJoin(ctx, input)
 	} else {
+		bindCanonicalSlackMessageInputID(&input)
 		_, err = s.store.AdmitSlackInput(ctx, input)
 		if err == nil {
 			if scheduleErr := s.scheduleExternalMessageReconciliation(ctx, input); scheduleErr != nil {

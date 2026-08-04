@@ -1904,15 +1904,46 @@ func admitSlackInput(
 		  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
 		   user_id, text, action_id, action_value, attachments_json, state, next_attempt_at,
 		   received_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?
+		WHERE ? = 0 OR NOT EXISTS (
+		  SELECT 1
+		  FROM slack_inputs AS existing
+		  -- Slack can deliver one visible message through multiple event kinds.
+		  -- Its content identity is independent of the subscription transport.
+		  WHERE existing.team_id = ?
+		    AND existing.channel_id = ?
+		    AND existing.message_ts = ?
+		    AND existing.user_id = ?
+		    AND existing.text = ?
+		    AND existing.attachments_json = ?
+		)`,
 		input.ID, input.EnvelopeID, input.EventID, input.Kind, input.TeamID, input.ChannelID,
 		input.ThreadTS, input.MessageTS, input.UserID, input.Text, input.ActionID,
-		input.ActionValue, attachments, now, received.UTC().Format(timestampFormat), now)
+		input.ActionValue, attachments, now, received.UTC().Format(timestampFormat), now,
+		boolInt(deduplicateSlackMessageInput(input)), input.TeamID, input.ChannelID,
+		input.MessageTS, input.UserID, input.Text, attachments)
 	if err != nil {
 		return false, fmt.Errorf("admit Slack input: %w", err)
 	}
 	rows, err := result.RowsAffected()
 	return rows == 1, err
+}
+
+func deduplicateSlackMessageInput(input core.SlackInput) bool {
+	if input.ChannelID == "" || input.MessageTS == "" {
+		return false
+	}
+	// Explicit CLI replays intentionally process the same saved message again.
+	// cloneSlackReplay marks that transport so live idempotency remains strict.
+	if strings.HasPrefix(input.EnvelopeID, "replay:") {
+		return false
+	}
+	switch input.Kind {
+	case "message", "mention", "direct", "bot_message":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
