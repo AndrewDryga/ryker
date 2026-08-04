@@ -84,7 +84,7 @@ The **Investigate message** shortcut runs the same ordered read-only triage agai
 selected message and replies in its thread. Direct messages and shortcuts do not create incidents
 merely because they identify a problem; they can offer the same explicit incident button.
 
-An explicit repository-change request can produce a **Start engineering task** button. Until a
+An explicit repository-change request can produce a **Start task** button. Until a
 configured full-member operator confirms it, no writable session or fork is created. Confirmation
 posts a durable task card in the same Slack thread and creates an isolated Coop working copy. The
 initial task turn may edit, validate, and commit repository files under Coop policy, but cannot
@@ -290,7 +290,7 @@ accepts only one validated decision:
   bounded read-only investigation provides enough evidence;
 - attach an `Open incident room` confirmation when a human-reported problem may benefit from
   coordinated investigation, without creating anything yet;
-- attach a `Start engineering task` confirmation when an operator explicitly requests repository
+- attach a `Start task` confirmation when an operator explicitly requests repository
   changes, without weakening the shared channel's read-only boundary;
 - attach a `Prepare code fix` confirmation when a decision-ready confirmed or likely issue has a
   narrow repository-backed remediation; this can appear beside `Open incident room`, carries the

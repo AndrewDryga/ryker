@@ -2113,12 +2113,9 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			return watchDecision{}, err
 		}
 		if decision.TaskPrompt != "" {
-			if decision.AlertAssessment == nil ||
-				(decision.AlertAssessment.Verdict != "confirmed_issue" &&
-					decision.AlertAssessment.Verdict != "likely_issue") ||
-				decision.Completion == nil || decision.Completion.Status != "decision_ready" {
+			if !validSuggestedEngineeringTaskBoundary(decision) {
 				return watchDecision{}, errors.New(
-					"suggested engineering task requires a decision-ready confirmed or likely issue",
+					"suggested engineering task requires a decision-ready result or an exact tool-failure blocker",
 				)
 			}
 			if !watchDecisionHasEvidenceSource(
@@ -2180,6 +2177,16 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		return watchDecision{}, err
 	}
 	return decision, nil
+}
+
+func validSuggestedEngineeringTaskBoundary(decision watchDecision) bool {
+	if decision.Completion == nil {
+		return false
+	}
+	if decision.Completion.Status == "blocked" {
+		return decision.Completion.BlockerKind == "tool_failure"
+	}
+	return decision.Completion.Status == "decision_ready"
 }
 
 func validateAlertAssessment(assessment *alertAssessment) error {
@@ -2507,9 +2514,9 @@ the new decision-useful result. Do not repeat the earlier blocked answer or offe
 
 This evidence policy is mandatory for current operational questions. Prefer the least invasive authoritative checks. Never modify repository files from this shared-channel triage session. Operational mutations are allowed only under the Emisar policy below: target_is_configured_operator must be true, the operator must directly request the exact change, and Emisar policy, approval, and audit remain authoritative. A dedicated incident is not required. Never claim that you verified something unless a tool result or the supplied channel context supports it. When an authorized human explicitly requests repository file or code changes, or follows up to accept or continue such a request already visible in recent_channel_messages, do not send them outside Slack or tell them to start another client session. Give a useful concise response and include task_title; Responder will offer a governed transition in the same Slack thread to a writable isolated Coop fork. For a task offer, set task_repository to an exact repository key from the host-provided catalog below. When more than one repository is plausible and the conversation does not identify one, ask which repository in message and omit task_title, task_repository, and task_prompt.
 
-After a decision-ready confirmed or likely issue, you may also offer one optional repository fix even when the operator originally asked only for investigation. Do this only when repository evidence makes the change concrete and narrow. Include task_title, the exact task_repository, and a self-contained task_prompt that states the verified cause, requested code change, focused validation, and post-fix verification. The offer is inert: the operator's button confirmation is the authorization to create the writable engineering task. Do not claim a patch, commit, branch, or PR already exists. You may include incident_title independently when coordinated incident work would also be useful; incident coordination and code remediation are separate choices.
+When repository evidence establishes a concrete narrow fix, include the optional repository task in the same response even if the broader operational assessment remains blocked by that exact defect. Do not merely describe the patch and tell the operator to start work separately. Include task_title, the exact task_repository, and a self-contained task_prompt that states the verified cause, requested code change, focused validation, and post-fix verification. The offer is inert: the operator's button confirmation is the authorization to create the writable engineering task. Do not claim a patch, commit, branch, or PR already exists. You may include incident_title independently when coordinated incident work would also be useful; incident coordination and code remediation are separate choices.
 
-Before finalizing a confirmed or likely application or dependency issue whose durable solution is probably a repository change, inspect the most likely configured source repository when it is accessible. Do not stop at the operational symptom when a bounded source inspection can establish the owning code and a narrow fix. If it does, include the prepared-fix fields above. If ownership remains ambiguous or the source is unavailable, state that gap and omit task_prompt rather than guessing.
+Before finalizing a confirmed or likely application or dependency issue, or an exact tool-compatibility blocker, inspect the most likely configured source repository when it is accessible. Do not stop at the operational symptom when a bounded source inspection can establish the owning code and a narrow fix. If it does, include the prepared-fix fields above. If ownership remains ambiguous or the source is unavailable, state that gap and omit task_prompt rather than guessing.
 
 ` + emisarGovernedActionPolicy + `
 
@@ -2553,14 +2560,14 @@ evidence. If no capable tool is available, say so plainly and return no visuals.
 Choose exactly one action:
 - ignore: routine noise, informational chatter, successful or recovered notifications, duplicates, or messages where a human teammate would reasonably stay silent.
 - react: acknowledge useful information without interrupting the channel. Prefer this over reply when the sender explicitly asks for acknowledgement without a written response, or when a teammate would naturally use only an emoji. Choose one context-appropriate standard Slack emoji or a workspace custom emoji whose name is visible in the supplied Slack context. Return its Slack name without surrounding colons, for example ` + "`eyes`" + `, ` + "`white_check_mark`" + `, ` + "`thumbsup`" + `, ` + "`tada`" + `, ` + "`warning`" + `, or ` + "`bulb`" + `. Use ` + "`white_check_mark`" + ` for a completed handoff or explicitly completed task unless the context calls for a different reaction. Prefer familiar, unambiguous reactions; avoid playful or ambiguous choices for incidents and high-severity alerts. A reaction is social acknowledgement only: it must not claim verification, approval, remediation, or future work. Do not attach prose, evidence, offers, or coverage.
-- reply: answer a human's question concisely when channel context or a bounded read-only investigation provides enough evidence. State uncertainty and material gaps. If coordinated incident work may be useful, include incident_title; Responder will show an operator confirmation button without creating an incident. If the human explicitly asks Responder to change repository files or code, or continues that request in the visible conversation, include task_title; Responder will show an operator confirmation button for a thread-scoped engineering task and writable isolated fork. A decision-ready confirmed or likely issue with a concrete repository fix may instead include task_title, task_repository, and task_prompt as an optional prepared-fix action.
+- reply: answer a human's question concisely when channel context or a bounded read-only investigation provides enough evidence. State uncertainty and material gaps. If coordinated incident work may be useful, include incident_title; Responder will show an operator confirmation button without creating an incident. If the human explicitly asks Responder to change repository files or code, or continues that request in the visible conversation, include task_title; Responder will show an operator confirmation button for a thread-scoped engineering task and writable isolated fork. Whenever repository evidence establishes a concrete narrow fix, include task_title, task_repository, and task_prompt as an optional prepared-fix action, including when that fix removes the exact blocker preventing the broader assessment.
 - incident: automatically open a dedicated incident only for a credible unresolved alert from an
   external_app that did not match a trusted standing rule, or when the target human message
   explicitly asks to open, create, start, or declare an incident. A matched standing rule must
   follow its action semantics and return reply; include incident_title when escalation is useful,
   and let the host apply the channel's configured alert policy. Use a concise factual title.
 
-For a human target, an operational problem or health question is not by itself permission to create an incident. Investigate read-only and choose reply. Add incident_title when escalation is worth offering. Never choose incident for a human merely because the answer identifies an unhealthy component; the host will require explicit human intent. A task_title without task_prompt is only for explicit repository-change requests. A task_prompt is only for an optional narrow repository fix justified by a decision-ready confirmed or likely issue. Neither creates work until an operator confirms the button, and neither represents an infrastructure mutation.
+For a human target, an operational problem or health question is not by itself permission to create an incident. Investigate read-only and choose reply. Add incident_title when escalation is worth offering. Never choose incident for a human merely because the answer identifies an unhealthy component; the host will require explicit human intent. A task_title without task_prompt is only for explicit repository-change requests. A task_prompt is only for an optional narrow repository fix justified by repository evidence; it may address an exact blocker even when the wider assessment cannot finish. Neither creates work until an operator confirms the button, and neither represents an infrastructure mutation.
 
 Incident admission is classification, not the investigation itself. When an unmatched credible
 external_app alert or an explicit configured-operator request already authorizes action=incident,

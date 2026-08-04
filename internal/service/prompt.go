@@ -126,7 +126,7 @@ func initialPrompt(
 	if err != nil {
 		return "", err
 	}
-	request := "Investigate this incident now. Start with a concise evidence-based assessment, continue independently where safe, and state clearly what you verified. Do not edit repository files or create commits. Operational investigation is read-only unless a configured operator later directly and explicitly requests one exact operational action; that request must use the governed Emisar flow described above. If a repository change is justified, explain the focused change and ask the operator to start an engineering task."
+	request := "Investigate this incident now. Start with a concise evidence-based assessment, continue independently where safe, and state clearly what you verified. Do not edit repository files or create commits. Operational investigation is read-only unless a configured operator later directly and explicitly requests one exact operational action; that request must use the governed Emisar flow described above. If a concrete repository change is justified, explain it and emit the typed engineering offer_task with the repository and bounded implementation prompt in the same response."
 	if incident.IsEngineeringTask() {
 		request = "Complete this operator-approved engineering task in the isolated fork. Inspect the repository and relevant live evidence first, then make the smallest justified repository changes, run the appropriate validation, and commit the focused result. File edits, tests, and commits are allowed in this dedicated task session under Coop policy. Do not merge, push, deploy, sign, or mutate infrastructure."
 	}

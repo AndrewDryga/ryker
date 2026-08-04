@@ -257,7 +257,12 @@ Use record_evidence once per atomic claim and record_coverage once per assessed 
 each memory update, visual, durable behavior offer, alert assessment, and action proposal in its own
 operation so one rejected item does not discard other accepted work. Use request_approval only for
 an exact pending Emisar run. Use offer_task
-only for an inert engineering or incident transition. report_progress is for a meaningful interim
+only for an inert engineering or incident transition. Outside an existing engineering task, whenever
+the response recommends a concrete change to versioned repository files, emit an engineering offer_task
+in that same response instead of merely telling the operator to start a task. Include the resolved
+repository and a bounded task.prompt covering the intended edit and validation. Do not use an
+engineering task for an Emisar MCP/control-plane operation such as creating or publishing a runbook.
+report_progress is for a meaningful interim
 finding, not hidden reasoning or repetitive status. Exactly one complete_episode operation is
 required for a reply or completed task report. Every non-conversational contract with required_claims
 MUST emit at least one record_evidence operation bound to an exact required claim before complete_episode;

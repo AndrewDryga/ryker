@@ -5138,9 +5138,14 @@ func TestWatchedEngineeringOfferConditionsPrimaryReplyOnConfirmation(t *testing.
 	for field, content := range map[string]string{
 		"text": offer.Text, "markdown": offer.Markdown,
 	} {
-		if !strings.Contains(content, "Confirm the engineering task below before I start repository work.") {
-			t.Errorf("engineering task offer %s does not condition work on confirmation: %q", field, content)
+		if strings.Contains(content, "Confirm the engineering task below") ||
+			!strings.Contains(content, "prepare a PR") {
+			t.Errorf("engineering task offer %s repeats transition boilerplate: %q", field, content)
 		}
+	}
+	if len(offer.Actions) != 1 ||
+		!strings.Contains(offer.Actions[0].Confirm, "cannot merge or deploy") {
+		t.Fatalf("engineering task confirmation boundary = %+v", offer.Actions)
 	}
 	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
 		t.Fatalf("engineering task started before confirmation = %+v, %v", incidents, err)
@@ -5239,6 +5244,107 @@ func TestDecisionReadyDiagnosisOffersIncidentAndPreparedFix(t *testing.T) {
 	signals, err := st.ListSignals(ctx, incidents[0].ID)
 	if err != nil || len(signals) != 1 || signals[0].Summary != taskPrompt {
 		t.Fatalf("prepared fix objective = %+v, %v", signals, err)
+	}
+}
+
+func TestToolFailureBlockerOffersBoundedRepositoryFix(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	slackClient := &fakeSlack{dedupePosts: true}
+	coopClient := newFakeCoop()
+	const taskPrompt = "Replace jq gsub and test usage in the hcp-terraform pack with regex-free core jq operations, preserve cleanup and plan-version validation, add regression coverage for jq without Oniguruma, then run the focused pack tests."
+	coopClient.completeOnSubmit = `{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},
+		"operations":[
+			{"id":"evidence-source","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"The HCP Terraform pack depends on optional jq regex support.","observation":"The shared filter uses gsub and plan-version validation uses test; both fail on jq builds without Oniguruma.","relation":"supports","health_effect":"none","source_type":"repository","source_id":"repo:hcp-terraform","source_name":"packs/hcp-terraform scripts","observed_at":"2026-08-04T12:00:00Z","freshness":"current checkout","confidence":"high","dimensions":{"repository":"repo","revision":"current"}}},
+			{"id":"offer-fix","type":"offer_task","task":{"kind":"engineering","title":"Make the HCP Terraform pack portable across jq builds","repository":"repo","prompt":` + fmt.Sprintf("%q", taskPrompt) + `}},
+			{"id":"complete","type":"complete_episode","completion":{"message":"The HCP inspection is blocked because this runner's jq lacks optional regex support. The source fix is bounded: replace the two regex-dependent expressions while preserving cleanup, output limits, and version checks.","completion":{"status":"blocked","summary":"HCP run details remain unavailable until the pack is portable.","material_gaps":["The failed Terraform resource and partial-apply state remain unavailable."],"blocker_kind":"tool_failure","attempts":["Ran tfc.run_details and tfc.run_diagnostics; both failed on unsupported jq regex functions."],"next_action":"Apply and validate the bounded pack compatibility fix, publish its immutable version, then rerun both inspections."}}}
+		]
+	}`
+	if _, err := parseWatchDecision(coopClient.completeOnSubmit); err != nil {
+		t.Fatalf("parse tool blocker decision: %v", err)
+	}
+
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	source := core.SlackInput{
+		ID: "slack-hcp-jq-fix", EnvelopeID: "env-hcp-jq-fix",
+		EventID: "event-hcp-jq-fix", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1701.200", UserID: "U123ABC",
+		Text: "<@U999BOT> Can you fix the HCP Terraform inspection blocker?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
+		t.Fatalf("admit source = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("tool blocker offer posts = %+v", slackClient.posts)
+	}
+	offer := slackClient.posts[0].message
+	content := offer.Text + "\n" + offer.Markdown + "\n" + strings.Join(offer.Sections, "\n")
+	if strings.Contains(content, "Confirm the engineering task below") ||
+		strings.Contains(content, "No engineering task has been created") ||
+		!strings.Contains(content, "HCP inspection is blocked") ||
+		!strings.Contains(content, "Make the HCP Terraform pack portable") {
+		t.Fatalf("tool blocker offer content = %+v", offer)
+	}
+	if len(offer.Actions) != 1 || offer.Actions[0].ID != slackui.ActionStartTask ||
+		offer.Actions[0].Label != "Prepare code fix" {
+		t.Fatalf("tool blocker offer actions = %+v", offer.Actions)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil || state.OfferedTaskPrompt != taskPrompt ||
+		state.OfferedTaskRepository != "repo" {
+		t.Fatalf("persisted tool blocker offer = %+v, %v", state, err)
+	}
+	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
+		t.Fatalf("tool blocker task started before confirmation = %+v, %v", incidents, err)
+	}
+}
+
+func TestDecisionReadyFactualAssessmentCanOfferSourceBackedFix(t *testing.T) {
+	decision, err := parseWatchDecision(`{
+		"action":"reply",
+		"operations":[
+			{"id":"evidence-source","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"The source fix is bounded.","observation":"Two optional jq regex calls have core-operation replacements.","relation":"supports","health_effect":"none","source_type":"repository","source_name":"packs/hcp-terraform","confidence":"high"}},
+			{"id":"offer-fix","type":"offer_task","task":{"kind":"engineering","title":"Make HCP inspection portable","repository":"repo","prompt":"Replace the two regex-dependent jq expressions, preserve semantics, and add focused compatibility coverage."}},
+			{"id":"complete","type":"complete_episode","completion":{"message":"The inspection fix is bounded; the failed apply remains unverified.","completion":{"status":"decision_ready","verdict":"not_confirmed","summary":"The source fix is known, but apply effects are not confirmed."}}}
+		]
+	}`)
+	if err != nil {
+		t.Fatalf("parse decision-ready source fix: %v", err)
+	}
+	if decision.TaskTitle != "Make HCP inspection portable" ||
+		decision.TaskRepository != "repo" || decision.TaskPrompt == "" {
+		t.Fatalf("decision-ready source fix = %+v", decision)
+	}
+
+	decision.Completion = &completionAssessment{
+		Status: "blocked", BlockerKind: "source_unavailable",
+	}
+	if validSuggestedEngineeringTaskBoundary(decision) {
+		t.Fatal("source-unavailable blocker unexpectedly allowed a suggested code fix")
 	}
 }
 

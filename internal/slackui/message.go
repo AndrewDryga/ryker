@@ -1821,7 +1821,7 @@ func WithEngineeringTaskOffer(
 ) Message {
 	return withEngineeringTaskOffer(
 		message, taskTitle, sourceInputID, repositoryLabel,
-		"Start engineering task", false,
+		"Start task",
 	)
 }
 
@@ -1833,7 +1833,7 @@ func WithSuggestedEngineeringTaskOffer(
 ) Message {
 	return withEngineeringTaskOffer(
 		message, taskTitle, sourceInputID, repositoryLabel,
-		"Prepare code fix", true,
+		"Prepare code fix",
 	)
 }
 
@@ -1843,37 +1843,18 @@ func withEngineeringTaskOffer(
 	sourceInputID string,
 	repositoryLabel string,
 	label string,
-	suggested bool,
 ) Message {
-	const confirmationRequired = "Confirm the engineering task below before I start repository work."
-	message.Text = truncateUTF8(
-		strings.TrimSpace(confirmationRequired+" "+message.Text),
-		4000,
-	)
-	message.Markdown = truncateMarkdown(
-		strings.TrimSpace(confirmationRequired+" "+message.Markdown),
-		12000,
-	)
 	if taskTitle = strings.TrimSpace(taskTitle); taskTitle != "" {
 		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*Optional engineering task: %s*\nRepository: %s",
+			"*%s*\nRepository: %s",
 			escapeSlackText(taskTitle), repositoryLabel,
 		))
 	}
-	context := "No engineering task has been created. Starting one keeps the work in this Slack thread and creates an isolated writable Coop working copy for " +
-		repositoryLabel + ". It does not merge, push, deploy, or change infrastructure."
-	if suggested {
-		context = "No code change has been made. Preparing the fix creates an isolated writable task in this thread for " +
-			repositoryLabel + ". Review the diff before using the separate draft-PR control."
-	}
-	message.Context = append(message.Context, context)
 	message.Actions = append(message.Actions, Action{
 		ID: ActionStartTask, Label: label, Value: sourceInputID,
 		Style: "primary",
-		Confirm: "Start an engineering task for " + repositoryLabel +
-			" in this thread with an isolated Coop working copy? " +
-			"The agent may edit, test, and commit inside that fork under Coop policy. " +
-			"No merge, push, deployment, or infrastructure change will occur.",
+		Confirm: "Start this task for " + repositoryLabel +
+			" in an isolated working copy? Emisar may edit, test, and commit there, but cannot merge or deploy.",
 	})
 	return message
 }

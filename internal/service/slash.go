@@ -889,7 +889,7 @@ func slashHelpSections() []string {
 			"change with the current repository and runs rebase, validation, and policy checks; " +
 			"`/responder stop` preserves and stops the active turn; `/responder close` preserves " +
 			"the working copy and closes the session. Incident closure also posts an evidence-grounded postmortem draft.",
-		"An explicit repository-change request in shared-channel triage can offer a *Start engineering task* button. A configured operator must confirm it before Responder creates a writable isolated fork in that same thread. Incident rooms and attached task threads remain conversational even when proactive triage is off. Slash commands " +
+		"An explicit repository-change request in shared-channel triage can offer a concise *Start task* button. A configured operator must confirm it before Responder creates a writable isolated fork in that same thread. Incident rooms and attached task threads remain conversational even when proactive triage is off. Slash commands " +
 			"run from the channel composer and cannot select a task thread; use that thread's task-card buttons instead.",
 	}
 }

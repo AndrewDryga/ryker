@@ -435,10 +435,10 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	)
 	if len(offer.Actions) != 1 ||
 		offer.Actions[0].ID != ActionStartTask ||
-		offer.Actions[0].Label != "Start engineering task" ||
+		offer.Actions[0].Label != "Start task" ||
 		!strings.Contains(offer.Actions[0].Confirm, "edit, test, and commit") ||
 		!strings.Contains(offer.Actions[0].Confirm, "Emisar (`emisar`)") ||
-		!strings.Contains(offer.Context[0], "No engineering task has been created") {
+		len(offer.Context) != 0 {
 		t.Fatalf("engineering task offer = %+v", offer)
 	}
 
@@ -462,8 +462,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		card.Actions[len(card.Actions)-1].Label != "Close task" {
 		t.Fatalf("engineering task card = %+v", card)
 	}
-	if !strings.Contains(offer.Context[0], "this Slack thread") ||
-		!strings.Contains(offer.Actions[0].Confirm, "in this thread") ||
+	if !strings.Contains(offer.Actions[0].Confirm, "isolated") ||
 		!strings.Contains(card.Context[0], "same isolated task session") {
 		t.Fatalf("engineering task thread copy = offer:%+v card:%+v", offer, card)
 	}
@@ -513,7 +512,7 @@ func TestScheduleAndEngineeringTaskOffersComposeWithoutOverwriting(t *testing.T)
 		len(message.Sections) != 2 ||
 		!strings.Contains(message.Sections[0], "Daily deep health review") ||
 		!strings.Contains(message.Sections[1], "Create a reusable deep health runbook") ||
-		len(message.Context) != 2 {
+		len(message.Context) != 1 {
 		t.Fatalf("compound offers = %+v", message)
 	}
 }
@@ -534,8 +533,14 @@ func TestIncidentAndSuggestedFixOffersCompose(t *testing.T) {
 		message.Actions[0].ID != ActionOpenIncident ||
 		message.Actions[1].ID != ActionStartTask ||
 		message.Actions[1].Label != "Prepare code fix" ||
-		!strings.Contains(message.Context[len(message.Context)-1], "draft-PR control") {
+		len(message.Context) != 0 {
 		t.Fatalf("combined diagnosis actions = %+v", message)
+	}
+	content := message.Text + "\n" + message.Markdown + "\n" + strings.Join(message.Sections, "\n")
+	if strings.Contains(content, "Confirm the engineering task below") ||
+		strings.Contains(content, "No code change has been made") ||
+		!strings.Contains(content, "Make rank decoding forward-compatible") {
+		t.Fatalf("combined diagnosis copy = %+v", message)
 	}
 }
 

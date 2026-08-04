@@ -249,7 +249,7 @@ Emisar** link. Responder watches that exact run in the background, updates the e
 progresses, and automatically posts the terminal result plus read-only verification in the same
 conversation. Waiting consumes no model turn and survives a Responder restart. When an operator
 explicitly asks Responder to change repository files, the reply can
-include a **Start engineering task** button instead of sending the
+include a concise **Start task** button instead of sending the
 operator to another client. Confirmation keeps the task in that Slack thread and creates an isolated
 writable Coop fork, where Responder can inspect, edit, test, and commit under the configured
 repository policy. Later replies in the same thread continue the same session without an
@@ -317,7 +317,7 @@ can approve that button. A credible unresolved monitoring-app alert follows the 
 confirmed policy: reply in place, offer an incident button, or open automatically. An explicit
 human request to open, create, start, or declare an incident is honored directly. Both the
 context size and settling delay are configurable. An explicit repository-change request can instead
-offer a **Start engineering task** transition in the same thread to a writable isolated fork. A configured summon
+offer a **Start task** transition in the same thread to a writable isolated fork. A configured summon
 mention starts the same read-only triage conversation; explicit incident wording remains
 deterministic.
 

@@ -118,7 +118,7 @@ App Home summarizes current incidents, active sessions, failed durable work, cur
 situations, and the commitments Emisar owes the team. `/responder work` exposes the same active
 commitments. These surfaces do not weaken operator authorization or incident-creation rules.
 
-An explicit repository-change request can return a **Start engineering task** confirmation.
+An explicit repository-change request can return a concise **Start task** confirmation.
 Approval by a configured full-member operator starts an engineering task in the source Slack thread
 and creates an isolated writable Coop fork; the rest of the shared channel remains read-only. The
 task path can edit, test, and commit repository files under Coop policy, but cannot merge, push,
