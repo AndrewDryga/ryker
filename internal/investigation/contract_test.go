@@ -51,6 +51,80 @@ func TestCompileUsesLifecycleVerdictsForFocusedChangeReview(t *testing.T) {
 	}
 }
 
+func TestCompileSeparatesRecoveryAndRunbookWorkFromChangeReview(t *testing.T) {
+	recovery := Compile(core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, Authority: core.AuthorityReadOnly,
+		Objective:        "Assess whether checkout recovered after the deployment",
+		RequiredCoverage: []string{"change", "application"},
+	})
+	if recovery.Completion.ConclusionKind != "operational_health" ||
+		!slices.Contains(recovery.Completion.AllowedVerdicts, "unhealthy") {
+		t.Fatalf("recovery contract = %+v", recovery.Completion)
+	}
+
+	runbook := Compile(core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, Authority: core.AuthorityGovernedOperation,
+		Objective:        "Extend and test the daily runbook",
+		RequiredCoverage: []string{"task"},
+	})
+	if runbook.Completion.ConclusionKind != "factual_assessment" ||
+		slices.Contains(runbook.Completion.AllowedVerdicts, "degraded") {
+		t.Fatalf("runbook contract = %+v", runbook.Completion)
+	}
+}
+
+func TestFactualTaskDraftIsDecisionReadyWithoutPublication(t *testing.T) {
+	now := time.Date(2026, 8, 3, 15, 5, 0, 0, time.UTC)
+	contract := Compile(core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, Objective: "Extend and test the daily runbook",
+		RequiredCoverage: []string{"task"},
+	})
+	claimID := contract.Claims[0].ID
+	ledger := BuildLedger(contract, []core.Evidence{{
+		ClaimID: claimID, Relation: "supports", HealthEffect: "none",
+		SourceType: "emisar", SourceName: "runbook draft",
+		Observation: "The 32-check draft passed validation and focused smoke tests.",
+		ObservedAt:  now, Confidence: "high",
+		Dimensions: map[string]string{"artifact": "daily-health", "revision": "v4"},
+	}}, []core.Coverage{{
+		Layer: "task", ClaimIDs: []string{claimID}, Status: "healthy",
+		Detail: "The requested extension and validation are complete; publication was not requested.",
+	}}, now)
+	if correction := ledger.CompletionCorrectionFor("decision_ready", "confirmed"); correction != "" {
+		t.Fatalf("validated draft rejected: %q", correction)
+	}
+}
+
+func TestLedgerAllowsDecisiveNegativeHealthWithBoundedSecondaryUnknown(t *testing.T) {
+	now := time.Date(2026, 8, 2, 13, 5, 0, 0, time.UTC)
+	contract := Compile(core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, Authority: core.AuthorityReadOnly,
+		Objective:        "Assess whether checkout recovered after the deployment",
+		RequiredCoverage: []string{"change", "application"},
+	})
+	evidence := []core.Evidence{{
+		ClaimID: "application.functional_behavior", Relation: "contradicts",
+		HealthEffect: "unhealthy", SourceType: "monitoring", SourceName: "request errors",
+		Observation: "POST /checkout errors are 8.4 percent versus a 0.3 percent baseline.",
+		ObservedAt:  now, Confidence: "high",
+		Dimensions: map[string]string{
+			"service": "checkout", "endpoint": "POST /checkout",
+			"environment": "production", "window": "10m",
+		},
+	}}
+	coverage := []core.Coverage{
+		{Layer: "change", Status: "unknown", Detail: "The deployed diff is unavailable."},
+		{Layer: "application", Status: "unhealthy", Detail: "Representative checkout requests fail."},
+	}
+	ledger := BuildLedger(contract, evidence, coverage, now)
+	if correction := ledger.CompletionCorrectionFor("decision_ready", "unhealthy"); correction != "" {
+		t.Fatalf("decisive negative result rejected: %q", correction)
+	}
+	if correction := ledger.CompletionCorrectionFor("decision_ready", "healthy"); correction == "" {
+		t.Fatal("healthy result accepted with unknown change evidence")
+	}
+}
+
 func TestLedgerRejectsStaleIncompleteAndContradictoryClaims(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	contract := Compile(core.WorkEpisode{
@@ -115,7 +189,8 @@ func TestLedgerDoesNotTurnRiskIntoOperationalDegradation(t *testing.T) {
 func TestLedgerAllowsDecisionReadyInProgressChange(t *testing.T) {
 	now := time.Date(2026, 8, 3, 14, 34, 0, 0, time.UTC)
 	contract := Compile(core.WorkEpisode{
-		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"change"},
+		Effort: core.EffortFocusedCheck, Objective: "Review this Terraform plan",
+		RequiredCoverage: []string{"change"},
 	})
 	claimID := contract.Claims[0].ID
 	ledger := BuildLedger(contract, []core.Evidence{{

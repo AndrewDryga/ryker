@@ -1086,6 +1086,35 @@ func (s *Service) enqueue(
 	return err
 }
 
+func (s *Service) enqueueEpisode(
+	ctx context.Context,
+	id string,
+	episodeID string,
+	incident core.Incident,
+	kind string,
+	threadTS string,
+	message slackui.Message,
+) error {
+	if _, err := s.bindEpisodeDestination(
+		ctx,
+		episodeID,
+		incident.ChannelID,
+		threadTS,
+		"response_location",
+	); err != nil {
+		return err
+	}
+	body, err := slackui.Encode(s.sanitizer.Message(message))
+	if err != nil {
+		return err
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: id, IncidentID: incident.ID, EpisodeID: episodeID, Kind: kind,
+		ChannelID: incident.ChannelID, ThreadTS: threadTS, Body: body,
+	})
+	return err
+}
+
 func (s *Service) enqueueMessageUpdate(
 	ctx context.Context,
 	id string,

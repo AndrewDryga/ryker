@@ -633,7 +633,9 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 	if err != nil {
 		return err
 	}
-	return s.store.LinkScheduledTaskRun(ctx, task.ID, occurrence.ScheduledFor, agentRun.ID)
+	return s.store.LinkScheduledTaskRun(
+		ctx, task.ID, occurrence.ScheduledFor, agentRun.ID, agentRun.EpisodeID,
+	)
 }
 
 func (s *Service) ensureScheduledRunAnchor(

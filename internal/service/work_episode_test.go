@@ -46,7 +46,7 @@ func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
 			name:   "cost change analysis is focused",
 			input:  core.SlackInput{Kind: "mention", UserID: "UOTHER", Text: "<@U999BOT> analyze recent changes in our GCP costs"},
 			effort: core.EffortFocusedCheck, authority: core.AuthorityReadOnly,
-			coverage: []string{"change"},
+			coverage: []string{"task"},
 		},
 		{
 			name:   "rollout assessment is focused",
@@ -300,7 +300,8 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 
 func TestFocusedChangeReviewUsesLifecycleVerdict(t *testing.T) {
 	episode := core.WorkEpisode{
-		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"change"},
+		Effort: core.EffortFocusedCheck, Objective: "Review this Terraform plan",
+		RequiredCoverage: []string{"change"},
 	}
 	coverage := []core.Coverage{{
 		Layer: "change", Status: "unknown",
@@ -323,6 +324,30 @@ func TestFocusedChangeReviewUsesLifecycleVerdict(t *testing.T) {
 	}
 }
 
+func TestFocusedCoverageDoesNotTreatNegatedHealthLanguageAsRequestedCoverage(t *testing.T) {
+	svc := &Service{}
+	episode := svc.episodeForWatchedInput(core.SlackInput{
+		Kind: "mention",
+		Text: "Review this exact Terraform plan. Do not infer operational health from change risk alone.",
+	}, watchTurnState{})
+	if got := investigation.Compile(*episode).Completion.ConclusionKind; got != "change_review" {
+		t.Fatalf("conclusion kind = %q", got)
+	}
+	if !slices.Equal(episode.RequiredCoverage, []string{"change"}) {
+		t.Fatalf("required coverage = %v", episode.RequiredCoverage)
+	}
+
+	recovery := svc.episodeForWatchedInput(core.SlackInput{
+		Kind: "mention", Text: "Assess whether checkout recovered after the deployment.",
+	}, watchTurnState{})
+	if got := investigation.Compile(*recovery).Completion.ConclusionKind; got != "operational_health" {
+		t.Fatalf("recovery conclusion kind = %q", got)
+	}
+	if !slices.Contains(recovery.RequiredCoverage, "application") {
+		t.Fatalf("recovery coverage = %v", recovery.RequiredCoverage)
+	}
+}
+
 func TestRunbookWorkDoesNotUseHealthVerdictLanguage(t *testing.T) {
 	svc := &Service{}
 	episode := svc.episodeForWatchedInput(core.SlackInput{
@@ -330,8 +355,11 @@ func TestRunbookWorkDoesNotUseHealthVerdictLanguage(t *testing.T) {
 		Text: "Also extend that runbook and test it; make sure it is all we need for daily checkups.",
 	}, watchTurnState{})
 	contract := investigation.Compile(*episode)
-	if episode.Effort != core.EffortFocusedCheck || contract.Completion.ConclusionKind != "change_review" {
+	if episode.Effort != core.EffortFocusedCheck || contract.Completion.ConclusionKind != "factual_assessment" {
 		t.Fatalf("runbook episode = %+v, completion = %+v", episode, contract.Completion)
+	}
+	if !slices.Equal(episode.RequiredCoverage, []string{"task"}) {
+		t.Fatalf("runbook coverage = %v", episode.RequiredCoverage)
 	}
 	if got := episodeConclusionLanguageCorrection(
 		*episode,
@@ -346,6 +374,72 @@ func TestRunbookWorkDoesNotUseHealthVerdictLanguage(t *testing.T) {
 		"The expanded runbook is validated. Publication is the remaining step.",
 	); got != "" {
 		t.Fatalf("task-state answer rejected: %q", got)
+	}
+}
+
+func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
+	decision, err := parseWatchDecision(`{
+		"action":"reply",
+		"operations":[
+			{"id":"evidence-task","type":"record_evidence","evidence":{
+				"claim_id":"task.requested_outcome","relation":"supports",
+				"claim":"The runbook draft is validated but remains unpublished.",
+				"observation":"The recorded runbook has 32 checks, validation passed, and state draft.",
+				"source_type":"emisar","source_name":"runbook fixture","target":"whole-platform-health-review-v4",
+				"observed_at":"2026-08-03T15:05:00Z","freshness":"recorded fixture","confidence":"high",
+				"dimensions":{"artifact":"whole-platform-health-review-v4","revision":"draft-v4"}
+			}},
+			{"id":"coverage-task","type":"record_coverage","coverage":{
+				"layer":"task","status":"healthy","source":"runbook fixture",
+				"detail":"The requested extension and validation are complete; publication remains a separate next step.",
+				"observed_at":"2026-08-03T15:05:00Z","claim_ids":["task.requested_outcome"]
+			}},
+			{"id":"complete","type":"complete_episode","completion":{
+				"message":"The expanded runbook is validated. Publish it, then repin the daily schedule.",
+				"completion":{"status":"decision_ready","verdict":"not_confirmed","summary":"Validated draft; publication remains."}
+			}}
+		]
+	}`)
+	if err != nil {
+		t.Fatalf("parse typed decision: %v", err)
+	}
+	if len(decision.Coverage) != 1 || decision.Coverage[0].Layer != "task" {
+		t.Fatalf("coverage = %+v, want task coverage", decision.Coverage)
+	}
+	if len(decision.Evidence) != 1 || decision.Evidence[0].ClaimID != "task.requested_outcome" {
+		t.Fatalf("evidence = %+v, want requested outcome evidence", decision.Evidence)
+	}
+	decision.Coverage = sanitizeCoverage(decision.Coverage, "eval", "CEVALUATION", "input")
+	if len(decision.Coverage) != 1 || decision.Coverage[0].Layer != "task" {
+		t.Fatalf("sanitized coverage = %+v, want task coverage", decision.Coverage)
+	}
+
+	service := Service{}
+	episode := service.episodeForWatchedInput(core.SlackInput{
+		Kind: "mention",
+		Text: "Also extend that runbook and test it; make sure it is all we need for daily checkups.",
+	}, watchTurnState{})
+	if got := episode.RequiredCoverage; !slices.Equal(got, []string{"task"}) {
+		t.Fatalf("required coverage = %v, want [task]", got)
+	}
+	if correction := episodeCompletionCorrection(
+		*episode,
+		decision.Action,
+		decision.Coverage,
+		decision.Completion,
+	); correction != "" {
+		t.Fatalf("completion correction = %q", correction)
+	}
+	if correction := episodeClaimCorrection(
+		*episode,
+		decision.Action,
+		decision.Evidence,
+		decision.Coverage,
+		decision.Completion,
+		time.Date(2026, 8, 3, 15, 5, 0, 0, time.UTC),
+		true,
+	); correction != "" {
+		t.Fatalf("claim correction = %q", correction)
 	}
 }
 

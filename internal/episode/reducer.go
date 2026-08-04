@@ -12,10 +12,32 @@ import (
 
 const (
 	EventCreated             = "episode_created"
+	EventAccepted            = "episode_accepted"
+	EventDestinationBound    = "destination_bound"
+	EventDestinationChanged  = "destination_changed"
+	EventGoalPlanned         = "goal_planned"
+	EventGoalStarted         = "goal_started"
+	EventGoalCompleted       = "goal_completed"
+	EventGoalBlocked         = "goal_blocked"
+	EventAttemptStarted      = "attempt_started"
+	EventAttemptFailed       = "attempt_failed"
+	EventContextExtended     = "context_extended"
 	EventPhaseChanged        = "phase_changed"
 	EventProgressReported    = "progress_reported"
+	EventProgressRecorded    = "progress_recorded"
 	EventEvidenceRecorded    = "evidence_recorded"
+	EventOperatorInputAsked  = "operator_input_requested"
 	EventApprovalRequested   = "approval_requested"
+	EventExternalWaitStarted = "external_wait_started"
+	EventWakeupResolved      = "wakeup_resolved"
+	EventEffectPlanned       = "effect_planned"
+	EventEffectSucceeded     = "effect_succeeded"
+	EventEffectFailed        = "effect_failed"
+	EventVerificationStarted = "verification_started"
+	EventEpisodeCompleted    = "episode_completed"
+	EventEpisodeBlocked      = "episode_blocked"
+	EventEpisodeCancelled    = "episode_cancelled"
+	EventEpisodeRefused      = "episode_refused"
 	EventTaskOffered         = "task_offered"
 	EventCompletionSubmitted = "completion_submitted"
 	EventCompletionAccepted  = "completion_accepted"
@@ -57,11 +79,13 @@ func Reduce(current core.WorkEpisode, event core.WorkEpisodeEvent) (core.WorkEpi
 	}
 	next := current
 	switch event.Kind {
-	case EventCreated:
+	case EventCreated, EventAccepted:
 		if current.EventSequence != 0 {
-			return core.WorkEpisode{}, errors.New("episode_created can only be the first event")
+			return core.WorkEpisode{}, errors.New("episode acceptance can only be the first event")
 		}
-	case EventPhaseChanged, EventCompletionAccepted:
+	case EventPhaseChanged, EventCompletionAccepted, EventEpisodeCompleted,
+		EventEpisodeBlocked, EventEpisodeCancelled, EventEpisodeRefused,
+		EventVerificationStarted:
 		if transition.State == "" || strings.TrimSpace(transition.Phase) == "" ||
 			strings.TrimSpace(transition.Status) == "" {
 			return core.WorkEpisode{}, errors.New("phase event requires state, phase, and status")
@@ -77,7 +101,7 @@ func Reduce(current core.WorkEpisode, event core.WorkEpisodeEvent) (core.WorkEpi
 		if terminal(next.State) {
 			next.CompletedAt = event.CreatedAt
 		}
-	case EventProgressReported:
+	case EventProgressReported, EventProgressRecorded:
 		if terminal(current.State) {
 			return core.WorkEpisode{}, errors.New("terminal episode cannot accept progress")
 		}
@@ -98,9 +122,14 @@ func Reduce(current core.WorkEpisode, event core.WorkEpisodeEvent) (core.WorkEpi
 
 func terminal(state core.WorkEpisodeState) bool {
 	switch state {
-	case core.EpisodeCompleted, core.EpisodeFailed, core.EpisodeCancelled, core.EpisodeSuperseded:
+	case core.EpisodeCompleted, core.EpisodeFailed, core.EpisodeRefused,
+		core.EpisodeCancelled, core.EpisodeSuperseded:
 		return true
 	default:
 		return false
 	}
 }
+
+// Terminal is the shared lifecycle boundary used by the reducer, store, and
+// effect planner. It intentionally contains no transport-specific states.
+func Terminal(state core.WorkEpisodeState) bool { return terminal(state) }

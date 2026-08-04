@@ -579,13 +579,7 @@ func validConfidence(value string) bool {
 }
 
 func validCoverageLayer(value string) bool {
-	switch value {
-	case "hardware", "host", "runtime", "scheduler", "workload",
-		"dependency", "application", "slo", "change":
-		return true
-	default:
-		return false
-	}
+	return investigation.ValidCoverageLayer(value)
 }
 
 func validCoverageStatus(value string) bool {

@@ -60,6 +60,13 @@ type InvestigationContract struct {
 }
 
 var layerClaims = map[string]ClaimRequirement{
+	"task": {
+		ID: "task.requested_outcome", Layer: "task",
+		Question:    "What requested task result is complete, and what concrete step remains?",
+		Proposition: "The requested task outcome is complete within the stated boundary.",
+		Freshness:   FreshnessRequirement{Class: "current_revision"},
+		Dimensions:  []string{"artifact", "revision"},
+	},
 	"hardware": {
 		ID: "hardware.current_condition", Layer: "hardware",
 		Question:    "Are physical components or storage paths unhealthy or saturated?",
@@ -125,6 +132,14 @@ var layerClaims = map[string]ClaimRequirement{
 	},
 }
 
+// ValidCoverageLayer is the single vocabulary check for contract claims and
+// result coverage. Callers must not maintain a second list: doing so can make
+// valid model evidence disappear between parsing and completion validation.
+func ValidCoverageLayer(value string) bool {
+	_, ok := layerClaims[strings.TrimSpace(value)]
+	return ok
+}
+
 func Compile(episode core.WorkEpisode) InvestigationContract {
 	conclusionKind := episodeConclusionKind(episode)
 	claims := make([]ClaimRequirement, 0, len(episode.RequiredCoverage))
@@ -184,13 +199,45 @@ func episodeConclusionKind(episode core.WorkEpisode) string {
 	case core.EffortEngineeringTask:
 		return "engineering_result"
 	case core.EffortFocusedCheck:
-		if slices.Contains(episode.RequiredCoverage, "change") {
+		if focusedOperationalHealthObjective(episode.Objective) {
+			return "operational_health"
+		}
+		if slices.Contains(episode.RequiredCoverage, "change") && focusedChangeReviewObjective(episode.Objective) {
 			return "change_review"
 		}
 		return "factual_assessment"
 	default:
 		return "direct_answer"
 	}
+}
+
+func focusedOperationalHealthObjective(objective string) bool {
+	objective = strings.ToLower(strings.Join(strings.Fields(objective), " "))
+	if focusedChangeReviewObjective(objective) {
+		return false
+	}
+	return containsAny(objective,
+		" healthy", "health ", "health?", "health of", "recovered", "recovery",
+		"degraded", "unhealthy", "still broken", "still failing",
+	)
+}
+
+func focusedChangeReviewObjective(objective string) bool {
+	objective = strings.ToLower(strings.Join(strings.Fields(objective), " "))
+	return containsAny(objective,
+		"terraform plan", "terraform run", "review this plan", "review the plan",
+		"plan notification", "run notification", "pull request", "review this pr", "review the pr",
+		"review this diff", "review the diff", "ci run", "cd run", "build run",
+	)
+}
+
+func containsAny(value string, terms ...string) bool {
+	for _, term := range terms {
+		if strings.Contains(value, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func (contract InvestigationContract) RequiredLayers() []string {
@@ -215,6 +262,10 @@ available repository and live evidence. Keep evidence atomic and bind it to clai
 source time, freshness, confidence, and whether it supports or contradicts the claim. Reconcile
 contradictions instead of silently choosing a source. Repository state proves declared intent; only
 fresh operational evidence proves current behavior.
+
+One evidence record must describe one source. When a conclusion compares repository intent with live
+state, emit separate repository and operational evidence records rather than combining their observations
+under one source_type.
 
 Evidence relation is relative to each required claim's positive proposition. Record health_effect
 separately as none, risk, degraded, unhealthy, or unknown. Negative evidence must contradict the
@@ -242,7 +293,9 @@ Do not request a recheck for missing credentials, denied access, operator decisi
 or open-ended monitoring. The host owns timing and deduplication; a recheck grants no authority.
 Completion evaluates the requested objective at the latest recorded observation. Missing evidence for
 a future remediation does not make a completed assessment blocked when the requested objective itself
-has a decisive answer; record the remediation gap as a next action and complete with the supported verdict.
+has a decisive answer. Likewise, a fresh degraded or unhealthy result may remain decision-ready when
+secondary coverage is explicitly unknown but cannot reverse that negative verdict. Preserve the bounded
+unknown beneath the result, record the next action, and complete with the supported verdict.
 </host-investigation-contract>`
 	return result
 }
@@ -282,7 +335,9 @@ task step remains. Do not translate validation, publication, review, or delivery
 This is a bounded factual or operational-task assessment. Use confirmed, not_confirmed, or inconclusive
 only when a verdict helps; otherwise omit it. Report what was completed, what remains, and the next action
 in the task's own language. Do not translate draft, validation, publication, scheduling, or approval state
-into health language.
+into health language. A known incomplete, draft, or unpublished artifact state is a decision-ready result,
+not a blocker. Treat publication or adoption as a next action unless the operator explicitly requested it
+as part of this episode.
 `
 	default:
 		return `

@@ -25,7 +25,8 @@ func Project(value core.WorkEpisode) Projection {
 		Terminal:   terminal(value.State),
 	}
 	switch value.State {
-	case core.EpisodeAcknowledged, core.EpisodePlanning:
+	case core.EpisodeAccepted, core.EpisodeAcknowledged, core.EpisodePlanning,
+		core.EpisodeRetrying:
 		result.CommitmentState = "queued"
 		result.NativeStatus = "is planning..."
 		result.Busy = true
@@ -40,13 +41,14 @@ func Project(value core.WorkEpisode) Projection {
 		result.NativeStatus = "is verifying the result..."
 		result.Busy = true
 		result.CanStop = true
-	case core.EpisodeWaitingApproval:
+	case core.EpisodeWaitingApproval, core.EpisodeWaitingOperator,
+		core.EpisodeWaitingExternal:
 		result.CommitmentState = "finishing"
 		result.NativeStatus = "is waiting for approval..."
 		result.WaitingApproval = true
 	case core.EpisodeCompleted:
 		result.CommitmentState = "done"
-	case core.EpisodeBlocked, core.EpisodeFailed:
+	case core.EpisodeBlocked, core.EpisodeFailed, core.EpisodeRefused:
 		result.CommitmentState = "blocked"
 	case core.EpisodeCancelled, core.EpisodeSuperseded:
 		result.CommitmentState = "cancelled"

@@ -99,6 +99,10 @@ func BuildLedger(contract InvestigationContract, evidence []core.Evidence, cover
 }
 
 func (ledger Ledger) CompletionCorrection(status string) string {
+	return ledger.CompletionCorrectionFor(status, "")
+}
+
+func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 	if status == "blocked" {
 		return ""
 	}
@@ -145,14 +149,40 @@ func (ledger Ledger) CompletionCorrection(status string) string {
 		}
 	}
 	if len(contradicted) > 0 {
+		if ledger.negativeHealthVerdictIsDecisive(verdict) {
+			return ""
+		}
 		sort.Strings(contradicted)
 		return "required claims still contain unresolved contradictions: " + strings.Join(contradicted, ", ")
 	}
 	if len(missing) > 0 {
+		if ledger.negativeHealthVerdictIsDecisive(verdict) {
+			return ""
+		}
 		sort.Strings(missing)
 		return "required claims do not have fresh supporting evidence: " + strings.Join(missing, ", ")
 	}
 	return ""
+}
+
+func (ledger Ledger) negativeHealthVerdictIsDecisive(verdict string) bool {
+	if ledger.Contract.Completion.ConclusionKind != "operational_health" ||
+		(verdict != "degraded" && verdict != "unhealthy") {
+		return false
+	}
+	for _, view := range ledger.Claims {
+		if !view.Requirement.Required || !view.Resolved {
+			continue
+		}
+		if verdict == "unhealthy" && view.CoverageStatus == "unhealthy" {
+			return true
+		}
+		if verdict == "degraded" &&
+			(view.CoverageStatus == "degraded" || view.CoverageStatus == "unhealthy") {
+			return true
+		}
+	}
+	return false
 }
 
 func claimResolution(
@@ -171,8 +201,9 @@ func claimResolution(
 	case ClaimContradicted, ClaimMixed:
 		return materialHealthEffectPresent(view, coverage.Status)
 	case ClaimUnknown:
-		return completion.AllowUnknownSLO && view.Requirement.Layer == "slo" &&
-			view.Requirement.Required && coverage.Status == "unknown"
+		return (completion.AllowUnknownSLO && view.Requirement.Layer == "slo" &&
+			view.Requirement.Required && coverage.Status == "unknown") ||
+			(completion.ConclusionKind == "factual_assessment" && coverage.Status == "unknown")
 	case ClaimNotApplicable:
 		return coverage.Status == "not_applicable"
 	default:

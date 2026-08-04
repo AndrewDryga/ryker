@@ -533,6 +533,7 @@ func (s *Service) applyWatchDecision(
 	input core.SlackInput,
 	state watchTurnState,
 	decision watchDecision,
+	episodeID string,
 ) error {
 	if s.cfg.IsOperator(input.UserID) {
 		if offer, ok := normalizeOperationalAlertRule(
@@ -653,10 +654,35 @@ func (s *Service) applyWatchDecision(
 			ctx, id, input.ChannelID, state.ResponseThreadTS, message,
 		)
 	}
+	if episodeID != "" {
+		post = func(
+			ctx context.Context,
+			id string,
+			input core.SlackInput,
+			message slackui.Message,
+		) error {
+			return s.postInputMessageAtEpisode(
+				ctx, id, episodeID, input.ChannelID, responseThreadTS, message,
+			)
+		}
+	}
 	if input.Kind == "bot_message" || input.Kind == "shortcut" ||
 		len(state.MatchedRules) > 0 {
-		post = s.postInputMessageInSourceThread
 		responseThreadTS = slackReplyThread(input)
+		if episodeID == "" {
+			post = s.postInputMessageInSourceThread
+		} else {
+			post = func(
+				ctx context.Context,
+				id string,
+				input core.SlackInput,
+				message slackui.Message,
+			) error {
+				return s.postInputMessageAtEpisode(
+					ctx, id, episodeID, input.ChannelID, responseThreadTS, message,
+				)
+			}
+		}
 	}
 	switch decision.Action {
 	case "ignore":
@@ -868,7 +894,7 @@ func (s *Service) applyWatchDecision(
 				return err
 			}
 		} else if err := s.enqueueGeneratedVisuals(
-			ctx, deliveryID, "", input.ChannelID, responseThreadTS,
+			ctx, deliveryID, "", episodeID, input.ChannelID, responseThreadTS,
 			state.SessionID, state.TurnID, decision.Visuals, &message,
 		); err != nil {
 			return err
@@ -907,6 +933,7 @@ func (s *Service) applyWatchDecision(
 			input,
 			state,
 			standingRuleIncidentAsReply(decision, offerIncident),
+			episodeID,
 		)
 	default:
 		return fmt.Errorf("unsupported watch decision %q", decision.Action)

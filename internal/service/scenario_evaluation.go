@@ -345,6 +345,7 @@ func runLiveEvaluationScenario(
 				client,
 				sessionID,
 				turnID,
+				1,
 			)
 			testCase.Output = response
 			scored := evaluateCaseWithConfig(testCase, &cfg, time.Now().UTC())

@@ -1,6 +1,6 @@
 # Responder Target Architecture and Verification Plan
 
-Status: approved design direction
+Status: episode-kernel implementation landed; compatibility retirement remains
 Last updated: 2026-08-03
 Audience: Responder maintainers, operators, and contributors
 
@@ -13,6 +13,29 @@ The goal is not to preserve the current implementation shape. The goal is to pre
 product capability while replacing competing lifecycles with one reliable ownership model. A
 migration phase is complete only after the historical regressions and release gates in this
 document prove its behavior.
+
+### Current implementation boundary
+
+Schema version 38 establishes the episode-first kernel described here:
+
+- episodes own lifecycle state, modes, destinations, revisions, goals, attempts, context-manifest
+  lineage, effects, and wakeups;
+- replacement attempts resume the same episode after timers, approvals, and external waits;
+- required goals prevent premature completion;
+- context manifests freeze prompt, contract, tool-schema, repository revisions, policies,
+  artifacts, and source context for exact replay;
+- model results support independently validated goal, evidence, progress, wait, approval, artifact,
+  memory, configuration, and completion operations;
+- Slack text and file deliveries are pinned to an episode destination revision, and a committed
+  destination change supersedes output aimed at the old location;
+- scheduled occurrences and standing assignments create episode-owned work;
+- effect and wakeup leases use fencing tokens, semantic idempotency, and retry state.
+
+The existing `agent_runs`, incident records, Slack delivery rows, commitment rows, and final result
+envelopes remain compatibility projections while their callers migrate. They no longer define the
+new lifecycle, but they cannot be removed until the historical corpus, adapter conformance suites,
+and live canaries prove every current capability. This is an intentional deployable cutover rather
+than an indefinite second architecture.
 
 ## 1. Product objective
 
@@ -490,23 +513,27 @@ early.
 
 ## 11. Typed model operations
 
-Coop returns an ordered stream of typed operations rather than one giant final JSON object:
+Coop returns an ordered bounded list of independently typed operations. The current transport
+submits the list in one response envelope; each item is validated and recorded independently so a
+later transport can stream the same protocol without changing episode semantics:
 
 - `record_evidence`
+- `record_coverage`
 - `report_progress`
-- `ask_operator`
-- `request_governed_action`
-- `request_approval_status`
-- `request_consult`
-- `offer_engineering_task`
-- `propose_schedule`
-- `propose_standing_assignment`
-- `propose_preference`
-- `propose_confirmed_hint`
-- `propose_guidance_note`
-- `produce_artifact`
-- `change_destination`
-- `complete_goal`
+- `plan_goal`
+- `update_goal`
+- `request_operator_input`
+- `wait_external`
+- `request_approval`
+- `offer_task`
+- `attach_visual`
+- `update_memory`
+- `offer_memory`
+- `offer_preference`
+- `offer_rule`
+- `offer_schedule`
+- `record_alert_assessment`
+- `propose_action`
 - `complete_episode`
 
 Responder validates each operation immediately. Invalid operations receive a structured correction

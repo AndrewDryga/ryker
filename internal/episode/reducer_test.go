@@ -1,6 +1,7 @@
 package episode
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -40,5 +41,41 @@ func TestReduceProjectsOrderedTransitionsAndProtectsTerminalState(t *testing.T) 
 		CreatedAt: now.Add(2 * time.Minute),
 	}); err == nil {
 		t.Fatal("terminal episode reopened")
+	}
+}
+
+func TestReduceReplayIsDeterministic(t *testing.T) {
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	working, _ := Encode(Transition{
+		State: core.EpisodeWorking, Phase: "investigating", Status: "Checking rollout",
+		NextAction: "verify deployment",
+	})
+	waiting, _ := Encode(Transition{
+		State: core.EpisodeWaitingExternal, Phase: "waiting_external",
+		Status: "Waiting for deployment", NextAction: "resume on terminal event",
+	})
+	events := []core.WorkEpisodeEvent{
+		{ID: "e1", EpisodeID: "episode-1", Sequence: 1, Kind: EventPhaseChanged, IdempotencyKey: "k1", Payload: working, CreatedAt: now},
+		{ID: "e2", EpisodeID: "episode-1", Sequence: 2, Kind: EventExternalWaitStarted, IdempotencyKey: "k2", CreatedAt: now.Add(time.Minute)},
+		{ID: "e3", EpisodeID: "episode-1", Sequence: 3, Kind: EventPhaseChanged, IdempotencyKey: "k3", Payload: waiting, CreatedAt: now.Add(time.Minute)},
+	}
+	replay := func() core.WorkEpisode {
+		state := core.WorkEpisode{ID: "episode-1", State: core.EpisodeAccepted}
+		for _, event := range events {
+			var err error
+			state, err = Reduce(state, event)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		return state
+	}
+	first := replay()
+	second := replay()
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("replays diverged:\nfirst:  %+v\nsecond: %+v", first, second)
+	}
+	if first.State != core.EpisodeWaitingExternal || first.EventSequence != 3 {
+		t.Fatalf("unexpected replay result: %+v", first)
 	}
 }

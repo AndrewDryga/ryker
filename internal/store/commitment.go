@@ -12,7 +12,7 @@ import (
 
 const commitmentProjectionColumns = `
 	'commitment_' || r.id, r.id, r.channel_id, r.thread_ts, r.user_id, r.repository, c.title,
-	e.state,
+	e.lifecycle_state,
 	e.status,
 	e.next_action,
 	r.source_kind, r.source_id, r.created_at, r.updated_at, r.completed_at`
@@ -105,15 +105,17 @@ func (s *Store) ListActiveCommitments(
 		FROM commitments AS c
 		JOIN agent_runs AS r ON r.id = c.agent_run_id
 		JOIN work_episodes AS e ON e.agent_run_id = r.id
-		WHERE e.state IN (
-		  'acknowledged', 'planning', 'working', 'verifying',
-		  'waiting_approval', 'blocked', 'failed'
+		WHERE e.lifecycle_state IN (
+		  'accepted', 'acknowledged', 'planning', 'working', 'retrying', 'verifying',
+		  'waiting_operator', 'waiting_external', 'waiting_approval', 'blocked', 'failed'
 		)
 		ORDER BY
-		  CASE e.state
+		  CASE e.lifecycle_state
 		    WHEN 'blocked' THEN 0
 		    WHEN 'failed' THEN 0
 		    WHEN 'waiting_approval' THEN 1
+		    WHEN 'waiting_operator' THEN 1
+		    WHEN 'waiting_external' THEN 1
 		    WHEN 'working' THEN 2
 		    WHEN 'verifying' THEN 3
 		    ELSE 3
@@ -142,9 +144,9 @@ func (s *Store) CountActiveCommitments(ctx context.Context) (int, error) {
 		FROM commitments AS c
 		JOIN agent_runs AS r ON r.id = c.agent_run_id
 		JOIN work_episodes AS e ON e.agent_run_id = r.id
-		WHERE e.state IN (
-		  'acknowledged', 'planning', 'working', 'verifying',
-		  'waiting_approval', 'blocked', 'failed'
+		WHERE e.lifecycle_state IN (
+		  'accepted', 'acknowledged', 'planning', 'working', 'retrying', 'verifying',
+		  'waiting_operator', 'waiting_external', 'waiting_approval', 'blocked', 'failed'
 		)`,
 	).Scan(&count)
 	return count, err

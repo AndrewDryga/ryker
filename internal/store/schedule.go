@@ -299,8 +299,8 @@ func (s *Store) ClaimScheduledTaskRun(
 	return core.ScheduledTaskRun{TaskID: task.ID, ScheduledFor: scheduledFor.UTC(), SourceInput: sourceInput, Outcome: outcome, CreatedAt: now, UpdatedAt: now}, outcome == "queued", nil
 }
 
-func (s *Store) LinkScheduledTaskRun(ctx context.Context, taskID string, scheduledFor time.Time, agentRunID string) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET agent_run_id = ?, outcome = 'running', started_at = COALESCE(started_at, ?), updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome = 'queued'`, agentRunID, nowText(), nowText(), taskID, scheduledFor.UTC().Format(timestampFormat))
+func (s *Store) LinkScheduledTaskRun(ctx context.Context, taskID string, scheduledFor time.Time, agentRunID string, episodeID string) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET agent_run_id = ?, episode_id = ?, outcome = 'running', started_at = COALESCE(started_at, ?), updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome = 'queued'`, agentRunID, episodeID, nowText(), nowText(), taskID, scheduledFor.UTC().Format(timestampFormat))
 	return expectOne(result, err, "link scheduled task run")
 }
 
@@ -318,7 +318,7 @@ func (s *Store) CompleteScheduledTaskRun(ctx context.Context, taskID string, sch
 }
 
 func (s *Store) ListActiveScheduledTaskRuns(ctx context.Context, limit int) ([]core.ScheduledTaskRun, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT task_id, scheduled_for, source_input, agent_run_id, outcome, last_error, started_at, completed_at, created_at, updated_at FROM scheduled_task_runs WHERE outcome IN ('queued', 'running') ORDER BY created_at LIMIT ?`, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT task_id, scheduled_for, source_input, agent_run_id, episode_id, outcome, last_error, started_at, completed_at, created_at, updated_at FROM scheduled_task_runs WHERE outcome IN ('queued', 'running') ORDER BY created_at LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +327,7 @@ func (s *Store) ListActiveScheduledTaskRuns(ctx context.Context, limit int) ([]c
 	for rows.Next() {
 		var run core.ScheduledTaskRun
 		var scheduled, started, completed, created, updated sql.NullString
-		if err := rows.Scan(&run.TaskID, &scheduled, &run.SourceInput, &run.AgentRunID, &run.Outcome, &run.LastError, &started, &completed, &created, &updated); err != nil {
+		if err := rows.Scan(&run.TaskID, &scheduled, &run.SourceInput, &run.AgentRunID, &run.EpisodeID, &run.Outcome, &run.LastError, &started, &completed, &created, &updated); err != nil {
 			return nil, err
 		}
 		run.ScheduledFor = parseNullTime(scheduled)

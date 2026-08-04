@@ -274,14 +274,20 @@ func (s *Service) queueEmisarApprovalContinuation(
 	if err != nil {
 		return core.AgentRun{}, false, err
 	}
-	return s.store.QueueAgentRun(ctx, core.AgentRun{
+	run := core.AgentRun{
 		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
 		ThreadTS: delivery.ThreadTS, ConversationKey: watchConversationKey(input),
 		SourceKind: sourceKind, SourceID: input.ID, UserID: approval.RequestedBy,
 		Repository: repository, Prompt: prompt, Context: contextJSON,
 		CommitmentTitle: "Verify " + approval.ActionID + " after Emisar completed it",
 		Episode:         approvalContinuationEpisode(approval.ActionID),
-	})
+	}
+	if origin, originErr := s.store.GetAgentRunBySource(ctx, "watch", input.ID); originErr == nil && origin.EpisodeID != "" {
+		return s.store.QueueEpisodeAttempt(ctx, origin.EpisodeID, run)
+	} else if originErr != nil && !errors.Is(originErr, store.ErrNotFound) {
+		return core.AgentRun{}, false, originErr
+	}
+	return s.store.QueueAgentRun(ctx, run)
 }
 
 func emisarApprovalContinuationPrompt(approval core.EmisarApproval) string {

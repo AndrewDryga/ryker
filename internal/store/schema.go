@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 37
+const currentSchemaVersion = 38
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1564,6 +1564,255 @@ WHERE kind = 'recheck'
   );
 `
 
+const schemaV38 = `
+ALTER TABLE work_episodes ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'accepted';
+ALTER TABLE work_episodes ADD COLUMN workspace_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_episodes ADD COLUMN parent_episode_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_episodes ADD COLUMN mode TEXT NOT NULL DEFAULT 'check';
+ALTER TABLE work_episodes ADD COLUMN platform TEXT NOT NULL DEFAULT 'slack';
+ALTER TABLE work_episodes ADD COLUMN channel_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_episodes ADD COLUMN thread_ts TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_episodes ADD COLUMN anchor_ts TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_episodes ADD COLUMN visibility TEXT NOT NULL DEFAULT 'channel';
+ALTER TABLE work_episodes ADD COLUMN destination_channel_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_episodes ADD COLUMN destination_thread_ts TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_episodes ADD COLUMN destination_revision INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE work_episodes ADD COLUMN latest_attempt_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_episodes ADD COLUMN authority_snapshot_ref TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE agent_runs ADD COLUMN episode_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_runs ADD COLUMN attempt_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_runs ADD COLUMN attempt_number INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE scheduled_task_runs ADD COLUMN episode_id TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE slack_deliveries ADD COLUMN episode_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE slack_deliveries ADD COLUMN expected_episode_revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE slack_deliveries ADD COLUMN expected_destination_revision INTEGER NOT NULL DEFAULT 0;
+
+UPDATE work_episodes
+SET lifecycle_state = CASE state
+  WHEN 'acknowledged' THEN 'accepted'
+  ELSE state
+END;
+
+UPDATE work_episodes
+SET
+  mode = CASE
+    WHEN effort = 'engineering_task' THEN 'engineering'
+    WHEN effort = 'incident_investigation' THEN 'incident'
+    WHEN effort = 'conversational' THEN 'conversation'
+    ELSE 'check'
+  END,
+  channel_id = COALESCE((SELECT channel_id FROM agent_runs WHERE id = work_episodes.agent_run_id), ''),
+  thread_ts = COALESCE((SELECT thread_ts FROM agent_runs WHERE id = work_episodes.agent_run_id), ''),
+  anchor_ts = COALESCE((SELECT source_id FROM agent_runs WHERE id = work_episodes.agent_run_id), ''),
+  destination_channel_id = COALESCE((SELECT channel_id FROM agent_runs WHERE id = work_episodes.agent_run_id), ''),
+  destination_thread_ts = COALESCE((SELECT thread_ts FROM agent_runs WHERE id = work_episodes.agent_run_id), ''),
+  latest_attempt_id = 'attempt_' || agent_run_id;
+
+CREATE TABLE episode_attempts (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  agent_run_id TEXT NOT NULL UNIQUE,
+  attempt_number INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN (
+    'pending', 'leased', 'running', 'succeeded', 'failed', 'cancelled'
+  )),
+  failure_class TEXT NOT NULL DEFAULT '',
+  failure_generation INTEGER NOT NULL DEFAULT 0,
+  lease_owner TEXT NOT NULL DEFAULT '',
+  fencing_token INTEGER NOT NULL DEFAULT 0,
+  lease_expires_at TEXT,
+  context_manifest_id TEXT NOT NULL DEFAULT '',
+  started_at TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(episode_id, attempt_number),
+  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE,
+  FOREIGN KEY(agent_run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+);
+
+INSERT INTO episode_attempts (
+  id, episode_id, agent_run_id, attempt_number, state, failure_generation,
+  started_at, completed_at, created_at, updated_at
+)
+SELECT
+  'attempt_' || e.agent_run_id,
+  e.id,
+  e.agent_run_id,
+  1,
+  CASE r.state
+    WHEN 'pending' THEN 'pending'
+    WHEN 'preparing' THEN 'leased'
+    WHEN 'running' THEN 'running'
+    WHEN 'applying' THEN 'running'
+    WHEN 'finalizing' THEN 'running'
+    WHEN 'completed' THEN 'succeeded'
+    WHEN 'cancelled' THEN 'cancelled'
+    ELSE 'failed'
+  END,
+  r.failure_count,
+  r.started_at,
+  r.completed_at,
+  r.created_at,
+  r.updated_at
+FROM work_episodes AS e
+JOIN agent_runs AS r ON r.id = e.agent_run_id;
+
+CREATE INDEX episode_attempts_episode_idx
+  ON episode_attempts(episode_id, attempt_number);
+CREATE INDEX episode_attempts_lease_idx
+  ON episode_attempts(state, lease_expires_at, updated_at);
+
+UPDATE agent_runs
+SET
+  episode_id = COALESCE((
+    SELECT episode_id FROM episode_attempts WHERE agent_run_id = agent_runs.id
+  ), ''),
+  attempt_id = COALESCE((
+    SELECT id FROM episode_attempts WHERE agent_run_id = agent_runs.id
+  ), ''),
+  attempt_number = COALESCE((
+    SELECT attempt_number FROM episode_attempts WHERE agent_run_id = agent_runs.id
+  ), 0);
+
+CREATE INDEX agent_runs_episode_idx
+  ON agent_runs(episode_id, attempt_number, created_at);
+
+CREATE TABLE episode_goals (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  parent_goal_id TEXT NOT NULL DEFAULT '',
+  prerequisite_goal_ids_json TEXT NOT NULL DEFAULT '[]',
+  kind TEXT NOT NULL,
+  requested_outcome TEXT NOT NULL,
+  completion_contract TEXT NOT NULL,
+  writable_repository TEXT NOT NULL DEFAULT '',
+  read_only_repositories_json TEXT NOT NULL DEFAULT '[]',
+  authority_requirement TEXT NOT NULL CHECK (authority_requirement IN (
+    'read_only', 'repository_write', 'governed_operation'
+  )),
+  required INTEGER NOT NULL DEFAULT 1,
+  state TEXT NOT NULL CHECK (state IN (
+    'planned', 'ready', 'working', 'waiting', 'completed', 'blocked',
+    'excluded', 'cancelled'
+  )),
+  blocker TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX episode_goals_episode_idx
+  ON episode_goals(episode_id, state, created_at);
+
+CREATE TABLE context_manifests (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  parent_manifest_id TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL,
+  prompt_version TEXT NOT NULL DEFAULT '',
+  contract_version TEXT NOT NULL DEFAULT '',
+  tool_schema_version TEXT NOT NULL DEFAULT '',
+  preset TEXT NOT NULL DEFAULT '',
+  provider TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  reasoning_effort TEXT NOT NULL DEFAULT '',
+  omissions_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  UNIQUE(episode_id, version),
+  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE,
+  FOREIGN KEY(attempt_id) REFERENCES episode_attempts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE context_manifest_refs (
+  id TEXT PRIMARY KEY,
+  manifest_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  source_ref TEXT NOT NULL,
+  content_digest TEXT NOT NULL DEFAULT '',
+  source_revision TEXT NOT NULL DEFAULT '',
+  visibility TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  omitted_reason TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(manifest_id, ordinal),
+  FOREIGN KEY(manifest_id) REFERENCES context_manifests(id) ON DELETE CASCADE
+);
+
+CREATE INDEX context_manifest_refs_source_idx
+  ON context_manifest_refs(source_ref, source_revision);
+
+CREATE TABLE episode_effects (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL DEFAULT '',
+  episode_id TEXT NOT NULL,
+  expected_episode_revision INTEGER NOT NULL,
+  expected_destination_revision INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  destination_channel_id TEXT NOT NULL DEFAULT '',
+  destination_thread_ts TEXT NOT NULL DEFAULT '',
+  payload_json BLOB NOT NULL DEFAULT '{}',
+  payload_ref TEXT NOT NULL DEFAULT '',
+  idempotency_key TEXT NOT NULL UNIQUE,
+  state TEXT NOT NULL CHECK (state IN (
+    'planned', 'delivering', 'succeeded', 'failed', 'cancelled'
+  )),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL,
+  lease_owner TEXT NOT NULL DEFAULT '',
+  fencing_token INTEGER NOT NULL DEFAULT 0,
+  lease_expires_at TEXT,
+  last_error_class TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  external_ref TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX episode_effects_due_idx
+  ON episode_effects(state, next_attempt_at, created_at);
+CREATE INDEX episode_effects_episode_idx
+  ON episode_effects(episode_id, expected_episode_revision, created_at);
+
+CREATE TABLE episode_wakeups (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  event_matcher_json BLOB NOT NULL DEFAULT '{}',
+  due_at TEXT,
+  poll_after TEXT,
+  deadline TEXT,
+  state TEXT NOT NULL CHECK (state IN (
+    'pending', 'leased', 'resolved', 'expired', 'cancelled'
+  )),
+  last_observation_json BLOB NOT NULL DEFAULT '{}',
+  lease_owner TEXT NOT NULL DEFAULT '',
+  fencing_token INTEGER NOT NULL DEFAULT 0,
+  lease_expires_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  resolved_at TEXT,
+  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX episode_wakeups_due_idx
+  ON episode_wakeups(state, due_at, poll_after, deadline);
+CREATE INDEX episode_wakeups_episode_idx
+  ON episode_wakeups(episode_id, state, created_at);
+
+CREATE INDEX scheduled_task_runs_episode_idx
+  ON scheduled_task_runs(episode_id, outcome, updated_at);
+CREATE INDEX slack_deliveries_episode_idx
+  ON slack_deliveries(episode_id, expected_destination_revision, state, created_at);
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1602,4 +1851,5 @@ var migrations = []string{
 	schemaV35,
 	schemaV36,
 	schemaV37,
+	schemaV38,
 }

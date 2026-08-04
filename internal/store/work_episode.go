@@ -16,23 +16,37 @@ import (
 )
 
 const workEpisodeColumns = `
-	id, agent_run_id, effort, authority, activity, state, objective,
+	id, workspace_id, parent_episode_id, mode,
+	platform, channel_id, thread_ts, anchor_ts, visibility,
+	destination_channel_id, destination_thread_ts, destination_revision,
+	latest_attempt_id, authority_snapshot_ref,
+	agent_run_id, effort, authority, activity, state, lifecycle_state, objective,
 	required_coverage_json, completion_criteria_json, phase, status, next_action,
 	event_sequence, progress_sequence, last_progress_at, progress_due_at, created_at, updated_at,
 	completed_at`
 
 func defaultWorkEpisode(run core.AgentRun) core.WorkEpisode {
 	episode := core.WorkEpisode{
-		ID:         "episode_" + run.ID,
-		AgentRunID: run.ID,
-		Effort:     core.EffortFocusedCheck,
-		Authority:  core.AuthorityReadOnly,
-		Activity:   core.ActivityInvestigating,
-		State:      core.EpisodeAcknowledged,
-		Objective:  strings.TrimSpace(run.CommitmentTitle),
-		Phase:      "accepted",
-		Status:     "Accepted",
-		NextAction: "Plan the work",
+		ID:              "episode_" + run.ID,
+		AgentRunID:      run.ID,
+		LatestAttemptID: run.AttemptID,
+		Mode:            core.EpisodeCheck,
+		Conversation: core.ConversationRef{
+			Platform: "slack", ChannelID: run.ChannelID, ThreadTS: run.ThreadTS,
+			AnchorTS: run.SourceID, Visibility: "channel",
+		},
+		Destination: core.BoundDestination{
+			ChannelID: run.ChannelID, ThreadTS: run.ThreadTS, Reason: "accepted",
+		},
+		DestinationRevision: 1,
+		Effort:              core.EffortFocusedCheck,
+		Authority:           core.AuthorityReadOnly,
+		Activity:            core.ActivityInvestigating,
+		State:               core.EpisodeAccepted,
+		Objective:           strings.TrimSpace(run.CommitmentTitle),
+		Phase:               "accepted",
+		Status:              "Accepted",
+		NextAction:          "Plan the work",
 	}
 	if episode.Objective == "" {
 		episode.Objective = strings.TrimSpace(run.Prompt)
@@ -42,9 +56,11 @@ func defaultWorkEpisode(run core.AgentRun) core.WorkEpisode {
 	}
 	switch run.Mode {
 	case core.AgentRunEngineeringTask:
+		episode.Mode = core.EpisodeEngineering
 		episode.Effort = core.EffortEngineeringTask
 		episode.Authority = core.AuthorityRepositoryWrite
 	case core.AgentRunIncident:
+		episode.Mode = core.EpisodeIncident
 		episode.Effort = core.EffortIncidentInvestigation
 	}
 	return episode
@@ -56,6 +72,27 @@ func normalizeWorkEpisode(run core.AgentRun) (core.WorkEpisode, error) {
 		candidate := *run.Episode
 		if candidate.ID != "" {
 			episode.ID = candidate.ID
+		}
+		if candidate.WorkspaceID != "" {
+			episode.WorkspaceID = candidate.WorkspaceID
+		}
+		if candidate.ParentEpisodeID != "" {
+			episode.ParentEpisodeID = candidate.ParentEpisodeID
+		}
+		if candidate.Mode != "" {
+			episode.Mode = candidate.Mode
+		}
+		if candidate.Conversation.Platform != "" {
+			episode.Conversation = candidate.Conversation
+		}
+		if candidate.Destination.ChannelID != "" {
+			episode.Destination = candidate.Destination
+		}
+		if candidate.DestinationRevision > 0 {
+			episode.DestinationRevision = candidate.DestinationRevision
+		}
+		if candidate.AuthoritySnapshot != "" {
+			episode.AuthoritySnapshot = candidate.AuthoritySnapshot
 		}
 		if candidate.Effort != "" {
 			episode.Effort = candidate.Effort
@@ -73,6 +110,7 @@ func normalizeWorkEpisode(run core.AgentRun) (core.WorkEpisode, error) {
 		episode.CompletionCriteria = append([]string(nil), candidate.CompletionCriteria...)
 	}
 	episode.AgentRunID = run.ID
+	episode.LatestAttemptID = run.AttemptID
 	if !validEffort(effortString(episode.Effort)) {
 		return core.WorkEpisode{}, fmt.Errorf("unsupported work episode effort %q", episode.Effort)
 	}
@@ -125,9 +163,11 @@ func validActivity(value core.EpisodeActivity) bool {
 
 func validWorkEpisodeState(value core.WorkEpisodeState) bool {
 	switch value {
-	case core.EpisodeAcknowledged, core.EpisodePlanning, core.EpisodeWorking,
-		core.EpisodeBlocked, core.EpisodeWaitingApproval, core.EpisodeVerifying,
-		core.EpisodeCompleted, core.EpisodeFailed, core.EpisodeCancelled,
+	case core.EpisodeAccepted, core.EpisodeAcknowledged, core.EpisodePlanning,
+		core.EpisodeWorking, core.EpisodeBlocked, core.EpisodeWaitingOperator,
+		core.EpisodeWaitingExternal, core.EpisodeWaitingApproval,
+		core.EpisodeRetrying, core.EpisodeVerifying, core.EpisodeCompleted,
+		core.EpisodeFailed, core.EpisodeRefused, core.EpisodeCancelled,
 		core.EpisodeSuperseded:
 		return true
 	default:
@@ -175,20 +215,35 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO work_episodes (
-		  id, agent_run_id, effort, authority, activity, state, objective,
+		  id, workspace_id, parent_episode_id, mode,
+		  platform, channel_id, thread_ts, anchor_ts, visibility,
+		  destination_channel_id, destination_thread_ts, destination_revision,
+		  latest_attempt_id, authority_snapshot_ref,
+		  agent_run_id, effort, authority, activity, state, lifecycle_state, objective,
 		  required_coverage_json, completion_criteria_json,
 		  phase, status, next_action, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, 'acknowledged', ?, ?, ?, 'accepted', 'Accepted',
-		          'Plan the work', ?, ?)`,
-		episode.ID, run.ID, episode.Effort, episode.Authority, episode.Activity, episode.Objective,
-		required, criteria, nowText(), nowText(),
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'acknowledged', 'accepted', ?,
+		          ?, ?, 'accepted', 'Accepted', 'Plan the work', ?, ?)`,
+		episode.ID, episode.WorkspaceID, episode.ParentEpisodeID, episode.Mode,
+		episode.Conversation.Platform, episode.Conversation.ChannelID,
+		episode.Conversation.ThreadTS, episode.Conversation.AnchorTS,
+		episode.Conversation.Visibility, episode.Destination.ChannelID,
+		episode.Destination.ThreadTS, episode.DestinationRevision, episode.LatestAttemptID,
+		episode.AuthoritySnapshot, run.ID, episode.Effort, episode.Authority,
+		episode.Activity, episode.Objective, required, criteria, nowText(), nowText(),
 	)
 	if err != nil {
 		return err
 	}
 	created, err := result.RowsAffected()
-	if err != nil || created == 0 {
+	if err != nil {
 		return err
+	}
+	if err := ensureEpisodeAttemptTx(ctx, tx, episode.ID, run); err != nil {
+		return err
+	}
+	if created == 0 {
+		return tx.Commit()
 	}
 	now := nowText()
 	if _, err := tx.ExecContext(ctx, `
@@ -219,11 +274,19 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 
 func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, error) {
 	var item core.WorkEpisode
+	var legacyState core.WorkEpisodeState
 	var requiredJSON, criteriaJSON string
 	var lastProgress, progressDue, completed sql.NullString
 	var created, updated string
 	err := row.Scan(
-		&item.ID, &item.AgentRunID, &item.Effort, &item.Authority, &item.Activity, &item.State,
+		&item.ID, &item.WorkspaceID, &item.ParentEpisodeID, &item.Mode,
+		&item.Conversation.Platform, &item.Conversation.ChannelID,
+		&item.Conversation.ThreadTS, &item.Conversation.AnchorTS,
+		&item.Conversation.Visibility, &item.Destination.ChannelID,
+		&item.Destination.ThreadTS, &item.DestinationRevision,
+		&item.LatestAttemptID, &item.AuthoritySnapshot,
+		&item.AgentRunID, &item.Effort, &item.Authority, &item.Activity, &legacyState,
+		&item.State,
 		&item.Objective, &requiredJSON, &criteriaJSON, &item.Phase, &item.Status,
 		&item.NextAction, &item.EventSequence, &item.ProgressSequence, &lastProgress, &progressDue,
 		&created, &updated, &completed,
@@ -245,7 +308,27 @@ func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, err
 	item.CreatedAt = parseTime(created)
 	item.UpdatedAt = parseTime(updated)
 	item.CompletedAt = scanTime(completed)
+	item.Revision = item.EventSequence
 	return item, nil
+}
+
+func legacyWorkEpisodeState(state core.WorkEpisodeState) core.WorkEpisodeState {
+	switch state {
+	case core.EpisodeAccepted:
+		return core.EpisodeAcknowledged
+	case core.EpisodeWaitingOperator, core.EpisodeWaitingExternal, core.EpisodeRetrying:
+		return core.EpisodeBlocked
+	case core.EpisodeRefused:
+		return core.EpisodeFailed
+	default:
+		return state
+	}
+}
+
+func (s *Store) GetWorkEpisode(ctx context.Context, episodeID string) (core.WorkEpisode, error) {
+	return scanWorkEpisode(s.db.QueryRowContext(
+		ctx, `SELECT `+workEpisodeColumns+` FROM work_episodes WHERE id = ?`, episodeID,
+	))
 }
 
 func (s *Store) GetWorkEpisodeByRun(
@@ -254,8 +337,12 @@ func (s *Store) GetWorkEpisodeByRun(
 ) (core.WorkEpisode, error) {
 	return scanWorkEpisode(s.db.QueryRowContext(
 		ctx,
-		`SELECT `+workEpisodeColumns+` FROM work_episodes WHERE agent_run_id = ?`,
-		runID,
+		`SELECT `+workEpisodeColumns+` FROM work_episodes
+		 WHERE id = COALESCE(
+		   (SELECT episode_id FROM episode_attempts WHERE agent_run_id = ?),
+		   (SELECT id FROM work_episodes WHERE agent_run_id = ?)
+		 )`,
+		runID, runID,
 	))
 }
 
@@ -310,8 +397,8 @@ func (s *Store) SetWorkEpisodePhase(
 }
 
 // ResolveWaitingApprovalEpisodes closes the accepted work that reached an
-// Emisar decision. A separate continuation episode then verifies the terminal
-// run and any live effect without leaving the original commitment active.
+// Emisar decision. The same episode resumes in verification so its approval,
+// execution, and post-change evidence remain one durable work history.
 func (s *Store) ResolveWaitingApprovalEpisodes(
 	ctx context.Context,
 	incidentID string,
@@ -325,7 +412,7 @@ func (s *Store) ResolveWaitingApprovalEpisodes(
 		SELECT e.agent_run_id
 		FROM work_episodes AS e
 		JOIN agent_runs AS r ON r.id = e.agent_run_id
-		WHERE e.state = 'waiting_approval'
+		WHERE e.lifecycle_state IN ('waiting_approval', 'waiting_external')
 		  AND r.source_id = ?
 		  AND (? = '' OR COALESCE(r.incident_id, '') = ?)
 		ORDER BY e.created_at`, sourceInput, incidentID, incidentID)
@@ -351,9 +438,9 @@ func (s *Store) ResolveWaitingApprovalEpisodes(
 		if err := s.SetWorkEpisodePhase(
 			ctx,
 			runID,
-			core.EpisodeCompleted,
-			"approval_decided",
-			"Emisar decision: "+boundedError(status),
+			core.EpisodeVerifying,
+			"verifying_approval_result",
+			"Emisar decision received: "+boundedError(status),
 			"Verify the terminal run and live effect",
 			time.Time{},
 		); err != nil {
@@ -429,10 +516,54 @@ func (s *Store) AppendWorkEpisodeEvent(
 	return event, nil
 }
 
+// AppendEpisodeEvent appends against the aggregate identity. New lifecycle
+// code should use this method; AppendWorkEpisodeEvent remains a compatibility
+// adapter for callers that still hold an attempt/run ID.
+func (s *Store) AppendEpisodeEvent(
+	ctx context.Context,
+	episodeID string,
+	event core.WorkEpisodeEvent,
+) (core.WorkEpisodeEvent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
+	defer tx.Rollback()
+	event, err = appendEpisodeEventTx(ctx, tx, episodeID, event)
+	if err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
+	return event, nil
+}
+
 func appendWorkEpisodeEventTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	runID string,
+	event core.WorkEpisodeEvent,
+) (core.WorkEpisodeEvent, error) {
+	var episodeID string
+	err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(
+		  (SELECT episode_id FROM episode_attempts WHERE agent_run_id = ?),
+		  (SELECT id FROM work_episodes WHERE agent_run_id = ?)
+		)`, runID, runID).Scan(&episodeID)
+	if errors.Is(err, sql.ErrNoRows) || strings.TrimSpace(episodeID) == "" {
+		return core.WorkEpisodeEvent{}, ErrNotFound
+	}
+	if err != nil {
+		return core.WorkEpisodeEvent{}, err
+	}
+	return appendEpisodeEventTx(ctx, tx, episodeID, event)
+}
+
+func appendEpisodeEventTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	episodeID string,
 	event core.WorkEpisodeEvent,
 ) (core.WorkEpisodeEvent, error) {
 	event.Kind = strings.TrimSpace(event.Kind)
@@ -446,8 +577,8 @@ func appendWorkEpisodeEventTx(
 	}
 	current, err := scanWorkEpisode(tx.QueryRowContext(
 		ctx,
-		`SELECT `+workEpisodeColumns+` FROM work_episodes WHERE agent_run_id = ?`,
-		runID,
+		`SELECT `+workEpisodeColumns+` FROM work_episodes WHERE id = ?`,
+		episodeID,
 	))
 	if err != nil {
 		return core.WorkEpisodeEvent{}, err
@@ -488,6 +619,25 @@ func appendWorkEpisodeEventTx(
 	if err != nil {
 		return core.WorkEpisodeEvent{}, err
 	}
+	if next.State == core.EpisodeCompleted && current.State != core.EpisodeCompleted {
+		var goalID, outcome, state string
+		err := tx.QueryRowContext(ctx, `
+			SELECT id, requested_outcome, state
+			FROM episode_goals
+			WHERE episode_id = ? AND required = 1
+			  AND state NOT IN ('completed', 'excluded', 'cancelled')
+			ORDER BY created_at, id LIMIT 1`, current.ID,
+		).Scan(&goalID, &outcome, &state)
+		if err == nil {
+			return core.WorkEpisodeEvent{}, fmt.Errorf(
+				"episode cannot complete while required goal %s (%s) is %s",
+				goalID, outcome, state,
+			)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return core.WorkEpisodeEvent{}, err
+		}
+	}
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO work_episode_events
@@ -525,11 +675,12 @@ func appendWorkEpisodeEventTx(
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE work_episodes
-		SET state = ?, phase = ?, status = ?, next_action = ?,
+		SET state = ?, lifecycle_state = ?, phase = ?, status = ?, next_action = ?,
 		    event_sequence = ?, progress_sequence = ?, last_progress_at = ?,
 		    progress_due_at = ?, completed_at = ?, updated_at = ?
 		WHERE id = ? AND event_sequence = ?`,
-		next.State, next.Phase, boundedError(next.Status), boundedError(next.NextAction),
+		legacyWorkEpisodeState(next.State), next.State, next.Phase,
+		boundedError(next.Status), boundedError(next.NextAction),
 		next.EventSequence, next.ProgressSequence, nullableTime(next.LastProgressAt),
 		nullableTime(next.ProgressDueAt), nullableTime(next.CompletedAt),
 		event.CreatedAt.Format(time.RFC3339Nano), current.ID, current.EventSequence,
@@ -605,6 +756,18 @@ func (s *Store) ListWorkEpisodeEvents(
 	runID string,
 	limit int,
 ) ([]core.WorkEpisodeEvent, error) {
+	episode, err := s.GetWorkEpisodeByRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return s.ListEpisodeEvents(ctx, episode.ID, limit)
+}
+
+func (s *Store) ListEpisodeEvents(
+	ctx context.Context,
+	episodeID string,
+	limit int,
+) ([]core.WorkEpisodeEvent, error) {
 	if limit < 1 || limit > 500 {
 		limit = 100
 	}
@@ -612,9 +775,8 @@ func (s *Store) ListWorkEpisodeEvents(
 		SELECT v.id, v.episode_id, v.sequence, v.kind, v.actor,
 		       v.idempotency_key, v.payload_json, v.created_at
 		FROM work_episode_events AS v
-		JOIN work_episodes AS e ON e.id = v.episode_id
-		WHERE e.agent_run_id = ?
-		ORDER BY v.sequence ASC LIMIT ?`, runID, limit)
+		WHERE v.episode_id = ?
+		ORDER BY v.sequence ASC LIMIT ?`, episodeID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -635,15 +797,26 @@ func (s *Store) ListWorkEpisodeProgress(
 	runID string,
 	limit int,
 ) ([]core.WorkEpisodeProgress, error) {
+	episode, err := s.GetWorkEpisodeByRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return s.ListEpisodeProgress(ctx, episode.ID, limit)
+}
+
+func (s *Store) ListEpisodeProgress(
+	ctx context.Context,
+	episodeID string,
+	limit int,
+) ([]core.WorkEpisodeProgress, error) {
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT p.id, p.episode_id, p.sequence, p.phase, p.summary, p.created_at
 		FROM work_episode_progress AS p
-		JOIN work_episodes AS e ON e.id = p.episode_id
-		WHERE e.agent_run_id = ?
-		ORDER BY p.sequence DESC LIMIT ?`, runID, limit)
+		WHERE p.episode_id = ?
+		ORDER BY p.sequence DESC LIMIT ?`, episodeID, limit)
 	if err != nil {
 		return nil, err
 	}

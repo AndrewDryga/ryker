@@ -96,8 +96,12 @@ func TestScheduledTasksAreDurableBoundedAndOccurrenceIdempotent(t *testing.T) {
 	if err != nil || execute || second.Outcome != "skipped_overlap" {
 		t.Fatalf("overlap occurrence = %+v, execute=%t, err=%v", second, execute, err)
 	}
-	if err := st.LinkScheduledTaskRun(ctx, task.ID, scheduledFor, "run_1"); err != nil {
+	if err := st.LinkScheduledTaskRun(ctx, task.ID, scheduledFor, "run_1", "episode_1"); err != nil {
 		t.Fatal(err)
+	}
+	linked, err := st.ListActiveScheduledTaskRuns(ctx, 10)
+	if err != nil || len(linked) != 1 || linked[0].EpisodeID != "episode_1" {
+		t.Fatalf("linked schedule episode = %+v, %v", linked, err)
 	}
 	if err := st.CompleteScheduledTaskRun(ctx, task.ID, scheduledFor, "completed", ""); err != nil {
 		t.Fatal(err)

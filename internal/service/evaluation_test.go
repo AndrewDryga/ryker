@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -429,6 +430,46 @@ func TestLiveEvaluationCallsCoopWithProductionPromptAndCleansSession(t *testing.
 			coopClient.discardCalls,
 			coopClient.session.State,
 		)
+	}
+}
+
+func TestLiveConversationEvaluationPreparesSessionBeforeMeasuredTurn(t *testing.T) {
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "attention":{"addressee":"responder","confidence":3,"ownership":2},
+	  "reason":"ordinary arithmetic",
+	  "message":"8",
+	  "evidence":[],
+	  "coverage":[],
+	  "memory":{}
+	}`
+	corpus := strings.NewReader(
+		`{"name":"arithmetic","kind":"watch","lane":"conversation","input":"3+5?","mentions_responder":true,"want_action":"reply","want_message_contains":["8"]}`,
+	)
+
+	summary, err := EvaluateLiveJSONL(
+		context.Background(),
+		corpus,
+		cfg,
+		coopClient,
+		LiveEvaluationOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Passed != 1 {
+		t.Fatalf("live conversation summary = %+v", summary)
+	}
+	if !slices.Equal(coopClient.prepareSessions, []string{"ses_1"}) {
+		t.Fatalf("prepared sessions = %v", coopClient.prepareSessions)
+	}
+	if len(coopClient.createPolicies) != 1 || coopClient.createPolicies[0] != "repo-conversation" {
+		t.Fatalf("conversation policies = %v", coopClient.createPolicies)
 	}
 }
 
@@ -858,6 +899,30 @@ func TestDeterministicEpisodeReplayPromptIsBoundedToRecordedEvidence(t *testing.
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("episode replay prompt lacks %q: %s", required, prompt)
 		}
+	}
+}
+
+func TestEvaluationLifecycleAllowsOneCompletionPerCorrectionTurn(t *testing.T) {
+	client := newFakeCoop()
+	client.events = []coop.Event{
+		{Sequence: 1, Type: "turn.completed", TurnID: "turn-initial"},
+		{Sequence: 2, Type: "turn.completed", TurnID: "turn-correction"},
+	}
+	assessment := assessEvaluationLifecycle(
+		context.Background(), client, client.session.ID, "", 2,
+	)
+	if !assessment.Passed || assessment.CompletedEvents != 2 {
+		t.Fatalf("lifecycle assessment = %+v", assessment)
+	}
+
+	client.events = append(client.events, coop.Event{
+		Sequence: 3, Type: "turn.completed", TurnID: "turn-correction",
+	})
+	assessment = assessEvaluationLifecycle(
+		context.Background(), client, client.session.ID, "", 2,
+	)
+	if assessment.Passed {
+		t.Fatalf("duplicate completion was accepted: %+v", assessment)
 	}
 }
 

@@ -55,6 +55,7 @@ type EvaluationCase struct {
 	WantLongTermSolution   bool                      `json:"want_long_term_solution,omitempty"`
 	RequireCompletion      bool                      `json:"require_completion,omitempty"`
 	WantCompletionStatus   string                    `json:"want_completion_status,omitempty"`
+	WantCompletionVerdict  string                    `json:"want_completion_verdict,omitempty"`
 	WantPendingApproval    *bool                     `json:"want_pending_approval,omitempty"`
 	WantProposals          *int                      `json:"want_proposals,omitempty"`
 	MinEvidence            int                       `json:"min_evidence,omitempty"`
@@ -490,6 +491,19 @@ func evaluateCaseWithConfig(
 			"completion status = %q, want %q",
 			actual,
 			testCase.WantCompletionStatus,
+		)
+		return result
+	}
+	if testCase.WantCompletionVerdict != "" &&
+		(completion == nil || completion.Verdict != testCase.WantCompletionVerdict) {
+		actual := ""
+		if completion != nil {
+			actual = completion.Verdict
+		}
+		result.Detail = fmt.Sprintf(
+			"completion verdict = %q, want %q",
+			actual,
+			testCase.WantCompletionVerdict,
 		)
 		return result
 	}

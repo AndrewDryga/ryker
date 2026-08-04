@@ -1072,6 +1072,60 @@ func (s *Service) postInputMessageAt(
 	)
 }
 
+func (s *Service) postInputMessageAtEpisode(
+	ctx context.Context,
+	id string,
+	episodeID string,
+	channelID string,
+	threadTS string,
+	message slackui.Message,
+) error {
+	if _, err := s.bindEpisodeDestination(
+		ctx,
+		episodeID,
+		channelID,
+		threadTS,
+		"communication_policy",
+	); err != nil {
+		return err
+	}
+	if s.sanitizer != nil {
+		message = s.sanitizer.Message(message)
+	}
+	body, err := slackui.Encode(message)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: id, EpisodeID: episodeID, Operation: "post", Kind: "notice",
+		ChannelID: channelID, ThreadTS: threadTS, Body: body,
+	})
+	return err
+}
+
+func (s *Service) bindEpisodeDestination(
+	ctx context.Context,
+	episodeID string,
+	channelID string,
+	threadTS string,
+	reason string,
+) (core.WorkEpisode, error) {
+	episode, err := s.store.GetWorkEpisode(ctx, episodeID)
+	if err != nil {
+		return core.WorkEpisode{}, err
+	}
+	if episode.Destination.ChannelID == channelID &&
+		episode.Destination.ThreadTS == threadTS {
+		return episode, nil
+	}
+	return s.store.ChangeEpisodeDestination(
+		ctx,
+		episodeID,
+		core.BoundDestination{ChannelID: channelID, ThreadTS: threadTS},
+		reason,
+	)
+}
+
 func (s *Service) postInputMessageDelivery(
 	ctx context.Context,
 	id string,

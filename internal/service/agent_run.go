@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -441,12 +442,19 @@ func (s *Service) prepareIncidentAgentRun(
 			ctx, run, incident, err, permanentSlackAttachmentError(err),
 		)
 	}
+	submissionPrompt := prompt + "\n\n" + s.structuredResponsePolicy() +
+		agentRunContinuationPrompt(run)
+	if _, err := s.ensureAttemptContextManifest(
+		ctx, run, session, submissionPrompt, artifacts,
+	); err != nil {
+		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
+	}
 	turn, _, err := s.coop.SubmitTurnWithArtifacts(
 		ctx,
 		run.IdempotencyKey,
 		incident.CoopSessionID,
 		revision,
-		prompt+"\n\n"+s.structuredResponsePolicy()+agentRunContinuationPrompt(run),
+		submissionPrompt,
 		artifacts,
 	)
 	if err != nil {
@@ -838,6 +846,11 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	prompt += "\n\n" + workEpisodePrompt(episode)
 	prompt += agentToolTransportPrompt()
 	prompt += agentRunContinuationPrompt(run)
+	if _, err := s.ensureAttemptContextManifest(
+		ctx, run, session, prompt, artifacts,
+	); err != nil {
+		return s.retryAgentRun(ctx, run, err)
+	}
 	turn, _, err := s.coop.SubmitTurnWithArtifacts(
 		ctx,
 		run.IdempotencyKey,
@@ -1693,7 +1706,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 			decision = standingRuleIncidentAsReply(decision, alertPolicy == "offer")
 		}
 	}
-	if err := s.applyWatchDecision(ctx, input, state, decision); err != nil {
+	if err := s.applyWatchDecision(ctx, input, state, decision, run.EpisodeID); err != nil {
 		return err
 	}
 	if err := s.scheduleEpisodeRechecks(
@@ -1704,6 +1717,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	episodeState, phase, status, nextAction := completionEpisodePhase(
 		decision.Completion,
 		decision.PendingApproval,
+		decision.AppliedOperations,
 	)
 	if err := s.store.SetWorkEpisodePhase(
 		ctx, run.ID, episodeState, phase, status, nextAction, time.Time{},
@@ -1740,6 +1754,7 @@ func (s *Service) finalizeIncidentAgentRun(
 	var visuals []core.GeneratedVisual
 	var pendingApproval *core.EmisarApproval
 	var episodeCompletion *completionAssessment
+	var episodeOperations []investigation.ResultOperation
 	var reportReplyParts []string
 	if state == "completed" {
 		report, structured, reportErr := parseAgentReport(string(run.Result))
@@ -1770,6 +1785,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			})
 		} else {
 			episodeCompletion = report.Completion
+			episodeOperations = report.AppliedOperations
 			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
 				if offer, ok := normalizeOperationalAlertRule(
 					conversationInput,
@@ -1965,9 +1981,10 @@ func (s *Service) finalizeIncidentAgentRun(
 	baseDeliveryID := "out_run_" + run.ID
 	if len(reportReplyParts) > 1 {
 		for index, part := range reportReplyParts[:len(reportReplyParts)-1] {
-			if err := s.enqueue(
+			if err := s.enqueueEpisode(
 				ctx,
 				replySequenceDeliveryID(baseDeliveryID, index, len(reportReplyParts)),
+				run.EpisodeID,
 				incident,
 				"assistant",
 				threadTS,
@@ -1984,9 +2001,10 @@ func (s *Service) finalizeIncidentAgentRun(
 		replyCount,
 	)
 	if len(visuals) == 0 {
-		if err := s.enqueue(
+		if err := s.enqueueEpisode(
 			ctx,
 			deliveryID,
+			run.EpisodeID,
 			incident,
 			"assistant",
 			threadTS,
@@ -1995,7 +2013,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			return err
 		}
 	} else if err := s.enqueueGeneratedVisuals(
-		ctx, deliveryID, incident.ID, incident.ChannelID, threadTS,
+		ctx, deliveryID, incident.ID, run.EpisodeID, incident.ChannelID, threadTS,
 		run.SessionID, run.CoopTurnID, visuals, &message,
 	); err != nil {
 		return err
@@ -2014,6 +2032,7 @@ func (s *Service) finalizeIncidentAgentRun(
 		episodeState, phase, status, nextAction := completionEpisodePhase(
 			episodeCompletion,
 			pendingApproval,
+			episodeOperations,
 		)
 		if err := s.store.SetWorkEpisodePhase(
 			ctx, run.ID, episodeState, phase, status, nextAction, time.Time{},

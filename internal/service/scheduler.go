@@ -27,6 +27,7 @@ const (
 	workCoopPoll         = "coop_poll"
 	workMaintenance      = "maintenance"
 	workScheduledTask    = "scheduled_task"
+	workEpisodeWakeup    = "episode_wakeup"
 	workPublicationTrack = "publication_followup"
 	workEpisodeRecheck   = "episode_recheck"
 	schedulerSingletonID = "drain"
@@ -89,6 +90,7 @@ func (s *Service) seedScheduledWork(ctx context.Context) error {
 		{Kind: workIncidentDiscover, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 25},
 		{Kind: workAgentRun, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 50},
 		{Kind: workScheduledTask, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 45},
+		{Kind: workEpisodeWakeup, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 44},
 		{Kind: workPublicationTrack, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 47},
 		{Kind: workCoopPoll, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 60},
 		{Kind: workMaintenance, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 10},
@@ -339,6 +341,8 @@ func (s *Service) runScheduledWork(
 		return store.ErrNotFound
 	case workScheduledTask:
 		return s.processScheduledTasks(ctx)
+	case workEpisodeWakeup:
+		return s.processEpisodeWakeup(ctx)
 	case workPublicationTrack:
 		return s.processPublicationFollowup(ctx)
 	case workExternalMessageReconcile:

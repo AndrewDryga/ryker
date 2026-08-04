@@ -399,7 +399,15 @@ func (s *Store) Prune(
 	if result.AgentRuns, err = deleteCount(`
 		DELETE FROM agent_runs
 		WHERE state IN ('completed', 'failed', 'cancelled', 'superseded')
-		  AND updated_at < ?`,
+		  AND updated_at < ?
+		  AND NOT EXISTS (
+		    SELECT 1 FROM episode_attempts
+		    WHERE episode_attempts.agent_run_id = agent_runs.id
+		  )
+		  AND NOT EXISTS (
+		    SELECT 1 FROM work_episodes
+		    WHERE work_episodes.agent_run_id = agent_runs.id
+		  )`,
 		operational); err != nil {
 		return result, err
 	}

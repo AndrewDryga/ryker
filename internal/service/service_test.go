@@ -222,7 +222,7 @@ func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
 	slackClient := &fakeSlack{uploadErr: errors.New("timeout after Slack accepted upload")}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 	message := slackui.ConversationResponse("CPU stayed below saturation.", slackui.NewSanitizer(12000))
-	if err := svc.enqueueGeneratedVisuals(ctx, "out_test", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
+	if err := svc.enqueueGeneratedVisuals(ctx, "out_test", "", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
 		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
 	}}, &message); err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func TestGeneratedVisualMissingScopePostsTruthfulFailureInsteadOfSuccess(t *test
 	slackClient := &fakeSlack{uploadErr: errors.New("GetUploadURLExternal: missing_scope")}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 	message := slackui.ConversationResponse("CPU stayed below saturation.", slackui.NewSanitizer(12000))
-	if err := svc.enqueueGeneratedVisuals(ctx, "out_scope", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
+	if err := svc.enqueueGeneratedVisuals(ctx, "out_scope", "", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
 		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
 	}}, &message); err != nil {
 		t.Fatal(err)
@@ -319,7 +319,7 @@ func TestGeneratedVisualLegacyUncertainMissingScopeFailsImmediately(t *testing.T
 	}
 	slackClient := &fakeSlack{}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
-	if err := svc.enqueueGeneratedVisuals(ctx, "out_legacy", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
+	if err := svc.enqueueGeneratedVisuals(ctx, "out_legacy", "", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
 		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
 	}}, nil); err != nil {
 		t.Fatal(err)
@@ -379,7 +379,7 @@ func TestGeneratedVisualDeliveryRejectsUnknownAndMismatchedArtifacts(t *testing.
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := svc.enqueueGeneratedVisuals(
-				ctx, "out_"+name, "", "C123", "1700.1", "ses_1", "turn_visual",
+				ctx, "out_"+name, "", "", "C123", "1700.1", "ses_1", "turn_visual",
 				[]core.GeneratedVisual{visual}, nil,
 			); err == nil {
 				t.Fatal("untrusted generated visual was accepted")

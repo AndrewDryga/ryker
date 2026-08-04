@@ -1,6 +1,7 @@
 package investigation
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -52,6 +53,38 @@ type TaskOffer struct {
 	Prompt     string `json:"prompt,omitempty"`
 }
 
+type GoalOperation struct {
+	ID                   string                 `json:"id"`
+	Kind                 string                 `json:"kind"`
+	RequestedOutcome     string                 `json:"requested_outcome"`
+	CompletionContract   string                 `json:"completion_contract"`
+	Required             bool                   `json:"required"`
+	PrerequisiteGoalIDs  []string               `json:"prerequisite_goal_ids,omitempty"`
+	WritableRepository   string                 `json:"writable_repository,omitempty"`
+	ReadOnlyRepositories []string               `json:"read_only_repositories,omitempty"`
+	Authority            core.AuthorityBoundary `json:"authority"`
+}
+
+type GoalStateOperation struct {
+	GoalID string                `json:"goal_id"`
+	State  core.EpisodeGoalState `json:"state"`
+	Detail string                `json:"detail,omitempty"`
+}
+
+type OperatorInputOperation struct {
+	Question string   `json:"question"`
+	Choices  []string `json:"choices,omitempty"`
+}
+
+type ExternalWaitOperation struct {
+	ID           string          `json:"id"`
+	Kind         string          `json:"kind"`
+	EventMatcher json.RawMessage `json:"event_matcher,omitempty"`
+	DueAt        string          `json:"due_at,omitempty"`
+	PollAfter    string          `json:"poll_after,omitempty"`
+	Deadline     string          `json:"deadline,omitempty"`
+}
+
 type CompleteEpisode struct {
 	Message          string                 `json:"message"`
 	FollowupMessages []string               `json:"followup_messages,omitempty"`
@@ -68,13 +101,26 @@ type CompleteEpisode struct {
 }
 
 type ResultOperation struct {
-	ID         string               `json:"id"`
-	Type       string               `json:"type"`
-	Evidence   *core.Evidence       `json:"evidence,omitempty"`
-	Progress   *ProgressOperation   `json:"progress,omitempty"`
-	Approval   *core.EmisarApproval `json:"approval,omitempty"`
-	Task       *TaskOffer           `json:"task,omitempty"`
-	Completion *CompleteEpisode     `json:"completion,omitempty"`
+	ID              string                  `json:"id"`
+	Type            string                  `json:"type"`
+	Evidence        *core.Evidence          `json:"evidence,omitempty"`
+	Coverage        *core.Coverage          `json:"coverage,omitempty"`
+	Progress        *ProgressOperation      `json:"progress,omitempty"`
+	Goal            *GoalOperation          `json:"goal,omitempty"`
+	GoalState       *GoalStateOperation     `json:"goal_state,omitempty"`
+	OperatorInput   *OperatorInputOperation `json:"operator_input,omitempty"`
+	ExternalWait    *ExternalWaitOperation  `json:"external_wait,omitempty"`
+	Approval        *core.EmisarApproval    `json:"approval,omitempty"`
+	Task            *TaskOffer              `json:"task,omitempty"`
+	Visual          *core.GeneratedVisual   `json:"visual,omitempty"`
+	Memory          *core.AgentMemory       `json:"memory,omitempty"`
+	MemoryOffer     *core.MemoryOffer       `json:"memory_offer,omitempty"`
+	PreferenceOffer *core.PreferenceOffer   `json:"preference_offer,omitempty"`
+	RuleOffer       *core.RuleOffer         `json:"rule_offer,omitempty"`
+	ScheduleOffer   *core.ScheduleOffer     `json:"schedule_offer,omitempty"`
+	AlertAssessment *AlertAssessment        `json:"alert_assessment,omitempty"`
+	Proposal        *core.ActionProposal    `json:"proposal,omitempty"`
+	Completion      *CompleteEpisode        `json:"completion,omitempty"`
 }
 
 func (operation ResultOperation) Validate() error {
@@ -83,8 +129,13 @@ func (operation ResultOperation) Validate() error {
 	}
 	payloads := 0
 	for _, present := range []bool{
-		operation.Evidence != nil, operation.Progress != nil, operation.Approval != nil,
-		operation.Task != nil, operation.Completion != nil,
+		operation.Evidence != nil, operation.Coverage != nil, operation.Progress != nil,
+		operation.Goal != nil, operation.GoalState != nil, operation.OperatorInput != nil,
+		operation.ExternalWait != nil, operation.Approval != nil, operation.Task != nil,
+		operation.Visual != nil, operation.Memory != nil, operation.MemoryOffer != nil,
+		operation.PreferenceOffer != nil, operation.RuleOffer != nil,
+		operation.ScheduleOffer != nil, operation.AlertAssessment != nil,
+		operation.Proposal != nil, operation.Completion != nil,
 	} {
 		if present {
 			payloads++
@@ -103,6 +154,32 @@ func (operation ResultOperation) Validate() error {
 			strings.TrimSpace(operation.Progress.Summary) == "" {
 			return fmt.Errorf("result operation %q requires progress phase and summary", operation.ID)
 		}
+	case "record_coverage":
+		if operation.Coverage == nil {
+			return fmt.Errorf("result operation %q requires coverage", operation.ID)
+		}
+	case "plan_goal":
+		if operation.Goal == nil || strings.TrimSpace(operation.Goal.ID) == "" ||
+			strings.TrimSpace(operation.Goal.Kind) == "" ||
+			strings.TrimSpace(operation.Goal.RequestedOutcome) == "" ||
+			strings.TrimSpace(operation.Goal.CompletionContract) == "" {
+			return fmt.Errorf("result operation %q requires a typed goal", operation.ID)
+		}
+	case "update_goal":
+		if operation.GoalState == nil || strings.TrimSpace(operation.GoalState.GoalID) == "" ||
+			strings.TrimSpace(string(operation.GoalState.State)) == "" {
+			return fmt.Errorf("result operation %q requires goal id and state", operation.ID)
+		}
+	case "request_operator_input":
+		if operation.OperatorInput == nil || strings.TrimSpace(operation.OperatorInput.Question) == "" {
+			return fmt.Errorf("result operation %q requires an operator question", operation.ID)
+		}
+	case "wait_external":
+		if operation.ExternalWait == nil || strings.TrimSpace(operation.ExternalWait.ID) == "" ||
+			strings.TrimSpace(operation.ExternalWait.Kind) == "" ||
+			(operation.ExternalWait.DueAt == "" && operation.ExternalWait.PollAfter == "") {
+			return fmt.Errorf("result operation %q requires an external wait and observation time", operation.ID)
+		}
 	case "request_approval":
 		if operation.Approval == nil {
 			return fmt.Errorf("result operation %q requires approval", operation.ID)
@@ -115,6 +192,38 @@ func (operation ResultOperation) Validate() error {
 		case "engineering", "incident":
 		default:
 			return fmt.Errorf("result operation %q has unsupported task kind %q", operation.ID, operation.Task.Kind)
+		}
+	case "attach_visual":
+		if operation.Visual == nil || strings.TrimSpace(operation.Visual.Artifact) == "" {
+			return fmt.Errorf("result operation %q requires a visual artifact", operation.ID)
+		}
+	case "update_memory":
+		if operation.Memory == nil {
+			return fmt.Errorf("result operation %q requires memory", operation.ID)
+		}
+	case "offer_memory":
+		if operation.MemoryOffer == nil {
+			return fmt.Errorf("result operation %q requires a memory offer", operation.ID)
+		}
+	case "offer_preference":
+		if operation.PreferenceOffer == nil {
+			return fmt.Errorf("result operation %q requires a preference offer", operation.ID)
+		}
+	case "offer_rule":
+		if operation.RuleOffer == nil {
+			return fmt.Errorf("result operation %q requires a rule offer", operation.ID)
+		}
+	case "offer_schedule":
+		if operation.ScheduleOffer == nil {
+			return fmt.Errorf("result operation %q requires a schedule offer", operation.ID)
+		}
+	case "record_alert_assessment":
+		if operation.AlertAssessment == nil {
+			return fmt.Errorf("result operation %q requires an alert assessment", operation.ID)
+		}
+	case "propose_action":
+		if operation.Proposal == nil {
+			return fmt.Errorf("result operation %q requires an action proposal", operation.ID)
 		}
 	case "complete_episode":
 		if operation.Completion == nil || strings.TrimSpace(operation.Completion.Message) == "" {
@@ -132,15 +241,22 @@ and exactly one payload matching its type. The host validates operations indepen
 accepted operations in the episode event stream.
 
 - record_evidence: {"id":"evidence-1","type":"record_evidence","evidence":{"claim_id":"exact required_claims id from the host contract","claim":"short claim","observation":"what the source established","relation":"supports|contradicts","health_effect":"none|risk|degraded|unhealthy|unknown","source_type":"repository|emisar|monitoring|slack|other","source_id":"stable provider or result id","source_name":"human-readable source","observed_at":"RFC3339 source time","freshness":"source-relative age or revision","confidence":"high|medium|low","dimensions":{"service":"api","environment":"production","replicas":3},"scope_note":"optional bounded limitation"}}
+- record_coverage: {"id":"coverage-host","type":"record_coverage","coverage":{"layer":"host","claim_ids":["host.current_state"],"status":"healthy|degraded|unhealthy|unknown|not_applicable","source":"short source label","detail":"bounded assessment","observed_at":"RFC3339 source time"}}
 - report_progress: {"id":"progress-1","type":"report_progress","progress":{"phase":"investigating","summary":"meaningful operator-facing update","next_due_at":"optional RFC3339"}}
+- plan_goal: {"id":"goal-plan-1","type":"plan_goal","goal":{"id":"goal-1","kind":"check|engineering|operation|schedule","requested_outcome":"...","completion_contract":"observable done condition","required":true,"prerequisite_goal_ids":[],"authority":"read_only|repository_write|governed_operation"}}
+- update_goal: {"id":"goal-done-1","type":"update_goal","goal_state":{"goal_id":"goal-1","state":"ready|working|waiting|completed|blocked|excluded|cancelled","detail":"optional blocker"}}
+- request_operator_input: {"id":"input-1","type":"request_operator_input","operator_input":{"question":"one exact question","choices":["optional choice"]}}
+- wait_external: {"id":"wait-1","type":"wait_external","external_wait":{"id":"wakeup-1","kind":"github_checks|deployment|terraform_run|emisar_approval|scheduled_verification|other","event_matcher":{"provider":"github","pr":42},"poll_after":"RFC3339","deadline":"RFC3339"}}
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
-- complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"coverage":[{"layer":"host","claim_ids":["host.current_state"],"status":"healthy|degraded|unhealthy|unknown|not_applicable","source":"short source label","detail":"bounded assessment","observed_at":"RFC3339 source time"}],"memory":{"topology":["two production hosts"]},"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
+- attach_visual, update_memory, offer_memory, offer_preference, offer_rule, offer_schedule, record_alert_assessment, and propose_action carry the same named typed payload that their operation name describes.
+- complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
 - complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure","attempts":["route already attempted"],"next_action":"exact action that unblocks it","recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}
 
-Use record_evidence once per atomic claim. Put presentation, coverage, memory, visuals, durable
-behavior offers, alert assessment, completion assessment, and action proposals only in the final
-complete_episode payload. Use request_approval only for an exact pending Emisar run. Use offer_task
+Use record_evidence once per atomic claim and record_coverage once per assessed claim group. Put
+each memory update, visual, durable behavior offer, alert assessment, and action proposal in its own
+operation so one rejected item does not discard other accepted work. Use request_approval only for
+an exact pending Emisar run. Use offer_task
 only for an inert engineering or incident transition. report_progress is for a meaningful interim
 finding, not hidden reasoning or repetitive status. Exactly one complete_episode operation is
 required for a reply or completed task report. Every non-conversational contract with required_claims
@@ -148,7 +264,7 @@ MUST emit at least one record_evidence operation bound to an exact required clai
 describing sources only in the message, memory, or coverage is invalid. Every required coverage item
 MUST include its nonempty exact claim_ids entry from the contract. Evidence source_type must be
 exactly one of repository, emisar, monitoring, slack, or other. Every coverage.layer must be one of
-hardware, host, runtime, scheduler, workload, dependency, application, slo, or change. Emit one
+task, hardware, host, runtime, scheduler, workload, dependency, application, slo, or change. Emit one
 coverage item for every required claim in the host investigation contract and use its exact layer
 and claim id; never invent aliases such as configuration, rollout, or endpoint. When approval is
 pending, include the exact pending_approval object returned by Emisar as the request_approval payload.`

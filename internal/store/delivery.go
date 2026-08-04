@@ -14,7 +14,8 @@ import (
 )
 
 const slackDeliveryColumns = `
-	id, COALESCE(incident_id, ''), operation, kind, channel_id, thread_ts,
+	id, COALESCE(incident_id, ''), episode_id, expected_episode_revision,
+	expected_destination_revision, operation, kind, channel_id, thread_ts,
 	message_ts, body_json, status_text, steps_json, coalesce_key, card_version,
 	sequence_key, sequence_index, state, failure_count, next_attempt_at, last_error, created_at`
 
@@ -101,6 +102,23 @@ func (s *Store) EnqueueSlackDelivery(
 		return false, err
 	}
 	defer tx.Rollback()
+	if delivery.EpisodeID != "" {
+		episode, episodeErr := scanWorkEpisode(tx.QueryRowContext(
+			ctx, `SELECT `+workEpisodeColumns+` FROM work_episodes WHERE id = ?`,
+			delivery.EpisodeID,
+		))
+		if episodeErr != nil {
+			return false, episodeErr
+		}
+		if delivery.ExpectedDestinationRevision == 0 {
+			delivery.ExpectedDestinationRevision = episode.DestinationRevision
+		}
+		if delivery.ExpectedDestinationRevision != episode.DestinationRevision ||
+			delivery.ChannelID != episode.Destination.ChannelID ||
+			delivery.ThreadTS != episode.Destination.ThreadTS {
+			return false, errors.New("Slack delivery destination does not match the current episode binding")
+		}
+	}
 	if delivery.CoalesceKey != "" && delivery.CardVersion > 0 {
 		var newest int64
 		if err := tx.QueryRowContext(ctx, `
@@ -121,12 +139,14 @@ func (s *Store) EnqueueSlackDelivery(
 	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO slack_deliveries (
-		  id, incident_id, operation, kind, channel_id, thread_ts, message_ts,
+		  id, incident_id, episode_id, expected_episode_revision,
+		  expected_destination_revision, operation, kind, channel_id, thread_ts, message_ts,
 		  body_json, status_text, steps_json, coalesce_key, card_version,
 		  sequence_key, sequence_index, state, next_attempt_at, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		delivery.ID, incidentID, delivery.Operation, delivery.Kind,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		delivery.ID, incidentID, delivery.EpisodeID, delivery.ExpectedEpisodeRevision,
+		delivery.ExpectedDestinationRevision, delivery.Operation, delivery.Kind,
 		delivery.ChannelID, delivery.ThreadTS, delivery.MessageTS, delivery.Body,
 		delivery.Status, steps, delivery.CoalesceKey, delivery.CardVersion,
 		sequenceKey, sequenceIndex,
@@ -175,7 +195,9 @@ func scanSlackDelivery(
 	var sequenceIndex int
 	var next, created string
 	err := row.Scan(
-		&delivery.ID, &delivery.IncidentID, &delivery.Operation, &delivery.Kind,
+		&delivery.ID, &delivery.IncidentID, &delivery.EpisodeID,
+		&delivery.ExpectedEpisodeRevision, &delivery.ExpectedDestinationRevision,
+		&delivery.Operation, &delivery.Kind,
 		&delivery.ChannelID, &delivery.ThreadTS, &delivery.MessageTS,
 		&delivery.Body, &delivery.Status, &steps, &delivery.CoalesceKey,
 		&delivery.CardVersion, &sequenceKey, &sequenceIndex,
@@ -361,6 +383,24 @@ func (s *Store) LeaseSlackDelivery(
 	}
 	defer tx.Rollback()
 	now := nowText()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE slack_deliveries AS delivery
+		SET state = 'superseded', last_error = 'episode destination changed', updated_at = ?
+		WHERE delivery.state IN ('pending', 'retry')
+		  AND delivery.episode_id != ''
+		  AND EXISTS (
+		    SELECT 1 FROM work_episodes AS episode
+		    WHERE episode.id = delivery.episode_id
+		      AND (
+		        delivery.expected_destination_revision != episode.destination_revision OR
+		        delivery.channel_id != episode.destination_channel_id OR
+		        delivery.thread_ts != episode.destination_thread_ts OR
+		        (delivery.expected_episode_revision > 0 AND
+		         delivery.expected_episode_revision != episode.event_sequence)
+		      )
+		  )`, now); err != nil {
+		return core.SlackDelivery{}, err
+	}
 	delivery, err := scanSlackDelivery(tx.QueryRowContext(ctx, `
 		SELECT `+slackDeliveryColumns+`
 		FROM slack_deliveries AS candidate
@@ -380,6 +420,12 @@ func (s *Store) LeaseSlackDelivery(
 		  candidate.created_at,
 		  candidate.id
 		LIMIT 1`, now))
+	if errors.Is(err, ErrNotFound) {
+		if commitErr := tx.Commit(); commitErr != nil {
+			return core.SlackDelivery{}, commitErr
+		}
+		return core.SlackDelivery{}, ErrNotFound
+	}
 	if err != nil {
 		return core.SlackDelivery{}, err
 	}

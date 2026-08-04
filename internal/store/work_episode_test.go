@@ -43,7 +43,7 @@ func TestWorkEpisodePersistsExecutionContractAndProgress(t *testing.T) {
 	}
 	if episode.Effort != core.EffortOperationalAssessment ||
 		episode.Authority != core.AuthorityReadOnly ||
-		episode.State != core.EpisodeAcknowledged ||
+		episode.State != core.EpisodeAccepted ||
 		episode.Objective != "Reconcile declared and live production health" ||
 		episode.EventSequence != 1 ||
 		!slices.Equal(episode.RequiredCoverage, []string{"change", "host", "application", "slo"}) {
@@ -121,12 +121,12 @@ func TestWorkEpisodeApprovalResolutionPreservesVerificationContinuation(t *testi
 		t.Fatal(err)
 	}
 	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
-	if err != nil || episode.State != core.EpisodeCompleted ||
-		episode.Phase != "approval_decided" || episode.CompletedAt.IsZero() {
+	if err != nil || episode.State != core.EpisodeVerifying ||
+		episode.Phase != "verifying_approval_result" || !episode.CompletedAt.IsZero() {
 		t.Fatalf("resolved episode = %+v, %v", episode, err)
 	}
 	commitment, err := st.GetCommitmentByRun(ctx, run.ID)
-	if err != nil || commitment.State != core.CommitmentDone ||
+	if err != nil || commitment.State != core.CommitmentFinishing ||
 		commitment.NextAction != "Verify the terminal run and live effect" {
 		t.Fatalf("resolved commitment = %+v, %v", commitment, err)
 	}

@@ -11,7 +11,8 @@ import (
 )
 
 const agentRunColumns = `
-	id, mode, incident_id, channel_id, thread_ts, conversation_key,
+	id, episode_id, attempt_id, attempt_number,
+	mode, incident_id, channel_id, thread_ts, conversation_key,
 	source_kind, source_id, user_id, repository, prompt, idempotency_key,
 	session_id, session_generation, expected_revision, coop_turn_id,
 	coop_event_sequence, context_json, result_json, terminal_state, state,
@@ -38,6 +39,9 @@ func (s *Store) QueueAgentRun(
 			return core.AgentRun{}, false, err
 		}
 	}
+	if run.AttemptID == "" {
+		run.AttemptID = "attempt_" + run.ID
+	}
 	if run.IdempotencyKey == "" {
 		run.IdempotencyKey = "responder:run:" + run.ID
 	}
@@ -63,16 +67,19 @@ func (s *Store) QueueAgentRun(
 	if run.NextAttemptAt.IsZero() {
 		run.NextAttemptAt = now
 	}
-	if _, err := normalizeWorkEpisode(run); err != nil {
+	episode, err := normalizeWorkEpisode(run)
+	if err != nil {
 		return core.AgentRun{}, false, fmt.Errorf("validate work episode: %w", err)
 	}
+	run.EpisodeID = episode.ID
 	var incidentID any
 	if run.IncidentID != "" {
 		incidentID = run.IncidentID
 	}
 	result, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO agent_runs (
-		  id, mode, incident_id, channel_id, thread_ts, conversation_key,
+		  id, episode_id, attempt_id, attempt_number,
+		  mode, incident_id, channel_id, thread_ts, conversation_key,
 		  source_kind, source_id, user_id, repository, prompt, idempotency_key,
 		  session_id, session_generation, expected_revision, coop_turn_id,
 		  coop_event_sequence, context_json, result_json, terminal_state, state,
@@ -80,8 +87,9 @@ func (s *Store) QueueAgentRun(
 		  started_at, completed_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-		        ?, ?, ?, ?, ?, ?, ?)`,
-		run.ID, run.Mode, incidentID, run.ChannelID, run.ThreadTS, run.ConversationKey,
+		        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, run.EpisodeID, run.AttemptID, run.AttemptNumber,
+		run.Mode, incidentID, run.ChannelID, run.ThreadTS, run.ConversationKey,
 		run.SourceKind, run.SourceID, run.UserID, run.Repository, run.Prompt,
 		run.IdempotencyKey, run.SessionID, run.SessionGeneration, run.ExpectedRevision,
 		run.CoopTurnID, run.CoopEventSequence, run.Context, run.Result,
@@ -117,6 +125,11 @@ func (s *Store) QueueAgentRun(
 	if err := s.ensureWorkEpisode(ctx, stored); err != nil {
 		cleanupInsertedRun()
 		return core.AgentRun{}, false, fmt.Errorf("ensure work episode: %w", err)
+	}
+	stored, err = s.GetAgentRunBySource(ctx, run.SourceKind, run.SourceID)
+	if err != nil {
+		cleanupInsertedRun()
+		return core.AgentRun{}, false, err
 	}
 	return stored, rows == 1, nil
 }
@@ -191,7 +204,8 @@ func scanAgentRun(row interface{ Scan(...any) error }) (core.AgentRun, error) {
 	var next, created, updated string
 	var started, completed sql.NullString
 	err := row.Scan(
-		&run.ID, &run.Mode, &incident, &run.ChannelID, &run.ThreadTS,
+		&run.ID, &run.EpisodeID, &run.AttemptID, &run.AttemptNumber,
+		&run.Mode, &incident, &run.ChannelID, &run.ThreadTS,
 		&run.ConversationKey, &run.SourceKind, &run.SourceID, &run.UserID,
 		&run.Repository, &run.Prompt, &run.IdempotencyKey, &run.SessionID,
 		&run.SessionGeneration, &run.ExpectedRevision, &run.CoopTurnID,
@@ -234,10 +248,10 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		        AND incident.workflow NOT IN ('closed', 'blocked')
 		    )
 		  )
-		  AND NOT EXISTS (
-		    SELECT 1 FROM agent_runs AS active
-		    WHERE active.conversation_key = candidate.conversation_key
-		      AND active.id != candidate.id
+			  AND NOT EXISTS (
+			    SELECT 1 FROM agent_runs AS active
+			    WHERE active.conversation_key = candidate.conversation_key
+			      AND active.id != candidate.id
 		      AND active.state IN ('preparing', 'running', 'applying', 'finalizing')
 		  )
 		ORDER BY
@@ -252,6 +266,11 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		UPDATE agent_runs SET state = 'preparing', updated_at = ?
 		WHERE id = ? AND state = 'pending'`, nowText(), run.ID)
 	if err := expectOne(result, err, "lease agent run"); err != nil {
+		return core.AgentRun{}, err
+	}
+	if err := setEpisodeAttemptStateTx(
+		ctx, tx, run.ID, core.AttemptLeased, "", true,
+	); err != nil {
 		return core.AgentRun{}, err
 	}
 	if err := setWorkEpisodePhaseTx(
@@ -451,6 +470,11 @@ func (s *Store) MarkAgentRunSubmitted(
 	if err := expectOne(result, err, "mark agent run submitted"); err != nil {
 		return err
 	}
+	if err := setEpisodeAttemptStateTx(
+		ctx, tx, id, core.AttemptRunning, "", false,
+	); err != nil {
+		return err
+	}
 	if incidentID.Valid {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE incidents
@@ -518,6 +542,11 @@ func (s *Store) MarkTriageAgentRunSubmitted(
 	if err := expectOne(result, err, "mark conversation run submitted"); err != nil {
 		return err
 	}
+	if err := setEpisodeAttemptStateTx(
+		ctx, tx, id, core.AttemptRunning, "", false,
+	); err != nil {
+		return err
+	}
 	result, err = tx.ExecContext(ctx, `
 		UPDATE conversation_sessions
 		SET session_revision = ?, coop_event_sequence = ?, updated_at = ?
@@ -553,6 +582,11 @@ func (s *Store) DeferAgentRun(
 		WHERE id = ? AND state = 'preparing'`,
 		boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
 	if err := expectOne(result, err, "defer agent run"); err != nil {
+		return err
+	}
+	if err := setEpisodeAttemptStateTx(
+		ctx, tx, id, core.AttemptPending, detail, false,
+	); err != nil {
 		return err
 	}
 	if err := setWorkEpisodePhaseTx(
@@ -591,6 +625,13 @@ func (s *Store) RetryAgentRun(
 		state, boundedError(detail), next.UTC().Format(timestampFormat),
 		completedAt, nowText(), id)
 	if err := expectOne(result, err, "retry agent run"); err != nil {
+		return err
+	}
+	attemptState := core.AttemptPending
+	if terminal {
+		attemptState = core.AttemptFailed
+	}
+	if err := setEpisodeAttemptStateTx(ctx, tx, id, attemptState, detail, false); err != nil {
 		return err
 	}
 	episodeState := core.EpisodeAcknowledged
@@ -772,6 +813,11 @@ func (s *Store) RequeueAgentRun(
 	if err := expectOne(result, err, "requeue agent run"); err != nil {
 		return err
 	}
+	if err := setEpisodeAttemptStateTx(
+		ctx, tx, id, core.AttemptPending, detail, false,
+	); err != nil {
+		return err
+	}
 	if incidentID.Valid {
 		result, err := tx.ExecContext(ctx, `
 			UPDATE incidents
@@ -834,6 +880,11 @@ func (s *Store) EscalateAgentRun(
 		id,
 	)
 	if err := expectOne(result, err, "escalate agent run"); err != nil {
+		return err
+	}
+	if err := setEpisodeAttemptStateTx(
+		ctx, tx, id, core.AttemptPending, detail, false,
+	); err != nil {
 		return err
 	}
 	if err := setWorkEpisodePhaseTx(
@@ -931,6 +982,15 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 	if err := expectOne(result, err, "finish agent run"); err != nil {
 		return err
 	}
+	attemptState := core.AttemptSucceeded
+	if finalState == core.AgentRunFailed {
+		attemptState = core.AttemptFailed
+	} else if finalState == core.AgentRunCancelled {
+		attemptState = core.AttemptCancelled
+	}
+	if err := setEpisodeAttemptStateTx(ctx, tx, id, attemptState, "", false); err != nil {
+		return err
+	}
 	if incidentID.Valid {
 		lastError := ""
 		if finalState == core.AgentRunFailed {
@@ -962,7 +1022,9 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 	}
 	var currentEpisodeState core.WorkEpisodeState
 	if err := tx.QueryRowContext(
-		ctx, `SELECT state FROM work_episodes WHERE agent_run_id = ?`, id,
+		ctx, `SELECT lifecycle_state FROM work_episodes WHERE id = (
+		  SELECT episode_id FROM episode_attempts WHERE agent_run_id = ?
+		)`, id,
 	).Scan(&currentEpisodeState); err != nil {
 		return err
 	}
@@ -1022,6 +1084,11 @@ func (s *Store) SupersedeAgentRun(ctx context.Context, id, detail string) error 
 		WHERE id = ? AND state = 'preparing'`,
 		boundedError(detail), nowText(), nowText(), id)
 	if err := expectOne(result, err, "supersede agent run"); err != nil {
+		return err
+	}
+	if err := setEpisodeAttemptStateTx(
+		ctx, tx, id, core.AttemptCancelled, detail, false,
+	); err != nil {
 		return err
 	}
 	if err := setWorkEpisodePhaseTx(

@@ -236,14 +236,21 @@ func (s *Service) episodeForWatchedInput(
 ) *core.WorkEpisode {
 	text := strings.ToLower(strings.Join(strings.Fields(input.Text), " "))
 	episode := &core.WorkEpisode{
-		Effort:    core.EffortConversational,
-		Authority: core.AuthorityReadOnly,
-		Activity:  requestEpisodeActivity(input.Text),
-		Objective: commitmentTitleForInput(input),
+		WorkspaceID: input.TeamID,
+		Effort:      core.EffortConversational,
+		Authority:   core.AuthorityReadOnly,
+		Activity:    requestEpisodeActivity(input.Text),
+		Objective:   commitmentTitleForInput(input),
 		CompletionCriteria: []string{
 			"answer the current request directly",
 			"separate verified facts from uncertainty",
 		},
+	}
+	if input.Kind == "scheduled" {
+		episode.Mode = core.EpisodeScheduledVerification
+		episode.Activity = core.ActivityScheduling
+	} else if len(state.MatchedRules) > 0 {
+		episode.Mode = core.EpisodeStandingAssignment
 	}
 	// Configuration is accepted work, but it is not an operational assessment even
 	// when the requested preference happens to mention health checks or alerts.
@@ -267,6 +274,10 @@ func (s *Service) episodeForWatchedInput(
 		episode.Effort = core.EffortFocusedCheck
 		episode.Activity = core.ActivityInvestigating
 		episode.RequiredCoverage = focusedCoverage(text)
+		if investigation.Compile(*episode).Completion.ConclusionKind == "operational_health" &&
+			!slices.Contains(episode.RequiredCoverage, "application") {
+			episode.RequiredCoverage = append(episode.RequiredCoverage, "application")
+		}
 		if input.Kind == "bot_message" && externalChangeLifecycleEvent(text) {
 			// Lifecycle words such as "errored" are not application-health evidence.
 			// Keep the required claim on the exact change; impact may still be added
@@ -392,18 +403,27 @@ func focusedCoverage(text string) []string {
 		layer string
 		terms []string
 	}{
-		{"change", []string{"ci", "cd", "deploy", "release", "rollout", "revision", "terraform", "plan", "diff", "change", "repository", "validation command", "runbook", "publish", "draft", "cost", "billing", "spend"}},
+		{"task", []string{"runbook", "publish", "draft", "cost", "billing", "spend"}},
+		{"change", []string{"ci", "cd", "deploy", "release", "rollout", "revision", "terraform", "plan", "diff", "change", "repository", "validation command"}},
 		{"host", []string{"host", "vm", "disk", "cpu", "memory", "systemd"}},
 		{"runtime", []string{"runtime", "docker", "container"}},
 		{"scheduler", []string{"nomad", "kubernetes", "scheduler", "allocation"}},
 		{"workload", []string{"workload", "job", "process", "service"}},
 		{"dependency", []string{"database", "postgres", "cassandra", "redis", "dependency", "upstream"}},
-		{"application", []string{"application", "api", "endpoint", "request", "error", "health", "healthy", "recover", "rollout"}},
+		{"application", []string{"application", "api", "endpoint", "request", "error", "timeout", "user path"}},
 		{"slo", []string{"slo", "customer", "impact", "latency", "availability"}},
 	} {
 		if episodeContainsAny(text, candidate.terms...) {
 			result = append(result, candidate.layer)
 		}
+	}
+	if slices.Contains(result, "task") && slices.Contains(result, "change") &&
+		episodeContainsAny(text, "cost", "billing", "spend") &&
+		!episodeContainsAny(text,
+			"ci ", "cd ", "deploy", "release", "rollout", "revision", "terraform",
+			"plan ", "diff ", "repository", "validation command",
+		) {
+		result = slices.DeleteFunc(result, func(layer string) bool { return layer == "change" })
 	}
 	return result
 }
@@ -536,6 +556,9 @@ func episodeCompletionCorrection(
 		unknownAllowed := contract.Completion.ConclusionKind == "operational_health" ||
 			(contract.Completion.ConclusionKind == "change_review" &&
 				(completion.Verdict == "in_progress" || completion.Verdict == "needs_review" ||
+					completion.Verdict == "inconclusive")) ||
+			(contract.Completion.ConclusionKind == "factual_assessment" &&
+				(completion.Verdict == "" || completion.Verdict == "not_confirmed" ||
 					completion.Verdict == "inconclusive"))
 		if !unknownAllowed || len(completion.MaterialGaps) > 0 {
 			return "the result claims decision_ready while material coverage remains unknown; either continue the investigation or return blocked with the exact next action"
@@ -652,7 +675,7 @@ func episodeClaimCorrection(
 		}
 	}
 	ledger := investigation.BuildLedger(contract, evidence, coverage, now.UTC())
-	return ledger.CompletionCorrection(completion.Status)
+	return ledger.CompletionCorrectionFor(completion.Status, completion.Verdict)
 }
 
 func claimRequired(contract investigation.InvestigationContract, claimID string) bool {
@@ -706,10 +729,21 @@ func operationalHealthVerdictCorrection(
 func completionEpisodePhase(
 	completion *completionAssessment,
 	pendingApproval *core.EmisarApproval,
+	operations []investigation.ResultOperation,
 ) (core.WorkEpisodeState, string, string, string) {
 	if pendingApproval != nil {
 		return core.EpisodeWaitingApproval, "waiting_for_approval",
 			"Waiting for Emisar approval", "Continue automatically after the Emisar decision"
+	}
+	for _, operation := range operations {
+		switch operation.Type {
+		case "request_operator_input":
+			return core.EpisodeWaitingOperator, "waiting_for_operator",
+				"Waiting for your answer", operation.OperatorInput.Question
+		case "wait_external":
+			return core.EpisodeWaitingExternal, "waiting_for_external_event",
+				"Waiting for an external update", "Resume when the matching event arrives"
+		}
 	}
 	if completion != nil && completion.Status == "blocked" {
 		return core.EpisodeBlocked, "blocked", completion.Summary, completion.NextAction

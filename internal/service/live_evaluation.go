@@ -112,7 +112,7 @@ func EvaluateLiveJSONL(
 			caseStarted := time.Now()
 			caseID := fmt.Sprintf("%s_%d", runID, ordinal)
 			caseCtx, cancel := context.WithTimeout(ctx, options.CaseTimeout)
-			response, sessionID, modelCalls, artifacts, runErr := runLiveEvaluationCase(
+			response, sessionID, modelCalls, artifacts, turnDuration, runErr := runLiveEvaluationCase(
 				caseCtx,
 				cfg,
 				client,
@@ -122,7 +122,10 @@ func EvaluateLiveJSONL(
 				options.TaskPolicy,
 				options.EpisodeReplay,
 			)
-			responseDurationMS := time.Since(caseStarted).Milliseconds()
+			responseDurationMS := turnDuration.Milliseconds()
+			if turnDuration <= 0 {
+				responseDurationMS = time.Since(caseStarted).Milliseconds()
+			}
 			cancel()
 			summary.ModelCalls += modelCalls
 
@@ -280,6 +283,7 @@ func EvaluateLiveJSONL(
 					client,
 					sessionID,
 					"",
+					modelCalls,
 				)
 				if !result.Lifecycle.Passed {
 					result.Passed = false
@@ -513,6 +517,7 @@ func assessEvaluationLifecycle(
 	client CoopAPI,
 	sessionID string,
 	turnID string,
+	expectedCompletions int,
 ) TurnLifecycleAssessment {
 	result := TurnLifecycleAssessment{Evaluated: true, Passed: true}
 	events, err := client.Events(ctx, sessionID, 0, 100)
@@ -522,21 +527,39 @@ func assessEvaluationLifecycle(
 		return result
 	}
 	result.EventCount = len(events)
+	completionCounts := make(map[string]int)
 	for _, event := range events {
 		if event.Type == "turn.completed" &&
 			(turnID == "" || event.TurnID == turnID) {
 			result.CompletedEvents++
+			completionCounts[event.TurnID]++
 		}
 	}
-	if result.CompletedEvents != 1 {
+	if turnID != "" {
+		expectedCompletions = 1
+	}
+	if expectedCompletions < 1 {
+		expectedCompletions = 1
+	}
+	if result.CompletedEvents != expectedCompletions {
 		result.Passed = false
 		result.Issues = append(
 			result.Issues,
 			fmt.Sprintf(
-				"completed turn events = %d, want exactly 1",
+				"completed turn events = %d, want exactly %d",
 				result.CompletedEvents,
+				expectedCompletions,
 			),
 		)
+	}
+	for completedTurnID, count := range completionCounts {
+		if completedTurnID == "" || count != 1 {
+			result.Passed = false
+			result.Issues = append(
+				result.Issues,
+				fmt.Sprintf("turn %q has %d completion events, want exactly 1", completedTurnID, count),
+			)
+		}
 	}
 	return result
 }
@@ -739,12 +762,12 @@ func runLiveEvaluationCase(
 	pollInterval time.Duration,
 	taskPolicy string,
 	episodeReplay bool,
-) (string, string, int, WorkspaceAssessment, error) {
+) (string, string, int, WorkspaceAssessment, time.Duration, error) {
 	if strings.TrimSpace(testCase.Name) == "" {
-		return "", "", 0, WorkspaceAssessment{}, errors.New("case has no name")
+		return "", "", 0, WorkspaceAssessment{}, 0, errors.New("case has no name")
 	}
 	if strings.TrimSpace(testCase.Input) == "" {
-		return "", "", 0, WorkspaceAssessment{}, errors.New("live case has no input")
+		return "", "", 0, WorkspaceAssessment{}, 0, errors.New("live case has no input")
 	}
 	repositoryKey := strings.TrimSpace(testCase.Repository)
 	if repositoryKey == "" {
@@ -752,7 +775,7 @@ func runLiveEvaluationCase(
 	}
 	repository, ok := cfg.RepositoryContext(repositoryKey)
 	if !ok {
-		return "", "", 0, WorkspaceAssessment{}, fmt.Errorf("repository %q is not configured", repositoryKey)
+		return "", "", 0, WorkspaceAssessment{}, 0, fmt.Errorf("repository %q is not configured", repositoryKey)
 	}
 	policy := repository.CoopPolicy
 	if testCase.Lane == "conversation" {
@@ -764,13 +787,13 @@ func runLiveEvaluationCase(
 			strings.TrimSpace(taskPolicy),
 		)
 		if policy == "" {
-			return "", "", 0, WorkspaceAssessment{}, errors.New(
+			return "", "", 0, WorkspaceAssessment{}, 0, errors.New(
 				"task evaluation requires an explicit disposable coop_policy",
 			)
 		}
 	}
 	if strings.TrimSpace(policy) == "" {
-		return "", "", 0, WorkspaceAssessment{}, fmt.Errorf("repository %q has no Coop policy", repositoryKey)
+		return "", "", 0, WorkspaceAssessment{}, 0, fmt.Errorf("repository %q has no Coop policy", repositoryKey)
 	}
 	session, _, err := client.CreateSession(
 		ctx,
@@ -779,33 +802,52 @@ func runLiveEvaluationCase(
 		"Responder live model evaluation: "+truncateWatchText(testCase.Name, 160),
 	)
 	if err != nil {
-		return "", "", 0, WorkspaceAssessment{}, err
+		return "", "", 0, WorkspaceAssessment{}, 0, err
 	}
 	sessionID := session.ID
 	if sessionID == "" {
-		return "", "", 0, WorkspaceAssessment{}, errors.New("Coop returned an empty live evaluation session ID")
+		return "", "", 0, WorkspaceAssessment{}, 0, errors.New("Coop returned an empty live evaluation session ID")
 	}
 	session, err = client.GetSession(ctx, sessionID)
 	if err != nil {
-		return "", sessionID, 0, WorkspaceAssessment{}, err
+		return "", sessionID, 0, WorkspaceAssessment{}, 0, err
 	}
 	if session.State != "open" || session.ActiveTurnID != "" {
-		return "", sessionID, 0, WorkspaceAssessment{}, fmt.Errorf(
+		return "", sessionID, 0, WorkspaceAssessment{}, 0, fmt.Errorf(
 			"new live evaluation session is %q with active turn %q",
 			session.State,
 			session.ActiveTurnID,
 		)
 	}
+	if testCase.Lane == "conversation" {
+		session, err = client.PrepareSession(
+			ctx,
+			"responder:live-eval-prepare:"+caseID,
+			sessionID,
+			session.Revision,
+		)
+		if err != nil {
+			return "", sessionID, 0, WorkspaceAssessment{}, 0, err
+		}
+		if session.State != "open" || session.ActiveTurnID != "" {
+			return "", sessionID, 0, WorkspaceAssessment{}, 0, fmt.Errorf(
+				"prepared live evaluation session is %q with active turn %q",
+				session.State,
+				session.ActiveTurnID,
+			)
+		}
+	}
 	prompt, err := liveEvaluationPrompt(cfg, testCase, repositoryKey, caseID)
 	if err != nil {
-		return "", sessionID, 0, WorkspaceAssessment{}, err
+		return "", sessionID, 0, WorkspaceAssessment{}, 0, err
 	}
 	if episodeReplay {
 		prompt, err = deterministicEpisodeReplayPrompt(prompt, testCase)
 		if err != nil {
-			return "", sessionID, 0, WorkspaceAssessment{}, err
+			return "", sessionID, 0, WorkspaceAssessment{}, 0, err
 		}
 	}
+	turnStarted := time.Now()
 	response, _, modelCalls, err := runEvaluationTurnWithRetry(
 		ctx,
 		client,
@@ -815,7 +857,7 @@ func runLiveEvaluationCase(
 		pollInterval,
 	)
 	if err != nil {
-		return response, sessionID, modelCalls, WorkspaceAssessment{}, err
+		return response, sessionID, modelCalls, WorkspaceAssessment{}, time.Since(turnStarted), err
 	}
 	for correctionIndex := 1; correctionIndex <= 3; correctionIndex++ {
 		referenceTime := time.Now().UTC()
@@ -847,10 +889,11 @@ typed operations and contract fields exactly. Do not describe this correction pr
 		)
 		modelCalls += calls
 		if correctionErr != nil {
-			return corrected, sessionID, modelCalls, WorkspaceAssessment{}, correctionErr
+			return corrected, sessionID, modelCalls, WorkspaceAssessment{}, time.Since(turnStarted), correctionErr
 		}
 		response = corrected
 	}
+	turnDuration := time.Since(turnStarted)
 	artifacts, artifactErr := collectEvaluationArtifacts(
 		ctx,
 		client,
@@ -858,7 +901,7 @@ typed operations and contract fields exactly. Do not describe this correction pr
 		testCase,
 		caseID,
 	)
-	return response, sessionID, modelCalls, artifacts, artifactErr
+	return response, sessionID, modelCalls, artifacts, turnDuration, artifactErr
 }
 
 func evaluationStructuredCorrection(

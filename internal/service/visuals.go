@@ -71,6 +71,7 @@ func (s *Service) enqueueGeneratedVisuals(
 	ctx context.Context,
 	keyPrefix string,
 	incidentID string,
+	episodeID string,
 	channelID string,
 	threadTS string,
 	sessionID string,
@@ -83,6 +84,13 @@ func (s *Service) enqueueGeneratedVisuals(
 	}
 	if len(visuals) > s.cfg.Limits.MaxGeneratedVisuals {
 		return errors.New("agent response references too many generated visuals")
+	}
+	if episodeID != "" {
+		if _, err := s.bindEpisodeDestination(
+			ctx, episodeID, channelID, threadTS, "visual_response_location",
+		); err != nil {
+			return err
+		}
 	}
 	turn, err := s.coop.GetTurn(ctx, sessionID, turnID)
 	if err != nil {
@@ -145,6 +153,7 @@ func (s *Service) enqueueGeneratedVisuals(
 		}
 		_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 			ID: fmt.Sprintf("%s_visual_%02d", keyPrefix, index+1), IncidentID: incidentID,
+			EpisodeID: episodeID,
 			Operation: "file", Kind: "generated_visual", ChannelID: channelID,
 			ThreadTS: threadTS, Body: body,
 		})

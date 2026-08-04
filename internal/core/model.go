@@ -227,23 +227,26 @@ type ConfigurationSession struct {
 }
 
 type SlackDelivery struct {
-	ID            string
-	IncidentID    string
-	Operation     string
-	Kind          string
-	ChannelID     string
-	ThreadTS      string
-	MessageTS     string
-	Body          []byte
-	Status        string
-	Steps         []string
-	CoalesceKey   string
-	CardVersion   int64
-	State         string
-	Attempts      int
-	NextAttemptAt time.Time
-	LastError     string
-	CreatedAt     time.Time
+	ID                          string
+	IncidentID                  string
+	EpisodeID                   string
+	ExpectedEpisodeRevision     int
+	ExpectedDestinationRevision int
+	Operation                   string
+	Kind                        string
+	ChannelID                   string
+	ThreadTS                    string
+	MessageTS                   string
+	Body                        []byte
+	Status                      string
+	Steps                       []string
+	CoalesceKey                 string
+	CardVersion                 int64
+	State                       string
+	Attempts                    int
+	NextAttemptAt               time.Time
+	LastError                   string
+	CreatedAt                   time.Time
 }
 
 type GeneratedVisual struct {
@@ -555,6 +558,7 @@ type ScheduledTaskRun struct {
 	ScheduledFor time.Time
 	SourceInput  string
 	AgentRunID   string
+	EpisodeID    string
 	Outcome      string
 	LastError    string
 	StartedAt    time.Time
@@ -769,23 +773,67 @@ const (
 type WorkEpisodeState string
 
 const (
+	EpisodeAccepted        WorkEpisodeState = "accepted"
 	EpisodeAcknowledged    WorkEpisodeState = "acknowledged"
 	EpisodePlanning        WorkEpisodeState = "planning"
 	EpisodeWorking         WorkEpisodeState = "working"
 	EpisodeBlocked         WorkEpisodeState = "blocked"
+	EpisodeWaitingOperator WorkEpisodeState = "waiting_operator"
+	EpisodeWaitingExternal WorkEpisodeState = "waiting_external"
 	EpisodeWaitingApproval WorkEpisodeState = "waiting_approval"
+	EpisodeRetrying        WorkEpisodeState = "retrying"
 	EpisodeVerifying       WorkEpisodeState = "verifying"
 	EpisodeCompleted       WorkEpisodeState = "completed"
 	EpisodeFailed          WorkEpisodeState = "failed"
+	EpisodeRefused         WorkEpisodeState = "refused"
 	EpisodeCancelled       WorkEpisodeState = "cancelled"
 	EpisodeSuperseded      WorkEpisodeState = "superseded"
 )
+
+type EpisodeMode string
+
+const (
+	EpisodeConversation          EpisodeMode = "conversation"
+	EpisodeCheck                 EpisodeMode = "check"
+	EpisodeIncident              EpisodeMode = "incident"
+	EpisodeEngineering           EpisodeMode = "engineering"
+	EpisodeScheduledVerification EpisodeMode = "scheduled_verification"
+	EpisodeStandingAssignment    EpisodeMode = "standing_assignment"
+)
+
+// ConversationRef identifies the platform conversation in which work was
+// accepted. It is a value object: lifecycle state belongs to WorkEpisode.
+type ConversationRef struct {
+	Platform    string `json:"platform"`
+	WorkspaceID string `json:"workspace_id"`
+	ChannelID   string `json:"channel_id"`
+	ThreadTS    string `json:"thread_ts,omitempty"`
+	AnchorTS    string `json:"anchor_ts,omitempty"`
+	Visibility  string `json:"visibility"`
+}
+
+type BoundDestination struct {
+	ChannelID string `json:"channel_id"`
+	ThreadTS  string `json:"thread_ts,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
 
 // WorkEpisode is the host-owned execution contract for one accepted unit of
 // work. AgentRun remains the transport record; this record says what must be
 // accomplished, what authority is available, and what the team is waiting for.
 type WorkEpisode struct {
-	ID                 string
+	ID                  string
+	WorkspaceID         string
+	ParentEpisodeID     string
+	Mode                EpisodeMode
+	Conversation        ConversationRef
+	Destination         BoundDestination
+	DestinationRevision int
+	Revision            int
+	LatestAttemptID     string
+	AuthoritySnapshot   string
+	// AgentRunID is the first attempt retained for compatibility while callers
+	// migrate to EpisodeAttempt. It is not the lifecycle owner.
 	AgentRunID         string
 	Effort             EffortContract
 	Authority          AuthorityBoundary
@@ -804,6 +852,163 @@ type WorkEpisode struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	CompletedAt        time.Time
+}
+
+type EpisodeGoalState string
+
+const (
+	GoalPlanned   EpisodeGoalState = "planned"
+	GoalReady     EpisodeGoalState = "ready"
+	GoalWorking   EpisodeGoalState = "working"
+	GoalWaiting   EpisodeGoalState = "waiting"
+	GoalCompleted EpisodeGoalState = "completed"
+	GoalBlocked   EpisodeGoalState = "blocked"
+	GoalExcluded  EpisodeGoalState = "excluded"
+	GoalCancelled EpisodeGoalState = "cancelled"
+)
+
+type EpisodeGoal struct {
+	ID                   string
+	EpisodeID            string
+	ParentGoalID         string
+	PrerequisiteGoalIDs  []string
+	Kind                 string
+	RequestedOutcome     string
+	CompletionContract   string
+	WritableRepository   string
+	ReadOnlyRepositories []string
+	AuthorityRequirement AuthorityBoundary
+	Required             bool
+	State                EpisodeGoalState
+	Blocker              string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	CompletedAt          time.Time
+}
+
+type EpisodeAttemptState string
+
+const (
+	AttemptPending   EpisodeAttemptState = "pending"
+	AttemptLeased    EpisodeAttemptState = "leased"
+	AttemptRunning   EpisodeAttemptState = "running"
+	AttemptSucceeded EpisodeAttemptState = "succeeded"
+	AttemptFailed    EpisodeAttemptState = "failed"
+	AttemptCancelled EpisodeAttemptState = "cancelled"
+)
+
+type EpisodeAttempt struct {
+	ID                string
+	EpisodeID         string
+	AgentRunID        string
+	Number            int
+	State             EpisodeAttemptState
+	FailureClass      string
+	FailureGeneration int
+	LeaseOwner        string
+	FencingToken      int64
+	LeaseExpiresAt    time.Time
+	ContextManifestID string
+	StartedAt         time.Time
+	CompletedAt       time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+// ContextManifest is immutable. ContextReference values point at
+// content-addressed or source-addressed inputs instead of duplicating payloads.
+type ContextManifest struct {
+	ID                string
+	EpisodeID         string
+	AttemptID         string
+	ParentManifestID  string
+	Version           int
+	PromptVersion     string
+	ContractVersion   string
+	ToolSchemaVersion string
+	Preset            string
+	Provider          string
+	Model             string
+	ReasoningEffort   string
+	Omissions         []string
+	CreatedAt         time.Time
+	References        []ContextReference
+}
+
+type ContextReference struct {
+	ID             string
+	ManifestID     string
+	Kind           string
+	SourceRef      string
+	ContentDigest  string
+	SourceRevision string
+	Visibility     string
+	Ordinal        int
+	OmittedReason  string
+	Metadata       map[string]string
+}
+
+type EpisodeEffectState string
+
+const (
+	EffectPlanned    EpisodeEffectState = "planned"
+	EffectDelivering EpisodeEffectState = "delivering"
+	EffectSucceeded  EpisodeEffectState = "succeeded"
+	EffectFailed     EpisodeEffectState = "failed"
+	EffectCancelled  EpisodeEffectState = "cancelled"
+)
+
+type EpisodeEffect struct {
+	ID                          string
+	WorkspaceID                 string
+	EpisodeID                   string
+	ExpectedEpisodeRevision     int
+	ExpectedDestinationRevision int
+	Kind                        string
+	Destination                 BoundDestination
+	Payload                     []byte
+	PayloadRef                  string
+	IdempotencyKey              string
+	State                       EpisodeEffectState
+	Attempts                    int
+	NextAttemptAt               time.Time
+	LeaseOwner                  string
+	FencingToken                int64
+	LeaseExpiresAt              time.Time
+	LastErrorClass              string
+	LastError                   string
+	ExternalRef                 string
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	CompletedAt                 time.Time
+}
+
+type EpisodeWakeupState string
+
+const (
+	WakeupPending   EpisodeWakeupState = "pending"
+	WakeupLeased    EpisodeWakeupState = "leased"
+	WakeupResolved  EpisodeWakeupState = "resolved"
+	WakeupExpired   EpisodeWakeupState = "expired"
+	WakeupCancelled EpisodeWakeupState = "cancelled"
+)
+
+type EpisodeWakeup struct {
+	ID              string
+	EpisodeID       string
+	Kind            string
+	EventMatcher    []byte
+	DueAt           time.Time
+	PollAfter       time.Time
+	Deadline        time.Time
+	State           EpisodeWakeupState
+	LastObservation []byte
+	LeaseOwner      string
+	FencingToken    int64
+	LeaseExpiresAt  time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	ResolvedAt      time.Time
 }
 
 type WorkEpisodeEvent struct {
@@ -828,6 +1033,9 @@ type WorkEpisodeProgress struct {
 
 type AgentRun struct {
 	ID                string
+	EpisodeID         string
+	AttemptID         string
+	AttemptNumber     int
 	Mode              AgentRunMode
 	IncidentID        string
 	ChannelID         string

@@ -1769,6 +1769,74 @@ func TestSchemaV37RecoversOnlyLegacyFailedSyntheticRechecks(t *testing.T) {
 	}
 }
 
+func TestSchemaV38MigratesLegacyWorkEpisodeIntoAuthoritativeKernel(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:37] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC().Format(timestampFormat)
+	if _, err := db.Exec(`
+		INSERT INTO schema_version(version) VALUES (37);
+		INSERT INTO agent_runs (
+		  id, mode, channel_id, thread_ts, conversation_key, source_kind,
+		  source_id, user_id, repository, prompt, idempotency_key, state,
+		  next_attempt_at, created_at, updated_at, started_at, completed_at
+		) VALUES (
+		  'run_v37', 'engineering_task', 'C123', '1700.001',
+		  'slack:C123:1700.001', 'watch', 'input_v37', 'U123', 'emisar',
+		  'Fix the issue.', 'run:v37', 'completed', ?, ?, ?, ?, ?
+		);
+		INSERT INTO work_episodes (
+		  id, agent_run_id, effort, authority, state, objective,
+		  required_coverage_json, completion_criteria_json, phase, status,
+		  next_action, created_at, updated_at, completed_at
+		) VALUES (
+		  'episode_v37', 'run_v37', 'engineering_task', 'repository_write',
+		  'completed', 'Fix the issue.', '[]', '["validated"]', 'complete',
+		  'Completed', 'None', ?, ?, ?
+		);
+	`, now, now, now, now, now, now, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	episode, err := st.GetWorkEpisode(context.Background(), "episode_v37")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeCompleted || episode.Mode != core.EpisodeEngineering ||
+		episode.Conversation.ChannelID != "C123" || episode.Conversation.ThreadTS != "1700.001" ||
+		episode.Destination.ChannelID != "C123" || episode.Destination.ThreadTS != "1700.001" ||
+		episode.LatestAttemptID != "attempt_run_v37" {
+		t.Fatalf("migrated episode = %+v", episode)
+	}
+	attempt, err := st.GetEpisodeAttempt(context.Background(), "attempt_run_v37")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.EpisodeID != episode.ID || attempt.AgentRunID != "run_v37" ||
+		attempt.Number != 1 || attempt.State != core.AttemptSucceeded {
+		t.Fatalf("migrated attempt = %+v", attempt)
+	}
+}
+
 func TestIncidentChannelLifecycleBlocksAndRestoresOpenIncident(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))
