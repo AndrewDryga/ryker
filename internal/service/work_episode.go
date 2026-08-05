@@ -177,9 +177,6 @@ func validateCapabilityGap(gap investigation.CapabilityGap) error {
 		if gap.PackID == "" {
 			return errors.New("requires an evidence-backed pack_id")
 		}
-		if !strings.Contains(strings.ToLower(gap.Recommendation), strings.ToLower(gap.PackID)) {
-			return errors.New("recommendation must name its pack_id")
-		}
 	case "not_found":
 		if gap.PackID != "" || gap.PackRef != "" {
 			return errors.New("not_found cannot name a pack")
@@ -256,13 +253,17 @@ func appendCapabilityGuidance(
 	var recommendations []string
 	allNotFound := true
 	for _, gap := range completion.CapabilityGaps {
-		if containsFold(*target, gap.Recommendation) {
+		recommendation := gap.Recommendation
+		if gap.PackID != "" && !containsFold(recommendation, gap.PackID) {
+			recommendation = "`" + gap.PackID + "`: " + recommendation
+		}
+		if containsFold(*target, recommendation) {
 			continue
 		}
 		if gap.Status != "not_found" {
 			allNotFound = false
 		}
-		recommendations = append(recommendations, gap.Recommendation)
+		recommendations = append(recommendations, recommendation)
 	}
 	if len(recommendations) == 0 {
 		return message, followups

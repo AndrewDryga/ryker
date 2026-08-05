@@ -4800,21 +4800,37 @@ func TestStructuredResultFailureNoticeIsOperatorFacing(t *testing.T) {
 
 func TestStructuredCorrectionBudgetIsBounded(t *testing.T) {
 	if terminalStructuredCorrection(1, 20) ||
-		terminalStructuredCorrection(2, 20) ||
-		!terminalStructuredCorrection(3, 20) ||
+		terminalStructuredCorrection(19, 20) ||
+		!terminalStructuredCorrection(20, 20) ||
 		!terminalStructuredCorrection(1, 1) {
-		t.Fatal("structured correction budget does not stop after three attempts")
+		t.Fatal("structured correction budget does not honor the configured run attempts")
 	}
 }
 
 func TestWatchStructuredCorrectionBudgetIsIndependentFromRunFailures(t *testing.T) {
 	state := watchTurnState{}
-	first := consumeWatchStructuredCorrection(&state, 20)
-	second := consumeWatchStructuredCorrection(&state, 20)
-	third := consumeWatchStructuredCorrection(&state, 20)
-	if first || second || !third ||
-		state.StructuredCorrections != 3 {
+	first := consumeWatchStructuredCorrection(&state, 4)
+	second := consumeWatchStructuredCorrection(&state, 4)
+	third := consumeWatchStructuredCorrection(&state, 4)
+	fourth := consumeWatchStructuredCorrection(&state, 4)
+	if first || second || third || !fourth ||
+		state.StructuredCorrections != 4 {
 		t.Fatalf("watch correction state = %+v", state)
+	}
+}
+
+func TestAgentRunContinuationPromptCarriesStructuredCorrection(t *testing.T) {
+	prompt := agentRunContinuationPrompt(core.AgentRun{
+		LastError: "the structured agent report is invalid: completion capability gap 1: requires evidence_refs from pack discovery",
+	})
+	for _, required := range []string{
+		"<host-structured-correction>",
+		"requires evidence_refs from pack discovery",
+		"Do not repeat the investigation",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("continuation prompt lacks %q: %s", required, prompt)
+		}
 	}
 }
 

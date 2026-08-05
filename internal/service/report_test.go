@@ -205,6 +205,29 @@ func TestAgentReportRendersOnlyEvidenceBoundPackRecommendation(t *testing.T) {
 	}
 }
 
+func TestAgentReportAddsObservedPackIDToCapabilityGuidance(t *testing.T) {
+	output := `{"message":"The billing check is blocked.",` +
+		`"evidence":[{"id":"pack-catalog","claim":"A billing pack exists",` +
+		`"observation":"The repository catalog contains gcp-billing actions",` +
+		`"source_type":"repository","source_name":"packs/gcp-billing/pack.yaml"}],` +
+		`"completion":{"status":"blocked","summary":"Billing actions are unavailable",` +
+		`"material_gaps":["current billing usage"],"blocker_kind":"capability_unavailable",` +
+		`"attempts":["Searched the live action catalog"],"next_action":"Deploy the observed pack",` +
+		`"capability_gaps":[{"capability":"GCP billing inspection","status":"not_advertised",` +
+		`"pack_id":"gcp-billing","evidence_refs":["pack-catalog"],` +
+		`"recommendation":"Reload the runner after deploying the observed version."}]}}`
+	report, structured, err := parseAgentReport(output)
+	if err != nil || !structured {
+		t.Fatalf("capability report = %+v, structured=%t, err=%v", report, structured, err)
+	}
+	if !strings.Contains(
+		report.Message,
+		"**Capability to add:** `gcp-billing`: Reload the runner",
+	) {
+		t.Fatalf("host did not add the observed pack identity: %q", report.Message)
+	}
+}
+
 func TestAgentReportRecoversMessageFromMalformedFinalEnvelopeAfterCoopProgress(t *testing.T) {
 	output := `I’m checking the repository.{"message":"Audit complete","tool_output":"secret"}`
 	report, structured, err := parseAgentReport(output)

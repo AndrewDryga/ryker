@@ -1422,9 +1422,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 }
 
 func terminalStructuredCorrection(attempt, maximum int) bool {
-	const maximumStructuredCorrections = 3
-
-	return terminalAttempt(attempt, min(maximum, maximumStructuredCorrections))
+	return terminalAttempt(attempt, maximum)
 }
 
 func consumeWatchStructuredCorrection(state *watchTurnState, maximum int) bool {
@@ -1551,6 +1549,16 @@ blocker.
 
 func agentRunContinuationPrompt(run core.AgentRun) string {
 	lower := strings.ToLower(run.LastError)
+	if structuredResultFailure(run.LastError) {
+		return `
+
+<host-structured-correction>
+The previous turn completed its work, but Responder rejected only its final structured report.
+Preserve the work and verified result. Return a corrected report that fixes this exact host validation
+error: ` + boundedField(trimError(errors.New(run.LastError)), 1200) + `
+Do not repeat the investigation or drop completed work merely to repair the response envelope.
+</host-structured-correction>`
+	}
 	if strings.Contains(lower, "acp transcript") {
 		return `
 
@@ -2036,11 +2044,15 @@ func (s *Service) finalizeIncidentAgentRun(
 			})
 		}
 	} else {
-		failure := classifyProviderFailure(detail)
-		message = slackui.TurnFailureMessage(
-			state,
-			failure.Summary+"\n\nReported detail: `"+detail+"`\n\n"+failure.OperatorFix,
-		)
+		if structuredResultFailure(detail) {
+			message = slackui.AgentReportFailureMessage(detail)
+		} else {
+			failure := classifyProviderFailure(detail)
+			message = slackui.TurnFailureMessage(
+				state,
+				failure.Summary+"\n\nReported detail: `"+detail+"`\n\n"+failure.OperatorFix,
+			)
+		}
 		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
 			ID:         "tl_agent_failure_" + run.ID,
 			IncidentID: incident.ID, ChannelID: incident.ChannelID,
