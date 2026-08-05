@@ -260,9 +260,11 @@ Action meanings:
   plain current state, not the monitoring event or an internal verdict. If a RESOLVED notification
   conflicts with fresh live evidence, say plainly that monitoring lost the target and the service
   did not recover. Avoid monitoring shorthand such as alert split, alert family, exporter deficit,
-  or workload recovery. Do not narrate host/scheduler/workload layers, registrations, control-plane
-  state, or an alert path. Translate the checks into what is broken or recovered, why, and what the
-  operator should do next. Default to two short paragraphs under 100 words.
+  or workload recovery. Do not stack implementation terms such as Consul registrations, Nomad
+  allocations, service discovery, exporters, control-plane state, or host/scheduler/workload layers.
+  Use at most one necessary technical term and explain it in common words. Translate the checks into
+  what is broken or recovered, why, and what the operator should do next. Default to two short
+  paragraphs under 100 words.
   Return the same conclusion in alert_assessment with verdict, impact,
   immediate_action, and long_term_solution. Choose action=reply after the investigation, and include
   incident_title only when escalation is useful; the host applies the channel's separately

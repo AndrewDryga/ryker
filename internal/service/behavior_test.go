@@ -444,6 +444,7 @@ func TestOperationalAlertReplyLeadsWithPlainServiceState(t *testing.T) {
 		"monitoring event as subject": "**This resolution is not workload recovery.** Typesense is down.",
 		"monitoring shorthand":        "**Typesense is still down.** The alert split moved to an exporter-deficit alert.",
 		"architecture narration":      "**Typesense has recovered at the host, scheduler, and workload layers.** One alert path check remains.",
+		"implementation nouns":        "**Typesense metrics scraping recovered.** Consul has three exporter registrations and Nomad has one allocation per group.",
 	} {
 		t.Run(name, func(t *testing.T) {
 			decision := watchDecision{Action: "reply", Message: message}

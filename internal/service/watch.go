@@ -1241,6 +1241,20 @@ func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision)
 				"visible status may be misleading, and what to do next"
 		}
 	}
+	technicalTerms := 0
+	for _, term := range []string{
+		"consul", "registration", "nomad allocation", "service discovery",
+		"exporter", "scheduler", "control plane", "control-plane",
+	} {
+		if strings.Contains(normalized, term) {
+			technicalTerms++
+		}
+	}
+	if technicalTerms > 1 {
+		return "rewrite the alert reply for a teammate, not an infrastructure diagram: use at " +
+			"most one necessary technical term and explain it in common words; say whether the " +
+			"service works, what monitoring can see, and whether anyone needs to act"
+	}
 	return ""
 }
 
