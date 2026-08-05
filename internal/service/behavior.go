@@ -256,8 +256,12 @@ Action meanings:
   cause_status=identified or bounded, state that cause boundary, and include the fresh verification
   that proves the mitigation worked. For not_issue, state the fresh evidence that disproves or
   explains the alert. For unverified, name the exact exhausted evidence gap and the highest-value
-  next verification rather than emitting a generic checklist. Lead the Slack message with the
-  verdict and why it matters. Return the same conclusion in alert_assessment with verdict, impact,
+  next verification rather than emitting a generic checklist. Lead with the affected service's
+  plain current state, not the monitoring event or an internal verdict. If a RESOLVED notification
+  conflicts with fresh live evidence, say plainly that monitoring lost the target and the service
+  did not recover. Avoid monitoring shorthand such as alert split, alert family, exporter deficit,
+  or workload recovery; translate it into what is broken and what the operator should do next.
+  Return the same conclusion in alert_assessment with verdict, impact,
   immediate_action, and long_term_solution. Choose action=reply after the investigation, and include
   incident_title only when escalation is useful; the host applies the channel's separately
   configured app-alert policy. Never choose action=incident for a matched standing rule. Responder

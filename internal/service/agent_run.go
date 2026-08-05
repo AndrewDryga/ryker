@@ -1280,6 +1280,9 @@ func (s *Service) stagePolledAgentRunTerminal(
 			}
 			correction := watchDecisionCorrection(input, state, decision)
 			if correction == "" {
+				correction = alertReplyLanguageCorrection(input, decision)
+			}
+			if correction == "" {
 				correction = episodeCompletionCorrection(
 					episode,
 					decision.Action,

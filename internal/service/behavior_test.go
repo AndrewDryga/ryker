@@ -434,6 +434,51 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 	}
 }
 
+func TestOperationalAlertReplyLeadsWithPlainServiceState(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 RESOLVED:2] CRITICAL | Scrape target down\n" +
+			"Target typesense-metrics on nomad-hst01 is DOWN",
+	}
+	for name, message := range map[string]string{
+		"monitoring event as subject": "**This resolution is not workload recovery.** Typesense is down.",
+		"monitoring shorthand":        "**Typesense is still down.** The alert split moved to an exporter-deficit alert.",
+	} {
+		t.Run(name, func(t *testing.T) {
+			decision := watchDecision{Action: "reply", Message: message}
+			if correction := alertReplyLanguageCorrection(input, decision); correction == "" {
+				t.Fatalf("accepted cryptic operational reply %q", message)
+			}
+		})
+	}
+	good := watchDecision{
+		Action: "reply",
+		Message: "**Typesense is still down.** Grafana marked this alert resolved because " +
+			"monitoring stopped seeing the failed node; the service did not recover.\n\n" +
+			"All three instances are stopped because they could not pull their images. Fix the " +
+			"local image mirror, then verify all three instances are running and visible to monitoring.",
+	}
+	if correction := alertReplyLanguageCorrection(input, good); correction != "" {
+		t.Fatalf("rejected plain operational reply: %s", correction)
+	}
+}
+
+func TestAppAlertReplyOmitsInternalEvidenceCount(t *testing.T) {
+	s := &Service{sanitizer: slackui.NewSanitizer(16 << 10)}
+	message := s.watchReplyMessage(
+		core.SlackInput{Kind: "bot_message"},
+		"Typesense is still down.",
+		[]core.Evidence{{Claim: "Typesense is down", SourceType: "emisar"}},
+		[]core.Coverage{{Layer: "workload", Status: "degraded"}},
+	)
+	if len(message.Context) != 0 {
+		t.Fatalf("app alert exposed evidence bookkeeping: %#v", message.Context)
+	}
+	if message.Markdown != "Typesense is still down." {
+		t.Fatalf("markdown = %q", message.Markdown)
+	}
+}
+
 func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

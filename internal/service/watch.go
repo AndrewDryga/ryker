@@ -743,8 +743,8 @@ func (s *Service) applyWatchDecision(
 	case "reply":
 		replyParts := replySequence(decision.Message, decision.FollowupMessages)
 		finalReply := replyParts[len(replyParts)-1]
-		message := slackui.ConciseEvidenceResponse(
-			finalReply, decision.Evidence, decision.Coverage, nil, s.sanitizer,
+		message := s.watchReplyMessage(
+			input, finalReply, decision.Evidence, decision.Coverage,
 		)
 		outcome := "replied"
 		if actionValue, scope, expires, ok := s.prepareMemoryOfferAction(input, decision.MemoryOffer); ok {
@@ -837,12 +837,11 @@ func (s *Service) applyWatchDecision(
 				if schedulePresent {
 					message.Sections = append(message.Sections, question)
 				} else {
-					message = slackui.ConciseEvidenceResponse(
+					message = s.watchReplyMessage(
+						input,
 						taskRepositoryQuestion(finalReply, s.repositoryChoices()),
 						decision.Evidence,
 						decision.Coverage,
-						nil,
-						s.sanitizer,
 					)
 				}
 				outcome = "engineering_task_repository_required"
@@ -1210,6 +1209,60 @@ func watchDecisionCorrection(
 			"answer the current message instead of treating it as a duplicate of an earlier turn"
 	}
 	return ""
+}
+
+func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision) string {
+	if input.Kind != "bot_message" || decision.Action != "reply" ||
+		!operationalAlertEvent(input.Text) {
+		return ""
+	}
+	message := strings.TrimSpace(decision.Message)
+	opening := strings.ToLower(strings.TrimLeft(message, "#*_>` \t\r\n"))
+	for _, prefix := range []string{
+		"this alert", "the alert", "this resolution", "the resolution",
+		"this notification", "the notification", "this signal", "the signal",
+	} {
+		if strings.HasPrefix(opening, prefix) {
+			return "rewrite the alert reply for an operator: open with the affected service or " +
+				"component and its plain current state, then explain any mismatch with the app's " +
+				"status and give one concrete next action with its success check"
+		}
+	}
+	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
+	for _, phrase := range []string{
+		"alert split", "alert family", "alert families", "workload recovery",
+		"exporter-deficit", "lifecycle boundary", "terminal notification",
+	} {
+		if strings.Contains(normalized, phrase) {
+			return "rewrite the alert reply in common operational language; remove monitoring and " +
+				"workflow shorthand such as `" + phrase + "`, say what is actually broken, why the " +
+				"visible status may be misleading, and what to do next"
+		}
+	}
+	return ""
+}
+
+func operationalAlertEvent(text string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	return episodeContainsAny(
+		normalized, " alert", "alert ", "firing", "resolved", "critical", "warning",
+	)
+}
+
+func (s *Service) watchReplyMessage(
+	input core.SlackInput,
+	text string,
+	evidence []core.Evidence,
+	coverage []core.Coverage,
+) slackui.Message {
+	if input.Kind == "bot_message" {
+		// Evidence remains in the ledger. App-alert replies should read like a teammate's
+		// update, not expose Responder's internal bookkeeping count in the channel.
+		return slackui.EvidenceResponse(text, nil, nil, nil, s.sanitizer)
+	}
+	return slackui.ConciseEvidenceResponse(
+		text, evidence, coverage, nil, s.sanitizer,
+	)
 }
 
 func externalAppEventRequiresDecision(text string) bool {

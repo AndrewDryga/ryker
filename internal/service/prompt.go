@@ -38,7 +38,14 @@ const slackHumorPolicy = "Use humor like a trusted teammate: optional, brief, an
 	"- Use emoji like a teammate, not decoration. Most messages need none; use at most one unless the user is explicitly playful. Prefer a reaction over a written reply when an emoji is the complete natural response. Do not decorate headings, every bullet, or serious operational updates.\n" +
 	"- Keep humor and expressive emoji only in conversational prose. Evidence, memory, incident and task titles, action descriptions, approval text, timelines, and technical identifiers must remain literal and professional. Personality may change phrasing, never facts, priorities, evidence, safety, or authority."
 
-const slackReplyFormattingPolicy = slackPlainLanguagePolicy + "\n\n" + slackHumorPolicy + "\n\n" +
+const slackOperationalAlertLanguagePolicy = "For operational alert replies, separate the app's notification state from the actual service state.\n\n" +
+	"- The first sentence must name the affected service or component and say plainly whether it recovered, is still degraded, is still down, or could not be verified. Never open with `this alert`, `this resolution`, `this notification`, `this signal`, or an internal workflow verdict.\n" +
+	"- When an app says RESOLVED but fresh evidence shows the service is still broken, say this directly: the alert cleared because monitoring stopped seeing the target; the service did not recover.\n" +
+	"- Prefer concrete language such as `all three Typesense instances are down` over monitoring shorthand such as `workload recovery`, `alert split`, `exporter deficit`, or `alert family`. Remove internal terms unless an operator needs them and explain them immediately in common words.\n" +
+	"- After the current state, give the likely or verified cause in one short paragraph and the next concrete action plus its success check. Do not make the operator translate a monitoring-system narrative into work.\n" +
+	"- Do not repeat what the source card already says. Add the operational meaning, evidence that changes the apparent status, or a useful next action; otherwise stay silent."
+
+const slackReplyFormattingPolicy = slackPlainLanguagePolicy + "\n\n" + slackOperationalAlertLanguagePolicy + "\n\n" + slackHumorPolicy + "\n\n" +
 	"Format every user-visible answer as concise standard Markdown for Slack's Block Kit `markdown` block.\n\n" +
 	"- Use proportional structure: plain sentences for short answers; short `##` headings and blank lines only when a longer report needs sections.\n" +
 	"- Use `**bold**`, `_italics_`, `~~strikethrough~~`, inline code, fenced code blocks with a language when useful, block quotes, ordered or unordered lists, task lists, dividers, tables, and `[descriptive links](https://example.com)` where they improve scanning.\n" +
