@@ -313,8 +313,12 @@ func (s *Service) applyPublicationUpdates(
 		if err != nil {
 			return err
 		}
+		sourceKey := externalLifecycleCorrelationKey(input.Text)
+		if sourceKey == "" {
+			sourceKey = input.ID
+		}
 		eventKey := publicationLifecycleKey(
-			update.IncidentID, input.ID, update.Kind, update.State,
+			update.IncidentID, sourceKey, update.Kind, update.State,
 			strings.ToLower(update.Reference),
 		)
 		summary := update.Summary

@@ -21,10 +21,23 @@ var externalLifecycleSubjects = []string{
 }
 
 var externalLifecyclePendingStates = []string{
-	"planning", "planned", "pending", "waiting", "queued", "running", "applying",
+	"created", "planning", "planned", "pending", "waiting", "queued", "running", "applying",
 	"in progress", "needs confirmation", "cost estimating", "policy checking",
 	"policy checked", "confirmed",
 }
+
+type externalLifecyclePhase string
+
+const (
+	externalLifecycleUnknown    externalLifecyclePhase = "unknown"
+	externalLifecycleCreated    externalLifecyclePhase = "created"
+	externalLifecyclePlanning   externalLifecyclePhase = "planning"
+	externalLifecycleReviewable externalLifecyclePhase = "reviewable"
+	externalLifecycleApplying   externalLifecyclePhase = "applying"
+	externalLifecycleSucceeded  externalLifecyclePhase = "succeeded"
+	externalLifecycleFailed     externalLifecyclePhase = "failed"
+	externalLifecycleStopped    externalLifecyclePhase = "stopped"
+)
 
 var (
 	externalLifecycleLinkPattern = regexp.MustCompile(`<((?:https?://)[^>|]+)(?:\|[^>]*)?>`)
@@ -64,6 +77,112 @@ func shouldReconcileExternalMessage(text string) bool {
 		}
 	}
 	return false
+}
+
+// externalMessageLifecyclePhase classifies only explicit lifecycle status lines.
+// This keeps ordinary prose such as "the job is running slowly" out of the
+// deterministic Slack routing policy.
+func externalMessageLifecyclePhase(text string) externalLifecyclePhase {
+	phase := externalLifecycleUnknown
+	for _, line := range strings.Split(strings.ToLower(text), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !externalLifecycleStatusLine(line) {
+			continue
+		}
+		switch {
+		case containsLifecycleState(line,
+			"errored", "failed", "failure", "apply failed", "run errored",
+		):
+			return externalLifecycleFailed
+		case containsLifecycleState(line,
+			"discarded", "cancelled", "canceled", "stopped",
+		):
+			return externalLifecycleStopped
+		case containsLifecycleState(line,
+			"applied", "succeeded", "successful", "completed", "finished",
+		):
+			phase = externalLifecycleSucceeded
+		case containsLifecycleState(line, "applying", "apply in progress"):
+			if phase != externalLifecycleSucceeded {
+				phase = externalLifecycleApplying
+			}
+		case containsLifecycleState(line,
+			"planned", "needs confirmation", "needs approval",
+		):
+			if phase == externalLifecycleUnknown || phase == externalLifecycleCreated ||
+				phase == externalLifecyclePlanning {
+				phase = externalLifecycleReviewable
+			}
+		case containsLifecycleState(line,
+			"planning", "cost estimating", "policy checking", "policy checked",
+		):
+			if phase == externalLifecycleUnknown || phase == externalLifecycleCreated {
+				phase = externalLifecyclePlanning
+			}
+		case containsLifecycleState(line,
+			"created", "pending", "waiting", "queued", "running", "in progress",
+		):
+			if phase == externalLifecycleUnknown {
+				phase = externalLifecycleCreated
+			}
+		}
+	}
+	return phase
+}
+
+func externalLifecycleStatusLine(line string) bool {
+	if strings.HasPrefix(line, "status:") || strings.HasPrefix(line, "state:") {
+		return true
+	}
+	for _, subject := range externalLifecycleSubjects {
+		if strings.HasPrefix(line, subject+" ") || strings.HasPrefix(line, subject+":") {
+			return true
+		}
+	}
+	return false
+}
+
+func containsLifecycleState(line string, states ...string) bool {
+	for _, state := range states {
+		if line == state || strings.Contains(line, " "+state) ||
+			strings.Contains(line, state+" ") || strings.Contains(line, state+" -") ||
+			strings.Contains(line, state+":") {
+			return true
+		}
+	}
+	return false
+}
+
+func enforceExternalLifecycleCommunication(
+	input core.SlackInput,
+	decision watchDecision,
+) watchDecision {
+	if input.Kind != "bot_message" {
+		return decision
+	}
+	phase := externalMessageLifecyclePhase(input.Text)
+	switch phase {
+	case externalLifecycleCreated, externalLifecyclePlanning:
+		decision.PublicationUpdates = nil
+		return suppressWatchDecision(
+			decision,
+			"host correlated a non-actionable external lifecycle update without public narration",
+		)
+	case externalLifecycleApplying:
+		return suppressWatchDecision(
+			decision,
+			"host correlated an in-progress external lifecycle update without public narration",
+		)
+	case externalLifecycleReviewable:
+		if decision.Completion == nil || decision.Completion.Verdict == "" ||
+			decision.Completion.Verdict == "in_progress" {
+			return suppressWatchDecision(
+				decision,
+				"host suppressed a plan-status update without a completed material review",
+			)
+		}
+	}
+	return decision
 }
 
 func externalLifecycleCorrelationKey(text string) string {

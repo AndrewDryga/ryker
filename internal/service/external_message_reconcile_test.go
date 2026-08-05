@@ -223,6 +223,7 @@ func TestStartupBackfillsRecentInProgressExternalMessages(t *testing.T) {
 
 func TestExternalLifecycleReconciliationIsProviderNeutralAndBounded(t *testing.T) {
 	for _, text := range []string{
+		"Run Created",
 		"Run Planning",
 		"Deployment in progress",
 		"Workflow queued",
@@ -250,6 +251,70 @@ func TestExternalLifecycleReconciliationIsProviderNeutralAndBounded(t *testing.T
 	} {
 		if actual := externalLifecycleCorrelationKey(input); actual != expected {
 			t.Errorf("correlation key for %q = %q, want %q", input, actual, expected)
+		}
+	}
+}
+
+func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *testing.T) {
+	updates := []publicationUpdate{{
+		IncidentID: "task-1", Kind: "terraform", State: "pending",
+		Reference: "0123456", Summary: "Terraform is applying.",
+	}}
+	base := watchDecision{
+		Action: "reply", Message: "Terraform is still running.",
+		PublicationUpdates: updates,
+	}
+	for _, test := range []struct {
+		name             string
+		status           string
+		wantAction       string
+		wantPublications int
+	}{
+		{name: "created", status: "Run Created", wantAction: "ignore"},
+		{name: "planning", status: "Run Planning", wantAction: "ignore"},
+		{name: "applying", status: "Run Applying", wantAction: "ignore", wantPublications: 1},
+		{name: "failed", status: "Run Errored", wantAction: "reply", wantPublications: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			decision := enforceExternalLifecycleCommunication(core.SlackInput{
+				Kind: "bot_message", Text: "Run run-abc\n" + test.status,
+			}, base)
+			if decision.Action != test.wantAction ||
+				len(decision.PublicationUpdates) != test.wantPublications {
+				t.Fatalf("decision = %+v", decision)
+			}
+		})
+	}
+
+	inProgress := base
+	inProgress.Completion = &completionAssessment{
+		Status: "decision_ready", Verdict: "in_progress", Summary: "The run is applying.",
+	}
+	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+		Kind: "bot_message", Text: "Run run-abc\nRun Planned - Needs Confirmation",
+	}, inProgress); decision.Action != "ignore" {
+		t.Fatalf("nonterminal plan narration was not suppressed: %+v", decision)
+	}
+	materialReview := base
+	materialReview.Message = "The plan replaces a production database. Hold it for review."
+	materialReview.Completion = &completionAssessment{
+		Status: "decision_ready", Verdict: "needs_review", Summary: "Replacement needs review.",
+	}
+	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+		Kind: "bot_message", Text: "Run run-abc\nRun Planned - Needs Confirmation",
+	}, materialReview); decision.Action != "reply" {
+		t.Fatalf("material plan review was suppressed: %+v", decision)
+	}
+}
+
+func TestExternalLifecyclePhaseDoesNotClassifyConversationProse(t *testing.T) {
+	for _, text := range []string{
+		"A teammate said the job is running slowly.",
+		"Can you explain why the apply failed?",
+		"The deployment plan needs review.",
+	} {
+		if phase := externalMessageLifecyclePhase(text); phase != externalLifecycleUnknown {
+			t.Errorf("phase for %q = %q", text, phase)
 		}
 	}
 }

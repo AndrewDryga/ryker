@@ -277,6 +277,8 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 		{name: "omitted"},
 		{name: "decision ready", completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy"}},
 		{name: "decision ready with follow-up", completion: &completionAssessment{Status: "decision_ready", Summary: "The schedule is ready for confirmation", NextAction: "Confirm the schedule"}},
+		{name: "terminal failure with bounded gap", completion: &completionAssessment{Status: "decision_ready", Verdict: "failed", Summary: "The apply failed", MaterialGaps: []string{"partial effects are unknown"}, NextAction: "Reconcile state before retrying"}},
+		{name: "terminal failure gap without action", completion: &completionAssessment{Status: "decision_ready", Verdict: "failed", Summary: "The apply failed", MaterialGaps: []string{"partial effects are unknown"}}, wantError: true},
 		{name: "decision with gap", completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy", MaterialGaps: []string{"database"}}, wantError: true},
 		{name: "blocked", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", Attempts: []string{"Monitoring query returned permission denied"}, NextAction: "Restore access"}},
 		{name: "blocked capability", completion: &completionAssessment{Status: "blocked", Summary: "GitHub Actions inspection is unavailable", MaterialGaps: []string{"exact workflow result"}, BlockerKind: "capability_unavailable", Attempts: []string{"Searched find_actions and list_packs"}, NextAction: "Install the observed pack", CapabilityGaps: []investigation.CapabilityGap{{Capability: "GitHub Actions run inspection", Status: "not_installed", PackID: "github-cli", EvidenceRefs: []string{"pack-catalog"}, Recommendation: "Install the `github-cli` pack on the operations runner."}}}},
@@ -325,6 +327,19 @@ func TestFocusedChangeReviewUsesLifecycleVerdict(t *testing.T) {
 	completion.Verdict = "succeeded"
 	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); got == "" {
 		t.Fatalf("success without terminal evidence accepted: %q", got)
+	}
+	coverage[0].Status = "unhealthy"
+	coverage[0].Detail = "The exact Terraform run is terminally errored after apply began."
+	completion.Verdict = "failed"
+	completion.Summary = "The apply failed; reconcile possible partial changes before retrying."
+	completion.MaterialGaps = []string{"the exact partial infrastructure changes are not yet known"}
+	completion.NextAction = "Inspect the terminal run diagnostics and refresh state before any retry."
+	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); got != "" {
+		t.Fatalf("bounded terminal failure rejected: %q", got)
+	}
+	completion.NextAction = ""
+	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); got == "" {
+		t.Fatal("terminal failure without a safe next action was accepted")
 	}
 }
 

@@ -149,14 +149,14 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 		}
 	}
 	if len(contradicted) > 0 {
-		if ledger.negativeHealthVerdictIsDecisive(verdict) {
+		if ledger.negativeVerdictIsDecisive(verdict) {
 			return ""
 		}
 		sort.Strings(contradicted)
 		return "required claims still contain unresolved contradictions: " + strings.Join(contradicted, ", ")
 	}
 	if len(missing) > 0 {
-		if ledger.negativeHealthVerdictIsDecisive(verdict) {
+		if ledger.negativeVerdictIsDecisive(verdict) {
 			return ""
 		}
 		sort.Strings(missing)
@@ -165,7 +165,19 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 	return ""
 }
 
-func (ledger Ledger) negativeHealthVerdictIsDecisive(verdict string) bool {
+func (ledger Ledger) negativeVerdictIsDecisive(verdict string) bool {
+	if ledger.Contract.Completion.ConclusionKind == "change_review" && verdict == "failed" {
+		for _, view := range ledger.Claims {
+			if !view.Requirement.Required || view.Requirement.Layer != "change" ||
+				view.CoverageStatus != "unhealthy" {
+				continue
+			}
+			if len(view.Evidence) > 0 || len(view.Contradictions) > 0 {
+				return true
+			}
+		}
+		return false
+	}
 	if ledger.Contract.Completion.ConclusionKind != "operational_health" ||
 		(verdict != "degraded" && verdict != "unhealthy") {
 		return false

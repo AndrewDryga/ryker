@@ -261,6 +261,30 @@ func TestLedgerAcceptsContradictedPropositionAsUnhealthyEvidence(t *testing.T) {
 	}
 }
 
+func TestLedgerAcceptsTerminalChangeFailureWithUnknownPartialEffects(t *testing.T) {
+	now := time.Date(2026, 8, 4, 23, 31, 0, 0, time.UTC)
+	contract := Compile(core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"change"},
+		Objective: "Review Terraform run run-6d2hQfNJrTeyAP4T",
+	})
+	claimID := contract.Claims[0].ID
+	ledger := BuildLedger(contract, []core.Evidence{{
+		ID: "terminal-run", ClaimID: claimID, Relation: "contradicts",
+		SourceType: "emisar", SourceName: "tfc.run_details", Confidence: "high",
+		ObservedAt: now, Observation: "The exact run is terminally errored after apply began.",
+		Dimensions: map[string]string{
+			"repository": "SME-Tenant/tenant-infra", "environment": "production",
+			"revision": "ddd526f",
+		},
+	}}, []core.Coverage{{
+		Layer: "change", ClaimIDs: []string{claimID}, Status: "unhealthy",
+		Detail: "The apply failed; partial effects still require state reconciliation.",
+	}}, now)
+	if correction := ledger.CompletionCorrectionFor("decision_ready", "failed"); correction != "" {
+		t.Fatalf("terminal failure correction = %q", correction)
+	}
+}
+
 func TestLedgerRejectsPositiveEvidencePairedWithUnhealthyCoverage(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	contract := Compile(core.WorkEpisode{

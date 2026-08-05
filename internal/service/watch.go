@@ -1069,6 +1069,7 @@ func suppressWatchDecision(decision watchDecision, reason string) watchDecision 
 	decision.Reaction = ""
 	decision.Message = ""
 	decision.FollowupMessages = nil
+	decision.Visuals = nil
 	decision.Title = ""
 	decision.IncidentTitle = ""
 	decision.TaskTitle = ""
@@ -1079,6 +1080,8 @@ func suppressWatchDecision(decision watchDecision, reason string) watchDecision 
 	decision.RuleOffer = nil
 	decision.ScheduleOffer = nil
 	decision.PendingApproval = nil
+	decision.AlertAssessment = nil
+	decision.Completion = nil
 	decision.Reason = strings.TrimSpace(
 		decision.Reason + "; " + reason,
 	)

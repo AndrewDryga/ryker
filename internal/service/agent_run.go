@@ -1206,6 +1206,17 @@ func (s *Service) stagePolledAgentRunTerminal(
 					time.Now(),
 				)
 			}
+			originalAction := decision.Action
+			originalPublicationUpdates := len(decision.PublicationUpdates)
+			decision = enforceExternalLifecycleCommunication(input, decision)
+			if decision.Action != originalAction ||
+				len(decision.PublicationUpdates) != originalPublicationUpdates {
+				marshaledResult, marshalErr := json.Marshal(decision)
+				if marshalErr != nil {
+					return marshalErr
+				}
+				result = marshaledResult
+			}
 			correction := watchDecisionCorrection(input, state, decision)
 			if correction == "" {
 				episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)

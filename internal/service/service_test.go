@@ -378,7 +378,7 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
 	input := core.SlackInput{
 		ID: "input-deploy-1", Kind: "bot_message", ChannelID: "CDEPLOY",
-		MessageTS: "1700.200", Text: "Deployment of 0123456 completed successfully.",
+		MessageTS: "1700.200", Text: "Run run-abc\nRevision 0123456\nRun Applying",
 	}
 	state := watchTurnState{ActivePublications: []core.PublicationContext{{
 		IncidentID: incident.ID, PRNumber: 493, PRURL: publication.PRURL,
@@ -391,6 +391,8 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	if err := svc.applyPublicationUpdates(ctx, input, state, updates); err != nil {
 		t.Fatal(err)
 	}
+	input.ID = "input-deploy-2"
+	input.MessageTS = "1700.300"
 	if err := svc.applyPublicationUpdates(ctx, input, state, updates); err != nil {
 		t.Fatal(err)
 	}

@@ -71,7 +71,8 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 		if completion.Summary == "" {
 			return errors.New("decision-ready completion requires a summary")
 		}
-		if len(completion.MaterialGaps) > 0 {
+		boundedFailure := completion.Verdict == "failed" && completion.NextAction != ""
+		if len(completion.MaterialGaps) > 0 && !boundedFailure {
 			return errors.New("decision-ready completion cannot contain material gaps")
 		}
 		if completion.BlockerKind != "" || len(completion.Attempts) > 0 {
@@ -696,14 +697,18 @@ func episodeCompletionCorrection(
 		return "the deep work episode has not assessed required coverage layers: " + strings.Join(missing, ", ")
 	}
 	if completion.Status == "decision_ready" && (len(completion.MaterialGaps) > 0 || len(unknown) > 0) {
+		change := covered["change"]
+		boundedTerminalFailure := contract.Completion.ConclusionKind == "change_review" &&
+			completion.Verdict == "failed" && change.Status == "unhealthy" &&
+			strings.TrimSpace(completion.NextAction) != ""
 		unknownAllowed := contract.Completion.ConclusionKind == "operational_health" ||
 			(contract.Completion.ConclusionKind == "change_review" &&
 				(completion.Verdict == "in_progress" || completion.Verdict == "needs_review" ||
-					completion.Verdict == "inconclusive")) ||
+					completion.Verdict == "inconclusive" || boundedTerminalFailure)) ||
 			(contract.Completion.ConclusionKind == "factual_assessment" &&
 				(completion.Verdict == "" || completion.Verdict == "not_confirmed" ||
 					completion.Verdict == "inconclusive"))
-		if !unknownAllowed || len(completion.MaterialGaps) > 0 {
+		if !unknownAllowed || (len(completion.MaterialGaps) > 0 && !boundedTerminalFailure) {
 			return "the result claims decision_ready while material coverage remains unknown; either continue the investigation or return blocked with the exact next action"
 		}
 	}

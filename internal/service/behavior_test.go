@@ -970,9 +970,11 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	if created, err := st.AdmitSlackInput(ctx, pending); err != nil || !created {
 		t.Fatalf("admit pending plan = %t, %v", created, err)
 	}
+	// The host owns lifecycle communication. Even if the model tries to narrate
+	// an intermediate state, no public reply should be posted.
 	coopClient.completeOnSubmit = `{
-	  "action":"ignore",
-	  "reason":"the plan is still being produced and has no reviewable result yet"
+	  "action":"reply",
+	  "message":"The Terraform run is planning. I will wait for the plan."
 	}`
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
@@ -998,6 +1000,62 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	incidents, err := st.ListIncidents(ctx, 20)
 	if err != nil || len(incidents) != 0 {
 		t.Fatalf("standing rule created work = %+v, %v", incidents, err)
+	}
+
+	failed := core.SlackInput{
+		ID: "slack_plan_failed", EnvelopeID: "env_plan_failed", EventID: "EvPlanFailed",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1700.402", UserID: "BTERRAFORM",
+		Text: "Run notification for <https://app.terraform.io/app/SME-Tenant/tenant-infra|SME-Tenant/tenant-infra>\n" +
+			"<https://app.terraform.io/app/SME-Tenant/tenant-infra/runs/run-6d2hQfNJrTeyAP4T|Run run-6d2hQfNJrTeyAP4T>\n" +
+			"CI apply - ddd526f205c76b0499b4d755a2a0c3d197d7acdf\nRun Errored",
+	}
+	if created, err := st.AdmitSlackInput(ctx, failed); err != nil || !created {
+		t.Fatalf("admit terminal failure = %t, %v", created, err)
+	}
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "message":"Apply failed after execution began. Do not retry it yet; inspect the exact diagnostics and reconcile state first because partial changes are still unknown.",
+	  "evidence":[{
+	    "claim_id":"change.recent",
+	    "claim":"the run reached its intended terminal state",
+	    "observation":"run-6d2hQfNJrTeyAP4T is terminally errored after apply began",
+	    "relation":"contradicts",
+	    "source_type":"emisar",
+	    "source_name":"tfc.run_details",
+	    "confidence":"high",
+	    "dimensions":{"repository":"SME-Tenant/tenant-infra","environment":"production","revision":"ddd526f"}
+	  }],
+	  "coverage":[{
+	    "layer":"change",
+	    "claim_ids":["change.recent"],
+	    "status":"unhealthy",
+	    "detail":"The exact Terraform run is terminally errored after apply began."
+	  }],
+	  "completion":{
+	    "status":"decision_ready",
+	    "verdict":"failed",
+	    "summary":"The apply failed and possible partial changes must be reconciled before retrying.",
+	    "material_gaps":["the exact partial infrastructure changes are not yet known"],
+	    "next_action":"Inspect terminal diagnostics and refresh state before any retry."
+	  }
+	}`
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != postsAfterReview+1 {
+		run, runErr := st.GetAgentRunBySource(ctx, "watch", failed.ID)
+		t.Fatalf(
+			"terminal failure reply count = %d, want %d; run=%+v err=%v",
+			len(slackClient.posts), postsAfterReview+1, run, runErr,
+		)
+	}
+	terminalPost := slackClient.posts[len(slackClient.posts)-1]
+	if terminalPost.thread != failed.MessageTS ||
+		!strings.Contains(terminalPost.message.Text, "Apply failed") ||
+		!strings.Contains(terminalPost.message.Text, "Do not retry") {
+		t.Fatalf("terminal failure reply = %+v", terminalPost)
 	}
 }
 
