@@ -384,6 +384,49 @@ func TestTerminalLifecycleEvidenceIsHostBoundBeforeCompletionValidation(t *testi
 	}
 }
 
+func TestTerminalLifecycleEvidencePreservesTypedOperationsTransport(t *testing.T) {
+	observedAt := time.Date(2026, 8, 4, 23, 31, 0, 0, time.UTC)
+	input := core.SlackInput{
+		ID: "slack-run-failed", EventID: "EvRunFailed", Kind: "bot_message",
+		ReceivedAt: observedAt,
+		Text: "Run notification for <https://example.com/acme/infra|acme/infra>\n" +
+			"<https://example.com/acme/infra/runs/run-abc|Run run-abc>\nRun Errored",
+	}
+	message := `{"action":"reply","operations":[` +
+		`{"id":"coverage-change","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"unknown","detail":"Partial effects are unknown."}},` +
+		`{"id":"complete","type":"complete_episode","completion":{"message":"The apply failed; inspect the exact diagnostic before retrying.","completion":{"status":"decision_ready","verdict":"failed","summary":"The apply failed."}}}` +
+		`]}`
+	decision, err := parseWatchDecision(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, adjusted := enforceExternalLifecycleEvidence(input, core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, Objective: "Review the exact Terraform run",
+		RequiredCoverage: []string{"change"},
+	}, decision)
+	if !adjusted {
+		t.Fatal("terminal lifecycle evidence was not adjusted")
+	}
+	encoded, err := marshalWatchDecisionResult(decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed, err := parseWatchDecision(string(encoded))
+	if err != nil {
+		t.Fatalf("reparse typed transport: %v\n%s", err, encoded)
+	}
+	if len(reparsed.Evidence) != 1 || reparsed.Evidence[0].ClaimID != "change.recent" ||
+		reparsed.Evidence[0].HealthEffect != "unhealthy" {
+		t.Fatalf("reparsed evidence = %+v", reparsed.Evidence)
+	}
+	if len(reparsed.Coverage) != 1 || reparsed.Coverage[0].Status != "unhealthy" {
+		t.Fatalf("reparsed coverage = %+v", reparsed.Coverage)
+	}
+	if got := reparsed.Operations[len(reparsed.Operations)-1].Type; got != "complete_episode" {
+		t.Fatalf("last operation = %q", got)
+	}
+}
+
 func TestExternalLifecyclePhaseDoesNotClassifyConversationProse(t *testing.T) {
 	for _, text := range []string{
 		"A teammate said the job is running slowly.",

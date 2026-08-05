@@ -217,6 +217,30 @@ func enforceExternalLifecycleEvidence(
 	if observedAt.IsZero() {
 		observedAt = time.Now().UTC()
 	}
+	terminalEvidence := core.Evidence{
+		ID:           "external_terminal_" + input.ID,
+		ClaimID:      claimID,
+		Claim:        claim,
+		Observation:  "The exact external lifecycle event reports a terminal failure.",
+		Relation:     "contradicts",
+		HealthEffect: "unhealthy",
+		SourceType:   "slack",
+		SourceID:     input.EventID,
+		SourceName:   "External lifecycle event",
+		Target:       externalLifecycleCorrelationKey(input.Text),
+		Freshness:    "Observed in the current source event.",
+		Confidence:   "high",
+		ObservedAt:   observedAt,
+	}
+	terminalCoverage := core.Coverage{
+		Layer:      "change",
+		ClaimIDs:   []string{claimID},
+		Status:     "unhealthy",
+		Source:     "External lifecycle event",
+		Detail:     "The exact external run is terminally failed; cause and partial effects may still require investigation.",
+		ObservedAt: observedAt,
+	}
+
 	hasTerminalEvidence := false
 	for _, item := range decision.Evidence {
 		if item.ClaimID == claimID && item.Relation == "contradicts" &&
@@ -226,21 +250,7 @@ func enforceExternalLifecycleEvidence(
 		}
 	}
 	if !hasTerminalEvidence {
-		decision.Evidence = append(decision.Evidence, core.Evidence{
-			ID:           "external_terminal_" + input.ID,
-			ClaimID:      claimID,
-			Claim:        claim,
-			Observation:  "The exact external lifecycle event reports a terminal failure.",
-			Relation:     "contradicts",
-			HealthEffect: "unhealthy",
-			SourceType:   "slack",
-			SourceID:     input.EventID,
-			SourceName:   "External lifecycle event",
-			Target:       externalLifecycleCorrelationKey(input.Text),
-			Freshness:    "Observed in the current source event.",
-			Confidence:   "high",
-			ObservedAt:   observedAt,
-		})
+		decision.Evidence = append(decision.Evidence, terminalEvidence)
 	}
 
 	coverageFound := false
@@ -249,27 +259,106 @@ func enforceExternalLifecycleEvidence(
 			continue
 		}
 		coverageFound = true
-		decision.Coverage[index].Status = "unhealthy"
-		decision.Coverage[index].Source = "External lifecycle event"
-		decision.Coverage[index].Detail =
-			"The exact external run is terminally failed; cause and partial effects may still require investigation."
+		decision.Coverage[index].Status = terminalCoverage.Status
+		decision.Coverage[index].Source = terminalCoverage.Source
+		decision.Coverage[index].Detail = terminalCoverage.Detail
 		if !containsString(decision.Coverage[index].ClaimIDs, claimID) {
 			decision.Coverage[index].ClaimIDs = append(decision.Coverage[index].ClaimIDs, claimID)
 		}
-		decision.Coverage[index].ObservedAt = observedAt
+		decision.Coverage[index].ObservedAt = terminalCoverage.ObservedAt
 		break
 	}
 	if !coverageFound {
-		decision.Coverage = append(decision.Coverage, core.Coverage{
-			Layer:      "change",
-			ClaimIDs:   []string{claimID},
-			Status:     "unhealthy",
-			Source:     "External lifecycle event",
-			Detail:     "The exact external run is terminally failed; cause and partial effects may still require investigation.",
-			ObservedAt: observedAt,
-		})
+		decision.Coverage = append(decision.Coverage, terminalCoverage)
+	}
+	if len(decision.Operations) > 0 {
+		decision.Operations = bindTerminalLifecycleOperations(
+			decision.Operations,
+			terminalEvidence,
+			terminalCoverage,
+		)
+		decision.AppliedOperations = append(
+			[]investigation.ResultOperation(nil), decision.Operations...,
+		)
 	}
 	return decision, true
+}
+
+// bindTerminalLifecycleOperations preserves the operations-only result
+// transport while adding source facts that the host knows independently of
+// the model. complete_episode must remain the final operation.
+func bindTerminalLifecycleOperations(
+	operations []investigation.ResultOperation,
+	evidence core.Evidence,
+	coverage core.Coverage,
+) []investigation.ResultOperation {
+	result := append([]investigation.ResultOperation(nil), operations...)
+	hasEvidence := false
+	hasCoverage := false
+	completionIndex := len(result)
+	for index := range result {
+		operation := &result[index]
+		if operation.Type == "complete_episode" && completionIndex == len(result) {
+			completionIndex = index
+		}
+		if operation.Type == "record_evidence" && operation.Evidence != nil &&
+			operation.Evidence.ClaimID == evidence.ClaimID &&
+			operation.Evidence.Relation == "contradicts" &&
+			operation.Evidence.HealthEffect == "unhealthy" {
+			hasEvidence = true
+		}
+		if operation.Type == "record_coverage" && operation.Coverage != nil &&
+			operation.Coverage.Layer == coverage.Layer {
+			bound := coverage
+			bound.ClaimIDs = appendUniqueStrings(operation.Coverage.ClaimIDs, coverage.ClaimIDs...)
+			operation.Coverage = &bound
+			hasCoverage = true
+		}
+		if operation.Type == "complete_episode" && operation.Completion != nil {
+			for coverageIndex := range operation.Completion.Coverage {
+				if operation.Completion.Coverage[coverageIndex].Layer != coverage.Layer {
+					continue
+				}
+				bound := coverage
+				bound.ClaimIDs = appendUniqueStrings(
+					operation.Completion.Coverage[coverageIndex].ClaimIDs,
+					coverage.ClaimIDs...,
+				)
+				operation.Completion.Coverage[coverageIndex] = bound
+				hasCoverage = true
+			}
+		}
+	}
+	insert := make([]investigation.ResultOperation, 0, 2)
+	if !hasEvidence {
+		bound := evidence
+		insert = append(insert, investigation.ResultOperation{
+			ID: "host-external-terminal-evidence", Type: "record_evidence", Evidence: &bound,
+		})
+	}
+	if !hasCoverage {
+		bound := coverage
+		insert = append(insert, investigation.ResultOperation{
+			ID: "host-external-terminal-coverage", Type: "record_coverage", Coverage: &bound,
+		})
+	}
+	if len(insert) == 0 {
+		return result
+	}
+	result = append(result, make([]investigation.ResultOperation, len(insert))...)
+	copy(result[completionIndex+len(insert):], result[completionIndex:])
+	copy(result[completionIndex:], insert)
+	return result
+}
+
+func appendUniqueStrings(values []string, candidates ...string) []string {
+	result := append([]string(nil), values...)
+	for _, candidate := range candidates {
+		if !containsString(result, candidate) {
+			result = append(result, candidate)
+		}
+	}
+	return result
 }
 
 func containsString(values []string, candidate string) bool {

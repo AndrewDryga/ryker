@@ -132,6 +132,26 @@ type watchDecision struct {
 	AppliedOperations  []investigation.ResultOperation `json:"-"`
 }
 
+// marshalWatchDecisionResult persists the same transport shape accepted from
+// Coop. Typed operations are folded into legacy fields for validation and
+// rendering, but those projections must not be serialized beside operations.
+func marshalWatchDecisionResult(decision watchDecision) ([]byte, error) {
+	if len(decision.Operations) == 0 {
+		return json.Marshal(decision)
+	}
+	type operationsEnvelope struct {
+		Action             string                          `json:"action"`
+		Attention          attentionAssessment             `json:"attention,omitempty"`
+		Reason             string                          `json:"reason,omitempty"`
+		PublicationUpdates []publicationUpdate             `json:"publication_updates,omitempty"`
+		Operations         []investigation.ResultOperation `json:"operations"`
+	}
+	return json.Marshal(operationsEnvelope{
+		Action: decision.Action, Attention: decision.Attention, Reason: decision.Reason,
+		PublicationUpdates: decision.PublicationUpdates, Operations: decision.Operations,
+	})
+}
+
 type publicationUpdate struct {
 	IncidentID string `json:"incident_id"`
 	Kind       string `json:"kind"`

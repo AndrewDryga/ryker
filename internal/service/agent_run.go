@@ -1272,7 +1272,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 			)
 			if lifecycleEvidenceAdjusted || decision.Action != originalAction ||
 				len(decision.PublicationUpdates) != originalPublicationUpdates {
-				marshaledResult, marshalErr := json.Marshal(decision)
+				marshaledResult, marshalErr := marshalWatchDecisionResult(decision)
 				if marshalErr != nil {
 					return marshalErr
 				}
