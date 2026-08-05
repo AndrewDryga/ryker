@@ -213,6 +213,59 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	return nil
 }
 
+func (s *Service) completeIgnoredLifecycleInput(
+	ctx context.Context,
+	input core.SlackInput,
+	reason string,
+) error {
+	rules, err := s.matchingStandingRules(ctx, input)
+	if err != nil {
+		return err
+	}
+	for _, rule := range rules {
+		if _, err := s.store.RecordStandingRuleRun(
+			ctx, rule.ID, input.ID, input.EventID, "ignore",
+		); err != nil {
+			return err
+		}
+	}
+	_ = s.store.Audit(ctx, core.AuditEvent{
+		Kind: "slack.external_lifecycle", ActorID: input.UserID,
+		ObjectID: input.ID, Outcome: "ignored", Detail: reason,
+	})
+	if !isPrivateSlackVerificationReplay(input) {
+		return s.finishSlackInput(ctx, input)
+	}
+	result, err := json.Marshal(watchDecision{Action: "ignore", Reason: reason})
+	if err != nil {
+		return err
+	}
+	run, _, err := s.store.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+		ThreadTS:        conversationalResponseThread(input),
+		ConversationKey: watchConversationKey(input),
+		SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
+		State: core.AgentRunRunning, StartedAt: time.Now().UTC(),
+		CommitmentTitle: commitmentTitleForInput(input),
+		Episode:         s.episodeForWatchedInput(input, watchTurnState{}),
+	})
+	if err != nil {
+		return err
+	}
+	if err := s.store.StageAgentRunResult(
+		ctx, run.ID, "completed", result, reason, 0,
+	); err != nil {
+		return err
+	}
+	if _, err := s.store.BeginAgentRunFinalization(ctx, run.ID); err != nil {
+		return err
+	}
+	if err := s.store.FinishAgentRun(ctx, run.ID); err != nil {
+		return err
+	}
+	return s.finishSlackInput(ctx, input)
+}
+
 func commitmentTitleForInput(input core.SlackInput) string {
 	text := strings.TrimSpace(boundedOperatorText(input.Text))
 	if text == "" {

@@ -185,6 +185,20 @@ func enforceExternalLifecycleCommunication(
 	return decision
 }
 
+func deterministicExternalLifecycleIgnore(input core.SlackInput) (string, bool) {
+	if input.Kind != "bot_message" {
+		return "", false
+	}
+	switch externalMessageLifecyclePhase(input.Text) {
+	case externalLifecycleCreated, externalLifecyclePlanning:
+		return "host correlated a non-actionable external lifecycle update without public narration", true
+	case externalLifecycleApplying:
+		return "host correlated an in-progress external lifecycle update without public narration", true
+	default:
+		return "", false
+	}
+}
+
 func externalLifecycleCorrelationKey(text string) string {
 	bestLink := ""
 	for _, match := range externalLifecycleLinkPattern.FindAllStringSubmatch(text, -1) {

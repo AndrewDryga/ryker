@@ -181,6 +181,53 @@ func TestSlackMessageVersionIdentityMatchesSocketAndReconciliation(t *testing.T)
 	}
 }
 
+func TestExternalLifecycleFastPathSkipsCoopAndCompletesPrivateReplay(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+
+	input := core.SlackInput{
+		ID: "slack-applying", EnvelopeID: "replay-private:slack-applying",
+		EventID: "replay-private:slack-applying", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CPLAN", MessageTS: "1700.800",
+		UserID: "BTERRAFORM",
+		Text:   "Run notification for acme/infra\nRun run-abc\nRun Applying",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit applying replay = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.createKeys) != 0 || len(coopClient.submitKeys) != 0 {
+		t.Fatalf(
+			"applying lifecycle used Coop: creates=%+v submits=%+v",
+			coopClient.createKeys, coopClient.submitKeys,
+		)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunCompleted {
+		t.Fatalf("deterministic replay run = %+v, %v", run, err)
+	}
+	decision, err := parseWatchDecision(string(run.Result))
+	if err != nil || decision.Action != "ignore" {
+		t.Fatalf("deterministic replay result = %+v, %v", decision, err)
+	}
+	stored, err := st.GetSlackInput(ctx, input.ID)
+	if err != nil || stored.State != "done" {
+		t.Fatalf("deterministic replay input = %+v, %v", stored, err)
+	}
+}
+
 func TestStartupBackfillsRecentInProgressExternalMessages(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

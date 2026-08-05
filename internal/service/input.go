@@ -102,6 +102,12 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		}
 		return nil
 	}
+	if reason, ignore := deterministicExternalLifecycleIgnore(input); ignore {
+		if err := s.completeIgnoredLifecycleInput(ctx, input, reason); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		return nil
+	}
 	// Private verification replays exercise the normal model and tool path, but
 	// cannot impersonate a new human turn or enter a delivery-producing handler.
 	if isPrivateSlackVerificationReplay(input) {

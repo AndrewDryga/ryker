@@ -971,7 +971,9 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 		t.Fatalf("admit pending plan = %t, %v", created, err)
 	}
 	// The host owns lifecycle communication. Even if the model tries to narrate
-	// an intermediate state, no public reply should be posted.
+	// an intermediate state, no public reply should be posted and no model turn
+	// should be needed.
+	submitsBeforePending := len(coopClient.submitPrompts)
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
 	  "message":"The Terraform run is planning. I will wait for the plan."
@@ -987,15 +989,11 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	if err != nil || rule.TriggerCount != 2 {
 		t.Fatalf("rule executions after silent evaluation = %+v, %v", rule, err)
 	}
-	pendingPrompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
-	for _, expected := range []string{
-		"A match is a request to evaluate the event, not an instruction to speak",
-		"action=ignore",
-		"Run Planning",
-	} {
-		if !strings.Contains(pendingPrompt, expected) {
-			t.Fatalf("pending rule prompt lacks %q:\n%s", expected, pendingPrompt)
-		}
+	if len(coopClient.submitPrompts) != submitsBeforePending {
+		t.Fatalf(
+			"pending lifecycle used the model: before=%d after=%d",
+			submitsBeforePending, len(coopClient.submitPrompts),
+		)
 	}
 	incidents, err := st.ListIncidents(ctx, 20)
 	if err != nil || len(incidents) != 0 {
