@@ -280,6 +280,45 @@ func TestPrewarmConversationSessionsUsesConfiguredBoundedLane(t *testing.T) {
 	}
 }
 
+func TestPrewarmConversationSessionsPrefersRecentDynamicLane(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CSTATIC"}
+	cfg.Coop.PrewarmSessions = 1
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.BindConversationSession(
+		ctx, "CDYNAMIC", "repo", "repo-conversation", "ses_dynamic", 3, 1, time.Now(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+
+	svc.prewarmConversationSessions(ctx)
+
+	if len(coopClient.createPolicies) != 0 ||
+		!slices.Equal(coopClient.prepareSessions, []string{"ses_1"}) ||
+		len(coopClient.prepareKeys) != 1 ||
+		!strings.Contains(coopClient.prepareKeys[0], "CDYNAMIC") {
+		t.Fatalf(
+			"dynamic prewarm create=%v prepare=%v keys=%v",
+			coopClient.createPolicies,
+			coopClient.prepareSessions,
+			coopClient.prepareKeys,
+		)
+	}
+}
+
 func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

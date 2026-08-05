@@ -48,7 +48,7 @@ coop:
   socket: /var/lib/responder/coop/control.sock
   request_timeout: 20s
   poll_interval: 250ms
-  # Warm up bounded conversation lanes for this many configured watch/summon channels.
+  # Warm up this many recent or configured conversation lanes across restarts.
   # Set to 0 to avoid allocating any Coop sessions before the first message.
   prewarm_conversation_sessions: 4
   # Internal allocation chunk and automatic lifetime safety ceiling. Operators do not estimate work.
@@ -212,6 +212,11 @@ limits:
   # Refresh durable work-episode progress while a long Coop turn is running. This updates
   # operator-visible commitment state without posting noisy Slack heartbeat messages.
   episode_progress_interval: 2m
+  # Independent scheduler lanes. Increase background workers for installations serving many
+  # active Slack channels; conversation keys still serialize work within one conversation.
+  control_workers: 2
+  background_workers: 3
+  maintenance_workers: 1
   worker_interval: 250ms
   work_lease: 3m
   worker_stall_after: 2m

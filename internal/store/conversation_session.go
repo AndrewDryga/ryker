@@ -46,6 +46,36 @@ func (s *Store) GetConversationSession(
 	return session, nil
 }
 
+// ListRecentConversationChannels returns durable conversation lanes in activity order.
+// Responder uses this to restore warm model sessions for dynamically joined Slack channels.
+func (s *Store) ListRecentConversationChannels(
+	ctx context.Context,
+	limit int,
+) ([]string, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT channel_id
+		FROM conversation_sessions
+		WHERE channel_id != ''
+		ORDER BY updated_at DESC, channel_id
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	channels := make([]string, 0, limit)
+	for rows.Next() {
+		var channelID string
+		if err := rows.Scan(&channelID); err != nil {
+			return nil, err
+		}
+		channels = append(channels, channelID)
+	}
+	return channels, rows.Err()
+}
+
 func (s *Store) BindConversationSession(
 	ctx context.Context,
 	channelID string,

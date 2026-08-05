@@ -112,9 +112,9 @@ func (s *Service) startScheduler(
 		name        string
 		concurrency int
 	}{
-		{store.WorkLaneControl, 2},
-		{store.WorkLaneBackground, 3},
-		{store.WorkLaneMaintenance, 1},
+		{store.WorkLaneControl, s.cfg.Limits.ControlWorkers},
+		{store.WorkLaneBackground, s.cfg.Limits.BackgroundWorkers},
+		{store.WorkLaneMaintenance, s.cfg.Limits.MaintenanceWorkers},
 	} {
 		for range lane.concurrency {
 			group.Add(1)

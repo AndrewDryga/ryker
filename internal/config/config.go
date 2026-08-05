@@ -255,6 +255,9 @@ type Limits struct {
 	MaxSchedulesPerChannel       int      `yaml:"max_schedules_per_channel"`
 	ScheduleMisfireGrace         Duration `yaml:"schedule_misfire_grace"`
 	EpisodeProgressInterval      Duration `yaml:"episode_progress_interval"`
+	ControlWorkers               int      `yaml:"control_workers"`
+	BackgroundWorkers            int      `yaml:"background_workers"`
+	MaintenanceWorkers           int      `yaml:"maintenance_workers"`
 	WorkerInterval               Duration `yaml:"worker_interval"`
 	WorkLease                    Duration `yaml:"work_lease"`
 	WorkerStallAfter             Duration `yaml:"worker_stall_after"`
@@ -354,6 +357,9 @@ func defaults() Config {
 			MaxSchedulesPerChannel:       25,
 			ScheduleMisfireGrace:         Duration{15 * time.Minute},
 			EpisodeProgressInterval:      Duration{2 * time.Minute},
+			ControlWorkers:               2,
+			BackgroundWorkers:            3,
+			MaintenanceWorkers:           1,
 			WorkerInterval:               Duration{250 * time.Millisecond},
 			WorkLease:                    Duration{3 * time.Minute},
 			WorkerStallAfter:             Duration{2 * time.Minute},
@@ -707,6 +713,15 @@ func (c Config) Validate() error {
 	if c.Limits.EpisodeProgressInterval.Duration < 30*time.Second ||
 		c.Limits.EpisodeProgressInterval.Duration > time.Hour {
 		return errors.New("limits.episode_progress_interval must be between 30s and 1h")
+	}
+	for name, count := range map[string]int{
+		"control_workers":     c.Limits.ControlWorkers,
+		"background_workers":  c.Limits.BackgroundWorkers,
+		"maintenance_workers": c.Limits.MaintenanceWorkers,
+	} {
+		if count < 1 || count > 32 {
+			return fmt.Errorf("limits.%s must be between 1 and 32", name)
+		}
 	}
 	if c.Limits.WorkerInterval.Duration < 50*time.Millisecond || c.Limits.WorkerInterval.Duration > 10*time.Second {
 		return errors.New("limits.worker_interval must be between 50ms and 10s")

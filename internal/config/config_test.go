@@ -79,6 +79,9 @@ webhooks:
 		cfg.Limits.MaxSchedulesPerChannel != 25 ||
 		cfg.Limits.ScheduleMisfireGrace.Duration != 15*time.Minute ||
 		cfg.Limits.EpisodeProgressInterval.Duration != 2*time.Minute ||
+		cfg.Limits.ControlWorkers != 2 ||
+		cfg.Limits.BackgroundWorkers != 3 ||
+		cfg.Limits.MaintenanceWorkers != 1 ||
 		cfg.Retention.ConversationMemory.Duration != 90*24*time.Hour ||
 		!cfg.Memory.DreamingEnabled ||
 		cfg.Memory.DreamingInterval.Duration != 6*time.Hour ||
@@ -311,6 +314,9 @@ webhooks:
 		},
 		"too few memory entries": func(s string) string {
 			return s + "limits:\n  max_memory_entries: 9\n"
+		},
+		"too many background workers": func(s string) string {
+			return s + "limits:\n  background_workers: 33\n"
 		},
 		"memory scope exceeds total": func(s string) string {
 			return s + "limits:\n  max_memory_entries: 100\n  max_memory_entries_per_scope: 101\n"

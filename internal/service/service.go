@@ -240,16 +240,36 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 func (s *Service) prewarmConversationSessions(ctx context.Context) {
-	channelIDs := append(
+	recent, err := s.store.ListRecentConversationChannels(
+		ctx,
+		s.cfg.Coop.PrewarmSessions,
+	)
+	if err != nil && ctx.Err() == nil {
+		s.log.Warn("could not list recent conversation sessions for prewarming", "error", err)
+	}
+	configured := append(
 		append([]string(nil), s.cfg.Slack.WatchChannels...),
 		s.cfg.Slack.SummonChannels...,
 	)
-	slices.Sort(channelIDs)
-	channelIDs = slices.Compact(channelIDs)
-	if len(channelIDs) > s.cfg.Coop.PrewarmSessions {
-		channelIDs = channelIDs[:s.cfg.Coop.PrewarmSessions]
+	slices.Sort(configured)
+	channelIDs := make([]string, 0, len(recent)+len(configured))
+	seen := make(map[string]struct{}, len(recent)+len(configured))
+	for _, channelID := range append(recent, configured...) {
+		channelID = strings.TrimSpace(channelID)
+		if channelID == "" {
+			continue
+		}
+		if _, ok := seen[channelID]; ok {
+			continue
+		}
+		seen[channelID] = struct{}{}
+		channelIDs = append(channelIDs, channelID)
 	}
+	prewarmed := 0
 	for _, channelID := range channelIDs {
+		if prewarmed >= s.cfg.Coop.PrewarmSessions {
+			return
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -299,6 +319,7 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 			"channel", channelID,
 			"repository", repositoryKey,
 		)
+		prewarmed++
 	}
 }
 

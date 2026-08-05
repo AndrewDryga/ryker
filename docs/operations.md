@@ -161,8 +161,9 @@ Watched Slack feeds use one current Coop session generation per configured chann
 serialized by Slack message timestamp within each channel and can proceed independently across
 channels.
 `coop.prewarm_conversation_sessions` prepares the bounded conversation lane and its authenticated
-ACP execution environment in the background for up to 20 configured watch or summon channels. The
-default is four. Each warmed lane uses a normal Coop session; the operator-owned Coop policy must
+ACP execution environment in the background for up to 20 recently active or statically configured
+channels. Recent durable conversation lanes take priority, so dynamically joined Slack channels
+remain warm across Responder restarts. The default is four. Each warmed lane uses a normal Coop session; the operator-owned Coop policy must
 also opt in with `warm_idle_timeout`. Coop reuses the same native model session and boxed ACP process
 until that idle lease expires, then removes the process and projected credentials. Session rotation,
 retention, provider-account selection, and policy enforcement are unchanged.
@@ -518,6 +519,11 @@ Normal scheduling deferrals and Coop progress polls do not consume these failure
 failures are counted by `responder_work_failed`.
 For configuration upgrades, the retired `max_outbox_attempts` value seeds any of these four budgets
 that are not explicitly set; new configurations should use only the specific names.
+
+`limits.control_workers`, `limits.background_workers`, and `limits.maintenance_workers` bound
+parallel work in each scheduler lane. Increase `background_workers` when one installation serves
+many active channels; conversation keys continue to serialize work belonging to the same Slack
+conversation. Each value must be between 1 and 32.
 
 `limits.worker_interval` controls how quickly an idle scheduler lane checks for newly due work.
 `limits.work_lease` bounds ownership of one scheduler item; expiry permits safe reclamation with a
