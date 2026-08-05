@@ -182,8 +182,45 @@ func enforceExternalLifecycleCommunication(
 				"host suppressed a plan-status update without a completed material review",
 			)
 		}
+	case externalLifecycleSucceeded:
+		if !successfulExternalLifecycleReplyAddsValue(decision, time.Now().UTC()) {
+			return suppressWatchDecision(
+				decision,
+				"host suppressed a successful lifecycle status that added no fresh runtime result",
+			)
+		}
 	}
 	return decision
+}
+
+// successfulExternalLifecycleReplyAddsValue prevents Responder from narrating
+// a success state already visible in the source app message. A public reply is
+// useful only when the investigation also established a fresh result outside
+// the change pipeline, such as rollout, workload, dependency, or application
+// health. Publication correlations are preserved even when source-channel
+// prose is suppressed.
+func successfulExternalLifecycleReplyAddsValue(
+	decision watchDecision,
+	now time.Time,
+) bool {
+	if decision.Action != "reply" ||
+		!hasFreshOperationalEvidence(sanitizeEvidence(decision.Evidence, "", "", ""), now) {
+		return false
+	}
+	for _, item := range sanitizeCoverage(decision.Coverage, "", "", "") {
+		layer := strings.ToLower(strings.TrimSpace(item.Layer))
+		status := strings.ToLower(strings.TrimSpace(item.Status))
+		if layer == "" || layer == "change" {
+			continue
+		}
+		switch status {
+		case "", "unknown", "unverified", "not_applicable":
+			continue
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // enforceExternalLifecycleEvidence binds facts already established by the

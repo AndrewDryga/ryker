@@ -320,6 +320,7 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 		{name: "created", status: "Run Created", wantAction: "ignore"},
 		{name: "planning", status: "Run Planning", wantAction: "ignore"},
 		{name: "applying", status: "Run Applying", wantAction: "ignore", wantPublications: 1},
+		{name: "succeeded", status: "Run Applied", wantAction: "ignore", wantPublications: 1},
 		{name: "failed", status: "Run Errored", wantAction: "reply", wantPublications: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -351,6 +352,50 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 		Kind: "bot_message", Text: "Run run-abc\nRun Planned - Needs Confirmation",
 	}, materialReview); decision.Action != "reply" {
 		t.Fatalf("material plan review was suppressed: %+v", decision)
+	}
+
+	now := time.Now().UTC()
+	verifiedRollout := base
+	verifiedRollout.Message = "The new revision is serving successfully on both instances."
+	verifiedRollout.Evidence = []core.Evidence{{
+		Claim: "the rollout is healthy", Observation: "both instances serve the new revision",
+		SourceType: "emisar", SourceName: "rollout health", ObservedAt: now,
+	}}
+	verifiedRollout.Coverage = []core.Coverage{{
+		Layer: "workload", Status: "healthy", Source: "rollout health",
+		Detail: "both instances serve the new revision", ObservedAt: now,
+	}}
+	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+		Kind: "bot_message", Text: "Run run-abc\nRun Applied",
+	}, verifiedRollout); decision.Action != "reply" {
+		t.Fatalf("fresh rollout verification was suppressed: %+v", decision)
+	}
+}
+
+func TestSuccessfulLifecycleDoesNotParaphraseVisibleStatusOrOldPlanContext(t *testing.T) {
+	now := time.Now().UTC()
+	decision := enforceExternalLifecycleCommunication(core.SlackInput{
+		Kind: "bot_message",
+		Text: "Run notification for SME-Tenant/tenant-infra\n" +
+			"Run run-RvK3U9VVwhcujW6D\nRun Applied",
+	}, watchDecision{
+		Action: "reply",
+		Message: "run-RvK3U9VVwhcujW6D is applied. This terminal notification closes " +
+			"the Terraform lifecycle check. Runtime verification remains.",
+		Evidence: []core.Evidence{{
+			Claim: "the apply completed", Observation: "HCP Terraform reports Run Applied",
+			SourceType: "monitoring", SourceName: "HCP Terraform", ObservedAt: now,
+		}},
+		Coverage: []core.Coverage{{
+			Layer: "change", Status: "healthy", Source: "HCP Terraform",
+			Detail: "the apply completed", ObservedAt: now,
+		}},
+		Completion: &completionAssessment{
+			Status: "decision_ready", Verdict: "healthy", Summary: "The apply completed.",
+		},
+	})
+	if decision.Action != "ignore" || decision.Message != "" {
+		t.Fatalf("redundant success narration reached Slack: %+v", decision)
 	}
 }
 
