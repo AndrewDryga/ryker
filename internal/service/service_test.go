@@ -6843,6 +6843,7 @@ type fakeCoop struct {
 	createTasks        []string
 	prepareKeys        []string
 	prepareSessions    []string
+	prepareErrors      []error
 	listSessions       []coop.Session
 	createErrors       []error
 	createResultState  string
@@ -6985,6 +6986,13 @@ func (f *fakeCoop) GetSession(context.Context, string) (coop.Session, error) {
 func (f *fakeCoop) PrepareSession(_ context.Context, key, sessionID string, expectedRevision int64) (coop.Session, error) {
 	f.prepareKeys = append(f.prepareKeys, key)
 	f.prepareSessions = append(f.prepareSessions, sessionID)
+	if len(f.prepareErrors) > 0 {
+		err := f.prepareErrors[0]
+		f.prepareErrors = f.prepareErrors[1:]
+		if err != nil {
+			return coop.Session{}, err
+		}
+	}
 	if expectedRevision != f.session.Revision {
 		return coop.Session{}, &coop.APIError{Status: 409, Code: "revision_conflict"}
 	}

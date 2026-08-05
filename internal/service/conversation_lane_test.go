@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -316,6 +317,50 @@ func TestPrewarmConversationSessionsPrefersRecentDynamicLane(t *testing.T) {
 			coopClient.prepareSessions,
 			coopClient.prepareKeys,
 		)
+	}
+}
+
+func TestPrewarmConversationSessionsRotatesChangedPolicy(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = nil
+	cfg.Coop.PrewarmSessions = 1
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.BindConversationSession(
+		ctx, "CSTALE", "repo", "repo-conversation", "ses_1", 1, 1, time.Now(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.openAfterCreateKey = "responder:conversation-session:CSTALE"
+	coopClient.prepareErrors = []error{&coop.APIError{
+		Status: 409,
+		Code:   "invalid_session_state",
+		Detail: "session policy no longer matches the operator policy",
+	}}
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+
+	svc.prewarmConversationSessions(ctx)
+
+	if !slices.Equal(coopClient.prepareSessions, []string{"ses_1", "ses_2"}) {
+		t.Fatalf("prepared conversation sessions = %v", coopClient.prepareSessions)
+	}
+	session, err := st.GetConversationSession(ctx, "CSTALE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.SessionID != "ses_2" {
+		t.Fatalf("rotated conversation session = %+v", session)
 	}
 }
 

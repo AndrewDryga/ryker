@@ -291,7 +291,7 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 		if !ok || strings.TrimSpace(repository.ConversationPolicy) == "" {
 			continue
 		}
-		_, session, err := s.ensureConversationSession(
+		memory, session, err := s.ensureConversationSession(
 			ctx,
 			channelID,
 			repositoryKey,
@@ -304,6 +304,46 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 				session.ID,
 				session.Revision,
 			)
+		}
+		if isCoopSessionPolicyConflict(err) {
+			oldSessionID := memory.SessionID
+			_, detachErr := s.store.DetachConversationSession(
+				ctx,
+				channelID,
+				oldSessionID,
+			)
+			if detachErr == nil {
+				detachErr = s.store.ScheduleCleanup(
+					ctx,
+					oldSessionID,
+					"",
+					"conversation policy changed",
+					false,
+					time.Now().UTC(),
+				)
+			}
+			if detachErr == nil {
+				memory, session, err = s.ensureConversationSession(
+					ctx,
+					channelID,
+					repositoryKey,
+					repository.ConversationPolicy,
+				)
+			}
+			if detachErr != nil {
+				err = errors.Join(err, detachErr)
+			} else if err == nil {
+				_, err = s.coop.PrepareSession(
+					ctx,
+					fmt.Sprintf(
+						"responder:conversation-prepare:%s:%d",
+						channelID,
+						memory.SessionRevision,
+					),
+					session.ID,
+					session.Revision,
+				)
+			}
 		}
 		if err != nil && ctx.Err() == nil {
 			s.log.Warn(
@@ -321,6 +361,13 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 		)
 		prewarmed++
 	}
+}
+
+func isCoopSessionPolicyConflict(err error) bool {
+	var apiErr *coop.APIError
+	return errors.As(err, &apiErr) &&
+		apiErr.Code == "invalid_session_state" &&
+		strings.Contains(strings.ToLower(apiErr.Detail), "policy")
 }
 
 func (s *Service) Ready(ctx context.Context) (bool, string) {
