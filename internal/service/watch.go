@@ -1232,6 +1232,8 @@ func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision)
 	for _, phrase := range []string{
 		"alert split", "alert family", "alert families", "workload recovery",
 		"exporter-deficit", "lifecycle boundary", "terminal notification",
+		"alert path", "host, scheduler, and workload", "scheduler and workload layers",
+		"control-plane state", "exporter registrations",
 	} {
 		if strings.Contains(normalized, phrase) {
 			return "rewrite the alert reply in common operational language; remove monitoring and " +
