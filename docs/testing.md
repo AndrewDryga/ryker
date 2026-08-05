@@ -239,6 +239,25 @@ runs stateful scenarios, and independently verifies high-risk evidence. Add
 Use `responder eval --replay` or `make eval-replay` only for deterministic contract replay. That
 path does not evaluate model behavior and is named accordingly.
 
+## Development gate
+
+Use a focused package or named test while editing:
+
+```bash
+go test ./internal/service -run '^TestName$' -count=1
+```
+
+Before committing, run the fast deterministic repository gate:
+
+```bash
+make dev-check
+```
+
+`make dev-check` runs module tidiness, formatting, vet, shell checks, the Go test suite,
+the checked-in contract replay, and a production build. It deliberately leaves the
+whole-tree race detector, Staticcheck, actionlint, vulnerability scan, and quality-watch
+suite to the full gate. Running bare `make` is equivalent to `make dev-check`.
+
 ## Release gate
 
 ```bash

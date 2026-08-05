@@ -505,7 +505,14 @@ for target validation, policy, approval, execution, and audit; Slack only links 
 approval returned by Emisar. Responder monitors and reports that exact run but cannot approve it,
 substitute another run, or repeat the mutation during terminal verification.
 
-Run the full gate with:
+Use the fast deterministic development gate while iterating:
+
+```bash
+make dev-check
+```
+
+Run the full CI and release gate once before shipping concurrency, persistence, security, or
+shared-contract changes:
 
 ```bash
 make check

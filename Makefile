@@ -1,6 +1,6 @@
-.DEFAULT_GOAL := check
+.DEFAULT_GOAL := dev-check
 
-.PHONY: build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-episode-replay eval-live-canary model-release-check eval-replay customer-check quality-watch-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-episode-replay eval-live-canary model-release-check eval-replay customer-check dev-check quality-watch-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -91,6 +91,9 @@ eval-replay:
 	go run ./cmd/responder eval --replay --input testdata/eval/golden.jsonl
 
 customer-check: test product-e2e eval-replay
+
+# Fast deterministic feedback for normal development. CI and releases use check.
+dev-check: tidy-check lint test eval-replay build
 
 race:
 	go test -race ./...
