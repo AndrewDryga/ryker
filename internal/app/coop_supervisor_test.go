@@ -43,6 +43,23 @@ func TestDoctorUsesAlreadyRunningManagedCoop(t *testing.T) {
 	}
 }
 
+func TestServeAttachesToAlreadyRunningManagedCoop(t *testing.T) {
+	cfg := supervisorTestConfig(t.TempDir(), filepath.Join(t.TempDir(), "missing-coop"))
+	cfg.Coop.RequestTimeout.Duration = time.Second
+	supervisor, err := startManagedCoop(
+		cfg,
+		io.Discard,
+		discardLogger(),
+		fakeCoopReadiness{},
+	)
+	if err != nil || supervisor == nil {
+		t.Fatalf("attach managed Coop supervisor=%v err=%v", supervisor, err)
+	}
+	if err := stopManagedCoop(supervisor, time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEnsureManagedCoopImageBuildsOnlyWhenMissing(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "repo")

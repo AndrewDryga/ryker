@@ -298,11 +298,23 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	lock, lockErr := acquireProcessLock(cfg.StateDir)
 	var st *store.Store
+	responderStatus := "not running (configuration checks only)"
 	switch {
 	case lockErr == nil:
 		st, err = store.Open(cfg.StateDir)
 	case errors.Is(lockErr, errProcessLocked):
 		st, err = store.OpenCurrent(cfg.StateDir)
+		readyCtx, readyCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		readyErr := probeResponderReady(readyCtx, cfg.Listen)
+		readyCancel()
+		if readyErr != nil {
+			return fmt.Errorf(
+				"Responder owns the state directory but is not serving on %s: %w",
+				cfg.Listen,
+				readyErr,
+			)
+		}
+		responderStatus = "serving"
 	default:
 		err = lockErr
 	}
@@ -317,6 +329,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	releaseProcessLock(lock)
 	checks["database"] = "ok"
+	checks["responder"] = responderStatus
 	coopClient := coop.New(cfg.Coop.Socket, cfg.Coop.RequestTimeout.Duration)
 	supervisor, supervision, err := startDoctorCoop(
 		cfg, stderr, logger, coopClient,
@@ -365,6 +378,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	fmt.Fprintln(stdout, "config          ok")
 	fmt.Fprintln(stdout, "database        ok")
+	fmt.Fprintf(stdout, "Responder       %s\n", responderStatus)
 	fmt.Fprintf(stdout, "Coop            ready (%s)\n", checks["coop_supervision"])
 	fmt.Fprintln(stdout, "Slack           authenticated; scopes and Socket Mode ready")
 	fmt.Fprintf(stdout, "Operators       %d full workspace members\n", slackReport.OperatorCount)
@@ -378,6 +392,22 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	)
 	fmt.Fprintln(stdout, "Coop config     private")
 	fmt.Fprintf(stdout, "GitHub          %s\n", checks["github_publisher"])
+	return nil
+}
+
+func probeResponderReady(ctx context.Context, listen string) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+listen+"/readyz", nil)
+	if err != nil {
+		return err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("ready endpoint returned %s", response.Status)
+	}
 	return nil
 }
 

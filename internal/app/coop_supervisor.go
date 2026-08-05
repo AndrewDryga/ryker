@@ -94,6 +94,22 @@ func startCoopSupervisor(cfg config.Config, output io.Writer, logger *slog.Logge
 	return supervisor, nil
 }
 
+func attachCoopSupervisor(
+	cfg config.Config,
+	output io.Writer,
+	logger *slog.Logger,
+	client coopReadiness,
+) *coopSupervisor {
+	ctx, cancel := context.WithCancel(context.Background())
+	supervisor := &coopSupervisor{
+		cfg: cfg, output: output, log: logger,
+		ctx: ctx, cancel: cancel, done: make(chan struct{}), exited: make(chan error, 1),
+		ready: true,
+	}
+	go supervisor.monitorAttached(client)
+	return supervisor
+}
+
 func ensureManagedCoopImage(cfg config.Config, output io.Writer) error {
 	missing, err := inspectManagedCoopImage(cfg)
 	if err != nil {
@@ -200,6 +216,16 @@ func startManagedCoop(
 	if !cfg.Coop.Supervise {
 		return nil, nil
 	}
+	readyCtx, readyCancel := context.WithTimeout(
+		context.Background(),
+		cfg.Coop.RequestTimeout.Duration,
+	)
+	readyErr := client.Ready(readyCtx)
+	readyCancel()
+	if readyErr == nil {
+		logger.Info("attached to existing managed Coop", "socket", cfg.Coop.Socket)
+		return attachCoopSupervisor(cfg, output, logger, client), nil
+	}
 	supervisor, err := startCoopSupervisor(cfg, output, logger)
 	if err != nil {
 		return nil, err
@@ -212,6 +238,49 @@ func startManagedCoop(
 		return nil, errors.Join(err, supervisor.Close(stopCtx))
 	}
 	return supervisor, nil
+}
+
+// monitorAttached adopts a healthy Coop process left behind by an interrupted
+// Responder restart. If that process later disappears, this Responder starts a
+// replacement and resumes ordinary child-process supervision.
+func (s *coopSupervisor) monitorAttached(client coopReadiness) {
+	delay := s.cfg.Coop.RestartDelay.Duration
+	if delay <= 0 || delay > time.Second {
+		delay = time.Second
+	}
+	ticker := time.NewTicker(delay)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			close(s.done)
+			return
+		case <-ticker.C:
+		}
+
+		probeCtx, probeCancel := context.WithTimeout(
+			s.ctx,
+			s.cfg.Coop.RequestTimeout.Duration,
+		)
+		err := client.Ready(probeCtx)
+		probeCancel()
+		if err == nil {
+			continue
+		}
+		live, liveErr := coopSocketLive(s.cfg.Coop.Socket)
+		if liveErr != nil || live {
+			continue
+		}
+
+		command, startErr := s.start()
+		if startErr != nil {
+			s.log.Error("managed Coop takeover failed", "error", startErr)
+			continue
+		}
+		s.log.Info("managed Coop takeover started", "pid", command.Process.Pid)
+		s.run(command)
+		return
+	}
 }
 
 func validateConversationPrewarmPolicies(cfg config.Config) error {
