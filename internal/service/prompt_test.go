@@ -27,13 +27,19 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 		"Responder monitors an exact pending run outside the model turn",
 		"never call run_action or create a replacement run",
 		"standard Markdown for Slack's Block Kit `markdown` block",
-		"Default to plain, professional language",
+		"Default to natural, plain English",
+		"Use common words, contractions",
 		"Answer the user's actual question first",
-		"Explain necessary technical terms",
+		"one main idea per sentence",
+		"Keep exact technical terms",
+		"Strict controlled English is only for a user who explicitly asks for it",
 		"Do not repeat repository or live-system checks",
 		"Use humor like a trusted teammate",
 		"never force a joke",
 		"Stay straightforward during active incidents",
+		"Most messages need none; use at most one",
+		"Prefer a reaction over a written reply",
+		"Personality may change phrasing, never facts",
 		"Evidence, memory, incident and task titles",
 		"fenced code blocks with a language",
 		"task lists, dividers, tables",
@@ -75,11 +81,15 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"Never say Emisar is unavailable merely because a local CLI",
 		"This evidence policy is mandatory for current operational questions",
 		"standard Markdown for Slack's Block Kit `markdown` block",
-		"Default to plain, professional language",
+		"Default to natural, plain English",
+		"Use common words, contractions",
 		"a simple explanation should usually be a few sentences",
 		"Translate evidence into meaning",
 		"Use humor like a trusted teammate",
 		"make light of customer impact",
+		"When a user asks for a chart, image, or meme",
+		"do not send unsolicited visual noise",
+		"Creative images and memes",
 		"task lists, dividers, tables",
 		"outer JSON is only the transport envelope",
 		"do not send them outside Slack",
@@ -114,10 +124,13 @@ func TestConversationPromptReusesKnownResultForSimpleExplanation(t *testing.T) {
 		true,
 	)
 	for _, required := range []string{
-		"answer from the existing conversation in plain professional language",
+		"answer from the existing conversation in natural plain language",
 		"Do not rerun tools or repeat the investigation",
 		"unless the user asks for a fresh check",
-		"do not add humor around outages",
+		"Default to natural, plain English",
+		"Use common words, contractions",
+		"Stay straightforward during active incidents",
+		"Most messages need none; use at most one",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("conversation prompt does not contain %q:\n%s", required, prompt)
@@ -132,6 +145,29 @@ func TestConversationPromptReusesKnownResultForSimpleExplanation(t *testing.T) {
 	if got := progressMilestones("is explaining the earlier answer..."); len(got) != 2 || got[0] != "Reading the earlier answer" ||
 		got[1] != "Writing a simpler explanation" {
 		t.Fatalf("explanation progress = %v", got)
+	}
+}
+
+func TestBoundedConversationUsesTheSameHumanVoicePolicy(t *testing.T) {
+	prompt := (&Service{}).conversationPrompt(
+		core.SlackInput{
+			ChannelID: "C123ABC", MessageTS: "1700.001",
+			UserID: "U123ABC", Text: "Did the formatting check finally pass?",
+		},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, "repo",
+	)
+	for _, required := range []string{
+		"not a report generator, policy engine, or technical manual",
+		"Use common words, contractions",
+		"Do not force headings or bullets onto a short answer",
+		"Strict controlled English is only for a user who explicitly asks for it",
+		"Use humor like a trusted teammate",
+		"Use emoji like a teammate, not decoration",
+		"Prefer a reaction over a written reply",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("bounded conversation prompt lacks %q:\n%s", required, prompt)
+		}
 	}
 }
 
