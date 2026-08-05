@@ -1177,6 +1177,8 @@ func liveEvaluationContextMessage(
 		}
 	case "external_app":
 		senderID = fmt.Sprintf("BEVALAPP%d", ordinal)
+	case "responder":
+		senderID = "UEVALBOT"
 	default:
 		return watchContextMessage{}, fmt.Errorf(
 			"unsupported sender_type %q",

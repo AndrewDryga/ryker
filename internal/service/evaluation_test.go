@@ -501,6 +501,28 @@ func TestLiveEvaluationContextPreservesMessagesAfterTarget(t *testing.T) {
 	}
 }
 
+func TestLiveEvaluationContextPreservesResponderMessages(t *testing.T) {
+	cfg := serviceConfig(t)
+	_, recent, err := liveEvaluationWatchContext(
+		EvaluationCase{
+			Input: "Did it pass?",
+			RecentMessages: []EvaluationMessage{{
+				SenderType: "responder",
+				Text:       "I fixed the formatting and reran the check.",
+			}},
+		},
+		"eval_responder_context",
+		cfg.Slack.Operators[0],
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 2 || recent[0].SenderType != "responder" ||
+		recent[0].SenderID != "UEVALBOT" || recent[0].Target {
+		t.Fatalf("responder evaluation context = %+v", recent)
+	}
+}
+
 func TestLiveEvaluationScoresHostValidatedEvidenceAndOffers(t *testing.T) {
 	cfg := serviceConfig(t)
 	memberPreference := EvaluationCase{
