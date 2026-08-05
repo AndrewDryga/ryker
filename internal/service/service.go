@@ -167,6 +167,7 @@ func (s *Service) Initialize(ctx context.Context) error {
 	if identity.BotUserID == "" {
 		return errors.New("Slack auth returned no bot user ID")
 	}
+	s.identity = identity
 	cardRevisionChanged, err := s.store.EnsureIncidentCardRevision(
 		ctx,
 		slackui.IncidentCardRevision,
@@ -184,10 +185,12 @@ func (s *Service) Initialize(ctx context.Context) error {
 	if err := s.seedScheduledWork(ctx); err != nil {
 		return fmt.Errorf("initialize durable scheduler: %w", err)
 	}
+	if err := s.catchUpSlackAppMessages(ctx); err != nil {
+		return fmt.Errorf("recover missed Slack app messages: %w", err)
+	}
 	if err := s.seedExternalMessageReconciliations(ctx); err != nil {
 		return fmt.Errorf("initialize external Slack lifecycle reconciliation: %w", err)
 	}
-	s.identity = identity
 	s.coopHealthy.Store(true)
 	s.initialized.Store(true)
 	return nil

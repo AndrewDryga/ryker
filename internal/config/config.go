@@ -73,6 +73,7 @@ type SlackConfig struct {
 	WatchChannels                    []string `yaml:"watch_channels"`
 	WatchContext                     int      `yaml:"watch_context_messages"`
 	WatchSettleDelay                 Duration `yaml:"watch_settle_delay"`
+	StartupHistoryWindow             Duration `yaml:"startup_history_window"`
 	ExternalMessageReconcileInterval Duration `yaml:"external_message_reconcile_interval"`
 	ExternalMessageReconcileWindow   Duration `yaml:"external_message_reconcile_window"`
 	ReplyAttention                   int      `yaml:"proactive_reply_attention_threshold"`
@@ -275,6 +276,7 @@ func defaults() Config {
 			WatchSettleDelay: Duration{
 				Duration: 350 * time.Millisecond,
 			},
+			StartupHistoryWindow:             Duration{15 * time.Minute},
 			ExternalMessageReconcileInterval: Duration{time.Minute},
 			ExternalMessageReconcileWindow:   Duration{24 * time.Hour},
 			ReplyAttention:                   7,
@@ -871,6 +873,10 @@ func validateSlack(c SlackConfig) error {
 	}
 	if c.WatchSettleDelay.Duration < 0 || c.WatchSettleDelay.Duration > 10*time.Second {
 		return errors.New("watch_settle_delay must be between 0s and 10s")
+	}
+	if c.StartupHistoryWindow.Duration < 0 ||
+		c.StartupHistoryWindow.Duration > 24*time.Hour {
+		return errors.New("startup_history_window must be between 0s and 24h")
 	}
 	if c.ExternalMessageReconcileInterval.Duration < 15*time.Second ||
 		c.ExternalMessageReconcileInterval.Duration > 15*time.Minute {

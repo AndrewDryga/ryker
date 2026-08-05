@@ -20,6 +20,8 @@ slack:
   # Give triage a fresh chronological transcript and a short window for nearby human replies.
   watch_context_messages: 20
   watch_settle_delay: 350ms
+  # Recover recent app notifications after a short Socket Mode or process outage. Set 0s to disable.
+  startup_history_window: 15m
   # Some Slack apps edit an existing notification without reliably emitting a usable event.
   # Re-read in-progress app lifecycle messages until they become terminal or this window expires.
   external_message_reconcile_interval: 1m

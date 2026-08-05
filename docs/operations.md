@@ -179,6 +179,13 @@ later inputs can still be admitted and included in subsequent context. A delayed
 an already completed decision is retained and audited but cannot produce an out-of-order reply.
 Slash commands and button controls have priority over ordinary conversation delivery.
 
+Socket Mode does not replay events emitted while Responder is offline. On startup, Responder reads
+the bounded recent history of channels where it is present and proactive, shadowing, or following a
+standing app-message rule. Missing external-app messages are admitted through the same canonical
+message identity as live events, so catch-up cannot duplicate work already received over Socket
+Mode. `slack.startup_history_window` controls the lookback (15 minutes by default, `0s` disables it,
+and 24 hours is the maximum). Human conversation is never replayed by startup catch-up.
+
 Slack apps can update an existing notification as work moves from planning to applied, errored,
 discarded, or another terminal state. Slack does not reliably deliver every attachment-only edit as
 an Events API message. Responder therefore re-reads only external-app messages that visibly describe
