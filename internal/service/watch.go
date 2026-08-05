@@ -2588,9 +2588,10 @@ the target message itself contains an exact recorded PR number, head branch, hea
 commit. Do not correlate by topic, repository name, timing, or guesswork alone. For every exact
 match, return publication_updates with the recorded incident_id, kind deployment or terraform,
 state pending, succeeded, or failed, the exact visible matching reference, and a short useful
-summary. This is independent of whether the natural action for the source channel is ignore or
-reply. Never claim a deployment or apply succeeded unless the external app explicitly reports a
-terminal successful result.
+summary. Pending updates are retained silently in the task timeline; only terminal success or
+failure is posted to the task thread. This is independent of whether the natural action for the
+source channel is ignore or reply. Never claim a deployment or apply succeeded unless the external
+app explicitly reports a terminal successful result.
 
 Only return a durable memory, preference, standing-rule, or schedule offer when
 target_is_configured_operator is true. For other users, explain briefly that a configured operator

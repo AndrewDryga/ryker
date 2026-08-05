@@ -378,22 +378,48 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
 	input := core.SlackInput{
 		ID: "input-deploy-1", Kind: "bot_message", ChannelID: "CDEPLOY",
-		MessageTS: "1700.200", Text: "Run run-abc\nRevision 0123456\nRun Applying",
+		MessageTS: "1700.200", Text: "Run run-abc\nRevision 0123456\nRun Planning",
 	}
 	state := watchTurnState{ActivePublications: []core.PublicationContext{{
 		IncidentID: incident.ID, PRNumber: 493, PRURL: publication.PRURL,
 		HeadBranch: publication.HeadBranch, HeadSHA: publication.RemoteSHA,
 	}}}
-	updates := []publicationUpdate{{
-		IncidentID: incident.ID, Kind: "deployment", State: "succeeded",
-		Reference: "0123456", Summary: "Production deployment completed successfully.",
-	}}
-	if err := svc.applyPublicationUpdates(ctx, input, state, updates); err != nil {
+	for index, summary := range []string{
+		"The run is planning.",
+		"The run is applying.",
+		"The visible notification is still nonterminal.",
+	} {
+		input.ID = fmt.Sprintf("input-deploy-pending-%d", index)
+		input.MessageTS = fmt.Sprintf("1700.20%d", index)
+		input.Text = "Run run-abc\nRevision 0123456\n" + summary
+		if err := svc.applyPublicationUpdates(ctx, input, state, []publicationUpdate{{
+			IncidentID: incident.ID, Kind: "terraform", State: "pending",
+			Reference: "0123456", Summary: summary,
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("pending publication update posts = %d, want 0", len(slackClient.posts))
+	}
+
+	input.ID = "input-deploy-terminal-1"
+	input.MessageTS = "1700.300"
+	input.Text = "Run run-abc\nRevision 0123456\nRun Applied"
+	if err := svc.applyPublicationUpdates(ctx, input, state, []publicationUpdate{{
+		IncidentID: incident.ID, Kind: "terraform", State: "succeeded",
+		Reference: "0123456", Summary: "Production apply completed successfully.",
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	input.ID = "input-deploy-2"
-	input.MessageTS = "1700.300"
-	if err := svc.applyPublicationUpdates(ctx, input, state, updates); err != nil {
+	input.ID = "input-deploy-terminal-2"
+	input.MessageTS = "1700.400"
+	input.Text = "Run run-abc\nRevision 0123456789abcdef\nRun Applied"
+	if err := svc.applyPublicationUpdates(ctx, input, state, []publicationUpdate{{
+		IncidentID: incident.ID, Kind: "deployment", State: "succeeded",
+		Reference: "0123456789abcdef", Summary: "HCP reports the exact run as applied.",
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
@@ -402,7 +428,7 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	}
 	post := slackClient.posts[0]
 	if post.channel != "CTASKS" || post.thread != "1700.100" ||
-		!strings.Contains(post.message.Text, "Production deployment completed") {
+		!strings.Contains(post.message.Text, "Production apply completed") {
 		t.Fatalf("publication update post = %+v", post)
 	}
 }

@@ -319,21 +319,25 @@ func (s *Service) applyPublicationUpdates(
 		}
 		eventKey := publicationLifecycleKey(
 			update.IncidentID, sourceKey, update.Kind, update.State,
-			strings.ToLower(update.Reference),
 		)
 		summary := update.Summary
 		if input.ChannelID != "" && input.ChannelID != incident.ChannelID {
 			summary += "\n\nSource: <#" + input.ChannelID + ">"
 		}
-		message := slackui.PublicationLifecycleMessage(
-			publication, incident.Title, update.Kind, update.State, summary,
-			core.PublicationLifecycleStatus{},
-		)
-		if err := s.enqueue(
-			ctx, "out_publication_signal_"+eventKey, incident,
-			"publication_followup", incident.ConversationThreadTS(), message,
-		); err != nil {
-			return err
+		if publicationUpdateNotifies(update) {
+			notificationKey := publicationLifecycleKey(
+				update.IncidentID, sourceKey, "terminal",
+			)
+			message := slackui.PublicationLifecycleMessage(
+				publication, incident.Title, update.Kind, update.State, summary,
+				core.PublicationLifecycleStatus{},
+			)
+			if err := s.enqueue(
+				ctx, "out_publication_signal_"+notificationKey, incident,
+				"publication_followup", incident.ConversationThreadTS(), message,
+			); err != nil {
+				return err
+			}
 		}
 		_, err = s.store.RecordPublicationLifecycleEvent(ctx, core.PublicationLifecycleEvent{
 			ID: eventKey, IncidentID: incident.ID, Kind: update.Kind,
@@ -351,6 +355,10 @@ func (s *Service) applyPublicationUpdates(
 		})
 	}
 	return nil
+}
+
+func publicationUpdateNotifies(update publicationUpdate) bool {
+	return update.State == "succeeded" || update.State == "failed"
 }
 
 func matchingPublicationContext(
