@@ -1259,10 +1259,18 @@ func (s *Service) stagePolledAgentRunTerminal(
 					time.Now(),
 				)
 			}
+			episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
+			if episodeErr != nil {
+				return episodeErr
+			}
 			originalAction := decision.Action
 			originalPublicationUpdates := len(decision.PublicationUpdates)
 			decision = enforceExternalLifecycleCommunication(input, decision)
-			if decision.Action != originalAction ||
+			var lifecycleEvidenceAdjusted bool
+			decision, lifecycleEvidenceAdjusted = enforceExternalLifecycleEvidence(
+				input, episode, decision,
+			)
+			if lifecycleEvidenceAdjusted || decision.Action != originalAction ||
 				len(decision.PublicationUpdates) != originalPublicationUpdates {
 				marshaledResult, marshalErr := json.Marshal(decision)
 				if marshalErr != nil {
@@ -1272,10 +1280,6 @@ func (s *Service) stagePolledAgentRunTerminal(
 			}
 			correction := watchDecisionCorrection(input, state, decision)
 			if correction == "" {
-				episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
-				if episodeErr != nil {
-					return episodeErr
-				}
 				correction = episodeCompletionCorrection(
 					episode,
 					decision.Action,

@@ -1163,6 +1163,11 @@ func watchDecisionCorrection(
 	}
 	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
 		state.AlertPolicy != "automatic" {
+		if externalAppEventRequiresDecision(input.Text) && decision.Action != "reply" {
+			return "this terminal or actionable app event requires an evidence-backed in-place " +
+				"alert assessment and reply; investigate the exact event instead of ignoring it " +
+				"or reducing it to a reaction"
+		}
 		if decision.Action == "incident" {
 			return "this channel requires an evidence-backed in-place alert assessment; " +
 				"continue the read-only investigation and return reply with typed evidence, " +

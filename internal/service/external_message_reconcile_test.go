@@ -354,6 +354,36 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 	}
 }
 
+func TestTerminalLifecycleEvidenceIsHostBoundBeforeCompletionValidation(t *testing.T) {
+	observedAt := time.Date(2026, 8, 4, 23, 31, 0, 0, time.UTC)
+	episode := core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, Objective: "Review the exact Terraform run",
+		RequiredCoverage: []string{"change"},
+	}
+	decision, adjusted := enforceExternalLifecycleEvidence(core.SlackInput{
+		ID: "slack-run-failed", EventID: "EvRunFailed", Kind: "bot_message",
+		ReceivedAt: observedAt,
+		Text: "Run notification for <https://example.com/acme/infra|acme/infra>\n" +
+			"<https://example.com/acme/infra/runs/run-abc|Run run-abc>\nRun Errored",
+	}, episode, watchDecision{
+		Action: "reply",
+		Coverage: []core.Coverage{{
+			Layer: "change", Status: "unknown", Detail: "Partial effects are unknown.",
+		}},
+	})
+	if !adjusted || len(decision.Evidence) != 1 ||
+		decision.Evidence[0].ClaimID != "change.recent" ||
+		decision.Evidence[0].Relation != "contradicts" ||
+		decision.Evidence[0].HealthEffect != "unhealthy" {
+		t.Fatalf("terminal evidence = %+v, adjusted=%t", decision.Evidence, adjusted)
+	}
+	if len(decision.Coverage) != 1 || decision.Coverage[0].Status != "unhealthy" ||
+		!containsString(decision.Coverage[0].ClaimIDs, "change.recent") ||
+		!decision.Coverage[0].ObservedAt.Equal(observedAt) {
+		t.Fatalf("terminal coverage = %+v", decision.Coverage)
+	}
+}
+
 func TestExternalLifecyclePhaseDoesNotClassifyConversationProse(t *testing.T) {
 	for _, text := range []string{
 		"A teammate said the job is running slowly.",

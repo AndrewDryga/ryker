@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -183,6 +184,101 @@ func enforceExternalLifecycleCommunication(
 		}
 	}
 	return decision
+}
+
+// enforceExternalLifecycleEvidence binds facts already established by the
+// source event to the typed result. The model still owns diagnosis and the
+// operator-facing explanation, but it cannot accidentally lose or contradict
+// an exact terminal lifecycle state while translating tool results.
+func enforceExternalLifecycleEvidence(
+	input core.SlackInput,
+	episode core.WorkEpisode,
+	decision watchDecision,
+) (watchDecision, bool) {
+	if input.Kind != "bot_message" || decision.Action != "reply" ||
+		externalMessageLifecyclePhase(input.Text) != externalLifecycleFailed {
+		return decision, false
+	}
+	contract := investigation.Compile(episode)
+	claimID := ""
+	claim := ""
+	for _, requirement := range contract.Claims {
+		if requirement.Required && requirement.Layer == "change" {
+			claimID = requirement.ID
+			claim = requirement.Proposition
+			break
+		}
+	}
+	if claimID == "" {
+		return decision, false
+	}
+
+	observedAt := input.ReceivedAt.UTC()
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
+	hasTerminalEvidence := false
+	for _, item := range decision.Evidence {
+		if item.ClaimID == claimID && item.Relation == "contradicts" &&
+			item.HealthEffect == "unhealthy" {
+			hasTerminalEvidence = true
+			break
+		}
+	}
+	if !hasTerminalEvidence {
+		decision.Evidence = append(decision.Evidence, core.Evidence{
+			ID:           "external_terminal_" + input.ID,
+			ClaimID:      claimID,
+			Claim:        claim,
+			Observation:  "The exact external lifecycle event reports a terminal failure.",
+			Relation:     "contradicts",
+			HealthEffect: "unhealthy",
+			SourceType:   "slack",
+			SourceID:     input.EventID,
+			SourceName:   "External lifecycle event",
+			Target:       externalLifecycleCorrelationKey(input.Text),
+			Freshness:    "Observed in the current source event.",
+			Confidence:   "high",
+			ObservedAt:   observedAt,
+		})
+	}
+
+	coverageFound := false
+	for index := range decision.Coverage {
+		if decision.Coverage[index].Layer != "change" {
+			continue
+		}
+		coverageFound = true
+		decision.Coverage[index].Status = "unhealthy"
+		decision.Coverage[index].Source = "External lifecycle event"
+		decision.Coverage[index].Detail =
+			"The exact external run is terminally failed; cause and partial effects may still require investigation."
+		if !containsString(decision.Coverage[index].ClaimIDs, claimID) {
+			decision.Coverage[index].ClaimIDs = append(decision.Coverage[index].ClaimIDs, claimID)
+		}
+		decision.Coverage[index].ObservedAt = observedAt
+		break
+	}
+	if !coverageFound {
+		decision.Coverage = append(decision.Coverage, core.Coverage{
+			Layer:      "change",
+			ClaimIDs:   []string{claimID},
+			Status:     "unhealthy",
+			Source:     "External lifecycle event",
+			Detail:     "The exact external run is terminally failed; cause and partial effects may still require investigation.",
+			ObservedAt: observedAt,
+		})
+	}
+	return decision, true
+}
+
+func containsString(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func deterministicExternalLifecycleIgnore(input core.SlackInput) (string, bool) {
