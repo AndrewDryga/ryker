@@ -323,11 +323,12 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 				)
 			}
 			if detachErr == nil {
-				memory, session, err = s.ensureConversationSession(
+				memory, session, err = s.ensureConversationSessionAtGeneration(
 					ctx,
 					channelID,
 					repositoryKey,
 					repository.ConversationPolicy,
+					memory.Generation+1,
 				)
 			}
 			if detachErr != nil {

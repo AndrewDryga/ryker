@@ -339,7 +339,7 @@ func TestPrewarmConversationSessionsRotatesChangedPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	coopClient := newFakeCoop()
-	coopClient.openAfterCreateKey = "responder:conversation-session:CSTALE"
+	coopClient.openAfterCreateKey = "responder:conversation-session:CSTALE:2"
 	coopClient.prepareErrors = []error{&coop.APIError{
 		Status: 409,
 		Code:   "invalid_session_state",
@@ -361,6 +361,9 @@ func TestPrewarmConversationSessionsRotatesChangedPolicy(t *testing.T) {
 	}
 	if session.SessionID != "ses_2" {
 		t.Fatalf("rotated conversation session = %+v", session)
+	}
+	if session.Generation != 2 {
+		t.Fatalf("rotated conversation generation = %d", session.Generation)
 	}
 }
 
