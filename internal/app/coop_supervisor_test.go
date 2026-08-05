@@ -109,6 +109,22 @@ exit 1
 	}
 }
 
+func TestManagedCoopImageMissingDiagnosticVariants(t *testing.T) {
+	for _, test := range []struct {
+		detail string
+		want   bool
+	}{
+		{detail: "coop: Coop box image is not built; run 'coop build'", want: true},
+		{detail: "✗ image \"coop-tenant-infra\" not built — run 'coop build'", want: true},
+		{detail: "image build failed: Docker daemon unavailable", want: false},
+		{detail: "repository is not built", want: false},
+	} {
+		if got := managedCoopImageMissingDiagnostic(test.detail); got != test.want {
+			t.Errorf("missing image diagnostic for %q = %t, want %t", test.detail, got, test.want)
+		}
+	}
+}
+
 func TestCoopSupervisorBuildsRestrictedProcessAndStopsIt(t *testing.T) {
 	root := t.TempDir()
 	argsPath := filepath.Join(root, "args")

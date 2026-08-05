@@ -152,12 +152,24 @@ func inspectManagedCoopImage(cfg config.Config) (bool, error) {
 	command.Stderr = &output
 	if err := command.Run(); err != nil {
 		detail := strings.TrimSpace(output.String())
-		if strings.Contains(strings.ToLower(detail), coopMissingImageDiagnostic) {
+		if managedCoopImageMissingDiagnostic(detail) {
 			return true, nil
 		}
 		return false, fmt.Errorf("preflight managed Coop execution image: %w: %s", err, detail)
 	}
 	return false, nil
+}
+
+func managedCoopImageMissingDiagnostic(detail string) bool {
+	detail = strings.ToLower(strings.TrimSpace(detail))
+	if strings.Contains(detail, coopMissingImageDiagnostic) {
+		return true
+	}
+	// Coop 7.2 reports the resolved project image name instead of the generic
+	// box diagnostic. Require the remediation command as well as "not built"
+	// so unrelated build failures still surface as real preflight errors.
+	return strings.Contains(detail, "image ") && strings.Contains(detail, "not built") &&
+		strings.Contains(detail, "coop build")
 }
 
 func managedCoopCommand(cfg config.Config, args ...string) (*exec.Cmd, error) {
