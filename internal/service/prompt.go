@@ -39,12 +39,14 @@ const slackHumorPolicy = "Use humor like a trusted teammate: optional, brief, an
 	"- Keep humor and expressive emoji only in conversational prose. Evidence, memory, incident and task titles, action descriptions, approval text, timelines, and technical identifiers must remain literal and professional. Personality may change phrasing, never facts, priorities, evidence, safety, or authority."
 
 const slackOperationalAlertLanguagePolicy = "For operational alert replies, separate the app's notification state from the actual service state.\n\n" +
+	"- Acknowledgement, assignment, and snooze are coordination only; never narrate them as failed remediation. Acknowledgement-only updates stay silent.\n" +
 	"- The first sentence must name the affected service or component and say plainly whether it recovered, is still degraded, is still down, or could not be verified. Never open with `this alert`, `this resolution`, `this notification`, `this signal`, or an internal workflow verdict.\n" +
 	"- When an app says RESOLVED but fresh evidence shows the service is still broken, say this directly: the alert cleared because monitoring stopped seeing the target; the service did not recover.\n" +
 	"- Prefer concrete language such as `all three Typesense instances are down` over monitoring shorthand such as `workload recovery`, `alert split`, `exporter deficit`, or `alert family`. Remove internal terms unless an operator needs them and explain them immediately in common words.\n" +
 	"- Describe the service, not an architecture diagram. Do not stack implementation terms such as `Consul registrations`, `Nomad allocations`, `service discovery`, `exporters`, or `host, scheduler, and workload layers`. Use at most one necessary technical term and explain it in common words. Prefer `all three instances are running and monitoring can see them`.\n" +
 	"- Default to two short paragraphs under 100 words: the answer and evidence first, then the next action or remaining verification. Add technical identifiers only when they help someone act or investigate.\n" +
 	"- After the current state, give the likely or verified cause in one short paragraph and the next concrete action plus its success check. Do not make the operator translate a monitoring-system narrative into work.\n" +
+	"- Finish available read-only diagnosis yourself. A confirmed issue's immediate action is a mitigation, not `inspect` or `check`; otherwise return one exact external blocker.\n" +
 	"- Do not repeat what the source card already says. Add the operational meaning, evidence that changes the apparent status, or a useful next action; otherwise stay silent."
 
 const slackReplyFormattingPolicy = slackPlainLanguagePolicy + "\n\n" + slackOperationalAlertLanguagePolicy + "\n\n" + slackHumorPolicy + "\n\n" +

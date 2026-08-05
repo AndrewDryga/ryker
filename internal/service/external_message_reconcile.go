@@ -411,6 +411,9 @@ func deterministicExternalLifecycleIgnore(input core.SlackInput) (string, bool) 
 	if input.Kind != "bot_message" {
 		return "", false
 	}
+	if externalCoordinationOnlyEvent(input.Text) {
+		return "host recorded an incident coordination update without repeating the alert investigation", true
+	}
 	switch externalMessageLifecyclePhase(input.Text) {
 	case externalLifecycleCreated, externalLifecyclePlanning:
 		return "host correlated a non-actionable external lifecycle update without public narration", true
@@ -419,6 +422,21 @@ func deterministicExternalLifecycleIgnore(input core.SlackInput) (string, bool) 
 	default:
 		return "", false
 	}
+}
+
+// externalCoordinationOnlyEvent identifies app updates that change who owns or
+// has seen an incident without changing the underlying system state. They remain
+// available in Slack context and the audit log, but do not deserve a second
+// investigation or a public explanation of what acknowledgement means.
+func externalCoordinationOnlyEvent(text string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "incident acknowledged") ||
+		strings.Contains(normalized, "incident was acknowledged") ||
+		(strings.Contains(normalized, " acknowledged ") &&
+			strings.Contains(normalized, " incident"))
 }
 
 func externalLifecycleCorrelationKey(text string) string {

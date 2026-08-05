@@ -441,7 +441,9 @@ func (s *Service) episodeForWatchedInput(
 			}
 		}
 	}
-	if matchedOperationalAlertRule(state.MatchedRules) {
+	if matchedOperationalAlertRule(state.MatchedRules) ||
+		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
+			operationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text)) {
 		episode.Effort = core.EffortIncidentInvestigation
 		episode.RequiredCoverage = alertInvestigationCoverage(text)
 		episode.CompletionCriteria = []string{
@@ -632,7 +634,24 @@ func episodeDiagnosisCorrection(
 	if strings.TrimSpace(assessment.Verification) == "" {
 		return "the active issue has no fresh verification plan for its mitigation; continue until the result is operationally testable"
 	}
+	if alertActionIsUnfinishedInvestigation(assessment.ImmediateAction) {
+		return "the active alert's immediate action is still an investigative handoff; perform the available read-only inspection now, then recommend an actual mitigation or return an exact external blocker"
+	}
 	return ""
+}
+
+func alertActionIsUnfinishedInvestigation(action string) bool {
+	action = strings.ToLower(strings.TrimSpace(action))
+	action = strings.TrimLeft(action, "*_>` -")
+	for _, prefix := range []string{
+		"check ", "inspect ", "investigate ", "look at ", "query ", "review ",
+		"trace ", "determine ", "identify ",
+	} {
+		if strings.HasPrefix(action, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func episodeCompletionCorrection(

@@ -1151,7 +1151,10 @@ func watchDecisionCorrection(
 	state watchTurnState,
 	decision watchDecision,
 ) string {
-	if matchedOperationalAlertRule(state.MatchedRules) {
+	requiresAlertAssessment := matchedOperationalAlertRule(state.MatchedRules) ||
+		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
+			operationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text))
+	if requiresAlertAssessment {
 		if state.FailureDetail != "" && decision.Action != "reply" {
 			return "the prior alert assessment was incomplete; continue that investigation and " +
 				"return its decision-ready reply instead of abandoning it"
@@ -1229,11 +1232,20 @@ func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision)
 		}
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
+	if strings.Contains(normalized, "acknowledg") && episodeContainsAny(
+		normalized,
+		"did not restore", "didn't restore", "did not fix", "does not fix", "did not recover",
+	) {
+		return "remove the acknowledgement narration; acknowledgement is coordination metadata, " +
+			"not remediation, so say only what fresh evidence establishes about the service and what " +
+			"useful action follows"
+	}
 	for _, phrase := range []string{
 		"alert split", "alert family", "alert families", "workload recovery",
 		"exporter-deficit", "lifecycle boundary", "terminal notification",
 		"alert path", "host, scheduler, and workload", "scheduler and workload layers",
-		"control-plane state", "exporter registrations",
+		"control-plane state", "exporter registrations", "fault remains bounded",
+		"remains bounded to", "allocation state",
 	} {
 		if strings.Contains(normalized, phrase) {
 			return "rewrite the alert reply in common operational language; remove monitoring and " +

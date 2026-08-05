@@ -84,6 +84,16 @@ func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
 			coverage: []string{"change", "application", "slo", "host"},
 		},
 		{
+			name: "configured app alert without standing rule",
+			input: core.SlackInput{
+				Kind: "bot_message", UserID: "BGRAFANA",
+				Text: "CRITICAL alert: Typesense node service is down",
+			},
+			state:  watchTurnState{AlertPolicy: "reply"},
+			effort: core.EffortIncidentInvestigation, authority: core.AuthorityReadOnly,
+			coverage: []string{"change", "application", "slo", "host", "workload"},
+		},
+		{
 			name:   "operator governed request",
 			input:  core.SlackInput{Kind: "mention", UserID: "U123ABC", Text: "Can you restart the failed service now?"},
 			effort: core.EffortFocusedCheck, authority: core.AuthorityGovernedOperation,
@@ -495,6 +505,14 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		episode, "reply", coverage, bounded, completion,
 	); got != "" {
 		t.Fatalf("bounded diagnosis rejected: %s", got)
+	}
+
+	unfinishedAction := *bounded
+	unfinishedAction.ImmediateAction = "Inspect the current allocations and service registrations."
+	if got := episodeDiagnosisCorrection(
+		episode, "reply", coverage, &unfinishedAction, completion,
+	); !strings.Contains(got, "investigative handoff") {
+		t.Fatalf("unfinished action correction = %q", got)
 	}
 
 	blocked := &completionAssessment{

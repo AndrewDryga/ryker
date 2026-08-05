@@ -264,7 +264,8 @@ Action meanings:
   allocations, service discovery, exporters, control-plane state, or host/scheduler/workload layers.
   Use at most one necessary technical term and explain it in common words. Translate the checks into
   what is broken or recovered, why, and what the operator should do next. Default to two short
-  paragraphs under 100 words.
+  paragraphs under 100 words. Ignore coordination-only acknowledgement updates. Finish available
+  read-only diagnosis yourself; immediate_action must be a mitigation or an exact external blocker.
   Return the same conclusion in alert_assessment with verdict, impact,
   immediate_action, and long_term_solution. Choose action=reply after the investigation, and include
   incident_title only when escalation is useful; the host applies the channel's separately

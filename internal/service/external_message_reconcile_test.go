@@ -228,6 +228,78 @@ func TestExternalLifecycleFastPathSkipsCoopAndCompletesPrivateReplay(t *testing.
 	}
 }
 
+func TestIncidentAcknowledgementFastPathSkipsCoopAndSlackOutput(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+
+	input := core.SlackInput{
+		ID: "slack-incident-ack", EnvelopeID: "replay-private:slack-incident-ack",
+		EventID: "replay-private:slack-incident-ack", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CALERTS", MessageTS: "1700.810",
+		UserID: "BBETTERSTACK",
+		Text:   "<@UOPERATOR> acknowledged Grafana: VA1: Typesense node unhealthy incident",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit acknowledgement replay = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.createKeys) != 0 || len(coopClient.submitKeys) != 0 {
+		t.Fatalf(
+			"acknowledgement used Coop: creates=%+v submits=%+v",
+			coopClient.createKeys, coopClient.submitKeys,
+		)
+	}
+	if len(slackClient.posts) != 0 || len(slackClient.reactions) != 0 ||
+		len(slackClient.statuses) != 0 {
+		t.Fatalf(
+			"acknowledgement produced Slack output: posts=%+v reactions=%+v statuses=%+v",
+			slackClient.posts, slackClient.reactions, slackClient.statuses,
+		)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunCompleted {
+		t.Fatalf("deterministic acknowledgement run = %+v, %v", run, err)
+	}
+	decision, err := parseWatchDecision(string(run.Result))
+	if err != nil || decision.Action != "ignore" {
+		t.Fatalf("deterministic acknowledgement result = %+v, %v", decision, err)
+	}
+}
+
+func TestExternalCoordinationOnlyEvent(t *testing.T) {
+	for _, text := range []string{
+		"<@U123> acknowledged Grafana: VA1: Typesense node unhealthy incident",
+		"New incident for Typesense\nIncident acknowledged",
+		"The incident was acknowledged by Andrew.",
+	} {
+		if !externalCoordinationOnlyEvent(text) {
+			t.Errorf("did not recognize coordination-only event %q", text)
+		}
+	}
+	for _, text := range []string{
+		"New incident for Typesense. Please acknowledge the incident.",
+		"Typesense alert is firing.",
+		"The service recovered after the deployment.",
+	} {
+		if externalCoordinationOnlyEvent(text) {
+			t.Errorf("misclassified operational event as coordination-only %q", text)
+		}
+	}
+}
+
 func TestStartupBackfillsRecentInProgressExternalMessages(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
