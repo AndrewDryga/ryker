@@ -48,6 +48,15 @@ func (e *APIError) Retryable() bool {
 	return e.Status == http.StatusTooManyRequests || e.Status >= 500
 }
 
+// TransportError marks a failure to complete a Coop request at all: dial,
+// write, read, or timeout. It is always retryable, and having a type for it
+// means retry classification never depends on matching an error message.
+type TransportError struct{ Err error }
+
+func (e *TransportError) Error() string { return "call Coop: " + e.Err.Error() }
+
+func (e *TransportError) Unwrap() error { return e.Err }
+
 type Operation struct {
 	ID           string    `json:"id"`
 	Method       string    `json:"method"`
@@ -574,12 +583,12 @@ func (c *Client) do(ctx context.Context, method, path, key string, body []byte, 
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("call Coop: %w", err)
+		return &TransportError{Err: err}
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
-		return fmt.Errorf("read Coop response: %w", err)
+		return &TransportError{Err: fmt.Errorf("read response: %w", err)}
 	}
 	if len(data) > maxResponseBytes {
 		return errors.New("Coop response exceeds 3 MiB")
@@ -615,6 +624,10 @@ func Retryable(err error) bool {
 	if errors.As(err, &apiErr) {
 		return apiErr.Retryable()
 	}
+	var transportErr *TransportError
+	if errors.As(err, &transportErr) {
+		return true
+	}
 	var netErr net.Error
-	return errors.As(err, &netErr) || strings.Contains(err.Error(), "call Coop")
+	return errors.As(err, &netErr)
 }

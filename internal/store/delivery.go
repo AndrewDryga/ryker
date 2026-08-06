@@ -39,7 +39,7 @@ func (s *Store) NextSlackStatusGeneration(
 		RETURNING generation`,
 		channelID,
 		threadTS,
-		nowText(),
+		s.nowText(),
 	).Scan(&generation)
 	if err != nil {
 		return 0, fmt.Errorf("advance Slack status generation: %w", err)
@@ -96,7 +96,7 @@ func (s *Store) EnqueueSlackDelivery(
 		incidentID = delivery.IncidentID
 	}
 	sequenceKey, sequenceIndex := slackDeliverySequence(delivery.ID)
-	now := nowText()
+	now := s.nowText()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -299,7 +299,7 @@ func (s *Store) RetryLatestGeneratedVisual(
 	if err != nil {
 		return core.SlackDelivery{}, err
 	}
-	now := nowText()
+	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE slack_deliveries
 		SET state = 'retry', failure_count = 0, next_attempt_at = ?,
@@ -382,7 +382,7 @@ func (s *Store) LeaseSlackDelivery(
 		return core.SlackDelivery{}, err
 	}
 	defer tx.Rollback()
-	now := nowText()
+	now := s.nowText()
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE slack_deliveries AS delivery
 		SET state = 'superseded', last_error = 'episode destination changed', updated_at = ?
@@ -486,7 +486,7 @@ func (s *Store) FinishSlackDelivery(
 		SET state = 'sent', message_ts = CASE WHEN ? = '' THEN message_ts ELSE ? END,
 		    last_error = '', updated_at = ?
 		WHERE id = ? AND state = ?`,
-		messageTS, messageTS, nowText(), id, fromState)
+		messageTS, messageTS, s.nowText(), id, fromState)
 	if err := expectOne(result, err, "finish Slack delivery"); err != nil {
 		return err
 	}
@@ -496,7 +496,7 @@ func (s *Store) FinishSlackDelivery(
 			SET root_ts = ?, workflow = 'provisioning_session',
 			    updated_at = ?, card_version = card_version + 1, last_error = ''
 			WHERE id = ? AND channel_id != '' AND root_ts = ''`,
-			messageTS, nowText(), incidentID.String)
+			messageTS, s.nowText(), incidentID.String)
 		if err := expectOne(result, err, "bind incident root"); err != nil {
 			return err
 		}
@@ -506,7 +506,7 @@ func (s *Store) FinishSlackDelivery(
 			UPDATE incidents
 			SET card_rendered_version = MAX(card_rendered_version, ?), updated_at = ?
 			WHERE id = ?`,
-			cardVersion, nowText(), incidentID.String); err != nil {
+			cardVersion, s.nowText(), incidentID.String); err != nil {
 			return err
 		}
 	}
@@ -516,7 +516,7 @@ func (s *Store) FinishSlackDelivery(
 			SET message_ts = ?, updated_at = ?
 			WHERE delivery_id = ? AND message_ts = ''`,
 			messageTS,
-			nowText(),
+			s.nowText(),
 			id,
 		); err != nil {
 			return err
@@ -545,7 +545,7 @@ func (s *Store) RetrySlackDelivery(
 		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'sending'`,
 		state, boundedError(detail), next.UTC().Format(timestampFormat),
-		nowText(), id)
+		s.nowText(), id)
 	return expectOne(result, err, "retry Slack delivery")
 }
 
@@ -562,7 +562,7 @@ func (s *Store) ListUncertainSlackDeliveries(
 		WHERE state = 'uncertain' AND operation IN ('post', 'file')
 		  AND julianday(next_attempt_at) <= julianday(?)
 		ORDER BY created_at, id
-		LIMIT ?`, nowText(), limit)
+		LIMIT ?`, s.nowText(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -595,6 +595,6 @@ func (s *Store) RetryUncertainSlackDelivery(
 		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'uncertain'`,
 		state, boundedError(detail), next.UTC().Format(timestampFormat),
-		nowText(), id)
+		s.nowText(), id)
 	return expectOne(result, err, "retry uncertain Slack delivery")
 }

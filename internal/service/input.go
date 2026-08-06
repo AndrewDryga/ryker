@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/AndrewDryga/responder/internal/coop"
@@ -72,10 +71,365 @@ func changesActionIncidentID(actionID string, value string) (string, bool) {
 	}
 }
 
+// Slack surface refreshes. These carry no operator instruction: they only
+// repaint a Slack surface, so they are admitted like any other input and
+// performed by the control lane rather than on the socket consumer.
+const (
+	inputSuggestedPrompts = "suggested_prompts"
+	inputAppHome          = "app_home"
+)
+
+// slackActionRoutes maps a host-owned Slack button to the handler that owns it.
+// Routing is a table rather than a branch chain so the full set of interactive
+// controls is greppable in one place and adding a control cannot accidentally
+// skip the shared retry policy applied by processSlackInput.
+//
+// Controls that are not a single fixed action ID stay out of the table:
+// deterministic slash-command buttons, channel-setup actions with a structured
+// ID, and incident-scoped controls all need their own predicate.
+var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInput) error{
+	slackui.ActionOpenIncident:        (*Service).handleWatchIncidentOfferAction,
+	slackui.ActionStartTask:           (*Service).handleWatchTaskOfferAction,
+	slackui.ActionReviewPullRequest:   (*Service).handlePullRequestReviewAction,
+	slackui.ActionApproveProposal:     (*Service).handleActionProposal,
+	slackui.ActionRejectProposal:      (*Service).handleActionProposal,
+	slackui.ActionOpenApproval:        (*Service).handleOpenEmisarApproval,
+	slackui.ActionRememberMemory:      (*Service).handleRememberMemory,
+	slackui.ActionForgetMemory:        (*Service).handleForgetMemory,
+	slackui.ActionForgetMemoryRollup:  (*Service).handleForgetMemoryRollup,
+	slackui.ActionReviewMemory:        (*Service).finishMemoryReview,
+	slackui.ActionKeepMemoryReview:    (*Service).handleMemoryReview,
+	slackui.ActionForgetMemoryReview:  (*Service).handleMemoryReview,
+	slackui.ActionMergeMemoryReview:   (*Service).handleMemoryReview,
+	slackui.ActionDismissMemoryReview: (*Service).handleMemoryReview,
+	slackui.ActionRememberPreference:  (*Service).handleRememberPreference,
+	slackui.ActionTogglePreference:    (*Service).handleTogglePreference,
+	slackui.ActionEditPreference:      (*Service).handleEditPreference,
+	slackui.ActionDeletePreference:    (*Service).handleDeletePreference,
+	slackui.ActionRememberRule:        (*Service).handleRememberRule,
+	slackui.ActionToggleRule:          (*Service).handleToggleRule,
+	slackui.ActionEditRule:            (*Service).handleEditRule,
+	slackui.ActionDeleteRule:          (*Service).handleDeleteRule,
+	slackui.ActionRememberSchedule:    (*Service).handleRememberSchedule,
+	slackui.ActionToggleSchedule:      (*Service).handleToggleSchedule,
+	slackui.ActionRunSchedule:         (*Service).handleRunScheduleNow,
+	slackui.ActionEditSchedule:        (*Service).handleEditSchedule,
+	slackui.ActionDeleteSchedule:      (*Service).handleDeleteSchedule,
+}
+
+// routeSlackInputKind handles every Slack input whose destination is decided by
+// its kind or its action ID alone. It reports whether the input was consumed;
+// anything it does not consume needs conversation and incident context.
+func (s *Service) routeSlackInputKind(
+	ctx context.Context,
+	input core.SlackInput,
+) (bool, error) {
+	if input.Kind == "reaction_added" || input.Kind == "reaction_removed" {
+		s.audit(ctx, core.AuditEvent{
+			Kind:     "slack.reaction",
+			ActorID:  input.UserID,
+			ObjectID: input.ActionValue,
+			Outcome:  strings.TrimPrefix(input.Kind, "reaction_"),
+			Detail:   input.ActionID,
+		})
+		if err := s.recordReactionFeedback(ctx, input); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, s.finishSlackInput(ctx, input)
+	}
+	if input.Kind == inputSuggestedPrompts {
+		if err := s.slack.SetSuggestedPrompts(ctx, input.ChannelID, input.ThreadTS); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, s.finishSlackInput(ctx, input)
+	}
+	if input.Kind == inputAppHome {
+		if err := s.publishOperationsHome(ctx, input.UserID); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, s.finishSlackInput(ctx, input)
+	}
+	if input.Kind == "recheck" {
+		if err := s.queueWatchedInput(ctx, input); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, nil
+	}
+	if reason, ignore := deterministicExternalLifecycleIgnore(input); ignore {
+		if err := s.completeIgnoredLifecycleInput(ctx, input, reason); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, nil
+	}
+	// Private verification replays exercise the normal model and tool path, but
+	// cannot impersonate a new human turn or enter a delivery-producing handler.
+	if isPrivateSlackVerificationReplay(input) {
+		if err := s.queueWatchedInput(ctx, input); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, nil
+	}
+	if input.Kind == "channel_lifecycle" {
+		if err := s.processChannelLifecycleInput(ctx, input); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, s.finishSlackInput(ctx, input)
+	}
+	if input.Kind == "channel_joined" {
+		if err := s.startChannelConfiguration(ctx, input); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, nil
+	}
+	if input.Kind == "slash" {
+		if err := s.processSlashInput(ctx, input); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, nil
+	}
+	if input.Kind == "action" {
+		if command, ok := slashTextForCommandAction(input); ok {
+			input.Text = command
+			if err := s.processSlashInput(ctx, input); err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+			return true, nil
+		}
+		if handler, ok := slackActionRoutes[input.ActionID]; ok {
+			if err := handler(s, ctx, input); err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+			return true, nil
+		}
+		if isChannelSetupAction(input.ActionID) {
+			if err := s.handleChannelConfigurationAction(ctx, input); err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+			return true, nil
+		}
+	}
+	if input.Kind == "shortcut" {
+		allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
+		if allowedErr != nil {
+			return true, s.retrySlackInput(ctx, input, allowedErr)
+		}
+		if !allowed {
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.shortcut", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "ignored", Detail: "requester is not an active full workspace member",
+			})
+			return true, s.finishSlackInput(ctx, input)
+		}
+		if err := s.queueWatchedInput(ctx, input); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// handleConversationPrefix answers the parts of an ordinary message that are
+// resolved before any incident lookup: an in-flight configuration or preference
+// reply, a retained visual retry, an empty mention, and the deterministic
+// channel-setup and conversational commands. It reports whether the input was
+// consumed.
+func (s *Service) handleConversationPrefix(
+	ctx context.Context,
+	input core.SlackInput,
+) (bool, error) {
+	if input.Kind != "message" && input.Kind != "mention" && input.Kind != "direct" {
+		return false, nil
+	}
+	handled, configurationErr := s.processConfigurationReply(ctx, input)
+	if configurationErr != nil {
+		return true, s.retrySlackInput(ctx, input, configurationErr)
+	}
+	if handled {
+		return true, nil
+	}
+	handled, confirmationErr := s.confirmPendingPreferenceReply(ctx, input)
+	if confirmationErr != nil {
+		return true, s.retrySlackInput(ctx, input, confirmationErr)
+	}
+	if handled {
+		return true, nil
+	}
+	handled, visualErr := s.retryRetainedGeneratedVisual(ctx, input)
+	if visualErr != nil {
+		return true, s.retrySlackInput(ctx, input, visualErr)
+	}
+	if handled {
+		return true, nil
+	}
+	text := strings.TrimSpace(s.stripBotMention(input.Text))
+	if text == "" && len(input.Attachments) == 0 && input.ThreadTS == "" {
+		if input.Kind == "mention" || input.Kind == "direct" {
+			if err := s.postInputMessageInSourceThread(
+				ctx,
+				"mention_prompt_"+input.ID,
+				input,
+				slackui.ConversationResponse(
+					"What should I check?",
+					s.sanitizer,
+				),
+			); err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+		}
+		return true, s.finishSlackInput(ctx, input)
+	}
+	if input.Kind == "mention" || input.Kind == "direct" ||
+		(input.Kind == "message" && s.cfg.IsOperator(input.UserID)) {
+		if explicitChannelConfigurationRequest(text) {
+			if !s.cfg.IsOperator(input.UserID) {
+				return true, s.finishSlashInput(
+					ctx, input,
+					"**Only a configured operator can change channel behavior.** No settings were changed.",
+				)
+			}
+			if err := s.startChannelConfiguration(ctx, input); err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+			return true, nil
+		}
+		if command, ok := conversationalCommand(text); ok {
+			input.Kind = "conversation_command"
+			input.Text = command
+			if err := s.processSlashInput(ctx, input); err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// handleUnboundConversation decides whether a message with no incident behind
+// it should still start work, and answers the requests that are complete on
+// their own. Admission is deliberately explicit: a proactive channel, a
+// standing rule, a direct message, a live follow-up window, a summon, or an
+// operator behavior request. It reports whether the input was consumed.
+func (s *Service) handleUnboundConversation(
+	ctx context.Context,
+	input core.SlackInput,
+	incidentErr error,
+) (bool, error) {
+	var err error
+	watched := false
+	directRequest := errors.Is(incidentErr, store.ErrNotFound) &&
+		input.Kind == "direct"
+	summoned := errors.Is(incidentErr, store.ErrNotFound) &&
+		input.Kind == "mention"
+	conversationFollowup := false
+	if errors.Is(incidentErr, store.ErrNotFound) && input.Kind == "message" {
+		conversationFollowup, err = s.isRecentWatchConversation(ctx, input)
+		if err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+	}
+	behaviorRequest := errors.Is(incidentErr, store.ErrNotFound) &&
+		input.Kind == "mention" &&
+		s.cfg.IsOperator(input.UserID) &&
+		explicitBehaviorRequest(input.Text)
+	if errors.Is(incidentErr, store.ErrNotFound) {
+		if directRequest || conversationFollowup {
+			watched = true
+		} else {
+			if input.Kind == "bot_message" {
+				watched, err = s.inputReferencesActivePublication(ctx, input)
+				if err != nil {
+					return true, s.retrySlackInput(ctx, input, err)
+				}
+			}
+			if !watched {
+				watched, err = s.proactiveEnabled(ctx, input.ChannelID)
+			}
+			if err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+			if !watched {
+				rules, ruleErr := s.matchingStandingRules(ctx, input)
+				if ruleErr != nil {
+					return true, s.retrySlackInput(ctx, input, ruleErr)
+				}
+				watched = len(rules) > 0
+			}
+		}
+	}
+	if errors.Is(incidentErr, store.ErrNotFound) &&
+		(watched || summoned || behaviorRequest) {
+		if input.Kind != "bot_message" {
+			allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
+			if allowedErr != nil {
+				return true, s.retrySlackInput(ctx, input, allowedErr)
+			}
+			if !allowed {
+				s.audit(ctx, core.AuditEvent{
+					Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+					Outcome: "ignored", Detail: "sender is not an active full workspace member",
+				})
+				return true, s.finishSlackInput(ctx, input)
+			}
+		}
+		location := requestedConversationLocation(s.stripBotMention(input.Text))
+		if locationOnlyRequest(s.stripBotMention(input.Text)) {
+			responseThreadTS, _, routeErr := s.resolveConversationRoute(ctx, input)
+			if routeErr != nil {
+				return true, s.retrySlackInput(ctx, input, routeErr)
+			}
+			if err := s.postInputMessageAt(
+				ctx,
+				"conversation_location_"+input.ID,
+				input.ChannelID,
+				responseThreadTS,
+				slackui.Notice(conversationLocationAcknowledgement(location)),
+			); err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.conversation.location", ActorID: input.UserID,
+				ObjectID: input.ID, Outcome: conversationLocationName(location),
+				Detail: input.ChannelID,
+			})
+			return true, s.finishSlackInput(ctx, input)
+		}
+		if summoned &&
+			s.cfg.IsOperator(input.UserID) &&
+			explicitIncidentRequest(s.stripBotMention(input.Text)) {
+			return true, s.createManualIncident(ctx, input)
+		}
+		if behaviorRequest && incidentSelfInviteBehaviorRequest(input.Text) {
+			if err := s.postInputNotice(
+				ctx,
+				"incident_invite_policy_"+input.ID,
+				input,
+				"*You’re already included in every incident room.*\n\n"+
+					"Your Slack account is a configured operator. Emisar invites every configured "+
+					"operator, plus the users in `slack.invite_users`, whenever it creates an "+
+					"incident channel.\n\nNo preference was needed or saved. Incident membership "+
+					"is an access setting, not agent memory. No incident was created.",
+			); err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.behavior", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "already_configured", Detail: "configured operators are invited to incident rooms",
+			})
+			return true, s.finishSlackInput(ctx, input)
+		}
+		if err := s.queueWatchedInput(ctx, input); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 func (s *Service) processSlackInput(ctx context.Context) error {
 	if _, err := s.store.RecoverStaleSlackInputs(
 		ctx,
-		time.Now().UTC().Add(-s.cfg.Limits.WorkerStallAfter.Duration),
+		s.now().UTC().Add(-s.cfg.Limits.WorkerStallAfter.Duration),
 	); err != nil {
 		return err
 	}
@@ -84,285 +438,13 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return err
 	}
 	if input.TeamID != s.cfg.Slack.TeamID {
-		return s.store.RetrySlackInput(ctx, input.ID, "wrong Slack workspace", time.Now(), true)
+		return s.store.RetrySlackInput(ctx, input.ID, "wrong Slack workspace", s.now(), true)
 	}
-	if input.Kind == "reaction_added" || input.Kind == "reaction_removed" {
-		_ = s.store.Audit(ctx, core.AuditEvent{
-			Kind:     "slack.reaction",
-			ActorID:  input.UserID,
-			ObjectID: input.ActionValue,
-			Outcome:  strings.TrimPrefix(input.Kind, "reaction_"),
-			Detail:   input.ActionID,
-		})
-		if err := s.recordReactionFeedback(ctx, input); err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		return s.finishSlackInput(ctx, input)
+	if handled, err := s.routeSlackInputKind(ctx, input); handled {
+		return err
 	}
-	if input.Kind == "recheck" {
-		if err := s.queueWatchedInput(ctx, input); err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		return nil
-	}
-	if reason, ignore := deterministicExternalLifecycleIgnore(input); ignore {
-		if err := s.completeIgnoredLifecycleInput(ctx, input, reason); err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		return nil
-	}
-	// Private verification replays exercise the normal model and tool path, but
-	// cannot impersonate a new human turn or enter a delivery-producing handler.
-	if isPrivateSlackVerificationReplay(input) {
-		if err := s.queueWatchedInput(ctx, input); err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		return nil
-	}
-	if input.Kind == "channel_lifecycle" {
-		if err := s.processChannelLifecycleInput(ctx, input); err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		return s.finishSlackInput(ctx, input)
-	}
-	if input.Kind == "channel_joined" {
-		if err := s.startChannelConfiguration(ctx, input); err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		return nil
-	}
-	if input.Kind == "slash" {
-		if err := s.processSlashInput(ctx, input); err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		return nil
-	}
-	if input.Kind == "action" {
-		if command, ok := slashTextForCommandAction(input); ok {
-			input.Text = command
-			if err := s.processSlashInput(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionOpenIncident {
-			if err := s.handleWatchIncidentOfferAction(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionStartTask {
-			if err := s.handleWatchTaskOfferAction(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionReviewPullRequest {
-			if err := s.handlePullRequestReviewAction(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionApproveProposal ||
-			input.ActionID == slackui.ActionRejectProposal {
-			if err := s.handleActionProposal(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionOpenApproval {
-			if err := s.handleOpenEmisarApproval(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionRememberMemory {
-			if err := s.handleRememberMemory(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionForgetMemory {
-			if err := s.handleForgetMemory(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionForgetMemoryRollup {
-			if err := s.handleForgetMemoryRollup(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionReviewMemory {
-			if err := s.finishMemoryReview(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if input.ActionID == slackui.ActionKeepMemoryReview ||
-			input.ActionID == slackui.ActionForgetMemoryReview ||
-			input.ActionID == slackui.ActionMergeMemoryReview ||
-			input.ActionID == slackui.ActionDismissMemoryReview {
-			if err := s.handleMemoryReview(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		switch input.ActionID {
-		case slackui.ActionRememberPreference:
-			if err := s.handleRememberPreference(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionTogglePreference:
-			if err := s.handleTogglePreference(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionEditPreference:
-			if err := s.handleEditPreference(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionDeletePreference:
-			if err := s.handleDeletePreference(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionRememberRule:
-			if err := s.handleRememberRule(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionToggleRule:
-			if err := s.handleToggleRule(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionEditRule:
-			if err := s.handleEditRule(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionDeleteRule:
-			if err := s.handleDeleteRule(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionRememberSchedule:
-			if err := s.handleRememberSchedule(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionToggleSchedule:
-			if err := s.handleToggleSchedule(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionRunSchedule:
-			if err := s.handleRunScheduleNow(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionEditSchedule:
-			if err := s.handleEditSchedule(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		case slackui.ActionDeleteSchedule:
-			if err := s.handleDeleteSchedule(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-		if isChannelSetupAction(input.ActionID) {
-			if err := s.handleChannelConfigurationAction(ctx, input); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			return nil
-		}
-	}
-	if input.Kind == "shortcut" {
-		allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
-		if allowedErr != nil {
-			return s.retrySlackInput(ctx, input, allowedErr)
-		}
-		if !allowed {
-			_ = s.store.Audit(ctx, core.AuditEvent{
-				Kind: "slack.shortcut", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "ignored", Detail: "requester is not an active full workspace member",
-			})
-			return s.finishSlackInput(ctx, input)
-		}
-		if err := s.queueWatchedInput(ctx, input); err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		return nil
-	}
-
-	if input.Kind == "message" || input.Kind == "mention" || input.Kind == "direct" {
-		handled, configurationErr := s.processConfigurationReply(ctx, input)
-		if configurationErr != nil {
-			return s.retrySlackInput(ctx, input, configurationErr)
-		}
-		if handled {
-			return nil
-		}
-		handled, confirmationErr := s.confirmPendingPreferenceReply(ctx, input)
-		if confirmationErr != nil {
-			return s.retrySlackInput(ctx, input, confirmationErr)
-		}
-		if handled {
-			return nil
-		}
-		handled, visualErr := s.retryRetainedGeneratedVisual(ctx, input)
-		if visualErr != nil {
-			return s.retrySlackInput(ctx, input, visualErr)
-		}
-		if handled {
-			return nil
-		}
-		text := strings.TrimSpace(s.stripBotMention(input.Text))
-		if text == "" && len(input.Attachments) == 0 && input.ThreadTS == "" {
-			if input.Kind == "mention" || input.Kind == "direct" {
-				if err := s.postInputMessageInSourceThread(
-					ctx,
-					"mention_prompt_"+input.ID,
-					input,
-					slackui.ConversationResponse(
-						"What should I check?",
-						s.sanitizer,
-					),
-				); err != nil {
-					return s.retrySlackInput(ctx, input, err)
-				}
-			}
-			return s.finishSlackInput(ctx, input)
-		}
-		if input.Kind == "mention" || input.Kind == "direct" ||
-			(input.Kind == "message" && s.cfg.IsOperator(input.UserID)) {
-			if explicitChannelConfigurationRequest(text) {
-				if !s.cfg.IsOperator(input.UserID) {
-					return s.finishSlashInput(
-						ctx, input,
-						"**Only a configured operator can change channel behavior.** No settings were changed.",
-					)
-				}
-				if err := s.startChannelConfiguration(ctx, input); err != nil {
-					return s.retrySlackInput(ctx, input, err)
-				}
-				return nil
-			}
-			if command, ok := conversationalCommand(text); ok {
-				input.Kind = "conversation_command"
-				input.Text = command
-				if err := s.processSlashInput(ctx, input); err != nil {
-					return s.retrySlackInput(ctx, input, err)
-				}
-				return nil
-			}
-		}
+	if handled, err := s.handleConversationPrefix(ctx, input); handled {
+		return err
 	}
 
 	var incident core.Incident
@@ -388,112 +470,8 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				"incident card. No action was taken.",
 		)
 	}
-	watched := false
-	directRequest := errors.Is(incidentErr, store.ErrNotFound) &&
-		input.Kind == "direct"
-	summoned := errors.Is(incidentErr, store.ErrNotFound) &&
-		input.Kind == "mention"
-	conversationFollowup := false
-	if errors.Is(incidentErr, store.ErrNotFound) && input.Kind == "message" {
-		conversationFollowup, err = s.isRecentWatchConversation(ctx, input)
-		if err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-	}
-	behaviorRequest := errors.Is(incidentErr, store.ErrNotFound) &&
-		input.Kind == "mention" &&
-		s.cfg.IsOperator(input.UserID) &&
-		explicitBehaviorRequest(input.Text)
-	if errors.Is(incidentErr, store.ErrNotFound) {
-		if directRequest || conversationFollowup {
-			watched = true
-		} else {
-			if input.Kind == "bot_message" {
-				watched, err = s.inputReferencesActivePublication(ctx, input)
-				if err != nil {
-					return s.retrySlackInput(ctx, input, err)
-				}
-			}
-			if !watched {
-				watched, err = s.proactiveEnabled(ctx, input.ChannelID)
-			}
-			if err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			if !watched {
-				rules, ruleErr := s.matchingStandingRules(ctx, input)
-				if ruleErr != nil {
-					return s.retrySlackInput(ctx, input, ruleErr)
-				}
-				watched = len(rules) > 0
-			}
-		}
-	}
-	if errors.Is(incidentErr, store.ErrNotFound) &&
-		(watched || summoned || behaviorRequest) {
-		if input.Kind != "bot_message" {
-			allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
-			if allowedErr != nil {
-				return s.retrySlackInput(ctx, input, allowedErr)
-			}
-			if !allowed {
-				_ = s.store.Audit(ctx, core.AuditEvent{
-					Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-					Outcome: "ignored", Detail: "sender is not an active full workspace member",
-				})
-				return s.finishSlackInput(ctx, input)
-			}
-		}
-		location := requestedConversationLocation(s.stripBotMention(input.Text))
-		if locationOnlyRequest(s.stripBotMention(input.Text)) {
-			responseThreadTS, _, routeErr := s.resolveConversationRoute(ctx, input)
-			if routeErr != nil {
-				return s.retrySlackInput(ctx, input, routeErr)
-			}
-			if err := s.postInputMessageAt(
-				ctx,
-				"conversation_location_"+input.ID,
-				input.ChannelID,
-				responseThreadTS,
-				slackui.Notice(conversationLocationAcknowledgement(location)),
-			); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			_ = s.store.Audit(ctx, core.AuditEvent{
-				Kind: "slack.conversation.location", ActorID: input.UserID,
-				ObjectID: input.ID, Outcome: conversationLocationName(location),
-				Detail: input.ChannelID,
-			})
-			return s.finishSlackInput(ctx, input)
-		}
-		if summoned &&
-			s.cfg.IsOperator(input.UserID) &&
-			explicitIncidentRequest(s.stripBotMention(input.Text)) {
-			return s.createManualIncident(ctx, input)
-		}
-		if behaviorRequest && incidentSelfInviteBehaviorRequest(input.Text) {
-			if err := s.postInputNotice(
-				ctx,
-				"incident_invite_policy_"+input.ID,
-				input,
-				"*You’re already included in every incident room.*\n\n"+
-					"Your Slack account is a configured operator. Emisar invites every configured "+
-					"operator, plus the users in `slack.invite_users`, whenever it creates an "+
-					"incident channel.\n\nNo preference was needed or saved. Incident membership "+
-					"is an access setting, not agent memory. No incident was created.",
-			); err != nil {
-				return s.retrySlackInput(ctx, input, err)
-			}
-			_ = s.store.Audit(ctx, core.AuditEvent{
-				Kind: "slack.behavior", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "already_configured", Detail: "configured operators are invited to incident rooms",
-			})
-			return s.finishSlackInput(ctx, input)
-		}
-		if err := s.queueWatchedInput(ctx, input); err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		return nil
+	if handled, err := s.handleUnboundConversation(ctx, input, incidentErr); handled {
+		return err
 	}
 	if errors.Is(incidentErr, store.ErrNotFound) && input.Kind != "mention" {
 		return s.finishSlackInput(ctx, input)
@@ -546,7 +524,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		if err != nil {
 			return s.retrySlackInput(ctx, input, err)
 		}
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			IncidentID: incident.ID, Kind: "slack.conversation.location",
 			ActorID: input.UserID, ObjectID: input.ID,
 			Outcome: conversationLocationName(location), Detail: input.ChannelID,
@@ -619,7 +597,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				)
 			}
 			if err == nil {
-				_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+				s.recordTimeline(ctx, core.TimelineEvent{
 					ID:         "tl_input_" + input.ID,
 					IncidentID: incident.ID, ChannelID: incident.ChannelID,
 					Kind: "operator.message", ActorID: input.UserID,
@@ -660,7 +638,7 @@ func (s *Service) retryRetainedGeneratedVisual(
 	if err != nil {
 		return false, err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind:     "slack.visual.retry",
 		ActorID:  input.UserID,
 		ObjectID: delivery.ID,
@@ -718,7 +696,7 @@ func (s *Service) handleOpenEmisarApproval(
 	if approval.ChannelID != input.ChannelID {
 		return s.finishSlackInput(ctx, input)
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: approval.IncidentID,
 		Kind:       "emisar.approval.opened",
 		ActorID:    input.UserID,
@@ -779,12 +757,12 @@ func (s *Service) handleActionProposal(ctx context.Context, input core.SlackInpu
 		decision = "reject"
 	}
 	proposal, err = s.store.DecideActionProposal(
-		ctx, proposal.ID, input.UserID, decision, time.Now().UTC(),
+		ctx, proposal.ID, input.UserID, decision, s.now().UTC(),
 	)
 	if err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: proposal.IncidentID, Kind: "action.proposal." + decision,
 		ActorID: input.UserID, ObjectID: proposal.ID, Outcome: proposal.Status,
 		Detail: proposal.ActionName + " target=" + proposal.Target,
@@ -793,7 +771,7 @@ func (s *Service) handleActionProposal(ctx context.Context, input core.SlackInpu
 	if decision == "reject" {
 		eventTitle = "Rejected proposed action"
 	}
-	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+	s.recordTimeline(ctx, core.TimelineEvent{
 		ID:         "tl_action_" + proposal.ID + "_" + decision,
 		IncidentID: proposal.IncidentID, ChannelID: proposal.ChannelID,
 		Kind: "action." + decision, ActorID: input.UserID,
@@ -919,7 +897,7 @@ func (s *Service) processChannelLifecycleInput(
 			return err
 		}
 		if deleted > 0 {
-			_ = s.store.Audit(ctx, core.AuditEvent{
+			s.audit(ctx, core.AuditEvent{
 				Kind: "memory.channel_deleted", ActorID: input.UserID,
 				ObjectID: input.ChannelID, Outcome: "deleted",
 				Detail: fmt.Sprintf("entries=%d", deleted),
@@ -930,7 +908,7 @@ func (s *Service) processChannelLifecycleInput(
 			return err
 		}
 		if preferences+rules > 0 {
-			_ = s.store.Audit(ctx, core.AuditEvent{
+			s.audit(ctx, core.AuditEvent{
 				Kind: "behavior.channel_deleted", ActorID: input.UserID,
 				ObjectID: input.ChannelID, Outcome: "deleted",
 				Detail: fmt.Sprintf("preferences=%d rules=%d", preferences, rules),
@@ -941,7 +919,7 @@ func (s *Service) processChannelLifecycleInput(
 			return err
 		}
 		if schedules > 0 {
-			_ = s.store.Audit(ctx, core.AuditEvent{
+			s.audit(ctx, core.AuditEvent{
 				Kind: "schedule.channel_deleted", ActorID: input.UserID,
 				ObjectID: input.ChannelID, Outcome: "deleted",
 				Detail: fmt.Sprintf("schedules=%d", schedules),
@@ -950,7 +928,7 @@ func (s *Service) processChannelLifecycleInput(
 	}
 	for _, incident := range incidents {
 		s.forgetNativeStatus(incident.ID)
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			IncidentID: incident.ID,
 			Kind:       "slack.channel.lifecycle",
 			ActorID:    input.UserID,
@@ -974,9 +952,7 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 	if title == "" {
 		title = "Manual incident"
 	}
-	if len(title) > 200 {
-		title = title[:200]
-	}
+	title = core.TruncateUTF8(title, 200)
 	thread := input.ThreadTS
 	if thread == "" {
 		thread = input.MessageTS
@@ -1007,7 +983,7 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 			); noticeErr != nil {
 				return s.retrySlackInput(ctx, input, noticeErr)
 			}
-			_ = s.store.Audit(ctx, core.AuditEvent{
+			s.audit(ctx, core.AuditEvent{
 				Kind: "incident.manual", ActorID: input.UserID,
 				ObjectID: input.EventID, Outcome: "rejected", Detail: trimError(err),
 			})
@@ -1027,7 +1003,7 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 	); err != nil {
 		return s.retrySlackInput(ctx, input, err)
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "incident.manual", ActorID: input.UserID,
 		ObjectID: input.EventID, Outcome: "accepted", Detail: title,
 	})
@@ -1113,9 +1089,7 @@ func (s *Service) postInputMessageAtEpisode(
 	); err != nil {
 		return err
 	}
-	if s.sanitizer != nil {
-		message = s.sanitizer.Message(message)
-	}
+	message = s.sanitizeMessage(message)
 	body, err := slackui.Encode(message)
 	if err != nil {
 		return err
@@ -1158,9 +1132,7 @@ func (s *Service) postInputMessageDelivery(
 	threadTS string,
 	message slackui.Message,
 ) error {
-	if s.sanitizer != nil {
-		message = s.sanitizer.Message(message)
-	}
+	message = s.sanitizeMessage(message)
 	body, err := slackui.Encode(message)
 	if err != nil {
 		return err
@@ -1560,7 +1532,7 @@ func (s *Service) stopTurn(ctx context.Context, input core.SlackInput, incident 
 	if err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "coop.turn.cancel", ActorID: input.UserID,
 		ObjectID: action.TurnID, Outcome: "requested",
 	})
@@ -1605,7 +1577,7 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 			incident.ID,
 			"closed "+noun,
 			publication.Published(),
-			time.Now().UTC().Add(s.cfg.Retention.ClosedSessionGrace.Duration),
+			s.now().UTC().Add(s.cfg.Retention.ClosedSessionGrace.Duration),
 		); err != nil {
 			return err
 		}
@@ -1621,11 +1593,11 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 		timelineKind = "engineering_task.closed"
 		timelineTitle = "Engineering task closed"
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: auditKind, ActorID: input.UserID,
 		ObjectID: incident.CoopSessionID, Outcome: "succeeded",
 	})
-	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+	s.recordTimeline(ctx, core.TimelineEvent{
 		ID:         "tl_close_" + incident.ID,
 		IncidentID: incident.ID, ChannelID: incident.ChannelID,
 		Kind: timelineKind, ActorID: input.UserID,
@@ -1781,14 +1753,14 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 		ctx,
 		input.ID,
 		trimError(err),
-		queueDelay(input.Failures+1),
+		s.queueDelay(input.Failures+1),
 		terminal,
 	)
 }
 
 func (s *Service) finishSlackInput(ctx context.Context, input core.SlackInput) error {
 	if err := s.store.FinishSlackInput(ctx, input.ID); err != nil {
-		_ = s.store.RetrySlackInput(ctx, input.ID, trimError(err), queueDelay(input.Attempts), false)
+		_ = s.store.RetrySlackInput(ctx, input.ID, trimError(err), s.queueDelay(input.Attempts), false)
 		return err
 	}
 	return nil
@@ -1804,7 +1776,7 @@ func (s *Service) denyInput(ctx context.Context, input core.SlackInput, reason s
 		_ = s.enqueue(ctx, "out_denied_"+input.ID, incident, "notice",
 			incident.ConversationThreadTS(), slackui.Notice(reason))
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "slack.input", ActorID: input.UserID,
 		ObjectID: input.ID, Outcome: "denied", Detail: reason,
 	})

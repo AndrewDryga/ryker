@@ -186,21 +186,34 @@ func (s *Sanitizer) Message(message Message) Message {
 	for index := range message.Context {
 		message.Context[index] = s.Text(message.Context[index])
 	}
+	// Every button is host-owned today, but redaction must not depend on that
+	// staying true: a label or confirmation that later carries a repository,
+	// memory subject, or model-proposed title would otherwise skip the filter.
+	for index := range message.Actions {
+		message.Actions[index].Label = s.Text(message.Actions[index].Label)
+		message.Actions[index].Confirm = s.Text(message.Actions[index].Confirm)
+		message.Actions[index].URL = safeActionURL(message.Actions[index].URL)
+	}
 	return message
 }
 
-func truncateUTF8(value string, limit int) string {
-	if limit <= 0 {
+// safeActionURL drops anything that is not an ordinary web link. Slack renders
+// a button URL directly, so a non-HTTPS scheme would be an unreviewed escape
+// from the host-owned control surface.
+func safeActionURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return ""
 	}
-	if len(value) <= limit {
-		return value
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return ""
 	}
-	value = value[:limit]
-	for !utf8.ValidString(value) {
-		value = value[:len(value)-1]
-	}
-	return strings.TrimSpace(value)
+	return value
+}
+
+func truncateUTF8(value string, limit int) string {
+	return core.TruncateUTF8(value, limit)
 }
 
 func Encode(message Message) ([]byte, error) {
@@ -345,17 +358,6 @@ func splitSlackBlockText(value string, limit int) []string {
 		result = append(result, value)
 	}
 	return result
-}
-
-func IncidentCard(
-	incident core.Incident,
-	repositoryName string,
-	signals []core.Signal,
-	hasCodeChanges bool,
-) Message {
-	return IncidentCardWithPublication(
-		incident, repositoryName, signals, hasCodeChanges, core.Publication{},
-	)
 }
 
 func IncidentCardWithPublication(
@@ -581,19 +583,6 @@ func correlationExplanation(incident core.Incident, signals []core.Signal) strin
 	}
 	reason += " This groups alert signals only; Responder still verifies whether they share a runtime cause."
 	return reason
-}
-
-func AssistantResponse(text string, sanitizer *Sanitizer) Message {
-	text = sanitizer.Text(text)
-	if text == "" {
-		text = "No response was returned."
-	}
-	return Message{
-		Text:     truncateUTF8("Investigation update: "+text, 4000),
-		Header:   "Investigation update",
-		Markdown: truncateMarkdown(text, 12000),
-		Context:  []string{"Responder reply. Internal tool output and hidden reasoning are omitted."},
-	}
 }
 
 func ConversationResponse(text string, sanitizer *Sanitizer) Message {
@@ -1794,18 +1783,6 @@ func WithBlockedAssessment(
 	return message
 }
 
-func EvidenceResponseWithIncidentOffer(
-	text string,
-	evidence []core.Evidence,
-	coverage []core.Coverage,
-	sourceInputID string,
-	sanitizer *Sanitizer,
-) Message {
-	message := ConciseEvidenceResponse(text, evidence, coverage, nil, sanitizer)
-	message.Context = nil
-	return WithIncidentOffer(message, sourceInputID)
-}
-
 func WithIncidentOffer(message Message, sourceInputID string) Message {
 	// The incident button and confirmation dialog carry the boundary. A context
 	// footer is redundant and is concatenated to copied Slack Markdown.
@@ -1816,18 +1793,6 @@ func WithIncidentOffer(message Message, sourceInputID string) Message {
 			"No merge, push, deployment, or infrastructure change will occur.",
 	})
 	return message
-}
-
-func EvidenceResponseWithTaskOffer(
-	text string,
-	evidence []core.Evidence,
-	coverage []core.Coverage,
-	sourceInputID string,
-	repositoryLabel string,
-	sanitizer *Sanitizer,
-) Message {
-	message := ConciseEvidenceResponse(text, evidence, coverage, nil, sanitizer)
-	return WithEngineeringTaskOffer(message, "", sourceInputID, repositoryLabel)
 }
 
 func WithEngineeringTaskOffer(
@@ -3069,11 +3034,7 @@ func Notice(text string) Message {
 }
 
 func truncateMarkdown(value string, limit int) string {
-	if len(value) <= limit {
-		return value
-	}
-	const marker = "\n\n_Response truncated._"
-	return truncateUTF8(value, limit-len(marker)) + marker
+	return core.TruncateUTF8WithSuffix(value, limit, "\n\n_Response truncated._")
 }
 
 func ShortID(id string) string {

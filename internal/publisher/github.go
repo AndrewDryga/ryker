@@ -652,6 +652,65 @@ func gitAuthEnv(token string) []string {
 	}
 }
 
+// gitPassthroughEnv names the only ambient variables a hermetic git invocation
+// inherits. Everything else is withheld so the publication checkout cannot see
+// Slack, Coop, Emisar, GitHub, or webhook secrets from the service environment.
+var gitPassthroughEnv = []string{
+	"PATH",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+	"http_proxy", "https_proxy", "no_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR",
+	"GIT_SSL_CAINFO", "GIT_SSL_CAPATH",
+}
+
+// gitEnv builds a hermetic environment for git. Global and system gitconfig are
+// pinned to /dev/null so an operator's `core.hooksPath` or `init.templateDir`
+// cannot inject code into the isolated publication checkout, and HOME points at
+// that checkout so nothing resolves a real dotfile.
+func gitEnv(work string, extra ...string) []string {
+	env := make([]string, 0, len(gitPassthroughEnv)+len(extra)+6)
+	for _, name := range gitPassthroughEnv {
+		if value, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+value)
+		}
+	}
+	env = append(env,
+		"HOME="+work,
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_TERMINAL_PROMPT=0",
+		"LC_ALL=C",
+	)
+	return append(env, extra...)
+}
+
+// boundedBuffer stops accumulating past limit so a runaway subprocess cannot
+// grow the buffer without bound. Checking the size after the process exits
+// would already have paid the memory cost.
+type boundedBuffer struct {
+	buf      bytes.Buffer
+	limit    int
+	overflow bool
+}
+
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	if remaining := b.limit - b.buf.Len(); remaining > 0 {
+		if len(p) > remaining {
+			b.buf.Write(p[:remaining])
+			b.overflow = true
+		} else {
+			b.buf.Write(p)
+		}
+	} else if len(p) > 0 {
+		b.overflow = true
+	}
+	// Report a full write so git is never signalled a broken pipe.
+	return len(p), nil
+}
+
+func (b *boundedBuffer) String() string { return b.buf.String() }
+
 func runGit(
 	ctx context.Context,
 	work string,
@@ -660,21 +719,46 @@ func runGit(
 	args ...string,
 ) (string, error) {
 	command := exec.CommandContext(ctx, "git", append([]string{"-C", work}, args...)...)
-	command.Env = append(os.Environ(), extraEnv...)
+	command.Env = gitEnv(work, extraEnv...)
 	if input != nil {
 		command.Stdin = bytes.NewReader(input)
 	}
-	var output bytes.Buffer
-	command.Stdout = &output
-	command.Stderr = &output
+	output := &boundedBuffer{limit: maxCommandOutput}
+	command.Stdout = output
+	command.Stderr = output
 	err := command.Run()
-	if output.Len() > maxCommandOutput {
+	if output.overflow {
 		return "", errors.New("git output exceeded 1 MiB")
 	}
 	if err != nil {
 		return "", fmt.Errorf("git %s: %s", args[0], strings.TrimSpace(output.String()))
 	}
 	return output.String(), nil
+}
+
+// ResolveTree returns the tree object ID for commit in the checkout at path. It
+// is the one supported way to ask git a question about a repository outside the
+// publication flow, so every git invocation stays hermetic and every object ID
+// is validated before it reaches a command line.
+func (g *GitHub) ResolveTree(ctx context.Context, path, commit string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("repository checkout path is required")
+	}
+	if !fullGitOID.MatchString(commit) {
+		return "", fmt.Errorf("%q is not a full Git object ID", commit)
+	}
+	output, err := runGit(
+		ctx, path, nil, nil,
+		"rev-parse", "--verify", "--end-of-options", commit+"^{tree}",
+	)
+	if err != nil {
+		return "", err
+	}
+	tree := strings.TrimSpace(output)
+	if !fullGitOID.MatchString(tree) {
+		return "", errors.New("git returned an unexpected tree object ID")
+	}
+	return tree, nil
 }
 
 func (g *GitHub) remoteRef(

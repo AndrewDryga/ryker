@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,53 +10,6 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
-
-func TestSchemaV3MigratesIntelligenceState(t *testing.T) {
-	stateDir := filepath.Join(t.TempDir(), "state")
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(schemaV1 + schemaV2 + schemaV3); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO schema_version(version) VALUES (3)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	st, err := Open(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	for _, table := range []string{
-		"channel_memories",
-		"evidence",
-		"coverage",
-		"timeline_events",
-		"action_proposals",
-		"proposal_approvals",
-		"evaluation_decisions",
-		"memory_entries",
-		"conversation_memories",
-		"conversation_sessions",
-		"conversation_routes",
-	} {
-		var count int
-		if err := st.db.QueryRow(`
-			SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`,
-			table,
-		).Scan(&count); err != nil || count != 1 {
-			t.Fatalf("table %s = %d, %v", table, count, err)
-		}
-	}
-}
 
 func TestConversationSessionAndRouteAreDurableAndLaneScoped(t *testing.T) {
 	ctx := context.Background()

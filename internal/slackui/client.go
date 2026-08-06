@@ -266,10 +266,6 @@ func missingBotScopesError(missing []string) error {
 	)
 }
 
-func summonChannelMembershipError(botName, channelID, channelName string) error {
-	return channelMembershipError(botName, "summon", channelID, channelName)
-}
-
 func channelMembershipError(botName, kind, channelID, channelName string) error {
 	bot := "the bot"
 	if botName != "" {

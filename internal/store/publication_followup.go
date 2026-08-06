@@ -18,7 +18,7 @@ func (s *Store) EnsurePublicationFollowup(
 	if incidentID == "" || nextCheckAt.IsZero() {
 		return errors.New("publication follow-up identity and next check are required")
 	}
-	now := nowText()
+	now := s.nowText()
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO publication_followups (
 		  incident_id, next_check_at, created_at, updated_at
@@ -39,7 +39,7 @@ func (s *Store) ResetPublicationFollowup(
 	if incidentID == "" || nextCheckAt.IsZero() {
 		return errors.New("publication follow-up identity and next check are required")
 	}
-	now := nowText()
+	now := s.nowText()
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO publication_followups (
 		  incident_id, pr_state, checks_state, next_check_at,
@@ -139,7 +139,7 @@ func (s *Store) SavePublicationFollowup(
 		item.NextCheckAt.IsZero() {
 		return errors.New("complete publication follow-up state is required")
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	var merged any
 	if !item.MergedAt.IsZero() {
 		merged = item.MergedAt.UTC().Format(timestampFormat)
@@ -167,7 +167,7 @@ func (s *Store) RecordPublicationLifecycleEvent(
 		return false, errors.New("publication lifecycle event is incomplete")
 	}
 	if item.CreatedAt.IsZero() {
-		item.CreatedAt = time.Now().UTC()
+		item.CreatedAt = s.now().UTC()
 	}
 	result, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO publication_lifecycle_events (

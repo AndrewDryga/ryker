@@ -28,7 +28,8 @@ var (
 )
 
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	clock func() time.Time
 }
 
 type Metrics struct {
@@ -373,36 +374,59 @@ func migrate(db *sql.DB) error {
 			version, currentSchemaVersion,
 		)
 	}
+	if version == 0 {
+		if err := applySchemaStep(db, baselineSchema, 0, baselineSchemaVersion); err != nil {
+			return err
+		}
+		version = baselineSchemaVersion
+	}
+	if version < minimumUpgradableVersion {
+		return fmt.Errorf(
+			"database schema version %d predates the supported baseline; "+
+				"upgrade with a release that supports version %d first",
+			version, minimumUpgradableVersion,
+		)
+	}
 	for version < currentSchemaVersion {
 		next := version + 1
-		if next > len(migrations) || strings.TrimSpace(migrations[next-1]) == "" {
+		statement, ok := migrations[next]
+		if !ok || strings.TrimSpace(statement) == "" {
 			return fmt.Errorf("database migration %d is unavailable", next)
 		}
-		tx, err := db.Begin()
-		if err != nil {
-			return fmt.Errorf("begin database migration %d: %w", next, err)
-		}
-		if _, err := tx.Exec(migrations[next-1]); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("apply database migration %d: %w", next, err)
-		}
-		if version == 0 {
-			_, err = tx.Exec(`INSERT INTO schema_version(version) VALUES (?)`, next)
-		} else {
-			var result sql.Result
-			result, err = tx.Exec(`UPDATE schema_version SET version = ? WHERE version = ?`, next, version)
-			if err == nil {
-				err = expectOne(result, nil, fmt.Sprintf("record database migration %d", next))
-			}
-		}
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("record database migration %d: %w", next, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit database migration %d: %w", next, err)
+		if err := applySchemaStep(db, statement, version, next); err != nil {
+			return err
 		}
 		version = next
+	}
+	return nil
+}
+
+// applySchemaStep applies one schema statement and records the resulting
+// version in the same transaction, so an interrupted upgrade can never leave a
+// database whose recorded version disagrees with its shape.
+func applySchemaStep(db *sql.DB, statement string, from, to int) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin database migration %d: %w", to, err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(statement); err != nil {
+		return fmt.Errorf("apply database migration %d: %w", to, err)
+	}
+	if from == 0 {
+		_, err = tx.Exec(`INSERT INTO schema_version(version) VALUES (?)`, to)
+	} else {
+		var result sql.Result
+		result, err = tx.Exec(`UPDATE schema_version SET version = ? WHERE version = ?`, to, from)
+		if err == nil {
+			err = expectOne(result, nil, fmt.Sprintf("record database migration %d", to))
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("record database migration %d: %w", to, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit database migration %d: %w", to, err)
 	}
 	return nil
 }
@@ -444,7 +468,7 @@ func (s *Store) RecoverInterrupted(ctx context.Context) error {
 	`); err != nil {
 		return fmt.Errorf("recover interrupted work: %w", err)
 	}
-	if err := s.RecoverWorkLeases(ctx, time.Now().UTC()); err != nil {
+	if err := s.RecoverWorkLeases(ctx, s.now().UTC()); err != nil {
 		return fmt.Errorf("recover scheduled work: %w", err)
 	}
 	return nil
@@ -500,7 +524,7 @@ func (s *Store) SetSlackSetting(
 		  value = excluded.value,
 		  actor_id = excluded.actor_id,
 		  updated_at = excluded.updated_at`,
-		scope, channelID, name, value, actorID, nowText())
+		scope, channelID, name, value, actorID, s.nowText())
 	return err
 }
 
@@ -671,7 +695,7 @@ func (s *Store) EnsureIncidentCardRevision(
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
-	now := nowText()
+	now := s.nowText()
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE incidents
 		SET card_version = card_version + 1, updated_at = ?
@@ -803,7 +827,7 @@ func (s *Store) RetryFailedWork(ctx context.Context, kind, id string) (FailedWor
 			)
 		}
 	}
-	now := nowText()
+	now := s.nowText()
 	retryState := "retry"
 	if kind == "outbox" || kind == "delivery" {
 		var operation string
@@ -848,8 +872,25 @@ func (s *Store) RetryFailedWork(ctx context.Context, kind, id string) (FailedWor
 	return item, nil
 }
 
-func nowText() string {
-	return time.Now().UTC().Format(timestampFormat)
+// now is the store clock. Lease expiry, retry windows, correlation windows,
+// and every persisted timestamp read it, so a test can move time instead of
+// sleeping through a real backoff.
+func (s *Store) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
+}
+
+func (s *Store) nowText() string {
+	return s.now().UTC().Format(timestampFormat)
+}
+
+// SetClock replaces the store clock. It exists for tests.
+func (s *Store) SetClock(clock func() time.Time) {
+	if clock != nil {
+		s.clock = clock
+	}
 }
 
 func timeText(t time.Time) any {
@@ -883,7 +924,7 @@ func (s *Store) AdmitWebhook(ctx context.Context, route, dedupeKey, bodyDigest s
 	if err != nil {
 		return core.WebhookEvent{}, false, fmt.Errorf("encode normalized signals: %w", err)
 	}
-	now := nowText()
+	now := s.nowText()
 	result, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO webhook_events
 		  (id, route, dedupe_key, body_digest, signals_json, state, next_attempt_at, received_at, updated_at)
@@ -938,7 +979,7 @@ func (s *Store) LeaseWebhook(ctx context.Context) (core.WebhookEvent, error) {
 		return core.WebhookEvent{}, err
 	}
 	defer tx.Rollback()
-	now := nowText()
+	now := s.nowText()
 	event, err := scanWebhook(tx.QueryRowContext(ctx, `
 		SELECT id, route, dedupe_key, body_digest, signals_json, incident_ids_json,
 		       applied, state, attempts,
@@ -971,7 +1012,7 @@ func (s *Store) LeaseWebhook(ctx context.Context) (core.WebhookEvent, error) {
 func (s *Store) FinishWebhook(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE webhook_events SET state = 'done', last_error = '', updated_at = ?
-		WHERE id = ? AND state = 'processing'`, nowText(), id)
+		WHERE id = ? AND state = 'processing'`, s.nowText(), id)
 	return expectOne(result, err, "finish webhook")
 }
 
@@ -983,7 +1024,7 @@ func (s *Store) RetryWebhook(ctx context.Context, id, detail string, next time.T
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE webhook_events SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'processing'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+		state, boundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
 	return expectOne(result, err, "retry webhook")
 }
 
@@ -1002,11 +1043,7 @@ func expectOne(result sql.Result, err error, action string) error {
 }
 
 func boundedError(value string) string {
-	value = strings.TrimSpace(value)
-	if len(value) > 1000 {
-		value = value[:1000]
-	}
-	return value
+	return core.BoundedText(value, 1000)
 }
 
 func (s *Store) ApplySignals(
@@ -1020,7 +1057,7 @@ func (s *Store) ApplySignals(
 		return nil, err
 	}
 	defer tx.Rollback()
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	affected := append([]string(nil), event.IncidentIDs...)
 	var capacityErr error
 	for _, signal := range event.Signals {
@@ -1517,7 +1554,7 @@ func (s *Store) listIncidentsWhere(ctx context.Context, where string, limit int)
 }
 
 func (s *Store) SetChannel(ctx context.Context, id, channelID, channelName string) error {
-	now := nowText()
+	now := s.nowText()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET channel_id = ?, channel_name = ?, workflow = 'provisioning_channel',
 		  channel_state = 'active', channel_state_changed_at = ?, channel_checked_at = ?,
@@ -1527,7 +1564,7 @@ func (s *Store) SetChannel(ctx context.Context, id, channelID, channelName strin
 }
 
 func (s *Store) BindThreadWork(ctx context.Context, id string) error {
-	now := nowText()
+	now := s.nowText()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET channel_id = origin_channel_id, workflow = 'provisioning_channel',
 		  channel_state = 'active', channel_state_changed_at = ?, channel_checked_at = ?,
@@ -1581,7 +1618,7 @@ func (s *Store) SetIncidentChannelState(
 		return nil, fmt.Errorf("invalid incident channel state %q", state)
 	}
 	if observedAt.IsZero() {
-		observedAt = time.Now().UTC()
+		observedAt = s.now().UTC()
 	}
 	observed := observedAt.UTC().Format(timestampFormat)
 	roomDetail := channelStateError(state, false)
@@ -1732,7 +1769,7 @@ func (s *Store) createManualWork(
 	if err != nil {
 		return core.Incident{}, false, err
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	correlation := "manual:" + sourceID
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1793,7 +1830,7 @@ func (s *Store) SetRoot(ctx context.Context, id, rootTS string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET root_ts = ?, workflow = 'provisioning_session',
 		  updated_at = ?, card_version = card_version + 1, last_error = ''
-		WHERE id = ? AND channel_id != '' AND root_ts = ''`, rootTS, nowText(), id)
+		WHERE id = ? AND channel_id != '' AND root_ts = ''`, rootTS, s.nowText(), id)
 	return expectOne(result, err, "bind incident root")
 }
 
@@ -1802,7 +1839,7 @@ func (s *Store) SetCoopSession(ctx context.Context, id, sessionID, forkName stri
 		UPDATE incidents SET coop_session_id = ?, coop_fork_name = ?, coop_revision = ?, workflow = 'investigating',
 		  updated_at = ?, card_version = card_version + 1, last_error = ''
 		WHERE id = ? AND root_ts != '' AND coop_session_id = ''`,
-		sessionID, forkName, revision, nowText(), id)
+		sessionID, forkName, revision, s.nowText(), id)
 	return expectOne(result, err, "bind Coop session")
 }
 
@@ -1816,7 +1853,7 @@ func (s *Store) UpdateCoopState(ctx context.Context, id string, revision, cursor
 		  last_error = CASE WHEN ? != '' THEN '' ELSE last_error END
 		WHERE id = ?`,
 		revision, cursor, activeTurnID, workflow,
-		revision, cursor, activeTurnID, workflow, nowText(), activeTurnID, id)
+		revision, cursor, activeTurnID, workflow, s.nowText(), activeTurnID, id)
 	return err
 }
 
@@ -1824,7 +1861,7 @@ func (s *Store) SetIncidentError(ctx context.Context, id string, workflow core.W
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET workflow = ?, last_error = ?, updated_at = ?,
 		  card_version = card_version + 1 WHERE id = ?`,
-		workflow, boundedError(detail), nowText(), id)
+		workflow, boundedError(detail), s.nowText(), id)
 	return err
 }
 
@@ -1861,19 +1898,19 @@ func (s *Store) CloseIncident(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET status = 'closed', workflow = 'closed', closed_at = ?,
 		  updated_at = ?, card_version = card_version + 1, active_turn_id = ''
-		WHERE id = ? AND status != 'closed'`, nowText(), nowText(), id)
+		WHERE id = ? AND status != 'closed'`, s.nowText(), s.nowText(), id)
 	return expectOne(result, err, "close incident")
 }
 
 func (s *Store) MarkInitialTurnQueued(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET initial_turn_queued = 1, updated_at = ?
-		WHERE id = ? AND initial_turn_queued = 0`, nowText(), id)
+		WHERE id = ? AND initial_turn_queued = 0`, s.nowText(), id)
 	return expectOne(result, err, "mark initial turn queued")
 }
 
 func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (bool, error) {
-	return admitSlackInput(ctx, s.db, input)
+	return admitSlackInput(ctx, s.db, input, s.nowText())
 }
 
 func admitSlackInput(
@@ -1882,6 +1919,7 @@ func admitSlackInput(
 		ExecContext(context.Context, string, ...any) (sql.Result, error)
 	},
 	input core.SlackInput,
+	now string,
 ) (bool, error) {
 	if input.ID == "" {
 		var err error
@@ -1890,7 +1928,6 @@ func admitSlackInput(
 			return false, err
 		}
 	}
-	now := nowText()
 	attachments, err := json.Marshal(input.Attachments)
 	if err != nil {
 		return false, fmt.Errorf("encode Slack input attachments: %w", err)
@@ -1954,7 +1991,7 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 		return core.SlackInput{}, err
 	}
 	defer tx.Rollback()
-	now := nowText()
+	now := s.nowText()
 	input, err := scanSlackInput(tx.QueryRowContext(ctx, `
 			SELECT candidate.id, candidate.envelope_id, candidate.event_id, candidate.kind,
 			  candidate.team_id, candidate.channel_id, candidate.thread_ts, candidate.message_ts,
@@ -2038,7 +2075,7 @@ func (s *Store) RecoverStaleSlackInputs(
 		      ELSE last_error END,
 		    updated_at = ?
 		WHERE state = 'processing' AND julianday(updated_at) <= julianday(?)`,
-		nowText(), nowText(), staleBefore.UTC().Format(timestampFormat),
+		s.nowText(), s.nowText(), staleBefore.UTC().Format(timestampFormat),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("recover stale Slack inputs: %w", err)
@@ -2293,7 +2330,7 @@ func scanSlackInput(row interface{ Scan(...any) error }) (core.SlackInput, error
 func (s *Store) FinishSlackInput(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE slack_inputs SET state = 'done', last_error = '', updated_at = ?
-		WHERE id = ? AND state = 'processing'`, nowText(), id)
+		WHERE id = ? AND state = 'processing'`, s.nowText(), id)
 	return expectOne(result, err, "finish Slack input")
 }
 
@@ -2305,7 +2342,7 @@ func (s *Store) RetrySlackInput(ctx context.Context, id, detail string, next tim
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE slack_inputs SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'processing'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+		state, boundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
 	return expectOne(result, err, "retry Slack input")
 }
 
@@ -2325,7 +2362,7 @@ func (s *Store) RetrySlackInputFailure(
 		SET state = ?, failure_count = failure_count + 1, last_error = ?,
 		    next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'processing'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+		state, boundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
 	return expectOne(result, err, "retry failed Slack input")
 }
 
@@ -2344,7 +2381,7 @@ func (s *Store) FreezeSlackInput(ctx context.Context, id string, frozen []byte) 
 			return nil, errors.New("frozen Slack action is empty")
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE slack_inputs SET frozen_json = ?, updated_at = ? WHERE id = ?`,
-			frozen, nowText(), id); err != nil {
+			frozen, s.nowText(), id); err != nil {
 			return nil, err
 		}
 		existing = append([]byte(nil), frozen...)
@@ -2361,7 +2398,7 @@ func (s *Store) SetSlackInputFrozen(ctx context.Context, id string, frozen []byt
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE slack_inputs SET frozen_json = ?, updated_at = ?
-		WHERE id = ? AND state = 'processing'`, frozen, nowText(), id)
+		WHERE id = ? AND state = 'processing'`, frozen, s.nowText(), id)
 	return expectOne(result, err, "set Slack input state")
 }
 
@@ -2374,7 +2411,7 @@ func (s *Store) Audit(ctx context.Context, event core.AuditEvent) error {
 		}
 	}
 	if event.CreatedAt.IsZero() {
-		event.CreatedAt = time.Now().UTC()
+		event.CreatedAt = s.now().UTC()
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO audit_events

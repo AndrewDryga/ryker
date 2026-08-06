@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Reliability and maintenance pass.** The Slack write slot now defers its scheduler item instead
+  of reporting success, ending a busy loop that issued thousands of database transactions per second
+  for a second after every Slack message. Shutdown waits for the service workers to drain before the
+  store and Coop connections close. Every bound on operator and model text is UTF-8 safe through one
+  shared helper, so a title or error containing an emoji can no longer be stored as invalid UTF-8.
+  Audit, timeline, and incident-failure writes log their errors rather than discarding them.
+- **Hermetic Git publication.** The isolated publication checkout no longer inherits the service
+  environment or the operator's global and system Git configuration, so no credential is visible to
+  a Git subprocess and no configured hook path can run in it. Command output is bounded while the
+  process runs, and every commit identifier is validated before it reaches a command line.
+- **Schema baseline.** The first forty migrations are collapsed into one readable baseline. Fresh
+  installs create the current schema directly instead of replaying four decades of table rebuilds,
+  and the unused episode effect ledger is dropped. Deployed databases upgrade in place after the
+  usual verified private backup.
 - **Context-aware humor.** Emisar may add a brief, understated joke in relaxed or playful Slack
   conversation while remaining direct and professional by default. High-risk and stressful
   situations stay serious, and humor is excluded from evidence, memory, titles, controls, and

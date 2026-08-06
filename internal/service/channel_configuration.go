@@ -73,7 +73,7 @@ func (s *Service) startChannelConfiguration(
 		TeamID: input.TeamID, ChannelID: input.ChannelID, Initiator: initiator,
 		Step: "participation", Status: "asking",
 		Draft:     draft,
-		ExpiresAt: time.Now().UTC().Add(channelConfigurationLease),
+		ExpiresAt: s.now().UTC().Add(channelConfigurationLease),
 	})
 	if err != nil {
 		return err
@@ -90,7 +90,7 @@ func (s *Service) startChannelConfiguration(
 	if err := s.store.BindConfigurationThread(ctx, session.ID, threadTS); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.configuration.started", ActorID: input.UserID,
 		ObjectID: session.ID, Outcome: "asking", Detail: input.ChannelID,
 	})
@@ -151,7 +151,7 @@ func (s *Service) processConfigurationReply(
 		return true, s.finishSlackInput(ctx, input)
 	}
 	renewed := false
-	if !session.ExpiresAt.After(time.Now().UTC()) {
+	if !session.ExpiresAt.After(s.now().UTC()) {
 		session, err = s.renewConfigurationSession(ctx, session, input.UserID)
 		if err != nil {
 			return true, err
@@ -292,7 +292,7 @@ func (s *Service) renewConfigurationSession(
 	if replacement.Step == "confirm" {
 		replacement.Status = "confirming"
 	}
-	replacement.ExpiresAt = time.Now().UTC().Add(channelConfigurationLease)
+	replacement.ExpiresAt = s.now().UTC().Add(channelConfigurationLease)
 	replacement.CreatedAt = time.Time{}
 	replacement.UpdatedAt = time.Time{}
 	replacement.Revision = 0
@@ -303,7 +303,7 @@ func (s *Service) renewConfigurationSession(
 		}
 		return core.ConfigurationSession{}, err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.configuration.renewed", ActorID: actorID,
 		ObjectID: replacement.ID, Outcome: replacement.Status, Detail: expired.ID,
 	})
@@ -464,7 +464,7 @@ func (s *Service) handleChannelConfigurationAction(
 	case slackui.ActionSetupQuickMentions, slackui.ActionSetupQuickProactive:
 		if session.Status != "asking" || session.Step != "participation" ||
 			session.Initiator != "" || session.Draft.ActorID != "" ||
-			!session.ExpiresAt.After(time.Now().UTC()) {
+			!session.ExpiresAt.After(s.now().UTC()) {
 			return s.finishSlashInput(
 				ctx, input,
 				"**That quick setup choice is no longer current.** Nothing was changed. Use the latest setup controls.",
@@ -499,7 +499,7 @@ func (s *Service) handleChannelConfigurationAction(
 		); err != nil {
 			return err
 		}
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			Kind: "slack.configuration.saved", ActorID: input.UserID,
 			ObjectID: session.ID, Outcome: "quick_saved",
 			Detail: fmt.Sprintf(
@@ -512,7 +512,7 @@ func (s *Service) handleChannelConfigurationAction(
 	case slackui.ActionSetupCustomize:
 		if session.Status != "asking" || session.Step != "participation" ||
 			session.Initiator != "" || session.Draft.ActorID != "" ||
-			!session.ExpiresAt.After(time.Now().UTC()) {
+			!session.ExpiresAt.After(s.now().UTC()) {
 			return s.finishSlashInput(
 				ctx, input,
 				"**That setup control is no longer current.** Nothing was changed. Use the latest setup controls.",
@@ -555,7 +555,7 @@ func (s *Service) handleChannelConfigurationAction(
 	}
 	if expectedStep, answer, choice := channelSetupChoice(input.ActionID); choice {
 		if session.Status != "asking" || session.Step != expectedStep ||
-			!session.ExpiresAt.After(time.Now().UTC()) {
+			!session.ExpiresAt.After(s.now().UTC()) {
 			return s.finishSlashInput(
 				ctx, input,
 				"**That setup choice is no longer current.** Nothing was changed. Use the controls on the latest setup question.",
@@ -642,7 +642,7 @@ func (s *Service) handleChannelConfigurationAction(
 		}
 	case slackui.ActionSaveChannelConfig:
 		if session.Status != "confirming" || session.Step != "confirm" ||
-			!session.ExpiresAt.After(time.Now().UTC()) {
+			!session.ExpiresAt.After(s.now().UTC()) {
 			return s.finishSlashInput(
 				ctx, input,
 				"**This setup is not ready to save or has expired.** No settings were changed. Start the setup again.",
@@ -668,7 +668,7 @@ func (s *Service) handleChannelConfigurationAction(
 				channel.Name, configuration, s.repositoryChoice(configuration.Repository),
 			),
 		)
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			Kind: "slack.configuration.saved", ActorID: input.UserID,
 			ObjectID: session.ID, Outcome: "saved",
 			Detail: fmt.Sprintf(
@@ -736,9 +736,7 @@ func (s *Service) postConfigurationMessage(
 	threadTS string,
 	message slackui.Message,
 ) (string, error) {
-	if s.sanitizer != nil {
-		message = s.sanitizer.Message(message)
-	}
+	message = s.sanitizeMessage(message)
 	messageTS, err := s.slack.Post(ctx, deliveryID, channelID, threadTS, message)
 	if err == nil {
 		return messageTS, nil

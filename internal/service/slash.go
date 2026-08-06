@@ -521,7 +521,7 @@ func (s *Service) configureShadow(
 	if enabled {
 		effective = "on"
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.settings", ActorID: input.UserID,
 		ObjectID: scope + ":" + firstNonempty(channelID, "workspace"),
 		Outcome:  "updated", Detail: "shadow=" + value,
@@ -578,7 +578,7 @@ func (s *Service) configureTurnLimit(
 	); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.settings", ActorID: input.UserID,
 		ObjectID: scope + ":" + firstNonempty(channelID, "workspace"),
 		Outcome:  "updated", Detail: "turn_limit=" + value,
@@ -665,7 +665,7 @@ func (s *Service) configureProactive(
 	); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.settings", ActorID: input.UserID,
 		ObjectID: scope + ":" + firstNonempty(channelID, "workspace"),
 		Outcome:  "updated", Detail: "proactive=" + value,
@@ -842,9 +842,7 @@ func (s *Service) finishSlashMessage(
 	input core.SlackInput,
 	message slackui.Message,
 ) error {
-	if s.sanitizer != nil {
-		message = s.sanitizer.Message(message)
-	}
+	message = s.sanitizeMessage(message)
 	if input.Kind == "conversation_command" {
 		if err := s.postInputMessage(
 			ctx, "conversation_command_"+input.ID, input, message,
@@ -860,7 +858,7 @@ func (s *Service) finishSlashMessage(
 			"user", input.UserID,
 			"error", err,
 		)
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			Kind: "slack.command.feedback", ActorID: input.UserID,
 			ObjectID: input.ID, Outcome: "failed", Detail: trimError(err),
 		})

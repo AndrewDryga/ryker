@@ -967,41 +967,6 @@ type ContextReference struct {
 	Metadata       map[string]string
 }
 
-type EpisodeEffectState string
-
-const (
-	EffectPlanned    EpisodeEffectState = "planned"
-	EffectDelivering EpisodeEffectState = "delivering"
-	EffectSucceeded  EpisodeEffectState = "succeeded"
-	EffectFailed     EpisodeEffectState = "failed"
-	EffectCancelled  EpisodeEffectState = "cancelled"
-)
-
-type EpisodeEffect struct {
-	ID                          string
-	WorkspaceID                 string
-	EpisodeID                   string
-	ExpectedEpisodeRevision     int
-	ExpectedDestinationRevision int
-	Kind                        string
-	Destination                 BoundDestination
-	Payload                     []byte
-	PayloadRef                  string
-	IdempotencyKey              string
-	State                       EpisodeEffectState
-	Attempts                    int
-	NextAttemptAt               time.Time
-	LeaseOwner                  string
-	FencingToken                int64
-	LeaseExpiresAt              time.Time
-	LastErrorClass              string
-	LastError                   string
-	ExternalRef                 string
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
-	CompletedAt                 time.Time
-}
-
 type EpisodeWakeupState string
 
 const (

@@ -1034,7 +1034,7 @@ func (s *Service) refreshWorkEpisodeProgress(
 	if episode.State != core.EpisodeWorking {
 		return nil
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	interval := s.cfg.Limits.EpisodeProgressInterval.Duration
 	if !episode.ProgressDueAt.IsZero() && episode.ProgressDueAt.After(now) {
 		return nil

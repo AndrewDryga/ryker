@@ -61,7 +61,7 @@ func (s *Store) QueueAgentRun(
 	if len(run.Context) > 256<<10 {
 		return core.AgentRun{}, false, errors.New("agent run context exceeds 256 KiB")
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if run.CreatedAt.IsZero() {
 		run.CreatedAt = now
 	}
@@ -96,7 +96,7 @@ func (s *Store) QueueAgentRun(
 		run.CoopTurnID, run.CoopEventSequence, run.Context, run.Result,
 		run.TerminalState, run.State, run.Failures,
 		run.NextAttemptAt.UTC().Format(timestampFormat), boundedError(run.LastError),
-		run.CreatedAt.UTC().Format(timestampFormat), nowText(), nullableTime(run.StartedAt),
+		run.CreatedAt.UTC().Format(timestampFormat), s.nowText(), nullableTime(run.StartedAt),
 		nullableTime(run.CompletedAt),
 	)
 	if err != nil {
@@ -321,13 +321,13 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		  END,
 		  candidate.created_at,
 		  candidate.id
-		LIMIT 1`, nowText()))
+		LIMIT 1`, s.nowText()))
 	if err != nil {
 		return core.AgentRun{}, err
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs SET state = 'preparing', updated_at = ?
-		WHERE id = ? AND state = 'pending'`, nowText(), run.ID)
+		WHERE id = ? AND state = 'pending'`, s.nowText(), run.ID)
 	if err := expectOne(result, err, "lease agent run"); err != nil {
 		return core.AgentRun{}, err
 	}
@@ -362,13 +362,13 @@ func (s *Store) LeaseAgentRunFinalization(ctx context.Context) (core.AgentRun, e
 		WHERE state = 'applying'
 		  AND julianday(next_attempt_at) <= julianday(?)
 		ORDER BY updated_at, id
-		LIMIT 1`, nowText()))
+		LIMIT 1`, s.nowText()))
 	if err != nil {
 		return core.AgentRun{}, err
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs SET state = 'finalizing', updated_at = ?
-		WHERE id = ? AND state = 'applying'`, nowText(), run.ID)
+		WHERE id = ? AND state = 'applying'`, s.nowText(), run.ID)
 	if err := expectOne(result, err, "lease agent run finalization"); err != nil {
 		return core.AgentRun{}, err
 	}
@@ -399,7 +399,7 @@ func (s *Store) BeginAgentRunFinalization(
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs SET state = 'finalizing', updated_at = ?
-		WHERE id = ? AND state = 'applying'`, nowText(), id)
+		WHERE id = ? AND state = 'applying'`, s.nowText(), id)
 	if err := expectOne(result, err, "begin agent run finalization"); err != nil {
 		return core.AgentRun{}, err
 	}
@@ -427,7 +427,7 @@ func (s *Store) BindAgentRunSession(
 		SET session_id = ?, session_generation = ?, repository = ?,
 		    coop_event_sequence = ?, context_json = ?, updated_at = ?
 		WHERE id = ? AND state = 'preparing'`,
-		sessionID, generation, repository, eventSequence, contextJSON, nowText(), id)
+		sessionID, generation, repository, eventSequence, contextJSON, s.nowText(), id)
 	return expectOne(result, err, "bind agent run session")
 }
 
@@ -442,25 +442,8 @@ func (s *Store) SetAgentRunContext(
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE agent_runs SET context_json = ?, updated_at = ?
 		WHERE id = ? AND state NOT IN ('superseded')`,
-		contextJSON, nowText(), id)
+		contextJSON, s.nowText(), id)
 	return expectOne(result, err, "set agent run context")
-}
-
-func (s *Store) SetAgentRunPreparedContext(
-	ctx context.Context,
-	id string,
-	repository string,
-	contextJSON []byte,
-) error {
-	if len(contextJSON) == 0 || len(contextJSON) > 256<<10 {
-		return errors.New("agent run context must be between 1 byte and 256 KiB")
-	}
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE agent_runs
-		SET repository = ?, context_json = ?, updated_at = ?
-		WHERE id = ? AND state = 'preparing'`,
-		repository, contextJSON, nowText(), id)
-	return expectOne(result, err, "set prepared agent run context")
 }
 
 func (s *Store) FreezeAgentRunRevision(
@@ -486,7 +469,7 @@ func (s *Store) FreezeAgentRunRevision(
 		result, err := tx.ExecContext(ctx, `
 			UPDATE agent_runs SET expected_revision = ?, updated_at = ?
 			WHERE id = ? AND state = 'preparing' AND expected_revision = 0`,
-			revision, nowText(), id)
+			revision, s.nowText(), id)
 		if err := expectOne(result, err, "freeze agent run revision"); err != nil {
 			return 0, err
 		}
@@ -523,7 +506,7 @@ func (s *Store) MarkAgentRunSubmitted(
 	if sessionID == "" {
 		return errors.New("submitted agent run requires a bound Coop session")
 	}
-	now := nowText()
+	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'running', coop_turn_id = ?, coop_event_sequence = ?,
@@ -594,7 +577,7 @@ func (s *Store) MarkTriageAgentRunSubmitted(
 	).Scan(&channelID, &sessionID); err != nil {
 		return err
 	}
-	now := nowText()
+	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'running', coop_turn_id = ?, coop_event_sequence = ?,
@@ -643,7 +626,7 @@ func (s *Store) DeferAgentRun(
 		UPDATE agent_runs
 		SET state = 'pending', last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'preparing'`,
-		boundedError(detail), next.UTC().Format(timestampFormat), nowText(), id)
+		boundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
 	if err := expectOne(result, err, "defer agent run"); err != nil {
 		return err
 	}
@@ -673,7 +656,7 @@ func (s *Store) RetryAgentRun(
 	completedAt := any(nil)
 	if terminal {
 		state = core.AgentRunFailed
-		completedAt = nowText()
+		completedAt = s.nowText()
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -686,7 +669,7 @@ func (s *Store) RetryAgentRun(
 		    next_attempt_at = ?, completed_at = ?, updated_at = ?
 		WHERE id = ? AND state IN ('preparing', 'finalizing')`,
 		state, boundedError(detail), next.UTC().Format(timestampFormat),
-		completedAt, nowText(), id)
+		completedAt, s.nowText(), id)
 	if err := expectOne(result, err, "retry agent run"); err != nil {
 		return err
 	}
@@ -758,7 +741,7 @@ func (s *Store) AdvanceAgentRunEvents(
 		UPDATE agent_runs
 		SET coop_event_sequence = MAX(coop_event_sequence, ?), updated_at = ?
 		WHERE id = ? AND state = 'running'`,
-		sequence, nowText(), id)
+		sequence, s.nowText(), id)
 	if err := expectOne(result, err, "advance agent run events"); err != nil {
 		return err
 	}
@@ -796,7 +779,7 @@ func (s *Store) RepairAgentRunEventCursor(
 		UPDATE agent_runs
 		SET coop_event_sequence = 0, updated_at = ?
 		WHERE id = ? AND session_id = ? AND state = 'running'`,
-		nowText(), id, sessionID,
+		s.nowText(), id, sessionID,
 	)
 	if err := expectOne(result, err, "repair agent run event cursor"); err != nil {
 		return err
@@ -805,7 +788,7 @@ func (s *Store) RepairAgentRunEventCursor(
 		_, err = tx.ExecContext(ctx, `
 			UPDATE incidents SET coop_event_sequence = 0, updated_at = ?
 			WHERE id = ? AND coop_session_id = ?`,
-			nowText(), incidentID.String, sessionID,
+			s.nowText(), incidentID.String, sessionID,
 		)
 	} else {
 		// A conversation lane can share the same Coop session with the channel
@@ -814,13 +797,13 @@ func (s *Store) RepairAgentRunEventCursor(
 		_, err = tx.ExecContext(ctx, `
 			UPDATE channel_memories SET coop_event_sequence = 0, updated_at = ?
 			WHERE channel_id = ? AND session_id = ?`,
-			nowText(), channelID, sessionID,
+			s.nowText(), channelID, sessionID,
 		)
 		if err == nil && conversationLane {
 			_, err = tx.ExecContext(ctx, `
 				UPDATE conversation_sessions SET coop_event_sequence = 0, updated_at = ?
 				WHERE channel_id = ? AND session_id = ?`,
-				nowText(), channelID, sessionID,
+				s.nowText(), channelID, sessionID,
 			)
 		}
 	}
@@ -860,7 +843,7 @@ func (s *Store) RequeueAgentRun(
 		return err
 	}
 	attempt := failures + 1
-	now := nowText()
+	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', failure_count = ?, idempotency_key = ?,
@@ -937,7 +920,7 @@ func (s *Store) DeferRunningAgentRun(
 		}
 		return err
 	}
-	now := nowText()
+	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', idempotency_key = ?,
@@ -946,7 +929,7 @@ func (s *Store) DeferRunningAgentRun(
 		    result_json = X'', terminal_state = '', last_error = ?,
 		    next_attempt_at = ?, completed_at = NULL, updated_at = ?
 		WHERE id = ? AND state = 'running'`,
-		fmt.Sprintf("responder:run:%s:dependency:%d", id, time.Now().UnixNano()),
+		fmt.Sprintf("responder:run:%s:dependency:%d", id, s.now().UnixNano()),
 		eventSequence,
 		boundedError(detail),
 		next.UTC().Format(timestampFormat),
@@ -1019,7 +1002,7 @@ func (s *Store) EscalateAgentRun(
 		contextJSON,
 		boundedError(detail),
 		next.UTC().Format(timestampFormat),
-		nowText(),
+		s.nowText(),
 		id,
 	)
 	if err := expectOne(result, err, "escalate agent run"); err != nil {
@@ -1069,7 +1052,7 @@ func (s *Store) StageAgentRunResult(
 		    coop_event_sequence = MAX(coop_event_sequence, ?), last_error = ?, updated_at = ?
 		WHERE id = ? AND state = 'running'`,
 		terminalState, resultJSON, eventSequence,
-		terminalResultError(terminalState, detail), nowText(), id)
+		terminalResultError(terminalState, detail), s.nowText(), id)
 	if err := expectOne(update, err, "stage agent run result"); err != nil {
 		current, getErr := scanAgentRun(tx.QueryRowContext(
 			ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE id = ?`, id,
@@ -1117,7 +1100,7 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 		finalState != core.AgentRunCancelled {
 		return fmt.Errorf("agent run has invalid terminal state %q", terminal)
 	}
-	now := nowText()
+	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = ?, completed_at = ?,
@@ -1208,7 +1191,7 @@ func (s *Store) RetryAgentRunFinalization(
 		SET state = 'applying', failure_count = failure_count + 1,
 		    next_attempt_at = ?, last_error = ?, updated_at = ?
 		WHERE id = ? AND state = 'finalizing'`,
-		next.UTC().Format(timestampFormat), boundedError(detail), nowText(), id)
+		next.UTC().Format(timestampFormat), boundedError(detail), s.nowText(), id)
 	return expectOne(result, err, "retry agent run finalization")
 }
 
@@ -1221,7 +1204,7 @@ func (s *Store) FailAgentRunFinalization(
 		UPDATE agent_runs
 		SET terminal_state = 'failed', last_error = ?, updated_at = ?
 		WHERE id = ? AND state = 'finalizing'`,
-		boundedError(detail), nowText(), id)
+		boundedError(detail), s.nowText(), id)
 	return expectOne(result, err, "fail agent run finalization")
 }
 
@@ -1235,7 +1218,7 @@ func (s *Store) SupersedeAgentRun(ctx context.Context, id, detail string) error 
 		UPDATE agent_runs
 		SET state = 'superseded', last_error = ?, completed_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'preparing'`,
-		boundedError(detail), nowText(), nowText(), id)
+		boundedError(detail), s.nowText(), s.nowText(), id)
 	if err := expectOne(result, err, "supersede agent run"); err != nil {
 		return err
 	}
@@ -1339,7 +1322,7 @@ func (s *Store) NudgeLatestAgentRun(
 		return false, err
 	}
 	if state == string(core.AgentRunPending) {
-		now := nowText()
+		now := s.nowText()
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE agent_runs
 			SET next_attempt_at = ?, updated_at = ?

@@ -81,8 +81,6 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 		preferences,
 		rules,
 	)
-	if s.sanitizer != nil {
-		message = s.sanitizer.Message(message)
-	}
+	message = s.sanitizeMessage(message)
 	return s.slack.PublishHome(ctx, userID, message)
 }

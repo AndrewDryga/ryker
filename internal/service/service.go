@@ -57,6 +57,13 @@ type pullRequestContextAPI interface {
 	PullRequestContext(context.Context, string, int) (publisher.PullRequestContext, error)
 }
 
+// treeResolverAPI asks the publisher to resolve a commit to its tree using the
+// hardened, hermetic git helper. Cleanup fails closed without it: retaining a
+// fork is always safer than discarding work whose tree could not be verified.
+type treeResolverAPI interface {
+	ResolveTree(ctx context.Context, path, commit string) (string, error)
+}
+
 type EmisarAPI interface {
 	WaitForRun(context.Context, string) (emisar.RunState, error)
 }
@@ -93,33 +100,59 @@ type Service struct {
 	publisher         PublicationAPI
 	emisar            EmisarAPI
 
-	identity     slackui.Identity
-	initialized  atomic.Bool
-	running      atomic.Bool
-	coopHealthy  atomic.Bool
-	postMu       sync.Mutex
-	lastPost     time.Time
-	statusMu     sync.Mutex
-	nativeStatus map[string]nativeStatusState
-	historyMu    sync.Mutex
-	historyCache map[string]cachedSlackHistory
-	heartbeats   laneHeartbeat
+	identity    slackui.Identity
+	initialized atomic.Bool
+	running     atomic.Bool
+	coopHealthy atomic.Bool
+	heartbeats  laneHeartbeat
+	clock       func() time.Time
+
+	// Process-local coordination state. See caches.go: none of it is durable
+	// truth, and each piece owns its own lock.
+	writeSlot    *writeSlot
+	nativeStatus *nativeStatusTracker
+	historyCache *slackHistoryCache
+}
+
+// now is the service clock. Every scheduling window, retry delay, and lease
+// deadline reads it so tests can advance time instead of sleeping. It is
+// nil-safe because tests construct Service literals directly.
+func (s *Service) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
+}
+
+// sanitizeMessage and sanitizeText are the only supported way to prepare model
+// or operator text for Slack. They are nil-safe so tests may build a Service
+// literal, and New always installs a sanitizer for the real service.
+func (s *Service) sanitizeMessage(message slackui.Message) slackui.Message {
+	if s.sanitizer == nil {
+		return message
+	}
+	return s.sanitizer.Message(message)
+}
+
+func (s *Service) sanitizeText(value string) string {
+	if s.sanitizer == nil {
+		return value
+	}
+	return s.sanitizer.Text(value)
+}
+
+// SetClock replaces the service clock. It exists for tests and evaluation
+// replay, which must reproduce time-dependent decisions deterministically.
+func (s *Service) SetClock(clock func() time.Time) {
+	if clock != nil {
+		s.clock = clock
+	}
 }
 
 // SetCoopRuntimeRepairer installs the managed-runtime repair hook used when a
 // turn proves that Docker removed Coop's shared execution image after startup.
 func (s *Service) SetCoopRuntimeRepairer(repair func(context.Context) error) {
 	s.repairCoopRuntime = repair
-}
-
-type nativeStatusState struct {
-	text string
-	at   time.Time
-}
-
-type cachedSlackHistory struct {
-	messages  []slackui.HistoryMessage
-	expiresAt time.Time
 }
 
 type SchedulerLaneSnapshot struct {
@@ -145,12 +178,18 @@ func New(
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if sanitizer == nil {
+		// Never fall through to unredacted output: a caller without configured
+		// secrets still needs control-character stripping and size bounding.
+		sanitizer = slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes)
+	}
 	return &Service{
 		cfg: cfg, store: st, coop: coopClient, slack: slackClient, socket: socket,
 		sanitizer: sanitizer, log: logger,
 		publisher:    publisher.New(cfg.GitHub),
-		nativeStatus: make(map[string]nativeStatusState),
-		historyCache: make(map[string]cachedSlackHistory),
+		writeSlot:    newWriteSlot(slackWriteInterval),
+		nativeStatus: newNativeStatusTracker(),
+		historyCache: newSlackHistoryCache(),
 	}
 }
 
@@ -326,7 +365,7 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 					"",
 					"conversation policy changed",
 					false,
-					time.Now().UTC(),
+					s.now().UTC(),
 				)
 			}
 			if detachErr == nil {
@@ -412,7 +451,7 @@ func (s *Service) Ready(ctx context.Context) (bool, string) {
 }
 
 func (s *Service) SchedulerSnapshot(ctx context.Context) ([]SchedulerLaneSnapshot, error) {
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	lanes := []string{
 		store.WorkLaneControl,
 		store.WorkLaneBackground,
@@ -439,12 +478,8 @@ func (s *Service) SchedulerSnapshot(ctx context.Context) ([]SchedulerLaneSnapsho
 	return result, nil
 }
 
-func (s *Service) Identity() slackui.Identity {
-	return s.identity
-}
-
 func (s *Service) runMaintenance(ctx context.Context) {
-	if _, err := s.store.ResolveDueIncidents(ctx, time.Now()); err != nil && ctx.Err() == nil {
+	if _, err := s.store.ResolveDueIncidents(ctx, s.now()); err != nil && ctx.Err() == nil {
 		s.log.Error("incident resolution reconciliation failed", "error", err)
 	}
 	if err := s.reconcileIncidentChannel(ctx); err != nil &&
@@ -483,14 +518,14 @@ func (s *Service) reconcileIncidentChannel(ctx context.Context) error {
 		return err
 	}
 	updated, err := s.store.SetIncidentChannelState(
-		ctx, incident.ChannelID, state, time.Now().UTC(),
+		ctx, incident.ChannelID, state, s.now().UTC(),
 	)
 	if err != nil {
 		return err
 	}
 	if incident.ChannelState != state {
 		for _, item := range updated {
-			_ = s.store.Audit(ctx, core.AuditEvent{
+			s.audit(ctx, core.AuditEvent{
 				IncidentID: item.ID,
 				Kind:       "slack.channel.reconciled",
 				ObjectID:   item.ChannelID,
@@ -502,8 +537,8 @@ func (s *Service) reconcileIncidentChannel(ctx context.Context) error {
 	return nil
 }
 
-func queueDelay(attempt int) time.Time {
-	return time.Now().Add(queueDelayDuration(attempt))
+func (s *Service) queueDelay(attempt int) time.Time {
+	return s.now().Add(queueDelayDuration(attempt))
 }
 
 func queueDelayDuration(attempt int) time.Duration {
@@ -520,4 +555,52 @@ func trimError(err error) string {
 		return ""
 	}
 	return strings.TrimSpace(err.Error())
+}
+
+// audit records a durable audit fact. Audit coverage of denials, approvals,
+// and privileged actions is a stated guarantee, so a failed write is logged
+// rather than discarded — but it never fails the caller's operation, because
+// losing the audit trail is strictly better than losing the work it describes.
+func (s *Service) audit(ctx context.Context, event core.AuditEvent) {
+	if err := s.store.Audit(ctx, event); err != nil && ctx.Err() == nil {
+		s.log.Error(
+			"record audit event",
+			"kind", event.Kind,
+			"actor", event.ActorID,
+			"object", event.ObjectID,
+			"outcome", event.Outcome,
+			"error", err,
+		)
+	}
+}
+
+// recordTimeline appends a best-effort incident timeline entry. The timeline is
+// presentation, so a failure is logged and the caller continues.
+func (s *Service) recordTimeline(ctx context.Context, event core.TimelineEvent) {
+	if err := s.store.RecordTimeline(ctx, event); err != nil && ctx.Err() == nil {
+		s.log.Warn(
+			"record incident timeline event",
+			"incident", event.IncidentID,
+			"kind", event.Kind,
+			"error", err,
+		)
+	}
+}
+
+// setIncidentError records why an incident is blocked. Losing it would leave
+// the incident card claiming progress it is not making.
+func (s *Service) setIncidentError(
+	ctx context.Context,
+	id string,
+	workflow core.WorkflowState,
+	detail string,
+) {
+	if err := s.store.SetIncidentError(ctx, id, workflow, detail); err != nil && ctx.Err() == nil {
+		s.log.Error(
+			"record incident failure state",
+			"incident", id,
+			"workflow", workflow,
+			"error", err,
+		)
+	}
 }

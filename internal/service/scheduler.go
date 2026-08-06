@@ -79,7 +79,7 @@ func (h *laneHeartbeat) time(lane string) time.Time {
 }
 
 func (s *Service) seedScheduledWork(ctx context.Context) error {
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	items := []store.WorkItem{
 		{Kind: workSlackInput, SubjectID: schedulerSingletonID, Lane: store.WorkLaneControl, Priority: 10},
 		{Kind: workSlackReconcile, SubjectID: schedulerSingletonID, Lane: store.WorkLaneControl, Priority: 20},
@@ -146,7 +146,7 @@ func (s *Service) runScheduledLane(ctx context.Context, lane string) {
 			return
 		case <-timer.C:
 		}
-		s.heartbeats.mark(lane, time.Now())
+		s.heartbeats.mark(lane, s.now())
 		item, err := s.store.LeaseWork(
 			ctx,
 			lane,
@@ -164,9 +164,9 @@ func (s *Service) runScheduledLane(ctx context.Context, lane string) {
 			timer.Reset(idle)
 			continue
 		}
-		s.heartbeats.mark(lane, time.Now())
+		s.heartbeats.mark(lane, s.now())
 		s.handleScheduledWork(ctx, item)
-		s.heartbeats.mark(lane, time.Now())
+		s.heartbeats.mark(lane, s.now())
 		timer.Reset(0)
 	}
 }
@@ -182,7 +182,7 @@ func (s *Service) handleScheduledWork(
 	if ctx.Err() != nil {
 		return
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	var deferral scheduledWorkDeferral
 	switch {
 	case err == nil:
@@ -229,7 +229,7 @@ func (s *Service) handleScheduledWork(
 			)
 		}
 	default:
-		now := time.Now().UTC()
+		now := s.now().UTC()
 		next, retryAfter, rateLimited := scheduledRetryAt(
 			now,
 			item.Failures+1,

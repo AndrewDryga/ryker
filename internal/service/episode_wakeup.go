@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
@@ -49,7 +48,7 @@ func (s *Service) processEpisodeWakeup(ctx context.Context) error {
 			"Resume the accepted work after the %s wait. Re-check the external state with fresh evidence, continue every open required goal, and report only when the result is decision-ready or an exact blocker remains.",
 			wakeup.Kind,
 		),
-		Frozen: previous.Context, ReceivedAt: time.Now().UTC(),
+		Frozen: previous.Context, ReceivedAt: s.now().UTC(),
 	}
 	admitted, err := s.store.AdmitSyntheticSlackInput(ctx, input)
 	if err != nil {
@@ -88,7 +87,7 @@ func (s *Service) retryEpisodeWakeup(
 	observation, _ := json.Marshal(map[string]string{"error": trimError(cause)})
 	retryErr := s.store.RetryEpisodeWakeup(
 		ctx, wakeup.ID, episodeWakeupLeaseOwner, wakeup.FencingToken,
-		queueDelay(1), observation,
+		s.queueDelay(1), observation,
 	)
 	if retryErr != nil && !errors.Is(retryErr, store.ErrConflict) {
 		return retryErr

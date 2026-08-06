@@ -301,7 +301,7 @@ func (s *Store) BindChannelSession(
 		return errors.New("channel session binding is incomplete")
 	}
 	if started.IsZero() {
-		started = time.Now().UTC()
+		started = s.now().UTC()
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO channel_memories
@@ -319,7 +319,7 @@ func (s *Store) BindChannelSession(
 		  rotated_at = channel_memories.updated_at,
 		  updated_at = excluded.updated_at`,
 		channelID, repository, sessionID, revision, generation,
-		started.UTC().Format(timestampFormat), nowText(),
+		started.UTC().Format(timestampFormat), s.nowText(),
 	)
 	return err
 }
@@ -338,7 +338,7 @@ func (s *Store) EnsureChannelMemory(
 		  turn_count, state_json, updated_at
 		) VALUES (?, ?, '', 0, 1, 0, '{}', ?)
 		ON CONFLICT(channel_id) DO NOTHING`,
-		channelID, repository, nowText(),
+		channelID, repository, s.nowText(),
 	)
 	return err
 }
@@ -361,7 +361,7 @@ func (s *Store) DetachChannelSession(
 		    rotated_at = updated_at,
 		    updated_at = ?
 		WHERE channel_id = ? AND session_id = ?`,
-		nowText(), channelID, sessionID,
+		s.nowText(), channelID, sessionID,
 	)
 	if err != nil {
 		return false, err
@@ -390,7 +390,7 @@ func (s *Store) AdvanceChannelMemory(
 		UPDATE channel_memories
 		SET session_revision = ?, turn_count = turn_count + 1, state_json = ?, updated_at = ?
 		WHERE channel_id = ?`,
-		sessionRevision, data, nowText(), channelID,
+		sessionRevision, data, s.nowText(), channelID,
 	)
 	return expectOne(result, err, "advance channel memory")
 }
@@ -405,7 +405,7 @@ func (s *Store) AdvanceChannelEvents(
 		UPDATE channel_memories
 		SET coop_event_sequence = MAX(coop_event_sequence, ?), updated_at = ?
 		WHERE channel_id = ? AND session_id = ?`,
-		sequence, nowText(), channelID, sessionID)
+		sequence, s.nowText(), channelID, sessionID)
 	return expectOne(result, err, "advance channel Coop events")
 }
 
@@ -428,7 +428,7 @@ func (s *Store) ApplyWatchDecision(
 		}
 	}
 	if decision.CreatedAt.IsZero() {
-		decision.CreatedAt = time.Now().UTC()
+		decision.CreatedAt = s.now().UTC()
 	}
 	memory, err := json.Marshal(state)
 	if err != nil {
@@ -472,7 +472,7 @@ func (s *Store) ApplyWatchDecision(
 			SET session_revision = ?, turn_count = turn_count + 1,
 			    state_json = ?, updated_at = ?
 			WHERE channel_id = ?`,
-			sessionRevision, memory, nowText(), sessionChannelID,
+			sessionRevision, memory, s.nowText(), sessionChannelID,
 		)
 		if err := expectOne(update, err, "apply watch decision memory"); err != nil {
 			return false, err
@@ -482,7 +482,7 @@ func (s *Store) ApplyWatchDecision(
 				UPDATE channel_memories
 				SET state_json = ?, updated_at = ?
 				WHERE channel_id = ?`,
-				memory, nowText(), decision.ChannelID,
+				memory, s.nowText(), decision.ChannelID,
 			)
 			if err := expectOne(update, err, "apply scheduled decision channel memory"); err != nil {
 				return false, err
@@ -493,7 +493,7 @@ func (s *Store) ApplyWatchDecision(
 			UPDATE conversation_sessions
 			SET session_revision = ?, turn_count = turn_count + 1, updated_at = ?
 			WHERE channel_id = ?`,
-			sessionRevision, nowText(), decision.ChannelID,
+			sessionRevision, s.nowText(), decision.ChannelID,
 		)
 		if err := expectOne(update, err, "apply conversation decision session"); err != nil {
 			return false, err
@@ -502,7 +502,7 @@ func (s *Store) ApplyWatchDecision(
 			UPDATE channel_memories
 			SET state_json = ?, updated_at = ?
 			WHERE channel_id = ?`,
-			memory, nowText(), decision.ChannelID,
+			memory, s.nowText(), decision.ChannelID,
 		)
 		if err := expectOne(update, err, "apply conversation decision memory"); err != nil {
 			return false, err
@@ -528,7 +528,7 @@ func (s *Store) ApplyWatchDecision(
 			decision.Repository,
 			decision.MessageTS,
 			string(memory),
-			nowText(),
+			s.nowText(),
 		)
 		if err != nil {
 			return false, err
@@ -566,7 +566,7 @@ func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([
 			}
 		}
 		if item.CreatedAt.IsZero() {
-			item.CreatedAt = time.Now().UTC()
+			item.CreatedAt = s.now().UTC()
 		}
 		metadata, err := json.Marshal(item.Metadata)
 		if err != nil {
@@ -651,7 +651,7 @@ func (s *Store) RecordCoverage(ctx context.Context, coverage []core.Coverage) er
 			}
 		}
 		if item.CreatedAt.IsZero() {
-			item.CreatedAt = time.Now().UTC()
+			item.CreatedAt = s.now().UTC()
 		}
 		claimIDs, err := json.Marshal(item.ClaimIDs)
 		if err != nil {
@@ -916,7 +916,7 @@ func (s *Store) RecordClaimAssessments(ctx context.Context, items []core.ClaimAs
 		}
 		updated := item.UpdatedAt
 		if updated.IsZero() {
-			updated = time.Now().UTC()
+			updated = s.now().UTC()
 		}
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO claim_assessments
@@ -940,36 +940,6 @@ func (s *Store) RecordClaimAssessments(ctx context.Context, items []core.ClaimAs
 	return tx.Commit()
 }
 
-func (s *Store) ListClaimAssessments(ctx context.Context, episodeID string) ([]core.ClaimAssessment, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, episode_id, claim_id, status, confidence, evidence_ids_json,
-		  contradiction_ids_json, detail, updated_at
-		FROM claim_assessments WHERE episode_id = ? ORDER BY claim_id`, episodeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var result []core.ClaimAssessment
-	for rows.Next() {
-		var item core.ClaimAssessment
-		var evidenceIDs, contradictions []byte
-		var updated string
-		if err := rows.Scan(&item.ID, &item.EpisodeID, &item.ClaimID, &item.Status,
-			&item.Confidence, &evidenceIDs, &contradictions, &item.Detail, &updated); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(evidenceIDs, &item.EvidenceIDs); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(contradictions, &item.ContradictionIDs); err != nil {
-			return nil, err
-		}
-		item.UpdatedAt = parseTime(updated)
-		result = append(result, item)
-	}
-	return result, rows.Err()
-}
-
 func (s *Store) RecordTimeline(ctx context.Context, event core.TimelineEvent) error {
 	event.Title = strings.TrimSpace(event.Title)
 	if event.Title == "" || event.Kind == "" {
@@ -983,7 +953,7 @@ func (s *Store) RecordTimeline(ctx context.Context, event core.TimelineEvent) er
 		}
 	}
 	if event.CreatedAt.IsZero() {
-		event.CreatedAt = time.Now().UTC()
+		event.CreatedAt = s.now().UTC()
 	}
 	evidence, err := json.Marshal(event.EvidenceIDs)
 	if err != nil {
@@ -1069,7 +1039,7 @@ func (s *Store) CreateActionProposals(
 		if proposal.Required < 1 || proposal.Required > 2 {
 			return nil, errors.New("action proposal requires one or two approvals")
 		}
-		now := time.Now().UTC()
+		now := s.now().UTC()
 		if proposal.CreatedAt.IsZero() {
 			proposal.CreatedAt = now
 		}
@@ -1094,7 +1064,7 @@ func (s *Store) CreateActionProposals(
 			proposal.BlastRadius, proposal.Rollback, proposal.Verification, proposal.Authority,
 			proposal.Risk, proposal.Required, proposal.RequestedBy,
 			proposal.ExpiresAt.UTC().Format(timestampFormat),
-			proposal.CreatedAt.UTC().Format(timestampFormat), nowText(),
+			proposal.CreatedAt.UTC().Format(timestampFormat), s.nowText(),
 		)
 		if err != nil {
 			return nil, err
@@ -1208,7 +1178,7 @@ func (s *Store) DecideActionProposal(
 	if now.After(proposal.ExpiresAt) && proposal.Status == "pending" {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE action_proposals SET status = 'expired', updated_at = ?
-			WHERE id = ? AND status = 'pending'`, nowText(), id); err != nil {
+			WHERE id = ? AND status = 'pending'`, s.nowText(), id); err != nil {
 			return core.ActionProposal{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -1245,7 +1215,7 @@ func (s *Store) DecideActionProposal(
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE action_proposals SET status = ?, updated_at = ? WHERE id = ?`,
-		status, nowText(), id,
+		status, s.nowText(), id,
 	); err != nil {
 		return core.ActionProposal{}, err
 	}
@@ -1271,30 +1241,7 @@ func (s *Store) MarkProposalExecution(
 		SET status = ?, execution_turn = CASE WHEN ? != '' THEN ? ELSE execution_turn END,
 		  result = ?, updated_at = ?
 		WHERE id = ? AND status IN ('approved', 'executing')`,
-		status, turnID, turnID, boundedError(result), nowText(), id,
+		status, turnID, turnID, boundedError(result), s.nowText(), id,
 	)
 	return expectOne(update, err, "mark proposal execution")
-}
-
-func (s *Store) RecordEvaluation(ctx context.Context, decision core.EvaluationDecision) error {
-	if decision.ID == "" {
-		var err error
-		decision.ID, err = core.NewID("eval")
-		if err != nil {
-			return err
-		}
-	}
-	if decision.CreatedAt.IsZero() {
-		decision.CreatedAt = time.Now().UTC()
-	}
-	_, err := s.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO evaluation_decisions
-		  (id, channel_id, source_input, mode, action, reason, evidence_count,
-		   coverage_count, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		decision.ID, decision.ChannelID, decision.SourceInput, decision.Mode,
-		decision.Action, decision.Reason, decision.Evidence, decision.Coverage,
-		decision.CreatedAt.UTC().Format(timestampFormat),
-	)
-	return err
 }

@@ -16,7 +16,7 @@ import (
 )
 
 func (s *Service) processPublicationFollowup(ctx context.Context) error {
-	followup, publication, err := s.store.NextPublicationFollowup(ctx, time.Now().UTC())
+	followup, publication, err := s.store.NextPublicationFollowup(ctx, s.now().UTC())
 	if err != nil {
 		return err
 	}
@@ -34,7 +34,7 @@ func (s *Service) checkPublicationFollowup(
 	}
 	followup, err := s.store.GetPublicationFollowup(ctx, incident.ID)
 	if errors.Is(err, store.ErrNotFound) {
-		if err := s.store.EnsurePublicationFollowup(ctx, incident.ID, time.Now().UTC()); err != nil {
+		if err := s.store.EnsurePublicationFollowup(ctx, incident.ID, s.now().UTC()); err != nil {
 			return err
 		}
 		followup, err = s.store.GetPublicationFollowup(ctx, incident.ID)
@@ -92,7 +92,7 @@ func (s *Service) refreshPublicationFollowup(
 	followup.MergedAt = status.MergedAt
 	followup.FailureCount = 0
 	followup.LastError = ""
-	followup.NextCheckAt = time.Now().UTC().Add(s.cfg.GitHub.FollowupInterval.Duration)
+	followup.NextCheckAt = s.now().UTC().Add(s.cfg.GitHub.FollowupInterval.Duration)
 	if followup.PRState == "merged" || followup.PRState == "closed" {
 		followup.NextCheckAt = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 	}
@@ -127,7 +127,7 @@ func (s *Service) refreshPublicationFollowup(
 			Summary: summary, SourceChannelID: input.ChannelID,
 			SourceMessageTS: input.MessageTS,
 		})
-		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		s.recordTimeline(ctx, core.TimelineEvent{
 			ID: "tl_" + eventKey, IncidentID: incident.ID,
 			ChannelID: incident.ChannelID, Kind: "publication." + kind,
 			ActorID: "github", Title: summary, Detail: publication.PRURL,
@@ -144,7 +144,7 @@ func (s *Service) deferPublicationFollowup(
 ) error {
 	followup.FailureCount++
 	followup.LastError = trimError(err)
-	followup.NextCheckAt = time.Now().UTC().Add(
+	followup.NextCheckAt = s.now().UTC().Add(
 		publicationFollowupBackoff(followup.FailureCount),
 	)
 	if saveErr := s.store.SavePublicationFollowup(ctx, followup); saveErr != nil {
@@ -249,7 +249,7 @@ func (s *Service) inputReferencesActivePublication(
 ) (bool, error) {
 	items, err := s.store.ListActivePublicationContexts(
 		ctx,
-		time.Now().UTC().Add(-s.cfg.GitHub.DeliveryCorrelationWindow.Duration),
+		s.now().UTC().Add(-s.cfg.GitHub.DeliveryCorrelationWindow.Duration),
 		20,
 	)
 	if err != nil {
@@ -298,7 +298,7 @@ func (s *Service) applyPublicationUpdates(
 			state.ActivePublications, update.IncidentID,
 		)
 		if !ok || !publicationReferenceMatches(input.Text, update.Reference, publicationContext) {
-			_ = s.store.Audit(ctx, core.AuditEvent{
+			s.audit(ctx, core.AuditEvent{
 				IncidentID: update.IncidentID, Kind: "publication.correlation",
 				ActorID: input.UserID, ObjectID: input.ID, Outcome: "rejected",
 				Detail: "external app message did not contain an exact recorded PR, branch, or commit reference",
@@ -347,7 +347,7 @@ func (s *Service) applyPublicationUpdates(
 		if err != nil {
 			return err
 		}
-		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		s.recordTimeline(ctx, core.TimelineEvent{
 			ID: "tl_" + eventKey, IncidentID: incident.ID,
 			ChannelID: incident.ChannelID, Kind: "publication." + update.Kind,
 			ActorID: "slack_app", Title: update.Summary,

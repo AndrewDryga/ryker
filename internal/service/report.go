@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/investigation"
@@ -323,6 +322,8 @@ func (s *Service) persistAgentReport(
 			)
 		}
 	} else {
+		// Only reachable from tests that build a Service literal; the real
+		// service always has a sanitizer. Still bound the parts.
 		report.Message = boundedField(report.Message, 30000)
 		for index := range report.FollowupMessages {
 			report.FollowupMessages[index] = boundedField(
@@ -496,10 +497,10 @@ func (s *Service) persistAgentReport(
 				return agentReport{}, listErr
 			}
 			ledger := investigation.BuildLedger(
-				investigation.Compile(episode), ledgerEvidence, ledgerCoverage, time.Now().UTC(),
+				investigation.Compile(episode), ledgerEvidence, ledgerCoverage, s.now().UTC(),
 			)
 			if err := s.store.RecordClaimAssessments(
-				ctx, ledger.Assessments(episode.ID, time.Now().UTC()),
+				ctx, ledger.Assessments(episode.ID, s.now().UTC()),
 			); err != nil {
 				return agentReport{}, err
 			}
@@ -527,7 +528,7 @@ func (s *Service) persistAgentReport(
 			return agentReport{}, err
 		}
 		report.PendingApproval = &approval
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			IncidentID: incident.ID,
 			Kind:       "emisar.approval.pending",
 			ActorID:    requestedBy,
@@ -729,7 +730,7 @@ func (s *Service) prepareActionProposals(
 		if policy.Approval == "two_person" {
 			item.Required = 2
 		}
-		item.ExpiresAt = time.Now().UTC().Add(policy.ExpiresAfter.Duration)
+		item.ExpiresAt = s.now().UTC().Add(policy.ExpiresAfter.Duration)
 		item.Title = boundedField(item.Title, 200)
 		item.Summary = boundedField(item.Summary, 1000)
 		item.Target = boundedField(item.Target, 300)
@@ -776,7 +777,7 @@ func (s *Service) prepareEmisarApproval(
 		item.RequestID == "" || item.RunID == "" || item.OperationID == "" ||
 		item.ActionID == "" || item.PackRef == "" || item.RunnerRef == "" ||
 		item.Status != "pending_approval" || item.ApprovalURL == "" ||
-		item.ExpiresAt.IsZero() || !item.ExpiresAt.After(time.Now().UTC()) {
+		item.ExpiresAt.IsZero() || !item.ExpiresAt.After(s.now().UTC()) {
 		s.log.Warn(
 			"drop invalid or unauthorized Emisar pending approval",
 			"incident", incident.ID,
@@ -793,9 +794,7 @@ func (s *Service) prepareEmisarApproval(
 }
 
 func (s *Service) cleanStructuredField(value string, limit int) string {
-	if s.sanitizer != nil {
-		value = s.sanitizer.Text(value)
-	}
+	value = s.sanitizeText(value)
 	return boundedField(value, limit)
 }
 
@@ -832,15 +831,7 @@ func (s *Service) cleanStructuredMetadata(values map[string]string) map[string]s
 }
 
 func boundedField(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if len(value) <= limit {
-		return value
-	}
-	value = value[:limit]
-	for !utf8.ValidString(value) {
-		value = value[:len(value)-1]
-	}
-	return strings.TrimSpace(value)
+	return core.BoundedText(value, limit)
 }
 
 func boundedStrings(values []string, limit int, fieldLimit int) []string {

@@ -54,7 +54,7 @@ func (s *Service) scheduleEpisodeRechecks(
 		Lane:            store.WorkLaneBackground,
 		ConversationKey: watchConversationKey(input),
 		Priority:        48,
-		AvailableAt: time.Now().UTC().Add(
+		AvailableAt: s.now().UTC().Add(
 			time.Duration(directive.AfterSeconds) * time.Second,
 		),
 	})
@@ -106,7 +106,7 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 		)
 		if errors.Is(priorErr, store.ErrNotFound) {
 			return deferScheduledWork(
-				time.Now().UTC().Add(time.Duration(decision.Completion.Recheck.AfterSeconds)*time.Second),
+				s.now().UTC().Add(time.Duration(decision.Completion.Recheck.AfterSeconds)*time.Second),
 				fmt.Sprintf("prior episode recheck %d has not completed", prior),
 			)
 		}
@@ -116,7 +116,7 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 		if priorRun.State != core.AgentRunCompleted && priorRun.State != core.AgentRunFailed &&
 			priorRun.State != core.AgentRunCancelled && priorRun.State != core.AgentRunSuperseded {
 			return deferScheduledWork(
-				time.Now().UTC().Add(time.Duration(decision.Completion.Recheck.AfterSeconds)*time.Second),
+				s.now().UTC().Add(time.Duration(decision.Completion.Recheck.AfterSeconds)*time.Second),
 				fmt.Sprintf("prior episode recheck %d is still %s", prior, priorRun.State),
 			)
 		}
@@ -160,7 +160,7 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 		ThreadTS: originInput.ThreadTS, MessageTS: originInput.MessageTS,
 		UserID: originInput.UserID, Text: originInput.Text,
 		Attachments: append([]core.SlackAttachment(nil), originInput.Attachments...),
-		Frozen:      frozen, ReceivedAt: time.Now().UTC(),
+		Frozen:      frozen, ReceivedAt: s.now().UTC(),
 	}
 	created, err := s.store.AdmitSyntheticSlackInput(ctx, input)
 	if err != nil {

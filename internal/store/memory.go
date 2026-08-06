@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
@@ -32,7 +31,7 @@ func (s *Store) UpsertMemoryEntry(
 	}
 	digest := sha256.Sum256(valueJSON)
 	entry.ValueHash = hex.EncodeToString(digest[:])
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if entry.ExpiresAt.IsZero() || !entry.ExpiresAt.After(now) {
 		return core.MemoryEntry{}, false, errors.New("memory entry expiry must be in the future")
 	}
@@ -132,7 +131,7 @@ func (s *Store) UpsertMemoryEntry(
 			INSERT INTO memory_supersessions (
 			  id, entry_id, previous_value_hash, replacement_value_hash, reason, created_at
 			) VALUES (?, ?, ?, ?, 'operator replacement', ?)`,
-			supersessionID, entry.ID, existingHash, entry.ValueHash, nowText(),
+			supersessionID, entry.ID, existingHash, entry.ValueHash, s.nowText(),
 		); err != nil {
 			return core.MemoryEntry{}, false, err
 		}
@@ -200,7 +199,7 @@ func (s *Store) ListMemoryForHome(
 		  )
 		ORDER BY updated_at DESC
 		LIMIT ?`,
-		nowText(), workspaceID, operatorID, limit,
+		s.nowText(), workspaceID, operatorID, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -223,7 +222,7 @@ func (s *Store) CountMemoryForHome(
 		    (visibility_kind = 'workspace' AND visibility_id = ?) OR
 		    (visibility_kind = 'operator' AND visibility_id = ?)
 		  )`,
-		nowText(), workspaceID, operatorID,
+		s.nowText(), workspaceID, operatorID,
 	).Scan(&count)
 	return count, err
 }
@@ -255,7 +254,7 @@ func (s *Store) ListMemoryForContext(
 		  CASE scope_kind WHEN 'channel' THEN 0 WHEN 'repository' THEN 1 ELSE 2 END,
 		  updated_at DESC
 		LIMIT ?`,
-		nowText(), workspaceID, channelID, repository,
+		s.nowText(), workspaceID, channelID, repository,
 		workspaceID, channelID, operatorID, limit,
 	)
 	if err != nil {
@@ -283,7 +282,7 @@ func (s *Store) GetChannelRepositoryBinding(
 		    (visibility_kind = 'operator' AND visibility_id = ?)
 		  )
 		LIMIT 1`,
-		channelID, "channel:"+channelID, nowText(),
+		channelID, "channel:"+channelID, s.nowText(),
 		workspaceID, channelID, operatorID,
 	)
 	return scanMemoryEntry(row)
@@ -333,7 +332,7 @@ func (s *Store) DeleteChannelMemoryEntries(ctx context.Context, channelID string
 		WHERE status = 'pending' AND NOT EXISTS (
 		  SELECT 1 FROM json_each(memory_review_items.entry_ids_json) AS ref
 		  JOIN memory_entries ON memory_entries.id = ref.value
-		)`, nowText()); err != nil {
+		)`, s.nowText()); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -397,7 +396,7 @@ func (s *Store) PruneOrphanMemoryEntries(
 		WHERE status = 'pending' AND NOT EXISTS (
 		  SELECT 1 FROM json_each(memory_review_items.entry_ids_json) AS ref
 		  JOIN memory_entries ON memory_entries.id = ref.value
-		)`, nowText()); err != nil {
+		)`, s.nowText()); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -506,7 +505,7 @@ func (s *Store) MarkMemoryEntriesRecalled(ctx context.Context, ids []string) err
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE memory_entries
 			SET last_recalled_at = ?, recall_count = recall_count + 1
-			WHERE id = ?`, nowText(), id); err != nil {
+			WHERE id = ?`, s.nowText(), id); err != nil {
 			return err
 		}
 	}

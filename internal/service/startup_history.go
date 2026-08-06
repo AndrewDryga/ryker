@@ -31,7 +31,7 @@ func (s *Service) catchUpSlackAppMessages(ctx context.Context) error {
 	slices.Sort(channelIDs)
 	channelIDs = slices.Compact(channelIDs)
 
-	since := time.Now().UTC().Add(-window)
+	since := s.now().UTC().Add(-window)
 	sinceTS := fmt.Sprintf("%d.000000", since.Unix())
 	recovered := 0
 	for _, channelID := range channelIDs {

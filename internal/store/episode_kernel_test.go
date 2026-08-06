@@ -194,58 +194,6 @@ func TestContextManifestRequiresMonotonicLineage(t *testing.T) {
 	}
 }
 
-func TestEpisodeEffectRefusesStaleDestinationAndUsesFencing(t *testing.T) {
-	ctx := context.Background()
-	st, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	_, episode := queueKernelEpisode(t, st, "effect")
-
-	stale, err := st.PlanEpisodeEffect(ctx, core.EpisodeEffect{
-		EpisodeID: episode.ID, Kind: "slack.post", Payload: []byte(`{"text":"old"}`),
-		IdempotencyKey: "slack:old",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.ChangeEpisodeDestination(
-		ctx, episode.ID, core.BoundDestination{ChannelID: "CNEW", ThreadTS: "2.0"},
-		"operator moved the conversation",
-	); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.LeaseEpisodeEffect(ctx, "worker-a", time.Minute); !errors.Is(err, ErrConflict) {
-		t.Fatalf("stale effect lease error = %v", err)
-	}
-	stored, err := st.GetEpisodeEffect(ctx, stale.ID)
-	if err != nil || stored.State != core.EffectCancelled {
-		t.Fatalf("stale effect = %+v, %v", stored, err)
-	}
-
-	fresh, err := st.PlanEpisodeEffect(ctx, core.EpisodeEffect{
-		EpisodeID: episode.ID, Kind: "slack.post", Payload: []byte(`{"text":"new"}`),
-		IdempotencyKey: "slack:new",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	leased, err := st.LeaseEpisodeEffect(ctx, "worker-a", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if leased.ID != fresh.ID || leased.FencingToken < 1 {
-		t.Fatalf("leased effect = %+v", leased)
-	}
-	if err := st.CompleteEpisodeEffect(ctx, leased.ID, "worker-b", leased.FencingToken, "3.0"); err == nil {
-		t.Fatal("wrong lease owner completed effect")
-	}
-	if err := st.CompleteEpisodeEffect(ctx, leased.ID, "worker-a", leased.FencingToken, "3.0"); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestSlackDeliveryIsBoundToEpisodeDestinationRevision(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

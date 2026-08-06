@@ -35,6 +35,7 @@ func ensureEpisodeAttemptTx(
 	tx *sql.Tx,
 	episodeID string,
 	run core.AgentRun,
+	now string,
 ) error {
 	var existingID string
 	err := tx.QueryRowContext(ctx,
@@ -46,7 +47,7 @@ func ensureEpisodeAttemptTx(
 			SET episode_id = ?, attempt_id = ?, attempt_number = (
 			  SELECT attempt_number FROM episode_attempts WHERE id = ?
 			), updated_at = ?
-			WHERE id = ?`, episodeID, existingID, existingID, nowText(), run.ID)
+			WHERE id = ?`, episodeID, existingID, existingID, now, run.ID)
 		return err
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -62,7 +63,6 @@ func ensureEpisodeAttemptTx(
 	if attemptID == "" {
 		attemptID = "attempt_" + run.ID
 	}
-	now := nowText()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO episode_attempts (
 		  id, episode_id, agent_run_id, attempt_number, state,
@@ -84,50 +84,6 @@ func ensureEpisodeAttemptTx(
 		UPDATE work_episodes
 		SET latest_attempt_id = ?, updated_at = ? WHERE id = ?`, attemptID, now, episodeID)
 	return err
-}
-
-func (s *Store) AttachEpisodeAttempt(
-	ctx context.Context,
-	episodeID string,
-	runID string,
-) (core.EpisodeAttempt, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return core.EpisodeAttempt{}, err
-	}
-	defer tx.Rollback()
-	run, err := scanAgentRun(tx.QueryRowContext(
-		ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE id = ?`, runID,
-	))
-	if err != nil {
-		return core.EpisodeAttempt{}, err
-	}
-	if _, err := scanWorkEpisode(tx.QueryRowContext(
-		ctx, `SELECT `+workEpisodeColumns+` FROM work_episodes WHERE id = ?`, episodeID,
-	)); err != nil {
-		return core.EpisodeAttempt{}, err
-	}
-	if err := ensureEpisodeAttemptTx(ctx, tx, episodeID, run); err != nil {
-		return core.EpisodeAttempt{}, err
-	}
-	item, err := scanEpisodeAttempt(tx.QueryRowContext(ctx, episodeAttemptSelect+`
-		WHERE episode_id = ? AND agent_run_id = ?`, episodeID, runID))
-	if err != nil {
-		return core.EpisodeAttempt{}, err
-	}
-	payload, _ := episodepkg.Encode(map[string]any{
-		"attempt_id": item.ID, "attempt_number": item.Number,
-	})
-	if _, err := appendEpisodeEventTx(ctx, tx, episodeID, core.WorkEpisodeEvent{
-		Kind: episodepkg.EventAttemptStarted, Actor: "host",
-		IdempotencyKey: "attempt-attached:" + item.ID, Payload: payload,
-	}); err != nil {
-		return core.EpisodeAttempt{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return core.EpisodeAttempt{}, err
-	}
-	return item, nil
 }
 
 // QueueEpisodeAttempt resumes an existing episode with a new transport attempt.
@@ -198,24 +154,6 @@ func (s *Store) GetEpisodeAttempt(ctx context.Context, attemptID string) (core.E
 	return scanEpisodeAttempt(s.db.QueryRowContext(
 		ctx, episodeAttemptSelect+` WHERE id = ?`, attemptID,
 	))
-}
-
-func (s *Store) ListEpisodeAttempts(ctx context.Context, episodeID string) ([]core.EpisodeAttempt, error) {
-	rows, err := s.db.QueryContext(ctx,
-		episodeAttemptSelect+` WHERE episode_id = ? ORDER BY attempt_number`, episodeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []core.EpisodeAttempt
-	for rows.Next() {
-		item, err := scanEpisodeAttempt(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
 }
 
 func setEpisodeAttemptStateTx(
@@ -405,7 +343,7 @@ func (s *Store) CreateEpisodeGoal(ctx context.Context, goal core.EpisodeGoal) (c
 			return core.EpisodeGoal{}, fmt.Errorf("goal prerequisite %q is not in episode", prerequisiteID)
 		}
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	goal.CreatedAt, goal.UpdatedAt = now, now
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO episode_goals (
@@ -497,7 +435,7 @@ func (s *Store) SetEpisodeGoalState(
 			}
 		}
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE episode_goals
 		SET state = ?, blocker = ?, completed_at = ?, updated_at = ?
@@ -570,24 +508,6 @@ func scanEpisodeGoal(row interface{ Scan(...any) error }) (core.EpisodeGoal, err
 	return item, nil
 }
 
-func (s *Store) ListEpisodeGoals(ctx context.Context, episodeID string) ([]core.EpisodeGoal, error) {
-	rows, err := s.db.QueryContext(ctx,
-		episodeGoalSelect+` WHERE episode_id = ? ORDER BY created_at, id`, episodeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []core.EpisodeGoal
-	for rows.Next() {
-		item, err := scanEpisodeGoal(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
 func (s *Store) CreateContextManifest(
 	ctx context.Context,
 	manifest core.ContextManifest,
@@ -630,7 +550,7 @@ func (s *Store) CreateContextManifest(
 		return core.ContextManifest{}, err
 	}
 	omissions, _ := json.Marshal(manifest.Omissions)
-	manifest.CreatedAt = time.Now().UTC()
+	manifest.CreatedAt = s.now().UTC()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO context_manifests (
 		  id, episode_id, attempt_id, parent_manifest_id, version,
@@ -672,7 +592,7 @@ func (s *Store) CreateContextManifest(
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE episode_attempts SET context_manifest_id = ?, updated_at = ?
-		WHERE id = ?`, manifest.ID, nowText(), manifest.AttemptID); err != nil {
+		WHERE id = ?`, manifest.ID, s.nowText(), manifest.AttemptID); err != nil {
 		return core.ContextManifest{}, err
 	}
 	payload, _ := episodepkg.Encode(map[string]any{
@@ -812,303 +732,6 @@ func (s *Store) GetLatestContextManifest(
 	return s.GetContextManifest(ctx, manifestID)
 }
 
-func (s *Store) PlanEpisodeEffect(ctx context.Context, effect core.EpisodeEffect) (core.EpisodeEffect, error) {
-	effect.EpisodeID = strings.TrimSpace(effect.EpisodeID)
-	effect.Kind = strings.TrimSpace(effect.Kind)
-	effect.IdempotencyKey = strings.TrimSpace(effect.IdempotencyKey)
-	if effect.EpisodeID == "" || effect.Kind == "" || effect.IdempotencyKey == "" {
-		return core.EpisodeEffect{}, errors.New("effect episode, kind, and idempotency key are required")
-	}
-	if len(effect.Payload) > 1<<20 {
-		return core.EpisodeEffect{}, errors.New("effect payload exceeds 1 MiB")
-	}
-	if effect.ID == "" {
-		var err error
-		effect.ID, err = core.NewID("effect")
-		if err != nil {
-			return core.EpisodeEffect{}, err
-		}
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	defer tx.Rollback()
-	episode, err := scanWorkEpisode(tx.QueryRowContext(
-		ctx, `SELECT `+workEpisodeColumns+` FROM work_episodes WHERE id = ?`, effect.EpisodeID,
-	))
-	if err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	if episodepkg.Terminal(episode.State) {
-		return core.EpisodeEffect{}, errors.New("terminal episode cannot plan an effect")
-	}
-	if effect.Destination.ChannelID == "" {
-		effect.Destination = episode.Destination
-	}
-	payload, _ := episodepkg.Encode(map[string]any{"effect_id": effect.ID, "kind": effect.Kind})
-	event, err := appendEpisodeEventTx(ctx, tx, effect.EpisodeID, core.WorkEpisodeEvent{
-		Kind: episodepkg.EventEffectPlanned, Actor: "host",
-		IdempotencyKey: "effect-planned:" + effect.IdempotencyKey, Payload: payload,
-	})
-	if err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	effect.ExpectedEpisodeRevision = event.Sequence
-	effect.ExpectedDestinationRevision = episode.DestinationRevision
-	effect.WorkspaceID = episode.WorkspaceID
-	effect.State = core.EffectPlanned
-	now := time.Now().UTC()
-	if effect.NextAttemptAt.IsZero() {
-		effect.NextAttemptAt = now
-	}
-	effect.CreatedAt, effect.UpdatedAt = now, now
-	result, err := tx.ExecContext(ctx, `
-		INSERT OR IGNORE INTO episode_effects (
-		  id, workspace_id, episode_id, expected_episode_revision,
-		  expected_destination_revision, kind,
-		  destination_channel_id, destination_thread_ts, payload_json, payload_ref,
-		  idempotency_key, state, attempt_count, next_attempt_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', 0, ?, ?, ?)`,
-		effect.ID, effect.WorkspaceID, effect.EpisodeID, effect.ExpectedEpisodeRevision,
-		effect.ExpectedDestinationRevision, effect.Kind,
-		effect.Destination.ChannelID, effect.Destination.ThreadTS,
-		effect.Payload, effect.PayloadRef, effect.IdempotencyKey,
-		effect.NextAttemptAt.Format(timestampFormat), now.Format(timestampFormat),
-		now.Format(timestampFormat),
-	)
-	if err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	created, err := result.RowsAffected()
-	if err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	if created == 0 {
-		existing, err := scanEpisodeEffect(tx.QueryRowContext(ctx,
-			episodeEffectSelect+` WHERE idempotency_key = ?`, effect.IdempotencyKey))
-		if err != nil {
-			return core.EpisodeEffect{}, err
-		}
-		if existing.EpisodeID != effect.EpisodeID || existing.Kind != effect.Kind ||
-			string(existing.Payload) != string(effect.Payload) {
-			return core.EpisodeEffect{}, errors.New("effect idempotency key reused with another semantic payload")
-		}
-		effect = existing
-	}
-	if err := tx.Commit(); err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	return effect, nil
-}
-
-const episodeEffectSelect = `
-	SELECT id, workspace_id, episode_id, expected_episode_revision,
-	       expected_destination_revision, kind,
-	       destination_channel_id, destination_thread_ts, payload_json, payload_ref,
-	       idempotency_key, state, attempt_count, next_attempt_at,
-	       lease_owner, fencing_token, lease_expires_at,
-	       last_error_class, last_error, external_ref, created_at, updated_at,
-	       completed_at
-	FROM episode_effects `
-
-func scanEpisodeEffect(row interface{ Scan(...any) error }) (core.EpisodeEffect, error) {
-	var item core.EpisodeEffect
-	var nextAttempt, created, updated string
-	var leaseExpires, completed sql.NullString
-	err := row.Scan(
-		&item.ID, &item.WorkspaceID, &item.EpisodeID, &item.ExpectedEpisodeRevision,
-		&item.ExpectedDestinationRevision, &item.Kind,
-		&item.Destination.ChannelID, &item.Destination.ThreadTS,
-		&item.Payload, &item.PayloadRef, &item.IdempotencyKey, &item.State,
-		&item.Attempts, &nextAttempt, &item.LeaseOwner, &item.FencingToken,
-		&leaseExpires, &item.LastErrorClass, &item.LastError,
-		&item.ExternalRef, &created, &updated, &completed,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return core.EpisodeEffect{}, ErrNotFound
-	}
-	if err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	item.NextAttemptAt = parseTime(nextAttempt)
-	item.LeaseExpiresAt = scanTime(leaseExpires)
-	item.CreatedAt, item.UpdatedAt = parseTime(created), parseTime(updated)
-	item.CompletedAt = scanTime(completed)
-	return item, nil
-}
-
-func (s *Store) GetEpisodeEffect(ctx context.Context, id string) (core.EpisodeEffect, error) {
-	return scanEpisodeEffect(s.db.QueryRowContext(ctx, episodeEffectSelect+` WHERE id = ?`, id))
-}
-
-// LeaseEpisodeEffect claims one due effect with a fencing token. An effect is
-// deliverable only while the episode and destination revisions that authorized
-// it are still current.
-func (s *Store) LeaseEpisodeEffect(
-	ctx context.Context,
-	owner string,
-	leaseDuration time.Duration,
-) (core.EpisodeEffect, error) {
-	owner = strings.TrimSpace(owner)
-	if owner == "" || leaseDuration <= 0 {
-		return core.EpisodeEffect{}, errors.New("effect lease owner and duration are required")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	defer tx.Rollback()
-	now := time.Now().UTC()
-	effect, err := scanEpisodeEffect(tx.QueryRowContext(ctx, episodeEffectSelect+`
-		WHERE (state = 'planned' OR (state = 'delivering' AND lease_expires_at <= ?))
-		  AND next_attempt_at <= ?
-		ORDER BY next_attempt_at, created_at, id LIMIT 1`,
-		now.Format(timestampFormat), now.Format(timestampFormat),
-	))
-	if err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	episode, err := scanWorkEpisode(tx.QueryRowContext(
-		ctx, `SELECT `+workEpisodeColumns+` FROM work_episodes WHERE id = ?`, effect.EpisodeID,
-	))
-	if err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	if episodepkg.Terminal(episode.State) ||
-		episode.EventSequence != effect.ExpectedEpisodeRevision ||
-		episode.DestinationRevision != effect.ExpectedDestinationRevision ||
-		episode.Destination.ChannelID != effect.Destination.ChannelID ||
-		episode.Destination.ThreadTS != effect.Destination.ThreadTS {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE episode_effects
-			SET state = 'cancelled', last_error_class = 'stale_revision',
-			    last_error = 'episode or destination revision changed', completed_at = ?, updated_at = ?
-			WHERE id = ?`, now.Format(timestampFormat), now.Format(timestampFormat), effect.ID); err != nil {
-			return core.EpisodeEffect{}, err
-		}
-		if err := tx.Commit(); err != nil {
-			return core.EpisodeEffect{}, err
-		}
-		return core.EpisodeEffect{}, ErrConflict
-	}
-	expires := now.Add(leaseDuration)
-	result, err := tx.ExecContext(ctx, `
-		UPDATE episode_effects
-		SET state = 'delivering', lease_owner = ?, fencing_token = fencing_token + 1,
-		    lease_expires_at = ?, attempt_count = attempt_count + 1, updated_at = ?
-		WHERE id = ? AND (state = 'planned' OR lease_expires_at <= ?)`,
-		owner, expires.Format(timestampFormat), now.Format(timestampFormat), effect.ID,
-		now.Format(timestampFormat),
-	)
-	if err := expectOne(result, err, "lease episode effect"); err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return core.EpisodeEffect{}, err
-	}
-	return s.GetEpisodeEffect(ctx, effect.ID)
-}
-
-func (s *Store) CompleteEpisodeEffect(
-	ctx context.Context,
-	id string,
-	owner string,
-	fencingToken int64,
-	externalRef string,
-) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	now := time.Now().UTC()
-	effect, err := scanEpisodeEffect(tx.QueryRowContext(ctx, episodeEffectSelect+` WHERE id = ?`, id))
-	if err != nil {
-		return err
-	}
-	result, err := tx.ExecContext(ctx, `
-		UPDATE episode_effects
-		SET state = 'succeeded', external_ref = ?, lease_owner = '', lease_expires_at = NULL,
-		    completed_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'delivering' AND lease_owner = ? AND fencing_token = ?`,
-		strings.TrimSpace(externalRef), now.Format(timestampFormat), now.Format(timestampFormat),
-		id, strings.TrimSpace(owner), fencingToken,
-	)
-	if err := expectOne(result, err, "complete episode effect"); err != nil {
-		return err
-	}
-	payload, _ := episodepkg.Encode(map[string]any{
-		"effect_id": id, "kind": effect.Kind, "external_ref": strings.TrimSpace(externalRef),
-	})
-	if _, err := appendEpisodeEventTx(ctx, tx, effect.EpisodeID, core.WorkEpisodeEvent{
-		Kind: episodepkg.EventEffectSucceeded, Actor: "host",
-		IdempotencyKey: fmt.Sprintf("effect-succeeded:%s:%d", id, fencingToken), Payload: payload,
-	}); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *Store) FailEpisodeEffect(
-	ctx context.Context,
-	id string,
-	owner string,
-	fencingToken int64,
-	class string,
-	detail string,
-	retryAt time.Time,
-) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	effect, err := scanEpisodeEffect(tx.QueryRowContext(ctx, episodeEffectSelect+` WHERE id = ?`, id))
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC()
-	state := core.EffectFailed
-	completedAt := any(now.Format(timestampFormat))
-	if !retryAt.IsZero() {
-		state = core.EffectPlanned
-		completedAt = nil
-	} else {
-		retryAt = now
-	}
-	result, err := tx.ExecContext(ctx, `
-		UPDATE episode_effects
-		SET state = ?, next_attempt_at = ?, last_error_class = ?, last_error = ?,
-		    lease_owner = '', lease_expires_at = NULL, completed_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'delivering' AND lease_owner = ? AND fencing_token = ?`,
-		state, retryAt.UTC().Format(timestampFormat), boundedError(class), boundedError(detail),
-		completedAt, now.Format(timestampFormat), id, strings.TrimSpace(owner), fencingToken,
-	)
-	if err := expectOne(result, err, "fail episode effect"); err != nil {
-		return err
-	}
-	payload, _ := episodepkg.Encode(map[string]any{
-		"effect_id": id, "kind": effect.Kind, "error_class": class,
-		"retry_at": retryAt, "terminal": state == core.EffectFailed,
-	})
-	event, err := appendEpisodeEventTx(ctx, tx, effect.EpisodeID, core.WorkEpisodeEvent{
-		Kind: episodepkg.EventEffectFailed, Actor: "host",
-		IdempotencyKey: fmt.Sprintf("effect-failed:%s:%d", id, fencingToken), Payload: payload,
-	})
-	if err != nil {
-		return err
-	}
-	if state == core.EffectPlanned {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE episode_effects SET expected_episode_revision = ? WHERE id = ?`,
-			event.Sequence, id); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
 func (s *Store) CreateEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWakeup) (core.EpisodeWakeup, error) {
 	wakeup.EpisodeID = strings.TrimSpace(wakeup.EpisodeID)
 	wakeup.Kind = strings.TrimSpace(wakeup.Kind)
@@ -1144,7 +767,7 @@ func (s *Store) CreateEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWake
 		wakeup.LastObservation = []byte("{}")
 	}
 	wakeup.State = core.WakeupPending
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	wakeup.CreatedAt, wakeup.UpdatedAt = now, now
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1263,7 +886,7 @@ func (s *Store) LeaseDueEpisodeWakeup(
 		return core.EpisodeWakeup{}, err
 	}
 	defer tx.Rollback()
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	wakeup, err := scanEpisodeWakeup(tx.QueryRowContext(ctx, episodeWakeupSelect+`
 		WHERE (state = 'pending' OR (state = 'leased' AND lease_expires_at <= ?))
 		  AND (COALESCE(poll_after, due_at) IS NOT NULL)
@@ -1334,7 +957,7 @@ func (s *Store) ResolveEpisodeWakeup(
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE episode_wakeups
 		SET state = 'resolved', last_observation_json = ?, lease_owner = '',
@@ -1380,7 +1003,7 @@ func (s *Store) RetryEpisodeWakeup(
 		SET state = 'pending', poll_after = ?, last_observation_json = ?,
 		    lease_owner = '', lease_expires_at = NULL, updated_at = ?
 		WHERE id = ? AND state = 'leased' AND lease_owner = ? AND fencing_token = ?`,
-		next.UTC().Format(timestampFormat), observation, nowText(), id,
+		next.UTC().Format(timestampFormat), observation, s.nowText(), id,
 		strings.TrimSpace(owner), fencingToken,
 	)
 	return expectOne(result, err, "retry episode wakeup")

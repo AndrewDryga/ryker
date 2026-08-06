@@ -515,7 +515,7 @@ func (s *Service) scheduleExternalMessageReconciliation(
 		SubjectID: input.ID,
 		Lane:      store.WorkLaneBackground,
 		Priority:  42,
-		AvailableAt: time.Now().UTC().Add(
+		AvailableAt: s.now().UTC().Add(
 			s.cfg.Slack.ExternalMessageReconcileInterval.Duration,
 		),
 		DeadlineAt: input.ReceivedAt.Add(s.cfg.Slack.ExternalMessageReconcileWindow.Duration),
@@ -523,7 +523,7 @@ func (s *Service) scheduleExternalMessageReconciliation(
 }
 
 func (s *Service) seedExternalMessageReconciliations(ctx context.Context) error {
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	inputs, err := s.store.ListLatestSlackInputsByKind(
 		ctx,
 		"bot_message",
@@ -555,7 +555,7 @@ func (s *Service) reconcileExternalMessage(
 	ctx context.Context,
 	item store.WorkItem,
 ) error {
-	if !item.DeadlineAt.IsZero() && !time.Now().UTC().Before(item.DeadlineAt) {
+	if !item.DeadlineAt.IsZero() && !s.now().UTC().Before(item.DeadlineAt) {
 		return nil
 	}
 	source, err := s.store.GetSlackInput(ctx, item.SubjectID)
@@ -605,7 +605,7 @@ func (s *Service) reconcileExternalMessage(
 	}
 	if created {
 		s.invalidateSlackHistory(updated.ChannelID)
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			Kind: "slack.external_message", ActorID: updated.UserID,
 			ObjectID: updated.EventID, Outcome: "reconciled_update", Detail: source.ID,
 		})
@@ -668,7 +668,10 @@ func externalMessageFingerprint(text string, attachments []core.SlackAttachment)
 		Attachments []core.SlackAttachment `json:"attachments,omitempty"`
 	}{Text: text, Attachments: attachments})
 	if err != nil {
-		panic(err)
+		// Both fields are plain strings and numbers, so this cannot fail. If it
+		// ever does, degrade to a text-only fingerprint rather than taking the
+		// whole service down over a reconciliation identity.
+		payload = []byte(text)
 	}
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:12])

@@ -23,7 +23,7 @@ func (s *Service) processWebhook(ctx context.Context) error {
 	}
 	route, ok := s.cfg.Webhooks[event.Route]
 	if !ok {
-		return s.store.RetryWebhook(ctx, event.ID, "webhook route was removed from configuration", time.Now(), true)
+		return s.store.RetryWebhook(ctx, event.ID, "webhook route was removed from configuration", s.now(), true)
 	}
 	var incidents []core.Incident
 	var applyErr error
@@ -31,7 +31,7 @@ func (s *Service) processWebhook(ctx context.Context) error {
 		for _, incidentID := range event.IncidentIDs {
 			incident, err := s.store.GetIncident(ctx, incidentID)
 			if err != nil {
-				return s.store.RetryWebhook(ctx, event.ID, trimError(err), queueDelay(event.Attempts), false)
+				return s.store.RetryWebhook(ctx, event.ID, trimError(err), s.queueDelay(event.Attempts), false)
 			}
 			incidents = append(incidents, incident)
 		}
@@ -43,7 +43,7 @@ func (s *Service) processWebhook(ctx context.Context) error {
 		if applyErr != nil && len(incidents) == 0 {
 			terminal := terminalAttempt(event.Attempts, s.cfg.Limits.MaxWebhookAttempts)
 			return s.store.RetryWebhook(
-				ctx, event.ID, trimError(applyErr), queueDelay(event.Attempts), terminal,
+				ctx, event.ID, trimError(applyErr), s.queueDelay(event.Attempts), terminal,
 			)
 		}
 	}
@@ -56,7 +56,7 @@ func (s *Service) processWebhook(ctx context.Context) error {
 		}
 		signals := signalsForIncident(event.Signals, incident)
 		for _, signal := range signals {
-			_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+			s.recordTimeline(ctx, core.TimelineEvent{
 				ID:         "tl_alert_" + event.ID + "_" + signal.SourceID,
 				IncidentID: incident.ID, ChannelID: incident.ChannelID,
 				Kind: "alert." + string(signal.Status), ActorID: signal.Route,
@@ -69,9 +69,9 @@ func (s *Service) processWebhook(ctx context.Context) error {
 			prompt, err := signalPrompt(signals)
 			if err != nil {
 				if errors.Is(err, errEvidenceTooLarge) {
-					_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowBlocked, trimError(err))
+					s.setIncidentError(ctx, incident.ID, core.WorkflowBlocked, trimError(err))
 				}
-				return s.store.RetryWebhook(ctx, event.ID, trimError(err), time.Now(), true)
+				return s.store.RetryWebhook(ctx, event.ID, trimError(err), s.now(), true)
 			}
 			if _, _, err := s.queueIncidentAgentRun(
 				ctx,
@@ -81,38 +81,21 @@ func (s *Service) processWebhook(ctx context.Context) error {
 				"",
 				prompt,
 			); err != nil {
-				return s.store.RetryWebhook(ctx, event.ID, trimError(err), queueDelay(event.Attempts), false)
+				return s.store.RetryWebhook(ctx, event.ID, trimError(err), s.queueDelay(event.Attempts), false)
 			}
 		}
 	}
 	if applyErr != nil {
 		terminal := terminalAttempt(event.Attempts, s.cfg.Limits.MaxWebhookAttempts)
 		return s.store.RetryWebhook(
-			ctx, event.ID, trimError(applyErr), queueDelay(event.Attempts), terminal,
+			ctx, event.ID, trimError(applyErr), s.queueDelay(event.Attempts), terminal,
 		)
 	}
 	if err := s.store.FinishWebhook(ctx, event.ID); err != nil {
-		_ = s.store.RetryWebhook(ctx, event.ID, trimError(err), queueDelay(event.Attempts), false)
+		_ = s.store.RetryWebhook(ctx, event.ID, trimError(err), s.queueDelay(event.Attempts), false)
 		return err
 	}
 	return nil
-}
-
-func (s *Service) processChannel(ctx context.Context) error {
-	incidents, err := s.store.ListChannelWork(ctx, 1)
-	if err != nil {
-		return err
-	}
-	if len(incidents) == 0 {
-		incidents, err = s.store.ListRootWork(ctx, 1)
-		if err != nil || len(incidents) == 0 {
-			if err == nil {
-				return store.ErrNotFound
-			}
-			return err
-		}
-	}
-	return s.processChannelIncident(ctx, incidents[0].ID)
 }
 
 func (s *Service) processChannelIncident(ctx context.Context, incidentID string) error {
@@ -161,13 +144,13 @@ func (s *Service) processChannelIncident(ctx context.Context, incidentID string)
 		); err != nil {
 			return err
 		}
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			IncidentID: incident.ID, Kind: "slack.thread.bound",
 			ObjectID: incident.OriginChannelID + ":" + incident.OriginThreadTS,
 			Outcome:  "succeeded",
 			Detail:   "engineering task remains in its source thread",
 		})
-		_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+		s.recordTimeline(ctx, core.TimelineEvent{
 			ID:         "tl_thread_" + incident.ID,
 			IncidentID: incident.ID, ChannelID: incident.ChannelID,
 			Kind: "slack.thread.bound", ActorID: "responder",
@@ -182,7 +165,7 @@ func (s *Service) processChannelIncident(ctx context.Context, incidentID string)
 		channel, err = s.adoptChannel(ctx, incident, name, err)
 	}
 	if err != nil {
-		_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowProvisioningChannel, trimError(err))
+		s.setIncidentError(ctx, incident.ID, core.WorkflowProvisioningChannel, trimError(err))
 		return err
 	}
 	if err := s.store.SetChannel(ctx, incident.ID, channel.ID, channel.Name); err != nil {
@@ -197,11 +180,11 @@ func (s *Service) processChannelIncident(ctx context.Context, incidentID string)
 	if err := s.enqueue(ctx, "out_root_"+incident.ID, incident, "root", "", body); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "slack.channel.created", ObjectID: channel.ID,
 		Outcome: "succeeded", Detail: channel.Name,
 	})
-	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+	s.recordTimeline(ctx, core.TimelineEvent{
 		ID:         "tl_channel_" + incident.ID,
 		IncidentID: incident.ID, ChannelID: channel.ID,
 		Kind: "slack.channel.created", ActorID: "responder",
@@ -233,11 +216,14 @@ func (s *Service) adoptChannel(
 }
 
 func (s *Service) processSlackWrite(ctx context.Context) error {
-	s.postMu.Lock()
-	defer s.postMu.Unlock()
-	if time.Since(s.lastPost) < 1100*time.Millisecond {
-		return nil
+	// Defer to the exact moment the slot reopens. Reporting success instead
+	// would requeue this recurring item as immediately available and spin the
+	// lane against the single database connection for the whole window.
+	wait, ok := s.writeSlot.acquire(s.now())
+	if !ok {
+		return deferScheduledWork(s.now().Add(wait), "Slack write slot is cooling down")
 	}
+	defer func() { s.writeSlot.release(s.now()) }()
 	if err := s.processCard(ctx); err != nil &&
 		!errors.Is(err, store.ErrNotFound) {
 		return err
@@ -255,7 +241,7 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 		incident, err = s.store.GetIncident(ctx, item.IncidentID)
 		if err != nil {
 			return s.store.RetrySlackDelivery(
-				ctx, item.ID, trimError(err), time.Now(), false, true,
+				ctx, item.ID, trimError(err), s.now(), false, true,
 			)
 		}
 	}
@@ -265,7 +251,7 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 			ctx,
 			item.ID,
 			"Slack delivery suppressed because the work conversation is "+string(incident.ChannelState),
-			time.Now(),
+			s.now(),
 			false,
 			true,
 		)
@@ -277,10 +263,10 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 		message, decodeErr := slackui.Decode(item.Body)
 		if decodeErr != nil {
 			retryErr := s.store.RetrySlackDelivery(
-				ctx, item.ID, trimError(decodeErr), time.Now(), false, true,
+				ctx, item.ID, trimError(decodeErr), s.now(), false, true,
 			)
 			if incident.ID != "" {
-				_ = s.store.SetIncidentError(
+				s.setIncidentError(
 					ctx, incident.ID, incident.Workflow, trimError(decodeErr),
 				)
 			}
@@ -324,7 +310,6 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 	default:
 		err = fmt.Errorf("unsupported Slack delivery operation %q", item.Operation)
 	}
-	s.lastPost = time.Now()
 	if err != nil {
 		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
 		uncertain := item.Operation == "post" || item.Operation == "file"
@@ -336,7 +321,7 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 			ctx,
 			item.ID,
 			trimError(err),
-			queueDelay(item.Attempts),
+			s.queueDelay(item.Attempts),
 			uncertain,
 			terminal,
 		); retryErr != nil {
@@ -354,7 +339,7 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 	); err != nil {
 		_ = s.store.RetrySlackDelivery(
 			ctx, item.ID, "Slack accepted the message but local confirmation failed",
-			queueDelay(item.Attempts), item.Operation == "post" || item.Operation == "file", false,
+			s.queueDelay(item.Attempts), item.Operation == "post" || item.Operation == "file", false,
 		)
 		return err
 	}
@@ -400,7 +385,7 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 			item.ID,
 			"Slack reconciliation suppressed because the work conversation is "+
 				string(incident.ChannelState),
-			time.Now(),
+			s.now(),
 			true,
 		)
 	}
@@ -409,12 +394,12 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 	if item.Operation == "file" {
 		file, decodeErr := decodeSlackFileDelivery(item.Body)
 		if decodeErr != nil {
-			return s.store.RetryUncertainSlackDelivery(ctx, item.ID, trimError(decodeErr), time.Now(), true)
+			return s.store.RetryUncertainSlackDelivery(ctx, item.ID, trimError(decodeErr), s.now(), true)
 		}
 		fileDelivery = &file
 		if permanentSlackFileDeliveryError(errors.New(item.LastError)) {
 			if retryErr := s.store.RetryUncertainSlackDelivery(
-				ctx, item.ID, item.LastError, time.Now(), true,
+				ctx, item.ID, item.LastError, s.now(), true,
 			); retryErr != nil {
 				return retryErr
 			}
@@ -435,11 +420,11 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
 		retryErr := s.store.RetryUncertainSlackDelivery(
 			ctx, item.ID, "Slack history confirmed the message was not posted",
-			queueDelay(item.Attempts), terminal,
+			s.queueDelay(item.Attempts), terminal,
 		)
 		if terminal {
 			if incident.ID != "" {
-				_ = s.store.SetIncidentError(
+				s.setIncidentError(
 					ctx, incident.ID, incident.Workflow,
 					"Slack delivery failed after the configured retry limit.",
 				)
@@ -456,21 +441,10 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 			ctx,
 			item.ID,
 			trimError(err),
-			queueDelay(item.Attempts),
+			s.queueDelay(item.Attempts),
 			terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts),
 		)
 	}
-}
-
-func (s *Service) processSession(ctx context.Context) error {
-	incidents, err := s.store.ListSessionWork(ctx, 1)
-	if err != nil || len(incidents) == 0 {
-		if err == nil {
-			return store.ErrNotFound
-		}
-		return err
-	}
-	return s.processSessionIncident(ctx, incidents[0].ID)
 }
 
 func (s *Service) processSessionIncident(ctx context.Context, incidentID string) error {
@@ -486,7 +460,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	}
 	if !incident.IsThreadScoped() {
 		if err := s.prepareChannel(ctx, incident); err != nil {
-			_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowHolding, trimError(err))
+			s.setIncidentError(ctx, incident.ID, core.WorkflowHolding, trimError(err))
 			return err
 		}
 		if err := s.enqueueManualHandoff(ctx, incident); err != nil {
@@ -502,7 +476,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 		if incident.IsEngineeringTask() {
 			detail = "Responder is at its configured active work limit; this engineering task is queued."
 		}
-		_ = s.store.SetIncidentError(
+		s.setIncidentError(
 			ctx, incident.ID, core.WorkflowHolding,
 			detail,
 		)
@@ -514,7 +488,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	}
 	if err := s.queueInitialTurn(ctx, incident); err != nil {
 		if errors.Is(err, errEvidenceTooLarge) {
-			_ = s.store.SetIncidentError(ctx, incident.ID, core.WorkflowBlocked, trimError(err))
+			s.setIncidentError(ctx, incident.ID, core.WorkflowBlocked, trimError(err))
 			return nil
 		}
 		return err
@@ -531,7 +505,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 		if !coop.Retryable(err) {
 			workflow = core.WorkflowBlocked
 		}
-		_ = s.store.SetIncidentError(ctx, incident.ID, workflow, trimError(err))
+		s.setIncidentError(ctx, incident.ID, workflow, trimError(err))
 		if workflow == core.WorkflowBlocked {
 			return nil
 		}
@@ -543,7 +517,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	incident.CoopSessionID = session.ID
 	incident.CoopForkName = session.ForkName
 	incident.CoopRevision = session.Revision
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "coop.session.created", ObjectID: session.ID,
 		Outcome: "succeeded", Detail: repository.CoopPolicy,
 	})
@@ -551,7 +525,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	if incident.IsEngineeringTask() {
 		timelineTitle = "Isolated engineering task started"
 	}
-	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+	s.recordTimeline(ctx, core.TimelineEvent{
 		ID:         "tl_session_" + incident.ID,
 		IncidentID: incident.ID, ChannelID: incident.ChannelID,
 		Kind: "coop.session.created", ActorID: "responder",
@@ -928,13 +902,9 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 		return
 	}
 	statusKey := incident.ID + "@" + incident.ConversationThreadTS()
-	s.statusMu.Lock()
-	previous := s.nativeStatus[statusKey]
-	if previous.text == status && time.Since(previous.at) < 75*time.Second {
-		s.statusMu.Unlock()
+	if !s.nativeStatus.shouldWrite(statusKey, status, s.now()) {
 		return
 	}
-	s.statusMu.Unlock()
 	if err := s.enqueueNativeStatus(
 		ctx,
 		incident.ID,
@@ -946,9 +916,7 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 		s.log.Warn("set Slack thread status", "incident", incident.ID, "error", err)
 		return
 	}
-	s.statusMu.Lock()
-	s.nativeStatus[statusKey] = nativeStatusState{text: status, at: time.Now()}
-	s.statusMu.Unlock()
+	s.nativeStatus.record(statusKey, status, s.now())
 }
 
 func (s *Service) enqueueNativeStatus(
@@ -1060,14 +1028,7 @@ func progressMilestones(status string) []string {
 }
 
 func (s *Service) forgetNativeStatus(incidentID string) {
-	s.statusMu.Lock()
-	defer s.statusMu.Unlock()
-	prefix := incidentID + "@"
-	for key := range s.nativeStatus {
-		if strings.HasPrefix(key, prefix) {
-			delete(s.nativeStatus, key)
-		}
-	}
+	s.nativeStatus.forgetIncident(incidentID)
 }
 
 func (s *Service) enqueue(

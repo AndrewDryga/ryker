@@ -31,7 +31,7 @@ func (s *Store) CreateScheduledTask(
 	if maxTotal < 1 || maxPerChannel < 1 || maxPerChannel > maxTotal {
 		return core.ScheduledTask{}, errors.New("scheduled task limits are invalid")
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if !task.ExpiresAt.After(now) || !task.NextRunAt.After(now.Add(-time.Second)) ||
 		!task.NextRunAt.Before(task.ExpiresAt) {
 		return core.ScheduledTask{}, errors.New("scheduled task must have a future expiry and runnable next occurrence")
@@ -158,7 +158,7 @@ func (s *Store) ListScheduledTasksForChannel(ctx context.Context, channelID stri
 		return nil, errors.New("scheduled task list requires a channel and limit between 1 and 100")
 	}
 	rows, err := s.db.QueryContext(ctx, scheduledTaskSelect+`
-		WHERE channel_id = ? AND expires_at > ? ORDER BY updated_at DESC LIMIT ?`, channelID, nowText(), limit)
+		WHERE channel_id = ? AND expires_at > ? ORDER BY updated_at DESC LIMIT ?`, channelID, s.nowText(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (s *Store) SetScheduledTaskEnabled(ctx context.Context, id string, enabled 
 	if enabled {
 		query += ` AND next_run_at IS NOT NULL`
 	}
-	result, err := s.db.ExecContext(ctx, query, value, nowText(), id, nowText())
+	result, err := s.db.ExecContext(ctx, query, value, s.nowText(), id, s.nowText())
 	if err := expectOne(result, err, "set scheduled task state"); err != nil {
 		return core.ScheduledTask{}, err
 	}
@@ -268,7 +268,7 @@ func (s *Store) ClaimScheduledTaskRun(
 		outcome = "skipped_overlap"
 		sourceInput = ""
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO scheduled_task_runs
 		  (task_id, scheduled_for, source_input, outcome, created_at, updated_at)
@@ -300,7 +300,7 @@ func (s *Store) ClaimScheduledTaskRun(
 }
 
 func (s *Store) LinkScheduledTaskRun(ctx context.Context, taskID string, scheduledFor time.Time, agentRunID string, episodeID string) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET agent_run_id = ?, episode_id = ?, outcome = 'running', started_at = COALESCE(started_at, ?), updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome = 'queued'`, agentRunID, episodeID, nowText(), nowText(), taskID, scheduledFor.UTC().Format(timestampFormat))
+	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET agent_run_id = ?, episode_id = ?, outcome = 'running', started_at = COALESCE(started_at, ?), updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome = 'queued'`, agentRunID, episodeID, s.nowText(), s.nowText(), taskID, scheduledFor.UTC().Format(timestampFormat))
 	return expectOne(result, err, "link scheduled task run")
 }
 
@@ -308,7 +308,7 @@ func (s *Store) CompleteScheduledTaskRun(ctx context.Context, taskID string, sch
 	if outcome != "completed" && outcome != "failed" {
 		return errors.New("scheduled task terminal outcome must be completed or failed")
 	}
-	now := nowText()
+	now := s.nowText()
 	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET outcome = ?, last_error = ?, completed_at = ?, updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome IN ('queued', 'running')`, outcome, boundedError(detail), now, now, taskID, scheduledFor.UTC().Format(timestampFormat))
 	if err := expectOne(result, err, "complete scheduled task run"); err != nil {
 		return err
@@ -341,11 +341,11 @@ func (s *Store) ListActiveScheduledTaskRuns(ctx context.Context, limit int) ([]c
 }
 
 func (s *Store) AdmitSyntheticSlackInput(ctx context.Context, input core.SlackInput) (bool, error) {
-	admitted, err := admitSlackInput(ctx, s.db, input)
+	admitted, err := admitSlackInput(ctx, s.db, input, s.nowText())
 	if err != nil || !admitted {
 		return admitted, err
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE slack_inputs SET state = 'processing', attempts = 1, updated_at = ? WHERE id = ? AND state = 'pending'`, nowText(), input.ID)
+	result, err := s.db.ExecContext(ctx, `UPDATE slack_inputs SET state = 'processing', attempts = 1, updated_at = ? WHERE id = ? AND state = 'pending'`, s.nowText(), input.ID)
 	if err := expectOne(result, err, "activate synthetic Slack input"); err != nil {
 		return false, err
 	}

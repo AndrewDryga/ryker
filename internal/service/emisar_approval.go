@@ -69,7 +69,7 @@ func (s *Service) processEmisarApproval(
 	if approval.ContinuationQueued {
 		return nil
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if approval.NextCheckAt.After(now) {
 		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(approval))
 	}
@@ -140,7 +140,7 @@ func (s *Service) finishTerminalEmisarApproval(
 	updated core.EmisarApproval,
 ) error {
 	if updated.MessageTS == "" {
-		updated.NextCheckAt = time.Now().UTC().Add(time.Second)
+		updated.NextCheckAt = s.now().UTC().Add(time.Second)
 		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(updated))
 	}
 	if err := s.store.ResolveWaitingApprovalEpisodes(
@@ -163,7 +163,7 @@ func (s *Service) finishTerminalEmisarApproval(
 	); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: updated.IncidentID,
 		Kind:       "emisar.approval.completed",
 		ActorID:    "responder",
@@ -202,9 +202,7 @@ func (s *Service) enqueueEmisarApprovalCardUpdate(
 		return errors.New("Emisar approval Slack target is unavailable")
 	}
 	message := slackui.EmisarApprovalStateMessage(approval, continuing)
-	if s.sanitizer != nil {
-		message = s.sanitizer.Message(message)
-	}
+	message = s.sanitizeMessage(message)
 	body, err := slackui.Encode(message)
 	if err != nil {
 		return err

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -85,7 +84,7 @@ func (s *Service) assembleAgentContext(
 	result := assembledAgentContext{
 		Repository: repository,
 		Prior:      prior,
-		CapturedAt: time.Now().UTC(),
+		CapturedAt: s.now().UTC(),
 	}
 	sinceTS := ""
 	if request.ChannelID != "" {
@@ -245,43 +244,17 @@ func (s *Service) recentMessages(
 		"%s\x00%s\x00%s\x00%s\x00%d",
 		channelID, threadTS, targetTS, sinceTS, limit,
 	)
-	now := time.Now()
-	s.historyMu.Lock()
-	cached, ok := s.historyCache[key]
-	if ok && now.Before(cached.expiresAt) {
-		messages := append([]slackui.HistoryMessage(nil), cached.messages...)
-		s.historyMu.Unlock()
-		return messages, nil
+	now := s.now()
+	if cached, ok := s.historyCache.get(key, now); ok {
+		return cached, nil
 	}
-	if ok {
-		delete(s.historyCache, key)
-	}
-	s.historyMu.Unlock()
 	messages, err := s.slack.RecentMessages(
 		ctx, channelID, threadTS, targetTS, sinceTS, limit,
 	)
 	if err != nil {
 		return nil, err
 	}
-	s.historyMu.Lock()
-	if len(s.historyCache) >= 256 {
-		for cacheKey, item := range s.historyCache {
-			if now.After(item.expiresAt) {
-				delete(s.historyCache, cacheKey)
-			}
-		}
-		if len(s.historyCache) >= 256 {
-			for cacheKey := range s.historyCache {
-				delete(s.historyCache, cacheKey)
-				break
-			}
-		}
-	}
-	s.historyCache[key] = cachedSlackHistory{
-		messages:  append([]slackui.HistoryMessage(nil), messages...),
-		expiresAt: now.Add(5 * time.Minute),
-	}
-	s.historyMu.Unlock()
+	s.historyCache.put(key, messages, now)
 	return messages, nil
 }
 
@@ -289,14 +262,7 @@ func (s *Service) invalidateSlackHistory(channelID string) {
 	if channelID == "" {
 		return
 	}
-	prefix := channelID + "\x00"
-	s.historyMu.Lock()
-	defer s.historyMu.Unlock()
-	for key := range s.historyCache {
-		if strings.HasPrefix(key, prefix) {
-			delete(s.historyCache, key)
-		}
-	}
+	s.historyCache.invalidateChannel(channelID)
 }
 
 func historyWatchContext(

@@ -1,6 +1,8 @@
 # Responder Target Architecture and Verification Plan
 
 Status: episode-kernel implementation landed; compatibility retirement remains
+       (the unused effect ledger was retired in schema 40; attempts, goals,
+       manifests, and wakeups remain in use beside the legacy agent-run path)
 Last updated: 2026-08-03
 Audience: Responder maintainers, operators, and contributors
 

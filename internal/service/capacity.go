@@ -55,7 +55,7 @@ func (s *Service) ensureTurnCapacity(
 			additional,
 		)
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: incidentID,
 		Kind:       "coop.budget.auto_extend",
 		ActorID:    "responder",

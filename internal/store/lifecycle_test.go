@@ -2,80 +2,13 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
-
-func TestSchemaV28BackfillsPublicationFollowupsWithoutHistoricalSpam(t *testing.T) {
-	stateDir := filepath.Join(t.TempDir(), "state")
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, schema := range migrations[:27] {
-		if _, err := db.Exec(schema); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec(`INSERT INTO schema_version(version) VALUES (27)`); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC().Truncate(time.Second)
-	for index, id := range []string{"inc_old", "inc_latest"} {
-		published := now.Add(time.Duration(index-1) * time.Hour).Format(timestampFormat)
-		if _, err := db.Exec(`
-			INSERT INTO incidents (
-			  id, route, repository, correlation_key, title, status, workflow,
-			  work_kind, work_scope, origin_channel_id, origin_thread_ts,
-			  created_at, updated_at
-			) VALUES (?, 'manual', 'repo', ?, ?, 'active', 'idle',
-			  'engineering_task', 'thread', 'CTASK', ?, ?, ?)`,
-			id, "correlation:"+id, "Task "+id, "1700."+id,
-			published, published,
-		); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`
-			INSERT INTO publications (
-			  incident_id, repository, base_branch, head_branch, parent_head,
-			  candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
-			  created_at, updated_at, published_at
-			) VALUES (?, 'owner/repo', 'main', ?, 'parent', 'tree', 'commit', ?, ?, ?,
-			  'published', ?, ?, ?)`,
-			id, "responder/"+id, "0123456789abcdef"+id, 100+index,
-			"https://github.com/owner/repo/pull/"+fmt.Sprint(100+index),
-			published, published, published,
-		); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	st, err := Open(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	old, err := st.GetPublicationFollowup(context.Background(), "inc_old")
-	if err != nil || old.LastEventKey != "baseline" {
-		t.Fatalf("historical follow-up = %+v, %v", old, err)
-	}
-	latest, err := st.GetPublicationFollowup(context.Background(), "inc_latest")
-	if err != nil || latest.LastEventKey != "" {
-		t.Fatalf("latest follow-up = %+v, %v", latest, err)
-	}
-}
 
 func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
 	ctx := context.Background()

@@ -23,7 +23,7 @@ func (s *Service) reconcileSlackChannelMemberships(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list Slack channels: %w", err)
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	observations := make([]store.SlackChannelMembershipObservation, 0, len(channels))
 	for _, channel := range channels {
 		observations = append(observations, store.SlackChannelMembershipObservation{
@@ -69,7 +69,7 @@ func (s *Service) reconcileSlackChannelMemberships(ctx context.Context) error {
 		); err != nil {
 			return err
 		}
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			Kind: "slack.channel.membership", ObjectID: item.ChannelID,
 			Outcome: "onboarding_queued", Detail: item.ChannelName,
 		})

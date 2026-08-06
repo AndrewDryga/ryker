@@ -277,7 +277,7 @@ func (s *Service) prepareMemoryOfferAction(
 		!explicitMemoryRequestPattern.MatchString(input.Text) {
 		return "", "", "", false
 	}
-	entry, ttl, err := s.memoryEntryFromOffer(input, *offer, time.Now().UTC())
+	entry, ttl, err := s.memoryEntryFromOffer(input, *offer, s.now().UTC())
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn(
@@ -303,7 +303,7 @@ func (s *Service) prepareMemoryOfferAction(
 	payload, err := json.Marshal(memoryActionPayload{
 		Version: 1, ChannelID: input.ChannelID,
 		SourceRef: firstNonempty(input.EventID, input.ID),
-		IssuedAt:  time.Now().UTC(),
+		IssuedAt:  s.now().UTC(),
 		Offer:     *offer,
 	})
 	if err != nil || len(payload) > 1900 {
@@ -325,7 +325,7 @@ func (s *Service) handleRememberMemory(
 		payload.Version != 1 || payload.SourceRef == "" ||
 		payload.ChannelID == "" || payload.ChannelID != input.ChannelID ||
 		payload.IssuedAt.IsZero() ||
-		payload.IssuedAt.After(time.Now().UTC().Add(5*time.Minute)) ||
+		payload.IssuedAt.After(s.now().UTC().Add(5*time.Minute)) ||
 		time.Since(payload.IssuedAt) > memoryOfferMaxAge {
 		return s.finishSlashInput(
 			ctx, input,
@@ -335,7 +335,7 @@ func (s *Service) handleRememberMemory(
 	}
 	var result memoryRememberResult
 	if len(input.Frozen) == 0 {
-		entry, _, err := s.memoryEntryFromOffer(input, payload.Offer, time.Now().UTC())
+		entry, _, err := s.memoryEntryFromOffer(input, payload.Offer, s.now().UTC())
 		if err != nil {
 			return s.finishSlashInput(
 				ctx, input,
@@ -387,7 +387,7 @@ func (s *Service) handleRememberMemory(
 	if result.Replaced {
 		outcome = "replaced"
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		ID:   "audit_memory_remember_" + input.ID,
 		Kind: "memory.remember", ActorID: input.UserID, ObjectID: entry.ID,
 		Outcome: outcome,
@@ -449,7 +449,7 @@ func (s *Service) handleForgetMemory(
 	if err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		ID:   "audit_memory_forget_" + input.ID,
 		Kind: "memory.forget", ActorID: input.UserID, ObjectID: entry.ID,
 		Outcome: "deleted",
@@ -575,7 +575,7 @@ func (s *Service) handleMemoryReview(ctx context.Context, input core.SlackInput)
 	} else if err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		ID: "audit_memory_review_" + input.ID, Kind: "memory.review",
 		ActorID: input.UserID, ObjectID: selected.ID, Outcome: action,
 		Detail: "kind=" + selected.Kind,
@@ -664,7 +664,7 @@ func (s *Service) handleForgetMemoryRollup(
 	if _, err := s.store.DeleteMemoryRollup(ctx, rollup.ID); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		ID: "audit_memory_rollup_forget_" + input.ID, Kind: "memory.rollup.forget",
 		ActorID: input.UserID, ObjectID: rollup.ID, Outcome: "deleted",
 		Detail: "scope=" + rollup.ScopeKind,

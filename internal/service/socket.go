@@ -69,7 +69,7 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 	}
 	input := core.SlackInput{
 		EnvelopeID: envelopeID, EventID: wrapper.EventID, TeamID: outer.TeamID,
-		ReceivedAt: time.Now().UTC(),
+		ReceivedAt: s.now().UTC(),
 	}
 	directChannelJoin := false
 	if wrapper.EventTime > 0 {
@@ -77,49 +77,37 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 	}
 	switch inner := outer.InnerEvent.Data.(type) {
 	case *slackevents.AssistantThreadStartedEvent:
+		// Surface refreshes are Slack writes, so they are admitted like any
+		// other input and performed by the control lane. Doing them here would
+		// hold the single socket consumer for a full Slack round trip and delay
+		// admission of every event behind them.
 		if inner == nil || inner.AssistantThread.UserID == "" ||
-			inner.AssistantThread.ChannelID == "" {
+			inner.AssistantThread.ChannelID == "" || !s.cfg.Slack.AssistantExperience {
 			_ = s.socket.Ack(*event.Request)
 			return
 		}
-		_ = s.socket.Ack(*event.Request)
-		if s.cfg.Slack.AssistantExperience {
-			if err := s.slack.SetSuggestedPrompts(
-				ctx,
-				inner.AssistantThread.ChannelID,
-				inner.AssistantThread.ThreadTimeStamp,
-			); err != nil {
-				s.log.Warn(
-					"set Slack assistant suggested prompts",
-					"channel", inner.AssistantThread.ChannelID,
-					"error", err,
-				)
-			}
-		}
-		return
+		input.Kind = inputSuggestedPrompts
+		input.ChannelID = inner.AssistantThread.ChannelID
+		input.ThreadTS = inner.AssistantThread.ThreadTimeStamp
+		input.UserID = inner.AssistantThread.UserID
 	case *slackevents.AppHomeOpenedEvent:
 		if inner == nil || inner.User == "" {
 			_ = s.socket.Ack(*event.Request)
 			return
 		}
-		_ = s.socket.Ack(*event.Request)
-		switch inner.Tab {
-		case "messages":
-			if s.cfg.Slack.AssistantExperience && inner.Channel != "" {
-				if err := s.slack.SetSuggestedPrompts(ctx, inner.Channel, ""); err != nil {
-					s.log.Warn(
-						"set Slack agent suggested prompts",
-						"channel", inner.Channel,
-						"error", err,
-					)
-				}
-			}
-		case "home":
-			if err := s.publishOperationsHome(ctx, inner.User); err != nil {
-				s.log.Warn("publish Slack App Home", "user", inner.User, "error", err)
-			}
+		switch {
+		case inner.Tab == "messages" &&
+			s.cfg.Slack.AssistantExperience && inner.Channel != "":
+			input.Kind = inputSuggestedPrompts
+			input.ChannelID = inner.Channel
+			input.UserID = inner.User
+		case inner.Tab == "home":
+			input.Kind = inputAppHome
+			input.UserID = inner.User
+		default:
+			_ = s.socket.Ack(*event.Request)
+			return
 		}
-		return
 	case *slackevents.ChannelDeletedEvent:
 		if inner == nil {
 			_ = s.socket.Ack(*event.Request)
@@ -489,7 +477,7 @@ func (s *Service) isRecentWatchConversation(
 	if input.Kind != "message" {
 		return false, nil
 	}
-	since := time.Now().UTC().Add(-watchConversationContinuationWindow)
+	since := s.now().UTC().Add(-watchConversationContinuationWindow)
 	if input.ThreadTS != "" {
 		// A reply in an exact Slack thread remains part of that conversation even
 		// after the short top-level continuation window expires.
@@ -548,7 +536,7 @@ func (s *Service) admitInteraction(ctx context.Context, event socketmode.Event) 
 			Attachments: slackInputAttachments(callback.Message.Files),
 			ActionID:    callback.CallbackID,
 			ActionValue: callback.Message.User,
-			ReceivedAt:  time.Now().UTC(),
+			ReceivedAt:  s.now().UTC(),
 		}
 		if input.ThreadTS == "" {
 			input.ThreadTS = input.MessageTS
@@ -586,7 +574,7 @@ func (s *Service) admitInteraction(ctx context.Context, event socketmode.Event) 
 		UserID:      callback.User.ID,
 		ActionID:    action.ActionID,
 		ActionValue: action.Value,
-		ReceivedAt:  time.Now().UTC(),
+		ReceivedAt:  s.now().UTC(),
 	}
 	if _, err := s.store.AdmitSlackInput(ctx, input); err != nil {
 		s.log.Error("persist Slack interaction before acknowledgement",
@@ -625,7 +613,7 @@ func (s *Service) admitSlashCommand(ctx context.Context, event socketmode.Event)
 		UserID:     command.UserID,
 		Text:       command.Text,
 		ActionID:   command.Command,
-		ReceivedAt: time.Now().UTC(),
+		ReceivedAt: s.now().UTC(),
 	}
 	if _, err := s.store.AdmitSlackInput(ctx, input); err != nil {
 		s.log.Error(

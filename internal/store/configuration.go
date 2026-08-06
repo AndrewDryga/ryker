@@ -32,7 +32,7 @@ func (s *Store) CreateConfigurationSession(
 	if session.Status == "" {
 		session.Status = "asking"
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if session.ExpiresAt.IsZero() {
 		session.ExpiresAt = now.Add(30 * time.Minute)
 	}
@@ -119,7 +119,7 @@ func (s *Store) BindConfigurationThread(
 		SET thread_ts = ?, response_thread_ts = '', thread_roots_json = ?,
 		  revision = revision + 1, updated_at = ?
 		WHERE id = ? AND status IN ('asking', 'confirming') AND thread_ts = ''`,
-		threadTS, roots, nowText(), id,
+		threadTS, roots, s.nowText(), id,
 	)
 	return expectOne(result, err, "bind configuration thread")
 }
@@ -158,7 +158,7 @@ func (s *Store) RecordConfigurationMessage(
 		UPDATE configuration_sessions
 		SET response_thread_ts = ?, thread_roots_json = ?, updated_at = ?
 		WHERE id = ? AND status IN ('asking', 'confirming')`,
-		responseThreadTS, data, nowText(), id,
+		responseThreadTS, data, s.nowText(), id,
 	)
 	return expectOne(result, err, "record configuration message location")
 }
@@ -183,7 +183,7 @@ func (s *Store) AdvanceConfigurationSession(
 		SET step = ?, status = ?, draft_json = ?, revision = revision + 1, updated_at = ?
 		WHERE id = ? AND revision = ? AND status IN ('asking', 'confirming')
 		  AND julianday(expires_at) > julianday(?)`,
-		step, status, data, nowText(), id, expectedRevision, nowText(),
+		step, status, data, s.nowText(), id, expectedRevision, s.nowText(),
 	)
 	if err := expectOne(result, err, "advance configuration session"); err != nil {
 		return core.ConfigurationSession{}, err
@@ -204,7 +204,7 @@ func (s *Store) FinishConfigurationSession(
 		UPDATE configuration_sessions
 		SET status = ?, revision = revision + 1, updated_at = ?
 		WHERE id = ? AND revision = ? AND status IN ('asking', 'confirming')`,
-		status, nowText(), id, expectedRevision,
+		status, s.nowText(), id, expectedRevision,
 	)
 	return expectOne(result, err, "finish configuration session")
 }
@@ -224,7 +224,7 @@ func (s *Store) SaveChannelConfiguration(
 	if err != nil {
 		return core.ChannelConfiguration{}, err
 	}
-	now := nowText()
+	now := s.nowText()
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO channel_configurations (
 		  channel_id, participation, repository, alert_policy,

@@ -51,7 +51,7 @@ func (s *Store) SavePublication(ctx context.Context, item core.Publication) erro
 	default:
 		return fmt.Errorf("publication state %q is invalid", item.State)
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = now
 	}
@@ -111,7 +111,7 @@ func (s *Store) MarkPublicationStale(
 	if incidentID == "" || reason == "" {
 		return false, errors.New("stale publication identity and reason are required")
 	}
-	now := nowText()
+	now := s.nowText()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -154,7 +154,7 @@ func (s *Store) ScheduleCleanup(
 	if sessionID == "" || reason == "" {
 		return errors.New("cleanup session and reason are required")
 	}
-	now := nowText()
+	now := s.nowText()
 	allow := 0
 	if allowUnmerged {
 		allow = 1
@@ -184,7 +184,7 @@ func (s *Store) BackfillClosedSessionCleanup(
 	ctx context.Context,
 	eligibleBefore time.Time,
 ) (int64, error) {
-	now := nowText()
+	now := s.nowText()
 	result, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO coop_cleanup (
 		  session_id, incident_id, reason, allow_unmerged, state,
@@ -209,7 +209,7 @@ func (s *Store) RetireResolvedDeletedWork(
 	ctx context.Context,
 	deletedBefore time.Time,
 ) (int64, error) {
-	now := nowText()
+	now := s.nowText()
 	cutoff := deletedBefore.UTC().Format(timestampFormat)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -264,7 +264,7 @@ func (s *Store) ScheduleExpiredChannelMemoryCleanup(
 	startedBefore time.Time,
 	eligibleAt time.Time,
 ) (int64, error) {
-	now := nowText()
+	now := s.nowText()
 	eligible := eligibleAt.UTC().Format(timestampFormat)
 	result, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO coop_cleanup (
@@ -377,14 +377,14 @@ func (s *Store) SetCleanupState(
 	retryAt time.Time,
 ) error {
 	if retryAt.IsZero() {
-		retryAt = time.Now().UTC()
+		retryAt = s.now().UTC()
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE coop_cleanup SET state = ?, plan_operation_id = ?, last_error = ?,
 		  attempts = attempts + 1, next_attempt_at = ?, updated_at = ?
 		WHERE session_id = ?`,
 		state, planOperationID, lastError, retryAt.UTC().Format(timestampFormat),
-		nowText(), sessionID,
+		s.nowText(), sessionID,
 	)
 	if err := expectOne(result, err, "update Coop cleanup"); err != nil {
 		return err
@@ -394,7 +394,7 @@ func (s *Store) SetCleanupState(
 			UPDATE incidents SET card_version = card_version + 1, updated_at = ?
 			WHERE id = (
 			  SELECT incident_id FROM coop_cleanup WHERE session_id = ?
-			) AND id != ''`, nowText(), sessionID)
+			) AND id != ''`, s.nowText(), sessionID)
 	}
 	return err
 }
@@ -462,11 +462,11 @@ func (s *Store) Prune(
 		return result, err
 	}
 	if result.MemoryEntries, err = deleteCount(`
-		DELETE FROM memory_entries WHERE expires_at <= ?`, nowText()); err != nil {
+		DELETE FROM memory_entries WHERE expires_at <= ?`, s.nowText()); err != nil {
 		return result, err
 	}
 	if result.MemoryRollups, err = deleteCount(`
-		DELETE FROM memory_rollups WHERE expires_at <= ?`, nowText()); err != nil {
+		DELETE FROM memory_rollups WHERE expires_at <= ?`, s.nowText()); err != nil {
 		return result, err
 	}
 	if result.StandingRuleRuns, err = deleteCount(`
@@ -474,11 +474,11 @@ func (s *Store) Prune(
 		return result, err
 	}
 	if result.Preferences, err = deleteCount(`
-		DELETE FROM responder_preferences WHERE expires_at <= ?`, nowText()); err != nil {
+		DELETE FROM responder_preferences WHERE expires_at <= ?`, s.nowText()); err != nil {
 		return result, err
 	}
 	if result.StandingRules, err = deleteCount(`
-		DELETE FROM standing_rules WHERE expires_at <= ?`, nowText()); err != nil {
+		DELETE FROM standing_rules WHERE expires_at <= ?`, s.nowText()); err != nil {
 		return result, err
 	}
 	if result.ScheduledTaskRuns, err = deleteCount(`
@@ -488,7 +488,7 @@ func (s *Store) Prune(
 		return result, err
 	}
 	if result.ScheduledTasks, err = deleteCount(`
-		DELETE FROM scheduled_tasks WHERE expires_at <= ?`, nowText()); err != nil {
+		DELETE FROM scheduled_tasks WHERE expires_at <= ?`, s.nowText()); err != nil {
 		return result, err
 	}
 	if result.EmisarApprovals, err = deleteCount(`

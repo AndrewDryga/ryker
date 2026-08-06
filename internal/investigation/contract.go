@@ -2,7 +2,6 @@ package investigation
 
 import (
 	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -393,12 +392,4 @@ or unavailable evidence. Continue read-only investigation while a material claim
 when the contract is decision-ready, further checks are duplicative, authority is missing, or an exact
 external blocker requires operator input. Use the investigation contract's conclusion kind and verdict
 vocabulary; do not default unrelated work to a health assessment.`
-}
-
-func ClaimForLayer(layer string) (ClaimRequirement, error) {
-	claim, ok := layerClaims[layer]
-	if !ok {
-		return ClaimRequirement{}, fmt.Errorf("unsupported investigation layer %q", layer)
-	}
-	return claim, nil
 }

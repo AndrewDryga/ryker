@@ -1,12 +1,10 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -19,7 +17,7 @@ import (
 const cleanupRetryLimit = 12
 
 func (s *Service) maintainLifecycle(ctx context.Context) {
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if err := s.maintainMemory(ctx, now); err != nil && ctx.Err() == nil {
 		s.log.Warn("memory consolidation failed", "error", err)
 	}
@@ -314,18 +312,14 @@ func (s *Service) verifyPublishedCleanupTree(
 	if !ok || repository.Path == "" {
 		return errors.New("publication repository checkout is unavailable")
 	}
-	command := exec.CommandContext(
-		ctx,
-		"git", "-C", repository.Path, "rev-parse",
-		plan.Plan.Workspace.Head+"^{tree}",
-	)
-	var output bytes.Buffer
-	command.Stdout = &output
-	command.Stderr = &output
-	if err := command.Run(); err != nil {
-		return fmt.Errorf("resolve closed fork tree: %s", strings.TrimSpace(output.String()))
+	resolver, ok := s.publisher.(treeResolverAPI)
+	if !ok {
+		return errors.New("publication tree resolver is unavailable")
 	}
-	tree := strings.TrimSpace(output.String())
+	tree, err := resolver.ResolveTree(ctx, repository.Path, plan.Plan.Workspace.Head)
+	if err != nil {
+		return fmt.Errorf("resolve closed fork tree: %w", err)
+	}
 	if tree != publication.CandidateTree {
 		return fmt.Errorf(
 			"closed fork tree %s is not the published reviewed tree %s; retaining newer work",
@@ -409,16 +403,16 @@ func (s *Service) discardRetainedWork(
 	}
 	if err := s.store.ScheduleCleanup(
 		ctx, session.ID, incident.ID, "operator discarded retained work",
-		false, time.Now().UTC(),
+		false, s.now().UTC(),
 	); err != nil {
 		return err
 	}
 	if err := s.store.SetCleanupState(
-		ctx, session.ID, "done", plan.OperationID, "", time.Now().UTC(),
+		ctx, session.ID, "done", plan.OperationID, "", s.now().UTC(),
 	); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "engineering_task.discard",
 		ActorID: input.UserID, ObjectID: session.ID, Outcome: "succeeded",
 		Detail: "Operator explicitly discarded clean retained unpublished work.",
@@ -451,7 +445,7 @@ func (s *Service) retryCleanup(
 	}
 	if err := s.store.SetCleanupState(
 		ctx, item.SessionID, state, item.PlanOperationID,
-		trimError(cause), time.Now().UTC().Add(delay),
+		trimError(cause), s.now().UTC().Add(delay),
 	); err != nil {
 		return err
 	}

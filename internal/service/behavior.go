@@ -552,7 +552,7 @@ func (s *Service) acknowledgeMatchedAlertRule(
 		}
 		return
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "standing_rule.acknowledged", ActorID: "responder", ObjectID: input.ID,
 		Outcome: "reacted", Detail: "eyes",
 	})
@@ -566,7 +566,7 @@ func (s *Service) preparePreferenceOfferAction(
 		!explicitPreferenceRequestPattern.MatchString(input.Text) {
 		return "", core.ResponderPreference{}, "", false
 	}
-	preference, ttl, err := s.preferenceFromOffer(input, *offer, time.Now().UTC())
+	preference, ttl, err := s.preferenceFromOffer(input, *offer, s.now().UTC())
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn(
@@ -589,7 +589,7 @@ func (s *Service) preparePreferenceOfferAction(
 	payload, err := json.Marshal(preferenceActionPayload{
 		Version: 1, ChannelID: input.ChannelID,
 		SourceRef: firstNonempty(input.EventID, input.ID),
-		IssuedAt:  time.Now().UTC(), Offer: *offer,
+		IssuedAt:  s.now().UTC(), Offer: *offer,
 	})
 	if err != nil || len(payload) > 1900 {
 		return "", core.ResponderPreference{}, "", false
@@ -687,7 +687,7 @@ func (s *Service) prepareRuleOfferAction(
 		!explicitRuleRequestPattern.MatchString(input.Text) {
 		return "", core.StandingRule{}, "", false
 	}
-	rule, ttl, err := s.standingRuleFromOffer(input, *offer, time.Now().UTC())
+	rule, ttl, err := s.standingRuleFromOffer(input, *offer, s.now().UTC())
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn(
@@ -707,7 +707,7 @@ func (s *Service) prepareRuleOfferAction(
 	payload, err := json.Marshal(ruleActionPayload{
 		Version: 1, ChannelID: input.ChannelID,
 		SourceRef: firstNonempty(input.EventID, input.ID),
-		IssuedAt:  time.Now().UTC(), Offer: *offer,
+		IssuedAt:  s.now().UTC(), Offer: *offer,
 	})
 	if err != nil || len(payload) > 1900 {
 		return "", core.StandingRule{}, "", false
@@ -788,7 +788,7 @@ func (s *Service) handleRememberPreference(
 	var result preferenceSaveResult
 	if len(input.Frozen) == 0 {
 		preference, _, err := s.preferenceFromOffer(
-			input, payload.Offer, time.Now().UTC(),
+			input, payload.Offer, s.now().UTC(),
 		)
 		if err != nil {
 			return s.behaviorActionFeedback(
@@ -821,7 +821,7 @@ func (s *Service) handleRememberPreference(
 	if err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		ID:   "audit_preference_remember_" + input.ID,
 		Kind: "preference.remember", ActorID: input.UserID, ObjectID: preference.ID,
 		Outcome: map[bool]string{true: "replaced", false: "created"}[result.Replaced],
@@ -853,7 +853,7 @@ func (s *Service) handleRememberRule(
 	}
 	var result ruleSaveResult
 	if len(input.Frozen) == 0 {
-		rule, _, err := s.standingRuleFromOffer(input, payload.Offer, time.Now().UTC())
+		rule, _, err := s.standingRuleFromOffer(input, payload.Offer, s.now().UTC())
 		if err != nil {
 			return s.behaviorActionFeedback(
 				ctx, input,
@@ -885,7 +885,7 @@ func (s *Service) handleRememberRule(
 	if err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		ID:   "audit_rule_remember_" + input.ID,
 		Kind: "rule.remember", ActorID: input.UserID, ObjectID: rule.ID,
 		Outcome: map[bool]string{true: "replaced", false: "created"}[result.Replaced],
@@ -929,7 +929,7 @@ func (s *Service) handleTogglePreference(
 	if err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "preference.toggle", ActorID: input.UserID, ObjectID: preference.ID,
 		Outcome: map[bool]string{true: "enabled", false: "disabled"}[payload.Enabled],
 		Detail:  preference.Name,
@@ -964,7 +964,7 @@ func (s *Service) handleDeletePreference(
 	if _, err := s.store.DeletePreference(ctx, preference.ID); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "preference.delete", ActorID: input.UserID, ObjectID: preference.ID,
 		Outcome: "deleted", Detail: preference.Name,
 	})
@@ -1004,7 +1004,7 @@ func (s *Service) handleToggleRule(
 	if err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "rule.toggle", ActorID: input.UserID, ObjectID: rule.ID,
 		Outcome: map[bool]string{true: "enabled", false: "disabled"}[payload.Enabled],
 		Detail:  rule.Trigger + "/" + rule.Action,
@@ -1037,7 +1037,7 @@ func (s *Service) handleDeleteRule(
 	if _, err := s.store.DeleteStandingRule(ctx, rule.ID); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		Kind: "rule.delete", ActorID: input.UserID, ObjectID: rule.ID,
 		Outcome: "deleted", Detail: rule.Trigger + "/" + rule.Action,
 	})

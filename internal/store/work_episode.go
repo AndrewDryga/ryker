@@ -122,9 +122,7 @@ func normalizeWorkEpisode(run core.AgentRun) (core.WorkEpisode, error) {
 	}
 	episode.RequiredCoverage = normalizedUniqueStrings(episode.RequiredCoverage, 9)
 	episode.CompletionCriteria = normalizedUniqueStrings(episode.CompletionCriteria, 12)
-	if len(episode.Objective) > 500 {
-		episode.Objective = episode.Objective[:500]
-	}
+	episode.Objective = core.TruncateUTF8(episode.Objective, 500)
 	return episode, nil
 }
 
@@ -230,7 +228,7 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 		episode.Conversation.Visibility, episode.Destination.ChannelID,
 		episode.Destination.ThreadTS, episode.DestinationRevision, episode.LatestAttemptID,
 		episode.AuthoritySnapshot, run.ID, episode.Effort, episode.Authority,
-		episode.Activity, episode.Objective, required, criteria, nowText(), nowText(),
+		episode.Activity, episode.Objective, required, criteria, s.nowText(), s.nowText(),
 	)
 	if err != nil {
 		return err
@@ -239,13 +237,13 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 	if err != nil {
 		return err
 	}
-	if err := ensureEpisodeAttemptTx(ctx, tx, episode.ID, run); err != nil {
+	if err := ensureEpisodeAttemptTx(ctx, tx, episode.ID, run, s.nowText()); err != nil {
 		return err
 	}
 	if created == 0 {
 		return tx.Commit()
 	}
-	now := nowText()
+	now := s.nowText()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO work_episode_progress
 		  (id, episode_id, sequence, phase, summary, created_at)
@@ -781,18 +779,6 @@ func scanWorkEpisodeEvent(row interface{ Scan(...any) error }) (core.WorkEpisode
 	return event, nil
 }
 
-func (s *Store) ListWorkEpisodeEvents(
-	ctx context.Context,
-	runID string,
-	limit int,
-) ([]core.WorkEpisodeEvent, error) {
-	episode, err := s.GetWorkEpisodeByRun(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-	return s.ListEpisodeEvents(ctx, episode.ID, limit)
-}
-
 func (s *Store) ListEpisodeEvents(
 	ctx context.Context,
 	episodeID string,
@@ -820,6 +806,18 @@ func (s *Store) ListEpisodeEvents(
 		result = append(result, event)
 	}
 	return result, rows.Err()
+}
+
+func (s *Store) ListWorkEpisodeEvents(
+	ctx context.Context,
+	runID string,
+	limit int,
+) ([]core.WorkEpisodeEvent, error) {
+	episode, err := s.GetWorkEpisodeByRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return s.ListEpisodeEvents(ctx, episode.ID, limit)
 }
 
 func (s *Store) ListWorkEpisodeProgress(

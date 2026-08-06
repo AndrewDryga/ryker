@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
@@ -23,7 +22,7 @@ func (s *Store) UpsertPreference(
 	if maxTotal < 1 || maxPerScope < 1 || maxPerScope > maxTotal {
 		return core.ResponderPreference{}, false, errors.New("preference limits are invalid")
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if preference.ExpiresAt.IsZero() || !preference.ExpiresAt.After(now) {
 		return core.ResponderPreference{}, false, errors.New(
 			"preference expiry must be in the future",
@@ -203,7 +202,7 @@ func (s *Store) ListPreferencesForContext(
 		  END,
 		  updated_at DESC
 		LIMIT ?`,
-		nowText(), workspaceID, channelID, repository, operatorID, limit,
+		s.nowText(), workspaceID, channelID, repository, operatorID, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -222,7 +221,7 @@ func (s *Store) ListPreferencesForHome(
 	rows, err := s.db.QueryContext(ctx, preferenceSelect+`
 		WHERE expires_at > ?
 		ORDER BY updated_at DESC
-		LIMIT ?`, nowText(), limit)
+		LIMIT ?`, s.nowText(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +241,7 @@ func (s *Store) SetPreferenceEnabled(
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE responder_preferences SET enabled = ?, updated_at = ?
 		WHERE id = ? AND expires_at > ?`,
-		value, nowText(), id, nowText(),
+		value, s.nowText(), id, s.nowText(),
 	)
 	if err := expectOne(result, err, "set preference state"); err != nil {
 		return core.ResponderPreference{}, err
@@ -277,7 +276,7 @@ func (s *Store) UpsertStandingRule(
 	if maxTotal < 1 || maxPerChannel < 1 || maxPerChannel > maxTotal {
 		return core.StandingRule{}, false, errors.New("standing rule limits are invalid")
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if rule.ExpiresAt.IsZero() || !rule.ExpiresAt.After(now) {
 		return core.StandingRule{}, false, errors.New(
 			"standing rule expiry must be in the future",
@@ -415,7 +414,7 @@ func (s *Store) ListStandingRulesForChannel(
 	rows, err := s.db.QueryContext(ctx, standingRuleSelect+`
 		WHERE channel_id = ? AND expires_at > ?`+enabled+`
 		ORDER BY updated_at DESC
-		LIMIT ?`, channelID, nowText(), limit)
+		LIMIT ?`, channelID, s.nowText(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +432,7 @@ func (s *Store) ListStandingRulesForHome(
 	rows, err := s.db.QueryContext(ctx, standingRuleSelect+`
 		WHERE expires_at > ?
 		ORDER BY updated_at DESC
-		LIMIT ?`, nowText(), limit)
+		LIMIT ?`, s.nowText(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +452,7 @@ func (s *Store) SetStandingRuleEnabled(
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE standing_rules SET enabled = ?, updated_at = ?
 		WHERE id = ? AND expires_at > ?`,
-		value, nowText(), id, nowText(),
+		value, s.nowText(), id, s.nowText(),
 	)
 	if err := expectOne(result, err, "set standing rule state"); err != nil {
 		return core.StandingRule{}, err
@@ -491,7 +490,7 @@ func (s *Store) RecordStandingRuleRun(
 		return false, err
 	}
 	defer tx.Rollback()
-	now := nowText()
+	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO standing_rule_runs
 		  (rule_id, source_input, event_id, outcome, created_at)

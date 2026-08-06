@@ -85,7 +85,7 @@ func (s *Service) prepareScheduleOfferAction(
 	if expiresIn == "" {
 		expiresIn = memoryTTLValue(defaultMemoryTTL)
 	}
-	task, err := s.scheduledTaskFromOffer(ctx, input, *offer, time.Now().UTC())
+	task, err := s.scheduledTaskFromOffer(ctx, input, *offer, s.now().UTC())
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn("discard invalid schedule offer", "source_input", input.ID, "error", err)
@@ -109,7 +109,7 @@ func (s *Service) prepareScheduleOfferAction(
 		Version: 1, ChannelID: input.ChannelID,
 		ThreadTS:  conversationalResponseThread(input),
 		SourceRef: firstNonempty(input.EventID, input.ID),
-		IssuedAt:  time.Now().UTC(), Offer: *offer,
+		IssuedAt:  s.now().UTC(), Offer: *offer,
 	})
 	if err != nil || len(payload) > 1900 {
 		return "", core.ScheduledTask{}, "", false
@@ -393,7 +393,7 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 		return err
 	}
 	var payload scheduleActionPayload
-	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil || payload.Version != 1 || payload.ChannelID != input.ChannelID || payload.SourceRef == "" || payload.IssuedAt.IsZero() || payload.IssuedAt.After(time.Now().UTC().Add(5*time.Minute)) || time.Since(payload.IssuedAt) > scheduleOfferMaxAge {
+	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil || payload.Version != 1 || payload.ChannelID != input.ChannelID || payload.SourceRef == "" || payload.IssuedAt.IsZero() || payload.IssuedAt.After(s.now().UTC().Add(5*time.Minute)) || time.Since(payload.IssuedAt) > scheduleOfferMaxAge {
 		return s.behaviorActionFeedback(ctx, input, "*This schedule confirmation is invalid or stale.* Nothing was saved. Ask Emisar to schedule it again and use the new button.")
 	}
 	if len(input.Frozen) != 0 {
@@ -406,7 +406,7 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 	sourceInput.Kind = "mention"
 	sourceInput.ThreadTS = payload.ThreadTS
 	sourceInput.EventID = payload.SourceRef
-	task, err := s.scheduledTaskFromOffer(ctx, sourceInput, payload.Offer, time.Now().UTC())
+	task, err := s.scheduledTaskFromOffer(ctx, sourceInput, payload.Offer, s.now().UTC())
 	if err != nil {
 		return s.behaviorActionFeedback(ctx, input, "*Emisar refused this schedule.* "+err.Error()+" Nothing was saved.")
 	}
@@ -420,7 +420,7 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 	if err := s.store.SetSlackInputFrozen(ctx, input.ID, frozen); err != nil {
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{Kind: "schedule.created", ActorID: input.UserID, ObjectID: task.ID, Outcome: "enabled", Detail: task.Title})
+	s.audit(ctx, core.AuditEvent{Kind: "schedule.created", ActorID: input.UserID, ObjectID: task.ID, Outcome: "enabled", Detail: task.Title})
 	return s.postBehaviorReceipt(ctx, input, slackui.ScheduleSavedMessage(task))
 }
 
@@ -479,7 +479,7 @@ func (s *Service) handleRunScheduleNow(ctx context.Context, input core.SlackInpu
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	sourceID := scheduledSourceInputID(task.ID, now)
 	run, execute, err := s.store.ClaimScheduledTaskRun(ctx, task, now, time.Time{}, sourceID, false, true, "")
 	if err != nil {
@@ -514,7 +514,7 @@ func scheduledSourceInputID(taskID string, scheduledFor time.Time) string {
 }
 
 func (s *Service) processScheduledTasks(ctx context.Context) error {
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if err := s.reconcileScheduledTaskRuns(ctx); err != nil {
 		return err
 	}
@@ -542,7 +542,7 @@ func (s *Service) processScheduledTasks(ctx context.Context) error {
 			); err != nil {
 				return err
 			}
-			_ = s.store.Audit(ctx, core.AuditEvent{
+			s.audit(ctx, core.AuditEvent{
 				Kind: "schedule.disabled", ActorID: task.ActorID, ObjectID: task.ID,
 				Outcome: "operator_no_longer_authorized", Detail: task.Title,
 			})

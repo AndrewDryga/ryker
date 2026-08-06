@@ -58,7 +58,9 @@ variables are removed from the child environment.
 
 ## Durable model
 
-SQLite runs in WAL mode with full synchronous writes and one connection. It stores:
+SQLite runs in WAL mode with full synchronous writes and one connection. The complete current
+schema is one readable statement in `internal/store/schema.go`; migrations from the last deployed
+version are applied on top of it. It stores:
 
 - normalized signals and incident occurrences;
 - webhook delivery state and body digests;

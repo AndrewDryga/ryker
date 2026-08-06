@@ -66,6 +66,12 @@ a bounded delay.
 The webhook endpoint can durably accept work before Slack reconnects, but load balancers should use
 `/readyz` when dependency-complete handling is required.
 
+`/healthz`, `/readyz`, and `/metrics` are unauthenticated, and `/readyz` and `/metrics` each query
+the single writer connection that every worker shares. Keep `listen` on loopback and expose only
+`/v1/hooks/` publicly, as `deploy/nginx/responder.conf` does. Binding `listen` to a routable
+address without a proxy publishes operational counts and lets unmetered scrapes contend with real
+work for the database connection.
+
 `responder status` and `responder failures` inspect the current database schema without migrating
 it and do not require Slack or Coop. Stop Responder before upgrading to a binary that needs a
 database migration; startup holds the process lock, creates and verifies a private pre-migration

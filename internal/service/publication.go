@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -154,7 +153,7 @@ func (s *Service) publishDraftPR(
 		record.LastError = trimError(publishErr)
 		_ = s.store.SavePublication(ctx, record)
 		s.clearNativeStatus(ctx, incident)
-		_ = s.store.Audit(ctx, core.AuditEvent{
+		s.audit(ctx, core.AuditEvent{
 			IncidentID: incident.ID, Kind: "publication.draft_pr",
 			ActorID: input.UserID, ObjectID: record.HeadBranch,
 			Outcome: "failed", Detail: record.LastError,
@@ -169,19 +168,19 @@ func (s *Service) publishDraftPR(
 	}
 	record.State = "published"
 	record.LastError = ""
-	record.PublishedAt = time.Now().UTC()
+	record.PublishedAt = s.now().UTC()
 	if err := s.store.SavePublication(ctx, record); err != nil {
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
 	if err := s.store.ResetPublicationFollowup(
 		ctx, record.IncidentID,
-		time.Now().UTC().Add(s.cfg.GitHub.FollowupInterval.Duration),
+		s.now().UTC().Add(s.cfg.GitHub.FollowupInterval.Duration),
 	); err != nil {
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	_ = s.store.Audit(ctx, core.AuditEvent{
+	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "publication.draft_pr",
 		ActorID: input.UserID, ObjectID: fmt.Sprintf("%s#%d", record.Repository, record.PRNumber),
 		Outcome: "succeeded", Detail: record.PRURL,
@@ -220,7 +219,7 @@ func (s *Service) markTaskPublicationStale(
 	}
 	publication.State = "stale"
 	publication.LastError = reason
-	_ = s.store.RecordTimeline(ctx, core.TimelineEvent{
+	s.recordTimeline(ctx, core.TimelineEvent{
 		ID:         "tl_publication_stale_" + incident.ID + "_" + incident.ActiveTurnID,
 		IncidentID: incident.ID,
 		ChannelID:  incident.ChannelID,

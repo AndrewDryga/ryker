@@ -29,9 +29,7 @@ func (s *Store) ensureCommitment(ctx context.Context, run core.AgentRun) error {
 			title = "Answer Slack request"
 		}
 	}
-	if len(title) > 240 {
-		title = title[:240]
-	}
+	title = core.TruncateUTF8(title, 240)
 	_, err := s.db.ExecContext(
 		ctx,
 		`INSERT OR IGNORE INTO commitments (agent_run_id, title) VALUES (?, ?)`,

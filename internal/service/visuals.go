@@ -139,9 +139,7 @@ func (s *Service) enqueueGeneratedVisuals(
 		}
 		if index == 0 && message != nil {
 			copy := *message
-			if s.sanitizer != nil {
-				copy = s.sanitizer.Message(copy)
-			}
+			copy = s.sanitizeMessage(copy)
 			file.Message = &copy
 		}
 		prepared = append(prepared, file)

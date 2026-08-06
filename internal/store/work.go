@@ -53,6 +53,7 @@ func enqueueWorkTx(
 		ExecContext(context.Context, string, ...any) (sql.Result, error)
 	},
 	item WorkItem,
+	now string,
 ) error {
 	if item.Kind == "" || item.SubjectID == "" {
 		return errors.New("scheduled work kind and subject are required")
@@ -63,7 +64,6 @@ func enqueueWorkTx(
 	if item.AvailableAt.IsZero() {
 		item.AvailableAt = time.Now().UTC()
 	}
-	now := nowText()
 	var deadline any
 	if !item.DeadlineAt.IsZero() {
 		deadline = item.DeadlineAt.UTC().Format(timestampFormat)
@@ -115,7 +115,7 @@ func enqueueWorkTx(
 }
 
 func (s *Store) EnqueueWork(ctx context.Context, item WorkItem) error {
-	return enqueueWorkTx(ctx, s.db, item)
+	return enqueueWorkTx(ctx, s.db, item, s.nowText())
 }
 
 // EnsureWork creates a scheduler record without changing an existing record's
@@ -127,10 +127,10 @@ func (s *Store) EnsureWork(ctx context.Context, item WorkItem) error {
 	if !validWorkLane(item.Lane) {
 		return fmt.Errorf("unsupported scheduled work lane %q", item.Lane)
 	}
+	now := s.nowText()
 	if item.AvailableAt.IsZero() {
-		item.AvailableAt = time.Now().UTC()
+		item.AvailableAt = s.now().UTC()
 	}
-	now := nowText()
 	var deadline any
 	if !item.DeadlineAt.IsZero() {
 		deadline = item.DeadlineAt.UTC().Format(timestampFormat)
@@ -217,7 +217,7 @@ func (s *Store) LeaseWork(
 		return WorkItem{}, err
 	}
 	defer tx.Rollback()
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE work_items
 		SET state = 'pending',
@@ -323,7 +323,7 @@ func (s *Store) CompleteWork(ctx context.Context, item WorkItem) error {
 			WHERE kind = ? AND subject_id = ? AND state = 'running'
 			  AND lease_token = ?`,
 			rerun.String,
-			nowText(),
+			s.nowText(),
 			item.Kind,
 			item.SubjectID,
 			item.LeaseToken,
@@ -369,7 +369,7 @@ func (s *Store) RetryWork(
 		state,
 		next.UTC().Format(timestampFormat),
 		boundedError(detail),
-		nowText(),
+		s.nowText(),
 		item.Kind,
 		item.SubjectID,
 		item.LeaseToken,
@@ -389,7 +389,7 @@ func (s *Store) DeferWork(
 		WHERE kind = ? AND subject_id = ? AND state = 'running'
 		  AND lease_token = ?`,
 		next.UTC().Format(timestampFormat),
-		nowText(),
+		s.nowText(),
 		item.Kind,
 		item.SubjectID,
 		item.LeaseToken,
@@ -438,7 +438,7 @@ func (s *Store) WorkMetrics(
 		    THEN available_at END),
 		  MIN(CASE WHEN state = 'running' THEN updated_at END)
 		FROM work_items WHERE lane = ?`,
-		nowText(),
+		s.nowText(),
 		lane,
 	).Scan(
 		&result.Pending,
@@ -450,7 +450,7 @@ func (s *Store) WorkMetrics(
 	if err != nil {
 		return WorkQueueMetrics{}, err
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if oldestDue.Valid {
 		result.OldestDueAge = max(now.Sub(parseTime(oldestDue.String)), 0)
 	}

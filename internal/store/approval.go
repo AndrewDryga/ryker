@@ -28,7 +28,7 @@ func (s *Store) RecordEmisarApproval(
 		item.ApprovalURL == "" || item.ExpiresAt.IsZero() {
 		return core.EmisarApproval{}, false, errors.New("Emisar approval is incomplete")
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = now
 	}
@@ -124,7 +124,7 @@ func (s *Store) BindEmisarApprovalDelivery(
 		WHERE request_id = ?`,
 		deliveryID,
 		deliveryID,
-		nowText(),
+		s.nowText(),
 		requestID,
 	); err != nil {
 		return core.EmisarApproval{}, err
@@ -247,7 +247,7 @@ func (s *Store) AdvanceEmisarApproval(
 			status,
 		)
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	var terminal any
 	if emisarRunTerminal(status) {
 		if stored.TerminalAt.IsZero() {
@@ -291,7 +291,7 @@ func (s *Store) RetryEmisarApproval(
 		WHERE request_id = ? AND continuation_queued = 0`,
 		boundedError(detail),
 		nextCheckAt.UTC().Format(timestampFormat),
-		nowText(),
+		s.nowText(),
 		requestID,
 	)
 	return expectOne(result, err, "retry Emisar approval")
@@ -305,7 +305,7 @@ func (s *Store) MarkEmisarApprovalContinuationQueued(
 		UPDATE emisar_approvals
 		SET continuation_queued = 1, updated_at = ?
 		WHERE request_id = ? AND terminal_at IS NOT NULL`,
-		nowText(),
+		s.nowText(),
 		requestID,
 	)
 	return expectOne(result, err, "mark Emisar approval continuation queued")

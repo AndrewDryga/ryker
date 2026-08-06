@@ -464,13 +464,21 @@ func TestSlackAssistantPromptsAndOperationsHome(t *testing.T) {
 		},
 		Request: &socketmode.Request{EnvelopeID: "env-assistant", Payload: payload},
 	})
-	if socket.acks != 1 || len(slackClient.suggested) != 1 ||
-		slackClient.suggested[0].channel != "D123ABC" ||
-		slackClient.suggested[0].thread != "1700.902" {
+	// The surface refresh is admitted durably and performed by the control
+	// lane, so nothing has been sent to Slack until the lane runs.
+	if socket.acks != 1 || len(slackClient.suggested) != 0 {
 		t.Fatalf(
-			"assistant thread = acks=%d suggested=%+v",
+			"assistant thread admission = acks=%d suggested=%+v",
 			socket.acks, slackClient.suggested,
 		)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.suggested) != 1 ||
+		slackClient.suggested[0].channel != "D123ABC" ||
+		slackClient.suggested[0].thread != "1700.902" {
+		t.Fatalf("assistant thread prompts = %+v", slackClient.suggested)
 	}
 	if err := svc.publishOperationsHome(ctx, "U123ABC"); err != nil {
 		t.Fatal(err)
@@ -494,6 +502,9 @@ func TestSlackAssistantPromptsAndOperationsHome(t *testing.T) {
 		},
 		Request: &socketmode.Request{EnvelopeID: "env-messages", Payload: payload},
 	})
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if socket.acks != 2 || len(slackClient.suggested) != 2 ||
 		slackClient.suggested[1].channel != "D123ABC" ||
 		slackClient.suggested[1].thread != "" {

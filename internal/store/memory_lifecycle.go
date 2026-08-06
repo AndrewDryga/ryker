@@ -147,7 +147,7 @@ func (s *Store) CompactConversationMemories(
 	if len(state) > 64<<10 || len(refs) > 64<<10 {
 		return errors.New("memory rollup exceeds 64 KiB")
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if rollup.ID == "" {
 		rollup.ID, err = core.NewID("dream")
 		if err != nil {
@@ -208,7 +208,7 @@ func (s *Store) ListMemoryRollupsForContext(
 		  (scope_kind = 'repository' AND scope_key = ?)
 		)
 		ORDER BY CASE scope_kind WHEN 'channel' THEN 0 ELSE 1 END, period_end DESC
-		LIMIT ?`, nowText(), channelID, repository, limit)
+		LIMIT ?`, s.nowText(), channelID, repository, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +228,7 @@ func (s *Store) MarkMemoryRollupsRecalled(ctx context.Context, ids []string) err
 	for _, id := range ids {
 		if _, err := s.db.ExecContext(ctx, `
 			UPDATE memory_rollups SET last_recalled_at = ?, recall_count = recall_count + 1
-			WHERE id = ?`, nowText(), id); err != nil {
+			WHERE id = ?`, s.nowText(), id); err != nil {
 			return err
 		}
 	}
@@ -244,7 +244,7 @@ func (s *Store) MarkConversationMemoriesRecalled(
 			UPDATE conversation_memories
 			SET last_recalled_at = ?, recall_count = recall_count + 1
 			WHERE channel_id = ? AND thread_ts = ?`,
-			nowText(), memory.ChannelID, memory.ThreadTS); err != nil {
+			s.nowText(), memory.ChannelID, memory.ThreadTS); err != nil {
 			return err
 		}
 	}
@@ -252,7 +252,7 @@ func (s *Store) MarkConversationMemoriesRecalled(
 }
 
 func (s *Store) PruneMemoryRollups(ctx context.Context, max int) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM memory_rollups WHERE expires_at <= ?`, nowText())
+	result, err := s.db.ExecContext(ctx, `DELETE FROM memory_rollups WHERE expires_at <= ?`, s.nowText())
 	if err != nil {
 		return 0, err
 	}
@@ -278,7 +278,7 @@ func (s *Store) RefreshMemoryReviewQueue(ctx context.Context, staleBefore time.T
 		WHERE expires_at > ? AND updated_at < ?
 		  AND (last_recalled_at IS NULL OR last_recalled_at < ?)
 		  AND (last_reviewed_at IS NULL OR last_reviewed_at < ?)`,
-		nowText(), staleBefore.UTC().Format(timestampFormat),
+		s.nowText(), staleBefore.UTC().Format(timestampFormat),
 		staleBefore.UTC().Format(timestampFormat), staleBefore.UTC().Format(timestampFormat))
 	if err != nil {
 		return err
@@ -298,7 +298,7 @@ func (s *Store) RefreshMemoryReviewQueue(ctx context.Context, staleBefore time.T
 	rows, err = s.db.QueryContext(ctx, memorySelect+`
 		WHERE predicate = 'guidance' AND expires_at > ?
 		ORDER BY scope_kind, scope_key, visibility_kind, visibility_id, value_hash, updated_at DESC`,
-		nowText())
+		s.nowText())
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func (s *Store) ensureMemoryReview(
 		INSERT OR IGNORE INTO memory_review_items (
 		  id, kind, entry_ids_json, reason, source_digest, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, kind, string(data), reason, digest, nowText(), nowText())
+		id, kind, string(data), reason, digest, s.nowText(), s.nowText())
 	return err
 }
 
@@ -430,7 +430,7 @@ func (s *Store) ResolveMemoryReview(
 		return nil, err
 	}
 	defer tx.Rollback()
-	now := nowText()
+	now := s.nowText()
 	newStatus := "kept"
 	switch action {
 	case "keep", "dismiss":
@@ -501,7 +501,7 @@ func (s *Store) ResolveMemoryReview(
 
 func (s *Store) MemoryHealth(ctx context.Context) (core.MemoryHealth, error) {
 	var health core.MemoryHealth
-	now := nowText()
+	now := s.nowText()
 	queries := []struct {
 		target *int
 		query  string

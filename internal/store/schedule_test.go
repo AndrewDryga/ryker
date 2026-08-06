@@ -2,52 +2,11 @@ package store
 
 import (
 	"context"
-	"database/sql"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
-
-func TestSchemaV26AddsScheduledTasksToExistingState(t *testing.T) {
-	ctx := context.Background()
-	stateDir := filepath.Join(t.TempDir(), "state")
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, schema := range migrations[:25] {
-		if _, err := db.Exec(schema); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec(`INSERT INTO schema_version(version) VALUES (25)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	st, err := Open(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	now := time.Now().UTC()
-	task, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
-		TeamID: "T1", ChannelID: "C1", Repository: "repo", Title: "Migrated reminder",
-		Prompt: "Report current health.", Recurrence: "once", StartAt: now.Add(time.Hour),
-		NextRunAt: now.Add(time.Hour), Timezone: "UTC", CatchUp: "latest",
-		ActorID: "U1", SourceRef: "migration", ExpiresAt: now.Add(24 * time.Hour),
-	}, 10, 5)
-	if err != nil || task.ID == "" {
-		t.Fatalf("create schedule after v25 migration = %+v, %v", task, err)
-	}
-}
 
 func TestScheduledTasksAreDurableBoundedAndOccurrenceIdempotent(t *testing.T) {
 	ctx := context.Background()

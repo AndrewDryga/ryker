@@ -46,7 +46,7 @@ func (s *Store) AdmitSlackChannelJoin(
 	}
 	observedAt := input.ReceivedAt
 	if observedAt.IsZero() {
-		observedAt = time.Now().UTC()
+		observedAt = s.now().UTC()
 	} else {
 		observedAt = observedAt.UTC()
 	}
@@ -69,7 +69,7 @@ func (s *Store) AdmitSlackChannelJoin(
 	}
 	created := false
 	if semanticDuplicate == 0 {
-		created, err = admitSlackInput(ctx, tx, input)
+		created, err = admitSlackInput(ctx, tx, input, s.nowText())
 		if err != nil {
 			return false, err
 		}
@@ -100,7 +100,7 @@ func (s *Store) ReconcileSlackChannelMemberships(
 	observedAt time.Time,
 ) error {
 	if observedAt.IsZero() {
-		observedAt = time.Now().UTC()
+		observedAt = s.now().UTC()
 	} else {
 		observedAt = observedAt.UTC()
 	}
@@ -288,7 +288,7 @@ func (s *Store) FinishSlackChannelOnboarding(
 		SET onboarding_state = 'complete', observed_at = ?
 		WHERE channel_id = ? AND present = 1 AND onboarding_state = 'pending'
 		  AND joined_at = ?`,
-		nowText(), channelID, joinedAt.UTC().Format(timestampFormat),
+		s.nowText(), channelID, joinedAt.UTC().Format(timestampFormat),
 	)
 	return expectOne(result, err, "finish Slack channel onboarding")
 }

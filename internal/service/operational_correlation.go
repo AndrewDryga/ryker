@@ -113,10 +113,7 @@ func operationalAlertTitle(text string) string {
 			strings.HasPrefix(line, "added by ") {
 			continue
 		}
-		if len(line) > 160 {
-			line = line[:160]
-		}
-		return line
+		return core.TruncateUTF8(line, 160)
 	}
 	return ""
 }
@@ -126,5 +123,5 @@ func boundedCorrelationKey(value string) string {
 		return value
 	}
 	sum := sha256.Sum256([]byte(value))
-	return value[:180] + ":sha256:" + hex.EncodeToString(sum[:8])
+	return core.TruncateUTF8(value, 180) + ":sha256:" + hex.EncodeToString(sum[:8])
 }

@@ -31,6 +31,10 @@ import (
 
 var errProcessLocked = errors.New("another Responder process owns this state directory")
 
+// shutdownGrace bounds the whole ordered shutdown: drain HTTP, then drain the
+// service workers before the deferred store and Coop teardown runs.
+const shutdownGrace = 15 * time.Second
+
 func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 	if len(args) == 0 {
 		printHelp(stdout)
@@ -164,7 +168,7 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return err
 	}
 	defer func() {
-		if stopErr := stopManagedCoop(supervisor, 15*time.Second); resultErr == nil && stopErr != nil {
+		if stopErr := stopManagedCoop(supervisor, shutdownGrace); resultErr == nil && stopErr != nil {
 			resultErr = stopErr
 		}
 	}()
@@ -203,23 +207,49 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
-	errorsChannel := make(chan error, 2)
-	go func() { errorsChannel <- svc.Run(ctx) }()
-	go func() { errorsChannel <- server.Serve(listener) }()
+	// Separate channels so shutdown can wait for the service workers
+	// specifically. They own the store and the Coop connection, so returning
+	// before they drain would close both underneath in-flight work.
+	serviceStopped := make(chan error, 1)
+	serverStopped := make(chan error, 1)
+	go func() { serviceStopped <- svc.Run(ctx) }()
+	go func() { serverStopped <- server.Serve(listener) }()
 	fmt.Fprintf(stdout, "Responder listening on http://%s\n", listener.Addr())
 
 	select {
 	case <-ctx.Done():
-	case runErr := <-errorsChannel:
+	case runErr := <-serviceStopped:
+		if runErr != nil {
+			err = runErr
+		}
+		cancel()
+		serviceStopped = nil
+	case runErr := <-serverStopped:
 		if runErr != nil && !errors.Is(runErr, http.ErrServerClosed) {
 			err = runErr
 		}
 		cancel()
 	}
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer shutdownCancel()
 	if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil && err == nil {
 		err = shutdownErr
+	}
+	if serviceStopped != nil {
+		select {
+		case runErr := <-serviceStopped:
+			if runErr != nil && err == nil {
+				err = runErr
+			}
+		case <-shutdownCtx.Done():
+			logger.Error(
+				"service workers did not drain before the shutdown deadline",
+				"grace", shutdownGrace,
+			)
+			if err == nil {
+				err = errors.New("service workers did not drain before shutdown")
+			}
+		}
 	}
 	return err
 }
@@ -332,7 +362,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return err
 	}
 	defer func() {
-		if stopErr := stopManagedCoop(supervisor, 15*time.Second); resultErr == nil && stopErr != nil {
+		if stopErr := stopManagedCoop(supervisor, shutdownGrace); resultErr == nil && stopErr != nil {
 			resultErr = stopErr
 		}
 	}()

@@ -91,7 +91,7 @@ func (s *Store) BindConversationSession(
 		return errors.New("conversation session binding is incomplete")
 	}
 	if started.IsZero() {
-		started = time.Now().UTC()
+		started = s.now().UTC()
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO conversation_sessions (
@@ -116,7 +116,7 @@ func (s *Store) BindConversationSession(
 		revision,
 		generation,
 		started.UTC().Format(timestampFormat),
-		nowText(),
+		s.nowText(),
 	)
 	return err
 }
@@ -131,7 +131,7 @@ func (s *Store) AdvanceConversationSessionEvents(
 		UPDATE conversation_sessions
 		SET coop_event_sequence = MAX(coop_event_sequence, ?), updated_at = ?
 		WHERE channel_id = ? AND session_id = ?`,
-		sequence, nowText(), channelID, sessionID,
+		sequence, s.nowText(), channelID, sessionID,
 	)
 	return expectOne(result, err, "advance conversation session events")
 }
@@ -154,7 +154,7 @@ func (s *Store) DetachConversationSession(
 		    rotated_at = updated_at,
 		    updated_at = ?
 		WHERE channel_id = ? AND session_id = ?`,
-		nowText(), channelID, sessionID,
+		s.nowText(), channelID, sessionID,
 	)
 	if err != nil {
 		return false, err
@@ -240,7 +240,7 @@ func (s *Store) PutConversationRoute(
 		route.ActiveThreadTS,
 		route.PreviousThreadTS,
 		explicit,
-		nowText(),
+		s.nowText(),
 	)
 	return err
 }
