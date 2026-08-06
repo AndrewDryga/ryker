@@ -1043,6 +1043,16 @@ func enforceAttentionPolicy(
 	replyThreshold int,
 	reactionThreshold int,
 ) watchDecision {
+	// Once an app alert has been investigated into a typed assessment, its
+	// result is the reason the channel policy exists. In particular, recovery
+	// updates are naturally low urgency and must not disappear just because the
+	// generic ambient-conversation threshold is higher than their attention
+	// score. Non-actionable lifecycle noise is suppressed before this point.
+	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
+		decision.Action == "reply" && decision.AlertAssessment != nil &&
+		operationalAlertEvent(input.Text) {
+		return decision
+	}
 	if !decision.Attention.present() {
 		switch {
 		case decision.Action == "react":
@@ -2421,6 +2431,27 @@ func normalizeWatchDecisionCompletion(decision *watchDecision) {
 		completion.Verdict = "healthy"
 	case "unverified":
 		completion.Verdict = "inconclusive"
+	}
+}
+
+// normalizeAppAlertCompletion fills the episode verdict only when the source
+// is an external app alert. Human requests may carry an alert assessment while
+// still using a direct-answer or task contract, so this inference must remain
+// context-aware rather than living in the transport parser.
+func normalizeAppAlertCompletion(input core.SlackInput, decision *watchDecision) {
+	if decision == nil || input.Kind != "bot_message" ||
+		!operationalAlertEvent(input.Text) || decision.AlertAssessment == nil ||
+		decision.Completion == nil || decision.Completion.Status != "decision_ready" ||
+		strings.TrimSpace(decision.Completion.Verdict) != "" {
+		return
+	}
+	switch decision.AlertAssessment.Verdict {
+	case "confirmed_issue", "likely_issue":
+		decision.Completion.Verdict = "degraded"
+	case "not_issue":
+		decision.Completion.Verdict = "healthy"
+	case "unverified":
+		decision.Completion.Verdict = "inconclusive"
 	}
 }
 

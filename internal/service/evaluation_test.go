@@ -299,6 +299,57 @@ func TestEvaluationRequiresDecisionReadyAlertAssessment(t *testing.T) {
 	}
 }
 
+func TestEvaluationProjectsRecoveredAlertLinkFromRecentContext(t *testing.T) {
+	cfg := serviceConfig(t)
+	testCase := EvaluationCase{
+		Name:       "recovered alert link",
+		Kind:       "watch",
+		SenderType: "external_app",
+		Input:      "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue",
+		RecentMessages: []EvaluationMessage{{
+			SenderType: "external_app",
+			Text:       "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
+		}},
+	}
+	input, recent, err := liveEvaluationWatchContext(testCase, "eval", "UEVALOPERATOR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := evaluationWatchState(testCase)
+	state.RecentMessages = recent
+	decision, adjusted := enforceRecoveredAlertLink(input, state, watchDecision{
+		Action:          "reply",
+		Message:         "The scheduled repair completed.",
+		AlertAssessment: &alertAssessment{Verdict: "not_issue", Impact: "The alert cleared."},
+	})
+	if !adjusted || !strings.Contains(
+		decision.Message,
+		"https://app.slack.com/client/TEVALUATION/CEVALUATION/thread/",
+	) {
+		t.Fatalf("linked recovery = %+v, adjusted=%t, config=%s", decision, adjusted, cfg.Slack.TeamID)
+	}
+
+	testCase.Output = `{
+	  "action":"reply",
+	  "message":"The scheduled repair completed.",
+	  "alert_assessment":{"verdict":"not_issue","impact":"The alert cleared."},
+	  "coverage":[
+	    {"layer":"change","status":"unknown","detail":"No change evidence was needed for the exact recovery."},
+	    {"layer":"application","status":"unknown","detail":"Application behavior was outside the exact alert condition."},
+	    {"layer":"slo","status":"healthy","detail":"The overdue gauge returned to zero."},
+	    {"layer":"dependency","status":"healthy","detail":"The scheduled Cassandra repair completed."}
+	  ],
+	  "completion":{"status":"decision_ready","verdict":"healthy","summary":"The exact alert condition cleared."}
+	}`
+	testCase.WantAction = "reply"
+	testCase.WantMessageContains = []string{
+		"https://app.slack.com/client/TEVALUATION/CEVALUATION/thread/",
+	}
+	if result := evaluateCaseWithConfig(testCase, &cfg, time.Now().UTC()); !result.Passed {
+		t.Fatalf("evaluated recovered alert = %+v", result)
+	}
+}
+
 func TestEvaluationRequiresCompoundReplyCoverage(t *testing.T) {
 	testCase := EvaluationCase{
 		Name: "three independent outcomes",

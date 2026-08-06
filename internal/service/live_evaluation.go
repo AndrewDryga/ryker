@@ -925,6 +925,7 @@ func evaluationStructuredCorrection(
 				state := evaluationWatchState(testCase)
 				state.RecentMessages = recent
 				episode := (&Service{cfg: cfg}).episodeForWatchedInput(input, state)
+				normalizeAppAlertCompletion(input, &decision)
 				decision = enforceExternalLifecycleCommunication(input, decision)
 				decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
 				decision, _ = enforceRecoveredAlertLink(input, state, decision)

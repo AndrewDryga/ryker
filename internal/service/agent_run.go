@@ -1263,6 +1263,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 			if episodeErr != nil {
 				return episodeErr
 			}
+			normalizeAppAlertCompletion(input, &decision)
 			originalAction := decision.Action
 			originalPublicationUpdates := len(decision.PublicationUpdates)
 			decision = enforceExternalLifecycleCommunication(input, decision)

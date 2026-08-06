@@ -331,7 +331,7 @@ func evaluateCaseWithConfig(
 			if len(cfg.Slack.Operators) > 0 {
 				operatorID = cfg.Slack.Operators[0]
 			}
-			input, _, contextErr := liveEvaluationWatchContext(
+			input, recent, contextErr := liveEvaluationWatchContext(
 				testCase,
 				"eval",
 				operatorID,
@@ -341,7 +341,9 @@ func evaluateCaseWithConfig(
 				return result
 			}
 			state := evaluationWatchState(testCase)
+			state.RecentMessages = recent
 			episode = (&Service{cfg: *cfg}).episodeForWatchedInput(input, state)
+			normalizeAppAlertCompletion(input, &decision)
 			decision = enforceExternalLifecycleCommunication(input, decision)
 			decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
 			decision = enforceAttentionPolicy(
@@ -351,6 +353,7 @@ func evaluateCaseWithConfig(
 				cfg.Slack.ReplyAttention,
 				cfg.Slack.ReactionAttention,
 			)
+			decision, _ = enforceRecoveredAlertLink(input, state, decision)
 			offers = hostedWatchDecisionOffers(*cfg, testCase, decision)
 		} else {
 			offers = watchDecisionOffers(decision)

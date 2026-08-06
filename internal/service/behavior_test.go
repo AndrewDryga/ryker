@@ -392,6 +392,22 @@ func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.
 		t.Fatalf("normalized completion = %+v", decision.Completion)
 	}
 
+	inferred, err := decodeWatchDecision(`{
+	  "action":"reply",
+	  "message":"The repair is behind schedule but still progressing.",
+	  "alert_assessment":{"verdict":"confirmed_issue","impact":"The repair missed its cadence.","cause_status":"bounded","cause":"The current cycle is taking longer than its configured interval.","immediate_action":"Let the active repair finish.","verification":"Confirm progress reaches 100 percent and the overdue gauge clears.","long_term_solution":"Deploy the Reaper scheduling fix."},
+	  "completion":{"status":"decision_ready","summary":"The overdue repair is active but progressing."}
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalizeAppAlertCompletion(core.SlackInput{
+		Kind: "bot_message", Text: "FIRING: Cassandra repair overdue",
+	}, &inferred)
+	if inferred.Completion == nil || inferred.Completion.Verdict != "degraded" {
+		t.Fatalf("inferred completion = %+v", inferred.Completion)
+	}
+
 	blocked, err := decodeWatchDecision(`{
 	  "action":"reply",
 	  "message":"The exact repair completed, but the result needs correction.",

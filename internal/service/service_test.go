@@ -6679,6 +6679,34 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 	}
 }
 
+func TestAttentionPolicyKeepsTypedAppAlertRecovery(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue",
+	}
+	decision := watchDecision{
+		Action:  "reply",
+		Message: "The scheduled repair completed.",
+		Attention: attentionAssessment{
+			Addressee: "channel", Urgency: 0, Confidence: 3, Novelty: 1, Ownership: 2,
+		},
+		AlertAssessment: &alertAssessment{
+			Verdict: "not_issue",
+			Impact:  "The overdue condition cleared.",
+		},
+	}
+	filtered := enforceAttentionPolicy(
+		input,
+		watchTurnState{AlertPolicy: "reply_here"},
+		decision,
+		7,
+		4,
+	)
+	if filtered.Action != "reply" || filtered.Message == "" {
+		t.Fatalf("typed recovery was suppressed: %+v", filtered)
+	}
+}
+
 func TestParseWatchDecisionNormalizesStructuredMemoryTopology(t *testing.T) {
 	decision, err := parseWatchDecision(`{
 		"action":"reply",
