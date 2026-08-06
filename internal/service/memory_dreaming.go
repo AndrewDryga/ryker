@@ -192,6 +192,7 @@ func mergeAgentMemories(states []core.AgentMemory) core.AgentMemory {
 			result.UnresolvedQuestions, state.UnresolvedQuestions...,
 		)
 		result.EvidenceRefs = append(result.EvidenceRefs, state.EvidenceRefs...)
+		result.Knowledge = append(result.Knowledge, state.Knowledge...)
 	}
 	result.ActiveTopics = boundedUnique(result.ActiveTopics, 12, 240)
 	result.OpenLoops = boundedUnique(result.OpenLoops, 20, 400)
@@ -199,6 +200,7 @@ func mergeAgentMemories(states []core.AgentMemory) core.AgentMemory {
 	result.Decisions = boundedUnique(result.Decisions, 30, 400)
 	result.UnresolvedQuestions = boundedUnique(result.UnresolvedQuestions, 30, 400)
 	result.EvidenceRefs = boundedUnique(result.EvidenceRefs, 50, 120)
+	result.Knowledge = sanitizeKnowledge(result.Knowledge)
 	return sanitizeMemory(result)
 }
 

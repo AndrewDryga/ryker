@@ -396,6 +396,14 @@ func (s *Service) persistAgentReport(
 	report.Memory.EvidenceRefs = s.cleanStructuredStrings(
 		report.Memory.EvidenceRefs, 50, 120,
 	)
+	for index := range report.Memory.Knowledge {
+		item := &report.Memory.Knowledge[index]
+		item.Subject = s.cleanStructuredField(item.Subject, 160)
+		item.Statement = s.cleanStructuredField(item.Statement, 600)
+		item.SourceRef = s.cleanStructuredField(item.SourceRef, 500)
+		item.SourceMessageTS = s.cleanStructuredField(item.SourceMessageTS, 32)
+	}
+	report.Memory.Knowledge = sanitizeKnowledge(report.Memory.Knowledge)
 	if report.MemoryOffer != nil {
 		report.MemoryOffer.Scope = s.cleanStructuredField(report.MemoryOffer.Scope, 20)
 		report.MemoryOffer.Repository = s.cleanStructuredField(
@@ -684,6 +692,7 @@ func sanitizeMemory(memory core.AgentMemory) core.AgentMemory {
 	memory.Decisions = boundedStrings(memory.Decisions, 30, 400)
 	memory.UnresolvedQuestions = boundedStrings(memory.UnresolvedQuestions, 30, 400)
 	memory.EvidenceRefs = boundedStrings(memory.EvidenceRefs, 50, 120)
+	memory.Knowledge = sanitizeKnowledge(memory.Knowledge)
 	return memory
 }
 

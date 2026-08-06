@@ -80,7 +80,7 @@ func TestGuidanceMemoryIsNormalizedAndAvailableAcrossChannels(t *testing.T) {
 		t.Fatal(err)
 	}
 	memory, err := svc.loadOperationalMemoryContext(
-		ctx, "COTHER", "repo", input.UserID, "slack_next",
+		ctx, "COTHER", "repo", input.UserID, "slack_next", "fix explanation",
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -58,6 +58,13 @@ func applyWatchResultOperations(decision *watchDecision) error {
 	if len(decision.Operations) == 0 {
 		return nil
 	}
+	if decision.Action == "ignore" {
+		for _, operation := range decision.Operations {
+			if operation.Type == "update_memory" {
+				return applySilentWatchMemoryOperation(decision)
+			}
+		}
+	}
 	legacy := *decision
 	// A complete_episode operation is itself an unambiguous reply decision. The
 	// host owns that projection even if the model omitted action or left an old
@@ -100,6 +107,32 @@ func applyWatchResultOperations(decision *watchDecision) error {
 		return nil
 	}
 	return err
+}
+
+func applySilentWatchMemoryOperation(decision *watchDecision) error {
+	if len(decision.Operations) != 1 {
+		return errors.New("ignore decision may contain exactly one update_memory operation")
+	}
+	operation := decision.Operations[0]
+	if err := operation.Validate(); err != nil {
+		return fmt.Errorf("result operation 1: %w", err)
+	}
+	if operation.Type != "update_memory" || operation.Memory == nil {
+		return errors.New("ignore decision operations may only update conversation memory")
+	}
+	if strings.TrimSpace(decision.Message) != "" || len(decision.FollowupMessages) != 0 ||
+		len(decision.Visuals) != 0 || strings.TrimSpace(decision.IncidentTitle) != "" ||
+		strings.TrimSpace(decision.TaskTitle) != "" || len(decision.Evidence) != 0 ||
+		len(decision.Coverage) != 0 || decision.MemoryOffer != nil ||
+		decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
+		decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
+		decision.AlertAssessment != nil || decision.Completion != nil ||
+		len(decision.PublicationUpdates) != 0 {
+		return errors.New("silent memory update cannot include reply content or other result fields")
+	}
+	decision.Memory = *operation.Memory
+	decision.AppliedOperations = []investigation.ResultOperation{operation}
+	return nil
 }
 
 func appendFeedbackFollowup(message string, operations []investigation.ResultOperation) string {

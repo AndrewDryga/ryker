@@ -374,15 +374,29 @@ type ClaimAssessment struct {
 }
 
 type AgentMemory struct {
-	Goal                string   `json:"goal,omitempty"`
-	ChannelPurpose      string   `json:"channel_purpose,omitempty"`
-	SituationSummary    string   `json:"situation_summary,omitempty"`
-	ActiveTopics        []string `json:"active_topics,omitempty"`
-	OpenLoops           []string `json:"open_loops,omitempty"`
-	Topology            []string `json:"topology,omitempty"`
-	Decisions           []string `json:"decisions,omitempty"`
-	UnresolvedQuestions []string `json:"unresolved_questions,omitempty"`
-	EvidenceRefs        []string `json:"evidence_refs,omitempty"`
+	Goal                string          `json:"goal,omitempty"`
+	ChannelPurpose      string          `json:"channel_purpose,omitempty"`
+	SituationSummary    string          `json:"situation_summary,omitempty"`
+	ActiveTopics        []string        `json:"active_topics,omitempty"`
+	OpenLoops           []string        `json:"open_loops,omitempty"`
+	Topology            []string        `json:"topology,omitempty"`
+	Decisions           []string        `json:"decisions,omitempty"`
+	UnresolvedQuestions []string        `json:"unresolved_questions,omitempty"`
+	EvidenceRefs        []string        `json:"evidence_refs,omitempty"`
+	Knowledge           []KnowledgeItem `json:"knowledge,omitempty"`
+}
+
+// KnowledgeItem is a provenance-linked fact learned from a Slack conversation.
+// It is continuity context, not an instruction, authority grant, or current
+// operational evidence.
+type KnowledgeItem struct {
+	Subject         string `json:"subject"`
+	Kind            string `json:"kind"`
+	Statement       string `json:"statement"`
+	Status          string `json:"status"`
+	Confidence      int    `json:"confidence"`
+	SourceRef       string `json:"source_ref"`
+	SourceMessageTS string `json:"source_message_ts,omitempty"`
 }
 
 type MemoryOffer struct {
@@ -576,7 +590,7 @@ func (m *AgentMemory) UnmarshalJSON(data []byte) error {
 		switch name {
 		case "goal", "channel_purpose", "situation_summary", "active_topics",
 			"open_loops", "topology", "decisions", "unresolved_questions",
-			"evidence_refs":
+			"evidence_refs", "knowledge":
 		default:
 			return fmt.Errorf("json: unknown field %q", name)
 		}
@@ -614,6 +628,11 @@ func (m *AgentMemory) UnmarshalJSON(data []byte) error {
 	}
 	if m.EvidenceRefs, err = decodeMemoryStrings(fields["evidence_refs"]); err != nil {
 		return fmt.Errorf("decode memory evidence refs: %w", err)
+	}
+	if value := fields["knowledge"]; len(value) != 0 {
+		if err := json.Unmarshal(value, &m.Knowledge); err != nil {
+			return fmt.Errorf("decode memory knowledge: %w", err)
+		}
 	}
 	return nil
 }

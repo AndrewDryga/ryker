@@ -688,7 +688,8 @@ func agentMemoryPresent(memory core.AgentMemory) bool {
 		len(memory.Topology) != 0 ||
 		len(memory.Decisions) != 0 ||
 		len(memory.UnresolvedQuestions) != 0 ||
-		len(memory.EvidenceRefs) != 0
+		len(memory.EvidenceRefs) != 0 ||
+		len(memory.Knowledge) != 0
 }
 
 func relatedSituationsPrompt(situations []conversationSituationContext) string {

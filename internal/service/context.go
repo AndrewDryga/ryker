@@ -57,6 +57,7 @@ func (s *Service) assembleAgentContext(
 	ctx context.Context,
 	request agentContextRequest,
 ) (assembledAgentContext, error) {
+	memoryQuery := memoryQueryText(request.TargetInput)
 	repository := request.Repository
 	var err error
 	if !request.RepositoryPinned {
@@ -76,6 +77,7 @@ func (s *Service) assembleAgentContext(
 		repository,
 		request.OperatorID,
 		request.SourceInputID,
+		memoryQuery,
 	)
 	if err != nil {
 		return assembledAgentContext{}, err
@@ -120,11 +122,12 @@ func (s *Service) assembleAgentContext(
 			request.ChannelID,
 			threadTS,
 			repository,
-			8,
+			40,
 		)
 		if relatedErr != nil {
 			return assembledAgentContext{}, relatedErr
 		}
+		related = selectRelevantConversationMemories(related, memoryQuery, 6)
 		if err := s.store.MarkConversationMemoriesRecalled(ctx, related); err != nil {
 			return assembledAgentContext{}, err
 		}
