@@ -111,6 +111,42 @@ func TestConfiguredPrivatePullRequestBecomesExactAgentArtifact(t *testing.T) {
 	}
 }
 
+func TestPrivatePullRequestDiscoveryUsesDurableRunContextAndAdvertisesArtifact(t *testing.T) {
+	cfg := serviceConfig(t)
+	cfg.Repositories = map[string]config.Repository{
+		"tenant-infra": {GitHubRepository: "tenantcorp/tenant-infra"},
+	}
+	client := &pullRequestTestPublisher{context: publisher.PullRequestContext{
+		Repository: "tenantcorp/tenant-infra", Number: 514,
+		URL:  "https://github.com/tenantcorp/tenant-infra/pull/514",
+		Diff: "diff --git a/infra.tf b/infra.tf\n+symbolicator = true\n",
+	}}
+	svc := &Service{cfg: cfg, publisher: client}
+
+	// The bounded prompt can omit an old thread root. Discovery receives the
+	// durable run context too, so the exact PR is not lost during compaction.
+	discoveryContext := "current bounded prompt\n" +
+		`{"recent_messages":[{"text":"<https://github.com/tenantcorp/tenant-infra/pull/514|PR 514>"}]}`
+	artifacts, err := svc.augmentAgentRunArtifacts(
+		context.Background(), discoveryContext, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Name != "github-pr-514.md" {
+		t.Fatalf("artifacts = %+v", artifacts)
+	}
+	prompt := agentInputArtifactsPrompt(artifacts)
+	for _, want := range []string{
+		"github-pr-514.md", artifacts[0].SHA256,
+		"authenticated snapshot", "stale local branches",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("artifact prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestUnconfiguredPullRequestIsNotFetched(t *testing.T) {
 	cfg := serviceConfig(t)
 	cfg.Repositories = map[string]config.Repository{
