@@ -181,7 +181,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	coopClient.completeQueue = []string{
 		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"lasting channel behavior","message":"I can remember the thread preference.","preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"},"memory":{}}`,
 		`{"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"The critical checkout alert needs investigation.","title":"Critical checkout error rate","evidence":[{"claim":"checkout errors are firing","observation":"the app reports an error rate above 20 percent","source_type":"slack","source_name":"Grafana alert"}],"memory":{}}`,
-		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"fresh repository and live evidence confirm the alert","message":"**Confirmed issue:** checkout errors are above 20 percent and affecting current requests.\n\n**Immediate action:** remove the unhealthy backend from service and verify the error rate falls.\n\n**Long-term fix:** correct the deployment regression and add a rollout guard for checkout errors.","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."},"evidence":[{"claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf"},{"claim":"checkout errors remain elevated","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q}],"coverage":[{"layer":"change","status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"},{"layer":"application","status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"},{"layer":"slo","status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}],"completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."},"memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}}`, observedAt),
+		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"fresh repository and live evidence confirm the alert","message":"**Checkout errors are affecting current requests:** more than 20 percent are failing.\n\nRemove the unhealthy backend from service and verify the error rate falls. The durable fix is to correct the deployment regression and add a rollout guard for checkout errors.","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."},"evidence":[{"claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf"},{"claim":"checkout errors remain elevated","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q}],"coverage":[{"layer":"change","status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"},{"layer":"application","status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"},{"layer":"slo","status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}],"completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."},"memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}}`, observedAt),
 	}
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -294,7 +294,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 		t.Fatalf("cleared alert acknowledgement = %+v", slackClient.removedReactions)
 	}
 	last := slackClient.posts[len(slackClient.posts)-1]
-	if last.thread != alert.MessageTS || !strings.Contains(last.message.Text, "Confirmed issue") {
+	if last.thread != alert.MessageTS || !strings.Contains(last.message.Text, "Checkout errors") {
 		t.Fatalf("alert triage reply = %+v", last)
 	}
 	incidents, err := st.ListIncidents(ctx, 10)
@@ -375,6 +375,34 @@ func TestAlertAssessmentRequiresDecisionUsefulRemediation(t *testing.T) {
 	if err != nil || decision.AlertAssessment == nil ||
 		decision.AlertAssessment.Verdict != "unverified" {
 		t.Fatalf("valid alert assessment = %+v, %v", decision, err)
+	}
+}
+
+func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.T) {
+	decision, err := decodeWatchDecision(`{
+	  "action":"reply",
+	  "message":"The repair is behind schedule but still progressing.",
+	  "alert_assessment":{"verdict":"confirmed_issue","impact":"The repair missed its cadence.","cause_status":"bounded","cause":"The current cycle is taking longer than its configured interval.","immediate_action":"Let the active repair finish.","verification":"Confirm progress reaches 100 percent and the overdue gauge clears.","long_term_solution":"Deploy the Reaper scheduling fix."},
+	  "completion":{"status":"decision_ready","verdict":"confirmed_issue","summary":"The overdue repair is active but progressing."}
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Completion == nil || decision.Completion.Verdict != "degraded" {
+		t.Fatalf("normalized completion = %+v", decision.Completion)
+	}
+
+	blocked, err := decodeWatchDecision(`{
+	  "action":"reply",
+	  "message":"The exact repair completed, but the result needs correction.",
+	  "alert_assessment":{"verdict":"not_issue","impact":"The overdue condition cleared."},
+	  "completion":{"status":"blocked","verdict":"healthy","summary":"Broader health was not checked.","material_gaps":["application health"],"blocker_kind":"source_unavailable","attempts":["verified the repair status"],"next_action":"check application traffic"}
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked.Completion == nil || blocked.Completion.Verdict != "" {
+		t.Fatalf("blocked completion retained verdict = %+v", blocked.Completion)
 	}
 }
 
@@ -464,6 +492,57 @@ func TestRecoveredAlertCanCloseFromFreshExactEvidenceWithoutRepositorySweep(t *t
 	}
 	if correction := watchDecisionCorrectionAt(input, state, decision, now); correction != "" {
 		t.Fatalf("rejected exact recovered-alert evidence: %s", correction)
+	}
+}
+
+func TestRecoveredAlertCorrectsBlockedBroadAssessmentAndRequiresPriorLink(t *testing.T) {
+	now := time.Date(2026, 8, 5, 15, 0, 20, 0, time.UTC)
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue\n" +
+			"sts_ks overdue gauge returned to zero.",
+	}
+	state := watchTurnState{
+		AlertPolicy: "reply_here",
+		RecentMessages: []watchContextMessage{{
+			SenderType:  "external_app",
+			Text:        "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
+			MessageLink: "https://app.slack.com/client/T123/C123/thread/C123-1700.100",
+		}},
+	}
+	decision := watchDecision{
+		Action:          "reply",
+		Message:         "The scheduled repair completed.",
+		AlertAssessment: &alertAssessment{Verdict: "not_issue", Impact: "The overdue condition cleared."},
+		Evidence: []core.Evidence{{
+			Claim: "the repair completed", Observation: "progress reached 100 percent",
+			SourceType: "emisar", SourceName: "repair status", ObservedAt: now,
+		}},
+		Completion: &completionAssessment{
+			Status: "blocked", Summary: "Broader health was not checked.",
+			MaterialGaps: []string{"application health"}, BlockerKind: "source_unavailable",
+			Attempts: []string{"verified the repair"}, NextAction: "check application traffic",
+		},
+	}
+	if correction := watchDecisionCorrectionAt(input, state, decision, now); correction == "" {
+		t.Fatal("accepted a blocked completion for an exactly verified recovery")
+	}
+	decision.Completion = &completionAssessment{
+		Status: "decision_ready", Verdict: "healthy", Summary: "The repair completed.",
+	}
+	if correction := alertReplyLanguageCorrectionWithContext(input, state, decision); correction == "" ||
+		!strings.Contains(correction, state.RecentMessages[0].MessageLink) {
+		t.Fatalf("recovery link correction = %q", correction)
+	}
+	decision.Message = "The scheduled repair completed, closing [the earlier alert](" +
+		state.RecentMessages[0].MessageLink + ")."
+	if correction := alertReplyLanguageCorrectionWithContext(input, state, decision); correction != "" {
+		t.Fatalf("rejected linked recovery closure: %s", correction)
+	}
+	decision.Message = "The scheduled repair completed."
+	linked, adjusted := enforceRecoveredAlertLink(input, state, decision)
+	if !adjusted || !strings.Contains(linked.Message, state.RecentMessages[0].MessageLink) {
+		t.Fatalf("host-linked recovery = %+v, adjusted=%t", linked, adjusted)
 	}
 }
 

@@ -207,6 +207,13 @@ func externalLifecycleReplyLanguageCorrection(
 	}
 	message := strings.TrimSpace(decision.Message)
 	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
+	if phase == externalLifecycleReviewable && decision.Completion != nil &&
+		(decision.Completion.Verdict == "healthy" || decision.Completion.Verdict == "succeeded") &&
+		episodeContainsAny(normalized, "applied", "succeeded", "successful") &&
+		!strings.Contains(normalized, "stale") {
+		return "say explicitly that the source confirmation card is stale, then summarize only " +
+			"the material change, its fresh post-rollout health, and one independent caveat"
+	}
 	for _, phrase := range []string{
 		"terminal notification", "lifecycle check", "lifecycle boundary",
 		"no further apply action is needed", "review caveat",

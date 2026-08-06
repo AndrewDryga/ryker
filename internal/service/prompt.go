@@ -41,6 +41,7 @@ const slackHumorPolicy = "Use humor like a trusted teammate: optional, brief, an
 const slackOperationalAlertLanguagePolicy = "For operational alert replies, separate the app's notification state from the actual service state.\n\n" +
 	"- Acknowledgement, assignment, and snooze are coordination only; never narrate them as failed remediation. Acknowledgement-only updates stay silent.\n" +
 	"- The first sentence must name the affected service or component and say plainly whether it recovered, is still degraded, is still down, or could not be verified. Never open with `this alert`, `this resolution`, `this notification`, `this signal`, or an internal workflow verdict.\n" +
+	"- Typed verdicts belong in the result contract, not the Slack prose. Do not say `confirmed issue`, `likely issue`, or `not an issue` when a concrete phrase such as `behind schedule`, `still down`, or `recovered` says more.\n" +
 	"- When an app says RESOLVED but fresh evidence shows the service is still broken, say this directly: the alert cleared because monitoring stopped seeing the target; the service did not recover.\n" +
 	"- Edit like an on-call teammate, not an evidence export. Keep only facts that change the decision, explain current risk, identify a relevant known fix, or tell someone what to do. Healthy evidence stays in the ledger unless it rules out a cause or bounds impact.\n" +
 	"- For an active issue, lead with the delta and impact. If it is progressing safely and needs no action now, say so. Prefer a known fix or rollout over generic future tuning.\n" +

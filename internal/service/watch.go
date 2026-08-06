@@ -1181,6 +1181,12 @@ func watchDecisionCorrectionAt(
 			evidence := sanitizeEvidence(decision.Evidence, "", "", "")
 			recovered := decision.AlertAssessment.Verdict == "not_issue" &&
 				operationalAlertResolvedEvent(input.Text)
+			if recovered && hasFreshOperationalEvidence(evidence, now) &&
+				decision.Completion != nil && decision.Completion.Status == "blocked" {
+				return "fresh evidence verifies that the exact alert condition recovered; return " +
+					"decision_ready with the healthy verdict, say plainly what completed, and close " +
+					"the earlier alert without broadening this into a platform-health assessment"
+			}
 			if !recovered && !watchDecisionHasEvidenceSource(evidence, "repository") {
 				return "the alert reply does not reconcile the live signal with declared repository " +
 					"topology; inspect the configured repository before deciding"
@@ -1227,6 +1233,14 @@ func watchDecisionCorrectionAt(
 }
 
 func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision) string {
+	return alertReplyLanguageCorrectionWithContext(input, watchTurnState{}, decision)
+}
+
+func alertReplyLanguageCorrectionWithContext(
+	input core.SlackInput,
+	state watchTurnState,
+	decision watchDecision,
+) string {
 	if input.Kind != "bot_message" || decision.Action != "reply" ||
 		!operationalAlertEvent(input.Text) {
 		return ""
@@ -1251,6 +1265,11 @@ func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision)
 		return "remove the acknowledgement narration; acknowledgement is coordination metadata, " +
 			"not remediation, so say only what fresh evidence establishes about the service and what " +
 			"useful action follows"
+	}
+	if episodeContainsAny(normalized, "confirmed issue", "likely issue", "not an issue") {
+		return "remove the typed alert-verdict label from the Slack prose; open with the exact " +
+			"plain condition, such as behind schedule, still down, or recovered, then say whether " +
+			"anyone needs to act now"
 	}
 	for _, phrase := range []string{
 		"alert split", "alert family", "alert families", "workload recovery",
@@ -1288,10 +1307,18 @@ func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision)
 	if decision.Completion != nil && decision.Completion.Verdict == "healthy" {
 		recovered = true
 	}
-	if resolved && recovered && wordCount > 60 {
-		return "rewrite this recovered-alert update as a compact closure: say what recovered and " +
-			"link the earlier firing message when its exact message_link is present in recent context; " +
-			"remove the normal-system inventory, no-op instructions, and hypothetical future tuning"
+	if resolved && recovered {
+		if link := priorFiringMessageLink(state.RecentMessages); link != "" &&
+			!strings.Contains(message, link) {
+			return "rewrite this recovered-alert update as a compact closure and link the earlier " +
+				"firing message using its exact message_link `" + link + "`; say plainly what " +
+				"completed and omit unrelated healthy inventory"
+		}
+		if wordCount > 60 {
+			return "rewrite this recovered-alert update as a compact closure: say what recovered and " +
+				"link the earlier firing message when its exact message_link is present in recent context; " +
+				"remove the normal-system inventory, no-op instructions, and hypothetical future tuning"
+		}
 	}
 	if !resolved && wordCount > 90 {
 		return "edit this active-alert update down to the decision-useful delta: current impact, the " +
@@ -1299,6 +1326,37 @@ func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision)
 			"needed now; keep background healthy evidence in the ledger"
 	}
 	return ""
+}
+
+func priorFiringMessageLink(messages []watchContextMessage) string {
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.SenderType != "external_app" || message.MessageLink == "" ||
+			!operationalAlertEvent(message.Text) || operationalAlertResolvedEvent(message.Text) {
+			continue
+		}
+		return message.MessageLink
+	}
+	return ""
+}
+
+func enforceRecoveredAlertLink(
+	input core.SlackInput,
+	state watchTurnState,
+	decision watchDecision,
+) (watchDecision, bool) {
+	if input.Kind != "bot_message" || decision.Action != "reply" ||
+		!operationalAlertResolvedEvent(input.Text) || decision.AlertAssessment == nil ||
+		decision.AlertAssessment.Verdict != "not_issue" {
+		return decision, false
+	}
+	link := priorFiringMessageLink(state.RecentMessages)
+	if link == "" || strings.Contains(decision.Message, link) {
+		return decision, false
+	}
+	decision.Message = strings.TrimSpace(decision.Message) +
+		"\n\nClosing [the earlier alert](" + link + ")."
+	return decision, true
 }
 
 func operationalAlertEvent(text string) bool {
@@ -2124,6 +2182,7 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 	if err := applyWatchResultOperations(&decision); err != nil {
 		return watchDecision{}, err
 	}
+	normalizeWatchDecisionCompletion(&decision)
 	switch decision.Action {
 	case "escalate":
 		decision.Reason = strings.TrimSpace(decision.Reason)
@@ -2333,6 +2392,36 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		return watchDecision{}, err
 	}
 	return decision, nil
+}
+
+// normalizeWatchDecisionCompletion repairs two common, unambiguous transport
+// mistakes before strict validation. Alert verdicts describe the signal while
+// completion verdicts describe the episode; confusing those enums must not
+// discard an otherwise usable investigation. A blocked result cannot carry a
+// verdict, so the verdict is simply ignored until host correction resolves the
+// blocker or asks the model for a decision-ready completion.
+func normalizeWatchDecisionCompletion(decision *watchDecision) {
+	if decision == nil || decision.Completion == nil {
+		return
+	}
+	completion := decision.Completion
+	completion.Status = strings.TrimSpace(completion.Status)
+	completion.Verdict = strings.TrimSpace(completion.Verdict)
+	if completion.Status == "blocked" {
+		completion.Verdict = ""
+		return
+	}
+	if completion.Status != "decision_ready" || decision.AlertAssessment == nil {
+		return
+	}
+	switch completion.Verdict {
+	case "confirmed_issue", "likely_issue":
+		completion.Verdict = "degraded"
+	case "not_issue":
+		completion.Verdict = "healthy"
+	case "unverified":
+		completion.Verdict = "inconclusive"
+	}
 }
 
 func validSuggestedEngineeringTaskBoundary(decision watchDecision) bool {

@@ -500,6 +500,13 @@ func TestStaleLifecycleReplyKeepsOnlyChangeHealthAndIndependentCaveat(t *testing
 	if correction := externalLifecycleReplyLanguageCorrection(input, concise); correction != "" {
 		t.Fatalf("rejected concise stale lifecycle update: %s", correction)
 	}
+	missingStale := concise
+	missingStale.Message = "The run applied successfully. It replaced the Emisar runner VM and " +
+		"updated Tolgee Cloud SQL; the runner is connected and the database is healthy."
+	missingStale.Completion.Verdict = "succeeded"
+	if correction := externalLifecycleReplyLanguageCorrection(input, missingStale); correction == "" {
+		t.Fatal("accepted a stale source card without calling it stale")
+	}
 }
 
 func TestTerminalLifecycleEvidenceIsHostBoundBeforeCompletionValidation(t *testing.T) {

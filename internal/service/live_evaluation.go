@@ -918,17 +918,19 @@ func evaluationStructuredCorrection(
 			if len(cfg.Slack.Operators) > 0 {
 				operatorID = cfg.Slack.Operators[0]
 			}
-			input, _, contextErr := liveEvaluationWatchContext(
+			input, recent, contextErr := liveEvaluationWatchContext(
 				testCase, "evaluation-correction", operatorID,
 			)
 			if contextErr == nil {
 				state := evaluationWatchState(testCase)
+				state.RecentMessages = recent
 				episode := (&Service{cfg: cfg}).episodeForWatchedInput(input, state)
 				decision = enforceExternalLifecycleCommunication(input, decision)
 				decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
+				decision, _ = enforceRecoveredAlertLink(input, state, decision)
 				for _, correction := range []string{
 					watchDecisionCorrectionAt(input, state, decision, now),
-					alertReplyLanguageCorrection(input, decision),
+					alertReplyLanguageCorrectionWithContext(input, state, decision),
 					externalLifecycleReplyLanguageCorrection(input, decision),
 					episodeCompletionCorrection(
 						*episode,
@@ -1267,6 +1269,24 @@ func cleanupLiveEvaluationSession(
 	}
 	if session.State == "discarded" {
 		return nil
+	}
+	// A turn may be terminal before Coop has cleared ActiveTurnID from the
+	// session projection. Give that normal cleanup a short grace period before
+	// issuing a cancellation against an already completed turn.
+	if session.ActiveTurnID != "" {
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+		for attempt := 0; attempt < 10 && session.ActiveTurnID != ""; attempt++ {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("wait for completed evaluation turn cleanup: %w", ctx.Err())
+			case <-ticker.C:
+			}
+			session, err = client.GetSession(ctx, sessionID)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	if session.ActiveTurnID != "" {
 		if _, _, err := client.Cancel(

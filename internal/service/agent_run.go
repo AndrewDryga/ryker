@@ -1270,8 +1270,11 @@ func (s *Service) stagePolledAgentRunTerminal(
 			decision, lifecycleEvidenceAdjusted = enforceExternalLifecycleEvidence(
 				input, episode, decision,
 			)
+			var recoveryLinkAdjusted bool
+			decision, recoveryLinkAdjusted = enforceRecoveredAlertLink(input, state, decision)
 			if lifecycleEvidenceAdjusted || decision.Action != originalAction ||
-				len(decision.PublicationUpdates) != originalPublicationUpdates {
+				len(decision.PublicationUpdates) != originalPublicationUpdates ||
+				recoveryLinkAdjusted {
 				marshaledResult, marshalErr := marshalWatchDecisionResult(decision)
 				if marshalErr != nil {
 					return marshalErr
@@ -1280,7 +1283,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 			}
 			correction := watchDecisionCorrection(input, state, decision)
 			if correction == "" {
-				correction = alertReplyLanguageCorrection(input, decision)
+				correction = alertReplyLanguageCorrectionWithContext(input, state, decision)
 			}
 			if correction == "" {
 				correction = externalLifecycleReplyLanguageCorrection(input, decision)
