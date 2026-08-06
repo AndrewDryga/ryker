@@ -129,6 +129,47 @@ func (s *Store) GetConversationMemory(
 	return memory, nil
 }
 
+func (s *Store) UpsertConversationMemoryState(
+	ctx context.Context,
+	memory core.ConversationMemory,
+) error {
+	if memory.ChannelID == "" || memory.Repository == "" {
+		return errors.New("conversation memory requires a channel and repository")
+	}
+	state, err := json.Marshal(memory.State)
+	if err != nil {
+		return err
+	}
+	if len(state) > 64<<10 {
+		return errors.New("conversation memory exceeds 64 KiB")
+	}
+	if string(state) == "{}" {
+		return errors.New("conversation memory state is empty")
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO conversation_memories (
+		  channel_id, thread_ts, repository, last_message_ts, state_json, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
+		  repository = excluded.repository,
+		  last_message_ts = CASE
+		    WHEN CAST(excluded.last_message_ts AS REAL) >=
+		         CAST(conversation_memories.last_message_ts AS REAL)
+		    THEN excluded.last_message_ts
+		    ELSE conversation_memories.last_message_ts
+		  END,
+		  state_json = excluded.state_json,
+		  updated_at = excluded.updated_at`,
+		memory.ChannelID,
+		memory.ThreadTS,
+		memory.Repository,
+		memory.LastMessage,
+		string(state),
+		s.nowText(),
+	)
+	return err
+}
+
 func (s *Store) ListRelatedConversationMemories(
 	ctx context.Context,
 	channelID string,

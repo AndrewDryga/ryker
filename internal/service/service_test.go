@@ -87,7 +87,21 @@ func TestPrivateSlackReplayRunsWithoutPublicSideEffects(t *testing.T) {
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
-	coopClient.complete(`{"action":"reply","message":"Verified privately."}`)
+	coopClient.complete(`{
+		"action":"reply",
+		"message":"Verified privately.",
+		"memory":{
+			"knowledge":[{
+				"subject":"Symbolicator storage",
+				"kind":"decision",
+				"statement":"Use GCS with GitHub Actions WIF for symbol uploads.",
+				"status":"accepted",
+				"confidence":3,
+				"source_ref":"https://example.slack.com/archives/CREPLAY/p1700200",
+				"source_message_ts":"1700.200"
+			}]
+		}
+	}`)
 	svc.pollAgentRuns(ctx)
 	if err := svc.processAgentRunFinalization(ctx); err != nil {
 		t.Fatal(err)
@@ -104,6 +118,15 @@ func TestPrivateSlackReplayRunsWithoutPublicSideEffects(t *testing.T) {
 	incidents, err := st.ListIncidents(ctx, 10)
 	if err != nil || len(incidents) != 0 {
 		t.Fatalf("private replay created incidents = %+v, %v", incidents, err)
+	}
+	memory, err := st.GetConversationMemory(ctx, input.ChannelID, input.ThreadTS)
+	if err != nil || len(memory.State.Knowledge) != 1 ||
+		memory.State.Knowledge[0].Subject != "Symbolicator storage" {
+		t.Fatalf("private replay conversation memory = %+v, %v", memory, err)
+	}
+	channelMemory, err := st.GetChannelMemory(ctx, input.ChannelID)
+	if err != nil || len(channelMemory.State.Knowledge) != 0 {
+		t.Fatalf("private replay changed channel-wide memory = %+v, %v", channelMemory, err)
 	}
 }
 

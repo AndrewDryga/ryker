@@ -2143,6 +2143,9 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		}
 	}
 	if isPrivateSlackVerificationReplay(input) {
+		if err := s.persistPrivateReplayKnowledge(ctx, input, state, decision.Memory); err != nil {
+			return err
+		}
 		_ = s.store.Audit(ctx, core.AuditEvent{
 			Kind: "slack.replay", ActorID: input.UserID, ObjectID: input.ID,
 			Outcome: "verified_private", Detail: decision.Action,
@@ -2178,6 +2181,32 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		return err
 	}
 	return s.store.FinishAgentRun(ctx, run.ID)
+}
+
+func (s *Service) persistPrivateReplayKnowledge(
+	ctx context.Context,
+	input core.SlackInput,
+	state watchTurnState,
+	memory core.AgentMemory,
+) error {
+	knowledge := sanitizeKnowledge(memory.Knowledge)
+	if len(knowledge) == 0 {
+		return nil
+	}
+	merged := core.AgentMemory{Knowledge: knowledge}
+	existing, err := s.store.GetConversationMemory(ctx, input.ChannelID, input.ThreadTS)
+	if err == nil {
+		merged = mergeAgentMemories([]core.AgentMemory{existing.State, merged})
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	return s.store.UpsertConversationMemoryState(ctx, core.ConversationMemory{
+		ChannelID:   input.ChannelID,
+		ThreadTS:    input.ThreadTS,
+		Repository:  state.Repository,
+		LastMessage: input.MessageTS,
+		State:       merged,
+	})
 }
 
 func (s *Service) finalizeIncidentAgentRun(

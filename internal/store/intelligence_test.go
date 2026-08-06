@@ -207,6 +207,40 @@ func TestConversationMemoryCarriesAcrossPublicWorkspaceWithoutLeakingPrivateChan
 	}
 }
 
+func TestUpsertConversationMemoryStateDoesNotRegressLastMessage(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	for _, item := range []core.ConversationMemory{
+		{
+			ChannelID: "CMAIN", ThreadTS: "1700.100", Repository: "emisar",
+			LastMessage: "1700.300",
+			State:       core.AgentMemory{Decisions: []string{"newer decision"}},
+		},
+		{
+			ChannelID: "CMAIN", ThreadTS: "1700.100", Repository: "emisar",
+			LastMessage: "1700.200",
+			State:       core.AgentMemory{Decisions: []string{"merged replay decision"}},
+		},
+	} {
+		if err := st.UpsertConversationMemoryState(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	memory, err := st.GetConversationMemory(ctx, "CMAIN", "1700.100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if memory.LastMessage != "1700.300" || len(memory.State.Decisions) != 1 ||
+		memory.State.Decisions[0] != "merged replay decision" {
+		t.Fatalf("upserted conversation memory = %+v", memory)
+	}
+}
+
 func TestConversationMemoryDeletionAndRetention(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))
