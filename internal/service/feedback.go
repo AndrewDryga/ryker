@@ -46,6 +46,13 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 	if _, negative := negativeFeedbackReactions[input.ActionID]; !negative {
 		return nil
 	}
+	if _, err := s.store.GetSentSlackMessageDelivery(
+		ctx, input.ChannelID, input.ActionValue,
+	); errors.Is(err, store.ErrNotFound) {
+		return nil
+	} else if err != nil {
+		return err
+	}
 	id := feedbackID("reaction", input.TeamID, input.ChannelID, input.ActionValue, input.UserID, input.ActionID)
 	if input.Kind == "reaction_removed" {
 		return s.withFeedbackStore(func(feedback *feedbackstore.Store) error {

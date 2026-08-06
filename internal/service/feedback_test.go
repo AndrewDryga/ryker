@@ -26,6 +26,19 @@ func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
 	}}
 	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
 	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "feedback-reply", Kind: "reply", ChannelID: "C123ABC",
+		ThreadTS: "100.000", Body: []byte(`{"text":"It failed."}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.LeaseSlackDelivery(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, delivery.ID, "100.000", delivery.State); err != nil {
+		t.Fatal(err)
+	}
 	input := core.SlackInput{
 		ID: "reaction-1", Kind: "reaction_added", TeamID: cfg.Slack.TeamID,
 		ChannelID: "C123ABC", ThreadTS: "100.000", MessageTS: "101.000",
@@ -41,7 +54,7 @@ func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
 	items, err := feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
 	feedback.Close()
 	if err != nil || len(items) != 1 || items[0].Source != "negative_reaction" ||
-		len(items[0].Context) != 2 || !strings.Contains(items[0].SourceRef, "100.000") {
+		len(items[0].Context) != 3 || !strings.Contains(items[0].SourceRef, "100.000") {
 		t.Fatalf("items = %#v, err = %v", items, err)
 	}
 	input.Kind = "reaction_removed"
@@ -56,6 +69,34 @@ func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
 	feedback.Close()
 	if err != nil || len(items) != 0 {
 		t.Fatalf("items after removal = %#v, err = %v", items, err)
+	}
+}
+
+func TestNegativeReactionToSomeoneElsesMessageIsNotFeedback(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	input := core.SlackInput{
+		ID: "reaction-1", Kind: "reaction_added", TeamID: cfg.Slack.TeamID,
+		ChannelID: "C123ABC", UserID: "U123ABC",
+		ActionID: "thumbsdown", ActionValue: "100.000",
+	}
+	if err := svc.recordReactionFeedback(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	feedback, err := feedbackstore.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer feedback.Close()
+	items, err := feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("items = %#v, err = %v", items, err)
 	}
 }
 
