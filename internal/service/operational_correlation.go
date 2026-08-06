@@ -3,6 +3,7 @@ package service
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"html"
 	"regexp"
 	"strings"
 	"time"
@@ -47,6 +48,11 @@ func (s *Service) obviousHumanDialogue(input core.SlackInput, state watchTurnSta
 // labels and a phase-free title. FIRING and RESOLVED updates therefore share a
 // stream without grouping unrelated alerts merely because they share a channel.
 func operationalCorrelationKey(input core.SlackInput) string {
+	if operationalAlertEvent(input.Text) {
+		if key := stableOperationalAlertLink(input.Text); key != "" {
+			return boundedCorrelationKey("alert-link:" + key)
+		}
+	}
 	if key := externalLifecycleCorrelationKey(input.Text); key != "" {
 		return boundedCorrelationKey("lifecycle:" + key)
 	}
@@ -71,6 +77,27 @@ func operationalCorrelationKey(input core.SlackInput) string {
 		return ""
 	}
 	return boundedCorrelationKey("alert:" + input.UserID + ":" + identity)
+}
+
+// Alert notifications commonly include both a stable alert URL and a dashboard
+// URL whose time-range query changes on every delivery. Prefer the stable alert
+// identity so repeats and recovery updates remain one operational stream.
+func stableOperationalAlertLink(text string) string {
+	for _, match := range externalLifecycleLinkPattern.FindAllStringSubmatch(text, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		link := html.UnescapeString(strings.TrimSpace(match[1]))
+		lower := strings.ToLower(link)
+		if !strings.Contains(lower, "/alerting/") {
+			continue
+		}
+		if index := strings.IndexAny(link, "?#"); index >= 0 {
+			link = link[:index]
+		}
+		return link
+	}
+	return ""
 }
 
 func operationalAlertTitle(text string) string {

@@ -30,6 +30,28 @@ func TestOperationalCorrelationKeyTracksAlertLifecycle(t *testing.T) {
 	}
 }
 
+func TestOperationalCorrelationKeyPrefersStableAlertLinkOverDashboardRange(t *testing.T) {
+	first := core.SlackInput{
+		Kind: "bot_message", UserID: "BGRAFANA",
+		Text: "<https://grafana.example.com/alerting/grafana/alert-123/view?orgId=1|FIRING>\n" +
+			"<https://grafana.example.com/d/dashboard?from=100&amp;to=200|Dashboard>",
+	}
+	second := first
+	second.Text = "<https://grafana.example.com/alerting/grafana/alert-123/view?orgId=1|FIRING>\n" +
+		"<https://grafana.example.com/d/dashboard?from=300&amp;to=400|Dashboard>"
+	if got, want := operationalCorrelationKey(second), operationalCorrelationKey(first); got != want {
+		t.Fatalf("repeated alert correlation = %q, want %q", got, want)
+	}
+	if got := operationalCorrelationKey(first); !strings.Contains(got, "/alerting/grafana/alert-123/view") {
+		t.Fatalf("alert correlation did not retain stable alert identity: %q", got)
+	}
+	other := first
+	other.Text = strings.ReplaceAll(other.Text, "alert-123", "alert-456")
+	if operationalCorrelationKey(other) == operationalCorrelationKey(first) {
+		t.Fatal("distinct stable alert links shared an operational stream")
+	}
+}
+
 func TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation(t *testing.T) {
 	firingText := "[VA1 FIRING:1] WARNING | High disk I/O latency\n" +
 		"FIRING - 1 alert\nService: cluster\nComponent: cassandra"
