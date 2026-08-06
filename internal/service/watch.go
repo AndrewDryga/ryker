@@ -883,6 +883,11 @@ func (s *Service) applyWatchDecision(
 				s.sanitizer,
 			)
 		}
+		if input.Kind != "shortcut" {
+			if _, ok := s.pullRequestReferenceForWatch(input, state); ok {
+				message = slackui.WithPullRequestReview(message, input.ID)
+			}
+		}
 		baseDeliveryID := firstNonempty(
 			state.ReplyDeliveryID,
 			"watch_reply_"+input.ID,
@@ -970,6 +975,25 @@ func (s *Service) applyWatchDecision(
 		return err
 	}
 	return s.finishInputIfOpen(ctx, input)
+}
+
+func (s *Service) pullRequestReferenceForWatch(
+	input core.SlackInput,
+	state watchTurnState,
+) (pullRequestReference, bool) {
+	var context strings.Builder
+	context.WriteString(input.Text)
+	for _, message := range state.RecentMessages {
+		context.WriteByte('\n')
+		context.WriteString(message.Text)
+	}
+	if state.ReferencedThread != nil {
+		for _, message := range state.ReferencedThread.RecentMessages {
+			context.WriteByte('\n')
+			context.WriteString(message.Text)
+		}
+	}
+	return s.configuredPullRequestReference(context.String())
 }
 
 func (s *Service) conversationPrompt(

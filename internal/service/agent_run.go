@@ -595,6 +595,10 @@ func (s *Service) prepareIncidentAgentRun(
 	}
 	submissionPrompt := prompt + "\n\n" + s.structuredResponsePolicy() +
 		agentRunContinuationPrompt(run)
+	artifacts, err = s.augmentAgentRunArtifacts(ctx, submissionPrompt, artifacts)
+	if err != nil {
+		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
+	}
 	if _, err := s.ensureAttemptContextManifest(
 		ctx, run, session, submissionPrompt, artifacts,
 	); err != nil {
@@ -1039,6 +1043,10 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	prompt += "\n\n" + workEpisodePrompt(episode)
 	prompt += agentToolTransportPrompt()
 	prompt += agentRunContinuationPrompt(run)
+	artifacts, err = s.augmentAgentRunArtifacts(ctx, prompt, artifacts)
+	if err != nil {
+		return s.retryAgentRun(ctx, run, err)
+	}
 	if _, err := s.ensureAttemptContextManifest(
 		ctx, run, session, prompt, artifacts,
 	); err != nil {

@@ -351,6 +351,23 @@ func TestConversationResponseLooksLikeOrdinarySlackSpeech(t *testing.T) {
 	}
 }
 
+func TestPullRequestReviewActionIsExplicitAndReadOnly(t *testing.T) {
+	message := WithPullRequestReview(
+		ConversationResponse("MinIO looks reasonable here.", NewSanitizer(12000)),
+		"source-input",
+	)
+	if len(message.Actions) != 1 {
+		t.Fatalf("actions = %+v", message.Actions)
+	}
+	action := message.Actions[0]
+	if action.ID != ActionReviewPullRequest || action.Label != "Review PR" ||
+		action.Value != "source-input" || action.Style != "" ||
+		!strings.Contains(action.Confirm, "exact PR diff") ||
+		!strings.Contains(action.Confirm, "read-only") {
+		t.Fatalf("PR review action = %+v", action)
+	}
+}
+
 func TestConversationResponseUsesSlackMarkdownBlock(t *testing.T) {
 	text := "## Health\n\n**Degraded**\n\n| Layer | State |\n| --- | --- |\n| Nomad | Healthy |\n\n- [x] Hosts checked\n\n```hcl\ncount = 2\n```"
 	message := ConversationResponse(text, NewSanitizer(12000))

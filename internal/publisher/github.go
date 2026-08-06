@@ -25,9 +25,11 @@ import (
 )
 
 const maxCommandOutput = 1 << 20
+const maxPullRequestDiff = 2 << 20
 
 var unsafeSlug = regexp.MustCompile(`[^a-z0-9]+`)
 var fullGitOID = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+var githubRepository = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
 var credentialPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\bxox[baprs]-[A-Za-z0-9-]{10,}\b`),
@@ -52,6 +54,53 @@ type Result struct {
 	RemoteSHA  string
 	PRNumber   int
 	PRURL      string
+}
+
+// PullRequestContext is an authenticated, immutable snapshot of the material a
+// reviewer needs. It deliberately excludes mutable controls: Responder may read
+// private PRs without gaining permission to comment, approve, merge, or push.
+type PullRequestContext struct {
+	Repository     string
+	Number         int
+	URL            string
+	Title          string
+	Body           string
+	State          string
+	Draft          bool
+	Merged         bool
+	Author         string
+	BaseRef        string
+	BaseSHA        string
+	HeadRef        string
+	HeadSHA        string
+	ChangedFiles   int
+	Additions      int
+	Deletions      int
+	Diff           string
+	DiffTruncated  bool
+	Comments       []PullRequestComment
+	Reviews        []PullRequestReview
+	ReviewComments []PullRequestReviewComment
+	Warnings       []string
+}
+
+type PullRequestComment struct {
+	Author string
+	Body   string
+}
+
+type PullRequestReview struct {
+	Author string
+	State  string
+	Body   string
+}
+
+type PullRequestReviewComment struct {
+	Author string
+	Body   string
+	Path   string
+	Line   int
+	Side   string
 }
 
 type GitHub struct {
@@ -125,6 +174,128 @@ func (g *GitHub) Ready(ctx context.Context) error {
 		return errors.New("GitHub authentication returned no account login")
 	}
 	return nil
+}
+
+// PullRequestContext reads an exact PR through the same authenticated GitHub
+// adapter used for publication. This is also the private-repository path; no
+// unauthenticated browser lookup is attempted.
+func (g *GitHub) PullRequestContext(
+	ctx context.Context,
+	repository string,
+	number int,
+) (PullRequestContext, error) {
+	var result PullRequestContext
+	if !g.Enabled() {
+		return result, errors.New("GitHub access is not enabled")
+	}
+	if !githubRepository.MatchString(repository) || number < 1 {
+		return result, errors.New("GitHub pull request reference is invalid")
+	}
+	token, err := g.token(ctx)
+	if err != nil {
+		return result, err
+	}
+	path := "/repos/" + repository + "/pulls/" + strconv.Itoa(number)
+	var pull struct {
+		Number       int    `json:"number"`
+		HTMLURL      string `json:"html_url"`
+		Title        string `json:"title"`
+		Body         string `json:"body"`
+		State        string `json:"state"`
+		Draft        bool   `json:"draft"`
+		Merged       bool   `json:"merged"`
+		ChangedFiles int    `json:"changed_files"`
+		Additions    int    `json:"additions"`
+		Deletions    int    `json:"deletions"`
+		User         struct {
+			Login string `json:"login"`
+		} `json:"user"`
+		Base struct {
+			Ref string `json:"ref"`
+			SHA string `json:"sha"`
+		} `json:"base"`
+		Head struct {
+			Ref string `json:"ref"`
+			SHA string `json:"sha"`
+		} `json:"head"`
+	}
+	if err := g.api(ctx, token, http.MethodGet, path, nil, &pull); err != nil {
+		return result, fmt.Errorf("read pull request: %w", err)
+	}
+	diff, truncated, err := g.apiRaw(
+		ctx, token, http.MethodGet, path, "application/vnd.github.v3.diff", maxPullRequestDiff,
+	)
+	if err != nil {
+		return result, fmt.Errorf("read pull request diff: %w", err)
+	}
+	result = PullRequestContext{
+		Repository: repository, Number: pull.Number, URL: pull.HTMLURL,
+		Title: pull.Title, Body: pull.Body, State: pull.State, Draft: pull.Draft,
+		Merged: pull.Merged, Author: pull.User.Login,
+		BaseRef: pull.Base.Ref, BaseSHA: pull.Base.SHA,
+		HeadRef: pull.Head.Ref, HeadSHA: pull.Head.SHA,
+		ChangedFiles: pull.ChangedFiles, Additions: pull.Additions,
+		Deletions: pull.Deletions, Diff: string(diff), DiffTruncated: truncated,
+	}
+	var comments []struct {
+		Body string `json:"body"`
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+	if err := g.api(
+		ctx, token, http.MethodGet,
+		"/repos/"+repository+"/issues/"+strconv.Itoa(number)+"/comments?per_page=100",
+		nil, &comments,
+	); err == nil {
+		for _, comment := range comments {
+			result.Comments = append(result.Comments, PullRequestComment{
+				Author: comment.User.Login, Body: comment.Body,
+			})
+		}
+	} else {
+		result.Warnings = append(result.Warnings, "PR conversation was unavailable: "+err.Error())
+	}
+	var reviews []struct {
+		Body  string `json:"body"`
+		State string `json:"state"`
+		User  struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+	if err := g.api(
+		ctx, token, http.MethodGet, path+"/reviews?per_page=100", nil, &reviews,
+	); err == nil {
+		for _, review := range reviews {
+			result.Reviews = append(result.Reviews, PullRequestReview{
+				Author: review.User.Login, State: review.State, Body: review.Body,
+			})
+		}
+	} else {
+		result.Warnings = append(result.Warnings, "PR reviews were unavailable: "+err.Error())
+	}
+	var reviewComments []struct {
+		Body string `json:"body"`
+		Path string `json:"path"`
+		Line int    `json:"line"`
+		Side string `json:"side"`
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+	if err := g.api(
+		ctx, token, http.MethodGet, path+"/comments?per_page=100", nil, &reviewComments,
+	); err == nil {
+		for _, comment := range reviewComments {
+			result.ReviewComments = append(result.ReviewComments, PullRequestReviewComment{
+				Author: comment.User.Login, Body: comment.Body, Path: comment.Path,
+				Line: comment.Line, Side: comment.Side,
+			})
+		}
+	} else {
+		result.Warnings = append(result.Warnings, "Inline review comments were unavailable: "+err.Error())
+	}
+	return result, nil
 }
 
 func (g *GitHub) Publish(ctx context.Context, request Request) (Result, error) {
@@ -694,4 +865,39 @@ func (g *GitHub) api(
 		return fmt.Errorf("decode GitHub response: %w", err)
 	}
 	return nil
+}
+
+func (g *GitHub) apiRaw(
+	ctx context.Context,
+	token string,
+	method string,
+	path string,
+	accept string,
+	limit int64,
+) ([]byte, bool, error) {
+	req, err := http.NewRequestWithContext(
+		ctx, method, strings.TrimRight(g.cfg.APIURL, "/")+path, nil,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	req.Header.Set("Accept", accept)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	response, err := g.client.Do(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("call GitHub: %w", err)
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, false, fmt.Errorf("GitHub API %d", response.StatusCode)
+	}
+	if int64(len(data)) > limit {
+		return data[:limit], true, nil
+	}
+	return data, false, nil
 }

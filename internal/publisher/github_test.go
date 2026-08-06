@@ -98,6 +98,72 @@ func TestPublishCreatesExactReviewedTreeAndDraftPR(t *testing.T) {
 	}
 }
 
+func TestPullRequestContextReadsPrivateDiffAndDiscussion(t *testing.T) {
+	const repository = "tenantcorp/tenant-infra"
+	const pullPath = "/repos/" + repository + "/pulls/514"
+	requests := make(map[string]int)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer private-token" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		requests[r.URL.RequestURI()]++
+		switch {
+		case r.URL.Path == pullPath && r.Header.Get("Accept") == "application/vnd.github.v3.diff":
+			_, _ = w.Write([]byte("diff --git a/sentry.tf b/sentry.tf\n+symbolicator = true\n"))
+		case r.URL.Path == pullPath:
+			_, _ = w.Write([]byte(`{
+				"number":514,"html_url":"https://github.com/tenantcorp/tenant-infra/pull/514",
+				"title":"Deploy Sentry Symbolicator","body":"Use MinIO for symbols.",
+				"state":"open","draft":false,"merged":false,
+				"changed_files":3,"additions":41,"deletions":2,
+				"user":{"login":"trevin"},
+				"base":{"ref":"main","sha":"base-sha"},
+				"head":{"ref":"symbolicator","sha":"head-sha"}
+			}`))
+		case r.URL.Path == "/repos/"+repository+"/issues/514/comments":
+			_, _ = w.Write([]byte(`[{"body":"Needs GCP connectivity.","user":{"login":"andrew"}}]`))
+		case r.URL.Path == pullPath+"/reviews":
+			_, _ = w.Write([]byte(`[{"body":"Check bucket permissions.","state":"CHANGES_REQUESTED","user":{"login":"reviewer"}}]`))
+		case r.URL.Path == pullPath+"/comments":
+			_, _ = w.Write([]byte(`[{"body":"This needs a narrower policy.","path":"sentry.tf","line":42,"side":"RIGHT","user":{"login":"reviewer"}}]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("TEST_GITHUB_TOKEN", "private-token")
+	client := New(config.GitHubConfig{
+		Enabled: true, APIURL: server.URL, TokenEnv: "TEST_GITHUB_TOKEN",
+	})
+
+	got, err := client.PullRequestContext(context.Background(), repository, 514)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Number != 514 || got.Title != "Deploy Sentry Symbolicator" ||
+		got.BaseRef != "main" || got.HeadRef != "symbolicator" ||
+		got.ChangedFiles != 3 || !strings.Contains(got.Diff, "+symbolicator = true") {
+		t.Fatalf("pull request context = %+v", got)
+	}
+	if len(got.Comments) != 1 || got.Comments[0].Author != "andrew" ||
+		len(got.Reviews) != 1 || got.Reviews[0].State != "CHANGES_REQUESTED" ||
+		len(got.ReviewComments) != 1 || got.ReviewComments[0].Path != "sentry.tf" ||
+		got.ReviewComments[0].Line != 42 || len(got.Warnings) != 0 {
+		t.Fatalf("pull request discussion = comments %#v reviews %#v inline %#v warnings %#v", got.Comments, got.Reviews, got.ReviewComments, got.Warnings)
+	}
+	for _, uri := range []string{
+		pullPath,
+		pullPath,
+		"/repos/" + repository + "/issues/514/comments?per_page=100",
+		pullPath + "/reviews?per_page=100",
+		pullPath + "/comments?per_page=100",
+	} {
+		if requests[uri] == 0 {
+			t.Fatalf("GitHub request %q was not made: %#v", uri, requests)
+		}
+	}
+}
+
 func TestPublishRejectsConfiguredSecretAndInvalidObjectID(t *testing.T) {
 	client := New(config.GitHubConfig{Enabled: true}, "logs-test-token")
 	request := Request{

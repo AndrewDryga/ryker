@@ -35,6 +35,7 @@ const (
 	ActionHelp                = "responder_help"
 	ActionOpenIncident        = "responder_open_incident"
 	ActionStartTask           = "responder_start_engineering_task"
+	ActionReviewPullRequest   = "responder_review_pull_request"
 	ActionApproveProposal     = "responder_approve_proposal"
 	ActionRejectProposal      = "responder_reject_proposal"
 	ActionOpenApproval        = "responder_open_emisar_approval"
@@ -1851,6 +1852,14 @@ func WithSuggestedEngineeringTaskOffer(
 		message, taskTitle, sourceInputID, repositoryLabel,
 		"Prepare code fix",
 	)
+}
+
+func WithPullRequestReview(message Message, sourceInputID string) Message {
+	message.Actions = append(message.Actions, Action{
+		ID: ActionReviewPullRequest, Label: "Review PR", Value: sourceInputID,
+		Confirm: "Review the exact PR diff, discussion, risks, and missing work? This is read-only.",
+	})
+	return message
 }
 
 func withEngineeringTaskOffer(

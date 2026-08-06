@@ -154,6 +154,12 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			}
 			return nil
 		}
+		if input.ActionID == slackui.ActionReviewPullRequest {
+			if err := s.handlePullRequestReviewAction(ctx, input); err != nil {
+				return s.retrySlackInput(ctx, input, err)
+			}
+			return nil
+		}
 		if input.ActionID == slackui.ActionApproveProposal ||
 			input.ActionID == slackui.ActionRejectProposal {
 			if err := s.handleActionProposal(ctx, input); err != nil {

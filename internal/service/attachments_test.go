@@ -9,7 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
@@ -20,6 +23,110 @@ import (
 var testPNG = []byte{
 	0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n',
 	0, 0, 0, 13, 'I', 'H', 'D', 'R',
+}
+
+type pullRequestTestPublisher struct {
+	context    publisher.PullRequestContext
+	repository string
+	number     int
+}
+
+func (*pullRequestTestPublisher) Enabled() bool { return true }
+
+func (*pullRequestTestPublisher) HeadBranch(core.Incident, core.Publication) (string, error) {
+	return "responder/test", nil
+}
+
+func (*pullRequestTestPublisher) Publish(
+	context.Context,
+	publisher.Request,
+) (publisher.Result, error) {
+	return publisher.Result{}, nil
+}
+
+func (*pullRequestTestPublisher) VerifyPublication(context.Context, core.Publication) error {
+	return nil
+}
+
+func (f *pullRequestTestPublisher) PullRequestContext(
+	_ context.Context,
+	repository string,
+	number int,
+) (publisher.PullRequestContext, error) {
+	f.repository = repository
+	f.number = number
+	return f.context, nil
+}
+
+func TestConfiguredPrivatePullRequestBecomesExactAgentArtifact(t *testing.T) {
+	cfg := serviceConfig(t)
+	cfg.Repositories = map[string]config.Repository{
+		"tenant-infra": {GitHubRepository: "tenantcorp/tenant-infra"},
+	}
+	client := &pullRequestTestPublisher{context: publisher.PullRequestContext{
+		Repository: "tenantcorp/tenant-infra", Number: 514,
+		URL:   "https://github.com/tenantcorp/tenant-infra/pull/514",
+		Title: "Deploy Sentry Symbolicator", Body: "Use MinIO for symbols.",
+		State: "open", Author: "trevin", BaseRef: "main", BaseSHA: "base",
+		HeadRef: "symbolicator", HeadSHA: "head", ChangedFiles: 3,
+		Additions: 41, Deletions: 2,
+		Diff:     "diff --git a/sentry.tf b/sentry.tf\n+symbolicator = true\n",
+		Comments: []publisher.PullRequestComment{{Author: "andrew", Body: "Connect GCP to Nomad."}},
+		Reviews:  []publisher.PullRequestReview{{Author: "reviewer", State: "CHANGES_REQUESTED", Body: "Check access."}},
+		ReviewComments: []publisher.PullRequestReviewComment{{
+			Author: "reviewer", Body: "Use least privilege.", Path: "sentry.tf", Line: 42, Side: "RIGHT",
+		}},
+	}}
+	svc := &Service{cfg: cfg, publisher: client}
+
+	artifacts, err := svc.augmentAgentRunArtifacts(
+		context.Background(),
+		"Please review https://github.com/tenantcorp/tenant-infra/pull/514",
+		[]coop.InputArtifact{{Name: "screenshot.png", MediaType: "image/png"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.repository != "tenantcorp/tenant-infra" || client.number != 514 {
+		t.Fatalf("GitHub request = %s#%d", client.repository, client.number)
+	}
+	if len(artifacts) != 2 || artifacts[1].Name != "github-pr-514.md" ||
+		artifacts[1].MediaType != "text/markdown" {
+		t.Fatalf("artifacts = %+v", artifacts)
+	}
+	text := string(artifacts[1].Data)
+	for _, want := range []string{
+		"Exact authenticated GitHub pull request context",
+		"Deploy Sentry Symbolicator", "Connect GCP to Nomad.",
+		"CHANGES_REQUESTED", "sentry.tf:42", "Use least privilege.", "+symbolicator = true",
+		"untrusted repository content",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("PR artifact missing %q:\n%s", want, text)
+		}
+	}
+	digest := sha256.Sum256(artifacts[1].Data)
+	if artifacts[1].SHA256 != hex.EncodeToString(digest[:]) {
+		t.Fatalf("artifact digest = %q", artifacts[1].SHA256)
+	}
+}
+
+func TestUnconfiguredPullRequestIsNotFetched(t *testing.T) {
+	cfg := serviceConfig(t)
+	cfg.Repositories = map[string]config.Repository{
+		"emisar": {GitHubRepository: "AndrewDryga/emisar"},
+	}
+	client := &pullRequestTestPublisher{}
+	svc := &Service{cfg: cfg, publisher: client}
+
+	artifacts, err := svc.augmentAgentRunArtifacts(
+		context.Background(),
+		"Review https://github.com/tenantcorp/tenant-infra/pull/514",
+		nil,
+	)
+	if err != nil || len(artifacts) != 0 || client.repository != "" {
+		t.Fatalf("unconfigured PR = artifacts %+v request %q error %v", artifacts, client.repository, err)
+	}
 }
 
 func TestSlackAttachmentReachesQueuedCoopTurn(t *testing.T) {

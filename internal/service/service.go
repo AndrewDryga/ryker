@@ -53,6 +53,10 @@ type publicationStatusAPI interface {
 	PublicationStatus(context.Context, core.Publication) (core.PublicationLifecycleStatus, error)
 }
 
+type pullRequestContextAPI interface {
+	PullRequestContext(context.Context, string, int) (publisher.PullRequestContext, error)
+}
+
 type EmisarAPI interface {
 	WaitForRun(context.Context, string) (emisar.RunState, error)
 }
