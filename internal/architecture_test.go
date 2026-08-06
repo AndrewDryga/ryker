@@ -45,10 +45,14 @@ var methodBudget = map[string]int{
 // mostly the watch-decision and agent-report types and their validators.
 // Exporting all 57 would widen the package's API instead of narrowing it, so
 // the decision domain has to become its own package first. That is the next
-// extraction, and this number comes down when it lands.
+// extraction, and this number comes down again when it lands.
+//
+// The process-local coordination state moved to internal/localstate, which is
+// how this budget came back to 28000 after the decision-logic refactors.
 var lineBudget = map[string]int{
-	"service": 28100,
-	"store":   14000,
+	"service":    28000,
+	"store":      14000,
+	"localstate": 250,
 }
 
 // forbiddenImports records the dependency direction. Each package maps to the
@@ -64,6 +68,7 @@ var forbiddenImports = map[string][]string{
 	"episode":       {"service", "store", "slackui", "httpapi", "app"},
 	"investigation": {"service", "store", "slackui", "httpapi", "app"},
 	"publisher":     {"service", "store", "slackui", "httpapi", "app"},
+	"localstate":    {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
 }
 
 func repoRoot(t *testing.T) string {

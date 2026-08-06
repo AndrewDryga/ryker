@@ -529,6 +529,216 @@ func watchTurnIdempotencyKey(inputID string, generation int) string {
 	return key
 }
 
+// applyReplyDecision performs an accepted reply: the Slack delivery itself
+// plus everything a reply may carry — offers, approvals, generated visuals,
+// incident and task handoffs, evidence, and memory. It is the largest single
+// outcome in the watch lifecycle, so it owns its own function rather than
+// living inside the action switch.
+func (s *Service) applyReplyDecision(
+	ctx context.Context,
+	input core.SlackInput,
+	state watchTurnState,
+	decision watchDecision,
+	episodeID string,
+	responseThreadTS string,
+	post func(context.Context, string, core.SlackInput, slackui.Message) error,
+) error {
+	replyParts := replySequence(decision.Message, decision.FollowupMessages)
+	finalReply := replyParts[len(replyParts)-1]
+	message := s.watchReplyMessage(
+		input, finalReply, decision.Evidence, decision.Coverage,
+	)
+	outcome := "replied"
+	if actionValue, scope, expires, ok := s.prepareMemoryOfferAction(input, decision.MemoryOffer); ok {
+		message = slackui.WithMemoryOffer(
+			message, *decision.MemoryOffer, actionValue, scope, expires,
+		)
+		outcome = "memory_offered"
+	}
+	if actionValue, preference, expires, ok := s.preparePreferenceOfferAction(
+		input,
+		decision.PreferenceOffer,
+	); ok {
+		message = slackui.WithPreferenceOffer(
+			message,
+			*decision.PreferenceOffer,
+			preference,
+			actionValue,
+			expires,
+		)
+		outcome = "preference_offered"
+	}
+	if actionValue, rule, expires, ok := s.prepareRuleOfferAction(
+		input,
+		decision.RuleOffer,
+	); ok {
+		message = slackui.WithRuleOffer(
+			message,
+			*decision.RuleOffer,
+			rule,
+			actionValue,
+			expires,
+		)
+		outcome = "rule_offered"
+	}
+	scheduleInput := input
+	scheduleInput.ThreadTS = responseThreadTS
+	scheduleInput = scheduleInputWithConversationIntent(
+		scheduleInput,
+		state.RecentMessages,
+	)
+	schedulePresent := decision.ScheduleOffer != nil
+	scheduleOffered := false
+	if schedulePresent {
+		if actionValue, task, when, ok := s.prepareScheduleOfferAction(
+			ctx, scheduleInput, decision.ScheduleOffer,
+		); ok {
+			message = slackui.WithScheduleOffer(message, task, actionValue, when)
+			outcome = "schedule_offered"
+			scheduleOffered = true
+		} else {
+			message = slackui.ScheduleOfferUnavailable(message)
+			outcome = "schedule_offer_invalid"
+		}
+	}
+	if decision.PendingApproval != nil {
+		message = slackui.WithEmisarApproval(message, *decision.PendingApproval)
+		outcome = "emisar_approval_pending"
+	}
+	if decision.IncidentTitle != "" {
+		if input.Kind == "bot_message" {
+			alertPolicy, err := s.channelAlertPolicy(ctx, input.ChannelID)
+			if err != nil {
+				return err
+			}
+			if alertPolicy == "automatic" {
+				if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
+					return err
+				}
+				return s.createWatchedIncident(
+					ctx, input, input, decision.IncidentTitle,
+				)
+			}
+			if alertPolicy == "reply" {
+				outcome = "alert_replied_in_place"
+				decision.IncidentTitle = ""
+			}
+		}
+		if decision.IncidentTitle != "" {
+			if err := s.persistWatchIncidentOffer(ctx, input.ID, decision.IncidentTitle); err != nil {
+				return err
+			}
+			message = slackui.WithIncidentOffer(message, input.ID)
+			outcome = "incident_offered"
+		}
+	}
+	if decision.TaskTitle != "" {
+		repository, err := s.resolveTaskOfferRepository(decision.TaskRepository)
+		if err != nil {
+			question := taskRepositoryQuestion("", s.repositoryChoices())
+			if schedulePresent {
+				message.Sections = append(message.Sections, question)
+			} else {
+				message = s.watchReplyMessage(
+					input,
+					taskRepositoryQuestion(finalReply, s.repositoryChoices()),
+					decision.Evidence,
+					decision.Coverage,
+				)
+			}
+			outcome = "engineering_task_repository_required"
+		} else {
+			if err := s.persistWatchTaskOffer(
+				ctx,
+				input.ID,
+				decision.TaskTitle,
+				repository,
+				decision.TaskPrompt,
+			); err != nil {
+				return err
+			}
+			repositoryLabel := s.repositoryLabel(repository)
+			if decision.TaskPrompt != "" {
+				message = slackui.WithSuggestedEngineeringTaskOffer(
+					message, decision.TaskTitle, input.ID, repositoryLabel,
+				)
+			} else {
+				message = slackui.WithEngineeringTaskOffer(
+					message, decision.TaskTitle, input.ID, repositoryLabel,
+				)
+			}
+			if scheduleOffered {
+				outcome = "schedule_and_engineering_task_offered"
+			} else if decision.IncidentTitle != "" {
+				outcome = "incident_and_engineering_task_offered"
+			} else {
+				outcome = "engineering_task_offered"
+			}
+		}
+	}
+	if decision.Completion != nil && decision.Completion.Status == "blocked" {
+		message = slackui.WithBlockedAssessment(
+			message,
+			decision.Completion.Summary,
+			decision.Completion.MaterialGaps,
+			decision.Completion.Attempts,
+			decision.Completion.NextAction,
+			s.sanitizer,
+		)
+	}
+	if input.Kind != "shortcut" {
+		if _, ok := s.pullRequestReferenceForWatch(input, state); ok {
+			message = slackui.WithPullRequestReview(message, input.ID)
+		}
+	}
+	baseDeliveryID := firstNonempty(
+		state.ReplyDeliveryID,
+		"watch_reply_"+input.ID,
+	)
+	for index, part := range replyParts[:len(replyParts)-1] {
+		if err := post(
+			ctx,
+			replySequenceDeliveryID(baseDeliveryID, index, len(replyParts)),
+			input,
+			slackui.ConversationResponse(part, s.sanitizer),
+		); err != nil {
+			return err
+		}
+	}
+	deliveryID := replySequenceDeliveryID(
+		baseDeliveryID,
+		len(replyParts)-1,
+		len(replyParts),
+	)
+	if len(decision.Visuals) == 0 {
+		if err := post(
+			ctx,
+			deliveryID,
+			input,
+			message,
+		); err != nil {
+			return err
+		}
+	} else if err := s.enqueueGeneratedVisuals(
+		ctx, deliveryID, "", episodeID, input.ChannelID, responseThreadTS,
+		state.SessionID, state.TurnID, decision.Visuals, &message,
+	); err != nil {
+		return err
+	}
+	if err := s.bindAndScheduleEmisarApproval(
+		ctx,
+		decision.PendingApproval,
+		deliveryID,
+	); err != nil {
+		return err
+	}
+	s.audit(ctx, core.AuditEvent{
+		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+		Outcome: outcome, Detail: input.ChannelID,
+	})
+	return nil
+}
+
 func (s *Service) applyWatchDecision(
 	ctx context.Context,
 	input core.SlackInput,
@@ -722,199 +932,11 @@ func (s *Service) applyWatchDecision(
 			Outcome: "reacted", Detail: decision.Reaction,
 		})
 	case "reply":
-		replyParts := replySequence(decision.Message, decision.FollowupMessages)
-		finalReply := replyParts[len(replyParts)-1]
-		message := s.watchReplyMessage(
-			input, finalReply, decision.Evidence, decision.Coverage,
-		)
-		outcome := "replied"
-		if actionValue, scope, expires, ok := s.prepareMemoryOfferAction(input, decision.MemoryOffer); ok {
-			message = slackui.WithMemoryOffer(
-				message, *decision.MemoryOffer, actionValue, scope, expires,
-			)
-			outcome = "memory_offered"
-		}
-		if actionValue, preference, expires, ok := s.preparePreferenceOfferAction(
-			input,
-			decision.PreferenceOffer,
-		); ok {
-			message = slackui.WithPreferenceOffer(
-				message,
-				*decision.PreferenceOffer,
-				preference,
-				actionValue,
-				expires,
-			)
-			outcome = "preference_offered"
-		}
-		if actionValue, rule, expires, ok := s.prepareRuleOfferAction(
-			input,
-			decision.RuleOffer,
-		); ok {
-			message = slackui.WithRuleOffer(
-				message,
-				*decision.RuleOffer,
-				rule,
-				actionValue,
-				expires,
-			)
-			outcome = "rule_offered"
-		}
-		scheduleInput := input
-		scheduleInput.ThreadTS = responseThreadTS
-		scheduleInput = scheduleInputWithConversationIntent(
-			scheduleInput,
-			state.RecentMessages,
-		)
-		schedulePresent := decision.ScheduleOffer != nil
-		scheduleOffered := false
-		if schedulePresent {
-			if actionValue, task, when, ok := s.prepareScheduleOfferAction(
-				ctx, scheduleInput, decision.ScheduleOffer,
-			); ok {
-				message = slackui.WithScheduleOffer(message, task, actionValue, when)
-				outcome = "schedule_offered"
-				scheduleOffered = true
-			} else {
-				message = slackui.ScheduleOfferUnavailable(message)
-				outcome = "schedule_offer_invalid"
-			}
-		}
-		if decision.PendingApproval != nil {
-			message = slackui.WithEmisarApproval(message, *decision.PendingApproval)
-			outcome = "emisar_approval_pending"
-		}
-		if decision.IncidentTitle != "" {
-			if input.Kind == "bot_message" {
-				alertPolicy, err := s.channelAlertPolicy(ctx, input.ChannelID)
-				if err != nil {
-					return err
-				}
-				if alertPolicy == "automatic" {
-					if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
-						return err
-					}
-					return s.createWatchedIncident(
-						ctx, input, input, decision.IncidentTitle,
-					)
-				}
-				if alertPolicy == "reply" {
-					outcome = "alert_replied_in_place"
-					decision.IncidentTitle = ""
-				}
-			}
-			if decision.IncidentTitle != "" {
-				if err := s.persistWatchIncidentOffer(ctx, input.ID, decision.IncidentTitle); err != nil {
-					return err
-				}
-				message = slackui.WithIncidentOffer(message, input.ID)
-				outcome = "incident_offered"
-			}
-		}
-		if decision.TaskTitle != "" {
-			repository, err := s.resolveTaskOfferRepository(decision.TaskRepository)
-			if err != nil {
-				question := taskRepositoryQuestion("", s.repositoryChoices())
-				if schedulePresent {
-					message.Sections = append(message.Sections, question)
-				} else {
-					message = s.watchReplyMessage(
-						input,
-						taskRepositoryQuestion(finalReply, s.repositoryChoices()),
-						decision.Evidence,
-						decision.Coverage,
-					)
-				}
-				outcome = "engineering_task_repository_required"
-			} else {
-				if err := s.persistWatchTaskOffer(
-					ctx,
-					input.ID,
-					decision.TaskTitle,
-					repository,
-					decision.TaskPrompt,
-				); err != nil {
-					return err
-				}
-				repositoryLabel := s.repositoryLabel(repository)
-				if decision.TaskPrompt != "" {
-					message = slackui.WithSuggestedEngineeringTaskOffer(
-						message, decision.TaskTitle, input.ID, repositoryLabel,
-					)
-				} else {
-					message = slackui.WithEngineeringTaskOffer(
-						message, decision.TaskTitle, input.ID, repositoryLabel,
-					)
-				}
-				if scheduleOffered {
-					outcome = "schedule_and_engineering_task_offered"
-				} else if decision.IncidentTitle != "" {
-					outcome = "incident_and_engineering_task_offered"
-				} else {
-					outcome = "engineering_task_offered"
-				}
-			}
-		}
-		if decision.Completion != nil && decision.Completion.Status == "blocked" {
-			message = slackui.WithBlockedAssessment(
-				message,
-				decision.Completion.Summary,
-				decision.Completion.MaterialGaps,
-				decision.Completion.Attempts,
-				decision.Completion.NextAction,
-				s.sanitizer,
-			)
-		}
-		if input.Kind != "shortcut" {
-			if _, ok := s.pullRequestReferenceForWatch(input, state); ok {
-				message = slackui.WithPullRequestReview(message, input.ID)
-			}
-		}
-		baseDeliveryID := firstNonempty(
-			state.ReplyDeliveryID,
-			"watch_reply_"+input.ID,
-		)
-		for index, part := range replyParts[:len(replyParts)-1] {
-			if err := post(
-				ctx,
-				replySequenceDeliveryID(baseDeliveryID, index, len(replyParts)),
-				input,
-				slackui.ConversationResponse(part, s.sanitizer),
-			); err != nil {
-				return err
-			}
-		}
-		deliveryID := replySequenceDeliveryID(
-			baseDeliveryID,
-			len(replyParts)-1,
-			len(replyParts),
-		)
-		if len(decision.Visuals) == 0 {
-			if err := post(
-				ctx,
-				deliveryID,
-				input,
-				message,
-			); err != nil {
-				return err
-			}
-		} else if err := s.enqueueGeneratedVisuals(
-			ctx, deliveryID, "", episodeID, input.ChannelID, responseThreadTS,
-			state.SessionID, state.TurnID, decision.Visuals, &message,
+		if err := s.applyReplyDecision(
+			ctx, input, state, decision, episodeID, responseThreadTS, post,
 		); err != nil {
 			return err
 		}
-		if err := s.bindAndScheduleEmisarApproval(
-			ctx,
-			decision.PendingApproval,
-			deliveryID,
-		); err != nil {
-			return err
-		}
-		s.audit(ctx, core.AuditEvent{
-			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-			Outcome: outcome, Detail: input.ChannelID,
-		})
 	case "incident":
 		alertPolicy, policyErr := s.channelAlertPolicy(ctx, input.ChannelID)
 		if policyErr != nil {

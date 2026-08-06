@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -667,117 +668,126 @@ func (c Config) validateWebhooksAndActions() error {
 
 // validateLimits checks the numeric bounds that govern payload sizes, incident
 // capacity, worker concurrency, and lease timing.
+// intRange is one numeric bound: the setting's name, its value, and the
+// inclusive range it must fall in. Upper and lower bounds that reference
+// another setting carry that setting's name so the message stays readable.
+type intRange struct {
+	name     string
+	value    int
+	min, max int
+	minName  string
+	maxName  string
+}
+
+func (r intRange) check() error {
+	if r.value >= r.min && r.value <= r.max {
+		return nil
+	}
+	low, high := strconv.Itoa(r.min), strconv.Itoa(r.max)
+	if r.minName != "" {
+		low = r.minName
+	}
+	if r.maxName != "" {
+		high = r.maxName
+	}
+	return fmt.Errorf("limits.%s must be between %s and %s", r.name, low, high)
+}
+
+// durationRange is the same for a duration setting.
+type durationRange struct {
+	name     string
+	value    time.Duration
+	min, max time.Duration
+	label    string
+}
+
+func (r durationRange) check() error {
+	if r.value >= r.min && r.value <= r.max {
+		return nil
+	}
+	if r.label != "" {
+		return errors.New("limits." + r.name + " " + r.label)
+	}
+	return fmt.Errorf("limits.%s must be between %s and %s", r.name, r.min, r.max)
+}
+
+// validateLimits checks the numeric bounds that govern payload sizes, incident
+// capacity, behavior storage, worker concurrency, and lease timing. They are a
+// table because they are all the same shape, and a table keeps the bound and
+// the message it produces next to each other.
 func (c Config) validateLimits() error {
-	if c.Limits.MaxWebhookBytes < 1024 || c.Limits.MaxWebhookBytes > 8<<20 {
-		return errors.New("limits.max_webhook_bytes must be between 1024 and 8388608")
-	}
-	if c.Limits.MaxSlackFiles < 1 || c.Limits.MaxSlackFiles > 4 {
-		return errors.New("limits.max_slack_files must be between 1 and 4")
-	}
-	if c.Limits.MaxSlackFileBytes < 64<<10 || c.Limits.MaxSlackFileBytes > 8<<20 {
-		return errors.New("limits.max_slack_file_bytes must be between 65536 and 8388608")
-	}
-	if c.Limits.MaxSlackFileTotalBytes < c.Limits.MaxSlackFileBytes ||
-		c.Limits.MaxSlackFileTotalBytes > 8<<20 {
-		return errors.New("limits.max_slack_file_total_bytes must be between max_slack_file_bytes and 8388608")
-	}
-	if c.Limits.MaxGeneratedVisuals < 1 || c.Limits.MaxGeneratedVisuals > 4 {
-		return errors.New("limits.max_generated_visuals must be between 1 and 4")
-	}
-	if c.Limits.MaxGeneratedVisualBytes < 64<<10 || c.Limits.MaxGeneratedVisualBytes > 8<<20 {
-		return errors.New("limits.max_generated_visual_bytes must be between 65536 and 8388608")
-	}
-	if c.Limits.MaxGeneratedVisualTotalBytes < c.Limits.MaxGeneratedVisualBytes || c.Limits.MaxGeneratedVisualTotalBytes > 8<<20 {
-		return errors.New("limits.max_generated_visual_total_bytes must be between max_generated_visual_bytes and 8388608")
-	}
-	if c.Limits.MaxActiveIncidents < 1 || c.Limits.MaxActiveIncidents > 10000 {
-		return errors.New("limits.max_active_incidents must be between 1 and 10000")
-	}
-	if c.Limits.MaxOpenIncidents < c.Limits.MaxActiveIncidents ||
-		c.Limits.MaxOpenIncidents > 50000 {
-		return errors.New("limits.max_open_incidents must be between max_active_incidents and 50000")
-	}
-	if c.Limits.MaxAssistantBytes < 1000 || c.Limits.MaxAssistantBytes > 30000 {
-		return errors.New("limits.max_assistant_bytes must be between 1000 and 30000")
-	}
-	for name, value := range map[string]int{
-		"max_webhook_attempts":     c.Limits.MaxWebhookAttempts,
-		"max_slack_input_attempts": c.Limits.MaxSlackInputAttempts,
-		"max_delivery_attempts":    c.Limits.MaxDeliveryAttempts,
-		"max_agent_run_attempts":   c.Limits.MaxAgentRunAttempts,
-		"max_outbox_attempts":      c.Limits.MaxOutboxAttempts,
+	limits := c.Limits
+	for _, bound := range []intRange{
+		{name: "max_webhook_bytes", value: limits.MaxWebhookBytes, min: 1024, max: 8 << 20},
+		{name: "max_slack_files", value: limits.MaxSlackFiles, min: 1, max: 4},
+		{name: "max_slack_file_bytes", value: limits.MaxSlackFileBytes, min: 64 << 10, max: 8 << 20},
+		{
+			name: "max_slack_file_total_bytes", value: limits.MaxSlackFileTotalBytes,
+			min: limits.MaxSlackFileBytes, max: 8 << 20, minName: "max_slack_file_bytes",
+		},
+		{name: "max_generated_visuals", value: limits.MaxGeneratedVisuals, min: 1, max: 4},
+		{name: "max_generated_visual_bytes", value: limits.MaxGeneratedVisualBytes, min: 64 << 10, max: 8 << 20},
+		{
+			name: "max_generated_visual_total_bytes", value: limits.MaxGeneratedVisualTotalBytes,
+			min: limits.MaxGeneratedVisualBytes, max: 8 << 20, minName: "max_generated_visual_bytes",
+		},
+		{name: "max_active_incidents", value: limits.MaxActiveIncidents, min: 1, max: 10000},
+		{
+			name: "max_open_incidents", value: limits.MaxOpenIncidents,
+			min: limits.MaxActiveIncidents, max: 50000, minName: "max_active_incidents",
+		},
+		{name: "max_assistant_bytes", value: limits.MaxAssistantBytes, min: 1000, max: 30000},
+		{name: "max_webhook_attempts", value: limits.MaxWebhookAttempts, min: 1, max: 100},
+		{name: "max_slack_input_attempts", value: limits.MaxSlackInputAttempts, min: 1, max: 100},
+		{name: "max_delivery_attempts", value: limits.MaxDeliveryAttempts, min: 1, max: 100},
+		{name: "max_agent_run_attempts", value: limits.MaxAgentRunAttempts, min: 1, max: 100},
+		{name: "max_outbox_attempts", value: limits.MaxOutboxAttempts, min: 1, max: 100},
+		{name: "max_memory_entries", value: limits.MaxMemoryEntries, min: 10, max: 100000},
+		{
+			name: "max_memory_entries_per_scope", value: limits.MaxMemoryEntriesPerScope,
+			min: 1, max: limits.MaxMemoryEntries, maxName: "max_memory_entries",
+		},
+		{name: "max_preferences", value: limits.MaxPreferences, min: 1, max: 100000},
+		{
+			name: "max_preferences_per_scope", value: limits.MaxPreferencesPerScope,
+			min: 1, max: limits.MaxPreferences, maxName: "max_preferences",
+		},
+		{name: "max_standing_rules", value: limits.MaxStandingRules, min: 1, max: 100000},
+		{
+			name: "max_rules_per_channel", value: limits.MaxRulesPerChannel,
+			min: 1, max: limits.MaxStandingRules, maxName: "max_standing_rules",
+		},
+		{name: "max_scheduled_tasks", value: limits.MaxScheduledTasks, min: 1, max: 100000},
+		{
+			name: "max_schedules_per_channel", value: limits.MaxSchedulesPerChannel,
+			min: 1, max: limits.MaxScheduledTasks, maxName: "max_scheduled_tasks",
+		},
+		{name: "control_workers", value: limits.ControlWorkers, min: 1, max: 32},
+		{name: "background_workers", value: limits.BackgroundWorkers, min: 1, max: 32},
+		{name: "maintenance_workers", value: limits.MaintenanceWorkers, min: 1, max: 32},
 	} {
-		if value < 1 || value > 100 {
-			return fmt.Errorf("limits.%s must be between 1 and 100", name)
+		if err := bound.check(); err != nil {
+			return err
 		}
 	}
-	if c.Limits.MaxMemoryEntries < 10 || c.Limits.MaxMemoryEntries > 100000 {
-		return errors.New("limits.max_memory_entries must be between 10 and 100000")
-	}
-	if c.Limits.MaxMemoryEntriesPerScope < 1 ||
-		c.Limits.MaxMemoryEntriesPerScope > c.Limits.MaxMemoryEntries {
-		return errors.New(
-			"limits.max_memory_entries_per_scope must be between 1 and max_memory_entries",
-		)
-	}
-	if c.Limits.MaxPreferences < 1 || c.Limits.MaxPreferences > 100000 {
-		return errors.New("limits.max_preferences must be between 1 and 100000")
-	}
-	if c.Limits.MaxPreferencesPerScope < 1 ||
-		c.Limits.MaxPreferencesPerScope > c.Limits.MaxPreferences {
-		return errors.New(
-			"limits.max_preferences_per_scope must be between 1 and max_preferences",
-		)
-	}
-	if c.Limits.MaxStandingRules < 1 || c.Limits.MaxStandingRules > 100000 {
-		return errors.New("limits.max_standing_rules must be between 1 and 100000")
-	}
-	if c.Limits.MaxRulesPerChannel < 1 ||
-		c.Limits.MaxRulesPerChannel > c.Limits.MaxStandingRules {
-		return errors.New(
-			"limits.max_rules_per_channel must be between 1 and max_standing_rules",
-		)
-	}
-	if c.Limits.MaxScheduledTasks < 1 || c.Limits.MaxScheduledTasks > 100000 {
-		return errors.New("limits.max_scheduled_tasks must be between 1 and 100000")
-	}
-	if c.Limits.MaxSchedulesPerChannel < 1 ||
-		c.Limits.MaxSchedulesPerChannel > c.Limits.MaxScheduledTasks {
-		return errors.New(
-			"limits.max_schedules_per_channel must be between 1 and max_scheduled_tasks",
-		)
-	}
-	if c.Limits.ScheduleMisfireGrace.Duration < time.Minute ||
-		c.Limits.ScheduleMisfireGrace.Duration > 24*time.Hour {
-		return errors.New("limits.schedule_misfire_grace must be between 1m and 24h")
-	}
-	if c.Limits.EpisodeProgressInterval.Duration < 30*time.Second ||
-		c.Limits.EpisodeProgressInterval.Duration > time.Hour {
-		return errors.New("limits.episode_progress_interval must be between 30s and 1h")
-	}
-	for name, count := range map[string]int{
-		"control_workers":     c.Limits.ControlWorkers,
-		"background_workers":  c.Limits.BackgroundWorkers,
-		"maintenance_workers": c.Limits.MaintenanceWorkers,
+	for _, bound := range []durationRange{
+		{name: "schedule_misfire_grace", value: limits.ScheduleMisfireGrace.Duration, min: time.Minute, max: 24 * time.Hour},
+		{name: "episode_progress_interval", value: limits.EpisodeProgressInterval.Duration, min: 30 * time.Second, max: time.Hour},
+		{name: "worker_interval", value: limits.WorkerInterval.Duration, min: 50 * time.Millisecond, max: 10 * time.Second},
+		{name: "work_lease", value: limits.WorkLease.Duration, min: 10 * time.Second, max: 30 * time.Minute},
+		{
+			name: "worker_stall_after", value: limits.WorkerStallAfter.Duration,
+			min: c.Coop.RequestTimeout.Duration, max: time.Hour,
+			label: "must be at least coop.request_timeout and no more than 1h",
+		},
 	} {
-		if count < 1 || count > 32 {
-			return fmt.Errorf("limits.%s must be between 1 and 32", name)
+		if err := bound.check(); err != nil {
+			return err
 		}
 	}
-	if c.Limits.WorkerInterval.Duration < 50*time.Millisecond || c.Limits.WorkerInterval.Duration > 10*time.Second {
-		return errors.New("limits.worker_interval must be between 50ms and 10s")
-	}
-	if c.Limits.WorkLease.Duration < 10*time.Second ||
-		c.Limits.WorkLease.Duration > 30*time.Minute {
-		return errors.New("limits.work_lease must be between 10s and 30m")
-	}
-	if c.Limits.WorkerStallAfter.Duration < c.Coop.RequestTimeout.Duration ||
-		c.Limits.WorkerStallAfter.Duration > time.Hour {
-		return errors.New(
-			"limits.worker_stall_after must be at least coop.request_timeout and no more than 1h",
-		)
-	}
-	if c.Limits.WorkLease.Duration <= c.Limits.WorkerStallAfter.Duration {
+	// The lease must outlive the stall deadline, or a worker could still be
+	// inside a work item when another worker reclaims its lease.
+	if limits.WorkLease.Duration <= limits.WorkerStallAfter.Duration {
 		return errors.New("limits.work_lease must be greater than limits.worker_stall_after")
 	}
 	return nil

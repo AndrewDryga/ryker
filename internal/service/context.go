@@ -245,7 +245,7 @@ func (s *Service) recentMessages(
 		channelID, threadTS, targetTS, sinceTS, limit,
 	)
 	now := s.now()
-	if cached, ok := s.historyCache.get(key, now); ok {
+	if cached, ok := s.historyCache.Get(key, now); ok {
 		return cached, nil
 	}
 	messages, err := s.slack.RecentMessages(
@@ -254,7 +254,7 @@ func (s *Service) recentMessages(
 	if err != nil {
 		return nil, err
 	}
-	s.historyCache.put(key, messages, now)
+	s.historyCache.Put(key, messages, now)
 	return messages, nil
 }
 
@@ -262,7 +262,7 @@ func (s *Service) invalidateSlackHistory(channelID string) {
 	if channelID == "" {
 		return
 	}
-	s.historyCache.invalidateChannel(channelID)
+	s.historyCache.InvalidateChannel(channelID)
 }
 
 func historyWatchContext(

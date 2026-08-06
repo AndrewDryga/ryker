@@ -227,11 +227,11 @@ func (s *Service) processSlackWrite(ctx context.Context) error {
 	// Defer to the exact moment the slot reopens. Reporting success instead
 	// would requeue this recurring item as immediately available and spin the
 	// lane against the single database connection for the whole window.
-	wait, ok := s.writeSlot.acquire(s.now())
+	wait, ok := s.writeSlot.Acquire(s.now())
 	if !ok {
 		return deferScheduledWork(s.now().Add(wait), "Slack write slot is cooling down")
 	}
-	defer func() { s.writeSlot.release(s.now()) }()
+	defer func() { s.writeSlot.Release(s.now()) }()
 	return s.processSlackDelivery(ctx)
 }
 
@@ -906,7 +906,7 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 		return
 	}
 	statusKey := incident.ID + "@" + incident.ConversationThreadTS()
-	if !s.nativeStatus.shouldWrite(statusKey, status, s.now()) {
+	if !s.nativeStatus.ShouldWrite(statusKey, status, s.now()) {
 		return
 	}
 	if err := s.enqueueNativeStatus(
@@ -920,7 +920,7 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 		s.log.Warn("set Slack thread status", "incident", incident.ID, "error", err)
 		return
 	}
-	s.nativeStatus.record(statusKey, status, s.now())
+	s.nativeStatus.Record(statusKey, status, s.now())
 }
 
 func (s *Service) enqueueNativeStatus(
@@ -1032,7 +1032,7 @@ func progressMilestones(status string) []string {
 }
 
 func (s *Service) forgetNativeStatus(incidentID string) {
-	s.nativeStatus.forgetIncident(incidentID)
+	s.nativeStatus.ForgetIncident(incidentID)
 }
 
 func (s *Service) enqueue(

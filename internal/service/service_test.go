@@ -981,7 +981,7 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 	if err := svc.processAgentRunFinalization(ctx); err != nil {
 		t.Fatal(err)
 	}
-	svc.writeSlot.reset()
+	svc.writeSlot.Reset()
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 2 {
 		t.Fatalf("Slack posts = %+v", slack.posts)
@@ -2439,7 +2439,7 @@ func TestSlackWritesAlternateBetweenDirtyCardAndDelivery(t *testing.T) {
 		!slices.Contains(rendered.Context, "Alert source: <https://grafana.example.test/alerting/1|Open grafana.example.test>") {
 		t.Fatalf("updated card omitted current signal evidence: %+v", rendered)
 	}
-	svc.writeSlot.reset()
+	svc.writeSlot.Reset()
 	if err := svc.processSlackWrite(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -2525,7 +2525,7 @@ func TestAcceptedOperatorReplySetsAndRefreshesNativeStatus(t *testing.T) {
 		t.Fatalf("status refreshed too early: %+v", slack.statuses)
 	}
 	statusKey := incident.ID + "@" + incident.ConversationThreadTS()
-	svc.nativeStatus.age(statusKey, 76*time.Second)
+	svc.nativeStatus.Age(statusKey, 76*time.Second)
 	svc.setNativeStatus(ctx, incident, "is investigating...")
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.statuses) != 2 {
@@ -2539,7 +2539,7 @@ func TestAcceptedOperatorReplySetsAndRefreshesNativeStatus(t *testing.T) {
 	if err := svc.processSlackDelivery(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := svc.nativeStatus.textFor(statusKey); ok {
+	if _, ok := svc.nativeStatus.TextFor(statusKey); ok {
 		t.Fatal("thread reply did not clear the local native-status cache")
 	}
 }
@@ -2812,7 +2812,7 @@ func TestNativeStatusRetriesAfterTransientSlackFailure(t *testing.T) {
 	if err := svc.processSlackDelivery(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if firstOf(svc.nativeStatus.textFor(statusKey)) != "is investigating..." {
+	if firstOf(svc.nativeStatus.TextFor(statusKey)) != "is investigating..." {
 		t.Fatal("desired native status was not retained for durable retry")
 	}
 	if err := svc.enqueue(
@@ -2826,7 +2826,7 @@ func TestNativeStatusRetriesAfterTransientSlackFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(slack.statuses) != 1 || metrics.SlackDeliveriesPending == 0 ||
-		firstOf(svc.nativeStatus.textFor(statusKey)) != "is investigating..." {
+		firstOf(svc.nativeStatus.TextFor(statusKey)) != "is investigating..." {
 		t.Fatalf(
 			"native status retry was not durable: statuses=%+v pending=%d",
 			slack.statuses,

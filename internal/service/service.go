@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/emisar"
+	"github.com/AndrewDryga/responder/internal/localstate"
 	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -109,9 +110,9 @@ type Service struct {
 
 	// Process-local coordination state. See caches.go: none of it is durable
 	// truth, and each piece owns its own lock.
-	writeSlot    *writeSlot
-	nativeStatus *nativeStatusTracker
-	historyCache *slackHistoryCache
+	writeSlot    *localstate.WriteSlot
+	nativeStatus *localstate.NativeStatusTracker
+	historyCache *localstate.SlackHistoryCache
 }
 
 // now is the service clock. Every scheduling window, retry delay, and lease
@@ -187,9 +188,9 @@ func New(
 		cfg: cfg, store: st, coop: coopClient, slack: slackClient, socket: socket,
 		sanitizer: sanitizer, log: logger,
 		publisher:    publisher.New(cfg.GitHub),
-		writeSlot:    newWriteSlot(slackWriteInterval),
-		nativeStatus: newNativeStatusTracker(),
-		historyCache: newSlackHistoryCache(),
+		writeSlot:    localstate.NewWriteSlot(localstate.SlackWriteInterval),
+		nativeStatus: localstate.NewNativeStatusTracker(),
+		historyCache: localstate.NewSlackHistoryCache(),
 	}
 }
 

@@ -191,134 +191,147 @@ type ResultOperation struct {
 	Completion      *CompleteEpisode        `json:"completion,omitempty"`
 }
 
+// resultOperationPayloads lists every typed payload a result operation may
+// carry. It is the single source for the "exactly one payload" rule, so adding
+// a payload to ResultOperation is one line here rather than a second list to
+// keep in step with the validators below.
+var resultOperationPayloads = []func(ResultOperation) bool{
+	func(o ResultOperation) bool { return o.Evidence != nil },
+	func(o ResultOperation) bool { return o.Coverage != nil },
+	func(o ResultOperation) bool { return o.Progress != nil },
+	func(o ResultOperation) bool { return o.Goal != nil },
+	func(o ResultOperation) bool { return o.GoalState != nil },
+	func(o ResultOperation) bool { return o.OperatorInput != nil },
+	func(o ResultOperation) bool { return o.ExternalWait != nil },
+	func(o ResultOperation) bool { return o.Approval != nil },
+	func(o ResultOperation) bool { return o.Task != nil },
+	func(o ResultOperation) bool { return o.Feedback != nil },
+	func(o ResultOperation) bool { return o.Visual != nil },
+	func(o ResultOperation) bool { return o.Memory != nil },
+	func(o ResultOperation) bool { return o.MemoryOffer != nil },
+	func(o ResultOperation) bool { return o.PreferenceOffer != nil },
+	func(o ResultOperation) bool { return o.RuleOffer != nil },
+	func(o ResultOperation) bool { return o.ScheduleOffer != nil },
+	func(o ResultOperation) bool { return o.AlertAssessment != nil },
+	func(o ResultOperation) bool { return o.Proposal != nil },
+	func(o ResultOperation) bool { return o.Completion != nil },
+}
+
+// requirePayload builds the common validator: the named payload must be
+// present, and any extra condition on it must hold.
+func requirePayload(
+	requirement string,
+	complete func(ResultOperation) bool,
+) func(ResultOperation) error {
+	return func(o ResultOperation) error {
+		if !complete(o) {
+			return fmt.Errorf("result operation %q requires %s", o.ID, requirement)
+		}
+		return nil
+	}
+}
+
+// resultOperationValidators maps an operation type to the check that its
+// payload is complete. A table rather than a switch keeps the supported types
+// and their requirements in one readable place, and makes an unsupported type
+// a missing key instead of a forgotten branch.
+var resultOperationValidators = map[string]func(ResultOperation) error{
+	"record_evidence": requirePayload("evidence", func(o ResultOperation) bool {
+		return o.Evidence != nil
+	}),
+	"record_coverage": requirePayload("coverage", func(o ResultOperation) bool {
+		return o.Coverage != nil
+	}),
+	"report_progress": requirePayload("progress phase and summary", func(o ResultOperation) bool {
+		return o.Progress != nil && strings.TrimSpace(o.Progress.Phase) != "" &&
+			strings.TrimSpace(o.Progress.Summary) != ""
+	}),
+	"plan_goal": requirePayload("a typed goal", func(o ResultOperation) bool {
+		return o.Goal != nil && strings.TrimSpace(o.Goal.ID) != "" &&
+			strings.TrimSpace(o.Goal.Kind) != "" &&
+			strings.TrimSpace(o.Goal.RequestedOutcome) != "" &&
+			strings.TrimSpace(o.Goal.CompletionContract) != ""
+	}),
+	"update_goal": requirePayload("goal id and state", func(o ResultOperation) bool {
+		return o.GoalState != nil && strings.TrimSpace(o.GoalState.GoalID) != "" &&
+			strings.TrimSpace(string(o.GoalState.State)) != ""
+	}),
+	"request_operator_input": requirePayload("an operator question", func(o ResultOperation) bool {
+		return o.OperatorInput != nil && strings.TrimSpace(o.OperatorInput.Question) != ""
+	}),
+	"wait_external": requirePayload("an external wait and observation time", func(o ResultOperation) bool {
+		return o.ExternalWait != nil && strings.TrimSpace(o.ExternalWait.ID) != "" &&
+			strings.TrimSpace(o.ExternalWait.Kind) != "" &&
+			(o.ExternalWait.DueAt != "" || o.ExternalWait.PollAfter != "")
+	}),
+	"record_feedback":         validateFeedbackOperation,
+	"offer_task":              validateTaskOperation,
+	"request_approval":        requirePayload("approval", func(o ResultOperation) bool { return o.Approval != nil }),
+	"attach_visual":           requirePayload("a visual artifact", func(o ResultOperation) bool { return o.Visual != nil && strings.TrimSpace(o.Visual.Artifact) != "" }),
+	"update_memory":           requirePayload("memory", func(o ResultOperation) bool { return o.Memory != nil }),
+	"offer_memory":            requirePayload("a memory offer", func(o ResultOperation) bool { return o.MemoryOffer != nil }),
+	"offer_preference":        requirePayload("a preference offer", func(o ResultOperation) bool { return o.PreferenceOffer != nil }),
+	"offer_rule":              requirePayload("a rule offer", func(o ResultOperation) bool { return o.RuleOffer != nil }),
+	"offer_schedule":          requirePayload("a schedule offer", func(o ResultOperation) bool { return o.ScheduleOffer != nil }),
+	"record_alert_assessment": requirePayload("an alert assessment", func(o ResultOperation) bool { return o.AlertAssessment != nil }),
+	"propose_action":          requirePayload("an action proposal", func(o ResultOperation) bool { return o.Proposal != nil }),
+	"complete_episode": requirePayload("a completion message", func(o ResultOperation) bool {
+		return o.Completion != nil && strings.TrimSpace(o.Completion.Message) != ""
+	}),
+}
+
+// validateFeedbackOperation checks the enums that only feedback carries.
+func validateFeedbackOperation(operation ResultOperation) error {
+	if operation.Feedback == nil || strings.TrimSpace(operation.Feedback.Summary) == "" {
+		return fmt.Errorf("result operation %q requires a feedback summary", operation.ID)
+	}
+	switch operation.Feedback.Category {
+	case "ux", "correctness", "tone", "latency", "reliability", "feature_request", "other":
+	default:
+		return fmt.Errorf("result operation %q has unsupported feedback category %q", operation.ID, operation.Feedback.Category)
+	}
+	switch operation.Feedback.Sentiment {
+	case "negative", "suggestion", "mixed":
+	default:
+		return fmt.Errorf("result operation %q has unsupported feedback sentiment %q", operation.ID, operation.Feedback.Sentiment)
+	}
+	if operation.Feedback.NeedsFollowup && strings.TrimSpace(operation.Feedback.FollowupQuestion) == "" {
+		return fmt.Errorf("result operation %q requires a follow-up question", operation.ID)
+	}
+	return nil
+}
+
+// validateTaskOperation checks a task offer's title and kind.
+func validateTaskOperation(operation ResultOperation) error {
+	if operation.Task == nil || strings.TrimSpace(operation.Task.Title) == "" {
+		return fmt.Errorf("result operation %q requires a task title", operation.ID)
+	}
+	switch operation.Task.Kind {
+	case "engineering", "incident":
+	default:
+		return fmt.Errorf("result operation %q has unsupported task kind %q", operation.ID, operation.Task.Kind)
+	}
+	return nil
+}
+
 func (operation ResultOperation) Validate() error {
 	if strings.TrimSpace(operation.ID) == "" || len(operation.ID) > 80 {
 		return fmt.Errorf("result operation requires a bounded id")
 	}
 	payloads := 0
-	for _, present := range []bool{
-		operation.Evidence != nil, operation.Coverage != nil, operation.Progress != nil,
-		operation.Goal != nil, operation.GoalState != nil, operation.OperatorInput != nil,
-		operation.ExternalWait != nil, operation.Approval != nil, operation.Task != nil,
-		operation.Feedback != nil,
-		operation.Visual != nil, operation.Memory != nil, operation.MemoryOffer != nil,
-		operation.PreferenceOffer != nil, operation.RuleOffer != nil,
-		operation.ScheduleOffer != nil, operation.AlertAssessment != nil,
-		operation.Proposal != nil, operation.Completion != nil,
-	} {
-		if present {
+	for _, present := range resultOperationPayloads {
+		if present(operation) {
 			payloads++
 		}
 	}
 	if payloads != 1 {
 		return fmt.Errorf("result operation %q requires exactly one typed payload", operation.ID)
 	}
-	switch operation.Type {
-	case "record_evidence":
-		if operation.Evidence == nil {
-			return fmt.Errorf("result operation %q requires evidence", operation.ID)
-		}
-	case "report_progress":
-		if operation.Progress == nil || strings.TrimSpace(operation.Progress.Phase) == "" ||
-			strings.TrimSpace(operation.Progress.Summary) == "" {
-			return fmt.Errorf("result operation %q requires progress phase and summary", operation.ID)
-		}
-	case "record_coverage":
-		if operation.Coverage == nil {
-			return fmt.Errorf("result operation %q requires coverage", operation.ID)
-		}
-	case "plan_goal":
-		if operation.Goal == nil || strings.TrimSpace(operation.Goal.ID) == "" ||
-			strings.TrimSpace(operation.Goal.Kind) == "" ||
-			strings.TrimSpace(operation.Goal.RequestedOutcome) == "" ||
-			strings.TrimSpace(operation.Goal.CompletionContract) == "" {
-			return fmt.Errorf("result operation %q requires a typed goal", operation.ID)
-		}
-	case "update_goal":
-		if operation.GoalState == nil || strings.TrimSpace(operation.GoalState.GoalID) == "" ||
-			strings.TrimSpace(string(operation.GoalState.State)) == "" {
-			return fmt.Errorf("result operation %q requires goal id and state", operation.ID)
-		}
-	case "request_operator_input":
-		if operation.OperatorInput == nil || strings.TrimSpace(operation.OperatorInput.Question) == "" {
-			return fmt.Errorf("result operation %q requires an operator question", operation.ID)
-		}
-	case "wait_external":
-		if operation.ExternalWait == nil || strings.TrimSpace(operation.ExternalWait.ID) == "" ||
-			strings.TrimSpace(operation.ExternalWait.Kind) == "" ||
-			(operation.ExternalWait.DueAt == "" && operation.ExternalWait.PollAfter == "") {
-			return fmt.Errorf("result operation %q requires an external wait and observation time", operation.ID)
-		}
-	case "record_feedback":
-		if operation.Feedback == nil || strings.TrimSpace(operation.Feedback.Summary) == "" {
-			return fmt.Errorf("result operation %q requires a feedback summary", operation.ID)
-		}
-		switch operation.Feedback.Category {
-		case "ux", "correctness", "tone", "latency", "reliability", "feature_request", "other":
-		default:
-			return fmt.Errorf("result operation %q has unsupported feedback category %q", operation.ID, operation.Feedback.Category)
-		}
-		switch operation.Feedback.Sentiment {
-		case "negative", "suggestion", "mixed":
-		default:
-			return fmt.Errorf("result operation %q has unsupported feedback sentiment %q", operation.ID, operation.Feedback.Sentiment)
-		}
-		if operation.Feedback.NeedsFollowup && strings.TrimSpace(operation.Feedback.FollowupQuestion) == "" {
-			return fmt.Errorf("result operation %q requires a follow-up question", operation.ID)
-		}
-	case "request_approval":
-		if operation.Approval == nil {
-			return fmt.Errorf("result operation %q requires approval", operation.ID)
-		}
-	case "offer_task":
-		if operation.Task == nil || strings.TrimSpace(operation.Task.Title) == "" {
-			return fmt.Errorf("result operation %q requires a task title", operation.ID)
-		}
-		switch operation.Task.Kind {
-		case "engineering", "incident":
-		default:
-			return fmt.Errorf("result operation %q has unsupported task kind %q", operation.ID, operation.Task.Kind)
-		}
-	case "attach_visual":
-		if operation.Visual == nil || strings.TrimSpace(operation.Visual.Artifact) == "" {
-			return fmt.Errorf("result operation %q requires a visual artifact", operation.ID)
-		}
-	case "update_memory":
-		if operation.Memory == nil {
-			return fmt.Errorf("result operation %q requires memory", operation.ID)
-		}
-	case "offer_memory":
-		if operation.MemoryOffer == nil {
-			return fmt.Errorf("result operation %q requires a memory offer", operation.ID)
-		}
-	case "offer_preference":
-		if operation.PreferenceOffer == nil {
-			return fmt.Errorf("result operation %q requires a preference offer", operation.ID)
-		}
-	case "offer_rule":
-		if operation.RuleOffer == nil {
-			return fmt.Errorf("result operation %q requires a rule offer", operation.ID)
-		}
-	case "offer_schedule":
-		if operation.ScheduleOffer == nil {
-			return fmt.Errorf("result operation %q requires a schedule offer", operation.ID)
-		}
-	case "record_alert_assessment":
-		if operation.AlertAssessment == nil {
-			return fmt.Errorf("result operation %q requires an alert assessment", operation.ID)
-		}
-	case "propose_action":
-		if operation.Proposal == nil {
-			return fmt.Errorf("result operation %q requires an action proposal", operation.ID)
-		}
-	case "complete_episode":
-		if operation.Completion == nil || strings.TrimSpace(operation.Completion.Message) == "" {
-			return fmt.Errorf("result operation %q requires a completion message", operation.ID)
-		}
-	default:
+	validate, ok := resultOperationValidators[operation.Type]
+	if !ok {
 		return fmt.Errorf("result operation %q has unsupported type %q", operation.ID, operation.Type)
 	}
-	return nil
+	return validate(operation)
 }
 
 func ResultOperationsPrompt() string {

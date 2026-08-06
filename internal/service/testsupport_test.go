@@ -16,6 +16,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/localstate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -139,22 +140,22 @@ func TestSlackWriteDefersWhileCoolingDownInsteadOfReportingSuccess(t *testing.T)
 	clock := useTestClock(svc, st)
 
 	// Take the slot, then ask again inside the cooldown window.
-	if _, ok := svc.writeSlot.acquire(clock.Now()); !ok {
+	if _, ok := svc.writeSlot.Acquire(clock.Now()); !ok {
 		t.Fatal("first acquire should succeed on a fresh slot")
 	}
-	svc.writeSlot.release(clock.Now())
+	svc.writeSlot.Release(clock.Now())
 
 	err = svc.processSlackWrite(ctx)
 	var deferral scheduledWorkDeferral
 	if !errors.As(err, &deferral) {
 		t.Fatalf("cooling-down write = %v, want a scheduled-work deferral", err)
 	}
-	if wait := deferral.at.Sub(clock.Now()); wait <= 0 || wait > slackWriteInterval {
-		t.Fatalf("deferral wait = %v, want (0, %v]", wait, slackWriteInterval)
+	if wait := deferral.at.Sub(clock.Now()); wait <= 0 || wait > localstate.SlackWriteInterval {
+		t.Fatalf("deferral wait = %v, want (0, %v]", wait, localstate.SlackWriteInterval)
 	}
 
 	// Once the interval elapses the slot reopens and ordinary draining resumes.
-	clock.Advance(slackWriteInterval)
+	clock.Advance(localstate.SlackWriteInterval)
 	if err := svc.processSlackWrite(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("write after cooldown = %v", err)
 	}
