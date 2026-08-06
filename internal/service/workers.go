@@ -1054,7 +1054,7 @@ func progressMilestones(status string) []string {
 			"Checking live systems",
 			"Comparing expected and current state",
 			"Checking what remains unknown",
-			"Writing the answer",
+			"Checking whether the result is complete",
 		}
 	}
 }

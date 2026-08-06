@@ -420,7 +420,7 @@ func watchProgressSteps() []string {
 		"Checking the repository setup",
 		"Checking live systems",
 		"Comparing expected and current state",
-		"Writing the answer",
+		"Checking whether the result is complete",
 	}
 }
 
