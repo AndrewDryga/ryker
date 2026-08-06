@@ -837,6 +837,10 @@ func (s *Store) RequeueAgentRun(
 	eventSequence int64,
 	next time.Time,
 ) error {
+	recoveryID, err := core.NewID("recovery")
+	if err != nil {
+		return fmt.Errorf("generate agent run recovery identity: %w", err)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -866,7 +870,7 @@ func (s *Store) RequeueAgentRun(
 		    next_attempt_at = ?, completed_at = NULL, updated_at = ?
 		WHERE id = ? AND state = 'running'`,
 		attempt,
-		fmt.Sprintf("responder:run:%s:recovery:%d", id, attempt),
+		fmt.Sprintf("responder:run:%s:%s", id, recoveryID),
 		eventSequence,
 		boundedError(detail),
 		next.UTC().Format(timestampFormat),
@@ -899,7 +903,7 @@ func (s *Store) RequeueAgentRun(
 	if err := setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeAcknowledged, "continuing", boundedError(detail),
 		"Continue unfinished work", time.Time{},
-		fmt.Sprintf("agent-run:%s:recovery:%d", id, attempt),
+		fmt.Sprintf("agent-run:%s:%s", id, recoveryID),
 	); err != nil {
 		return err
 	}
