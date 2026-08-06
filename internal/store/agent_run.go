@@ -1195,6 +1195,84 @@ func (s *Store) HasNewerPendingAgentRun(
 	return count > 0, err
 }
 
+// HasNewerSubstantivePendingAgentRun excludes a bare bot mention. A
+// mention-only follow-up is a nudge to existing work, not a replacement
+// request that may supersede the operator's earlier substantive message.
+func (s *Store) HasNewerSubstantivePendingAgentRun(
+	ctx context.Context,
+	run core.AgentRun,
+	botUserID string,
+) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM agent_runs AS candidate
+		LEFT JOIN slack_inputs AS input
+		  ON candidate.source_kind = 'watch' AND input.id = candidate.source_id
+		WHERE candidate.conversation_key = ? AND candidate.id != ?
+		  AND candidate.state IN ('pending', 'preparing')
+		  AND (
+		    julianday(candidate.created_at) > julianday(?) OR
+		    (julianday(candidate.created_at) = julianday(?) AND candidate.id > ?)
+		  )
+		  AND (
+		    input.id IS NULL OR NOT (
+		      input.kind = 'mention'
+		      AND trim(replace(input.text, '<@' || ? || '>', '')) = ''
+		      AND COALESCE(CAST(input.attachments_json AS TEXT), '[]') IN ('[]', 'null')
+		    )
+		  )`,
+		run.ConversationKey, run.ID,
+		run.CreatedAt.UTC().Format(timestampFormat),
+		run.CreatedAt.UTC().Format(timestampFormat),
+		run.ID,
+		botUserID,
+	).Scan(&count)
+	return count > 0, err
+}
+
+// NudgeLatestAgentRun wakes existing work for one Slack conversation without
+// creating a second run or replacing its original substantive request.
+func (s *Store) NudgeLatestAgentRun(
+	ctx context.Context,
+	channelID string,
+	threadTS string,
+) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var id, state string
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, state
+		FROM agent_runs
+		WHERE source_kind = 'watch'
+		  AND channel_id = ? AND thread_ts = ?
+		  AND state IN ('pending', 'preparing', 'running', 'applying', 'finalizing')
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1`, channelID, threadTS).Scan(&id, &state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if state == string(core.AgentRunPending) {
+		now := nowText()
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE agent_runs
+			SET next_attempt_at = ?, updated_at = ?
+			WHERE id = ? AND state = 'pending'`, now, now, id); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // HasNewerOperationalAgentRun reports whether a newer app notification in the
 // same channel can carry a short burst's shared context. The exact conversation
 // key remains on each run for durable alert/run correlation; this query only

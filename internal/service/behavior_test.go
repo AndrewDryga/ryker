@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -901,6 +902,60 @@ func TestCreateWatchSessionRefreshesStaleCreateReplay(t *testing.T) {
 		coopClient.createKeys[0] != "responder:watch-session:COPS" ||
 		coopClient.createKeys[1] != "responder:watch-session:COPS:2" {
 		t.Fatalf("create keys = %v", coopClient.createKeys)
+	}
+}
+
+func TestMentionOnlyFollowupNudgesExistingWork(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.NativeStatus = false
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	existing, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "COPS", ThreadTS: "1700.100",
+		ConversationKey: "channel:COPS", SourceKind: "watch", SourceID: "request",
+		NextAttemptAt: time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nudge := core.SlackInput{
+		ID: "slack_nudge", EnvelopeID: "env_nudge", EventID: "event_nudge",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		ThreadTS: "1700.100", MessageTS: "1700.200", UserID: cfg.Slack.Operators[0],
+		Text: "<@U999BOT>",
+	}
+	if created, err := st.AdmitSlackInput(ctx, nudge); err != nil || !created {
+		t.Fatalf("admit nudge = %t, %v", created, err)
+	}
+	storedInput, err := st.LeaseSlackInput(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	if err := svc.queueWatchedInput(ctx, storedInput); err != nil {
+		t.Fatal(err)
+	}
+	storedInput, err = st.GetSlackInput(ctx, nudge.ID)
+	if err != nil || storedInput.State != "done" {
+		t.Fatalf("finished nudge = %+v, %v", storedInput, err)
+	}
+	if _, err := st.GetAgentRunBySource(ctx, "watch", nudge.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("nudge queued duplicate work: %v", err)
+	}
+	storedRun, err := st.GetAgentRun(ctx, existing.ID)
+	if err != nil || storedRun.NextAttemptAt.After(time.Now().UTC().Add(time.Minute)) {
+		t.Fatalf("existing run was not woken = %+v, %v", storedRun, err)
 	}
 }
 

@@ -100,6 +100,42 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		}
 		state = legacy
 	}
+	if s.mentionOnlyNudge(input) {
+		nudged, err := s.store.NudgeLatestAgentRun(
+			ctx,
+			input.ChannelID,
+			conversationalResponseThread(input),
+		)
+		if err != nil {
+			return fmt.Errorf("nudge active Slack work: %w", err)
+		}
+		if nudged {
+			if s.cfg.Slack.NativeStatus {
+				if err := s.enqueueNativeStatus(
+					ctx,
+					"",
+					input.ChannelID,
+					slackReplyThread(input),
+					watchPendingStatus,
+					watchProgressSteps(),
+				); err != nil {
+					s.log.Warn(
+						"refresh Slack status for mention-only nudge",
+						"channel", input.ChannelID,
+						"thread", slackReplyThread(input),
+						"input", input.ID,
+						"error", err,
+					)
+				}
+			}
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "nudged_existing_work",
+				Detail:  "mention-only follow-up resumed the active conversation work",
+			})
+			return s.finishInputIfOpen(ctx, input)
+		}
+	}
 	if input.Kind == "bot_message" && state.AlertPolicy == "" {
 		alertPolicy, err := s.channelAlertPolicy(ctx, input.ChannelID)
 		if err != nil {
@@ -361,6 +397,12 @@ func watchInputExplicitlyTargeted(input core.SlackInput, state watchTurnState) b
 	return input.Kind == "direct" || input.Kind == "mention" ||
 		input.Kind == "shortcut" || len(state.MatchedRules) > 0 ||
 		requestedConversationLocation(input.Text) != conversationLocationFollow
+}
+
+func (s *Service) mentionOnlyNudge(input core.SlackInput) bool {
+	return input.Kind == "mention" && s.identity.BotUserID != "" &&
+		strings.TrimSpace(s.stripBotMention(input.Text)) == "" &&
+		len(input.Attachments) == 0
 }
 
 func watchConversationKey(input core.SlackInput) string {
@@ -720,7 +762,9 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 				ctx, run.ID, "a newer channel message was already classified",
 			)
 		}
-		newer, err := s.store.HasNewerPendingAgentRun(ctx, run)
+		newer, err := s.store.HasNewerSubstantivePendingAgentRun(
+			ctx, run, s.identity.BotUserID,
+		)
 		if err != nil {
 			return s.retryAgentRun(ctx, run, err)
 		}
@@ -841,9 +885,13 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 				max(state.Generation, 1),
 			)
 		if conversationErr != nil {
+			nextGeneration := max(state.Generation, conversation.Generation)
 			if advanceFailedSessionGeneration(conversationErr) &&
 				conversation.Generation > 0 {
-				state.Generation = conversation.Generation + 1
+				nextGeneration = max(nextGeneration, conversation.Generation+1)
+			}
+			if nextGeneration > state.Generation {
+				state.Generation = nextGeneration
 				if err := s.persistTriageRunState(ctx, run.ID, state); err != nil {
 					return s.retryAgentRun(ctx, run, err)
 				}
@@ -868,9 +916,13 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 				max(state.Generation, 1),
 			)
 		if investigationErr != nil {
+			nextGeneration := max(state.Generation, memory.Generation)
 			if advanceFailedSessionGeneration(investigationErr) &&
 				memory.Generation > 0 {
-				state.Generation = memory.Generation + 1
+				nextGeneration = max(nextGeneration, memory.Generation+1)
+			}
+			if nextGeneration > state.Generation {
+				state.Generation = nextGeneration
 				if err := s.persistTriageRunState(ctx, run.ID, state); err != nil {
 					return s.retryAgentRun(ctx, run, err)
 				}

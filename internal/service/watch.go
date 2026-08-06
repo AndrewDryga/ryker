@@ -435,8 +435,10 @@ func (s *Service) createConversationSession(
 	policy string,
 	generation int,
 ) (coop.Session, int, error) {
-	const maxCollisionRecoveries = 8
-	for collision := 0; collision <= maxCollisionRecoveries; collision++ {
+	for {
+		if err := ctx.Err(); err != nil {
+			return coop.Session{}, generation, err
+		}
 		sessionKey := "responder:conversation-session:" + channelID
 		if generation > 1 {
 			sessionKey = fmt.Sprintf("%s:%d", sessionKey, generation)
@@ -472,9 +474,6 @@ func (s *Service) createConversationSession(
 		}
 		generation++
 	}
-	return coop.Session{}, generation, errors.New(
-		"Coop conversation session idempotency keys are occupied",
-	)
 }
 
 func (s *Service) createWatchSession(
@@ -483,8 +482,10 @@ func (s *Service) createWatchSession(
 	policy string,
 	generation int,
 ) (coop.Session, int, error) {
-	const maxCollisionRecoveries = 8
-	for collision := 0; collision <= maxCollisionRecoveries; collision++ {
+	for {
+		if err := ctx.Err(); err != nil {
+			return coop.Session{}, generation, err
+		}
 		sessionKey := "responder:watch-session:" + channelID
 		if generation > 1 {
 			sessionKey = fmt.Sprintf("%s:%d", sessionKey, generation)
@@ -527,9 +528,6 @@ func (s *Service) createWatchSession(
 		}
 		generation++
 	}
-	return coop.Session{}, generation, errors.New(
-		"Coop watch session idempotency keys are occupied by incompatible requests",
-	)
 }
 
 func isCoopIdempotencyConflict(err error) bool {

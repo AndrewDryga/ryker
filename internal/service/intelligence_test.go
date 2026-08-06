@@ -302,6 +302,57 @@ func TestWatchSessionRecoversLegacyGenerationOneIdempotencyRequest(t *testing.T)
 	}
 }
 
+func TestWatchSessionSearchesPastHistoricalCollisionWindow(t *testing.T) {
+	coopClient := newFakeCoop()
+	for range 20 {
+		coopClient.createErrors = append(coopClient.createErrors, &coop.APIError{
+			Status: 409,
+			Code:   "idempotency_conflict",
+			Detail: "idempotency key is bound to a historical request",
+		})
+	}
+	svc := &Service{cfg: serviceConfig(t), coop: coopClient}
+	session, generation, err := svc.createWatchSession(
+		context.Background(), "CHISTORY", "observe", 2,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ID == "" || generation != 22 || len(coopClient.createKeys) != 21 {
+		t.Fatalf(
+			"historical collision recovery = session=%+v generation=%d keys=%d",
+			session, generation, len(coopClient.createKeys),
+		)
+	}
+	if got := coopClient.createKeys[len(coopClient.createKeys)-1]; got != "responder:watch-session:CHISTORY:22" {
+		t.Fatalf("last create key = %q", got)
+	}
+}
+
+func TestConversationSessionSearchesPastHistoricalCollisionWindow(t *testing.T) {
+	coopClient := newFakeCoop()
+	for range 20 {
+		coopClient.createErrors = append(coopClient.createErrors, &coop.APIError{
+			Status: 409,
+			Code:   "idempotency_conflict",
+			Detail: "idempotency key is bound to a historical request",
+		})
+	}
+	svc := &Service{cfg: serviceConfig(t), coop: coopClient}
+	session, generation, err := svc.createConversationSession(
+		context.Background(), "CHISTORY", "conversation", 2,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ID == "" || generation != 22 || len(coopClient.createKeys) != 21 {
+		t.Fatalf(
+			"historical collision recovery = session=%+v generation=%d keys=%d",
+			session, generation, len(coopClient.createKeys),
+		)
+	}
+}
+
 func TestTwoPersonActionApprovalQueuesOnlyConfiguredProposal(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
