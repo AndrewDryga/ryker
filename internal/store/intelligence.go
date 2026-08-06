@@ -165,7 +165,7 @@ func (s *Store) UpsertConversationMemoryState(
 		memory.Repository,
 		memory.LastMessage,
 		string(state),
-		s.nowText(),
+		s.now().UTC().Format(timestampFormat),
 	)
 	return err
 }
