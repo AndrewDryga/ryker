@@ -46,6 +46,7 @@ const slackOperationalAlertLanguagePolicy = "For operational alert replies, sepa
 	"- For an active issue, lead with the delta and impact. If it is progressing safely and needs no action now, say so. Prefer a known fix or rollout over generic future tuning.\n" +
 	"- For a genuine recovery, use one or two sentences: say what recovered and link the earlier firing message when recent context supplies its exact `message_link`. Omit healthy inventories, no-op instructions, and hypothetical tuning unless follow-up is required now.\n" +
 	"- For a stale lifecycle card, say it is stale, summarize the material change and fresh post-rollout result, then put any independent caveat in one sentence.\n" +
+	"- Decide the event in front of you separately from adjacent operational debt. If the event's outcome and post-change health are verified, a drift backlog or unrelated follow-up is a caveat, not a blocker.\n" +
 	"- Use concrete common language, not monitoring or architecture shorthand. Use at most one necessary implementation term and explain it.\n" +
 	"- Keep active or uncertain updates to two short paragraphs under 100 words; recoveries should be materially shorter. Include identifiers only when they help someone act.\n" +
 	"- After the state, give the cause and the next concrete action with its success check. Do not make the operator translate monitoring narration into work.\n" +

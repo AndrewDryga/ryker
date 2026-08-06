@@ -910,6 +910,39 @@ func evaluationStructuredCorrection(
 	response string,
 	now time.Time,
 ) string {
+	if testCase.Kind == "watch" {
+		decision, err := parseWatchDecision(response)
+		if err == nil {
+			operatorID := "UEVALOPERATOR"
+			if len(cfg.Slack.Operators) > 0 {
+				operatorID = cfg.Slack.Operators[0]
+			}
+			input, _, contextErr := liveEvaluationWatchContext(
+				testCase, "evaluation-correction", operatorID,
+			)
+			if contextErr == nil {
+				state := evaluationWatchState(testCase)
+				episode := (&Service{cfg: cfg}).episodeForWatchedInput(input, state)
+				decision = enforceExternalLifecycleCommunication(input, decision)
+				decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
+				for _, correction := range []string{
+					watchDecisionCorrectionAt(input, state, decision, now),
+					alertReplyLanguageCorrection(input, decision),
+					externalLifecycleReplyLanguageCorrection(input, decision),
+					episodeCompletionCorrection(
+						*episode,
+						decision.Action,
+						sanitizeCoverage(decision.Coverage, "", "", ""),
+						decision.Completion,
+					),
+				} {
+					if correction != "" {
+						return correction
+					}
+				}
+			}
+		}
+	}
 	testCase.Output = response
 	result := evaluateCaseWithConfig(testCase, &cfg, now)
 	for _, prefix := range []string{
@@ -922,6 +955,20 @@ func evaluationStructuredCorrection(
 		}
 	}
 	return ""
+}
+
+func evaluationWatchState(testCase EvaluationCase) watchTurnState {
+	state := watchTurnState{Lane: testCase.Lane}
+	if testCase.SenderType == "external_app" || testCase.WantAlertAssessment {
+		state.AlertPolicy = "reply_here"
+	}
+	for _, rule := range testCase.StandingRules {
+		state.MatchedRules = append(state.MatchedRules, core.StandingRule{
+			ID: rule.ID, Trigger: rule.Trigger, Action: rule.Action,
+			Repository: rule.Repository, SourceKind: rule.SourceKind,
+		})
+	}
+	return state
 }
 
 func deterministicEpisodeReplayPrompt(base string, testCase EvaluationCase) (string, error) {
@@ -1018,7 +1065,8 @@ func liveEvaluationPrompt(
 				repositoryKey,
 			), nil
 		}
-		state := watchTurnState{MatchedRules: rules}
+		state := evaluationWatchState(testCase)
+		state.MatchedRules = rules
 		episode := evaluator.episodeForWatchedInput(input, state)
 		return evaluator.watchPrompt(
 			input,

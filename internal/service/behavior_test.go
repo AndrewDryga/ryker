@@ -434,6 +434,39 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 	}
 }
 
+func TestRecoveredAlertCanCloseFromFreshExactEvidenceWithoutRepositorySweep(t *testing.T) {
+	now := time.Date(2026, 8, 5, 15, 0, 20, 0, time.UTC)
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue\n" +
+			"sts_ks overdue gauge returned to zero.",
+	}
+	state := watchTurnState{AlertPolicy: "reply_here"}
+	decision := watchDecision{
+		Action:  "reply",
+		Message: "The scheduled `sts_ks` repair completed, closing the earlier alert.",
+		AlertAssessment: &alertAssessment{
+			Verdict: "not_issue",
+			Impact:  "The overdue repair condition is no longer active.",
+		},
+		Evidence: []core.Evidence{{
+			Claim:       "the scheduled repair completed",
+			Observation: "progress reached 100% and the overdue gauge returned to zero",
+			SourceType:  "emisar",
+			SourceName:  "Cassandra repair status",
+			ObservedAt:  now,
+		}},
+		Completion: &completionAssessment{
+			Status:  "decision_ready",
+			Verdict: "healthy",
+			Summary: "The scheduled repair completed.",
+		},
+	}
+	if correction := watchDecisionCorrectionAt(input, state, decision, now); correction != "" {
+		t.Fatalf("rejected exact recovered-alert evidence: %s", correction)
+	}
+}
+
 func TestOperationalAlertReplyLeadsWithPlainServiceState(t *testing.T) {
 	input := core.SlackInput{
 		Kind: "bot_message",

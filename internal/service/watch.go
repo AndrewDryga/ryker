@@ -1152,6 +1152,15 @@ func watchDecisionCorrection(
 	state watchTurnState,
 	decision watchDecision,
 ) string {
+	return watchDecisionCorrectionAt(input, state, decision, time.Now().UTC())
+}
+
+func watchDecisionCorrectionAt(
+	input core.SlackInput,
+	state watchTurnState,
+	decision watchDecision,
+	now time.Time,
+) string {
 	requiresAlertAssessment := matchedOperationalAlertRule(state.MatchedRules) ||
 		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
 			operationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text))
@@ -1170,11 +1179,13 @@ func watchDecisionCorrection(
 					"until you can state a verdict, impact, immediate action, and durable solution"
 			}
 			evidence := sanitizeEvidence(decision.Evidence, "", "", "")
-			if !watchDecisionHasEvidenceSource(evidence, "repository") {
+			recovered := decision.AlertAssessment.Verdict == "not_issue" &&
+				operationalAlertResolvedEvent(input.Text)
+			if !recovered && !watchDecisionHasEvidenceSource(evidence, "repository") {
 				return "the alert reply does not reconcile the live signal with declared repository " +
 					"topology; inspect the configured repository before deciding"
 			}
-			if !hasFreshOperationalEvidence(evidence, time.Now().UTC()) {
+			if !hasFreshOperationalEvidence(evidence, now) {
 				return "the alert reply has no fresh Emisar or monitoring observation; use the " +
 					"available read-only operational tools and verify the current state before deciding"
 			}
@@ -1295,6 +1306,11 @@ func operationalAlertEvent(text string) bool {
 	return episodeContainsAny(
 		normalized, " alert", "alert ", "firing", "resolved", "critical", "warning",
 	)
+}
+
+func operationalAlertResolvedEvent(text string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	return episodeContainsAny(normalized, "resolved", "recovered", "recovery")
 }
 
 func (s *Service) watchReplyMessage(

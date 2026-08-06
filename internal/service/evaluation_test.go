@@ -983,6 +983,22 @@ func TestEvaluationStructuredCorrectionUsesProductionContract(t *testing.T) {
 	}
 }
 
+func TestEvaluationStructuredCorrectionUsesProductionAlertStateMachine(t *testing.T) {
+	cfg := serviceConfig(t)
+	testCase := EvaluationCase{
+		Name: "active alert", Kind: "watch", SenderType: "external_app",
+		Input:      "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
+		WantAction: "reply", WantAlertAssessment: true, RequireCompletion: true,
+	}
+	response := `{"action":"reply","message":"The repair is progressing.","evidence":[{"claim":"repair progress advanced","observation":"progress moved from 73% to 74%","source_type":"emisar","source_name":"repair status","observed_at":"2026-08-05T14:02:00Z"}],"completion":{"status":"decision_ready","verdict":"degraded","summary":"The repair is progressing."}}`
+	correction := evaluationStructuredCorrection(
+		cfg, testCase, response, time.Date(2026, 8, 5, 14, 2, 0, 0, time.UTC),
+	)
+	if !strings.Contains(correction, "no alert_assessment") {
+		t.Fatalf("correction = %q", correction)
+	}
+}
+
 func TestEpisodeReplayRequiresCompleteSanitizedFixtures(t *testing.T) {
 	cases := strings.NewReader(`{"name":"incomplete replay","kind":"watch","input":"assess rollout","recorded_events":[{"sequence":1,"kind":"episode.created","occurred_at":"2026-08-02T12:00:00Z","payload":{"objective":"assess rollout"}}]}`)
 	_, err := EvaluateLiveJSONL(

@@ -340,14 +340,10 @@ func evaluateCaseWithConfig(
 				result.Detail = contextErr.Error()
 				return result
 			}
-			state := watchTurnState{}
-			for _, rule := range testCase.StandingRules {
-				state.MatchedRules = append(state.MatchedRules, core.StandingRule{
-					ID: rule.ID, Trigger: rule.Trigger, Action: rule.Action,
-					Repository: rule.Repository, SourceKind: rule.SourceKind,
-				})
-			}
+			state := evaluationWatchState(testCase)
 			episode = (&Service{cfg: *cfg}).episodeForWatchedInput(input, state)
+			decision = enforceExternalLifecycleCommunication(input, decision)
+			decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
 			decision = enforceAttentionPolicy(
 				input,
 				state,
