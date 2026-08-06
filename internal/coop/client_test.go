@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -303,4 +305,210 @@ func shortSocket(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, "c.sock")
+}
+
+// Retry classification decides whether Responder replays a Coop mutation, so
+// it must not depend on matching an error message. A transport failure is
+// always retryable; an API error follows its status; anything else is not.
+func TestRetryableClassifiesByType(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"transport", &TransportError{Err: errors.New("dial unix: connection refused")}, true},
+		{"wrapped transport", fmt.Errorf("submit turn: %w", &TransportError{Err: io.ErrUnexpectedEOF}), true},
+		{"rate limited", &APIError{Status: http.StatusTooManyRequests, Code: "rate_limited"}, true},
+		{"server error", &APIError{Status: http.StatusBadGateway, Code: "upstream"}, true},
+		{"conflict", &APIError{Status: http.StatusConflict, Code: "revision_conflict"}, false},
+		{"not found", &APIError{Status: http.StatusNotFound, Code: "no_session"}, false},
+		{"invalid state", &APIError{Status: http.StatusUnprocessableEntity, Code: "invalid_session_state"}, false},
+		{"plain error", errors.New("call Coop: something that merely mentions it"), false},
+		{"net error", &net.OpError{Op: "dial", Err: errors.New("refused")}, true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := Retryable(testCase.err); got != testCase.want {
+				t.Fatalf("Retryable(%v) = %t, want %t", testCase.err, got, testCase.want)
+			}
+		})
+	}
+}
+
+// A revision conflict must stay distinguishable so callers can surface it
+// instead of guessing a new action, and it must not read as retryable.
+func TestAPIErrorMessageAndUnwrapping(t *testing.T) {
+	detailed := &APIError{Status: 409, Code: "revision_conflict", Detail: "session moved"}
+	if got := detailed.Error(); got != "Coop API revision_conflict (409): session moved" {
+		t.Fatalf("error = %q", got)
+	}
+	bare := &APIError{Status: 500, Code: "internal"}
+	if got := bare.Error(); got != "Coop API internal (500)" {
+		t.Fatalf("error = %q", got)
+	}
+	var target *APIError
+	if !errors.As(fmt.Errorf("close session: %w", detailed), &target) ||
+		target.Code != "revision_conflict" {
+		t.Fatal("APIError did not survive wrapping")
+	}
+
+	transport := &TransportError{Err: io.ErrUnexpectedEOF}
+	if got := transport.Error(); got != "call Coop: unexpected EOF" {
+		t.Fatalf("transport error = %q", got)
+	}
+	if !errors.Is(transport, io.ErrUnexpectedEOF) {
+		t.Fatal("TransportError does not unwrap to its cause")
+	}
+}
+
+// A lost response must replay the exact same request, so every revision-bearing
+// mutation has to send the revision it froze and its stable idempotency key.
+func TestRevisionBearingMutationsFreezeTheirRequest(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	type seen struct {
+		method, path, key string
+		body              map[string]any
+	}
+	var requests []seen
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		record := seen{method: r.Method, path: r.URL.Path, key: r.Header.Get("Idempotency-Key")}
+		_ = json.NewDecoder(r.Body).Decode(&record.body)
+		requests = append(requests, record)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/discard-plan"):
+			fmt.Fprint(w, `{"operation_id":"op_1","plan":{"workspace":{"head":"abc","dirty":false}}}`)
+		case strings.Contains(r.URL.Path, "/turns/"):
+			fmt.Fprint(w, `{"id":"turn_1","session_id":"s1","state":"cancelled"}`)
+		default:
+			fmt.Fprint(w, `{"id":"s1","revision":8,"state":"closed"}`)
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+
+	client := New(socket, 5*time.Second)
+	ctx := context.Background()
+	if _, _, err := client.Cancel(ctx, "responder:stop:in_1", "s1", "turn_1", 7); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.Extend(ctx, "responder:extend:in_1", "s1", 7, 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.Close(ctx, "responder:close:in_1", "s1", 7); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.PlanDiscard(ctx, "responder:gc-plan:s1:7", "s1", 7, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 4 {
+		t.Fatalf("requests = %d, want 4", len(requests))
+	}
+	for _, request := range requests {
+		if request.key == "" {
+			t.Fatalf("%s %s carried no idempotency key", request.method, request.path)
+		}
+		revision, ok := request.body["expected_revision"]
+		if !ok {
+			t.Fatalf("%s %s did not freeze a revision: %#v", request.method, request.path, request.body)
+		}
+		if revision != float64(7) {
+			t.Fatalf("%s %s froze revision %v, want 7", request.method, request.path, revision)
+		}
+	}
+}
+
+// The polling and review reads carry the cursor and revision the caller froze.
+// Events in particular are consumed by durable sequence cursor, so a wrong
+// `after` would silently replay or skip session history.
+func TestReadPathsCarryCursorsAndRevisions(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	var paths, queries []string
+	var reviewRevision any
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		queries = append(queries, r.URL.RawQuery)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/events"):
+			fmt.Fprint(w, `[{"id":"e1","session_id":"s1","sequence":12,"type":"turn.completed"}]`)
+		case strings.HasSuffix(r.URL.Path, "/changes"):
+			fmt.Fprint(w, `{"base_commit":"abc","committed":[{"path":"x","status":"modified"}]}`)
+		case strings.HasSuffix(r.URL.Path, "/review"):
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			reviewRevision = body["expected_revision"]
+			fmt.Fprint(w, `{"operation":{"id":"op_r","state":"succeeded"},"review":{"publishable":true,"parent_head":"a","candidate_tree":"b"}}`)
+		case strings.Contains(r.URL.Path, "/turns/"):
+			fmt.Fprint(w, `{"id":"turn_9","session_id":"s1","state":"completed"}`)
+		default:
+			fmt.Fprint(w, `[{"id":"s1","state":"open"}]`)
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+
+	client := New(socket, 5*time.Second)
+	ctx := context.Background()
+
+	events, err := client.Events(ctx, "s1", 11, 50)
+	if err != nil || len(events) != 1 || events[0].Sequence != 12 {
+		t.Fatalf("events = %+v err=%v", events, err)
+	}
+	if !strings.Contains(queries[0], "after=11") || !strings.Contains(queries[0], "limit=50") {
+		t.Fatalf("events query = %q", queries[0])
+	}
+
+	changes, err := client.Changes(ctx, "s1")
+	if err != nil || len(changes.Committed) != 1 || changes.Committed[0].Path != "x" {
+		t.Fatalf("changes = %+v err=%v", changes, err)
+	}
+
+	if _, err := client.ChangesPage(ctx, "s1", -1, 10); err == nil {
+		t.Fatal("a negative patch offset should be rejected before any request")
+	}
+	if _, err := client.ChangesPage(ctx, "s1", 0, 0); err == nil {
+		t.Fatal("a non-positive patch limit should be rejected before any request")
+	}
+	if _, err := client.ChangesPage(ctx, "s1", 100, 25); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(queries[len(queries)-1], "patch_offset=100") {
+		t.Fatalf("changes page query = %q", queries[len(queries)-1])
+	}
+
+	review, operation, err := client.Review(ctx, "responder:review:in_1", "s1", 4)
+	if err != nil || !review.Publishable || operation.ID != "op_r" {
+		t.Fatalf("review = %+v op=%+v err=%v", review, operation, err)
+	}
+	if reviewRevision != float64(4) {
+		t.Fatalf("review froze revision %v, want 4", reviewRevision)
+	}
+
+	if _, err := client.GetTurn(ctx, "s1", "turn_9"); err != nil {
+		t.Fatal(err)
+	}
+	if sessions, err := client.ListSessions(ctx, 10); err != nil || len(sessions) != 1 {
+		t.Fatalf("sessions = %+v err=%v", sessions, err)
+	}
+	if got := client.Socket(); got != socket {
+		t.Fatalf("socket = %q, want %q", got, socket)
+	}
+	for _, path := range paths {
+		if !strings.HasPrefix(path, "/v1/sessions/s1") && path != "/v1/sessions" {
+			t.Fatalf("unexpected path %q", path)
+		}
+	}
 }
