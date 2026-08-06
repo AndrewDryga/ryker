@@ -1016,11 +1016,11 @@ func completionEpisodePhase(
 	return core.EpisodeCompleted, "finished", "Completed", ""
 }
 
-func episodeProgressDue(interval time.Duration) time.Time {
+func episodeProgressDue(interval time.Duration, now time.Time) time.Time {
 	if interval <= 0 {
 		return time.Time{}
 	}
-	return time.Now().UTC().Add(interval)
+	return now.UTC().Add(interval)
 }
 
 func (s *Service) refreshWorkEpisodeProgress(
@@ -1057,7 +1057,7 @@ func (s *Service) refreshWorkEpisodeProgress(
 		run.ID,
 		"investigating",
 		summary,
-		episodeProgressDue(interval),
+		episodeProgressDue(interval, s.now()),
 	)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +31,58 @@ type Handler struct {
 	accepted  atomic.Uint64
 	duplicate atomic.Uint64
 	rejected  atomic.Uint64
+
+	statusMu    sync.Mutex
+	status      serviceStatus
+	statusUntil time.Time
+	statusClock func() time.Time
+}
+
+// statusTTL bounds how stale a health or metrics answer may be.
+//
+// Every field in a status answer is read from the single writer connection that
+// the scheduler, webhook admission, and Slack admission all share. These
+// endpoints are unauthenticated, so without a cache any scrape interval — or a
+// misconfigured one — competes directly with real work for that connection. One
+// second is well inside a normal Prometheus or load-balancer interval while
+// collapsing a burst into a single read.
+const statusTTL = time.Second
+
+type serviceStatus struct {
+	metrics   store.Metrics
+	scheduler []service.SchedulerLaneSnapshot
+	ready     bool
+	reason    string
+	err       error
+}
+
+func (h *Handler) now() time.Time {
+	if h.statusClock != nil {
+		return h.statusClock()
+	}
+	return time.Now()
+}
+
+// serviceStatus returns a recent status answer, reading through at most once
+// per statusTTL. Concurrent callers share one read: the lock is deliberately
+// held across it so a scrape storm cannot become a storm of database queries.
+func (h *Handler) serviceStatus(ctx context.Context) serviceStatus {
+	h.statusMu.Lock()
+	defer h.statusMu.Unlock()
+	if now := h.now(); now.Before(h.statusUntil) {
+		return h.status
+	}
+	var status serviceStatus
+	status.metrics, status.err = h.store.Metrics(ctx)
+	if status.err == nil {
+		status.scheduler, status.err = h.service.SchedulerSnapshot(ctx)
+	}
+	if status.err == nil {
+		status.ready, status.reason = h.service.Ready(ctx)
+	}
+	h.status = status
+	h.statusUntil = h.now().Add(statusTTL)
+	return status
 }
 
 func New(
@@ -47,7 +101,7 @@ func New(
 	mux.HandleFunc("GET /readyz", handler.ready)
 	mux.HandleFunc("GET /metrics", handler.metrics)
 	mux.HandleFunc("POST /v1/hooks/{route}", handler.webhook)
-	return securityHeaders(mux)
+	return wrapped{Handler: securityHeaders(mux), handler: handler}
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -59,28 +113,29 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
-	ready, reason := h.service.Ready(r.Context())
-	status := http.StatusOK
-	if !ready {
-		status = http.StatusServiceUnavailable
+	status := h.serviceStatus(r.Context())
+	if status.err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"ready": false, "reason": "status unavailable",
+		})
+		return
 	}
-	writeJSON(w, status, map[string]any{"ready": ready, "reason": reason})
+	code := http.StatusOK
+	if !status.ready {
+		code = http.StatusServiceUnavailable
+	}
+	writeJSON(w, code, map[string]any{"ready": status.ready, "reason": status.reason})
 }
 
 func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
-	snapshot, err := h.store.Metrics(r.Context())
-	if err != nil {
+	status := h.serviceStatus(r.Context())
+	if status.err != nil {
 		http.Error(w, "metrics unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	scheduler, err := h.service.SchedulerSnapshot(r.Context())
-	if err != nil {
-		http.Error(w, "metrics unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	ready, _ := h.service.Ready(r.Context())
+	snapshot, scheduler := status.metrics, status.scheduler
 	readyValue := 0
-	if ready {
+	if status.ready {
 		readyValue = 1
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
@@ -293,4 +348,19 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write(append(data, '\n'))
+}
+
+// wrapped lets tests reach the Handler behind securityHeaders without exporting
+// it. Production callers only ever see the http.Handler that New returns.
+type wrapped struct {
+	http.Handler
+	handler *Handler
+}
+
+func handlerBehindMiddleware(value http.Handler) (*Handler, bool) {
+	inner, ok := value.(wrapped)
+	if !ok {
+		return nil, false
+	}
+	return inner.handler, true
 }

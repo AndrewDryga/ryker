@@ -19,17 +19,17 @@ func (s *Service) seedEmisarApprovalWork(ctx context.Context) error {
 		return err
 	}
 	for _, item := range items {
-		if err := s.store.EnsureWork(ctx, emisarApprovalWorkItem(item)); err != nil {
+		if err := s.store.EnsureWork(ctx, emisarApprovalWorkItem(item, s.now())); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func emisarApprovalWorkItem(item core.EmisarApproval) store.WorkItem {
+func emisarApprovalWorkItem(item core.EmisarApproval, now time.Time) store.WorkItem {
 	availableAt := item.NextCheckAt
 	if availableAt.IsZero() {
-		availableAt = time.Now().UTC()
+		availableAt = now.UTC()
 	}
 	return store.WorkItem{
 		Kind: workEmisarApproval, SubjectID: item.RequestID,
@@ -55,7 +55,7 @@ func (s *Service) bindAndScheduleEmisarApproval(
 		return err
 	}
 	*approval = bound
-	return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(bound))
+	return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(bound, s.now()))
 }
 
 func (s *Service) processEmisarApproval(
@@ -71,7 +71,7 @@ func (s *Service) processEmisarApproval(
 	}
 	now := s.now().UTC()
 	if approval.NextCheckAt.After(now) {
-		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(approval))
+		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(approval, s.now()))
 	}
 	if s.emisar == nil {
 		return errors.New("Emisar approval monitor is unavailable")
@@ -93,7 +93,7 @@ func (s *Service) processEmisarApproval(
 		approval.NextCheckAt = next
 		if enqueueErr := s.store.EnqueueWork(
 			ctx,
-			emisarApprovalWorkItem(approval),
+			emisarApprovalWorkItem(approval, s.now()),
 		); enqueueErr != nil {
 			return enqueueErr
 		}
@@ -130,7 +130,7 @@ func (s *Service) processEmisarApproval(
 				return err
 			}
 		}
-		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(updated))
+		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(updated, s.now()))
 	}
 	return s.finishTerminalEmisarApproval(ctx, updated)
 }
@@ -141,7 +141,7 @@ func (s *Service) finishTerminalEmisarApproval(
 ) error {
 	if updated.MessageTS == "" {
 		updated.NextCheckAt = s.now().UTC().Add(time.Second)
-		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(updated))
+		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(updated, s.now()))
 	}
 	if err := s.store.ResolveWaitingApprovalEpisodes(
 		ctx,

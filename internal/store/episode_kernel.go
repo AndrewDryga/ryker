@@ -156,7 +156,7 @@ func (s *Store) GetEpisodeAttempt(ctx context.Context, attemptID string) (core.E
 	))
 }
 
-func setEpisodeAttemptStateTx(
+func (s *Store) setEpisodeAttemptStateTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	runID string,
@@ -167,7 +167,7 @@ func setEpisodeAttemptStateTx(
 	if state == "" {
 		return errors.New("attempt state is required")
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	leaseOwner := ""
 	leaseExpires := any(nil)
 	startedAt := any(nil)
@@ -253,7 +253,7 @@ func (s *Store) ChangeEpisodeDestination(
 		"channel_id": destination.ChannelID, "thread_ts": destination.ThreadTS,
 		"reason": reason, "destination_revision": current.DestinationRevision + 1,
 	})
-	event, err := appendEpisodeEventTx(ctx, tx, episodeID, core.WorkEpisodeEvent{
+	event, err := s.appendEpisodeEventTx(ctx, tx, episodeID, core.WorkEpisodeEvent{
 		Kind: episodepkg.EventDestinationChanged, Actor: "host",
 		IdempotencyKey: episodeEventKey(
 			"destination", episodeID, destination.ChannelID, destination.ThreadTS,
@@ -384,7 +384,7 @@ func (s *Store) CreateEpisodeGoal(ctx context.Context, goal core.EpisodeGoal) (c
 	payload, _ := episodepkg.Encode(map[string]any{
 		"goal_id": goal.ID, "kind": goal.Kind, "requested_outcome": goal.RequestedOutcome,
 	})
-	if _, err := appendEpisodeEventTx(ctx, tx, goal.EpisodeID, core.WorkEpisodeEvent{
+	if _, err := s.appendEpisodeEventTx(ctx, tx, goal.EpisodeID, core.WorkEpisodeEvent{
 		Kind: episodepkg.EventGoalPlanned, Actor: "host",
 		IdempotencyKey: "goal-planned:" + goal.ID, Payload: payload,
 	}); err != nil {
@@ -453,7 +453,7 @@ func (s *Store) SetEpisodeGoalState(
 	payload, _ := episodepkg.Encode(map[string]any{
 		"goal_id": goal.ID, "state": state, "blocker": blocker,
 	})
-	if _, err := appendEpisodeEventTx(ctx, tx, goal.EpisodeID, core.WorkEpisodeEvent{
+	if _, err := s.appendEpisodeEventTx(ctx, tx, goal.EpisodeID, core.WorkEpisodeEvent{
 		Kind: kind, Actor: "host",
 		IdempotencyKey: episodeEventKey("goal-state", goal.ID, string(state), blocker),
 		Payload:        payload,
@@ -599,7 +599,7 @@ func (s *Store) CreateContextManifest(
 		"manifest_id": manifest.ID, "attempt_id": manifest.AttemptID,
 		"version": manifest.Version, "reference_count": len(manifest.References),
 	})
-	if _, err := appendEpisodeEventTx(ctx, tx, manifest.EpisodeID, core.WorkEpisodeEvent{
+	if _, err := s.appendEpisodeEventTx(ctx, tx, manifest.EpisodeID, core.WorkEpisodeEvent{
 		Kind: episodepkg.EventContextExtended, Actor: "host",
 		IdempotencyKey: "context-manifest:" + manifest.ID, Payload: payload,
 	}); err != nil {
@@ -815,7 +815,7 @@ func (s *Store) CreateEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWake
 		"wakeup_id": wakeup.ID, "kind": wakeup.Kind,
 		"due_at": wakeup.DueAt, "deadline": wakeup.Deadline,
 	})
-	if _, err := appendEpisodeEventTx(ctx, tx, wakeup.EpisodeID, core.WorkEpisodeEvent{
+	if _, err := s.appendEpisodeEventTx(ctx, tx, wakeup.EpisodeID, core.WorkEpisodeEvent{
 		Kind: episodepkg.EventExternalWaitStarted, Actor: "host",
 		IdempotencyKey: "wakeup-created:" + wakeup.ID, Payload: payload,
 	}); err != nil {
@@ -972,7 +972,7 @@ func (s *Store) ResolveEpisodeWakeup(
 	payload, _ := episodepkg.Encode(map[string]any{
 		"wakeup_id": id, "kind": wakeup.Kind, "observation": json.RawMessage(observation),
 	})
-	if _, err := appendEpisodeEventTx(ctx, tx, wakeup.EpisodeID, core.WorkEpisodeEvent{
+	if _, err := s.appendEpisodeEventTx(ctx, tx, wakeup.EpisodeID, core.WorkEpisodeEvent{
 		Kind: episodepkg.EventWakeupResolved, Actor: "host",
 		IdempotencyKey: fmt.Sprintf("wakeup-resolved:%s:%d", id, fencingToken), Payload: payload,
 	}); err != nil {

@@ -1217,7 +1217,7 @@ func watchDecisionCorrectionAt(
 				return "the alert reply has no alert_assessment; continue the read-only investigation " +
 					"until you can state a verdict, impact, immediate action, and durable solution"
 			}
-			evidence := sanitizeEvidence(decision.Evidence, "", "", "")
+			evidence := sanitizeEvidence(decision.Evidence, "", "", "", now)
 			recovered := decision.AlertAssessment.Verdict == "not_issue" &&
 				operationalAlertResolvedEvent(input.Text)
 			if recovered && hasFreshOperationalEvidence(evidence, now) &&
@@ -2197,25 +2197,25 @@ func decodeWatchState(data []byte) (watchTurnState, error) {
 	return state, nil
 }
 
-func parseWatchDecision(message string) (watchDecision, error) {
+func parseWatchDecision(message string, now time.Time) (watchDecision, error) {
 	trimmed := strings.TrimSpace(message)
 	if err := rejectMultipleJSONObjects(trimmed); err != nil {
 		return watchDecision{}, err
 	}
-	decision, err := decodeWatchDecision(trimmed)
+	decision, err := decodeWatchDecision(trimmed, now)
 	if err == nil {
 		return decision, nil
 	}
 	if strings.HasPrefix(trimmed, "{") {
 		if object, objectErr := firstJSONObject(trimmed); objectErr == nil {
-			if recovered, recoverErr := decodeWatchDecision(object); recoverErr == nil {
+			if recovered, recoverErr := decodeWatchDecision(object, now); recoverErr == nil {
 				return recovered, nil
 			}
 		}
 	}
 	if start := strings.Index(trimmed, "{"); start >= 0 {
 		if object, objectErr := firstJSONObject(trimmed[start:]); objectErr == nil {
-			if recovered, recoverErr := decodeWatchDecision(object); recoverErr == nil {
+			if recovered, recoverErr := decodeWatchDecision(object, now); recoverErr == nil {
 				return recovered, nil
 			}
 		}
@@ -2227,12 +2227,12 @@ func parseWatchDecision(message string) (watchDecision, error) {
 			break
 		}
 		candidate := strings.TrimSpace(trimmed[index:])
-		decision, err = decodeWatchDecision(candidate)
+		decision, err = decodeWatchDecision(candidate, now)
 		if err == nil {
 			return decision, nil
 		}
 		if object, objectErr := firstJSONObject(candidate); objectErr == nil {
-			if recovered, recoverErr := decodeWatchDecision(object); recoverErr == nil {
+			if recovered, recoverErr := decodeWatchDecision(object, now); recoverErr == nil {
 				return recovered, nil
 			}
 		}
@@ -2248,14 +2248,14 @@ func parseWatchDecision(message string) (watchDecision, error) {
 // production parser used during finalization and returns its terminal action.
 // Local replay verification uses this instead of maintaining a second parser.
 func WatchDecisionAction(message string) (string, error) {
-	decision, err := parseWatchDecision(message)
+	decision, err := parseWatchDecision(message, time.Now().UTC())
 	if err != nil {
 		return "", err
 	}
 	return decision.Action, nil
 }
 
-func decodeWatchDecision(message string) (watchDecision, error) {
+func decodeWatchDecision(message string, now time.Time) (watchDecision, error) {
 	normalized, err := normalizeEmptyStructuredTimestamps(message)
 	if err != nil {
 		return watchDecision{}, err
@@ -2274,161 +2274,10 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if decision.Reason == "" {
 			return watchDecision{}, errors.New("escalation decision has no reason")
 		}
-		if decision.Reaction != "" || decision.Message != "" || len(decision.FollowupMessages) != 0 ||
-			decision.Title != "" || decision.IncidentTitle != "" ||
-			decision.TaskTitle != "" || decision.TaskRepository != "" || decision.TaskPrompt != "" ||
-			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-			decision.RuleOffer != nil || decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
-			decision.AlertAssessment != nil || decision.Completion != nil || len(decision.Evidence) != 0 ||
-			len(decision.Coverage) != 0 || len(decision.Visuals) != 0 ||
-			len(decision.PublicationUpdates) != 0 {
-			return watchDecision{}, errors.New(
-				"escalation decision has unexpected fields",
-			)
-		}
-	case "ignore":
-		backgroundBlock := decision.Completion != nil &&
-			decision.Completion.Status == "blocked" && decision.Completion.Recheck != nil
-		if decision.Reaction != "" || decision.Message != "" || len(decision.FollowupMessages) != 0 || decision.Title != "" ||
-			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
-			decision.TaskRepository != "" || decision.TaskPrompt != "" || decision.MemoryOffer != nil ||
-			decision.PreferenceOffer != nil || decision.RuleOffer != nil || decision.ScheduleOffer != nil ||
-			decision.PendingApproval != nil || decision.AlertAssessment != nil ||
-			(decision.Completion != nil && !backgroundBlock) ||
-			len(decision.Visuals) != 0 {
-			return watchDecision{}, errors.New("ignore decision has unexpected fields")
-		}
-	case "react":
-		reaction, err := normalizeSlackReactionName(decision.Reaction)
-		if err != nil {
-			return watchDecision{}, err
-		}
-		decision.Reaction = reaction
-		if decision.Message != "" || len(decision.FollowupMessages) != 0 || decision.Title != "" ||
-			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
-			decision.TaskRepository != "" || decision.TaskPrompt != "" || decision.MemoryOffer != nil ||
-			decision.PreferenceOffer != nil || decision.RuleOffer != nil || decision.ScheduleOffer != nil ||
-			decision.PendingApproval != nil || decision.AlertAssessment != nil || decision.Completion != nil ||
-			len(decision.Evidence) != 0 || len(decision.Coverage) != 0 ||
-			len(decision.Visuals) != 0 || len(decision.PublicationUpdates) != 0 {
-			return watchDecision{}, errors.New("react decision has unexpected fields")
-		}
+	case "ignore", "react":
 	case "reply":
-		decision.Message, decision.FollowupMessages, err = normalizeReplySequence(
-			decision.Message,
-			decision.FollowupMessages,
-		)
-		if err != nil {
+		if err := validateReplyDecision(&decision, now); err != nil {
 			return watchDecision{}, err
-		}
-		decision.IncidentTitle = strings.TrimSpace(decision.IncidentTitle)
-		decision.TaskTitle = strings.TrimSpace(decision.TaskTitle)
-		decision.TaskRepository = strings.TrimSpace(decision.TaskRepository)
-		decision.TaskPrompt = strings.TrimSpace(decision.TaskPrompt)
-		if decision.Reaction != "" || decision.Title != "" {
-			return watchDecision{}, errors.New("reply decision has an unexpected title")
-		}
-		if len(decision.Visuals) > 4 {
-			return watchDecision{}, errors.New("reply decision references too many generated visuals")
-		}
-		if len(decision.IncidentTitle) > 200 {
-			return watchDecision{}, errors.New("incident offer title exceeds 200 bytes")
-		}
-		if len(decision.TaskTitle) > 200 {
-			return watchDecision{}, errors.New("engineering task offer title exceeds 200 bytes")
-		}
-		if len(decision.TaskRepository) > 63 {
-			return watchDecision{}, errors.New("engineering task repository exceeds 63 bytes")
-		}
-		if len(decision.TaskPrompt) > 4000 {
-			return watchDecision{}, errors.New("engineering task prompt exceeds 4000 bytes")
-		}
-		if decision.TaskTitle == "" && decision.TaskRepository != "" {
-			return watchDecision{}, errors.New("task_repository requires task_title")
-		}
-		if decision.TaskTitle == "" && decision.TaskPrompt != "" {
-			return watchDecision{}, errors.New("task_prompt requires task_title")
-		}
-		if decision.TaskPrompt != "" && decision.TaskRepository == "" {
-			return watchDecision{}, errors.New("suggested engineering task requires task_repository")
-		}
-		if decision.PendingApproval != nil &&
-			(decision.IncidentTitle != "" || decision.TaskTitle != "" ||
-				decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-				decision.RuleOffer != nil || len(decision.Visuals) != 0) {
-			return watchDecision{}, errors.New(
-				"pending approval cannot be combined with another offer or generated visual",
-			)
-		}
-		if decision.MemoryOffer != nil &&
-			(decision.IncidentTitle != "" || decision.TaskTitle != "") {
-			return watchDecision{}, errors.New(
-				"reply decision cannot offer memory and work in the same response",
-			)
-		}
-		offerCount := 0
-		for _, present := range []bool{
-			decision.MemoryOffer != nil,
-			decision.PreferenceOffer != nil,
-			decision.RuleOffer != nil,
-			decision.ScheduleOffer != nil,
-		} {
-			if present {
-				offerCount++
-			}
-		}
-		if offerCount > 0 && decision.IncidentTitle != "" {
-			return watchDecision{}, errors.New(
-				"reply decision cannot offer durable behavior and work in the same response",
-			)
-		}
-		if decision.TaskTitle != "" &&
-			(decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-				decision.RuleOffer != nil) {
-			return watchDecision{}, errors.New(
-				"reply decision cannot offer durable behavior and work in the same response",
-			)
-		}
-		if offerCount > 0 && len(decision.Visuals) > 0 {
-			return watchDecision{}, errors.New("reply decision cannot combine durable behavior and generated visuals")
-		}
-		if decision.AlertAssessment != nil {
-			if err := validateAlertAssessment(decision.AlertAssessment); err != nil {
-				return watchDecision{}, err
-			}
-		}
-		if err := validateCompletionAssessment(decision.Completion); err != nil {
-			return watchDecision{}, err
-		}
-		if err := validateCapabilityGapEvidence(decision.Completion, decision.Evidence); err != nil {
-			return watchDecision{}, err
-		}
-		decision.Message, decision.FollowupMessages = appendCapabilityGuidance(
-			decision.Message,
-			decision.FollowupMessages,
-			decision.Completion,
-		)
-		decision.Message, decision.FollowupMessages, err = normalizeReplySequence(
-			decision.Message,
-			decision.FollowupMessages,
-		)
-		if err != nil {
-			return watchDecision{}, err
-		}
-		if decision.TaskPrompt != "" {
-			if !validSuggestedEngineeringTaskBoundary(decision) {
-				return watchDecision{}, errors.New(
-					"suggested engineering task requires a decision-ready result or an exact tool-failure blocker",
-				)
-			}
-			if !watchDecisionHasEvidenceSource(
-				sanitizeEvidence(decision.Evidence, "", "", ""),
-				"repository",
-			) {
-				return watchDecision{}, errors.New(
-					"suggested engineering task requires repository evidence",
-				)
-			}
 		}
 	case "incident":
 		decision.Title = strings.TrimSpace(decision.Title)
@@ -2438,22 +2287,236 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		if len(decision.Title) > 200 {
 			return watchDecision{}, errors.New("incident title exceeds 200 bytes")
 		}
-		if decision.Reaction != "" || decision.Message != "" || len(decision.FollowupMessages) != 0 || decision.IncidentTitle != "" ||
-			decision.TaskTitle != "" || decision.TaskRepository != "" || decision.TaskPrompt != "" ||
-			decision.MemoryOffer != nil || decision.PreferenceOffer != nil ||
-			decision.RuleOffer != nil || decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
-			decision.AlertAssessment != nil || decision.Completion != nil || len(decision.Visuals) != 0 ||
-			len(decision.PublicationUpdates) != 0 {
-			return watchDecision{}, errors.New("incident decision has unexpected fields")
-		}
 	default:
 		return watchDecision{}, fmt.Errorf("unknown action %q", decision.Action)
 	}
-	if len(decision.PublicationUpdates) > 4 {
-		return watchDecision{}, errors.New("decision contains too many publication updates")
+	if decision.Action == "react" {
+		reaction, err := normalizeSlackReactionName(decision.Reaction)
+		if err != nil {
+			return watchDecision{}, err
+		}
+		decision.Reaction = reaction
 	}
-	for index := range decision.PublicationUpdates {
-		item := &decision.PublicationUpdates[index]
+	if err := rejectUnexpectedWatchFields(decision); err != nil {
+		return watchDecision{}, err
+	}
+	if err := validateWatchPublicationUpdates(&decision); err != nil {
+		return watchDecision{}, err
+	}
+	if err := validateAttentionAssessment(decision.Attention); err != nil {
+		return watchDecision{}, err
+	}
+	return decision, nil
+}
+
+// watchDecisionPayload names every optional field a watch decision may carry.
+// Each action declares which of them it may use, and anything else present is
+// rejected. Keeping that in one table means adding a field to watchDecision is
+// a single-line change that every action is then checked against, instead of
+// four hand-maintained boolean chains that quietly drift apart.
+var watchDecisionPayload = []struct {
+	name    string
+	present func(watchDecision) bool
+}{
+	{"reaction", func(d watchDecision) bool { return d.Reaction != "" }},
+	{"message", func(d watchDecision) bool { return d.Message != "" }},
+	{"followup_messages", func(d watchDecision) bool { return len(d.FollowupMessages) != 0 }},
+	{"title", func(d watchDecision) bool { return d.Title != "" }},
+	{"incident_title", func(d watchDecision) bool { return d.IncidentTitle != "" }},
+	{"task_title", func(d watchDecision) bool { return d.TaskTitle != "" }},
+	{"task_repository", func(d watchDecision) bool { return d.TaskRepository != "" }},
+	{"task_prompt", func(d watchDecision) bool { return d.TaskPrompt != "" }},
+	{"memory_offer", func(d watchDecision) bool { return d.MemoryOffer != nil }},
+	{"preference_offer", func(d watchDecision) bool { return d.PreferenceOffer != nil }},
+	{"rule_offer", func(d watchDecision) bool { return d.RuleOffer != nil }},
+	{"schedule_offer", func(d watchDecision) bool { return d.ScheduleOffer != nil }},
+	{"pending_approval", func(d watchDecision) bool { return d.PendingApproval != nil }},
+	{"alert_assessment", func(d watchDecision) bool { return d.AlertAssessment != nil }},
+	{"completion", func(d watchDecision) bool { return d.Completion != nil }},
+	{"evidence", func(d watchDecision) bool { return len(d.Evidence) != 0 }},
+	{"coverage", func(d watchDecision) bool { return len(d.Coverage) != 0 }},
+	{"visuals", func(d watchDecision) bool { return len(d.Visuals) != 0 }},
+	{"publication_updates", func(d watchDecision) bool { return len(d.PublicationUpdates) != 0 }},
+}
+
+// watchActionPayload declares the fields each action may carry, and the noun
+// used when rejecting anything else. A reply carries almost everything and has
+// its own richer rules, so it is validated separately.
+var watchActionPayload = map[string]struct {
+	noun    string
+	allowed map[string]bool
+}{
+	"escalate": {noun: "escalation", allowed: map[string]bool{}},
+	"ignore": {noun: "ignore", allowed: map[string]bool{
+		"evidence": true, "coverage": true, "publication_updates": true,
+	}},
+	"react":    {noun: "react", allowed: map[string]bool{"reaction": true}},
+	"incident": {noun: "incident", allowed: map[string]bool{"title": true, "evidence": true, "coverage": true}},
+	"reply": {noun: "reply", allowed: map[string]bool{
+		"message": true, "followup_messages": true, "incident_title": true,
+		"task_title": true, "task_repository": true, "task_prompt": true,
+		"memory_offer": true, "preference_offer": true, "rule_offer": true,
+		"schedule_offer": true, "pending_approval": true, "alert_assessment": true,
+		"completion": true, "evidence": true, "coverage": true, "visuals": true,
+		"publication_updates": true,
+	}},
+}
+
+func rejectUnexpectedWatchFields(decision watchDecision) error {
+	action, ok := watchActionPayload[decision.Action]
+	if !ok {
+		return fmt.Errorf("unknown action %q", decision.Action)
+	}
+	for _, field := range watchDecisionPayload {
+		if action.allowed[field.name] || !field.present(decision) {
+			continue
+		}
+		// An ignore decision may carry a completion only when it is a durable
+		// background block that schedules its own recheck.
+		if decision.Action == "ignore" && field.name == "completion" &&
+			decision.Completion.Status == "blocked" && decision.Completion.Recheck != nil {
+			continue
+		}
+		if decision.Action == "reply" {
+			return errors.New("reply decision has an unexpected title")
+		}
+		return fmt.Errorf("%s decision has unexpected fields", action.noun)
+	}
+	return nil
+}
+
+// validateReplyDecision owns the rules that only apply to a reply: the offer
+// and visual exclusivity matrix, engineering-task boundaries, and the
+// assessment validators.
+func validateReplyDecision(d *watchDecision, now time.Time) error {
+	var err error
+	d.Message, d.FollowupMessages, err = normalizeReplySequence(
+		d.Message,
+		d.FollowupMessages,
+	)
+	if err != nil {
+		return err
+	}
+	d.IncidentTitle = strings.TrimSpace(d.IncidentTitle)
+	d.TaskTitle = strings.TrimSpace(d.TaskTitle)
+	d.TaskRepository = strings.TrimSpace(d.TaskRepository)
+	d.TaskPrompt = strings.TrimSpace(d.TaskPrompt)
+	if d.Reaction != "" || d.Title != "" {
+		return errors.New("reply decision has an unexpected title")
+	}
+	if len(d.Visuals) > 4 {
+		return errors.New("reply decision references too many generated visuals")
+	}
+	if len(d.IncidentTitle) > 200 {
+		return errors.New("incident offer title exceeds 200 bytes")
+	}
+	if len(d.TaskTitle) > 200 {
+		return errors.New("engineering task offer title exceeds 200 bytes")
+	}
+	if len(d.TaskRepository) > 63 {
+		return errors.New("engineering task repository exceeds 63 bytes")
+	}
+	if len(d.TaskPrompt) > 4000 {
+		return errors.New("engineering task prompt exceeds 4000 bytes")
+	}
+	if d.TaskTitle == "" && d.TaskRepository != "" {
+		return errors.New("task_repository requires task_title")
+	}
+	if d.TaskTitle == "" && d.TaskPrompt != "" {
+		return errors.New("task_prompt requires task_title")
+	}
+	if d.TaskPrompt != "" && d.TaskRepository == "" {
+		return errors.New("suggested engineering task requires task_repository")
+	}
+	if d.PendingApproval != nil &&
+		(d.IncidentTitle != "" || d.TaskTitle != "" ||
+			d.MemoryOffer != nil || d.PreferenceOffer != nil ||
+			d.RuleOffer != nil || len(d.Visuals) != 0) {
+		return errors.New(
+			"pending approval cannot be combined with another offer or generated visual",
+		)
+	}
+	if d.MemoryOffer != nil &&
+		(d.IncidentTitle != "" || d.TaskTitle != "") {
+		return errors.New(
+			"reply decision cannot offer memory and work in the same response",
+		)
+	}
+	offerCount := 0
+	for _, present := range []bool{
+		d.MemoryOffer != nil,
+		d.PreferenceOffer != nil,
+		d.RuleOffer != nil,
+		d.ScheduleOffer != nil,
+	} {
+		if present {
+			offerCount++
+		}
+	}
+	if offerCount > 0 && d.IncidentTitle != "" {
+		return errors.New(
+			"reply decision cannot offer durable behavior and work in the same response",
+		)
+	}
+	if d.TaskTitle != "" &&
+		(d.MemoryOffer != nil || d.PreferenceOffer != nil ||
+			d.RuleOffer != nil) {
+		return errors.New(
+			"reply decision cannot offer durable behavior and work in the same response",
+		)
+	}
+	if offerCount > 0 && len(d.Visuals) > 0 {
+		return errors.New("reply decision cannot combine durable behavior and generated visuals")
+	}
+	if d.AlertAssessment != nil {
+		if err := validateAlertAssessment(d.AlertAssessment); err != nil {
+			return err
+		}
+	}
+	if err := validateCompletionAssessment(d.Completion); err != nil {
+		return err
+	}
+	if err := validateCapabilityGapEvidence(d.Completion, d.Evidence); err != nil {
+		return err
+	}
+	d.Message, d.FollowupMessages = appendCapabilityGuidance(
+		d.Message,
+		d.FollowupMessages,
+		d.Completion,
+	)
+	d.Message, d.FollowupMessages, err = normalizeReplySequence(
+		d.Message,
+		d.FollowupMessages,
+	)
+	if err != nil {
+		return err
+	}
+	if d.TaskPrompt != "" {
+		if !validSuggestedEngineeringTaskBoundary(*d) {
+			return errors.New(
+				"suggested engineering task requires a decision-ready result or an exact tool-failure blocker",
+			)
+		}
+		if !watchDecisionHasEvidenceSource(
+			sanitizeEvidence(d.Evidence, "", "", "", now),
+			"repository",
+		) {
+			return errors.New(
+				"suggested engineering task requires repository evidence",
+			)
+		}
+	}
+	return nil
+}
+
+// validateWatchPublicationUpdates bounds and normalizes the external lifecycle
+// events a decision may report.
+func validateWatchPublicationUpdates(d *watchDecision) error {
+	if len(d.PublicationUpdates) > 4 {
+		return errors.New("decision contains too many publication updates")
+	}
+	for index := range d.PublicationUpdates {
+		item := &d.PublicationUpdates[index]
 		item.IncidentID = strings.TrimSpace(item.IncidentID)
 		item.Kind = strings.TrimSpace(item.Kind)
 		item.State = strings.TrimSpace(item.State)
@@ -2462,24 +2525,21 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 		switch item.Kind {
 		case "deployment", "terraform":
 		default:
-			return watchDecision{}, fmt.Errorf("publication update kind %q is invalid", item.Kind)
+			return fmt.Errorf("publication update kind %q is invalid", item.Kind)
 		}
 		switch item.State {
 		case "pending", "succeeded", "failed":
 		default:
-			return watchDecision{}, fmt.Errorf("publication update state %q is invalid", item.State)
+			return fmt.Errorf("publication update state %q is invalid", item.State)
 		}
 		if item.IncidentID == "" || item.Reference == "" || item.Summary == "" {
-			return watchDecision{}, errors.New("publication update is incomplete")
+			return errors.New("publication update is incomplete")
 		}
 		if len(item.Reference) > 300 || len(item.Summary) > 1200 {
-			return watchDecision{}, errors.New("publication update exceeds its bound")
+			return errors.New("publication update exceeds its bound")
 		}
 	}
-	if err := validateAttentionAssessment(decision.Attention); err != nil {
-		return watchDecision{}, err
-	}
-	return decision, nil
+	return nil
 }
 
 // normalizeWatchDecisionCompletion repairs two common, unambiguous transport

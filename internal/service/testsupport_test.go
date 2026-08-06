@@ -159,3 +159,8 @@ func TestSlackWriteDefersWhileCoolingDownInsteadOfReportingSuccess(t *testing.T)
 		t.Fatalf("write after cooldown = %v", err)
 	}
 }
+
+// testDecodeClock is a fixed reading for parser tests. Decoding validates
+// shape and freshness bounds, so a stable clock keeps those assertions from
+// depending on when the suite runs.
+var testDecodeClock = time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)

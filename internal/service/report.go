@@ -350,8 +350,8 @@ func (s *Service) persistAgentReport(
 			return agentReport{}, errors.New("generated visual requires artifact, title, and alt_text")
 		}
 	}
-	report.Evidence = sanitizeEvidence(report.Evidence, incident.ID, channelID, sourceInput)
-	report.Coverage = sanitizeCoverage(report.Coverage, incident.ID, channelID, sourceInput)
+	report.Evidence = sanitizeEvidence(report.Evidence, incident.ID, channelID, sourceInput, s.now())
+	report.Coverage = sanitizeCoverage(report.Coverage, incident.ID, channelID, sourceInput, s.now())
 	report.Memory = sanitizeMemory(report.Memory)
 	for index := range report.Evidence {
 		item := &report.Evidence[index]
@@ -545,6 +545,7 @@ func sanitizeEvidence(
 	incidentID string,
 	channelID string,
 	sourceInput string,
+	now time.Time,
 ) []core.Evidence {
 	result := make([]core.Evidence, 0, min(len(items), 50))
 	for _, item := range items[:min(len(items), 50)] {
@@ -580,7 +581,7 @@ func sanitizeEvidence(
 		if !validConfidence(item.Confidence) {
 			item.Confidence = ""
 		}
-		if item.ObservedAt.After(time.Now().Add(5 * time.Minute)) {
+		if item.ObservedAt.After(now.Add(5 * time.Minute)) {
 			item.ObservedAt = time.Time{}
 		}
 		if (item.ClaimID == "" && item.Claim == "") ||
@@ -607,6 +608,7 @@ func sanitizeCoverage(
 	incidentID string,
 	channelID string,
 	sourceInput string,
+	now time.Time,
 ) []core.Coverage {
 	result := make([]core.Coverage, 0, min(len(items), 30))
 	for _, item := range items[:min(len(items), 30)] {
@@ -621,7 +623,7 @@ func sanitizeCoverage(
 		if !validCoverageLayer(item.Layer) || !validCoverageStatus(item.Status) {
 			continue
 		}
-		if item.ObservedAt.After(time.Now().Add(5 * time.Minute)) {
+		if item.ObservedAt.After(now.Add(5 * time.Minute)) {
 			item.ObservedAt = time.Time{}
 		}
 		if item.Layer == "" || item.Status == "" {

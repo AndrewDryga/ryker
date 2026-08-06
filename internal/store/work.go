@@ -62,7 +62,7 @@ func enqueueWorkTx(
 		return fmt.Errorf("unsupported scheduled work lane %q", item.Lane)
 	}
 	if item.AvailableAt.IsZero() {
-		item.AvailableAt = time.Now().UTC()
+		item.AvailableAt = parseTime(now)
 	}
 	var deadline any
 	if !item.DeadlineAt.IsZero() {

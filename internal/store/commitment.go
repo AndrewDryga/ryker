@@ -76,21 +76,6 @@ func scanCommitment(row interface{ Scan(...any) error }) (core.Commitment, error
 	return item, nil
 }
 
-func (s *Store) GetCommitmentByRun(
-	ctx context.Context,
-	runID string,
-) (core.Commitment, error) {
-	return scanCommitment(s.db.QueryRowContext(
-		ctx,
-		`SELECT `+commitmentProjectionColumns+`
-		 FROM commitments AS c
-		 JOIN agent_runs AS r ON r.id = c.agent_run_id
-		 JOIN work_episodes AS e ON e.agent_run_id = r.id
-		 WHERE c.agent_run_id = ?`,
-		runID,
-	))
-}
-
 func (s *Store) ListActiveCommitments(
 	ctx context.Context,
 	limit int,

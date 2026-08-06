@@ -331,12 +331,12 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 	if err := expectOne(result, err, "lease agent run"); err != nil {
 		return core.AgentRun{}, err
 	}
-	if err := setEpisodeAttemptStateTx(
+	if err := s.setEpisodeAttemptStateTx(
 		ctx, tx, run.ID, core.AttemptLeased, "", true,
 	); err != nil {
 		return core.AgentRun{}, err
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, run.ID, core.EpisodePlanning, "planning", "Planning the work",
 		"Establish the evidence plan", time.Time{},
 		fmt.Sprintf("agent-run:%s:leased:%d", run.ID, run.Failures+1),
@@ -516,7 +516,7 @@ func (s *Store) MarkAgentRunSubmitted(
 	if err := expectOne(result, err, "mark agent run submitted"); err != nil {
 		return err
 	}
-	if err := setEpisodeAttemptStateTx(
+	if err := s.setEpisodeAttemptStateTx(
 		ctx, tx, id, core.AttemptRunning, "", false,
 	); err != nil {
 		return err
@@ -539,7 +539,7 @@ func (s *Store) MarkAgentRunSubmitted(
 			return err
 		}
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeWorking, "investigating", "Investigating",
 		"Complete the evidence plan", time.Time{}, "agent-turn:"+coopTurnID+":started",
 	); err != nil {
@@ -588,7 +588,7 @@ func (s *Store) MarkTriageAgentRunSubmitted(
 	if err := expectOne(result, err, "mark conversation run submitted"); err != nil {
 		return err
 	}
-	if err := setEpisodeAttemptStateTx(
+	if err := s.setEpisodeAttemptStateTx(
 		ctx, tx, id, core.AttemptRunning, "", false,
 	); err != nil {
 		return err
@@ -602,7 +602,7 @@ func (s *Store) MarkTriageAgentRunSubmitted(
 	if err := expectOne(result, err, "advance submitted conversation session"); err != nil {
 		return err
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeWorking, "investigating", "Investigating",
 		"Complete the requested work", time.Time{}, "agent-turn:"+coopTurnID+":started",
 	); err != nil {
@@ -630,12 +630,12 @@ func (s *Store) DeferAgentRun(
 	if err := expectOne(result, err, "defer agent run"); err != nil {
 		return err
 	}
-	if err := setEpisodeAttemptStateTx(
+	if err := s.setEpisodeAttemptStateTx(
 		ctx, tx, id, core.AttemptPending, detail, false,
 	); err != nil {
 		return err
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeAcknowledged, "queued", boundedError(detail),
 		"Resume when the dependency is ready", time.Time{},
 		"agent-run:"+id+":deferred:"+next.UTC().Format(time.RFC3339Nano),
@@ -677,7 +677,7 @@ func (s *Store) RetryAgentRun(
 	if terminal {
 		attemptState = core.AttemptFailed
 	}
-	if err := setEpisodeAttemptStateTx(ctx, tx, id, attemptState, detail, false); err != nil {
+	if err := s.setEpisodeAttemptStateTx(ctx, tx, id, attemptState, detail, false); err != nil {
 		return err
 	}
 	episodeState := core.EpisodeAcknowledged
@@ -688,7 +688,7 @@ func (s *Store) RetryAgentRun(
 		phase = "failed"
 		nextAction = "Review the blocker or retry"
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, episodeState, phase, boundedError(detail), nextAction,
 		time.Time{}, fmt.Sprintf(
 			"agent-run:%s:retry:%s:%t", id, next.UTC().Format(time.RFC3339Nano), terminal,
@@ -863,7 +863,7 @@ func (s *Store) RequeueAgentRun(
 	if err := expectOne(result, err, "requeue agent run"); err != nil {
 		return err
 	}
-	if err := setEpisodeAttemptStateTx(
+	if err := s.setEpisodeAttemptStateTx(
 		ctx, tx, id, core.AttemptPending, detail, false,
 	); err != nil {
 		return err
@@ -883,7 +883,7 @@ func (s *Store) RequeueAgentRun(
 			return err
 		}
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeAcknowledged, "continuing", boundedError(detail),
 		"Continue unfinished work", time.Time{},
 		fmt.Sprintf("agent-run:%s:%s", id, recoveryID),
@@ -939,7 +939,7 @@ func (s *Store) DeferRunningAgentRun(
 	if err := expectOne(result, err, "defer running agent run"); err != nil {
 		return err
 	}
-	if err := setEpisodeAttemptStateTx(
+	if err := s.setEpisodeAttemptStateTx(
 		ctx, tx, id, core.AttemptPending, detail, false,
 	); err != nil {
 		return err
@@ -959,7 +959,7 @@ func (s *Store) DeferRunningAgentRun(
 			return err
 		}
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeAcknowledged, "waiting", boundedError(detail),
 		"Waiting for execution runtime", time.Time{},
 		fmt.Sprintf("agent-run:%s:dependency:%d", id, eventSequence),
@@ -1008,12 +1008,12 @@ func (s *Store) EscalateAgentRun(
 	if err := expectOne(result, err, "escalate agent run"); err != nil {
 		return err
 	}
-	if err := setEpisodeAttemptStateTx(
+	if err := s.setEpisodeAttemptStateTx(
 		ctx, tx, id, core.AttemptPending, detail, false,
 	); err != nil {
 		return err
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodePlanning, "expanding_scope", boundedError(detail),
 		"Continue in the full investigation lane", time.Time{},
 		"agent-run:"+id+":escalated",
@@ -1066,7 +1066,7 @@ func (s *Store) StageAgentRunResult(
 		}
 		return err
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeVerifying, "finalizing", "Preparing the result",
 		"Validate and deliver the result", time.Time{},
 		fmt.Sprintf("agent-turn:%s:terminal:%s:%d", id, terminalState, eventSequence),
@@ -1117,7 +1117,7 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 	} else if finalState == core.AgentRunCancelled {
 		attemptState = core.AttemptCancelled
 	}
-	if err := setEpisodeAttemptStateTx(ctx, tx, id, attemptState, "", false); err != nil {
+	if err := s.setEpisodeAttemptStateTx(ctx, tx, id, attemptState, "", false); err != nil {
 		return err
 	}
 	if incidentID.Valid {
@@ -1163,7 +1163,7 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 		currentEpisodeState != core.EpisodeFailed &&
 		currentEpisodeState != core.EpisodeCancelled &&
 		currentEpisodeState != core.EpisodeSuperseded {
-		if err := setWorkEpisodePhaseTx(
+		if err := s.setWorkEpisodePhaseTx(
 			ctx, tx, id, episodeState, "finished", episodeStatus, episodeNextAction,
 			time.Time{}, "agent-run:"+id+":finished:"+string(finalState),
 		); err != nil {
@@ -1222,12 +1222,12 @@ func (s *Store) SupersedeAgentRun(ctx context.Context, id, detail string) error 
 	if err := expectOne(result, err, "supersede agent run"); err != nil {
 		return err
 	}
-	if err := setEpisodeAttemptStateTx(
+	if err := s.setEpisodeAttemptStateTx(
 		ctx, tx, id, core.AttemptCancelled, detail, false,
 	); err != nil {
 		return err
 	}
-	if err := setWorkEpisodePhaseTx(
+	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeSuperseded, "finished", boundedError(detail), "",
 		time.Time{}, "agent-run:"+id+":superseded",
 	); err != nil {

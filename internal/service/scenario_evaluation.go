@@ -405,7 +405,7 @@ func runLiveEvaluationScenario(
 					}
 				}
 			}
-			decision, parseErr := parseWatchDecision(response)
+			decision, parseErr := parseWatchDecision(response, time.Now().UTC())
 			if parseErr == nil {
 				current.Memory = decision.Memory
 				current.Answered = decision.Action == "reply"

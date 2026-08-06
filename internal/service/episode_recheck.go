@@ -38,7 +38,7 @@ func (s *Service) scheduleEpisodeRechecks(
 		if err != nil {
 			return err
 		}
-		decision, err := parseWatchDecision(string(origin.Result))
+		decision, err := parseWatchDecision(string(origin.Result), s.now())
 		if err != nil || decision.Completion == nil {
 			return nil
 		}
@@ -93,7 +93,7 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 	if err != nil {
 		return err
 	}
-	decision, err := parseWatchDecision(string(originRun.Result))
+	decision, err := parseWatchDecision(string(originRun.Result), s.now())
 	if err != nil || decision.Completion == nil || decision.Completion.Recheck == nil {
 		return nil
 	}
@@ -123,7 +123,7 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 		if priorRun.TerminalState != "completed" {
 			continue
 		}
-		priorDecision, parseErr := parseWatchDecision(string(priorRun.Result))
+		priorDecision, parseErr := parseWatchDecision(string(priorRun.Result), s.now())
 		if parseErr == nil && priorDecision.Action != "ignore" {
 			return nil
 		}

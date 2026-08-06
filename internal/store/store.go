@@ -1826,14 +1826,6 @@ func (s *Store) createManualWork(
 	return incident, false, err
 }
 
-func (s *Store) SetRoot(ctx context.Context, id, rootTS string) error {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE incidents SET root_ts = ?, workflow = 'provisioning_session',
-		  updated_at = ?, card_version = card_version + 1, last_error = ''
-		WHERE id = ? AND channel_id != '' AND root_ts = ''`, rootTS, s.nowText(), id)
-	return expectOne(result, err, "bind incident root")
-}
-
 func (s *Store) SetCoopSession(ctx context.Context, id, sessionID, forkName string, revision int64) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET coop_session_id = ?, coop_fork_name = ?, coop_revision = ?, workflow = 'investigating',
@@ -1862,14 +1854,6 @@ func (s *Store) SetIncidentError(ctx context.Context, id string, workflow core.W
 		UPDATE incidents SET workflow = ?, last_error = ?, updated_at = ?,
 		  card_version = card_version + 1 WHERE id = ?`,
 		workflow, boundedError(detail), s.nowText(), id)
-	return err
-}
-
-func (s *Store) MarkCardRendered(ctx context.Context, id string, version int64) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE incidents SET card_rendered_version = CASE
-		  WHEN card_rendered_version < ? THEN ? ELSE card_rendered_version END
-		WHERE id = ?`, version, version, id)
 	return err
 }
 
@@ -1934,7 +1918,7 @@ func admitSlackInput(
 	}
 	received := input.ReceivedAt
 	if received.IsZero() {
-		received = time.Now().UTC()
+		received = parseTime(now)
 	}
 	result, err := executor.ExecContext(ctx, `
 		INSERT OR IGNORE INTO slack_inputs

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/service"
@@ -173,4 +174,60 @@ webhooks:
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+// Health and metrics are unauthenticated and read the single writer connection
+// that every worker shares, so a burst of scrapes must collapse into one read
+// and must still refresh once the TTL elapses.
+func TestStatusReadsAreCachedAndRefreshAfterTTL(t *testing.T) {
+	cfg := testConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	handler := New(cfg, st, service.New(cfg, st, nil, nil, nil, nil, nil),
+		map[string]string{"grafana": "hook-secret"}, nil)
+
+	inner := unwrapHandler(t, handler)
+	base := time.Unix(1700000000, 0).UTC()
+	inner.statusClock = func() time.Time { return base }
+
+	scrape := func(path string) {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK && recorder.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s = %d", path, recorder.Code)
+		}
+	}
+
+	scrape("/metrics")
+	firstExpiry := inner.statusUntil
+	if firstExpiry.IsZero() {
+		t.Fatal("first scrape did not populate the status cache")
+	}
+	for range 50 {
+		scrape("/metrics")
+		scrape("/readyz")
+	}
+	if !inner.statusUntil.Equal(firstExpiry) {
+		t.Fatal("scrapes inside the TTL re-read the database")
+	}
+
+	inner.statusClock = func() time.Time { return base.Add(2 * statusTTL) }
+	scrape("/readyz")
+	if !inner.statusUntil.After(firstExpiry) {
+		t.Fatal("status cache did not refresh after its TTL")
+	}
+}
+
+// unwrapHandler reaches the Handler behind the security-header middleware.
+func unwrapHandler(t *testing.T, handler http.Handler) *Handler {
+	t.Helper()
+	inner, ok := handlerBehindMiddleware(handler)
+	if !ok {
+		t.Fatal("could not reach the Handler behind its middleware")
+	}
+	return inner
 }

@@ -486,6 +486,23 @@ func applyLegacyLimitDefaults(data []byte, cfg *Config) error {
 }
 
 func (c Config) Validate() error {
+	for _, section := range []func() error{
+		c.validateCore,
+		c.validateRepositories,
+		c.validateSubsystems,
+		c.validateWebhooksAndActions,
+		c.validateLimits,
+	} {
+		if err := section(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateCore checks the process-level settings: version, listener, state
+// directory, log level, and the Slack and Coop bindings.
+func (c Config) validateCore() error {
 	switch {
 	case c.Version != Version:
 		return fmt.Errorf("config version must be %d", Version)
@@ -509,6 +526,11 @@ func (c Config) Validate() error {
 	if err := validateCoop(c.Coop); err != nil {
 		return fmt.Errorf("coop: %w", err)
 	}
+	return nil
+}
+
+// validateRepositories checks each repository binding and repository set.
+func (c Config) validateRepositories() error {
 	if len(c.Repositories) == 0 {
 		return errors.New("repositories must define at least one binding")
 	}
@@ -570,6 +592,12 @@ func (c Config) Validate() error {
 			)
 		}
 	}
+	return nil
+}
+
+// validateSubsystems checks GitHub publishing, retention, and memory, whose
+// bounds depend on each other.
+func (c Config) validateSubsystems() error {
 	if err := validateGitHub(c.GitHub); err != nil {
 		return fmt.Errorf("github: %w", err)
 	}
@@ -585,6 +613,11 @@ func (c Config) Validate() error {
 			c.Slack.DefaultRepository,
 		)
 	}
+	return nil
+}
+
+// validateWebhooksAndActions checks each webhook route and operational action.
+func (c Config) validateWebhooksAndActions() error {
 	if len(c.Webhooks) == 0 {
 		return errors.New("webhooks must define at least one route")
 	}
@@ -629,6 +662,12 @@ func (c Config) Validate() error {
 			return fmt.Errorf("action %q expires_after must be between 1m and 24h", name)
 		}
 	}
+	return nil
+}
+
+// validateLimits checks the numeric bounds that govern payload sizes, incident
+// capacity, worker concurrency, and lease timing.
+func (c Config) validateLimits() error {
 	if c.Limits.MaxWebhookBytes < 1024 || c.Limits.MaxWebhookBytes > 8<<20 {
 		return errors.New("limits.max_webhook_bytes must be between 1024 and 8388608")
 	}

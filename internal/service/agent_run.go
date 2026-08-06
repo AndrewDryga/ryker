@@ -1370,7 +1370,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 	if run.Mode == core.AgentRunTriage && terminalState == "completed" {
 		input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 		state, stateErr := decodeWatchRunContext(run)
-		decision, decisionErr := parseWatchDecision(turn.AssistantMessage)
+		decision, decisionErr := parseWatchDecision(turn.AssistantMessage, s.now())
 		if inputErr != nil {
 			return inputErr
 		}
@@ -1464,7 +1464,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 				correction = episodeCompletionCorrection(
 					episode,
 					decision.Action,
-					sanitizeCoverage(decision.Coverage, "", "", ""),
+					sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 					decision.Completion,
 				)
 				if correction == "" {
@@ -1475,7 +1475,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 				if correction == "" {
 					correction = unsupportedOperationalClaimCorrection(
 						decision.Action, decision.Message,
-						sanitizeEvidence(decision.Evidence, "", "", ""),
+						sanitizeEvidence(decision.Evidence, "", "", "", s.now()),
 					)
 				}
 				if correction == "" {
@@ -1483,8 +1483,8 @@ func (s *Service) stagePolledAgentRunTerminal(
 						ctx,
 						episode,
 						decision.Action,
-						sanitizeEvidence(decision.Evidence, "", "", ""),
-						sanitizeCoverage(decision.Coverage, "", "", ""),
+						sanitizeEvidence(decision.Evidence, "", "", "", s.now()),
+						sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 						decision.Completion,
 						s.now(),
 						len(decision.AppliedOperations) > 0,
@@ -1497,7 +1497,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 					correction = episodeDiagnosisCorrection(
 						episode,
 						decision.Action,
-						sanitizeCoverage(decision.Coverage, "", "", ""),
+						sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 						decision.AlertAssessment,
 						decision.Completion,
 					)
@@ -1568,7 +1568,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 			correction := episodeCompletionCorrection(
 				episode,
 				"reply",
-				sanitizeCoverage(report.Coverage, "", "", ""),
+				sanitizeCoverage(report.Coverage, "", "", "", s.now()),
 				report.Completion,
 			)
 			if correction == "" {
@@ -1579,7 +1579,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 			if correction == "" {
 				correction = unsupportedOperationalClaimCorrection(
 					"reply", report.Message,
-					sanitizeEvidence(report.Evidence, "", "", ""),
+					sanitizeEvidence(report.Evidence, "", "", "", s.now()),
 				)
 			}
 			if correction == "" {
@@ -1587,8 +1587,8 @@ func (s *Service) stagePolledAgentRunTerminal(
 					ctx,
 					episode,
 					"reply",
-					sanitizeEvidence(report.Evidence, "", "", ""),
-					sanitizeCoverage(report.Coverage, "", "", ""),
+					sanitizeEvidence(report.Evidence, "", "", "", s.now()),
+					sanitizeCoverage(report.Coverage, "", "", "", s.now()),
 					report.Completion,
 					s.now(),
 					len(report.AppliedOperations) > 0,
@@ -2112,7 +2112,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 			return s.store.FinishAgentRun(ctx, run.ID)
 		}
 	}
-	decision, err := parseWatchDecision(string(run.Result))
+	decision, err := parseWatchDecision(string(run.Result), s.now())
 	if err != nil {
 		detail := "malformed watch decision: " + trimError(err)
 		if failErr := s.finishTriageRunFailure(

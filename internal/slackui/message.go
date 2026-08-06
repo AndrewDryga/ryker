@@ -173,6 +173,13 @@ func (s *Sanitizer) Text(value string) string {
 }
 
 func (s *Sanitizer) Message(message Message) Message {
+	// Message is passed by value but its slices share a backing array with the
+	// caller's. Clone them so sanitizing a copy cannot rewrite the original,
+	// which would silently change what a caller logs, re-renders, or compares.
+	message.Sections = append([]string(nil), message.Sections...)
+	message.Fields = append([]Field(nil), message.Fields...)
+	message.Context = append([]string(nil), message.Context...)
+	message.Actions = append([]Action(nil), message.Actions...)
 	message.Text = s.Text(message.Text)
 	message.Header = s.Text(message.Header)
 	message.Markdown = s.Text(message.Markdown)

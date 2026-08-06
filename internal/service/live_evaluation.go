@@ -912,7 +912,7 @@ func evaluationStructuredCorrection(
 	now time.Time,
 ) string {
 	if testCase.Kind == "watch" {
-		decision, err := parseWatchDecision(response)
+		decision, err := parseWatchDecision(response, now)
 		if err == nil {
 			operatorID := "UEVALOPERATOR"
 			if len(cfg.Slack.Operators) > 0 {
@@ -936,7 +936,7 @@ func evaluationStructuredCorrection(
 					episodeCompletionCorrection(
 						*episode,
 						decision.Action,
-						sanitizeCoverage(decision.Coverage, "", "", ""),
+						sanitizeCoverage(decision.Coverage, "", "", "", now),
 						decision.Completion,
 					),
 				} {

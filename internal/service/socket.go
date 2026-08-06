@@ -211,101 +211,12 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 		input.Text = inner.Text
 		input.Attachments = slackInputAttachments(inner.Files)
 	case *slackevents.MessageEvent:
-		if inner == nil || foreignSource(inner.SourceTeam, outer.TeamID) {
+		switch s.setMessageInput(ctx, &input, inner, outer.TeamID, &directChannelJoin) {
+		case dropMessage:
 			_ = s.socket.Ack(*event.Request)
 			return
-		}
-		message := normalizedSlackEventMessage(inner)
-		if (message.SubType == slack.MsgSubTypeChannelJoin ||
-			message.SubType == slack.MsgSubTypeGroupJoin) &&
-			message.User == s.identity.BotUserID {
-			input.Kind = "channel_joined"
-			input.ChannelID = inner.Channel
-			input.MessageTS = message.Timestamp
-			input.UserID = message.Inviter
-			directChannelJoin = true
-			break
-		}
-		if s.identity.BotUserID != "" &&
-			strings.Contains(message.Text, "<@"+s.identity.BotUserID+">") {
-			// Slack also delivers this request as app_mention. Admit only that
-			// event so one human message cannot consume two agent requests.
-			_ = s.socket.Ack(*event.Request)
+		case retryMessage:
 			return
-		}
-		ownBot := (s.identity.BotID != "" && message.BotID == s.identity.BotID) ||
-			message.User == s.identity.BotUserID
-		externalBot := message.BotID != "" || message.SubType == "bot_message"
-		switch {
-		case ownBot:
-			_ = s.socket.Ack(*event.Request)
-			return
-		case externalBot:
-			watched, err := s.proactiveEnabled(ctx, inner.Channel)
-			if err != nil {
-				s.log.Error(
-					"resolve proactive Slack setting",
-					"channel", inner.Channel,
-					"error", err,
-				)
-				return
-			}
-			if !watched {
-				rules, ruleErr := s.matchingStandingRules(ctx, core.SlackInput{
-					Kind:      "bot_message",
-					ChannelID: inner.Channel,
-					Text:      message.Text,
-				})
-				if ruleErr != nil {
-					s.log.Error(
-						"match standing rules for Slack app message",
-						"channel", inner.Channel,
-						"error", ruleErr,
-					)
-					return
-				}
-				watched = len(rules) > 0
-			}
-			if !watched || !supportedExternalMessageSubtype(inner.SubType) {
-				_ = s.socket.Ack(*event.Request)
-				return
-			}
-			input.Kind = "bot_message"
-			input.UserID = firstNonempty(message.BotID, message.User)
-		case humanMessageSubtype(inner.SubType) && message.User != "":
-			input.Kind = "message"
-			if strings.HasPrefix(inner.Channel, "D") {
-				input.Kind = "direct"
-			}
-			input.UserID = message.User
-		default:
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		if input.UserID == "" {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		input.ChannelID = inner.Channel
-		input.ThreadTS = message.ThreadTimestamp
-		input.MessageTS = message.Timestamp
-		input.Text = message.Text
-		input.Attachments = slackInputAttachments(message.Files)
-		if input.Kind == "message" {
-			admit, err := s.shouldAdmitChannelMessage(ctx, input)
-			if err != nil {
-				s.log.Error(
-					"decide whether to retain Slack channel message",
-					"channel", input.ChannelID,
-					"message", input.MessageTS,
-					"error", err,
-				)
-				return
-			}
-			if !admit {
-				_ = s.socket.Ack(*event.Request)
-				return
-			}
 		}
 	default:
 		_ = s.socket.Ack(*event.Request)
@@ -335,6 +246,125 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 	if err := s.socket.Ack(*event.Request); err != nil {
 		s.log.Warn("acknowledge Slack event", "envelope", envelopeID, "error", err)
 	}
+}
+
+// messageOutcome is what admitEventsAPI should do with a Slack message event.
+type messageOutcome int
+
+const (
+	// admitMessage persists the input, then acknowledges.
+	admitMessage messageOutcome = iota
+	// dropMessage acknowledges without persisting: the message is genuinely
+	// not for Responder, so Slack should stop redelivering it.
+	dropMessage
+	// retryMessage returns without acknowledging because a lookup failed and
+	// the decision is unknown. Slack redelivers, and the durable event ID
+	// keeps that from creating duplicate work.
+	retryMessage
+)
+
+// setMessageInput fills in a Slack message input and reports what to do with
+// it. It owns the message-shaped rules — own-bot suppression, the app_mention
+// overlap, watched external apps, and channel retention — so admitEventsAPI
+// stays a router over event types.
+func (s *Service) setMessageInput(
+	ctx context.Context,
+	input *core.SlackInput,
+	inner *slackevents.MessageEvent,
+	teamID string,
+	directChannelJoin *bool,
+) messageOutcome {
+	if inner == nil || foreignSource(inner.SourceTeam, teamID) {
+		return dropMessage
+	}
+	message := normalizedSlackEventMessage(inner)
+	if (message.SubType == slack.MsgSubTypeChannelJoin ||
+		message.SubType == slack.MsgSubTypeGroupJoin) &&
+		message.User == s.identity.BotUserID {
+		input.Kind = "channel_joined"
+		input.ChannelID = inner.Channel
+		input.MessageTS = message.Timestamp
+		input.UserID = message.Inviter
+		*directChannelJoin = true
+		return admitMessage
+	}
+	if s.identity.BotUserID != "" &&
+		strings.Contains(message.Text, "<@"+s.identity.BotUserID+">") {
+		// Slack also delivers this request as app_mention. Admit only that
+		// event so one human message cannot consume two agent requests.
+		return dropMessage
+	}
+	ownBot := (s.identity.BotID != "" && message.BotID == s.identity.BotID) ||
+		message.User == s.identity.BotUserID
+	externalBot := message.BotID != "" || message.SubType == "bot_message"
+	switch {
+	case ownBot:
+		return dropMessage
+	case externalBot:
+		watched, err := s.proactiveEnabled(ctx, inner.Channel)
+		if err != nil {
+			s.log.Error(
+				"resolve proactive Slack setting",
+				"channel", inner.Channel,
+				"error", err,
+			)
+			return retryMessage
+		}
+		if !watched {
+			rules, ruleErr := s.matchingStandingRules(ctx, core.SlackInput{
+				Kind:      "bot_message",
+				ChannelID: inner.Channel,
+				Text:      message.Text,
+			})
+			if ruleErr != nil {
+				s.log.Error(
+					"match standing rules for Slack app message",
+					"channel", inner.Channel,
+					"error", ruleErr,
+				)
+				return retryMessage
+			}
+			watched = len(rules) > 0
+		}
+		if !watched || !supportedExternalMessageSubtype(inner.SubType) {
+			return dropMessage
+		}
+		input.Kind = "bot_message"
+		input.UserID = firstNonempty(message.BotID, message.User)
+	case humanMessageSubtype(inner.SubType) && message.User != "":
+		input.Kind = "message"
+		if strings.HasPrefix(inner.Channel, "D") {
+			input.Kind = "direct"
+		}
+		input.UserID = message.User
+	default:
+		return dropMessage
+	}
+	if input.UserID == "" {
+		return dropMessage
+	}
+	input.ChannelID = inner.Channel
+	input.ThreadTS = message.ThreadTimestamp
+	input.MessageTS = message.Timestamp
+	input.Text = message.Text
+	input.Attachments = slackInputAttachments(message.Files)
+	if input.Kind == "message" {
+		admit, err := s.shouldAdmitChannelMessage(ctx, *input)
+		if err != nil {
+			s.log.Error(
+				"decide whether to retain Slack channel message",
+				"channel", input.ChannelID,
+				"message", input.MessageTS,
+				"error", err,
+			)
+			return retryMessage
+		}
+		if !admit {
+			return dropMessage
+		}
+	}
+
+	return admitMessage
 }
 
 func (s *Service) setReactionInput(

@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -213,7 +214,7 @@ func renderEvaluationMessage(
 	sanitizer := slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes)
 	switch testCase.Kind {
 	case "watch":
-		decision, err := parseWatchDecision(output)
+		decision, err := parseWatchDecision(output, time.Now().UTC())
 		if err != nil {
 			return slackui.Message{}, "", err
 		}

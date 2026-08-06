@@ -325,7 +325,7 @@ func TestStructuredResponsesAllowCompoundDurableOffers(t *testing.T) {
 	  "message":"Confirm both settings.",
 	  "preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread"},
 	  "rule_offer":{"scope":"channel","repository":"repo","trigger":"operational_alert","action":"triage_alert","source_kind":"app"}
-	}`)
+	}`, testDecodeClock)
 	if err != nil || decision.PreferenceOffer == nil || decision.RuleOffer == nil {
 		t.Fatalf("compound watch decision = %+v, %v", decision, err)
 	}
@@ -342,7 +342,7 @@ func TestStructuredResponsesAllowCompoundDurableOffers(t *testing.T) {
 	  "message":"Runbook publication is waiting in Emisar. The daily review is ready for separate confirmation.",
 	  "pending_approval":{"request_id":"apr_1","run_id":"run_1","operation_id":"op_1","action_id":"runbooks.publish","pack_ref":"runbooks@1#sha256:abc","runner_ref":"control~abc","status":"pending_approval","approval_url":"https://emisar.dev/app/acme/approvals/apr_1","expires_at":"2026-08-02T00:00:00Z"},
 	  "schedule_offer":{"title":"Daily health review","prompt":"Run a fresh deep health review.","repository":"repo","recurrence":"daily","local_time":"09:00","timezone":"UTC","catch_up":"latest","expires_in":"90d"}
-	}`)
+	}`, testDecodeClock)
 	if err != nil || approvalAndSchedule.PendingApproval == nil ||
 		approvalAndSchedule.ScheduleOffer == nil {
 		t.Fatalf("approval and schedule decision = %+v, %v", approvalAndSchedule, err)
@@ -363,7 +363,7 @@ func TestAlertAssessmentRequiresDecisionUsefulRemediation(t *testing.T) {
 		}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := decodeWatchDecision(raw); err == nil {
+			if _, err := decodeWatchDecision(raw, testDecodeClock); err == nil {
 				t.Fatalf("accepted incomplete alert assessment: %s", raw)
 			}
 		})
@@ -372,7 +372,7 @@ func TestAlertAssessmentRequiresDecisionUsefulRemediation(t *testing.T) {
 	  "action":"reply",
 	  "message":"The alert is not verified because the live runner is unavailable.",
 	  "alert_assessment":{"verdict":"unverified","impact":"Current impact is unknown.","immediate_action":"Restore the read-only runner and repeat the storage check."}
-	}`)
+	}`, testDecodeClock)
 	if err != nil || decision.AlertAssessment == nil ||
 		decision.AlertAssessment.Verdict != "unverified" {
 		t.Fatalf("valid alert assessment = %+v, %v", decision, err)
@@ -385,7 +385,7 @@ func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.
 	  "message":"The repair is behind schedule but still progressing.",
 	  "alert_assessment":{"verdict":"confirmed_issue","impact":"The repair missed its cadence.","cause_status":"bounded","cause":"The current cycle is taking longer than its configured interval.","immediate_action":"Let the active repair finish.","verification":"Confirm progress reaches 100 percent and the overdue gauge clears.","long_term_solution":"Deploy the Reaper scheduling fix."},
 	  "completion":{"status":"decision_ready","verdict":"confirmed_issue","summary":"The overdue repair is active but progressing."}
-	}`)
+	}`, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.
 	  "message":"The repair is behind schedule but still progressing.",
 	  "alert_assessment":{"verdict":"confirmed_issue","impact":"The repair missed its cadence.","cause_status":"bounded","cause":"The current cycle is taking longer than its configured interval.","immediate_action":"Let the active repair finish.","verification":"Confirm progress reaches 100 percent and the overdue gauge clears.","long_term_solution":"Deploy the Reaper scheduling fix."},
 	  "completion":{"status":"decision_ready","summary":"The overdue repair is active but progressing."}
-	}`)
+	}`, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +414,7 @@ func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.
 	  "message":"The exact repair completed, but the result needs correction.",
 	  "alert_assessment":{"verdict":"not_issue","impact":"The overdue condition cleared."},
 	  "completion":{"status":"blocked","verdict":"healthy","summary":"Broader health was not checked.","material_gaps":["application health"],"blocker_kind":"source_unavailable","attempts":["verified the repair status"],"next_action":"check application traffic"}
-	}`)
+	}`, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1410,9 +1410,10 @@ func findSlackAction(
 }
 
 func TestBehaviorOfferExpiryValidation(t *testing.T) {
-	if !offerIssuedAtInvalid(time.Now().UTC().Add(-25*time.Hour)) ||
-		!offerIssuedAtInvalid(time.Now().UTC().Add(10*time.Minute)) ||
-		offerIssuedAtInvalid(time.Now().UTC()) {
+	now := testDecodeClock
+	if !offerIssuedAtInvalid(now.Add(-25*time.Hour), now) ||
+		!offerIssuedAtInvalid(now.Add(10*time.Minute), now) ||
+		offerIssuedAtInvalid(now, now) {
 		t.Fatal("behavior offer age validation is incorrect")
 	}
 }

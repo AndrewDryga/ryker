@@ -1326,3 +1326,48 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 		t.Fatalf("rule directory = %+v", ruleDirectory)
 	}
 }
+
+// Sanitizing a copy of a Message must not rewrite the caller's own slices.
+func TestSanitizerDoesNotMutateCallerMessage(t *testing.T) {
+	sanitizer := NewSanitizer(12000, "SUPERSECRETVALUE1")
+	original := Message{
+		Text:     "text SUPERSECRETVALUE1",
+		Sections: []string{"section SUPERSECRETVALUE1"},
+		Fields:   []Field{{Label: "label SUPERSECRETVALUE1", Value: "value SUPERSECRETVALUE1"}},
+		Context:  []string{"context SUPERSECRETVALUE1"},
+		Actions:  []Action{{Label: "label SUPERSECRETVALUE1", Confirm: "confirm SUPERSECRETVALUE1"}},
+	}
+	cleaned := sanitizer.Message(original)
+
+	if !strings.Contains(original.Sections[0], "SUPERSECRETVALUE1") ||
+		!strings.Contains(original.Fields[0].Value, "SUPERSECRETVALUE1") ||
+		!strings.Contains(original.Context[0], "SUPERSECRETVALUE1") ||
+		!strings.Contains(original.Actions[0].Label, "SUPERSECRETVALUE1") {
+		t.Fatalf("sanitizing mutated the caller's message: %+v", original)
+	}
+	for _, value := range []string{
+		cleaned.Text, cleaned.Sections[0], cleaned.Fields[0].Label,
+		cleaned.Fields[0].Value, cleaned.Context[0],
+		cleaned.Actions[0].Label, cleaned.Actions[0].Confirm,
+	} {
+		if strings.Contains(value, "SUPERSECRETVALUE1") {
+			t.Fatalf("sanitized copy still carries the secret: %q", value)
+		}
+	}
+}
+
+// A button URL must be an ordinary web link; Slack renders it directly.
+func TestSanitizerDropsNonHTTPSActionURL(t *testing.T) {
+	sanitizer := NewSanitizer(12000)
+	cleaned := sanitizer.Message(Message{Actions: []Action{
+		{Label: "ok", URL: "https://emisar.example.com/approvals/req_1"},
+		{Label: "bad", URL: "javascript:alert(1)"},
+		{Label: "also bad", URL: "http://insecure.example.com"},
+	}})
+	if cleaned.Actions[0].URL != "https://emisar.example.com/approvals/req_1" {
+		t.Fatalf("https URL was dropped: %q", cleaned.Actions[0].URL)
+	}
+	if cleaned.Actions[1].URL != "" || cleaned.Actions[2].URL != "" {
+		t.Fatalf("unsafe URLs survived: %+v", cleaned.Actions)
+	}
+}

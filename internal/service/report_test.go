@@ -76,7 +76,7 @@ func TestAgentReportAcceptsBoundedOrderedFollowupMessages(t *testing.T) {
 	  "action":"reply",
 	  "message":"First.",
 	  "followup_messages":[""]
-	}`); err == nil || !strings.Contains(err.Error(), "empty follow-up") {
+	}`, testDecodeClock); err == nil || !strings.Contains(err.Error(), "empty follow-up") {
 		t.Fatalf("empty watch follow-up error = %v", err)
 	}
 }
@@ -100,7 +100,7 @@ func TestAgentReportGeneratedVisualContract(t *testing.T) {
 	if _, err := parseWatchDecision(`{
 	  "action":"ignore",
 	  "visuals":[{"artifact":"load.png","title":"Load","alt_text":"Load chart."}]
-	}`); err == nil {
+	}`, testDecodeClock); err == nil {
 		t.Fatal("ignore decision carried a generated visual")
 	}
 }
@@ -243,7 +243,7 @@ func TestStructuredEvidenceAndCoverageEnumsAreHostValidated(t *testing.T) {
 		SourceType: "shell", SourceName: "tool",
 		Confidence: "certain",
 		SourceURL:  "https://user:secret@example.test/path?token=secret",
-	}}, "", "C1", "slack_1")
+	}}, "", "C1", "slack_1", testDecodeClock)
 	if len(evidence) != 1 || evidence[0].SourceType != "other" ||
 		evidence[0].Confidence != "" || evidence[0].SourceURL != "" {
 		t.Fatalf("evidence = %+v", evidence)
@@ -251,7 +251,7 @@ func TestStructuredEvidenceAndCoverageEnumsAreHostValidated(t *testing.T) {
 	coverage := sanitizeCoverage([]core.Coverage{
 		{Layer: "scheduler", Status: "healthy"},
 		{Layer: "everything", Status: "perfect"},
-	}, "", "C1", "slack_1")
+	}, "", "C1", "slack_1", testDecodeClock)
 	if len(coverage) != 1 || coverage[0].Layer != "scheduler" {
 		t.Fatalf("coverage = %+v", coverage)
 	}
@@ -295,7 +295,7 @@ func TestTypedResultOperationsFoldIntoAgentAndWatchResults(t *testing.T) {
   "operations":[
     {"id":"c1","type":"complete_episode","completion":{"message":"The check passed.","completion":{"status":"decision_ready","summary":"Passed"}}}
   ]
-}`)
+}`, testDecodeClock)
 	if err != nil || decision.Message != "The check passed." || len(decision.AppliedOperations) != 1 {
 		t.Fatalf("typed decision = %+v, err = %v", decision, err)
 	}
@@ -322,7 +322,7 @@ That is the complete result.`)
   "operations":[
     {"id":"c1","type":"complete_episode","completion":{"message":"The run failed during apply.","completion":{"status":"decision_ready","summary":"Apply failed"}}}
   ]
-}`)
+}`, testDecodeClock)
 	if err != nil || decision.Action != "reply" ||
 		decision.Message != "The run failed during apply." {
 		t.Fatalf("authoritative typed watch result = %+v, err=%v", decision, err)
@@ -335,7 +335,7 @@ func TestMalformedTypedOperationsCannotDisappearBehindLegacyIgnore(t *testing.T)
   "operations":[
     {"id":"bad","type":"request_approval","task":{"kind":"incident","title":"wrong payload"}}
   ]
-}`)
+}`, testDecodeClock)
 	if err == nil || !strings.Contains(err.Error(), "requires approval") {
 		t.Fatalf("malformed operation stream was silently ignored: %v", err)
 	}

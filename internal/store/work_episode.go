@@ -504,7 +504,7 @@ func (s *Store) AppendWorkEpisodeEvent(
 		return core.WorkEpisodeEvent{}, err
 	}
 	defer tx.Rollback()
-	event, err = appendWorkEpisodeEventTx(ctx, tx, runID, event)
+	event, err = s.appendWorkEpisodeEventTx(ctx, tx, runID, event)
 	if err != nil {
 		return core.WorkEpisodeEvent{}, err
 	}
@@ -527,7 +527,7 @@ func (s *Store) AppendEpisodeEvent(
 		return core.WorkEpisodeEvent{}, err
 	}
 	defer tx.Rollback()
-	event, err = appendEpisodeEventTx(ctx, tx, episodeID, event)
+	event, err = s.appendEpisodeEventTx(ctx, tx, episodeID, event)
 	if err != nil {
 		return core.WorkEpisodeEvent{}, err
 	}
@@ -537,7 +537,7 @@ func (s *Store) AppendEpisodeEvent(
 	return event, nil
 }
 
-func appendWorkEpisodeEventTx(
+func (s *Store) appendWorkEpisodeEventTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	runID string,
@@ -555,10 +555,10 @@ func appendWorkEpisodeEventTx(
 	if err != nil {
 		return core.WorkEpisodeEvent{}, err
 	}
-	return appendEpisodeEventTx(ctx, tx, episodeID, event)
+	return s.appendEpisodeEventTx(ctx, tx, episodeID, event)
 }
 
-func appendEpisodeEventTx(
+func (s *Store) appendEpisodeEventTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	episodeID string,
@@ -608,7 +608,7 @@ func appendEpisodeEventTx(
 		event.ID = fmt.Sprintf("episode_event_%s_%06d", current.ID, event.Sequence)
 	}
 	if event.CreatedAt.IsZero() {
-		event.CreatedAt = time.Now().UTC()
+		event.CreatedAt = s.now().UTC()
 	}
 	if len(event.Payload) == 0 {
 		event.Payload = json.RawMessage(`{}`)
@@ -689,7 +689,7 @@ func appendEpisodeEventTx(
 	return event, nil
 }
 
-func setWorkEpisodePhaseTx(
+func (s *Store) setWorkEpisodePhaseTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	runID string,
@@ -729,7 +729,7 @@ func setWorkEpisodePhaseTx(
 		if err != nil {
 			return err
 		}
-		if _, err := appendWorkEpisodeEventTx(ctx, tx, runID, core.WorkEpisodeEvent{
+		if _, err := s.appendWorkEpisodeEventTx(ctx, tx, runID, core.WorkEpisodeEvent{
 			Kind: episodepkg.EventEpisodeReopened, Actor: "host",
 			IdempotencyKey: "agent-run:" + runID + ":reopened", Payload: reopened,
 		}); err != nil {
@@ -743,7 +743,7 @@ func setWorkEpisodePhaseTx(
 	if err != nil {
 		return err
 	}
-	_, err = appendWorkEpisodeEventTx(ctx, tx, runID, core.WorkEpisodeEvent{
+	_, err = s.appendWorkEpisodeEventTx(ctx, tx, runID, core.WorkEpisodeEvent{
 		Kind: episodepkg.EventPhaseChanged, Actor: "host",
 		IdempotencyKey: idempotencyKey,
 		Payload:        payload,
@@ -777,47 +777,6 @@ func scanWorkEpisodeEvent(row interface{ Scan(...any) error }) (core.WorkEpisode
 	event.Payload = json.RawMessage(payload)
 	event.CreatedAt = parseTime(created)
 	return event, nil
-}
-
-func (s *Store) ListEpisodeEvents(
-	ctx context.Context,
-	episodeID string,
-	limit int,
-) ([]core.WorkEpisodeEvent, error) {
-	if limit < 1 || limit > 500 {
-		limit = 100
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT v.id, v.episode_id, v.sequence, v.kind, v.actor,
-		       v.idempotency_key, v.payload_json, v.created_at
-		FROM work_episode_events AS v
-		WHERE v.episode_id = ?
-		ORDER BY v.sequence ASC LIMIT ?`, episodeID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := make([]core.WorkEpisodeEvent, 0)
-	for rows.Next() {
-		event, err := scanWorkEpisodeEvent(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, event)
-	}
-	return result, rows.Err()
-}
-
-func (s *Store) ListWorkEpisodeEvents(
-	ctx context.Context,
-	runID string,
-	limit int,
-) ([]core.WorkEpisodeEvent, error) {
-	episode, err := s.GetWorkEpisodeByRun(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-	return s.ListEpisodeEvents(ctx, episode.ID, limit)
 }
 
 func (s *Store) ListWorkEpisodeProgress(

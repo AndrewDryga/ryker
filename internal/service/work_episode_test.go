@@ -309,7 +309,7 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 			}
 		})
 	}
-	if _, err := decodeWatchDecision(`{"action":"react","reaction":"eyes","completion":{"status":"decision_ready","summary":"Done"}}`); err == nil {
+	if _, err := decodeWatchDecision(`{"action":"react","reaction":"eyes","completion":{"status":"decision_ready","summary":"Done"}}`, testDecodeClock); err == nil {
 		t.Fatal("reaction accepted a completion assessment")
 	}
 }
@@ -428,7 +428,7 @@ func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
 				"completion":{"status":"decision_ready","verdict":"not_confirmed","summary":"Validated draft; publication remains."}
 			}}
 		]
-	}`)
+	}`, testDecodeClock)
 	if err != nil {
 		t.Fatalf("parse typed decision: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
 	if len(decision.Evidence) != 1 || decision.Evidence[0].ClaimID != "task.requested_outcome" {
 		t.Fatalf("evidence = %+v, want requested outcome evidence", decision.Evidence)
 	}
-	decision.Coverage = sanitizeCoverage(decision.Coverage, "eval", "CEVALUATION", "input")
+	decision.Coverage = sanitizeCoverage(decision.Coverage, "eval", "CEVALUATION", "input", testDecodeClock)
 	if len(decision.Coverage) != 1 || decision.Coverage[0].Layer != "task" {
 		t.Fatalf("sanitized coverage = %+v, want task coverage", decision.Coverage)
 	}

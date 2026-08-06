@@ -375,7 +375,7 @@ func (s *Service) confirmPendingPreferenceReply(
 	if err != nil {
 		return false, err
 	}
-	decision, err := parseWatchDecision(string(run.Result))
+	decision, err := parseWatchDecision(string(run.Result), s.now())
 	if err != nil || decision.PreferenceOffer == nil ||
 		decision.MemoryOffer != nil || decision.RuleOffer != nil ||
 		decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
@@ -778,7 +778,7 @@ func (s *Service) handleRememberPreference(
 	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
 		payload.Version != 1 || payload.ChannelID == "" ||
 		payload.ChannelID != input.ChannelID || payload.SourceRef == "" ||
-		offerIssuedAtInvalid(payload.IssuedAt) {
+		offerIssuedAtInvalid(payload.IssuedAt, s.now()) {
 		return s.behaviorActionFeedback(
 			ctx, input,
 			"*This preference confirmation is invalid or stale.* Nothing was saved. Ask "+
@@ -844,7 +844,7 @@ func (s *Service) handleRememberRule(
 	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
 		payload.Version != 1 || payload.ChannelID == "" ||
 		payload.ChannelID != input.ChannelID || payload.SourceRef == "" ||
-		offerIssuedAtInvalid(payload.IssuedAt) {
+		offerIssuedAtInvalid(payload.IssuedAt, s.now()) {
 		return s.behaviorActionFeedback(
 			ctx, input,
 			"*This standing-rule confirmation is invalid or stale.* Nothing was saved. Ask "+
@@ -1106,10 +1106,10 @@ func (s *Service) handleEditRule(
 	)
 }
 
-func offerIssuedAtInvalid(issuedAt time.Time) bool {
+func offerIssuedAtInvalid(issuedAt, now time.Time) bool {
 	return issuedAt.IsZero() ||
-		issuedAt.After(time.Now().UTC().Add(5*time.Minute)) ||
-		time.Since(issuedAt) > behaviorOfferMaxAge
+		issuedAt.After(now.UTC().Add(5*time.Minute)) ||
+		now.Sub(issuedAt) > behaviorOfferMaxAge
 }
 
 func (s *Service) freezeBehaviorResult(

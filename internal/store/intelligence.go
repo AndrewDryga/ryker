@@ -165,7 +165,7 @@ func (s *Store) UpsertConversationMemoryState(
 		memory.Repository,
 		memory.LastMessage,
 		string(state),
-		time.Now().UTC().Format(timestampFormat),
+		s.nowText(),
 	)
 	return err
 }
@@ -371,28 +371,6 @@ func (s *Store) DetachChannelSession(
 		return false, err
 	}
 	return rows == 1, nil
-}
-
-func (s *Store) AdvanceChannelMemory(
-	ctx context.Context,
-	channelID string,
-	sessionRevision int64,
-	state core.AgentMemory,
-) error {
-	data, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	if len(data) > 64<<10 {
-		return errors.New("channel memory exceeds 64 KiB")
-	}
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE channel_memories
-		SET session_revision = ?, turn_count = turn_count + 1, state_json = ?, updated_at = ?
-		WHERE channel_id = ?`,
-		sessionRevision, data, s.nowText(), channelID,
-	)
-	return expectOne(result, err, "advance channel memory")
 }
 
 func (s *Store) AdvanceChannelEvents(

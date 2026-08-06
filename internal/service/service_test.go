@@ -5650,7 +5650,7 @@ func TestDecisionReadyDiagnosisOffersIncidentAndPreparedFix(t *testing.T) {
 		"evidence":[{"claim":"the decoder is strict","observation":"the repository decoder enumerates rank values","source_type":"repository","source_name":"lib/rank.ex"}],
 		"coverage":[{"layer":"application","status":"degraded","detail":"LoL requests fail on new rank values"}]
 	}`
-	if _, err := parseWatchDecision(coopClient.completeOnSubmit); err != nil {
+	if _, err := parseWatchDecision(coopClient.completeOnSubmit, testDecodeClock); err != nil {
 		t.Fatalf("parse diagnosis decision: %v", err)
 	}
 	svc := New(
@@ -5734,7 +5734,7 @@ func TestToolFailureBlockerOffersBoundedRepositoryFix(t *testing.T) {
 			{"id":"complete","type":"complete_episode","completion":{"message":"The HCP inspection is blocked because this runner's jq lacks optional regex support. The source fix is bounded: replace the two regex-dependent expressions while preserving cleanup, output limits, and version checks.","completion":{"status":"blocked","summary":"HCP run details remain unavailable until the pack is portable.","material_gaps":["The failed Terraform resource and partial-apply state remain unavailable."],"blocker_kind":"tool_failure","attempts":["Ran tfc.run_details and tfc.run_diagnostics; both failed on unsupported jq regex functions."],"next_action":"Apply and validate the bounded pack compatibility fix, publish its immutable version, then rerun both inspections."}}}
 		]
 	}`
-	if _, err := parseWatchDecision(coopClient.completeOnSubmit); err != nil {
+	if _, err := parseWatchDecision(coopClient.completeOnSubmit, testDecodeClock); err != nil {
 		t.Fatalf("parse tool blocker decision: %v", err)
 	}
 
@@ -5796,7 +5796,7 @@ func TestDecisionReadyFactualAssessmentCanOfferSourceBackedFix(t *testing.T) {
 			{"id":"offer-fix","type":"offer_task","task":{"kind":"engineering","title":"Make HCP inspection portable","repository":"repo","prompt":"Replace the two regex-dependent jq expressions, preserve semantics, and add focused compatibility coverage."}},
 			{"id":"complete","type":"complete_episode","completion":{"message":"The inspection fix is bounded; the failed apply remains unverified.","completion":{"status":"decision_ready","verdict":"not_confirmed","summary":"The source fix is known, but apply effects are not confirmed."}}}
 		]
-	}`)
+	}`, testDecodeClock)
 	if err != nil {
 		t.Fatalf("parse decision-ready source fix: %v", err)
 	}
@@ -6661,7 +6661,7 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"incident","title":"API unavailable"}`,
 	}
 	for _, input := range valid {
-		if _, err := parseWatchDecision(input); err != nil {
+		if _, err := parseWatchDecision(input, testDecodeClock); err != nil {
 			t.Fatalf("valid decision %s: %v", input, err)
 		}
 	}
@@ -6689,7 +6689,7 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"ignore"} {"action":"ignore"}`,
 	}
 	for _, input := range invalid {
-		if _, err := parseWatchDecision(input); err == nil {
+		if _, err := parseWatchDecision(input, testDecodeClock); err == nil {
 			t.Fatalf("invalid decision accepted: %s", input)
 		}
 	}
@@ -6721,7 +6721,7 @@ func TestParseWatchDecisionAcceptsEmptyOptionalObservationTimestamps(t *testing.
 			{"layer":"runtime","status":"healthy","observed_at":"2026-07-30T07:00:00Z"}
 		],
 		"memory":{}
-	}`)
+	}`, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6856,7 +6856,7 @@ func TestParseWatchDecisionNormalizesStructuredMemoryTopology(t *testing.T) {
 				"portal_hosts_declared":2
 			}
 		}
-	}`)
+	}`, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6878,7 +6878,7 @@ func TestParseWatchDecisionNormalizesStructuredMemoryTopology(t *testing.T) {
 				{"service":"database","kind":"cloud-sql"}
 			]
 		}
-	}`)
+	}`, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6899,7 +6899,7 @@ func TestParseWatchDecisionExtractsFinalEnvelopeAfterCoopProgress(t *testing.T) 
 		`"evidence":[{"claim":"Both hosts are connected","observation":"Two of two runners are connected",` +
 		`"source_type":"emisar","source_name":"list_runners"}],` +
 		`"coverage":[{"layer":"host","status":"healthy"}],"memory":{}}`
-	decision, err := parseWatchDecision(output)
+	decision, err := parseWatchDecision(output, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}

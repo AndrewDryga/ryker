@@ -244,10 +244,10 @@ func successfulExternalLifecycleReplyAddsValue(
 	now time.Time,
 ) bool {
 	if decision.Action != "reply" ||
-		!hasFreshOperationalEvidence(sanitizeEvidence(decision.Evidence, "", "", ""), now) {
+		!hasFreshOperationalEvidence(sanitizeEvidence(decision.Evidence, "", "", "", now), now) {
 		return false
 	}
-	for _, item := range sanitizeCoverage(decision.Coverage, "", "", "") {
+	for _, item := range sanitizeCoverage(decision.Coverage, "", "", "", now) {
 		layer := strings.ToLower(strings.TrimSpace(item.Layer))
 		status := strings.ToLower(strings.TrimSpace(item.Status))
 		if layer == "" || layer == "change" {

@@ -218,7 +218,7 @@ func TestExternalLifecycleFastPathSkipsCoopAndCompletesPrivateReplay(t *testing.
 	if err != nil || run.State != core.AgentRunCompleted {
 		t.Fatalf("deterministic replay run = %+v, %v", run, err)
 	}
-	decision, err := parseWatchDecision(string(run.Result))
+	decision, err := parseWatchDecision(string(run.Result), testDecodeClock)
 	if err != nil || decision.Action != "ignore" {
 		t.Fatalf("deterministic replay result = %+v, %v", decision, err)
 	}
@@ -273,7 +273,7 @@ func TestIncidentAcknowledgementFastPathSkipsCoopAndSlackOutput(t *testing.T) {
 	if err != nil || run.State != core.AgentRunCompleted {
 		t.Fatalf("deterministic acknowledgement run = %+v, %v", run, err)
 	}
-	decision, err := parseWatchDecision(string(run.Result))
+	decision, err := parseWatchDecision(string(run.Result), testDecodeClock)
 	if err != nil || decision.Action != "ignore" {
 		t.Fatalf("deterministic acknowledgement result = %+v, %v", decision, err)
 	}
@@ -551,7 +551,7 @@ func TestTerminalLifecycleEvidencePreservesTypedOperationsTransport(t *testing.T
 		`{"id":"coverage-change","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"unknown","detail":"Partial effects are unknown."}},` +
 		`{"id":"complete","type":"complete_episode","completion":{"message":"The apply failed; inspect the exact diagnostic before retrying.","completion":{"status":"decision_ready","verdict":"failed","summary":"The apply failed."}}}` +
 		`]}`
-	decision, err := parseWatchDecision(message)
+	decision, err := parseWatchDecision(message, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,7 +566,7 @@ func TestTerminalLifecycleEvidencePreservesTypedOperationsTransport(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	reparsed, err := parseWatchDecision(string(encoded))
+	reparsed, err := parseWatchDecision(string(encoded), testDecodeClock)
 	if err != nil {
 		t.Fatalf("reparse typed transport: %v\n%s", err, encoded)
 	}

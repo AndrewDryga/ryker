@@ -18,7 +18,18 @@ document prove its behavior.
 
 ### Current implementation boundary
 
-Schema version 38 establishes the episode-first kernel described here:
+Schema version 40 carries the episode-first kernel described here. The parts
+that are live today are attempts, goals, context manifests, and wakeups; the
+effect ledger was removed in schema 40 because no caller ever planned, leased,
+or completed an effect, and the `work_items` scheduler already owns delivery
+with the same fencing and retry guarantees.
+
+The kernel still runs beside the legacy `agent_runs` path rather than replacing
+it: `internal/service/result_operations.go` folds typed operations back into
+the older free-text fields so both shapes stay readable. That fold is the
+remaining compatibility seam and the next thing to retire.
+
+The kernel establishes:
 
 - episodes own lifecycle state, modes, destinations, revisions, goals, attempts, context-manifest
   lineage, effects, and wakeups;
@@ -31,7 +42,7 @@ Schema version 38 establishes the episode-first kernel described here:
 - Slack text and file deliveries are pinned to an episode destination revision, and a committed
   destination change supersedes output aimed at the old location;
 - scheduled occurrences and standing assignments create episode-owned work;
-- effect and wakeup leases use fencing tokens, semantic idempotency, and retry state.
+- wakeup leases use fencing tokens, semantic idempotency, and retry state.
 
 The existing `agent_runs`, incident records, Slack delivery rows, commitment rows, and final result
 envelopes remain compatibility projections while their callers migrate. They no longer define the

@@ -321,7 +321,7 @@ func evaluateCaseWithConfig(
 	var strictOperations bool
 	switch testCase.Kind {
 	case "watch":
-		decision, err := parseWatchDecision(testCase.Output)
+		decision, err := parseWatchDecision(testCase.Output, now)
 		if err != nil {
 			result.Detail = err.Error()
 			return result
@@ -409,8 +409,8 @@ func evaluateCaseWithConfig(
 		return result
 	}
 	if cfg != nil {
-		evidence = sanitizeEvidence(evidence, "eval", "CEVALUATION", "")
-		coverage = sanitizeCoverage(coverage, "eval", "CEVALUATION", "")
+		evidence = sanitizeEvidence(evidence, "eval", "CEVALUATION", "", now)
+		coverage = sanitizeCoverage(coverage, "eval", "CEVALUATION", "", now)
 		sanitizer := slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes)
 		message = sanitizer.Text(message)
 		reason = sanitizer.Text(reason)

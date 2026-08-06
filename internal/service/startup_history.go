@@ -77,7 +77,7 @@ func (s *Service) catchUpSlackAppMessages(ctx context.Context) error {
 				message.BotID == s.identity.BotID || message.UserID == s.identity.BotUserID {
 				continue
 			}
-			input := slackHistoryAppInput(s.cfg.Slack.TeamID, channelID, message)
+			input := slackHistoryAppInput(s.cfg.Slack.TeamID, channelID, message, s.now())
 			if appRules && !proactive && !shadow {
 				matched := false
 				for _, rule := range rules {
@@ -117,6 +117,7 @@ func slackHistoryAppInput(
 	teamID string,
 	channelID string,
 	message slackui.HistoryMessage,
+	now time.Time,
 ) core.SlackInput {
 	attachments := make([]core.SlackAttachment, 0, len(message.Files))
 	for _, file := range message.Files {
@@ -137,16 +138,16 @@ func slackHistoryAppInput(
 		Text:        message.Text,
 		Attachments: attachments,
 		Reactions:   coreSlackReactions(message.Reactions),
-		ReceivedAt:  slackMessageTime(message.Timestamp),
+		ReceivedAt:  slackMessageTime(message.Timestamp, now),
 	}
 	bindCanonicalSlackMessageInputID(&input)
 	return input
 }
 
-func slackMessageTime(timestamp string) time.Time {
+func slackMessageTime(timestamp string, fallback time.Time) time.Time {
 	seconds, err := strconv.ParseFloat(timestamp, 64)
 	if err != nil || seconds <= 0 {
-		return time.Now().UTC()
+		return fallback.UTC()
 	}
 	whole := int64(seconds)
 	nanos := int64((seconds - float64(whole)) * float64(time.Second))

@@ -216,6 +216,14 @@ func (s *Service) adoptChannel(
 }
 
 func (s *Service) processSlackWrite(ctx context.Context) error {
+	// Refreshing a card only enqueues a delivery; it performs no Slack write.
+	// It does call Coop for change inspection, so it deliberately runs outside
+	// the write slot: holding the single Slack write slot across a Coop round
+	// trip would stall every queued reply behind it.
+	if err := s.processCard(ctx); err != nil &&
+		!errors.Is(err, store.ErrNotFound) {
+		return err
+	}
 	// Defer to the exact moment the slot reopens. Reporting success instead
 	// would requeue this recurring item as immediately available and spin the
 	// lane against the single database connection for the whole window.
@@ -224,10 +232,6 @@ func (s *Service) processSlackWrite(ctx context.Context) error {
 		return deferScheduledWork(s.now().Add(wait), "Slack write slot is cooling down")
 	}
 	defer func() { s.writeSlot.release(s.now()) }()
-	if err := s.processCard(ctx); err != nil &&
-		!errors.Is(err, store.ErrNotFound) {
-		return err
-	}
 	return s.processSlackDelivery(ctx)
 }
 
