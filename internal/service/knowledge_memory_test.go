@@ -120,6 +120,37 @@ func TestIgnoreDecisionMayUpdateOnlyConversationMemory(t *testing.T) {
 	}
 }
 
+func TestReplyDecisionMayAnswerAndUpdateConversationMemory(t *testing.T) {
+	memory := core.AgentMemory{Knowledge: []core.KnowledgeItem{{
+		Subject: "Symbol storage", Kind: "decision",
+		Statement: "Store symbols in GCS and upload them through GitHub Actions WIF.",
+		Status:    "accepted", Confidence: 3,
+		SourceRef: "https://app.slack.com/client/T/C/thread/C-100", SourceMessageTS: "100.001",
+	}}}
+	decision := watchDecision{
+		Action: "reply",
+		Operations: []investigation.ResultOperation{
+			{ID: "memory-1", Type: "update_memory", Memory: &memory},
+			{
+				ID: "complete-1", Type: "complete_episode",
+				Completion: &investigation.CompleteEpisode{
+					Message: "GCS with WIF is the accepted direction.",
+					Completion: &investigation.CompletionAssessment{
+						Status: "decision_ready", Summary: "Answered and remembered.",
+					},
+				},
+			},
+		},
+	}
+	if err := applyWatchResultOperations(&decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.Message != "GCS with WIF is the accepted direction." ||
+		len(decision.Memory.Knowledge) != 1 || len(decision.AppliedOperations) != 2 {
+		t.Fatalf("decision = %#v", decision)
+	}
+}
+
 func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 	input := core.SlackInput{
 		TeamID: "T123ABC", ChannelID: "C123ABC", MessageTS: "100.001",
@@ -137,6 +168,7 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 	} {
 		for _, required := range []string{
 			"durable organizational knowledge",
+			"independent of the Slack action",
 			"status=tentative|accepted|superseded",
 			"confidence=3",
 			"source_ref",
@@ -146,6 +178,19 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 			if !strings.Contains(prompt, required) {
 				t.Fatalf("%s prompt missing %q", name, required)
 			}
+		}
+	}
+	full := svc.unboundedWatchPrompt(
+		input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		operationalMemoryContext{}, "repo", nil,
+	)
+	for _, required := range []string{
+		"Recording a decision as evidence",
+		"MUST include exactly one update_memory operation",
+		"remember-architecture",
+	} {
+		if !strings.Contains(full, required) {
+			t.Fatalf("full prompt missing %q", required)
 		}
 	}
 }

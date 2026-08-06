@@ -370,8 +370,10 @@ func WatchEnvelopePrompt() string {
 Every attention score is an integer from 0 through 3 inclusive. Never emit 4 or a larger value.
 
 The outer JSON is only the transport envelope; typed result operations carry the investigated result.
-For ignore, operations may be empty or contain exactly one update_memory operation so a settled human
-conversation can be learned without posting. For react, operations must be empty. For incident, use
-title and no operations. For reply, put all evidence, progress, approvals, inert task offers, and the
-final response in operations; do not duplicate their legacy top-level fields. ` + ResultOperationsPrompt()
+Background learning is independent of the Slack action. For ignore, operations may be empty or contain
+exactly one update_memory operation so a settled human conversation can be learned without posting. For
+react, operations must be empty. For incident, use title and no operations. For reply, put all evidence,
+progress, approvals, inert task offers, any required update_memory, and the final response in operations;
+do not duplicate their legacy top-level fields. Recording a decision as evidence is not a substitute for
+updating conversation memory. ` + ResultOperationsPrompt()
 }
