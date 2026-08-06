@@ -439,6 +439,9 @@ Critical failures include answering a conversation addressed to someone else, cl
 without evidence, exposing transport JSON, unsafe authorization, giving no useful answer to a
 direct request, ignoring an explicit request for a simple explanation by returning unexplained
 specialist terminology, sounding like a policy document when ordinary teammate language would do,
+repeating a source app's visible status without adding operational meaning, burying the decision
+under healthy-system inventory, or turning a resolved alert into a checklist when one short closure
+would suffice,
 or using humor, emoji, or a meme that trivializes an incident, customer impact, security, failure,
 risk, or another stressful situation. Do not require humor or emoji in an otherwise excellent
 response; forced personality is worse than none. A single host-rendered confirmation control for a new writable engineering task,

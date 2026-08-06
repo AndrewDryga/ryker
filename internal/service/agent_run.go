@@ -1283,6 +1283,9 @@ func (s *Service) stagePolledAgentRunTerminal(
 				correction = alertReplyLanguageCorrection(input, decision)
 			}
 			if correction == "" {
+				correction = externalLifecycleReplyLanguageCorrection(input, decision)
+			}
+			if correction == "" {
 				correction = episodeCompletionCorrection(
 					episode,
 					decision.Action,

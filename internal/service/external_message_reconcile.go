@@ -193,6 +193,39 @@ func enforceExternalLifecycleCommunication(
 	return decision
 }
 
+func externalLifecycleReplyLanguageCorrection(
+	input core.SlackInput,
+	decision watchDecision,
+) string {
+	if input.Kind != "bot_message" || decision.Action != "reply" {
+		return ""
+	}
+	phase := externalMessageLifecyclePhase(input.Text)
+	if phase != externalLifecycleReviewable && phase != externalLifecycleSucceeded &&
+		phase != externalLifecycleFailed {
+		return ""
+	}
+	message := strings.TrimSpace(decision.Message)
+	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
+	for _, phrase := range []string{
+		"terminal notification", "lifecycle check", "lifecycle boundary",
+		"no further apply action is needed", "review caveat",
+	} {
+		if strings.Contains(normalized, phrase) {
+			return "rewrite this lifecycle update like a teammate: remove `" + phrase +
+				"`; say only whether the source card is stale, what materially changed, the fresh " +
+				"post-rollout result, and one independent caveat if it matters"
+		}
+	}
+	if phase == externalLifecycleReviewable && decision.Completion != nil &&
+		decision.Completion.Verdict == "healthy" && len(strings.Fields(message)) > 75 {
+		return "shorten this stale lifecycle update: say that the run already applied, summarize " +
+			"the material changes and their fresh post-rollout health, then keep any independent " +
+			"drift or follow-up to one final sentence"
+	}
+	return ""
+}
+
 // successfulExternalLifecycleReplyAddsValue prevents Responder from narrating
 // a success state already visible in the source app message. A public reply is
 // useful only when the investigation also established a fresh result outside

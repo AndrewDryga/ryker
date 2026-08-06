@@ -496,7 +496,9 @@ func TestLiveEvaluationContextPreservesMessagesAfterTarget(t *testing.T) {
 	}
 	if len(recent) != 3 || recent[0].Target || !recent[1].Target ||
 		recent[2].Target || recent[1].MessageTS != input.MessageTS ||
-		recent[2].Text != "RESOLVED alert_id=42" {
+		recent[2].Text != "RESOLVED alert_id=42" ||
+		recent[0].MessageLink != "https://app.slack.com/client/TEVALUATION/CEVALUATION/thread/CEVALUATION-1700.000001" ||
+		recent[1].MessageLink == "" || recent[2].MessageLink == "" {
 		t.Fatalf("ordered evaluation context = %+v, input=%+v", recent, input)
 	}
 }

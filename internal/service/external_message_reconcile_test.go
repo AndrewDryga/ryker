@@ -471,6 +471,37 @@ func TestSuccessfulLifecycleDoesNotParaphraseVisibleStatusOrOldPlanContext(t *te
 	}
 }
 
+func TestStaleLifecycleReplyKeepsOnlyChangeHealthAndIndependentCaveat(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "Run run-UBwFpsiiVMtXwtbi\nRun Planned - Needs Confirmation",
+	}
+	verbose := watchDecision{
+		Action: "reply",
+		Message: "Terraform run run-UBwFpsiiVMtXwtbi has already applied successfully; the Needs " +
+			"Confirmation notification is stale. The plan replaced the Emisar GCP runner VM and " +
+			"updated Tolgee Cloud SQL. Post-apply, the runner is connected with no reported issues " +
+			"and the database is RUNNABLE. The review caveat is 61 drifted resources: the summary " +
+			"exposed three Better Uptime monitors but omitted the other 58 entries. No further apply " +
+			"action is needed; review the complete drift list before the next run and verify it " +
+			"contains only expected external changes.",
+		Completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy"},
+	}
+	if correction := externalLifecycleReplyLanguageCorrection(input, verbose); correction == "" {
+		t.Fatal("accepted bureaucratic stale lifecycle narration")
+	}
+	concise := watchDecision{
+		Action: "reply",
+		Message: "**This plan already applied, so the confirmation card is stale.** It replaced " +
+			"the Emisar runner VM and updated Tolgee Cloud SQL; the runner is connected and the " +
+			"database is healthy.\n\nThe 61 drifted resources are separate follow-up work.",
+		Completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy"},
+	}
+	if correction := externalLifecycleReplyLanguageCorrection(input, concise); correction != "" {
+		t.Fatalf("rejected concise stale lifecycle update: %s", correction)
+	}
+}
+
 func TestTerminalLifecycleEvidenceIsHostBoundBeforeCompletionValidation(t *testing.T) {
 	observedAt := time.Date(2026, 8, 4, 23, 31, 0, 0, time.UTC)
 	episode := core.WorkEpisode{

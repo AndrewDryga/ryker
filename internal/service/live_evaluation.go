@@ -1112,6 +1112,7 @@ func liveEvaluationWatchContext(
 		ID:        caseID,
 		EventID:   caseID,
 		Kind:      kind,
+		TeamID:    "TEVALUATION",
 		ChannelID: "CEVALUATION",
 		MessageTS: fmt.Sprintf("1700.%06d", len(testCase.RecentMessages)+1),
 		UserID:    userID,
@@ -1131,6 +1132,9 @@ func liveEvaluationWatchContext(
 		if err != nil {
 			return core.SlackInput{}, nil, fmt.Errorf("recent message %d: %w", index+1, err)
 		}
+		item.MessageLink = slackMessageLink(core.SlackInput{
+			TeamID: "TEVALUATION", ChannelID: input.ChannelID, MessageTS: item.MessageTS,
+		})
 		recent = append(recent, item)
 	}
 	recent = append(recent, watchPromptMessage(input, "UEVALBOT", true))
@@ -1148,6 +1152,9 @@ func liveEvaluationWatchContext(
 				err,
 			)
 		}
+		item.MessageLink = slackMessageLink(core.SlackInput{
+			TeamID: "TEVALUATION", ChannelID: input.ChannelID, MessageTS: item.MessageTS,
+		})
 		recent = append(recent, item)
 	}
 	return input, recent, nil

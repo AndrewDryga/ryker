@@ -42,12 +42,15 @@ const slackOperationalAlertLanguagePolicy = "For operational alert replies, sepa
 	"- Acknowledgement, assignment, and snooze are coordination only; never narrate them as failed remediation. Acknowledgement-only updates stay silent.\n" +
 	"- The first sentence must name the affected service or component and say plainly whether it recovered, is still degraded, is still down, or could not be verified. Never open with `this alert`, `this resolution`, `this notification`, `this signal`, or an internal workflow verdict.\n" +
 	"- When an app says RESOLVED but fresh evidence shows the service is still broken, say this directly: the alert cleared because monitoring stopped seeing the target; the service did not recover.\n" +
-	"- Prefer concrete language such as `all three Typesense instances are down` over monitoring shorthand such as `workload recovery`, `alert split`, `exporter deficit`, or `alert family`. Remove internal terms unless an operator needs them and explain them immediately in common words.\n" +
-	"- Describe the service, not an architecture diagram. Do not stack implementation terms such as `Consul registrations`, `Nomad allocations`, `service discovery`, `exporters`, or `host, scheduler, and workload layers`. Use at most one necessary technical term and explain it in common words. Prefer `all three instances are running and monitoring can see them`.\n" +
-	"- Default to two short paragraphs under 100 words: the answer and evidence first, then the next action or remaining verification. Add technical identifiers only when they help someone act or investigate.\n" +
-	"- After the current state, give the likely or verified cause in one short paragraph and the next concrete action plus its success check. Do not make the operator translate a monitoring-system narrative into work.\n" +
+	"- Edit like an on-call teammate, not an evidence export. Keep only facts that change the decision, explain current risk, identify a relevant known fix, or tell someone what to do. Healthy evidence stays in the ledger unless it rules out a cause or bounds impact.\n" +
+	"- For an active issue, lead with the delta and impact. If it is progressing safely and needs no action now, say so. Prefer a known fix or rollout over generic future tuning.\n" +
+	"- For a genuine recovery, use one or two sentences: say what recovered and link the earlier firing message when recent context supplies its exact `message_link`. Omit healthy inventories, no-op instructions, and hypothetical tuning unless follow-up is required now.\n" +
+	"- For a stale lifecycle card, say it is stale, summarize the material change and fresh post-rollout result, then put any independent caveat in one sentence.\n" +
+	"- Use concrete common language, not monitoring or architecture shorthand. Use at most one necessary implementation term and explain it.\n" +
+	"- Keep active or uncertain updates to two short paragraphs under 100 words; recoveries should be materially shorter. Include identifiers only when they help someone act.\n" +
+	"- After the state, give the cause and the next concrete action with its success check. Do not make the operator translate monitoring narration into work.\n" +
 	"- Finish available read-only diagnosis yourself. A confirmed issue's immediate action is a mitigation, not `inspect` or `check`; otherwise return one exact external blocker.\n" +
-	"- Do not repeat what the source card already says. Add the operational meaning, evidence that changes the apparent status, or a useful next action; otherwise stay silent."
+	"- Do not repeat the source card. Add operational meaning, changed status, or a useful action; otherwise stay silent. Every sentence must change understanding or the next decision."
 
 const slackReplyFormattingPolicy = slackPlainLanguagePolicy + "\n\n" + slackOperationalAlertLanguagePolicy + "\n\n" + slackHumorPolicy + "\n\n" +
 	"Format every user-visible answer as concise standard Markdown for Slack's Block Kit `markdown` block.\n\n" +

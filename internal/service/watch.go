@@ -79,6 +79,7 @@ type watchTurnState struct {
 type watchContextMessage struct {
 	MessageTS         string                   `json:"message_ts"`
 	ThreadTS          string                   `json:"thread_ts,omitempty"`
+	MessageLink       string                   `json:"message_link,omitempty"`
 	SenderID          string                   `json:"sender_id"`
 	SenderType        string                   `json:"sender_type"`
 	Text              string                   `json:"text"`
@@ -1266,6 +1267,25 @@ func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision)
 		return "rewrite the alert reply for a teammate, not an infrastructure diagram: use at " +
 			"most one necessary technical term and explain it in common words; say whether the " +
 			"service works, what monitoring can see, and whether anyone needs to act"
+	}
+	wordCount := len(strings.Fields(message))
+	resolved := strings.Contains(
+		strings.ToLower(strings.Join(strings.Fields(input.Text), " ")), "resolved",
+	)
+	recovered := decision.AlertAssessment != nil &&
+		decision.AlertAssessment.Verdict == "not_issue"
+	if decision.Completion != nil && decision.Completion.Verdict == "healthy" {
+		recovered = true
+	}
+	if resolved && recovered && wordCount > 60 {
+		return "rewrite this recovered-alert update as a compact closure: say what recovered and " +
+			"link the earlier firing message when its exact message_link is present in recent context; " +
+			"remove the normal-system inventory, no-op instructions, and hypothetical future tuning"
+	}
+	if !resolved && wordCount > 90 {
+		return "edit this active-alert update down to the decision-useful delta: current impact, the " +
+			"evidence that changes the decision, a relevant known fix or rollout, and only the action " +
+			"needed now; keep background healthy evidence in the ledger"
 	}
 	return ""
 }
@@ -2484,10 +2504,40 @@ func watchPromptMessage(
 	}
 	return watchContextMessage{
 		MessageTS: input.MessageTS, ThreadTS: input.ThreadTS,
-		SenderID: senderID, SenderType: senderType, Text: text, Attachments: attachments,
+		MessageLink: slackMessageLink(input),
+		SenderID:    senderID, SenderType: senderType, Text: text, Attachments: attachments,
 		Reactions:         reactions,
 		MentionsResponder: mentionsResponder, RequestedBy: requestedBy, Target: target,
 	}
+}
+
+func slackMessageLink(input core.SlackInput) string {
+	teamID := strings.TrimSpace(input.TeamID)
+	channelID := strings.TrimSpace(input.ChannelID)
+	messageTS := strings.TrimSpace(firstNonempty(input.ThreadTS, input.MessageTS))
+	if teamID == "" || channelID == "" || messageTS == "" {
+		return ""
+	}
+	if strings.Count(messageTS, ".") != 1 {
+		return ""
+	}
+	for _, value := range []string{teamID, channelID} {
+		for _, char := range value {
+			if (char < 'A' || char > 'Z') && (char < '0' || char > '9') {
+				return ""
+			}
+		}
+	}
+	for index, char := range messageTS {
+		if char == '.' && index > 0 && index < len(messageTS)-1 {
+			continue
+		}
+		if char < '0' || char > '9' {
+			return ""
+		}
+	}
+	return "https://app.slack.com/client/" + teamID + "/" + channelID +
+		"/thread/" + channelID + "-" + messageTS
 }
 
 func isSlackVerificationReplay(input core.SlackInput) bool {

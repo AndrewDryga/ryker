@@ -467,6 +467,79 @@ func TestOperationalAlertReplyLeadsWithPlainServiceState(t *testing.T) {
 	}
 }
 
+func TestOperationalAlertReplyEditsToTheDecisionUsefulDelta(t *testing.T) {
+	active := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
+	}
+	verboseActive := watchDecision{
+		Action: "reply",
+		Message: "Cassandra remains available, but the sts_ks repair schedule is genuinely degraded: " +
+			"its last completed cycle was 5.625 days ago, beyond the five-day interval plus grace. " +
+			"The active repair is progressing from 73.10% to 74.62% during this check, so it is not " +
+			"stalled. Traffic shows no error spike. All three Cassandra nodes are Up/Normal, compaction " +
+			"backlog is below Reaper's limit, and every node has four storage paths. Do not start an " +
+			"overlapping repair. Let this run finish; success is 100% progress and the overdue gauge " +
+			"returning to zero. If overruns recur, compare runtimes around today's Reaper 5.0.0 upgrade " +
+			"and tune cadence or repair parameters.",
+	}
+	if correction := alertReplyLanguageCorrection(active, verboseActive); correction == "" {
+		t.Fatal("accepted an evidence-inventory alert reply")
+	}
+	conciseActive := watchDecision{
+		Action: "reply",
+		Message: "**`sts_ks` repair is behind schedule**, but the active repair advanced from " +
+			"73.10% to 74.62% during this check and traffic has no error spike, so there is nothing " +
+			"to do right now.\n\nThis matches the known Reaper issue; version 5.0.0 is already deploying " +
+			"with the fix.",
+	}
+	if correction := alertReplyLanguageCorrection(active, conciseActive); correction != "" {
+		t.Fatalf("rejected concise active alert: %s", correction)
+	}
+
+	resolved := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue",
+	}
+	verboseResolved := watchDecision{
+		Action: "reply",
+		Message: "Cassandra Reaper has recovered: the sts_ks repair reached 100%, its overdue " +
+			"gauge returned to zero, and the completion-age metric reset. All three Cassandra nodes " +
+			"remain Up/Normal, compaction backlog is negligible, every node has four storage paths, " +
+			"and the five-minute 5xx rate is 0.0981%. No mitigation is needed, and another repair " +
+			"should not be started. Keep this cycle's runtime for comparison; if later cycles also " +
+			"exceed the five-day cadence, compare them around the Reaper 5.0.0 upgrade before tuning " +
+			"the schedule or repair parameters.",
+		AlertAssessment: &alertAssessment{Verdict: "not_issue"},
+	}
+	if correction := alertReplyLanguageCorrection(resolved, verboseResolved); correction == "" {
+		t.Fatal("accepted a verbose recovered-alert inventory")
+	}
+	conciseResolved := watchDecision{
+		Action:          "reply",
+		Message:         "**`sts_ks` is fully repaired**, closing [the earlier alert](https://app.slack.com/client/T123/C123/thread/C123-1700.100).",
+		AlertAssessment: &alertAssessment{Verdict: "not_issue"},
+	}
+	if correction := alertReplyLanguageCorrection(resolved, conciseResolved); correction != "" {
+		t.Fatalf("rejected concise recovered alert: %s", correction)
+	}
+}
+
+func TestWatchContextIncludesExactSlackThreadLink(t *testing.T) {
+	message := watchPromptMessage(core.SlackInput{
+		TeamID: "T123ABC", ChannelID: "C456DEF", MessageTS: "1700.200",
+		ThreadTS: "1700.100", Kind: "bot_message", Text: "Alert resolved",
+	}, "U999BOT", false)
+	if message.MessageLink != "https://app.slack.com/client/T123ABC/C456DEF/thread/C456DEF-1700.100" {
+		t.Fatalf("message link = %q", message.MessageLink)
+	}
+	if link := slackMessageLink(core.SlackInput{
+		TeamID: "T123ABC", ChannelID: "C456DEF", MessageTS: "not-a-timestamp",
+	}); link != "" {
+		t.Fatalf("unsafe message link = %q", link)
+	}
+}
+
 func TestAppAlertReplyOmitsInternalEvidenceCount(t *testing.T) {
 	s := &Service{sanitizer: slackui.NewSanitizer(16 << 10)}
 	message := s.watchReplyMessage(

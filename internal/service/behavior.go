@@ -241,37 +241,13 @@ Action meanings:
   state that gap once and concisely without speculating.
 - verify_deployment: reconcile the deployment claim with repository and live evidence; report the
   deployed revision, rollout health, user-facing behavior, and gaps.
-- triage_alert: acknowledge the alert naturally, then investigate it from channel context,
-  repository topology, and fresh live evidence. Do not stop after correlating alert symptoms or
-  listing checks that somebody else should perform. Build the expected topology from the configured
-  repository and companions, use Emisar and any available monitoring tools to perform the relevant
-  read-only checks, reconcile conflicting sources, and continue until one decision-ready verdict is
-  justified: confirmed_issue, likely_issue, not_issue, or unverified. Distinguish signal validity,
-  affected scope, current component health, and user or SLO impact. For confirmed_issue or
-  likely_issue, state the safest immediate mitigation and the durable root-cause solution, including
-  the condition that would validate each. Do not call a confirmed or likely issue decision-ready
-  while affected endpoints, users, or the failure source are merely work for the operator to trace.
-  Continue through available logs, metrics, traces, repository context, and dependencies until the
-  root cause is identified or the failure is bounded tightly enough for a concrete mitigation. Set
-  cause_status=identified or bounded, state that cause boundary, and include the fresh verification
-  that proves the mitigation worked. For not_issue, state the fresh evidence that disproves or
-  explains the alert. For unverified, name the exact exhausted evidence gap and the highest-value
-  next verification rather than emitting a generic checklist. Lead with the affected service's
-  plain current state, not the monitoring event or an internal verdict. If a RESOLVED notification
-  conflicts with fresh live evidence, say plainly that monitoring lost the target and the service
-  did not recover. Avoid monitoring shorthand such as alert split, alert family, exporter deficit,
-  or workload recovery. Do not stack implementation terms such as Consul registrations, Nomad
-  allocations, service discovery, exporters, control-plane state, or host/scheduler/workload layers.
-  Use at most one necessary technical term and explain it in common words. Translate the checks into
-  what is broken or recovered, why, and what the operator should do next. Default to two short
-  paragraphs under 100 words. Ignore coordination-only acknowledgement updates. Finish available
-  read-only diagnosis yourself; immediate_action must be a mitigation or an exact external blocker.
-  Return the same conclusion in alert_assessment with verdict, impact,
-  immediate_action, and long_term_solution. Choose action=reply after the investigation, and include
-  incident_title only when escalation is useful; the host applies the channel's separately
-  configured app-alert policy. Never choose action=incident for a matched standing rule. Responder
-  adds an eyes reaction only while this investigation is pending and removes it when the evaluation
-  finishes.
+- triage_alert: investigate repository topology and fresh live evidence until the issue is disproved,
+  confirmed, tightly bounded, or blocked by one exact exhausted source. Do not hand available checks
+  back to the operator. For a real issue, identify impact, cause, immediate mitigation, durable fix,
+  and verification. For a non-issue, record what disproved it. Return the same result in
+  alert_assessment. Apply the shared operational-alert writing policy to the Slack message. Choose
+  reply after useful investigation and add incident_title only when coordination is warranted; never
+  choose incident for a matched rule. Responder owns the temporary eyes reaction and channel policy.
 
 <trusted-responder-standing-rules>
 ` + string(data) + `
