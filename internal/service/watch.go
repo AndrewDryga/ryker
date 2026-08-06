@@ -1169,6 +1169,13 @@ func watchDecisionCorrectionAt(
 	decision watchDecision,
 	now time.Time,
 ) string {
+	if input.Kind == "bot_message" && decision.Action == "ignore" &&
+		operationalAlertResolvedEvent(input.Text) &&
+		hasPriorCorrelatedFiringAlert(input, state.RecentMessages) {
+		return "this resolved update closes a firing alert whose investigation was already admitted; " +
+			"finish that investigation and return one concise evidence-backed closure that distinguishes " +
+			"metric recovery from service recovery instead of discarding the earlier failure"
+	}
 	requiresAlertAssessment := matchedOperationalAlertRule(state.MatchedRules) ||
 		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
 			operationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text))
@@ -1238,6 +1245,31 @@ func watchDecisionCorrectionAt(
 			"answer the current message instead of treating it as a duplicate of an earlier turn"
 	}
 	return ""
+}
+
+func hasPriorCorrelatedFiringAlert(
+	input core.SlackInput,
+	messages []watchContextMessage,
+) bool {
+	key := operationalCorrelationKey(input)
+	if key == "" {
+		return false
+	}
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.Target || message.SenderType != "external_app" ||
+			!operationalAlertEvent(message.Text) ||
+			operationalAlertResolvedEvent(message.Text) {
+			continue
+		}
+		candidate := core.SlackInput{
+			Kind: "bot_message", UserID: message.SenderID, Text: message.Text,
+		}
+		if operationalCorrelationKey(candidate) == key {
+			return true
+		}
+	}
+	return false
 }
 
 func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision) string {
@@ -1376,7 +1408,10 @@ func operationalAlertEvent(text string) bool {
 
 func operationalAlertResolvedEvent(text string) bool {
 	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
-	return episodeContainsAny(normalized, "resolved", "recovered", "recovery")
+	return episodeContainsAny(
+		normalized,
+		"resolved", "recovered", "recovery", "returned to normal", "alert closed",
+	)
 }
 
 func (s *Service) watchReplyMessage(

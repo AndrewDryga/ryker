@@ -1418,7 +1418,7 @@ func TestAgentRunMissingCoopImageRepairsAndRetriesWithoutSlackFailure(t *testing
 	}
 	svc.pollAgentRuns(ctx)
 	requeued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
-	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 ||
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 0 ||
 		!strings.Contains(requeued.LastError, "execution image rebuilt") {
 		t.Fatalf("requeued missing image = %+v, %v", requeued, err)
 	}
@@ -1448,6 +1448,7 @@ func TestAgentRunMissingCoopImageBuildFailureStaysQueuedWithoutSlackFailure(t *t
 	cfg := serviceConfig(t)
 	cfg.Slack.SummonChannels = []string{"CIMAGEWAIT"}
 	cfg.Slack.WatchChannels = nil
+	cfg.Slack.NativeStatus = true
 	cfg.Limits.MaxAgentRunAttempts = 1
 	st, err := store.Open(cfg.StateDir)
 	if err != nil {
@@ -1483,12 +1484,14 @@ func TestAgentRunMissingCoopImageBuildFailureStaysQueuedWithoutSlackFailure(t *t
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
 	svc.pollAgentRuns(ctx)
+	drainSlackDeliveries(t, ctx, svc)
 	requeued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
-	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 ||
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 0 ||
 		!strings.Contains(requeued.LastError, "waiting for the managed Coop execution image") ||
 		time.Until(requeued.NextAttemptAt) < 25*time.Second {
 		t.Fatalf("queued missing image = %+v, %v", requeued, err)
@@ -1498,6 +1501,15 @@ func TestAgentRunMissingCoopImageBuildFailureStaysQueuedWithoutSlackFailure(t *t
 	}
 	if len(slackClient.posts) != 0 {
 		t.Fatalf("missing image failure reached Slack = %+v", slackClient.posts)
+	}
+	if len(slackClient.statuses) != 2 ||
+		slackClient.statuses[0].text != watchPendingStatus ||
+		slackClient.statuses[1].text != "" {
+		t.Fatalf("dependency-blocked status lifecycle = %+v", slackClient.statuses)
+	}
+	state, err := decodeWatchRunContext(requeued)
+	if err != nil || state.PendingStatusSet || state.PendingStatusAt != 0 {
+		t.Fatalf("parked watch state = %+v, %v", state, err)
 	}
 }
 

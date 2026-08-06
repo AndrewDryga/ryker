@@ -906,6 +906,82 @@ func (s *Store) RequeueAgentRun(
 	return tx.Commit()
 }
 
+// DeferRunningAgentRun parks submitted work behind a shared dependency without counting the
+// outage as an agent failure. A fresh idempotency key prevents the failed Coop
+// turn from being replayed when the dependency becomes available again.
+func (s *Store) DeferRunningAgentRun(
+	ctx context.Context,
+	id string,
+	detail string,
+	eventSequence int64,
+	next time.Time,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var incidentID sql.NullString
+	var coopTurnID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT incident_id, coop_turn_id
+		FROM agent_runs
+		WHERE id = ? AND state = 'running'`, id,
+	).Scan(&incidentID, &coopTurnID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("defer running agent run: %w", ErrConflict)
+		}
+		return err
+	}
+	now := nowText()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'pending', idempotency_key = ?,
+		    expected_revision = 0, coop_turn_id = '',
+		    coop_event_sequence = MAX(coop_event_sequence, ?),
+		    result_json = X'', terminal_state = '', last_error = ?,
+		    next_attempt_at = ?, completed_at = NULL, updated_at = ?
+		WHERE id = ? AND state = 'running'`,
+		fmt.Sprintf("responder:run:%s:dependency:%d", id, time.Now().UnixNano()),
+		eventSequence,
+		boundedError(detail),
+		next.UTC().Format(timestampFormat),
+		now,
+		id,
+	)
+	if err := expectOne(result, err, "defer running agent run"); err != nil {
+		return err
+	}
+	if err := setEpisodeAttemptStateTx(
+		ctx, tx, id, core.AttemptPending, detail, false,
+	); err != nil {
+		return err
+	}
+	if incidentID.Valid {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE incidents
+			SET active_turn_id = '', workflow = 'parked', last_error = '',
+			    coop_event_sequence = MAX(coop_event_sequence, ?),
+			    updated_at = ?, card_version = card_version + 1
+			WHERE id = ? AND active_turn_id = ?`,
+			eventSequence, now, incidentID.String, coopTurnID,
+		)
+		if err := expectOne(
+			result, err, "release dependency-blocked incident turn",
+		); err != nil {
+			return err
+		}
+	}
+	if err := setWorkEpisodePhaseTx(
+		ctx, tx, id, core.EpisodeAcknowledged, "waiting", boundedError(detail),
+		"Waiting for execution runtime", time.Time{},
+		fmt.Sprintf("agent-run:%s:dependency:%d", id, eventSequence),
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) EscalateAgentRun(
 	ctx context.Context,
 	id string,

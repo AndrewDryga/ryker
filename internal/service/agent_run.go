@@ -1284,7 +1284,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 		s.repairCoopRuntime != nil {
 		if err := s.repairCoopRuntime(ctx); err == nil {
 			const reason = "Coop execution image rebuilt; retrying the same work episode"
-			if err := s.store.RequeueAgentRun(
+			if err := s.store.DeferRunningAgentRun(
 				ctx, run.ID, reason, cursor, time.Now(),
 			); err != nil {
 				return err
@@ -1297,7 +1297,15 @@ func (s *Service) stagePolledAgentRunTerminal(
 		} else {
 			reason := "waiting for the managed Coop execution image: " + trimError(err)
 			delay := max(30*time.Second, queueDelayDuration(run.Failures+1))
-			if err := s.store.RequeueAgentRun(
+			if run.Mode == core.AgentRunTriage {
+				if clearErr := s.parkWatchRunPendingStatus(ctx, run); clearErr != nil {
+					s.log.Warn(
+						"clear watched Slack status while Coop is unavailable",
+						"run", run.ID, "error", clearErr,
+					)
+				}
+			}
+			if err := s.store.DeferRunningAgentRun(
 				ctx, run.ID, reason, cursor, time.Now().Add(delay),
 			); err != nil {
 				return err
@@ -1611,6 +1619,31 @@ func (s *Service) stagePolledAgentRunTerminal(
 		_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 	}
 	return nil
+}
+
+func (s *Service) parkWatchRunPendingStatus(
+	ctx context.Context,
+	run core.AgentRun,
+) error {
+	input, err := s.store.GetSlackInput(ctx, run.SourceID)
+	if err != nil {
+		return err
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil {
+		return err
+	}
+	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
+		return err
+	}
+	state.PendingStatusSet = false
+	state.PendingStatusAt = 0
+	state.RuleAcknowledged = false
+	contextJSON, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.store.SetAgentRunContext(ctx, run.ID, contextJSON)
 }
 
 func terminalStructuredCorrection(attempt, maximum int) bool {

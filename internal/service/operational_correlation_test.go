@@ -30,6 +30,55 @@ func TestOperationalCorrelationKeyTracksAlertLifecycle(t *testing.T) {
 	}
 }
 
+func TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation(t *testing.T) {
+	firingText := "[VA1 FIRING:1] WARNING | High disk I/O latency\n" +
+		"FIRING - 1 alert\nService: cluster\nComponent: cassandra"
+	resolved := core.SlackInput{
+		Kind: "bot_message", UserID: "BGRAFANA",
+		Text: "[VA1 RESOLVED:1] WARNING | High disk I/O latency\n" +
+			"RESOLVED - 1 alert\nService: cluster\nComponent: cassandra",
+	}
+	state := watchTurnState{RecentMessages: []watchContextMessage{
+		{
+			MessageTS: "1700.001", SenderID: "BGRAFANA",
+			SenderType: "external_app", Text: firingText,
+		},
+		{
+			MessageTS: "1700.002", SenderID: "BGRAFANA",
+			SenderType: "external_app", Text: resolved.Text, Target: true,
+		},
+	}}
+	correction := watchDecisionCorrectionAt(
+		resolved, state, watchDecision{Action: "ignore"}, time.Now().UTC(),
+	)
+	if !strings.Contains(correction, "investigation was already admitted") {
+		t.Fatalf("resolved alert correction = %q", correction)
+	}
+
+	unrelated := resolved
+	unrelated.Text = strings.ReplaceAll(unrelated.Text, "cassandra", "typesense")
+	if correction := watchDecisionCorrectionAt(
+		unrelated, state, watchDecision{Action: "ignore"}, time.Now().UTC(),
+	); correction != "" {
+		t.Fatalf("unrelated resolved alert correction = %q", correction)
+	}
+}
+
+func TestOperationalAlertResolvedEventRecognizesProviderLifecycleWording(t *testing.T) {
+	for _, text := range []string{
+		"[VA1 RESOLVED:2] WARNING | High disk I/O latency",
+		"logging/user/emisar/recurrent_job_failures returned to normal with a value of 0.000.",
+		"Alert closed No severity",
+	} {
+		if !operationalAlertResolvedEvent(text) {
+			t.Fatalf("resolved alert wording not recognized: %q", text)
+		}
+	}
+	if operationalAlertResolvedEvent("Alert open No severity") {
+		t.Fatal("open alert was classified as resolved")
+	}
+}
+
 func TestOperationalCorrelationKeyTracksTerraformRunLifecycle(t *testing.T) {
 	planned := core.SlackInput{Kind: "bot_message", UserID: "BTFC", Text: `
 Run notification for SME-Tenant/tenant-infra
