@@ -44,6 +44,31 @@ func TestReduceProjectsOrderedTransitionsAndProtectsTerminalState(t *testing.T) 
 	}
 }
 
+func TestReduceReopensTerminalEpisodeOnlyWithExplicitEvent(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	current := core.WorkEpisode{
+		State: core.EpisodeCompleted, Phase: "finished", Status: "Completed",
+		EventSequence: 3, CompletedAt: now.Add(-time.Minute),
+	}
+	payload, err := Encode(Transition{
+		State: core.EpisodeAccepted, Phase: "accepted", Status: "Accepted",
+		NextAction: "Continue the lifecycle",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := Reduce(current, core.WorkEpisodeEvent{
+		Sequence: 4, Kind: EventEpisodeReopened, IdempotencyKey: "reopen:4",
+		Payload: payload, CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.State != core.EpisodeAccepted || !next.CompletedAt.IsZero() {
+		t.Fatalf("reopened episode = %+v", next)
+	}
+}
+
 func TestReduceReplayIsDeterministic(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	working, _ := Encode(Transition{

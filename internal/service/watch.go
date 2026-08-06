@@ -2146,9 +2146,26 @@ func decodeWatchState(data []byte) (watchTurnState, error) {
 
 func parseWatchDecision(message string) (watchDecision, error) {
 	trimmed := strings.TrimSpace(message)
+	if err := rejectMultipleJSONObjects(trimmed); err != nil {
+		return watchDecision{}, err
+	}
 	decision, err := decodeWatchDecision(trimmed)
-	if err == nil || strings.HasPrefix(trimmed, "{") {
-		return decision, err
+	if err == nil {
+		return decision, nil
+	}
+	if strings.HasPrefix(trimmed, "{") {
+		if object, objectErr := firstJSONObject(trimmed); objectErr == nil {
+			if recovered, recoverErr := decodeWatchDecision(object); recoverErr == nil {
+				return recovered, nil
+			}
+		}
+	}
+	if start := strings.Index(trimmed, "{"); start >= 0 {
+		if object, objectErr := firstJSONObject(trimmed[start:]); objectErr == nil {
+			if recovered, recoverErr := decodeWatchDecision(object); recoverErr == nil {
+				return recovered, nil
+			}
+		}
 	}
 	candidateErr := err
 	for end := len(trimmed); end > 0; {
@@ -2160,6 +2177,11 @@ func parseWatchDecision(message string) (watchDecision, error) {
 		decision, err = decodeWatchDecision(candidate)
 		if err == nil {
 			return decision, nil
+		}
+		if object, objectErr := firstJSONObject(candidate); objectErr == nil {
+			if recovered, recoverErr := decodeWatchDecision(object); recoverErr == nil {
+				return recovered, nil
+			}
 		}
 		if strings.Contains(candidate, `"action"`) {
 			candidateErr = err
@@ -2212,11 +2234,14 @@ func decodeWatchDecision(message string) (watchDecision, error) {
 			)
 		}
 	case "ignore":
+		backgroundBlock := decision.Completion != nil &&
+			decision.Completion.Status == "blocked" && decision.Completion.Recheck != nil
 		if decision.Reaction != "" || decision.Message != "" || len(decision.FollowupMessages) != 0 || decision.Title != "" ||
 			decision.IncidentTitle != "" || decision.TaskTitle != "" ||
 			decision.TaskRepository != "" || decision.TaskPrompt != "" || decision.MemoryOffer != nil ||
 			decision.PreferenceOffer != nil || decision.RuleOffer != nil || decision.ScheduleOffer != nil ||
-			decision.PendingApproval != nil || decision.AlertAssessment != nil || decision.Completion != nil ||
+			decision.PendingApproval != nil || decision.AlertAssessment != nil ||
+			(decision.Completion != nil && !backgroundBlock) ||
 			len(decision.Visuals) != 0 {
 			return watchDecision{}, errors.New("ignore decision has unexpected fields")
 		}

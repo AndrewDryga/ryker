@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 38
+const currentSchemaVersion = 39
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1813,6 +1813,28 @@ CREATE INDEX slack_deliveries_episode_idx
   ON slack_deliveries(episode_id, expected_destination_revision, state, created_at);
 `
 
+const schemaV39 = `
+-- Before v39, acquiring a Slack delivery lease incremented failure_count even
+-- when the first send succeeded. Remove that one phantom attempt from every
+-- legacy delivery exactly once during migration.
+UPDATE slack_deliveries
+SET failure_count = CASE
+  WHEN failure_count > 0 THEN failure_count - 1
+  ELSE 0
+END;
+
+-- Terminal transport markers describe how Coop ended a turn, not why a
+-- successfully completed run failed. They must not survive as operational
+-- errors on successful records.
+UPDATE agent_runs
+SET last_error = ''
+WHERE state = 'completed';
+
+UPDATE slack_deliveries
+SET last_error = ''
+WHERE state = 'sent';
+`
+
 var migrations = []string{
 	schemaV1,
 	schemaV2,
@@ -1852,4 +1874,5 @@ var migrations = []string{
 	schemaV36,
 	schemaV37,
 	schemaV38,
+	schemaV39,
 }

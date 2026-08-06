@@ -95,6 +95,16 @@ func (s *Service) seedScheduledWork(ctx context.Context) error {
 		{Kind: workCoopPoll, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 60},
 		{Kind: workMaintenance, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 10},
 	}
+	// Agent submission and finalization are independently lease-safe. Seed one
+	// drain per configured background worker so the configured concurrency is
+	// real rather than three workers contending for one singleton work item.
+	for shard := 2; shard <= s.cfg.Limits.BackgroundWorkers; shard++ {
+		subject := fmt.Sprintf("drain-%d", shard)
+		items = append(items,
+			store.WorkItem{Kind: workAgentFinalize, SubjectID: subject, Lane: store.WorkLaneBackground, Priority: 20},
+			store.WorkItem{Kind: workAgentRun, SubjectID: subject, Lane: store.WorkLaneBackground, Priority: 50},
+		)
+	}
 	for i := range items {
 		items[i].AvailableAt = now
 		if err := s.store.EnqueueWork(ctx, items[i]); err != nil {

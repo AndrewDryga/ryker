@@ -14,7 +14,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -142,9 +141,6 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		if err := checkPrivateCoopConfig(cfg.Coop.BootstrapDir, expectedBootstrap); err != nil {
 			return err
 		}
-		if err := ensureManagedCoopImage(cfg, stderr); err != nil {
-			return err
-		}
 	}
 	if err := ensurePrivateDirectory(cfg.StateDir); err != nil {
 		return err
@@ -180,12 +176,10 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	svc.SetPublisher(githubPublisher)
 	svc.SetEmisar(emisar.New(emisarHTTP, cfg.Coop.EmisarURL, emisarToken))
 	if cfg.Coop.Supervise {
-		var repairMu sync.Mutex
-		svc.SetCoopRuntimeRepairer(func(context.Context) error {
-			repairMu.Lock()
-			defer repairMu.Unlock()
+		repair := newCoopRuntimeRepairGate(cfg.Coop.RestartDelay.Duration, func() error {
 			return ensureManagedCoopImage(cfg, stderr)
 		})
+		svc.SetCoopRuntimeRepairer(repair.Repair)
 	}
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), cfg.Coop.RequestTimeout.Duration)
 	err = svc.Initialize(startupCtx)

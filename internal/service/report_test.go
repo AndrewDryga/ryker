@@ -301,6 +301,46 @@ func TestTypedResultOperationsFoldIntoAgentAndWatchResults(t *testing.T) {
 	}
 }
 
+func TestTypedResultOperationsAreAuthoritativeOverRedundantLegacyFields(t *testing.T) {
+	report, structured, err := parseAgentReport(`Result follows:
+{
+  "message":"Old projection that should not win.",
+  "verdict":"healthy",
+  "operations":[
+    {"id":"c1","type":"complete_episode","completion":{"message":"The current check passed.","completion":{"status":"decision_ready","summary":"Passed"}}}
+  ]
+}
+That is the complete result.`)
+	if err != nil || !structured || report.Message != "The current check passed." ||
+		len(report.AppliedOperations) != 1 {
+		t.Fatalf("authoritative typed report = %+v, structured=%t, err=%v", report, structured, err)
+	}
+
+	decision, err := parseWatchDecision(`{
+  "action":"ignore",
+  "message":"Redundant legacy projection.",
+  "operations":[
+    {"id":"c1","type":"complete_episode","completion":{"message":"The run failed during apply.","completion":{"status":"decision_ready","summary":"Apply failed"}}}
+  ]
+}`)
+	if err != nil || decision.Action != "reply" ||
+		decision.Message != "The run failed during apply." {
+		t.Fatalf("authoritative typed watch result = %+v, err=%v", decision, err)
+	}
+}
+
+func TestMalformedTypedOperationsCannotDisappearBehindLegacyIgnore(t *testing.T) {
+	_, err := parseWatchDecision(`{
+  "action":"ignore",
+  "operations":[
+    {"id":"bad","type":"request_approval","task":{"kind":"incident","title":"wrong payload"}}
+  ]
+}`)
+	if err == nil || !strings.Contains(err.Error(), "requires approval") {
+		t.Fatalf("malformed operation stream was silently ignored: %v", err)
+	}
+}
+
 func TestTypedResultOperationsReturnExactOperationError(t *testing.T) {
 	_, _, err := parseAgentReport(`{
   "operations":[

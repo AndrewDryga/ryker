@@ -423,3 +423,50 @@ func readCount(path string) int {
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+func TestCoopRestartBackoff(t *testing.T) {
+	base := 100 * time.Millisecond
+	for _, test := range []struct {
+		failures int
+		want     time.Duration
+	}{
+		{1, 100 * time.Millisecond},
+		{2, 200 * time.Millisecond},
+		{5, 1600 * time.Millisecond},
+		{20, 5 * time.Minute},
+	} {
+		if got := coopRestartBackoff(base, test.failures); got != test.want {
+			t.Fatalf("failures %d: got %s, want %s", test.failures, got, test.want)
+		}
+	}
+}
+
+func TestCoopRuntimeRepairGateBacksOffSharedBuildFailure(t *testing.T) {
+	base := 100 * time.Millisecond
+	now := time.Date(2026, time.August, 5, 12, 0, 0, 0, time.UTC)
+	attempts := 0
+	gate := newCoopRuntimeRepairGate(base, func() error {
+		attempts++
+		return errors.New("Docker daemon unavailable")
+	})
+	gate.now = func() time.Time { return now }
+
+	if err := gate.Repair(context.Background()); err == nil {
+		t.Fatal("initial repair unexpectedly succeeded")
+	}
+	if err := gate.Repair(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "is waiting until") {
+		t.Fatalf("shared cooldown error = %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("repair attempts during cooldown = %d, want 1", attempts)
+	}
+
+	now = now.Add(base + time.Millisecond)
+	if err := gate.Repair(context.Background()); err == nil {
+		t.Fatal("repair after cooldown unexpectedly succeeded")
+	}
+	if attempts != 2 {
+		t.Fatalf("repair attempts after cooldown = %d, want 2", attempts)
+	}
+}

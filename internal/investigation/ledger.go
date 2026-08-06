@@ -42,8 +42,14 @@ func BuildLedger(contract InvestigationContract, evidence []core.Evidence, cover
 	ledger := Ledger{Contract: contract, Claims: make(map[string]ClaimView, len(contract.Claims))}
 	byLayer := make(map[string]core.Coverage, len(coverage))
 	for _, item := range coverage {
-		byLayer[item.Layer] = item
+		current, ok := byLayer[item.Layer]
+		if !ok || observationTime(item.ObservedAt, item.CreatedAt).After(
+			observationTime(current.ObservedAt, current.CreatedAt),
+		) {
+			byLayer[item.Layer] = item
+		}
 	}
+	latestEvidence := latestEvidenceObservationTimes(evidence)
 	for _, requirement := range contract.Claims {
 		view := ClaimView{Requirement: requirement, State: ClaimUnknown}
 		coverageItem, covered := byLayer[requirement.Layer]
@@ -58,7 +64,9 @@ func BuildLedger(contract InvestigationContract, evidence []core.Evidence, cover
 			if item.ClaimID != requirement.ID && !contains(coverageItem.ClaimIDs, item.ClaimID) {
 				continue
 			}
-			stale := requirement.Freshness.MaxAge > 0 &&
+			stale := observationTime(item.ObservedAt, item.CreatedAt).Before(
+				latestEvidence[evidenceObservationKey(item)],
+			) || requirement.Freshness.MaxAge > 0 &&
 				(item.ObservedAt.IsZero() || now.Sub(item.ObservedAt) > requirement.Freshness.MaxAge)
 			stale = stale || (!item.ValidUntil.IsZero() && now.After(item.ValidUntil))
 			if stale {
@@ -96,6 +104,48 @@ func BuildLedger(contract InvestigationContract, evidence []core.Evidence, cover
 		ledger.Claims[requirement.ID] = view
 	}
 	return ledger
+}
+
+func latestEvidenceObservationTimes(items []core.Evidence) map[string]time.Time {
+	latest := make(map[string]time.Time, len(items))
+	for _, item := range items {
+		key := evidenceObservationKey(item)
+		observed := observationTime(item.ObservedAt, item.CreatedAt)
+		if current, ok := latest[key]; !ok || observed.After(current) {
+			latest[key] = observed
+		}
+	}
+	return latest
+}
+
+func evidenceObservationKey(item core.Evidence) string {
+	dimensionKeys := make([]string, 0, len(item.Dimensions))
+	for key := range item.Dimensions {
+		dimensionKeys = append(dimensionKeys, key)
+	}
+	sort.Strings(dimensionKeys)
+	var dimensions strings.Builder
+	for _, key := range dimensionKeys {
+		dimensions.WriteString("|")
+		dimensions.WriteString(key)
+		dimensions.WriteString("=")
+		dimensions.WriteString(item.Dimensions[key])
+	}
+	return strings.Join([]string{
+		strings.TrimSpace(item.ClaimID),
+		strings.TrimSpace(item.Target),
+		strings.TrimSpace(item.SourceType),
+		strings.TrimSpace(item.SourceID),
+		strings.TrimSpace(item.SourceName),
+		dimensions.String(),
+	}, "\x00")
+}
+
+func observationTime(observedAt, createdAt time.Time) time.Time {
+	if !observedAt.IsZero() {
+		return observedAt
+	}
+	return createdAt
 }
 
 func (ledger Ledger) CompletionCorrection(status string) string {

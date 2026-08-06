@@ -141,6 +141,14 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		}
 		state.ConversationFollowup = followup
 	}
+	if s.obviousHumanDialogue(input, state) {
+		_ = s.store.Audit(ctx, core.AuditEvent{
+			Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: "ignored_human_dialogue",
+			Detail:  "message explicitly addresses another Slack member",
+		})
+		return s.finishInputIfOpen(ctx, input)
+	}
 	if !state.RouteCaptured {
 		responseThreadTS, referencedThreadTS, err := s.resolveConversationRoute(
 			ctx, input,
@@ -173,30 +181,70 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 			state.PendingStatusAt = time.Now().Unix()
 		}
 	}
+	readyAt := time.Now().UTC()
+	if input.Kind != "scheduled" && input.Kind != "recheck" &&
+		s.cfg.Slack.WatchSettleDelay.Duration > 0 {
+		// App notifications are independent operational streams. Basing their
+		// settle time on the latest message in a busy channel can leave a failed
+		// alert queued for tens of minutes while unrelated chat continues.
+		if input.Kind == "bot_message" {
+			readyAt = input.ReceivedAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
+		} else {
+			latestAt, err := s.store.LatestSlackConversationAt(ctx, input.ChannelID)
+			if err != nil {
+				return err
+			}
+			readyAt = latestAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
+		}
+	}
+	conversationKey := watchConversationKey(input)
+	episode := s.episodeForWatchedInput(input, state)
+	if previous, previousErr := s.store.GetLatestWorkEpisodeByConversationKey(
+		ctx, conversationKey,
+	); previousErr == nil {
+		if input.Kind == "bot_message" && strings.HasPrefix(conversationKey, "operation:") {
+			// A lifecycle update is another attempt in the same unit of work, not a
+			// new episode. Reuse both the episode and its bound Slack destination.
+			episode.ID = previous.ID
+			if previous.Destination.ChannelID == input.ChannelID &&
+				previous.Destination.ThreadTS != "" {
+				state.ResponseThreadTS = previous.Destination.ThreadTS
+			}
+		} else {
+			episode.ParentEpisodeID = previous.ID
+		}
+	} else if !errors.Is(previousErr, store.ErrNotFound) {
+		return previousErr
+	} else if input.Kind == "bot_message" {
+		previous, operationalErr := s.store.GetLatestOperationalWorkEpisode(
+			ctx, input.ChannelID, input.UserID, input.ReceivedAt.Add(-30*time.Minute),
+		)
+		if operationalErr == nil {
+			episode.ParentEpisodeID = previous.ID
+			if previous.Destination.ChannelID == input.ChannelID &&
+				previous.Destination.ThreadTS != "" {
+				state.ResponseThreadTS = previous.Destination.ThreadTS
+			}
+		} else if !errors.Is(operationalErr, store.ErrNotFound) {
+			return operationalErr
+		}
+	}
 	contextJSON, err := json.Marshal(state)
 	if err != nil {
 		return err
-	}
-	readyAt := time.Now().UTC()
-	if input.Kind != "scheduled" && input.Kind != "recheck" {
-		latestAt, err := s.store.LatestSlackConversationAt(ctx, input.ChannelID)
-		if err != nil {
-			return err
-		}
-		readyAt = latestAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
 	}
 	run, _, err := s.store.QueueAgentRun(ctx, core.AgentRun{
 		Mode:            core.AgentRunTriage,
 		ChannelID:       input.ChannelID,
 		ThreadTS:        state.ResponseThreadTS,
-		ConversationKey: watchConversationKey(input),
+		ConversationKey: conversationKey,
 		SourceKind:      "watch",
 		SourceID:        input.ID,
 		UserID:          input.UserID,
 		Context:         contextJSON,
 		NextAttemptAt:   readyAt,
 		CommitmentTitle: commitmentTitleForInput(input),
-		Episode:         s.episodeForWatchedInput(input, state),
+		Episode:         episode,
 	})
 	if err != nil {
 		return fmt.Errorf("queue watched agent run: %w", err)
@@ -316,6 +364,11 @@ func watchInputExplicitlyTargeted(input core.SlackInput, state watchTurnState) b
 }
 
 func watchConversationKey(input core.SlackInput) string {
+	if input.Kind == "bot_message" {
+		if key := operationalCorrelationKey(input); key != "" {
+			return "operation:" + input.ChannelID + ":" + key
+		}
+	}
 	return "channel:" + input.ChannelID
 }
 
@@ -486,6 +539,7 @@ func (s *Service) prepareIncidentAgentRun(
 		return s.retryIncidentAgentRun(ctx, run, incident, episodeErr, false)
 	}
 	prompt += "\n\n" + workEpisodePrompt(episode)
+	prompt += s.episodeContinuityPrompt(ctx, episode)
 	prompt += agentToolTransportPrompt()
 	revision, err := s.store.FreezeAgentRunRevision(ctx, run.ID, session.Revision)
 	if err != nil {
@@ -683,6 +737,30 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			)
 		}
 	}
+	if input.Kind == "bot_message" {
+		newer, err := s.store.HasNewerPendingAgentRun(ctx, run)
+		if err != nil {
+			return s.retryAgentRun(ctx, run, err)
+		}
+		if !newer {
+			newer, err = s.store.HasNewerOperationalAgentRun(
+				ctx, run, operationalBurstWindow, true,
+			)
+			if err != nil {
+				return s.retryAgentRun(ctx, run, err)
+			}
+		}
+		if newer {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "coalesced",
+				Detail:  "a newer update for the same operational stream will be investigated",
+			})
+			return s.store.SupersedeAgentRun(
+				ctx, run.ID, "coalesced into a newer operational update",
+			)
+		}
+	}
 	if !state.ContextCaptured || !state.PriorCaptured {
 		assembled, err := s.assembleAgentContext(
 			ctx,
@@ -872,6 +950,14 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		firstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 		state.MatchedRules,
 	) + "\n\n" + repositorySetPrompt(session)
+	if input.Kind == "bot_message" {
+		prompt += "\n\n<operational-burst>\nThis is the newest app update in a bounded " +
+			"operational burst. Reconcile every material app notice in the supplied recent " +
+			"context before replying. Group notices only when evidence connects them; preserve " +
+			"separate conclusions for unrelated services. Do not silently omit an older failure " +
+			"merely because this update arrived later. Publish one concise, decision-useful update " +
+			"for the burst rather than narrating each notification.\n</operational-burst>"
+	}
 	prompt += appAlertPolicyPrompt(input.Kind, state.AlertPolicy)
 	if state.ApprovalContinuation && strings.TrimSpace(run.Prompt) != "" {
 		prompt += "\n\n<emisar-run-continuation>\n" + run.Prompt +
@@ -1143,9 +1229,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 		firstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
 	)
 	if missingCoopImageFailure(turn) &&
-		s.repairCoopRuntime != nil &&
-		!strings.Contains(run.LastError, "Coop execution image rebuilt") &&
-		!terminalAttempt(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts) {
+		s.repairCoopRuntime != nil {
 		if err := s.repairCoopRuntime(ctx); err == nil {
 			const reason = "Coop execution image rebuilt; retrying the same work episode"
 			if err := s.store.RequeueAgentRun(
@@ -1159,8 +1243,21 @@ func (s *Service) stagePolledAgentRunTerminal(
 			s.log.Info("rebuilt missing Coop execution image", "run", run.ID)
 			return nil
 		} else {
-			detail += "; automatic Coop image rebuild failed: " + trimError(err)
-			s.log.Error("rebuild missing Coop execution image", "run", run.ID, "error", err)
+			reason := "waiting for the managed Coop execution image: " + trimError(err)
+			delay := max(30*time.Second, queueDelayDuration(run.Failures+1))
+			if err := s.store.RequeueAgentRun(
+				ctx, run.ID, reason, cursor, time.Now().Add(delay),
+			); err != nil {
+				return err
+			}
+			if run.Mode == core.AgentRunTriage {
+				_ = s.advanceTriageSessionEvents(ctx, run, cursor)
+			}
+			s.log.Warn(
+				"managed Coop execution image unavailable; work remains queued",
+				"run", run.ID, "retry_in", delay, "error", err,
+			)
+			return nil
 		}
 	}
 	if reason, replay := replayAgentRunFailure(
@@ -1230,9 +1327,12 @@ func (s *Service) stagePolledAgentRunTerminal(
 				_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 				return nil
 			}
-			terminalState = "failed"
-			result = nil
-			detail = correction
+			decision = blockedWatchContinuation(run, input, state, correction, nil)
+			result, decisionErr = marshalWatchDecisionResult(decision)
+			if decisionErr != nil {
+				return decisionErr
+			}
+			detail = ""
 		} else {
 			if state.Lane == "conversation" && decision.Action == "escalate" {
 				if err := s.store.AdvanceConversationSessionEvents(
@@ -1302,7 +1402,14 @@ func (s *Service) stagePolledAgentRunTerminal(
 					)
 				}
 				if correction == "" {
-					correction = episodeClaimCorrection(
+					correction = unsupportedOperationalClaimCorrection(
+						decision.Action, decision.Message,
+						sanitizeEvidence(decision.Evidence, "", "", ""),
+					)
+				}
+				if correction == "" {
+					correction, episodeErr = s.episodeClaimCorrectionWithHistory(
+						ctx,
 						episode,
 						decision.Action,
 						sanitizeEvidence(decision.Evidence, "", "", ""),
@@ -1311,6 +1418,9 @@ func (s *Service) stagePolledAgentRunTerminal(
 						time.Now(),
 						len(decision.AppliedOperations) > 0,
 					)
+					if episodeErr != nil {
+						return episodeErr
+					}
 				}
 				if correction == "" {
 					correction = episodeDiagnosisCorrection(
@@ -1344,9 +1454,13 @@ func (s *Service) stagePolledAgentRunTerminal(
 					_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 					return nil
 				}
-				terminalState = "failed"
-				result = nil
-				detail = correction
+				decision = blockedWatchContinuation(run, input, state, correction, &decision)
+				marshaledResult, marshalErr := marshalWatchDecisionResult(decision)
+				if marshalErr != nil {
+					return marshalErr
+				}
+				result = marshaledResult
+				detail = ""
 			} else if err := s.recordResultOperationEvents(
 				ctx, run.ID, decision.AppliedOperations,
 			); err != nil {
@@ -1369,9 +1483,12 @@ func (s *Service) stagePolledAgentRunTerminal(
 				}
 				return nil
 			}
-			terminalState = "failed"
-			result = nil
-			detail = correction
+			report = blockedAgentContinuation(correction, nil)
+			result, reportErr = json.Marshal(report)
+			if reportErr != nil {
+				return reportErr
+			}
+			detail = ""
 		} else {
 			episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 			if episodeErr != nil {
@@ -1389,7 +1506,14 @@ func (s *Service) stagePolledAgentRunTerminal(
 				)
 			}
 			if correction == "" {
-				correction = episodeClaimCorrection(
+				correction = unsupportedOperationalClaimCorrection(
+					"reply", report.Message,
+					sanitizeEvidence(report.Evidence, "", "", ""),
+				)
+			}
+			if correction == "" {
+				correction, episodeErr = s.episodeClaimCorrectionWithHistory(
+					ctx,
 					episode,
 					"reply",
 					sanitizeEvidence(report.Evidence, "", "", ""),
@@ -1398,6 +1522,9 @@ func (s *Service) stagePolledAgentRunTerminal(
 					time.Now(),
 					len(report.AppliedOperations) > 0,
 				)
+				if episodeErr != nil {
+					return episodeErr
+				}
 			}
 			if correction != "" {
 				if !terminalStructuredCorrection(
@@ -1410,9 +1537,12 @@ func (s *Service) stagePolledAgentRunTerminal(
 					}
 					return nil
 				}
-				terminalState = "failed"
-				result = nil
-				detail = correction
+				report = blockedAgentContinuation(correction, &report)
+				result, reportErr = json.Marshal(report)
+				if reportErr != nil {
+					return reportErr
+				}
+				detail = ""
 			} else if err := s.recordResultOperationEvents(
 				ctx, run.ID, report.AppliedOperations,
 			); err != nil {
@@ -1438,6 +1568,64 @@ func terminalStructuredCorrection(attempt, maximum int) bool {
 func consumeWatchStructuredCorrection(state *watchTurnState, maximum int) bool {
 	state.StructuredCorrections++
 	return terminalStructuredCorrection(state.StructuredCorrections, maximum)
+}
+
+func blockedWatchContinuation(
+	run core.AgentRun,
+	input core.SlackInput,
+	state watchTurnState,
+	reason string,
+	prior *watchDecision,
+) watchDecision {
+	decision := watchDecision{}
+	if prior != nil {
+		decision.Evidence = prior.Evidence
+		decision.Coverage = prior.Coverage
+		decision.Memory = prior.Memory
+	}
+	finalAttempt := state.RecheckAttempt >= 2
+	if input.Kind == "bot_message" && !finalAttempt {
+		decision.Action = "ignore"
+	} else {
+		decision.Action = "reply"
+		decision.Message = "I couldn't finish this check safely yet. I saved the evidence and kept the investigation open for a clean retry."
+	}
+	completion := &completionAssessment{
+		Status:       "blocked",
+		Summary:      "The host could not validate the final structured result.",
+		MaterialGaps: []string{boundedField(reason, 500)},
+		BlockerKind:  "tool_failure",
+		Attempts:     []string{"Responder validated the result and requested a corrected completion."},
+		NextAction:   "Retry the same investigation from its saved evidence.",
+	}
+	if !finalAttempt {
+		completion.Recheck = &investigation.RecheckDirective{
+			Key: "structured:" + run.ID, Reason: "Retry structured completion after host validation.",
+			AfterSeconds: 60, AdditionalAttempts: 2,
+		}
+	}
+	decision.Completion = completion
+	return decision
+}
+
+func blockedAgentContinuation(reason string, prior *agentReport) agentReport {
+	report := agentReport{
+		Message: "I couldn't finish this check safely yet. The evidence is saved in this task, so it can continue without starting over.",
+		Completion: &completionAssessment{
+			Status:       "blocked",
+			Summary:      "The host could not validate the final structured result.",
+			MaterialGaps: []string{boundedField(reason, 500)},
+			BlockerKind:  "tool_failure",
+			Attempts:     []string{"Responder validated the result and requested a corrected completion."},
+			NextAction:   "Continue the same task from its saved evidence.",
+		},
+	}
+	if prior != nil {
+		report.Evidence = prior.Evidence
+		report.Coverage = prior.Coverage
+		report.Memory = prior.Memory
+	}
+	return report
 }
 
 func (s *Service) advanceTriageSessionEvents(
@@ -1799,6 +1987,34 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 			return err
 		}
 		return s.store.FinishAgentRun(ctx, run.ID)
+	}
+	if input.Kind == "bot_message" && strings.HasPrefix(run.ConversationKey, "operation:") {
+		newer, newerErr := s.store.HasNewerAgentRun(ctx, run)
+		if newerErr != nil {
+			return newerErr
+		}
+		if !newer {
+			newer, newerErr = s.store.HasNewerOperationalAgentRun(
+				ctx, run, operationalBurstWindow, false,
+			)
+			if newerErr != nil {
+				return newerErr
+			}
+		}
+		if newer {
+			_ = s.store.Audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "coalesced",
+				Detail:  "suppressed a stale result because a newer operational update is queued",
+			})
+			if err := s.store.SetWorkEpisodePhase(
+				ctx, run.ID, core.EpisodeSuperseded, "finished",
+				"Superseded by a newer operational update", "", time.Time{},
+			); err != nil {
+				return err
+			}
+			return s.store.FinishAgentRun(ctx, run.ID)
+		}
 	}
 	decision, err := parseWatchDecision(string(run.Result))
 	if err != nil {

@@ -20,13 +20,24 @@ func applyAgentResultOperations(report *agentReport) error {
 	if len(report.Operations) == 0 {
 		return nil
 	}
-	if report.Message != "" || len(report.FollowupMessages) != 0 || len(report.Visuals) != 0 ||
-		len(report.Evidence) != 0 || len(report.Coverage) != 0 || report.MemoryOffer != nil ||
-		report.PreferenceOffer != nil || report.RuleOffer != nil || report.ScheduleOffer != nil ||
-		report.PendingApproval != nil || len(report.Proposals) != 0 || report.Completion != nil {
-		return errors.New("typed result operations cannot be combined with legacy result fields")
-	}
-	return foldResultOperations(report.Operations, operationTargets{
+	legacy := *report
+	// Operations are the authoritative transport. Models sometimes repeat their
+	// final projection in the legacy fields as well; treating that harmless
+	// redundancy as a terminal protocol failure loses otherwise valid work.
+	report.Message = ""
+	report.FollowupMessages = nil
+	report.Visuals = nil
+	report.Evidence = nil
+	report.Coverage = nil
+	report.Memory = core.AgentMemory{}
+	report.MemoryOffer = nil
+	report.PreferenceOffer = nil
+	report.RuleOffer = nil
+	report.ScheduleOffer = nil
+	report.PendingApproval = nil
+	report.Proposals = nil
+	report.Completion = nil
+	err := foldResultOperations(report.Operations, operationTargets{
 		message: &report.Message, followups: &report.FollowupMessages, visuals: &report.Visuals,
 		evidence: &report.Evidence, coverage: &report.Coverage, memory: &report.Memory,
 		memoryOffer: &report.MemoryOffer, preferenceOffer: &report.PreferenceOffer,
@@ -34,24 +45,42 @@ func applyAgentResultOperations(report *agentReport) error {
 		approval: &report.PendingApproval, proposals: &report.Proposals,
 		completion: &report.Completion,
 	}, &report.AppliedOperations)
+	if err != nil && strings.TrimSpace(legacy.Message) != "" {
+		*report = legacy
+		report.Operations = nil
+		report.AppliedOperations = nil
+		return nil
+	}
+	return err
 }
 
 func applyWatchResultOperations(decision *watchDecision) error {
 	if len(decision.Operations) == 0 {
 		return nil
 	}
-	if decision.Action != "reply" {
-		return errors.New("typed result operations are only valid for a reply decision")
-	}
-	if decision.Message != "" || len(decision.FollowupMessages) != 0 || len(decision.Visuals) != 0 ||
-		decision.IncidentTitle != "" || decision.TaskTitle != "" || decision.TaskRepository != "" ||
-		decision.TaskPrompt != "" || len(decision.Evidence) != 0 || len(decision.Coverage) != 0 ||
-		decision.MemoryOffer != nil || decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
-		decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
-		decision.AlertAssessment != nil || decision.Completion != nil {
-		return errors.New("typed result operations cannot be combined with legacy reply fields")
-	}
-	return foldResultOperations(decision.Operations, operationTargets{
+	legacy := *decision
+	// A complete_episode operation is itself an unambiguous reply decision. The
+	// host owns that projection even if the model omitted action or left an old
+	// ignore value beside the operation stream.
+	decision.Action = "reply"
+	decision.Message = ""
+	decision.FollowupMessages = nil
+	decision.Visuals = nil
+	decision.IncidentTitle = ""
+	decision.TaskTitle = ""
+	decision.TaskRepository = ""
+	decision.TaskPrompt = ""
+	decision.Evidence = nil
+	decision.Coverage = nil
+	decision.Memory = core.AgentMemory{}
+	decision.MemoryOffer = nil
+	decision.PreferenceOffer = nil
+	decision.RuleOffer = nil
+	decision.ScheduleOffer = nil
+	decision.PendingApproval = nil
+	decision.AlertAssessment = nil
+	decision.Completion = nil
+	err := foldResultOperations(decision.Operations, operationTargets{
 		message: &decision.Message, followups: &decision.FollowupMessages, visuals: &decision.Visuals,
 		evidence: &decision.Evidence, coverage: &decision.Coverage, memory: &decision.Memory,
 		memoryOffer: &decision.MemoryOffer, preferenceOffer: &decision.PreferenceOffer,
@@ -61,6 +90,30 @@ func applyWatchResultOperations(decision *watchDecision) error {
 		incidentTitle: &decision.IncidentTitle, taskTitle: &decision.TaskTitle,
 		taskRepository: &decision.TaskRepository, taskPrompt: &decision.TaskPrompt,
 	}, &decision.AppliedOperations)
+	if err != nil && legacyWatchDecisionUsable(legacy) {
+		*decision = legacy
+		decision.Operations = nil
+		decision.AppliedOperations = nil
+		return nil
+	}
+	return err
+}
+
+func legacyWatchDecisionUsable(decision watchDecision) bool {
+	switch decision.Action {
+	case "ignore":
+		// An empty legacy ignore beside a malformed operation stream is not a
+		// usable fallback. Accepting it would silently discard typed work.
+		return len(decision.Operations) == 0
+	case "react":
+		return strings.TrimSpace(decision.Reaction) != ""
+	case "reply":
+		return strings.TrimSpace(decision.Message) != ""
+	case "escalate":
+		return strings.TrimSpace(decision.Reason) != ""
+	default:
+		return false
+	}
 }
 
 type operationTargets struct {
@@ -104,9 +157,6 @@ func foldResultOperations(
 		seen[operation.ID] = struct{}{}
 		if err := operation.Validate(); err != nil {
 			return fmt.Errorf("result operation %d: %w", index+1, err)
-		}
-		if completed {
-			return fmt.Errorf("result operation %q appears after complete_episode", operation.ID)
 		}
 		switch operation.Type {
 		case "record_evidence":
@@ -180,6 +230,9 @@ func foldResultOperations(
 			}
 			*target.proposals = append(*target.proposals, *operation.Proposal)
 		case "complete_episode":
+			if completed {
+				return fmt.Errorf("result operation %q duplicates complete_episode", operation.ID)
+			}
 			completed = true
 			value := operation.Completion
 			*target.message = value.Message

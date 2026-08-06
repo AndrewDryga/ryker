@@ -35,6 +35,7 @@ const (
 	EventEffectFailed        = "effect_failed"
 	EventVerificationStarted = "verification_started"
 	EventEpisodeCompleted    = "episode_completed"
+	EventEpisodeReopened     = "episode_reopened"
 	EventEpisodeBlocked      = "episode_blocked"
 	EventEpisodeCancelled    = "episode_cancelled"
 	EventEpisodeRefused      = "episode_refused"
@@ -101,6 +102,21 @@ func Reduce(current core.WorkEpisode, event core.WorkEpisodeEvent) (core.WorkEpi
 		if terminal(next.State) {
 			next.CompletedAt = event.CreatedAt
 		}
+	case EventEpisodeReopened:
+		if !terminal(current.State) {
+			return core.WorkEpisode{}, errors.New("only a terminal episode can be reopened")
+		}
+		if transition.State == "" || terminal(transition.State) ||
+			strings.TrimSpace(transition.Phase) == "" ||
+			strings.TrimSpace(transition.Status) == "" {
+			return core.WorkEpisode{}, errors.New("episode reopen requires a nonterminal state, phase, and status")
+		}
+		next.State = transition.State
+		next.Phase = strings.TrimSpace(transition.Phase)
+		next.Status = strings.TrimSpace(transition.Status)
+		next.NextAction = strings.TrimSpace(transition.NextAction)
+		next.ProgressDueAt = transition.ProgressDue
+		next.CompletedAt = time.Time{}
 	case EventProgressReported, EventProgressRecorded:
 		if terminal(current.State) {
 			return core.WorkEpisode{}, errors.New("terminal episode cannot accept progress")

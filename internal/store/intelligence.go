@@ -725,6 +725,122 @@ func (s *Store) ListCoverage(
 	return result, rows.Err()
 }
 
+// ListEpisodeEvidence returns evidence recorded by this episode and its
+// correlation ancestry. Related alert updates are separate immutable episodes,
+// but they reason over one accumulated claim ledger instead of repeatedly
+// rediscovering (and contradicting) the same incident.
+func (s *Store) ListEpisodeEvidence(
+	ctx context.Context,
+	episodeID string,
+	limit int,
+) ([]core.Evidence, error) {
+	if strings.TrimSpace(episodeID) == "" || limit < 1 || limit > 200 {
+		return nil, errors.New("episode evidence requires an episode and limit from 1 to 200")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		WITH RECURSIVE episode_chain(id, parent_episode_id, depth) AS (
+		  SELECT id, parent_episode_id, 0 FROM work_episodes WHERE id = ?
+		  UNION ALL
+		  SELECT episode.id, episode.parent_episode_id, child.depth + 1
+		  FROM work_episodes AS episode
+		  JOIN episode_chain AS child ON episode.id = child.parent_episode_id
+		  WHERE child.depth < 49
+		), source_inputs(id) AS (
+		  SELECT source_id FROM agent_runs
+		  WHERE episode_id IN (SELECT id FROM episode_chain)
+		)
+		SELECT id, incident_id, channel_id, source_input, claim_id, claim, observation,
+		  relation, health_effect, source_type, source_id, source_name, source_url,
+		  target, scope_note, freshness, confidence, observed_at, valid_until,
+		  dimensions_json, metadata_json, created_at
+		FROM evidence
+		WHERE source_input IN (SELECT id FROM source_inputs)
+		ORDER BY created_at DESC, id DESC LIMIT ?`, episodeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.Evidence, 0, limit)
+	for rows.Next() {
+		var item core.Evidence
+		var observed, validUntil sql.NullString
+		var dimensions, metadata []byte
+		var created string
+		if err := rows.Scan(
+			&item.ID, &item.IncidentID, &item.ChannelID, &item.SourceInput,
+			&item.ClaimID, &item.Claim, &item.Observation, &item.Relation,
+			&item.HealthEffect, &item.SourceType, &item.SourceID, &item.SourceName,
+			&item.SourceURL, &item.Target, &item.ScopeNote, &item.Freshness,
+			&item.Confidence, &observed, &validUntil, &dimensions, &metadata, &created,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(dimensions, &item.Dimensions); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(metadata, &item.Metadata); err != nil {
+			return nil, err
+		}
+		item.ObservedAt = scanTime(observed)
+		item.ValidUntil = scanTime(validUntil)
+		item.CreatedAt = parseTime(created)
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) ListEpisodeCoverage(
+	ctx context.Context,
+	episodeID string,
+	limit int,
+) ([]core.Coverage, error) {
+	if strings.TrimSpace(episodeID) == "" || limit < 1 || limit > 200 {
+		return nil, errors.New("episode coverage requires an episode and limit from 1 to 200")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		WITH RECURSIVE episode_chain(id, parent_episode_id, depth) AS (
+		  SELECT id, parent_episode_id, 0 FROM work_episodes WHERE id = ?
+		  UNION ALL
+		  SELECT episode.id, episode.parent_episode_id, child.depth + 1
+		  FROM work_episodes AS episode
+		  JOIN episode_chain AS child ON episode.id = child.parent_episode_id
+		  WHERE child.depth < 49
+		), source_inputs(id) AS (
+		  SELECT source_id FROM agent_runs
+		  WHERE episode_id IN (SELECT id FROM episode_chain)
+		)
+		SELECT id, incident_id, channel_id, source_input, layer, status, source,
+		  detail, observed_at, claim_ids_json, created_at
+		FROM coverage
+		WHERE source_input IN (SELECT id FROM source_inputs)
+		ORDER BY created_at DESC, id DESC LIMIT ?`, episodeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.Coverage, 0, limit)
+	for rows.Next() {
+		var item core.Coverage
+		var observed sql.NullString
+		var claimIDs []byte
+		var created string
+		if err := rows.Scan(
+			&item.ID, &item.IncidentID, &item.ChannelID, &item.SourceInput,
+			&item.Layer, &item.Status, &item.Source, &item.Detail, &observed,
+			&claimIDs, &created,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(claimIDs, &item.ClaimIDs); err != nil {
+			return nil, err
+		}
+		item.ObservedAt = scanTime(observed)
+		item.CreatedAt = parseTime(created)
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) RecordClaimAssessments(ctx context.Context, items []core.ClaimAssessment) error {
 	if len(items) > 50 {
 		return errors.New("one episode cannot record more than 50 claim assessments")

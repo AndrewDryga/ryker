@@ -708,6 +708,36 @@ func setWorkEpisodePhaseTx(
 	if !validWorkEpisodeState(state) {
 		return fmt.Errorf("unsupported work episode state %q", state)
 	}
+	var currentState core.WorkEpisodeState
+	var latestRunID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT episode.lifecycle_state, attempt.agent_run_id
+		FROM work_episodes AS episode
+		JOIN episode_attempts AS current ON current.agent_run_id = ?
+		JOIN episode_attempts AS attempt ON attempt.id = episode.latest_attempt_id
+		WHERE episode.id = current.episode_id`, runID).Scan(
+		&currentState, &latestRunID,
+	); err != nil {
+		return err
+	}
+	if episodepkg.Terminal(currentState) && !episodepkg.Terminal(state) {
+		if latestRunID != runID {
+			return fmt.Errorf("terminal episode's latest attempt is %q, not %q", latestRunID, runID)
+		}
+		reopened, err := episodepkg.Encode(episodepkg.Transition{
+			State: core.EpisodeAccepted, Phase: "accepted", Status: "Accepted",
+			NextAction: "Continue the operational lifecycle",
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := appendWorkEpisodeEventTx(ctx, tx, runID, core.WorkEpisodeEvent{
+			Kind: episodepkg.EventEpisodeReopened, Actor: "host",
+			IdempotencyKey: "agent-run:" + runID + ":reopened", Payload: reopened,
+		}); err != nil {
+			return err
+		}
+	}
 	payload, err := episodepkg.Encode(episodepkg.Transition{
 		State: state, Phase: phase, Status: status, NextAction: nextAction,
 		ProgressDue: progressDue,

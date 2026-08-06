@@ -64,6 +64,9 @@ func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if outbox.Attempts != 0 {
+		t.Fatalf("leasing counted as a delivery failure: %+v", outbox)
+	}
 	if err := st.FinishSlackDelivery(
 		ctx, outbox.ID, "1700.001", "sending",
 	); err != nil {
@@ -72,6 +75,7 @@ func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 	storedDelivery, err := st.GetSlackDelivery(ctx, outbox.ID)
 	if err != nil ||
 		storedDelivery.State != "sent" ||
+		storedDelivery.Attempts != 0 || storedDelivery.LastError != "" ||
 		storedDelivery.ChannelID != "C123ABC" ||
 		storedDelivery.MessageTS != "1700.001" {
 		t.Fatalf("stored delivery = %+v, %v", storedDelivery, err)
@@ -137,7 +141,7 @@ func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := st.StageAgentRunResult(
-		ctx, leasedTurn.ID, "completed", nil, "", 0,
+		ctx, leasedTurn.ID, "completed", nil, "end_turn", 0,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +151,10 @@ func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 	}
 	if err := st.FinishAgentRun(ctx, leasedTurn.ID); err != nil {
 		t.Fatal(err)
+	}
+	storedRun, err := st.GetAgentRun(ctx, leasedTurn.ID)
+	if err != nil || storedRun.LastError != "" {
+		t.Fatalf("completed run retained a terminal event as an error = %+v, %v", storedRun, err)
 	}
 	incident, _ = st.GetIncident(ctx, incident.ID)
 	if incident.ActiveTurnID != "" || incident.Workflow != core.WorkflowParked {
@@ -252,6 +260,41 @@ func TestLeaseSlackDeliveryPreservesMultipartSequence(t *testing.T) {
 		if err := st.FinishSlackDelivery(ctx, delivery.ID, "1700.1", "sending"); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestSlackDeliveryFailureCountTracksFailuresNotLeases(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "delivery-attempts", Operation: "post", Kind: "notice",
+		ChannelID: "C123", Body: []byte(`{"text":"hello"}`),
+	}); err != nil || !created {
+		t.Fatalf("enqueue = %v, %v", created, err)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx)
+	if err != nil || leased.Attempts != 0 {
+		t.Fatalf("first lease = %+v, %v", leased, err)
+	}
+	if err := st.RetrySlackDelivery(
+		ctx, leased.ID, "temporary Slack failure", time.Now(), false, false,
+	); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := st.LeaseSlackDelivery(ctx)
+	if err != nil || retried.Attempts != 1 || retried.LastError != "temporary Slack failure" {
+		t.Fatalf("retry lease = %+v, %v", retried, err)
+	}
+	if err := st.FinishSlackDelivery(ctx, retried.ID, "1700.2", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetSlackDelivery(ctx, retried.ID)
+	if err != nil || stored.Attempts != 1 || stored.LastError != "" {
+		t.Fatalf("completed retried delivery = %+v, %v", stored, err)
 	}
 }
 
@@ -1158,7 +1201,7 @@ func TestSchemaV10MigratesActiveAgentRunAndUncertainSlackDelivery(t *testing.T) 
 	}
 	delivery := deliveries[0]
 	if delivery.ID != "out_migrate" || delivery.Operation != "post" ||
-		delivery.Attempts != 2 || string(delivery.Body) != `{"text":"accepted"}` {
+		delivery.Attempts != 1 || string(delivery.Body) != `{"text":"accepted"}` {
 		t.Fatalf("migrated Slack delivery = %+v", delivery)
 	}
 	input, err := st.GetSlackInput(ctx, "slack_migrate")
@@ -1895,6 +1938,75 @@ func TestSchemaV38MigratesLegacyWorkEpisodeIntoAuthoritativeKernel(t *testing.T)
 	if attempt.EpisodeID != episode.ID || attempt.AgentRunID != "run_v37" ||
 		attempt.Number != 1 || attempt.State != core.AttemptSucceeded {
 		t.Fatalf("migrated attempt = %+v", attempt)
+	}
+}
+
+func TestSchemaV39RepairsSuccessfulRunAndDeliveryBookkeeping(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range migrations[:38] {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC().Format(timestampFormat)
+	if _, err := db.Exec(`
+		INSERT INTO schema_version(version) VALUES (38);
+		INSERT INTO agent_runs (
+		  id, mode, channel_id, conversation_key, source_kind, source_id,
+		  idempotency_key, state, failure_count, next_attempt_at, last_error,
+		  created_at, updated_at, completed_at
+		) VALUES (
+		  'run_v38', 'triage', 'C123', 'slack:C123', 'watch', 'input_v38',
+		  'run:v38', 'completed', 2, ?, 'end_turn', ?, ?, ?
+		);
+		INSERT INTO slack_deliveries (
+		  id, operation, kind, channel_id, state, failure_count,
+		  next_attempt_at, last_error, created_at, updated_at
+		) VALUES
+		  ('delivery_sent', 'post', 'reply', 'C123', 'sent', 1,
+		   ?, 'end_turn', ?, ?),
+		  ('delivery_retried', 'post', 'reply', 'C123', 'retry', 3,
+		   ?, 'rate_limited', ?, ?);
+	`, now, now, now, now, now, now, now, now, now, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	run, err := st.GetAgentRun(context.Background(), "run_v38")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.LastError != "" || run.Failures != 2 {
+		t.Fatalf("migrated successful run = %+v", run)
+	}
+	sent, err := st.GetSlackDelivery(context.Background(), "delivery_sent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent.Attempts != 0 || sent.LastError != "" {
+		t.Fatalf("migrated sent delivery = %+v", sent)
+	}
+	retried, err := st.GetSlackDelivery(context.Background(), "delivery_retried")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.Attempts != 2 || retried.LastError != "rate_limited" {
+		t.Fatalf("migrated retried delivery = %+v", retried)
 	}
 }
 

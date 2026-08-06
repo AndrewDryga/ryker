@@ -1443,6 +1443,64 @@ func TestAgentRunMissingCoopImageRepairsAndRetriesWithoutSlackFailure(t *testing
 	}
 }
 
+func TestAgentRunMissingCoopImageBuildFailureStaysQueuedWithoutSlackFailure(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CIMAGEWAIT"}
+	cfg.Slack.WatchChannels = nil
+	cfg.Limits.MaxAgentRunAttempts = 1
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-image-wait", EnvelopeID: "env-image-wait",
+		EventID: "event-image-wait", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CIMAGEWAIT", MessageTS: "1700.712", UserID: "U123ABC",
+		Text: "<@U999BOT> check production health",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{{
+		State:       "failed",
+		ErrorCode:   "acp_process_error",
+		ErrorDetail: "ACP child closed before its response: Coop box image is not built; run 'coop build'",
+	}}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	repairs := 0
+	svc.SetCoopRuntimeRepairer(func(context.Context) error {
+		repairs++
+		return errors.New("Docker daemon unavailable")
+	})
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	requeued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 ||
+		!strings.Contains(requeued.LastError, "waiting for the managed Coop execution image") ||
+		time.Until(requeued.NextAttemptAt) < 25*time.Second {
+		t.Fatalf("queued missing image = %+v, %v", requeued, err)
+	}
+	if repairs != 1 {
+		t.Fatalf("repair attempts = %d, want 1", repairs)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("missing image failure reached Slack = %+v", slackClient.posts)
+	}
+}
+
 func TestAgentRunTranscriptOverflowRotatesSlackSession(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -1620,6 +1678,40 @@ func TestReadyRequiresFreshSchedulerHeartbeatsAndDueWork(t *testing.T) {
 	}
 	if ready, reason := svc.Ready(ctx); ready || reason != "control queue stalled" {
 		t.Fatalf("stale queue readiness = %v, %q", ready, reason)
+	}
+}
+
+func TestScheduledWorkSeedsOneAgentDrainPerBackgroundWorker(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.BackgroundWorkers = 4
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.seedScheduledWork(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drains := map[string]bool{}
+	for {
+		item, err := st.LeaseWork(ctx, store.WorkLaneBackground, time.Minute)
+		if errors.Is(err, store.ErrNotFound) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if item.Kind == workAgentRun {
+			drains[item.SubjectID] = true
+		}
+		if err := st.CompleteWork(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(drains) != cfg.Limits.BackgroundWorkers {
+		t.Fatalf("agent drains = %v, want %d", drains, cfg.Limits.BackgroundWorkers)
 	}
 }
 
@@ -4440,8 +4532,13 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			}
 			if test.name == "malformed" {
 				run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
-				if err != nil || run.State != core.AgentRunFailed {
-					t.Fatalf("malformed agent run = %+v, %v", run, err)
+				if err != nil || run.State != core.AgentRunCompleted || run.LastError != "" {
+					t.Fatalf("malformed result continuation = %+v, %v", run, err)
+				}
+				episode, episodeErr := st.GetWorkEpisode(ctx, run.EpisodeID)
+				if episodeErr != nil || episode.State != core.EpisodeBlocked ||
+					episode.NextAction == "" {
+					t.Fatalf("malformed result episode = %+v, %v", episode, episodeErr)
 				}
 			}
 			if test.wantOffer {
@@ -4642,7 +4739,7 @@ func TestErroredAppRunIsInvestigatedInPlaceWithoutPolicyBoilerplate(t *testing.T
 	}
 }
 
-func TestWatchedFailureKeepsPendingStatusUntilNoticeIsPosted(t *testing.T) {
+func TestWatchedCorrectionExhaustionQueuesBlockedNotice(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Limits.MaxAgentRunAttempts = 1
@@ -4661,9 +4758,9 @@ func TestWatchedFailureKeepsPendingStatusUntilNoticeIsPosted(t *testing.T) {
 	}
 	input := core.SlackInput{
 		ID: "slack-watch-failure", EnvelopeID: "env-watch-failure",
-		EventID: "EvWatchFailure", Kind: "message", TeamID: cfg.Slack.TeamID,
+		EventID: "EvWatchFailure", Kind: "mention", TeamID: cfg.Slack.TeamID,
 		ChannelID: "CWATCH", MessageTS: "1700.700", UserID: "U123ABC",
-		Text: "How is production health?",
+		Text: "<@U999BOT> How is production health?",
 	}
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
 		t.Fatalf("admit = %v, %v", created, err)
@@ -4678,8 +4775,14 @@ func TestWatchedFailureKeepsPendingStatusUntilNoticeIsPosted(t *testing.T) {
 	if err := svc.processAgentRunFinalization(ctx); err != nil {
 		t.Fatalf("agent finalization should not depend on Slack: %v", err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
-		t.Fatal(err)
+	for range 4 {
+		err := svc.processSlackDelivery(ctx)
+		if errors.Is(err, store.ErrNotFound) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	stored, err := st.GetSlackInput(ctx, input.ID)
 	if err != nil {
@@ -4689,15 +4792,15 @@ func TestWatchedFailureKeepsPendingStatusUntilNoticeIsPosted(t *testing.T) {
 		t.Fatalf("stored input = %+v", stored)
 	}
 	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
-	if err != nil || run.State != core.AgentRunFailed {
-		t.Fatalf("finalized failed run = %+v, %v", run, err)
+	if err != nil || run.State != core.AgentRunCompleted || run.LastError != "" {
+		t.Fatalf("durable blocked run = %+v, %v", run, err)
 	}
 	if len(slack.posts) != 1 ||
-		!strings.Contains(slack.posts[0].message.Text, "couldn't finish this assessment") {
-		t.Fatalf("failure notice attempt = %+v", slack.posts)
+		!strings.Contains(slack.posts[0].message.Text, "couldn't finish this check safely yet") {
+		t.Fatalf("blocked notice attempt = %+v", slack.posts)
 	}
-	if len(slack.statuses) != 0 {
-		t.Fatalf("ambient failure exposed a thread status: %+v", slack.statuses)
+	if len(slack.statuses) == 0 {
+		t.Fatal("targeted blocked continuation lost its pending status")
 	}
 }
 
@@ -6509,6 +6612,7 @@ func TestWatchedRunRepairsStaleRotatedEventCursor(t *testing.T) {
 func TestParseWatchDecisionIsStrict(t *testing.T) {
 	valid := []string{
 		`{"action":"ignore"}`,
+		"```json\n{\"action\":\"ignore\"}\n```",
 		`{"action":"ignore","publication_updates":[{"incident_id":"inc_123","kind":"deployment","state":"succeeded","reference":"0123456","summary":"Production rollout completed."}]}`,
 		`{"action":"react","reaction":"eyes","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":1}}`,
 		`{"action":"react","reaction":"thumbsup"}`,
@@ -6547,7 +6651,6 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"reply","message":"Waiting.","incident_title":"Open it","pending_approval":{"request_id":"apr_1"}}`,
 		`{"action":"ignore","attention":{"addressee":"team","urgency":1,"confidence":1,"novelty":1,"ownership":1}}`,
 		`{"action":"ignore","attention":{"addressee":"channel","urgency":4,"confidence":1,"novelty":1,"ownership":1}}`,
-		"```json\n{\"action\":\"ignore\"}\n```",
 		`{"action":"ignore"} {"action":"ignore"}`,
 	}
 	for _, input := range invalid {

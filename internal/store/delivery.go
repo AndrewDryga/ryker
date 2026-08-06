@@ -431,7 +431,7 @@ func (s *Store) LeaseSlackDelivery(
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE slack_deliveries
-		SET state = 'sending', failure_count = failure_count + 1, updated_at = ?
+		SET state = 'sending', updated_at = ?
 		WHERE id = ? AND state IN ('pending', 'retry')`,
 		now, delivery.ID)
 	if err := expectOne(result, err, "lease Slack delivery"); err != nil {
@@ -441,7 +441,6 @@ func (s *Store) LeaseSlackDelivery(
 		return core.SlackDelivery{}, err
 	}
 	delivery.State = "sending"
-	delivery.Attempts++
 	return delivery, nil
 }
 
@@ -542,7 +541,8 @@ func (s *Store) RetrySlackDelivery(
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE slack_deliveries
-		SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+		SET state = ?, failure_count = failure_count + 1,
+		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'sending'`,
 		state, boundedError(detail), next.UTC().Format(timestampFormat),
 		nowText(), id)
@@ -591,7 +591,8 @@ func (s *Store) RetryUncertainSlackDelivery(
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE slack_deliveries
-		SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+		SET state = ?, failure_count = failure_count + 1,
+		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'uncertain'`,
 		state, boundedError(detail), next.UTC().Format(timestampFormat),
 		nowText(), id)

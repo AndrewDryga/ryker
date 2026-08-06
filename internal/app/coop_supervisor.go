@@ -40,9 +40,55 @@ type coopSupervisor struct {
 	startupOutput *coopProcessOutput
 }
 
+// coopRuntimeRepairGate prevents a missing Docker daemon or broken image build
+// from turning an alert burst into one expensive build attempt per message.
+// Responder remains online, keeps the work queued, and retries the shared
+// dependency on an exponential schedule.
+type coopRuntimeRepairGate struct {
+	mu       sync.Mutex
+	base     time.Duration
+	now      func() time.Time
+	repair   func() error
+	failures int
+	next     time.Time
+	lastErr  error
+}
+
 const coopStartupOutputLimit = 16 << 10
 
 const coopMissingImageDiagnostic = "coop box image is not built"
+
+func newCoopRuntimeRepairGate(base time.Duration, repair func() error) *coopRuntimeRepairGate {
+	return &coopRuntimeRepairGate{base: base, now: time.Now, repair: repair}
+}
+
+func (g *coopRuntimeRepairGate) Repair(ctx context.Context) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	now := g.now()
+	if now.Before(g.next) {
+		return fmt.Errorf(
+			"managed Coop image repair is waiting until %s after the previous failure: %w",
+			g.next.UTC().Format(time.RFC3339), g.lastErr,
+		)
+	}
+	if g.repair == nil {
+		return errors.New("managed Coop image repair is unavailable")
+	}
+	if err := g.repair(); err != nil {
+		g.failures++
+		g.lastErr = err
+		g.next = now.Add(coopRestartBackoff(g.base, g.failures))
+		return err
+	}
+	g.failures = 0
+	g.next = time.Time{}
+	g.lastErr = nil
+	return nil
+}
 
 type coopProcessOutput struct {
 	mu          sync.Mutex
@@ -435,8 +481,11 @@ func (s *coopSupervisor) Close(ctx context.Context) error {
 
 func (s *coopSupervisor) run(command *exec.Cmd) {
 	defer close(s.done)
+	startedAt := time.Now()
+	shortLivedFailures := 0
 	for {
 		waitErr := command.Wait()
+		uptime := time.Since(startedAt)
 		s.clearProcess(command)
 		if s.ctx.Err() != nil {
 			return
@@ -453,8 +502,16 @@ func (s *coopSupervisor) run(command *exec.Cmd) {
 			return
 		}
 
-		s.log.Error("managed Coop exited; restarting", "error", processResult(waitErr))
-		if !sleepContext(s.ctx, s.cfg.Coop.RestartDelay.Duration) {
+		if uptime >= 5*time.Minute {
+			shortLivedFailures = 0
+		}
+		shortLivedFailures++
+		delay := coopRestartBackoff(s.cfg.Coop.RestartDelay.Duration, shortLivedFailures)
+		s.log.Error(
+			"managed Coop exited; restarting",
+			"error", processResult(waitErr), "uptime", uptime, "retry_in", delay,
+		)
+		if !sleepContext(s.ctx, delay) {
 			return
 		}
 		for {
@@ -462,17 +519,40 @@ func (s *coopSupervisor) run(command *exec.Cmd) {
 			if err == nil {
 				s.log.Info("managed Coop restarted", "pid", next.Process.Pid)
 				command = next
+				startedAt = time.Now()
 				break
 			}
 			if s.ctx.Err() != nil {
 				return
 			}
 			s.log.Error("managed Coop restart failed", "error", err)
-			if !sleepContext(s.ctx, s.cfg.Coop.RestartDelay.Duration) {
+			shortLivedFailures++
+			delay = coopRestartBackoff(s.cfg.Coop.RestartDelay.Duration, shortLivedFailures)
+			if !sleepContext(s.ctx, delay) {
 				return
 			}
 		}
 	}
+}
+
+func coopRestartBackoff(base time.Duration, failures int) time.Duration {
+	if base <= 0 {
+		base = time.Second
+	}
+	if failures < 1 {
+		failures = 1
+	}
+	delay := base
+	for attempt := 1; attempt < failures && delay < 5*time.Minute; attempt++ {
+		if delay > 5*time.Minute/2 {
+			return 5 * time.Minute
+		}
+		delay *= 2
+	}
+	if delay > 5*time.Minute {
+		return 5 * time.Minute
+	}
+	return delay
 }
 
 func (s *coopSupervisor) start() (*exec.Cmd, error) {

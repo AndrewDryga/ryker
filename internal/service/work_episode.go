@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -844,6 +845,102 @@ func episodeClaimCorrection(
 	}
 	ledger := investigation.BuildLedger(contract, evidence, coverage, now.UTC())
 	return ledger.CompletionCorrectionFor(completion.Status, completion.Verdict)
+}
+
+func unsupportedOperationalClaimCorrection(
+	action string,
+	message string,
+	evidence []core.Evidence,
+) string {
+	if action != "reply" {
+		return ""
+	}
+	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
+	noImpactClaim := episodeContainsAny(normalized,
+		"no current user impact", "no user impact", "no customer impact",
+		"customers are unaffected", "users are unaffected",
+	)
+	recoveryClaim := episodeContainsAny(normalized,
+		"service recovered", "service has recovered", "fully recovered",
+	)
+	if !noImpactClaim && !recoveryClaim {
+		return ""
+	}
+	hasImpactEvidence := false
+	hasServiceEvidence := false
+	for _, item := range evidence {
+		switch strings.TrimSpace(item.ClaimID) {
+		case "impact.current":
+			hasImpactEvidence = true
+		case "application.functional_behavior":
+			hasServiceEvidence = true
+		}
+	}
+	if noImpactClaim && !hasImpactEvidence {
+		return "the reply claims no user or customer impact without evidence bound to impact.current; " +
+			"state that impact is unverified or record direct service-indicator or user-path evidence"
+	}
+	if recoveryClaim && !hasServiceEvidence {
+		return "the reply claims service recovery without evidence bound to application.functional_behavior; " +
+			"an alert clearing proves only that the alert condition or evaluation cleared"
+	}
+	return ""
+}
+
+func (s *Service) episodeContinuityPrompt(
+	ctx context.Context,
+	episode core.WorkEpisode,
+) string {
+	if strings.TrimSpace(episode.ParentEpisodeID) == "" {
+		return ""
+	}
+	evidence, evidenceErr := s.store.ListEpisodeEvidence(ctx, episode.ID, 30)
+	coverage, coverageErr := s.store.ListEpisodeCoverage(ctx, episode.ID, 20)
+	if evidenceErr != nil || coverageErr != nil || (len(evidence) == 0 && len(coverage) == 0) {
+		return ""
+	}
+	payload, err := json.Marshal(struct {
+		Evidence []core.Evidence `json:"evidence,omitempty"`
+		Coverage []core.Coverage `json:"coverage,omitempty"`
+	}{Evidence: evidence, Coverage: coverage})
+	if err != nil {
+		return ""
+	}
+	return "\n\n<episode-continuity>\n" +
+		"These are bounded, host-recorded observations from earlier events in the same " +
+		"operational lifecycle. Reconcile them with fresh evidence. A newer observation " +
+		"from the same source supersedes an older one; do not publish a conclusion that " +
+		"contradicts this history without naming the newer evidence that changed it.\n" +
+		string(payload) + "\n</episode-continuity>"
+}
+
+func (s *Service) episodeClaimCorrectionWithHistory(
+	ctx context.Context,
+	episode core.WorkEpisode,
+	action string,
+	evidence []core.Evidence,
+	coverage []core.Coverage,
+	completion *completionAssessment,
+	now time.Time,
+	strict bool,
+) (string, error) {
+	priorEvidence, err := s.store.ListEpisodeEvidence(ctx, episode.ID, 200)
+	if err != nil {
+		return "", err
+	}
+	priorCoverage, err := s.store.ListEpisodeCoverage(ctx, episode.ID, 200)
+	if err != nil {
+		return "", err
+	}
+	return episodeClaimCorrection(
+		episode,
+		action,
+		append(priorEvidence, evidence...),
+		append(priorCoverage, coverage...),
+		completion,
+		now,
+		strict,
+	), nil
 }
 
 func claimRequired(contract investigation.InvestigationContract, claimID string) bool {

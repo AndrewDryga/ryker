@@ -350,3 +350,36 @@ func TestLedgerUsesFreshEvidenceWithoutDiscardingStaleHistory(t *testing.T) {
 		t.Fatalf("fresh claim correction = %q", correction)
 	}
 }
+
+func TestLedgerLetsNewerCorrelatedEvidenceSupersedeContradictoryHistory(t *testing.T) {
+	now := time.Date(2026, 8, 5, 21, 55, 0, 0, time.UTC)
+	contract := Compile(core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"application"},
+	})
+	claimID := contract.Claims[0].ID
+	dimensions := map[string]string{
+		"service": "monitoring", "environment": "production", "window": "5m",
+	}
+	ledger := BuildLedger(contract, []core.Evidence{
+		{
+			ID: "older", ClaimID: claimID, Relation: "supports", SourceType: "emisar",
+			SourceID: "monitoring-check", SourceName: "service probe",
+			ObservedAt: now.Add(-5 * time.Minute), Confidence: "high",
+			Observation: "The service responds normally.", Dimensions: dimensions,
+		},
+		{
+			ID: "newer", ClaimID: claimID, Relation: "contradicts", SourceType: "emisar",
+			SourceID: "monitoring-check", SourceName: "service probe",
+			ObservedAt: now, Confidence: "high", HealthEffect: "unhealthy",
+			Observation: "The service now returns errors.", Dimensions: dimensions,
+		},
+	}, []core.Coverage{{
+		Layer: "application", ClaimIDs: []string{claimID}, Status: "unhealthy",
+		ObservedAt: now, Detail: "The latest service probe fails.",
+	}}, now)
+	claim := ledger.Claims[claimID]
+	if claim.State != ClaimContradicted || len(claim.Contradictions) != 1 ||
+		claim.Contradictions[0].ID != "newer" || len(claim.StaleEvidence) != 1 {
+		t.Fatalf("correlated claim ledger = %+v", claim)
+	}
+}

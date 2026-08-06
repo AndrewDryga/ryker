@@ -178,6 +178,13 @@ func decodeEvaluationJSON(output string, target any) error {
 	if err := decodeStrictJSON([]byte(trimmed), target); err == nil || strings.HasPrefix(trimmed, "{") {
 		return err
 	}
+	if start := strings.Index(trimmed, "{"); start >= 0 {
+		if object, objectErr := firstJSONObject(trimmed[start:]); objectErr == nil {
+			if err := decodeStrictJSON([]byte(object), target); err == nil {
+				return nil
+			}
+		}
+	}
 	var candidateErr error
 	for end := len(trimmed); end > 0; {
 		index := strings.LastIndex(trimmed[:end], "{")

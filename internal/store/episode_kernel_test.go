@@ -75,6 +75,48 @@ func TestEpisodeLeasingKeepsSameConversationOrdered(t *testing.T) {
 	}
 }
 
+func TestEpisodeLeasingPrioritizesHumanRequestsAheadOfAmbientAlerts(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	inputs := []core.SlackInput{
+		{
+			ID: "ambient-alert", EnvelopeID: "env-ambient-alert", EventID: "event-ambient-alert",
+			Kind: "bot_message", TeamID: "T1", ChannelID: "COPS", MessageTS: "1700.1",
+			UserID: "BGRAFANA", Text: "Alert firing", ReceivedAt: now,
+		},
+		{
+			ID: "human-mention", EnvelopeID: "env-human-mention", EventID: "event-human-mention",
+			Kind: "mention", TeamID: "T1", ChannelID: "CASK", MessageTS: "1700.2",
+			UserID: "UOPERATOR", Text: "Please check production", ReceivedAt: now.Add(time.Second),
+		},
+	}
+	for _, input := range inputs {
+		created, err := st.AdmitSlackInput(ctx, input)
+		if err != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, err)
+		}
+		if _, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+			Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+			ConversationKey: "test:" + input.ID, SourceKind: "watch", SourceID: input.ID,
+			UserID: input.UserID, Prompt: input.Text,
+		}); err != nil || !created {
+			t.Fatalf("queue %s = %t, %v", input.ID, created, err)
+		}
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leased.SourceID != "human-mention" {
+		t.Fatalf("leased %s before the human request", leased.SourceID)
+	}
+}
+
 func TestEpisodeCannotCompleteWithRequiredGoalOpen(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

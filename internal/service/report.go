@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -95,15 +96,33 @@ func parseAgentReport(message string) (agentReport, bool, error) {
 	if trimmed == "" {
 		return agentReport{}, false, errors.New("agent response is empty")
 	}
+	if err := rejectMultipleJSONObjects(trimmed); err != nil {
+		return agentReport{}, true, err
+	}
 	if strings.HasPrefix(trimmed, "{") {
 		report, err := decodeAgentReport(trimmed)
 		if err == nil {
 			return report, true, nil
 		}
+		if object, objectErr := firstJSONObject(trimmed); objectErr == nil {
+			if recovered, recoverErr := decodeAgentReport(object); recoverErr == nil {
+				return recovered, true, nil
+			}
+		}
 		if recovered, recoverErr := decodeAgentMessage(trimmed); recoverErr == nil {
 			return agentReport{Message: recovered}, false, nil
 		}
 		return agentReport{}, true, err
+	}
+	// Prose-wrapped structured output must recover the outer result object. A
+	// backwards scan can otherwise decode an inner completion payload as a full
+	// report and silently lose its evidence and typed operation stream.
+	if start := strings.Index(trimmed, "{"); start >= 0 {
+		if object, objectErr := firstJSONObject(trimmed[start:]); objectErr == nil {
+			if recovered, recoverErr := decodeAgentReport(object); recoverErr == nil {
+				return recovered, true, nil
+			}
+		}
 	}
 	var candidateErr error
 	for end := len(trimmed); end > 0; {
@@ -115,6 +134,11 @@ func parseAgentReport(message string) (agentReport, bool, error) {
 		report, err := decodeAgentReport(candidate)
 		if err == nil {
 			return report, true, nil
+		}
+		if object, objectErr := firstJSONObject(candidate); objectErr == nil {
+			if recovered, recoverErr := decodeAgentReport(object); recoverErr == nil {
+				return recovered, true, nil
+			}
 		}
 		if recovered, recoverErr := decodeAgentMessage(candidate); recoverErr == nil {
 			return agentReport{Message: recovered}, false, nil
@@ -128,6 +152,35 @@ func parseAgentReport(message string) (agentReport, bool, error) {
 		return agentReport{}, true, candidateErr
 	}
 	return agentReport{Message: trimmed}, false, nil
+}
+
+func firstJSONObject(message string) (string, error) {
+	decoder := json.NewDecoder(strings.NewReader(message))
+	var value json.RawMessage
+	if err := decoder.Decode(&value); err != nil {
+		return "", err
+	}
+	remainder := strings.TrimSpace(message[decoder.InputOffset():])
+	if strings.HasPrefix(remainder, "{") || strings.HasPrefix(remainder, "[") {
+		return "", errors.New("response contains multiple JSON values")
+	}
+	trimmed := bytes.TrimSpace(value)
+	if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
+		return "", errors.New("first JSON value is not an object")
+	}
+	return string(trimmed), nil
+}
+
+func rejectMultipleJSONObjects(message string) error {
+	start := strings.Index(message, "{")
+	if start < 0 {
+		return nil
+	}
+	_, err := firstJSONObject(message[start:])
+	if err != nil && strings.Contains(err.Error(), "multiple JSON values") {
+		return err
+	}
+	return nil
 }
 
 func decodeAgentReport(message string) (agentReport, error) {
@@ -201,6 +254,13 @@ func normalizeEmptyStructuredTimestamps(message string) ([]byte, error) {
 			return nil, errors.New("multiple JSON values")
 		}
 		return nil, err
+	}
+	// `verdict` belongs to completion (or alert_assessment), not the response
+	// envelope. Older prompts and some models occasionally emit it at the root.
+	// It carries no additional authority there, so discard it rather than
+	// retrying an otherwise valid result until the episode disappears.
+	if root, ok := value.(map[string]any); ok {
+		delete(root, "verdict")
 	}
 	var visit func(any)
 	visit = func(current any) {
@@ -419,8 +479,16 @@ func (s *Service) persistAgentReport(
 	if sourceInput != "" {
 		episode, episodeErr := s.store.GetWorkEpisodeBySource(ctx, sourceInput)
 		if episodeErr == nil {
+			ledgerEvidence, listErr := s.store.ListEpisodeEvidence(ctx, episode.ID, 200)
+			if listErr != nil {
+				return agentReport{}, listErr
+			}
+			ledgerCoverage, listErr := s.store.ListEpisodeCoverage(ctx, episode.ID, 200)
+			if listErr != nil {
+				return agentReport{}, listErr
+			}
 			ledger := investigation.BuildLedger(
-				investigation.Compile(episode), report.Evidence, report.Coverage, time.Now().UTC(),
+				investigation.Compile(episode), ledgerEvidence, ledgerCoverage, time.Now().UTC(),
 			)
 			if err := s.store.RecordClaimAssessments(
 				ctx, ledger.Assessments(episode.ID, time.Now().UTC()),

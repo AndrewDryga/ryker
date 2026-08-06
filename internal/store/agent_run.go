@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -198,6 +199,56 @@ func (s *Store) GetAgentRunByCoopTurn(
 	))
 }
 
+func (s *Store) GetLatestWorkEpisodeByConversationKey(
+	ctx context.Context,
+	conversationKey string,
+) (core.WorkEpisode, error) {
+	if strings.TrimSpace(conversationKey) == "" {
+		return core.WorkEpisode{}, errors.New("conversation key is required")
+	}
+	return scanWorkEpisode(s.db.QueryRowContext(ctx, `
+		SELECT `+workEpisodeColumns+`
+		FROM work_episodes
+		WHERE id = (
+			SELECT episode_id
+			FROM agent_runs
+			WHERE conversation_key = ? AND episode_id != ''
+			ORDER BY created_at DESC, id DESC
+			LIMIT 1
+		)`, conversationKey))
+}
+
+// GetLatestOperationalWorkEpisode returns the most recent episode created by
+// the same Slack app in a channel. Exact alert/run correlation still owns
+// deduplication; this wider relationship only shares the recent claim ledger
+// across alert families that are likely part of one operational situation.
+func (s *Store) GetLatestOperationalWorkEpisode(
+	ctx context.Context,
+	channelID string,
+	actorID string,
+	since time.Time,
+) (core.WorkEpisode, error) {
+	if strings.TrimSpace(channelID) == "" || strings.TrimSpace(actorID) == "" {
+		return core.WorkEpisode{}, errors.New("operational episode channel and actor are required")
+	}
+	return scanWorkEpisode(s.db.QueryRowContext(ctx, `
+		SELECT `+workEpisodeColumns+`
+		FROM work_episodes
+		WHERE id = (
+			SELECT run.episode_id
+			FROM agent_runs AS run
+			JOIN slack_inputs AS input ON input.id = run.source_id
+			WHERE run.source_kind = 'watch'
+			  AND run.episode_id != ''
+			  AND input.kind = 'bot_message'
+			  AND input.channel_id = ?
+			  AND input.user_id = ?
+			  AND julianday(input.received_at) >= julianday(?)
+			ORDER BY input.received_at DESC, run.created_at DESC, run.id DESC
+			LIMIT 1
+		)`, channelID, actorID, since.UTC().Format(timestampFormat)))
+}
+
 func scanAgentRun(row interface{ Scan(...any) error }) (core.AgentRun, error) {
 	var run core.AgentRun
 	var incident sql.NullString
@@ -255,7 +306,19 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		      AND active.state IN ('preparing', 'running', 'applying', 'finalizing')
 		  )
 		ORDER BY
-		  CASE WHEN candidate.mode = 'triage' THEN 1 ELSE 0 END,
+		  CASE
+		    WHEN candidate.mode != 'triage' THEN 0
+		    WHEN EXISTS (
+		      SELECT 1 FROM slack_inputs AS input
+		      WHERE input.id = candidate.source_id
+		        AND input.kind IN ('mention', 'message', 'direct', 'shortcut', 'action')
+		    ) THEN 1
+		    WHEN EXISTS (
+		      SELECT 1 FROM slack_inputs AS input
+		      WHERE input.id = candidate.source_id AND input.kind = 'bot_message'
+		    ) THEN 3
+		    ELSE 2
+		  END,
 		  candidate.created_at,
 		  candidate.id
 		LIMIT 1`, nowText()))
@@ -925,7 +988,8 @@ func (s *Store) StageAgentRunResult(
 		SET state = 'applying', terminal_state = ?, result_json = ?,
 		    coop_event_sequence = MAX(coop_event_sequence, ?), last_error = ?, updated_at = ?
 		WHERE id = ? AND state = 'running'`,
-		terminalState, resultJSON, eventSequence, boundedError(detail), nowText(), id)
+		terminalState, resultJSON, eventSequence,
+		terminalResultError(terminalState, detail), nowText(), id)
 	if err := expectOne(update, err, "stage agent run result"); err != nil {
 		current, getErr := scanAgentRun(tx.QueryRowContext(
 			ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE id = ?`, id,
@@ -976,9 +1040,11 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 	now := nowText()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
-		SET state = ?, completed_at = ?, updated_at = ?
+		SET state = ?, completed_at = ?,
+		    last_error = CASE WHEN ? = 'completed' THEN '' ELSE last_error END,
+		    updated_at = ?
 		WHERE id = ? AND state = 'finalizing'`,
-		finalState, now, now, id)
+		finalState, now, finalState, now, id)
 	if err := expectOne(result, err, "finish agent run"); err != nil {
 		return err
 	}
@@ -1042,6 +1108,13 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func terminalResultError(terminalState string, detail string) string {
+	if terminalState == "completed" {
+		return ""
+	}
+	return boundedError(detail)
 }
 
 func (s *Store) RetryAgentRunFinalization(
@@ -1110,6 +1183,68 @@ func (s *Store) HasNewerPendingAgentRun(
 		FROM agent_runs
 		WHERE conversation_key = ? AND id != ?
 		  AND state IN ('pending', 'preparing')
+		  AND (
+		    julianday(created_at) > julianday(?) OR
+		    (julianday(created_at) = julianday(?) AND id > ?)
+		  )`,
+		run.ConversationKey, run.ID,
+		run.CreatedAt.UTC().Format(timestampFormat),
+		run.CreatedAt.UTC().Format(timestampFormat),
+		run.ID,
+	).Scan(&count)
+	return count > 0, err
+}
+
+// HasNewerOperationalAgentRun reports whether a newer app notification in the
+// same channel can carry a short burst's shared context. The exact conversation
+// key remains on each run for durable alert/run correlation; this query only
+// prevents every notification in one burst from consuming a separate model
+// turn or publishing a stale result.
+func (s *Store) HasNewerOperationalAgentRun(
+	ctx context.Context,
+	run core.AgentRun,
+	within time.Duration,
+	pendingOnly bool,
+) (bool, error) {
+	if within <= 0 {
+		return false, nil
+	}
+	states := "candidate.state NOT IN ('superseded', 'cancelled', 'failed')"
+	if pendingOnly {
+		states = "candidate.state IN ('pending', 'preparing')"
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM agent_runs AS candidate
+		JOIN slack_inputs AS input ON input.id = candidate.source_id
+		WHERE candidate.id != ?
+		  AND candidate.mode = 'triage'
+		  AND candidate.source_kind = 'watch'
+		  AND candidate.channel_id = ?
+		  AND candidate.user_id = ?
+		  AND input.kind = 'bot_message'
+		  AND `+states+`
+		  AND (
+		    julianday(candidate.created_at) > julianday(?) OR
+		    (julianday(candidate.created_at) = julianday(?) AND candidate.id > ?)
+		  )
+		  AND julianday(candidate.created_at) <= julianday(?)`,
+		run.ID, run.ChannelID, run.UserID,
+		run.CreatedAt.UTC().Format(timestampFormat),
+		run.CreatedAt.UTC().Format(timestampFormat), run.ID,
+		run.CreatedAt.Add(within).UTC().Format(timestampFormat),
+	).Scan(&count)
+	return count > 0, err
+}
+
+func (s *Store) HasNewerAgentRun(ctx context.Context, run core.AgentRun) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM agent_runs
+		WHERE conversation_key = ? AND id != ?
+		  AND state NOT IN ('superseded', 'cancelled', 'failed')
 		  AND (
 		    julianday(created_at) > julianday(?) OR
 		    (julianday(created_at) = julianday(?) AND id > ?)
