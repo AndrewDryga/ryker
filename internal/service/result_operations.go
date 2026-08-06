@@ -90,6 +90,9 @@ func applyWatchResultOperations(decision *watchDecision) error {
 		incidentTitle: &decision.IncidentTitle, taskTitle: &decision.TaskTitle,
 		taskRepository: &decision.TaskRepository, taskPrompt: &decision.TaskPrompt,
 	}, &decision.AppliedOperations)
+	if err == nil {
+		decision.Message = appendFeedbackFollowup(decision.Message, decision.AppliedOperations)
+	}
 	if err != nil && legacyWatchDecisionUsable(legacy) {
 		*decision = legacy
 		decision.Operations = nil
@@ -97,6 +100,24 @@ func applyWatchResultOperations(decision *watchDecision) error {
 		return nil
 	}
 	return err
+}
+
+func appendFeedbackFollowup(message string, operations []investigation.ResultOperation) string {
+	for _, operation := range operations {
+		if operation.Type != "record_feedback" || operation.Feedback == nil ||
+			!operation.Feedback.NeedsFollowup {
+			continue
+		}
+		question := strings.TrimSpace(operation.Feedback.FollowupQuestion)
+		if question != "" && !strings.Contains(message, question) {
+			message = strings.TrimSpace(message)
+			if message == "" {
+				return question
+			}
+			return message + "\n\n" + question
+		}
+	}
+	return message
 }
 
 func legacyWatchDecisionUsable(decision watchDecision) bool {
@@ -169,7 +190,7 @@ func foldResultOperations(
 		case "report_progress":
 			// Progress is projected from the episode event stream. It is not copied
 			// into the final Slack report.
-		case "plan_goal", "update_goal", "request_operator_input", "wait_external":
+		case "plan_goal", "update_goal", "request_operator_input", "wait_external", "record_feedback":
 			// These operations project from the episode event stream rather than
 			// becoming fields in the final Slack response.
 		case "request_approval":
@@ -329,6 +350,8 @@ func (s *Service) recordResultOperationEvents(
 			continue
 		case "request_operator_input":
 			kind = episodepkg.EventOperatorInputAsked
+		case "record_feedback":
+			kind = "feedback.recorded"
 		case "wait_external":
 			wait := operation.ExternalWait
 			dueAt, parseErr := parseOptionalOperationTime(wait.DueAt)

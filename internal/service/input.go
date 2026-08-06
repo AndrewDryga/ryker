@@ -94,6 +94,9 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			Outcome:  strings.TrimPrefix(input.Kind, "reaction_"),
 			Detail:   input.ActionID,
 		})
+		if err := s.recordReactionFeedback(ctx, input); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
 		return s.finishSlackInput(ctx, input)
 	}
 	if input.Kind == "recheck" {

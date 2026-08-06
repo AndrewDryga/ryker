@@ -138,6 +138,20 @@ type ExternalWaitOperation struct {
 	Deadline     string          `json:"deadline,omitempty"`
 }
 
+// FeedbackOperation records product feedback about Responder itself. It is
+// deliberately separate from operational evidence: frustration with an
+// incident, provider, or repository is not automatically criticism of the
+// assistant.
+type FeedbackOperation struct {
+	Category         string `json:"category"`
+	Sentiment        string `json:"sentiment"`
+	Summary          string `json:"summary"`
+	Details          string `json:"details,omitempty"`
+	TargetMessageTS  string `json:"target_message_ts,omitempty"`
+	NeedsFollowup    bool   `json:"needs_followup,omitempty"`
+	FollowupQuestion string `json:"followup_question,omitempty"`
+}
+
 type CompleteEpisode struct {
 	Message          string                 `json:"message"`
 	FollowupMessages []string               `json:"followup_messages,omitempty"`
@@ -163,6 +177,7 @@ type ResultOperation struct {
 	GoalState       *GoalStateOperation     `json:"goal_state,omitempty"`
 	OperatorInput   *OperatorInputOperation `json:"operator_input,omitempty"`
 	ExternalWait    *ExternalWaitOperation  `json:"external_wait,omitempty"`
+	Feedback        *FeedbackOperation      `json:"feedback,omitempty"`
 	Approval        *core.EmisarApproval    `json:"approval,omitempty"`
 	Task            *TaskOffer              `json:"task,omitempty"`
 	Visual          *core.GeneratedVisual   `json:"visual,omitempty"`
@@ -185,6 +200,7 @@ func (operation ResultOperation) Validate() error {
 		operation.Evidence != nil, operation.Coverage != nil, operation.Progress != nil,
 		operation.Goal != nil, operation.GoalState != nil, operation.OperatorInput != nil,
 		operation.ExternalWait != nil, operation.Approval != nil, operation.Task != nil,
+		operation.Feedback != nil,
 		operation.Visual != nil, operation.Memory != nil, operation.MemoryOffer != nil,
 		operation.PreferenceOffer != nil, operation.RuleOffer != nil,
 		operation.ScheduleOffer != nil, operation.AlertAssessment != nil,
@@ -232,6 +248,23 @@ func (operation ResultOperation) Validate() error {
 			strings.TrimSpace(operation.ExternalWait.Kind) == "" ||
 			(operation.ExternalWait.DueAt == "" && operation.ExternalWait.PollAfter == "") {
 			return fmt.Errorf("result operation %q requires an external wait and observation time", operation.ID)
+		}
+	case "record_feedback":
+		if operation.Feedback == nil || strings.TrimSpace(operation.Feedback.Summary) == "" {
+			return fmt.Errorf("result operation %q requires a feedback summary", operation.ID)
+		}
+		switch operation.Feedback.Category {
+		case "ux", "correctness", "tone", "latency", "reliability", "feature_request", "other":
+		default:
+			return fmt.Errorf("result operation %q has unsupported feedback category %q", operation.ID, operation.Feedback.Category)
+		}
+		switch operation.Feedback.Sentiment {
+		case "negative", "suggestion", "mixed":
+		default:
+			return fmt.Errorf("result operation %q has unsupported feedback sentiment %q", operation.ID, operation.Feedback.Sentiment)
+		}
+		if operation.Feedback.NeedsFollowup && strings.TrimSpace(operation.Feedback.FollowupQuestion) == "" {
+			return fmt.Errorf("result operation %q requires a follow-up question", operation.ID)
 		}
 	case "request_approval":
 		if operation.Approval == nil {
@@ -300,6 +333,7 @@ accepted operations in the episode event stream.
 - update_goal: {"id":"goal-done-1","type":"update_goal","goal_state":{"goal_id":"goal-1","state":"ready|working|waiting|completed|blocked|excluded|cancelled","detail":"optional blocker"}}
 - request_operator_input: {"id":"input-1","type":"request_operator_input","operator_input":{"question":"one exact question","choices":["optional choice"]}}
 - wait_external: {"id":"wait-1","type":"wait_external","external_wait":{"id":"wakeup-1","kind":"github_checks|deployment|terraform_run|emisar_approval|scheduled_verification|other","event_matcher":{"provider":"github","pr":42},"poll_after":"RFC3339","deadline":"RFC3339"}}
+- record_feedback: {"id":"feedback-1","type":"record_feedback","feedback":{"category":"ux|correctness|tone|latency|reliability|feature_request|other","sentiment":"negative|suggestion|mixed","summary":"one actionable sentence","details":"optional concise context","target_message_ts":"optional Slack timestamp of the Responder reply being criticized","needs_followup":false,"followup_question":"required only when needs_followup is true"}}
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
 - record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current operator impact","cause_status":"identified|bounded when required","cause":"bounded cause when required","immediate_action":"what to do now","verification":"observable success condition","long_term_solution":"durable fix when required"}}

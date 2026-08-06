@@ -2153,6 +2153,11 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		}
 		return s.store.FinishAgentRun(ctx, run.ID)
 	}
+	if err := s.recordFeedbackOperations(
+		ctx, run, input, state, decision.AppliedOperations,
+	); err != nil {
+		return err
+	}
 	if err := s.applyWatchDecision(ctx, input, state, decision, run.EpisodeID); err != nil {
 		return err
 	}

@@ -1,0 +1,199 @@
+package service
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/AndrewDryga/responder/internal/core"
+	feedbackstore "github.com/AndrewDryga/responder/internal/feedback"
+	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/responder/internal/store"
+)
+
+func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{history: []slackui.HistoryMessage{
+		{Timestamp: "99.000", UserID: "U123ABC", Text: "Why did that fail?"},
+		{Timestamp: "100.000", UserID: "U999BOT", Text: "It failed."},
+	}}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	input := core.SlackInput{
+		ID: "reaction-1", Kind: "reaction_added", TeamID: cfg.Slack.TeamID,
+		ChannelID: "C123ABC", ThreadTS: "100.000", MessageTS: "101.000",
+		UserID: "U123ABC", ActionID: "thumbsdown", ActionValue: "100.000",
+	}
+	if err := svc.recordReactionFeedback(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	feedback, err := feedbackstore.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
+	feedback.Close()
+	if err != nil || len(items) != 1 || items[0].Source != "negative_reaction" ||
+		len(items[0].Context) != 2 || !strings.Contains(items[0].SourceRef, "100.000") {
+		t.Fatalf("items = %#v, err = %v", items, err)
+	}
+	input.Kind = "reaction_removed"
+	if err := svc.recordReactionFeedback(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	feedback, err = feedbackstore.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
+	feedback.Close()
+	if err != nil || len(items) != 0 {
+		t.Fatalf("items after removal = %#v, err = %v", items, err)
+	}
+}
+
+func TestFeedbackOperationPersistsBoundedConversationContext(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	run := core.AgentRun{ID: "run-1", EpisodeID: "episode-1"}
+	input := core.SlackInput{
+		ID: "message-1", TeamID: cfg.Slack.TeamID, ChannelID: "C123ABC",
+		ThreadTS: "100.000", MessageTS: "101.000", UserID: "U123ABC",
+		Text: "That answer was too vague.",
+	}
+	state := watchTurnState{RecentMessages: []watchContextMessage{
+		{MessageTS: "100.000", SenderID: "U999BOT", SenderType: "responder", Text: "Everything looks fine."},
+		{MessageTS: "101.000", SenderID: "U123ABC", SenderType: "human", Text: input.Text},
+	}}
+	operations := []investigation.ResultOperation{{
+		ID: "feedback-1", Type: "record_feedback",
+		Feedback: &investigation.FeedbackOperation{
+			Category: "correctness", Sentiment: "negative",
+			Summary: "The answer was too vague to act on.",
+		},
+	}}
+	if err := svc.recordFeedbackOperations(ctx, run, input, state, operations); err != nil {
+		t.Fatal(err)
+	}
+	feedback, err := feedbackstore.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer feedback.Close()
+	items, err := feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].AgentRunID != run.ID || len(items[0].Context) != 2 {
+		t.Fatalf("items = %#v", items)
+	}
+}
+
+func TestWatchPromptSeparatesResponderFeedbackFromOperationalFrustration(t *testing.T) {
+	prompt := (&Service{}).unboundedWatchPrompt(
+		core.SlackInput{TeamID: "T123ABC", ChannelID: "C123ABC", UserID: "U123ABC", Text: "This answer is not useful"},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		operationalMemoryContext{}, "", nil,
+	)
+	for _, required := range []string{
+		"Product feedback is distinct from operational frustration",
+		"include one record_feedback operation",
+		"Do not record anger or concern directed at an outage",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("prompt missing %q", required)
+		}
+	}
+}
+
+func TestFeedbackFollowupIsIncludedOnce(t *testing.T) {
+	question := "What did you expect to see instead?"
+	decision := watchDecision{Operations: []investigation.ResultOperation{
+		{
+			ID: "feedback-1", Type: "record_feedback",
+			Feedback: &investigation.FeedbackOperation{
+				Category: "ux", Sentiment: "negative", Summary: "The response was not useful.",
+				NeedsFollowup: true, FollowupQuestion: question,
+			},
+		},
+		{
+			ID: "complete-1", Type: "complete_episode",
+			Completion: &investigation.CompleteEpisode{Message: "I saved that feedback."},
+		},
+	}}
+	if err := applyWatchResultOperations(&decision); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(decision.Message, question) != 1 {
+		t.Fatalf("message = %q", decision.Message)
+	}
+}
+
+func TestSlashArgumentPreservesFeedbackText(t *testing.T) {
+	if got := slashArgument("feedback   Keep progress visible while working"); got != "Keep progress visible while working" {
+		t.Fatalf("argument = %q", got)
+	}
+}
+
+func TestOrdinaryWorkspaceMemberCanSubmitButNotBrowseFeedback(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	submit := core.SlackInput{
+		ID: "feedback-submit", EnvelopeID: "feedback-submit-envelope",
+		EventID: "feedback-submit-event", Kind: "slash", TeamID: cfg.Slack.TeamID,
+		ChannelID: "C123ABC", UserID: "U456MEMBER",
+		Text: "feedback Keep the progress status visible",
+	}
+	if created, err := st.AdmitSlackInput(ctx, submit); err != nil || !created {
+		t.Fatalf("admit feedback = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	feedback, err := feedbackstore.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
+	feedback.Close()
+	if err != nil || len(items) != 1 || items[0].UserID != submit.UserID {
+		t.Fatalf("items = %#v, err = %v", items, err)
+	}
+
+	browse := core.SlackInput{
+		ID: "feedback-browse", EnvelopeID: "feedback-browse-envelope",
+		EventID: "feedback-browse-event", Kind: "slash", TeamID: cfg.Slack.TeamID,
+		ChannelID: "C123ABC", UserID: "U456MEMBER", Text: "feedback",
+	}
+	if created, err := st.AdmitSlackInput(ctx, browse); err != nil || !created {
+		t.Fatalf("admit browse = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.ephemerals) != 2 ||
+		!strings.Contains(slackClient.ephemerals[1].message.Text, "cannot run Responder commands") {
+		t.Fatalf("ephemeral responses = %#v", slackClient.ephemerals)
+	}
+}

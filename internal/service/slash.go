@@ -219,6 +219,20 @@ func parseTurnLimit(value string) (int, error) {
 }
 
 func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) error {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(input.Text)))
+	if len(fields) > 0 && fields[0] == "feedback" && slashArgument(input.Text) != "" {
+		allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return s.finishSlashInput(
+				ctx, input,
+				"Only active full members of this Slack workspace can submit feedback.",
+			)
+		}
+		return s.finishSlashFeedback(ctx, input, slashArgument(input.Text))
+	}
 	if !s.cfg.IsOperator(input.UserID) {
 		return s.finishSlashInput(
 			ctx, input,
@@ -242,7 +256,6 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 				"when their user ID appears in `slack.operators`.",
 		)
 	}
-	fields := strings.Fields(strings.ToLower(strings.TrimSpace(input.Text)))
 	if len(fields) == 0 || fields[0] == "help" {
 		return s.finishSlashMessage(ctx, input, slashHelpMessage())
 	}
@@ -259,6 +272,8 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 			return s.finishSlashInput(ctx, input, slashUsage("work"))
 		}
 		return s.finishSlashCommitments(ctx, input)
+	case "feedback":
+		return s.finishSlashFeedback(ctx, input, slashArgument(input.Text))
 	case "memory":
 		if len(fields) > 2 || (len(fields) == 2 && fields[1] != "review") {
 			return s.finishSlashInput(ctx, input, slashUsage("memory"))
@@ -870,6 +885,9 @@ func slashHelpSections() []string {
 			"`/responder preferences` - manage investigation and response defaults\n" +
 			"`/responder rules` - manage typed read-only channel automations\n" +
 			"`/responder schedules` - manage recurring and one-time tasks in this channel",
+		"*Improve Responder*\n" +
+			"`/responder feedback <what should change>` - save feedback with nearby conversation context\n" +
+			"`/responder feedback` - list the 20 newest open feedback items",
 		"*Control listening*\n" +
 			"`/responder proactive on|off|inherit` - change this channel\n" +
 			"`/responder proactive global on|off|inherit` - change the workspace default\n" +
@@ -925,6 +943,10 @@ func slashUsage(command string) string {
 		return "*Inspect unfinished Emisar commitments.*\n\n" +
 			"`/responder work` shows queued, active, finishing, and blocked agent work. " +
 			"Each item identifies its originating channel, current state, and next action."
+	case "feedback":
+		return "*Send product feedback with useful context.*\n\n" +
+			"`/responder feedback <what should change>` saves your suggestion with a bounded copy " +
+			"of the nearby Slack conversation. `/responder feedback` lists open feedback."
 	case "incidents":
 		return "*Browse the incident directory.*\n\n" +
 			"`/responder incidents` lists currently open incidents. " +
@@ -995,6 +1017,14 @@ func slashUsage(command string) string {
 		return "Run `/responder " + command + "` without additional text. Use " +
 			"`/responder help` to see what this command does before running it."
 	}
+}
+
+func slashArgument(text string) string {
+	text = strings.TrimSpace(text)
+	if index := strings.IndexAny(text, " \t\r\n"); index >= 0 {
+		return strings.TrimSpace(text[index+1:])
+	}
+	return ""
 }
 
 func parseIncidentListArgs(args []string) (bool, int, bool) {
