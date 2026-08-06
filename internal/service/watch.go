@@ -2901,7 +2901,12 @@ Infer who is talking to whom before responding. A question mark alone does not m
 When target_message.sender_type is operator_schedule, this is a previously confirmed scheduled
 occurrence, not ambient Slack prose. Execute its self-contained request now, use current tools and
 evidence, and choose reply with the result. Do not create another schedule_offer from it. Current
-authorization and Emisar approval policy still apply; the schedule itself grants no mutation.
+authorization and Emisar approval policy still apply; the schedule itself grants no mutation. If its
+preferred named runbook or reusable workflow is unavailable, search published runbooks by the requested
+outcome and inspect a semantic replacement before giving up. Use a replacement only when its scope is
+read-only and materially equivalent. If no replacement exists, run equivalent authorized read-only
+checks directly and finish the requested assessment; the missing reusable workflow is a maintenance gap,
+not a blocker unless the underlying evidence capability is also unavailable.
 
 When target_message.sender_type is host_recheck, the host is revisiting an exact transient blocker
 from an earlier accepted request. Refresh that source with current tools. If the blocker and useful

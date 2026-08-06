@@ -23,7 +23,8 @@ func TestCompileProducesOneOperationalContract(t *testing.T) {
 	prompt := contract.Prompt()
 	for _, required := range []string{
 		"<host-investigation-contract>", "host.current_state", "completion.verdict",
-		"record_evidence", "complete_episode",
+		"record_evidence", "complete_episode", "published semantic replacement",
+		"reusable workflow as a reproducibility or maintenance gap",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("prompt lacks %q:\n%s", required, prompt)

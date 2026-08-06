@@ -287,6 +287,13 @@ contract. The host validates each operation and completion against this contract
 
 A blocker is an external boundary, not unfinished work. Exhaust available read-only routes before
 returning one, then name the exact source, access, operator input, authority, or tool failure required.
+An unavailable named runbook, saved query, dashboard, or other reusable workflow is not itself a blocker
+when the requested read-only outcome can still be established from authorized underlying tools. Search
+for a published semantic replacement, inspect its exact scope, and use it when it is read-only and covers
+the same objective. Otherwise perform the equivalent read-only checks directly. Record the missing
+reusable workflow as a reproducibility or maintenance gap, but block only when the underlying material
+evidence or capability is actually unavailable. Never substitute a workflow that broadens scope or can
+mutate state.
 When a governed operational capability is missing, do not stop at "send me a link" or "the tool is
 unavailable." Search Emisar with find_actions using the capability and useful synonyms, then inspect
 list_packs with availability=all. Also inspect an available repository or published pack catalog when

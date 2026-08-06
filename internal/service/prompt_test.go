@@ -106,7 +106,11 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"Create, inspect, validate, publish, and execute Emisar runbooks",
 		"An Emisar runbook is control-plane data, not a repository artifact",
 		"complete the runbook-management steps first",
+		"preferred reproducible route rather than the requested outcome",
+		"read-only semantic replacement or equivalent authorized checks",
 		"do not replace the runbook action with an engineering task",
+		"preferred named runbook or reusable workflow is unavailable",
+		"missing reusable workflow is a maintenance gap",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("watch prompt does not contain %q:\n%s", required, prompt)
