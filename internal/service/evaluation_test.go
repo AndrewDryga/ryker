@@ -950,6 +950,28 @@ func TestEvaluationLifecycleAllowsOneCompletionPerCorrectionTurn(t *testing.T) {
 	}
 }
 
+func TestEvaluationLifecycleDoesNotConfuseRetriesWithTurns(t *testing.T) {
+	client := newFakeCoop()
+	client.events = []coop.Event{
+		{Sequence: 1, Type: "turn.completed", TurnID: "turn-initial"},
+		{Sequence: 2, Type: "turn.completed", TurnID: "turn-correction"},
+	}
+	assessment := assessEvaluationLifecycle(
+		context.Background(), client, client.session.ID, "", 0,
+	)
+	if !assessment.Passed || assessment.CompletedEvents != 2 {
+		t.Fatalf("lifecycle assessment = %+v", assessment)
+	}
+
+	client.events = nil
+	assessment = assessEvaluationLifecycle(
+		context.Background(), client, client.session.ID, "", 0,
+	)
+	if assessment.Passed {
+		t.Fatalf("missing completion was accepted: %+v", assessment)
+	}
+}
+
 func TestEvaluationReferenceTimeUsesLatestRecordedObservation(t *testing.T) {
 	testCase := EvaluationCase{
 		RecordedEvents: []EvaluationRecordedEvent{

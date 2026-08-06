@@ -283,7 +283,7 @@ func EvaluateLiveJSONL(
 					client,
 					sessionID,
 					"",
-					modelCalls,
+					0,
 				)
 				if !result.Lifecycle.Passed {
 					result.Passed = false
@@ -538,10 +538,7 @@ func assessEvaluationLifecycle(
 	if turnID != "" {
 		expectedCompletions = 1
 	}
-	if expectedCompletions < 1 {
-		expectedCompletions = 1
-	}
-	if result.CompletedEvents != expectedCompletions {
+	if expectedCompletions > 0 && result.CompletedEvents != expectedCompletions {
 		result.Passed = false
 		result.Issues = append(
 			result.Issues,
@@ -551,6 +548,10 @@ func assessEvaluationLifecycle(
 				expectedCompletions,
 			),
 		)
+	}
+	if expectedCompletions == 0 && result.CompletedEvents == 0 {
+		result.Passed = false
+		result.Issues = append(result.Issues, "no completed turn event")
 	}
 	for completedTurnID, count := range completionCounts {
 		if completedTurnID == "" || count != 1 {

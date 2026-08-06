@@ -1,6 +1,7 @@
 package investigation
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -52,6 +53,44 @@ type AlertAssessment struct {
 	ImmediateAction  string `json:"immediate_action,omitempty"`
 	Verification     string `json:"verification,omitempty"`
 	LongTermSolution string `json:"long_term_solution,omitempty"`
+}
+
+// UnmarshalJSON accepts a small set of previously emitted semantic aliases so
+// one naming mismatch cannot discard an otherwise valid investigation. The
+// canonical serialized contract remains the fields on AlertAssessment.
+func (assessment *AlertAssessment) UnmarshalJSON(data []byte) error {
+	var value struct {
+		Verdict          string   `json:"verdict"`
+		Impact           string   `json:"impact"`
+		CauseStatus      string   `json:"cause_status,omitempty"`
+		Cause            string   `json:"cause,omitempty"`
+		ImmediateAction  string   `json:"immediate_action,omitempty"`
+		Verification     string   `json:"verification,omitempty"`
+		LongTermSolution string   `json:"long_term_solution,omitempty"`
+		DurableSolution  string   `json:"durable_solution,omitempty"`
+		Alert            string   `json:"alert,omitempty"`
+		Component        string   `json:"component,omitempty"`
+		State            string   `json:"state,omitempty"`
+		EvidenceRefs     []string `json:"evidence_refs,omitempty"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	if value.LongTermSolution == "" {
+		value.LongTermSolution = value.DurableSolution
+	}
+	*assessment = AlertAssessment{
+		Verdict:          value.Verdict,
+		Impact:           value.Impact,
+		CauseStatus:      value.CauseStatus,
+		Cause:            value.Cause,
+		ImmediateAction:  value.ImmediateAction,
+		Verification:     value.Verification,
+		LongTermSolution: value.LongTermSolution,
+	}
+	return nil
 }
 
 type ProgressOperation struct {
@@ -263,7 +302,8 @@ accepted operations in the episode event stream.
 - wait_external: {"id":"wait-1","type":"wait_external","external_wait":{"id":"wakeup-1","kind":"github_checks|deployment|terraform_run|emisar_approval|scheduled_verification|other","event_matcher":{"provider":"github","pr":42},"poll_after":"RFC3339","deadline":"RFC3339"}}
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
-- attach_visual, update_memory, offer_memory, offer_preference, offer_rule, offer_schedule, record_alert_assessment, and propose_action carry the same named typed payload that their operation name describes.
+- record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current operator impact","cause_status":"identified|bounded when required","cause":"bounded cause when required","immediate_action":"what to do now","verification":"observable success condition","long_term_solution":"durable fix when required"}}
+- attach_visual, update_memory, offer_memory, offer_preference, offer_rule, offer_schedule, and propose_action carry the same named typed payload that their operation name describes.
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
 - complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure|capability_unavailable","attempts":["route already attempted"],"next_action":"exact action that unblocks it","capability_gaps":[{"capability":"GitHub Actions run and job inspection","status":"not_installed|not_trusted|not_advertised|incompatible|not_found","pack_id":"github-cli when an evidence source identifies it; omit for not_found","pack_ref":"optional observed immutable ref","evidence_refs":["source_id or source_name from a record_evidence operation"],"recommendation":"one concise operator-facing installation, trust, deployment, or compatibility step"}],"recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}
 
