@@ -1,12 +1,18 @@
 package slackui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
 func TestChannelSetupQuestionOffersTypedChoices(t *testing.T) {
+	repositories := []RepositoryChoice{
+		{Key: "emisar", DisplayName: "Emisar"},
+		{Key: "portal", DisplayName: "Portal"},
+	}
 	session := core.ConfigurationSession{
 		ID:        "cfg_123",
 		Step:      "participation",
@@ -15,7 +21,7 @@ func TestChannelSetupQuestionOffersTypedChoices(t *testing.T) {
 			Participation: "proactive",
 		},
 	}
-	message := ChannelSetupQuestion("infra", session, []string{"emisar", "portal"})
+	message := ChannelSetupQuestion("infra", session, repositories)
 	if len(message.Actions) != 3 {
 		t.Fatalf("participation actions = %+v", message.Actions)
 	}
@@ -32,11 +38,11 @@ func TestChannelSetupQuestionOffersTypedChoices(t *testing.T) {
 	}
 
 	session.Step = "repository"
-	message = ChannelSetupQuestion("infra", session, []string{"emisar", "portal"})
-	if len(message.Actions) != 3 ||
-		message.Actions[0].ID != ActionSetupDefaultRepo ||
-		message.Actions[1].ID != ActionSetupRepository+"emisar" ||
-		message.Actions[2].ID != ActionSetupRepository+"portal" {
+	message = ChannelSetupQuestion("infra", session, repositories)
+	if len(message.Actions) != 2 ||
+		message.Actions[0].ID != ActionSetupRepository+"emisar" ||
+		message.Actions[0].Label != "Emisar" ||
+		message.Actions[1].ID != ActionSetupRepository+"portal" {
 		t.Fatalf("repository actions = %+v", message.Actions)
 	}
 
@@ -68,7 +74,9 @@ func TestChannelJoinSetupOffersImmediateDefaultsOrCustomization(t *testing.T) {
 			AlertPolicy:   "reply",
 		},
 	}
-	message := ChannelSetupQuestion("infra", session, []string{"emisar"})
+	message := ChannelSetupQuestion("infra", session, []RepositoryChoice{
+		{Key: "emisar", DisplayName: "Emisar"},
+	})
 	if len(message.Actions) != 3 ||
 		message.Actions[0].ID != ActionSetupQuickMentions ||
 		message.Actions[1].ID != ActionSetupQuickProactive ||
@@ -84,7 +92,13 @@ func TestChannelSetupChoiceButtonsRenderAcrossActionBlocks(t *testing.T) {
 	message := ChannelSetupQuestion("infra", core.ConfigurationSession{
 		ID:   "cfg_123",
 		Step: "repository",
-	}, []string{"a", "b", "c", "d", "e"})
+	}, []RepositoryChoice{
+		{Key: "a", DisplayName: "A"},
+		{Key: "b", DisplayName: "B"},
+		{Key: "c", DisplayName: "C"},
+		{Key: "d", DisplayName: "D"},
+		{Key: "e", DisplayName: "E"},
+	})
 	blocks := message.Blocks()
 	actionBlocks := 0
 	for _, block := range blocks {
@@ -94,5 +108,38 @@ func TestChannelSetupChoiceButtonsRenderAcrossActionBlocks(t *testing.T) {
 	}
 	if actionBlocks != 2 {
 		t.Fatalf("action blocks = %d, want 2; blocks = %+v", actionBlocks, blocks)
+	}
+}
+
+func TestChannelSetupExplainsMultiRepositoryAccess(t *testing.T) {
+	session := core.ConfigurationSession{
+		ID: "cfg_multi", Step: "repository",
+		Draft: core.ChannelConfiguration{Repository: "platform"},
+	}
+	choices := []RepositoryChoice{
+		{Key: "backend", DisplayName: "Backend"},
+		{
+			Key: "platform", DisplayName: "All product repositories",
+			PrimaryDisplayName: "Infrastructure", Set: true, Default: true,
+		},
+	}
+	message := ChannelSetupQuestion("devops", session, choices)
+	if len(message.Actions) != 2 ||
+		message.Actions[0].Label != "All product repositories (multi-repo)" ||
+		message.Actions[0].Style != "primary" ||
+		message.Actions[1].Label != "Backend" ||
+		!strings.Contains(message.Markdown, "read-only companion repositories") ||
+		!strings.Contains(message.Markdown, "does not grant write access") {
+		t.Fatalf("multi-repository question = %+v", message)
+	}
+
+	confirmation := ChannelSetupConfirmation("devops", core.ConfigurationSession{
+		ID: "cfg_multi", Draft: session.Draft,
+	}, choices[1])
+	fields := fmt.Sprint(confirmation.Fields)
+	if !strings.Contains(fields, "All product repositories (multi-repo)") ||
+		!strings.Contains(fields, "Read Infrastructure plus its configured read-only companions") ||
+		!strings.Contains(fields, "exact repository named on its confirmation card") {
+		t.Fatalf("multi-repository confirmation = %+v", confirmation)
 	}
 }

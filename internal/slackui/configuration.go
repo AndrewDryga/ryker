@@ -2,15 +2,27 @@ package slackui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
+// RepositoryChoice describes a human-facing code-context option. A set is a
+// read context spanning a primary repository and policy-owned companions; it
+// is not itself a Git repository.
+type RepositoryChoice struct {
+	Key                string
+	DisplayName        string
+	PrimaryDisplayName string
+	Set                bool
+	Default            bool
+}
+
 func ChannelSetupQuestion(
 	channelName string,
 	session core.ConfigurationSession,
-	repositories []string,
+	repositories []RepositoryChoice,
 ) Message {
 	channel := "this channel"
 	if channelName != "" {
@@ -66,17 +78,24 @@ func ChannelSetupQuestion(
 				session.Draft.Participation == "shadow"),
 		}
 	case "repository":
-		question = "**2 of 4 - Which code context describes this channel's systems?**\n\n" +
-			"Choose a repository or repository set, or reply with its key. A repository set " +
-			"provides one primary working repository plus pinned read-only companion repositories. " +
-			"`Default` keeps the deployment default."
-		actions = append(actions, setupChoiceAction(
-			ActionSetupDefaultRepo, "Default", session.ID, false,
-		))
-		for _, repository := range repositories {
+		question = "**2 of 4 - What code should I use for this channel?**\n\n" +
+			"A **multi-repository context** lets Emisar read its primary repository and the " +
+			"configured read-only companion repositories. A **single repository** limits the " +
+			"channel's default code context to that repository.\n\n" +
+			"This choice does not grant write access. If code needs to change, Emisar will name " +
+			"the exact repository and ask you to confirm that engineering task."
+		orderedRepositories := append([]RepositoryChoice(nil), repositories...)
+		sort.SliceStable(orderedRepositories, func(i, j int) bool {
+			if orderedRepositories[i].Set != orderedRepositories[j].Set {
+				return orderedRepositories[i].Set
+			}
+			return orderedRepositories[i].DisplayName < orderedRepositories[j].DisplayName
+		})
+		for _, repository := range orderedRepositories {
+			label := repositoryChoiceLabel(repository)
 			actions = append(actions, setupChoiceAction(
-				ActionSetupRepository+repository, repository, session.ID,
-				session.Draft.Repository == repository,
+				ActionSetupRepository+repository.Key, label, session.ID,
+				session.Draft.Repository == repository.Key,
 			))
 		}
 	case "alerts":
@@ -128,6 +147,7 @@ func setupChoiceAction(id, label, sessionID string, selected bool) Action {
 func ChannelSetupConfirmation(
 	channelName string,
 	session core.ConfigurationSession,
+	repository RepositoryChoice,
 ) Message {
 	channel := "this channel"
 	if channelName != "" {
@@ -157,7 +177,8 @@ func ChannelSetupConfirmation(
 			"deployments, or infrastructure changes.",
 		Fields: []Field{
 			{Label: "Participation", Value: setupParticipationLabel(session.Draft.Participation)},
-			{Label: "Repository", Value: "`" + session.Draft.Repository + "`"},
+			{Label: "Code context", Value: repositoryChoiceSummary(repository)},
+			{Label: "Repository access", Value: repositoryAccessSummary(repository)},
 			{Label: "App alerts", Value: setupAlertLabel(session.Draft.AlertPolicy)},
 			{Label: "Incident audience", Value: users},
 		},
@@ -175,7 +196,11 @@ func ChannelSetupConfirmation(
 	}
 }
 
-func ChannelSetupSaved(channelName string, configuration core.ChannelConfiguration) Message {
+func ChannelSetupSaved(
+	channelName string,
+	configuration core.ChannelConfiguration,
+	repository RepositoryChoice,
+) Message {
 	channel := "this channel"
 	if channelName != "" {
 		channel = "#" + channelName
@@ -192,12 +217,44 @@ func ChannelSetupSaved(channelName string, configuration core.ChannelConfigurati
 		Header: "Channel behavior saved",
 		Markdown: "Emisar is now configured for " + channel + ".\n\n" +
 			"- **Participation:** " + setupParticipationLabel(configuration.Participation) + "\n" +
-			"- **Repository:** `" + configuration.Repository + "`\n" +
+			"- **Code context:** " + repositoryChoiceSummary(repository) + "\n" +
+			"- **Repository access:** " + repositoryAccessSummary(repository) + "\n" +
 			"- **App alerts:** " + setupAlertLabel(configuration.AlertPolicy) + "\n" +
 			"- **Incident audience:** " + audience + "\n\n" +
 			"Ask `@Emisar how are you configured here?` at any time. A configured operator can " +
 			"say `@Emisar reconfigure this channel` to run this setup again.",
 	}
+}
+
+func repositoryChoiceLabel(repository RepositoryChoice) string {
+	label := strings.TrimSpace(repository.DisplayName)
+	if label == "" {
+		label = repository.Key
+	}
+	if repository.Set {
+		label += " (multi-repo)"
+	}
+	return label
+}
+
+func repositoryChoiceSummary(repository RepositoryChoice) string {
+	label := repositoryChoiceLabel(repository)
+	if repository.Key == "" {
+		return "`unknown`"
+	}
+	return label + " (`" + repository.Key + "`)"
+}
+
+func repositoryAccessSummary(repository RepositoryChoice) string {
+	if !repository.Set {
+		return "This repository only; any code change still requires a confirmed engineering task."
+	}
+	primary := strings.TrimSpace(repository.PrimaryDisplayName)
+	if primary == "" {
+		primary = "the primary repository"
+	}
+	return "Read " + primary + " plus its configured read-only companions. " +
+		"An engineering task can edit only the exact repository named on its confirmation card."
 }
 
 func ChannelSetupCancelled() Message {

@@ -79,7 +79,7 @@ func (s *Service) startChannelConfiguration(
 		return err
 	}
 	message := slackui.ChannelSetupQuestion(
-		channel.Name, session, s.repositoryKeys(),
+		channel.Name, session, s.setupRepositoryChoices(),
 	)
 	threadTS, err := s.postConfigurationMessage(
 		ctx, "channel_setup_"+session.ID, input.ChannelID, "", message,
@@ -183,7 +183,7 @@ func (s *Service) processConfigurationReply(
 			if channelErr != nil {
 				return true, channelErr
 			}
-			message = slackui.ChannelSetupQuestion(channel.Name, session, s.repositoryKeys())
+			message = slackui.ChannelSetupQuestion(channel.Name, session, s.setupRepositoryChoices())
 		} else {
 			message = slackui.Notice(
 				"**I could not map that answer to a safe typed setting.**\n\n" +
@@ -221,10 +221,12 @@ func (s *Service) processConfigurationReply(
 	}
 	var message slackui.Message
 	if session.Step == "confirm" {
-		message = slackui.ChannelSetupConfirmation(channel.Name, session)
+		message = slackui.ChannelSetupConfirmation(
+			channel.Name, session, s.repositoryChoice(session.Draft.Repository),
+		)
 	} else {
 		message = slackui.ChannelSetupQuestion(
-			channel.Name, session, s.repositoryKeys(),
+			channel.Name, session, s.setupRepositoryChoices(),
 		)
 	}
 	if renewed {
@@ -491,7 +493,9 @@ func (s *Service) handleChannelConfigurationAction(
 			"channel_setup_quick_saved_"+session.ID,
 			session.ChannelID,
 			responseThreadTS,
-			slackui.ChannelSetupSaved(channel.Name, configuration),
+			slackui.ChannelSetupSaved(
+				channel.Name, configuration, s.repositoryChoice(configuration.Repository),
+			),
 		); err != nil {
 			return err
 		}
@@ -536,7 +540,7 @@ func (s *Service) handleChannelConfigurationAction(
 			session.ChannelID,
 			responseThreadTS,
 			slackui.ChannelSetupQuestion(
-				channel.Name, session, s.repositoryKeys(),
+				channel.Name, session, s.setupRepositoryChoices(),
 			),
 		)
 		if postErr != nil {
@@ -575,10 +579,12 @@ func (s *Service) handleChannelConfigurationAction(
 		}
 		var message slackui.Message
 		if session.Step == "confirm" {
-			message = slackui.ChannelSetupConfirmation(channel.Name, session)
+			message = slackui.ChannelSetupConfirmation(
+				channel.Name, session, s.repositoryChoice(session.Draft.Repository),
+			)
 		} else {
 			message = slackui.ChannelSetupQuestion(
-				channel.Name, session, s.repositoryKeys(),
+				channel.Name, session, s.setupRepositoryChoices(),
 			)
 		}
 		messageTS, postErr := s.postConfigurationMessage(
@@ -623,7 +629,7 @@ func (s *Service) handleChannelConfigurationAction(
 				ctx, "channel_setup_restart_"+session.ID+"_"+strconv.Itoa(session.Revision),
 				session.ChannelID, responseThreadTS,
 				slackui.ChannelSetupQuestion(
-					channel.Name, session, s.repositoryKeys(),
+					channel.Name, session, s.setupRepositoryChoices(),
 				),
 			)
 			if postErr != nil {
@@ -658,7 +664,9 @@ func (s *Service) handleChannelConfigurationAction(
 		}
 		_, err = s.postConfigurationMessage(
 			ctx, "channel_setup_saved_"+session.ID, session.ChannelID,
-			responseThreadTS, slackui.ChannelSetupSaved(channel.Name, configuration),
+			responseThreadTS, slackui.ChannelSetupSaved(
+				channel.Name, configuration, s.repositoryChoice(configuration.Repository),
+			),
 		)
 		_ = s.store.Audit(ctx, core.AuditEvent{
 			Kind: "slack.configuration.saved", ActorID: input.UserID,
@@ -746,6 +754,35 @@ func (s *Service) postConfigurationMessage(
 
 func (s *Service) repositoryKeys() []string {
 	return s.cfg.RepositoryContextKeys()
+}
+
+func (s *Service) setupRepositoryChoices() []slackui.RepositoryChoice {
+	choices := make([]slackui.RepositoryChoice, 0,
+		len(s.cfg.Repositories)+len(s.cfg.RepositorySets))
+	for key, set := range s.cfg.RepositorySets {
+		primary := s.cfg.Repositories[set.Primary]
+		choices = append(choices, slackui.RepositoryChoice{
+			Key: key, DisplayName: set.DisplayName,
+			PrimaryDisplayName: primary.DisplayName,
+			Set:                true, Default: key == s.cfg.Slack.DefaultRepository,
+		})
+	}
+	for key, repository := range s.cfg.Repositories {
+		choices = append(choices, slackui.RepositoryChoice{
+			Key: key, DisplayName: repository.DisplayName,
+			Default: key == s.cfg.Slack.DefaultRepository,
+		})
+	}
+	return choices
+}
+
+func (s *Service) repositoryChoice(key string) slackui.RepositoryChoice {
+	for _, choice := range s.setupRepositoryChoices() {
+		if choice.Key == key {
+			return choice
+		}
+	}
+	return slackui.RepositoryChoice{Key: key, DisplayName: key}
 }
 
 func (s *Service) resolveConfigurationRepository(value string) (string, bool) {
