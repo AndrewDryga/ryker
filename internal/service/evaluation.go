@@ -292,6 +292,259 @@ func evaluationReferenceTime(testCase EvaluationCase, fallback time.Time) time.T
 	return reference
 }
 
+// evaluationObservation is what one evaluated case actually produced. It exists
+// so expectations can be checked against a value instead of against a dozen
+// locals threaded through one long function.
+type evaluationObservation struct {
+	action            string
+	message           string
+	reason            string
+	reaction          string
+	offer             string
+	offers            []string
+	evidence          []core.Evidence
+	coverage          []core.Coverage
+	completion        *completionAssessment
+	assessment        *alertAssessment
+	attention         attentionAssessment
+	memory            core.AgentMemory
+	proposals         int
+	replyMessageCount int
+	pendingApproval   bool
+	now               time.Time
+}
+
+// evaluationExpectationMismatch returns the first expectation the observation
+// fails, or an empty string when the case passes.
+//
+// It is a long list of independent guard clauses by design. Each one is a case
+// file assertion, and they are checked in a fixed order so a failing case
+// always reports the same reason rather than whichever check happened to run
+// first. Splitting them further would hide that ordering without making any
+// single check easier to read.
+func evaluationExpectationMismatch(
+	testCase EvaluationCase,
+	observed evaluationObservation,
+) string {
+	if testCase.WantAction != "" && observed.action != testCase.WantAction {
+		return fmt.Sprintf("action = %q, want %q", observed.action, testCase.WantAction)
+	}
+	if testCase.WantAlertVerdict != "" &&
+		(observed.assessment == nil || observed.assessment.Verdict != testCase.WantAlertVerdict) {
+		actual := ""
+		if observed.assessment != nil {
+			actual = observed.assessment.Verdict
+		}
+		return fmt.Sprintf(
+			"alert verdict = %q, want %q", actual, testCase.WantAlertVerdict,
+		)
+	}
+	if testCase.WantAlertAssessment && observed.assessment == nil {
+		return "alert assessment is missing"
+	}
+	if testCase.WantImmediateAction &&
+		(observed.assessment == nil || strings.TrimSpace(observed.assessment.ImmediateAction) == "") {
+		return "alert assessment has no immediate action"
+	}
+	if testCase.WantLongTermSolution &&
+		(observed.assessment == nil || strings.TrimSpace(observed.assessment.LongTermSolution) == "") {
+		return "alert assessment has no long-term solution"
+	}
+	if testCase.WantCompletionStatus != "" &&
+		(observed.completion == nil || observed.completion.Status != testCase.WantCompletionStatus) {
+		actual := ""
+		if observed.completion != nil {
+			actual = observed.completion.Status
+		}
+		return fmt.Sprintf(
+			"completion status = %q, want %q",
+			actual,
+			testCase.WantCompletionStatus,
+		)
+	}
+	if testCase.WantCompletionVerdict != "" &&
+		(observed.completion == nil || observed.completion.Verdict != testCase.WantCompletionVerdict) {
+		actual := ""
+		if observed.completion != nil {
+			actual = observed.completion.Verdict
+		}
+		return fmt.Sprintf(
+			"completion verdict = %q, want %q",
+			actual,
+			testCase.WantCompletionVerdict,
+		)
+	}
+	if len(testCase.WantOffers) > 0 {
+		if len(observed.offers) != len(testCase.WantOffers) {
+			return fmt.Sprintf("offers = %q, want %q", observed.offers, testCase.WantOffers)
+		}
+		for _, expected := range testCase.WantOffers {
+			if !containsExact(observed.offers, expected) {
+				return fmt.Sprintf("offers = %q, want %q", observed.offers, testCase.WantOffers)
+			}
+		}
+	}
+	if testCase.WantReaction != "" && observed.reaction != testCase.WantReaction {
+		return fmt.Sprintf(
+			"reaction = %q, want %q",
+			observed.reaction,
+			testCase.WantReaction,
+		)
+	}
+	if len(testCase.WantReactionOneOf) > 0 &&
+		!containsExact(testCase.WantReactionOneOf, observed.reaction) {
+		return fmt.Sprintf(
+			"reaction = %q, want one of %q",
+			observed.reaction,
+			testCase.WantReactionOneOf,
+		)
+	}
+	if testCase.WantAttentionAddressee != "" &&
+		observed.attention.Addressee != testCase.WantAttentionAddressee {
+		return fmt.Sprintf(
+			"attention addressee = %q, want %q",
+			observed.attention.Addressee,
+			testCase.WantAttentionAddressee,
+		)
+	}
+	if testCase.MinAttentionScore > 0 &&
+		observed.attention.score() < testCase.MinAttentionScore {
+		return fmt.Sprintf(
+			"attention score = %d, want at least %d",
+			observed.attention.score(),
+			testCase.MinAttentionScore,
+		)
+	}
+	if len(testCase.WantMemoryContains) > 0 {
+		encoded, err := json.Marshal(observed.memory)
+		if err != nil {
+			return "encode memory: " + err.Error()
+		}
+		for _, fragment := range testCase.WantMemoryContains {
+			if !containsFold(string(encoded), fragment) {
+				return fmt.Sprintf(
+					"memory does not contain %q: %s",
+					fragment,
+					encoded,
+				)
+			}
+		}
+	}
+	if testCase.WantOffer != "" && observed.offer != testCase.WantOffer {
+		return fmt.Sprintf("offer = %q, want %q", observed.offer, testCase.WantOffer)
+	}
+	if len(observed.evidence) < testCase.MinEvidence {
+		return fmt.Sprintf(
+			"evidence = %d, want at least %d", len(observed.evidence), testCase.MinEvidence,
+		)
+	}
+	if testCase.MaxEvidence != nil && len(observed.evidence) > *testCase.MaxEvidence {
+		return fmt.Sprintf(
+			"evidence = %d, want at most %d", len(observed.evidence), *testCase.MaxEvidence,
+		)
+	}
+	if testCase.MinFreshEvidence > 0 {
+		maxAge := time.Duration(testCase.MaxEvidenceAgeSeconds) * time.Second
+		if maxAge <= 0 {
+			maxAge = 15 * time.Minute
+		}
+		fresh := 0
+		for _, item := range observed.evidence {
+			if item.ObservedAt.IsZero() || item.ObservedAt.After(observed.now.Add(5*time.Minute)) {
+				continue
+			}
+			if observed.now.Sub(item.ObservedAt) <= maxAge {
+				fresh++
+			}
+		}
+		if fresh < testCase.MinFreshEvidence {
+			return fmt.Sprintf(
+				"fresh evidence = %d, want at least %d within %s",
+				fresh,
+				testCase.MinFreshEvidence,
+				maxAge,
+			)
+		}
+	}
+	if len(observed.coverage) < testCase.MinCoverage {
+		return fmt.Sprintf(
+			"coverage = %d, want at least %d", len(observed.coverage), testCase.MinCoverage,
+		)
+	}
+	if observed.replyMessageCount < testCase.MinReplyMessages {
+		return fmt.Sprintf(
+			"reply messages = %d, want at least %d",
+			observed.replyMessageCount,
+			testCase.MinReplyMessages,
+		)
+	}
+	if testCase.MaxCoverage != nil && len(observed.coverage) > *testCase.MaxCoverage {
+		return fmt.Sprintf(
+			"coverage = %d, want at most %d", len(observed.coverage), *testCase.MaxCoverage,
+		)
+	}
+	if testCase.MaxMessageBytes > 0 && len(observed.message) > testCase.MaxMessageBytes {
+		return fmt.Sprintf(
+			"message bytes = %d, want at most %d", len(observed.message), testCase.MaxMessageBytes,
+		)
+	}
+	for _, expected := range testCase.WantMessageContains {
+		if !containsFold(observed.message, expected) {
+			return fmt.Sprintf("message does not contain %q", expected)
+		}
+	}
+	for _, forbidden := range testCase.ForbidMessageContains {
+		if containsFold(observed.message, forbidden) {
+			return fmt.Sprintf("message contains forbidden text %q", forbidden)
+		}
+	}
+	for _, expected := range testCase.WantReasonContains {
+		if !containsFold(observed.reason, expected) {
+			return fmt.Sprintf("reason does not contain %q", expected)
+		}
+	}
+	for _, forbidden := range testCase.ForbidReasonContains {
+		if containsFold(observed.reason, forbidden) {
+			return fmt.Sprintf("reason contains forbidden text %q", forbidden)
+		}
+	}
+	for _, expected := range testCase.WantEvidenceSources {
+		if !hasEvidenceSource(observed.evidence, expected) {
+			return fmt.Sprintf("evidence has no source_type %q", expected)
+		}
+	}
+	for _, forbidden := range testCase.ForbidEvidenceSources {
+		if hasEvidenceSource(observed.evidence, forbidden) {
+			return fmt.Sprintf(
+				"evidence contains forbidden source_type %q",
+				forbidden,
+			)
+		}
+	}
+	for _, layer := range testCase.WantCoverageLayers {
+		if !hasCoverageLayer(observed.coverage, layer) {
+			return fmt.Sprintf("coverage has no %q layer", layer)
+		}
+	}
+	for layer, status := range testCase.WantCoverage {
+		if !hasCoverage(observed.coverage, layer, status) {
+			return fmt.Sprintf("coverage has no %q layer with status %q", layer, status)
+		}
+	}
+	if testCase.WantPendingApproval != nil &&
+		observed.pendingApproval != *testCase.WantPendingApproval {
+		return fmt.Sprintf(
+			"pending approval = %t, want %t",
+			observed.pendingApproval,
+			*testCase.WantPendingApproval,
+		)
+	}
+	if testCase.WantProposals != nil && observed.proposals != *testCase.WantProposals {
+		return fmt.Sprintf("proposals = %d, want %d", observed.proposals, *testCase.WantProposals)
+	}
+	return ""
+}
+
 func evaluateCaseWithConfig(
 	testCase EvaluationCase,
 	cfg *config.Config,
@@ -451,253 +704,15 @@ func evaluateCaseWithConfig(
 			}
 		}
 	}
-	if testCase.WantAction != "" && action != testCase.WantAction {
-		result.Detail = fmt.Sprintf("action = %q, want %q", action, testCase.WantAction)
-		return result
-	}
-	if testCase.WantAlertVerdict != "" &&
-		(assessment == nil || assessment.Verdict != testCase.WantAlertVerdict) {
-		actual := ""
-		if assessment != nil {
-			actual = assessment.Verdict
-		}
-		result.Detail = fmt.Sprintf(
-			"alert verdict = %q, want %q", actual, testCase.WantAlertVerdict,
-		)
-		return result
-	}
-	if testCase.WantAlertAssessment && assessment == nil {
-		result.Detail = "alert assessment is missing"
-		return result
-	}
-	if testCase.WantImmediateAction &&
-		(assessment == nil || strings.TrimSpace(assessment.ImmediateAction) == "") {
-		result.Detail = "alert assessment has no immediate action"
-		return result
-	}
-	if testCase.WantLongTermSolution &&
-		(assessment == nil || strings.TrimSpace(assessment.LongTermSolution) == "") {
-		result.Detail = "alert assessment has no long-term solution"
-		return result
-	}
-	if testCase.WantCompletionStatus != "" &&
-		(completion == nil || completion.Status != testCase.WantCompletionStatus) {
-		actual := ""
-		if completion != nil {
-			actual = completion.Status
-		}
-		result.Detail = fmt.Sprintf(
-			"completion status = %q, want %q",
-			actual,
-			testCase.WantCompletionStatus,
-		)
-		return result
-	}
-	if testCase.WantCompletionVerdict != "" &&
-		(completion == nil || completion.Verdict != testCase.WantCompletionVerdict) {
-		actual := ""
-		if completion != nil {
-			actual = completion.Verdict
-		}
-		result.Detail = fmt.Sprintf(
-			"completion verdict = %q, want %q",
-			actual,
-			testCase.WantCompletionVerdict,
-		)
-		return result
-	}
-	if len(testCase.WantOffers) > 0 {
-		if len(offers) != len(testCase.WantOffers) {
-			result.Detail = fmt.Sprintf("offers = %q, want %q", offers, testCase.WantOffers)
-			return result
-		}
-		for _, expected := range testCase.WantOffers {
-			if !containsExact(offers, expected) {
-				result.Detail = fmt.Sprintf("offers = %q, want %q", offers, testCase.WantOffers)
-				return result
-			}
-		}
-	}
-	if testCase.WantReaction != "" && reaction != testCase.WantReaction {
-		result.Detail = fmt.Sprintf(
-			"reaction = %q, want %q",
-			reaction,
-			testCase.WantReaction,
-		)
-		return result
-	}
-	if len(testCase.WantReactionOneOf) > 0 &&
-		!containsExact(testCase.WantReactionOneOf, reaction) {
-		result.Detail = fmt.Sprintf(
-			"reaction = %q, want one of %q",
-			reaction,
-			testCase.WantReactionOneOf,
-		)
-		return result
-	}
-	if testCase.WantAttentionAddressee != "" &&
-		attention.Addressee != testCase.WantAttentionAddressee {
-		result.Detail = fmt.Sprintf(
-			"attention addressee = %q, want %q",
-			attention.Addressee,
-			testCase.WantAttentionAddressee,
-		)
-		return result
-	}
-	if testCase.MinAttentionScore > 0 &&
-		attention.score() < testCase.MinAttentionScore {
-		result.Detail = fmt.Sprintf(
-			"attention score = %d, want at least %d",
-			attention.score(),
-			testCase.MinAttentionScore,
-		)
-		return result
-	}
-	if len(testCase.WantMemoryContains) > 0 {
-		encoded, err := json.Marshal(memory)
-		if err != nil {
-			result.Detail = "encode memory: " + err.Error()
-			return result
-		}
-		for _, fragment := range testCase.WantMemoryContains {
-			if !containsFold(string(encoded), fragment) {
-				result.Detail = fmt.Sprintf(
-					"memory does not contain %q: %s",
-					fragment,
-					encoded,
-				)
-				return result
-			}
-		}
-	}
-	if testCase.WantOffer != "" && offer != testCase.WantOffer {
-		result.Detail = fmt.Sprintf("offer = %q, want %q", offer, testCase.WantOffer)
-		return result
-	}
-	if len(evidence) < testCase.MinEvidence {
-		result.Detail = fmt.Sprintf(
-			"evidence = %d, want at least %d", len(evidence), testCase.MinEvidence,
-		)
-		return result
-	}
-	if testCase.MaxEvidence != nil && len(evidence) > *testCase.MaxEvidence {
-		result.Detail = fmt.Sprintf(
-			"evidence = %d, want at most %d", len(evidence), *testCase.MaxEvidence,
-		)
-		return result
-	}
-	if testCase.MinFreshEvidence > 0 {
-		maxAge := time.Duration(testCase.MaxEvidenceAgeSeconds) * time.Second
-		if maxAge <= 0 {
-			maxAge = 15 * time.Minute
-		}
-		fresh := 0
-		for _, item := range evidence {
-			if item.ObservedAt.IsZero() || item.ObservedAt.After(now.Add(5*time.Minute)) {
-				continue
-			}
-			if now.Sub(item.ObservedAt) <= maxAge {
-				fresh++
-			}
-		}
-		if fresh < testCase.MinFreshEvidence {
-			result.Detail = fmt.Sprintf(
-				"fresh evidence = %d, want at least %d within %s",
-				fresh,
-				testCase.MinFreshEvidence,
-				maxAge,
-			)
-			return result
-		}
-	}
-	if len(coverage) < testCase.MinCoverage {
-		result.Detail = fmt.Sprintf(
-			"coverage = %d, want at least %d", len(coverage), testCase.MinCoverage,
-		)
-		return result
-	}
-	if replyMessageCount < testCase.MinReplyMessages {
-		result.Detail = fmt.Sprintf(
-			"reply messages = %d, want at least %d",
-			replyMessageCount,
-			testCase.MinReplyMessages,
-		)
-		return result
-	}
-	if testCase.MaxCoverage != nil && len(coverage) > *testCase.MaxCoverage {
-		result.Detail = fmt.Sprintf(
-			"coverage = %d, want at most %d", len(coverage), *testCase.MaxCoverage,
-		)
-		return result
-	}
-	if testCase.MaxMessageBytes > 0 && len(message) > testCase.MaxMessageBytes {
-		result.Detail = fmt.Sprintf(
-			"message bytes = %d, want at most %d", len(message), testCase.MaxMessageBytes,
-		)
-		return result
-	}
-	for _, expected := range testCase.WantMessageContains {
-		if !containsFold(message, expected) {
-			result.Detail = fmt.Sprintf("message does not contain %q", expected)
-			return result
-		}
-	}
-	for _, forbidden := range testCase.ForbidMessageContains {
-		if containsFold(message, forbidden) {
-			result.Detail = fmt.Sprintf("message contains forbidden text %q", forbidden)
-			return result
-		}
-	}
-	for _, expected := range testCase.WantReasonContains {
-		if !containsFold(reason, expected) {
-			result.Detail = fmt.Sprintf("reason does not contain %q", expected)
-			return result
-		}
-	}
-	for _, forbidden := range testCase.ForbidReasonContains {
-		if containsFold(reason, forbidden) {
-			result.Detail = fmt.Sprintf("reason contains forbidden text %q", forbidden)
-			return result
-		}
-	}
-	for _, expected := range testCase.WantEvidenceSources {
-		if !hasEvidenceSource(evidence, expected) {
-			result.Detail = fmt.Sprintf("evidence has no source_type %q", expected)
-			return result
-		}
-	}
-	for _, forbidden := range testCase.ForbidEvidenceSources {
-		if hasEvidenceSource(evidence, forbidden) {
-			result.Detail = fmt.Sprintf(
-				"evidence contains forbidden source_type %q",
-				forbidden,
-			)
-			return result
-		}
-	}
-	for _, layer := range testCase.WantCoverageLayers {
-		if !hasCoverageLayer(coverage, layer) {
-			result.Detail = fmt.Sprintf("coverage has no %q layer", layer)
-			return result
-		}
-	}
-	for layer, status := range testCase.WantCoverage {
-		if !hasCoverage(coverage, layer, status) {
-			result.Detail = fmt.Sprintf("coverage has no %q layer with status %q", layer, status)
-			return result
-		}
-	}
-	if testCase.WantPendingApproval != nil &&
-		pendingApproval != *testCase.WantPendingApproval {
-		result.Detail = fmt.Sprintf(
-			"pending approval = %t, want %t",
-			pendingApproval,
-			*testCase.WantPendingApproval,
-		)
-		return result
-	}
-	if testCase.WantProposals != nil && proposals != *testCase.WantProposals {
-		result.Detail = fmt.Sprintf("proposals = %d, want %d", proposals, *testCase.WantProposals)
+	if detail := evaluationExpectationMismatch(testCase, evaluationObservation{
+		action: action, message: message, reason: reason, reaction: reaction,
+		offer: offer, offers: offers, evidence: evidence, coverage: coverage,
+		completion: completion, assessment: assessment, attention: attention,
+		memory: memory, proposals: proposals,
+		replyMessageCount: replyMessageCount, pendingApproval: pendingApproval,
+		now: now,
+	}); detail != "" {
+		result.Detail = detail
 		return result
 	}
 	result.Passed = true

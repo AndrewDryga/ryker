@@ -729,6 +729,55 @@ func (s *Service) retryIncidentAgentRun(
 	return err
 }
 
+// freezeTriageContext captures the Slack context, continuity, and matched
+// standing rules for a triage run exactly once. The capture flags make it
+// idempotent, so a run that is retried after a restart reuses the context it
+// was prepared with rather than silently re-reading a channel that has moved
+// on.
+func (s *Service) freezeTriageContext(
+	ctx context.Context,
+	state *watchTurnState,
+	input core.SlackInput,
+) error {
+	if !state.ContextCaptured || !state.PriorCaptured {
+		assembled, err := s.assembleAgentContext(
+			ctx,
+			agentContextRequest{
+				ChannelID: input.ChannelID,
+				Repository: firstNonempty(
+					state.Repository,
+					s.cfg.Slack.DefaultRepository,
+				),
+				RepositoryPinned: state.RepositoryPinned,
+				OperatorID:       input.UserID, SourceInputID: input.ID,
+				TargetInput:        &input,
+				ReferencedThreadTS: state.ReferencedThreadTS,
+				IncludeRecent:      true,
+			},
+		)
+		if err != nil {
+			return err
+		}
+		state.RecentMessages = assembled.RecentMessages
+		state.Memory = assembled.Situation
+		state.RelatedSituations = assembled.RelatedSituations
+		state.ReferencedThread = assembled.ReferencedThread
+		state.Prior = assembled.Prior
+		state.Repository = assembled.Repository
+		state.ContextCaptured = true
+		state.PriorCaptured = true
+	}
+	if !state.RulesCaptured {
+		matched, err := s.matchingStandingRules(ctx, input)
+		if err != nil {
+			return err
+		}
+		state.MatchedRules = matched
+		state.RulesCaptured = true
+	}
+	return nil
+}
+
 func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) error {
 	input, err := s.store.GetSlackInput(ctx, run.SourceID)
 	if err != nil {
@@ -807,40 +856,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			)
 		}
 	}
-	if !state.ContextCaptured || !state.PriorCaptured {
-		assembled, err := s.assembleAgentContext(
-			ctx,
-			agentContextRequest{
-				ChannelID: input.ChannelID,
-				Repository: firstNonempty(
-					state.Repository,
-					s.cfg.Slack.DefaultRepository,
-				),
-				RepositoryPinned: state.RepositoryPinned,
-				OperatorID:       input.UserID, SourceInputID: input.ID,
-				TargetInput:        &input,
-				ReferencedThreadTS: state.ReferencedThreadTS,
-				IncludeRecent:      true,
-			},
-		)
-		if err != nil {
-			return s.retryAgentRun(ctx, run, err)
-		}
-		state.RecentMessages = assembled.RecentMessages
-		state.Memory = assembled.Situation
-		state.RelatedSituations = assembled.RelatedSituations
-		state.ReferencedThread = assembled.ReferencedThread
-		state.Prior = assembled.Prior
-		state.Repository = assembled.Repository
-		state.ContextCaptured = true
-		state.PriorCaptured = true
-	}
-	if !state.RulesCaptured {
-		state.MatchedRules, err = s.matchingStandingRules(ctx, input)
-		if err != nil {
-			return s.retryAgentRun(ctx, run, err)
-		}
-		state.RulesCaptured = true
+	if err := s.freezeTriageContext(ctx, &state, input); err != nil {
+		return s.retryAgentRun(ctx, run, err)
 	}
 	repository, ok := s.cfg.RepositoryContext(
 		firstNonempty(state.Repository, s.cfg.Slack.DefaultRepository),
