@@ -459,11 +459,29 @@ func (s *Service) handleChannelConfigurationAction(
 	if !allowed {
 		return s.finishSlackInput(ctx, input)
 	}
+	quickSetup := session.Initiator == "" && session.Draft.ActorID == ""
+	if !session.ExpiresAt.After(s.now().UTC()) {
+		if session.Status == "expired" {
+			latest, latestErr := s.store.GetLatestConfigurationSession(ctx, session.ChannelID)
+			if latestErr != nil {
+				return latestErr
+			}
+			if latest.ID != session.ID {
+				return s.finishSlackInput(ctx, input)
+			}
+		} else if session.Status != "asking" && session.Status != "confirming" {
+			return s.finishSlackInput(ctx, input)
+		}
+		session, err = s.renewConfigurationSession(ctx, session, input.UserID)
+		if err != nil {
+			return err
+		}
+	}
 	responseThreadTS := conversationalResponseThread(input)
 	switch input.ActionID {
 	case slackui.ActionSetupQuickMentions, slackui.ActionSetupQuickProactive:
 		if session.Status != "asking" || session.Step != "participation" ||
-			session.Initiator != "" || session.Draft.ActorID != "" ||
+			!quickSetup || session.Draft.ActorID != "" ||
 			!session.ExpiresAt.After(s.now().UTC()) {
 			return s.finishSlashInput(
 				ctx, input,
@@ -511,7 +529,7 @@ func (s *Service) handleChannelConfigurationAction(
 		return s.finishSlackInput(ctx, input)
 	case slackui.ActionSetupCustomize:
 		if session.Status != "asking" || session.Step != "participation" ||
-			session.Initiator != "" || session.Draft.ActorID != "" ||
+			!quickSetup || session.Draft.ActorID != "" ||
 			!session.ExpiresAt.After(s.now().UTC()) {
 			return s.finishSlashInput(
 				ctx, input,

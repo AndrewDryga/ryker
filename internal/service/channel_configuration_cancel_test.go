@@ -130,6 +130,217 @@ func TestExpiredConfigurationReplyRenewsInPlaceAndAppliesAnswer(t *testing.T) {
 	}
 }
 
+func TestExpiredConfigurationButtonRenewsAndAppliesChoice(t *testing.T) {
+	for _, markedExpired := range []bool{false, true} {
+		name := "idle"
+		if markedExpired {
+			name = "cleaned_up"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			cfg := serviceConfig(t)
+			st, err := store.Open(cfg.StateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			slack := &fakeSlack{
+				channel: slackui.Channel{ID: "CNEW", Name: "bugs", Member: true},
+			}
+			svc := New(
+				cfg, st, newFakeCoop(), slack, nil,
+				slackui.NewSanitizer(12000), nil,
+			)
+			expired, err := st.CreateConfigurationSession(ctx, core.ConfigurationSession{
+				TeamID: cfg.Slack.TeamID, ChannelID: "CNEW", Initiator: "U123ABC",
+				Step: "participation", Status: "asking",
+				Draft: core.ChannelConfiguration{
+					ChannelID: "CNEW", Participation: "mentions",
+					Repository: cfg.Slack.DefaultRepository, AlertPolicy: "reply",
+				},
+				ExpiresAt: time.Now().UTC().Add(-time.Minute),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := st.BindConfigurationThread(ctx, expired.ID, "1700.1"); err != nil {
+				t.Fatal(err)
+			}
+			expired, err = st.GetConfigurationSession(ctx, expired.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if markedExpired {
+				if err := st.FinishConfigurationSession(
+					ctx, expired.ID, expired.Revision, "expired",
+				); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			action := core.SlackInput{
+				ID: "expired-button-" + name, EnvelopeID: "expired-button-envelope-" + name,
+				EventID: "expired-button-event-" + name, Kind: "action",
+				TeamID: cfg.Slack.TeamID, ChannelID: "CNEW", MessageTS: "1700.1",
+				UserID: "U123ABC", ActionID: slackui.ActionSetupProactive,
+				ActionValue: expired.ID,
+			}
+			if _, err := st.AdmitSlackInput(ctx, action); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.processSlackInput(ctx); err != nil {
+				t.Fatal(err)
+			}
+			renewed, err := st.GetActiveConfigurationSession(ctx, "CNEW")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if renewed.ID == expired.ID || renewed.Step != "repository" ||
+				renewed.Draft.Participation != "proactive" ||
+				!renewed.ExpiresAt.After(time.Now().UTC()) {
+				t.Fatalf("renewed setup = %+v, expired = %+v", renewed, expired)
+			}
+			old, err := st.GetConfigurationSession(ctx, expired.ID)
+			if err != nil || old.Status != "expired" {
+				t.Fatalf("old setup = %+v, err=%v", old, err)
+			}
+			if len(slack.ephemerals) != 0 || len(slack.posts) != 1 ||
+				slack.posts[0].message.Header != "Configure Emisar for #bugs" {
+				t.Fatalf("renewed button response = posts=%+v ephemerals=%+v", slack.posts, slack.ephemerals)
+			}
+
+			duplicate := action
+			duplicate.ID += "-duplicate"
+			duplicate.EnvelopeID += "-duplicate"
+			duplicate.EventID += "-duplicate"
+			if _, err := st.AdmitSlackInput(ctx, duplicate); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.processSlackInput(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if len(slack.ephemerals) != 0 || len(slack.posts) != 1 {
+				t.Fatalf("duplicate stale action produced output: posts=%+v ephemerals=%+v", slack.posts, slack.ephemerals)
+			}
+		})
+	}
+}
+
+func TestExpiredConfigurationQuickButtonRenewsAndSaves(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{
+		channel: slackui.Channel{ID: "CNEW", Name: "bugs", Member: true},
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	expired, err := st.CreateConfigurationSession(ctx, core.ConfigurationSession{
+		TeamID: cfg.Slack.TeamID, ChannelID: "CNEW",
+		Step: "participation", Status: "asking",
+		Draft: core.ChannelConfiguration{
+			ChannelID: "CNEW", Participation: "mentions",
+			Repository: cfg.Slack.DefaultRepository, AlertPolicy: "reply",
+		},
+		ExpiresAt: time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := core.SlackInput{
+		ID: "expired-quick", EnvelopeID: "expired-quick-envelope",
+		EventID: "expired-quick-event", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CNEW", MessageTS: "1700.1",
+		UserID: "U123ABC", ActionID: slackui.ActionSetupQuickProactive,
+		ActionValue: expired.ID,
+	}
+	if _, err := st.AdmitSlackInput(ctx, action); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := st.GetChannelConfiguration(ctx, "CNEW")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.Participation != "proactive" ||
+		configuration.Repository != cfg.Slack.DefaultRepository {
+		t.Fatalf("quick configuration = %+v", configuration)
+	}
+	if _, err := st.GetActiveConfigurationSession(ctx, "CNEW"); err != store.ErrNotFound {
+		t.Fatalf("quick configuration remains active: %v", err)
+	}
+	if len(slack.ephemerals) != 0 || len(slack.posts) != 1 ||
+		slack.posts[0].message.Header != "Channel behavior saved" {
+		t.Fatalf("quick setup response = posts=%+v ephemerals=%+v", slack.posts, slack.ephemerals)
+	}
+}
+
+func TestExpiredConfigurationSaveButtonRenewsAndSaves(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{
+		channel: slackui.Channel{ID: "CNEW", Name: "bugs", Member: true},
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	expired, err := st.CreateConfigurationSession(ctx, core.ConfigurationSession{
+		TeamID: cfg.Slack.TeamID, ChannelID: "CNEW", Initiator: "U123ABC",
+		Step: "confirm", Status: "confirming",
+		Draft: core.ChannelConfiguration{
+			ChannelID: "CNEW", Participation: "proactive",
+			Repository: cfg.Slack.DefaultRepository, AlertPolicy: "offer",
+			ActorID: "U123ABC",
+		},
+		ExpiresAt: time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := core.SlackInput{
+		ID: "expired-save", EnvelopeID: "expired-save-envelope",
+		EventID: "expired-save-event", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CNEW", MessageTS: "1700.1",
+		UserID: "U123ABC", ActionID: slackui.ActionSaveChannelConfig,
+		ActionValue: expired.ID,
+	}
+	if _, err := st.AdmitSlackInput(ctx, action); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := st.GetChannelConfiguration(ctx, "CNEW")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.Participation != "proactive" ||
+		configuration.AlertPolicy != "offer" {
+		t.Fatalf("saved configuration = %+v", configuration)
+	}
+	if _, err := st.GetActiveConfigurationSession(ctx, "CNEW"); err != store.ErrNotFound {
+		t.Fatalf("saved configuration remains active: %v", err)
+	}
+	if len(slack.ephemerals) != 0 || len(slack.posts) != 1 ||
+		slack.posts[0].message.Header != "Channel behavior saved" {
+		t.Fatalf("save response = posts=%+v ephemerals=%+v", slack.posts, slack.ephemerals)
+	}
+}
+
 func TestExpiredConfigurationReplyOutsideSetupConversationIsNotAdmitted(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
