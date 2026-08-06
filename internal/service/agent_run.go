@@ -1281,6 +1281,289 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 	return nil
 }
 
+// stagedTurn is what a completed turn contributes to the staged agent-run
+// result: the payload to persist and the operator-facing failure detail. The
+// per-mode validators below own both, so the outer function does not have to
+// thread two mutable locals through several hundred lines.
+type stagedTurn struct {
+	result []byte
+	detail string
+}
+
+// stageTriageTerminal validates a completed triage turn and applies its watch
+// decision. A true first result means the turn is fully handled and the caller
+// should return the accompanying error, which may be nil.
+func (s *Service) stageTriageTerminal(
+	ctx context.Context,
+	run core.AgentRun,
+	turn coop.Turn,
+	cursor int64,
+	staged *stagedTurn,
+) (bool, error) {
+	input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
+	state, stateErr := decodeWatchRunContext(run)
+	decision, decisionErr := parseWatchDecision(turn.AssistantMessage, s.now())
+	if inputErr != nil {
+		return true, inputErr
+	}
+	if stateErr != nil {
+		return true, stateErr
+	}
+	if decisionErr != nil {
+		correction := "the structured Slack response is invalid: " + trimError(decisionErr)
+		if !consumeWatchStructuredCorrection(
+			&state, s.cfg.Limits.MaxAgentRunAttempts,
+		) {
+			state.FailureDetail = correction
+			contextJSON, marshalErr := json.Marshal(state)
+			if marshalErr != nil {
+				return true, marshalErr
+			}
+			if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
+				return true, err
+			}
+			if err := s.store.RequeueAgentRun(
+				ctx, run.ID, correction, cursor, s.now(),
+			); err != nil {
+				return true, err
+			}
+			_ = s.advanceTriageSessionEvents(ctx, run, cursor)
+			return true, nil
+		}
+		decision = blockedWatchContinuation(run, input, state, correction, nil)
+		staged.result, decisionErr = marshalWatchDecisionResult(decision)
+		if decisionErr != nil {
+			return true, decisionErr
+		}
+		staged.detail = ""
+	} else {
+		if state.Lane == "conversation" && decision.Action == "escalate" {
+			if err := s.store.AdvanceConversationSessionEvents(
+				ctx, run.ChannelID, run.SessionID, cursor,
+			); err != nil {
+				return true, err
+			}
+			state.Lane = "investigation"
+			state.EscalationReason = decision.Reason
+			state.SessionID = ""
+			state.Generation = 0
+			state.ExpectedRevision = 0
+			state.TurnID = ""
+			state.FailureDetail = ""
+			contextJSON, marshalErr := json.Marshal(state)
+			if marshalErr != nil {
+				return true, marshalErr
+			}
+			return true, s.store.EscalateAgentRun(
+				ctx,
+				run.ID,
+				"continuing in the full investigation lane: "+decision.Reason,
+				contextJSON,
+				s.now(),
+			)
+		}
+		episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
+		if episodeErr != nil {
+			return true, episodeErr
+		}
+		normalizeAppAlertCompletion(input, &decision)
+		originalAction := decision.Action
+		originalPublicationUpdates := len(decision.PublicationUpdates)
+		decision = enforceExternalLifecycleCommunication(input, decision)
+		var lifecycleEvidenceAdjusted bool
+		decision, lifecycleEvidenceAdjusted = enforceExternalLifecycleEvidence(
+			input, episode, decision,
+		)
+		var recoveryLinkAdjusted bool
+		decision, recoveryLinkAdjusted = enforceRecoveredAlertLink(input, state, decision)
+		if lifecycleEvidenceAdjusted || decision.Action != originalAction ||
+			len(decision.PublicationUpdates) != originalPublicationUpdates ||
+			recoveryLinkAdjusted {
+			marshaledResult, marshalErr := marshalWatchDecisionResult(decision)
+			if marshalErr != nil {
+				return true, marshalErr
+			}
+			staged.result = marshaledResult
+		}
+		correction := watchDecisionCorrection(input, state, decision)
+		if correction == "" {
+			correction = alertReplyLanguageCorrectionWithContext(input, state, decision)
+		}
+		if correction == "" {
+			correction = externalLifecycleReplyLanguageCorrection(input, decision)
+		}
+		if correction == "" {
+			correction = episodeCompletionCorrection(
+				episode,
+				decision.Action,
+				sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
+				decision.Completion,
+			)
+			if correction == "" {
+				correction = episodeConclusionLanguageCorrection(
+					episode, decision.Action, decision.Message,
+				)
+			}
+			if correction == "" {
+				correction = unsupportedOperationalClaimCorrection(
+					decision.Action, decision.Message,
+					sanitizeEvidence(decision.Evidence, "", "", "", s.now()),
+				)
+			}
+			if correction == "" {
+				correction, episodeErr = s.episodeClaimCorrectionWithHistory(
+					ctx,
+					episode,
+					decision.Action,
+					sanitizeEvidence(decision.Evidence, "", "", "", s.now()),
+					sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
+					decision.Completion,
+					s.now(),
+					len(decision.AppliedOperations) > 0,
+				)
+				if episodeErr != nil {
+					return true, episodeErr
+				}
+			}
+			if correction == "" {
+				correction = episodeDiagnosisCorrection(
+					episode,
+					decision.Action,
+					sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
+					decision.AlertAssessment,
+					decision.Completion,
+				)
+			}
+		}
+		if correction != "" {
+			if !consumeWatchStructuredCorrection(
+				&state, s.cfg.Limits.MaxAgentRunAttempts,
+			) {
+				state.FailureDetail = correction
+				contextJSON, marshalErr := json.Marshal(state)
+				if marshalErr != nil {
+					return true, marshalErr
+				}
+				if err := s.store.SetAgentRunContext(
+					ctx, run.ID, contextJSON,
+				); err != nil {
+					return true, err
+				}
+				if err := s.store.RequeueAgentRun(
+					ctx, run.ID, correction, cursor, s.now(),
+				); err != nil {
+					return true, err
+				}
+				_ = s.advanceTriageSessionEvents(ctx, run, cursor)
+				return true, nil
+			}
+			decision = blockedWatchContinuation(run, input, state, correction, &decision)
+			marshaledResult, marshalErr := marshalWatchDecisionResult(decision)
+			if marshalErr != nil {
+				return true, marshalErr
+			}
+			staged.result = marshaledResult
+			staged.detail = ""
+		} else if err := s.recordResultOperationEvents(
+			ctx, run.ID, decision.AppliedOperations,
+		); err != nil {
+			return true, err
+		}
+	}
+	return false, nil
+}
+
+// stageIncidentTerminal validates a completed incident or engineering-task
+// turn from its structured agent report, with the same contract.
+func (s *Service) stageIncidentTerminal(
+	ctx context.Context,
+	run core.AgentRun,
+	turn coop.Turn,
+	cursor int64,
+	staged *stagedTurn,
+) (bool, error) {
+	report, _, reportErr := parseAgentReport(turn.AssistantMessage)
+	if reportErr != nil {
+		correction := "the structured agent report is invalid: " + trimError(reportErr)
+		if !terminalStructuredCorrection(
+			run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+		) {
+			if err := s.store.RequeueAgentRun(
+				ctx, run.ID, correction, cursor, s.now(),
+			); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		report = blockedAgentContinuation(correction, nil)
+		staged.result, reportErr = json.Marshal(report)
+		if reportErr != nil {
+			return true, reportErr
+		}
+		staged.detail = ""
+	} else {
+		episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
+		if episodeErr != nil {
+			return true, episodeErr
+		}
+		correction := episodeCompletionCorrection(
+			episode,
+			"reply",
+			sanitizeCoverage(report.Coverage, "", "", "", s.now()),
+			report.Completion,
+		)
+		if correction == "" {
+			correction = episodeConclusionLanguageCorrection(
+				episode, "reply", report.Message,
+			)
+		}
+		if correction == "" {
+			correction = unsupportedOperationalClaimCorrection(
+				"reply", report.Message,
+				sanitizeEvidence(report.Evidence, "", "", "", s.now()),
+			)
+		}
+		if correction == "" {
+			correction, episodeErr = s.episodeClaimCorrectionWithHistory(
+				ctx,
+				episode,
+				"reply",
+				sanitizeEvidence(report.Evidence, "", "", "", s.now()),
+				sanitizeCoverage(report.Coverage, "", "", "", s.now()),
+				report.Completion,
+				s.now(),
+				len(report.AppliedOperations) > 0,
+			)
+			if episodeErr != nil {
+				return true, episodeErr
+			}
+		}
+		if correction != "" {
+			if !terminalStructuredCorrection(
+				run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+			) {
+				if err := s.store.RequeueAgentRun(
+					ctx, run.ID, correction, cursor, s.now(),
+				); err != nil {
+					return true, err
+				}
+				return true, nil
+			}
+			report = blockedAgentContinuation(correction, &report)
+			staged.result, reportErr = json.Marshal(report)
+			if reportErr != nil {
+				return true, reportErr
+			}
+			staged.detail = ""
+		} else if err := s.recordResultOperationEvents(
+			ctx, run.ID, report.AppliedOperations,
+		); err != nil {
+			return true, err
+		}
+	}
+	return false, nil
+}
+
 func (s *Service) stagePolledAgentRunTerminal(
 	ctx context.Context,
 	run core.AgentRun,
@@ -1366,263 +1649,20 @@ func (s *Service) stagePolledAgentRunTerminal(
 		return nil
 	}
 	terminalState := strings.TrimPrefix(eventType, "turn.")
-	result := []byte(turn.AssistantMessage)
+	staged := stagedTurn{result: []byte(turn.AssistantMessage), detail: detail}
 	if run.Mode == core.AgentRunTriage && terminalState == "completed" {
-		input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
-		state, stateErr := decodeWatchRunContext(run)
-		decision, decisionErr := parseWatchDecision(turn.AssistantMessage, s.now())
-		if inputErr != nil {
-			return inputErr
-		}
-		if stateErr != nil {
-			return stateErr
-		}
-		if decisionErr != nil {
-			correction := "the structured Slack response is invalid: " + trimError(decisionErr)
-			if !consumeWatchStructuredCorrection(
-				&state, s.cfg.Limits.MaxAgentRunAttempts,
-			) {
-				state.FailureDetail = correction
-				contextJSON, marshalErr := json.Marshal(state)
-				if marshalErr != nil {
-					return marshalErr
-				}
-				if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
-					return err
-				}
-				if err := s.store.RequeueAgentRun(
-					ctx, run.ID, correction, cursor, s.now(),
-				); err != nil {
-					return err
-				}
-				_ = s.advanceTriageSessionEvents(ctx, run, cursor)
-				return nil
-			}
-			decision = blockedWatchContinuation(run, input, state, correction, nil)
-			result, decisionErr = marshalWatchDecisionResult(decision)
-			if decisionErr != nil {
-				return decisionErr
-			}
-			detail = ""
-		} else {
-			if state.Lane == "conversation" && decision.Action == "escalate" {
-				if err := s.store.AdvanceConversationSessionEvents(
-					ctx, run.ChannelID, run.SessionID, cursor,
-				); err != nil {
-					return err
-				}
-				state.Lane = "investigation"
-				state.EscalationReason = decision.Reason
-				state.SessionID = ""
-				state.Generation = 0
-				state.ExpectedRevision = 0
-				state.TurnID = ""
-				state.FailureDetail = ""
-				contextJSON, marshalErr := json.Marshal(state)
-				if marshalErr != nil {
-					return marshalErr
-				}
-				return s.store.EscalateAgentRun(
-					ctx,
-					run.ID,
-					"continuing in the full investigation lane: "+decision.Reason,
-					contextJSON,
-					s.now(),
-				)
-			}
-			episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
-			if episodeErr != nil {
-				return episodeErr
-			}
-			normalizeAppAlertCompletion(input, &decision)
-			originalAction := decision.Action
-			originalPublicationUpdates := len(decision.PublicationUpdates)
-			decision = enforceExternalLifecycleCommunication(input, decision)
-			var lifecycleEvidenceAdjusted bool
-			decision, lifecycleEvidenceAdjusted = enforceExternalLifecycleEvidence(
-				input, episode, decision,
-			)
-			var recoveryLinkAdjusted bool
-			decision, recoveryLinkAdjusted = enforceRecoveredAlertLink(input, state, decision)
-			if lifecycleEvidenceAdjusted || decision.Action != originalAction ||
-				len(decision.PublicationUpdates) != originalPublicationUpdates ||
-				recoveryLinkAdjusted {
-				marshaledResult, marshalErr := marshalWatchDecisionResult(decision)
-				if marshalErr != nil {
-					return marshalErr
-				}
-				result = marshaledResult
-			}
-			correction := watchDecisionCorrection(input, state, decision)
-			if correction == "" {
-				correction = alertReplyLanguageCorrectionWithContext(input, state, decision)
-			}
-			if correction == "" {
-				correction = externalLifecycleReplyLanguageCorrection(input, decision)
-			}
-			if correction == "" {
-				correction = episodeCompletionCorrection(
-					episode,
-					decision.Action,
-					sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
-					decision.Completion,
-				)
-				if correction == "" {
-					correction = episodeConclusionLanguageCorrection(
-						episode, decision.Action, decision.Message,
-					)
-				}
-				if correction == "" {
-					correction = unsupportedOperationalClaimCorrection(
-						decision.Action, decision.Message,
-						sanitizeEvidence(decision.Evidence, "", "", "", s.now()),
-					)
-				}
-				if correction == "" {
-					correction, episodeErr = s.episodeClaimCorrectionWithHistory(
-						ctx,
-						episode,
-						decision.Action,
-						sanitizeEvidence(decision.Evidence, "", "", "", s.now()),
-						sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
-						decision.Completion,
-						s.now(),
-						len(decision.AppliedOperations) > 0,
-					)
-					if episodeErr != nil {
-						return episodeErr
-					}
-				}
-				if correction == "" {
-					correction = episodeDiagnosisCorrection(
-						episode,
-						decision.Action,
-						sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
-						decision.AlertAssessment,
-						decision.Completion,
-					)
-				}
-			}
-			if correction != "" {
-				if !consumeWatchStructuredCorrection(
-					&state, s.cfg.Limits.MaxAgentRunAttempts,
-				) {
-					state.FailureDetail = correction
-					contextJSON, marshalErr := json.Marshal(state)
-					if marshalErr != nil {
-						return marshalErr
-					}
-					if err := s.store.SetAgentRunContext(
-						ctx, run.ID, contextJSON,
-					); err != nil {
-						return err
-					}
-					if err := s.store.RequeueAgentRun(
-						ctx, run.ID, correction, cursor, s.now(),
-					); err != nil {
-						return err
-					}
-					_ = s.advanceTriageSessionEvents(ctx, run, cursor)
-					return nil
-				}
-				decision = blockedWatchContinuation(run, input, state, correction, &decision)
-				marshaledResult, marshalErr := marshalWatchDecisionResult(decision)
-				if marshalErr != nil {
-					return marshalErr
-				}
-				result = marshaledResult
-				detail = ""
-			} else if err := s.recordResultOperationEvents(
-				ctx, run.ID, decision.AppliedOperations,
-			); err != nil {
-				return err
-			}
+		if handled, err := s.stageTriageTerminal(ctx, run, turn, cursor, &staged); handled {
+			return err
 		}
 	}
 	if (run.Mode == core.AgentRunIncident || run.Mode == core.AgentRunEngineeringTask) &&
 		terminalState == "completed" {
-		report, _, reportErr := parseAgentReport(turn.AssistantMessage)
-		if reportErr != nil {
-			correction := "the structured agent report is invalid: " + trimError(reportErr)
-			if !terminalStructuredCorrection(
-				run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
-			) {
-				if err := s.store.RequeueAgentRun(
-					ctx, run.ID, correction, cursor, s.now(),
-				); err != nil {
-					return err
-				}
-				return nil
-			}
-			report = blockedAgentContinuation(correction, nil)
-			result, reportErr = json.Marshal(report)
-			if reportErr != nil {
-				return reportErr
-			}
-			detail = ""
-		} else {
-			episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
-			if episodeErr != nil {
-				return episodeErr
-			}
-			correction := episodeCompletionCorrection(
-				episode,
-				"reply",
-				sanitizeCoverage(report.Coverage, "", "", "", s.now()),
-				report.Completion,
-			)
-			if correction == "" {
-				correction = episodeConclusionLanguageCorrection(
-					episode, "reply", report.Message,
-				)
-			}
-			if correction == "" {
-				correction = unsupportedOperationalClaimCorrection(
-					"reply", report.Message,
-					sanitizeEvidence(report.Evidence, "", "", "", s.now()),
-				)
-			}
-			if correction == "" {
-				correction, episodeErr = s.episodeClaimCorrectionWithHistory(
-					ctx,
-					episode,
-					"reply",
-					sanitizeEvidence(report.Evidence, "", "", "", s.now()),
-					sanitizeCoverage(report.Coverage, "", "", "", s.now()),
-					report.Completion,
-					s.now(),
-					len(report.AppliedOperations) > 0,
-				)
-				if episodeErr != nil {
-					return episodeErr
-				}
-			}
-			if correction != "" {
-				if !terminalStructuredCorrection(
-					run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
-				) {
-					if err := s.store.RequeueAgentRun(
-						ctx, run.ID, correction, cursor, s.now(),
-					); err != nil {
-						return err
-					}
-					return nil
-				}
-				report = blockedAgentContinuation(correction, &report)
-				result, reportErr = json.Marshal(report)
-				if reportErr != nil {
-					return reportErr
-				}
-				detail = ""
-			} else if err := s.recordResultOperationEvents(
-				ctx, run.ID, report.AppliedOperations,
-			); err != nil {
-				return err
-			}
+		if handled, err := s.stageIncidentTerminal(ctx, run, turn, cursor, &staged); handled {
+			return err
 		}
 	}
 	if err := s.store.StageAgentRunResult(
-		ctx, run.ID, terminalState, result, detail, cursor,
+		ctx, run.ID, terminalState, staged.result, staged.detail, cursor,
 	); err != nil {
 		return err
 	}
