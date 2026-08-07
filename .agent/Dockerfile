@@ -1,0 +1,52 @@
+# Toolchain driven by .tool-versions — asdf installs the exact versions your project
+# pins. Edit .tool-versions and `coop build`, and the box follows. Node + the agent CLIs
+# + ACP adapters are added on top for coop / coop acp.
+FROM debian:bookworm-slim
+
+ARG ASDF_VERSION=0.19.0
+# Agent CLIs + ACP adapters as one ARG so the list lives in one place. The default mirrors
+# coop's own agent set (agents.Packages()); a scaffold test asserts they stay in sync, so
+# adding/removing an agent in coop can't silently leave this box behind. Override per build
+# with: docker build --build-arg AGENT_PACKAGES="…".
+ARG AGENT_PACKAGES="@anthropic-ai/claude-code@latest @agentclientprotocol/claude-agent-acp@latest @openai/codex@latest @agentclientprotocol/codex-acp@latest @google/gemini-cli@latest"
+
+# The first list is the universal base: what asdf itself, git, and any binary-download
+# plugin need. The second is what THIS repo's pinned tools need — coop filled it in from
+# .tool-versions at init. Add to it when you pin a tool that builds from source (asdf
+# compiles erlang, python and ruby) or whose plugin shells out to another toolchain (a
+# pip-installed one like checkov or ansible needs python3 + python3-pip).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      curl git ca-certificates locales procps unzip \
+ && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen \
+ && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && npm install -g ${AGENT_PACKAGES} \
+ && curl -fsSL "https://github.com/asdf-vm/asdf/releases/download/v${ASDF_VERSION}/asdf-v${ASDF_VERSION}-linux-$(dpkg --print-architecture).tar.gz" \
+      | tar -C /usr/local/bin -xzf - asdf \
+ && apt-get clean && rm -rf /var/lib/apt/lists/* \
+ && git config --system --add safe.directory '*' \
+ && useradd -m -u 1000 -s /bin/bash node \
+ && mkdir -p /home/node/.cache && chown node:node /home/node/.cache
+
+ENV ASDF_DATA_DIR=/home/node/.asdf \
+    PATH="/home/node/.asdf/shims:${PATH}" \
+    LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
+
+USER node
+
+# Install whatever .tool-versions pins: an asdf plugin per listed tool, then `asdf install`.
+# Docker-cached until .tool-versions changes. A plugin that fails to install must fail the
+# BUILD — swallowing it here just moves the error to the first agent that runs the tool.
+COPY --chown=node:node .tool-versions /home/node/.tool-versions
+RUN cd /home/node \
+ && awk 'NF && $1 !~ /^#/ {print $1}' .tool-versions | while read -r tool; do asdf plugin add "$tool" || exit 1; done \
+ && MAKEFLAGS="-j$(nproc)" asdf install \
+ && asdf reshim
+
+# Debian login shells reset PATH, so restore the asdf shims after /etc/profile runs.
+USER root
+RUN printf 'export PATH="/home/node/.asdf/shims:$PATH"\n' > /etc/profile.d/asdf.sh
+USER node
+
+WORKDIR /workspace

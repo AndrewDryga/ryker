@@ -7,3 +7,26 @@
 *.db-wal
 coverage.out
 .DS_Store
+
+# coop working state (commit knowledge, ignore state)
+**/.agent/*
+!**/.agent/kb/
+!**/.agent/skills/
+!**/.agent/presets/
+!**/.agent/claude/
+!**/.agent/loop.yaml
+!**/.agent/compose.yml
+!**/.agent/Dockerfile
+!.agent/project.yaml
+# the queue is local state, but its layout doc is a BOOT entry point — commit just that
+!**/.agent/tasks/
+**/.agent/tasks/*
+!**/.agent/tasks/README.md
+
+# preset native subagents coop generates in the box (coop-<role>) — never committed
+.claude/agents/coop-*.md
+
+# .gemini may be globally ignored (local Gemini state); keep just the skills symlink
+!.gemini/
+.gemini/*
+!.gemini/skills

@@ -1,0 +1,4 @@
+#!/bin/sh
+hook="$HOME/.coop-git-hooks/prepare-commit-msg"
+[ -x "$hook" ] || exit 0
+exec "$hook" "$@"

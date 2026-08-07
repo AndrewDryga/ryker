@@ -1,0 +1,37 @@
+# coop project config — committed with the repo (unlike the rest of .agent/).
+
+# A monorepo? List member dirs (each its own coop project with a .agent/):
+# subprojects: [api, web]
+
+# Ports a dev server in the box listens on — coop publishes each to a stable host
+# port so you can open it in your browser (bind the server to 0.0.0.0 in the box):
+# serve:
+#   ports: [5173]
+
+# box: the posture every run in this repo inherits. An explicit COOP_* env/conf setting still
+# wins for a one-off, so a committed value can only TIGHTEN the default (egress's default is the
+# loosest — "open" — so a repo can pin none but never widen your explicit none).
+# box:
+#   dockerfile: <path>  # box image (default .agent/Dockerfile; or reuse a repo Dockerfile)
+#   compose: <path>     # sidecars (default .agent/compose.yml; or point at your own)
+#   env:                # committed, non-secret box defaults; agents/env wins; COOP_* is reserved
+#     PGHOST: db
+#     PGPORT: "5432"
+#   egress: none        # "open" = npm + model API (default); "none" cuts ALL network — forensics only, agents can't work
+#   auto_up: false      # auto-start the sidecar services (default true)
+#   network: false      # join the sibling-services network (default true)
+#   memory: 4g          # docker/podman resource caps (ignored on Apple container); default unset
+#   cpus: "4"
+#   pids: 2048          # the fork-bomb cap (default 4096; 0/unlimited turns it off)
+
+# context: which committed docs 'coop context' compiles for a given scope. Canonical
+# AGENTS.md/CLAUDE.md are always included; each route adds its docs when a touched path matches
+# one of its globs (* within a segment, ** across segments).
+# context:
+#   routes:
+#     - paths: [billing/**, "**/*.sql"]
+#       include: [.agent/kb/billing.md]
+
+# gate: the revalidation 'coop fork merge' runs IN THE BOX before landing a fork (rolled back on
+# failure). Same shape as COOP_GATE; an explicit COOP_GATE wins. Use the gate AGENTS.md names.
+# gate: <this repo's gate command>
