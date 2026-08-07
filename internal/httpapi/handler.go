@@ -49,11 +49,13 @@ type Handler struct {
 const statusTTL = time.Second
 
 type serviceStatus struct {
-	metrics   store.Metrics
-	scheduler []service.SchedulerLaneSnapshot
-	ready     bool
-	reason    string
-	err       error
+	metrics           store.Metrics
+	scheduler         []service.SchedulerLaneSnapshot
+	ready             bool
+	reason            string
+	promptTruncations uint64
+	promptMaxBytes    uint64
+	err               error
 }
 
 func (h *Handler) now() time.Time {
@@ -79,6 +81,7 @@ func (h *Handler) serviceStatus(ctx context.Context) serviceStatus {
 	}
 	if status.err == nil {
 		status.ready, status.reason = h.service.Ready(ctx)
+		status.promptTruncations, status.promptMaxBytes = h.service.PromptTruncationMetrics()
 	}
 	h.status = status
 	h.statusUntil = h.now().Add(statusTTL)
@@ -238,6 +241,10 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 			age,
 		)
 	}
+	fmt.Fprintln(w, "# HELP responder_coop_prompt_truncations_total Prompts the Coop transport had to elide.")
+	fmt.Fprintf(w, "# TYPE responder_coop_prompt_truncations_total counter\nresponder_coop_prompt_truncations_total %d\n", status.promptTruncations)
+	fmt.Fprintln(w, "# HELP responder_coop_prompt_max_bytes Largest prompt composed, before any elision.")
+	fmt.Fprintf(w, "# TYPE responder_coop_prompt_max_bytes gauge\nresponder_coop_prompt_max_bytes %d\n", status.promptMaxBytes)
 	fmt.Fprintf(w, "# TYPE responder_webhooks_accepted_total counter\nresponder_webhooks_accepted_total %d\n", h.accepted.Load())
 	fmt.Fprintf(w, "# TYPE responder_webhooks_duplicate_total counter\nresponder_webhooks_duplicate_total %d\n", h.duplicate.Load())
 	fmt.Fprintf(w, "# TYPE responder_webhooks_rejected_total counter\nresponder_webhooks_rejected_total %d\n", h.rejected.Load())

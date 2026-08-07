@@ -1,4 +1,4 @@
-package service
+package provider
 
 import (
 	"strings"
@@ -19,7 +19,7 @@ func TestProviderFailureClassificationGivesOperatorNextStep(t *testing.T) {
 		{"worker disconnected", "agent", "Coop service"},
 	}
 	for _, test := range tests {
-		failure := classifyProviderFailure(test.detail)
+		failure := Classify(test.detail)
 		if failure.Kind != test.kind ||
 			!strings.Contains(failure.OperatorFix, test.fix) ||
 			failure.Summary == "" {

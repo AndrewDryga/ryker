@@ -177,6 +177,7 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		cfg, st, coopClient, slackClient, slackClient,
 		slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes, redactions...), logger,
 	)
+	coopClient.SetTruncationObserver(svc.RecordPromptTruncation)
 	svc.SetPublisher(githubPublisher)
 	svc.SetEmisar(emisar.New(emisarHTTP, cfg.Coop.EmisarURL, emisarToken))
 	if cfg.Coop.Supervise {

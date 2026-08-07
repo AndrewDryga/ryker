@@ -11,6 +11,7 @@ package localstate
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -200,4 +201,31 @@ func (w *WriteSlot) Reset() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.last = time.Time{}
+}
+
+// PromptTruncation counts prompts the Coop transport had to elide and the
+// largest prompt composed. Elision cuts the middle out of a prompt, so it can
+// slice through structured context: this is a correctness signal, not a
+// statistic, and it is process-local because the durable record of what the
+// model actually saw is the context manifest, not this counter.
+type PromptTruncation struct {
+	total    atomic.Uint64
+	maxBytes atomic.Uint64
+}
+
+// Record notes one elided prompt of originalBytes.
+func (p *PromptTruncation) Record(originalBytes int) {
+	p.total.Add(1)
+	for {
+		current := p.maxBytes.Load()
+		if uint64(originalBytes) <= current ||
+			p.maxBytes.CompareAndSwap(current, uint64(originalBytes)) {
+			return
+		}
+	}
+}
+
+// Snapshot reports the count and the largest prompt seen.
+func (p *PromptTruncation) Snapshot() (total, maxBytes uint64) {
+	return p.total.Load(), p.maxBytes.Load()
 }

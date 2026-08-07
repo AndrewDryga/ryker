@@ -53,6 +53,7 @@ var lineBudget = map[string]int{
 	"service":    28000,
 	"store":      14000,
 	"localstate": 250,
+	"provider":   120,
 }
 
 // forbiddenImports records the dependency direction. Each package maps to the
@@ -69,6 +70,7 @@ var forbiddenImports = map[string][]string{
 	"investigation": {"service", "store", "slackui", "httpapi", "app"},
 	"publisher":     {"service", "store", "slackui", "httpapi", "app"},
 	"localstate":    {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
+	"provider":      {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "core"},
 }
 
 func repoRoot(t *testing.T) string {

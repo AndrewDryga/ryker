@@ -16,6 +16,11 @@ import (
 	"unicode/utf8"
 )
 
+// MaxPromptBytes is the largest prompt a Coop turn accepts. Callers budget
+// their context against it: the transport still enforces the cap, but a caller
+// that arrives over it has already lost the ability to choose what is dropped.
+const MaxPromptBytes = maxPromptBytes
+
 const (
 	maxResponseBytes       = 3 << 20
 	maxReviewPatchBytes    = 64 << 20
@@ -29,6 +34,17 @@ const promptElisionMarker = "\n\n<responder-context-elided>\nOlder bounded conte
 type Client struct {
 	socket string
 	http   *http.Client
+
+	// truncated reports a prompt the transport had to elide. Elision is a
+	// backstop, not a strategy: it cuts the middle out, which can slice through
+	// structured context, so a caller that trips it needs to know.
+	truncated func(originalBytes, cap int)
+}
+
+// SetTruncationObserver installs a callback invoked whenever a prompt exceeds
+// MaxPromptBytes and has to be elided.
+func (c *Client) SetTruncationObserver(observer func(originalBytes, cap int)) {
+	c.truncated = observer
 }
 
 type APIError struct {
@@ -321,7 +337,7 @@ func (c *Client) SubmitTurnWithArtifacts(
 	prompt string,
 	artifacts []InputArtifact,
 ) (Turn, Operation, error) {
-	prompt = boundedPrompt(prompt)
+	prompt = c.boundedPrompt(prompt)
 	var response turnResponse
 	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/turns", key, map[string]any{
 		"expected_revision": expectedRevision,
@@ -331,11 +347,14 @@ func (c *Client) SubmitTurnWithArtifacts(
 	return response.Turn, response.Operation, err
 }
 
-func boundedPrompt(prompt string) string {
+func (c *Client) boundedPrompt(prompt string) string {
 	prompt = strings.ToValidUTF8(prompt, "\uFFFD")
 	prompt = strings.ReplaceAll(prompt, "\x00", "\uFFFD")
 	if len(prompt) <= maxPromptBytes {
 		return prompt
+	}
+	if c.truncated != nil {
+		c.truncated(len(prompt), maxPromptBytes)
 	}
 	tailStart := len(prompt) - promptTailBytes
 	for tailStart < len(prompt) && !utf8.RuneStart(prompt[tailStart]) {

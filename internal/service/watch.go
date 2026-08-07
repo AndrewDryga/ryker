@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -2134,7 +2135,7 @@ func watchFailureNotice(detail string) string {
 			"completeness checks after retrying. No incident was created and nothing was changed. " +
 			"Try the request once more; if it repeats, check the Responder and Coop logs."
 	}
-	failure := classifyProviderFailure(detail)
+	failure := provider.Classify(detail)
 	return "*Responder could not complete this check.*\n\n" +
 		failure.Summary + "\n\nReason reported by Coop: `" + detail + "`\n\n" +
 		"No incident was created, and Responder made no repository or infrastructure changes. " +

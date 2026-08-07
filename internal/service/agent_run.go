@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -2456,7 +2457,7 @@ func (s *Service) finalizeIncidentAgentRun(
 		if structuredResultFailure(detail) {
 			message = slackui.AgentReportFailureMessage(detail)
 		} else {
-			failure := classifyProviderFailure(detail)
+			failure := provider.Classify(detail)
 			message = slackui.TurnFailureMessage(
 				state,
 				failure.Summary+"\n\nReported detail: `"+detail+"`\n\n"+failure.OperatorFix,

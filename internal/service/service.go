@@ -108,6 +108,8 @@ type Service struct {
 	heartbeats  laneHeartbeat
 	clock       func() time.Time
 
+	promptTruncation localstate.PromptTruncation
+
 	// Process-local coordination state. See caches.go: none of it is durable
 	// truth, and each piece owns its own lock.
 	writeSlot    *localstate.WriteSlot
@@ -148,6 +150,23 @@ func (s *Service) SetClock(clock func() time.Time) {
 	if clock != nil {
 		s.clock = clock
 	}
+}
+
+// RecordPromptTruncation notes that a Coop prompt had to be elided. It is
+// wired to the Coop client's truncation observer at startup.
+func (s *Service) RecordPromptTruncation(originalBytes, cap int) {
+	s.promptTruncation.Record(originalBytes)
+	s.log.Warn(
+		"Coop prompt truncated; the model saw an elided view of its context",
+		"original_bytes", originalBytes,
+		"cap", cap,
+	)
+}
+
+// PromptTruncationMetrics reports how often prompts have been elided and the
+// largest prompt seen.
+func (s *Service) PromptTruncationMetrics() (total uint64, maxBytes uint64) {
+	return s.promptTruncation.Snapshot()
 }
 
 // SetCoopRuntimeRepairer installs the managed-runtime repair hook used when a

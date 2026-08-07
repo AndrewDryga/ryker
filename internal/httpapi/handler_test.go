@@ -231,3 +231,30 @@ func unwrapHandler(t *testing.T, handler http.Handler) *Handler {
 	}
 	return inner
 }
+
+// The truncation counters are how an operator learns the agent is being handed
+// an elided view of its context, so they have to reach /metrics.
+func TestMetricsRenderPromptTruncationCounters(t *testing.T) {
+	cfg := testConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := service.New(cfg, st, nil, nil, nil, nil, nil)
+	handler := New(cfg, st, svc, map[string]string{"grafana": "hook-secret"}, nil)
+
+	svc.RecordPromptTruncation(70000, 65536)
+	svc.RecordPromptTruncation(90000, 65536)
+	svc.RecordPromptTruncation(80000, 65536)
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := recorder.Body.String()
+	if !strings.Contains(body, "responder_coop_prompt_truncations_total 3") {
+		t.Fatalf("truncation counter missing or wrong:\n%s", body)
+	}
+	if !strings.Contains(body, "responder_coop_prompt_max_bytes 90000") {
+		t.Fatalf("max prompt gauge missing or wrong:\n%s", body)
+	}
+}

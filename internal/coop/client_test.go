@@ -512,3 +512,62 @@ func TestReadPathsCarryCursorsAndRevisions(t *testing.T) {
 		}
 	}
 }
+
+// Elision cuts the middle out of a prompt, which can slice through structured
+// context. A caller that trips it has already lost the ability to choose what
+// gets dropped, so the transport must report it rather than silently comply.
+func TestOversizedPromptIsReportedAndBounded(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	var delivered int
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Prompt string `json:"prompt"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		delivered = len(body.Prompt)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"turn":{"id":"turn_1","session_id":"s1","state":"queued"}}`)
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+
+	client := New(socket, 5*time.Second)
+	var gotOriginal, gotCap int
+	var calls int
+	client.SetTruncationObserver(func(originalBytes, cap int) {
+		calls++
+		gotOriginal, gotCap = originalBytes, cap
+	})
+
+	oversized := strings.Repeat("x", MaxPromptBytes+4096)
+	if _, _, err := client.SubmitTurn(
+		context.Background(), "key-1", "s1", 1, oversized,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("truncation observer calls = %d, want 1", calls)
+	}
+	if gotOriginal != MaxPromptBytes+4096 || gotCap != MaxPromptBytes {
+		t.Fatalf("observer got original=%d cap=%d", gotOriginal, gotCap)
+	}
+	if delivered > MaxPromptBytes {
+		t.Fatalf("delivered %d bytes, over the %d cap", delivered, MaxPromptBytes)
+	}
+
+	// A prompt inside the cap must not report anything.
+	calls = 0
+	if _, _, err := client.SubmitTurn(
+		context.Background(), "key-2", "s1", 1, "small prompt",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("observer fired %d times for an in-budget prompt", calls)
+	}
+}
