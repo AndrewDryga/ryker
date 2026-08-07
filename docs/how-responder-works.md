@@ -124,6 +124,16 @@ deduplicated `slack_inputs` row, and only then acknowledge Slack. The worker mak
 decision later. A persistence or policy-resolution failure before that point is not acknowledged,
 so Slack can redeliver the envelope instead of Responder silently losing it.
 
+Nothing that talks to Slack happens on the socket consumer, including work that looks trivial.
+Refreshing suggested prompts or the App Home is a Slack round trip, so those are admitted as
+ordinary inputs and performed by the control lane; doing them inline would hold the single consumer
+and delay admission of every event behind them.
+
+Reactions are admitted too. Adding or removing an emoji on one of Responder's own messages is
+retained as ordered conversation context and refreshes the current reaction state without starting
+a separate agent turn. A reaction is social feedback: it never authorises an approval, a repository
+change, an incident, or an infrastructure action.
+
 ```mermaid
 flowchart TD
   Event["Slack event"] --> Valid{"Expected workspace<br/>and supported event?"}
@@ -338,6 +348,18 @@ Responder does not have one undifferentiated memory. It has separate stores beca
 continuity, factual hints, current evidence, and executable behavior require different trust and
 retention rules.
 
+All of it competes for one bounded turn. When the assembled context does not fit, the host chooses
+what to drop rather than letting the transport cut the middle out of a structured payload: prior
+evidence first, then summaries of other conversations, then the referenced transcript, then
+synthesized continuity, then older channel messages down to a floor, and operator-confirmed memory
+last because someone put it there deliberately. The target message is never dropped, and every
+omission is reported to the model as `context_omitted` — silently thinner context reads as
+confident ignorance, while a stated gap is a reason to ask.
+
+Confirmed memory is chosen by relevance to the current request rather than by recency, with an
+exact identifier match on an alias, evidence route, or relationship correction always included.
+Ordering by recency alone would mean the more the agent is taught, the less of it surfaces.
+
 ```mermaid
 flowchart TB
   subgraph Inputs["Context assembled for one turn"]
@@ -439,6 +461,32 @@ sequenceDiagram
   R->>DB: Record rule_id + source_input once
   R->>S: Reply in Terraform message thread
 ```
+
+### Learned conversation knowledge
+
+Beside operator-confirmed memory, Responder retains what it learned from a conversation without
+anyone confirming it. A completed turn may return `update_memory` carrying typed knowledge items —
+a decision, a constraint, a fact, a rationale — each with a status, a confidence, and a link to the
+exact Slack message it came from.
+
+This is deliberately weaker than confirmed memory and is labelled as such in the prompt. It is
+included only when the host finds concrete lexical overlap with the current request, tentative
+items are context rather than conclusions, and nothing learned this way can authorise work,
+approve an action, or serve as evidence that a claim is currently true. It exists so the agent
+does not ask the same question twice, not so it can act on something nobody agreed to.
+
+### Product feedback
+
+When a message is clearly about Responder itself — a correction, a suggestion, an explicit
+complaint about how it behaved — the turn may return one `record_feedback` operation. That is
+stored, not acted on. Operational frustration about an outage, a provider, or a person is not
+Responder feedback and is not recorded as such.
+
+Open feedback appears on the App Home, grouped by category, where a configured operator can
+dismiss it or convert it into durable guidance. Conversion writes an ordinary guidance entry
+through the same validation as any other memory, so the model can record feedback but only a
+person can turn it into behaviour. Raw feedback never re-enters a prompt: otherwise anyone could
+shape how the agent works by typing a complaint into a channel.
 
 Arbitrary remembered prose never becomes an executable trigger or authority. Confirmed open-ended
 guidance may steer future model turns, but it cannot initiate work, count as evidence, authorize an
@@ -605,6 +653,11 @@ Key properties:
   channels only within that channel. Source summaries are removed transactionally only after their
   rollup is durable. Confirmed operator memory is never rewritten by this process; stale and exact
   duplicate candidates enter a separate operator review queue.
+- Accepted work carries a progress deadline. Maintenance surfaces an episode that has stopped
+  advancing in its own thread, once per progress generation, naming the current state and what an
+  operator can do. A second interval with no progress moves the episode to blocked rather than
+  repeating the notice: an operator should see a state, not a second reminder. This is what makes
+  "nothing accepted is silently abandoned" a property rather than an intention.
 
 ## 8. Main durable records
 
