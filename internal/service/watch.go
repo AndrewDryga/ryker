@@ -745,6 +745,33 @@ func (s *Service) applyReplyDecision(
 	return nil
 }
 
+// finishShadowedWatchDecision closes out a decision made in shadow mode: the
+// decision is recorded and the standing rules are marked as having run, but
+// nothing is posted.
+//
+// Shadow mode exists so a channel can be watched for a while before Responder
+// speaks in it. Recording the run against each matched rule matters even here —
+// it is what lets an operator see what the rule would have done before turning
+// it live.
+func (s *Service) finishShadowedWatchDecision(
+	ctx context.Context,
+	input core.SlackInput,
+	state watchTurnState,
+	decision watchDecision,
+) error {
+	s.audit(ctx, core.AuditEvent{
+		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+		Outcome: "shadowed", Detail: decision.Action,
+	})
+	for _, rule := range state.MatchedRules {
+		_, _ = s.store.RecordStandingRuleRun(ctx, rule.ID, input.ID, input.EventID, "shadowed")
+	}
+	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
+		return err
+	}
+	return s.finishInputIfOpen(ctx, input)
+}
+
 func (s *Service) applyWatchDecision(
 	ctx context.Context,
 	input core.SlackInput,
@@ -846,19 +873,7 @@ func (s *Service) applyWatchDecision(
 	}
 	state.RuleAcknowledged = false
 	if shadow {
-		s.audit(ctx, core.AuditEvent{
-			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-			Outcome: "shadowed", Detail: decision.Action,
-		})
-		for _, rule := range state.MatchedRules {
-			_, _ = s.store.RecordStandingRuleRun(
-				ctx, rule.ID, input.ID, input.EventID, "shadowed",
-			)
-		}
-		if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
-			return err
-		}
-		return s.finishInputIfOpen(ctx, input)
+		return s.finishShadowedWatchDecision(ctx, input, state, decision)
 	}
 	responseThreadTS := state.ResponseThreadTS
 	post := func(

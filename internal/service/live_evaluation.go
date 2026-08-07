@@ -33,6 +33,49 @@ type LiveEvaluationOptions struct {
 	EpisodeReplay    bool
 }
 
+// withDefaults fills in the bounds a live run needs. They are defaults rather
+// than required fields because every caller wants the same ones, and a zero
+// case timeout would mean an evaluation hangs on one stuck case forever.
+func (o LiveEvaluationOptions) withDefaults() LiveEvaluationOptions {
+	if o.CaseTimeout <= 0 {
+		o.CaseTimeout = 10 * time.Minute
+	}
+	if o.PollInterval <= 0 {
+		o.PollInterval = 500 * time.Millisecond
+	}
+	if o.CleanupTimeout <= 0 {
+		o.CleanupTimeout = 30 * time.Second
+	}
+	if o.Repeat <= 0 {
+		o.Repeat = 1
+	}
+	return o
+}
+
+// checkRecordingMode refuses a corpus that does not match the mode it is being
+// run in. Running a recorded case live would send its sanitized fixture to a
+// real model as though it were a fresh observation, and running a live case in
+// replay would report a pass for a case that exercised nothing.
+func checkRecordingMode(cases []EvaluationCase, episodeReplay bool) error {
+	for _, testCase := range cases {
+		hasRecording := len(testCase.RecordedEvents) > 0 || len(testCase.RecordedToolResults) > 0
+		if episodeReplay &&
+			(len(testCase.RecordedEvents) == 0 || len(testCase.RecordedToolResults) == 0) {
+			return fmt.Errorf(
+				"episode replay case %q requires recorded_events and recorded_tool_results",
+				testCase.Name,
+			)
+		}
+		if hasRecording && !episodeReplay {
+			return fmt.Errorf(
+				"evaluation case %q contains recorded fixtures; run it with episode replay enabled",
+				testCase.Name,
+			)
+		}
+	}
+	return nil
+}
+
 func EvaluateLiveJSONL(
 	ctx context.Context,
 	reader io.Reader,
@@ -47,18 +90,7 @@ func EvaluateLiveJSONL(
 	if client == nil {
 		return EvaluationSummary{}, errors.New("live evaluation requires Coop")
 	}
-	if options.CaseTimeout <= 0 {
-		options.CaseTimeout = 10 * time.Minute
-	}
-	if options.PollInterval <= 0 {
-		options.PollInterval = 500 * time.Millisecond
-	}
-	if options.CleanupTimeout <= 0 {
-		options.CleanupTimeout = 30 * time.Second
-	}
-	if options.Repeat <= 0 {
-		options.Repeat = 1
-	}
+	options = options.withDefaults()
 	cases = filterEvaluationCases(cases, options.CaseFilter)
 	if len(cases) == 0 {
 		return EvaluationSummary{}, fmt.Errorf(
@@ -66,21 +98,8 @@ func EvaluateLiveJSONL(
 			options.CaseFilter,
 		)
 	}
-	for _, testCase := range cases {
-		hasRecording := len(testCase.RecordedEvents) > 0 || len(testCase.RecordedToolResults) > 0
-		if options.EpisodeReplay &&
-			(len(testCase.RecordedEvents) == 0 || len(testCase.RecordedToolResults) == 0) {
-			return EvaluationSummary{}, fmt.Errorf(
-				"episode replay case %q requires recorded_events and recorded_tool_results",
-				testCase.Name,
-			)
-		}
-		if hasRecording && !options.EpisodeReplay {
-			return EvaluationSummary{}, fmt.Errorf(
-				"evaluation case %q contains recorded fixtures; run it with episode replay enabled",
-				testCase.Name,
-			)
-		}
+	if err := checkRecordingMode(cases, options.EpisodeReplay); err != nil {
+		return EvaluationSummary{}, err
 	}
 	runID, err := core.NewID("eval")
 	if err != nil {

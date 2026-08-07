@@ -953,53 +953,97 @@ func validateSlack(c SlackConfig) error {
 	return nil
 }
 
+// validateCoop rejects a Coop configuration Responder could not run against.
+//
+// The path, duration and range rules are tables rather than cases because they
+// are the same rule repeated: every path must be absolute and clean, or a
+// relative one resolves against whatever directory the process happened to
+// start in. Writing each out separately is how one of them ends up missing the
+// Clean check.
 func validateCoop(c CoopConfig) error {
+	for _, path := range []struct {
+		name     string
+		value    string
+		optional bool
+	}{
+		{"state_dir", c.StateDir, false},
+		{"socket", c.Socket, false},
+		{"bootstrap_dir", c.BootstrapDir, false},
+		{"policies", c.Policies, true},
+		{"additional_mcp_file", c.AdditionalMCP, true},
+		{"additional_env_file", c.AdditionalEnv, true},
+	} {
+		if path.optional && path.value == "" {
+			continue
+		}
+		if path.value == "" || !filepath.IsAbs(path.value) ||
+			filepath.Clean(path.value) != path.value {
+			return fmt.Errorf("%s must be an absolute clean path", path.name)
+		}
+	}
+	for _, window := range []struct {
+		name     string
+		value    time.Duration
+		min, max time.Duration
+	}{
+		{"restart_delay", c.RestartDelay.Duration, 100 * time.Millisecond, time.Minute},
+		{"request_timeout", c.RequestTimeout.Duration, time.Second, 2 * time.Minute},
+		{"poll_interval", c.PollInterval.Duration, 100 * time.Millisecond, time.Minute},
+		{"emisar_approval_poll_interval", c.ApprovalPoll.Duration, time.Second, time.Minute},
+		{"watch_session_max_age", c.WatchSessionAge.Duration, time.Hour, 30 * 24 * time.Hour},
+	} {
+		if window.value < window.min || window.value > window.max {
+			return fmt.Errorf(
+				"%s must be between %s and %s",
+				window.name, shortDuration(window.min), shortDuration(window.max),
+			)
+		}
+	}
+	for _, count := range []struct {
+		name     string
+		value    int
+		min, max int
+	}{
+		{"extend_turns", c.ExtendTurns, 1, 1000},
+		{"turn_limit", c.TurnLimit, 100, 10000},
+		{"prewarm_conversation_sessions", c.PrewarmSessions, 0, 20},
+		{"watch_session_max_turns", c.WatchSessionTurns, 5, 500},
+	} {
+		if count.value < count.min || count.value > count.max {
+			return fmt.Errorf("%s must be between %d and %d", count.name, count.min, count.max)
+		}
+	}
 	switch {
 	case c.Binary == "" || (strings.ContainsRune(c.Binary, filepath.Separator) &&
 		(!filepath.IsAbs(c.Binary) || filepath.Clean(c.Binary) != c.Binary)):
 		return errors.New("binary must be a command name or absolute clean path")
-	case c.StateDir == "" || !filepath.IsAbs(c.StateDir) || filepath.Clean(c.StateDir) != c.StateDir:
-		return errors.New("state_dir must be an absolute clean path")
-	case c.Policies != "" && (!filepath.IsAbs(c.Policies) || filepath.Clean(c.Policies) != c.Policies):
-		return errors.New("policies must be an absolute clean path")
 	case c.Supervise && c.Policies == "":
 		return errors.New("policies is required when supervise is true")
-	case c.RestartDelay.Duration < 100*time.Millisecond || c.RestartDelay.Duration > time.Minute:
-		return errors.New("restart_delay must be between 100ms and 1m")
-	case c.Socket == "" || !filepath.IsAbs(c.Socket) || filepath.Clean(c.Socket) != c.Socket:
-		return errors.New("socket must be an absolute clean path")
-	case c.BootstrapDir == "" || !filepath.IsAbs(c.BootstrapDir) || filepath.Clean(c.BootstrapDir) != c.BootstrapDir:
-		return errors.New("bootstrap_dir must be an absolute clean path")
-	case c.RequestTimeout.Duration < time.Second || c.RequestTimeout.Duration > 2*time.Minute:
-		return errors.New("request_timeout must be between 1s and 2m")
-	case c.PollInterval.Duration < 100*time.Millisecond || c.PollInterval.Duration > time.Minute:
-		return errors.New("poll_interval must be between 100ms and 1m")
-	case c.ExtendTurns < 1 || c.ExtendTurns > 1000:
-		return errors.New("extend_turns must be between 1 and 1000")
-	case c.TurnLimit < 100 || c.TurnLimit > 10000:
-		return errors.New("turn_limit must be between 100 and 10000")
 	case !strings.HasPrefix(c.EmisarURL, "https://"):
 		return errors.New("emisar_url must be an https URL")
 	case !envPattern.MatchString(c.EmisarTokenEnv):
 		return errors.New("emisar_token_env must name an environment variable")
-	case c.ApprovalPoll.Duration < time.Second || c.ApprovalPoll.Duration > time.Minute:
-		return errors.New("emisar_approval_poll_interval must be between 1s and 1m")
-	case c.AdditionalMCP != "" &&
-		(!filepath.IsAbs(c.AdditionalMCP) || filepath.Clean(c.AdditionalMCP) != c.AdditionalMCP):
-		return errors.New("additional_mcp_file must be an absolute clean path")
-	case c.AdditionalEnv != "" &&
-		(!filepath.IsAbs(c.AdditionalEnv) || filepath.Clean(c.AdditionalEnv) != c.AdditionalEnv):
-		return errors.New("additional_env_file must be an absolute clean path")
-	case c.PrewarmSessions < 0 || c.PrewarmSessions > 20:
-		return errors.New("prewarm_conversation_sessions must be between 0 and 20")
-	case c.WatchSessionTurns < 5 || c.WatchSessionTurns > 500:
-		return errors.New("watch_session_max_turns must be between 5 and 500")
-	case c.WatchSessionAge.Duration < time.Hour || c.WatchSessionAge.Duration > 30*24*time.Hour:
-		return errors.New("watch_session_max_age must be between 1h and 720h")
 	case strings.TrimSpace(c.Instructions) == "":
 		return errors.New("instructions must not be empty")
 	}
 	return nil
+}
+
+// shortDuration renders a bound the way the configuration file writes it, so
+// an error names a value an operator can paste back.
+func shortDuration(value time.Duration) string {
+	switch {
+	case value >= 24*time.Hour && value%(24*time.Hour) == 0:
+		return fmt.Sprintf("%dh", int(value.Hours()))
+	case value >= time.Hour && value%time.Hour == 0:
+		return fmt.Sprintf("%dh", int(value.Hours()))
+	case value >= time.Minute && value%time.Minute == 0:
+		return fmt.Sprintf("%dm", int(value.Minutes()))
+	case value >= time.Second && value%time.Second == 0:
+		return fmt.Sprintf("%ds", int(value.Seconds()))
+	default:
+		return value.String()
+	}
 }
 
 func validateWebhook(w Webhook) error {
