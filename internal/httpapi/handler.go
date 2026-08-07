@@ -179,6 +179,8 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 		{"responder_agent_runs_pending", "Agent runs awaiting terminal completion.", snapshot.AgentRunsPending},
 		{"responder_work_failed", "Durable work items in a terminal failure state.", snapshot.WorkFailed},
 		{"responder_episodes_overdue", "Accepted work past its progress deadline.", snapshot.EpisodesOverdue},
+		{"responder_corrections_awaiting_review", "Corrections the product made about itself that nobody has judged yet.", snapshot.CorrectionsAwaitingReview},
+		{"responder_corrections_lapsing_soon", "Pending corrections that expire within three days.", snapshot.CorrectionsLapsingSoon},
 	}
 	for _, metric := range metrics {
 		fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n%s %d\n",

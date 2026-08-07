@@ -429,6 +429,24 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 		"Lifecycle: %d draft PRs, %d cleanup queued, %d cleanup blocked\n",
 		metrics.PublishedPRs, metrics.CleanupPending, metrics.CleanupBlocked,
 	)
+	// Reported unconditionally when there is anything to review, because the
+	// only other place it appears is App Home, which nobody has to open. A
+	// correction that lapses is one the product made about itself, kept for a
+	// fortnight, and then forgot.
+	if metrics.CorrectionsAwaitingReview > 0 {
+		lapsing := ""
+		if metrics.CorrectionsLapsingSoon > 0 {
+			lapsing = fmt.Sprintf(
+				" — %d lapse within 3 days", metrics.CorrectionsLapsingSoon,
+			)
+		}
+		fmt.Fprintf(
+			stdout,
+			"Corrections: %d awaiting review%s. Review them in App Home; "+
+				"unreviewed corrections expire and are not learned from.\n",
+			metrics.CorrectionsAwaitingReview, lapsing,
+		)
+	}
 	if len(incidents) == 0 {
 		fmt.Fprintln(stdout, "No incidents.")
 		return nil

@@ -88,6 +88,16 @@ type Metrics struct {
 	SchedulesPaused        int `json:"schedules_paused"`
 	ScheduleRunsActive     int `json:"schedule_runs_active"`
 	EpisodesOverdue        int `json:"episodes_overdue"`
+	// CorrectionsAwaitingReview is how many corrections the product made about
+	// itself that nobody has judged yet.
+	//
+	// Reported because the self-improvement loop stalls here silently. A
+	// candidate that lapses is a correction the product made, kept for a
+	// fortnight, and then forgot — and until this was counted the only place
+	// it appeared was App Home, which nobody has to open.
+	CorrectionsAwaitingReview int `json:"corrections_awaiting_review"`
+	// CorrectionsLapsingSoon is the subset expiring within three days.
+	CorrectionsLapsingSoon int `json:"corrections_lapsing_soon"`
 }
 
 type FailedWork struct {
@@ -755,6 +765,14 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 		// failed, so a refused episode was excluded by the 'failed' entry.
 		// Translating the column name without translating the vocabulary would
 		// have started counting every refused episode as overdue.
+		{&result.CorrectionsAwaitingReview, `
+		  SELECT count(*) FROM fixture_candidates
+		  WHERE status = 'pending' AND julianday(expires_at) > julianday('now')`},
+		{&result.CorrectionsLapsingSoon, `
+		  SELECT count(*) FROM fixture_candidates
+		  WHERE status = 'pending'
+		    AND julianday(expires_at) > julianday('now')
+		    AND julianday(expires_at) <= julianday('now', '+3 days')`},
 		{&result.EpisodesOverdue, `SELECT count(*) FROM work_episodes
 		  WHERE completed_at IS NULL AND progress_due_at IS NOT NULL
 		    AND julianday(progress_due_at) <= julianday('now')
