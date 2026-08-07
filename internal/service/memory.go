@@ -159,8 +159,10 @@ func (s *Service) loadOperationalMemoryContext(
 		})
 	}
 	if ids := memoryEntryIDs(entries); len(ids) > 0 {
-		if err := s.store.MarkMemoryEntriesRecalled(ctx, ids); err != nil {
-			return operationalMemoryContext{}, err
+		// Recall bookkeeping is telemetry for the review queue. Losing a write
+		// must not cost the turn its context.
+		if err := s.store.MarkMemoryEntriesRecalled(ctx, ids); err != nil && ctx.Err() == nil {
+			s.log.Warn("record memory recall", "entries", len(ids), "error", err)
 		}
 	}
 	for _, rollup := range rollups {
@@ -174,8 +176,8 @@ func (s *Service) loadOperationalMemoryContext(
 		})
 	}
 	if ids := memoryRollupIDs(rollups); len(ids) > 0 {
-		if err := s.store.MarkMemoryRollupsRecalled(ctx, ids); err != nil {
-			return operationalMemoryContext{}, err
+		if err := s.store.MarkMemoryRollupsRecalled(ctx, ids); err != nil && ctx.Err() == nil {
+			s.log.Warn("record rollup recall", "rollups", len(ids), "error", err)
 		}
 	}
 	for _, item := range evidence {
@@ -326,7 +328,7 @@ func (s *Service) handleRememberMemory(
 		payload.ChannelID == "" || payload.ChannelID != input.ChannelID ||
 		payload.IssuedAt.IsZero() ||
 		payload.IssuedAt.After(s.now().UTC().Add(5*time.Minute)) ||
-		time.Since(payload.IssuedAt) > memoryOfferMaxAge {
+		s.now().UTC().Sub(payload.IssuedAt) > memoryOfferMaxAge {
 		return s.finishSlashInput(
 			ctx, input,
 			"*This memory confirmation is invalid or stale.* Nothing was saved. Ask Responder "+

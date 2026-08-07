@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -94,5 +96,22 @@ func TestMergeAgentMemoriesIsBoundedAndNewestWins(t *testing.T) {
 	if merged.Goal != "new goal" || len(merged.Decisions) != 2 ||
 		merged.Decisions[0] != "keep canary" {
 		t.Fatalf("merged = %+v", merged)
+	}
+}
+
+// Rollup source refs and merged memory fields carry model-produced text, so a
+// bound that lands mid-rune corrupts what is stored and later re-encoded.
+func TestBoundedUniqueKeepsRunesIntact(t *testing.T) {
+	// 199 ASCII bytes then a 3-byte rune, so a 200-byte bound lands inside it.
+	value := strings.Repeat("a", 199) + "→ tail"
+	result := boundedUnique([]string{value}, 10, 200)
+	if len(result) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	if !utf8.ValidString(result[0]) {
+		t.Fatalf("bounded value is not valid UTF-8: %q", result[0])
+	}
+	if len(result[0]) > 200 {
+		t.Fatalf("bounded value is %d bytes, over the 200 bound", len(result[0]))
 	}
 }

@@ -99,12 +99,18 @@ func New(
 		logger = slog.Default()
 	}
 	handler := &Handler{cfg: cfg, store: st, service: svc, secrets: secrets, log: logger}
+	return securityHeaders(handler.mux())
+}
+
+// mux routes the API. It is separate from New so a test can drive a Handler it
+// constructed itself without reaching back through the middleware.
+func (h *Handler) mux() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", handler.health)
-	mux.HandleFunc("GET /readyz", handler.ready)
-	mux.HandleFunc("GET /metrics", handler.metrics)
-	mux.HandleFunc("POST /v1/hooks/{route}", handler.webhook)
-	return wrapped{Handler: securityHeaders(mux), handler: handler}
+	mux.HandleFunc("GET /healthz", h.health)
+	mux.HandleFunc("GET /readyz", h.ready)
+	mux.HandleFunc("GET /metrics", h.metrics)
+	mux.HandleFunc("POST /v1/hooks/{route}", h.webhook)
+	return mux
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -355,19 +361,4 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write(append(data, '\n'))
-}
-
-// wrapped lets tests reach the Handler behind securityHeaders without exporting
-// it. Production callers only ever see the http.Handler that New returns.
-type wrapped struct {
-	http.Handler
-	handler *Handler
-}
-
-func handlerBehindMiddleware(value http.Handler) (*Handler, bool) {
-	inner, ok := value.(wrapped)
-	if !ok {
-		return nil, false
-	}
-	return inner.handler, true
 }

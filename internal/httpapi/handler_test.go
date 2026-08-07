@@ -3,6 +3,8 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -186,10 +188,13 @@ func TestStatusReadsAreCachedAndRefreshAfterTTL(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	handler := New(cfg, st, service.New(cfg, st, nil, nil, nil, nil, nil),
-		map[string]string{"grafana": "hook-secret"}, nil)
-
-	inner := unwrapHandler(t, handler)
+	inner := &Handler{
+		cfg: cfg, store: st,
+		service: service.New(cfg, st, nil, nil, nil, nil, nil),
+		secrets: map[string]string{"grafana": "hook-secret"},
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	handler := securityHeaders(inner.mux())
 	base := time.Unix(1700000000, 0).UTC()
 	inner.statusClock = func() time.Time { return base }
 
@@ -220,16 +225,6 @@ func TestStatusReadsAreCachedAndRefreshAfterTTL(t *testing.T) {
 	if !inner.statusUntil.After(firstExpiry) {
 		t.Fatal("status cache did not refresh after its TTL")
 	}
-}
-
-// unwrapHandler reaches the Handler behind the security-header middleware.
-func unwrapHandler(t *testing.T, handler http.Handler) *Handler {
-	t.Helper()
-	inner, ok := handlerBehindMiddleware(handler)
-	if !ok {
-		t.Fatal("could not reach the Handler behind its middleware")
-	}
-	return inner
 }
 
 // The truncation counters are how an operator learns the agent is being handed

@@ -212,9 +212,7 @@ func boundedUnique(values []string, limit int, maxBytes int) []string {
 		if value == "" {
 			continue
 		}
-		if len(value) > maxBytes {
-			value = value[:maxBytes]
-		}
+		value = core.TruncateUTF8(value, maxBytes)
 		key := strings.ToLower(value)
 		if _, ok := seen[key]; ok {
 			continue

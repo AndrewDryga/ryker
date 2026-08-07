@@ -207,3 +207,126 @@ func TestPackageLineBudget(t *testing.T) {
 		}
 	}
 }
+
+// stringSliceAllowlist names the few places a raw byte slice over a string is
+// correct: fixed-width hex digests and identifiers whose alphabet is ASCII by
+// construction. Everything else must go through core.TruncateUTF8.
+var stringSliceAllowlist = map[string]bool{
+	"internal/publisher/github.go":             true, // slug is ASCII by regex construction
+	"internal/service/publication_followup.go": true, // 7-char hex SHA prefix
+	"internal/slackui/message.go":              true, // hex digest + ShortID over an ASCII id
+	"internal/core/text.go":                    true, // the safe truncation helper itself
+	"internal/coop/client.go":                  true, // prompt elision walks rune boundaries itself
+}
+
+// Slicing a string on a byte boundary splits multi-byte runes, which reaches
+// operators as a replacement character and corrupts anything that re-encodes
+// the value as JSON. The whole codebase was cleaned of this once and it came
+// back in new code, so it is now a build-time rule rather than a convention.
+func TestNoRawStringSlicing(t *testing.T) {
+	packages := goPackages(t)
+	root := repoRoot(t)
+	for _, files := range packages {
+		for _, path := range files {
+			relative := strings.TrimPrefix(path, root+"/")
+			if stringSliceAllowlist[relative] {
+				continue
+			}
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info := stringTypedLocals(file)
+			ast.Inspect(file, func(node ast.Node) bool {
+				slice, ok := node.(*ast.SliceExpr)
+				if !ok {
+					return true
+				}
+				ident, isIdent := slice.X.(*ast.Ident)
+				if !isIdent || !info[ident.Name] || !truncatingBound(slice) {
+					return true
+				}
+				t.Errorf(
+					"%s:%d: %s is a string sliced on a byte boundary; use core.TruncateUTF8 "+
+						"(or add the file to stringSliceAllowlist with a reason)",
+					relative, fset.Position(slice.Pos()).Line, ident.Name,
+				)
+				return true
+			})
+		}
+	}
+}
+
+// truncatingBound reports whether a slice expression is a truncation — no low
+// bound, and a high bound that is a size rather than an offset found inside the
+// string. Slicing at a strings.Index result is rune-aligned and safe; slicing
+// at a byte count is not.
+func truncatingBound(slice *ast.SliceExpr) bool {
+	if slice.Low != nil || slice.High == nil || slice.Slice3 {
+		return false
+	}
+	var literal func(ast.Expr) bool
+	literal = func(expr ast.Expr) bool {
+		switch value := expr.(type) {
+		case *ast.BasicLit:
+			return value.Kind == token.INT
+		case *ast.BinaryExpr:
+			return literal(value.X) && literal(value.Y)
+		case *ast.ParenExpr:
+			return literal(value.X)
+		case *ast.Ident:
+			name := strings.ToLower(value.Name)
+			return strings.HasPrefix(name, "max") || strings.HasPrefix(name, "limit") ||
+				strings.HasSuffix(name, "bytes") || strings.HasSuffix(name, "limit") ||
+				strings.HasSuffix(name, "max")
+		}
+		return false
+	}
+	return literal(slice.High)
+}
+
+// stringTypedLocals reports identifiers declared as string in this file, which
+// is enough to catch the pattern without full type checking.
+func stringTypedLocals(file *ast.File) map[string]bool {
+	names := map[string]bool{}
+	record := func(name string, typ ast.Expr) {
+		if ident, ok := typ.(*ast.Ident); ok && ident.Name == "string" {
+			names[name] = true
+		}
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch decl := node.(type) {
+		case *ast.ValueSpec:
+			for _, name := range decl.Names {
+				if decl.Type != nil {
+					record(name.Name, decl.Type)
+				}
+			}
+		case *ast.Field:
+			for _, name := range decl.Names {
+				record(name.Name, decl.Type)
+			}
+		case *ast.AssignStmt:
+			for index, lhs := range decl.Lhs {
+				ident, ok := lhs.(*ast.Ident)
+				if !ok || index >= len(decl.Rhs) {
+					continue
+				}
+				if literal, isLiteral := decl.Rhs[index].(*ast.BasicLit); isLiteral &&
+					literal.Kind == token.STRING {
+					names[ident.Name] = true
+				}
+				if call, isCall := decl.Rhs[index].(*ast.CallExpr); isCall {
+					if fn, isSelector := call.Fun.(*ast.SelectorExpr); isSelector {
+						if pkg, isPkg := fn.X.(*ast.Ident); isPkg && pkg.Name == "strings" {
+							names[ident.Name] = true
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+	return names
+}

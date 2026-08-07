@@ -105,11 +105,7 @@ func (s *Service) assembleAgentContext(
 			if conversationErr == nil {
 				result.Situation = conversation.State
 				sinceTS = conversation.LastMessage
-				if err := s.store.MarkConversationMemoriesRecalled(
-					ctx, []core.ConversationMemory{conversation},
-				); err != nil {
-					return assembledAgentContext{}, err
-				}
+				s.markRecalled(ctx, []core.ConversationMemory{conversation})
 			} else if !errors.Is(conversationErr, store.ErrNotFound) {
 				return assembledAgentContext{}, conversationErr
 			} else if threadTS != "" {
@@ -127,9 +123,7 @@ func (s *Service) assembleAgentContext(
 			return assembledAgentContext{}, relatedErr
 		}
 		related = selectRelevantConversationMemories(related, memoryQuery, 6)
-		if err := s.store.MarkConversationMemoriesRecalled(ctx, related); err != nil {
-			return assembledAgentContext{}, err
-		}
+		s.markRecalled(ctx, related)
 		result.RelatedSituations = make(
 			[]conversationSituationContext,
 			0,
@@ -225,6 +219,18 @@ func (s *Service) assembleAgentContext(
 		result.ReferencedThread = referenced
 	}
 	return result, nil
+}
+
+// markRecalled records that conversation memories were used. It is telemetry
+// for the review queue, so a failed write is logged and the turn continues:
+// losing a counter must not cost the model its context.
+func (s *Service) markRecalled(ctx context.Context, items []core.ConversationMemory) {
+	if len(items) == 0 {
+		return
+	}
+	if err := s.store.MarkConversationMemoriesRecalled(ctx, items); err != nil && ctx.Err() == nil {
+		s.log.Warn("record conversation memory recall", "memories", len(items), "error", err)
+	}
 }
 
 func (s *Service) recentMessages(

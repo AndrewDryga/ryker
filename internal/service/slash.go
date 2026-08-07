@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -1098,7 +1100,7 @@ func incidentDirectoryMessage(
 	last := first + len(incidents) - 1
 	header := fmt.Sprintf(
 		"%s incidents (%d)",
-		strings.ToUpper(scope[:1])+scope[1:],
+		upperFirst(scope),
 		total,
 	)
 	if pageCount > 1 {
@@ -1590,4 +1592,15 @@ func slashControlReceipt(command, incidentID string) string {
 			"state may have changed while this command was being processed.",
 		incidentID, effect,
 	)
+}
+
+// upperFirst capitalises the first rune of a label. Slicing the first byte
+// would be correct only while every label is ASCII, which is not a property
+// worth relying on for display text.
+func upperFirst(value string) string {
+	if value == "" {
+		return value
+	}
+	first, size := utf8.DecodeRuneInString(value)
+	return string(unicode.ToUpper(first)) + value[size:]
 }

@@ -55,7 +55,24 @@ type Item struct {
 }
 
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	clock func() time.Time
+}
+
+// now is the store clock. Retention and digest windows read it, so a test can
+// move time instead of waiting for it.
+func (s *Store) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
+}
+
+// SetClock replaces the store clock. It exists for tests.
+func (s *Store) SetClock(clock func() time.Time) {
+	if clock != nil {
+		s.clock = clock
+	}
 }
 
 func Open(stateDir string) (*Store, error) {
@@ -121,7 +138,7 @@ func (s *Store) Record(ctx context.Context, item Item) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = now
 	}
@@ -163,7 +180,7 @@ func (s *Store) Withdraw(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE feedback_items
 		SET status = 'withdrawn', updated_at = ?
-		WHERE id = ?`, time.Now().UTC().Format(timestampFormat), id)
+		WHERE id = ?`, s.now().UTC().Format(timestampFormat), id)
 	return err
 }
 

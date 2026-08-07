@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -213,13 +212,7 @@ func simpleExplanationRequest(text string) bool {
 }
 
 func boundedOperatorText(text string) string {
-	text = strings.TrimSpace(text)
-	if len(text) > 20<<10 {
-		text = text[:20<<10]
-		for !utf8.ValidString(text) {
-			text = text[:len(text)-1]
-		}
-	}
+	text = core.BoundedText(text, 20<<10)
 	return text
 }
 

@@ -411,12 +411,7 @@ func safeAttachmentName(name, fallback string) string {
 	if value == "" {
 		value = "attachment-" + fallback
 	}
-	if len(value) > 255 {
-		value = value[:255]
-		for !utf8.ValidString(value) {
-			value = value[:len(value)-1]
-		}
-	}
+	value = core.TruncateUTF8(value, 255)
 	return value
 }
 

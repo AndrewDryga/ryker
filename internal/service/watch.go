@@ -2401,7 +2401,7 @@ func rejectUnexpectedWatchFields(decision watchDecision) error {
 			continue
 		}
 		if decision.Action == "reply" {
-			return errors.New("reply decision has an unexpected title")
+			return fmt.Errorf("reply decision has an unexpected %s", field.name)
 		}
 		return fmt.Errorf("%s decision has unexpected fields", action.noun)
 	}

@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -360,13 +359,7 @@ func boundedMap(values map[string]string, limit int) map[string]string {
 
 func trimBounded(value string, limit int) string {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\x00", ""))
-	if len(value) <= limit {
-		return value
-	}
-	for limit > 0 && !utf8.ValidString(value[:limit]) {
-		limit--
-	}
-	return strings.TrimSpace(value[:limit])
+	return core.TruncateUTF8(value, limit)
 }
 
 func firstNonempty(values ...string) string {
