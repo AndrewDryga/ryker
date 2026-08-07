@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 40
+const currentSchemaVersion = 41
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1103,6 +1103,39 @@ DROP TABLE IF EXISTS episode_effects;
 // migrations maps a target schema version to the statement that reaches it
 // from the version before. Versions at or below the baseline are absent
 // because baselineSchema already produces them.
+const schemaV41 = `
+-- Product feedback lived in its own SQLite file beside the main database, which
+-- put it outside the schema baseline, outside the verified pre-migration
+-- backup, and outside every cross-table transaction. Feedback is durable
+-- product state and belongs under the same guarantees as everything else.
+CREATE TABLE feedback_items (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL DEFAULT '',
+  message_ts TEXT NOT NULL DEFAULT '',
+  target_message_ts TEXT NOT NULL DEFAULT '',
+  user_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  category TEXT NOT NULL,
+  sentiment TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  details TEXT NOT NULL DEFAULT '',
+  context_json BLOB NOT NULL,
+  episode_id TEXT NOT NULL DEFAULT '',
+  agent_run_id TEXT NOT NULL DEFAULT '',
+  source_ref TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  resolved_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX feedback_items_workspace_status_updated
+  ON feedback_items(workspace_id, status, updated_at DESC);
+`
+
 var migrations = map[int]string{
 	40: schemaV40,
+	41: schemaV41,
 }

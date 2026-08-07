@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
-	feedbackstore "github.com/AndrewDryga/responder/internal/feedback"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -33,15 +32,6 @@ func (s *Service) sanitizeFeedbackText(value string) string {
 	return s.sanitizer.Text(value)
 }
 
-func (s *Service) withFeedbackStore(fn func(*feedbackstore.Store) error) error {
-	feedback, err := feedbackstore.Open(s.cfg.StateDir)
-	if err != nil {
-		return err
-	}
-	defer feedback.Close()
-	return fn(feedback)
-}
-
 func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackInput) error {
 	if _, negative := negativeFeedbackReactions[input.ActionID]; !negative {
 		return nil
@@ -55,15 +45,13 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 	}
 	id := feedbackID("reaction", input.TeamID, input.ChannelID, input.ActionValue, input.UserID, input.ActionID)
 	if input.Kind == "reaction_removed" {
-		return s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-			return feedback.Withdraw(ctx, id)
-		})
+		return s.store.WithdrawFeedback(ctx, id)
 	}
 	contextMessages, err := s.feedbackContext(ctx, input, watchTurnState{}, input.ActionValue)
 	if err != nil {
 		return err
 	}
-	item := feedbackstore.Item{
+	item := store.FeedbackItem{
 		ID: id, WorkspaceID: input.TeamID, ChannelID: input.ChannelID,
 		ThreadTS: input.ThreadTS, MessageTS: input.MessageTS,
 		TargetMessageTS: input.ActionValue, UserID: input.UserID,
@@ -72,10 +60,10 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 		Details: "Slack reaction: :" + input.ActionID + ":",
 		Context: contextMessages, SourceRef: exactSlackMessageLink(input, input.ActionValue),
 	}
-	return s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-		_, err := feedback.Record(ctx, item)
+	if _, err := s.store.RecordFeedback(ctx, item); err != nil {
 		return err
-	})
+	}
+	return nil
 }
 
 func (s *Service) recordFeedbackOperations(
@@ -94,7 +82,7 @@ func (s *Service) recordFeedbackOperations(
 		if err != nil {
 			return err
 		}
-		item := feedbackstore.Item{
+		item := store.FeedbackItem{
 			ID:          feedbackID("model", input.TeamID, input.ID, operation.ID),
 			WorkspaceID: input.TeamID, ChannelID: input.ChannelID,
 			ThreadTS: input.ThreadTS, MessageTS: input.MessageTS,
@@ -105,10 +93,7 @@ func (s *Service) recordFeedbackOperations(
 			Context: contextMessages, EpisodeID: run.EpisodeID, AgentRunID: run.ID,
 			SourceRef: exactSlackMessageLink(input, input.MessageTS),
 		}
-		if err := s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-			_, err := feedback.Record(ctx, item)
-			return err
-		}); err != nil {
+		if _, err := s.store.RecordFeedback(ctx, item); err != nil {
 			return err
 		}
 	}
@@ -124,7 +109,7 @@ func (s *Service) recordExplicitFeedback(
 	if err != nil {
 		return err
 	}
-	item := feedbackstore.Item{
+	item := store.FeedbackItem{
 		ID:          feedbackID("explicit", input.TeamID, input.ID),
 		WorkspaceID: input.TeamID, ChannelID: input.ChannelID,
 		ThreadTS: input.ThreadTS, MessageTS: input.MessageTS, UserID: input.UserID,
@@ -132,10 +117,10 @@ func (s *Service) recordExplicitFeedback(
 		Summary: truncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(text)), 500),
 		Context: contextMessages, SourceRef: exactSlackMessageLink(input, input.MessageTS),
 	}
-	return s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-		_, err := feedback.Record(ctx, item)
+	if _, err := s.store.RecordFeedback(ctx, item); err != nil {
 		return err
-	})
+	}
+	return nil
 }
 
 func (s *Service) feedbackContext(
@@ -143,7 +128,7 @@ func (s *Service) feedbackContext(
 	input core.SlackInput,
 	state watchTurnState,
 	targetMessageTS string,
-) ([]feedbackstore.ContextMessage, error) {
+) ([]store.FeedbackContextMessage, error) {
 	messages := state.RecentMessages
 	if len(messages) == 0 {
 		targetTS := core.FirstNonempty(targetMessageTS, input.MessageTS)
@@ -163,15 +148,15 @@ func (s *Service) feedbackContext(
 			}
 		}
 	}
-	result := make([]feedbackstore.ContextMessage, 0, len(messages)+1)
+	result := make([]store.FeedbackContextMessage, 0, len(messages)+1)
 	for _, message := range messages {
-		attachments := make([]feedbackstore.ContextAttachment, 0, len(message.Attachments))
+		attachments := make([]store.FeedbackContextAttachment, 0, len(message.Attachments))
 		for _, attachment := range message.Attachments {
-			attachments = append(attachments, feedbackstore.ContextAttachment{
+			attachments = append(attachments, store.FeedbackContextAttachment{
 				Name: attachment.Name, MediaType: attachment.MediaType, Size: attachment.Size,
 			})
 		}
-		result = append(result, feedbackstore.ContextMessage{
+		result = append(result, store.FeedbackContextMessage{
 			MessageTS: message.MessageTS, ThreadTS: message.ThreadTS,
 			MessageLink: message.MessageLink, SenderID: message.SenderID,
 			SenderType:  message.SenderType,
@@ -185,7 +170,7 @@ func (s *Service) feedbackContext(
 			var message slackui.Message
 			if json.Unmarshal(delivery.Body, &message) == nil {
 				text := core.FirstNonempty(message.Markdown, strings.Join(message.Sections, "\n"), message.Text)
-				result = append(result, feedbackstore.ContextMessage{
+				result = append(result, store.FeedbackContextMessage{
 					MessageTS: targetMessageTS, ThreadTS: delivery.ThreadTS,
 					SenderID: s.identity.BotUserID, SenderType: "responder",
 					Text: truncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(text)), 3000),
@@ -220,12 +205,8 @@ func (s *Service) finishSlashFeedback(ctx context.Context, input core.SlackInput
 			"Thanks. I saved that with the nearby conversation so the team can reproduce and improve it.",
 		))
 	}
-	var items []feedbackstore.Item
-	if err := s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-		var err error
-		items, err = feedback.ListOpen(ctx, s.cfg.Slack.TeamID, 20)
-		return err
-	}); err != nil {
+	items, err := s.store.ListOpenFeedback(ctx, s.cfg.Slack.TeamID, 20)
+	if err != nil {
 		return err
 	}
 	if len(items) == 0 {
@@ -251,22 +232,18 @@ func (s *Service) finishSlashFeedback(ctx context.Context, input core.SlackInput
 // openFeedbackSummaries lists product feedback still awaiting an operator
 // decision, for the App Home digest.
 func (s *Service) openFeedbackSummaries(ctx context.Context) ([]slackui.FeedbackSummary, error) {
-	var result []slackui.FeedbackSummary
-	err := s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-		items, err := feedback.ListOpen(ctx, s.cfg.Slack.TeamID, 20)
-		if err != nil {
-			return err
-		}
-		result = make([]slackui.FeedbackSummary, 0, len(items))
-		for _, item := range items {
-			result = append(result, slackui.FeedbackSummary{
-				ID: item.ID, Category: item.Category, Sentiment: item.Sentiment,
-				Summary: item.Summary, SourceRef: item.SourceRef,
-			})
-		}
-		return nil
-	})
-	return result, err
+	items, err := s.store.ListOpenFeedback(ctx, s.cfg.Slack.TeamID, 20)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]slackui.FeedbackSummary, 0, len(items))
+	for _, item := range items {
+		result = append(result, slackui.FeedbackSummary{
+			ID: item.ID, Category: item.Category, Sentiment: item.Sentiment,
+			Summary: item.Summary, SourceRef: item.SourceRef,
+		})
+	}
+	return result, nil
 }
 
 // handleDismissFeedback records that an operator read a feedback item and chose
@@ -277,10 +254,8 @@ func (s *Service) handleDismissFeedback(ctx context.Context, input core.SlackInp
 	if err != nil || !allowed {
 		return err
 	}
-	err = s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-		return feedback.Resolve(ctx, input.ActionValue, "dismissed", input.UserID)
-	})
-	if errors.Is(err, feedbackstore.ErrNotOpen) {
+	err = s.store.ResolveFeedback(ctx, input.ActionValue, "dismissed", input.UserID)
+	if errors.Is(err, store.ErrFeedbackNotOpen) {
 		return s.memoryActionFeedback(
 			ctx, input, "*That feedback was already resolved.* Nothing changed.",
 		)
@@ -306,12 +281,8 @@ func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInp
 	if err != nil || !allowed {
 		return err
 	}
-	var item feedbackstore.Item
-	if err := s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-		var readErr error
-		item, readErr = feedback.Get(ctx, input.ActionValue)
-		return readErr
-	}); err != nil {
+	item, err := s.store.GetFeedback(ctx, input.ActionValue)
+	if err != nil {
 		return s.memoryActionFeedback(
 			ctx, input, "*That feedback is no longer available.* Nothing changed.",
 		)
@@ -344,9 +315,7 @@ func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInp
 	if err != nil {
 		return err
 	}
-	if err := s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-		return feedback.Resolve(ctx, item.ID, "converted", input.UserID)
-	}); err != nil && !errors.Is(err, feedbackstore.ErrNotOpen) {
+	if err = s.store.ResolveFeedback(ctx, item.ID, "converted", input.UserID); err != nil && !errors.Is(err, store.ErrFeedbackNotOpen) {
 		return err
 	}
 	s.audit(ctx, core.AuditEvent{

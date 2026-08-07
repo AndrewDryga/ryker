@@ -1,4 +1,12 @@
-package feedback
+package store
+
+// Product feedback.
+//
+// This lived in its own SQLite file beside the main database, which put it
+// outside the schema baseline, outside the verified pre-migration backup, and
+// outside every cross-table transaction — so the one kind of state whose whole
+// purpose is to survive long enough for someone to act on it had the weakest
+// durability guarantees in the system. It is now an ordinary table.
 
 import (
 	"context"
@@ -10,29 +18,25 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
-const timestampFormat = time.RFC3339Nano
-
-type ContextMessage struct {
-	MessageTS   string              `json:"message_ts,omitempty"`
-	ThreadTS    string              `json:"thread_ts,omitempty"`
-	MessageLink string              `json:"message_link,omitempty"`
-	SenderID    string              `json:"sender_id,omitempty"`
-	SenderType  string              `json:"sender_type,omitempty"`
-	Text        string              `json:"text,omitempty"`
-	Attachments []ContextAttachment `json:"attachments,omitempty"`
+type FeedbackContextMessage struct {
+	MessageTS   string                      `json:"message_ts,omitempty"`
+	ThreadTS    string                      `json:"thread_ts,omitempty"`
+	MessageLink string                      `json:"message_link,omitempty"`
+	SenderID    string                      `json:"sender_id,omitempty"`
+	SenderType  string                      `json:"sender_type,omitempty"`
+	Text        string                      `json:"text,omitempty"`
+	Attachments []FeedbackContextAttachment `json:"attachments,omitempty"`
 }
 
-type ContextAttachment struct {
+type FeedbackContextAttachment struct {
 	Name      string `json:"name,omitempty"`
 	MediaType string `json:"media_type,omitempty"`
 	Size      int64  `json:"size,omitempty"`
 }
 
-type Item struct {
+type FeedbackItem struct {
 	ID              string
 	WorkspaceID     string
 	ChannelID       string
@@ -45,7 +49,7 @@ type Item struct {
 	Sentiment       string
 	Summary         string
 	Details         string
-	Context         []ContextMessage
+	Context         []FeedbackContextMessage
 	EpisodeID       string
 	AgentRunID      string
 	SourceRef       string
@@ -54,100 +58,13 @@ type Item struct {
 	UpdatedAt       time.Time
 }
 
-type Store struct {
-	db    *sql.DB
-	clock func() time.Time
-}
-
-// now is the store clock. Retention and digest windows read it, so a test can
-// move time instead of waiting for it.
-func (s *Store) now() time.Time {
-	if s.clock != nil {
-		return s.clock()
-	}
-	return time.Now()
-}
-
-// SetClock replaces the store clock. It exists for tests.
-func (s *Store) SetClock(clock func() time.Time) {
-	if clock != nil {
-		s.clock = clock
-	}
-}
-
-func Open(stateDir string) (*Store, error) {
-	if strings.TrimSpace(stateDir) == "" || !filepath.IsAbs(stateDir) {
-		return nil, errors.New("feedback store requires an absolute state directory")
-	}
-	db, err := sql.Open("sqlite", filepath.Join(stateDir, "feedback.db"))
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	store := &Store{db: db}
-	if err := store.initialize(context.Background()); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := os.Chmod(filepath.Join(stateDir, "feedback.db"), 0o600); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return store, nil
-}
-
-func (s *Store) Close() error { return s.db.Close() }
-
-func (s *Store) initialize(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
-		PRAGMA journal_mode = DELETE;
-		PRAGMA busy_timeout = 5000;
-		PRAGMA temp_store = MEMORY;
-		CREATE TABLE IF NOT EXISTS feedback_items (
-		  id TEXT PRIMARY KEY,
-		  workspace_id TEXT NOT NULL,
-		  channel_id TEXT NOT NULL,
-		  thread_ts TEXT NOT NULL DEFAULT '',
-		  message_ts TEXT NOT NULL DEFAULT '',
-		  target_message_ts TEXT NOT NULL DEFAULT '',
-		  user_id TEXT NOT NULL,
-		  source TEXT NOT NULL,
-		  category TEXT NOT NULL,
-		  sentiment TEXT NOT NULL,
-		  summary TEXT NOT NULL,
-		  details TEXT NOT NULL DEFAULT '',
-		  context_json BLOB NOT NULL,
-		  episode_id TEXT NOT NULL DEFAULT '',
-		  agent_run_id TEXT NOT NULL DEFAULT '',
-		  source_ref TEXT NOT NULL DEFAULT '',
-		  status TEXT NOT NULL,
-		  resolved_by TEXT NOT NULL DEFAULT '',
-		  created_at TEXT NOT NULL,
-		  updated_at TEXT NOT NULL
-		);
-		CREATE INDEX IF NOT EXISTS feedback_items_workspace_status_updated
-		  ON feedback_items(workspace_id, status, updated_at DESC);
-	`)
-	if err != nil {
-		return err
-	}
-	// An existing feedback database predates the resolution column. SQLite has
-	// no IF NOT EXISTS for ADD COLUMN, so a duplicate error here is success.
-	if _, err := s.db.ExecContext(
-		ctx, `ALTER TABLE feedback_items ADD COLUMN resolved_by TEXT NOT NULL DEFAULT ''`,
-	); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
-		return err
-	}
-	return nil
-}
-
-func (s *Store) Record(ctx context.Context, item Item) (Item, error) {
-	if err := validate(item); err != nil {
-		return Item{}, err
+func (s *Store) RecordFeedback(ctx context.Context, item FeedbackItem) (FeedbackItem, error) {
+	if err := validateFeedback(item); err != nil {
+		return FeedbackItem{}, err
 	}
 	contextJSON, err := json.Marshal(item.Context)
 	if err != nil {
-		return Item{}, err
+		return FeedbackItem{}, err
 	}
 	now := s.now().UTC()
 	if item.CreatedAt.IsZero() {
@@ -179,12 +96,12 @@ func (s *Store) Record(ctx context.Context, item Item) (Item, error) {
 		item.UpdatedAt.Format(timestampFormat),
 	)
 	if err != nil {
-		return Item{}, err
+		return FeedbackItem{}, err
 	}
 	return item, nil
 }
 
-func (s *Store) Withdraw(ctx context.Context, id string) error {
+func (s *Store) WithdrawFeedback(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("feedback id is required")
 	}
@@ -195,7 +112,7 @@ func (s *Store) Withdraw(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *Store) ListOpen(ctx context.Context, workspaceID string, limit int) ([]Item, error) {
+func (s *Store) ListOpenFeedback(ctx context.Context, workspaceID string, limit int) ([]FeedbackItem, error) {
 	if strings.TrimSpace(workspaceID) == "" || limit < 1 || limit > 100 {
 		return nil, errors.New("feedback list requires a workspace and limit between 1 and 100")
 	}
@@ -211,9 +128,9 @@ func (s *Store) ListOpen(ctx context.Context, workspaceID string, limit int) ([]
 		return nil, err
 	}
 	defer rows.Close()
-	items := make([]Item, 0, limit)
+	items := make([]FeedbackItem, 0, limit)
 	for rows.Next() {
-		item, err := scan(rows)
+		item, err := scanFeedback(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -222,7 +139,7 @@ func (s *Store) ListOpen(ctx context.Context, workspaceID string, limit int) ([]
 	return items, rows.Err()
 }
 
-func validate(item Item) error {
+func validateFeedback(item FeedbackItem) error {
 	for name, value := range map[string]string{
 		"id": item.ID, "workspace": item.WorkspaceID, "channel": item.ChannelID,
 		"user": item.UserID, "source": item.Source, "category": item.Category,
@@ -238,12 +155,12 @@ func validate(item Item) error {
 	return nil
 }
 
-type scanner interface {
+type feedbackScanner interface {
 	Scan(...any) error
 }
 
-func scan(row scanner) (Item, error) {
-	var item Item
+func scanFeedback(row feedbackScanner) (FeedbackItem, error) {
+	var item FeedbackItem
 	var contextJSON []byte
 	var createdAt, updatedAt string
 	err := row.Scan(
@@ -253,26 +170,26 @@ func scan(row scanner) (Item, error) {
 		&item.AgentRunID, &item.SourceRef, &item.Status, &createdAt, &updatedAt,
 	)
 	if err != nil {
-		return Item{}, err
+		return FeedbackItem{}, err
 	}
 	if err := json.Unmarshal(contextJSON, &item.Context); err != nil {
-		return Item{}, err
+		return FeedbackItem{}, err
 	}
 	item.CreatedAt, err = time.Parse(timestampFormat, createdAt)
 	if err != nil {
-		return Item{}, err
+		return FeedbackItem{}, err
 	}
 	item.UpdatedAt, err = time.Parse(timestampFormat, updatedAt)
 	return item, err
 }
 
-// Resolve records what an operator decided about a feedback item.
+// ResolveFeedback records what an operator decided about a feedback item.
 //
 // Capturing feedback and never acting on it is worse than not capturing it:
 // the operator sees their input accepted and nothing change. A resolution is
 // how an item leaves the open queue — either dismissed, or converted into
 // durable guidance that actually steers future behaviour.
-func (s *Store) Resolve(ctx context.Context, id, status, actor string) error {
+func (s *Store) ResolveFeedback(ctx context.Context, id, status, actor string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("feedback id is required")
 	}
@@ -295,20 +212,83 @@ func (s *Store) Resolve(ctx context.Context, id, status, actor string) error {
 		return err
 	}
 	if rows != 1 {
-		return ErrNotOpen
+		return ErrFeedbackNotOpen
 	}
 	return nil
 }
 
-// ErrNotOpen reports a resolution against an item that was already resolved,
+// ErrFeedbackNotOpen reports a resolution against an item that was already resolved,
 // which happens whenever two operators press a button at the same time.
-var ErrNotOpen = errors.New("feedback item is not open")
+var ErrFeedbackNotOpen = errors.New("feedback item is not open")
 
-// Get returns one item regardless of status.
-func (s *Store) Get(ctx context.Context, id string) (Item, error) {
-	return scan(s.db.QueryRowContext(ctx, `
+// GetFeedback returns one item regardless of status.
+func (s *Store) GetFeedback(ctx context.Context, id string) (FeedbackItem, error) {
+	return scanFeedback(s.db.QueryRowContext(ctx, `
 		SELECT id, workspace_id, channel_id, thread_ts, message_ts, target_message_ts,
 		  user_id, source, category, sentiment, summary, details, context_json,
 		  episode_id, agent_run_id, source_ref, status, created_at, updated_at
 		FROM feedback_items WHERE id = ?`, id))
+}
+
+// AdoptLegacyFeedback moves rows from the standalone feedback database that
+// earlier builds wrote beside this one.
+//
+// It runs once at startup and is idempotent: rows already present win, because
+// the main database is authoritative from the moment the migration created the
+// table. The old file is left in place rather than deleted — an operator who
+// needs to check what was carried across should be able to, and nothing reads
+// it after this.
+func (s *Store) AdoptLegacyFeedback(ctx context.Context, stateDir string) (int, error) {
+	path := filepath.Join(stateDir, "feedback.db")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		return 0, fmt.Errorf("open legacy feedback database: %w", err)
+	}
+	defer legacy.Close()
+	legacy.SetMaxOpenConns(1)
+	rows, err := legacy.QueryContext(ctx, `
+		SELECT id, workspace_id, channel_id, thread_ts, message_ts, target_message_ts,
+		  user_id, source, category, sentiment, summary, details, context_json,
+		  episode_id, agent_run_id, source_ref, status, created_at, updated_at
+		FROM feedback_items`)
+	if err != nil {
+		// A file that is not the schema we expect is not worth failing startup
+		// over; the table is empty and the service is otherwise fine.
+		return 0, nil
+	}
+	defer rows.Close()
+	items := make([]FeedbackItem, 0)
+	for rows.Next() {
+		item, scanErr := scanFeedback(rows)
+		if scanErr != nil {
+			return 0, scanErr
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	adopted := 0
+	for _, item := range items {
+		if _, err := s.GetFeedback(ctx, item.ID); err == nil {
+			continue
+		}
+		if _, err := s.RecordFeedback(ctx, item); err != nil {
+			return adopted, err
+		}
+		if item.Status != "open" {
+			if err := s.ResolveFeedback(ctx, item.ID, item.Status, ""); err != nil &&
+				!errors.Is(err, ErrFeedbackNotOpen) {
+				return adopted, err
+			}
+		}
+		adopted++
+	}
+	return adopted, nil
 }

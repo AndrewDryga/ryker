@@ -162,6 +162,11 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if err := st.RecoverInterrupted(context.Background()); err != nil {
 		return err
 	}
+	if adopted, err := st.AdoptLegacyFeedback(context.Background(), cfg.StateDir); err != nil {
+		return err
+	} else if adopted > 0 {
+		logger.Info("adopted feedback from the standalone database", "items", adopted)
+	}
 	coopClient := coop.New(cfg.Coop.Socket, cfg.Coop.RequestTimeout.Duration)
 	supervisor, err := startManagedCoop(cfg, stderr, logger, coopClient)
 	if err != nil {

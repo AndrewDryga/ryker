@@ -7,7 +7,6 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
-	feedbackstore "github.com/AndrewDryga/responder/internal/feedback"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -48,12 +47,7 @@ func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
 	if err := svc.recordReactionFeedback(ctx, input); err != nil {
 		t.Fatal(err)
 	}
-	feedback, err := feedbackstore.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	items, err := feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
-	feedback.Close()
+	items, err := st.ListOpenFeedback(ctx, cfg.Slack.TeamID, 20)
 	if err != nil || len(items) != 1 || items[0].Source != "negative_reaction" ||
 		len(items[0].Context) != 3 || !strings.Contains(items[0].SourceRef, "100.000") {
 		t.Fatalf("items = %#v, err = %v", items, err)
@@ -62,12 +56,7 @@ func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
 	if err := svc.recordReactionFeedback(ctx, input); err != nil {
 		t.Fatal(err)
 	}
-	feedback, err = feedbackstore.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	items, err = feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
-	feedback.Close()
+	items, err = st.ListOpenFeedback(ctx, cfg.Slack.TeamID, 20)
 	if err != nil || len(items) != 0 {
 		t.Fatalf("items after removal = %#v, err = %v", items, err)
 	}
@@ -90,12 +79,7 @@ func TestNegativeReactionToSomeoneElsesMessageIsNotFeedback(t *testing.T) {
 	if err := svc.recordReactionFeedback(ctx, input); err != nil {
 		t.Fatal(err)
 	}
-	feedback, err := feedbackstore.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer feedback.Close()
-	items, err := feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
+	items, err := st.ListOpenFeedback(ctx, cfg.Slack.TeamID, 20)
 	if err != nil || len(items) != 0 {
 		t.Fatalf("items = %#v, err = %v", items, err)
 	}
@@ -130,12 +114,7 @@ func TestFeedbackOperationPersistsBoundedConversationContext(t *testing.T) {
 	if err := svc.recordFeedbackOperations(ctx, run, input, state, operations); err != nil {
 		t.Fatal(err)
 	}
-	feedback, err := feedbackstore.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer feedback.Close()
-	items, err := feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
+	items, err := st.ListOpenFeedback(ctx, cfg.Slack.TeamID, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,12 +193,7 @@ func TestOrdinaryWorkspaceMemberCanSubmitButNotBrowseFeedback(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	feedback, err := feedbackstore.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	items, err := feedback.ListOpen(ctx, cfg.Slack.TeamID, 20)
-	feedback.Close()
+	items, err := st.ListOpenFeedback(ctx, cfg.Slack.TeamID, 20)
 	if err != nil || len(items) != 1 || items[0].UserID != submit.UserID {
 		t.Fatalf("items = %#v, err = %v", items, err)
 	}
@@ -258,14 +232,11 @@ func TestFeedbackConvertsToGuidanceAndDismisses(t *testing.T) {
 
 	record := func(id, summary string) {
 		t.Helper()
-		if err := svc.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-			_, recordErr := feedback.Record(ctx, feedbackstore.Item{
-				ID: id, WorkspaceID: cfg.Slack.TeamID, ChannelID: "C123ABC",
-				UserID: operator, Source: "model_sentiment", Category: "tone",
-				Sentiment: "suggestion", Summary: summary,
-				SourceRef: "https://slack.com/archives/C123ABC/p1700001",
-			})
-			return recordErr
+		if _, err := st.RecordFeedback(ctx, store.FeedbackItem{
+			ID: id, WorkspaceID: cfg.Slack.TeamID, ChannelID: "C123ABC",
+			UserID: operator, Source: "model_sentiment", Category: "tone",
+			Sentiment: "suggestion", Summary: summary,
+			SourceRef: "https://slack.com/archives/C123ABC/p1700001",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -333,13 +304,10 @@ func TestFeedbackResolutionRequiresAnOperator(t *testing.T) {
 	}
 	defer st.Close()
 	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
-	if err := svc.withFeedbackStore(func(feedback *feedbackstore.Store) error {
-		_, recordErr := feedback.Record(ctx, feedbackstore.Item{
-			ID: "fb_guarded", WorkspaceID: cfg.Slack.TeamID, ChannelID: "C123ABC",
-			UserID: "UOTHER1", Source: "model_sentiment", Category: "ux",
-			Sentiment: "suggestion", Summary: "please be quieter",
-		})
-		return recordErr
+	if _, err := st.RecordFeedback(ctx, store.FeedbackItem{
+		ID: "fb_guarded", WorkspaceID: cfg.Slack.TeamID, ChannelID: "C123ABC",
+		UserID: "UOTHER1", Source: "model_sentiment", Category: "ux",
+		Sentiment: "suggestion", Summary: "please be quieter",
 	}); err != nil {
 		t.Fatal(err)
 	}

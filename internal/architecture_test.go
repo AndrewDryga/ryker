@@ -69,7 +69,7 @@ var methodBudget = map[string]int{
 // tripping it means something.
 var lineBudget = map[string]int{
 	"service":    28300,
-	"store":      14000,
+	"store":      14300,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

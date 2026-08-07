@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -190,7 +191,8 @@ func TestMigrationCreatesVerifiedPrivateBackup(t *testing.T) {
 		t.Fatalf("backups = %d, want 1", len(entries))
 	}
 	name := entries[0].Name()
-	if !strings.HasPrefix(name, "responder-v39-to-v40-") || !strings.HasSuffix(name, ".db") {
+	expected := fmt.Sprintf("responder-v39-to-v%d-", currentSchemaVersion)
+	if !strings.HasPrefix(name, expected) || !strings.HasSuffix(name, ".db") {
 		t.Fatalf("backup name = %q", name)
 	}
 	info, err := entries[0].Info()
@@ -251,5 +253,67 @@ func TestDatabaseNewerThanBinaryIsRejected(t *testing.T) {
 	}
 	if _, err := Open(dir); err == nil || !strings.Contains(err.Error(), "newer than supported") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// Feedback used to live in its own database beside this one. An upgrade must
+// carry it across, or the one kind of state whose whole purpose is to survive
+// until someone acts on it disappears at the moment of the upgrade.
+func TestLegacyFeedbackIsAdopted(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	legacy, err := sql.Open("sqlite", filepath.Join(dir, "feedback.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`
+		CREATE TABLE feedback_items (
+		  id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, channel_id TEXT NOT NULL,
+		  thread_ts TEXT NOT NULL DEFAULT '', message_ts TEXT NOT NULL DEFAULT '',
+		  target_message_ts TEXT NOT NULL DEFAULT '', user_id TEXT NOT NULL,
+		  source TEXT NOT NULL, category TEXT NOT NULL, sentiment TEXT NOT NULL,
+		  summary TEXT NOT NULL, details TEXT NOT NULL DEFAULT '',
+		  context_json BLOB NOT NULL, episode_id TEXT NOT NULL DEFAULT '',
+		  agent_run_id TEXT NOT NULL DEFAULT '', source_ref TEXT NOT NULL DEFAULT '',
+		  status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+		);
+		INSERT INTO feedback_items VALUES
+		  ('fb_old','T1','C1','','','','U1','model_sentiment','tone','suggestion',
+		   'be more concise','','[]','','','','open','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Close()
+
+	st := openAt(t, dir)
+	adopted, err := st.AdoptLegacyFeedback(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adopted != 1 {
+		t.Fatalf("adopted %d items, want 1", adopted)
+	}
+	items, err := st.ListOpenFeedback(ctx, "T1", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Summary != "be more concise" {
+		t.Fatalf("adopted feedback = %+v", items)
+	}
+
+	// Running again must not duplicate: startup repeats on every restart.
+	again, err := st.AdoptLegacyFeedback(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != 0 {
+		t.Fatalf("a second adoption carried %d items across again", again)
+	}
+
+	// A deployment that never had the standalone database is not an error.
+	empty := openAt(t, t.TempDir())
+	if adopted, err := empty.AdoptLegacyFeedback(ctx, t.TempDir()); err != nil || adopted != 0 {
+		t.Fatalf("adoption without a legacy database = %d, %v", adopted, err)
 	}
 }
