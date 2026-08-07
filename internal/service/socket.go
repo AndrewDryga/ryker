@@ -71,155 +71,15 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 		EnvelopeID: envelopeID, EventID: wrapper.EventID, TeamID: outer.TeamID,
 		ReceivedAt: s.now().UTC(),
 	}
-	directChannelJoin := false
 	if wrapper.EventTime > 0 {
 		input.ReceivedAt = time.Unix(wrapper.EventTime, 0).UTC()
 	}
-	switch inner := outer.InnerEvent.Data.(type) {
-	case *slackevents.AssistantThreadStartedEvent:
-		// Surface refreshes are Slack writes, so they are admitted like any
-		// other input and performed by the control lane. Doing them here would
-		// hold the single socket consumer for a full Slack round trip and delay
-		// admission of every event behind them.
-		if inner == nil || inner.AssistantThread.UserID == "" ||
-			inner.AssistantThread.ChannelID == "" || !s.cfg.Slack.AssistantExperience {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		input.Kind = inputSuggestedPrompts
-		input.ChannelID = inner.AssistantThread.ChannelID
-		input.ThreadTS = inner.AssistantThread.ThreadTimeStamp
-		input.UserID = inner.AssistantThread.UserID
-	case *slackevents.AppHomeOpenedEvent:
-		if inner == nil || inner.User == "" {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		switch {
-		case inner.Tab == "messages" &&
-			s.cfg.Slack.AssistantExperience && inner.Channel != "":
-			input.Kind = inputSuggestedPrompts
-			input.ChannelID = inner.Channel
-			input.UserID = inner.User
-		case inner.Tab == "home":
-			input.Kind = inputAppHome
-			input.UserID = inner.User
-		default:
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-	case *slackevents.ChannelDeletedEvent:
-		if inner == nil {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		setLifecycleInput(&input, inner.Channel, "", core.ChannelDeleted, inner.Type)
-	case *slackevents.GroupDeletedEvent:
-		if inner == nil {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		setLifecycleInput(&input, inner.Channel, "", core.ChannelDeleted, inner.Type)
-	case *slackevents.ChannelArchiveEvent:
-		if inner == nil {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		setLifecycleInput(&input, inner.Channel, inner.User, core.ChannelArchived, inner.Type)
-	case *slackevents.GroupArchiveEvent:
-		if inner == nil {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		setLifecycleInput(&input, inner.Channel, "", core.ChannelArchived, inner.Type)
-	case *slackevents.ChannelUnarchiveEvent:
-		if inner == nil {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		setLifecycleInput(&input, inner.Channel, inner.User, core.ChannelActive, inner.Type)
-	case *slackevents.GroupUnarchiveEvent:
-		if inner == nil {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		setLifecycleInput(&input, inner.Channel, "", core.ChannelActive, inner.Type)
-	case *slackevents.ReactionAddedEvent:
-		if inner == nil {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		admit, err := s.setReactionInput(
-			ctx, &input, "reaction_added", inner.User, inner.ItemUser,
-			inner.Reaction, inner.Item, inner.EventTimestamp,
-		)
-		if err != nil {
-			s.log.Error(
-				"resolve Slack reaction target",
-				"channel", inner.Item.Channel,
-				"message", inner.Item.Timestamp,
-				"error", err,
-			)
-			return
-		}
-		if !admit {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-	case *slackevents.ReactionRemovedEvent:
-		if inner == nil {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		admit, err := s.setReactionInput(
-			ctx, &input, "reaction_removed", inner.User, inner.ItemUser,
-			inner.Reaction, inner.Item, inner.EventTimestamp,
-		)
-		if err != nil {
-			s.log.Error(
-				"resolve Slack reaction target",
-				"channel", inner.Item.Channel,
-				"message", inner.Item.Timestamp,
-				"error", err,
-			)
-			return
-		}
-		if !admit {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-	case *slackevents.MemberJoinedChannelEvent:
-		if inner == nil || inner.User != s.identity.BotUserID || inner.Channel == "" {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		input.Kind = "channel_joined"
-		input.ChannelID = inner.Channel
-		input.MessageTS = inner.EventTimestamp
-		input.UserID = inner.Inviter
-		directChannelJoin = true
-	case *slackevents.AppMentionEvent:
-		if inner == nil || inner.BotID != "" || foreignSource(inner.SourceTeam, outer.TeamID) {
-			_ = s.socket.Ack(*event.Request)
-			return
-		}
-		input.Kind = "mention"
-		input.ChannelID = inner.Channel
-		input.ThreadTS = inner.ThreadTimeStamp
-		input.MessageTS = inner.TimeStamp
-		input.UserID = inner.User
-		input.Text = inner.Text
-		input.Attachments = slackInputAttachments(inner.Files)
-	case *slackevents.MessageEvent:
-		switch s.setMessageInput(ctx, &input, inner, outer.TeamID, &directChannelJoin) {
-		case dropMessage:
-			_ = s.socket.Ack(*event.Request)
-			return
-		case retryMessage:
-			return
-		}
-	default:
+	outcome, directChannelJoin := s.classifyEventsAPIInput(ctx, outer, &input)
+	switch outcome {
+	case dropMessage:
 		_ = s.socket.Ack(*event.Request)
+		return
+	case retryMessage:
 		return
 	}
 	var err error
@@ -246,6 +106,172 @@ func (s *Service) admitEventsAPI(ctx context.Context, event socketmode.Event) {
 	if err := s.socket.Ack(*event.Request); err != nil {
 		s.log.Warn("acknowledge Slack event", "envelope", envelopeID, "error", err)
 	}
+}
+
+// classifyEventsAPIInput fills input from the inner Slack event and reports
+// what to do with it, plus whether the event is a direct channel join — which
+// takes a different admission path because a join has no message to key on.
+//
+// Splitting this from admitEventsAPI separates two questions that were tangled
+// in one 160-line switch: what kind of event is this, and what does the socket
+// consumer do about it. The consumer is single-threaded, so anything it holds
+// delays admission of every event behind it; keeping the acknowledgement rules
+// in one small place is how that stays reviewable.
+func (s *Service) classifyEventsAPIInput(
+	ctx context.Context,
+	outer slackevents.EventsAPIEvent,
+	input *core.SlackInput,
+) (messageOutcome, bool) {
+	switch inner := outer.InnerEvent.Data.(type) {
+	case *slackevents.AssistantThreadStartedEvent:
+		// Surface refreshes are Slack writes, so they are admitted like any
+		// other input and performed by the control lane. Doing them here would
+		// hold the single socket consumer for a full Slack round trip and delay
+		// admission of every event behind them.
+		if inner == nil || inner.AssistantThread.UserID == "" ||
+			inner.AssistantThread.ChannelID == "" || !s.cfg.Slack.AssistantExperience {
+			return dropMessage, false
+		}
+		input.Kind = inputSuggestedPrompts
+		input.ChannelID = inner.AssistantThread.ChannelID
+		input.ThreadTS = inner.AssistantThread.ThreadTimeStamp
+		input.UserID = inner.AssistantThread.UserID
+	case *slackevents.AppHomeOpenedEvent:
+		if inner == nil || inner.User == "" {
+			return dropMessage, false
+		}
+		switch {
+		case inner.Tab == "messages" &&
+			s.cfg.Slack.AssistantExperience && inner.Channel != "":
+			input.Kind = inputSuggestedPrompts
+			input.ChannelID = inner.Channel
+			input.UserID = inner.User
+		case inner.Tab == "home":
+			input.Kind = inputAppHome
+			input.UserID = inner.User
+		default:
+			return dropMessage, false
+		}
+	case *slackevents.ReactionAddedEvent:
+		if inner == nil {
+			return dropMessage, false
+		}
+		return s.classifyReaction(
+			ctx, input, "reaction_added", inner.User, inner.ItemUser,
+			inner.Reaction, inner.Item, inner.EventTimestamp,
+		), false
+	case *slackevents.ReactionRemovedEvent:
+		if inner == nil {
+			return dropMessage, false
+		}
+		return s.classifyReaction(
+			ctx, input, "reaction_removed", inner.User, inner.ItemUser,
+			inner.Reaction, inner.Item, inner.EventTimestamp,
+		), false
+	case *slackevents.MemberJoinedChannelEvent:
+		if inner == nil || inner.User != s.identity.BotUserID || inner.Channel == "" {
+			return dropMessage, false
+		}
+		input.Kind = "channel_joined"
+		input.ChannelID = inner.Channel
+		input.MessageTS = inner.EventTimestamp
+		input.UserID = inner.Inviter
+		return admitMessage, true
+	case *slackevents.AppMentionEvent:
+		if inner == nil || inner.BotID != "" || foreignSource(inner.SourceTeam, outer.TeamID) {
+			return dropMessage, false
+		}
+		input.Kind = "mention"
+		input.ChannelID = inner.Channel
+		input.ThreadTS = inner.ThreadTimeStamp
+		input.MessageTS = inner.TimeStamp
+		input.UserID = inner.User
+		input.Text = inner.Text
+		input.Attachments = slackInputAttachments(inner.Files)
+	case *slackevents.MessageEvent:
+		// A message can be a channel join in disguise, which setMessageInput
+		// reports by flipping this flag.
+		directChannelJoin := false
+		return s.setMessageInput(ctx, input, inner, outer.TeamID, &directChannelJoin),
+			directChannelJoin
+	default:
+		return classifyChannelLifecycleEvent(input, outer.InnerEvent.Data), false
+	}
+	return admitMessage, false
+}
+
+// classifyReaction resolves the reaction target and reports what to do. A
+// failed lookup is deliberately a retry rather than a drop: the decision is
+// unknown, and dropping would silently discard a signal Slack will not resend.
+func (s *Service) classifyReaction(
+	ctx context.Context,
+	input *core.SlackInput,
+	kind string,
+	userID string,
+	itemUserID string,
+	reaction string,
+	item slackevents.Item,
+	eventTS string,
+) messageOutcome {
+	admit, err := s.setReactionInput(
+		ctx, input, kind, userID, itemUserID, reaction, item, eventTS,
+	)
+	if err != nil {
+		s.log.Error(
+			"resolve Slack reaction target",
+			"channel", item.Channel,
+			"message", item.Timestamp,
+			"error", err,
+		)
+		return retryMessage
+	}
+	if !admit {
+		return dropMessage
+	}
+	return admitMessage
+}
+
+// classifyChannelLifecycleEvent handles the events that say a channel changed
+// state rather than that something was said in it. They are grouped because
+// they are one shape — a channel, sometimes an actor, and a resulting state —
+// and because an unrecognized event lands here and is dropped, which is the
+// correct default for an event type Responder does not model.
+func classifyChannelLifecycleEvent(input *core.SlackInput, event any) messageOutcome {
+	switch inner := event.(type) {
+	case *slackevents.ChannelDeletedEvent:
+		if inner == nil {
+			return dropMessage
+		}
+		setLifecycleInput(input, inner.Channel, "", core.ChannelDeleted, inner.Type)
+	case *slackevents.GroupDeletedEvent:
+		if inner == nil {
+			return dropMessage
+		}
+		setLifecycleInput(input, inner.Channel, "", core.ChannelDeleted, inner.Type)
+	case *slackevents.ChannelArchiveEvent:
+		if inner == nil {
+			return dropMessage
+		}
+		setLifecycleInput(input, inner.Channel, inner.User, core.ChannelArchived, inner.Type)
+	case *slackevents.GroupArchiveEvent:
+		if inner == nil {
+			return dropMessage
+		}
+		setLifecycleInput(input, inner.Channel, "", core.ChannelArchived, inner.Type)
+	case *slackevents.ChannelUnarchiveEvent:
+		if inner == nil {
+			return dropMessage
+		}
+		setLifecycleInput(input, inner.Channel, inner.User, core.ChannelActive, inner.Type)
+	case *slackevents.GroupUnarchiveEvent:
+		if inner == nil {
+			return dropMessage
+		}
+		setLifecycleInput(input, inner.Channel, "", core.ChannelActive, inner.Type)
+	default:
+		return dropMessage
+	}
+	return admitMessage
 }
 
 // messageOutcome is what admitEventsAPI should do with a Slack message event.

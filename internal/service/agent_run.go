@@ -60,47 +60,9 @@ func (s *Service) queueIncidentAgentRun(
 }
 
 func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) error {
-	state := watchTurnState{}
-	if len(input.Frozen) > 0 {
-		legacy, err := decodeWatchState(input.Frozen)
-		if err != nil {
-			return fmt.Errorf("migrate legacy watched input state: %w", err)
-		}
-		if legacy.TurnID != "" {
-			memory, memoryErr := s.store.GetChannelMemory(
-				ctx, input.ChannelID,
-			)
-			if memoryErr != nil && !errors.Is(memoryErr, store.ErrNotFound) {
-				return memoryErr
-			}
-			contextJSON, marshalErr := json.Marshal(legacy)
-			if marshalErr != nil {
-				return marshalErr
-			}
-			_, _, queueErr := s.store.QueueAgentRun(ctx, core.AgentRun{
-				Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
-				ThreadTS:        conversationalResponseThread(input),
-				ConversationKey: watchConversationKey(input),
-				SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
-				Repository: legacy.Repository,
-				IdempotencyKey: watchTurnIdempotencyKey(
-					input.ID, legacy.Generation,
-				),
-				SessionID: legacy.SessionID, SessionGeneration: legacy.Generation,
-				ExpectedRevision:  legacy.ExpectedRevision,
-				CoopTurnID:        legacy.TurnID,
-				CoopEventSequence: memory.CoopEventSequence,
-				Context:           contextJSON, State: core.AgentRunRunning,
-				StartedAt:       s.now().UTC(),
-				CommitmentTitle: commitmentTitleForInput(input),
-				Episode:         s.episodeForWatchedInput(input, legacy),
-			})
-			if queueErr != nil {
-				return queueErr
-			}
-			return s.finishInputIfOpen(ctx, input)
-		}
-		state = legacy
+	state, resumed, err := s.resumeLegacyWatchedTurn(ctx, input)
+	if err != nil || resumed {
+		return err
 	}
 	if s.mentionOnlyNudge(input) {
 		nudged, err := s.store.NudgeLatestAgentRun(
@@ -138,46 +100,8 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 			return s.finishInputIfOpen(ctx, input)
 		}
 	}
-	if input.Kind == "bot_message" && state.AlertPolicy == "" {
-		alertPolicy, err := s.channelAlertPolicy(ctx, input.ChannelID)
-		if err != nil {
-			return err
-		}
-		state.AlertPolicy = alertPolicy
-	}
-	if !state.RulesCaptured {
-		rules, err := s.matchingStandingRules(ctx, input)
-		if err != nil {
-			return fmt.Errorf("match standing rules for watched input: %w", err)
-		}
-		state.MatchedRules = rules
-		state.RulesCaptured = true
-	}
-	if !state.PublicationsCaptured {
-		if input.Kind == "bot_message" {
-			publications, err := s.store.ListActivePublicationContexts(
-				ctx,
-				s.now().UTC().Add(-s.cfg.GitHub.DeliveryCorrelationWindow.Duration),
-				20,
-			)
-			if err != nil {
-				return err
-			}
-			state.ActivePublications = publications
-		}
-		state.PublicationsCaptured = true
-	}
-	if !isPrivateSlackVerificationReplay(input) &&
-		!state.RuleAcknowledged && len(state.MatchedRules) > 0 {
-		s.acknowledgeMatchedAlertRule(ctx, input, state.MatchedRules)
-		state.RuleAcknowledged = true
-	}
-	if input.Kind == "message" && !state.ConversationFollowup {
-		followup, err := s.isRecentWatchConversation(ctx, input)
-		if err != nil {
-			return err
-		}
-		state.ConversationFollowup = followup
+	if err := s.captureWatchTurnState(ctx, input, &state); err != nil {
+		return err
 	}
 	if s.obviousHumanDialogue(input, state) {
 		s.audit(ctx, core.AuditEvent{
@@ -219,53 +143,14 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 			state.PendingStatusAt = s.now().Unix()
 		}
 	}
-	readyAt := s.now().UTC()
-	if input.Kind != "scheduled" && input.Kind != "recheck" &&
-		s.cfg.Slack.WatchSettleDelay.Duration > 0 {
-		// App notifications are independent operational streams. Basing their
-		// settle time on the latest message in a busy channel can leave a failed
-		// alert queued for tens of minutes while unrelated chat continues.
-		if input.Kind == "bot_message" {
-			readyAt = input.ReceivedAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
-		} else {
-			latestAt, err := s.store.LatestSlackConversationAt(ctx, input.ChannelID)
-			if err != nil {
-				return err
-			}
-			readyAt = latestAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
-		}
+	readyAt, err := s.watchRunReadyAt(ctx, input)
+	if err != nil {
+		return err
 	}
 	conversationKey := watchConversationKey(input)
-	episode := s.episodeForWatchedInput(input, state)
-	if previous, previousErr := s.store.GetLatestWorkEpisodeByConversationKey(
-		ctx, conversationKey,
-	); previousErr == nil {
-		if input.Kind == "bot_message" && strings.HasPrefix(conversationKey, "operation:") {
-			// A lifecycle update is another attempt in the same unit of work, not a
-			// new episode. Reuse both the episode and its bound Slack destination.
-			episode.ID = previous.ID
-			if previous.Destination.ChannelID == input.ChannelID &&
-				previous.Destination.ThreadTS != "" {
-				state.ResponseThreadTS = previous.Destination.ThreadTS
-			}
-		} else {
-			episode.ParentEpisodeID = previous.ID
-		}
-	} else if !errors.Is(previousErr, store.ErrNotFound) {
-		return previousErr
-	} else if input.Kind == "bot_message" {
-		previous, operationalErr := s.store.GetLatestOperationalWorkEpisode(
-			ctx, input.ChannelID, input.UserID, input.ReceivedAt.Add(-30*time.Minute),
-		)
-		if operationalErr == nil {
-			episode.ParentEpisodeID = previous.ID
-			if previous.Destination.ChannelID == input.ChannelID &&
-				previous.Destination.ThreadTS != "" {
-				state.ResponseThreadTS = previous.Destination.ThreadTS
-			}
-		} else if !errors.Is(operationalErr, store.ErrNotFound) {
-			return operationalErr
-		}
+	episode, err := s.correlateWatchEpisode(ctx, input, conversationKey, &state)
+	if err != nil {
+		return err
 	}
 	contextJSON, err := json.Marshal(state)
 	if err != nil {
@@ -297,6 +182,190 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		return fmt.Errorf("finish watched Slack input: %w", err)
 	}
 	return nil
+}
+
+// resumeLegacyWatchedTurn re-queues a watched input that was frozen mid-turn by
+// an older build, and reports whether it handled the input entirely.
+//
+// This exists so a restart across an upgrade does not strand a turn that Coop
+// is already running: the run is re-queued in the running state bound to the
+// existing Coop turn, rather than started again from the beginning.
+func (s *Service) resumeLegacyWatchedTurn(
+	ctx context.Context,
+	input core.SlackInput,
+) (watchTurnState, bool, error) {
+	if len(input.Frozen) > 0 {
+		legacy, err := decodeWatchState(input.Frozen)
+		if err != nil {
+			return watchTurnState{}, true, fmt.Errorf("migrate legacy watched input state: %w", err)
+		}
+		if legacy.TurnID != "" {
+			memory, memoryErr := s.store.GetChannelMemory(
+				ctx, input.ChannelID,
+			)
+			if memoryErr != nil && !errors.Is(memoryErr, store.ErrNotFound) {
+				return watchTurnState{}, true, memoryErr
+			}
+			contextJSON, marshalErr := json.Marshal(legacy)
+			if marshalErr != nil {
+				return watchTurnState{}, true, marshalErr
+			}
+			_, _, queueErr := s.store.QueueAgentRun(ctx, core.AgentRun{
+				Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+				ThreadTS:        conversationalResponseThread(input),
+				ConversationKey: watchConversationKey(input),
+				SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
+				Repository: legacy.Repository,
+				IdempotencyKey: watchTurnIdempotencyKey(
+					input.ID, legacy.Generation,
+				),
+				SessionID: legacy.SessionID, SessionGeneration: legacy.Generation,
+				ExpectedRevision:  legacy.ExpectedRevision,
+				CoopTurnID:        legacy.TurnID,
+				CoopEventSequence: memory.CoopEventSequence,
+				Context:           contextJSON, State: core.AgentRunRunning,
+				StartedAt:       s.now().UTC(),
+				CommitmentTitle: commitmentTitleForInput(input),
+				Episode:         s.episodeForWatchedInput(input, legacy),
+			})
+			if queueErr != nil {
+				return watchTurnState{}, true, queueErr
+			}
+			return watchTurnState{}, true, s.finishInputIfOpen(ctx, input)
+		}
+		return legacy, false, nil
+	}
+	return watchTurnState{}, false, nil
+}
+
+// captureWatchTurnState resolves the facts a turn must decide once and then
+// keep, even across retries: the channel's alert policy, which standing rules
+// matched, which publications were in flight, and whether this continues a
+// recent conversation.
+//
+// They are captured rather than recomputed because a retry minutes later sees a
+// different channel. Recomputing would let a run change its mind about what it
+// is responding to partway through, which reads to an operator as Responder
+// contradicting itself.
+func (s *Service) captureWatchTurnState(
+	ctx context.Context,
+	input core.SlackInput,
+	state *watchTurnState,
+) error {
+	if input.Kind == "bot_message" && state.AlertPolicy == "" {
+		alertPolicy, err := s.channelAlertPolicy(ctx, input.ChannelID)
+		if err != nil {
+			return err
+		}
+		state.AlertPolicy = alertPolicy
+	}
+	if !state.RulesCaptured {
+		rules, err := s.matchingStandingRules(ctx, input)
+		if err != nil {
+			return fmt.Errorf("match standing rules for watched input: %w", err)
+		}
+		state.MatchedRules = rules
+		state.RulesCaptured = true
+	}
+	if !state.PublicationsCaptured {
+		if input.Kind == "bot_message" {
+			publications, err := s.store.ListActivePublicationContexts(
+				ctx,
+				s.now().UTC().Add(-s.cfg.GitHub.DeliveryCorrelationWindow.Duration),
+				20,
+			)
+			if err != nil {
+				return err
+			}
+			state.ActivePublications = publications
+		}
+		state.PublicationsCaptured = true
+	}
+	if !isPrivateSlackVerificationReplay(input) &&
+		!state.RuleAcknowledged && len(state.MatchedRules) > 0 {
+		s.acknowledgeMatchedAlertRule(ctx, input, state.MatchedRules)
+		state.RuleAcknowledged = true
+	}
+	if input.Kind == "message" && !state.ConversationFollowup {
+		followup, err := s.isRecentWatchConversation(ctx, input)
+		if err != nil {
+			return err
+		}
+		state.ConversationFollowup = followup
+	}
+	return nil
+}
+
+// watchRunReadyAt returns when this run should first be attempted. The settle
+// delay lets a person finish a thought before Responder answers half of it.
+func (s *Service) watchRunReadyAt(
+	ctx context.Context,
+	input core.SlackInput,
+) (time.Time, error) {
+	readyAt := s.now().UTC()
+	if input.Kind != "scheduled" && input.Kind != "recheck" &&
+		s.cfg.Slack.WatchSettleDelay.Duration > 0 {
+		// App notifications are independent operational streams. Basing their
+		// settle time on the latest message in a busy channel can leave a failed
+		// alert queued for tens of minutes while unrelated chat continues.
+		if input.Kind == "bot_message" {
+			readyAt = input.ReceivedAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
+		} else {
+			latestAt, err := s.store.LatestSlackConversationAt(ctx, input.ChannelID)
+			if err != nil {
+				return time.Time{}, err
+			}
+			readyAt = latestAt.Add(s.cfg.Slack.WatchSettleDelay.Duration)
+		}
+	}
+	return readyAt, nil
+}
+
+// correlateWatchEpisode decides whether this input continues an existing unit
+// of work or starts a new one, and binds it to the same Slack destination when
+// it continues.
+//
+// The distinction matters to an operator: a deployment's success notification
+// belongs in the thread where its failure was discussed, not in a fresh one
+// that has lost the context of why anyone cared.
+func (s *Service) correlateWatchEpisode(
+	ctx context.Context,
+	input core.SlackInput,
+	conversationKey string,
+	state *watchTurnState,
+) (*core.WorkEpisode, error) {
+	episode := s.episodeForWatchedInput(input, *state)
+	if previous, previousErr := s.store.GetLatestWorkEpisodeByConversationKey(
+		ctx, conversationKey,
+	); previousErr == nil {
+		if input.Kind == "bot_message" && strings.HasPrefix(conversationKey, "operation:") {
+			// A lifecycle update is another attempt in the same unit of work, not a
+			// new episode. Reuse both the episode and its bound Slack destination.
+			episode.ID = previous.ID
+			if previous.Destination.ChannelID == input.ChannelID &&
+				previous.Destination.ThreadTS != "" {
+				state.ResponseThreadTS = previous.Destination.ThreadTS
+			}
+		} else {
+			episode.ParentEpisodeID = previous.ID
+		}
+	} else if !errors.Is(previousErr, store.ErrNotFound) {
+		return nil, previousErr
+	} else if input.Kind == "bot_message" {
+		previous, operationalErr := s.store.GetLatestOperationalWorkEpisode(
+			ctx, input.ChannelID, input.UserID, input.ReceivedAt.Add(-30*time.Minute),
+		)
+		if operationalErr == nil {
+			episode.ParentEpisodeID = previous.ID
+			if previous.Destination.ChannelID == input.ChannelID &&
+				previous.Destination.ThreadTS != "" {
+				state.ResponseThreadTS = previous.Destination.ThreadTS
+			}
+		} else if !errors.Is(operationalErr, store.ErrNotFound) {
+			return nil, operationalErr
+		}
+	}
+	return episode, nil
 }
 
 func (s *Service) completeIgnoredLifecycleInput(
