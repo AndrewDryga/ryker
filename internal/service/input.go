@@ -255,13 +255,6 @@ func (s *Service) handleConversationPrefix(
 	if handled {
 		return true, nil
 	}
-	handled, scheduleConfirmationErr := s.confirmPendingScheduleReply(ctx, input)
-	if scheduleConfirmationErr != nil {
-		return true, s.retrySlackInput(ctx, input, scheduleConfirmationErr)
-	}
-	if handled {
-		return true, nil
-	}
 	handled, confirmationErr := s.confirmPendingPreferenceReply(ctx, input)
 	if confirmationErr != nil {
 		return true, s.retrySlackInput(ctx, input, confirmationErr)

@@ -770,7 +770,7 @@ func hostedWatchDecisionOffers(
 		}
 	}
 	if decision.ScheduleOffer != nil {
-		if _, _, ok := evaluator.normalizeScheduleOffer(
+		if _, _, _, ok := evaluator.prepareScheduleOfferAction(
 			context.Background(), input, decision.ScheduleOffer,
 		); ok {
 			result = append(result, "schedule")

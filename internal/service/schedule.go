@@ -20,8 +20,12 @@ import (
 const scheduleOfferMaxAge = 24 * time.Hour
 
 type scheduleActionPayload struct {
-	Version    int    `json:"version"`
-	ProposalID string `json:"proposal_id"`
+	Version   int                `json:"version"`
+	ChannelID string             `json:"channel_id"`
+	ThreadTS  string             `json:"thread_ts,omitempty"`
+	SourceRef string             `json:"source_ref"`
+	IssuedAt  time.Time          `json:"issued_at"`
+	Offer     core.ScheduleOffer `json:"offer"`
 }
 
 type scheduleTogglePayload struct {
@@ -34,43 +38,8 @@ func (s *Service) prepareScheduleOfferAction(
 	input core.SlackInput,
 	offer *core.ScheduleOffer,
 ) (string, core.ScheduledTask, string, bool) {
-	task, when, ok := s.normalizeScheduleOffer(ctx, input, offer)
-	if !ok || s.store == nil {
-		return "", core.ScheduledTask{}, "", false
-	}
-	replacementID, err := s.scheduleReplacementCandidate(ctx, task)
-	if err != nil {
-		if s.log != nil {
-			s.log.Warn("find schedule replacement", "source_input", input.ID, "error", err)
-		}
-		return "", core.ScheduledTask{}, "", false
-	}
-	proposal, err := s.store.CreateScheduleProposal(ctx, core.ScheduleProposal{
-		TeamID: s.cfg.Slack.TeamID, ChannelID: input.ChannelID,
-		ThreadTS: conversationalResponseThread(input), ActorID: input.UserID,
-		SourceRef: core.FirstNonempty(input.EventID, input.ID), Task: task,
-		ReplaceTaskID: replacementID, ExpiresAt: s.now().UTC().Add(scheduleOfferMaxAge),
-	})
-	if err != nil {
-		if s.log != nil {
-			s.log.Warn("store schedule proposal", "source_input", input.ID, "error", err)
-		}
-		return "", core.ScheduledTask{}, "", false
-	}
-	payload, err := json.Marshal(scheduleActionPayload{Version: 2, ProposalID: proposal.ID})
-	if err != nil || len(payload) > 1900 {
-		return "", core.ScheduledTask{}, "", false
-	}
-	return string(payload), task, when, true
-}
-
-func (s *Service) normalizeScheduleOffer(
-	ctx context.Context,
-	input core.SlackInput,
-	offer *core.ScheduleOffer,
-) (core.ScheduledTask, string, bool) {
 	if offer == nil || input.Kind == "scheduled" || !s.cfg.IsOperator(input.UserID) || !schedulepkg.ExplicitScheduleRequest(input.Text) {
-		return core.ScheduledTask{}, "", false
+		return "", core.ScheduledTask{}, "", false
 	}
 	expiresIn := strings.ToLower(strings.TrimSpace(offer.ExpiresIn))
 	if expiresIn == "" {
@@ -81,7 +50,7 @@ func (s *Service) normalizeScheduleOffer(
 		if s.log != nil {
 			s.log.Warn("discard invalid schedule offer", "source_input", input.ID, "error", err)
 		}
-		return core.ScheduledTask{}, "", false
+		return "", core.ScheduledTask{}, "", false
 	}
 	offer.Title = task.Title
 	offer.Prompt = task.Prompt
@@ -96,46 +65,16 @@ func (s *Service) normalizeScheduleOffer(
 	offer.Timezone = task.Timezone
 	offer.CatchUp = task.CatchUp
 	offer.ExpiresIn = expiresIn
-	return task, schedulepkg.ScheduleDescription(task), true
-}
-
-func (s *Service) scheduleReplacementCandidate(ctx context.Context, proposed core.ScheduledTask) (string, error) {
-	tasks, err := s.store.ListScheduledTasksForChannel(ctx, proposed.ChannelID, 100)
-	if err != nil {
-		return "", err
+	payload, err := json.Marshal(scheduleActionPayload{
+		Version: 1, ChannelID: input.ChannelID,
+		ThreadTS:  conversationalResponseThread(input),
+		SourceRef: core.FirstNonempty(input.EventID, input.ID),
+		IssuedAt:  s.now().UTC(), Offer: *offer,
+	})
+	if err != nil || len(payload) > 1900 {
+		return "", core.ScheduledTask{}, "", false
 	}
-	matches := make([]string, 0, 1)
-	for _, existing := range tasks {
-		if !existing.Enabled || existing.TeamID != proposed.TeamID ||
-			firstNonemptyScheduleChannel(existing) != firstNonemptyScheduleChannel(proposed) ||
-			existing.Repository != proposed.Repository || existing.Recurrence != proposed.Recurrence ||
-			existing.IntervalSeconds != proposed.IntervalSeconds || existing.DayOfMonth != proposed.DayOfMonth ||
-			existing.LocalTime != proposed.LocalTime || existing.Timezone != proposed.Timezone ||
-			!equalScheduleWeekdays(existing.Weekdays, proposed.Weekdays) {
-			continue
-		}
-		matches = append(matches, existing.ID)
-	}
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-	return "", nil
-}
-
-func firstNonemptyScheduleChannel(task core.ScheduledTask) string {
-	return core.FirstNonempty(task.DeliveryChannel, task.ChannelID)
-}
-
-func equalScheduleWeekdays(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
+	return string(payload), task, schedulepkg.ScheduleDescription(task), true
 }
 
 func (s *Service) scheduledTaskFromOffer(
@@ -243,7 +182,7 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 		return err
 	}
 	var payload scheduleActionPayload
-	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil || payload.Version != 2 || payload.ProposalID == "" {
+	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil || payload.Version != 1 || payload.ChannelID != input.ChannelID || payload.SourceRef == "" || payload.IssuedAt.IsZero() || payload.IssuedAt.After(s.now().UTC().Add(5*time.Minute)) || time.Since(payload.IssuedAt) > scheduleOfferMaxAge {
 		return s.behaviorActionFeedback(ctx, input, "*This schedule confirmation is invalid or stale.* Nothing was saved. Ask Emisar to schedule it again and use the new button.")
 	}
 	if len(input.Frozen) != 0 {
@@ -252,7 +191,17 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 			return s.postBehaviorReceipt(ctx, input, slackui.ScheduleSavedMessage(task))
 		}
 	}
-	task, err := s.acceptScheduleProposal(ctx, input, payload.ProposalID)
+	sourceInput := input
+	sourceInput.Kind = "mention"
+	sourceInput.ThreadTS = payload.ThreadTS
+	sourceInput.EventID = payload.SourceRef
+	task, err := s.scheduledTaskFromOffer(ctx, sourceInput, payload.Offer, s.now().UTC())
+	if err != nil {
+		return s.behaviorActionFeedback(ctx, input, "*Emisar refused this schedule.* "+err.Error()+" Nothing was saved.")
+	}
+	task.ThreadTS = payload.ThreadTS
+	task.SourceRef = payload.SourceRef
+	task, err = s.store.CreateScheduledTask(ctx, task, s.cfg.Limits.MaxScheduledTasks, s.cfg.Limits.MaxSchedulesPerChannel)
 	if err != nil {
 		return s.behaviorActionFeedback(ctx, input, "*Emisar could not save this schedule.* "+err.Error())
 	}
@@ -262,20 +211,6 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 	}
 	s.audit(ctx, core.AuditEvent{Kind: "schedule.created", ActorID: input.UserID, ObjectID: task.ID, Outcome: "enabled", Detail: task.Title})
 	return s.postBehaviorReceipt(ctx, input, slackui.ScheduleSavedMessage(task))
-}
-
-func (s *Service) acceptScheduleProposal(ctx context.Context, input core.SlackInput, proposalID string) (core.ScheduledTask, error) {
-	allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
-	if err != nil {
-		return core.ScheduledTask{}, err
-	}
-	if !s.cfg.IsOperator(input.UserID) || !allowed {
-		return core.ScheduledTask{}, errors.New("only a configured operator can activate this schedule")
-	}
-	return s.store.AcceptScheduleProposal(
-		ctx, proposalID, core.FirstNonempty(input.TeamID, s.cfg.Slack.TeamID), input.ChannelID, input.UserID,
-		s.cfg.Limits.MaxScheduledTasks, s.cfg.Limits.MaxSchedulesPerChannel,
-	)
 }
 
 func (s *Service) handleToggleSchedule(ctx context.Context, input core.SlackInput) error {

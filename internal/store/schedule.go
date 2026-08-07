@@ -65,21 +65,10 @@ func (s *Store) CreateScheduledTask(
 	if channel >= maxPerChannel {
 		return core.ScheduledTask{}, fmt.Errorf("scheduled task capacity reached for this channel (%d unexpired tasks)", maxPerChannel)
 	}
-	if err := insertScheduledTask(ctx, tx, &task, now); err != nil {
-		return core.ScheduledTask{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return core.ScheduledTask{}, err
-	}
-	return task, nil
-}
-
-func insertScheduledTask(ctx context.Context, tx *sql.Tx, task *core.ScheduledTask, now time.Time) error {
-	var err error
 	if task.ID == "" {
 		task.ID, err = core.NewID("schedule")
 		if err != nil {
-			return err
+			return core.ScheduledTask{}, err
 		}
 	}
 	task.Enabled = true
@@ -87,7 +76,7 @@ func insertScheduledTask(ctx context.Context, tx *sql.Tx, task *core.ScheduledTa
 	task.UpdatedAt = now
 	weekdays, err := json.Marshal(task.Weekdays)
 	if err != nil {
-		return err
+		return core.ScheduledTask{}, err
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO scheduled_tasks (
@@ -105,7 +94,13 @@ func insertScheduledTask(ctx context.Context, tx *sql.Tx, task *core.ScheduledTa
 		task.ExpiresAt.UTC().Format(timestampFormat),
 		task.CreatedAt.Format(timestampFormat), task.UpdatedAt.Format(timestampFormat),
 	)
-	return err
+	if err != nil {
+		return core.ScheduledTask{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.ScheduledTask{}, err
+	}
+	return task, nil
 }
 
 func validateScheduledTask(task core.ScheduledTask) error {

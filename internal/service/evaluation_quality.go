@@ -256,10 +256,10 @@ func renderEvaluationMessage(
 					return slackui.Message{}, decision.Action, err
 				}
 				evaluator := &Service{cfg: cfg}
-				if task, when, ok := evaluator.normalizeScheduleOffer(
+				if actionValue, task, when, ok := evaluator.prepareScheduleOfferAction(
 					context.Background(), input, decision.ScheduleOffer,
 				); ok {
-					message = slackui.WithScheduleOffer(message, task, `{"version":2,"proposal_id":"evaluation"}`, when)
+					message = slackui.WithScheduleOffer(message, task, actionValue, when)
 				} else {
 					message = slackui.ScheduleOfferUnavailable(message)
 				}

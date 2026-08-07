@@ -442,28 +442,9 @@ func (s *Service) applyReplyDecision(
 		if actionValue, task, when, ok := s.prepareScheduleOfferAction(
 			ctx, scheduleInput, decision.ScheduleOffer,
 		); ok {
-			if schedulepkg.ExplicitScheduleConfirmation(s.stripBotMention(input.Text)) &&
-				watchDecisionCanActivateSchedule(decision) {
-				var payload scheduleActionPayload
-				if err := decisionpkg.DecodeStrictJSON([]byte(actionValue), &payload); err != nil {
-					return err
-				}
-				acceptedTask, err := s.acceptScheduleProposal(ctx, input, payload.ProposalID)
-				if err != nil {
-					return err
-				}
-				task = acceptedTask
-				s.audit(ctx, core.AuditEvent{
-					Kind: "schedule.created", ActorID: input.UserID, ObjectID: task.ID,
-					Outcome: "enabled", Detail: task.Title,
-				})
-				message = slackui.ScheduleSavedMessage(task)
-				outcome = "schedule_saved"
-			} else {
-				message = slackui.WithScheduleOffer(message, task, actionValue, when)
-				outcome = "schedule_offered"
-				scheduleOffered = true
-			}
+			message = slackui.WithScheduleOffer(message, task, actionValue, when)
+			outcome = "schedule_offered"
+			scheduleOffered = true
 		} else {
 			message = slackui.ScheduleOfferUnavailable(message)
 			outcome = "schedule_offer_invalid"
@@ -605,13 +586,6 @@ func (s *Service) applyReplyDecision(
 		Outcome: outcome, Detail: input.ChannelID,
 	})
 	return nil
-}
-
-func watchDecisionCanActivateSchedule(decision decisionpkg.WatchDecision) bool {
-	return decision.ScheduleOffer != nil && decision.MemoryOffer == nil &&
-		decision.PreferenceOffer == nil && decision.RuleOffer == nil &&
-		decision.PendingApproval == nil && decision.IncidentTitle == "" &&
-		decision.TaskTitle == ""
 }
 
 // finishShadowedWatchDecision closes out a decision made in shadow mode: the

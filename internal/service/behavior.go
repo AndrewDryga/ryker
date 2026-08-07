@@ -392,35 +392,6 @@ func (s *Service) confirmPendingPreferenceReply(
 	return true, s.handleRememberPreference(ctx, input)
 }
 
-func (s *Service) confirmPendingScheduleReply(
-	ctx context.Context,
-	input core.SlackInput,
-) (bool, error) {
-	if !s.cfg.IsOperator(input.UserID) ||
-		!schedulepkg.ExplicitScheduleConfirmation(s.stripBotMention(input.Text)) {
-		return false, nil
-	}
-	proposal, err := s.store.GetPendingScheduleProposalForConversation(
-		ctx, core.FirstNonempty(input.TeamID, s.cfg.Slack.TeamID), input.ChannelID,
-		input.ThreadTS, input.UserID,
-	)
-	if errors.Is(err, store.ErrNotFound) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	task, err := s.acceptScheduleProposal(ctx, input, proposal.ID)
-	if err != nil {
-		return true, err
-	}
-	s.audit(ctx, core.AuditEvent{
-		Kind: "schedule.created", ActorID: input.UserID, ObjectID: task.ID,
-		Outcome: "enabled", Detail: task.Title,
-	})
-	return true, s.postBehaviorReceipt(ctx, input, slackui.ScheduleSavedMessage(task))
-}
-
 func affirmativeBehaviorConfirmation(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	normalized = strings.TrimRight(normalized, ".!")
