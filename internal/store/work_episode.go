@@ -20,7 +20,7 @@ const workEpisodeColumns = `
 	platform, channel_id, thread_ts, anchor_ts, visibility,
 	destination_channel_id, destination_thread_ts, destination_revision,
 	latest_attempt_id, authority_snapshot_ref,
-	agent_run_id, effort, authority, activity, state, lifecycle_state, objective,
+	agent_run_id, effort, authority, activity, lifecycle_state, objective,
 	required_coverage_json, completion_criteria_json, phase, status, next_action,
 	event_sequence, progress_sequence, last_progress_at, progress_due_at, created_at, updated_at,
 	completed_at`
@@ -217,10 +217,10 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 		  platform, channel_id, thread_ts, anchor_ts, visibility,
 		  destination_channel_id, destination_thread_ts, destination_revision,
 		  latest_attempt_id, authority_snapshot_ref,
-		  agent_run_id, effort, authority, activity, state, lifecycle_state, objective,
+		  agent_run_id, effort, authority, activity, lifecycle_state, objective,
 		  required_coverage_json, completion_criteria_json,
 		  phase, status, next_action, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'acknowledged', 'accepted', ?,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'accepted', ?,
 		          ?, ?, 'accepted', 'Accepted', 'Plan the work', ?, ?)`,
 		episode.ID, episode.WorkspaceID, episode.ParentEpisodeID, episode.Mode,
 		episode.Conversation.Platform, episode.Conversation.ChannelID,
@@ -272,7 +272,6 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 
 func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, error) {
 	var item core.WorkEpisode
-	var legacyState core.WorkEpisodeState
 	var requiredJSON, criteriaJSON string
 	var lastProgress, progressDue, completed sql.NullString
 	var created, updated string
@@ -283,7 +282,7 @@ func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, err
 		&item.Conversation.Visibility, &item.Destination.ChannelID,
 		&item.Destination.ThreadTS, &item.DestinationRevision,
 		&item.LatestAttemptID, &item.AuthoritySnapshot,
-		&item.AgentRunID, &item.Effort, &item.Authority, &item.Activity, &legacyState,
+		&item.AgentRunID, &item.Effort, &item.Authority, &item.Activity,
 		&item.State,
 		&item.Objective, &requiredJSON, &criteriaJSON, &item.Phase, &item.Status,
 		&item.NextAction, &item.EventSequence, &item.ProgressSequence, &lastProgress, &progressDue,
@@ -308,19 +307,6 @@ func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, err
 	item.CompletedAt = scanTime(completed)
 	item.Revision = item.EventSequence
 	return item, nil
-}
-
-func legacyWorkEpisodeState(state core.WorkEpisodeState) core.WorkEpisodeState {
-	switch state {
-	case core.EpisodeAccepted:
-		return core.EpisodeAcknowledged
-	case core.EpisodeWaitingOperator, core.EpisodeWaitingExternal, core.EpisodeRetrying:
-		return core.EpisodeBlocked
-	case core.EpisodeRefused:
-		return core.EpisodeFailed
-	default:
-		return state
-	}
 }
 
 func (s *Store) GetWorkEpisode(ctx context.Context, episodeID string) (core.WorkEpisode, error) {
@@ -679,11 +665,11 @@ func (s *Store) appendEpisodeEventTx(
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE work_episodes
-		SET state = ?, lifecycle_state = ?, phase = ?, status = ?, next_action = ?,
+		SET lifecycle_state = ?, phase = ?, status = ?, next_action = ?,
 		    event_sequence = ?, progress_sequence = ?, last_progress_at = ?,
 		    progress_due_at = ?, completed_at = ?, updated_at = ?
 		WHERE id = ? AND event_sequence = ?`,
-		legacyWorkEpisodeState(next.State), next.State, next.Phase,
+		next.State, next.Phase,
 		boundedError(next.Status), boundedError(next.NextAction),
 		next.EventSequence, next.ProgressSequence, nullableTime(next.LastProgressAt),
 		nullableTime(next.ProgressDueAt), nullableTime(next.CompletedAt),
@@ -853,7 +839,10 @@ func (s *Store) ListOverdueEpisodes(
 		WHERE completed_at IS NULL
 		  AND progress_due_at IS NOT NULL
 		  AND julianday(progress_due_at) <= julianday(?)
-		  AND state NOT IN ('completed', 'cancelled', 'failed', 'superseded')
+		  -- 'refused' is explicit because the legacy state column this replaced
+		  -- collapsed refused into failed and so excluded it already.
+		  AND lifecycle_state NOT IN (
+		    'completed', 'cancelled', 'failed', 'refused', 'superseded')
 		ORDER BY progress_due_at
 		LIMIT ?`,
 		now.UTC().Format(timestampFormat), limit,

@@ -72,8 +72,6 @@ func runLifecycleDivergence(args []string, stdout, stderr io.Writer) error {
 			"stalled: nothing is advancing it"},
 		{"episode and its latest run disagree on the outcome", report.OutcomeConflict,
 			"the two lifecycles reached different answers about the same work"},
-		{"state is not the projection of lifecycle_state", report.ProjectionMismatch,
-			"one column was written without the other"},
 	} {
 		fmt.Fprintf(stdout, "  %-52s %4d\n", section.label, len(section.ids))
 		for _, id := range section.ids {

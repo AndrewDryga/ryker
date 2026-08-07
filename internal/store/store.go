@@ -474,7 +474,7 @@ func applySchemaStep(db *sql.DB, statement string, from, to int) error {
 // Opt-in per migration rather than always on: every other migration benefits
 // from the constraints being enforced while it runs, and a rebuild is rare
 // enough that turning them off should be a deliberate, listed decision.
-var tableRebuildMigrations = map[int]bool{}
+var tableRebuildMigrations = map[int]bool{47: true}
 
 // verifyForeignKeys fails if a migration left a reference pointing at nothing.
 func verifyForeignKeys(db *sql.DB, migration int) error {
@@ -729,10 +729,16 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 		{&result.SchedulesActive, `SELECT count(*) FROM scheduled_tasks WHERE enabled = 1 AND julianday(expires_at) > julianday('now')`},
 		{&result.SchedulesPaused, `SELECT count(*) FROM scheduled_tasks WHERE enabled = 0 AND next_run_at IS NOT NULL AND julianday(expires_at) > julianday('now')`},
 		{&result.ScheduleRunsActive, `SELECT count(*) FROM scheduled_task_runs WHERE outcome IN ('queued', 'running')`},
+		// 'refused' is listed explicitly because the legacy state column this
+		// replaced could not hold it — the projection collapsed refused into
+		// failed, so a refused episode was excluded by the 'failed' entry.
+		// Translating the column name without translating the vocabulary would
+		// have started counting every refused episode as overdue.
 		{&result.EpisodesOverdue, `SELECT count(*) FROM work_episodes
 		  WHERE completed_at IS NULL AND progress_due_at IS NOT NULL
 		    AND julianday(progress_due_at) <= julianday('now')
-		    AND state NOT IN ('completed', 'cancelled', 'failed', 'superseded')`},
+		    AND lifecycle_state NOT IN (
+		      'completed', 'cancelled', 'failed', 'refused', 'superseded')`},
 		{&result.WorkFailed, `
 			SELECT
 			  (SELECT count(*) FROM webhook_events WHERE state = 'failed') +

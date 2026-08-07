@@ -17,11 +17,10 @@ func TestLifecycleDivergenceDetectsEachDisagreement(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tc := range []struct {
-		name     string
-		episode  string
-		run      string
-		sameCols bool
-		want     func(lifecyclecheck.Report) []string
+		name    string
+		episode string
+		run     string
+		want    func(lifecyclecheck.Report) []string
 	}{
 		{
 			name: "work running under a finished episode",
@@ -41,20 +40,10 @@ func TestLifecycleDivergenceDetectsEachDisagreement(t *testing.T) {
 			episode: "completed", run: "failed",
 			want: func(d lifecyclecheck.Report) []string { return d.OutcomeConflict },
 		},
-		{
-			name:    "state and lifecycle_state drifted apart",
-			episode: "completed", run: "completed",
-			sameCols: true,
-			want:     func(d lifecyclecheck.Report) []string { return d.ProjectionMismatch },
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := openAt(t, t.TempDir())
-			state := tc.episode
-			if tc.sameCols {
-				state = "failed" // state disagrees with lifecycle_state
-			}
-			seedEpisodeWithRun(t, st, "ep_1", state, tc.episode,
+			seedEpisodeWithRun(t, st, "ep_1", tc.episode,
 				map[string][2]string{"run_1": {tc.run, "2026-08-07T12:00:00.000000000Z"}})
 
 			report, err := lifecyclecheck.Divergences(ctx, st.db)
@@ -81,7 +70,7 @@ func TestLifecycleDivergenceDetectsEachDisagreement(t *testing.T) {
 func TestLifecycleDivergenceAcceptsARetriedEpisode(t *testing.T) {
 	ctx := context.Background()
 	st := openAt(t, t.TempDir())
-	seedEpisodeWithRun(t, st, "ep_1", "completed", "completed", map[string][2]string{
+	seedEpisodeWithRun(t, st, "ep_1", "completed", map[string][2]string{
 		"run_1": {"failed", "2026-08-07T12:00:00.000000000Z"},
 		"run_2": {"completed", "2026-08-07T12:05:00.000000000Z"},
 	})
@@ -106,7 +95,7 @@ func TestLifecycleDivergenceAcceptsARetriedEpisode(t *testing.T) {
 // two tables reference each other, so neither can be inserted already pointing
 // at the other.
 func seedEpisodeWithRun(
-	t *testing.T, st *Store, episodeID, episodeState, lifecycleState string,
+	t *testing.T, st *Store, episodeID, lifecycleState string,
 	runs map[string][2]string,
 ) {
 	t.Helper()
@@ -128,10 +117,10 @@ func seedEpisodeWithRun(
 		}
 	}
 	if _, err := st.db.ExecContext(ctx, `
-		INSERT INTO work_episodes (id, agent_run_id, effort, authority, state, objective,
+		INSERT INTO work_episodes (id, agent_run_id, effort, authority, objective,
 		  phase, status, next_action, created_at, updated_at, lifecycle_state)
-		VALUES (?,?,'focused_check','read_only',?,'o','p','s','n',?,?,?)`,
-		episodeID, first, episodeState, stamp, stamp, lifecycleState,
+		VALUES (?,?,'focused_check','read_only','o','p','s','n',?,?,?)`,
+		episodeID, first, stamp, stamp, lifecycleState,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -144,40 +133,32 @@ func seedEpisodeWithRun(
 	}
 }
 
-// state is a lossy projection of lifecycle_state, not a copy of it:
-// waiting_operator, waiting_external and retrying all collapse to blocked,
-// accepted collapses to acknowledged, refused collapses to failed.
+// A refused episode must not be counted as overdue.
 //
-// Comparing the two columns for equality reports every one of those as drift.
-// They look equal in the deployed data only because no episode comes to rest in
-// a collapsing state, so the mistake survives a clean production run — which is
-// how it shipped in 4551562 and why this test exists.
-func TestLifecycleDivergenceAcceptsACorrectlyProjectedState(t *testing.T) {
+// The overdue metric used to read the legacy state column, whose vocabulary
+// collapsed refused into failed — so a refused episode was excluded by the
+// 'failed' entry. When the column was dropped in migration 47, renaming it to
+// lifecycle_state without adding 'refused' would have silently started counting
+// every refused episode as overdue work needing attention.
+func TestRefusedEpisodesAreNotOverdue(t *testing.T) {
 	ctx := context.Background()
-	for lifecycle, legacy := range map[string]string{
-		"waiting_operator": "blocked",
-		"waiting_external": "blocked",
-		"retrying":         "blocked",
-		"accepted":         "acknowledged",
-		"refused":          "failed",
-	} {
-		t.Run(lifecycle, func(t *testing.T) {
-			st := openAt(t, t.TempDir())
-			// A live run, so the executing-without-a-run probe stays quiet and
-			// this test only measures the projection.
-			seedEpisodeWithRun(t, st, "ep_1", legacy, lifecycle,
-				map[string][2]string{"run_1": {"running", "2026-08-07T12:00:00.000000000Z"}})
-
-			report, err := lifecyclecheck.Divergences(ctx, st.db)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(report.ProjectionMismatch) != 0 {
-				t.Fatalf(
-					"%s correctly projects to %s, but was reported as drift",
-					lifecycle, legacy,
-				)
-			}
-		})
+	st := openAt(t, t.TempDir())
+	seedEpisodeWithRun(t, st, "ep_1", "refused",
+		map[string][2]string{"run_1": {"completed", "2026-08-07T12:00:00.000000000Z"}})
+	// Due an hour before the epoch of any clock this test could run under.
+	if _, err := st.db.ExecContext(ctx,
+		`UPDATE work_episodes SET progress_due_at = '2000-01-01T00:00:00.000000000Z'`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := st.Metrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.EpisodesOverdue != 0 {
+		t.Fatalf(
+			"a refused episode was counted as overdue (%d); refused is terminal",
+			metrics.EpisodesOverdue,
+		)
 	}
 }

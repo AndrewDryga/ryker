@@ -147,7 +147,7 @@ func TestForeignKeysAreRestoredAfterARebuild(t *testing.T) {
 func seedEpisodeAndAttempt(t *testing.T) *Store {
 	t.Helper()
 	st := openAt(t, t.TempDir())
-	seedEpisodeWithRun(t, st, "ep_1", "completed", "completed",
+	seedEpisodeWithRun(t, st, "ep_1", "completed",
 		map[string][2]string{"run_1": {"completed", "2026-08-07T12:00:00.000000000Z"}})
 	if _, err := st.db.Exec(`
 		INSERT INTO episode_attempts (id, episode_id, agent_run_id, attempt_number,
