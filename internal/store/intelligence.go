@@ -767,6 +767,17 @@ func (s *Store) ListEpisodeEvidence(
 		), source_inputs(id) AS (
 		  SELECT source_id FROM agent_runs
 		  WHERE episode_id IN (SELECT id FROM episode_chain)
+		), incident_ids(id) AS (
+		  -- Evidence recorded during an incident investigation is keyed by the
+		  -- incident, not by the Slack input that started it, so matching on
+		  -- source_input alone made an escalated episode's own findings
+		  -- invisible to it. Incident scope is the right width here: the doc
+		  -- above says correlated episodes exist to share one claim ledger
+		  -- "instead of repeatedly rediscovering (and contradicting) the same
+		  -- incident", and everything under one incident is that incident.
+		  SELECT DISTINCT incident_id FROM agent_runs
+		  WHERE episode_id IN (SELECT id FROM episode_chain)
+		    AND incident_id IS NOT NULL AND incident_id != ''
 		)
 		SELECT id, incident_id, channel_id, source_input, claim_id, claim, observation,
 		  relation, health_effect, source_type, source_id, source_name, source_url,
@@ -774,6 +785,7 @@ func (s *Store) ListEpisodeEvidence(
 		  dimensions_json, metadata_json, created_at
 		FROM evidence
 		WHERE source_input IN (SELECT id FROM source_inputs)
+		   OR incident_id IN (SELECT id FROM incident_ids)
 		ORDER BY created_at DESC, id DESC LIMIT ?`, episodeID, limit)
 	if err != nil {
 		return nil, err
@@ -827,11 +839,23 @@ func (s *Store) ListEpisodeCoverage(
 		), source_inputs(id) AS (
 		  SELECT source_id FROM agent_runs
 		  WHERE episode_id IN (SELECT id FROM episode_chain)
+		), incident_ids(id) AS (
+		  -- Evidence recorded during an incident investigation is keyed by the
+		  -- incident, not by the Slack input that started it, so matching on
+		  -- source_input alone made an escalated episode's own findings
+		  -- invisible to it. Incident scope is the right width here: the doc
+		  -- above says correlated episodes exist to share one claim ledger
+		  -- "instead of repeatedly rediscovering (and contradicting) the same
+		  -- incident", and everything under one incident is that incident.
+		  SELECT DISTINCT incident_id FROM agent_runs
+		  WHERE episode_id IN (SELECT id FROM episode_chain)
+		    AND incident_id IS NOT NULL AND incident_id != ''
 		)
 		SELECT id, incident_id, channel_id, source_input, layer, status, source,
 		  detail, observed_at, claim_ids_json, created_at
 		FROM coverage
 		WHERE source_input IN (SELECT id FROM source_inputs)
+		   OR incident_id IN (SELECT id FROM incident_ids)
 		ORDER BY created_at DESC, id DESC LIMIT ?`, episodeID, limit)
 	if err != nil {
 		return nil, err
