@@ -411,6 +411,16 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 		}
 	}
 	task, err := s.acceptScheduleProposal(ctx, input, payload.ProposalID)
+	if errors.Is(err, store.ErrConflict) {
+		// Acceptance is an atomic pending -> accepted transition, so a second
+		// route to the same proposal — the button after a conversational
+		// confirmation, or the other way round — loses the race by design. It
+		// did not fail: the schedule exists. Saying so beats surfacing a
+		// database error for something that worked.
+		return s.behaviorActionFeedback(
+			ctx, input, "This schedule is already saved — nothing more to do.",
+		)
+	}
 	if err != nil {
 		return s.behaviorActionFeedback(ctx, input, "*Emisar could not save this schedule.* "+err.Error())
 	}

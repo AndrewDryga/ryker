@@ -32,8 +32,10 @@ const timestampParseFormat = core.TimestampParseFormat
 const migrationBackupRetention = 3
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("conflict")
+	// Aliases of the shared sentinels so existing callers keep working; the
+	// definitions live in core because sub-repositories cannot import store.
+	ErrNotFound = core.ErrNotFound
+	ErrConflict = core.ErrConflict
 	ErrCapacity = errors.New("incident capacity reached")
 )
 

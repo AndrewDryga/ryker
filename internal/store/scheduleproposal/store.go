@@ -404,11 +404,22 @@ func expectOne(result sql.Result, err error, action string) error {
 		return fmt.Errorf("%s: %w", action, err)
 	}
 	if rows != 1 {
-		return fmt.Errorf("%s: database conflict", action)
+		return ConflictFor(action)
 	}
 	return nil
 }
 
 type rowScanner interface {
 	Scan(...any) error
+}
+
+// ConflictFor builds the error a lost write returns.
+//
+// Exported so a test can assert the sentinel is matchable without staging a
+// real race between two concurrent accepts. The shape of that error is the
+// contract — a caller has to tell "someone else got there first" from a real
+// failure — and it is exactly what drifted when this package grew its own copy
+// of expectOne returning a formatted string.
+func ConflictFor(action string) error {
+	return fmt.Errorf("%s: %w", action, core.ErrConflict)
 }
