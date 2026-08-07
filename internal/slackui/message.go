@@ -603,22 +603,34 @@ func TurnFailureMessage(state, detail string) Message {
 	}
 }
 
+// AgentReportFailureMessage is what an operator sees when Responder exhausted
+// its corrections and still could not read its own model's result.
+//
+// It deliberately carries no parse error. The operator asked a question; that
+// the answer arrived in the wrong envelope is Responder's problem, and quoting
+// `json: unknown field "reply"` at someone waiting on an incident tells them
+// nothing they can act on. What they need is what survived, and what to do next.
+//
+// The detail argument is retained for callers that have something genuinely
+// operator-facing to add; an internal error is not that, and passing "" is the
+// normal case.
 func AgentReportFailureMessage(detail string) Message {
-	detail = strings.TrimSpace(detail)
-	if detail == "" {
-		detail = "the final response did not match the structured report format"
+	sections := []string{
+		"The investigation ran and its findings are preserved, but the final " +
+			"summary did not come back in a form I could publish.",
+		"Reply in this thread and I will write it up again from the same work — " +
+			"nothing was lost and nothing was changed.",
 	}
-	detail = strings.ReplaceAll(truncateUTF8(detail, 800), "`", "'")
+	if detail = strings.TrimSpace(detail); detail != "" {
+		sections = append([]string{escapeSlackText(truncateUTF8(detail, 800))}, sections...)
+	}
 	return Message{
-		Text:   "Responder completed the agent turn but could not publish a clean result.",
-		Header: "Result needs a clean summary",
-		Sections: []string{
-			"Coop completed the agent turn, but the final response did not match Responder's structured report format.",
-			"Format error: `" + detail + "`",
-			"The isolated working copy and full turn output are preserved. Reply in this thread to ask Responder for a fresh summary.",
-		},
+		Text:     "I could not publish a clean summary of that turn.",
+		Header:   "Summary needs another pass",
+		Sections: sections,
 		Context: []string{
-			"Raw agent transcripts, tool output, and hidden reasoning are not posted to Slack.",
+			"No merge, push, signing, or deployment occurred. " +
+				"Raw transcripts and tool output are not posted to Slack.",
 		},
 	}
 }

@@ -854,22 +854,53 @@ func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
 	}
 }
 
-func TestAgentReportFailureDoesNotRenderRawTranscript(t *testing.T) {
-	message := AgentReportFailureMessage("json: unknown field `tool_output`")
-	content := message.Text + strings.Join(message.Sections, "\n") +
-		strings.Join(message.Context, "\n")
-	for _, required := range []string{
-		"Result needs a clean summary",
-		"Coop completed the agent turn",
-		"isolated working copy",
-		"Raw agent transcripts",
+// What an operator sees when Responder could not read its own model's result.
+//
+// The rule this pins: a person waiting on an incident is never shown an
+// internal error or internal vocabulary. They did not ask about a JSON envelope
+// and cannot act on one. They need to know what survived, that nothing changed,
+// and what to do next.
+//
+// This replaced a test that required the phrases "Coop completed the agent
+// turn" and "Result needs a clean summary" — both of which describe Responder's
+// plumbing rather than the operator's situation.
+func TestAgentReportFailureSpeaksToTheOperatorNotAboutTheParser(t *testing.T) {
+	message := AgentReportFailureMessage("")
+	content := message.Text + "\n" + message.Header + "\n" +
+		strings.Join(message.Sections, "\n") + "\n" + strings.Join(message.Context, "\n")
+
+	for _, leak := range []string{
+		"json:", "unmarshal", "unknown field", "parse", "schema", "envelope",
+		"structured report format", "Coop completed", "nil", "error:",
 	} {
-		if !strings.Contains(content+message.Header, required) {
-			t.Fatalf("report failure lacks %q: %+v", required, message)
+		if strings.Contains(strings.ToLower(content), strings.ToLower(leak)) {
+			t.Errorf("operator-facing failure message contains internal detail %q:\n%s", leak, content)
 		}
 	}
-	if strings.Contains(content, "tool output here") {
-		t.Fatalf("report failure leaked transcript: %+v", message)
+
+	for _, required := range []string{
+		"preserved", // what survived
+		"Reply",     // what to do
+		"nothing was lost",
+	} {
+		if !strings.Contains(content, required) {
+			t.Errorf("failure message does not tell the operator %q:\n%s", required, content)
+		}
+	}
+
+	// The safety statement stays: no merge, push, signing or deployment, and no
+	// raw transcript. That is the one piece of plumbing an operator does care
+	// about, because it bounds what could have happened while they were away.
+	if !strings.Contains(content, "No merge, push, signing, or deployment occurred") {
+		t.Error("failure message dropped the statement bounding what happened")
+	}
+
+	// A caller with something genuinely operator-facing may still add it, and a
+	// raw internal error passed here would be a bug at the call site rather
+	// than in this function — so the incident path passes "".
+	withDetail := AgentReportFailureMessage("The repository is not reachable from this runner.")
+	if !strings.Contains(strings.Join(withDetail.Sections, "\n"), "not reachable") {
+		t.Error("an operator-facing detail was dropped")
 	}
 }
 

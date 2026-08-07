@@ -1869,6 +1869,56 @@ func (s *Service) parkWatchRunPendingStatus(
 	return s.store.SetAgentRunContext(ctx, run.ID, contextJSON)
 }
 
+// retryMalformedIncidentReport sends an unreadable result back to the model
+// with a description of what was wrong, and reports whether it did.
+//
+// It returns false only once the correction budget is spent, which is the point
+// at which a person has to be told something. Until then the operator sees
+// nothing: they asked a question, and Responder failing to parse its own
+// model's answer is not news to them.
+func (s *Service) retryMalformedIncidentReport(
+	ctx context.Context,
+	run core.AgentRun,
+	reportErr error,
+) (bool, error) {
+	// If the context does not decode there is nowhere to record the correction,
+	// and writing a fresh one would replace the run's assembled context —
+	// repository, captured situations, and the task-changes fingerprint the
+	// publication staleness check depends on — with zeros. Better to stop and
+	// tell the operator than to silently destroy the turn's context.
+	assembled, ok := decodeAssembledAgentContext(run.Context)
+	if !ok {
+		return false, nil
+	}
+	assembled.StructuredCorrections++
+	if terminalStructuredCorrection(
+		assembled.StructuredCorrections, s.cfg.Limits.MaxAgentRunAttempts,
+	) {
+		return false, nil
+	}
+	contextJSON, err := json.Marshal(assembled)
+	if err != nil {
+		return false, err
+	}
+	if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
+		return false, err
+	}
+	correction := "the structured response is invalid: " + trimError(reportErr) +
+		"\n\nReturn the same result in the documented structured format. " +
+		"Keep the evidence and conclusions you already have; only the envelope was wrong."
+	if err := s.store.RequeueAgentRun(
+		ctx, run.ID, correction, run.CoopEventSequence, s.now(),
+	); err != nil {
+		return false, err
+	}
+	s.audit(ctx, core.AuditEvent{
+		IncidentID: run.IncidentID, Kind: "agent.report",
+		ObjectID: run.CoopTurnID, Outcome: "corrected",
+		Detail: decisionpkg.BoundedField(trimError(reportErr), 500),
+	})
+	return true, nil
+}
+
 func terminalStructuredCorrection(attempt, maximum int) bool {
 	return terminalAttempt(attempt, maximum)
 }
@@ -2017,6 +2067,8 @@ func terminalACPEnvironmentFailure(turn coop.Turn) bool {
 		"coop runtime storage is full",
 		"coop cannot reach the docker runtime",
 		"configured coop account is not authenticated",
+		"credential is not portable through the turn deadline",
+		"provider credential needs sign-in or renewal",
 	} {
 		if strings.Contains(detail, diagnostic) {
 			return true
@@ -2546,9 +2598,22 @@ func (s *Service) finalizeIncidentAgentRun(
 				ObjectID: run.CoopTurnID, Outcome: "malformed",
 				Detail: trimError(reportErr),
 			})
-			reportDetail := trimError(reportErr)
-			reportDetail = s.sanitizeText(reportDetail)
-			message = slackui.AgentReportFailureMessage(reportDetail)
+			// Tell the model, not the operator. A result Responder cannot read
+			// is Responder's problem: the person asked a question and a schema
+			// mismatch is not an answer to it. The watch path has always
+			// corrected and retried here; this one used to post the parse error
+			// to Slack and stop.
+			retried, retryErr := s.retryMalformedIncidentReport(ctx, run, reportErr)
+			if retryErr != nil {
+				return retryErr
+			}
+			if retried {
+				return nil
+			}
+			// Out of corrections. Say so in the operator's terms — what was
+			// lost, what survived, and what they can do — without the parse
+			// error, which means nothing to them.
+			message = slackui.AgentReportFailureMessage("")
 			s.recordTimeline(ctx, core.TimelineEvent{
 				ID:         "tl_agent_failure_" + run.ID,
 				IncidentID: incident.ID, ChannelID: incident.ChannelID,

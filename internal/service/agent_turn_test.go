@@ -481,6 +481,8 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		"ACP child closed before its response: Coop runtime storage is full",
 		"ACP child closed before its response: Coop cannot reach the Docker runtime",
 		"ACP child closed before its response: the configured Coop account is not authenticated; run 'coop login'",
+		"ACP child closed before its response: credential is not portable through the turn deadline",
+		"provider credential needs sign-in or renewal",
 	} {
 		environmentFailure := coop.Turn{
 			ErrorCode:   "acp_process_error",

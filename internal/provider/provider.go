@@ -41,6 +41,9 @@ func Classify(detail string) Failure {
 	case containsAny(
 		lower,
 		"acl request was rejected",
+		"credential needs sign-in",
+		"credential is not portable",
+		"provider credential needs sign-in or renewal",
 		"permission denied",
 		"forbidden",
 		"unauthorized",
@@ -49,8 +52,8 @@ func Classify(detail string) Failure {
 	):
 		return Failure{
 			Kind:        "authorization",
-			Summary:     "The configured AI provider rejected the account or its authorization.",
-			OperatorFix: "Re-authenticate the Coop agent profile and confirm that account can use the configured model.",
+			Summary:     "Emisar's AI provider login needs to be refreshed.",
+			OperatorFix: "Sign in to the configured Coop agent profile, then retry this request.",
 		}
 	case containsAny(lower, "model", "unsupported", "does not exist", "not found"):
 		return Failure{

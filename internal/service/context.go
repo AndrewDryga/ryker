@@ -35,7 +35,12 @@ type assembledAgentContext struct {
 	RecentMessages                []decisionpkg.WatchContextMessage          `json:"recent_messages_around_target,omitempty"`
 	ReferencedThread              *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
 	InitialTaskChangesFingerprint string                                     `json:"initial_task_changes_fingerprint,omitempty"`
-	CapturedAt                    time.Time                                  `json:"captured_at"`
+	// StructuredCorrections counts how many times this run has been sent back
+	// to the model because its result could not be read. The watch path has
+	// always had this; incident and engineering-task runs did not, so a single
+	// malformed response ended the turn and showed the operator a parse error.
+	StructuredCorrections int       `json:"structured_corrections,omitempty"`
+	CapturedAt            time.Time `json:"captured_at"`
 }
 
 func (s *Service) assembleAgentContext(
