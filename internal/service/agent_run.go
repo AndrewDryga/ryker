@@ -1309,6 +1309,10 @@ func advanceFailedSessionGeneration(err error) bool {
 var providerBackoff = map[string]time.Duration{
 	provider.KindRateLimit:  rateLimitRetryDelay,
 	provider.KindUsageLimit: usageLimitRetryDelay,
+	// An unexplained refusal polls at the rate-limit interval: it is the
+	// shortest of the causes it might be, and guessing long would delay
+	// recovery from the one that clears fastest.
+	provider.KindProviderRefused: rateLimitRetryDelay,
 }
 
 func (s *Service) requeueIfRateLimited(
