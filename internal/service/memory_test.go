@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -200,6 +201,122 @@ func TestOperationalMemoryPromptDeclaresPrecedence(t *testing.T) {
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+}
+
+func TestIgnoreDecisionMayUpdateOnlyConversationMemory(t *testing.T) {
+	memory := core.AgentMemory{Knowledge: []core.KnowledgeItem{{
+		Subject: "Sentry placement", Kind: "decision", Statement: "Keep Sentry in GCP.",
+		Status: "accepted", Confidence: 3, SourceRef: "https://app.slack.com/client/T/C/thread/C-100", SourceMessageTS: "100.001",
+	}}}
+	decision := watchDecision{
+		Action: "ignore",
+		Operations: []investigation.ResultOperation{{
+			ID: "memory-1", Type: "update_memory", Memory: &memory,
+		}},
+	}
+	if err := applyWatchResultOperations(&decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.Message != "" || len(decision.Memory.Knowledge) != 1 ||
+		len(decision.AppliedOperations) != 1 {
+		t.Fatalf("decision = %#v", decision)
+	}
+
+	decision.Operations = append(decision.Operations, investigation.ResultOperation{
+		ID: "complete-1", Type: "complete_episode",
+		Completion: &investigation.CompleteEpisode{Message: "This must not be hidden."},
+	})
+	if err := applyWatchResultOperations(&decision); err == nil ||
+		!strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("silent mixed operations error = %v", err)
+	}
+
+	decision = watchDecision{
+		Action:   "ignore",
+		Evidence: []core.Evidence{{Claim: "hidden work"}},
+		Operations: []investigation.ResultOperation{{
+			ID: "memory-1", Type: "update_memory", Memory: &memory,
+		}},
+	}
+	if err := applyWatchResultOperations(&decision); err == nil ||
+		!strings.Contains(err.Error(), "other result fields") {
+		t.Fatalf("silent legacy side effect error = %v", err)
+	}
+}
+
+func TestReplyDecisionMayAnswerAndUpdateConversationMemory(t *testing.T) {
+	memory := core.AgentMemory{Knowledge: []core.KnowledgeItem{{
+		Subject: "Symbol storage", Kind: "decision",
+		Statement: "Store symbols in GCS and upload them through GitHub Actions WIF.",
+		Status:    "accepted", Confidence: 3,
+		SourceRef: "https://app.slack.com/client/T/C/thread/C-100", SourceMessageTS: "100.001",
+	}}}
+	decision := watchDecision{
+		Action: "reply",
+		Operations: []investigation.ResultOperation{
+			{ID: "memory-1", Type: "update_memory", Memory: &memory},
+			{
+				ID: "complete-1", Type: "complete_episode",
+				Completion: &investigation.CompleteEpisode{
+					Message: "GCS with WIF is the accepted direction.",
+					Completion: &investigation.CompletionAssessment{
+						Status: "decision_ready", Summary: "Answered and remembered.",
+					},
+				},
+			},
+		},
+	}
+	if err := applyWatchResultOperations(&decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.Message != "GCS with WIF is the accepted direction." ||
+		len(decision.Memory.Knowledge) != 1 || len(decision.AppliedOperations) != 2 {
+		t.Fatalf("decision = %#v", decision)
+	}
+}
+
+func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
+	input := core.SlackInput{
+		TeamID: "T123ABC", ChannelID: "C123ABC", MessageTS: "100.001",
+		UserID: "U123ABC", Text: "Use GCS for debug symbols.",
+	}
+	svc := &Service{}
+	for name, prompt := range map[string]string{
+		"bounded": svc.conversationPrompt(
+			input, "U999BOT", false, nil, core.AgentMemory{}, nil, "repo",
+		),
+		"full": svc.unboundedWatchPrompt(
+			input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+			operationalMemoryContext{}, "repo", nil,
+		),
+	} {
+		for _, required := range []string{
+			"durable organizational knowledge",
+			"independent of the Slack action",
+			"status=tentative|accepted|superseded",
+			"confidence=3",
+			"source_ref",
+			"action=ignore",
+			"materially contradicts",
+		} {
+			if !strings.Contains(prompt, required) {
+				t.Fatalf("%s prompt missing %q", name, required)
+			}
+		}
+	}
+	full := svc.unboundedWatchPrompt(
+		input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		operationalMemoryContext{}, "repo", nil,
+	)
+	for _, required := range []string{
+		"Recording a decision as evidence",
+		"MUST include exactly one update_memory operation",
+		"remember-architecture",
+	} {
+		if !strings.Contains(full, required) {
+			t.Fatalf("full prompt missing %q", required)
 		}
 	}
 }

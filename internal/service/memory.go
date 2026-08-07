@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -114,24 +115,25 @@ func (s *Service) loadOperationalMemoryContext(
 	if err != nil {
 		return operationalMemoryContext{}, err
 	}
-	entries, err := s.store.ListMemoryForContext(
+	candidates, err := s.store.ListMemoryForContext(
 		ctx,
 		s.cfg.Slack.TeamID,
 		channelID,
 		effectiveRepository,
 		operatorID,
-		10,
+		recall.CandidateLimit,
 	)
 	if err != nil {
 		return operationalMemoryContext{}, err
 	}
+	entries := recall.SelectMemoryEntries(candidates, query, recall.ContextLimit)
 	rollups, err := s.store.ListMemoryRollupsForContext(
 		ctx, channelID, effectiveRepository, 20,
 	)
 	if err != nil {
 		return operationalMemoryContext{}, err
 	}
-	rollups = selectRelevantMemoryRollups(rollups, query, 4)
+	rollups = recall.SelectMemoryRollups(rollups, query, 4)
 	var evidence []core.Evidence
 	if channelID != "" {
 		evidence, err = s.store.ListRecentChannelEvidence(ctx, channelID, sourceInput, 10)

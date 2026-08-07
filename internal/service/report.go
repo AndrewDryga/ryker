@@ -14,6 +14,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -404,7 +405,7 @@ func (s *Service) persistAgentReport(
 		item.SourceRef = s.cleanStructuredField(item.SourceRef, 500)
 		item.SourceMessageTS = s.cleanStructuredField(item.SourceMessageTS, 32)
 	}
-	report.Memory.Knowledge = sanitizeKnowledge(report.Memory.Knowledge)
+	report.Memory.Knowledge = recall.SanitizeKnowledge(report.Memory.Knowledge)
 	if report.MemoryOffer != nil {
 		report.MemoryOffer.Scope = s.cleanStructuredField(report.MemoryOffer.Scope, 20)
 		report.MemoryOffer.Repository = s.cleanStructuredField(
@@ -695,7 +696,7 @@ func sanitizeMemory(memory core.AgentMemory) core.AgentMemory {
 	memory.Decisions = boundedStrings(memory.Decisions, 30, 400)
 	memory.UnresolvedQuestions = boundedStrings(memory.UnresolvedQuestions, 30, 400)
 	memory.EvidenceRefs = boundedStrings(memory.EvidenceRefs, 50, 120)
-	memory.Knowledge = sanitizeKnowledge(memory.Knowledge)
+	memory.Knowledge = recall.SanitizeKnowledge(memory.Knowledge)
 	return memory
 }
 

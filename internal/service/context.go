@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -56,7 +57,7 @@ func (s *Service) assembleAgentContext(
 	ctx context.Context,
 	request agentContextRequest,
 ) (assembledAgentContext, error) {
-	memoryQuery := memoryQueryText(request.TargetInput)
+	memoryQuery := recall.QueryText(request.TargetInput)
 	repository := request.Repository
 	var err error
 	if !request.RepositoryPinned {
@@ -122,7 +123,7 @@ func (s *Service) assembleAgentContext(
 		if relatedErr != nil {
 			return assembledAgentContext{}, relatedErr
 		}
-		related = selectRelevantConversationMemories(related, memoryQuery, 6)
+		related = recall.SelectConversationMemories(related, memoryQuery, 6)
 		s.markRecalled(ctx, related)
 		result.RelatedSituations = make(
 			[]conversationSituationContext,

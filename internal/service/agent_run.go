@@ -14,6 +14,7 @@ import (
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/provider"
+	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -2239,7 +2240,7 @@ func (s *Service) persistPrivateReplayKnowledge(
 	state watchTurnState,
 	memory core.AgentMemory,
 ) error {
-	knowledge := sanitizeKnowledge(memory.Knowledge)
+	knowledge := recall.SanitizeKnowledge(memory.Knowledge)
 	if len(knowledge) == 0 {
 		return nil
 	}

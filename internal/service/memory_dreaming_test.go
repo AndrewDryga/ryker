@@ -115,3 +115,19 @@ func TestBoundedUniqueKeepsRunesIntact(t *testing.T) {
 		t.Fatalf("bounded value is %d bytes, over the 200 bound", len(result[0]))
 	}
 }
+
+func TestMergeAgentMemoriesSupersedesOlderKnowledge(t *testing.T) {
+	merged := mergeAgentMemories([]core.AgentMemory{
+		{Knowledge: []core.KnowledgeItem{{
+			Subject: "Symbol storage", Kind: "decision", Statement: "Use GCS.",
+			Status: "accepted", Confidence: 3, SourceRef: "https://app.slack.com/client/T/C/thread/C-200", SourceMessageTS: "200.001",
+		}}},
+		{Knowledge: []core.KnowledgeItem{{
+			Subject: "Symbol storage", Kind: "decision", Statement: "Use MinIO.",
+			Status: "tentative", Confidence: 2, SourceRef: "https://app.slack.com/client/T/C/thread/C-100", SourceMessageTS: "100.001",
+		}}},
+	})
+	if len(merged.Knowledge) != 1 || merged.Knowledge[0].Statement != "Use GCS." {
+		t.Fatalf("merged knowledge = %#v", merged.Knowledge)
+	}
+}

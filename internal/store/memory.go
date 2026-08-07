@@ -235,8 +235,8 @@ func (s *Store) ListMemoryForContext(
 	operatorID string,
 	limit int,
 ) ([]core.MemoryEntry, error) {
-	if limit < 1 || limit > 100 {
-		return nil, errors.New("memory context limit must be between 1 and 100")
+	if limit < 1 || limit > 200 {
+		return nil, errors.New("memory context limit must be between 1 and 200")
 	}
 	rows, err := s.db.QueryContext(ctx, memorySelect+`
 		WHERE expires_at > ?

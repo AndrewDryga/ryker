@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -200,7 +201,7 @@ func mergeAgentMemories(states []core.AgentMemory) core.AgentMemory {
 	result.Decisions = boundedUnique(result.Decisions, 30, 400)
 	result.UnresolvedQuestions = boundedUnique(result.UnresolvedQuestions, 30, 400)
 	result.EvidenceRefs = boundedUnique(result.EvidenceRefs, 50, 120)
-	result.Knowledge = sanitizeKnowledge(result.Knowledge)
+	result.Knowledge = recall.SanitizeKnowledge(result.Knowledge)
 	return sanitizeMemory(result)
 }
 
