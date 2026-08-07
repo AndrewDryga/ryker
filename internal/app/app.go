@@ -62,6 +62,8 @@ func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 		return runAuditResultProtocol(args[1:], stdout, stderr)
 	case "correction-rate":
 		return runCorrectionRate(args[1:], stdout, stderr)
+	case "lifecycle-divergence":
+		return runLifecycleDivergence(args[1:], stdout, stderr)
 	case "promote-fixtures":
 		return runPromoteFixtures(args[1:], stdout, stderr)
 	case "version", "--version", "-version":
@@ -606,6 +608,7 @@ Usage:
   responder promote-fixtures
                            Write approved corrections into the regression corpus
   responder correction-rate
+  responder lifecycle-divergence
                            Report how often the host had to correct the model
   responder audit-result-protocol
                            Replay stored results to measure the legacy fallback path
