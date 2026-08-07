@@ -399,6 +399,10 @@ func writeSupervisorScript(t *testing.T, body string) string {
 	return path
 }
 
+// waitFor polls because the condition is a side effect of a real child
+// process: the supervisor starts it, and the only evidence it ran is what it
+// wrote. There is no channel to select on and no clock to advance, so a bounded
+// poll is the honest mechanism rather than a substitute for one.
 func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

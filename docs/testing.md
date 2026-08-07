@@ -3,6 +3,27 @@
 Responder uses four test layers plus a statistical model-release gate. They intentionally prove
 different things; no single green command is presented as proof of the whole product.
 
+## Tests run against a real database
+
+`internal/service` and `internal/httpapi` take `*store.Store` directly rather than an interface,
+so every service test opens a real SQLite database in a temporary directory. That is deliberate.
+
+The store is where most of Responder's correctness lives — lease fencing, idempotency keys,
+conflict detection, retention, migrations — and those are properties of SQL and its constraints,
+not of Go code. A mock store would assert that we called the methods we expected to call, which is
+the one thing we already know. Testing through the real schema is what catches a broken unique
+index, a migration that drops a column something still reads, or a lease that two workers can hold.
+
+The cost is runtime, and it is currently small: the service suite runs in about 3 seconds and the
+store suite in about 2. Collapsing the migration chain into a baseline was what made that true —
+each test database used to replay forty migrations.
+
+**Revisit this if** the service suite passes roughly 30 seconds, or a genuine unit of pure logic
+cannot be reached without constructing a database. The first is a real cost; the second usually
+means the logic belongs in its own package instead — `internal/recall`, `internal/decision` and
+`internal/provider` were all extracted for exactly that reason and are tested with no database at
+all. Introducing a mock store to avoid an extraction is trading a real signal for a fake one.
+
 ## Fast customer check
 
 Run this while changing Slack behavior, incident workflow, memory, or response contracts:

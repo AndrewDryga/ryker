@@ -433,3 +433,47 @@ func TestSecretRequiresNontrivialSingleLineValue(t *testing.T) {
 		t.Fatalf("valid secret = %q, %v", value, err)
 	}
 }
+
+// The continuation window decides how long a channel stays eligible for
+// follow-ups without another mention, which is per-workspace product behaviour
+// rather than a constant.
+func TestContinuationWindowIsConfigurable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "responder.yaml")
+	body := `version: 1
+listen: 127.0.0.1:8080
+state_dir: state
+slack:
+  team_id: T123ABC
+  default_repository: emisar
+  operators: [U123ABC]
+  conversation_continuation_window: 45m
+coop: {}
+repositories:
+  emisar:
+    display_name: Emisar
+    coop_policy: emisar-observe
+webhooks:
+  grafana:
+    kind: grafana
+    auth: bearer
+    secret_env: GRAFANA_TOKEN
+    repository: emisar
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Slack.ContinuationWindow.Duration != 45*time.Minute {
+		t.Fatalf("continuation window = %s, want 45m", cfg.Slack.ContinuationWindow.Duration)
+	}
+
+	for _, invalid := range []time.Duration{30 * time.Second, 48 * time.Hour} {
+		cfg.Slack.ContinuationWindow = Duration{invalid}
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("%s window was accepted", invalid)
+		}
+	}
+}

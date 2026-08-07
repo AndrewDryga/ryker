@@ -73,6 +73,7 @@ type SlackConfig struct {
 	SummonChannels                   []string `yaml:"summon_channels"`
 	WatchChannels                    []string `yaml:"watch_channels"`
 	WatchContext                     int      `yaml:"watch_context_messages"`
+	ContinuationWindow               Duration `yaml:"conversation_continuation_window"`
 	WatchSettleDelay                 Duration `yaml:"watch_settle_delay"`
 	StartupHistoryWindow             Duration `yaml:"startup_history_window"`
 	ExternalMessageReconcileInterval Duration `yaml:"external_message_reconcile_interval"`
@@ -271,9 +272,10 @@ func defaults() Config {
 		Listen:   "127.0.0.1:8080",
 		LogLevel: "info",
 		Slack: SlackConfig{
-			BotTokenEnv:  "SLACK_BOT_TOKEN",
-			AppTokenEnv:  "SLACK_APP_TOKEN",
-			WatchContext: 20,
+			BotTokenEnv:        "SLACK_BOT_TOKEN",
+			AppTokenEnv:        "SLACK_APP_TOKEN",
+			WatchContext:       20,
+			ContinuationWindow: Duration{30 * time.Minute},
 			WatchSettleDelay: Duration{
 				Duration: 350 * time.Millisecond,
 			},
@@ -916,6 +918,10 @@ func validateSlack(c SlackConfig) error {
 	}
 	if !channelPattern.MatchString(c.ChannelPrefix) {
 		return errors.New("channel_prefix must contain lowercase letters, digits, hyphens, or underscores")
+	}
+	if c.ContinuationWindow.Duration < time.Minute ||
+		c.ContinuationWindow.Duration > 24*time.Hour {
+		return errors.New("slack.conversation_continuation_window must be between 1m and 24h")
 	}
 	if c.WatchContext < 10 || c.WatchContext > 50 {
 		return errors.New("watch_context_messages must be between 10 and 50")

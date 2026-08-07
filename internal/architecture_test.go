@@ -30,13 +30,19 @@ const modulePath = "github.com/AndrewDryga/responder/"
 // See the package comment: raising an entry is a decision, not a formality.
 var methodBudget = map[string]int{
 	"Service": 12,
-	"Store":   285,
+	"Store":   283,
 }
 
 // lineBudget caps non-test source lines per package.
 //
 // internal/service is over any reasonable size and the budget only stops it
-// drifting further. The identified extraction is the offline evaluation family
+// drifting further. Every entry here is a ratchet: lower it when a package
+// shrinks, in the same commit, so the number tracks reality rather than
+// becoming a floor to grow into. Raising one is a decision that needs a reason
+// written beside it — that has happened once, during the decision-logic
+// refactors, and was earned back by extracting internal/localstate.
+//
+// The identified extraction is the offline evaluation family
 // — live_evaluation.go, evaluation.go, evaluation_quality.go,
 // scenario_evaluation.go, and quality_calibration.go, together 3,759 lines with
 // zero *Service methods, none of which runs in the service at all.
@@ -50,8 +56,8 @@ var methodBudget = map[string]int{
 // The process-local coordination state moved to internal/localstate, which is
 // how this budget came back to 28000 after the decision-logic refactors.
 var lineBudget = map[string]int{
-	"service":    28000,
-	"store":      14000,
+	"service":    27900,
+	"store":      13800,
 	"localstate": 250,
 	"provider":   120,
 	"recall":     400,

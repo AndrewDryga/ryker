@@ -507,7 +507,7 @@ func (s *Service) isRecentWatchConversation(
 	if input.Kind != "message" {
 		return false, nil
 	}
-	since := s.now().UTC().Add(-watchConversationContinuationWindow)
+	since := s.now().UTC().Add(-s.cfg.Slack.ContinuationWindow.Duration)
 	if input.ThreadTS != "" {
 		// A reply in an exact Slack thread remains part of that conversation even
 		// after the short top-level continuation window expires.

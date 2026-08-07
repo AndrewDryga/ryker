@@ -19,6 +19,10 @@ slack:
     - C0123456789
   # Give triage a fresh chronological transcript and a short window for nearby human replies.
   watch_context_messages: 20
+  # How long a channel stays eligible for follow-ups after Emisar answers there,
+  # without needing another explicit mention. A thread reply always continues its
+  # own conversation regardless of this window.
+  conversation_continuation_window: 30m
   watch_settle_delay: 350ms
   # Recover recent app notifications after a short Socket Mode or process outage. Set 0s to disable.
   startup_history_window: 15m

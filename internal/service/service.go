@@ -90,7 +90,10 @@ func (s *Service) SetEmisar(value EmisarAPI) {
 }
 
 type Service struct {
-	cfg               config.Config
+	cfg config.Config
+	// store is concrete on purpose: tests run against a real database so they
+	// exercise the schema, not a mock of it. See docs/testing.md for when that
+	// trade would be worth revisiting.
 	store             *store.Store
 	coop              CoopAPI
 	repairCoopRuntime func(context.Context) error

@@ -46,7 +46,9 @@ func TestRunDrainsSchedulerLanesBeforeReturning(t *testing.T) {
 	stopped := make(chan error, 1)
 	go func() { stopped <- svc.Run(runCtx) }()
 
-	// Wait for the lanes to actually start before asking them to stop.
+	// Wait for the lanes to actually start before asking them to stop. This
+	// polls because the condition is goroutines reaching a particular frame,
+	// which is observable only by looking; there is nothing to select on.
 	deadline := time.Now().Add(10 * time.Second)
 	for schedulerGoroutines() < cfg.Limits.ControlWorkers {
 		if time.Now().After(deadline) {

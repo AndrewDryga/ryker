@@ -224,7 +224,9 @@ func TestConversationReplyReturnsToPreviouslyExitedThread(t *testing.T) {
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	if len(slack.posts) == 0 {
-		time.Sleep(5 * time.Millisecond)
+		// drainSlackDeliveries is synchronous — it calls processSlackDelivery
+		// directly rather than going through the paced write slot — so there is
+		// nothing to wait for here.
 		drainSlackDeliveries(t, ctx, svc)
 	}
 	if len(slack.posts) != 1 ||

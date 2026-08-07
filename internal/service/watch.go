@@ -22,7 +22,6 @@ import (
 const watchContextTextLimit = 2000
 const watchPendingStatus = "is gathering and reconciling evidence; broad checks can take a few minutes..."
 const watchPendingStatusRefresh = 75 * time.Second
-const watchConversationContinuationWindow = 30 * time.Minute
 
 var explicitIncidentRequestPattern = regexp.MustCompile(
 	`(?i)\b(?:open|create|start|declare)\s+(?:(?:an?|the)\s+)?incident\b|` +
