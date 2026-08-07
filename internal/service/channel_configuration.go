@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -426,6 +427,42 @@ func (s *Service) resolveConfigurationAudience(
 	return users, groups, nil
 }
 
+// renewedConfigurationSession extends an expired setup session when the person
+// pressing a control is clearly still working on it, and reports whether the
+// session is worth acting on at all.
+//
+// Setup controls stay in the channel after they expire, so a stale button is
+// normal rather than exceptional. Renewing rather than refusing is the kinder
+// behaviour: someone who walks away mid-setup and comes back should be able to
+// continue, not be told to start over. The exception is a session that has
+// already been superseded by a newer one — acting on that would apply an
+// answer to a conversation that has moved on.
+func (s *Service) renewedConfigurationSession(
+	ctx context.Context,
+	input core.SlackInput,
+	session core.ConfigurationSession,
+) (core.ConfigurationSession, bool, error) {
+	if session.ExpiresAt.After(s.now().UTC()) {
+		return session, true, nil
+	}
+	if session.Status == "expired" {
+		latest, err := s.store.GetLatestConfigurationSession(ctx, session.ChannelID)
+		if err != nil {
+			return session, false, err
+		}
+		if latest.ID != session.ID {
+			return session, false, nil
+		}
+	} else if session.Status != "asking" && session.Status != "confirming" {
+		return session, false, nil
+	}
+	renewed, err := s.renewConfigurationSession(ctx, session, input.UserID)
+	if err != nil {
+		return session, false, err
+	}
+	return renewed, true, nil
+}
+
 func (s *Service) handleChannelConfigurationAction(
 	ctx context.Context,
 	input core.SlackInput,
@@ -460,164 +497,24 @@ func (s *Service) handleChannelConfigurationAction(
 		return s.finishSlackInput(ctx, input)
 	}
 	quickSetup := session.Initiator == "" && session.Draft.ActorID == ""
-	if !session.ExpiresAt.After(s.now().UTC()) {
-		if session.Status == "expired" {
-			latest, latestErr := s.store.GetLatestConfigurationSession(ctx, session.ChannelID)
-			if latestErr != nil {
-				return latestErr
-			}
-			if latest.ID != session.ID {
-				return s.finishSlackInput(ctx, input)
-			}
-		} else if session.Status != "asking" && session.Status != "confirming" {
-			return s.finishSlackInput(ctx, input)
-		}
-		session, err = s.renewConfigurationSession(ctx, session, input.UserID)
-		if err != nil {
-			return err
-		}
+	session, live, err := s.renewedConfigurationSession(ctx, input, session)
+	if err != nil {
+		return err
+	}
+	if !live {
+		return s.finishSlackInput(ctx, input)
 	}
 	responseThreadTS := conversationalResponseThread(input)
 	switch input.ActionID {
 	case slackui.ActionSetupQuickMentions, slackui.ActionSetupQuickProactive:
-		if session.Status != "asking" || session.Step != "participation" ||
-			!quickSetup || session.Draft.ActorID != "" ||
-			!session.ExpiresAt.After(s.now().UTC()) {
-			return s.finishSlashInput(
-				ctx, input,
-				"**That quick setup choice is no longer current.** Nothing was changed. Use the latest setup controls.",
-			)
-		}
-		session.Draft.Participation = "mentions"
-		if input.ActionID == slackui.ActionSetupQuickProactive {
-			session.Draft.Participation = "proactive"
-		}
-		session.Draft.ActorID = input.UserID
-		configuration, saveErr := s.store.SaveChannelConfiguration(ctx, session.Draft)
-		if saveErr != nil {
-			return saveErr
-		}
-		if err := s.store.FinishConfigurationSession(
-			ctx, session.ID, session.Revision, "saved",
-		); err != nil {
-			return err
-		}
-		channel, channelErr := s.slack.GetChannel(ctx, session.ChannelID)
-		if channelErr != nil {
-			return channelErr
-		}
-		if _, err := s.postConfigurationMessage(
-			ctx,
-			"channel_setup_quick_saved_"+session.ID,
-			session.ChannelID,
-			responseThreadTS,
-			slackui.ChannelSetupSaved(
-				channel.Name, configuration, s.repositoryChoice(configuration.Repository),
-			),
-		); err != nil {
-			return err
-		}
-		s.audit(ctx, core.AuditEvent{
-			Kind: "slack.configuration.saved", ActorID: input.UserID,
-			ObjectID: session.ID, Outcome: "quick_saved",
-			Detail: fmt.Sprintf(
-				"channel=%s participation=%s repository=%s alerts=%s",
-				session.ChannelID, configuration.Participation,
-				configuration.Repository, configuration.AlertPolicy,
-			),
-		})
-		return s.finishSlackInput(ctx, input)
+		return s.saveQuickChannelSetup(ctx, input, session, quickSetup, responseThreadTS)
 	case slackui.ActionSetupCustomize:
-		if session.Status != "asking" || session.Step != "participation" ||
-			!quickSetup || session.Draft.ActorID != "" ||
-			!session.ExpiresAt.After(s.now().UTC()) {
-			return s.finishSlashInput(
-				ctx, input,
-				"**That setup control is no longer current.** Nothing was changed. Use the latest setup controls.",
-			)
-		}
-		session.Draft.ActorID = input.UserID
-		session, err = s.store.AdvanceConfigurationSession(
-			ctx,
-			session.ID,
-			session.Revision,
-			"participation",
-			"asking",
-			session.Draft,
-		)
-		if err != nil {
-			return err
-		}
-		channel, channelErr := s.slack.GetChannel(ctx, session.ChannelID)
-		if channelErr != nil {
-			return channelErr
-		}
-		messageTS, postErr := s.postConfigurationMessage(
-			ctx,
-			"channel_setup_customize_"+session.ID,
-			session.ChannelID,
-			responseThreadTS,
-			slackui.ChannelSetupQuestion(
-				channel.Name, session, s.setupRepositoryChoices(),
-			),
-		)
-		if postErr != nil {
-			return postErr
-		}
-		if err := s.store.RecordConfigurationMessage(
-			ctx, session.ID, messageTS, responseThreadTS,
-		); err != nil {
-			return err
-		}
-		return s.finishSlackInput(ctx, input)
+		return s.startCustomChannelSetup(ctx, input, session, quickSetup, responseThreadTS)
 	}
 	if expectedStep, answer, choice := channelSetupChoice(input.ActionID); choice {
-		if session.Status != "asking" || session.Step != expectedStep ||
-			!session.ExpiresAt.After(s.now().UTC()) {
-			return s.finishSlashInput(
-				ctx, input,
-				"**That setup choice is no longer current.** Nothing was changed. Use the controls on the latest setup question.",
-			)
-		}
-		next, status, answerErr := s.applyConfigurationAnswer(
-			ctx, &session, input.UserID, answer,
+		return s.answerChannelSetupQuestion(
+			ctx, input, session, expectedStep, answer, responseThreadTS,
 		)
-		if answerErr != nil {
-			return answerErr
-		}
-		session, err = s.store.AdvanceConfigurationSession(
-			ctx, session.ID, session.Revision, next, status, session.Draft,
-		)
-		if err != nil {
-			return err
-		}
-		channel, channelErr := s.slack.GetChannel(ctx, session.ChannelID)
-		if channelErr != nil {
-			return channelErr
-		}
-		var message slackui.Message
-		if session.Step == "confirm" {
-			message = slackui.ChannelSetupConfirmation(
-				channel.Name, session, s.repositoryChoice(session.Draft.Repository),
-			)
-		} else {
-			message = slackui.ChannelSetupQuestion(
-				channel.Name, session, s.setupRepositoryChoices(),
-			)
-		}
-		messageTS, postErr := s.postConfigurationMessage(
-			ctx, "channel_setup_choice_"+input.ID, session.ChannelID,
-			responseThreadTS, message,
-		)
-		if postErr != nil {
-			return postErr
-		}
-		if err := s.store.RecordConfigurationMessage(
-			ctx, session.ID, messageTS, responseThreadTS,
-		); err != nil {
-			return err
-		}
-		return s.finishSlackInput(ctx, input)
 	}
 	switch input.ActionID {
 	case slackui.ActionCancelChannelSetup:
@@ -699,6 +596,183 @@ func (s *Service) handleChannelConfigurationAction(
 		return errors.New("unknown channel configuration action")
 	}
 	if err != nil {
+		return err
+	}
+	return s.finishSlackInput(ctx, input)
+}
+
+// saveQuickChannelSetup applies one of the two one-click participation choices
+// and finishes the session immediately.
+//
+// It re-checks that the session is still on the participation step and still
+// unclaimed, because these buttons live in a message that stays in the channel.
+// Someone can press one minutes after another person already finished the
+// setup, and applying it then would silently overwrite their choice.
+func (s *Service) saveQuickChannelSetup(
+	ctx context.Context,
+	input core.SlackInput,
+	session core.ConfigurationSession,
+	quickSetup bool,
+	responseThreadTS string,
+) error {
+	if session.Status != "asking" || session.Step != "participation" ||
+		!quickSetup || session.Draft.ActorID != "" ||
+		!session.ExpiresAt.After(s.now().UTC()) {
+		return s.finishSlashInput(
+			ctx, input,
+			"**That quick setup choice is no longer current.** Nothing was changed. Use the latest setup controls.",
+		)
+	}
+	session.Draft.Participation = "mentions"
+	if input.ActionID == slackui.ActionSetupQuickProactive {
+		session.Draft.Participation = "proactive"
+	}
+	session.Draft.ActorID = input.UserID
+	configuration, saveErr := s.store.SaveChannelConfiguration(ctx, session.Draft)
+	if saveErr != nil {
+		return saveErr
+	}
+	if err := s.store.FinishConfigurationSession(
+		ctx, session.ID, session.Revision, "saved",
+	); err != nil {
+		return err
+	}
+	channel, channelErr := s.slack.GetChannel(ctx, session.ChannelID)
+	if channelErr != nil {
+		return channelErr
+	}
+	if _, err := s.postConfigurationMessage(
+		ctx,
+		"channel_setup_quick_saved_"+session.ID,
+		session.ChannelID,
+		responseThreadTS,
+		slackui.ChannelSetupSaved(
+			channel.Name, configuration, s.repositoryChoice(configuration.Repository),
+		),
+	); err != nil {
+		return err
+	}
+	s.audit(ctx, core.AuditEvent{
+		Kind: "slack.configuration.saved", ActorID: input.UserID,
+		ObjectID: session.ID, Outcome: "quick_saved",
+		Detail: fmt.Sprintf(
+			"channel=%s participation=%s repository=%s alerts=%s",
+			session.ChannelID, configuration.Participation,
+			configuration.Repository, configuration.AlertPolicy,
+		),
+	})
+	return s.finishSlackInput(ctx, input)
+}
+
+// startCustomChannelSetup moves a session from the quick choice into the full
+// wizard, replacing the controls in place so the ones just pressed cannot be
+// pressed again.
+func (s *Service) startCustomChannelSetup(
+	ctx context.Context,
+	input core.SlackInput,
+	session core.ConfigurationSession,
+	quickSetup bool,
+	responseThreadTS string,
+) error {
+	var err error
+	if session.Status != "asking" || session.Step != "participation" ||
+		!quickSetup || session.Draft.ActorID != "" ||
+		!session.ExpiresAt.After(s.now().UTC()) {
+		return s.finishSlashInput(
+			ctx, input,
+			"**That setup control is no longer current.** Nothing was changed. Use the latest setup controls.",
+		)
+	}
+	session.Draft.ActorID = input.UserID
+	session, err = s.store.AdvanceConfigurationSession(
+		ctx,
+		session.ID,
+		session.Revision,
+		"participation",
+		"asking",
+		session.Draft,
+	)
+	if err != nil {
+		return err
+	}
+	channel, channelErr := s.slack.GetChannel(ctx, session.ChannelID)
+	if channelErr != nil {
+		return channelErr
+	}
+	messageTS, postErr := s.postConfigurationMessage(
+		ctx,
+		"channel_setup_customize_"+session.ID,
+		session.ChannelID,
+		responseThreadTS,
+		slackui.ChannelSetupQuestion(
+			channel.Name, session, s.setupRepositoryChoices(),
+		),
+	)
+	if postErr != nil {
+		return postErr
+	}
+	if err := s.store.RecordConfigurationMessage(
+		ctx, session.ID, messageTS, responseThreadTS,
+	); err != nil {
+		return err
+	}
+	return s.finishSlackInput(ctx, input)
+}
+
+// answerChannelSetupQuestion records one wizard answer and asks the next
+// question, or moves to confirmation when the answer was the last one.
+func (s *Service) answerChannelSetupQuestion(
+	ctx context.Context,
+	input core.SlackInput,
+	session core.ConfigurationSession,
+	expectedStep string,
+	answer string,
+	responseThreadTS string,
+) error {
+	var err error
+	if session.Status != "asking" || session.Step != expectedStep ||
+		!session.ExpiresAt.After(s.now().UTC()) {
+		return s.finishSlashInput(
+			ctx, input,
+			"**That setup choice is no longer current.** Nothing was changed. Use the controls on the latest setup question.",
+		)
+	}
+	next, status, answerErr := s.applyConfigurationAnswer(
+		ctx, &session, input.UserID, answer,
+	)
+	if answerErr != nil {
+		return answerErr
+	}
+	session, err = s.store.AdvanceConfigurationSession(
+		ctx, session.ID, session.Revision, next, status, session.Draft,
+	)
+	if err != nil {
+		return err
+	}
+	channel, channelErr := s.slack.GetChannel(ctx, session.ChannelID)
+	if channelErr != nil {
+		return channelErr
+	}
+	var message slackui.Message
+	if session.Step == "confirm" {
+		message = slackui.ChannelSetupConfirmation(
+			channel.Name, session, s.repositoryChoice(session.Draft.Repository),
+		)
+	} else {
+		message = slackui.ChannelSetupQuestion(
+			channel.Name, session, s.setupRepositoryChoices(),
+		)
+	}
+	messageTS, postErr := s.postConfigurationMessage(
+		ctx, "channel_setup_choice_"+input.ID, session.ChannelID,
+		responseThreadTS, message,
+	)
+	if postErr != nil {
+		return postErr
+	}
+	if err := s.store.RecordConfigurationMessage(
+		ctx, session.ID, messageTS, responseThreadTS,
+	); err != nil {
 		return err
 	}
 	return s.finishSlackInput(ctx, input)
@@ -901,61 +975,86 @@ func uniqueSorted(values []string) []string {
 	return result
 }
 
+// conversationalAliases maps the phrasings people actually use to the command
+// they mean.
+//
+// This is a table rather than a chain of conditions because it is a table: the
+// only thing that varies between entries is the words. First match wins, so
+// more specific phrasings come first.
+var conversationalAliases = []struct {
+	command  string
+	exact    []string
+	contains []string
+}{
+	{command: "help", exact: []string{"help"}, contains: []string{"what can you do"}},
+	{command: "status", contains: []string{
+		"how are you configured", "show settings", "show status",
+	}},
+	{command: "incidents open", contains: []string{"open incidents", "active incidents"}},
+	{command: "work", contains: []string{
+		"what are you working on", "what do you owe", "show commitments", "show active work",
+	}},
+	{command: "incidents all", contains: []string{"all incidents", "incident history"}},
+	{command: "memory", contains: []string{"show memory", "what do you remember"}},
+	{command: "preferences", contains: []string{"show preferences"}},
+	{command: "rules", contains: []string{"show rules", "show automations"}},
+	{command: "schedules", contains: []string{"show schedules", "show reminders"}},
+}
+
+// toggleSubjects are the settings a channel can turn on, off, or inherit from
+// the workspace default.
+var toggleSubjects = []string{"proactive", "shadow"}
+
+// directCommands are recognized on their own or behind a "show"/"get".
+var directCommands = []string{
+	"timeline", "evidence", "handoff", "update", "changes", "review",
+	"publish", "stop", "close",
+}
+
+// toggleState reads which way a toggle request points, or "" if it does not
+// point anywhere. The " on" and "on" suffix cases are separate because
+// "proactive on" and "turn proactive on" both occur and neither contains "on"
+// as a standalone word in a position the other does.
+func toggleState(text string) string {
+	switch {
+	case strings.Contains(text, "inherit"):
+		return "inherit"
+	case strings.Contains(text, " on") || strings.HasSuffix(text, "on") ||
+		strings.Contains(text, "enable"):
+		return "on"
+	case strings.Contains(text, " off") || strings.HasSuffix(text, "off") ||
+		strings.Contains(text, "disable"):
+		return "off"
+	default:
+		return ""
+	}
+}
+
 func conversationalCommand(text string) (string, bool) {
 	text = strings.TrimSpace(strings.ToLower(text))
 	text = strings.Trim(text, "?.! ")
-	switch {
-	case text == "help" || strings.Contains(text, "what can you do"):
-		return "help", true
-	case strings.Contains(text, "how are you configured") ||
-		strings.Contains(text, "show settings") ||
-		strings.Contains(text, "show status"):
-		return "status", true
-	case strings.Contains(text, "open incidents") || strings.Contains(text, "active incidents"):
-		return "incidents open", true
-	case strings.Contains(text, "what are you working on") ||
-		strings.Contains(text, "what do you owe") ||
-		strings.Contains(text, "show commitments") ||
-		strings.Contains(text, "show active work"):
-		return "work", true
-	case strings.Contains(text, "all incidents") || strings.Contains(text, "incident history"):
-		return "incidents all", true
-	case strings.Contains(text, "show memory") || strings.Contains(text, "what do you remember"):
-		return "memory", true
-	case strings.Contains(text, "show preferences"):
-		return "preferences", true
-	case strings.Contains(text, "show rules") || strings.Contains(text, "show automations"):
-		return "rules", true
-	case strings.Contains(text, "show schedules") || strings.Contains(text, "show reminders"):
-		return "schedules", true
-	case strings.Contains(text, "proactive") && strings.Contains(text, "inherit"):
-		return "proactive inherit", true
-	case strings.Contains(text, "proactive") &&
-		(strings.Contains(text, " on") || strings.HasSuffix(text, "on") ||
-			strings.Contains(text, "enable")):
-		return "proactive on", true
-	case strings.Contains(text, "proactive") &&
-		(strings.Contains(text, " off") || strings.HasSuffix(text, "off") ||
-			strings.Contains(text, "disable")):
-		return "proactive off", true
-	case strings.Contains(text, "shadow") && strings.Contains(text, "inherit"):
-		return "shadow inherit", true
-	case strings.Contains(text, "shadow") &&
-		(strings.Contains(text, " on") || strings.HasSuffix(text, "on") ||
-			strings.Contains(text, "enable")):
-		return "shadow on", true
-	case strings.Contains(text, "shadow") &&
-		(strings.Contains(text, " off") || strings.HasSuffix(text, "off") ||
-			strings.Contains(text, "disable")):
-		return "shadow off", true
+	for _, alias := range conversationalAliases {
+		if slices.Contains(alias.exact, text) {
+			return alias.command, true
+		}
+		for _, phrase := range alias.contains {
+			if strings.Contains(text, phrase) {
+				return alias.command, true
+			}
+		}
+	}
+	for _, subject := range toggleSubjects {
+		if !strings.Contains(text, subject) {
+			continue
+		}
+		if state := toggleState(text); state != "" {
+			return subject + " " + state, true
+		}
 	}
 	if match := turnLimitRequestPattern.FindStringSubmatch(text); len(match) == 2 {
 		return "turn-limit " + match[1], true
 	}
-	for _, command := range []string{
-		"timeline", "evidence", "handoff", "update", "changes", "review",
-		"publish", "stop", "close",
-	} {
+	for _, command := range directCommands {
 		if text == command || text == "show "+command || text == "get "+command {
 			return command, true
 		}
