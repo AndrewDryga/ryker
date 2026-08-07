@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +165,108 @@ func TestBoundedUniqueKeepsDistinctFacts(t *testing.T) {
 	}, 12, 400)
 	if len(result) != 3 {
 		t.Fatalf("distinct facts were collapsed: %+v", result)
+	}
+}
+
+// Consolidation is lossy by design, so what it keeps has to be predictable. A
+// golden here is the difference between "the summary changed because the
+// conversation changed" and "the summary changed because we edited the merge".
+func TestMergeAgentMemoriesIsDeterministic(t *testing.T) {
+	older := core.AgentMemory{
+		Goal:                "keep checkout healthy",
+		ChannelPurpose:      "payments operations",
+		SituationSummary:    "investigating elevated latency",
+		ActiveTopics:        []string{"checkout latency", "db connections"},
+		OpenLoops:           []string{"confirm the connection pool size"},
+		Decisions:           []string{"roll back the pool change"},
+		UnresolvedQuestions: []string{"why did the pool shrink?"},
+		Topology:            []string{"checkout -> payments-db"},
+	}
+	newer := core.AgentMemory{
+		// A later summary must not overwrite the established goal or purpose.
+		Goal:             "keep checkout healthy after the rollback",
+		SituationSummary: "rollback complete, latency normal",
+		ActiveTopics:     []string{"checkout latency", "rollback"},
+		OpenLoops:        []string{"confirm the connection pool size"},
+		Decisions:        []string{"roll back the pool change", "add a pool alarm"},
+	}
+
+	// Newest first, matching how buildMemoryRollup orders its sources.
+	merged := mergeAgentMemories([]core.AgentMemory{newer, older})
+
+	if merged.Goal != "keep checkout healthy after the rollback" {
+		t.Fatalf("goal = %q; the newest non-empty value should win", merged.Goal)
+	}
+	if merged.ChannelPurpose != "payments operations" {
+		t.Fatalf("purpose = %q; an older value should fill a gap the newer one left",
+			merged.ChannelPurpose)
+	}
+	if got := len(merged.ActiveTopics); got != 3 {
+		t.Fatalf("active topics = %v; the shared topic should appear once", merged.ActiveTopics)
+	}
+	if got := len(merged.OpenLoops); got != 1 {
+		t.Fatalf("open loops = %v; the identical loop should not be duplicated", merged.OpenLoops)
+	}
+	if got := len(merged.Decisions); got != 2 {
+		t.Fatalf("decisions = %v; both distinct decisions should survive", merged.Decisions)
+	}
+	if got := len(merged.UnresolvedQuestions); got != 1 {
+		t.Fatalf("questions = %v", merged.UnresolvedQuestions)
+	}
+
+	// Merging is stable: the same inputs give the same result.
+	again := mergeAgentMemories([]core.AgentMemory{newer, older})
+	if !reflect.DeepEqual(merged, again) {
+		t.Fatal("merging the same sources twice produced different summaries")
+	}
+}
+
+// Under storage pressure dreaming widens its net, but it must never sweep up
+// conversations that are still active.
+func TestDreamingPressureKeepsVeryRecentSummaries(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Memory.DreamingEnabled = true
+	cfg.Memory.MaxConversationSummaries = 4
+	cfg.Memory.PressurePercent = 50
+	cfg.Memory.TargetPercent = 25
+	cfg.Memory.MinRollupSources = 2
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, nil, nil)
+	clock := useTestClock(svc, st)
+	now := clock.Now()
+
+	// Three old summaries plus one from a minute ago.
+	for index := range 3 {
+		if err := st.UpsertConversationMemoryState(ctx, core.ConversationMemory{
+			ChannelID: "COLD", ThreadTS: fmt.Sprintf("16%02d.001", index),
+			Repository: cfg.Slack.DefaultRepository, LastMessage: "1600.001",
+			State: core.AgentMemory{SituationSummary: fmt.Sprintf("old %d", index)},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.UpsertConversationMemoryState(ctx, core.ConversationMemory{
+		ChannelID: "CLIVE", ThreadTS: "1799.001",
+		Repository: cfg.Slack.DefaultRepository, LastMessage: "1799.001",
+		State: core.AgentMemory{SituationSummary: "still talking"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.maintainMemory(ctx, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	live, err := st.GetConversationMemory(ctx, "CLIVE", "1799.001")
+	if err != nil {
+		t.Fatalf("the live conversation's summary was consolidated away: %v", err)
+	}
+	if live.State.SituationSummary != "still talking" {
+		t.Fatalf("live summary = %+v", live.State)
 	}
 }
