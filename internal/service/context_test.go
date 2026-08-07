@@ -82,6 +82,7 @@ func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 		decisionpkg.OperationalMemoryContext{},
 		"emisar",
 		nil,
+		watchPromptBudget(0),
 	)
 	for _, required := range []string{
 		"compact summary of this exact Slack conversation",
@@ -105,6 +106,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	prompt := svc.watchPrompt(
 		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
+		watchPromptBudget(0),
 	)
 	for _, required := range []string{
 		"explicit host verification replay",
@@ -121,6 +123,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	ordinary := svc.watchPrompt(
 		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
+		watchPromptBudget(0),
 	)
 	if strings.Contains(ordinary, "explicit host verification replay") {
 		t.Fatalf("ordinary prompt contains replay policy:\n%s", ordinary)
@@ -147,14 +150,15 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		nil,
 	)
-	if len(raw) <= maxAssembledWatchPromptBytes {
+	if len(raw) <= watchPromptBudget(0) {
 		t.Fatalf("test prompt did not exceed assembly bound: %d", len(raw))
 	}
 	prompt := svc.watchPrompt(
 		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
+		watchPromptBudget(0),
 	)
-	if len(prompt) > maxAssembledWatchPromptBytes {
+	if len(prompt) > watchPromptBudget(0) {
 		t.Fatalf("watch prompt bytes = %d", len(prompt))
 	}
 	if !strings.Contains(prompt, input.Text) || strings.Contains(prompt, "old-alert-00") {

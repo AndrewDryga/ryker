@@ -1794,9 +1794,32 @@ func isPrivateSlackVerificationReplay(input core.SlackInput) bool {
 	return strings.HasPrefix(input.EnvelopeID, "replay-private:")
 }
 
-// Leave enough room under Coop's 64 KiB turn bound for the episode contract
-// while preserving operator-confirmed memory when host policy grows.
-const maxAssembledWatchPromptBytes = 56 << 10
+// minimumWatchPromptBytes is the floor the watch section is never budgeted
+// below, however large the suffix grows. Under this the context is so thin that
+// answering becomes guesswork.
+const minimumWatchPromptBytes = 24 << 10
+
+// watchPromptBudget returns how many bytes the watch section may use, given
+// what will be appended after it.
+//
+// It used to be a fixed 56 KiB, reserving 8 KiB for "the episode contract". The
+// suffix is not fixed: agent_run.go appends the repository set, alert policy,
+// active publications, the decision correction, the episode contract, tool
+// transport, continuation and input artifacts. In production it reached about
+// 14 KiB, so assembled prompts hit 71,806 bytes against Coop's 65,536 cap and
+// the transport cut the tail.
+//
+// The tail is the worst thing to lose. It holds the contract that defines a
+// valid completion, the tool rules, and the correction telling the model what
+// it got wrong — so the model was being corrected for failing a contract it had
+// not been shown, by a correction at risk of being cut itself.
+func watchPromptBudget(suffixBytes int) int {
+	budget := coop.MaxPromptBytes - suffixBytes
+	if budget < minimumWatchPromptBytes {
+		return minimumWatchPromptBytes
+	}
+	return budget
+}
 
 // minimumWatchMessages is the floor on how much conversation survives
 // budgeting. Below this the model is answering about a thread it cannot see,
@@ -1815,6 +1838,7 @@ func (s *Service) watchPrompt(
 	prior decisionpkg.OperationalMemoryContext,
 	activeRepository string,
 	matchedRules []core.StandingRule,
+	budget int,
 ) string {
 	// Drop order matters more than the budget itself. The transport will elide
 	// the middle of anything oversized, which cuts through the structured
@@ -1838,7 +1862,7 @@ func (s *Service) watchPrompt(
 			input, botUserID, conversationFollowup, recent, memory, related,
 			referenced, prior, activeRepository, matchedRules, omitted,
 		)
-		if len(prompt) <= maxAssembledWatchPromptBytes {
+		if len(prompt) <= budget {
 			return prompt
 		}
 		switch {
