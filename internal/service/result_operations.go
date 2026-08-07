@@ -18,6 +18,7 @@ const maxResultOperations = 100
 
 func applyAgentResultOperations(report *agentReport) error {
 	if len(report.Operations) == 0 {
+		report.LegacyShape = true
 		return nil
 	}
 	legacy := *report
@@ -49,6 +50,8 @@ func applyAgentResultOperations(report *agentReport) error {
 		*report = legacy
 		report.Operations = nil
 		report.AppliedOperations = nil
+		report.LegacyFallback = true
+		report.FallbackReason = trimError(err)
 		return nil
 	}
 	return err
@@ -56,6 +59,7 @@ func applyAgentResultOperations(report *agentReport) error {
 
 func applyWatchResultOperations(decision *watchDecision) error {
 	if len(decision.Operations) == 0 {
+		decision.LegacyShape = true
 		return nil
 	}
 	if decision.Action == "ignore" {
@@ -104,6 +108,8 @@ func applyWatchResultOperations(decision *watchDecision) error {
 		*decision = legacy
 		decision.Operations = nil
 		decision.AppliedOperations = nil
+		decision.LegacyFallback = true
+		decision.FallbackReason = trimError(err)
 		return nil
 	}
 	return err

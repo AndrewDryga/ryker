@@ -34,6 +34,15 @@ type agentReport struct {
 	Completion        *completionAssessment           `json:"completion,omitempty"`
 	Operations        []investigation.ResultOperation `json:"operations,omitempty"`
 	AppliedOperations []investigation.ResultOperation `json:"-"`
+
+	// LegacyFallback records that the typed fold failed and the older
+	// free-text reading was used instead; FallbackReason is why. LegacyShape
+	// records a response that never used the typed protocol at all. Both exist
+	// to answer one question before the legacy path is deleted: does anything
+	// still depend on it?
+	LegacyFallback bool   `json:"-"`
+	FallbackReason string `json:"-"`
+	LegacyShape    bool   `json:"-"`
 }
 
 const (
@@ -305,6 +314,42 @@ func decodeAgentMessage(message string) (string, error) {
 		return "", errors.New("structured agent response has no message")
 	}
 	return result, nil
+}
+
+// recordResultProtocol notes whether a model result actually used the typed
+// operation protocol.
+//
+// The legacy free-text reading is still accepted, and when the typed fold fails
+// the older shape is silently used instead — so the same turn can be read two
+// ways with nobody told which happened. These counters exist to answer one
+// question before that path is deleted: does anything still depend on it? A
+// week of zeros is the evidence; deleting first and watching afterwards inverts
+// the risk.
+func (s *Service) recordResultProtocol(
+	ctx context.Context,
+	runID string,
+	fallback bool,
+	legacyShape bool,
+	reason string,
+) {
+	switch {
+	case fallback:
+		s.log.Warn(
+			"model result fell back to the legacy reading",
+			"run", runID,
+			"reason", reason,
+		)
+		s.audit(ctx, core.AuditEvent{
+			Kind: "result.legacy_fallback", ActorID: "responder",
+			ObjectID: runID, Outcome: "fallback", Detail: boundedField(reason, 500),
+		})
+	case legacyShape:
+		s.log.Warn("model result carried no typed operations", "run", runID)
+		s.audit(ctx, core.AuditEvent{
+			Kind: "result.legacy_shape", ActorID: "responder",
+			ObjectID: runID, Outcome: "legacy_only",
+		})
+	}
 }
 
 func (s *Service) persistAgentReport(

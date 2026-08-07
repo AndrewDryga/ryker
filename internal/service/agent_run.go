@@ -1322,6 +1322,11 @@ func (s *Service) stageTriageTerminal(
 	input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 	state, stateErr := decodeWatchRunContext(run)
 	decision, decisionErr := parseWatchDecision(turn.AssistantMessage, s.now())
+	if decisionErr == nil {
+		s.recordResultProtocol(
+			ctx, run.ID, decision.LegacyFallback, decision.LegacyShape, decision.FallbackReason,
+		)
+	}
 	if inputErr != nil {
 		return true, inputErr
 	}
@@ -1502,6 +1507,11 @@ func (s *Service) stageIncidentTerminal(
 	staged *stagedTurn,
 ) (bool, error) {
 	report, _, reportErr := parseAgentReport(turn.AssistantMessage)
+	if reportErr == nil {
+		s.recordResultProtocol(
+			ctx, run.ID, report.LegacyFallback, report.LegacyShape, report.FallbackReason,
+		)
+	}
 	if reportErr != nil {
 		correction := "the structured agent report is invalid: " + trimError(reportErr)
 		if !terminalStructuredCorrection(

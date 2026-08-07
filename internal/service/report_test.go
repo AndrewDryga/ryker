@@ -461,3 +461,43 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 		t.Fatalf("stored shared conversation approval = %+v, %v", stored, err)
 	}
 }
+
+// The legacy reading is still accepted and is used silently when the typed
+// fold fails, so before it can be deleted there has to be evidence nothing
+// depends on it. These flags are that evidence.
+func TestResultProtocolShapeIsRecorded(t *testing.T) {
+	// A response with no operations at all never used the typed protocol.
+	legacyOnly, _, err := parseAgentReport(`{"message":"plain prose answer"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !legacyOnly.LegacyShape || legacyOnly.LegacyFallback {
+		t.Fatalf("legacy-only report = shape:%t fallback:%t",
+			legacyOnly.LegacyShape, legacyOnly.LegacyFallback)
+	}
+
+	// A well-formed typed response used it, so neither flag is set.
+	typed, _, err := parseAgentReport(`{"message":"","operations":[
+		{"id":"c1","type":"complete_episode","completion":{"message":"answered"}}]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typed.LegacyShape || typed.LegacyFallback {
+		t.Fatalf("typed report = shape:%t fallback:%t", typed.LegacyShape, typed.LegacyFallback)
+	}
+
+	// A malformed operation stream beside usable legacy prose falls back, and
+	// says so with the reason.
+	fallback, _, err := parseAgentReport(`{"message":"usable prose","operations":[
+		{"id":"bad","type":"complete_episode"}]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fallback.LegacyFallback || fallback.FallbackReason == "" {
+		t.Fatalf("fallback report = fallback:%t reason:%q",
+			fallback.LegacyFallback, fallback.FallbackReason)
+	}
+	if fallback.Message != "usable prose" {
+		t.Fatalf("fallback did not preserve the legacy message: %q", fallback.Message)
+	}
+}
