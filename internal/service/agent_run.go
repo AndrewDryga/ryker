@@ -1281,33 +1281,54 @@ func advanceFailedSessionGeneration(err error) bool {
 		apiErr.Code == "internal_error"
 }
 
-// requeueIfRateLimited puts a rate-limited run back in the queue and reports
-// whether it handled the failure.
+// requeueIfRateLimited puts a run the provider refused back in the queue and
+// reports whether it handled the failure.
 //
-// A rate limit is the provider saying "not now", not the work being wrong. The
+// A refusal is the provider saying "not now", not the work being wrong. The
 // answer is still coming, just later, so the run waits without spending an
 // attempt and without anything being said in Slack — an error message for work
-// that was never wrong is worse than a short wait.
+// that was never wrong is worse than a wait.
+//
+// This covers a spent quota as well as a rate limit. That distinction looked
+// principled when only rate limits waited — a quota "does not recover on its
+// own" — but the provider disagreed in practice: on 2026-08-07 codex reported
+// "You have hit your usage limit ... try again at Aug 11th", which is a wait,
+// not a failure. Every hour of that would otherwise have been an error message
+// in Slack for work that was fine.
 //
 // Shared by both retry paths on purpose. Written twice it would eventually be
 // true in one and not the other, and the symptom would be that rate limits are
 // silent for conversations and noisy for incidents, which is the kind of
 // inconsistency nobody reports as a bug.
+// providerBackoff is how long to wait for each way a provider can refuse work,
+// and being absent from it is what makes a failure real.
+//
+// A quota waits far longer than a rate limit because it recovers on a billing
+// boundary rather than in a burst window; retrying every five minutes for days
+// would be pointless load. Neither spends an attempt.
+var providerBackoff = map[string]time.Duration{
+	provider.KindRateLimit:  rateLimitRetryDelay,
+	provider.KindUsageLimit: usageLimitRetryDelay,
+}
+
 func (s *Service) requeueIfRateLimited(
 	ctx context.Context,
 	run core.AgentRun,
 	cause error,
 ) (bool, error) {
 	detail := trimError(cause)
-	if provider.Classify(detail).Kind != provider.KindRateLimit {
+	kind := provider.Classify(detail).Kind
+	delay, waits := providerBackoff[kind]
+	if !waits {
 		return false, nil
 	}
-	next := s.now().Add(rateLimitRetryDelay)
+	next := s.now().Add(delay)
 	if s.log != nil {
 		s.log.Warn(
-			"provider rate limit; the work stays queued rather than failing",
+			"the AI provider is refusing work; it stays queued rather than failing",
 			"run", run.ID,
 			"mode", run.Mode,
+			"kind", kind,
 			"retry_at", next.UTC().Format(time.RFC3339),
 			"detail", detail,
 		)

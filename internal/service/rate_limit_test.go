@@ -26,16 +26,74 @@ func TestProviderRateLimitWordingIsRecognised(t *testing.T) {
 			t.Fatalf("Classify(%q).Kind = %q, want rate_limit", detail, kind)
 		}
 	}
-	// A quota is not a rate limit: waiting does not fix it, so it must keep
-	// failing normally rather than queueing forever.
+	// A quota is classified separately, and it also waits — it recovers on a
+	// billing boundary rather than in a burst window, so it gets its own,
+	// longer delay rather than being treated as the same thing.
 	for _, detail := range []string{
 		"insufficient_quota",
 		"You have exceeded your usage limit",
 		"credit balance is too low",
+		// The wording codex actually produced on 2026-08-07.
+		"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage " +
+			"to purchase more credits or try again at Aug 11th, 2026 3:27 AM.",
 	} {
-		if kind := provider.Classify(detail).Kind; kind == provider.KindRateLimit {
-			t.Fatalf("Classify(%q) treated a quota as a rate limit", detail)
+		kind := provider.Classify(detail).Kind
+		if kind == provider.KindRateLimit {
+			t.Fatalf("Classify(%q) collapsed a quota into a rate limit", detail)
 		}
+		if kind != provider.KindUsageLimit {
+			t.Fatalf("Classify(%q).Kind = %q, want usage_limit", detail, kind)
+		}
+	}
+	if providerBackoff[provider.KindUsageLimit] <= providerBackoff[provider.KindRateLimit] {
+		t.Fatal("a spent quota must wait longer than a rate limit; it recovers on a billing boundary")
+	}
+}
+
+// A spent quota must queue, not fail.
+//
+// It was treated as terminal on the reasoning that a quota "does not recover on
+// its own". The provider disagreed: on 2026-08-07 codex refused every turn with
+// "You have hit your usage limit ... try again at Aug 11th", and every one of
+// those became an error in Slack for work that was fine.
+func TestSpentQuotaWaitsInsteadOfFailing(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	svc.log = slog.New(slog.DiscardHandler)
+	run := seedPreparingRun(t, st)
+
+	handled, requeueErr := svc.requeueIfRateLimited(ctx, run, errors.New(
+		"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage "+
+			"to purchase more credits or try again at Aug 11th, 2026 3:27 AM."))
+	if requeueErr != nil {
+		t.Fatal(requeueErr)
+	}
+	if !handled {
+		t.Fatal("a spent quota was treated as a real failure, so Slack gets an error for good work")
+	}
+	after, getErr := st.GetAgentRun(ctx, run.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if after.Failures != run.Failures {
+		t.Fatalf("a quota spent an attempt (%d -> %d)", run.Failures, after.Failures)
+	}
+	if after.State != core.AgentRunPending {
+		t.Fatalf("run state = %q, want pending", after.State)
+	}
+	if len(slack.posts) != 0 {
+		t.Fatalf("a spent quota was reported in Slack: %+v", slack.posts)
+	}
+	// It waits longer than a rate limit would.
+	if !after.NextAttemptAt.After(svc.now().Add(rateLimitRetryDelay)) {
+		t.Fatalf("a quota is retried as soon as a rate limit: %v", after.NextAttemptAt)
 	}
 }
 
@@ -90,8 +148,13 @@ func TestRateLimitedRunIsRequeuedWithoutSpendingAnAttempt(t *testing.T) {
 	}
 }
 
-// Anything that is not a rate limit must keep failing normally, or a genuine
+// Anything the provider did not refuse must keep failing normally, or a genuine
 // error would queue forever in silence.
+//
+// This is the line that makes waiting safe. A refusal is the provider declining
+// work it will accept later; a broken connection or a malformed context is the
+// work being wrong, and hiding that would turn a visible bug into a stalled
+// queue nobody is looking at.
 func TestNonRateLimitFailuresAreNotRequeuedSilently(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -105,16 +168,17 @@ func TestNonRateLimitFailuresAreNotRequeuedSilently(t *testing.T) {
 	run := seedPreparingRun(t, st)
 
 	for _, cause := range []string{
-		"insufficient_quota",
 		"connection refused",
 		"invalid persisted triage context",
+		"the structured Slack response is invalid",
+		"context deadline exceeded",
 	} {
 		handled, requeueErr := svc.requeueIfRateLimited(ctx, run, errors.New(cause))
 		if requeueErr != nil {
 			t.Fatal(requeueErr)
 		}
 		if handled {
-			t.Fatalf("%q was treated as a rate limit and would queue forever", cause)
+			t.Fatalf("%q was treated as a provider refusal and would queue forever", cause)
 		}
 	}
 }

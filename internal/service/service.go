@@ -614,6 +614,16 @@ func queueDelayDuration(attempt int) time.Duration {
 // still fails normally. Work waits here rather than being abandoned.
 const rateLimitRetryDelay = 5 * time.Minute
 
+// usageLimitRetryDelay is how long a run waits when the provider's quota is
+// spent.
+//
+// Much longer than a rate limit, because a quota recovers on a billing boundary
+// rather than in a burst window — the observed message was "try again at Aug
+// 11th", four days out. Checking every half hour costs nothing and notices the
+// moment it clears; checking every five minutes would be pointless load on a
+// provider that has already said no.
+const usageLimitRetryDelay = 30 * time.Minute
+
 func terminalAttempt(attempt, maximum int) bool {
 	return attempt >= maximum
 }
