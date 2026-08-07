@@ -320,7 +320,7 @@ func (h *liveAcceptanceHarness) drainDeliveries() {
 }
 
 func (h *liveAcceptanceHarness) cleanupSession() {
-	memory, err := h.store.GetChannelMemory(context.Background(), h.channelID)
+	memory, err := h.store.Intelligence.GetChannelMemory(context.Background(), h.channelID)
 	if err != nil || memory.SessionID == "" {
 		return
 	}

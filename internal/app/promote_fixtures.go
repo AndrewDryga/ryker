@@ -78,7 +78,7 @@ func runPromoteFixtures(args []string, stdout, stderr io.Writer) error {
 			continue
 		}
 		fixture, err := recordEpisodeFixture(
-			ctx, st, cfg, candidate.EpisodeID, candidate.Capability, "",
+			ctx, storeEpisodeSource{store: st}, cfg, candidate.EpisodeID, candidate.Capability, "",
 		)
 		if err != nil {
 			fmt.Fprintf(stderr, "skipped %s: %v\n", candidate.EpisodeID, err)

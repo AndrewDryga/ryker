@@ -84,12 +84,12 @@ func TestPrivateSlackReplayRunsWithoutPublicSideEffects(t *testing.T) {
 	if err != nil || len(incidents) != 0 {
 		t.Fatalf("private replay created incidents = %+v, %v", incidents, err)
 	}
-	memory, err := st.GetConversationMemory(ctx, input.ChannelID, input.ThreadTS)
+	memory, err := st.Intelligence.GetConversationMemory(ctx, input.ChannelID, input.ThreadTS)
 	if err != nil || len(memory.State.Knowledge) != 1 ||
 		memory.State.Knowledge[0].Subject != "Symbolicator storage" {
 		t.Fatalf("private replay conversation memory = %+v, %v", memory, err)
 	}
-	channelMemory, err := st.GetChannelMemory(ctx, input.ChannelID)
+	channelMemory, err := st.Intelligence.GetChannelMemory(ctx, input.ChannelID)
 	if err != nil || len(channelMemory.State.Knowledge) != 0 {
 		t.Fatalf("private replay changed channel-wide memory = %+v, %v", channelMemory, err)
 	}
@@ -893,7 +893,7 @@ func TestSlashPostmortemReadsLatestClosedIncidentRecord(t *testing.T) {
 	if err := st.SetRoot(ctx, incident.ID, "1700.001"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.RecordEvidence(ctx, []core.Evidence{{
+	if _, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{{
 		IncidentID: incident.ID, ChannelID: "CPOSTMORTEM", SourceInput: "run_1",
 		Claim: "API recovered", Observation: "Probe returned HTTP 200",
 		SourceType: "emisar", SourceName: "http probe", Target: "api",

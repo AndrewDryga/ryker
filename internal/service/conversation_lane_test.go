@@ -21,12 +21,12 @@ func TestReferencedOldThreadContextIsAnchoredAndCached(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.BindChannelSession(
+	if err := st.Intelligence.BindChannelSession(
 		ctx, "COPS", "repo", "ses_watch", 1, 1, time.Now().UTC(),
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApplyWatchDecision(
+	if _, err := st.Intelligence.ApplyWatchDecision(
 		ctx,
 		core.EvaluationDecision{
 			ChannelID: "COPS", ThreadTS: "1600.100", MessageTS: "1600.200",

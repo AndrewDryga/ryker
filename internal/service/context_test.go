@@ -177,7 +177,7 @@ func TestAssembleAgentContextUsesConversationSummaryAsThreadCursor(t *testing.T)
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.BindChannelSession(
+	if err := st.Intelligence.BindChannelSession(
 		ctx,
 		"COPS",
 		"emisar",
@@ -188,7 +188,7 @@ func TestAssembleAgentContextUsesConversationSummaryAsThreadCursor(t *testing.T)
 	); err != nil {
 		t.Fatal(err)
 	}
-	applied, err := st.ApplyWatchDecision(
+	applied, err := st.Intelligence.ApplyWatchDecision(
 		ctx,
 		core.EvaluationDecision{
 			ChannelID: "COPS", ThreadTS: "1700.000001",

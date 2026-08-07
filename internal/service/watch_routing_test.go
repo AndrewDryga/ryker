@@ -526,7 +526,7 @@ func TestWatchedRunRepairsStaleRotatedEventCursor(t *testing.T) {
 	if err := st.AdvanceAgentRunEvents(ctx, run.ID, 13); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AdvanceChannelEvents(
+	if err := st.Intelligence.AdvanceChannelEvents(
 		ctx, input.ChannelID, run.SessionID, 13,
 	); err != nil {
 		t.Fatal(err)
@@ -543,7 +543,7 @@ func TestWatchedRunRepairsStaleRotatedEventCursor(t *testing.T) {
 		run.CoopEventSequence != 1 {
 		t.Fatalf("recovered run = %+v, %v", run, err)
 	}
-	memory, err := st.GetChannelMemory(ctx, input.ChannelID)
+	memory, err := st.Intelligence.GetChannelMemory(ctx, input.ChannelID)
 	if err != nil || memory.CoopEventSequence != 1 {
 		t.Fatalf("repaired channel memory = %+v, %v", memory, err)
 	}

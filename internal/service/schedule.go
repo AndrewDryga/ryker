@@ -606,7 +606,7 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 		if repositoryErr != nil {
 			return repositoryErr
 		}
-		if err := s.store.EnsureChannelMemory(
+		if err := s.store.Intelligence.EnsureChannelMemory(
 			ctx, deliveryChannel, deliveryRepository,
 		); err != nil {
 			return err

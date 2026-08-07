@@ -78,3 +78,15 @@ func BoundedError(value string) string {
 type RowScanner interface {
 	Scan(dest ...any) error
 }
+
+// TimeText renders a timestamp for storage, or NULL for the zero time.
+//
+// The zero time has to become NULL rather than the year 1: a column meaning
+// "not yet" is queried with IS NULL, and a stored 0001-01-01 satisfies neither
+// that nor a range check, so it goes missing from both.
+func TimeText(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC().Format(core.TimestampFormat)
+}

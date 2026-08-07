@@ -36,7 +36,7 @@ func TestEscalatedEpisodeSeesItsIncidentEvidence(t *testing.T) {
 
 	// Evidence as the incident path records it: keyed by incident, with a
 	// source input that is not this episode's run.
-	if _, err := st.RecordEvidence(ctx, []core.Evidence{{
+	if _, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{{
 		IncidentID: incident.ID, ChannelID: "CINFRA",
 		SourceInput: "some_other_input",
 		ClaimID:     "service.health", Claim: "checkout is degraded",
@@ -46,7 +46,7 @@ func TestEscalatedEpisodeSeesItsIncidentEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	found, err := st.ListEpisodeEvidence(ctx, episode.ID, 50)
+	found, err := st.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestEpisodeDoesNotSeeAnotherIncidentsEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.RecordEvidence(ctx, []core.Evidence{{
+	if _, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{{
 		IncidentID: "inc_someone_elses", ChannelID: "COTHER",
 		SourceInput: "unrelated_input",
 		ClaimID:     "service.health", Claim: "a different service is fine",
@@ -87,7 +87,7 @@ func TestEpisodeDoesNotSeeAnotherIncidentsEvidence(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	found, err := st.ListEpisodeEvidence(ctx, episode.ID, 50)
+	found, err := st.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 50)
 	if err != nil {
 		t.Fatal(err)
 	}

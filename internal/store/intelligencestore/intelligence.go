@@ -1,4 +1,4 @@
-package store
+package intelligencestore
 
 import (
 	"context"
@@ -13,12 +13,12 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
-func (s *Store) GetChannelMemory(ctx context.Context, channelID string) (core.ChannelMemory, error) {
+func (r *Repository) GetChannelMemory(ctx context.Context, channelID string) (core.ChannelMemory, error) {
 	var memory core.ChannelMemory
 	var state []byte
 	var started, rotated sql.NullString
 	var updated string
-	err := s.db.QueryRowContext(ctx, `
+	err := r.db.QueryRowContext(ctx, `
 			SELECT channel_id, repository, session_id, session_revision, generation, turn_count,
 			  coop_event_sequence, state_json, session_started_at, rotated_at, updated_at
 			FROM channel_memories WHERE channel_id = ?`, channelID).Scan(
@@ -27,7 +27,7 @@ func (s *Store) GetChannelMemory(ctx context.Context, channelID string) (core.Ch
 		&state, &started, &rotated, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return core.ChannelMemory{}, ErrNotFound
+		return core.ChannelMemory{}, core.ErrNotFound
 	}
 	if err != nil {
 		return core.ChannelMemory{}, err
@@ -41,14 +41,14 @@ func (s *Store) GetChannelMemory(ctx context.Context, channelID string) (core.Ch
 	return memory, nil
 }
 
-func (s *Store) ListChannelSituations(
+func (r *Repository) ListChannelSituations(
 	ctx context.Context,
 	limit int,
 ) ([]core.ChannelMemory, error) {
 	if limit < 1 {
 		limit = 8
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT channel_id, repository, session_id, session_revision, generation, turn_count,
 		  coop_event_sequence, state_json, session_started_at, rotated_at, updated_at
 		FROM channel_memories
@@ -96,7 +96,7 @@ func (s *Store) ListChannelSituations(
 	return result, rows.Err()
 }
 
-func (s *Store) GetConversationMemory(
+func (r *Repository) GetConversationMemory(
 	ctx context.Context,
 	channelID string,
 	threadTS string,
@@ -104,7 +104,7 @@ func (s *Store) GetConversationMemory(
 	var memory core.ConversationMemory
 	var state []byte
 	var updated string
-	err := s.db.QueryRowContext(ctx, `
+	err := r.db.QueryRowContext(ctx, `
 		SELECT channel_id, thread_ts, repository, last_message_ts, state_json, updated_at
 		FROM conversation_memories
 		WHERE channel_id = ? AND thread_ts = ?`,
@@ -118,7 +118,7 @@ func (s *Store) GetConversationMemory(
 		&updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return core.ConversationMemory{}, ErrNotFound
+		return core.ConversationMemory{}, core.ErrNotFound
 	}
 	if err != nil {
 		return core.ConversationMemory{}, err
@@ -130,7 +130,7 @@ func (s *Store) GetConversationMemory(
 	return memory, nil
 }
 
-func (s *Store) UpsertConversationMemoryState(
+func (r *Repository) UpsertConversationMemoryState(
 	ctx context.Context,
 	memory core.ConversationMemory,
 ) error {
@@ -147,7 +147,7 @@ func (s *Store) UpsertConversationMemoryState(
 	if string(state) == "{}" {
 		return errors.New("conversation memory state is empty")
 	}
-	_, err = s.db.ExecContext(ctx, `
+	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO conversation_memories (
 		  channel_id, thread_ts, repository, last_message_ts, state_json, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?)
@@ -166,12 +166,12 @@ func (s *Store) UpsertConversationMemoryState(
 		memory.Repository,
 		memory.LastMessage,
 		string(state),
-		s.nowText(),
+		r.nowText(),
 	)
 	return err
 }
 
-func (s *Store) ListRelatedConversationMemories(
+func (r *Repository) ListRelatedConversationMemories(
 	ctx context.Context,
 	channelID string,
 	threadTS string,
@@ -183,7 +183,7 @@ func (s *Store) ListRelatedConversationMemories(
 	}
 	localLimit := max(1, limit/2)
 	workspaceLimit := max(1, limit-localLimit)
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, `
 		WITH candidates AS (
 		  SELECT memory.channel_id, COALESCE(membership.channel_name, '') AS channel_name,
 		    memory.thread_ts, memory.repository,
@@ -254,42 +254,7 @@ func (s *Store) ListRelatedConversationMemories(
 	return result, rows.Err()
 }
 
-func (s *Store) DeleteConversationMemories(
-	ctx context.Context,
-	channelID string,
-) (int64, error) {
-	if channelID == "" {
-		return 0, errors.New("conversation memory channel is required")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `DELETE FROM conversation_memories WHERE channel_id = ?`, channelID)
-	if err != nil {
-		return 0, err
-	}
-	deleted, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	result, err = tx.ExecContext(ctx, `
-		DELETE FROM memory_rollups WHERE scope_kind = 'channel' AND scope_key = ?`, channelID)
-	if err != nil {
-		return 0, err
-	}
-	rollups, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return deleted + rollups, nil
-}
-
-func (s *Store) BindChannelSession(
+func (r *Repository) BindChannelSession(
 	ctx context.Context,
 	channelID string,
 	repository string,
@@ -302,9 +267,9 @@ func (s *Store) BindChannelSession(
 		return errors.New("channel session binding is incomplete")
 	}
 	if started.IsZero() {
-		started = s.now().UTC()
+		started = r.now().UTC()
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO channel_memories
 		  (channel_id, repository, session_id, session_revision, generation, turn_count,
 		   state_json, session_started_at, updated_at)
@@ -320,12 +285,12 @@ func (s *Store) BindChannelSession(
 		  rotated_at = channel_memories.updated_at,
 		  updated_at = excluded.updated_at`,
 		channelID, repository, sessionID, revision, generation,
-		started.UTC().Format(timestampFormat), s.nowText(),
+		started.UTC().Format(core.TimestampFormat), r.nowText(),
 	)
 	return err
 }
 
-func (s *Store) EnsureChannelMemory(
+func (r *Repository) EnsureChannelMemory(
 	ctx context.Context,
 	channelID string,
 	repository string,
@@ -333,18 +298,18 @@ func (s *Store) EnsureChannelMemory(
 	if channelID == "" || repository == "" {
 		return errors.New("channel memory identity is incomplete")
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO channel_memories (
 		  channel_id, repository, session_id, session_revision, generation,
 		  turn_count, state_json, updated_at
 		) VALUES (?, ?, '', 0, 1, 0, '{}', ?)
 		ON CONFLICT(channel_id) DO NOTHING`,
-		channelID, repository, s.nowText(),
+		channelID, repository, r.nowText(),
 	)
 	return err
 }
 
-func (s *Store) DetachChannelSession(
+func (r *Repository) DetachChannelSession(
 	ctx context.Context,
 	channelID string,
 	sessionID string,
@@ -352,7 +317,7 @@ func (s *Store) DetachChannelSession(
 	if channelID == "" || sessionID == "" {
 		return false, errors.New("channel session detachment identity is incomplete")
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, `
 		UPDATE channel_memories
 			SET session_id = '',
 			    session_revision = 0,
@@ -362,7 +327,7 @@ func (s *Store) DetachChannelSession(
 		    rotated_at = updated_at,
 		    updated_at = ?
 		WHERE channel_id = ? AND session_id = ?`,
-		s.nowText(), channelID, sessionID,
+		r.nowText(), channelID, sessionID,
 	)
 	if err != nil {
 		return false, err
@@ -374,21 +339,21 @@ func (s *Store) DetachChannelSession(
 	return rows == 1, nil
 }
 
-func (s *Store) AdvanceChannelEvents(
+func (r *Repository) AdvanceChannelEvents(
 	ctx context.Context,
 	channelID string,
 	sessionID string,
 	sequence int64,
 ) error {
-	result, err := s.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, `
 		UPDATE channel_memories
 		SET coop_event_sequence = MAX(coop_event_sequence, ?), updated_at = ?
 		WHERE channel_id = ? AND session_id = ?`,
-		sequence, s.nowText(), channelID, sessionID)
+		sequence, r.nowText(), channelID, sessionID)
 	return sqlutil.ExpectOne(result, err, "advance channel Coop events")
 }
 
-func (s *Store) ApplyWatchDecision(
+func (r *Repository) ApplyWatchDecision(
 	ctx context.Context,
 	decision core.EvaluationDecision,
 	lane string,
@@ -407,7 +372,7 @@ func (s *Store) ApplyWatchDecision(
 		}
 	}
 	if decision.CreatedAt.IsZero() {
-		decision.CreatedAt = s.now().UTC()
+		decision.CreatedAt = r.now().UTC()
 	}
 	memory, err := json.Marshal(state)
 	if err != nil {
@@ -416,7 +381,7 @@ func (s *Store) ApplyWatchDecision(
 	if len(memory) > 64<<10 {
 		return false, errors.New("channel memory exceeds 64 KiB")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
@@ -428,7 +393,7 @@ func (s *Store) ApplyWatchDecision(
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		decision.ID, decision.ChannelID, decision.SourceInput, decision.Mode,
 		decision.Action, decision.Reason, decision.Evidence, decision.Coverage,
-		decision.CreatedAt.UTC().Format(timestampFormat),
+		decision.CreatedAt.UTC().Format(core.TimestampFormat),
 	)
 	if err != nil {
 		return false, err
@@ -451,7 +416,7 @@ func (s *Store) ApplyWatchDecision(
 			SET session_revision = ?, turn_count = turn_count + 1,
 			    state_json = ?, updated_at = ?
 			WHERE channel_id = ?`,
-			sessionRevision, memory, s.nowText(), sessionChannelID,
+			sessionRevision, memory, r.nowText(), sessionChannelID,
 		)
 		if err := sqlutil.ExpectOne(update, err, "apply watch decision memory"); err != nil {
 			return false, err
@@ -461,7 +426,7 @@ func (s *Store) ApplyWatchDecision(
 				UPDATE channel_memories
 				SET state_json = ?, updated_at = ?
 				WHERE channel_id = ?`,
-				memory, s.nowText(), decision.ChannelID,
+				memory, r.nowText(), decision.ChannelID,
 			)
 			if err := sqlutil.ExpectOne(update, err, "apply scheduled decision channel memory"); err != nil {
 				return false, err
@@ -472,7 +437,7 @@ func (s *Store) ApplyWatchDecision(
 			UPDATE conversation_sessions
 			SET session_revision = ?, turn_count = turn_count + 1, updated_at = ?
 			WHERE channel_id = ?`,
-			sessionRevision, s.nowText(), decision.ChannelID,
+			sessionRevision, r.nowText(), decision.ChannelID,
 		)
 		if err := sqlutil.ExpectOne(update, err, "apply conversation decision session"); err != nil {
 			return false, err
@@ -481,7 +446,7 @@ func (s *Store) ApplyWatchDecision(
 			UPDATE channel_memories
 			SET state_json = ?, updated_at = ?
 			WHERE channel_id = ?`,
-			memory, s.nowText(), decision.ChannelID,
+			memory, r.nowText(), decision.ChannelID,
 		)
 		if err := sqlutil.ExpectOne(update, err, "apply conversation decision memory"); err != nil {
 			return false, err
@@ -507,7 +472,7 @@ func (s *Store) ApplyWatchDecision(
 			decision.Repository,
 			decision.MessageTS,
 			string(memory),
-			s.nowText(),
+			r.nowText(),
 		)
 		if err != nil {
 			return false, err
@@ -516,11 +481,11 @@ func (s *Store) ApplyWatchDecision(
 	return true, tx.Commit()
 }
 
-func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([]core.Evidence, error) {
+func (r *Repository) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([]core.Evidence, error) {
 	if len(evidence) > 50 {
 		return nil, errors.New("one response cannot record more than 50 evidence items")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -545,7 +510,7 @@ func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([
 			}
 		}
 		if item.CreatedAt.IsZero() {
-			item.CreatedAt = s.now().UTC()
+			item.CreatedAt = r.now().UTC()
 		}
 		metadata, err := json.Marshal(item.Metadata)
 		if err != nil {
@@ -579,8 +544,8 @@ func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			item.ID, item.IncidentID, item.ChannelID, item.SourceInput, item.ClaimID, item.Claim,
 			item.Observation, item.Relation, item.HealthEffect, item.SourceType, item.SourceID, item.SourceName, item.SourceURL, item.Target, item.ScopeNote,
-			item.Freshness, item.Confidence, timeText(item.ObservedAt), timeText(item.ValidUntil), dimensions, metadata,
-			item.CreatedAt.UTC().Format(timestampFormat),
+			item.Freshness, item.Confidence, sqlutil.TimeText(item.ObservedAt), sqlutil.TimeText(item.ValidUntil), dimensions, metadata,
+			item.CreatedAt.UTC().Format(core.TimestampFormat),
 		)
 		if err != nil {
 			return nil, err
@@ -608,11 +573,11 @@ func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([
 	return result, nil
 }
 
-func (s *Store) RecordCoverage(ctx context.Context, coverage []core.Coverage) error {
+func (r *Repository) RecordCoverage(ctx context.Context, coverage []core.Coverage) error {
 	if len(coverage) > 30 {
 		return errors.New("one response cannot record more than 30 coverage items")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -630,7 +595,7 @@ func (s *Store) RecordCoverage(ctx context.Context, coverage []core.Coverage) er
 			}
 		}
 		if item.CreatedAt.IsZero() {
-			item.CreatedAt = s.now().UTC()
+			item.CreatedAt = r.now().UTC()
 		}
 		claimIDs, err := json.Marshal(item.ClaimIDs)
 		if err != nil {
@@ -642,9 +607,9 @@ func (s *Store) RecordCoverage(ctx context.Context, coverage []core.Coverage) er
 			   observed_at, claim_ids_json, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			item.ID, item.IncidentID, item.ChannelID, item.SourceInput, item.Layer,
-			item.Status, item.Source, item.Detail, timeText(item.ObservedAt),
+			item.Status, item.Source, item.Detail, sqlutil.TimeText(item.ObservedAt),
 			claimIDs,
-			item.CreatedAt.UTC().Format(timestampFormat),
+			item.CreatedAt.UTC().Format(core.TimestampFormat),
 		); err != nil {
 			return err
 		}
@@ -652,7 +617,7 @@ func (s *Store) RecordCoverage(ctx context.Context, coverage []core.Coverage) er
 	return tx.Commit()
 }
 
-func (s *Store) ListEvidence(
+func (r *Repository) ListEvidence(
 	ctx context.Context,
 	incidentID string,
 	channelID string,
@@ -661,7 +626,7 @@ func (s *Store) ListEvidence(
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("evidence limit must be between 1 and 200")
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, health_effect, source_type,
 		  source_id, source_name, source_url, target, scope_note, freshness, confidence, observed_at, valid_until,
 		  dimensions_json, metadata_json, created_at
@@ -702,7 +667,7 @@ func (s *Store) ListEvidence(
 	return result, rows.Err()
 }
 
-func (s *Store) ListCoverage(
+func (r *Repository) ListCoverage(
 	ctx context.Context,
 	incidentID string,
 	channelID string,
@@ -711,7 +676,7 @@ func (s *Store) ListCoverage(
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("coverage limit must be between 1 and 100")
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, incident_id, channel_id, source_input, layer, status, source, detail,
 		  observed_at, claim_ids_json, created_at
 		FROM coverage
@@ -749,7 +714,7 @@ func (s *Store) ListCoverage(
 // correlation ancestry. Related alert updates are separate immutable episodes,
 // but they reason over one accumulated claim ledger instead of repeatedly
 // rediscovering (and contradicting) the same incident.
-func (s *Store) ListEpisodeEvidence(
+func (r *Repository) ListEpisodeEvidence(
 	ctx context.Context,
 	episodeID string,
 	limit int,
@@ -757,7 +722,7 @@ func (s *Store) ListEpisodeEvidence(
 	if strings.TrimSpace(episodeID) == "" || limit < 1 || limit > 200 {
 		return nil, errors.New("episode evidence requires an episode and limit from 1 to 200")
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, `
 		WITH RECURSIVE episode_chain(id, parent_episode_id, depth) AS (
 		  SELECT id, parent_episode_id, 0 FROM work_episodes WHERE id = ?
 		  UNION ALL
@@ -821,7 +786,7 @@ func (s *Store) ListEpisodeEvidence(
 	return result, rows.Err()
 }
 
-func (s *Store) ListEpisodeCoverage(
+func (r *Repository) ListEpisodeCoverage(
 	ctx context.Context,
 	episodeID string,
 	limit int,
@@ -829,7 +794,7 @@ func (s *Store) ListEpisodeCoverage(
 	if strings.TrimSpace(episodeID) == "" || limit < 1 || limit > 200 {
 		return nil, errors.New("episode coverage requires an episode and limit from 1 to 200")
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, `
 		WITH RECURSIVE episode_chain(id, parent_episode_id, depth) AS (
 		  SELECT id, parent_episode_id, 0 FROM work_episodes WHERE id = ?
 		  UNION ALL
@@ -885,11 +850,11 @@ func (s *Store) ListEpisodeCoverage(
 	return result, rows.Err()
 }
 
-func (s *Store) RecordClaimAssessments(ctx context.Context, items []core.ClaimAssessment) error {
+func (r *Repository) RecordClaimAssessments(ctx context.Context, items []core.ClaimAssessment) error {
 	if len(items) > 50 {
 		return errors.New("one episode cannot record more than 50 claim assessments")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -919,7 +884,7 @@ func (s *Store) RecordClaimAssessments(ctx context.Context, items []core.ClaimAs
 		}
 		updated := item.UpdatedAt
 		if updated.IsZero() {
-			updated = s.now().UTC()
+			updated = r.now().UTC()
 		}
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO claim_assessments
@@ -934,7 +899,7 @@ func (s *Store) RecordClaimAssessments(ctx context.Context, items []core.ClaimAs
 			  detail = excluded.detail,
 			  updated_at = excluded.updated_at`,
 			item.ID, item.EpisodeID, item.ClaimID, item.Status, item.Confidence,
-			evidenceIDs, contradictions, item.Detail, updated.UTC().Format(timestampFormat),
+			evidenceIDs, contradictions, item.Detail, updated.UTC().Format(core.TimestampFormat),
 		)
 		if err != nil {
 			return err
@@ -943,7 +908,7 @@ func (s *Store) RecordClaimAssessments(ctx context.Context, items []core.ClaimAs
 	return tx.Commit()
 }
 
-func (s *Store) RecordTimeline(ctx context.Context, event core.TimelineEvent) error {
+func (r *Repository) RecordTimeline(ctx context.Context, event core.TimelineEvent) error {
 	event.Title = strings.TrimSpace(event.Title)
 	if event.Title == "" || event.Kind == "" {
 		return errors.New("timeline event requires kind and title")
@@ -956,24 +921,24 @@ func (s *Store) RecordTimeline(ctx context.Context, event core.TimelineEvent) er
 		}
 	}
 	if event.CreatedAt.IsZero() {
-		event.CreatedAt = s.now().UTC()
+		event.CreatedAt = r.now().UTC()
 	}
 	evidence, err := json.Marshal(event.EvidenceIDs)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
+	_, err = r.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO timeline_events
 		  (id, incident_id, channel_id, kind, actor_id, title, detail,
 		   evidence_ids_json, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		event.ID, event.IncidentID, event.ChannelID, event.Kind, event.ActorID,
-		event.Title, event.Detail, evidence, event.CreatedAt.UTC().Format(timestampFormat),
+		event.Title, event.Detail, evidence, event.CreatedAt.UTC().Format(core.TimestampFormat),
 	)
 	return err
 }
 
-func (s *Store) ListTimeline(
+func (r *Repository) ListTimeline(
 	ctx context.Context,
 	incidentID string,
 	channelID string,
@@ -982,7 +947,7 @@ func (s *Store) ListTimeline(
 	if limit < 1 || limit > 500 {
 		return nil, errors.New("timeline limit must be between 1 and 500")
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, incident_id, channel_id, kind, actor_id, title, detail,
 		  evidence_ids_json, created_at
 		FROM timeline_events
@@ -1014,14 +979,14 @@ func (s *Store) ListTimeline(
 	return result, rows.Err()
 }
 
-func (s *Store) CreateActionProposals(
+func (r *Repository) CreateActionProposals(
 	ctx context.Context,
 	proposals []core.ActionProposal,
 ) ([]core.ActionProposal, error) {
 	if len(proposals) > 10 {
 		return nil, errors.New("one response cannot propose more than 10 actions")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1042,7 +1007,7 @@ func (s *Store) CreateActionProposals(
 		if proposal.Required < 1 || proposal.Required > 2 {
 			return nil, errors.New("action proposal requires one or two approvals")
 		}
-		now := s.now().UTC()
+		now := r.now().UTC()
 		if proposal.CreatedAt.IsZero() {
 			proposal.CreatedAt = now
 		}
@@ -1066,8 +1031,8 @@ func (s *Store) CreateActionProposals(
 			proposal.ActionName, proposal.Title, proposal.Summary, proposal.Target, parameters,
 			proposal.BlastRadius, proposal.Rollback, proposal.Verification, proposal.Authority,
 			proposal.Risk, proposal.Required, proposal.RequestedBy,
-			proposal.ExpiresAt.UTC().Format(timestampFormat),
-			proposal.CreatedAt.UTC().Format(timestampFormat), s.nowText(),
+			proposal.ExpiresAt.UTC().Format(core.TimestampFormat),
+			proposal.CreatedAt.UTC().Format(core.TimestampFormat), r.nowText(),
 		)
 		if err != nil {
 			return nil, err
@@ -1086,8 +1051,8 @@ func (s *Store) CreateActionProposals(
 	return result, nil
 }
 
-func (s *Store) GetActionProposal(ctx context.Context, id string) (core.ActionProposal, error) {
-	return scanActionProposal(s.db.QueryRowContext(ctx, `
+func (r *Repository) GetActionProposal(ctx context.Context, id string) (core.ActionProposal, error) {
+	return scanActionProposal(r.db.QueryRowContext(ctx, `
 		SELECT p.id, p.incident_id, p.channel_id, p.source_input, p.action_name, p.title,
 		  p.summary, p.target, p.parameters_json, p.blast_radius, p.rollback,
 		  p.verification, p.authority, p.risk, p.status, p.required_approvals,
@@ -1097,11 +1062,11 @@ func (s *Store) GetActionProposal(ctx context.Context, id string) (core.ActionPr
 		FROM action_proposals p WHERE p.id = ?`, id))
 }
 
-func (s *Store) ListActionProposalsForIncident(
+func (r *Repository) ListActionProposalsForIncident(
 	ctx context.Context,
 	incidentID string,
 ) ([]core.ActionProposal, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT p.id, p.incident_id, p.channel_id, p.source_input, p.action_name, p.title,
 		  p.summary, p.target, p.parameters_json, p.blast_radius, p.rollback,
 		  p.verification, p.authority, p.risk, p.status, p.required_approvals,
@@ -1138,7 +1103,7 @@ func scanActionProposal(row interface{ Scan(...any) error }) (core.ActionProposa
 		&proposal.Result, &expires, &created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return core.ActionProposal{}, ErrNotFound
+		return core.ActionProposal{}, core.ErrNotFound
 	}
 	if err != nil {
 		return core.ActionProposal{}, err
@@ -1152,7 +1117,7 @@ func scanActionProposal(row interface{ Scan(...any) error }) (core.ActionProposa
 	return proposal, nil
 }
 
-func (s *Store) DecideActionProposal(
+func (r *Repository) DecideActionProposal(
 	ctx context.Context,
 	id string,
 	actorID string,
@@ -1162,7 +1127,7 @@ func (s *Store) DecideActionProposal(
 	if actorID == "" || (decision != "approve" && decision != "reject") {
 		return core.ActionProposal{}, errors.New("proposal decision is invalid")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return core.ActionProposal{}, err
 	}
@@ -1181,7 +1146,7 @@ func (s *Store) DecideActionProposal(
 	if now.After(proposal.ExpiresAt) && proposal.Status == "pending" {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE action_proposals SET status = 'expired', updated_at = ?
-			WHERE id = ? AND status = 'pending'`, s.nowText(), id); err != nil {
+			WHERE id = ? AND status = 'pending'`, r.nowText(), id); err != nil {
 			return core.ActionProposal{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -1197,7 +1162,7 @@ func (s *Store) DecideActionProposal(
 		INSERT OR IGNORE INTO proposal_approvals
 		  (proposal_id, actor_id, decision, created_at)
 		VALUES (?, ?, ?, ?)`,
-		id, actorID, decision, now.UTC().Format(timestampFormat),
+		id, actorID, decision, now.UTC().Format(core.TimestampFormat),
 	); err != nil {
 		return core.ActionProposal{}, err
 	}
@@ -1218,7 +1183,7 @@ func (s *Store) DecideActionProposal(
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE action_proposals SET status = ?, updated_at = ? WHERE id = ?`,
-		status, s.nowText(), id,
+		status, r.nowText(), id,
 	); err != nil {
 		return core.ActionProposal{}, err
 	}
@@ -1229,7 +1194,7 @@ func (s *Store) DecideActionProposal(
 	return proposal, nil
 }
 
-func (s *Store) MarkProposalExecution(
+func (r *Repository) MarkProposalExecution(
 	ctx context.Context,
 	id string,
 	status string,
@@ -1239,12 +1204,12 @@ func (s *Store) MarkProposalExecution(
 	if status != "executing" && status != "finished" && status != "failed" {
 		return errors.New("invalid proposal execution state")
 	}
-	update, err := s.db.ExecContext(ctx, `
+	update, err := r.db.ExecContext(ctx, `
 		UPDATE action_proposals
 		SET status = ?, execution_turn = CASE WHEN ? != '' THEN ? ELSE execution_turn END,
 		  result = ?, updated_at = ?
 		WHERE id = ? AND status IN ('approved', 'executing')`,
-		status, turnID, turnID, sqlutil.BoundedError(result), s.nowText(), id,
+		status, turnID, turnID, sqlutil.BoundedError(result), r.nowText(), id,
 	)
 	return sqlutil.ExpectOne(update, err, "mark proposal execution")
 }

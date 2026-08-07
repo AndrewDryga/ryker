@@ -30,10 +30,10 @@ func TestMaintainMemoryRunsDueConsolidationEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index, channel := range []string{"CPUBLIC1", "CPUBLIC2"} {
-		if err := st.EnsureChannelMemory(ctx, channel, "repo"); err != nil {
+		if err := st.Intelligence.EnsureChannelMemory(ctx, channel, "repo"); err != nil {
 			t.Fatal(err)
 		}
-		applied, err := st.ApplyWatchDecision(ctx, core.EvaluationDecision{
+		applied, err := st.Intelligence.ApplyWatchDecision(ctx, core.EvaluationDecision{
 			ChannelID: channel, ThreadTS: fmt.Sprintf("1700.%d", index+1),
 			MessageTS: "1701.1", Repository: "repo",
 			SourceInput: "source_" + channel, Mode: "watch", Action: "reply",
@@ -244,7 +244,7 @@ func TestDreamingPressureKeepsVeryRecentSummaries(t *testing.T) {
 
 	// Three old summaries plus one from a minute ago.
 	for index := range 3 {
-		if err := st.UpsertConversationMemoryState(ctx, core.ConversationMemory{
+		if err := st.Intelligence.UpsertConversationMemoryState(ctx, core.ConversationMemory{
 			ChannelID: "COLD", ThreadTS: fmt.Sprintf("16%02d.001", index),
 			Repository: cfg.Slack.DefaultRepository, LastMessage: "1600.001",
 			State: core.AgentMemory{SituationSummary: fmt.Sprintf("old %d", index)},
@@ -252,7 +252,7 @@ func TestDreamingPressureKeepsVeryRecentSummaries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := st.UpsertConversationMemoryState(ctx, core.ConversationMemory{
+	if err := st.Intelligence.UpsertConversationMemoryState(ctx, core.ConversationMemory{
 		ChannelID: "CLIVE", ThreadTS: "1799.001",
 		Repository: cfg.Slack.DefaultRepository, LastMessage: "1799.001",
 		State: core.AgentMemory{SituationSummary: "still talking"},
@@ -264,7 +264,7 @@ func TestDreamingPressureKeepsVeryRecentSummaries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	live, err := st.GetConversationMemory(ctx, "CLIVE", "1799.001")
+	live, err := st.Intelligence.GetConversationMemory(ctx, "CLIVE", "1799.001")
 	if err != nil {
 		t.Fatalf("the live conversation's summary was consolidated away: %v", err)
 	}

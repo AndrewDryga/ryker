@@ -339,7 +339,7 @@ func TestPinnedScheduledSessionUsesTaskRepositoryWithoutReplacingChannelSession(
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.BindChannelSession(
+	if err := st.Intelligence.BindChannelSession(
 		ctx, "CREPORT", "repo", "ses_channel", 1, 1, time.Now().UTC(),
 	); err != nil {
 		t.Fatal(err)
@@ -361,7 +361,7 @@ func TestPinnedScheduledSessionUsesTaskRepositoryWithoutReplacingChannelSession(
 	if !slices.Equal(coopClient.createPolicies, []string{"infra-observe"}) {
 		t.Fatalf("Coop create policies = %v", coopClient.createPolicies)
 	}
-	channel, err := st.GetChannelMemory(ctx, "CREPORT")
+	channel, err := st.Intelligence.GetChannelMemory(ctx, "CREPORT")
 	if err != nil {
 		t.Fatal(err)
 	}

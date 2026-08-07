@@ -79,7 +79,7 @@ func (s *Service) assembleAgentContext(
 	}
 	sinceTS := ""
 	if request.ChannelID != "" {
-		memory, memoryErr := s.store.GetChannelMemory(ctx, request.ChannelID)
+		memory, memoryErr := s.store.Intelligence.GetChannelMemory(ctx, request.ChannelID)
 		if memoryErr == nil {
 			result.Situation = memory.State
 		} else if !errors.Is(memoryErr, store.ErrNotFound) {
@@ -88,7 +88,7 @@ func (s *Service) assembleAgentContext(
 		threadTS := ""
 		if request.TargetInput != nil {
 			threadTS = request.TargetInput.ThreadTS
-			conversation, conversationErr := s.store.GetConversationMemory(
+			conversation, conversationErr := s.store.Intelligence.GetConversationMemory(
 				ctx,
 				request.ChannelID,
 				threadTS,
@@ -103,7 +103,7 @@ func (s *Service) assembleAgentContext(
 				result.Situation = core.AgentMemory{}
 			}
 		}
-		related, relatedErr := s.store.ListRelatedConversationMemories(
+		related, relatedErr := s.store.Intelligence.ListRelatedConversationMemories(
 			ctx,
 			request.ChannelID,
 			threadTS,
@@ -175,7 +175,7 @@ func (s *Service) assembleAgentContext(
 		(request.TargetInput == nil ||
 			request.ReferencedThreadTS != request.TargetInput.ThreadTS) {
 		referenced := &decisionpkg.ReferencedThreadContext{ThreadTS: request.ReferencedThreadTS}
-		conversation, conversationErr := s.store.GetConversationMemory(
+		conversation, conversationErr := s.store.Intelligence.GetConversationMemory(
 			ctx,
 			request.ChannelID,
 			request.ReferencedThreadTS,

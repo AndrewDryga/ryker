@@ -314,7 +314,7 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 		state.ResponseThreadTS != "" {
 		t.Fatalf("scheduled state = %+v, err=%v", state, err)
 	}
-	deliveryMemory, err := st.GetChannelMemory(ctx, task.DeliveryChannel)
+	deliveryMemory, err := st.Intelligence.GetChannelMemory(ctx, task.DeliveryChannel)
 	if err != nil || deliveryMemory.Repository != cfg.Slack.DefaultRepository {
 		t.Fatalf("delivery channel memory = %+v, err=%v", deliveryMemory, err)
 	}

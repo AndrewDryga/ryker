@@ -30,12 +30,12 @@ const modulePath = "github.com/AndrewDryga/responder/"
 // See the package comment: raising an entry is a decision, not a formality.
 var methodBudget = map[string]int{
 	"Service": 12,
-	// 273 today, down from 300. The budget has been raised for real capability
-	// before — the standing-assignment layer took it from 290 — but it has now
-	// come down by extraction instead: memory moved to its own repository, and
-	// callers reach it through store.Memory rather than through a delegating
-	// method, because a passthrough still counts here.
-	"Store": 280,
+	// 248 today, down from 300. The budget has been raised for real capability
+	// before — the standing-assignment layer took it from 290 — but it now comes
+	// down by extraction. Callers reach an extracted area through a field like
+	// store.Memory, not a delegating method, because a passthrough still counts
+	// here and would make the extraction invisible to this number.
+	"Store": 255,
 }
 
 // lineBudget caps non-test source lines per package.
@@ -84,10 +84,10 @@ var methodBudget = map[string]int{
 // extraction, not another raise.
 var lineBudget = map[string]int{
 	"service": 24600,
-	// 13040 today, down from 14100. It has only ever come down by extraction —
-	// lifecyclecheck, sqlutil and memorystore have all left — and it should keep
-	// dropping as 2026-08-07-extract-cohesive-areas-out-of-store lands more.
-	"store":      13050,
+	// 11819 today, down from 14100 across four extractions — lifecyclecheck,
+	// sqlutil, memorystore and intelligencestore. It has only ever moved down.
+	// Keep lowering it as 2026-08-07-extract-cohesive-areas-out-of-store lands.
+	"store":      11830,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

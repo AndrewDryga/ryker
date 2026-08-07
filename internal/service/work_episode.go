@@ -328,8 +328,8 @@ func (s *Service) episodeContinuityPrompt(
 	if strings.TrimSpace(episode.ParentEpisodeID) == "" {
 		return ""
 	}
-	evidence, evidenceErr := s.store.ListEpisodeEvidence(ctx, episode.ID, 30)
-	coverage, coverageErr := s.store.ListEpisodeCoverage(ctx, episode.ID, 20)
+	evidence, evidenceErr := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 30)
+	coverage, coverageErr := s.store.Intelligence.ListEpisodeCoverage(ctx, episode.ID, 20)
 	if evidenceErr != nil || coverageErr != nil || (len(evidence) == 0 && len(coverage) == 0) {
 		return ""
 	}
@@ -358,11 +358,11 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 	now time.Time,
 	strict bool,
 ) (string, error) {
-	priorEvidence, err := s.store.ListEpisodeEvidence(ctx, episode.ID, 200)
+	priorEvidence, err := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 200)
 	if err != nil {
 		return "", err
 	}
-	priorCoverage, err := s.store.ListEpisodeCoverage(ctx, episode.ID, 200)
+	priorCoverage, err := s.store.Intelligence.ListEpisodeCoverage(ctx, episode.ID, 200)
 	if err != nil {
 		return "", err
 	}

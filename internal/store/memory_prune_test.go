@@ -45,7 +45,7 @@ func TestMemoryLifecyclePrunesMetadataAndDeletedChannelRollups(t *testing.T) {
 		old, old, string(state), now.Add(time.Hour).Format(timestampFormat), old, old); err != nil {
 		t.Fatal(err)
 	}
-	deleted, err := st.DeleteConversationMemories(ctx, "GPRIVATE")
+	deleted, err := st.Memory.DeleteConversationMemories(ctx, "GPRIVATE")
 	if err != nil || deleted != 1 {
 		t.Fatalf("channel memory deletion = %d, %v", deleted, err)
 	}
@@ -92,7 +92,7 @@ func TestMemoryExpiryPruneAndRecentEvidenceIsolation(t *testing.T) {
 	if err != nil || result.MemoryEntries != 1 {
 		t.Fatalf("prune = %+v, %v", result, err)
 	}
-	_, err = st.RecordEvidence(ctx, []core.Evidence{
+	_, err = st.Intelligence.RecordEvidence(ctx, []core.Evidence{
 		{
 			ChannelID: "COPS", SourceInput: "slack_current", Claim: "current",
 			Observation: "excluded", SourceType: "slack", SourceName: "Slack",

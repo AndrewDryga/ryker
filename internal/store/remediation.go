@@ -25,16 +25,16 @@ func (s *Store) LoadRemediationRecord(
 	if record.AgentRuns, err = s.ListAgentRunsForIncident(ctx, incidentID); err != nil {
 		return core.RemediationRecord{}, err
 	}
-	if record.Evidence, err = s.ListEvidence(ctx, incidentID, "", 100); err != nil {
+	if record.Evidence, err = s.Intelligence.ListEvidence(ctx, incidentID, "", 100); err != nil {
 		return core.RemediationRecord{}, err
 	}
-	if record.Coverage, err = s.ListCoverage(ctx, incidentID, "", 100); err != nil {
+	if record.Coverage, err = s.Intelligence.ListCoverage(ctx, incidentID, "", 100); err != nil {
 		return core.RemediationRecord{}, err
 	}
-	if record.Events, err = s.ListTimeline(ctx, incidentID, "", 500); err != nil {
+	if record.Events, err = s.Intelligence.ListTimeline(ctx, incidentID, "", 500); err != nil {
 		return core.RemediationRecord{}, err
 	}
-	if record.Proposals, err = s.ListActionProposalsForIncident(ctx, incidentID); err != nil {
+	if record.Proposals, err = s.Intelligence.ListActionProposalsForIncident(ctx, incidentID); err != nil {
 		return core.RemediationRecord{}, err
 	}
 	if record.Approvals, err = s.ListEmisarApprovalsForIncident(ctx, incidentID); err != nil {

@@ -18,7 +18,7 @@ func TestConversationSessionAndRouteAreDurableAndLaneScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.EnsureChannelMemory(ctx, "COPS", "emisar"); err != nil {
+	if err := st.Intelligence.EnsureChannelMemory(ctx, "COPS", "emisar"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.BindConversationSession(
@@ -33,7 +33,7 @@ func TestConversationSessionAndRouteAreDurableAndLaneScoped(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	applied, err := st.ApplyWatchDecision(
+	applied, err := st.Intelligence.ApplyWatchDecision(
 		ctx,
 		core.EvaluationDecision{
 			ChannelID: "COPS", ThreadTS: "1700.1", MessageTS: "1700.2",
@@ -51,7 +51,7 @@ func TestConversationSessionAndRouteAreDurableAndLaneScoped(t *testing.T) {
 	if err != nil || session.TurnCount != 1 || session.SessionRevision != 2 {
 		t.Fatalf("conversation session = %+v, %v", session, err)
 	}
-	channel, err := st.GetChannelMemory(ctx, "COPS")
+	channel, err := st.Intelligence.GetChannelMemory(ctx, "COPS")
 	if err != nil || channel.TurnCount != 0 ||
 		channel.State.SituationSummary != "The answer was 8." {
 		t.Fatalf("investigation memory after conversation = %+v, %v", channel, err)
@@ -81,7 +81,7 @@ func TestConversationMemoryCarriesAcrossPublicWorkspaceWithoutLeakingPrivateChan
 	defer st.Close()
 
 	for _, channel := range []string{"CMAIN", "CPUBLIC", "GPRIVATE"} {
-		if err := st.BindChannelSession(
+		if err := st.Intelligence.BindChannelSession(
 			ctx,
 			channel,
 			"emisar",
@@ -104,7 +104,7 @@ func TestConversationMemoryCarriesAcrossPublicWorkspaceWithoutLeakingPrivateChan
 		{"CPUBLIC", "1700.300", "source-public", "Public deployment handoff"},
 		{"GPRIVATE", "1700.400", "source-private", "Private security investigation"},
 	} {
-		applied, applyErr := st.ApplyWatchDecision(
+		applied, applyErr := st.Intelligence.ApplyWatchDecision(
 			ctx,
 			core.EvaluationDecision{
 				ChannelID: item.channel, ThreadTS: item.thread,
@@ -131,11 +131,11 @@ func TestConversationMemoryCarriesAcrossPublicWorkspaceWithoutLeakingPrivateChan
 		t.Fatal(err)
 	}
 
-	target, err := st.GetConversationMemory(ctx, "CMAIN", "1700.100")
+	target, err := st.Intelligence.GetConversationMemory(ctx, "CMAIN", "1700.100")
 	if err != nil || target.State.SituationSummary != "Main incident" {
 		t.Fatalf("target conversation memory = %+v, %v", target, err)
 	}
-	related, err := st.ListRelatedConversationMemories(
+	related, err := st.Intelligence.ListRelatedConversationMemories(
 		ctx,
 		"CMAIN",
 		"1700.100",
@@ -178,11 +178,11 @@ func TestUpsertConversationMemoryStateDoesNotRegressLastMessage(t *testing.T) {
 			State:       core.AgentMemory{Decisions: []string{"merged replay decision"}},
 		},
 	} {
-		if err := st.UpsertConversationMemoryState(ctx, item); err != nil {
+		if err := st.Intelligence.UpsertConversationMemoryState(ctx, item); err != nil {
 			t.Fatal(err)
 		}
 	}
-	memory, err := st.GetConversationMemory(ctx, "CMAIN", "1700.100")
+	memory, err := st.Intelligence.GetConversationMemory(ctx, "CMAIN", "1700.100")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestConversationMemoryDeletionAndRetention(t *testing.T) {
 	defer st.Close()
 
 	for _, channel := range []string{"CDELETE", "CEXPIRE"} {
-		if err := st.BindChannelSession(
+		if err := st.Intelligence.BindChannelSession(
 			ctx,
 			channel,
 			"emisar",
@@ -212,7 +212,7 @@ func TestConversationMemoryDeletionAndRetention(t *testing.T) {
 		); err != nil {
 			t.Fatal(err)
 		}
-		applied, applyErr := st.ApplyWatchDecision(
+		applied, applyErr := st.Intelligence.ApplyWatchDecision(
 			ctx,
 			core.EvaluationDecision{
 				ChannelID: channel, ThreadTS: "1700.100",
@@ -228,11 +228,11 @@ func TestConversationMemoryDeletionAndRetention(t *testing.T) {
 		}
 	}
 
-	deleted, err := st.DeleteConversationMemories(ctx, "CDELETE")
+	deleted, err := st.Memory.DeleteConversationMemories(ctx, "CDELETE")
 	if err != nil || deleted != 1 {
 		t.Fatalf("deleted conversation memories = %d, %v", deleted, err)
 	}
-	if _, err := st.GetConversationMemory(
+	if _, err := st.Intelligence.GetConversationMemory(
 		ctx,
 		"CDELETE",
 		"1700.100",
@@ -268,7 +268,7 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	defer st.Close()
 
 	started := time.Now().UTC().Add(-time.Minute)
-	if err := st.BindChannelSession(
+	if err := st.Intelligence.BindChannelSession(
 		ctx, "COPS", "emisar", "ses_1", 7, 1, started,
 	); err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	if err := st.AdvanceChannelMemory(ctx, "COPS", 8, state); err != nil {
 		t.Fatal(err)
 	}
-	memory, err := st.GetChannelMemory(ctx, "COPS")
+	memory, err := st.Intelligence.GetChannelMemory(ctx, "COPS")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		len(memory.State.OpenLoops) != 1 {
 		t.Fatalf("memory = %+v", memory)
 	}
-	situations, err := st.ListChannelSituations(ctx, 10)
+	situations, err := st.Intelligence.ListChannelSituations(ctx, 10)
 	if err != nil || len(situations) != 1 ||
 		situations[0].State.OpenLoops[0] != "Confirm database latency" {
 		t.Fatalf("situations = %+v, %v", situations, err)
@@ -309,19 +309,19 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		ChannelID: "COPS", SourceInput: "slack_once", Mode: "live",
 		Action: "reply", Reason: "explicit question",
 	}
-	applied, err := st.ApplyWatchDecision(ctx, decision, "investigation", 9, core.AgentMemory{
+	applied, err := st.Intelligence.ApplyWatchDecision(ctx, decision, "investigation", 9, core.AgentMemory{
 		Goal: "Answer the explicit question",
 	})
 	if err != nil || !applied {
 		t.Fatalf("apply watch decision = %t, %v", applied, err)
 	}
-	applied, err = st.ApplyWatchDecision(ctx, decision, "investigation", 10, core.AgentMemory{
+	applied, err = st.Intelligence.ApplyWatchDecision(ctx, decision, "investigation", 10, core.AgentMemory{
 		Goal: "duplicate must not replace memory",
 	})
 	if err != nil || applied {
 		t.Fatalf("replay watch decision = %t, %v", applied, err)
 	}
-	memory, err = st.GetChannelMemory(ctx, "COPS")
+	memory, err = st.Intelligence.GetChannelMemory(ctx, "COPS")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	}
 
 	observed := time.Now().UTC().Add(-30 * time.Second)
-	items, err := st.RecordEvidence(ctx, []core.Evidence{{
+	items, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{{
 		IncidentID: "inc_1", ChannelID: "COPS", SourceInput: "slack_1",
 		Claim:        "Expected production capacity is two instances",
 		Observation:  "infra/main.tf sets target_size to 2",
@@ -343,7 +343,7 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].ID == "" {
 		t.Fatalf("record evidence = %+v, %v", items, err)
 	}
-	replayed, err := st.RecordEvidence(ctx, []core.Evidence{{
+	replayed, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{{
 		IncidentID: "inc_1", ChannelID: "COPS", SourceInput: "slack_1",
 		Claim:       "Expected production capacity is two instances",
 		Observation: "infra/main.tf sets target_size to 2",
@@ -353,7 +353,7 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	if err != nil || len(replayed) != 1 || replayed[0].ID != items[0].ID {
 		t.Fatalf("replayed evidence = %+v, %v", replayed, err)
 	}
-	evidence, err := st.ListEvidence(ctx, "inc_1", "", 10)
+	evidence, err := st.Intelligence.ListEvidence(ctx, "inc_1", "", 10)
 	if err != nil || len(evidence) != 1 ||
 		evidence[0].Metadata["revision"] != "abc123" {
 		t.Fatalf("evidence = %+v, %v", evidence, err)
@@ -363,19 +363,19 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		t.Fatalf("evidence source = %+v", evidence[0])
 	}
 
-	if err := st.RecordCoverage(ctx, []core.Coverage{{
+	if err := st.Intelligence.RecordCoverage(ctx, []core.Coverage{{
 		IncidentID: "inc_1", ChannelID: "COPS", SourceInput: "slack_1",
 		Layer: "scheduler", Status: "unknown",
 		Detail: "No authorized Nomad observation was available",
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := st.ListCoverage(ctx, "inc_1", "", 10)
+	coverage, err := st.Intelligence.ListCoverage(ctx, "inc_1", "", 10)
 	if err != nil || len(coverage) != 1 || coverage[0].Status != "unknown" {
 		t.Fatalf("coverage = %+v, %v", coverage, err)
 	}
 
-	if err := st.RecordTimeline(ctx, core.TimelineEvent{
+	if err := st.Intelligence.RecordTimeline(ctx, core.TimelineEvent{
 		IncidentID: "inc_1", ChannelID: "COPS", Kind: "agent.finding",
 		ActorID: "responder", Title: "Topology reconciled",
 		Detail:      "Expected capacity verified from repository",
@@ -383,7 +383,7 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	timeline, err := st.ListTimeline(ctx, "inc_1", "", 10)
+	timeline, err := st.Intelligence.ListTimeline(ctx, "inc_1", "", 10)
 	if err != nil || len(timeline) != 1 ||
 		len(timeline[0].EvidenceIDs) != 1 ||
 		timeline[0].EvidenceIDs[0] != items[0].ID {
@@ -400,7 +400,7 @@ func TestDetachChannelSessionPreservesDurableMemory(t *testing.T) {
 	defer st.Close()
 
 	started := time.Now().UTC().Add(-time.Minute)
-	if err := st.BindChannelSession(
+	if err := st.Intelligence.BindChannelSession(
 		ctx, "COPS", "emisar", "ses_1", 7, 3, started,
 	); err != nil {
 		t.Fatal(err)
@@ -412,15 +412,15 @@ func TestDetachChannelSessionPreservesDurableMemory(t *testing.T) {
 	if err := st.AdvanceChannelMemory(ctx, "COPS", 8, state); err != nil {
 		t.Fatal(err)
 	}
-	detached, err := st.DetachChannelSession(ctx, "COPS", "ses_other")
+	detached, err := st.Intelligence.DetachChannelSession(ctx, "COPS", "ses_other")
 	if err != nil || detached {
 		t.Fatalf("detach wrong session = %t, %v", detached, err)
 	}
-	detached, err = st.DetachChannelSession(ctx, "COPS", "ses_1")
+	detached, err = st.Intelligence.DetachChannelSession(ctx, "COPS", "ses_1")
 	if err != nil || !detached {
 		t.Fatalf("detach bound session = %t, %v", detached, err)
 	}
-	memory, err := st.GetChannelMemory(ctx, "COPS")
+	memory, err := st.Intelligence.GetChannelMemory(ctx, "COPS")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,19 +442,19 @@ func TestScheduledDecisionAdvancesItsPinnedSessionWithoutReplacingChannelSession
 	defer st.Close()
 
 	started := time.Now().UTC().Add(-time.Minute)
-	if err := st.BindChannelSession(
+	if err := st.Intelligence.BindChannelSession(
 		ctx, "CREPORT", "default-repo", "ses_channel", 4, 1, started,
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.BindChannelSession(
+	if err := st.Intelligence.BindChannelSession(
 		ctx, "scheduled:health", "infra-repo", "ses_schedule", 7, 1, started,
 	); err != nil {
 		t.Fatal(err)
 	}
 
 	state := core.AgentMemory{SituationSummary: "Scheduled infrastructure review completed."}
-	applied, err := st.ApplyWatchDecision(ctx, core.EvaluationDecision{
+	applied, err := st.Intelligence.ApplyWatchDecision(ctx, core.EvaluationDecision{
 		ChannelID: "CREPORT", SessionChannelID: "scheduled:health",
 		Repository: "infra-repo", SourceInput: "scheduled-input",
 		Mode: "live", Action: "reply",
@@ -463,7 +463,7 @@ func TestScheduledDecisionAdvancesItsPinnedSessionWithoutReplacingChannelSession
 		t.Fatalf("apply scheduled decision = %t, %v", applied, err)
 	}
 
-	channel, err := st.GetChannelMemory(ctx, "CREPORT")
+	channel, err := st.Intelligence.GetChannelMemory(ctx, "CREPORT")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +471,7 @@ func TestScheduledDecisionAdvancesItsPinnedSessionWithoutReplacingChannelSession
 		channel.TurnCount != 0 || channel.State.SituationSummary != state.SituationSummary {
 		t.Fatalf("delivery channel memory = %+v", channel)
 	}
-	scheduled, err := st.GetChannelMemory(ctx, "scheduled:health")
+	scheduled, err := st.Intelligence.GetChannelMemory(ctx, "scheduled:health")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +489,7 @@ func TestActionProposalRequiresDistinctApprovers(t *testing.T) {
 	}
 	defer st.Close()
 
-	created, err := st.CreateActionProposals(ctx, []core.ActionProposal{{
+	created, err := st.Intelligence.CreateActionProposals(ctx, []core.ActionProposal{{
 		IncidentID: "inc_1", ChannelID: "COPS", SourceInput: "turn_1",
 		ActionName: "restart_allocation", Title: "Restart failed allocation",
 		Summary: "The allocation is terminal and its replacement is absent.",
@@ -502,35 +502,35 @@ func TestActionProposalRequiresDistinctApprovers(t *testing.T) {
 	if err != nil || len(created) != 1 {
 		t.Fatalf("create proposal = %+v, %v", created, err)
 	}
-	proposal, err := st.DecideActionProposal(
+	proposal, err := st.Intelligence.DecideActionProposal(
 		ctx, created[0].ID, "U1", "approve", time.Now().UTC(),
 	)
 	if err != nil || proposal.Status != "pending" || proposal.ApprovalCount != 1 {
 		t.Fatalf("first approval = %+v, %v", proposal, err)
 	}
-	proposal, err = st.DecideActionProposal(
+	proposal, err = st.Intelligence.DecideActionProposal(
 		ctx, created[0].ID, "U1", "approve", time.Now().UTC(),
 	)
 	if err != nil || proposal.Status != "pending" || proposal.ApprovalCount != 1 {
 		t.Fatalf("duplicate approval = %+v, %v", proposal, err)
 	}
-	proposal, err = st.DecideActionProposal(
+	proposal, err = st.Intelligence.DecideActionProposal(
 		ctx, created[0].ID, "U2", "approve", time.Now().UTC(),
 	)
 	if err != nil || proposal.Status != "approved" || proposal.ApprovalCount != 2 {
 		t.Fatalf("second approval = %+v, %v", proposal, err)
 	}
-	if err := st.MarkProposalExecution(
+	if err := st.Intelligence.MarkProposalExecution(
 		ctx, proposal.ID, "executing", "turn_2", "",
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.MarkProposalExecution(
+	if err := st.Intelligence.MarkProposalExecution(
 		ctx, proposal.ID, "finished", "turn_2", "verified",
 	); err != nil {
 		t.Fatal(err)
 	}
-	proposal, err = st.GetActionProposal(ctx, proposal.ID)
+	proposal, err = st.Intelligence.GetActionProposal(ctx, proposal.ID)
 	if err != nil || proposal.Status != "finished" ||
 		proposal.ExecutionTurn != "turn_2" || proposal.Result != "verified" {
 		t.Fatalf("finished proposal = %+v, %v", proposal, err)
@@ -544,7 +544,7 @@ func TestRetireActionProposalsStopsLegacyExecutableState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	created, err := st.CreateActionProposals(ctx, []core.ActionProposal{{
+	created, err := st.Intelligence.CreateActionProposals(ctx, []core.ActionProposal{{
 		IncidentID: "inc_legacy", ChannelID: "COPS", SourceInput: "turn_legacy",
 		ActionName: "restart_allocation", Title: "Restart failed allocation",
 		Target: "alloc-123", BlastRadius: "One allocation",
@@ -560,7 +560,7 @@ func TestRetireActionProposalsStopsLegacyExecutableState(t *testing.T) {
 	if err != nil || retired != 1 {
 		t.Fatalf("retire proposals = %d, %v", retired, err)
 	}
-	proposal, err := st.GetActionProposal(ctx, created[0].ID)
+	proposal, err := st.Intelligence.GetActionProposal(ctx, created[0].ID)
 	if err != nil || proposal.Status != "failed" ||
 		!strings.Contains(proposal.Result, "disabled") {
 		t.Fatalf("retired proposal = %+v, %v", proposal, err)

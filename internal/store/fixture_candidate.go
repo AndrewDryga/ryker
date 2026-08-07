@@ -43,7 +43,7 @@ func (s *Store) RecordFixtureCandidate(
 		) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
 		id, candidate.EpisodeID, candidate.RunID, candidate.Capability,
 		candidate.CorrectionClass, core.BoundedText(candidate.Correction, 2000),
-		timeText(now), timeText(now.Add(fixtureCandidateTTL)), timeText(now),
+		sqlutil.TimeText(now), sqlutil.TimeText(now.Add(fixtureCandidateTTL)), sqlutil.TimeText(now),
 	)
 	return err
 }
@@ -65,7 +65,7 @@ func (s *Store) ListPendingFixtureCandidates(
 		       status, reviewed_by, created_at, expires_at
 		FROM fixture_candidates
 		WHERE status = 'pending' AND expires_at > ?
-		ORDER BY created_at DESC LIMIT ?`, timeText(now), limit)
+		ORDER BY created_at DESC LIMIT ?`, sqlutil.TimeText(now), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (s *Store) ReviewFixtureCandidate(
 func (s *Store) ExpireFixtureCandidates(ctx context.Context, now time.Time) (int64, error) {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE fixture_candidates SET status = 'expired', updated_at = ?
-		WHERE status = 'pending' AND expires_at <= ?`, s.nowText(), timeText(now))
+		WHERE status = 'pending' AND expires_at <= ?`, s.nowText(), sqlutil.TimeText(now))
 	if err != nil {
 		return 0, err
 	}

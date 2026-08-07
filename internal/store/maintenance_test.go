@@ -116,10 +116,10 @@ func TestPruneMemoryRollupsHonoursExpiry(t *testing.T) {
 		LastMessage: "1700.001",
 		State:       core.AgentMemory{SituationSummary: "an older conversation"},
 	}
-	if err := st.UpsertConversationMemoryState(ctx, source); err != nil {
+	if err := st.Intelligence.UpsertConversationMemoryState(ctx, source); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := st.GetConversationMemory(ctx, "C1", "1700.001")
+	stored, err := st.Intelligence.GetConversationMemory(ctx, "C1", "1700.001")
 	if err != nil {
 		t.Fatal(err)
 	}

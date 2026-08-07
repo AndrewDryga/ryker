@@ -123,7 +123,7 @@ func TestRelatedConversationRecallExcludesPrivateAndAbsentChannels(t *testing.T)
 	const home = "C123ABC"
 	summary := func(channelID, text string) {
 		t.Helper()
-		if err := st.UpsertConversationMemoryState(ctx, core.ConversationMemory{
+		if err := st.Intelligence.UpsertConversationMemoryState(ctx, core.ConversationMemory{
 			ChannelID: channelID, Repository: cfg.Slack.DefaultRepository,
 			LastMessage: "1700.001",
 			State:       core.AgentMemory{SituationSummary: text},
@@ -144,7 +144,7 @@ func TestRelatedConversationRecallExcludesPrivateAndAbsentChannels(t *testing.T)
 		t.Fatal(err)
 	}
 
-	related, err := st.ListRelatedConversationMemories(
+	related, err := st.Intelligence.ListRelatedConversationMemories(
 		ctx, home, "", cfg.Slack.DefaultRepository, 40,
 	)
 	if err != nil {

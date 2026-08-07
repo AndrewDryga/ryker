@@ -600,7 +600,7 @@ func (s *Service) audit(ctx context.Context, event core.AuditEvent) {
 // recordTimeline appends a best-effort incident timeline entry. The timeline is
 // presentation, so a failure is logged and the caller continues.
 func (s *Service) recordTimeline(ctx context.Context, event core.TimelineEvent) {
-	if err := s.store.RecordTimeline(ctx, event); err != nil && ctx.Err() == nil {
+	if err := s.store.Intelligence.RecordTimeline(ctx, event); err != nil && ctx.Err() == nil {
 		s.log.Warn(
 			"record incident timeline event",
 			"incident", event.IncidentID,

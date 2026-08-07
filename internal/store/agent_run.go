@@ -1425,7 +1425,7 @@ func (s *Store) ListStoredResults(
 		  AND result_json IS NOT NULL AND length(result_json) > 2
 		  AND created_at >= ?
 		ORDER BY created_at DESC
-		LIMIT ?`, timeText(since), limit)
+		LIMIT ?`, sqlutil.TimeText(since), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1456,7 +1456,7 @@ func (s *Store) CorrectionRate(
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT outcome, COUNT(*) FROM audit_events
 		WHERE kind = 'result.correction' AND created_at >= ?
-		GROUP BY outcome`, timeText(since))
+		GROUP BY outcome`, sqlutil.TimeText(since))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1476,7 +1476,7 @@ func (s *Store) CorrectionRate(
 	var turns int
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM agent_runs
-		WHERE terminal_state != '' AND created_at >= ?`, timeText(since),
+		WHERE terminal_state != '' AND created_at >= ?`, sqlutil.TimeText(since),
 	).Scan(&turns); err != nil {
 		return nil, 0, err
 	}

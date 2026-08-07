@@ -203,7 +203,7 @@ func (s *Service) resumeLegacyWatchedTurn(
 			return decisionpkg.WatchTurnState{}, true, fmt.Errorf("migrate legacy watched input state: %w", err)
 		}
 		if legacy.TurnID != "" {
-			memory, memoryErr := s.store.GetChannelMemory(
+			memory, memoryErr := s.store.Intelligence.GetChannelMemory(
 				ctx, input.ChannelID,
 			)
 			if memoryErr != nil && !errors.Is(memoryErr, store.ErrNotFound) {
@@ -1206,7 +1206,7 @@ func (s *Service) resolveTriageSession(
 		eventSequence int64
 	)
 	if state.Lane == "conversation" {
-		if err := s.store.EnsureChannelMemory(
+		if err := s.store.Intelligence.EnsureChannelMemory(
 			ctx,
 			input.ChannelID,
 			state.Repository,
@@ -2151,7 +2151,7 @@ func (s *Service) advanceTriageSessionEvents(
 	if err == nil {
 		sessionChannelID = core.FirstNonempty(state.SessionChannelID, run.ChannelID)
 	}
-	return s.store.AdvanceChannelEvents(
+	return s.store.Intelligence.AdvanceChannelEvents(
 		ctx, sessionChannelID, run.SessionID, cursor,
 	)
 }
@@ -2600,13 +2600,13 @@ func (s *Service) persistPrivateReplayKnowledge(
 		return nil
 	}
 	merged := core.AgentMemory{Knowledge: knowledge}
-	existing, err := s.store.GetConversationMemory(ctx, input.ChannelID, input.ThreadTS)
+	existing, err := s.store.Intelligence.GetConversationMemory(ctx, input.ChannelID, input.ThreadTS)
 	if err == nil {
 		merged = memorypkg.MergeAgentMemories([]core.AgentMemory{existing.State, merged})
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
-	return s.store.UpsertConversationMemoryState(ctx, core.ConversationMemory{
+	return s.store.Intelligence.UpsertConversationMemoryState(ctx, core.ConversationMemory{
 		ChannelID:   input.ChannelID,
 		ThreadTS:    input.ThreadTS,
 		Repository:  state.Repository,
@@ -2666,7 +2666,7 @@ func (s *Service) recordProposalExecution(
 		proposalState = "finished"
 	}
 	result := s.sanitizeText(core.FirstNonempty(string(run.Result), detail))
-	_ = s.store.MarkProposalExecution(ctx, run.SourceID, proposalState, run.CoopTurnID, result)
+	_ = s.store.Intelligence.MarkProposalExecution(ctx, run.SourceID, proposalState, run.CoopTurnID, result)
 }
 
 // withEngineeringTaskChanges marks an engineering task's published diff stale

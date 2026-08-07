@@ -82,16 +82,16 @@ func TestWatchedStructuredReportPersistsEvidenceCoverageAndMemory(t *testing.T) 
 		!strings.Contains(slackClient.posts[0].message.Context[0], "finding") {
 		t.Fatalf("structured response = %+v", slackClient.posts)
 	}
-	evidence, err := st.ListEvidence(ctx, "", input.ChannelID, 10)
+	evidence, err := st.Intelligence.ListEvidence(ctx, "", input.ChannelID, 10)
 	if err != nil || len(evidence) != 1 ||
 		evidence[0].SourceURL != "https://example.test/repo/blob/main/infra/main.tf" {
 		t.Fatalf("evidence = %+v, %v", evidence, err)
 	}
-	coverage, err := st.ListCoverage(ctx, "", input.ChannelID, 10)
+	coverage, err := st.Intelligence.ListCoverage(ctx, "", input.ChannelID, 10)
 	if err != nil || len(coverage) != 1 || coverage[0].Status != "unknown" {
 		t.Fatalf("coverage = %+v, %v", coverage, err)
 	}
-	memory, err := st.GetChannelMemory(ctx, input.ChannelID)
+	memory, err := st.Intelligence.GetChannelMemory(ctx, input.ChannelID)
 	if err != nil || memory.TurnCount != 1 ||
 		memory.State.Goal != "Assess production health" ||
 		len(memory.State.Topology) != 1 {
@@ -159,7 +159,7 @@ func TestWatchedShadowModeRecordsWithoutPosting(t *testing.T) {
 	if err != nil || stored.State != "done" {
 		t.Fatalf("shadow input = %+v, %v", stored, err)
 	}
-	evidence, err := st.ListEvidence(ctx, "", input.ChannelID, 10)
+	evidence, err := st.Intelligence.ListEvidence(ctx, "", input.ChannelID, 10)
 	if err != nil || len(evidence) != 1 {
 		t.Fatalf("shadow evidence = %+v, %v", evidence, err)
 	}
@@ -375,7 +375,7 @@ func TestTwoPersonActionApprovalQueuesOnlyConfiguredProposal(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	proposals, err := st.CreateActionProposals(ctx, []core.ActionProposal{{
+	proposals, err := st.Intelligence.CreateActionProposals(ctx, []core.ActionProposal{{
 		IncidentID: incident.ID, ChannelID: incident.ChannelID, SourceInput: "turn_1",
 		ActionName: "restart_allocation", Title: "Restart failed allocation",
 		Summary: "The allocation is terminal and no replacement exists.",
@@ -428,7 +428,7 @@ func TestTwoPersonActionApprovalQueuesOnlyConfiguredProposal(t *testing.T) {
 		!strings.Contains(submission.Prompt, "Emisar authorization") {
 		t.Fatalf("queued governed action = %+v, %v", submission, err)
 	}
-	proposal, err := st.GetActionProposal(ctx, proposals[0].ID)
+	proposal, err := st.Intelligence.GetActionProposal(ctx, proposals[0].ID)
 	if err != nil || proposal.Status != "executing" {
 		t.Fatalf("proposal state = %+v, %v", proposal, err)
 	}

@@ -303,7 +303,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	if err != nil || len(incidents) != 0 {
 		t.Fatalf("reply-only alert policy created incidents = %+v, %v", incidents, err)
 	}
-	memory, err := st.GetChannelMemory(ctx, alert.ChannelID)
+	memory, err := st.Intelligence.GetChannelMemory(ctx, alert.ChannelID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +696,7 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	defer st.Close()
 
 	started := time.Now().UTC().Add(-time.Minute)
-	if err := st.BindChannelSession(
+	if err := st.Intelligence.BindChannelSession(
 		ctx, "COPS", "emisar", "ses_1", 1, 2, started,
 	); err != nil {
 		t.Fatal(err)
@@ -747,7 +747,7 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	if failed.State != "done" {
 		t.Fatalf("failed input state = %q", failed.State)
 	}
-	memory, err := st.GetChannelMemory(ctx, "COPS")
+	memory, err := st.Intelligence.GetChannelMemory(ctx, "COPS")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -836,12 +836,12 @@ func TestDiscardedPersistedWatchSessionRotatesWithoutFailureNotice(t *testing.T)
 	}
 	defer st.Close()
 
-	if err := st.BindChannelSession(
+	if err := st.Intelligence.BindChannelSession(
 		ctx, "COPS", "emisar", "ses_1", 1, 1, time.Now().UTC(),
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AdvanceChannelEvents(ctx, "COPS", "ses_1", 13); err != nil {
+	if err := st.Intelligence.AdvanceChannelEvents(ctx, "COPS", "ses_1", 13); err != nil {
 		t.Fatal(err)
 	}
 	input := core.SlackInput{
@@ -869,7 +869,7 @@ func TestDiscardedPersistedWatchSessionRotatesWithoutFailureNotice(t *testing.T)
 		memory.CoopEventSequence != 0 {
 		t.Fatalf("rotated channel memory = %+v", memory)
 	}
-	memory, err = st.GetChannelMemory(ctx, "COPS")
+	memory, err = st.Intelligence.GetChannelMemory(ctx, "COPS")
 	if err != nil {
 		t.Fatal(err)
 	}

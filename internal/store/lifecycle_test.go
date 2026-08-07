@@ -164,7 +164,7 @@ func TestLoadRemediationRecordAssemblesCanonicalIncidentState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.RecordEvidence(ctx, []core.Evidence{{
+	if _, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{{
 		IncidentID: incident.ID, ChannelID: "CINCIDENT", SourceInput: run.ID,
 		Claim: "API returned errors", Observation: "Probe observed HTTP 500",
 		SourceType: "emisar", SourceName: "http probe", Target: "api",
@@ -182,7 +182,7 @@ func TestLoadRemediationRecordAssemblesCanonicalIncidentState(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateActionProposals(ctx, []core.ActionProposal{{
+	if _, err := st.Intelligence.CreateActionProposals(ctx, []core.ActionProposal{{
 		ID: "proposal_1", IncidentID: incident.ID, ChannelID: "CINCIDENT",
 		ActionName: "service.restart", Title: "Restart one replica", Target: "api-1",
 		BlastRadius: "one replica", Rollback: "restart old process",
@@ -197,7 +197,7 @@ func TestLoadRemediationRecordAssemblesCanonicalIncidentState(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RecordTimeline(ctx, core.TimelineEvent{
+	if err := st.Intelligence.RecordTimeline(ctx, core.TimelineEvent{
 		ID: "operator_1", IncidentID: incident.ID, ChannelID: "CINCIDENT",
 		Kind: "operator.message", Title: "Operator requested a restart", CreatedAt: now,
 	}); err != nil {
@@ -232,7 +232,7 @@ func TestExpiredChannelMemoryIsOwnedBeforeItIsPruned(t *testing.T) {
 	defer st.Close()
 
 	started := time.Now().UTC().Add(-2 * time.Hour)
-	if err := st.BindChannelSession(ctx, "COPS", "repo", "session-old", 3, 1, started); err != nil {
+	if err := st.Intelligence.BindChannelSession(ctx, "COPS", "repo", "session-old", 3, 1, started); err != nil {
 		t.Fatal(err)
 	}
 	count, err := st.ScheduleExpiredChannelMemoryCleanup(
@@ -259,7 +259,7 @@ func TestExpiredChannelMemoryIsOwnedBeforeItIsPruned(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.GetChannelMemory(ctx, "COPS"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.Intelligence.GetChannelMemory(ctx, "COPS"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expired channel memory remained after owned cleanup: %v", err)
 	}
 }

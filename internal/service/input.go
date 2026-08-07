@@ -722,7 +722,7 @@ func (s *Service) handleOpenEmisarApproval(
 }
 
 func (s *Service) handleActionProposal(ctx context.Context, input core.SlackInput) error {
-	proposal, err := s.store.GetActionProposal(ctx, input.ActionValue)
+	proposal, err := s.store.Intelligence.GetActionProposal(ctx, input.ActionValue)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.finishSlashInput(
 			ctx, input,
@@ -770,7 +770,7 @@ func (s *Service) handleActionProposal(ctx context.Context, input core.SlackInpu
 	if input.ActionID == slackui.ActionRejectProposal {
 		decision = "reject"
 	}
-	proposal, err = s.store.DecideActionProposal(
+	proposal, err = s.store.Intelligence.DecideActionProposal(
 		ctx, proposal.ID, input.UserID, decision, s.now().UTC(),
 	)
 	if err != nil {
@@ -868,7 +868,7 @@ Rollback stated at approval: %s`,
 	if err != nil {
 		return err
 	}
-	if err := s.store.MarkProposalExecution(
+	if err := s.store.Intelligence.MarkProposalExecution(
 		ctx, proposal.ID, "executing", "", "approved and queued for Coop",
 	); err != nil {
 		return err
@@ -900,7 +900,7 @@ func (s *Service) processChannelLifecycleInput(
 		if _, err := s.store.DeleteChannelConfigurationState(ctx, input.ChannelID); err != nil {
 			return err
 		}
-		if _, err := s.store.DeleteConversationMemories(ctx, input.ChannelID); err != nil {
+		if _, err := s.store.Memory.DeleteConversationMemories(ctx, input.ChannelID); err != nil {
 			return err
 		}
 		if _, err := s.store.DeleteConversationRoutes(ctx, input.ChannelID); err != nil {

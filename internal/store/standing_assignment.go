@@ -83,7 +83,7 @@ func (s *Store) CreateStandingAssignment(
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
 		assignment.ID, assignment.ChannelID, assignment.SignalPattern, assignment.Repository,
 		string(globs), assignment.ChangeClass, assignment.DailyBudget, assignment.ActorID,
-		now, timeText(assignment.ExpiresAt), now, now,
+		now, sqlutil.TimeText(assignment.ExpiresAt), now, now,
 	); err != nil {
 		return core.StandingAssignment{}, err
 	}
@@ -144,7 +144,7 @@ func (s *Store) ListLiveStandingAssignments(
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+standingAssignmentColumns+` FROM standing_assignments
 		WHERE channel_id = ? AND enabled = 1 AND expires_at > ?
-		ORDER BY created_at`, channelID, timeText(now))
+		ORDER BY created_at`, channelID, sqlutil.TimeText(now))
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (s *Store) ClaimStandingAssignmentAction(
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM standing_assignment_actions
 		WHERE assignment_id = ? AND created_at >= ?`,
-		assignmentID, timeText(now.Add(-24*time.Hour)),
+		assignmentID, sqlutil.TimeText(now.Add(-24*time.Hour)),
 	).Scan(&spentToday); err != nil {
 		return "", err
 	}
@@ -232,7 +232,7 @@ func (s *Store) ClaimStandingAssignmentAction(
 		INSERT OR IGNORE INTO standing_assignment_actions (
 		  id, assignment_id, correlation_key, outcome, created_at
 		) VALUES (?, ?, ?, 'claimed', ?)`,
-		id, assignmentID, correlationKey, timeText(now),
+		id, assignmentID, correlationKey, sqlutil.TimeText(now),
 	)
 	if err != nil {
 		return "", err
@@ -288,7 +288,7 @@ func (s *Store) CountCorrelatedEpisodes(
 	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(DISTINCT episode_id) FROM agent_runs
 		WHERE conversation_key = ? AND episode_id != '' AND created_at >= ?`,
-		conversationKey, timeText(since),
+		conversationKey, sqlutil.TimeText(since),
 	).Scan(&count)
 	return count, err
 }

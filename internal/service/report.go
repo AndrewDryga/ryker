@@ -209,29 +209,29 @@ func (s *Service) persistAgentReport(
 		)
 	}
 
-	evidence, err := s.store.RecordEvidence(ctx, report.Evidence)
+	evidence, err := s.store.Intelligence.RecordEvidence(ctx, report.Evidence)
 	if err != nil {
 		return decisionpkg.AgentReport{}, err
 	}
 	report.Evidence = evidence
-	if err := s.store.RecordCoverage(ctx, report.Coverage); err != nil {
+	if err := s.store.Intelligence.RecordCoverage(ctx, report.Coverage); err != nil {
 		return decisionpkg.AgentReport{}, err
 	}
 	if sourceInput != "" {
 		episode, episodeErr := s.store.GetWorkEpisodeBySource(ctx, sourceInput)
 		if episodeErr == nil {
-			ledgerEvidence, listErr := s.store.ListEpisodeEvidence(ctx, episode.ID, 200)
+			ledgerEvidence, listErr := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 200)
 			if listErr != nil {
 				return decisionpkg.AgentReport{}, listErr
 			}
-			ledgerCoverage, listErr := s.store.ListEpisodeCoverage(ctx, episode.ID, 200)
+			ledgerCoverage, listErr := s.store.Intelligence.ListEpisodeCoverage(ctx, episode.ID, 200)
 			if listErr != nil {
 				return decisionpkg.AgentReport{}, listErr
 			}
 			ledger := investigation.BuildLedger(
 				investigation.Compile(episode), ledgerEvidence, ledgerCoverage, s.now().UTC(),
 			)
-			if err := s.store.RecordClaimAssessments(
+			if err := s.store.Intelligence.RecordClaimAssessments(
 				ctx, ledger.Assessments(episode.ID, s.now().UTC()),
 			); err != nil {
 				return decisionpkg.AgentReport{}, err
@@ -247,7 +247,7 @@ func (s *Service) persistAgentReport(
 		if err != nil {
 			return decisionpkg.AgentReport{}, err
 		}
-		report.Proposals, err = s.store.CreateActionProposals(ctx, proposals)
+		report.Proposals, err = s.store.Intelligence.CreateActionProposals(ctx, proposals)
 		if err != nil {
 			return decisionpkg.AgentReport{}, err
 		}

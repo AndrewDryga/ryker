@@ -106,7 +106,7 @@ func (s *Repository) GetPendingForConversation(
 	return scanProposal(s.db.QueryRowContext(ctx, proposalSelect+`
 		WHERE team_id = ? AND channel_id = ? AND thread_ts = ? AND actor_id = ?
 		  AND status = 'pending' AND julianday(expires_at) > julianday(?)
-		ORDER BY created_at DESC LIMIT 1`, teamID, channelID, threadTS, actorID, s.timeText()))
+		ORDER BY created_at DESC LIMIT 1`, teamID, channelID, threadTS, actorID, s.nowText()))
 }
 
 // Accept atomically activates a pending proposal. A proposal that targets an
@@ -369,7 +369,7 @@ func (s *Repository) currentTime() time.Time {
 	return time.Now().UTC()
 }
 
-func (s *Repository) timeText() string {
+func (s *Repository) nowText() string {
 	return s.currentTime().Format(timestampFormat)
 }
 

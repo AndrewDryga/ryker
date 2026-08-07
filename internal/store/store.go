@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
 	"github.com/AndrewDryga/responder/internal/store/scheduleproposal"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
@@ -50,6 +51,9 @@ type Store struct {
 	// the store's method budget, so extraction only reduces the surface if
 	// callers go through the repository.
 	Memory *memorystore.Repository
+	// Intelligence owns what an investigation established — evidence,
+	// coverage, timeline, proposals.
+	Intelligence *intelligencestore.Repository
 }
 
 type Metrics struct {
@@ -112,6 +116,7 @@ func Open(stateDir string) (*Store, error) {
 	store := &Store{db: db}
 	store.ScheduleProposals = scheduleproposal.New(db, func() time.Time { return store.now() })
 	store.Memory = memorystore.New(db, func() time.Time { return store.now() })
+	store.Intelligence = intelligencestore.New(db, func() time.Time { return store.now() })
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("open database: %w", err)
@@ -989,13 +994,6 @@ func (s *Store) SetClock(clock func() time.Time) {
 	}
 }
 
-func timeText(t time.Time) any {
-	if t.IsZero() {
-		return nil
-	}
-	return t.UTC().Format(timestampFormat)
-}
-
 func (s *Store) AdmitWebhook(ctx context.Context, route, dedupeKey, bodyDigest string, signals []core.Signal) (core.WebhookEvent, bool, error) {
 	id, err := core.NewID("hook")
 	if err != nil {
@@ -1273,8 +1271,8 @@ func applySignal(
 		  updated_at = excluded.updated_at`,
 		signal.Route, signal.SourceID, incidentValue, signal.SourceIncidentID, signal.EventID,
 		signal.Repository, signal.CorrelationKey, signal.Status, signal.Title, signal.Severity,
-		signal.Summary, signal.SourceURL, labels, annotations, timeText(signal.StartsAt),
-		timeText(signal.EndsAt), signal.ReceivedAt.UTC().Format(timestampFormat), now.Format(timestampFormat))
+		signal.Summary, signal.SourceURL, labels, annotations, sqlutil.TimeText(signal.StartsAt),
+		sqlutil.TimeText(signal.EndsAt), signal.ReceivedAt.UTC().Format(timestampFormat), now.Format(timestampFormat))
 	changed := isNew ||
 		incidentID != existing.String ||
 		previousEventID != signal.EventID ||
@@ -1367,7 +1365,7 @@ func refreshIncident(ctx context.Context, tx *sql.Tx, incidentID string, now tim
 		  resolve_due_at = ?, resolved_at = ?, card_version = card_version + 1
 		WHERE id = ?`,
 		title, severity, status, count, firing, now.Format(timestampFormat),
-		timeText(lastFiring), due, resolved, incidentID)
+		sqlutil.TimeText(lastFiring), due, resolved, incidentID)
 	return err
 }
 

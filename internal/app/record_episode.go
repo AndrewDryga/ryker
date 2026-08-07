@@ -67,7 +67,7 @@ func runRecordEpisode(args []string, stdout, stderr io.Writer) error {
 	}
 	defer st.Close()
 
-	fixture, err := recordEpisodeFixture(context.Background(), st, cfg, *episodeID, *capability, *name)
+	fixture, err := recordEpisodeFixture(context.Background(), storeEpisodeSource{store: st}, cfg, *episodeID, *capability, *name)
 	if err != nil {
 		return err
 	}
@@ -224,4 +224,31 @@ func sanitizeValue(sanitizer *slackui.Sanitizer, value any) any {
 	default:
 		return value
 	}
+}
+
+// storeEpisodeSource composes the episode view this command needs.
+//
+// It spans two repositories: the episode and its events belong to the store,
+// the evidence belongs to intelligencestore. Rather than put a delegating
+// method back on Store — which would undo the extraction, since a passthrough
+// still counts against its method budget — the caller that wants both assembles
+// them.
+type storeEpisodeSource struct{ store *store.Store }
+
+func (s storeEpisodeSource) GetWorkEpisode(
+	ctx context.Context, episodeID string,
+) (core.WorkEpisode, error) {
+	return s.store.GetWorkEpisode(ctx, episodeID)
+}
+
+func (s storeEpisodeSource) ListEpisodeEvents(
+	ctx context.Context, episodeID string, limit int,
+) ([]core.WorkEpisodeEvent, error) {
+	return s.store.ListEpisodeEvents(ctx, episodeID, limit)
+}
+
+func (s storeEpisodeSource) ListEpisodeEvidence(
+	ctx context.Context, episodeID string, limit int,
+) ([]core.Evidence, error) {
+	return s.store.Intelligence.ListEpisodeEvidence(ctx, episodeID, limit)
 }

@@ -48,7 +48,7 @@ func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
 	if err != nil {
 		return core.ChannelMemory{}, coop.Session{}, err
 	}
-	memory, err := s.store.GetChannelMemory(ctx, channelID)
+	memory, err := s.store.Intelligence.GetChannelMemory(ctx, channelID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return core.ChannelMemory{}, coop.Session{}, err
 	}
@@ -125,7 +125,7 @@ func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
 	if session.ID == "" {
 		return core.ChannelMemory{}, coop.Session{}, errors.New("Coop returned an empty watch session ID")
 	}
-	if err := s.store.BindChannelSession(
+	if err := s.store.Intelligence.BindChannelSession(
 		ctx,
 		channelID,
 		repositoryKey,
@@ -727,7 +727,7 @@ func (s *Service) applyWatchDecision(
 	if shadow {
 		mode = "shadow"
 	}
-	if _, err := s.store.ApplyWatchDecision(ctx, core.EvaluationDecision{
+	if _, err := s.store.Intelligence.ApplyWatchDecision(ctx, core.EvaluationDecision{
 		ChannelID: input.ChannelID, SessionChannelID: state.SessionChannelID,
 		ThreadTS:  input.ThreadTS,
 		MessageTS: input.MessageTS, Repository: state.Repository,
@@ -1595,7 +1595,7 @@ func (s *Service) retireFailedWatchSession(
 		)
 	} else {
 		sessionChannelID := core.FirstNonempty(state.SessionChannelID, input.ChannelID)
-		_, detachErr = s.store.DetachChannelSession(
+		_, detachErr = s.store.Intelligence.DetachChannelSession(
 			ctx, sessionChannelID, state.SessionID,
 		)
 	}

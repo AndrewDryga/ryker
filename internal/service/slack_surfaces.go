@@ -57,7 +57,7 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 	if err != nil {
 		return err
 	}
-	situations, err := s.store.ListChannelSituations(ctx, 5)
+	situations, err := s.store.Intelligence.ListChannelSituations(ctx, 5)
 	if err != nil {
 		return err
 	}
