@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
@@ -791,72 +792,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			ctx, run, input, state, "invalid persisted triage context: "+trimError(err),
 		)
 	}
-	if input.Kind == "bot_message" && state.AlertPolicy == "" {
-		state.AlertPolicy, err = s.channelAlertPolicy(ctx, input.ChannelID)
-		if err != nil {
-			return s.retryAgentRun(ctx, run, err)
-		}
-	}
-	if input.Kind == "message" && len(state.MatchedRules) == 0 &&
-		!state.ApprovalContinuation {
-		alreadyClassified, err := s.store.HasNewerWatchDecision(
-			ctx, input.ChannelID, input.MessageTS,
-		)
-		if err != nil {
-			return s.retryAgentRun(ctx, run, err)
-		}
-		if alreadyClassified {
-			s.audit(ctx, core.AuditEvent{
-				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "superseded",
-				Detail:  "a newer channel message was already classified",
-			})
-			return s.store.SupersedeAgentRun(
-				ctx, run.ID, "a newer channel message was already classified",
-			)
-		}
-		newer, err := s.store.HasNewerSubstantivePendingAgentRun(
-			ctx, run, s.identity.BotUserID,
-		)
-		if err != nil {
-			return s.retryAgentRun(ctx, run, err)
-		}
-		if newer {
-			s.audit(ctx, core.AuditEvent{
-				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "superseded",
-				Detail:  "a newer nearby channel message will carry the conversation context",
-			})
-			return s.store.SupersedeAgentRun(
-				ctx,
-				run.ID,
-				"superseded by a newer nearby channel message",
-			)
-		}
-	}
-	if input.Kind == "bot_message" {
-		newer, err := s.store.HasNewerPendingAgentRun(ctx, run)
-		if err != nil {
-			return s.retryAgentRun(ctx, run, err)
-		}
-		if !newer {
-			newer, err = s.store.HasNewerOperationalAgentRun(
-				ctx, run, operationalBurstWindow, true,
-			)
-			if err != nil {
-				return s.retryAgentRun(ctx, run, err)
-			}
-		}
-		if newer {
-			s.audit(ctx, core.AuditEvent{
-				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "coalesced",
-				Detail:  "a newer update for the same operational stream will be investigated",
-			})
-			return s.store.SupersedeAgentRun(
-				ctx, run.ID, "coalesced into a newer operational update",
-			)
-		}
+	if decided, err := s.admitTriageRun(ctx, run, input, &state); decided {
+		return err
 	}
 	if err := s.freezeTriageContext(ctx, &state, input); err != nil {
 		return s.retryAgentRun(ctx, run, err)
@@ -872,92 +809,14 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		)
 	}
 	if state.Lane == "" {
-		state.Lane = "investigation"
-		if !isSlackVerificationReplay(input) &&
-			repository.ConversationPolicy != "" &&
-			len(input.Attachments) == 0 &&
-			len(state.MatchedRules) == 0 &&
-			(input.Kind == "message" || input.Kind == "mention" ||
-				input.Kind == "direct") &&
-			watchInputTargeted(input, state) {
-			state.Lane = "conversation"
-		}
+		state.Lane = triageLane(state, input, repository)
 	}
-	var (
-		session       coop.Session
-		repositoryKey string
-		generation    int
-		eventSequence int64
-	)
-	if state.Lane == "conversation" {
-		if err := s.store.EnsureChannelMemory(
-			ctx,
-			input.ChannelID,
-			state.Repository,
-		); err != nil {
-			return s.retryAgentRun(ctx, run, err)
-		}
-		conversation, conversationSession, conversationErr :=
-			s.ensureConversationSessionAtGeneration(
-				ctx,
-				input.ChannelID,
-				state.Repository,
-				repository.ConversationPolicy,
-				max(state.Generation, 1),
-			)
-		if conversationErr != nil {
-			nextGeneration := max(state.Generation, conversation.Generation)
-			if advanceFailedSessionGeneration(conversationErr) &&
-				conversation.Generation > 0 {
-				nextGeneration = max(nextGeneration, conversation.Generation+1)
-			}
-			if nextGeneration > state.Generation {
-				state.Generation = nextGeneration
-				if err := s.persistTriageRunState(ctx, run.ID, state); err != nil {
-					return s.retryAgentRun(ctx, run, err)
-				}
-			}
-			return s.retryAgentRun(ctx, run, conversationErr)
-		}
-		session = conversationSession
-		repositoryKey = conversation.Repository
-		generation = conversation.Generation
-		eventSequence = conversation.CoopEventSequence
-	} else {
-		sessionChannelID := core.FirstNonempty(state.SessionChannelID, input.ChannelID)
-		pinnedRepository := ""
-		if state.RepositoryPinned {
-			pinnedRepository = state.Repository
-		}
-		memory, investigationSession, investigationErr :=
-			s.ensureWatchSessionForRepositoryAtGeneration(
-				ctx,
-				sessionChannelID,
-				pinnedRepository,
-				max(state.Generation, 1),
-			)
-		if investigationErr != nil {
-			nextGeneration := max(state.Generation, memory.Generation)
-			if advanceFailedSessionGeneration(investigationErr) &&
-				memory.Generation > 0 {
-				nextGeneration = max(nextGeneration, memory.Generation+1)
-			}
-			if nextGeneration > state.Generation {
-				state.Generation = nextGeneration
-				if err := s.persistTriageRunState(ctx, run.ID, state); err != nil {
-					return s.retryAgentRun(ctx, run, err)
-				}
-			}
-			return s.retryAgentRun(ctx, run, investigationErr)
-		}
-		session = investigationSession
-		repositoryKey = memory.Repository
-		generation = memory.Generation
-		eventSequence = memory.CoopEventSequence
-		if !agentMemoryPresent(state.Memory) {
-			state.Memory = memory.State
-		}
+	resolved, err := s.resolveTriageSession(ctx, run, input, &state, repository)
+	if err != nil {
+		return err
 	}
+	session, repositoryKey := resolved.session, resolved.repositoryKey
+	generation, eventSequence := resolved.generation, resolved.eventSequence
 	if session.ActiveTurnID != "" {
 		return s.store.DeferAgentRun(
 			ctx,
@@ -1100,6 +959,231 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		run.CoopEventSequence,
 		state.Lane,
 	)
+}
+
+// admitTriageRun applies the checks that can end a run before any work is
+// frozen: a newer classification of the same message, a newer nearby message
+// that will carry the conversation, or a newer update on the same operational
+// stream. It reports whether the run's fate is already decided.
+//
+// They are grouped because they share the property worth keeping visible —
+// each one ends the run rather than shaping it, so nothing downstream has to
+// wonder whether the run is still alive.
+func (s *Service) admitTriageRun(
+	ctx context.Context,
+	run core.AgentRun,
+	input core.SlackInput,
+	state *watchTurnState,
+) (bool, error) {
+	var err error
+	if input.Kind == "bot_message" && state.AlertPolicy == "" {
+		state.AlertPolicy, err = s.channelAlertPolicy(ctx, input.ChannelID)
+		if err != nil {
+			return true, s.retryAgentRun(ctx, run, err)
+		}
+	}
+	if input.Kind == "message" && len(state.MatchedRules) == 0 &&
+		!state.ApprovalContinuation {
+		alreadyClassified, err := s.store.HasNewerWatchDecision(
+			ctx, input.ChannelID, input.MessageTS,
+		)
+		if err != nil {
+			return true, s.retryAgentRun(ctx, run, err)
+		}
+		if alreadyClassified {
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "superseded",
+				Detail:  "a newer channel message was already classified",
+			})
+			return true, s.store.SupersedeAgentRun(
+				ctx, run.ID, "a newer channel message was already classified",
+			)
+		}
+		newer, err := s.store.HasNewerSubstantivePendingAgentRun(
+			ctx, run, s.identity.BotUserID,
+		)
+		if err != nil {
+			return true, s.retryAgentRun(ctx, run, err)
+		}
+		if newer {
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "superseded",
+				Detail:  "a newer nearby channel message will carry the conversation context",
+			})
+			return true, s.store.SupersedeAgentRun(
+				ctx,
+				run.ID,
+				"superseded by a newer nearby channel message",
+			)
+		}
+	}
+	if input.Kind == "bot_message" {
+		newer, err := s.store.HasNewerPendingAgentRun(ctx, run)
+		if err != nil {
+			return true, s.retryAgentRun(ctx, run, err)
+		}
+		if !newer {
+			newer, err = s.store.HasNewerOperationalAgentRun(
+				ctx, run, operationalBurstWindow, true,
+			)
+			if err != nil {
+				return true, s.retryAgentRun(ctx, run, err)
+			}
+		}
+		if newer {
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "coalesced",
+				Detail:  "a newer update for the same operational stream will be investigated",
+			})
+			return true, s.store.SupersedeAgentRun(
+				ctx, run.ID, "coalesced into a newer operational update",
+			)
+		}
+	}
+	return false, nil
+}
+
+// triageLane decides which lane a run belongs to when nothing upstream has
+// already pinned one. Conversation is the narrower case: it needs a channel
+// policy, a plain message aimed at Responder, and the absence of anything —
+// attachments, matched alert rules, a verification replay — that implies a
+// real investigation.
+func triageLane(
+	state watchTurnState,
+	input core.SlackInput,
+	repository config.Repository,
+) string {
+	lane := "investigation"
+	if !isSlackVerificationReplay(input) &&
+		repository.ConversationPolicy != "" &&
+		len(input.Attachments) == 0 &&
+		len(state.MatchedRules) == 0 &&
+		(input.Kind == "message" || input.Kind == "mention" ||
+			input.Kind == "direct") &&
+		watchInputTargeted(input, state) {
+		lane = "conversation"
+	}
+	return lane
+}
+
+// retryAtNextSessionGeneration retries a run whose session could not be
+// obtained, first recording the generation that failure implies. Without the
+// bump the next attempt asks for the same session and fails the same way, so a
+// broken session would retry until the run exhausted its budget.
+//
+// The generation only ever moves forward, and it is persisted before the retry:
+// a crash between the two must not lose the fact that this generation is spent.
+// nextSessionGeneration returns the generation the next attempt should ask
+// for. An ordinary transient failure keeps the current one — the session is
+// fine, the moment was not. A failure that says the session itself is unusable
+// advances past it, because asking for it again produces the same failure.
+func nextSessionGeneration(current, observed int, cause error) int {
+	next := max(current, observed)
+	if advanceFailedSessionGeneration(cause) && observed > 0 {
+		next = max(next, observed+1)
+	}
+	return next
+}
+
+func (s *Service) retryAtNextSessionGeneration(
+	ctx context.Context,
+	run core.AgentRun,
+	state *watchTurnState,
+	observedGeneration int,
+	cause error,
+) error {
+	next := nextSessionGeneration(state.Generation, observedGeneration, cause)
+	if next > state.Generation {
+		state.Generation = next
+		if err := s.persistTriageRunState(ctx, run.ID, *state); err != nil {
+			return s.retryAgentRun(ctx, run, err)
+		}
+	}
+	return s.retryAgentRun(ctx, run, cause)
+}
+
+// triageSessionBinding is what session resolution produced. It is a struct
+// rather than four return values because the four always travel together, and
+// two of them are numbers that would be easy to transpose at a call site.
+type triageSessionBinding struct {
+	session       coop.Session
+	repositoryKey string
+	generation    int
+	eventSequence int64
+}
+
+// resolveTriageSession obtains the Coop session this run will execute in. The
+// conversation and investigation lanes resolve against different memory, but
+// they fail identically: record the generation the failure implies so the next
+// attempt asks for a fresh session rather than the one that just failed.
+func (s *Service) resolveTriageSession(
+	ctx context.Context,
+	run core.AgentRun,
+	input core.SlackInput,
+	state *watchTurnState,
+	repository config.Repository,
+) (triageSessionBinding, error) {
+	var (
+		session       coop.Session
+		repositoryKey string
+		generation    int
+		eventSequence int64
+	)
+	if state.Lane == "conversation" {
+		if err := s.store.EnsureChannelMemory(
+			ctx,
+			input.ChannelID,
+			state.Repository,
+		); err != nil {
+			return triageSessionBinding{}, s.retryAgentRun(ctx, run, err)
+		}
+		conversation, conversationSession, conversationErr :=
+			s.ensureConversationSessionAtGeneration(
+				ctx,
+				input.ChannelID,
+				state.Repository,
+				repository.ConversationPolicy,
+				max(state.Generation, 1),
+			)
+		if conversationErr != nil {
+			return triageSessionBinding{}, s.retryAtNextSessionGeneration(
+				ctx, run, state, conversation.Generation, conversationErr,
+			)
+		}
+		session = conversationSession
+		repositoryKey = conversation.Repository
+		generation = conversation.Generation
+		eventSequence = conversation.CoopEventSequence
+	} else {
+		sessionChannelID := core.FirstNonempty(state.SessionChannelID, input.ChannelID)
+		pinnedRepository := ""
+		if state.RepositoryPinned {
+			pinnedRepository = state.Repository
+		}
+		memory, investigationSession, investigationErr :=
+			s.ensureWatchSessionForRepositoryAtGeneration(
+				ctx,
+				sessionChannelID,
+				pinnedRepository,
+				max(state.Generation, 1),
+			)
+		if investigationErr != nil {
+			return triageSessionBinding{}, s.retryAtNextSessionGeneration(
+				ctx, run, state, memory.Generation, investigationErr,
+			)
+		}
+		session = investigationSession
+		repositoryKey = memory.Repository
+		generation = memory.Generation
+		eventSequence = memory.CoopEventSequence
+		if !agentMemoryPresent(state.Memory) {
+			state.Memory = memory.State
+		}
+	}
+	return triageSessionBinding{session, repositoryKey, generation, eventSequence}, nil
 }
 
 func (s *Service) persistTriageRunState(
