@@ -12,7 +12,9 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
-const timestampFormat = time.RFC3339Nano
+const timestampFormat = core.TimestampFormat
+
+const timestampParseFormat = core.TimestampParseFormat
 
 const proposalSelect = `
 	SELECT id, team_id, channel_id, thread_ts, actor_id, source_ref, task_json,
@@ -373,7 +375,7 @@ func (s *Repository) timeText() string {
 }
 
 func parseTime(value string) time.Time {
-	parsed, _ := time.Parse(timestampFormat, value)
+	parsed, _ := time.Parse(timestampParseFormat, value)
 	return parsed
 }
 

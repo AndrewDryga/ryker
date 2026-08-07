@@ -175,11 +175,11 @@ func scanFeedback(row feedbackScanner) (FeedbackItem, error) {
 	if err := json.Unmarshal(contextJSON, &item.Context); err != nil {
 		return FeedbackItem{}, err
 	}
-	item.CreatedAt, err = time.Parse(timestampFormat, createdAt)
+	item.CreatedAt, err = time.Parse(timestampParseFormat, createdAt)
 	if err != nil {
 		return FeedbackItem{}, err
 	}
-	item.UpdatedAt, err = time.Parse(timestampFormat, updatedAt)
+	item.UpdatedAt, err = time.Parse(timestampParseFormat, updatedAt)
 	return item, err
 }
 

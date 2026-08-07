@@ -640,6 +640,10 @@ func (s *Store) DeferAgentRun(
 	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeAcknowledged, "queued", boundedError(detail),
 		"Resume when the dependency is ready", time.Time{},
+		// RFC3339Nano, not the stored-timestamp format, on purpose. This is an
+		// idempotency key, never a value compared with <=, so the width hazard
+		// does not reach it — and re-formatting it would give the same logical
+		// event a different key across the deploy, which is duplicate work.
 		"agent-run:"+id+":deferred:"+next.UTC().Format(time.RFC3339Nano),
 	); err != nil {
 		return err
