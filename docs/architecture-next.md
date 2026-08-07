@@ -1,9 +1,10 @@
 # Responder Target Architecture and Verification Plan
 
-Status: episode-kernel implementation landed; compatibility retirement remains
-       (the unused effect ledger was retired in schema 40; attempts, goals,
-       manifests, and wakeups remain in use beside the legacy agent-run path)
-Last updated: 2026-08-03
+Status: episode-kernel implementation landed; compatibility retirement remains,
+       and is now waiting on evidence rather than on work (the unused effect
+       ledger was retired in schema 40; attempts, goals, manifests, and wakeups
+       remain in use beside the legacy agent-run path)
+Last updated: 2026-08-06
 Audience: Responder maintainers, operators, and contributors
 
 This document defines the architecture Responder should evolve toward. It is more prescriptive
@@ -18,7 +19,10 @@ document prove its behavior.
 
 ### Current implementation boundary
 
-Schema version 40 carries the episode-first kernel described here. The parts
+Schema version 41 carries the episode-first kernel described here. (40 removed
+the effect ledger; 41 moved product feedback out of its own database and into
+this one, where it is covered by the schema baseline, the verified
+pre-migration backup, and ordinary cross-table transactions.) The parts
 that are live today are attempts, goals, context manifests, and wakeups; the
 effect ledger was removed in schema 40 because no caller ever planned, leased,
 or completed an effect, and the `work_items` scheduler already owns delivery
@@ -28,6 +32,24 @@ The kernel still runs beside the legacy `agent_runs` path rather than replacing
 it: `internal/service/result_operations.go` folds typed operations back into
 the older free-text fields so both shapes stay readable. That fold is the
 remaining compatibility seam and the next thing to retire.
+
+Retiring it is gated on evidence, not on effort. Phase 0's instrumentation has
+landed — `result.legacy_fallback` and `result.legacy_shape` audit events are
+written on every terminal turn — but the seven-day observation window has not
+started, because the deployed instance predates the build that emits them. The
+window starts at the next deploy. Six items in the backlog descend from that one
+answer: retiring the fold, extracting the decision domain, extracting the
+evaluation family, splitting `internal/service`, this cutover, and re-anchoring
+projections to episode identity.
+
+Two things that do not need the window have landed in the meantime.
+`internal/episode_replay_coverage_test.go` parses the capability matrix in
+section 24 out of this document and fails the build if a capability has neither
+a replay fixture nor an explicitly acknowledged gap — so the rule in section 24,
+that no migration may remove a capability whose replacement is unproven, is now
+enforced rather than stated. It currently measures **2 of 24 capabilities
+proven**. And `responder record-episode` turns a completed episode into a
+sanitized fixture, so that number can move without waiting on a history export.
 
 The kernel establishes:
 
