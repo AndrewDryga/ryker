@@ -842,6 +842,24 @@ func (s *Service) applyWatchDecision(
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return err
 	}
+	// After the answer is delivered, not before. A standing assignment acts on
+	// what the investigation concluded, and it must never delay or replace the
+	// reply someone is waiting for — proactive work is what Responder does with
+	// the conclusion afterwards.
+	if err := s.considerProactiveWork(
+		ctx, input, decision.Completion, decision.Evidence,
+	); err != nil {
+		// A standing assignment failing is not a reason to fail the turn that
+		// already answered. Log it and finish.
+		if s.log != nil {
+			s.log.Warn(
+				"standing assignment could not act",
+				"channel", input.ChannelID,
+				"input", input.ID,
+				"error", err,
+			)
+		}
+	}
 	return s.finishInputIfOpen(ctx, input)
 }
 

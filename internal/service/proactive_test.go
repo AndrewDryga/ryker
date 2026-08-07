@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/investigation"
@@ -71,5 +72,43 @@ func TestProactiveIsInertWithoutAnAssignment(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("proactive consideration in an unassigned channel: %v", err)
+	}
+}
+
+// Proactive work must never delay or replace the answer someone is waiting for.
+//
+// It runs after the reply is delivered, and a standing assignment that fails
+// must not fail the turn that already answered. The ordering is the whole
+// point: an operator asked a question, and Responder deciding to also open a
+// pull request is not their problem.
+func TestProactiveFailureDoesNotFailTheAnsweredTurn(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	// An assignment whose repository is not configured: the task cannot start.
+	if _, err := st.CreateStandingAssignment(ctx, core.StandingAssignment{
+		ChannelID: "CALERTS", SignalPattern: "timeout",
+		Repository: "not-a-configured-repository", ChangeClass: "observability",
+		DailyBudget: 2, ActorID: "UOPERATOR",
+		ExpiresAt: svc.now().UTC().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Not recurring, so it declines rather than acting — and declining is
+	// silent and must not error.
+	if err := svc.considerProactiveWork(
+		ctx,
+		core.SlackInput{ID: "in_1", ChannelID: "CALERTS", Text: "FIRING: timeout"},
+		&investigation.CompletionAssessment{Status: "decision_ready", Summary: "one-off"},
+		[]core.Evidence{{SourceType: "emisar"}},
+	); err != nil {
+		t.Fatalf("a declined assignment returned an error: %v", err)
 	}
 }
