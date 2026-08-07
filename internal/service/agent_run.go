@@ -1477,8 +1477,7 @@ func (s *Service) stageTriageTerminal(
 	decision, decisionErr := parseWatchDecision(turn.AssistantMessage, s.now())
 	if decisionErr == nil {
 		s.recordResultProtocol(
-			ctx, run.ID, decision.LegacyFallback, decision.LegacyShape, decision.FallbackReason,
-		)
+			ctx, run.ID, decision.LegacyShape)
 	}
 	if inputErr != nil {
 		return true, inputErr
@@ -1662,8 +1661,7 @@ func (s *Service) stageIncidentTerminal(
 	report, _, reportErr := parseAgentReport(turn.AssistantMessage)
 	if reportErr == nil {
 		s.recordResultProtocol(
-			ctx, run.ID, report.LegacyFallback, report.LegacyShape, report.FallbackReason,
-		)
+			ctx, run.ID, report.LegacyShape)
 	}
 	if reportErr != nil {
 		correction := "the structured agent report is invalid: " + trimError(reportErr)

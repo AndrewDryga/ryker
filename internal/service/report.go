@@ -35,14 +35,11 @@ type agentReport struct {
 	Operations        []investigation.ResultOperation `json:"operations,omitempty"`
 	AppliedOperations []investigation.ResultOperation `json:"-"`
 
-	// LegacyFallback records that the typed fold failed and the older
-	// free-text reading was used instead; FallbackReason is why. LegacyShape
+	// LegacyShape
 	// records a response that never used the typed protocol at all. Both exist
 	// to answer one question before the legacy path is deleted: does anything
 	// still depend on it?
-	LegacyFallback bool   `json:"-"`
-	FallbackReason string `json:"-"`
-	LegacyShape    bool   `json:"-"`
+	LegacyShape bool `json:"-"`
 }
 
 const (
@@ -118,8 +115,13 @@ func parseAgentReport(message string) (agentReport, bool, error) {
 				return recovered, true, nil
 			}
 		}
-		if recovered, recoverErr := decodeAgentMessage(trimmed); recoverErr == nil {
-			return agentReport{Message: recovered}, false, nil
+		// Prose recovery is for broken JSON, not for a well-formed envelope
+		// whose operation stream is invalid. Recovering there would accept the
+		// turn while leaving the model believing its operations applied.
+		if !errors.Is(err, errInvalidOperations) {
+			if recovered, recoverErr := decodeAgentMessage(trimmed); recoverErr == nil {
+				return agentReport{Message: recovered}, false, nil
+			}
 		}
 		return agentReport{}, true, err
 	}
@@ -319,37 +321,19 @@ func decodeAgentMessage(message string) (string, error) {
 // recordResultProtocol notes whether a model result actually used the typed
 // operation protocol.
 //
-// The legacy free-text reading is still accepted, and when the typed fold fails
-// the older shape is silently used instead — so the same turn can be read two
-// ways with nobody told which happened. These counters exist to answer one
-// question before that path is deleted: does anything still depend on it? A
-// week of zeros is the evidence; deleting first and watching afterwards inverts
-// the risk.
-func (s *Service) recordResultProtocol(
-	ctx context.Context,
-	runID string,
-	fallback bool,
-	legacyShape bool,
-	reason string,
-) {
-	switch {
-	case fallback:
-		s.log.Warn(
-			"model result fell back to the legacy reading",
-			"run", runID,
-			"reason", reason,
-		)
-		s.audit(ctx, core.AuditEvent{
-			Kind: "result.legacy_fallback", ActorID: "responder",
-			ObjectID: runID, Outcome: "fallback", Detail: boundedField(reason, 500),
-		})
-	case legacyShape:
-		s.log.Warn("model result carried no typed operations", "run", runID)
-		s.audit(ctx, core.AuditEvent{
-			Kind: "result.legacy_shape", ActorID: "responder",
-			ObjectID: runID, Outcome: "legacy_only",
-		})
+// The fallback that silently re-read a failed typed fold as legacy free text
+// is gone: an invalid operation stream is now a correction the model is told
+// about. What remains worth counting is the plain-prose reply, which is a valid
+// answer rather than a failure — Responder is in these channels to talk, and
+// not every turn needs a typed envelope.
+func (s *Service) recordResultProtocol(ctx context.Context, runID string, legacyShape bool) {
+	if !legacyShape {
+		return
 	}
+	s.audit(ctx, core.AuditEvent{
+		Kind: "result.legacy_shape", ActorID: "responder",
+		ObjectID: runID, Outcome: "legacy_only",
+	})
 }
 
 func (s *Service) persistAgentReport(

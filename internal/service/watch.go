@@ -133,9 +133,7 @@ type watchDecision struct {
 
 	// See agentReport: these record whether the typed protocol was actually
 	// used, so the legacy path can be deleted on evidence rather than hope.
-	LegacyFallback bool   `json:"-"`
-	FallbackReason string `json:"-"`
-	LegacyShape    bool   `json:"-"`
+	LegacyShape bool `json:"-"`
 }
 
 // marshalWatchDecisionResult persists the same transport shape accepted from

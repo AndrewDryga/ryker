@@ -16,15 +16,24 @@ import (
 
 const maxResultOperations = 100
 
+// errInvalidOperations marks a failure to read the typed operation stream, as
+// distinct from a failure to decode the surrounding JSON.
+//
+// The difference decides whether prose recovery is appropriate. A model that
+// emitted broken JSON around a plain answer should still have its answer read.
+// A model that emitted a well-formed envelope with an invalid operation stream
+// must be told so — recovering its prose instead would read the same turn a
+// second way and leave the model believing its operations were accepted.
+var errInvalidOperations = errors.New("invalid typed operation stream")
+
 func applyAgentResultOperations(report *agentReport) error {
 	if len(report.Operations) == 0 {
 		report.LegacyShape = true
 		return nil
 	}
-	legacy := *report
 	// Operations are the authoritative transport. Models sometimes repeat their
-	// final projection in the legacy fields as well; treating that harmless
-	// redundancy as a terminal protocol failure loses otherwise valid work.
+	// final projection in the legacy fields as well; that redundancy is
+	// harmless and simply discarded.
 	report.Message = ""
 	report.FollowupMessages = nil
 	report.Visuals = nil
@@ -46,15 +55,10 @@ func applyAgentResultOperations(report *agentReport) error {
 		approval: &report.PendingApproval, proposals: &report.Proposals,
 		completion: &report.Completion,
 	}, &report.AppliedOperations)
-	if err != nil && strings.TrimSpace(legacy.Message) != "" {
-		*report = legacy
-		report.Operations = nil
-		report.AppliedOperations = nil
-		report.LegacyFallback = true
-		report.FallbackReason = trimError(err)
-		return nil
+	if err != nil {
+		return fmt.Errorf("%w: %w", errInvalidOperations, err)
 	}
-	return err
+	return nil
 }
 
 func applyWatchResultOperations(decision *watchDecision) error {
@@ -69,7 +73,6 @@ func applyWatchResultOperations(decision *watchDecision) error {
 			}
 		}
 	}
-	legacy := *decision
 	// A complete_episode operation is itself an unambiguous reply decision. The
 	// host owns that projection even if the model omitted action or left an old
 	// ignore value beside the operation stream.
@@ -101,18 +104,11 @@ func applyWatchResultOperations(decision *watchDecision) error {
 		incidentTitle: &decision.IncidentTitle, taskTitle: &decision.TaskTitle,
 		taskRepository: &decision.TaskRepository, taskPrompt: &decision.TaskPrompt,
 	}, &decision.AppliedOperations)
-	if err == nil {
-		decision.Message = appendFeedbackFollowup(decision.Message, decision.AppliedOperations)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errInvalidOperations, err)
 	}
-	if err != nil && legacyWatchDecisionUsable(legacy) {
-		*decision = legacy
-		decision.Operations = nil
-		decision.AppliedOperations = nil
-		decision.LegacyFallback = true
-		decision.FallbackReason = trimError(err)
-		return nil
-	}
-	return err
+	decision.Message = appendFeedbackFollowup(decision.Message, decision.AppliedOperations)
+	return nil
 }
 
 func applySilentWatchMemoryOperation(decision *watchDecision) error {
@@ -157,23 +153,6 @@ func appendFeedbackFollowup(message string, operations []investigation.ResultOpe
 		}
 	}
 	return message
-}
-
-func legacyWatchDecisionUsable(decision watchDecision) bool {
-	switch decision.Action {
-	case "ignore":
-		// An empty legacy ignore beside a malformed operation stream is not a
-		// usable fallback. Accepting it would silently discard typed work.
-		return len(decision.Operations) == 0
-	case "react":
-		return strings.TrimSpace(decision.Reaction) != ""
-	case "reply":
-		return strings.TrimSpace(decision.Message) != ""
-	case "escalate":
-		return strings.TrimSpace(decision.Reason) != ""
-	default:
-		return false
-	}
 }
 
 type operationTargets struct {

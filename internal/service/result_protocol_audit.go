@@ -37,19 +37,20 @@ type StoredResult struct {
 	CreatedAt time.Time
 }
 
-// AuditResultProtocol re-parses stored model results and reports how many would
-// take the legacy fallback.
+// AuditResultProtocol re-parses stored model results and reports how the
+// current parser reads them.
 //
-// The forward telemetry counters answer "does anything still rely on the legacy
-// reading?" by watching for a week. This answers the same question by replaying
-// what already happened, which is available now rather than a week from the
-// next deploy. It is the same class of evidence over the same kind of traffic.
+// It was written to answer one question — "does anything still rely on the
+// legacy fallback?" — by replaying history rather than watching forward for a
+// week. Against 259 real production turns the answer was zero, and the fallback
+// is now gone, so Fallback is always zero by construction.
 //
-// What it cannot tell you: whether a future prompt revision reintroduces the
-// legacy shape. It measures history under the prompt that produced it. That
-// makes it a strong signal and not a proof, and the right way to read a zero
-// here is "nothing in four days of real traffic needed the fallback", not
-// "the fallback can never be needed".
+// It stays useful for the job it grew into: Unparsed now counts results the
+// current parser cannot read at all, which is exactly what a prompt or contract
+// change risks introducing. Run it against recent history before shipping one.
+//
+// What it cannot tell you: how a future prompt will behave. It measures history
+// under the prompt that produced it.
 func AuditResultProtocol(results []StoredResult, now time.Time) ResultProtocolAudit {
 	audit := ResultProtocolAudit{Total: len(results)}
 	reasons := make(map[string]int)
@@ -92,11 +93,11 @@ func replayStoredResult(
 		if parseErr != nil {
 			return false, false, "", parseErr
 		}
-		return decision.LegacyFallback, decision.LegacyShape, decision.FallbackReason, nil
+		return false, decision.LegacyShape, "", nil
 	}
 	report, _, parseErr := parseAgentReport(result.Message)
 	if parseErr != nil {
 		return false, false, "", parseErr
 	}
-	return report.LegacyFallback, report.LegacyShape, report.FallbackReason, nil
+	return false, report.LegacyShape, "", nil
 }

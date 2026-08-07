@@ -462,18 +462,21 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	}
 }
 
-// The legacy reading is still accepted and is used silently when the typed
-// fold fails, so before it can be deleted there has to be evidence nothing
-// depends on it. These flags are that evidence.
+// The typed operation stream is now the only authoritative reading. A response
+// that carries no operations at all is still accepted — plain prose is a valid
+// reply — but a malformed operation stream is a loud failure rather than a
+// silent fall back to whatever prose happened to sit beside it.
+//
+// Silently reading the same turn two ways was the thing worth deleting: nobody
+// downstream could tell which reading they got.
 func TestResultProtocolShapeIsRecorded(t *testing.T) {
 	// A response with no operations at all never used the typed protocol.
 	legacyOnly, _, err := parseAgentReport(`{"message":"plain prose answer"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !legacyOnly.LegacyShape || legacyOnly.LegacyFallback {
-		t.Fatalf("legacy-only report = shape:%t fallback:%t",
-			legacyOnly.LegacyShape, legacyOnly.LegacyFallback)
+	if !legacyOnly.LegacyShape {
+		t.Fatal("a prose-only reply was not recorded as legacy shape")
 	}
 
 	// A well-formed typed response used it, so neither flag is set.
@@ -482,22 +485,17 @@ func TestResultProtocolShapeIsRecorded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if typed.LegacyShape || typed.LegacyFallback {
-		t.Fatalf("typed report = shape:%t fallback:%t", typed.LegacyShape, typed.LegacyFallback)
+	if typed.LegacyShape {
+		t.Fatal("a typed report was recorded as legacy shape")
 	}
 
-	// A malformed operation stream beside usable legacy prose falls back, and
-	// says so with the reason.
-	fallback, _, err := parseAgentReport(`{"message":"usable prose","operations":[
+	// A malformed operation stream is now rejected even when usable prose sits
+	// beside it. Accepting the prose would mean the same turn could be read two
+	// ways with nobody told which happened — and the model would never learn
+	// that its operation stream was wrong.
+	_, _, err = parseAgentReport(`{"message":"usable prose","operations":[
 		{"id":"bad","type":"complete_episode"}]}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !fallback.LegacyFallback || fallback.FallbackReason == "" {
-		t.Fatalf("fallback report = fallback:%t reason:%q",
-			fallback.LegacyFallback, fallback.FallbackReason)
-	}
-	if fallback.Message != "usable prose" {
-		t.Fatalf("fallback did not preserve the legacy message: %q", fallback.Message)
+	if err == nil {
+		t.Fatal("a malformed operation stream was silently accepted beside legacy prose")
 	}
 }
