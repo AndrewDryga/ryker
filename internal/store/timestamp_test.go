@@ -28,9 +28,20 @@ func TestWholeSecondTimestampsWouldSortWrong(t *testing.T) {
 			"comment must be revisited — mixed-width values compare wrongly.", second, fraction)
 	}
 
-	// Everything the store actually writes carries a fraction, which is why the
-	// hazard has never fired. That is a property of the clock, so pin it: a
-	// caller that truncates to the second would silently enter the broken case.
+	// The reachable case is not the whole second — it is any shortened fraction
+	// that another timestamp in the same second extends. RFC3339Nano strips
+	// trailing zeros, so this happens whenever a clock reading ends in zeros,
+	// which on the deployed database is 13% of stored timestamps.
+	shorter := time.Date(2026, 8, 6, 12, 0, 0, 700_000_000, time.UTC).Format(timestampFormat)
+	longer := time.Date(2026, 8, 6, 12, 0, 0, 700_010_000, time.UTC).Format(timestampFormat)
+	if shorter < longer {
+		t.Fatalf("the prefix hazard is gone: %q now sorts before %q.\n"+
+			"Good, but the migration concern in timestampFormat's comment must be "+
+			"revisited before relying on it.", shorter, longer)
+	}
+	t.Logf("known hazard holds: %q sorts after %q despite being earlier", shorter, longer)
+
+	// Whole-second values would be the same bug in its most extreme form.
 	for _, moment := range []time.Time{
 		time.Now().UTC(),
 		time.Now().UTC().Add(37 * time.Millisecond),

@@ -19,26 +19,31 @@ import (
 
 // timestampFormat is RFC3339Nano, and it has a sharp edge worth knowing about.
 //
-// It strips trailing zeros from the fraction, so a time that lands exactly on a
-// second formats with no fraction at all — and SQLite compares these as TEXT,
-// where 'Z' (0x5A) sorts after '.' (0x2E). A whole-second value is therefore
-// "later" than every fractional value in its own second:
+// It strips trailing zeros from the fraction, so two times in the same second
+// can have different-length fractions — and SQLite compares these as TEXT.
+// When the shorter fraction is a prefix of the longer one, the terminating 'Z'
+// (0x5A) is compared against a digit (0x30-0x39) and sorts after it, inverting
+// the order:
 //
-//	SELECT '2026-08-06T12:00:00Z' <= '2026-08-06T12:00:00.5Z'  -- 0, not 1
+//	SELECT '2026-08-06T12:00:00.7Z' <= '2026-08-06T12:00:00.70001Z'  -- 0, not 1
+//	SELECT '2026-08-06T12:00:00Z'   <= '2026-08-06T12:00:00.5Z'      -- 0, not 1
 //
-// Every "WHERE ... <= ?" over a timestamp is exposed to this. The effect is a
-// row being skipped for the remainder of its second rather than lost, which is
-// why nothing has failed loudly.
+// Every "WHERE ... <= ?" over a timestamp is exposed. The effect is a row being
+// skipped for the remainder of its second rather than lost, which is why
+// nothing has failed loudly.
+//
+// Exposure, measured against the deployed database: 44 of 337 stored timestamps
+// (13%) have a shortened fraction, each of which mis-compares against any
+// longer timestamp that extends it within the same second. No such pair exists
+// there today, so the hazard has not fired — but it is far more reachable than
+// the whole-second case alone would suggest, which is what an earlier reading
+// of this measured and got wrong.
 //
 // It is not fixed because fixing it cannot be partial: a fixed-width format
 // compares just as wrongly against the variable-width values already stored
-// ('.5Z' > '.500000000Z' by the same rule), so it would need a migration
-// rewriting every timestamp column at once. Measured against the deployed
-// database, zero stored values across agent_runs, work_items, coop_cleanup and
-// scheduled_tasks lack a fraction — the hazard has never actually fired.
-//
-// TestWholeSecondTimestampsWouldSortWrong pins the edge so that if a caller
-// ever starts writing whole-second times, the reason is already written down.
+// ('.5Z' sorts after '.500000000Z' by the same rule), so it needs a migration
+// rewriting every timestamp column at once. That remains the right change; it
+// is sized in the backlog rather than done here.
 const timestampFormat = time.RFC3339Nano
 
 const migrationBackupRetention = 3
