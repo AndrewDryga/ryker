@@ -9,6 +9,7 @@
 package localstate
 
 import (
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -147,60 +148,63 @@ func (t *NativeStatusTracker) ForgetIncident(incidentID string) {
 	}
 }
 
-// WriteSlot is the single conservative Slack write slot. Holding it across the
-// Slack call is deliberate: Slack rate limits per workspace, so one in-flight
-// write at a time is simpler and safer than a token bucket that can burst.
-type WriteSlot struct {
+// ChannelWriteSlots paces Slack writes per channel.
+//
+// Slack rate-limits chat.postMessage per channel, so one busy incident room
+// should not hold up an answer in an unrelated conversation. Each channel gets
+// its own interval, and Cooling reports which ones are not ready so the
+// scheduler can pick different work rather than wait.
+type ChannelWriteSlots struct {
 	mu       sync.Mutex
 	interval time.Duration
-	last     time.Time
+	last     map[string]time.Time
 }
 
-func NewWriteSlot(interval time.Duration) *WriteSlot {
-	return &WriteSlot{interval: interval}
+func NewChannelWriteSlots(interval time.Duration) *ChannelWriteSlots {
+	return &ChannelWriteSlots{interval: interval, last: map[string]time.Time{}}
 }
 
-// Acquire takes the slot. It returns the remaining cooldown and false when the
-// slot is not yet available, having already released it, so the caller can
-// defer its scheduler item rather than block a worker.
-func (w *WriteSlot) Acquire(now time.Time) (time.Duration, bool) {
-	w.mu.Lock()
-	if wait := w.interval - now.Sub(w.last); wait > 0 {
-		w.mu.Unlock()
-		return wait, false
+// Cooling lists the channels whose interval has not elapsed. It also drops
+// entries that are no longer cooling, so an abandoned channel cannot leak.
+func (c *ChannelWriteSlots) Cooling(now time.Time) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var cooling []string
+	for channelID, at := range c.last {
+		if now.Sub(at) < c.interval {
+			cooling = append(cooling, channelID)
+			continue
+		}
+		delete(c.last, channelID)
 	}
-	return 0, true
+	sort.Strings(cooling)
+	return cooling
 }
 
-func (w *WriteSlot) Release(now time.Time) {
-	w.last = now
-	w.mu.Unlock()
-}
-
-// Test accessors. The production paths deliberately expose only the decisions
-// (shouldWrite/record/clear); tests need to inspect and age the state directly.
-
-func (t *NativeStatusTracker) TextFor(key string) (string, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	state, ok := t.state[key]
-	return state.text, ok
-}
-
-func (t *NativeStatusTracker) Age(key string, d time.Duration) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if state, ok := t.state[key]; ok {
-		state.at = state.at.Add(-d)
-		t.state[key] = state
+// Record notes that a channel was just written to.
+func (c *ChannelWriteSlots) Record(channelID string, now time.Time) {
+	if channelID == "" {
+		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.last[channelID] = now
 }
 
-// Reset makes the slot immediately available.
-func (w *WriteSlot) Reset() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.last = time.Time{}
+// NextReopen reports how long until the earliest channel is writable again, or
+// zero when one already is.
+func (c *ChannelWriteSlots) NextReopen(now time.Time) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	soonest := time.Duration(0)
+	for _, at := range c.last {
+		if remaining := c.interval - now.Sub(at); remaining > 0 {
+			if soonest == 0 || remaining < soonest {
+				soonest = remaining
+			}
+		}
+	}
+	return soonest
 }
 
 // PromptTruncation counts prompts the Coop transport had to elide and the
@@ -228,4 +232,30 @@ func (p *PromptTruncation) Record(originalBytes int) {
 // Snapshot reports the count and the largest prompt seen.
 func (p *PromptTruncation) Snapshot() (total, maxBytes uint64) {
 	return p.total.Load(), p.maxBytes.Load()
+}
+
+// Test accessors. The production paths expose only the decisions
+// (ShouldWrite/Record/ForgetIncident); tests need to inspect and age the state.
+
+func (t *NativeStatusTracker) TextFor(key string) (string, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	state, ok := t.state[key]
+	return state.text, ok
+}
+
+func (t *NativeStatusTracker) Age(key string, d time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if state, ok := t.state[key]; ok {
+		state.at = state.at.Add(-d)
+		t.state[key] = state
+	}
+}
+
+// Reset makes every channel immediately writable. It exists for tests.
+func (c *ChannelWriteSlots) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.last)
 }

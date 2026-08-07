@@ -79,22 +79,41 @@ func TestNativeStatusTrackerSuppressesRepeatsUntilTheInterval(t *testing.T) {
 	}
 }
 
-func TestWriteSlotPacesAndReleases(t *testing.T) {
-	slot := NewWriteSlot(time.Second)
-	if _, ok := slot.Acquire(base); !ok {
-		t.Fatal("a fresh slot should be available")
+// A busy channel must not pace an unrelated one: Slack limits chat.postMessage
+// per channel, so the whole point is that these are independent.
+func TestChannelWriteSlotsArePerChannel(t *testing.T) {
+	slots := NewChannelWriteSlots(time.Second)
+	if cooling := slots.Cooling(base); len(cooling) != 0 {
+		t.Fatalf("a fresh set reported %v as cooling", cooling)
 	}
-	slot.Release(base)
 
-	wait, ok := slot.Acquire(base.Add(400 * time.Millisecond))
-	if ok {
-		t.Fatal("slot was available inside its interval")
+	slots.Record("CBUSY", base)
+	cooling := slots.Cooling(base.Add(400 * time.Millisecond))
+	if len(cooling) != 1 || cooling[0] != "CBUSY" {
+		t.Fatalf("cooling = %v, want only CBUSY", cooling)
 	}
-	if wait != 600*time.Millisecond {
-		t.Fatalf("wait = %v, want 600ms", wait)
+	if wait := slots.NextReopen(base.Add(400 * time.Millisecond)); wait != 600*time.Millisecond {
+		t.Fatalf("next reopen = %v, want 600ms", wait)
 	}
-	if _, ok := slot.Acquire(base.Add(time.Second)); !ok {
-		t.Fatal("slot did not reopen after its interval")
+
+	// An unrelated channel is unaffected.
+	slots.Record("CQUIET", base.Add(400*time.Millisecond))
+	cooling = slots.Cooling(base.Add(500 * time.Millisecond))
+	if len(cooling) != 2 {
+		t.Fatalf("cooling = %v, want both channels", cooling)
 	}
-	slot.Release(base.Add(time.Second))
+
+	// Past its interval a channel stops cooling and stops being tracked, so an
+	// abandoned channel cannot accumulate.
+	if cooling := slots.Cooling(base.Add(2 * time.Second)); len(cooling) != 0 {
+		t.Fatalf("cooling = %v after both intervals elapsed", cooling)
+	}
+	if slots.NextReopen(base.Add(2*time.Second)) != 0 {
+		t.Fatal("next reopen is non-zero when every channel is writable")
+	}
+	slots.Record("CBUSY", base.Add(2*time.Second))
+	slots.Reset()
+	if cooling := slots.Cooling(base.Add(2 * time.Second)); len(cooling) != 0 {
+		t.Fatalf("Reset left %v cooling", cooling)
+	}
 }

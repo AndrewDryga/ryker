@@ -374,8 +374,15 @@ func (s *Store) GetSentSlackMessageDelivery(
 	))
 }
 
+// LeaseSlackDelivery claims the next Slack write.
+//
+// coolingChannels are channels whose pacing slot has not reopened. Skipping
+// them rather than waiting is what lets a busy channel stop holding up every
+// other conversation: Slack rate-limits chat.postMessage per channel, so two
+// different channels can be written at once even though one channel cannot.
 func (s *Store) LeaseSlackDelivery(
 	ctx context.Context,
+	coolingChannels []string,
 ) (core.SlackDelivery, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -401,12 +408,21 @@ func (s *Store) LeaseSlackDelivery(
 		  )`, now); err != nil {
 		return core.SlackDelivery{}, err
 	}
+	skip := ""
+	arguments := []any{now}
+	if len(coolingChannels) > 0 {
+		skip = "  AND candidate.channel_id NOT IN (" +
+			strings.TrimSuffix(strings.Repeat("?,", len(coolingChannels)), ",") + ")\n"
+		for _, channelID := range coolingChannels {
+			arguments = append(arguments, channelID)
+		}
+	}
 	delivery, err := scanSlackDelivery(tx.QueryRowContext(ctx, `
 		SELECT `+slackDeliveryColumns+`
 		FROM slack_deliveries AS candidate
 		WHERE candidate.state IN ('pending', 'retry')
 		  AND julianday(candidate.next_attempt_at) <= julianday(?)
-		  AND (
+`+skip+`		  AND (
 		    candidate.sequence_key = '' OR NOT EXISTS (
 		      SELECT 1
 		      FROM slack_deliveries AS predecessor
@@ -419,7 +435,7 @@ func (s *Store) LeaseSlackDelivery(
 		  CASE candidate.operation WHEN 'status' THEN 0 WHEN 'update' THEN 1 ELSE 2 END,
 		  candidate.created_at,
 		  candidate.id
-		LIMIT 1`, now))
+		LIMIT 1`, arguments...))
 	if errors.Is(err, ErrNotFound) {
 		if commitErr := tx.Commit(); commitErr != nil {
 			return core.SlackDelivery{}, commitErr

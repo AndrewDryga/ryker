@@ -70,7 +70,7 @@ var methodBudget = map[string]int{
 var lineBudget = map[string]int{
 	"service":    28300,
 	"store":      14000,
-	"localstate": 250,
+	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
 }

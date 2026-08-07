@@ -308,7 +308,7 @@ func (h *liveAcceptanceHarness) click(
 func (h *liveAcceptanceHarness) drainDeliveries() {
 	h.t.Helper()
 	for range 100 {
-		err := h.service.processSlackDelivery(h.ctx)
+		err := h.service.processSlackDelivery(h.ctx, nil)
 		if errors.Is(err, store.ErrNotFound) {
 			return
 		}

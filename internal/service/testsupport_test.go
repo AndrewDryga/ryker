@@ -105,11 +105,11 @@ func useTestClock(svc *Service, st *store.Store) *testClock {
 // firstOf drops the presence flag from a two-value accessor in assertions.
 func firstOf[T any](value T, _ bool) T { return value }
 
-// The Slack write slot must defer its scheduler item while cooling down, not
-// report success. Reporting success requeues a recurring item as immediately
-// available, which spins the control lane against the single shared database
-// connection for the whole window after every Slack write.
-func TestSlackWriteDefersWhileCoolingDownInsteadOfReportingSuccess(t *testing.T) {
+// A busy channel must not hold up an answer somewhere unrelated: Slack rate
+// limits chat.postMessage per channel, so cooling channels are skipped rather
+// than waited on. Only when every ready write belongs to a cooling channel is
+// there anything to defer for.
+func TestSlackWritesArePacedPerChannel(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -117,28 +117,59 @@ func TestSlackWriteDefersWhileCoolingDownInsteadOfReportingSuccess(t *testing.T)
 		t.Fatal(err)
 	}
 	defer st.Close()
-	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
 	clock := useTestClock(svc, st)
 
-	// Take the slot, then ask again inside the cooldown window.
-	if _, ok := svc.writeSlot.Acquire(clock.Now()); !ok {
-		t.Fatal("first acquire should succeed on a fresh slot")
+	queue := func(id, channelID string) {
+		t.Helper()
+		body, err := slackui.Encode(slackui.Notice("a reply for " + channelID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+			ID: id, Operation: "post", Kind: "notice",
+			ChannelID: channelID, ThreadTS: "1700.001", Body: body,
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	svc.writeSlot.Release(clock.Now())
+	queue("out_busy_1", "CBUSY")
+	queue("out_busy_2", "CBUSY")
+	queue("out_quiet_1", "CQUIET")
 
+	// First write goes to the busy channel and starts its cooldown.
+	if err := svc.processSlackWrite(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slack.posts) != 1 || slack.posts[0].channel != "CBUSY" {
+		t.Fatalf("first write = %+v", slack.posts)
+	}
+
+	// The busy channel is cooling, but the quiet one is not — so the next pass
+	// answers the other conversation instead of waiting.
+	if err := svc.processSlackWrite(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slack.posts) != 2 || slack.posts[1].channel != "CQUIET" {
+		t.Fatalf("a cooling channel blocked an unrelated one: %+v", slack.posts)
+	}
+
+	// Now every remaining write belongs to a cooling channel, so there is
+	// genuinely something to wait for.
 	err = svc.processSlackWrite(ctx)
 	var deferral scheduledWorkDeferral
 	if !errors.As(err, &deferral) {
-		t.Fatalf("cooling-down write = %v, want a scheduled-work deferral", err)
-	}
-	if wait := deferral.at.Sub(clock.Now()); wait <= 0 || wait > localstate.SlackWriteInterval {
-		t.Fatalf("deferral wait = %v, want (0, %v]", wait, localstate.SlackWriteInterval)
+		t.Fatalf("all-cooling write = %v, want a scheduled-work deferral", err)
 	}
 
-	// Once the interval elapses the slot reopens and ordinary draining resumes.
+	// Once the interval elapses the remaining message goes out.
 	clock.Advance(localstate.SlackWriteInterval)
-	if err := svc.processSlackWrite(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("write after cooldown = %v", err)
+	if err := svc.processSlackWrite(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slack.posts) != 3 {
+		t.Fatalf("the cooled channel did not resume: %+v", slack.posts)
 	}
 }
 

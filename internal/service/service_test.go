@@ -486,7 +486,7 @@ func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
 	if delivery, err := st.GetSlackDelivery(ctx, "out_test_visual_01"); err != nil {
 		t.Fatalf("queued visual delivery = %+v err=%v", delivery, err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(slackClient.uploads) != 1 || slackClient.uploads[0].thread != "1700.001" ||
@@ -535,7 +535,7 @@ func TestGeneratedVisualMissingScopePostsTruthfulFailureInsteadOfSuccess(t *test
 	}}, &message); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(slackClient.posts) != 0 {
@@ -545,7 +545,7 @@ func TestGeneratedVisualMissingScopePostsTruthfulFailureInsteadOfSuccess(t *test
 	if err != nil || delivery.State != "failed" || !strings.Contains(delivery.LastError, "missing_scope") {
 		t.Fatalf("visual delivery = %+v err=%v", delivery, err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(slackClient.posts) != 1 ||
@@ -580,7 +580,7 @@ func TestGeneratedVisualLegacyUncertainMissingScopeFailsImmediately(t *testing.T
 	}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	leased, err := st.LeaseSlackDelivery(ctx)
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +599,7 @@ func TestGeneratedVisualLegacyUncertainMissingScopeFailsImmediately(t *testing.T
 	if err != nil || delivery.State != "failed" {
 		t.Fatalf("legacy visual delivery = %+v err=%v", delivery, err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(slackClient.posts) != 1 || !strings.Contains(slackClient.posts[0].message.Text, "files:write") {
@@ -700,7 +700,7 @@ func TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation(t *testing.T) 
 		RunURL: "https://emisar.dev/app/acme/runs/run_monitor",
 	}}
 	svc.SetEmisar(emisarClient)
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.processEmisarApproval(ctx, approval.RequestID); err != nil {
@@ -981,7 +981,7 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 	if err := svc.processAgentRunFinalization(ctx); err != nil {
 		t.Fatal(err)
 	}
-	svc.writeSlot.Reset()
+	svc.channelWrites.Reset()
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 2 {
 		t.Fatalf("Slack posts = %+v", slack.posts)
@@ -1920,7 +1920,7 @@ func TestRepeatedFiringRefreshUpdatesCardAndAgentWithoutRawThreadPost(t *testing
 	if err := svc.processWebhook(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.LeaseSlackDelivery(ctx); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("routine firing refresh queued raw Slack output: %v", err)
 	}
 	submission, err := st.GetAgentRunBySource(ctx, "webhook", event.ID+":"+incident.ID)
@@ -2181,20 +2181,20 @@ func TestManualSummonCompletesHandoffToIncidentRoom(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.processChannel(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.processSession(ctx); err != nil {
 		t.Fatal(err)
 	}
 	for count := 0; count < 4; count++ {
-		err := svc.processSlackDelivery(ctx)
+		err := svc.processSlackDelivery(ctx, nil)
 		if errors.Is(err, store.ErrNotFound) {
 			break
 		}
@@ -2219,7 +2219,7 @@ func TestManualSummonCompletesHandoffToIncidentRoom(t *testing.T) {
 	if err := svc.enqueueManualHandoff(ctx, incidents[0]); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processSlackDelivery(ctx); !errors.Is(err, store.ErrNotFound) {
+	if err := svc.processSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("manual handoff was not idempotent: %v", err)
 	}
 }
@@ -2255,7 +2255,7 @@ func TestManualHandoffWaitsForUsableIncidentRoom(t *testing.T) {
 			if err := svc.processChannel(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if err := svc.processSlackDelivery(ctx); err != nil {
+			if err := svc.processSlackDelivery(ctx, nil); err != nil {
 				t.Fatal(err)
 			}
 			sessionErr := svc.processSession(ctx)
@@ -2275,7 +2275,7 @@ func TestManualHandoffWaitsForUsableIncidentRoom(t *testing.T) {
 			if err != nil || (incident.RootTS != "") != test.wantRootTS {
 				t.Fatalf("root binding = %+v, %v", incident, err)
 			}
-			if _, err := st.LeaseSlackDelivery(ctx); !errors.Is(err, store.ErrNotFound) {
+			if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
 				t.Fatalf("handoff was queued before room preparation: %v", err)
 			}
 		})
@@ -2392,7 +2392,7 @@ func TestAcceptedSlackPostWithLostResponseIsReconciledExactlyOnce(t *testing.T) 
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(slack.posts) != 1 {
@@ -2403,7 +2403,7 @@ func TestAcceptedSlackPostWithLostResponseIsReconciledExactlyOnce(t *testing.T) 
 	if err := svc.reconcileSlackDelivery(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processSlackDelivery(ctx); !errors.Is(err, store.ErrNotFound) {
+	if err := svc.processSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("reconciled delivery remained runnable: %v", err)
 	}
 	if len(slack.posts) != 1 {
@@ -2439,7 +2439,7 @@ func TestSlackWritesAlternateBetweenDirtyCardAndDelivery(t *testing.T) {
 		!slices.Contains(rendered.Context, "Alert source: <https://grafana.example.test/alerting/1|Open grafana.example.test>") {
 		t.Fatalf("updated card omitted current signal evidence: %+v", rendered)
 	}
-	svc.writeSlot.Reset()
+	svc.channelWrites.Reset()
 	if err := svc.processSlackWrite(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -2536,7 +2536,7 @@ func TestAcceptedOperatorReplySetsAndRefreshesNativeStatus(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := svc.nativeStatus.TextFor(statusKey); ok {
@@ -2809,7 +2809,7 @@ func TestNativeStatusRetriesAfterTransientSlackFailure(t *testing.T) {
 	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
 	svc.setNativeStatus(ctx, incident, "is investigating...")
 	statusKey := incident.ID + "@" + incident.ConversationThreadTS()
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if firstOf(svc.nativeStatus.TextFor(statusKey)) != "is investigating..." {
@@ -3181,7 +3181,7 @@ func TestSocketPersistsReactionsToResponderMessagesWithoutStartingAgentTurn(t *t
 	}); enqueueErr != nil || !created {
 		t.Fatalf("enqueue reaction target = %v, %v", created, enqueueErr)
 	}
-	delivery, err := st.LeaseSlackDelivery(ctx)
+	delivery, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3388,7 +3388,7 @@ func TestDeletedChannelEventBlocksIncidentAndSuppressesSlackDelivery(t *testing.
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(slackClient.posts) != 0 {
@@ -4314,7 +4314,7 @@ func TestIncidentControlMatchesDeliveredResultMessage(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	delivery, err := st.LeaseSlackDelivery(ctx)
+	delivery, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4811,7 +4811,7 @@ func TestWatchedCorrectionExhaustionQueuesBlockedNotice(t *testing.T) {
 		t.Fatalf("agent finalization should not depend on Slack: %v", err)
 	}
 	for range 4 {
-		err := svc.processSlackDelivery(ctx)
+		err := svc.processSlackDelivery(ctx, nil)
 		if errors.Is(err, store.ErrNotFound) {
 			break
 		}
@@ -5465,7 +5465,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	if slackClient.createChannelCalls != 0 {
 		t.Fatalf("thread task created %d Slack channels", slackClient.createChannelCalls)
 	}
-	if err := svc.processSlackDelivery(ctx); err != nil {
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	incidents, err = st.ListIncidents(ctx, 10)
@@ -5487,7 +5487,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		t.Fatal(err)
 	}
 	for count := 0; count < 4; count++ {
-		err := svc.processSlackDelivery(ctx)
+		err := svc.processSlackDelivery(ctx, nil)
 		if errors.Is(err, store.ErrNotFound) {
 			break
 		}
@@ -5841,7 +5841,7 @@ func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	delivery, err := st.LeaseSlackDelivery(ctx)
+	delivery, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5898,7 +5898,7 @@ func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		delivery, err := st.LeaseSlackDelivery(ctx)
+		delivery, err := st.LeaseSlackDelivery(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -7893,7 +7893,7 @@ func drainSlackDeliveries(
 ) {
 	t.Helper()
 	for range 100 {
-		err := svc.processSlackDelivery(ctx)
+		err := svc.processSlackDelivery(ctx, nil)
 		if errors.Is(err, store.ErrNotFound) {
 			return
 		}

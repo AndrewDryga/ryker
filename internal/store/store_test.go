@@ -60,7 +60,7 @@ func TestIncidentDeliveryAndAgentRunLifecycle(t *testing.T) {
 	}); err != nil || !created {
 		t.Fatalf("enqueue root = %v, %v", created, err)
 	}
-	outbox, err := st.LeaseSlackDelivery(ctx)
+	outbox, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestLeaseSlackDeliveryPreservesMultipartSequence(t *testing.T) {
 		"watch_reply_ordered_part_002",
 		"watch_reply_ordered_part_999",
 	} {
-		delivery, err := st.LeaseSlackDelivery(ctx)
+		delivery, err := st.LeaseSlackDelivery(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -276,7 +276,7 @@ func TestSlackDeliveryFailureCountTracksFailuresNotLeases(t *testing.T) {
 	}); err != nil || !created {
 		t.Fatalf("enqueue = %v, %v", created, err)
 	}
-	leased, err := st.LeaseSlackDelivery(ctx)
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil || leased.Attempts != 0 {
 		t.Fatalf("first lease = %+v, %v", leased, err)
 	}
@@ -285,7 +285,7 @@ func TestSlackDeliveryFailureCountTracksFailuresNotLeases(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	retried, err := st.LeaseSlackDelivery(ctx)
+	retried, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil || retried.Attempts != 1 || retried.LastError != "temporary Slack failure" {
 		t.Fatalf("retry lease = %+v, %v", retried, err)
 	}
@@ -319,7 +319,7 @@ func TestRetryLatestGeneratedVisualIsConversationScoped(t *testing.T) {
 		if created, err := st.EnqueueSlackDelivery(ctx, delivery); err != nil || !created {
 			t.Fatalf("enqueue %s = %t, %v", delivery.ID, created, err)
 		}
-		leased, err := st.LeaseSlackDelivery(ctx)
+		leased, err := st.LeaseSlackDelivery(ctx, nil)
 		if err != nil || leased.ID != delivery.ID {
 			t.Fatalf("lease %s = %+v, %v", delivery.ID, leased, err)
 		}
@@ -367,7 +367,7 @@ func TestSlackDeliveryCoalescingIsIdempotentAndSupersedesOnlyOlderVersions(t *te
 		if created, err := st.EnqueueSlackDelivery(ctx, delivery); err != nil || created {
 			t.Fatalf("idempotent enqueue = %v, %v", created, err)
 		}
-		leased, err := st.LeaseSlackDelivery(ctx)
+		leased, err := st.LeaseSlackDelivery(ctx, nil)
 		if err != nil || leased.ID != delivery.ID {
 			t.Fatalf("identical delivery was superseded = %+v, %v", leased, err)
 		}
@@ -395,7 +395,7 @@ func TestSlackDeliveryCoalescingIsIdempotentAndSupersedesOnlyOlderVersions(t *te
 		if _, err := st.EnqueueSlackDelivery(ctx, current); err != nil {
 			t.Fatal(err)
 		}
-		leased, err := st.LeaseSlackDelivery(ctx)
+		leased, err := st.LeaseSlackDelivery(ctx, nil)
 		if err != nil || leased.ID != current.ID {
 			t.Fatalf("newer delivery did not supersede old = %+v, %v", leased, err)
 		}
@@ -422,7 +422,7 @@ func TestSlackDeliveryCoalescingIsIdempotentAndSupersedesOnlyOlderVersions(t *te
 		if created, err := st.EnqueueSlackDelivery(ctx, stale); err != nil || created {
 			t.Fatalf("stale enqueue = %v, %v", created, err)
 		}
-		leased, err := st.LeaseSlackDelivery(ctx)
+		leased, err := st.LeaseSlackDelivery(ctx, nil)
 		if err != nil || leased.ID != current.ID {
 			t.Fatalf("stale delivery replaced current = %+v, %v", leased, err)
 		}
@@ -477,14 +477,14 @@ func TestSlackStatusGenerationMakesClearMonotonic(t *testing.T) {
 	if err != nil || nextGeneration != clearGeneration+1 {
 		t.Fatalf("persisted status generation = %d, %v", nextGeneration, err)
 	}
-	leased, err := st.LeaseSlackDelivery(ctx)
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil || leased.ID != active.ID || leased.Status == "" {
 		t.Fatalf("pending status was not delivered before clear = %+v, %v", leased, err)
 	}
 	if err := st.FinishSlackDelivery(ctx, leased.ID, "", "sending"); err != nil {
 		t.Fatal(err)
 	}
-	leased, err = st.LeaseSlackDelivery(ctx)
+	leased, err = st.LeaseSlackDelivery(ctx, nil)
 	if err != nil || leased.ID != clear.ID || leased.Status != "" {
 		t.Fatalf("monotonic status clear = %+v, %v", leased, err)
 	}
@@ -1020,7 +1020,7 @@ func TestEmisarApprovalLifecycleBindsDeliveryAndSurvivesTerminalReplay(t *testin
 	); err != nil {
 		t.Fatal(err)
 	}
-	leased, err := st.LeaseSlackDelivery(ctx)
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1455,7 +1455,7 @@ func TestFailedWorkCanBeInspectedAndExplicitlyRetried(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	leasedOutbox, err := st.LeaseSlackDelivery(ctx)
+	leasedOutbox, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1498,7 +1498,7 @@ func TestFailedWorkCanBeInspectedAndExplicitlyRetried(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	leasedUpdate, err := st.LeaseSlackDelivery(ctx)
+	leasedUpdate, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1510,7 +1510,7 @@ func TestFailedWorkCanBeInspectedAndExplicitlyRetried(t *testing.T) {
 	if _, err := st.RetryFailedWork(ctx, "outbox", leasedUpdate.ID); err != nil {
 		t.Fatal(err)
 	}
-	retriedUpdate, err := st.LeaseSlackDelivery(ctx)
+	retriedUpdate, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil || retriedUpdate.ID != leasedUpdate.ID ||
 		retriedUpdate.Operation != "update" {
 		t.Fatalf("legacy alias stranded Slack update = %+v, %v", retriedUpdate, err)

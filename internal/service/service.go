@@ -115,9 +115,9 @@ type Service struct {
 
 	// Process-local coordination state. See caches.go: none of it is durable
 	// truth, and each piece owns its own lock.
-	writeSlot    *localstate.WriteSlot
-	nativeStatus *localstate.NativeStatusTracker
-	historyCache *localstate.SlackHistoryCache
+	channelWrites *localstate.ChannelWriteSlots
+	nativeStatus  *localstate.NativeStatusTracker
+	historyCache  *localstate.SlackHistoryCache
 }
 
 // now is the service clock. Every scheduling window, retry delay, and lease
@@ -209,10 +209,10 @@ func New(
 	return &Service{
 		cfg: cfg, store: st, coop: coopClient, slack: slackClient, socket: socket,
 		sanitizer: sanitizer, log: logger,
-		publisher:    publisher.New(cfg.GitHub),
-		writeSlot:    localstate.NewWriteSlot(localstate.SlackWriteInterval),
-		nativeStatus: localstate.NewNativeStatusTracker(),
-		historyCache: localstate.NewSlackHistoryCache(),
+		publisher:     publisher.New(cfg.GitHub),
+		channelWrites: localstate.NewChannelWriteSlots(localstate.SlackWriteInterval),
+		nativeStatus:  localstate.NewNativeStatusTracker(),
+		historyCache:  localstate.NewSlackHistoryCache(),
 	}
 }
 

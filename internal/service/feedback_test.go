@@ -33,7 +33,7 @@ func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	delivery, err := st.LeaseSlackDelivery(ctx)
+	delivery, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

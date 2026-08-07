@@ -218,25 +218,29 @@ func (s *Service) adoptChannel(
 func (s *Service) processSlackWrite(ctx context.Context) error {
 	// Refreshing a card only enqueues a delivery; it performs no Slack write.
 	// It does call Coop for change inspection, so it deliberately runs outside
-	// the write slot: holding the single Slack write slot across a Coop round
-	// trip would stall every queued reply behind it.
+	// the write slot: holding a Slack write slot across a Coop round trip would
+	// stall every queued reply behind it.
 	if err := s.processCard(ctx); err != nil &&
 		!errors.Is(err, store.ErrNotFound) {
 		return err
 	}
-	// Defer to the exact moment the slot reopens. Reporting success instead
-	// would requeue this recurring item as immediately available and spin the
-	// lane against the single database connection for the whole window.
-	wait, ok := s.writeSlot.Acquire(s.now())
-	if !ok {
-		return deferScheduledWork(s.now().Add(wait), "Slack write slot is cooling down")
+	// Slack rate-limits chat.postMessage per channel, so a busy incident room
+	// must not hold up an answer somewhere unrelated. Skip the channels that
+	// are still cooling and take work for another one; only when every ready
+	// delivery belongs to a cooling channel is there anything to wait for.
+	now := s.now()
+	cooling := s.channelWrites.Cooling(now)
+	err := s.processSlackDelivery(ctx, cooling)
+	if errors.Is(err, store.ErrNotFound) && len(cooling) > 0 {
+		if wait := s.channelWrites.NextReopen(now); wait > 0 {
+			return deferScheduledWork(now.Add(wait), "every ready Slack write is cooling down")
+		}
 	}
-	defer func() { s.writeSlot.Release(s.now()) }()
-	return s.processSlackDelivery(ctx)
+	return err
 }
 
-func (s *Service) processSlackDelivery(ctx context.Context) error {
-	item, err := s.store.LeaseSlackDelivery(ctx)
+func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) error {
+	item, err := s.store.LeaseSlackDelivery(ctx, cooling)
 	if err != nil {
 		return err
 	}
@@ -314,6 +318,9 @@ func (s *Service) processSlackDelivery(ctx context.Context) error {
 	default:
 		err = fmt.Errorf("unsupported Slack delivery operation %q", item.Operation)
 	}
+	// Record the attempt, not just the success: a rate-limited or failed write
+	// consumed the channel's budget just as surely as a delivered one.
+	s.channelWrites.Record(item.ChannelID, s.now())
 	if err != nil {
 		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
 		uncertain := item.Operation == "post" || item.Operation == "file"

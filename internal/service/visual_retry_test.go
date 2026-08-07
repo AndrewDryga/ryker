@@ -58,7 +58,7 @@ func TestSlackVisualFollowupRetriesRetainedFileWithoutAgentRun(t *testing.T) {
 	}); err != nil || !created {
 		t.Fatalf("enqueue retained visual = %t, %v", created, err)
 	}
-	leased, err := st.LeaseSlackDelivery(ctx)
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

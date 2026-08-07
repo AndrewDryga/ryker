@@ -219,7 +219,7 @@ func TestSlackDeliveryIsBoundToEpisodeDestinationRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.LeaseSlackDelivery(ctx); !errors.Is(err, ErrNotFound) {
+	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stale delivery remained leaseable: %v", err)
 	}
 	old, err := st.GetSlackDelivery(ctx, "delivery-old")
@@ -235,7 +235,7 @@ func TestSlackDeliveryIsBoundToEpisodeDestinationRevision(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("enqueue current delivery = %t, %v", created, err)
 	}
-	leased, err := st.LeaseSlackDelivery(ctx)
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil || leased.ID != "delivery-current" {
 		t.Fatalf("lease current delivery = %+v, %v", leased, err)
 	}

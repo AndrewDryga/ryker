@@ -619,7 +619,7 @@ func TestWaitForSlackReplayRequiresCompletedRunAndSentReply(t *testing.T) {
 	}); err != nil || !created {
 		t.Fatalf("enqueue replay delivery = %v, %v", created, err)
 	}
-	delivery, err := st.LeaseSlackDelivery(ctx)
+	delivery, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
