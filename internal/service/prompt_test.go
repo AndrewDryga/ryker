@@ -250,3 +250,60 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 		}
 	}
 }
+
+// staticWatchPromptBytes is the size of the instruction block on the turn that
+// enables every conditional section — the largest the static prompt gets.
+//
+// It is pinned because the number is a budget, not a curiosity. The transport
+// caps a prompt at coop.MaxPromptBytes and elides the middle of anything over,
+// which cuts through the structured context. Every byte of instruction is a
+// byte of conversation the model does not get to see, and instructions grow by
+// accretion: nobody adds a paragraph believing it is the one that pushes a
+// real thread out of the window.
+//
+// Measured in production on 2026-08-07: assembled prompts ran a median 3.2 KiB
+// over the cap across 89 truncations in a day. Freeing 4 KiB of instruction
+// would have prevented 91% of them; 8 KiB, all of them.
+const staticWatchPromptBytes = 48224
+
+// The static prompt must not grow without someone deciding it should.
+//
+// This is a two-sided bound on purpose. Over the pin means the instructions
+// grew and something has to give. Under it means a compression landed and the
+// pin should come down to lock the win in — a ratchet that only ever loosens
+// is not a ratchet.
+func TestStaticWatchPromptSizeIsPinned(t *testing.T) {
+	cfg := serviceConfig(t)
+	prompt := (&Service{cfg: cfg}).watchPrompt(
+		core.SlackInput{
+			ChannelID: "C123ABC", MessageTS: "1700.001",
+			UserID: cfg.Slack.Operators[0], Kind: "scheduled",
+			Text: "How is the health of our infrastructure?",
+		},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, "", nil, watchPromptBudget(0),
+	)
+	switch {
+	case len(prompt) > staticWatchPromptBytes:
+		t.Fatalf(
+			"static watch prompt grew to %d bytes, over its pin of %d.\n"+
+				"Every byte here is a byte of conversation the model cannot see. "+
+				"Compress something else out, or raise the pin deliberately.",
+			len(prompt), staticWatchPromptBytes,
+		)
+	case len(prompt) < staticWatchPromptBytes:
+		t.Fatalf(
+			"static watch prompt is %d bytes, under its pin of %d — "+
+				"lower staticWatchPromptBytes to %d to keep the saving.",
+			len(prompt), staticWatchPromptBytes, len(prompt),
+		)
+	}
+	// The pin is only meaningful if the prompt actually leaves room for a
+	// conversation. This is the number that matters to answer quality.
+	if room := coop.MaxPromptBytes - len(prompt); room < 8<<10 {
+		t.Fatalf(
+			"instructions leave only %d bytes for conversation and evidence",
+			room,
+		)
+	}
+}
