@@ -121,10 +121,7 @@ func Open(stateDir string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	store := &Store{db: db}
-	store.Schedules = schedulestore.New(db, func() time.Time { return store.now() })
-	store.Memory = memorystore.New(db, func() time.Time { return store.now() })
-	store.Intelligence = intelligencestore.New(db, func() time.Time { return store.now() })
-	store.Behavior = behaviorstore.New(db, func() time.Time { return store.now() })
+	store.attachRepositories(db)
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("open database: %w", err)
@@ -342,6 +339,7 @@ func openCurrent(stateDir string, readOnly bool) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	store := &Store{db: db}
+	store.attachRepositories(db)
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("open database: %w", err)
@@ -993,6 +991,22 @@ func (s *Store) now() time.Time {
 
 func (s *Store) nowText() string {
 	return s.now().UTC().Format(timestampFormat)
+}
+
+// attachRepositories wires the extracted repositories onto a store.
+//
+// Both constructors call it, and that is the point. When only Open did, every
+// command that opens read-only — record-episode, correction-rate,
+// promote-fixtures, audit-result-protocol — got a store whose Memory,
+// Intelligence, Behavior and Schedules were nil, and calling one of them hung
+// or crashed. Nothing caught it, because no test opened a database read-only
+// and then used a repository.
+func (s *Store) attachRepositories(db *sql.DB) {
+	clock := func() time.Time { return s.now() }
+	s.Schedules = schedulestore.New(db, clock)
+	s.Memory = memorystore.New(db, clock)
+	s.Intelligence = intelligencestore.New(db, clock)
+	s.Behavior = behaviorstore.New(db, clock)
 }
 
 // SetClock replaces the store clock. It exists for tests.
