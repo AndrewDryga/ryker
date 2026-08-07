@@ -286,8 +286,12 @@ func TestCoopSupervisorReportsExitBeforeReadiness(t *testing.T) {
 
 func TestCoopSupervisorReportsAuthenticationRemediation(t *testing.T) {
 	root := t.TempDir()
+	// Verbatim from `coop sessions serve` on an unauthenticated ladder rung. It
+	// names the rung by index and the account as a credential; matching a
+	// remembered older wording here would pass while the real diagnostic went
+	// unrecognised, which is the whole failure this remediation replaces.
 	script := writeSupervisorScript(t, `#!/bin/sh
-echo '✗ policy "emisar-observe": target account "personal" is not authenticated' >&2
+echo '✗ policy "emisar-observe": target[0] credential "personal" is not authenticated' >&2
 exit 1
 `)
 	cfg := supervisorTestConfig(root, script)
@@ -295,7 +299,7 @@ exit 1
 policies:
   emisar-observe:
     repository: /tmp/emisar
-    target: codex:gpt-5.6/medium@personal
+    target: [codex:gpt-5.6/medium@personal, claude@oncall]
 `
 	if err := os.WriteFile(cfg.Coop.Policies, []byte(policies), 0o600); err != nil {
 		t.Fatal(err)
@@ -323,7 +327,7 @@ policies:
 			t.Fatalf("authentication error = %q; missing %q", err, want)
 		}
 	}
-	if !strings.Contains(output.String(), `target account "personal" is not authenticated`) {
+	if !strings.Contains(output.String(), `target[0] credential "personal" is not authenticated`) {
 		t.Fatalf("managed Coop output was not forwarded: %q", output.String())
 	}
 	if err := supervisor.Close(waitCtx); err != nil {

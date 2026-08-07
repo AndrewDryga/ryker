@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/emisar"
+	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -379,6 +380,36 @@ func TestExplicitAgentRunCancellationIsTerminal(t *testing.T) {
 		staged.TerminalState != "cancelled" || staged.Failures != 0 {
 		t.Fatalf("explicit cancellation = %+v, %v", staged, err)
 	}
+}
+
+// An exhausted target ladder is the providers saying "not now", not the run
+// failing. Coop has already tried every rung by the time it surfaces this, so
+// it must wait rather than be replayed like a transport blip — replaying spends
+// attempts against a window that has not moved, and once they are spent the
+// operator gets an error for work that was never wrong. The wait itself is
+// [provider.LadderRetryDelay]; this pins that it never reaches the paths that
+// would count it.
+func TestExhaustedTargetLadderWaitsInsteadOfBurningAttempts(t *testing.T) {
+	limited := coop.Turn{
+		ErrorCode:   "rate_limited",
+		ErrorDetail: "every target in the policy ladder is rate limited until 2026-08-07T18:30:00Z",
+	}
+	if !provider.LadderExhausted(limited.ErrorCode) {
+		t.Fatal("an exhausted ladder was not recognised as a provider refusal")
+	}
+	if terminalACPEnvironmentFailure(limited) {
+		t.Fatal("an exhausted ladder was treated as a terminal environment failure")
+	}
+	if replayAgentRunInFreshSession(limited) {
+		t.Fatal("an exhausted ladder discarded the session; the session is fine, the rungs are cooling")
+	}
+	// It must not reach the ordinary replay path, which counts the attempt.
+	if reason, replay := replayAgentRunFailure(
+		core.AgentRun{Failures: 0}, "turn.failed", limited, 20,
+	); replay || reason != "" {
+		t.Fatalf("an exhausted ladder was replayed as a failure = %q, %t", reason, replay)
+	}
+
 }
 
 func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {

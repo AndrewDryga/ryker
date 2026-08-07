@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 // Session policies name a model account per policy. Nothing verifies those
@@ -31,13 +33,77 @@ import (
 // diagnosis take three wrong turns. Coop's own credential list is the source of
 // truth, so that is what this asks.
 
-// policyTargetPattern pulls the agent and account out of a session policy
+// policyTargetPattern pulls the agent and account out of ONE session policy
 // target such as `codex:gpt-5.6-sol/xhigh@oncall`. The model and effort in the
 // middle are deliberately not captured: an unknown model fails loudly on first
 // use with a message naming it, whereas a missing account does not.
-var policyTargetPattern = regexp.MustCompile(
-	`(?m)^\s*target:\s*([a-z0-9_-]+)[^@\s]*@([a-z0-9_-]+)\s*$`,
-)
+var policyTargetPattern = regexp.MustCompile(`^([a-z0-9_-]+)[^@\s]*@([a-z0-9_-]+)$`)
+
+// policyTargets collects every credential named by every policy's `target:`.
+//
+// This reads the YAML rather than matching lines because `target:` now takes a
+// fallback ladder as well as a single target, in flow or block form. A
+// line-anchored regex matches NOTHING on a list — and finding no targets is
+// indistinguishable from finding no problems, so the check would pass while
+// vouching for nothing. That silent pass is the exact failure this file exists
+// to prevent, one level up.
+//
+// Only the one field is read, loosely: Coop's parser owns that file's schema,
+// and a field added there must not stop Responder from starting.
+func policyTargets(data []byte) (map[string]map[string]bool, error) {
+	var file struct {
+		Policies map[string]struct {
+			Target yaml.Node `yaml:"target"`
+		} `yaml:"policies"`
+	}
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("parse session policies: %w", err)
+	}
+	wanted := map[string]map[string]bool{}
+	for name, policy := range file.Policies {
+		rungs, err := policyTargetRungs(&policy.Target)
+		if err != nil {
+			return nil, fmt.Errorf("policy %q: %w", name, err)
+		}
+		for _, rung := range rungs {
+			match := policyTargetPattern.FindStringSubmatch(rung)
+			if match == nil {
+				// A rung with no @credential runs on that provider's default,
+				// which Coop resolves when it loads the policy. There is no
+				// name here to check, so there is nothing to vouch for.
+				continue
+			}
+			if wanted[match[1]] == nil {
+				wanted[match[1]] = map[string]bool{}
+			}
+			wanted[match[1]][match[2]] = true
+		}
+	}
+	return wanted, nil
+}
+
+// policyTargetRungs reads a `target:` as either one target or an ordered ladder.
+func policyTargetRungs(node *yaml.Node) ([]string, error) {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		return []string{strings.TrimSpace(node.Value)}, nil
+	case yaml.SequenceNode:
+		rungs := make([]string, 0, len(node.Content))
+		for index, item := range node.Content {
+			if item.Kind != yaml.ScalarNode {
+				return nil, fmt.Errorf("target[%d] is not a target", index)
+			}
+			rungs = append(rungs, strings.TrimSpace(item.Value))
+		}
+		return rungs, nil
+	case 0:
+		// Coop requires a target and rejects the file without one. Responder
+		// does not re-litigate its schema.
+		return nil, nil
+	default:
+		return nil, errors.New("target must be a target or a list of targets")
+	}
+}
 
 // accountLister reports which accounts an agent has signed in.
 type accountLister func(ctx context.Context, agent string) ([]string, error)
@@ -94,13 +160,9 @@ func validatePolicyAccounts(
 	if err != nil {
 		return fmt.Errorf("read session policies: %w", err)
 	}
-	wanted := map[string]map[string]bool{}
-	for _, match := range policyTargetPattern.FindAllStringSubmatch(string(policies), -1) {
-		agent, account := match[1], match[2]
-		if wanted[agent] == nil {
-			wanted[agent] = map[string]bool{}
-		}
-		wanted[agent][account] = true
+	wanted, err := policyTargets(policies)
+	if err != nil {
+		return err
 	}
 
 	var missing []string

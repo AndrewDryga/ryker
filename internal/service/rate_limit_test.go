@@ -92,7 +92,7 @@ func TestSpentQuotaWaitsInsteadOfFailing(t *testing.T) {
 		t.Fatalf("a spent quota was reported in Slack: %+v", slack.posts)
 	}
 	// It waits longer than a rate limit would.
-	if !after.NextAttemptAt.After(svc.now().Add(rateLimitRetryDelay)) {
+	if !after.NextAttemptAt.After(svc.now().Add(provider.RateLimitRetryDelay)) {
 		t.Fatalf("a quota is retried as soon as a rate limit: %v", after.NextAttemptAt)
 	}
 }

@@ -1307,8 +1307,8 @@ func advanceFailedSessionGeneration(err error) bool {
 // boundary rather than in a burst window; retrying every five minutes for days
 // would be pointless load. Neither spends an attempt.
 var providerBackoff = map[string]time.Duration{
-	provider.KindRateLimit:  rateLimitRetryDelay,
-	provider.KindUsageLimit: usageLimitRetryDelay,
+	provider.KindRateLimit:  provider.RateLimitRetryDelay,
+	provider.KindUsageLimit: provider.UsageLimitRetryDelay,
 }
 
 func (s *Service) requeueIfRateLimited(
@@ -1470,6 +1470,10 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 			continue
 		}
 		switch event.Type {
+		// session.target_rotated needs no handling: Coop rotated the ladder
+		// mid-turn and re-delivered the prompt itself, and every Responder
+		// prompt restates its own durable context, so the run depends on
+		// nothing the hop dropped. Coop logs it and the event is durable.
 		case "turn.completed", "turn.failed", "turn.cancelled":
 			turn, err := s.coop.GetTurn(ctx, run.SessionID, run.CoopTurnID)
 			if err != nil {
@@ -1975,14 +1979,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 		} else {
 			reason := "waiting for the managed Coop execution image: " + trimError(err)
 			delay := max(30*time.Second, queueDelayDuration(run.Failures+1))
-			if run.Mode == core.AgentRunTriage {
-				if clearErr := s.parkWatchRunPendingStatus(ctx, run); clearErr != nil {
-					s.log.Warn(
-						"clear watched Slack status while Coop is unavailable",
-						"run", run.ID, "error", clearErr,
-					)
-				}
-			}
+			s.parkWatchedStatus(ctx, run, "clear watched Slack status while Coop is unavailable")
 			if err := s.store.DeferRunningAgentRun(
 				ctx, run.ID, reason, cursor, s.now().Add(delay),
 			); err != nil {
@@ -1997,6 +1994,25 @@ func (s *Service) stagePolledAgentRunTerminal(
 			)
 			return nil
 		}
+	}
+	if provider.LadderExhausted(turn.ErrorCode) {
+		next := s.now().Add(provider.LadderRetryDelay(detail, s.now()))
+		reason := "Coop reports " + detail + "; the work stays queued"
+		s.parkWatchedStatus(ctx, run, "clear watched Slack status while every model is rate limited")
+		if err := s.store.DeferRunningAgentRun(
+			ctx, run.ID, reason, cursor, next,
+		); err != nil {
+			return err
+		}
+		if run.Mode == core.AgentRunTriage {
+			_ = s.advanceTriageSessionEvents(ctx, run, cursor)
+		}
+		s.log.Warn(
+			"every model in the Coop policy ladder is rate limited; work remains queued",
+			"run", run.ID, "retry_at", next.UTC().Format(time.RFC3339),
+			"detail", detail,
+		)
+		return nil
 	}
 	if reason, replay := replayAgentRunFailure(
 		run, eventType, turn, s.cfg.Limits.MaxAgentRunAttempts,
@@ -2266,6 +2282,18 @@ func replayAgentRunInFreshSession(turn coop.Turn) bool {
 		(turn.ErrorCode == "acp_process_error" &&
 			strings.Contains(detail, "acp child closed before its response")) ||
 		transcriptOverflow(turn)
+}
+
+// parkWatchedStatus clears a watched channel's pending Slack status when a run
+// is about to wait rather than answer, so the channel does not sit showing work
+// in progress. Failing to clear it is cosmetic and never blocks the wait.
+func (s *Service) parkWatchedStatus(ctx context.Context, run core.AgentRun, why string) {
+	if run.Mode != core.AgentRunTriage {
+		return
+	}
+	if err := s.parkWatchRunPendingStatus(ctx, run); err != nil {
+		s.log.Warn(why, "run", run.ID, "error", err)
+	}
 }
 
 func terminalACPEnvironmentFailure(turn coop.Turn) bool {

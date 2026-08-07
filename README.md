@@ -129,6 +129,17 @@ sudo -u responder env COOP_CONFIG_DIR=/var/lib/responder/coop/agents \
   coop login codex@oncall
 ```
 
+A policy's `target` may instead be an ordered fallback ladder of up to four targets, which may
+cross providers:
+
+```yaml
+    target: [codex:gpt-5.6/medium@oncall, claude@oncall]
+```
+
+Coop moves a rate-limited session to the next rung and re-delivers the same turn, so a usage limit
+mid-incident costs a retry rather than the investigation. Sign in every rung — `responder doctor`
+checks all of them, not just the one sessions start on.
+
 The policy repositories must already be canonical Git worktrees owned by or writable to
 `responder`; cloning them as that account under `/srv/repos` is the simplest setup:
 

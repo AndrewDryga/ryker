@@ -9,7 +9,64 @@ package provider
 
 import (
 	"strings"
+	"time"
 )
+
+// RateLimitRetryDelay is how long a rate-limited run waits before asking again.
+//
+// Fixed rather than the exponential backoff other retries use, because there is
+// no attempt count to grow it from — a rate limit deliberately does not spend
+// one. Five minutes is the ceiling that backoff reaches anyway, and it is long
+// enough that repeated waits do not themselves become the load the provider was
+// complaining about.
+//
+// There is no attempt limit on purpose. A rate limit recovers; a quota does
+// not, and that is a different classification (KindUsageLimit) which still
+// fails normally. Work waits here rather than being abandoned.
+const RateLimitRetryDelay = 5 * time.Minute
+
+// UsageLimitRetryDelay is how long a run waits when the provider's quota is
+// spent.
+//
+// Much longer than a rate limit, because a quota recovers on a billing boundary
+// rather than in a burst window — the observed message was "try again at Aug
+// 11th", four days out. Checking every half hour costs nothing and notices the
+// moment it clears; checking every five minutes would be pointless load on a
+// provider that has already said no.
+const UsageLimitRetryDelay = 30 * time.Minute
+
+// LadderExhausted reports a Coop turn that failed because every rung of its
+// session policy's target ladder was rate limited.
+//
+// Coop rotates across the ladder itself and only reports this once no rung is
+// free, so it is every provider refusing at once rather than the run doing
+// anything wrong. Like the refusals Classify names, it must not spend an
+// attempt: a busy afternoon would otherwise exhaust the run and hand the
+// operator an error for work that was fine.
+func LadderExhausted(errorCode string) bool { return errorCode == "rate_limited" }
+
+// LadderRetryDelay is how long to wait before asking an exhausted ladder again.
+//
+// Coop stamps the soonest rung reset into the detail, which beats guessing at
+// it. The wait is still capped at the quota delay, so an operator who signs in
+// another credential — or a provider that frees up early — is picked up without
+// sitting out the original window. A detail carrying no parseable reset falls
+// back to the standard wait rather than failing.
+func LadderRetryDelay(detail string, now time.Time) time.Duration {
+	const marker = "rate limited until "
+	index := strings.LastIndex(detail, marker)
+	if index < 0 {
+		return RateLimitRetryDelay
+	}
+	reset, err := time.Parse(time.RFC3339, strings.TrimSpace(detail[index+len(marker):]))
+	if err != nil {
+		return RateLimitRetryDelay
+	}
+	if until := reset.Sub(now); until > RateLimitRetryDelay {
+		return min(until, UsageLimitRetryDelay)
+	}
+	return RateLimitRetryDelay
+}
 
 // Kinds a caller may need to branch on. Named rather than compared as strings
 // at the call site, so a rename here cannot leave a stale comparison behind.

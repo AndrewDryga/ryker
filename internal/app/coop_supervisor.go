@@ -647,7 +647,9 @@ func processResult(err error) string {
 }
 
 func coopAuthenticationRemediation(cfg config.Config, output string) string {
-	const accountPrefix = `target account "`
+	// Coop names the rung as `target` or `target[i]` and calls the account a
+	// credential, so match on the credential clause rather than a fixed label.
+	const accountPrefix = `credential "`
 	const accountSuffix = `" is not authenticated`
 	accountStart := strings.LastIndex(output, accountPrefix)
 	if accountStart < 0 {
@@ -661,7 +663,7 @@ func coopAuthenticationRemediation(cfg config.Config, output string) string {
 	account := output[accountStart : accountStart+accountEnd]
 
 	const policyPrefix = `policy "`
-	const policySuffix = `": target account`
+	const policySuffix = `": target`
 	policyStart := strings.LastIndex(output[:accountStart], policyPrefix)
 	if policyStart < 0 {
 		return ""
@@ -679,19 +681,36 @@ func coopAuthenticationRemediation(cfg config.Config, output string) string {
 	}
 	var policyFile struct {
 		Policies map[string]struct {
-			Target string `yaml:"target"`
+			Target yaml.Node `yaml:"target"`
 		} `yaml:"policies"`
 	}
 	if err := yaml.Unmarshal(data, &policyFile); err != nil {
 		return ""
 	}
-	target, ok := policyFile.Policies[policyName]
+	policy, ok := policyFile.Policies[policyName]
 	if !ok {
 		return ""
 	}
-	provider := target.Target
-	if separator := strings.IndexAny(provider, ":/@"); separator >= 0 {
-		provider = provider[:separator]
+	// A target may be a fallback ladder. Decoding it as a plain string fails on
+	// a list, which would silently drop the remediation and leave the operator
+	// with Coop's bare "not authenticated" — the diagnostic this exists to
+	// replace.
+	rungs, err := policyTargetRungs(&policy.Target)
+	if err != nil || len(rungs) == 0 {
+		return ""
+	}
+	// The credential Coop named says which rung is broken. A rung that pins no
+	// credential runs on the provider's default, so the first rung stays the
+	// answer when nothing matches by name.
+	provider := ""
+	for _, rung := range rungs {
+		if rungProvider, rungAccount := splitTargetRung(rung); rungAccount == account {
+			provider = rungProvider
+			break
+		}
+	}
+	if provider == "" {
+		provider, _ = splitTargetRung(rungs[0])
 	}
 	if provider == "" || account == "" {
 		return ""
@@ -704,6 +723,18 @@ func coopAuthenticationRemediation(cfg config.Config, output string) string {
 		shellWord(cfg.Coop.Binary),
 		shellWord(loginTarget),
 	)
+}
+
+// splitTargetRung separates one target's provider from its pinned credential.
+func splitTargetRung(rung string) (provider, account string) {
+	provider = strings.TrimSpace(rung)
+	if at := strings.IndexByte(provider, '@'); at >= 0 {
+		provider, account = provider[:at], provider[at+1:]
+	}
+	if separator := strings.IndexAny(provider, ":/"); separator >= 0 {
+		provider = provider[:separator]
+	}
+	return provider, account
 }
 
 func shellWord(value string) string {

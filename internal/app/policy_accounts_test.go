@@ -88,6 +88,62 @@ func TestUnsupervisedCoopIsNotVouchedFor(t *testing.T) {
 	}
 }
 
+// A fallback ladder is only worth having if every rung can actually run. The
+// rung a session starts on is the one that gets exercised in testing; a
+// fallback rung nobody signed in is discovered at the worst possible moment —
+// when the first rung is already rate limited mid-incident.
+func TestEveryRungOfATargetLadderIsChecked(t *testing.T) {
+	for name, body := range map[string]string{
+		"flow list": "policies:\n  a:\n    target: [codex:gpt-5.6-sol/xhigh@personal, codex@oncall]\n",
+		"block list": "policies:\n  a:\n    target:\n" +
+			"      - codex:gpt-5.6-sol/xhigh@personal\n      - codex@oncall\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validatePolicyAccounts(context.Background(), policiesFile(t, body),
+				func(context.Context, string) ([]string, error) {
+					return parseCoopAccounts(coopCredentialsOutput), nil
+				})
+			if err == nil {
+				t.Fatal("a ladder whose fallback rung is not signed in was accepted")
+			}
+			if !strings.Contains(err.Error(), "codex@oncall") ||
+				!strings.Contains(err.Error(), "coop login codex@oncall") {
+				t.Fatalf("error does not name the unusable rung: %v", err)
+			}
+		})
+	}
+}
+
+// The regression that made this file YAML-aware: a ladder is not a single
+// target on a line, so line matching finds nothing in it — and finding no
+// targets looks exactly like finding no problems. A check that silently
+// vouches for nothing is worse than no check, because startup then claims the
+// credentials were verified.
+func TestALadderIsNeverSilentlyUnchecked(t *testing.T) {
+	wanted, err := policyTargets([]byte(
+		"policies:\n  a:\n    target: [codex@oncall, claude@relief]\n",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !wanted["codex"]["oncall"] || !wanted["claude"]["relief"] {
+		t.Fatalf("ladder rungs were not collected: %+v", wanted)
+	}
+}
+
+// A rung with no @credential runs on the provider's default, which Coop
+// resolves when it loads the policy. There is no name here to verify, and
+// inventing one would fail startup on a policy Coop accepts.
+func TestRungWithoutACredentialIsNotInvented(t *testing.T) {
+	cfg := policiesFile(t, "policies:\n  a:\n    target: [codex:gpt-5.6-sol/xhigh@personal, claude]\n")
+	if err := validatePolicyAccounts(context.Background(), cfg,
+		func(context.Context, string) ([]string, error) {
+			return parseCoopAccounts(coopCredentialsOutput), nil
+		}); err != nil {
+		t.Fatalf("a default-credential rung was reported as missing: %v", err)
+	}
+}
+
 // Every distinct account across every policy is reported, not just the first.
 func TestAllMissingAccountsAreNamed(t *testing.T) {
 	cfg := policiesFile(t, `policies:

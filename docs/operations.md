@@ -11,7 +11,8 @@ In the default external mode (`coop.supervise: false`), startup order is:
 
 1. load secrets;
 2. run `responder bootstrap-coop`;
-3. authenticate each policy target with `COOP_CONFIG_DIR=<bootstrap_dir> coop login <agent>@<account>`;
+3. authenticate every policy target with `COOP_CONFIG_DIR=<bootstrap_dir> coop login <agent>@<account>`,
+   including every rung of a policy whose `target` is a fallback ladder;
 4. start `coop sessions serve`;
 5. run `responder doctor` to validate database integrity, current Coop bootstrap content, bot
    scopes, configured operators, invite users, summon channels and watch channels, an actual
@@ -162,6 +163,16 @@ restart cannot lose an accepted result; they are never copied into prompts, evid
 
 Coop requests reuse the same idempotency key and frozen request body. Non-retryable Coop conflicts
 stop the action and remain visible; they are never rewritten with a guessed revision.
+
+A provider rate limit is not a failure and never spends an attempt. When a policy `target` is a
+fallback ladder, Coop rotates the session onto the next rung that is not cooling and re-delivers
+the turn itself, so Responder sees an ordinary completion on a different model; the rotation is
+logged and recorded as a `session.target_rotated` event. Responder restates its durable context in
+every prompt, so a rotation that crosses providers — which drops the model's own in-session
+history — costs the model's prior reasoning and nothing the run depends on. Only when every rung is
+cooling does the turn fail with `rate_limited`; the run then waits and is retried, using the reset
+instant Coop reports, re-checking at least every 30 minutes so a newly signed-in credential is
+picked up without waiting out the original window.
 
 Watched Slack feeds use one current Coop session generation per configured channel. Messages are
 serialized by Slack message timestamp within each channel and can proceed independently across

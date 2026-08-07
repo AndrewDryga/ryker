@@ -1,4 +1,10 @@
 version: 1
+# `target` takes one target, or a list of up to 4 forming an ordered fallback ladder that may
+# cross providers. When a provider rate limits a turn mid-incident, Coop moves the session to the
+# next rung that is not cooling and re-delivers the same turn, so a usage limit costs a retry
+# instead of the investigation. Every rung must already be signed in — `responder doctor` checks
+# all of them, not just the one sessions start on. When every rung is cooling the turn waits and
+# is retried rather than failing the work.
 policies:
   # One writable primary plus operator-pinned read-only companion snapshots.
   platform-observe:
@@ -6,7 +12,7 @@ policies:
     companions:
       - name: backend
         repository: /srv/repos/backend
-    target: codex:gpt-5.6/medium@oncall
+    target: [codex:gpt-5.6/medium@oncall, claude@oncall]
     max_turns: 100
     max_queued_turns: 20
     max_queued_bytes: 1048576
@@ -15,7 +21,7 @@ policies:
 
   infrastructure-observe:
     repository: /srv/repos/infrastructure
-    target: codex:gpt-5.6/medium@oncall
+    target: [codex:gpt-5.6/medium@oncall, claude@oncall]
     max_turns: 100
     max_queued_turns: 20
     max_queued_bytes: 1048576
@@ -24,7 +30,7 @@ policies:
 
   backend-observe:
     repository: /srv/repos/backend
-    target: codex:gpt-5.6/medium@oncall
+    target: [codex:gpt-5.6/medium@oncall, claude@oncall]
     max_turns: 100
     max_queued_turns: 20
     max_queued_bytes: 1048576
