@@ -88,7 +88,7 @@ var lineBudget = map[string]int{
 	// moved down except here, where rate-limit requeueing added a new store
 	// operation rather than moving an existing one. Keep lowering it as more
 	// areas land.
-	"store":      10845,
+	"store":      10990,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
