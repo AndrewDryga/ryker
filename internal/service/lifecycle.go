@@ -85,7 +85,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"rules", rules,
 		)
 	}
-	if schedules, err := s.store.PruneOrphanSchedules(ctx, repositories); err != nil && ctx.Err() == nil {
+	if schedules, err := s.store.Schedules.PruneOrphanSchedules(ctx, repositories); err != nil && ctx.Err() == nil {
 		s.log.Warn("orphaned scheduled task pruning failed", "error", err)
 	} else if schedules > 0 {
 		s.log.Info("pruned orphaned scheduled tasks", "records", schedules)

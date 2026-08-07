@@ -750,7 +750,7 @@ func TestWatchedScheduleAndRunbookRequestUsesEmisarAndOffersSchedule(t *testing.
 	if err != nil || state.OfferedTaskTitle != "" || state.OfferedTaskRepository != "" {
 		t.Fatalf("runbook request became a repository task = %+v, %v", state, err)
 	}
-	if schedules, err := st.ListScheduledTasksForChannel(ctx, source.ChannelID, 10); err != nil || len(schedules) != 0 {
+	if schedules, err := st.Schedules.ListScheduledTasksForChannel(ctx, source.ChannelID, 10); err != nil || len(schedules) != 0 {
 		t.Fatalf("schedule was created before confirmation = %+v, %v", schedules, err)
 	}
 	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
@@ -768,7 +768,7 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 	}
 	defer st.Close()
 	now := time.Now().UTC().Truncate(time.Second)
-	existing, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
+	existing, err := st.Schedules.CreateScheduledTask(ctx, core.ScheduledTask{
 		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", ThreadTS: "1700.800", DeliveryChannel: "CREPORTS",
 		Repository: "repo", Title: "Daily report v3", Prompt: "Execute whole-platform-health-review-v3@3.",
 		Recurrence: "daily", StartAt: now.Add(time.Hour), LocalTime: "09:00", Timezone: "America/Mexico_City",
@@ -842,7 +842,7 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 	if !strings.Contains(strings.ToLower(message.Text), "scheduled") {
 		t.Fatalf("activation receipt = %+v", message)
 	}
-	schedules, err := st.ListScheduledTasksForChannel(ctx, "CWATCH", 10)
+	schedules, err := st.Schedules.ListScheduledTasksForChannel(ctx, "CWATCH", 10)
 	if err != nil || len(schedules) != 1 {
 		t.Fatalf("daily schedules = %+v, err=%v", schedules, err)
 	}

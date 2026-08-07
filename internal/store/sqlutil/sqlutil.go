@@ -74,7 +74,7 @@ func BoundedError(value string) string {
 // iterating call sites.
 //
 // Shared for the same reason as everything else here: it was defined three
-// times across store, memorystore and scheduleproposal.
+// times across store, memorystore and schedulestore.
 type RowScanner interface {
 	Scan(dest ...any) error
 }

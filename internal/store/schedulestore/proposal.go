@@ -1,4 +1,4 @@
-package scheduleproposal
+package schedulestore
 
 import (
 	"context"
@@ -29,25 +29,43 @@ const taskSelect = `
 
 var ErrNotFound = errors.New("schedule proposal not found")
 
+// Repository owns scheduling end to end: the proposal, its acceptance, the
+// resulting task, and its runs.
+//
+// One repository over all three tables on purpose. It was two — proposals here,
+// tasks and runs on the store — and they wrote the same rows, which is one
+// owner too many for their invariants.
 type Repository struct {
-	db  *sql.DB
-	now func() time.Time
+	db    *sql.DB
+	clock func() time.Time
 }
 
-func New(db *sql.DB, now func() time.Time) *Repository {
-	return &Repository{db: db, now: now}
+// New builds a repository over an already-migrated database.
+func New(db *sql.DB, clock func() time.Time) *Repository {
+	return &Repository{db: db, clock: clock}
+}
+
+func (r *Repository) now() time.Time {
+	if r.clock != nil {
+		return r.clock().UTC()
+	}
+	return time.Now().UTC()
+}
+
+func (r *Repository) nowText() string {
+	return r.now().Format(core.TimestampFormat)
 }
 
 // Create keeps the full normalized task server-side before Slack renders an
 // inert confirmation control containing only the proposal ID.
-func (s *Repository) Create(ctx context.Context, proposal core.ScheduleProposal) (core.ScheduleProposal, error) {
+func (r *Repository) Create(ctx context.Context, proposal core.ScheduleProposal) (core.ScheduleProposal, error) {
 	if proposal.TeamID == "" || proposal.ChannelID == "" || proposal.ActorID == "" || proposal.SourceRef == "" {
 		return core.ScheduleProposal{}, errors.New("schedule proposal identity is incomplete")
 	}
 	if err := validateTask(proposal.Task); err != nil {
 		return core.ScheduleProposal{}, err
 	}
-	now := s.currentTime()
+	now := r.now()
 	if proposal.ExpiresAt.IsZero() {
 		proposal.ExpiresAt = now.Add(24 * time.Hour)
 	}
@@ -68,7 +86,7 @@ func (s *Repository) Create(ctx context.Context, proposal core.ScheduleProposal)
 	if err != nil {
 		return core.ScheduleProposal{}, err
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO schedule_proposals (
 		  id, team_id, channel_id, thread_ts, actor_id, source_ref, task_json,
 		  replace_task_id, status, accepted_task_id, expires_at, created_at, updated_at
@@ -85,33 +103,33 @@ func (s *Repository) Create(ctx context.Context, proposal core.ScheduleProposal)
 		return core.ScheduleProposal{}, err
 	}
 	if inserted == 0 {
-		return scanProposal(s.db.QueryRowContext(ctx, proposalSelect+`
+		return scanProposal(r.db.QueryRowContext(ctx, proposalSelect+`
 			WHERE team_id = ? AND channel_id = ? AND source_ref = ?`,
 			proposal.TeamID, proposal.ChannelID, proposal.SourceRef))
 	}
 	return proposal, nil
 }
 
-func (s *Repository) Get(ctx context.Context, id string) (core.ScheduleProposal, error) {
-	return scanProposal(s.db.QueryRowContext(ctx, proposalSelect+` WHERE id = ?`, id))
+func (r *Repository) Get(ctx context.Context, id string) (core.ScheduleProposal, error) {
+	return scanProposal(r.db.QueryRowContext(ctx, proposalSelect+` WHERE id = ?`, id))
 }
 
-func (s *Repository) GetPendingForConversation(
+func (r *Repository) GetPendingForConversation(
 	ctx context.Context,
 	teamID string,
 	channelID string,
 	threadTS string,
 	actorID string,
 ) (core.ScheduleProposal, error) {
-	return scanProposal(s.db.QueryRowContext(ctx, proposalSelect+`
+	return scanProposal(r.db.QueryRowContext(ctx, proposalSelect+`
 		WHERE team_id = ? AND channel_id = ? AND thread_ts = ? AND actor_id = ?
 		  AND status = 'pending' AND julianday(expires_at) > julianday(?)
-		ORDER BY created_at DESC LIMIT 1`, teamID, channelID, threadTS, actorID, s.nowText()))
+		ORDER BY created_at DESC LIMIT 1`, teamID, channelID, threadTS, actorID, r.nowText()))
 }
 
 // Accept atomically activates a pending proposal. A proposal that targets an
 // existing schedule updates that row in place, preserving occurrence history.
-func (s *Repository) Accept(
+func (r *Repository) Accept(
 	ctx context.Context,
 	id string,
 	teamID string,
@@ -123,7 +141,7 @@ func (s *Repository) Accept(
 	if maxTotal < 1 || maxPerChannel < 1 || maxPerChannel > maxTotal {
 		return core.ScheduledTask{}, errors.New("scheduled task limits are invalid")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return core.ScheduledTask{}, err
 	}
@@ -135,7 +153,7 @@ func (s *Repository) Accept(
 	if proposal.TeamID != teamID || proposal.ChannelID != channelID || proposal.ActorID != actorID {
 		return core.ScheduledTask{}, errors.New("schedule proposal belongs to another conversation or operator")
 	}
-	now := s.currentTime()
+	now := r.now()
 	if proposal.Status == "accepted" && proposal.AcceptedTaskID != "" {
 		task, getErr := scanTask(tx.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, proposal.AcceptedTaskID))
 		if getErr != nil {
@@ -360,17 +378,6 @@ func scanTask(row sqlutil.RowScanner) (core.ScheduledTask, error) {
 	task.CreatedAt = parseNullTime(createdAt)
 	task.UpdatedAt = parseNullTime(updatedAt)
 	return task, nil
-}
-
-func (s *Repository) currentTime() time.Time {
-	if s.now != nil {
-		return s.now().UTC()
-	}
-	return time.Now().UTC()
-}
-
-func (s *Repository) nowText() string {
-	return s.currentTime().Format(timestampFormat)
 }
 
 func parseNullTime(value sql.NullString) time.Time {

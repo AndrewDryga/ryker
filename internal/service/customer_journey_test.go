@@ -282,7 +282,7 @@ func TestCustomerJourneySchedulesEngineeringFollowupWithoutStalePRControls(t *te
 		slackClient.statuses[1].text != "" {
 		t.Fatalf("follow-up status lifecycle = %+v", slackClient.statuses)
 	}
-	if schedules, listErr := st.ListScheduledTasksForChannel(ctx, task.ChannelID, 10); listErr != nil || len(schedules) != 0 {
+	if schedules, listErr := st.Schedules.ListScheduledTasksForChannel(ctx, task.ChannelID, 10); listErr != nil || len(schedules) != 0 {
 		t.Fatalf("schedule was saved before confirmation = %+v, %v", schedules, listErr)
 	}
 }
@@ -324,7 +324,7 @@ func TestCustomerJourneyActivatesExistingScheduleInsideEngineeringTask(t *testin
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	existing, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
+	existing, err := st.Schedules.CreateScheduledTask(ctx, core.ScheduledTask{
 		TeamID: cfg.Slack.TeamID, ChannelID: task.ChannelID,
 		ThreadTS: task.ConversationThreadTS(), DeliveryChannel: "CREPORTS",
 		Repository: "repo", Title: "Daily platform health report",
@@ -394,7 +394,7 @@ func TestCustomerJourneyActivatesExistingScheduleInsideEngineeringTask(t *testin
 			t.Fatalf("activation retained unrelated confirmation or PR control: %+v", message)
 		}
 	}
-	schedules, err := st.ListScheduledTasksForChannel(ctx, task.ChannelID, 10)
+	schedules, err := st.Schedules.ListScheduledTasksForChannel(ctx, task.ChannelID, 10)
 	if err != nil || len(schedules) != 1 {
 		t.Fatalf("daily schedules = %+v, err=%v", schedules, err)
 	}

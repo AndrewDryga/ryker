@@ -66,7 +66,7 @@ func (s *Service) prepareScheduleOfferAction(
 			return "", core.ScheduledTask{}, "", false
 		}
 	}
-	proposal, err := s.store.ScheduleProposals.Create(ctx, core.ScheduleProposal{
+	proposal, err := s.store.Schedules.Create(ctx, core.ScheduleProposal{
 		TeamID: s.cfg.Slack.TeamID, ChannelID: input.ChannelID,
 		ThreadTS: conversationalResponseThread(input), ActorID: input.UserID,
 		SourceRef: core.FirstNonempty(input.EventID, input.ID), Task: task,
@@ -100,7 +100,7 @@ func (s *Service) scheduleActivationNeedsOffer(
 		!schedulepkg.ExplicitScheduleConfirmation(s.stripBotMention(input.Text)) {
 		return false, nil
 	}
-	tasks, err := s.store.ListScheduledTasksForChannel(ctx, input.ChannelID, 100)
+	tasks, err := s.store.Schedules.ListScheduledTasksForChannel(ctx, input.ChannelID, 100)
 	if err != nil {
 		return false, err
 	}
@@ -132,7 +132,7 @@ func (s *Service) inheritScheduleOfferFromConversation(
 	if offer == nil || input.ThreadTS == "" {
 		return "", nil
 	}
-	tasks, err := s.store.ListScheduledTasksForChannel(ctx, input.ChannelID, 100)
+	tasks, err := s.store.Schedules.ListScheduledTasksForChannel(ctx, input.ChannelID, 100)
 	if err != nil {
 		return "", err
 	}
@@ -258,7 +258,7 @@ func (s *Service) normalizeScheduleOffer(
 }
 
 func (s *Service) scheduleReplacementCandidate(ctx context.Context, proposed core.ScheduledTask) (string, error) {
-	tasks, err := s.store.ListScheduledTasksForChannel(ctx, proposed.ChannelID, 100)
+	tasks, err := s.store.Schedules.ListScheduledTasksForChannel(ctx, proposed.ChannelID, 100)
 	if err != nil {
 		return "", err
 	}
@@ -440,7 +440,7 @@ func (s *Service) acceptScheduleProposal(ctx context.Context, input core.SlackIn
 	if !s.cfg.IsOperator(input.UserID) || !allowed {
 		return core.ScheduledTask{}, errors.New("only a configured operator can activate this schedule")
 	}
-	return s.store.ScheduleProposals.Accept(
+	return s.store.Schedules.Accept(
 		ctx, proposalID, core.FirstNonempty(input.TeamID, s.cfg.Slack.TeamID), input.ChannelID, input.UserID,
 		s.cfg.Limits.MaxScheduledTasks, s.cfg.Limits.MaxSchedulesPerChannel,
 	)
@@ -458,7 +458,7 @@ func (s *Service) handleToggleSchedule(ctx context.Context, input core.SlackInpu
 	if _, err := s.authorizedScheduledTask(ctx, input, payload.ID); err != nil {
 		return s.behaviorActionFeedback(ctx, input, "*This schedule control does not belong to this channel.* Nothing changed.")
 	}
-	task, err := s.store.SetScheduledTaskEnabled(ctx, payload.ID, payload.Enabled)
+	task, err := s.store.Schedules.SetScheduledTaskEnabled(ctx, payload.ID, payload.Enabled)
 	if err != nil {
 		return err
 	}
@@ -474,7 +474,7 @@ func (s *Service) handleDeleteSchedule(ctx context.Context, input core.SlackInpu
 	if _, err := s.authorizedScheduledTask(ctx, input, id); err != nil {
 		return s.behaviorActionFeedback(ctx, input, "*This schedule control does not belong to this channel.* Nothing changed.")
 	}
-	if _, err := s.store.DeleteScheduledTask(ctx, id); err != nil {
+	if _, err := s.store.Schedules.DeleteScheduledTask(ctx, id); err != nil {
 		return err
 	}
 	return s.finishBehaviorMessage(ctx, input, slackui.ScheduleDeletedMessage())
@@ -503,7 +503,7 @@ func (s *Service) handleRunScheduleNow(ctx context.Context, input core.SlackInpu
 	}
 	now := s.now().UTC()
 	sourceID := schedulepkg.ScheduledSourceInputID(task.ID, now)
-	run, execute, err := s.store.ClaimScheduledTaskRun(ctx, task, now, time.Time{}, sourceID, false, true, "")
+	run, execute, err := s.store.Schedules.ClaimScheduledTaskRun(ctx, task, now, time.Time{}, sourceID, false, true, "")
 	if err != nil {
 		return err
 	}
@@ -521,7 +521,7 @@ func (s *Service) authorizedScheduledTask(
 	input core.SlackInput,
 	id string,
 ) (core.ScheduledTask, error) {
-	task, err := s.store.GetScheduledTask(ctx, id)
+	task, err := s.store.Schedules.GetScheduledTask(ctx, id)
 	if err != nil {
 		return core.ScheduledTask{}, err
 	}
@@ -536,7 +536,7 @@ func (s *Service) processScheduledTasks(ctx context.Context) error {
 	if err := s.reconcileScheduledTaskRuns(ctx); err != nil {
 		return err
 	}
-	tasks, err := s.store.ListDueScheduledTasks(ctx, now, 50)
+	tasks, err := s.store.Schedules.ListDueScheduledTasks(ctx, now, 50)
 	if err != nil {
 		return err
 	}
@@ -555,7 +555,7 @@ func (s *Service) processScheduledTasks(ctx context.Context) error {
 		}
 		if !operatorAllowed {
 			sourceID := schedulepkg.ScheduledSourceInputID(task.ID, scheduledFor)
-			if _, _, err := s.store.ClaimScheduledTaskRun(
+			if _, _, err := s.store.Schedules.ClaimScheduledTaskRun(
 				ctx, task, scheduledFor, time.Time{}, sourceID, true, false, "skipped_unauthorized",
 			); err != nil {
 				return err
@@ -568,7 +568,7 @@ func (s *Service) processScheduledTasks(ctx context.Context) error {
 		}
 		execute := task.CatchUp == "latest" || now.Sub(scheduledFor) <= s.cfg.Limits.ScheduleMisfireGrace.Duration
 		sourceID := schedulepkg.ScheduledSourceInputID(task.ID, scheduledFor)
-		run, claimed, err := s.store.ClaimScheduledTaskRun(ctx, task, scheduledFor, next, sourceID, true, execute, "skipped_missed")
+		run, claimed, err := s.store.Schedules.ClaimScheduledTaskRun(ctx, task, scheduledFor, next, sourceID, true, execute, "skipped_missed")
 		if err != nil {
 			return err
 		}
@@ -651,7 +651,7 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 	if err != nil {
 		return err
 	}
-	return s.store.LinkScheduledTaskRun(
+	return s.store.Schedules.LinkScheduledTaskRun(
 		ctx, task.ID, occurrence.ScheduledFor, agentRun.ID, agentRun.EpisodeID,
 	)
 }
@@ -691,12 +691,12 @@ func (s *Service) ensureScheduledRunAnchor(
 }
 
 func (s *Service) reconcileScheduledTaskRuns(ctx context.Context) error {
-	runs, err := s.store.ListActiveScheduledTaskRuns(ctx, 100)
+	runs, err := s.store.Schedules.ListActiveScheduledTaskRuns(ctx, 100)
 	if err != nil {
 		return err
 	}
 	for _, occurrence := range runs {
-		task, taskErr := s.store.GetScheduledTask(ctx, occurrence.TaskID)
+		task, taskErr := s.store.Schedules.GetScheduledTask(ctx, occurrence.TaskID)
 		if errors.Is(taskErr, store.ErrNotFound) {
 			continue
 		}
@@ -721,7 +721,7 @@ func (s *Service) reconcileScheduledTaskRuns(ctx context.Context) error {
 		if run.TerminalState != "completed" || run.State != core.AgentRunCompleted {
 			outcome = "failed"
 		}
-		if err := s.store.CompleteScheduledTaskRun(ctx, task.ID, occurrence.ScheduledFor, outcome, detail); err != nil {
+		if err := s.store.Schedules.CompleteScheduledTaskRun(ctx, task.ID, occurrence.ScheduledFor, outcome, detail); err != nil {
 			return err
 		}
 	}

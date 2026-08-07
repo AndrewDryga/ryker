@@ -51,7 +51,7 @@ func TestScheduleOfferRequiresOperatorIntentAndNormalizesTypedCalendar(t *testin
 	if err := decisionpkg.DecodeStrictJSON([]byte(value), &payload); err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := st.ScheduleProposals.Get(context.Background(), payload.ProposalID)
+	proposal, err := st.Schedules.Get(context.Background(), payload.ProposalID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestScheduleOfferKeepsLongPromptOutOfSlackActionValue(t *testing.T) {
 	if err := decisionpkg.DecodeStrictJSON([]byte(value), &payload); err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := st.ScheduleProposals.Get(context.Background(), payload.ProposalID)
+	proposal, err := st.Schedules.Get(context.Background(), payload.ProposalID)
 	if err != nil || proposal.Task.Prompt != strings.TrimSpace(prompt) {
 		t.Fatalf("durable long prompt = %q, err=%v", proposal.Task.Prompt, err)
 	}
@@ -151,7 +151,7 @@ func TestActivateItAcceptsPendingScheduleWithoutAnotherModelRun(t *testing.T) {
 	}
 	defer st.Close()
 	now := time.Now().UTC().Truncate(time.Second)
-	proposal, err := st.ScheduleProposals.Create(ctx, core.ScheduleProposal{
+	proposal, err := st.Schedules.Create(ctx, core.ScheduleProposal{
 		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1",
 		ActorID: cfg.Slack.Operators[0], SourceRef: "schedule-offer", ExpiresAt: now.Add(time.Hour),
 		Task: core.ScheduledTask{
@@ -184,11 +184,11 @@ func TestActivateItAcceptsPendingScheduleWithoutAnotherModelRun(t *testing.T) {
 		t.Fatalf("confirm pending schedule = %t, %v", handled, err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	accepted, err := st.ScheduleProposals.Get(ctx, proposal.ID)
+	accepted, err := st.Schedules.Get(ctx, proposal.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := st.GetScheduledTask(ctx, accepted.AcceptedTaskID)
+	task, err := st.Schedules.GetScheduledTask(ctx, accepted.AcceptedTaskID)
 	if err != nil || task.Title != "Daily report" {
 		t.Fatalf("activated schedule = %+v, err=%v", task, err)
 	}
@@ -278,7 +278,7 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 	}
 	defer st.Close()
 	now := time.Now().UTC()
-	task, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
+	task, err := st.Schedules.CreateScheduledTask(ctx, core.ScheduledTask{
 		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1",
 		DeliveryChannel: "CREPORT",
 		Repository:      "repo", Title: "Production health", Prompt: "Check production health.",
@@ -295,7 +295,7 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 	if err := svc.processScheduledTasks(ctx); err != nil {
 		t.Fatal(err)
 	}
-	runs, err := st.ListActiveScheduledTaskRuns(ctx, 10)
+	runs, err := st.Schedules.ListActiveScheduledTaskRuns(ctx, 10)
 	if err != nil || len(runs) != 1 || runs[0].TaskID != task.ID || runs[0].AgentRunID == "" {
 		t.Fatalf("scheduled runs = %+v, err=%v", runs, err)
 	}
@@ -321,7 +321,7 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 	if err := svc.processScheduledTasks(ctx); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("second scheduler pass = %v, want no due work", err)
 	}
-	runs, err = st.ListActiveScheduledTaskRuns(ctx, 10)
+	runs, err = st.Schedules.ListActiveScheduledTaskRuns(ctx, 10)
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("duplicate scheduled runs = %+v, err=%v", runs, err)
 	}
@@ -337,7 +337,7 @@ func TestDueScheduleCreatesRecoverableNativeStatusAnchor(t *testing.T) {
 	}
 	defer st.Close()
 	now := time.Now().UTC().Truncate(time.Second)
-	task, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
+	task, err := st.Schedules.CreateScheduledTask(ctx, core.ScheduledTask{
 		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", DeliveryChannel: "CREPORT",
 		Repository: "repo", Title: "Production health", Prompt: "Check production health.",
 		Recurrence: "once", StartAt: now, NextRunAt: now, Timezone: "UTC",
@@ -364,7 +364,7 @@ func TestDueScheduleCreatesRecoverableNativeStatusAnchor(t *testing.T) {
 		!strings.Contains(slack.posts[0].message.Text, "Production health") {
 		t.Fatalf("scheduled anchor = %+v", slack.posts)
 	}
-	runs, err := st.ListActiveScheduledTaskRuns(ctx, 10)
+	runs, err := st.Schedules.ListActiveScheduledTaskRuns(ctx, 10)
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("scheduled runs = %+v, err=%v", runs, err)
 	}
@@ -393,7 +393,7 @@ func TestDueScheduleStopsWhenCreatorIsNoLongerAnOperator(t *testing.T) {
 	}
 	defer st.Close()
 	now := time.Now().UTC()
-	task, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
+	task, err := st.Schedules.CreateScheduledTask(ctx, core.ScheduledTask{
 		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", Repository: "repo",
 		Title: "Production health", Prompt: "Check production health.",
 		Recurrence: "daily", StartAt: now, NextRunAt: now, LocalTime: "09:00",
@@ -407,11 +407,11 @@ func TestDueScheduleStopsWhenCreatorIsNoLongerAnOperator(t *testing.T) {
 	if err := svc.processScheduledTasks(ctx); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := st.GetScheduledTask(ctx, task.ID)
+	stored, err := st.Schedules.GetScheduledTask(ctx, task.ID)
 	if err != nil || stored.Enabled || stored.LastOutcome != "skipped_unauthorized" || !stored.NextRunAt.IsZero() {
 		t.Fatalf("disabled schedule = %+v, err=%v", stored, err)
 	}
-	runs, err := st.ListActiveScheduledTaskRuns(ctx, 10)
+	runs, err := st.Schedules.ListActiveScheduledTaskRuns(ctx, 10)
 	if err != nil || len(runs) != 0 {
 		t.Fatalf("unauthorized active runs = %+v, err=%v", runs, err)
 	}

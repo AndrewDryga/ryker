@@ -17,7 +17,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
-	"github.com/AndrewDryga/responder/internal/store/scheduleproposal"
+	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 	_ "modernc.org/sqlite"
 )
@@ -44,9 +44,12 @@ var (
 )
 
 type Store struct {
-	db                *sql.DB
-	clock             func() time.Time
-	ScheduleProposals *scheduleproposal.Repository
+	db    *sql.DB
+	clock func() time.Time
+	// Schedules owns scheduling end to end: the proposal, its acceptance, the
+	// resulting task, and its runs. It was two packages over the same three
+	// tables, which is one owner too many for their invariants.
+	Schedules *schedulestore.Repository
 	// Memory owns everything remembered between turns. It is a field rather
 	// than a set of methods because a delegating method still counts against
 	// the store's method budget, so extraction only reduces the surface if
@@ -118,7 +121,7 @@ func Open(stateDir string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	store := &Store{db: db}
-	store.ScheduleProposals = scheduleproposal.New(db, func() time.Time { return store.now() })
+	store.Schedules = schedulestore.New(db, func() time.Time { return store.now() })
 	store.Memory = memorystore.New(db, func() time.Time { return store.now() })
 	store.Intelligence = intelligencestore.New(db, func() time.Time { return store.now() })
 	store.Behavior = behaviorstore.New(db, func() time.Time { return store.now() })

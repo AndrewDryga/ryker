@@ -928,7 +928,7 @@ func (s *Service) processChannelLifecycleInput(
 				Detail: fmt.Sprintf("preferences=%d rules=%d", preferences, rules),
 			})
 		}
-		schedules, err := s.store.DeleteChannelSchedules(ctx, input.ChannelID)
+		schedules, err := s.store.Schedules.DeleteChannelSchedules(ctx, input.ChannelID)
 		if err != nil {
 			return err
 		}

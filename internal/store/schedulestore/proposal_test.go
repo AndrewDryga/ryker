@@ -1,4 +1,4 @@
-package scheduleproposal_test
+package schedulestore_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/scheduleproposal"
+	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 )
 
 // Accepting the same proposal twice returns the same schedule rather than
@@ -30,7 +30,7 @@ func TestAcceptingTwiceReturnsTheSameSchedule(t *testing.T) {
 	}
 	defer st.Close()
 
-	proposal, err := st.ScheduleProposals.Create(ctx, core.ScheduleProposal{
+	proposal, err := st.Schedules.Create(ctx, core.ScheduleProposal{
 		TeamID: "T1", ChannelID: "C1", ThreadTS: "1700.1", ActorID: "U1",
 		SourceRef: "src-1",
 		Task: core.ScheduledTask{
@@ -46,18 +46,18 @@ func TestAcceptingTwiceReturnsTheSameSchedule(t *testing.T) {
 		t.Fatalf("create proposal: %v", err)
 	}
 
-	first, err := st.ScheduleProposals.Accept(ctx, proposal.ID, "T1", "C1", "U1", 50, 10)
+	first, err := st.Schedules.Accept(ctx, proposal.ID, "T1", "C1", "U1", 50, 10)
 	if err != nil {
 		t.Fatalf("first accept: %v", err)
 	}
-	second, err := st.ScheduleProposals.Accept(ctx, proposal.ID, "T1", "C1", "U1", 50, 10)
+	second, err := st.Schedules.Accept(ctx, proposal.ID, "T1", "C1", "U1", 50, 10)
 	if err != nil {
 		t.Fatalf("second accept failed instead of returning the saved schedule: %v", err)
 	}
 	if second.ID != first.ID {
 		t.Fatalf("a second accept created a different schedule: %s then %s", first.ID, second.ID)
 	}
-	tasks, err := st.ListScheduledTasksForChannel(ctx, "C1", 10)
+	tasks, err := st.Schedules.ListScheduledTasksForChannel(ctx, "C1", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestAcceptingTwiceReturnsTheSameSchedule(t *testing.T) {
 // conflict" string, which errors.Is could never match — the same duplication
 // hazard that a shared helper exists to prevent.
 func TestLosingTheAcceptRaceIsAMatchableConflict(t *testing.T) {
-	err := scheduleproposal.ConflictFor("accept schedule proposal")
+	err := schedulestore.ConflictFor("accept schedule proposal")
 	if !errors.Is(err, core.ErrConflict) {
 		t.Fatalf("conflict is not matchable as core.ErrConflict: %v", err)
 	}

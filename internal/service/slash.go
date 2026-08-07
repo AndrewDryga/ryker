@@ -418,7 +418,7 @@ func (s *Service) finishSlashSchedules(
 	ctx context.Context,
 	input core.SlackInput,
 ) error {
-	tasks, err := s.store.ListScheduledTasksForChannel(ctx, input.ChannelID, 20)
+	tasks, err := s.store.Schedules.ListScheduledTasksForChannel(ctx, input.ChannelID, 20)
 	if err != nil {
 		return err
 	}

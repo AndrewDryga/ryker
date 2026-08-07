@@ -30,12 +30,12 @@ const modulePath = "github.com/AndrewDryga/responder/"
 // See the package comment: raising an entry is a decision, not a formality.
 var methodBudget = map[string]int{
 	"Service": 12,
-	// 233 today, down from 300. The budget has been raised for real capability
+	// 221 today, down from 300. The budget has been raised for real capability
 	// before — the standing-assignment layer took it from 290 — but it now comes
 	// down by extraction. Callers reach an extracted area through a field like
 	// store.Memory, not a delegating method, because a passthrough still counts
 	// here and would make the extraction invisible to this number.
-	"Store": 240,
+	"Store": 228,
 }
 
 // lineBudget caps non-test source lines per package.
@@ -84,10 +84,9 @@ var methodBudget = map[string]int{
 // extraction, not another raise.
 var lineBudget = map[string]int{
 	"service": 24600,
-	// 11161 today, down from 14100 across five extractions — lifecyclecheck,
-	// sqlutil, memorystore, intelligencestore and behaviorstore. It has only
-	// ever moved down. Keep lowering it as more areas land.
-	"store":      11170,
+	// 10785 today, down from 14100 across six extractions. It has only ever
+	// moved down. Keep lowering it as more areas land.
+	"store":      10795,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

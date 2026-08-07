@@ -1,4 +1,4 @@
-package store
+package schedulestore
 
 import (
 	"context"
@@ -20,7 +20,7 @@ const scheduledTaskSelect = `
 	  next_run_at, last_run_at, last_outcome, expires_at, created_at, updated_at
 	FROM scheduled_tasks`
 
-func (s *Store) CreateScheduledTask(
+func (r *Repository) CreateScheduledTask(
 	ctx context.Context,
 	task core.ScheduledTask,
 	maxTotal int,
@@ -32,12 +32,12 @@ func (s *Store) CreateScheduledTask(
 	if maxTotal < 1 || maxPerChannel < 1 || maxPerChannel > maxTotal {
 		return core.ScheduledTask{}, errors.New("scheduled task limits are invalid")
 	}
-	now := s.now().UTC()
+	now := r.now().UTC()
 	if !task.ExpiresAt.After(now) || !task.NextRunAt.After(now.Add(-time.Second)) ||
 		!task.NextRunAt.Before(task.ExpiresAt) {
 		return core.ScheduledTask{}, errors.New("scheduled task must have a future expiry and runnable next occurrence")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return core.ScheduledTask{}, err
 	}
@@ -50,17 +50,17 @@ func (s *Store) CreateScheduledTask(
 	if existingErr == nil {
 		return existing, nil
 	}
-	if !errors.Is(existingErr, ErrNotFound) {
+	if !errors.Is(existingErr, core.ErrNotFound) {
 		return core.ScheduledTask{}, existingErr
 	}
 	var total, channel int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_tasks WHERE expires_at > ?`, now.Format(timestampFormat)).Scan(&total); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_tasks WHERE expires_at > ?`, now.Format(core.TimestampFormat)).Scan(&total); err != nil {
 		return core.ScheduledTask{}, err
 	}
 	if total >= maxTotal {
 		return core.ScheduledTask{}, fmt.Errorf("scheduled task capacity reached (%d unexpired tasks)", maxTotal)
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_tasks WHERE channel_id = ? AND expires_at > ?`, task.ChannelID, now.Format(timestampFormat)).Scan(&channel); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_tasks WHERE channel_id = ? AND expires_at > ?`, task.ChannelID, now.Format(core.TimestampFormat)).Scan(&channel); err != nil {
 		return core.ScheduledTask{}, err
 	}
 	if channel >= maxPerChannel {
@@ -100,11 +100,11 @@ func insertScheduledTask(ctx context.Context, tx *sql.Tx, task *core.ScheduledTa
 		task.ID, task.TeamID, task.ChannelID, task.ThreadTS,
 		firstNonemptySchedule(task.DeliveryChannel, task.ChannelID), task.Repository,
 		task.Title, task.Prompt, task.Recurrence,
-		task.StartAt.UTC().Format(timestampFormat), task.IntervalSeconds, weekdays,
+		task.StartAt.UTC().Format(core.TimestampFormat), task.IntervalSeconds, weekdays,
 		task.DayOfMonth, task.LocalTime, task.Timezone, task.CatchUp,
-		task.ActorID, task.SourceRef, task.NextRunAt.UTC().Format(timestampFormat),
-		task.ExpiresAt.UTC().Format(timestampFormat),
-		task.CreatedAt.Format(timestampFormat), task.UpdatedAt.Format(timestampFormat),
+		task.ActorID, task.SourceRef, task.NextRunAt.UTC().Format(core.TimestampFormat),
+		task.ExpiresAt.UTC().Format(core.TimestampFormat),
+		task.CreatedAt.Format(core.TimestampFormat), task.UpdatedAt.Format(core.TimestampFormat),
 	)
 	return err
 }
@@ -155,16 +155,16 @@ func validateScheduledTask(task core.ScheduledTask) error {
 	return nil
 }
 
-func (s *Store) GetScheduledTask(ctx context.Context, id string) (core.ScheduledTask, error) {
-	return scanScheduledTask(s.db.QueryRowContext(ctx, scheduledTaskSelect+` WHERE id = ?`, id))
+func (r *Repository) GetScheduledTask(ctx context.Context, id string) (core.ScheduledTask, error) {
+	return scanScheduledTask(r.db.QueryRowContext(ctx, scheduledTaskSelect+` WHERE id = ?`, id))
 }
 
-func (s *Store) ListScheduledTasksForChannel(ctx context.Context, channelID string, limit int) ([]core.ScheduledTask, error) {
+func (r *Repository) ListScheduledTasksForChannel(ctx context.Context, channelID string, limit int) ([]core.ScheduledTask, error) {
 	if channelID == "" || limit < 1 || limit > 100 {
 		return nil, errors.New("scheduled task list requires a channel and limit between 1 and 100")
 	}
-	rows, err := s.db.QueryContext(ctx, scheduledTaskSelect+`
-		WHERE channel_id = ? AND expires_at > ? ORDER BY updated_at DESC LIMIT ?`, channelID, s.nowText(), limit)
+	rows, err := r.db.QueryContext(ctx, scheduledTaskSelect+`
+		WHERE channel_id = ? AND expires_at > ? ORDER BY updated_at DESC LIMIT ?`, channelID, r.nowText(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -172,14 +172,14 @@ func (s *Store) ListScheduledTasksForChannel(ctx context.Context, channelID stri
 	return scanScheduledTasks(rows)
 }
 
-func (s *Store) ListDueScheduledTasks(ctx context.Context, now time.Time, limit int) ([]core.ScheduledTask, error) {
+func (r *Repository) ListDueScheduledTasks(ctx context.Context, now time.Time, limit int) ([]core.ScheduledTask, error) {
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("due scheduled task limit must be between 1 and 100")
 	}
-	rows, err := s.db.QueryContext(ctx, scheduledTaskSelect+`
+	rows, err := r.db.QueryContext(ctx, scheduledTaskSelect+`
 		WHERE enabled = 1 AND next_run_at IS NOT NULL
 		  AND julianday(next_run_at) <= julianday(?) AND julianday(expires_at) > julianday(?)
-		ORDER BY next_run_at, id LIMIT ?`, now.UTC().Format(timestampFormat), now.UTC().Format(timestampFormat), limit)
+		ORDER BY next_run_at, id LIMIT ?`, now.UTC().Format(core.TimestampFormat), now.UTC().Format(core.TimestampFormat), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (s *Store) ListDueScheduledTasks(ctx context.Context, now time.Time, limit 
 	return scanScheduledTasks(rows)
 }
 
-func (s *Store) SetScheduledTaskEnabled(ctx context.Context, id string, enabled bool) (core.ScheduledTask, error) {
+func (r *Repository) SetScheduledTaskEnabled(ctx context.Context, id string, enabled bool) (core.ScheduledTask, error) {
 	value := 0
 	if enabled {
 		value = 1
@@ -196,34 +196,34 @@ func (s *Store) SetScheduledTaskEnabled(ctx context.Context, id string, enabled 
 	if enabled {
 		query += ` AND next_run_at IS NOT NULL`
 	}
-	result, err := s.db.ExecContext(ctx, query, value, s.nowText(), id, s.nowText())
+	result, err := r.db.ExecContext(ctx, query, value, r.nowText(), id, r.nowText())
 	if err := sqlutil.ExpectOne(result, err, "set scheduled task state"); err != nil {
 		return core.ScheduledTask{}, err
 	}
-	return s.GetScheduledTask(ctx, id)
+	return r.GetScheduledTask(ctx, id)
 }
 
-func (s *Store) DeleteScheduledTask(ctx context.Context, id string) (core.ScheduledTask, error) {
-	task, err := s.GetScheduledTask(ctx, id)
+func (r *Repository) DeleteScheduledTask(ctx context.Context, id string) (core.ScheduledTask, error) {
+	task, err := r.GetScheduledTask(ctx, id)
 	if err != nil {
 		return core.ScheduledTask{}, err
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE id = ?`, id)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE id = ?`, id)
 	if err := sqlutil.ExpectOne(result, err, "delete scheduled task"); err != nil {
 		return core.ScheduledTask{}, err
 	}
 	return task, nil
 }
 
-func (s *Store) DeleteChannelSchedules(ctx context.Context, channelID string) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE channel_id = ?`, channelID)
+func (r *Repository) DeleteChannelSchedules(ctx context.Context, channelID string) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE channel_id = ?`, channelID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-func (s *Store) PruneOrphanSchedules(ctx context.Context, validRepositories []string) (int64, error) {
+func (r *Repository) PruneOrphanSchedules(ctx context.Context, validRepositories []string) (int64, error) {
 	if len(validRepositories) == 0 {
 		return 0, errors.New("valid repository list is empty")
 	}
@@ -232,7 +232,7 @@ func (s *Store) PruneOrphanSchedules(ctx context.Context, validRepositories []st
 	for index, repository := range validRepositories {
 		args[index] = repository
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE repository NOT IN (`+placeholders+`)`, args...)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE repository NOT IN (`+placeholders+`)`, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -241,7 +241,7 @@ func (s *Store) PruneOrphanSchedules(ctx context.Context, validRepositories []st
 
 // ClaimScheduledTaskRun atomically advances the task and records one immutable occurrence.
 // It returns false for a duplicate or when another occurrence is still active.
-func (s *Store) ClaimScheduledTaskRun(
+func (r *Repository) ClaimScheduledTaskRun(
 	ctx context.Context,
 	task core.ScheduledTask,
 	scheduledFor time.Time,
@@ -251,7 +251,7 @@ func (s *Store) ClaimScheduledTaskRun(
 	execute bool,
 	skipOutcome string,
 ) (core.ScheduledTaskRun, bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return core.ScheduledTaskRun{}, false, err
 	}
@@ -274,11 +274,11 @@ func (s *Store) ClaimScheduledTaskRun(
 		outcome = "skipped_overlap"
 		sourceInput = ""
 	}
-	now := s.now().UTC()
+	now := r.now().UTC()
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO scheduled_task_runs
 		  (task_id, scheduled_for, source_input, outcome, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, task.ID, scheduledFor.UTC().Format(timestampFormat), sourceInput, outcome, now.Format(timestampFormat), now.Format(timestampFormat))
+		VALUES (?, ?, ?, ?, ?, ?)`, task.ID, scheduledFor.UTC().Format(core.TimestampFormat), sourceInput, outcome, now.Format(core.TimestampFormat), now.Format(core.TimestampFormat))
 	if err != nil {
 		return core.ScheduledTaskRun{}, false, err
 	}
@@ -290,11 +290,11 @@ func (s *Store) ClaimScheduledTaskRun(
 		var nextValue any
 		enabled := 1
 		if !next.IsZero() && next.Before(task.ExpiresAt) {
-			nextValue = next.UTC().Format(timestampFormat)
+			nextValue = next.UTC().Format(core.TimestampFormat)
 		} else {
 			enabled = 0
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE scheduled_tasks SET next_run_at = ?, enabled = ?, last_run_at = ?, last_outcome = ?, updated_at = ? WHERE id = ?`, nextValue, enabled, scheduledFor.UTC().Format(timestampFormat), outcome, now.Format(timestampFormat), task.ID)
+		_, err = tx.ExecContext(ctx, `UPDATE scheduled_tasks SET next_run_at = ?, enabled = ?, last_run_at = ?, last_outcome = ?, updated_at = ? WHERE id = ?`, nextValue, enabled, scheduledFor.UTC().Format(core.TimestampFormat), outcome, now.Format(core.TimestampFormat), task.ID)
 		if err != nil {
 			return core.ScheduledTaskRun{}, false, err
 		}
@@ -305,26 +305,26 @@ func (s *Store) ClaimScheduledTaskRun(
 	return core.ScheduledTaskRun{TaskID: task.ID, ScheduledFor: scheduledFor.UTC(), SourceInput: sourceInput, Outcome: outcome, CreatedAt: now, UpdatedAt: now}, outcome == "queued", nil
 }
 
-func (s *Store) LinkScheduledTaskRun(ctx context.Context, taskID string, scheduledFor time.Time, agentRunID string, episodeID string) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET agent_run_id = ?, episode_id = ?, outcome = 'running', started_at = COALESCE(started_at, ?), updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome = 'queued'`, agentRunID, episodeID, s.nowText(), s.nowText(), taskID, scheduledFor.UTC().Format(timestampFormat))
+func (r *Repository) LinkScheduledTaskRun(ctx context.Context, taskID string, scheduledFor time.Time, agentRunID string, episodeID string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET agent_run_id = ?, episode_id = ?, outcome = 'running', started_at = COALESCE(started_at, ?), updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome = 'queued'`, agentRunID, episodeID, r.nowText(), r.nowText(), taskID, scheduledFor.UTC().Format(core.TimestampFormat))
 	return sqlutil.ExpectOne(result, err, "link scheduled task run")
 }
 
-func (s *Store) CompleteScheduledTaskRun(ctx context.Context, taskID string, scheduledFor time.Time, outcome string, detail string) error {
+func (r *Repository) CompleteScheduledTaskRun(ctx context.Context, taskID string, scheduledFor time.Time, outcome string, detail string) error {
 	if outcome != "completed" && outcome != "failed" {
 		return errors.New("scheduled task terminal outcome must be completed or failed")
 	}
-	now := s.nowText()
-	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET outcome = ?, last_error = ?, completed_at = ?, updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome IN ('queued', 'running')`, outcome, sqlutil.BoundedError(detail), now, now, taskID, scheduledFor.UTC().Format(timestampFormat))
+	now := r.nowText()
+	result, err := r.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET outcome = ?, last_error = ?, completed_at = ?, updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome IN ('queued', 'running')`, outcome, sqlutil.BoundedError(detail), now, now, taskID, scheduledFor.UTC().Format(core.TimestampFormat))
 	if err := sqlutil.ExpectOne(result, err, "complete scheduled task run"); err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE scheduled_tasks SET last_outcome = ?, updated_at = ? WHERE id = ?`, outcome, now, taskID)
+	_, err = r.db.ExecContext(ctx, `UPDATE scheduled_tasks SET last_outcome = ?, updated_at = ? WHERE id = ?`, outcome, now, taskID)
 	return err
 }
 
-func (s *Store) ListActiveScheduledTaskRuns(ctx context.Context, limit int) ([]core.ScheduledTaskRun, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT task_id, scheduled_for, source_input, agent_run_id, episode_id, outcome, last_error, started_at, completed_at, created_at, updated_at FROM scheduled_task_runs WHERE outcome IN ('queued', 'running') ORDER BY created_at LIMIT ?`, limit)
+func (r *Repository) ListActiveScheduledTaskRuns(ctx context.Context, limit int) ([]core.ScheduledTaskRun, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT task_id, scheduled_for, source_input, agent_run_id, episode_id, outcome, last_error, started_at, completed_at, created_at, updated_at FROM scheduled_task_runs WHERE outcome IN ('queued', 'running') ORDER BY created_at LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -346,18 +346,6 @@ func (s *Store) ListActiveScheduledTaskRuns(ctx context.Context, limit int) ([]c
 	return result, rows.Err()
 }
 
-func (s *Store) AdmitSyntheticSlackInput(ctx context.Context, input core.SlackInput) (bool, error) {
-	admitted, err := admitSlackInput(ctx, s.db, input, s.nowText())
-	if err != nil || !admitted {
-		return admitted, err
-	}
-	result, err := s.db.ExecContext(ctx, `UPDATE slack_inputs SET state = 'processing', attempts = 1, updated_at = ? WHERE id = ? AND state = 'pending'`, s.nowText(), input.ID)
-	if err := sqlutil.ExpectOne(result, err, "activate synthetic Slack input"); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
 func scanScheduledTask(row sqlutil.RowScanner) (core.ScheduledTask, error) {
 	var task core.ScheduledTask
 	var startAt, nextRun, lastRun, expiresAt, createdAt, updatedAt sql.NullString
@@ -370,7 +358,7 @@ func scanScheduledTask(row sqlutil.RowScanner) (core.ScheduledTask, error) {
 		&enabled, &task.ActorID, &task.SourceRef, &nextRun, &lastRun,
 		&task.LastOutcome, &expiresAt, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return core.ScheduledTask{}, ErrNotFound
+		return core.ScheduledTask{}, core.ErrNotFound
 	}
 	if err != nil {
 		return core.ScheduledTask{}, err
@@ -407,11 +395,4 @@ func firstNonemptySchedule(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func parseNullTime(value sql.NullString) time.Time {
-	if !value.Valid || value.String == "" {
-		return time.Time{}
-	}
-	return sqlutil.ParseTime(value.String)
 }
