@@ -79,6 +79,7 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		decisionpkg.OperationalMemoryContext{},
 		"",
 		nil,
+		watchPromptBudget(0),
 	)
 	for _, required := range []string{
 		"Consider the full set of repository, MCP, and other tools available in the turn",

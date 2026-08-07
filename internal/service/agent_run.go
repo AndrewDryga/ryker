@@ -931,31 +931,41 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	prompt := s.watchPrompt(
-		input,
-		s.identity.BotUserID,
-		state.ConversationFollowup,
-		state.RecentMessages,
-		state.Memory,
-		state.RelatedSituations,
-		state.ReferencedThread,
-		state.Prior,
-		core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
-		state.MatchedRules,
-	) + "\n\n" + repositorySetPrompt(session)
+	// Assemble what follows the conversation context before the context itself,
+	// so the context is budgeted against what actually remains rather than a
+	// fixed guess. early is dropped when the conversation lane replaces the
+	// head, exactly as before; late always survives.
+	var early, late strings.Builder
+	early.WriteString("\n\n" + repositorySetPrompt(session))
 	if input.Kind == "bot_message" {
-		prompt += "\n\n<operational-burst>\nThis is the newest app update in a bounded " +
+		early.WriteString("\n\n<operational-burst>\nThis is the newest app update in a bounded " +
 			"operational burst. Reconcile every material app notice in the supplied recent " +
 			"context before replying. Group notices only when evidence connects them; preserve " +
 			"separate conclusions for unrelated services. Do not silently omit an older failure " +
 			"merely because this update arrived later. Publish one concise, decision-useful update " +
-			"for the burst rather than narrating each notification.\n</operational-burst>"
+			"for the burst rather than narrating each notification.\n</operational-burst>")
 	}
-	prompt += appAlertPolicyPrompt(input.Kind, state.AlertPolicy)
+	early.WriteString(appAlertPolicyPrompt(input.Kind, state.AlertPolicy))
 	if state.ApprovalContinuation && strings.TrimSpace(run.Prompt) != "" {
-		prompt += "\n\n<emisar-run-continuation>\n" + run.Prompt +
-			"\n</emisar-run-continuation>"
+		early.WriteString("\n\n<emisar-run-continuation>\n" + run.Prompt +
+			"\n</emisar-run-continuation>")
 	}
+	if state.Lane != "conversation" && state.EscalationReason != "" {
+		late.WriteString("\n\n<host-escalation>\nThe bounded conversation lane escalated this " +
+			"request because: " + boundedOperatorText(state.EscalationReason) +
+			". Perform the full evidence-backed work now.\n</host-escalation>")
+	}
+	late.WriteString(activePublicationPrompt(state.ActivePublications))
+	late.WriteString(watchDecisionCorrectionPrompt(state.FailureDetail))
+	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
+	if episodeErr != nil {
+		return s.retryAgentRun(ctx, run, episodeErr)
+	}
+	late.WriteString("\n\n" + workEpisodePrompt(episode))
+	late.WriteString(agentToolTransportPrompt())
+	late.WriteString(agentRunContinuationPrompt(run))
+
+	var prompt string
 	if state.Lane == "conversation" {
 		prompt = s.conversationPrompt(
 			input,
@@ -965,21 +975,22 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.Memory,
 			state.ReferencedThread,
 			repositoryKey,
-		)
-	} else if state.EscalationReason != "" {
-		prompt += "\n\n<host-escalation>\nThe bounded conversation lane escalated this " +
-			"request because: " + boundedOperatorText(state.EscalationReason) +
-			". Perform the full evidence-backed work now.\n</host-escalation>"
+		) + late.String()
+	} else {
+		prompt = s.watchPrompt(
+			input,
+			s.identity.BotUserID,
+			state.ConversationFollowup,
+			state.RecentMessages,
+			state.Memory,
+			state.RelatedSituations,
+			state.ReferencedThread,
+			state.Prior,
+			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
+			state.MatchedRules,
+			watchPromptBudget(early.Len()+late.Len()),
+		) + early.String() + late.String()
 	}
-	prompt += activePublicationPrompt(state.ActivePublications)
-	prompt += watchDecisionCorrectionPrompt(state.FailureDetail)
-	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
-	if episodeErr != nil {
-		return s.retryAgentRun(ctx, run, episodeErr)
-	}
-	prompt += "\n\n" + workEpisodePrompt(episode)
-	prompt += agentToolTransportPrompt()
-	prompt += agentRunContinuationPrompt(run)
 	artifacts, err = s.augmentAgentRunArtifacts(
 		ctx,
 		prompt+"\n"+string(run.Context),

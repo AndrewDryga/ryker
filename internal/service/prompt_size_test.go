@@ -129,11 +129,12 @@ func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 	prompt := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "why is checkout failing"},
 		"U999BOT", false, recent, core.AgentMemory{}, related, nil, prior, "emisar", nil,
+		watchPromptBudget(0),
 	)
 
-	if len(prompt) > maxAssembledWatchPromptBytes {
+	if len(prompt) > watchPromptBudget(0) {
 		t.Fatalf("budgeted prompt is %d bytes, over the %d bound",
-			len(prompt), maxAssembledWatchPromptBytes)
+			len(prompt), watchPromptBudget(0))
 	}
 	if !strings.Contains(prompt, "why is checkout failing") {
 		t.Fatal("budgeting dropped the target message")
@@ -185,6 +186,7 @@ func TestBudgetedContextRemainsValidJSON(t *testing.T) {
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "status?"},
 		"U999BOT", false, recent, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "emisar", nil,
+		watchPromptBudget(0),
 	)
 	start := strings.Index(prompt, `{"channel_id"`)
 	if start < 0 {
@@ -262,4 +264,39 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 	}
 	t.Logf("ambient turn %d bytes, operator turn %d bytes, saving %d",
 		len(ambient), len(fromOperator), len(fromOperator)-len(ambient))
+}
+
+// The watch section is budgeted against what follows it, not a fixed guess.
+//
+// This is the bug that was truncating production prompts. The section reserved
+// a flat 8 KiB for its suffix; the real suffix reached about 14 KiB, so the
+// assembled prompt exceeded Coop's cap and the transport cut the tail — which
+// is where the episode contract, the tool rules and the decision correction
+// live. The model was being corrected for failing a contract it had not been
+// shown, by a correction at risk of being cut itself.
+func TestWatchBudgetLeavesRoomForWhatFollowsIt(t *testing.T) {
+	// A suffix and a section that together must fit under the transport cap.
+	for _, suffix := range []int{0, 8 << 10, 14 << 10, 20 << 10} {
+		budget := watchPromptBudget(suffix)
+		if budget+suffix > coop.MaxPromptBytes {
+			t.Errorf("a %d byte suffix leaves a %d byte budget: %d total, over the %d cap",
+				suffix, budget, budget+suffix, coop.MaxPromptBytes)
+		}
+	}
+
+	// A suffix large enough to squeeze the section out entirely still leaves a
+	// floor. Below it the context is too thin to answer from, and a turn that
+	// cannot see the conversation should fail visibly rather than answer badly.
+	if got := watchPromptBudget(coop.MaxPromptBytes * 2); got != minimumWatchPromptBytes {
+		t.Errorf("an oversized suffix gave budget %d, want the %d floor",
+			got, minimumWatchPromptBytes)
+	}
+
+	// The old behaviour, stated so a regression is recognisable: a fixed 56 KiB
+	// section plus the observed 14 KiB suffix is 71,680 bytes against a 65,536
+	// cap — which is what production was actually sending.
+	const oldFixedBudget = 56 << 10
+	if oldFixedBudget+(14<<10) <= coop.MaxPromptBytes {
+		t.Fatal("this test no longer describes the bug it was written for")
+	}
 }

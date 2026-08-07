@@ -534,6 +534,7 @@ func liveScenarioPrompt(
 		decisionpkg.OperationalMemoryContext{},
 		testCase.Repository,
 		nil,
+		watchPromptBudget(0),
 	) + "\n\n" + workEpisodePrompt(*episode), input, current, nil
 }
 
