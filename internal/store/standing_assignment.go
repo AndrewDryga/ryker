@@ -263,3 +263,31 @@ func (s *Store) CompleteStandingAssignmentAction(
 	)
 	return err
 }
+
+// CountCorrelatedEpisodes reports how many times this signal has been seen.
+//
+// It is the difference between a pattern and a coincidence. A transient error
+// during a deploy, a one-off timeout, an alert that resolved itself — each is
+// indistinguishable from a real problem at the moment it arrives, and only
+// repetition separates them. This is what stops proactive work from reacting
+// to the first sighting of anything.
+func (s *Store) CountCorrelatedEpisodes(
+	ctx context.Context,
+	conversationKey string,
+	since time.Time,
+) (int, error) {
+	if strings.TrimSpace(conversationKey) == "" {
+		return 0, nil
+	}
+	// The key lives on agent_runs, not on work_episodes — episodes reach it
+	// through their runs. Counting DISTINCT episodes rather than runs matters:
+	// a single problem investigated over three retries is one occurrence, and
+	// counting retries would let a flaky provider manufacture a "pattern".
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT episode_id) FROM agent_runs
+		WHERE conversation_key = ? AND episode_id != '' AND created_at >= ?`,
+		conversationKey, timeText(since),
+	).Scan(&count)
+	return count, err
+}

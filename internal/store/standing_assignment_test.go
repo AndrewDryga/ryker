@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -147,5 +148,59 @@ func TestScopeMustBeBounded(t *testing.T) {
 				t.Fatal("accepted an assignment that is not actually scoped")
 			}
 		})
+	}
+}
+
+// Recurrence counts distinct episodes, not runs.
+//
+// One problem investigated across three retries is one occurrence. Counting
+// runs would let a flaky provider manufacture a pattern out of a single event,
+// and proactive work would then open a pull request about Coop being slow.
+func TestRecurrenceCountsProblemsNotRetries(t *testing.T) {
+	ctx := context.Background()
+	st := openAt(t, t.TempDir())
+	since := time.Now().UTC().Add(-24 * time.Hour)
+
+	count, err := st.CountCorrelatedEpisodes(ctx, "operation:payments-timeout", since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("count with no history = %d, want 0", count)
+	}
+
+	// One problem, queued once.
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CALERTS",
+		ConversationKey: "operation:payments-timeout",
+		SourceKind:      "watch", SourceID: "alert_1", UserID: "B_GRAFANA",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The same problem retried twice more, as a provider failure would produce.
+	for index := 0; index < 2; index++ {
+		if _, _, err := st.QueueEpisodeAttempt(ctx, episode.ID, core.AgentRun{
+			Mode: core.AgentRunTriage, ChannelID: "CALERTS",
+			ConversationKey: "operation:payments-timeout",
+			SourceKind:      "watch", SourceID: fmt.Sprintf("alert_1_retry_%d", index),
+			UserID: "B_GRAFANA",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	count, err = st.CountCorrelatedEpisodes(ctx, "operation:payments-timeout", since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("count after one problem and two retries = %d, want 1 — retries are not "+
+			"recurrences, or a flaky provider becomes a pattern", count)
 	}
 }
