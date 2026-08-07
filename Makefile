@@ -82,9 +82,20 @@ eval-memory:
 		--input testdata/eval/memory.jsonl --judge --verify-evidence --repeat 2 \
 		--min-overall-pass-rate 0.90 --min-case-pass-rate 0.50 --min-mean-quality 4
 
+# One corpus per deployment, replayed against that deployment's config.
+#
+# They cannot be merged. A fixture that names a repository needs the config that
+# has it, and the two deployments configure different ones — so a single run
+# would fail every fixture belonging to the other deployment with
+# "repository ... is not configured" and no single CONFIG could ever reach a
+# pass rate of 1.
+#
+# DEPLOYMENT selects which corpus to replay; it must match the config passed in.
+DEPLOYMENT ?= tenant
+
 eval-episode-replay:
 	go run ./cmd/responder eval --config "$(CONFIG)" --episode-replay \
-		--input testdata/eval/episode-replay.jsonl --min-overall-pass-rate 1
+		--input testdata/eval/episode-replay/$(DEPLOYMENT).jsonl --min-overall-pass-rate 1
 
 eval-live-canary:
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/live.jsonl --canary \

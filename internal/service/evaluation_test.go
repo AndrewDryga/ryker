@@ -914,13 +914,25 @@ func TestStatefulScenarioUsesPriorConversationAcrossChannelsAndRestart(t *testin
 }
 
 func TestAllEvaluationCorporaDecode(t *testing.T) {
-	for _, name := range []string{
-		"proactive.jsonl",
-		"evidence.jsonl",
-		"productivity.jsonl",
-		"episode-replay.jsonl",
-	} {
-		file, err := os.Open(filepath.Join("..", "..", "testdata", "eval", name))
+	corpora := []string{
+		filepath.Join("..", "..", "testdata", "eval", "proactive.jsonl"),
+		filepath.Join("..", "..", "testdata", "eval", "evidence.jsonl"),
+		filepath.Join("..", "..", "testdata", "eval", "productivity.jsonl"),
+	}
+	// Globbed rather than listed: the replay corpus is one file per deployment,
+	// so a new deployment's corpus must be decoded without anyone remembering
+	// to add it here.
+	replay, err := filepath.Glob(
+		filepath.Join("..", "..", "testdata", "eval", "episode-replay", "*.jsonl"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replay) == 0 {
+		t.Fatal("no replay corpora found; this test would silently check nothing")
+	}
+	for _, name := range append(corpora, replay...) {
+		file, err := os.Open(name)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -251,7 +251,7 @@ func (options *evalOptions) validate(flags *flag.FlagSet) (bool, error) {
 		*options.inputPath = "testdata/eval/golden.jsonl"
 	}
 	if *options.inputPath == "" && *options.episodeReplay {
-		*options.inputPath = "testdata/eval/episode-replay.jsonl"
+		*options.inputPath = "testdata/eval/episode-replay/tenant.jsonl"
 	}
 	if *options.inputPath == "" {
 		*options.inputPath = "testdata/eval/live.jsonl"

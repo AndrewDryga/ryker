@@ -102,13 +102,32 @@ func matrixCapabilities(t *testing.T) []string {
 // fixtures claim, by "capability:" tag.
 func coveredCapabilities(t *testing.T) map[string][]string {
 	t.Helper()
-	file, err := os.Open(filepath.Join(repoRoot(t), "testdata", "eval", "episode-replay.jsonl"))
+	// Every deployment's corpus, not one of them. A capability proven by a
+	// fixture recorded in one deployment is proven; reading a single file would
+	// report it as an uncovered gap and invite a duplicate recording.
+	pattern := filepath.Join(repoRoot(t), "testdata", "eval", "episode-replay", "*.jsonl")
+	corpora, err := filepath.Glob(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(corpora) == 0 {
+		t.Fatalf("no replay corpora found at %s; coverage would read as total", pattern)
+	}
+	covered := make(map[string][]string)
+	for _, corpus := range corpora {
+		readCorpusInto(t, corpus, covered)
+	}
+	return covered
+}
+
+func readCorpusInto(t *testing.T, path string, covered map[string][]string) {
+	t.Helper()
+	file, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer file.Close()
 
-	covered := make(map[string][]string)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<22)
 	for line := 1; scanner.Scan(); line++ {
@@ -121,7 +140,7 @@ func coveredCapabilities(t *testing.T) map[string][]string {
 			Tags []string `json:"tags"`
 		}
 		if err := json.Unmarshal([]byte(text), &fixture); err != nil {
-			t.Fatalf("episode-replay.jsonl line %d: %v", line, err)
+			t.Fatalf("%s line %d: %v", filepath.Base(path), line, err)
 		}
 		for _, tag := range fixture.Tags {
 			if capability, ok := strings.CutPrefix(tag, "capability:"); ok {
@@ -132,7 +151,6 @@ func coveredCapabilities(t *testing.T) map[string][]string {
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-	return covered
 }
 
 // Every capability is either proven by a fixture or listed as a known gap.
@@ -154,7 +172,7 @@ func TestEveryCapabilityIsProvenOrAcknowledged(t *testing.T) {
 		sort.Strings(unaccounted)
 		t.Fatalf(
 			"capabilities with neither a replay fixture nor an acknowledged gap: %s\n"+
-				"Add a fixture to testdata/eval/episode-replay.jsonl tagged "+
+				"Add a fixture to testdata/eval/episode-replay/<deployment>.jsonl tagged "+
 				"\"capability:<slug>\", or record why it cannot be covered yet in "+
 				"acknowledgedCoverageGaps.",
 			strings.Join(unaccounted, ", "),
@@ -200,6 +218,44 @@ func TestFixturesClaimOnlyRealCapabilities(t *testing.T) {
 			t.Errorf(
 				"fixtures %v claim capability %q, which is not in the matrix in section 24",
 				fixtures, capability,
+			)
+		}
+	}
+}
+
+// Capabilities proven in different deployments must add up.
+//
+// The corpus is split per deployment, so a capability proven by an emisar
+// recording and one proven by a tenant recording live in different files. If
+// coverage read a single file, the other deployment's fixtures would report as
+// uncovered gaps and invite a duplicate recording of work already done.
+//
+// This is tested directly because the real corpora cannot currently show it:
+// every capability tag today happens to sit in one file, so reading one or both
+// gives the same answer. That will stop being true with the next emisar
+// recording, and this fails first if the merge is ever lost.
+func TestCoverageMergesEveryDeploymentsCorpus(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, capability string) string {
+		path := filepath.Join(dir, name)
+		line := `{"name":"case ` + capability + `","tags":["capability:` + capability + `"]}`
+		if err := os.WriteFile(path, []byte("# header\n"+line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	first := write("alpha.jsonl", "incidents")
+	second := write("beta.jsonl", "cleanup")
+
+	covered := make(map[string][]string)
+	readCorpusInto(t, first, covered)
+	readCorpusInto(t, second, covered)
+
+	for _, capability := range []string{"incidents", "cleanup"} {
+		if len(covered[capability]) != 1 {
+			t.Fatalf(
+				"%q is proven in one deployment's corpus but not counted: %+v",
+				capability, covered,
 			)
 		}
 	}
