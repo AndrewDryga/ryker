@@ -1582,9 +1582,13 @@ func watchFailureNotice(detail string) string {
 			"completeness checks after retrying. No incident was created and nothing was changed. " +
 			"Try the request once more; if it repeats, check the Responder and Coop logs."
 	}
+	// provider.Classify exists to turn the reported failure into something an
+	// operator can act on. Appending the raw text after it puts the
+	// unactionable version back in front of them, which is what the
+	// classification was for. It stays in the log and the audit event.
 	failure := provider.Classify(detail)
 	return "*Responder could not complete this check.*\n\n" +
-		failure.Summary + "\n\nReason reported by Coop: `" + detail + "`\n\n" +
+		failure.Summary + "\n\n" +
 		"No incident was created, and Responder made no repository or infrastructure changes. " +
 		failure.OperatorFix
 }

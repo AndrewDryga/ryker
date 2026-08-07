@@ -2920,9 +2920,35 @@ func (s *Service) finishTriageRunFailure(
 	return nil
 }
 
+// publishTriageFailure decides whether a terminally failed triage tells anyone.
+//
+// The question is whether someone is waiting. Work Responder was asked to do
+// must never disappear silently: an alert that matched a standing rule, or a
+// message addressed to Responder, has an operator behind it who will otherwise
+// read the silence as "handled".
+//
+// Purely ambient work is different. Responder watches alert channels and
+// sometimes decides on its own to look at something. Nobody is waiting on that,
+// and announcing every such failure would flood an alert channel at precisely
+// the moment it is most crowded — a provider outage makes Responder fail on
+// every alert at once, and a wall of "I could not check this" helps no one.
+//
+// So: asked-for work always reports. Unasked work stays quiet and is recorded
+// as failed_suppressed for whoever reads the audit log.
+//
+// Two further suppressions are deliberate. A private verification replay has no
+// audience by construction. A recheck failure is silent because the original
+// turn already answered — the recheck was Responder's own follow-up, and
+// reporting its failure would surface machinery the operator never asked about.
 func publishTriageFailure(input core.SlackInput, state decisionpkg.WatchTurnState) bool {
-	return !isPrivateSlackVerificationReplay(input) && state.RecheckOriginRunID == "" &&
-		(state.ApprovalContinuation || input.Kind != "bot_message")
+	if isPrivateSlackVerificationReplay(input) || state.RecheckOriginRunID != "" {
+		return false
+	}
+	if state.ApprovalContinuation || input.Kind != "bot_message" {
+		return true
+	}
+	// An alert someone told Responder to watch is asked-for work.
+	return len(state.MatchedRules) > 0
 }
 
 func triageFailureOutcome(published bool) string {
