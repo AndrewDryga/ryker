@@ -64,3 +64,31 @@ func TestLadderRetryDelayFollowsTheReportedReset(t *testing.T) {
 		t.Fatal("exhausted-ladder classification does not match Coop's turn error code")
 	}
 }
+
+// The errors that must never reach Slack: the request reached the model and the
+// connection broke. Reporting those as failed checks is what trains people to
+// ignore the channel.
+func TestTransientProviderFailuresAreRecognised(t *testing.T) {
+	for _, detail := range []string{
+		"ACP request was rejected: Internal error: API Error: Response stalled mid-stream. The response above may be incomplete.",
+		"ACP request was rejected: upstream connect error: service unavailable",
+		"ACP request was rejected: Overloaded",
+		"ACP request was rejected: read tcp: connection reset by peer",
+	} {
+		if !Transient(detail) {
+			t.Fatalf("a dropped stream was treated as a real failure: %q", detail)
+		}
+	}
+	// A refusal that says something an operator can act on is NOT transient, or
+	// retrying would bury the one message worth reading.
+	for _, detail := range []string{
+		"ACP request was rejected: You have hit your usage limit. Try again Aug 11.",
+		"ACP request was rejected: model gpt-9 does not exist",
+		"ACP request was rejected: invalid api key",
+		"every target in the policy ladder is rate limited until 2026-08-07T18:30:00Z",
+	} {
+		if Transient(detail) {
+			t.Fatalf("an actionable refusal was treated as transient: %q", detail)
+		}
+	}
+}

@@ -2255,6 +2255,12 @@ func replayAgentRunFailure(
 	if run.Mode == core.AgentRunTriage && transcriptOverflow(turn) {
 		return "Coop ACP transcript exceeded its bound; retrying in a fresh read-only session with narrower evidence queries", true
 	}
+	// A dropped stream is not a failed check. Coop now carries the adapter's reason, so these are
+	// finally distinguishable from a real rejection instead of all reading "ACP request was
+	// rejected" — and a socket dying is the one outcome an operator can do nothing with.
+	if turn.ErrorCode == "acp_protocol_error" && provider.Transient(detail) {
+		return "The AI provider dropped the response mid-stream; retrying the turn", true
+	}
 	if run.Failures < 2 &&
 		strings.Contains(strings.ToLower(detail), "turn cleanup failed") {
 		return "Coop could not clean up the agent turn; retrying in a fresh turn", true

@@ -71,14 +71,15 @@ fi
 # drifted apart once already, and a check that only proves "something restarted" would have
 # reported that drift as a success.
 sleep 3
-running=$(ps -eo command= | grep "libexec/responder/responder-" | grep -v grep || true)
-if [[ -z $running ]]; then
+total=$(pgrep -cf "libexec/responder/responder-" || true)
+current=$(pgrep -cf "libexec/responder/responder-$sha " || true)
+if [[ ${total:-0} -eq 0 ]]; then
   echo "deploy: no Responder process is running after reload" >&2
   exit 1
 fi
-if stale=$(printf '%s\n' "$running" | grep -v "responder-$sha " || true); [[ -n $stale ]]; then
-  echo "deploy: a Responder process is NOT running responder-$sha:" >&2
-  printf '  %s\n' "$stale" >&2
+if [[ ${current:-0} -ne ${total:-0} ]]; then
+  echo "deploy: only $current of $total Responder processes are on responder-$sha" >&2
+  pgrep -lf "libexec/responder/responder-" >&2 || true
   exit 1
 fi
-echo "deploy: $(printf '%s\n' "$running" | wc -l | tr -d ' ') process(es) running responder-$sha"
+echo "deploy: $current process(es) running responder-$sha"

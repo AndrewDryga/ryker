@@ -138,6 +138,30 @@ func Classify(detail string) Failure {
 	}
 }
 
+// Transient reports a provider failure that says nothing about the work: the request reached the
+// model and the connection broke, so the same turn asked again will usually just succeed.
+//
+// These are the errors that must never reach Slack. A rate limit at least tells an operator
+// something; "the response stalled mid-stream" tells them only that a socket died, and reporting
+// it as a failed check trains people to ignore the channel. Retrying is bounded by the run's
+// attempts, so a fault that is not actually transient still surfaces — just later, and once.
+func Transient(detail string) bool {
+	lower := strings.ToLower(detail)
+	return containsAny(lower,
+		"stalled mid-stream",
+		"overloaded",
+		"internal error",
+		"internal server error",
+		"bad gateway",
+		"service unavailable",
+		"connection reset",
+		"connection closed",
+		"unexpected eof",
+		"stream error",
+		"timeout",
+	)
+}
+
 func containsAny(value string, candidates ...string) bool {
 	for _, candidate := range candidates {
 		if strings.Contains(value, candidate) {
