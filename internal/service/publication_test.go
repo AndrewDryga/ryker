@@ -163,47 +163,7 @@ func TestPublicationReviewDeliveryIDDeduplicatesOnlyIdenticalResults(t *testing.
 	}
 }
 
-func TestPublicationTransitionsAndExactReferenceMatching(t *testing.T) {
-	publication := core.Publication{
-		State: "published", PRNumber: 493,
-		PRURL:     "https://github.com/org/repo/pull/493",
-		RemoteSHA: "0123456789abcdef",
-	}
-	old := core.PublicationFollowup{PRState: "open", ChecksState: "pending"}
-	current := core.PublicationFollowup{PRState: "open", ChecksState: "passing"}
-	kind, state, summary := publicationTransition(
-		publication, old, current,
-		core.PublicationLifecycleStatus{ChecksTotal: 4, ChecksPassed: 4}, false,
-		14*24*time.Hour,
-	)
-	if kind != "checks" || state != "succeeded" || !strings.Contains(summary, "4 of 4") {
-		t.Fatalf("passing transition = %q, %q, %q", kind, state, summary)
-	}
-	publication.State = "stale"
-	kind, state, summary = publicationTransition(
-		publication, old, current,
-		core.PublicationLifecycleStatus{
-			HeadSHA: publication.RemoteSHA, ChecksTotal: 4, ChecksPassed: 4,
-		},
-		false,
-		14*24*time.Hour,
-	)
-	if kind != "" || state != "" || summary != "" {
-		t.Fatalf("stale publication emitted transition = %q, %q, %q", kind, state, summary)
-	}
-	publication.State = "published"
-	kind, state, summary = publicationTransition(
-		publication, old, current,
-		core.PublicationLifecycleStatus{
-			HeadSHA: "fedcba9876543210", ChecksTotal: 4, ChecksPassed: 4,
-		},
-		false,
-		14*24*time.Hour,
-	)
-	if kind != "" || state != "" || summary != "" {
-		t.Fatalf("unverified PR head emitted transition = %q, %q, %q", kind, state, summary)
-	}
-
+func TestPublicationReferenceMatchingIsExact(t *testing.T) {
 	context := core.PublicationContext{
 		PRNumber: 493, PRURL: "https://github.com/org/repo/pull/493",
 		HeadBranch: "responder/reduce-redis", HeadSHA: "0123456789abcdef",

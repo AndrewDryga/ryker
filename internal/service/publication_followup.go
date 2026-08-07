@@ -1,238 +1,22 @@
 package service
 
+// Publication followup itself lives in internal/publication. What stays here is
+// the part that needs the rest of the service: recognising when an operator's
+// message refers to a publication that is still in flight, and applying the
+// updates a model proposed.
+
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	publicationpkg "github.com/AndrewDryga/responder/internal/publication"
 	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
 )
-
-func (s *Service) processPublicationFollowup(ctx context.Context) error {
-	followup, publication, err := s.store.NextPublicationFollowup(ctx, s.now().UTC())
-	if err != nil {
-		return err
-	}
-	return s.refreshPublicationFollowup(ctx, followup, publication, core.SlackInput{}, false)
-}
-
-func (s *Service) checkPublicationFollowup(
-	ctx context.Context,
-	input core.SlackInput,
-	incident core.Incident,
-) error {
-	publication, err := s.store.GetPublication(ctx, incident.ID)
-	if err != nil {
-		return err
-	}
-	followup, err := s.store.GetPublicationFollowup(ctx, incident.ID)
-	if errors.Is(err, store.ErrNotFound) {
-		if err := s.store.EnsurePublicationFollowup(ctx, incident.ID, s.now().UTC()); err != nil {
-			return err
-		}
-		followup, err = s.store.GetPublicationFollowup(ctx, incident.ID)
-	}
-	if err != nil {
-		return err
-	}
-	return s.refreshPublicationFollowup(ctx, followup, publication, input, true)
-}
-
-func (s *Service) refreshPublicationFollowup(
-	ctx context.Context,
-	followup core.PublicationFollowup,
-	publication core.Publication,
-	input core.SlackInput,
-	manual bool,
-) error {
-	if !publication.Published() {
-		return nil
-	}
-	statusClient, ok := s.publisher.(publicationStatusAPI)
-	if !ok || s.publisher == nil || !s.publisher.Enabled() {
-		return s.deferPublicationFollowup(
-			ctx, followup, errors.New("GitHub publication status is unavailable"),
-		)
-	}
-	status, err := statusClient.PublicationStatus(ctx, publication)
-	if err != nil {
-		return s.deferPublicationFollowup(ctx, followup, err)
-	}
-	if status.HeadSHA != "" && status.HeadSHA != publication.RemoteSHA {
-		_, err := s.store.MarkPublicationStale(
-			ctx,
-			publication.IncidentID,
-			"The draft PR head changed after Responder's last verified publication. "+
-				"Run Update draft PR to review and bind the current task tree.",
-		)
-		return err
-	}
-	latest, err := s.store.GetPublication(ctx, publication.IncidentID)
-	if err != nil {
-		return err
-	}
-	if !latest.Published() || latest.RemoteSHA != publication.RemoteSHA {
-		return nil
-	}
-	incident, err := s.store.GetIncident(ctx, publication.IncidentID)
-	if err != nil {
-		return err
-	}
-	old := followup
-	followup.PRState = core.FirstNonempty(status.PRState, "unknown")
-	followup.ChecksState = core.FirstNonempty(status.ChecksState, "unknown")
-	followup.MergeSHA = status.MergeSHA
-	followup.MergedAt = status.MergedAt
-	followup.FailureCount = 0
-	followup.LastError = ""
-	followup.NextCheckAt = s.now().UTC().Add(s.cfg.GitHub.FollowupInterval.Duration)
-	if followup.PRState == "merged" || followup.PRState == "closed" {
-		followup.NextCheckAt = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
-	}
-	kind, state, summary := publicationTransition(
-		publication, old, followup, status, manual,
-		s.cfg.GitHub.DeliveryCorrelationWindow.Duration,
-	)
-	if !manual && old.LastEventKey == "baseline" {
-		followup.LastEventKey = publicationLifecycleKey(
-			publication.IncidentID, "baseline", followup.PRState,
-			followup.ChecksState, status.HeadSHA, status.MergeSHA,
-		)
-		kind, state, summary = "", "", ""
-	}
-	if kind != "" {
-		eventKey := publicationLifecycleKey(publication.IncidentID, kind, state, status.HeadSHA, status.MergeSHA)
-		deliveryID := "out_publication_followup_" + eventKey
-		if manual {
-			deliveryID = "out_publication_followup_manual_" + input.ID
-		}
-		message := slackui.PublicationLifecycleMessage(
-			publication, incident.Title, kind, state, summary, status,
-		)
-		if err := s.enqueue(
-			ctx, deliveryID, incident, "publication_followup",
-			incident.ConversationThreadTS(), message,
-		); err != nil {
-			return err
-		}
-		_, _ = s.store.RecordPublicationLifecycleEvent(ctx, core.PublicationLifecycleEvent{
-			ID: eventKey, IncidentID: incident.ID, Kind: kind, State: state,
-			Summary: summary, SourceChannelID: input.ChannelID,
-			SourceMessageTS: input.MessageTS,
-		})
-		s.recordTimeline(ctx, core.TimelineEvent{
-			ID: "tl_" + eventKey, IncidentID: incident.ID,
-			ChannelID: incident.ChannelID, Kind: "publication." + kind,
-			ActorID: "github", Title: summary, Detail: publication.PRURL,
-		})
-		followup.LastEventKey = eventKey
-	}
-	return s.store.SavePublicationFollowup(ctx, followup)
-}
-
-func (s *Service) deferPublicationFollowup(
-	ctx context.Context,
-	followup core.PublicationFollowup,
-	err error,
-) error {
-	followup.FailureCount++
-	followup.LastError = trimError(err)
-	followup.NextCheckAt = s.now().UTC().Add(
-		publicationFollowupBackoff(followup.FailureCount),
-	)
-	if saveErr := s.store.SavePublicationFollowup(ctx, followup); saveErr != nil {
-		return saveErr
-	}
-	return err
-}
-
-func publicationTransition(
-	publication core.Publication,
-	old core.PublicationFollowup,
-	current core.PublicationFollowup,
-	status core.PublicationLifecycleStatus,
-	manual bool,
-	correlationWindow time.Duration,
-) (string, string, string) {
-	if !publication.Published() ||
-		(status.HeadSHA != "" && status.HeadSHA != publication.RemoteSHA) {
-		return "", "", ""
-	}
-	switch {
-	case current.PRState == "merged" && old.PRState != "merged":
-		return "merged", "succeeded", fmt.Sprintf(
-			"PR #%d was merged. I’ll keep this thread linked to matching deployment and Terraform updates for %s.",
-			publication.PRNumber, formatTrackingWindow(correlationWindow),
-		)
-	case current.PRState == "closed" && old.PRState != "closed":
-		return "closed", "stopped", fmt.Sprintf(
-			"PR #%d was closed without merging. Automatic delivery tracking has stopped.",
-			publication.PRNumber,
-		)
-	case current.ChecksState == "failing" && old.ChecksState != "failing":
-		return "checks", "failed", fmt.Sprintf(
-			"GitHub checks are failing for PR #%d (%d failed of %d). Open the PR for the exact failures.",
-			publication.PRNumber, status.ChecksFailed, status.ChecksTotal,
-		)
-	case current.ChecksState == "passing" && old.ChecksState != "passing":
-		return "checks", "succeeded", fmt.Sprintf(
-			"GitHub checks passed for PR #%d (%d of %d). It is ready for review or merge.",
-			publication.PRNumber, status.ChecksPassed, status.ChecksTotal,
-		)
-	case manual:
-		return "status", current.PRState, publicationCurrentStatus(
-			publication, current, status, correlationWindow,
-		)
-	default:
-		return "", "", ""
-	}
-}
-
-func publicationCurrentStatus(
-	publication core.Publication,
-	followup core.PublicationFollowup,
-	status core.PublicationLifecycleStatus,
-	correlationWindow time.Duration,
-) string {
-	parts := []string{fmt.Sprintf("PR #%d is %s", publication.PRNumber, followup.PRState)}
-	if followup.ChecksState != "none" && followup.ChecksState != "unknown" {
-		parts = append(parts, "GitHub checks are "+followup.ChecksState)
-	}
-	if followup.PRState == "merged" {
-		parts = append(parts, "matching delivery and Terraform updates remain linked to this thread for "+formatTrackingWindow(correlationWindow))
-	} else if status.Draft {
-		parts = append(parts, "it is still a draft")
-	}
-	return strings.Join(parts, ". ") + "."
-}
-
-func formatTrackingWindow(value time.Duration) string {
-	if value%(24*time.Hour) == 0 {
-		return fmt.Sprintf("%d days", int(value/(24*time.Hour)))
-	}
-	if value%time.Hour == 0 {
-		return fmt.Sprintf("%d hours", int(value/time.Hour))
-	}
-	return value.Round(time.Minute).String()
-}
-
-func publicationFollowupBackoff(failures int) time.Duration {
-	delay := time.Minute << min(max(failures-1, 0), 5)
-	return min(delay, 30*time.Minute)
-}
-
-func publicationLifecycleKey(parts ...string) string {
-	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	return hex.EncodeToString(digest[:12])
-}
 
 func activePublicationPrompt(items []core.PublicationContext) string {
 	if len(items) == 0 {
@@ -318,7 +102,7 @@ func (s *Service) applyPublicationUpdates(
 		if sourceKey == "" {
 			sourceKey = input.ID
 		}
-		eventKey := publicationLifecycleKey(
+		eventKey := publicationpkg.LifecycleKey(
 			update.IncidentID, sourceKey, update.Kind, update.State,
 		)
 		summary := update.Summary
@@ -326,7 +110,7 @@ func (s *Service) applyPublicationUpdates(
 			summary += "\n\nSource: <#" + input.ChannelID + ">"
 		}
 		if publicationUpdateNotifies(update) {
-			notificationKey := publicationLifecycleKey(
+			notificationKey := publicationpkg.LifecycleKey(
 				update.IncidentID, sourceKey, "terminal",
 			)
 			message := slackui.PublicationLifecycleMessage(
@@ -400,4 +184,73 @@ func publicationReferenceMatches(
 		}
 	}
 	return false
+}
+
+// publicationFollower binds the followup package to this service's store,
+// publisher, clock and delivery queue.
+//
+// The status source is optional on purpose: a deployment configured without
+// GitHub credentials is supported, and the followup defers rather than failing.
+func (s *Service) publicationFollower() *publicationpkg.Follower {
+	var status publicationpkg.StatusSource
+	if client, ok := s.publisher.(publicationStatusAPI); ok && s.publisher != nil {
+		status = publisherStatus{publisher: s.publisher, client: client}
+	}
+	return publicationpkg.NewFollower(
+		s.store,
+		status,
+		serviceReporter{s},
+		publicationpkg.Config{
+			FollowupInterval:          s.cfg.GitHub.FollowupInterval.Duration,
+			DeliveryCorrelationWindow: s.cfg.GitHub.DeliveryCorrelationWindow.Duration,
+		},
+		func() time.Time { return s.now() },
+	)
+}
+
+// publisherStatus joins the two halves the port needs: whether publishing is
+// configured at all, and what the forge reports. They live on different
+// interfaces because not every publisher implements the status half.
+type publisherStatus struct {
+	publisher interface{ Enabled() bool }
+	client    publicationStatusAPI
+}
+
+func (p publisherStatus) Enabled() bool { return p.publisher.Enabled() }
+
+func (p publisherStatus) PublicationStatus(
+	ctx context.Context,
+	publication core.Publication,
+) (core.PublicationLifecycleStatus, error) {
+	return p.client.PublicationStatus(ctx, publication)
+}
+
+// serviceReporter adapts the service's delivery queue and timeline to the
+// narrow Reporter port.
+type serviceReporter struct{ s *Service }
+
+func (r serviceReporter) Enqueue(
+	ctx context.Context,
+	deliveryID string,
+	incident core.Incident,
+	kind, threadTS string,
+	message slackui.Message,
+) error {
+	return r.s.enqueue(ctx, deliveryID, incident, kind, threadTS, message)
+}
+
+func (r serviceReporter) RecordTimeline(ctx context.Context, event core.TimelineEvent) {
+	r.s.recordTimeline(ctx, event)
+}
+
+func (s *Service) processPublicationFollowup(ctx context.Context) error {
+	return s.publicationFollower().Process(ctx)
+}
+
+func (s *Service) checkPublicationFollowup(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+) error {
+	return s.publicationFollower().Check(ctx, input, incident)
 }
