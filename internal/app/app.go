@@ -23,7 +23,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/httpapi"
-	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -85,70 +84,21 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	if err := validateConversationPrewarmPolicies(cfg); err != nil {
-		return err
-	}
 	logger := newLogger(stderr, cfg.LogLevel)
-	secrets, botToken, appToken, err := runtimeSecrets(cfg)
-	if err != nil {
-		return err
-	}
-	projectedEnvironment, err := additionalEnvironmentValues(cfg)
-	if err != nil {
-		return err
-	}
-	emisarToken, err := cfg.Secret(cfg.Coop.EmisarTokenEnv)
-	if err != nil {
-		return err
-	}
-	redactions := []string{botToken, appToken, emisarToken}
-	if cfg.GitHub.TokenEnv != "" {
-		if token := os.Getenv(cfg.GitHub.TokenEnv); token != "" {
-			redactions = append(redactions, token)
-		}
-	}
-	for _, secret := range secrets {
-		redactions = append(redactions, secret)
-	}
-	for _, secret := range projectedEnvironment {
-		redactions = append(redactions, secret)
-	}
-	emisarCtx, emisarCancel := context.WithTimeout(
-		context.Background(),
-		cfg.Coop.RequestTimeout.Duration,
-	)
-	emisarHTTP := &http.Client{
-		Timeout: cfg.Coop.RequestTimeout.Duration,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	_, err = preflightEmisarMCP(
-		emisarCtx,
-		emisarHTTP,
-		cfg.Coop.EmisarURL,
-		emisarToken,
-	)
-	emisarCancel()
-	if err != nil {
-		return fmt.Errorf("Emisar MCP: %w", err)
-	}
-	githubPublisher := publisher.New(cfg.GitHub, redactions...)
-	if err := githubPublisher.Ready(context.Background()); err != nil {
-		return fmt.Errorf("GitHub publisher: %w", err)
-	}
+	// Serve verifies the bootstrap files only when it supervises Coop, because
+	// that is the only case in which it is the one projecting them.
+	pre := newPreflight(cfg)
+	var bootstrapChecks []preflightCheck
 	if cfg.Coop.Supervise {
-		expectedBootstrap, err := bootstrapFiles(cfg, emisarToken)
-		if err != nil {
-			return err
-		}
-		if err := checkPrivateCoopConfig(cfg.Coop.BootstrapDir, expectedBootstrap); err != nil {
-			return err
-		}
+		bootstrapChecks = append(bootstrapChecks, pre.coopBootstrapCheck())
 	}
-	if err := ensurePrivateDirectory(cfg.StateDir); err != nil {
+	if err := pre.run(context.Background(), bootstrapChecks...); err != nil {
 		return err
 	}
+	secrets := pre.secrets
+	botToken, appToken, emisarToken := pre.botToken, pre.appToken, pre.emisarToken
+	redactions, emisarHTTP := pre.redactions, pre.emisarHTTP()
+	githubPublisher := pre.publisher()
 	lock, err := acquireProcessLock(cfg.StateDir)
 	if err != nil {
 		return err
@@ -278,54 +228,20 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	if err := validateConversationPrewarmPolicies(cfg); err != nil {
-		return err
-	}
 	checks := map[string]string{"config": "ok"}
-	_, botToken, appToken, err := runtimeSecrets(cfg)
-	if err != nil {
-		return err
-	}
-	emisarToken, err := cfg.Secret(cfg.Coop.EmisarTokenEnv)
-	if err != nil {
-		return err
-	}
-	emisarCtx, emisarCancel := context.WithTimeout(
+	// Doctor verifies the bootstrap files whether or not Responder supervises
+	// Coop, and proves a box can actually start. Serve does neither: it repairs
+	// a missing image on demand instead of refusing to start over it.
+	pre := newPreflight(cfg)
+	if err := pre.run(
 		context.Background(),
-		cfg.Coop.RequestTimeout.Duration,
-	)
-	emisarReport, err := preflightEmisarMCP(
-		emisarCtx,
-		&http.Client{
-			Timeout: cfg.Coop.RequestTimeout.Duration,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
-		cfg.Coop.EmisarURL,
-		emisarToken,
-	)
-	emisarCancel()
-	if err != nil {
-		return fmt.Errorf("Emisar MCP: %w", err)
-	}
-	if err := publisher.New(cfg.GitHub).Ready(context.Background()); err != nil {
-		return fmt.Errorf("GitHub publisher: %w", err)
-	}
-	expectedBootstrap, err := bootstrapFiles(cfg, emisarToken)
-	if err != nil {
+		pre.coopBootstrapCheck(),
+		pre.managedCoopImageCheck(),
+	); err != nil {
 		return err
 	}
-	if err := checkPrivateCoopConfig(cfg.Coop.BootstrapDir, expectedBootstrap); err != nil {
-		return err
-	}
-	if err := checkManagedCoopImage(cfg); err != nil {
-		return err
-	}
+	botToken, appToken, emisarReport := pre.botToken, pre.appToken, pre.emisarReport
 	logger := newLogger(stderr, cfg.LogLevel)
-	if err := ensurePrivateDirectory(cfg.StateDir); err != nil {
-		return err
-	}
 	lock, lockErr := acquireProcessLock(cfg.StateDir)
 	var st *store.Store
 	responderStatus := "not running (configuration checks only)"
