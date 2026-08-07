@@ -1,15 +1,26 @@
 # Changelog
 
-## Unreleased
+## v0.1.0 - 2026-08-07
 
-<!--
-Everything below is prepared for the first tagged release. To cut it:
-  1. change the heading above this block to "## v0.1.0 - <date>" and delete this comment
-  2. re-express minimumUpgradableVersion in internal/store/schema.go against the released
-     version rather than "oldest deployed database" (its comment says how)
-  3. tag and push; the release workflow does the rest
-Nothing here needs writing first — this is the whole preparation.
--->
+- **Cross-provider model failover.** Session policies may name an ordered target ladder
+  (`target: [claude:opus/max@oncall, codex:gpt-5.6-sol/xhigh@oncall]`). Coop rotates a rate-limited
+  session onto the next free rung mid-turn and re-delivers the same work; `responder doctor`
+  verifies every rung's credential, not just the one sessions start on; and an exhausted ladder
+  waits until the reset instant the provider named without spending a retry attempt.
+- **Provider trouble never reaches the channel.** A refusal, quota, rate limit, or dropped stream
+  pauses the original message with a reaction and keeps the work queued instead of posting
+  "Responder could not complete this check" into a shared room. Transient stream drops retry
+  immediately; refusals requeue from all three lanes, including finalization, without counting
+  attempts.
+- **One deployment path.** `scripts/deploy.sh` builds an immutable commit-named binary, reloads the
+  launch-agent definitions (not merely kickstarts them), and fails unless every running process is
+  on the deployed commit; `--stage` prepares a candidate without rotating anything. The
+  quality-watch fixer deploys through the same script, ending a path where validated fixes were
+  reported deployed while the pinned binaries kept running old code.
+- **Episode replay coverage ratchet.** The capability matrix is parsed from the migration document
+  itself; a capability with neither a fixture nor an acknowledged gap fails the build, fixtures are
+  recorded only from sanitized real history, and the first incident fixture (a real escalation into
+  a room, closed the same day) joins the corpus.
 
 - **Reliability and maintenance pass.** The Slack write slot now defers its scheduler item instead
   of reporting success, ending a busy loop that issued thousands of database transactions per second
