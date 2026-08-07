@@ -1154,7 +1154,7 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 	var currentEpisodeState core.WorkEpisodeState
 	if err := tx.QueryRowContext(
 		ctx, `SELECT lifecycle_state FROM work_episodes WHERE id = (
-		  SELECT episode_id FROM episode_attempts WHERE agent_run_id = ?
+		  SELECT episode_id FROM agent_runs WHERE id = ?
 		)`, id,
 	).Scan(&currentEpisodeState); err != nil {
 		return err

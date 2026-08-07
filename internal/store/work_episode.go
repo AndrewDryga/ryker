@@ -329,6 +329,15 @@ func (s *Store) GetWorkEpisode(ctx context.Context, episodeID string) (core.Work
 	))
 }
 
+// GetWorkEpisodeByRun resolves the episode a run belongs to through the run's
+// own episode_id.
+//
+// This used to try episode_attempts first and fall back to
+// work_episodes.agent_run_id — the one-to-one bridge from before episodes owned
+// attempts. Both branches are gone. On the deployed database all 335 runs
+// resolve through their attempt, none need the fallback, and agent_runs.episode_id
+// agrees with the attempt's episode in every row, so the column is the direct
+// answer the two lookups were reconstructing.
 func (s *Store) GetWorkEpisodeByRun(
 	ctx context.Context,
 	runID string,
@@ -336,11 +345,8 @@ func (s *Store) GetWorkEpisodeByRun(
 	return scanWorkEpisode(s.db.QueryRowContext(
 		ctx,
 		`SELECT `+workEpisodeColumns+` FROM work_episodes
-		 WHERE id = COALESCE(
-		   (SELECT episode_id FROM episode_attempts WHERE agent_run_id = ?),
-		   (SELECT id FROM work_episodes WHERE agent_run_id = ?)
-		 )`,
-		runID, runID,
+		 WHERE id = (SELECT episode_id FROM agent_runs WHERE id = ?)`,
+		runID,
 	))
 }
 
@@ -543,12 +549,12 @@ func (s *Store) appendWorkEpisodeEventTx(
 	runID string,
 	event core.WorkEpisodeEvent,
 ) (core.WorkEpisodeEvent, error) {
+	// The run's own episode_id, not a reconstruction from attempts or from the
+	// legacy one-to-one work_episodes.agent_run_id. Both are gone; see
+	// GetWorkEpisodeByRun for the evidence.
 	var episodeID string
 	err := tx.QueryRowContext(ctx, `
-		SELECT COALESCE(
-		  (SELECT episode_id FROM episode_attempts WHERE agent_run_id = ?),
-		  (SELECT id FROM work_episodes WHERE agent_run_id = ?)
-		)`, runID, runID).Scan(&episodeID)
+		SELECT episode_id FROM agent_runs WHERE id = ?`, runID).Scan(&episodeID)
 	if errors.Is(err, sql.ErrNoRows) || strings.TrimSpace(episodeID) == "" {
 		return core.WorkEpisodeEvent{}, ErrNotFound
 	}
