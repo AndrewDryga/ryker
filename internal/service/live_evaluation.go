@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -952,7 +953,7 @@ func evaluationStructuredCorrection(
 					watchDecisionCorrectionAt(input, state, decision, now),
 					alertReplyLanguageCorrectionWithContext(input, state, decision),
 					externalLifecycleReplyLanguageCorrection(input, decision),
-					episodeCompletionCorrection(
+					investigation.CompletionCorrection(
 						*episode,
 						decision.Action,
 						sanitizeCoverage(decision.Coverage, "", "", "", now),

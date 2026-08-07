@@ -72,11 +72,14 @@ var methodBudget = map[string]int{
 // touches it, little enough that a package quietly absorbing a new
 // responsibility does.
 var lineBudget = map[string]int{
-	"service":    28200,
+	"service":    27800,
 	"store":      14000,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
+	// investigation owns the contract and, since the completion validators moved
+	// beside it, the rules that check a result against that contract.
+	"investigation": 1800,
 }
 
 // forbiddenImports records the dependency direction. Each package maps to the

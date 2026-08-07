@@ -232,13 +232,13 @@ func decodeAgentReport(message string) (agentReport, error) {
 	if offerCount > 0 && len(report.Visuals) > 0 {
 		return agentReport{}, errors.New("structured agent response cannot combine a durable behavior offer with generated visuals")
 	}
-	if err := validateCompletionAssessment(report.Completion); err != nil {
+	if err := investigation.ValidateCompletion(report.Completion); err != nil {
 		return agentReport{}, err
 	}
-	if err := validateCapabilityGapEvidence(report.Completion, report.Evidence); err != nil {
+	if err := investigation.ValidateCapabilityGapEvidence(report.Completion, report.Evidence); err != nil {
 		return agentReport{}, err
 	}
-	report.Message, report.FollowupMessages = appendCapabilityGuidance(
+	report.Message, report.FollowupMessages = investigation.AppendCapabilityGuidance(
 		report.Message,
 		report.FollowupMessages,
 		report.Completion,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -677,19 +678,19 @@ func evaluateCaseWithConfig(
 		if testCase.Kind != "watch" {
 			completionAction = "reply"
 		}
-		if correction := episodeCompletionCorrection(
+		if correction := investigation.CompletionCorrection(
 			*episode, completionAction, coverage, completion,
 		); correction != "" {
 			result.Detail = "premature completion: " + correction
 			return result
 		}
-		if correction := episodeConclusionLanguageCorrection(
+		if correction := investigation.ConclusionLanguageCorrection(
 			*episode, completionAction, message,
 		); correction != "" {
 			result.Detail = "wrong conclusion language: " + correction
 			return result
 		}
-		if correction := episodeClaimCorrection(
+		if correction := investigation.ClaimCorrection(
 			*episode, completionAction, evidence, coverage, completion, now, strictOperations,
 		); correction != "" {
 			result.Detail = "unsupported completion: " + correction

@@ -25,16 +25,16 @@ func TestCompletionRecheckIsTypedAndBounded(t *testing.T) {
 			AfterSeconds: 60, AdditionalAttempts: 2,
 		},
 	}
-	if err := validateCompletionAssessment(valid); err != nil {
+	if err := investigation.ValidateCompletion(valid); err != nil {
 		t.Fatalf("valid recheck rejected: %v", err)
 	}
 	valid.Recheck.AfterSeconds = 5
-	if err := validateCompletionAssessment(valid); err == nil {
+	if err := investigation.ValidateCompletion(valid); err == nil {
 		t.Fatal("unsafe recheck delay accepted")
 	}
 	valid.Recheck.AfterSeconds = 60
 	valid.BlockerKind = "access_denied"
-	if err := validateCompletionAssessment(valid); err == nil {
+	if err := investigation.ValidateCompletion(valid); err == nil {
 		t.Fatal("access denial accepted as an automatic recheck")
 	}
 }

@@ -1569,14 +1569,14 @@ func (s *Service) stageTriageTerminal(
 			correction = externalLifecycleReplyLanguageCorrection(input, decision)
 		}
 		if correction == "" {
-			correction = episodeCompletionCorrection(
+			correction = investigation.CompletionCorrection(
 				episode,
 				decision.Action,
 				sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 				decision.Completion,
 			)
 			if correction == "" {
-				correction = episodeConclusionLanguageCorrection(
+				correction = investigation.ConclusionLanguageCorrection(
 					episode, decision.Action, decision.Message,
 				)
 			}
@@ -1686,14 +1686,14 @@ func (s *Service) stageIncidentTerminal(
 		if episodeErr != nil {
 			return true, episodeErr
 		}
-		correction := episodeCompletionCorrection(
+		correction := investigation.CompletionCorrection(
 			episode,
 			"reply",
 			sanitizeCoverage(report.Coverage, "", "", "", s.now()),
 			report.Completion,
 		)
 		if correction == "" {
-			correction = episodeConclusionLanguageCorrection(
+			correction = investigation.ConclusionLanguageCorrection(
 				episode, "reply", report.Message,
 			)
 		}

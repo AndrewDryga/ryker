@@ -267,7 +267,7 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := episodeCompletionCorrection(episode, test.action, test.coverage, test.completion)
+			got := investigation.CompletionCorrection(episode, test.action, test.coverage, test.completion)
 			if test.want == "" && got != "" {
 				t.Fatalf("unexpected correction: %s", got)
 			}
@@ -303,7 +303,7 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateCompletionAssessment(test.completion)
+			err := investigation.ValidateCompletion(test.completion)
 			if (err != nil) != test.wantError {
 				t.Fatalf("error = %v", err)
 			}
@@ -327,15 +327,15 @@ func TestFocusedChangeReviewUsesLifecycleVerdict(t *testing.T) {
 		Status: "decision_ready", Verdict: "in_progress",
 		Summary: "The change is applying and needs terminal verification.",
 	}
-	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); got != "" {
+	if got := investigation.CompletionCorrection(episode, "reply", coverage, completion); got != "" {
 		t.Fatalf("in-progress change rejected: %s", got)
 	}
 	completion.Verdict = "degraded"
-	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); !strings.Contains(got, "change_review") {
+	if got := investigation.CompletionCorrection(episode, "reply", coverage, completion); !strings.Contains(got, "change_review") {
 		t.Fatalf("health verdict accepted for change review: %q", got)
 	}
 	completion.Verdict = "succeeded"
-	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); got == "" {
+	if got := investigation.CompletionCorrection(episode, "reply", coverage, completion); got == "" {
 		t.Fatalf("success without terminal evidence accepted: %q", got)
 	}
 	coverage[0].Status = "unhealthy"
@@ -344,11 +344,11 @@ func TestFocusedChangeReviewUsesLifecycleVerdict(t *testing.T) {
 	completion.Summary = "The apply failed; reconcile possible partial changes before retrying."
 	completion.MaterialGaps = []string{"the exact partial infrastructure changes are not yet known"}
 	completion.NextAction = "Inspect the terminal run diagnostics and refresh state before any retry."
-	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); got != "" {
+	if got := investigation.CompletionCorrection(episode, "reply", coverage, completion); got != "" {
 		t.Fatalf("bounded terminal failure rejected: %q", got)
 	}
 	completion.NextAction = ""
-	if got := episodeCompletionCorrection(episode, "reply", coverage, completion); got == "" {
+	if got := investigation.CompletionCorrection(episode, "reply", coverage, completion); got == "" {
 		t.Fatal("terminal failure without a safe next action was accepted")
 	}
 }
@@ -390,14 +390,14 @@ func TestRunbookWorkDoesNotUseHealthVerdictLanguage(t *testing.T) {
 	if !slices.Equal(episode.RequiredCoverage, []string{"task"}) {
 		t.Fatalf("runbook coverage = %v", episode.RequiredCoverage)
 	}
-	if got := episodeConclusionLanguageCorrection(
+	if got := investigation.ConclusionLanguageCorrection(
 		*episode,
 		"reply",
 		"**Degraded** - the expanded runbook is validated but unpublished.",
 	); !strings.Contains(got, "not an operational health assessment") {
 		t.Fatalf("runbook health heading accepted: %q", got)
 	}
-	if got := episodeConclusionLanguageCorrection(
+	if got := investigation.ConclusionLanguageCorrection(
 		*episode,
 		"reply",
 		"The expanded runbook is validated. Publication is the remaining step.",
@@ -451,7 +451,7 @@ func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
 	if got := episode.RequiredCoverage; !slices.Equal(got, []string{"task"}) {
 		t.Fatalf("required coverage = %v, want [task]", got)
 	}
-	if correction := episodeCompletionCorrection(
+	if correction := investigation.CompletionCorrection(
 		*episode,
 		decision.Action,
 		decision.Coverage,
@@ -459,7 +459,7 @@ func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
 	); correction != "" {
 		t.Fatalf("completion correction = %q", correction)
 	}
-	if correction := episodeClaimCorrection(
+	if correction := investigation.ClaimCorrection(
 		*episode,
 		decision.Action,
 		decision.Evidence,
@@ -537,7 +537,7 @@ func TestEpisodeClaimCorrectionRequiresTypedEvidenceAndCoverageBinding(t *testin
 	coverage := []core.Coverage{{
 		Layer: "change", Status: "healthy", Detail: "Current repository manuals define the validation commands.",
 	}}
-	if got := episodeClaimCorrection(episode, "reply", nil, coverage, completion, now, true); !strings.Contains(got, "no typed evidence") {
+	if got := investigation.ClaimCorrection(episode, "reply", nil, coverage, completion, now, true); !strings.Contains(got, "no typed evidence") {
 		t.Fatalf("missing evidence correction = %q", got)
 	}
 	evidence := []core.Evidence{{
@@ -545,11 +545,11 @@ func TestEpisodeClaimCorrectionRequiresTypedEvidenceAndCoverageBinding(t *testin
 		Observation: "The repository defines ./run gate all.", ObservedAt: now, Confidence: "high",
 		Dimensions: map[string]string{"repository": "emisar", "environment": "checkout", "revision": "current"},
 	}}
-	if got := episodeClaimCorrection(episode, "reply", evidence, coverage, completion, now, true); !strings.Contains(got, "must include its exact claim_id") {
+	if got := investigation.ClaimCorrection(episode, "reply", evidence, coverage, completion, now, true); !strings.Contains(got, "must include its exact claim_id") {
 		t.Fatalf("unbound coverage correction = %q", got)
 	}
 	coverage[0].ClaimIDs = []string{"change.recent"}
-	if got := episodeClaimCorrection(episode, "reply", evidence, coverage, completion, now, true); got != "" {
+	if got := investigation.ClaimCorrection(episode, "reply", evidence, coverage, completion, now, true); got != "" {
 		t.Fatalf("bound evidence rejected = %q", got)
 	}
 }

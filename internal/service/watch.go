@@ -2570,13 +2570,13 @@ func validateReplyDecision(d *watchDecision, now time.Time) error {
 			return err
 		}
 	}
-	if err := validateCompletionAssessment(d.Completion); err != nil {
+	if err := investigation.ValidateCompletion(d.Completion); err != nil {
 		return err
 	}
-	if err := validateCapabilityGapEvidence(d.Completion, d.Evidence); err != nil {
+	if err := investigation.ValidateCapabilityGapEvidence(d.Completion, d.Evidence); err != nil {
 		return err
 	}
-	d.Message, d.FollowupMessages = appendCapabilityGuidance(
+	d.Message, d.FollowupMessages = investigation.AppendCapabilityGuidance(
 		d.Message,
 		d.FollowupMessages,
 		d.Completion,
