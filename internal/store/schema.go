@@ -1089,6 +1089,16 @@ const baselineSchemaVersion = 40
 // minimumUpgradableVersion is the oldest database this binary can migrate.
 // Older databases predate the baseline and no released binary ever produced
 // them, so failing loudly beats silently applying a partial schema.
+//
+// This tracks the oldest *deployed* database, not the oldest released version,
+// because there are no tags yet — nothing has been released, so there is no
+// released version to define it against. That stand-in is deliberate and it is
+// only correct while that stays true.
+//
+// When the first version is tagged, this must be re-expressed as "the schema
+// version shipped by the oldest supported release". Otherwise an operator
+// upgrading from a released binary can meet a database this one refuses, with
+// an error that blames their database for a boundary nobody ever published.
 const minimumUpgradableVersion = 39
 
 const schemaV40 = `
