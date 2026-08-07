@@ -2041,6 +2041,16 @@ func (s *Service) stagePolledAgentRunTerminal(
 		return nil
 	}
 	terminalState := strings.TrimPrefix(eventType, "turn.")
+	// A turn the provider refused is not a turn that failed. This is the path
+	// a refusal actually takes — Coop reports turn.failed and the result is
+	// staged as terminal without any retry function seeing it, which is why a
+	// refused run ended as 'failed' with failure_count 0 while three other
+	// guards were in place.
+	if terminalState == "failed" {
+		if requeued, err := s.requeueIfRateLimited(ctx, run, errors.New(detail)); requeued {
+			return err
+		}
+	}
 	staged := stagedTurn{result: []byte(turn.AssistantMessage), detail: detail}
 	if run.Mode == core.AgentRunTriage && terminalState == "completed" {
 		if handled, err := s.stageTriageTerminal(ctx, run, turn, cursor, &staged); handled {

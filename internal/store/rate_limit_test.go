@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 // A refusal during finalization returns the run to the finalization lane, not
@@ -67,5 +69,53 @@ func seedRunInState(t *testing.T, st *Store, id, state string) {
 		id, id, "idem_"+id, state,
 	); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A refusal that arrives as a failed turn must requeue from 'running'.
+//
+// This is the path a refusal actually takes: Coop reports turn.failed while the
+// run is still running, and the result is staged as terminal without any retry
+// function seeing it. Three earlier guards all passed their tests and changed
+// nothing, because none of them was on this path — the signature was a run in
+// 'failed' with failure_count 0, which no retry function can produce.
+func TestRunningRunIsRequeuedWhenTheProviderRefuses(t *testing.T) {
+	ctx := context.Background()
+	st := openAt(t, t.TempDir())
+	// A real running run owns an episode and an attempt; requeueing updates
+	// both, so a bare row would pass or fail for the wrong reason.
+	seedEpisodeWithRun(t, st, "ep_run", "working",
+		map[string][2]string{"run_running": {"running", "2026-08-07T12:00:00.000000000Z"}})
+	if _, err := st.db.ExecContext(ctx, `
+		INSERT INTO episode_attempts (id, episode_id, agent_run_id, attempt_number,
+		  state, created_at, updated_at)
+		VALUES ('att_run','ep_run','run_running',1,'running',
+		  '2026-08-07T12:00:00.000000000Z','2026-08-07T12:00:00.000000000Z')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	// The episode has to name its latest attempt; the phase update joins
+	// through it.
+	if _, err := st.db.ExecContext(ctx,
+		`UPDATE work_episodes SET latest_attempt_id = 'att_run' WHERE id = 'ep_run'`,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	next := time.Now().UTC().Add(5 * time.Minute)
+	if err := st.RequeueRateLimitedAgentRun(
+		ctx, "run_running", "ACP request was rejected", next,
+	); err != nil {
+		t.Fatalf("a running run could not be requeued, so the refusal becomes a failure: %v", err)
+	}
+	run, err := st.GetAgentRun(ctx, "run_running")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunPending {
+		t.Fatalf("state = %q, want pending", run.State)
+	}
+	if run.Failures != 0 {
+		t.Fatalf("a refusal spent an attempt: failures = %d", run.Failures)
 	}
 }

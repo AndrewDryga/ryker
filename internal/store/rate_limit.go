@@ -44,6 +44,11 @@ func (s *Store) RequeueRateLimitedFinalization(
 // moving to failed, because from the episode's point of view nothing has gone
 // wrong yet.
 //
+// 'running' is in the accepted states because a refusal most often arrives as a
+// failed turn — Coop reports turn.failed while the run is still running, and
+// that path stages a terminal failure without going through any retry function.
+// It is the reason a refused run showed state 'failed' with failure_count 0.
+//
 // last_error still records the detail: `responder status` and the logs should
 // show why a run is waiting, even though Slack does not.
 func (s *Store) RequeueRateLimitedAgentRun(
@@ -60,7 +65,7 @@ func (s *Store) RequeueRateLimitedAgentRun(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', last_error = ?, next_attempt_at = ?, updated_at = ?
-		WHERE id = ? AND state IN ('preparing', 'finalizing')`,
+		WHERE id = ? AND state IN ('preparing', 'running', 'finalizing')`,
 		sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
 		s.nowText(), id,
 	)
