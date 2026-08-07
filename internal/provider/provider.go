@@ -11,6 +11,17 @@ import (
 	"strings"
 )
 
+// Kinds a caller may need to branch on. Named rather than compared as strings
+// at the call site, so a rename here cannot leave a stale comparison behind.
+const (
+	// KindRateLimit: the provider is throttling. Transient by definition, and
+	// distinct from KindUsageLimit, which is a quota that will not recover on
+	// its own.
+	KindRateLimit = "rate_limit"
+	// KindUsageLimit: the account has no usable quota. Waiting does not fix it.
+	KindUsageLimit = "usage_limit"
+)
+
 type Failure struct {
 	Kind        string
 	Summary     string
@@ -28,13 +39,13 @@ func Classify(detail string) Failure {
 		}
 	case containsAny(lower, "usage limit", "quota", "insufficient_quota", "credit balance"):
 		return Failure{
-			Kind:        "usage_limit",
+			Kind:        KindUsageLimit,
 			Summary:     "The configured AI provider account has no usable quota or spending capacity.",
 			OperatorFix: "Confirm provider usage and billing for the account used by Coop, then retry.",
 		}
 	case containsAny(lower, "rate limit", "too many requests", "429"):
 		return Failure{
-			Kind:        "rate_limit",
+			Kind:        KindRateLimit,
 			Summary:     "The configured AI provider temporarily rate-limited this request.",
 			OperatorFix: "Wait for the provider limit window to recover, or reduce concurrent work, then retry.",
 		}

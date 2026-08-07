@@ -772,6 +772,9 @@ func (s *Service) retryIncidentAgentRun(
 	cause error,
 	terminal bool,
 ) error {
+	if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
+		return err
+	}
 	if !terminal {
 		terminal = terminalAttempt(
 			run.Failures+1,
@@ -1278,11 +1281,48 @@ func advanceFailedSessionGeneration(err error) bool {
 		apiErr.Code == "internal_error"
 }
 
+// requeueIfRateLimited puts a rate-limited run back in the queue and reports
+// whether it handled the failure.
+//
+// A rate limit is the provider saying "not now", not the work being wrong. The
+// answer is still coming, just later, so the run waits without spending an
+// attempt and without anything being said in Slack — an error message for work
+// that was never wrong is worse than a short wait.
+//
+// Shared by both retry paths on purpose. Written twice it would eventually be
+// true in one and not the other, and the symptom would be that rate limits are
+// silent for conversations and noisy for incidents, which is the kind of
+// inconsistency nobody reports as a bug.
+func (s *Service) requeueIfRateLimited(
+	ctx context.Context,
+	run core.AgentRun,
+	cause error,
+) (bool, error) {
+	detail := trimError(cause)
+	if provider.Classify(detail).Kind != provider.KindRateLimit {
+		return false, nil
+	}
+	next := s.now().Add(rateLimitRetryDelay)
+	if s.log != nil {
+		s.log.Warn(
+			"provider rate limit; the work stays queued rather than failing",
+			"run", run.ID,
+			"mode", run.Mode,
+			"retry_at", next.UTC().Format(time.RFC3339),
+			"detail", detail,
+		)
+	}
+	return true, s.store.RequeueRateLimitedAgentRun(ctx, run.ID, detail, next)
+}
+
 func (s *Service) retryAgentRun(
 	ctx context.Context,
 	run core.AgentRun,
 	cause error,
 ) error {
+	if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
+		return err
+	}
 	terminal := terminalAttempt(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts)
 	var apiErr *coop.APIError
 	if errors.As(cause, &apiErr) && !apiErr.Retryable() {

@@ -569,6 +569,19 @@ func queueDelayDuration(attempt int) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
+// rateLimitRetryDelay is how long a rate-limited run waits before asking again.
+//
+// Fixed rather than the exponential backoff other retries use, because there is
+// no attempt count to grow it from — a rate limit deliberately does not spend
+// one. Five minutes is the ceiling that backoff reaches anyway, and it is long
+// enough that repeated waits do not themselves become the load the provider was
+// complaining about.
+//
+// There is no attempt limit on purpose. A rate limit recovers; a quota does
+// not, and that is a different classification (provider.KindUsageLimit) which
+// still fails normally. Work waits here rather than being abandoned.
+const rateLimitRetryDelay = 5 * time.Minute
+
 func terminalAttempt(attempt, maximum int) bool {
 	return attempt >= maximum
 }
