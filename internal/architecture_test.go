@@ -67,9 +67,13 @@ var methodBudget = map[string]int{
 // internal/localstate, internal/provider and internal/recall out of this
 // package rather than letting it absorb them — and it only keeps working if
 // tripping it means something.
+// Re-baselined when the count switched from every line to code lines only.
+// Each is roughly 5% above today's count: enough that ordinary work never
+// touches it, little enough that a package quietly absorbing a new
+// responsibility does.
 var lineBudget = map[string]int{
-	"service":    28300,
-	"store":      14300,
+	"service":    28200,
+	"store":      14000,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
@@ -203,6 +207,32 @@ func TestBroadTypeMethodBudget(t *testing.T) {
 	}
 }
 
+// codeLines counts lines that carry code, skipping blanks and comments.
+//
+// The budget exists to stop a package absorbing responsibility, and comments
+// are not responsibility. Counting them meant that naming and explaining an
+// extracted phase — the exact change the budget is supposed to encourage —
+// pushed the package toward its limit, which is backwards.
+func codeLines(source string) int {
+	count := 0
+	inBlockComment := false
+	for _, line := range strings.Split(source, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case inBlockComment:
+			if strings.Contains(trimmed, "*/") {
+				inBlockComment = false
+			}
+		case trimmed == "" || strings.HasPrefix(trimmed, "//"):
+		case strings.HasPrefix(trimmed, "/*"):
+			inBlockComment = !strings.Contains(trimmed, "*/")
+		default:
+			count++
+		}
+	}
+	return count
+}
+
 func TestPackageLineBudget(t *testing.T) {
 	packages := goPackages(t)
 	for name, budget := range lineBudget {
@@ -216,7 +246,7 @@ func TestPackageLineBudget(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			total += strings.Count(string(data), "\n")
+			total += codeLines(string(data))
 		}
 		if total > budget {
 			t.Errorf(
