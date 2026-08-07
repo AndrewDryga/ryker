@@ -1457,6 +1457,53 @@ type stagedTurn struct {
 // stageTriageTerminal validates a completed triage turn and applies its watch
 // decision. A true first result means the turn is fully handled and the caller
 // should return the accompanying error, which may be nil.
+// correctionClass names why the host sent a result back to the model.
+//
+// The class matters more than the text. Correction text quotes model output and
+// is unbounded prose; the class is a small vocabulary you can count, which is
+// what turns corrections from noise into the one signal that says whether
+// Responder is getting better.
+type correctionClass string
+
+const (
+	// correctionUnreadable: the result could not be parsed at all.
+	correctionUnreadable correctionClass = "unreadable"
+	// correctionIncomplete: the result parsed but did not meet the contract —
+	// a missing verdict, unexplained coverage, an unsupported claim.
+	correctionIncomplete correctionClass = "incomplete"
+	// correctionPolicy: the result was well-formed and complete but broke a
+	// standing rule about what Responder may say or offer.
+	correctionPolicy correctionClass = "policy"
+)
+
+// requeueWithCorrection sends a result back to the model and records that it
+// happened.
+//
+// The two are one operation on purpose. A correction that is requeued without
+// being recorded is invisible, and every one of these was invisible until now:
+// the text went into the retry and nothing counted it. Splitting them again
+// would let the recording drift away from the retry it describes.
+func (s *Service) requeueWithCorrection(
+	ctx context.Context,
+	run core.AgentRun,
+	class correctionClass,
+	correction string,
+	cursor int64,
+) error {
+	if err := s.store.RequeueAgentRun(ctx, run.ID, correction, cursor, s.now()); err != nil {
+		return err
+	}
+	s.audit(ctx, core.AuditEvent{
+		IncidentID: run.IncidentID,
+		Kind:       "result.correction",
+		ActorID:    "responder",
+		ObjectID:   run.ID,
+		Outcome:    string(class),
+		Detail:     s.sanitizeText(decisionpkg.BoundedField(correction, 500)),
+	})
+	return nil
+}
+
 func (s *Service) stageTriageTerminal(
 	ctx context.Context,
 	run core.AgentRun,
@@ -1490,8 +1537,8 @@ func (s *Service) stageTriageTerminal(
 			if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
 				return true, err
 			}
-			if err := s.store.RequeueAgentRun(
-				ctx, run.ID, correction, cursor, s.now(),
+			if err := s.requeueWithCorrection(
+				ctx, run, correctionUnreadable, correction, cursor,
 			); err != nil {
 				return true, err
 			}
@@ -1617,8 +1664,8 @@ func (s *Service) stageTriageTerminal(
 				); err != nil {
 					return true, err
 				}
-				if err := s.store.RequeueAgentRun(
-					ctx, run.ID, correction, cursor, s.now(),
+				if err := s.requeueWithCorrection(
+					ctx, run, correctionIncomplete, correction, cursor,
 				); err != nil {
 					return true, err
 				}
@@ -1660,8 +1707,8 @@ func (s *Service) stageIncidentTerminal(
 		if !terminalStructuredCorrection(
 			run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
 		) {
-			if err := s.store.RequeueAgentRun(
-				ctx, run.ID, correction, cursor, s.now(),
+			if err := s.requeueWithCorrection(
+				ctx, run, correctionUnreadable, correction, cursor,
 			); err != nil {
 				return true, err
 			}
@@ -1714,8 +1761,8 @@ func (s *Service) stageIncidentTerminal(
 			if !terminalStructuredCorrection(
 				run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
 			) {
-				if err := s.store.RequeueAgentRun(
-					ctx, run.ID, correction, cursor, s.now(),
+				if err := s.requeueWithCorrection(
+					ctx, run, correctionIncomplete, correction, cursor,
 				); err != nil {
 					return true, err
 				}
@@ -1810,6 +1857,10 @@ func (s *Service) stagePolledAgentRunTerminal(
 				return err
 			}
 		}
+		// Not a correction: the session was rotated or the transport failed, and
+		// the model was never told it did anything wrong. Counting this would
+		// make the correction rate track infrastructure health instead of
+		// answer quality.
 		if err := s.store.RequeueAgentRun(
 			ctx, run.ID, reason, cursor, s.now(),
 		); err != nil {
@@ -1906,16 +1957,11 @@ func (s *Service) retryMalformedIncidentReport(
 	correction := "the structured response is invalid: " + trimError(reportErr) +
 		"\n\nReturn the same result in the documented structured format. " +
 		"Keep the evidence and conclusions you already have; only the envelope was wrong."
-	if err := s.store.RequeueAgentRun(
-		ctx, run.ID, correction, run.CoopEventSequence, s.now(),
+	if err := s.requeueWithCorrection(
+		ctx, run, correctionUnreadable, correction, run.CoopEventSequence,
 	); err != nil {
 		return false, err
 	}
-	s.audit(ctx, core.AuditEvent{
-		IncidentID: run.IncidentID, Kind: "agent.report",
-		ObjectID: run.CoopTurnID, Outcome: "corrected",
-		Detail: decisionpkg.BoundedField(trimError(reportErr), 500),
-	})
 	return true, nil
 }
 

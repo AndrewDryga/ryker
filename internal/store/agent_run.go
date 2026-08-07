@@ -1439,3 +1439,41 @@ func (s *Store) ListStoredResults(
 	}
 	return results, rows.Err()
 }
+
+// CorrectionRate counts corrections by class alongside the number of finished
+// turns, so the two can be compared. Returning the denominator with the
+// numerators is deliberate: a count of corrections on its own says nothing,
+// because it moves with traffic.
+func (s *Store) CorrectionRate(
+	ctx context.Context,
+	since time.Time,
+) (map[string]int, int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT outcome, COUNT(*) FROM audit_events
+		WHERE kind = 'result.correction' AND created_at >= ?
+		GROUP BY outcome`, timeText(since))
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	counts := make(map[string]int)
+	for rows.Next() {
+		var outcome string
+		var count int
+		if err := rows.Scan(&outcome, &count); err != nil {
+			return nil, 0, err
+		}
+		counts[outcome] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	var turns int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM agent_runs
+		WHERE terminal_state != '' AND created_at >= ?`, timeText(since),
+	).Scan(&turns); err != nil {
+		return nil, 0, err
+	}
+	return counts, turns, nil
+}
