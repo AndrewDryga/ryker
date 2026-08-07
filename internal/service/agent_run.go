@@ -1468,12 +1468,15 @@ type correctionClass string
 const (
 	// correctionUnreadable: the result could not be parsed at all.
 	correctionUnreadable correctionClass = "unreadable"
-	// correctionIncomplete: the result parsed but did not meet the contract —
-	// a missing verdict, unexplained coverage, an unsupported claim.
+	// correctionIncomplete: the result parsed but the host refused it — a
+	// missing verdict, unexplained coverage, an unsupported claim, an offer
+	// combined with work.
+	//
+	// Two classes, not three. A "policy" class was drafted and removed because
+	// its boundary against this one could not be stated crisply, and a class
+	// whose boundary is unclear makes the count ambiguous — which defeats the
+	// only reason the class exists.
 	correctionIncomplete correctionClass = "incomplete"
-	// correctionPolicy: the result was well-formed and complete but broke a
-	// standing rule about what Responder may say or offer.
-	correctionPolicy correctionClass = "policy"
 )
 
 // requeueWithCorrection sends a result back to the model and records that it

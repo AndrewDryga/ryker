@@ -12,7 +12,6 @@ func TestCorrectionClassesAreASmallClosedSet(t *testing.T) {
 	classes := []correctionClass{
 		correctionUnreadable,
 		correctionIncomplete,
-		correctionPolicy,
 	}
 	seen := make(map[correctionClass]bool, len(classes))
 	for _, class := range classes {

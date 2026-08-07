@@ -1319,3 +1319,44 @@ type StoredAgentResult struct {
 	Message   string    `json:"message"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// StandingAssignmentChangeClasses is the closed set of changes an operator can
+// delegate to a standing assignment.
+//
+// It is an allowlist rather than free text because free text means "Responder
+// may change anything". Each entry is deliberately a class where a wrong change
+// is visible in review and cheap to discard — none of them touch business
+// logic, and none of them are things a reviewer would wave through.
+var StandingAssignmentChangeClasses = []string{
+	"dependency_upgrade",
+	"alert_threshold",
+	"flaky_test_quarantine",
+	"observability",
+	"documentation",
+}
+
+// StandingAssignment is scoped authority to act without a per-action click.
+//
+// The confirmation is not removed, only moved earlier: an operator agrees once
+// to a bounded shape of work. Every field except the identifiers is a bound on
+// what that agreement covers.
+type StandingAssignment struct {
+	ID            string    `json:"id"`
+	ChannelID     string    `json:"channel_id"`
+	SignalPattern string    `json:"signal_pattern"`
+	Repository    string    `json:"repository"`
+	PathGlobs     []string  `json:"path_globs,omitempty"`
+	ChangeClass   string    `json:"change_class"`
+	DailyBudget   int       `json:"daily_budget"`
+	ActorID       string    `json:"actor_id"`
+	Enabled       bool      `json:"enabled"`
+	ConfirmedAt   time.Time `json:"confirmed_at"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// Live reports whether an assignment may act right now.
+func (a StandingAssignment) Live(now time.Time) bool {
+	return a.Enabled && a.ExpiresAt.After(now)
+}

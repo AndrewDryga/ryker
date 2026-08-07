@@ -30,7 +30,11 @@ const modulePath = "github.com/AndrewDryga/responder/"
 // See the package comment: raising an entry is a decision, not a formality.
 var methodBudget = map[string]int{
 	"Service": 12,
-	"Store":   290,
+	// Raised from 290 for the standing-assignment layer: seven methods for a
+	// capability that did not exist, in its own file, with its own tests. That
+	// is feature growth rather than the drift this budget exists to catch —
+	// see the package comment. The next raise should come with an extraction.
+	"Store": 300,
 }
 
 // lineBudget caps non-test source lines per package.

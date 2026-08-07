@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 42
+const currentSchemaVersion = 43
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1140,6 +1140,58 @@ DROP TABLE commitments;
 ALTER TABLE commitments_by_episode RENAME TO commitments;
 `
 
+const schemaV43 = `
+-- A standing assignment is how an operator grants scoped authority once instead
+-- of confirming every action. It does not remove the confirmation Responder
+-- relies on; it moves it earlier in time, which is the only way autonomous work
+-- can keep the invariant that nothing acts without someone having said yes.
+--
+-- Every column here is a bound. change_class is an allowlist rather than free
+-- text because free text means "Responder may change anything"; path_globs
+-- narrows the repository because a repository is far too large a blast radius
+-- to grant in one click; daily_budget and expires_at mean a forgotten
+-- assignment decays instead of running forever.
+CREATE TABLE standing_assignments (
+  id TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL,
+  signal_pattern TEXT NOT NULL,
+  repository TEXT NOT NULL,
+  path_globs_json TEXT NOT NULL DEFAULT '[]',
+  change_class TEXT NOT NULL CHECK (change_class IN (
+    'dependency_upgrade', 'alert_threshold', 'flaky_test_quarantine',
+    'observability', 'documentation'
+  )),
+  daily_budget INTEGER NOT NULL CHECK (daily_budget > 0 AND daily_budget <= 20),
+  actor_id TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  confirmed_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX standing_assignments_channel_idx
+  ON standing_assignments(channel_id, enabled, expires_at);
+
+-- One row per action an assignment took. This serves two jobs that would
+-- otherwise need separate bookkeeping: the unique constraint makes "one pull
+-- request per issue" structural rather than a check someone has to remember,
+-- and counting today's rows is the budget.
+CREATE TABLE standing_assignment_actions (
+  id TEXT PRIMARY KEY,
+  assignment_id TEXT NOT NULL,
+  correlation_key TEXT NOT NULL,
+  episode_id TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(assignment_id, correlation_key),
+  FOREIGN KEY(assignment_id) REFERENCES standing_assignments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX standing_assignment_actions_budget_idx
+  ON standing_assignment_actions(assignment_id, created_at);
+`
+
 // migrations maps a target schema version to the statement that reaches it
 // from the version before. Versions at or below the baseline are absent
 // because baselineSchema already produces them.
@@ -1179,4 +1231,5 @@ var migrations = map[int]string{
 	40: schemaV40,
 	41: schemaV41,
 	42: schemaV42,
+	43: schemaV43,
 }
