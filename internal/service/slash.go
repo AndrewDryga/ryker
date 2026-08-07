@@ -348,7 +348,7 @@ func (s *Service) finishSlashMemory(
 	if err != nil {
 		return err
 	}
-	entries, err := s.store.ListMemoryForContext(
+	entries, err := s.store.Memory.ListMemoryForContext(
 		ctx,
 		s.cfg.Slack.TeamID,
 		input.ChannelID,
@@ -359,11 +359,11 @@ func (s *Service) finishSlashMemory(
 	if err != nil {
 		return err
 	}
-	health, err := s.store.MemoryHealth(ctx)
+	health, err := s.store.Memory.MemoryHealth(ctx)
 	if err != nil {
 		return err
 	}
-	rollups, err := s.store.ListMemoryRollupsForContext(
+	rollups, err := s.store.Memory.ListMemoryRollupsForContext(
 		ctx, input.ChannelID, repository, 4,
 	)
 	if err != nil {

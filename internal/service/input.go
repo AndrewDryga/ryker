@@ -906,7 +906,7 @@ func (s *Service) processChannelLifecycleInput(
 		if _, err := s.store.DeleteConversationRoutes(ctx, input.ChannelID); err != nil {
 			return err
 		}
-		deleted, err := s.store.DeleteChannelMemoryEntries(ctx, input.ChannelID)
+		deleted, err := s.store.Memory.DeleteChannelMemoryEntries(ctx, input.ChannelID)
 		if err != nil {
 			return err
 		}

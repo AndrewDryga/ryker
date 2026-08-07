@@ -608,7 +608,7 @@ const preferenceSelect = `
 	  expires_at, created_at, updated_at
 	FROM responder_preferences`
 
-func scanPreference(row rowScanner) (core.ResponderPreference, error) {
+func scanPreference(row sqlutil.RowScanner) (core.ResponderPreference, error) {
 	var preference core.ResponderPreference
 	var enabled int
 	var expiresAt, createdAt, updatedAt string
@@ -648,7 +648,7 @@ const standingRuleSelect = `
 	  expires_at, created_at, updated_at
 	FROM standing_rules`
 
-func scanStandingRule(row rowScanner) (core.StandingRule, error) {
+func scanStandingRule(row sqlutil.RowScanner) (core.StandingRule, error) {
 	var rule core.StandingRule
 	var enabled int
 	var lastTriggered sql.NullString

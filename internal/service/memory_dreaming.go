@@ -16,13 +16,13 @@ func (s *Service) maintainMemory(ctx context.Context, now time.Time) error {
 	if !s.cfg.Memory.DreamingEnabled {
 		return nil
 	}
-	due, err := s.store.MemoryDreamingDue(
+	due, err := s.store.Memory.MemoryDreamingDue(
 		ctx, now, s.cfg.Memory.DreamingInterval.Duration,
 	)
 	if err != nil || !due {
 		return err
 	}
-	count, err := s.store.CountConversationMemories(ctx)
+	count, err := s.store.Memory.CountConversationMemories(ctx)
 	if err != nil {
 		return err
 	}
@@ -35,7 +35,7 @@ func (s *Service) maintainMemory(ctx context.Context, now time.Time) error {
 		target := s.cfg.Memory.MaxConversationSummaries * s.cfg.Memory.TargetPercent / 100
 		limit = min(max(count-target, 1), 10000)
 	}
-	candidates, err := s.store.ListConversationMemoryCandidates(ctx, cutoff, limit)
+	candidates, err := s.store.Memory.ListConversationMemoryCandidates(ctx, cutoff, limit)
 	if err != nil {
 		return err
 	}
@@ -49,20 +49,20 @@ func (s *Service) maintainMemory(ctx context.Context, now time.Time) error {
 		if err != nil {
 			return err
 		}
-		if err := s.store.CompactConversationMemories(ctx, rollup, group.Sources); err != nil {
+		if err := s.store.Memory.CompactConversationMemories(ctx, rollup, group.Sources); err != nil {
 			return err
 		}
 		compacted += len(group.Sources)
 	}
-	if _, err := s.store.PruneMemoryRollups(ctx, s.cfg.Memory.MaxRollups); err != nil {
+	if _, err := s.store.Memory.PruneMemoryRollups(ctx, s.cfg.Memory.MaxRollups); err != nil {
 		return err
 	}
-	if err := s.store.RefreshMemoryReviewQueue(
+	if err := s.store.Memory.RefreshMemoryReviewQueue(
 		ctx, now.Add(-s.cfg.Memory.ReviewStaleAfter.Duration),
 	); err != nil {
 		return err
 	}
-	if err := s.store.MarkMemoryDreamed(ctx, now); err != nil {
+	if err := s.store.Memory.MarkMemoryDreamed(ctx, now); err != nil {
 		return err
 	}
 	if compacted > 0 {
@@ -85,7 +85,7 @@ func (s *Service) buildMemoryRollup(
 	refs := make([]string, 0, len(group.Sources)+20)
 	periodEnd := group.Period
 	count := 0
-	existing, err := s.store.GetMemoryRollup(
+	existing, err := s.store.Memory.GetMemoryRollup(
 		ctx, group.ScopeKind, group.ScopeKey, group.Period,
 	)
 	if err == nil {

@@ -23,34 +23,34 @@ func TestMemoryEntryReplacementScopeVisibilityAndForget(t *testing.T) {
 		VisibilityKind: "channel", VisibilityID: "COPS",
 		ExpiresAt: now.Add(30 * 24 * time.Hour),
 	}
-	created, replaced, err := st.UpsertMemoryEntry(ctx, base, 10, 5)
+	created, replaced, err := st.Memory.UpsertMemoryEntry(ctx, base, 10, 5)
 	if err != nil || replaced || created.ID == "" {
 		t.Fatalf("create = %+v, replaced=%t, err=%v", created, replaced, err)
 	}
 	base.Value = "emisar:runner/replacement"
 	base.SourceRef = "slack_2"
-	updated, replaced, err := st.UpsertMemoryEntry(ctx, base, 10, 5)
+	updated, replaced, err := st.Memory.UpsertMemoryEntry(ctx, base, 10, 5)
 	if err != nil || !replaced || updated.ID != created.ID ||
 		updated.Value != "emisar:runner/replacement" {
 		t.Fatalf("replace = %+v, replaced=%t, err=%v", updated, replaced, err)
 	}
-	visible, err := st.ListMemoryForContext(
+	visible, err := st.Memory.ListMemoryForContext(
 		ctx, "TWORKSPACE", "COPS", "repo", "UOPERATOR", 10,
 	)
 	if err != nil || len(visible) != 1 || visible[0].ID != created.ID {
 		t.Fatalf("visible = %+v, %v", visible, err)
 	}
-	hidden, err := st.ListMemoryForContext(
+	hidden, err := st.Memory.ListMemoryForContext(
 		ctx, "TWORKSPACE", "COTHER", "repo", "UOPERATOR", 10,
 	)
 	if err != nil || len(hidden) != 0 {
 		t.Fatalf("cross-channel memory leaked = %+v, %v", hidden, err)
 	}
-	deleted, err := st.DeleteMemoryEntry(ctx, created.ID)
+	deleted, err := st.Memory.DeleteMemoryEntry(ctx, created.ID)
 	if err != nil || deleted.Value != "emisar:runner/replacement" {
 		t.Fatalf("delete = %+v, %v", deleted, err)
 	}
-	if _, err := st.GetMemoryEntry(ctx, created.ID); err != ErrNotFound {
+	if _, err := st.Memory.GetMemoryEntry(ctx, created.ID); err != ErrNotFound {
 		t.Fatalf("deleted get error = %v", err)
 	}
 }
@@ -62,7 +62,7 @@ func TestOperatorGuidanceIsCrossChannelButNotCrossOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	entry, _, err := st.UpsertMemoryEntry(ctx, core.MemoryEntry{
+	entry, _, err := st.Memory.UpsertMemoryEntry(ctx, core.MemoryEntry{
 		ScopeKind: "workspace", ScopeKey: "TWORKSPACE",
 		SubjectKey: "fix_explanation_style", Predicate: "guidance",
 		Value:     "Start with a plain-language summary before technical details.",
@@ -73,13 +73,13 @@ func TestOperatorGuidanceIsCrossChannelButNotCrossOperator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	visible, err := st.ListMemoryForContext(
+	visible, err := st.Memory.ListMemoryForContext(
 		ctx, "TWORKSPACE", "COTHER", "repo", "UOPERATOR", 10,
 	)
 	if err != nil || len(visible) != 1 || visible[0].ID != entry.ID {
 		t.Fatalf("cross-channel guidance = %+v, %v", visible, err)
 	}
-	hidden, err := st.ListMemoryForContext(
+	hidden, err := st.Memory.ListMemoryForContext(
 		ctx, "TWORKSPACE", "COTHER", "repo", "UOTHER", 10,
 	)
 	if err != nil || len(hidden) != 0 {
@@ -94,7 +94,7 @@ func TestMemoryExpiryPruneAndRecentEvidenceIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	entry, _, err := st.UpsertMemoryEntry(ctx, core.MemoryEntry{
+	entry, _, err := st.Memory.UpsertMemoryEntry(ctx, core.MemoryEntry{
 		ScopeKind: "workspace", ScopeKey: "TWORKSPACE",
 		SubjectKey: "portal", Predicate: "evidence_route",
 		Value: "emisar:service/portal", SourceRef: "slack_1", ActorID: "UOPERATOR",
@@ -137,7 +137,7 @@ func TestMemoryExpiryPruneAndRecentEvidenceIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence, err := st.ListRecentChannelEvidence(ctx, "COPS", "slack_current", 10)
+	evidence, err := st.Memory.ListRecentChannelEvidence(ctx, "COPS", "slack_current", 10)
 	if err != nil || len(evidence) != 1 || evidence[0].Claim != "prior" {
 		t.Fatalf("recent evidence = %+v, %v", evidence, err)
 	}
@@ -157,15 +157,15 @@ func TestMemoryCapacityAppliesOnlyToNewLogicalEntries(t *testing.T) {
 		VisibilityKind: "channel", VisibilityID: "COPS",
 		ExpiresAt: time.Now().UTC().Add(time.Hour),
 	}
-	if _, _, err := st.UpsertMemoryEntry(ctx, entry, 1, 1); err != nil {
+	if _, _, err := st.Memory.UpsertMemoryEntry(ctx, entry, 1, 1); err != nil {
 		t.Fatal(err)
 	}
 	entry.Value = "service:portal-v2"
-	if _, replaced, err := st.UpsertMemoryEntry(ctx, entry, 1, 1); err != nil || !replaced {
+	if _, replaced, err := st.Memory.UpsertMemoryEntry(ctx, entry, 1, 1); err != nil || !replaced {
 		t.Fatalf("replacement at capacity = replaced=%t, err=%v", replaced, err)
 	}
 	entry.SubjectKey = "database"
-	if _, _, err := st.UpsertMemoryEntry(ctx, entry, 1, 1); err == nil {
+	if _, _, err := st.Memory.UpsertMemoryEntry(ctx, entry, 1, 1); err == nil {
 		t.Fatal("new memory unexpectedly exceeded capacity")
 	}
 }
@@ -181,7 +181,7 @@ func TestMemoryHomePrivacyRepositoryBindingAndOrphanPrune(t *testing.T) {
 		entry.SourceRef = "slack_1"
 		entry.ActorID = "UOPERATOR"
 		entry.ExpiresAt = time.Now().UTC().Add(time.Hour)
-		saved, _, saveErr := st.UpsertMemoryEntry(ctx, entry, 20, 10)
+		saved, _, saveErr := st.Memory.UpsertMemoryEntry(ctx, entry, 20, 10)
 		if saveErr != nil {
 			t.Fatal(saveErr)
 		}
@@ -207,7 +207,7 @@ func TestMemoryHomePrivacyRepositoryBindingAndOrphanPrune(t *testing.T) {
 		Predicate: "alias_of", Value: "repo:removed-repo/service",
 		VisibilityKind: "workspace", VisibilityID: "TWORKSPACE",
 	})
-	home, err := st.ListMemoryForHome(ctx, "TWORKSPACE", "UOPERATOR", 10)
+	home, err := st.Memory.ListMemoryForHome(ctx, "TWORKSPACE", "UOPERATOR", 10)
 	if err != nil || len(home) != 2 {
 		t.Fatalf("home entries = %+v, %v", home, err)
 	}
@@ -216,17 +216,17 @@ func TestMemoryHomePrivacyRepositoryBindingAndOrphanPrune(t *testing.T) {
 			t.Fatalf("private memory leaked into App Home: %+v", entry)
 		}
 	}
-	binding, err := st.GetChannelRepositoryBinding(
+	binding, err := st.Memory.GetChannelRepositoryBinding(
 		ctx, "TWORKSPACE", "COPS", "UOPERATOR",
 	)
 	if err != nil || binding.Value != "repo-two" {
 		t.Fatalf("binding = %+v, %v", binding, err)
 	}
-	pruned, err := st.PruneOrphanMemoryEntries(ctx, []string{"repo-two"})
+	pruned, err := st.Memory.PruneOrphanMemoryEntries(ctx, []string{"repo-two"})
 	if err != nil || pruned != 1 {
 		t.Fatalf("orphan prune = %d, %v", pruned, err)
 	}
-	deleted, err := st.DeleteChannelMemoryEntries(ctx, "COPS")
+	deleted, err := st.Memory.DeleteChannelMemoryEntries(ctx, "COPS")
 	if err != nil || deleted != 1 {
 		t.Fatalf("channel memory delete = %d, %v", deleted, err)
 	}

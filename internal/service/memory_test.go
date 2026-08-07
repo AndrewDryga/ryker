@@ -78,7 +78,7 @@ func TestGuidanceMemoryIsNormalizedAndAvailableAcrossChannels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := st.UpsertMemoryEntry(ctx, entry, 10, 5); err != nil {
+	if _, _, err := st.Memory.UpsertMemoryEntry(ctx, entry, 10, 5); err != nil {
 		t.Fatal(err)
 	}
 	memory, err := svc.loadOperationalMemoryContext(
@@ -150,7 +150,7 @@ func TestConfirmedMemoryActionPersistsAndForgetDeletes(t *testing.T) {
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	entries, err := st.ListMemoryForContext(
+	entries, err := st.Memory.ListMemoryForContext(
 		ctx, cfg.Slack.TeamID, "COPS", "repo", cfg.Slack.Operators[0], 10,
 	)
 	if err != nil || len(entries) != 1 || entries[0].Value != "service:portal" {
@@ -176,7 +176,7 @@ func TestConfirmedMemoryActionPersistsAndForgetDeletes(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.GetMemoryEntry(ctx, entries[0].ID); err != store.ErrNotFound {
+	if _, err := st.Memory.GetMemoryEntry(ctx, entries[0].ID); err != store.ErrNotFound {
 		t.Fatalf("forgotten entry error = %v", err)
 	}
 	if len(slackClient.ephemerals) != 1 ||

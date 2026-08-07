@@ -68,3 +68,13 @@ func ExpectOne(result sql.Result, err error, action string) error {
 func BoundedError(value string) string {
 	return core.BoundedText(value, 1000)
 }
+
+// RowScanner is whatever a query returned that can be scanned — a *sql.Row or
+// a *sql.Rows — so one scan function serves both the single-row and the
+// iterating call sites.
+//
+// Shared for the same reason as everything else here: it was defined three
+// times across store, memorystore and scheduleproposal.
+type RowScanner interface {
+	Scan(dest ...any) error
+}

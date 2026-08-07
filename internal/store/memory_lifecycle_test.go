@@ -33,7 +33,7 @@ func TestMemoryRollupCompactionRecallAndHealth(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sources, err := st.ListConversationMemoryCandidates(ctx, now.Add(-24*time.Hour), 10)
+	sources, err := st.Memory.ListConversationMemoryCandidates(ctx, now.Add(-24*time.Hour), 10)
 	if err != nil || len(sources) != 2 {
 		t.Fatalf("sources = %+v, %v", sources, err)
 	}
@@ -46,20 +46,20 @@ func TestMemoryRollupCompactionRecallAndHealth(t *testing.T) {
 		SourceCount: 2, ExpiresAt: now.Add(30 * 24 * time.Hour),
 	}
 	memories := []core.ConversationMemory{sources[0].Memory, sources[1].Memory}
-	if err := st.CompactConversationMemories(ctx, rollup, memories); err != nil {
+	if err := st.Memory.CompactConversationMemories(ctx, rollup, memories); err != nil {
 		t.Fatal(err)
 	}
-	if count, err := st.CountConversationMemories(ctx); err != nil || count != 0 {
+	if count, err := st.Memory.CountConversationMemories(ctx); err != nil || count != 0 {
 		t.Fatalf("conversation count = %d, %v", count, err)
 	}
-	rollups, err := st.ListMemoryRollupsForContext(ctx, "COTHER", "repo", 4)
+	rollups, err := st.Memory.ListMemoryRollupsForContext(ctx, "COTHER", "repo", 4)
 	if err != nil || len(rollups) != 1 || rollups[0].SourceCount != 2 {
 		t.Fatalf("rollups = %+v, %v", rollups, err)
 	}
-	if err := st.MarkMemoryRollupsRecalled(ctx, []string{rollups[0].ID}); err != nil {
+	if err := st.Memory.MarkMemoryRollupsRecalled(ctx, []string{rollups[0].ID}); err != nil {
 		t.Fatal(err)
 	}
-	health, err := st.MemoryHealth(ctx)
+	health, err := st.Memory.MemoryHealth(ctx)
 	if err != nil || health.Rollups != 1 {
 		t.Fatalf("health = %+v, %v", health, err)
 	}
@@ -74,7 +74,7 @@ func TestMemoryReviewQueueNeverMutatesUntilResolved(t *testing.T) {
 	defer st.Close()
 	now := time.Now().UTC()
 	add := func(subject string) core.MemoryEntry {
-		entry, _, err := st.UpsertMemoryEntry(ctx, core.MemoryEntry{
+		entry, _, err := st.Memory.UpsertMemoryEntry(ctx, core.MemoryEntry{
 			ScopeKind: "workspace", ScopeKey: "TWORKSPACE", SubjectKey: subject,
 			Predicate: "guidance", Value: "Prefer plain language before implementation detail.",
 			SourceRef: "slack:" + subject, ActorID: "UOPERATOR",
@@ -94,14 +94,14 @@ func TestMemoryReviewQueueNeverMutatesUntilResolved(t *testing.T) {
 		old, first.ID, second.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RefreshMemoryReviewQueue(ctx, now.Add(-30*24*time.Hour)); err != nil {
+	if err := st.Memory.RefreshMemoryReviewQueue(ctx, now.Add(-30*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	reviews, err := st.ListPendingMemoryReviews(ctx, 10)
+	reviews, err := st.Memory.ListPendingMemoryReviews(ctx, 10)
 	if err != nil || len(reviews) != 3 {
 		t.Fatalf("reviews = %+v, %v", reviews, err)
 	}
-	if active, _ := st.CountMemoryForHome(ctx, "TWORKSPACE", "UOPERATOR"); active != 2 {
+	if active, _ := st.Memory.CountMemoryForHome(ctx, "TWORKSPACE", "UOPERATOR"); active != 2 {
 		t.Fatalf("review queue mutated entries: %d", active)
 	}
 	var duplicate core.MemoryReviewItem
@@ -110,10 +110,10 @@ func TestMemoryReviewQueueNeverMutatesUntilResolved(t *testing.T) {
 			duplicate = review
 		}
 	}
-	if _, err := st.ResolveMemoryReview(ctx, duplicate.ID, "merge", "UOPERATOR"); err != nil {
+	if _, err := st.Memory.ResolveMemoryReview(ctx, duplicate.ID, "merge", "UOPERATOR"); err != nil {
 		t.Fatal(err)
 	}
-	if active, _ := st.CountMemoryForHome(ctx, "TWORKSPACE", "UOPERATOR"); active != 1 {
+	if active, _ := st.Memory.CountMemoryForHome(ctx, "TWORKSPACE", "UOPERATOR"); active != 1 {
 		t.Fatalf("duplicate merge retained %d entries", active)
 	}
 }
@@ -131,11 +131,11 @@ func TestMemoryReplacementRecordsHashOnlySupersession(t *testing.T) {
 		ActorID: "UOPERATOR", VisibilityKind: "channel", VisibilityID: "COPS",
 		ExpiresAt: time.Now().UTC().Add(30 * 24 * time.Hour),
 	}
-	if _, _, err := st.UpsertMemoryEntry(ctx, entry, 10, 10); err != nil {
+	if _, _, err := st.Memory.UpsertMemoryEntry(ctx, entry, 10, 10); err != nil {
 		t.Fatal(err)
 	}
 	entry.Value = "service:portal-v2"
-	if _, _, err := st.UpsertMemoryEntry(ctx, entry, 10, 10); err != nil {
+	if _, _, err := st.Memory.UpsertMemoryEntry(ctx, entry, 10, 10); err != nil {
 		t.Fatal(err)
 	}
 	var count int
@@ -164,11 +164,11 @@ func TestMemoryLifecyclePrunesMetadataAndDeletedChannelRollups(t *testing.T) {
 		ActorID: "UOPERATOR", VisibilityKind: "workspace", VisibilityID: "TWORKSPACE",
 		ExpiresAt: now.Add(30 * 24 * time.Hour),
 	}
-	if _, _, err := st.UpsertMemoryEntry(ctx, entry, 10, 10); err != nil {
+	if _, _, err := st.Memory.UpsertMemoryEntry(ctx, entry, 10, 10); err != nil {
 		t.Fatal(err)
 	}
 	entry.Value = "Start with plain language."
-	if _, _, err := st.UpsertMemoryEntry(ctx, entry, 10, 10); err != nil {
+	if _, _, err := st.Memory.UpsertMemoryEntry(ctx, entry, 10, 10); err != nil {
 		t.Fatal(err)
 	}
 	old := now.Add(-60 * 24 * time.Hour).Format(timestampFormat)
@@ -188,7 +188,7 @@ func TestMemoryLifecyclePrunesMetadataAndDeletedChannelRollups(t *testing.T) {
 	if err != nil || deleted != 1 {
 		t.Fatalf("channel memory deletion = %d, %v", deleted, err)
 	}
-	if _, err := st.GetMemoryRollupByID(ctx, "dream_private"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.Memory.GetMemoryRollupByID(ctx, "dream_private"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("private rollup survived channel deletion: %v", err)
 	}
 	result, err := st.Prune(

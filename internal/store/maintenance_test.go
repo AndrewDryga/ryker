@@ -124,7 +124,7 @@ func TestPruneMemoryRollupsHonoursExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	period := now.AddDate(0, 0, -14)
-	if err := st.CompactConversationMemories(ctx, core.MemoryRollup{
+	if err := st.Memory.CompactConversationMemories(ctx, core.MemoryRollup{
 		ScopeKind: "channel", ScopeKey: "C1", Repository: "emisar",
 		PeriodStart: period, PeriodEnd: period.Add(time.Hour),
 		State:       core.AgentMemory{SituationSummary: "consolidated"},
@@ -136,14 +136,14 @@ func TestPruneMemoryRollupsHonoursExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deleted, err := st.PruneMemoryRollups(ctx, 10)
+	deleted, err := st.Memory.PruneMemoryRollups(ctx, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if deleted != 1 {
 		t.Fatalf("pruning removed %d rollups, want the one that had expired", deleted)
 	}
-	remaining, err := st.ListMemoryRollupsForContext(ctx, "C1", "emisar", 20)
+	remaining, err := st.Memory.ListMemoryRollupsForContext(ctx, "C1", "emisar", 20)
 	if err != nil {
 		t.Fatal(err)
 	}

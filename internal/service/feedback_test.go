@@ -251,7 +251,7 @@ func TestFeedbackConvertsToGuidanceAndDismisses(t *testing.T) {
 	)); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := st.ListMemoryForContext(
+	entries, err := st.Memory.ListMemoryForContext(
 		ctx, cfg.Slack.TeamID, "C123ABC", cfg.Slack.DefaultRepository, operator, 50,
 	)
 	if err != nil {

@@ -29,13 +29,13 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 	if err != nil {
 		return err
 	}
-	memories, err := s.store.ListMemoryForHome(
+	memories, err := s.store.Memory.ListMemoryForHome(
 		ctx, s.cfg.Slack.TeamID, userID, 6,
 	)
 	if err != nil {
 		return err
 	}
-	homeMemoryCount, err := s.store.CountMemoryForHome(
+	homeMemoryCount, err := s.store.Memory.CountMemoryForHome(
 		ctx, s.cfg.Slack.TeamID, userID,
 	)
 	if err != nil {

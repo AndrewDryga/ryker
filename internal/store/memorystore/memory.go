@@ -1,4 +1,4 @@
-package store
+package memorystore
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
-func (s *Store) UpsertMemoryEntry(
+func (r *Repository) UpsertMemoryEntry(
 	ctx context.Context,
 	entry core.MemoryEntry,
 	maxTotal int,
@@ -32,12 +32,12 @@ func (s *Store) UpsertMemoryEntry(
 	}
 	digest := sha256.Sum256(valueJSON)
 	entry.ValueHash = hex.EncodeToString(digest[:])
-	now := s.now().UTC()
+	now := r.now().UTC()
 	if entry.ExpiresAt.IsZero() || !entry.ExpiresAt.After(now) {
 		return core.MemoryEntry{}, false, errors.New("memory entry expiry must be in the future")
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return core.MemoryEntry{}, false, err
 	}
@@ -57,7 +57,7 @@ func (s *Store) UpsertMemoryEntry(
 		var total, scoped int
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*) FROM memory_entries WHERE expires_at > ?`,
-			now.Format(timestampFormat),
+			now.Format(core.TimestampFormat),
 		).Scan(&total); err != nil {
 			return core.MemoryEntry{}, false, err
 		}
@@ -69,7 +69,7 @@ func (s *Store) UpsertMemoryEntry(
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*) FROM memory_entries
 			WHERE scope_kind = ? AND scope_key = ? AND expires_at > ?`,
-			entry.ScopeKind, entry.ScopeKey, now.Format(timestampFormat),
+			entry.ScopeKind, entry.ScopeKey, now.Format(core.TimestampFormat),
 		).Scan(&scoped); err != nil {
 			return core.MemoryEntry{}, false, err
 		}
@@ -116,9 +116,9 @@ func (s *Store) UpsertMemoryEntry(
 		entry.ID, entry.ScopeKind, entry.ScopeKey, entry.SubjectKey, entry.Predicate,
 		string(valueJSON), entry.ValueHash, entry.SourceRef, entry.SourceRevision,
 		entry.ActorID, entry.VisibilityKind, entry.VisibilityID,
-		entry.ExpiresAt.UTC().Format(timestampFormat),
-		entry.LastReviewedAt.UTC().Format(timestampFormat),
-		entry.CreatedAt.UTC().Format(timestampFormat), entry.UpdatedAt.Format(timestampFormat),
+		entry.ExpiresAt.UTC().Format(core.TimestampFormat),
+		entry.LastReviewedAt.UTC().Format(core.TimestampFormat),
+		entry.CreatedAt.UTC().Format(core.TimestampFormat), entry.UpdatedAt.Format(core.TimestampFormat),
 	)
 	if err != nil {
 		return core.MemoryEntry{}, false, err
@@ -132,7 +132,7 @@ func (s *Store) UpsertMemoryEntry(
 			INSERT INTO memory_supersessions (
 			  id, entry_id, previous_value_hash, replacement_value_hash, reason, created_at
 			) VALUES (?, ?, ?, ?, 'operator replacement', ?)`,
-			supersessionID, entry.ID, existingHash, entry.ValueHash, s.nowText(),
+			supersessionID, entry.ID, existingHash, entry.ValueHash, r.nowText(),
 		); err != nil {
 			return core.MemoryEntry{}, false, err
 		}
@@ -178,12 +178,12 @@ func validateMemoryEntry(entry core.MemoryEntry) error {
 	return nil
 }
 
-func (s *Store) GetMemoryEntry(ctx context.Context, id string) (core.MemoryEntry, error) {
-	row := s.db.QueryRowContext(ctx, memorySelect+` WHERE id = ?`, id)
+func (r *Repository) GetMemoryEntry(ctx context.Context, id string) (core.MemoryEntry, error) {
+	row := r.db.QueryRowContext(ctx, memorySelect+` WHERE id = ?`, id)
 	return scanMemoryEntry(row)
 }
 
-func (s *Store) ListMemoryForHome(
+func (r *Repository) ListMemoryForHome(
 	ctx context.Context,
 	workspaceID string,
 	operatorID string,
@@ -192,7 +192,7 @@ func (s *Store) ListMemoryForHome(
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("home memory limit must be between 1 and 100")
 	}
-	rows, err := s.db.QueryContext(ctx, memorySelect+`
+	rows, err := r.db.QueryContext(ctx, memorySelect+`
 		WHERE expires_at > ?
 		  AND (
 		    (visibility_kind = 'workspace' AND visibility_id = ?) OR
@@ -200,7 +200,7 @@ func (s *Store) ListMemoryForHome(
 		  )
 		ORDER BY updated_at DESC
 		LIMIT ?`,
-		s.nowText(), workspaceID, operatorID, limit,
+		r.nowText(), workspaceID, operatorID, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -209,13 +209,13 @@ func (s *Store) ListMemoryForHome(
 	return scanMemoryEntries(rows)
 }
 
-func (s *Store) CountMemoryForHome(
+func (r *Repository) CountMemoryForHome(
 	ctx context.Context,
 	workspaceID string,
 	operatorID string,
 ) (int, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx, `
+	err := r.db.QueryRowContext(ctx, `
 		SELECT count(*)
 		FROM memory_entries
 		WHERE expires_at > ?
@@ -223,12 +223,12 @@ func (s *Store) CountMemoryForHome(
 		    (visibility_kind = 'workspace' AND visibility_id = ?) OR
 		    (visibility_kind = 'operator' AND visibility_id = ?)
 		  )`,
-		s.nowText(), workspaceID, operatorID,
+		r.nowText(), workspaceID, operatorID,
 	).Scan(&count)
 	return count, err
 }
 
-func (s *Store) ListMemoryForContext(
+func (r *Repository) ListMemoryForContext(
 	ctx context.Context,
 	workspaceID string,
 	channelID string,
@@ -239,7 +239,7 @@ func (s *Store) ListMemoryForContext(
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("memory context limit must be between 1 and 200")
 	}
-	rows, err := s.db.QueryContext(ctx, memorySelect+`
+	rows, err := r.db.QueryContext(ctx, memorySelect+`
 		WHERE expires_at > ?
 		  AND (
 		    (scope_kind = 'workspace' AND scope_key = ?) OR
@@ -255,7 +255,7 @@ func (s *Store) ListMemoryForContext(
 		  CASE scope_kind WHEN 'channel' THEN 0 WHEN 'repository' THEN 1 ELSE 2 END,
 		  updated_at DESC
 		LIMIT ?`,
-		s.nowText(), workspaceID, channelID, repository,
+		r.nowText(), workspaceID, channelID, repository,
 		workspaceID, channelID, operatorID, limit,
 	)
 	if err != nil {
@@ -265,13 +265,13 @@ func (s *Store) ListMemoryForContext(
 	return scanMemoryEntries(rows)
 }
 
-func (s *Store) GetChannelRepositoryBinding(
+func (r *Repository) GetChannelRepositoryBinding(
 	ctx context.Context,
 	workspaceID string,
 	channelID string,
 	operatorID string,
 ) (core.MemoryEntry, error) {
-	row := s.db.QueryRowContext(ctx, memorySelect+`
+	row := r.db.QueryRowContext(ctx, memorySelect+`
 		WHERE scope_kind = 'channel'
 		  AND scope_key = ?
 		  AND subject_key = ?
@@ -283,14 +283,14 @@ func (s *Store) GetChannelRepositoryBinding(
 		    (visibility_kind = 'operator' AND visibility_id = ?)
 		  )
 		LIMIT 1`,
-		channelID, "channel:"+channelID, s.nowText(),
+		channelID, "channel:"+channelID, r.nowText(),
 		workspaceID, channelID, operatorID,
 	)
 	return scanMemoryEntry(row)
 }
 
-func (s *Store) DeleteMemoryEntry(ctx context.Context, id string) (core.MemoryEntry, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+func (r *Repository) DeleteMemoryEntry(ctx context.Context, id string) (core.MemoryEntry, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return core.MemoryEntry{}, err
 	}
@@ -309,8 +309,8 @@ func (s *Store) DeleteMemoryEntry(ctx context.Context, id string) (core.MemoryEn
 	return entry, nil
 }
 
-func (s *Store) DeleteChannelMemoryEntries(ctx context.Context, channelID string) (int64, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+func (r *Repository) DeleteChannelMemoryEntries(ctx context.Context, channelID string) (int64, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -333,7 +333,7 @@ func (s *Store) DeleteChannelMemoryEntries(ctx context.Context, channelID string
 		WHERE status = 'pending' AND NOT EXISTS (
 		  SELECT 1 FROM json_each(memory_review_items.entry_ids_json) AS ref
 		  JOIN memory_entries ON memory_entries.id = ref.value
-		)`, s.nowText()); err != nil {
+		)`, r.nowText()); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -342,7 +342,7 @@ func (s *Store) DeleteChannelMemoryEntries(ctx context.Context, channelID string
 	return deleted, nil
 }
 
-func (s *Store) PruneOrphanMemoryEntries(
+func (r *Repository) PruneOrphanMemoryEntries(
 	ctx context.Context,
 	validRepositories []string,
 ) (int64, error) {
@@ -357,7 +357,7 @@ func (s *Store) PruneOrphanMemoryEntries(
 	for _, repository := range validRepositories {
 		args = append(args, repository)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -397,7 +397,7 @@ func (s *Store) PruneOrphanMemoryEntries(
 		WHERE status = 'pending' AND NOT EXISTS (
 		  SELECT 1 FROM json_each(memory_review_items.entry_ids_json) AS ref
 		  JOIN memory_entries ON memory_entries.id = ref.value
-		)`, s.nowText()); err != nil {
+		)`, r.nowText()); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -406,7 +406,7 @@ func (s *Store) PruneOrphanMemoryEntries(
 	return deleted + rollups, nil
 }
 
-func (s *Store) ListRecentChannelEvidence(
+func (r *Repository) ListRecentChannelEvidence(
 	ctx context.Context,
 	channelID string,
 	excludeSourceInput string,
@@ -415,7 +415,7 @@ func (s *Store) ListRecentChannelEvidence(
 	if channelID == "" || limit < 1 || limit > 50 {
 		return nil, errors.New("channel evidence query is invalid")
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, incident_id, channel_id, source_input, claim, observation, source_type,
 		  source_name, source_url, target, freshness, confidence, observed_at,
 		  metadata_json, created_at
@@ -458,11 +458,7 @@ const memorySelect = `
 	  created_at, updated_at
 	FROM memory_entries`
 
-type rowScanner interface {
-	Scan(...any) error
-}
-
-func scanMemoryEntry(row rowScanner) (core.MemoryEntry, error) {
+func scanMemoryEntry(row sqlutil.RowScanner) (core.MemoryEntry, error) {
 	var entry core.MemoryEntry
 	var valueJSON, expires, created, updated string
 	var recalled, reviewed sql.NullString
@@ -474,7 +470,7 @@ func scanMemoryEntry(row rowScanner) (core.MemoryEntry, error) {
 		&created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return core.MemoryEntry{}, ErrNotFound
+		return core.MemoryEntry{}, core.ErrNotFound
 	}
 	if err != nil {
 		return core.MemoryEntry{}, err
@@ -490,11 +486,11 @@ func scanMemoryEntry(row rowScanner) (core.MemoryEntry, error) {
 	return entry, nil
 }
 
-func (s *Store) MarkMemoryEntriesRecalled(ctx context.Context, ids []string) error {
+func (r *Repository) MarkMemoryEntriesRecalled(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -506,7 +502,7 @@ func (s *Store) MarkMemoryEntriesRecalled(ctx context.Context, ids []string) err
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE memory_entries
 			SET last_recalled_at = ?, recall_count = recall_count + 1
-			WHERE id = ?`, s.nowText(), id); err != nil {
+			WHERE id = ?`, r.nowText(), id); err != nil {
 			return err
 		}
 	}

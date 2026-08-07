@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/memorystore"
 )
 
 func TestMaintainMemoryRunsDueConsolidationEndToEnd(t *testing.T) {
@@ -49,14 +50,14 @@ func TestMaintainMemoryRunsDueConsolidationEndToEnd(t *testing.T) {
 	if err := svc.maintainMemory(ctx, future); err != nil {
 		t.Fatal(err)
 	}
-	if count, err := st.CountConversationMemories(ctx); err != nil || count != 0 {
+	if count, err := st.Memory.CountConversationMemories(ctx); err != nil || count != 0 {
 		t.Fatalf("conversation summaries = %d, %v", count, err)
 	}
-	rollups, err := st.ListMemoryRollupsForContext(ctx, "COTHER", "repo", 4)
+	rollups, err := st.Memory.ListMemoryRollupsForContext(ctx, "COTHER", "repo", 4)
 	if err != nil || len(rollups) != 1 || rollups[0].SourceCount != 2 {
 		t.Fatalf("rollups = %+v, %v", rollups, err)
 	}
-	health, err := st.MemoryHealth(ctx)
+	health, err := st.Memory.MemoryHealth(ctx)
 	if err != nil || health.LastDreamedAt.IsZero() || !health.LastDreamedAt.Equal(future) {
 		t.Fatalf("health = %+v, %v", health, err)
 	}
@@ -64,7 +65,7 @@ func TestMaintainMemoryRunsDueConsolidationEndToEnd(t *testing.T) {
 
 func TestGroupMemoryRollupsKeepsPrivateChannelsIsolated(t *testing.T) {
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	candidates := []store.ConversationMemoryCandidate{
+	candidates := []memorystore.ConversationMemoryCandidate{
 		{Memory: core.ConversationMemory{ChannelID: "CPUBLIC1", Repository: "repo", UpdatedAt: now}},
 		{Memory: core.ConversationMemory{ChannelID: "CPUBLIC2", Repository: "repo", UpdatedAt: now.Add(time.Hour)}},
 		{Memory: core.ConversationMemory{ChannelID: "CPRIVATE", Repository: "repo", UpdatedAt: now}, Private: true},

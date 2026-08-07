@@ -371,7 +371,7 @@ func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInp
 				" Ask Responder to remember the behaviour you want in your own words instead.",
 		)
 	}
-	saved, _, err := s.store.UpsertMemoryEntry(
+	saved, _, err := s.store.Memory.UpsertMemoryEntry(
 		ctx, entry, s.cfg.Limits.MaxMemoryEntries, s.cfg.Limits.MaxMemoryEntriesPerScope,
 	)
 	if err != nil {

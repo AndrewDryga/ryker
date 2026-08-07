@@ -34,7 +34,7 @@ func TestMemoryVisibilityBoundaries(t *testing.T) {
 		entry.ExpiresAt = svc.now().Add(24 * time.Hour)
 		entry.SourceRef = "slack_seed"
 		entry.ActorID = operator
-		if _, _, err := st.UpsertMemoryEntry(ctx, entry, 1000, 100); err != nil {
+		if _, _, err := st.Memory.UpsertMemoryEntry(ctx, entry, 1000, 100); err != nil {
 			t.Fatal(err)
 		}
 	}

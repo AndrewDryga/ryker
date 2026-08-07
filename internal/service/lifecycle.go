@@ -69,7 +69,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 		}
 	}
 	repositories := s.cfg.RepositoryContextKeys()
-	if pruned, err := s.store.PruneOrphanMemoryEntries(ctx, repositories); err != nil &&
+	if pruned, err := s.store.Memory.PruneOrphanMemoryEntries(ctx, repositories); err != nil &&
 		ctx.Err() == nil {
 		s.log.Warn("orphaned operational memory pruning failed", "error", err)
 	} else if pruned > 0 {

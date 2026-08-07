@@ -18,7 +18,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/recall"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/memorystore"
 )
 
 // boundedStrings bounds a list and each of its entries.
@@ -153,7 +153,7 @@ type MemoryRollupGroup struct {
 	Sources    []core.ConversationMemory
 }
 
-func GroupMemoryRollups(candidates []store.ConversationMemoryCandidate) []MemoryRollupGroup {
+func GroupMemoryRollups(candidates []memorystore.ConversationMemoryCandidate) []MemoryRollupGroup {
 	groups := map[string]*MemoryRollupGroup{}
 	order := make([]string, 0)
 	for _, candidate := range candidates {

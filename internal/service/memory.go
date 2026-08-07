@@ -78,7 +78,7 @@ func (s *Service) loadOperationalMemoryContext(
 	if err != nil {
 		return decisionpkg.OperationalMemoryContext{}, err
 	}
-	candidates, err := s.store.ListMemoryForContext(
+	candidates, err := s.store.Memory.ListMemoryForContext(
 		ctx,
 		s.cfg.Slack.TeamID,
 		channelID,
@@ -90,7 +90,7 @@ func (s *Service) loadOperationalMemoryContext(
 		return decisionpkg.OperationalMemoryContext{}, err
 	}
 	entries := recall.SelectMemoryEntries(candidates, query, recall.ContextLimit)
-	rollups, err := s.store.ListMemoryRollupsForContext(
+	rollups, err := s.store.Memory.ListMemoryRollupsForContext(
 		ctx, channelID, effectiveRepository, 20,
 	)
 	if err != nil {
@@ -99,7 +99,7 @@ func (s *Service) loadOperationalMemoryContext(
 	rollups = recall.SelectMemoryRollups(rollups, query, 4)
 	var evidence []core.Evidence
 	if channelID != "" {
-		evidence, err = s.store.ListRecentChannelEvidence(ctx, channelID, sourceInput, 10)
+		evidence, err = s.store.Memory.ListRecentChannelEvidence(ctx, channelID, sourceInput, 10)
 		if err != nil {
 			return decisionpkg.OperationalMemoryContext{}, err
 		}
@@ -126,7 +126,7 @@ func (s *Service) loadOperationalMemoryContext(
 	if ids := memorypkg.MemoryEntryIDs(entries); len(ids) > 0 {
 		// Recall bookkeeping is telemetry for the review queue. Losing a write
 		// must not cost the turn its context.
-		if err := s.store.MarkMemoryEntriesRecalled(ctx, ids); err != nil && ctx.Err() == nil {
+		if err := s.store.Memory.MarkMemoryEntriesRecalled(ctx, ids); err != nil && ctx.Err() == nil {
 			s.log.Warn("record memory recall", "entries", len(ids), "error", err)
 		}
 	}
@@ -141,7 +141,7 @@ func (s *Service) loadOperationalMemoryContext(
 		})
 	}
 	if ids := memorypkg.MemoryRollupIDs(rollups); len(ids) > 0 {
-		if err := s.store.MarkMemoryRollupsRecalled(ctx, ids); err != nil && ctx.Err() == nil {
+		if err := s.store.Memory.MarkMemoryRollupsRecalled(ctx, ids); err != nil && ctx.Err() == nil {
 			s.log.Warn("record rollup recall", "rollups", len(ids), "error", err)
 		}
 	}
@@ -176,7 +176,7 @@ func (s *Service) effectiveRepository(
 	} else if !errors.Is(configurationErr, store.ErrNotFound) {
 		return "", configurationErr
 	}
-	entry, err := s.store.GetChannelRepositoryBinding(
+	entry, err := s.store.Memory.GetChannelRepositoryBinding(
 		ctx, s.cfg.Slack.TeamID, channelID, operatorID,
 	)
 	if errors.Is(err, store.ErrNotFound) {
@@ -294,7 +294,7 @@ func (s *Service) handleRememberMemory(
 		}
 		entry.SourceRef = payload.SourceRef
 		entry.ActorID = input.UserID
-		entry, result.Replaced, err = s.store.UpsertMemoryEntry(
+		entry, result.Replaced, err = s.store.Memory.UpsertMemoryEntry(
 			ctx,
 			entry,
 			s.cfg.Limits.MaxMemoryEntries,
@@ -321,7 +321,7 @@ func (s *Service) handleRememberMemory(
 	} else if err := decisionpkg.DecodeStrictJSON(input.Frozen, &result); err != nil {
 		return fmt.Errorf("decode remembered Slack action result: %w", err)
 	}
-	entry, err := s.store.GetMemoryEntry(ctx, result.EntryID)
+	entry, err := s.store.Memory.GetMemoryEntry(ctx, result.EntryID)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.finishSlashInput(
 			ctx,
@@ -365,7 +365,7 @@ func (s *Service) handleForgetMemory(
 	if err != nil || !allowed {
 		return err
 	}
-	entry, err := s.store.GetMemoryEntry(ctx, input.ActionValue)
+	entry, err := s.store.Memory.GetMemoryEntry(ctx, input.ActionValue)
 	if errors.Is(err, store.ErrNotFound) {
 		if input.ChannelID == "" {
 			if homeErr := s.publishOperationsHome(ctx, input.UserID); homeErr != nil {
@@ -388,7 +388,7 @@ func (s *Service) handleForgetMemory(
 			"*This memory entry is not visible in this Slack context.* Nothing was deleted.",
 		)
 	}
-	entry, err = s.store.DeleteMemoryEntry(ctx, input.ActionValue)
+	entry, err = s.store.Memory.DeleteMemoryEntry(ctx, input.ActionValue)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.memoryActionFeedback(
 			ctx,
@@ -491,7 +491,7 @@ func (s *Service) handleMemoryReview(ctx context.Context, input core.SlackInput)
 		slackui.ActionMergeMemoryReview:   "merge",
 		slackui.ActionDismissMemoryReview: "dismiss",
 	}[input.ActionID]
-	items, err := s.store.ListPendingMemoryReviews(ctx, 100)
+	items, err := s.store.Memory.ListPendingMemoryReviews(ctx, 100)
 	if err != nil {
 		return err
 	}
@@ -516,7 +516,7 @@ func (s *Service) handleMemoryReview(ctx context.Context, input core.SlackInput)
 			ctx, input, "*That memory review is not visible here.* No memory was changed.",
 		)
 	}
-	if _, err := s.store.ResolveMemoryReview(
+	if _, err := s.store.Memory.ResolveMemoryReview(
 		ctx, selected.ID, action, input.UserID,
 	); errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
 		return s.memoryActionFeedback(
@@ -530,7 +530,7 @@ func (s *Service) handleMemoryReview(ctx context.Context, input core.SlackInput)
 		ActorID: input.UserID, ObjectID: selected.ID, Outcome: action,
 		Detail: "kind=" + selected.Kind,
 	})
-	remaining, err := s.store.ListPendingMemoryReviews(ctx, 100)
+	remaining, err := s.store.Memory.ListPendingMemoryReviews(ctx, 100)
 	if err != nil {
 		return err
 	}
@@ -543,7 +543,7 @@ func (s *Service) nextVisibleMemoryReview(
 	ctx context.Context,
 	input core.SlackInput,
 ) (core.MemoryReviewItem, []core.MemoryEntry, int, error) {
-	items, err := s.store.ListPendingMemoryReviews(ctx, 100)
+	items, err := s.store.Memory.ListPendingMemoryReviews(ctx, 100)
 	if err != nil {
 		return core.MemoryReviewItem{}, nil, 0, err
 	}
@@ -566,7 +566,7 @@ func (s *Service) memoryReviewEntriesVisible(
 ) ([]core.MemoryEntry, bool, error) {
 	entries := make([]core.MemoryEntry, 0, len(item.EntryIDs))
 	for _, id := range item.EntryIDs {
-		entry, err := s.store.GetMemoryEntry(ctx, id)
+		entry, err := s.store.Memory.GetMemoryEntry(ctx, id)
 		if errors.Is(err, store.ErrNotFound) {
 			continue
 		}
@@ -589,7 +589,7 @@ func (s *Service) handleForgetMemoryRollup(
 	if err != nil || !allowed {
 		return err
 	}
-	rollup, err := s.store.GetMemoryRollupByID(ctx, input.ActionValue)
+	rollup, err := s.store.Memory.GetMemoryRollupByID(ctx, input.ActionValue)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.memoryActionFeedback(
 			ctx, input, "*That continuity summary was already removed or expired.*",
@@ -611,7 +611,7 @@ func (s *Service) handleForgetMemoryRollup(
 			ctx, input, "*That continuity summary is not visible here.* Nothing was removed.",
 		)
 	}
-	if _, err := s.store.DeleteMemoryRollup(ctx, rollup.ID); err != nil {
+	if _, err := s.store.Memory.DeleteMemoryRollup(ctx, rollup.ID); err != nil {
 		return err
 	}
 	s.audit(ctx, core.AuditEvent{

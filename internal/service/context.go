@@ -183,7 +183,7 @@ func (s *Service) assembleAgentContext(
 		if conversationErr == nil {
 			referenced.LastMessageTS = conversation.LastMessage
 			referenced.Summary = memorypkg.SanitizeMemory(conversation.State)
-			if err := s.store.MarkConversationMemoriesRecalled(
+			if err := s.store.Memory.MarkConversationMemoriesRecalled(
 				ctx, []core.ConversationMemory{conversation},
 			); err != nil {
 				return assembledAgentContext{}, err
@@ -219,7 +219,7 @@ func (s *Service) markRecalled(ctx context.Context, items []core.ConversationMem
 	if len(items) == 0 {
 		return
 	}
-	if err := s.store.MarkConversationMemoriesRecalled(ctx, items); err != nil && ctx.Err() == nil {
+	if err := s.store.Memory.MarkConversationMemoriesRecalled(ctx, items); err != nil && ctx.Err() == nil {
 		s.log.Warn("record conversation memory recall", "memories", len(items), "error", err)
 	}
 }

@@ -309,7 +309,7 @@ func validateTask(task core.ScheduledTask) error {
 	return nil
 }
 
-func scanProposal(row rowScanner) (core.ScheduleProposal, error) {
+func scanProposal(row sqlutil.RowScanner) (core.ScheduleProposal, error) {
 	var proposal core.ScheduleProposal
 	var taskJSON []byte
 	var expires, created, updated string
@@ -332,7 +332,7 @@ func scanProposal(row rowScanner) (core.ScheduleProposal, error) {
 	return proposal, nil
 }
 
-func scanTask(row rowScanner) (core.ScheduledTask, error) {
+func scanTask(row sqlutil.RowScanner) (core.ScheduledTask, error) {
 	var task core.ScheduledTask
 	var startAt, nextRun, lastRun, expiresAt, createdAt, updatedAt sql.NullString
 	var weekdays []byte
@@ -387,10 +387,6 @@ func firstNonempty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-type rowScanner interface {
-	Scan(...any) error
 }
 
 // ConflictFor builds the error a lost write returns.

@@ -358,7 +358,7 @@ func (s *Store) AdmitSyntheticSlackInput(ctx context.Context, input core.SlackIn
 	return true, nil
 }
 
-func scanScheduledTask(row rowScanner) (core.ScheduledTask, error) {
+func scanScheduledTask(row sqlutil.RowScanner) (core.ScheduledTask, error) {
 	var task core.ScheduledTask
 	var startAt, nextRun, lastRun, expiresAt, createdAt, updatedAt sql.NullString
 	var weekdays []byte

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/memorystore"
 	"github.com/AndrewDryga/responder/internal/store/scheduleproposal"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 	_ "modernc.org/sqlite"
@@ -44,6 +45,11 @@ type Store struct {
 	db                *sql.DB
 	clock             func() time.Time
 	ScheduleProposals *scheduleproposal.Repository
+	// Memory owns everything remembered between turns. It is a field rather
+	// than a set of methods because a delegating method still counts against
+	// the store's method budget, so extraction only reduces the surface if
+	// callers go through the repository.
+	Memory *memorystore.Repository
 }
 
 type Metrics struct {
@@ -105,6 +111,7 @@ func Open(stateDir string) (*Store, error) {
 	db.SetMaxIdleConns(1)
 	store := &Store{db: db}
 	store.ScheduleProposals = scheduleproposal.New(db, func() time.Time { return store.now() })
+	store.Memory = memorystore.New(db, func() time.Time { return store.now() })
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("open database: %w", err)
