@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -366,9 +368,51 @@ func TestResolvedDeletedWorkIsClosedAndQueuedForSafeCleanup(t *testing.T) {
 		incident.Workflow != core.WorkflowClosed {
 		t.Fatalf("retired incident = %+v, %v", incident, err)
 	}
-	cleanup, err := st.NextCleanup(ctx, time.Now().UTC())
+	askedAt := time.Now().UTC()
+	cleanup, err := st.NextCleanup(ctx, askedAt)
 	if err != nil || cleanup.SessionID != "session-deleted" ||
 		cleanup.IncidentID != incident.ID || cleanup.AllowUnmerged {
-		t.Fatalf("cleanup ownership = %+v, %v", cleanup, err)
+		// This assertion has failed intermittently and never reproduced: roughly
+		// forty attempts across isolated runs, -count repetition, -shuffle,
+		// -race, and full-tree runs at -p 8. Rather than guess at a fix, the
+		// failure explains itself when it next happens.
+		t.Fatalf(
+			"cleanup ownership = %+v, %v\n"+
+				"asked at:   %s\n"+
+				"deleted at: %s\n"+
+				"rows in coop_cleanup:\n%s",
+			cleanup, err,
+			askedAt.Format(timestampFormat),
+			deletedAt.Format(timestampFormat),
+			dumpCleanupRows(t, st),
+		)
 	}
+}
+
+// dumpCleanupRows renders the cleanup queue for a failure message. The
+// intermittent failure above reports "no row found" without saying whether the
+// row is absent, in the wrong state, or merely not yet eligible — and those
+// have three different causes.
+func dumpCleanupRows(t *testing.T, st *Store) string {
+	t.Helper()
+	rows, err := st.db.Query(`
+		SELECT session_id, incident_id, state, eligible_at, next_attempt_at, created_at
+		FROM coop_cleanup ORDER BY created_at`)
+	if err != nil {
+		return "  (query failed: " + err.Error() + ")"
+	}
+	defer rows.Close()
+	var out strings.Builder
+	for rows.Next() {
+		var session, incident, state, eligible, next, created string
+		if err := rows.Scan(&session, &incident, &state, &eligible, &next, &created); err != nil {
+			return "  (scan failed: " + err.Error() + ")"
+		}
+		fmt.Fprintf(&out, "  session=%s incident=%s state=%s eligible_at=%s next_attempt_at=%s created_at=%s\n",
+			session, incident, state, eligible, next, created)
+	}
+	if out.Len() == 0 {
+		return "  (none — the row was never inserted)"
+	}
+	return out.String()
 }
