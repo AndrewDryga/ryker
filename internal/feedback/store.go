@@ -121,13 +121,24 @@ func (s *Store) initialize(ctx context.Context) error {
 		  agent_run_id TEXT NOT NULL DEFAULT '',
 		  source_ref TEXT NOT NULL DEFAULT '',
 		  status TEXT NOT NULL,
+		  resolved_by TEXT NOT NULL DEFAULT '',
 		  created_at TEXT NOT NULL,
 		  updated_at TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS feedback_items_workspace_status_updated
 		  ON feedback_items(workspace_id, status, updated_at DESC);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// An existing feedback database predates the resolution column. SQLite has
+	// no IF NOT EXISTS for ADD COLUMN, so a duplicate error here is success.
+	if _, err := s.db.ExecContext(
+		ctx, `ALTER TABLE feedback_items ADD COLUMN resolved_by TEXT NOT NULL DEFAULT ''`,
+	); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) Record(ctx context.Context, item Item) (Item, error) {
@@ -253,4 +264,51 @@ func scan(row scanner) (Item, error) {
 	}
 	item.UpdatedAt, err = time.Parse(timestampFormat, updatedAt)
 	return item, err
+}
+
+// Resolve records what an operator decided about a feedback item.
+//
+// Capturing feedback and never acting on it is worse than not capturing it:
+// the operator sees their input accepted and nothing change. A resolution is
+// how an item leaves the open queue — either dismissed, or converted into
+// durable guidance that actually steers future behaviour.
+func (s *Store) Resolve(ctx context.Context, id, status, actor string) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("feedback id is required")
+	}
+	switch status {
+	case "dismissed", "converted":
+	default:
+		return fmt.Errorf("feedback resolution %q is not supported", status)
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE feedback_items
+		SET status = ?, resolved_by = ?, updated_at = ?
+		WHERE id = ? AND status = 'open'`,
+		status, strings.TrimSpace(actor), s.now().UTC().Format(timestampFormat), id,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return ErrNotOpen
+	}
+	return nil
+}
+
+// ErrNotOpen reports a resolution against an item that was already resolved,
+// which happens whenever two operators press a button at the same time.
+var ErrNotOpen = errors.New("feedback item is not open")
+
+// Get returns one item regardless of status.
+func (s *Store) Get(ctx context.Context, id string) (Item, error) {
+	return scan(s.db.QueryRowContext(ctx, `
+		SELECT id, workspace_id, channel_id, thread_ts, message_ts, target_message_ts,
+		  user_id, source, category, sentiment, summary, details, context_json,
+		  episode_id, agent_run_id, source_ref, status, created_at, updated_at
+		FROM feedback_items WHERE id = ?`, id))
 }

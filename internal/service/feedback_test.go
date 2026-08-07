@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	feedbackstore "github.com/AndrewDryga/responder/internal/feedback"
 	"github.com/AndrewDryga/responder/internal/investigation"
@@ -238,4 +239,146 @@ func TestOrdinaryWorkspaceMemberCanSubmitButNotBrowseFeedback(t *testing.T) {
 		!strings.Contains(slackClient.ephemerals[1].message.Text, "cannot run Responder commands") {
 		t.Fatalf("ephemeral responses = %#v", slackClient.ephemerals)
 	}
+}
+
+// Feedback that is captured and never acted on is worse than feedback that was
+// never captured: the person sees their input accepted and nothing change.
+// These cover the two ways an item can leave the queue.
+func TestFeedbackConvertsToGuidanceAndDismisses(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	operator := cfg.Slack.Operators[0]
+
+	record := func(id, summary string) {
+		t.Helper()
+		if err := svc.withFeedbackStore(func(feedback *feedbackstore.Store) error {
+			_, recordErr := feedback.Record(ctx, feedbackstore.Item{
+				ID: id, WorkspaceID: cfg.Slack.TeamID, ChannelID: "C123ABC",
+				UserID: operator, Source: "model_sentiment", Category: "tone",
+				Sentiment: "suggestion", Summary: summary,
+				SourceRef: "https://slack.com/archives/C123ABC/p1700001",
+			})
+			return recordErr
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record("fb_convert", "answer with the decision first, then the detail")
+	record("fb_dismiss", "the emoji were too much in the incident channel")
+
+	// Converting produces durable guidance the agent will actually recall.
+	if err := svc.handleConvertFeedback(ctx, admittedAction(
+		t, ctx, st, cfg, "slack_convert", slackui.ActionConvertFeedback, "fb_convert", operator,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := st.ListMemoryForContext(
+		ctx, cfg.Slack.TeamID, "C123ABC", cfg.Slack.DefaultRepository, operator, 50,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var guidance *core.MemoryEntry
+	for index := range entries {
+		if entries[index].SourceRef == "feedback:fb_convert" {
+			guidance = &entries[index]
+		}
+	}
+	if guidance == nil {
+		t.Fatalf("converting feedback produced no guidance entry: %+v", entries)
+	}
+	if guidance.Predicate != "guidance" ||
+		guidance.Value != "answer with the decision first, then the detail" {
+		t.Fatalf("guidance entry = %+v", guidance)
+	}
+
+	if err := svc.handleDismissFeedback(ctx, admittedAction(
+		t, ctx, st, cfg, "slack_dismiss", slackui.ActionDismissFeedback, "fb_dismiss", operator,
+	)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both items have left the open queue, so the digest is empty.
+	open, err := svc.openFeedbackSummaries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 0 {
+		t.Fatalf("resolved feedback is still open: %+v", open)
+	}
+
+	// Resolving twice is a real race when two operators are looking at the
+	// same App Home, and must not error.
+	if err := svc.handleDismissFeedback(ctx, admittedAction(
+		t, ctx, st, cfg, "slack_dismiss_again", slackui.ActionDismissFeedback, "fb_dismiss", operator,
+	)); err != nil {
+		t.Fatalf("resolving an already-resolved item errored: %v", err)
+	}
+}
+
+// Only a configured operator may turn feedback into behaviour.
+func TestFeedbackResolutionRequiresAnOperator(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.withFeedbackStore(func(feedback *feedbackstore.Store) error {
+		_, recordErr := feedback.Record(ctx, feedbackstore.Item{
+			ID: "fb_guarded", WorkspaceID: cfg.Slack.TeamID, ChannelID: "C123ABC",
+			UserID: "UOTHER1", Source: "model_sentiment", Category: "ux",
+			Sentiment: "suggestion", Summary: "please be quieter",
+		})
+		return recordErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.handleConvertFeedback(ctx, admittedAction(
+		t, ctx, st, cfg, "slack_guarded", slackui.ActionConvertFeedback, "fb_guarded", "UOTHER1",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	open, err := svc.openFeedbackSummaries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 1 {
+		t.Fatalf("a non-operator resolved feedback: %+v", open)
+	}
+}
+
+// admittedAction builds an interactive Slack action the way production does:
+// admitted and leased, so the handler's completion path behaves as it would in
+// the control lane rather than erroring on an input that was never persisted.
+func admittedAction(
+	t *testing.T,
+	ctx context.Context,
+	st *store.Store,
+	cfg config.Config,
+	id, actionID, actionValue, userID string,
+) core.SlackInput {
+	t.Helper()
+	created, err := st.AdmitSlackInput(ctx, core.SlackInput{
+		ID: id, EnvelopeID: "env_" + id, EventID: "Ev" + id,
+		Kind: "action", TeamID: cfg.Slack.TeamID, ChannelID: "",
+		UserID: userID, ActionID: actionID, ActionValue: actionValue,
+	})
+	if err != nil || !created {
+		t.Fatalf("admit %s = %t, %v", id, created, err)
+	}
+	leased, err := st.LeaseSlackInput(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return leased
 }

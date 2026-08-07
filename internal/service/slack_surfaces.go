@@ -81,6 +81,12 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 		preferences,
 		rules,
 	)
+	if feedback, err := s.openFeedbackSummaries(ctx); err != nil {
+		// The dashboard is still worth publishing without this section.
+		s.log.Warn("read open feedback for App Home", "error", err)
+	} else {
+		message = slackui.AppendFeedbackDigest(message, feedback)
+	}
 	message = s.sanitizeMessage(message)
 	return s.slack.PublishHome(ctx, userID, message)
 }

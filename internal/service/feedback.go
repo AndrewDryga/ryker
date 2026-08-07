@@ -247,3 +247,122 @@ func (s *Service) finishSlashFeedback(ctx context.Context, input core.SlackInput
 		Context:  []string{"Showing the 20 newest open items. Context is stored in this workspace's local state."},
 	})
 }
+
+// openFeedbackSummaries lists product feedback still awaiting an operator
+// decision, for the App Home digest.
+func (s *Service) openFeedbackSummaries(ctx context.Context) ([]slackui.FeedbackSummary, error) {
+	var result []slackui.FeedbackSummary
+	err := s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
+		items, err := feedback.ListOpen(ctx, s.cfg.Slack.TeamID, 20)
+		if err != nil {
+			return err
+		}
+		result = make([]slackui.FeedbackSummary, 0, len(items))
+		for _, item := range items {
+			result = append(result, slackui.FeedbackSummary{
+				ID: item.ID, Category: item.Category, Sentiment: item.Sentiment,
+				Summary: item.Summary, SourceRef: item.SourceRef,
+			})
+		}
+		return nil
+	})
+	return result, err
+}
+
+// handleDismissFeedback records that an operator read a feedback item and chose
+// not to act on it. Dismissing is a real outcome — the alternative is a queue
+// that only grows, which teaches everyone to ignore it.
+func (s *Service) handleDismissFeedback(ctx context.Context, input core.SlackInput) error {
+	allowed, err := s.authorizeMemoryAction(ctx, input)
+	if err != nil || !allowed {
+		return err
+	}
+	err = s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
+		return feedback.Resolve(ctx, input.ActionValue, "dismissed", input.UserID)
+	})
+	if errors.Is(err, feedbackstore.ErrNotOpen) {
+		return s.memoryActionFeedback(
+			ctx, input, "*That feedback was already resolved.* Nothing changed.",
+		)
+	}
+	if err != nil {
+		return err
+	}
+	s.audit(ctx, core.AuditEvent{
+		ID: "audit_feedback_dismiss_" + input.ID, Kind: "feedback.dismiss",
+		ActorID: input.UserID, ObjectID: input.ActionValue, Outcome: "dismissed",
+	})
+	return s.refreshHomeAfterFeedback(ctx, input)
+}
+
+// handleConvertFeedback turns a feedback item into durable guidance.
+//
+// The conversion reuses the ordinary guidance confirmation card, so the
+// operator sees and approves the exact wording before anything is stored. The
+// model never gains a path to write its own instructions — feedback it recorded
+// becomes behaviour only when a person says so.
+func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInput) error {
+	allowed, err := s.authorizeMemoryAction(ctx, input)
+	if err != nil || !allowed {
+		return err
+	}
+	var item feedbackstore.Item
+	if err := s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
+		var readErr error
+		item, readErr = feedback.Get(ctx, input.ActionValue)
+		return readErr
+	}); err != nil {
+		return s.memoryActionFeedback(
+			ctx, input, "*That feedback is no longer available.* Nothing changed.",
+		)
+	}
+	if item.Status != "open" {
+		return s.memoryActionFeedback(
+			ctx, input, "*That feedback was already resolved.* Nothing changed.",
+		)
+	}
+	entry := core.MemoryEntry{
+		ScopeKind: "workspace", ScopeKey: s.cfg.Slack.TeamID,
+		SubjectKey:     normalizeGuidanceSubject(item.Category),
+		Predicate:      "guidance",
+		Value:          core.BoundedText(item.Summary, 1000),
+		VisibilityKind: "workspace", VisibilityID: s.cfg.Slack.TeamID,
+		ExpiresAt: s.now().UTC().Add(defaultMemoryTTL),
+		SourceRef: "feedback:" + item.ID,
+		ActorID:   input.UserID,
+	}
+	if err := s.validateMemoryValue(&entry); err != nil {
+		return s.memoryActionFeedback(
+			ctx, input,
+			"*This feedback cannot become guidance as written.* "+err.Error()+
+				" Ask Responder to remember the behaviour you want in your own words instead.",
+		)
+	}
+	saved, _, err := s.store.UpsertMemoryEntry(
+		ctx, entry, s.cfg.Limits.MaxMemoryEntries, s.cfg.Limits.MaxMemoryEntriesPerScope,
+	)
+	if err != nil {
+		return err
+	}
+	if err := s.withFeedbackStore(func(feedback *feedbackstore.Store) error {
+		return feedback.Resolve(ctx, item.ID, "converted", input.UserID)
+	}); err != nil && !errors.Is(err, feedbackstore.ErrNotOpen) {
+		return err
+	}
+	s.audit(ctx, core.AuditEvent{
+		ID: "audit_feedback_convert_" + input.ID, Kind: "feedback.convert",
+		ActorID: input.UserID, ObjectID: item.ID, Outcome: "converted",
+		Detail: "memory=" + saved.ID,
+	})
+	return s.refreshHomeAfterFeedback(ctx, input)
+}
+
+func (s *Service) refreshHomeAfterFeedback(ctx context.Context, input core.SlackInput) error {
+	if input.ChannelID == "" {
+		if err := s.publishOperationsHome(ctx, input.UserID); err != nil {
+			return err
+		}
+		return s.finishSlackInput(ctx, input)
+	}
+	return s.finishSlashInput(ctx, input, "*Feedback resolved.*")
+}

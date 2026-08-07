@@ -97,6 +97,8 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionRememberMemory:      (*Service).handleRememberMemory,
 	slackui.ActionForgetMemory:        (*Service).handleForgetMemory,
 	slackui.ActionForgetMemoryRollup:  (*Service).handleForgetMemoryRollup,
+	slackui.ActionDismissFeedback:     (*Service).handleDismissFeedback,
+	slackui.ActionConvertFeedback:     (*Service).handleConvertFeedback,
 	slackui.ActionReviewMemory:        (*Service).finishMemoryReview,
 	slackui.ActionKeepMemoryReview:    (*Service).handleMemoryReview,
 	slackui.ActionForgetMemoryReview:  (*Service).handleMemoryReview,

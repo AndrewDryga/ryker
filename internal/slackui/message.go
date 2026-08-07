@@ -42,6 +42,8 @@ const (
 	ActionRememberMemory      = "responder_remember_memory"
 	ActionForgetMemory        = "responder_forget_memory"
 	ActionForgetMemoryRollup  = "responder_forget_memory_rollup"
+	ActionDismissFeedback     = "responder_dismiss_feedback"
+	ActionConvertFeedback     = "responder_convert_feedback"
 	ActionReviewMemory        = "responder_review_memory"
 	ActionKeepMemoryReview    = "responder_keep_memory_review"
 	ActionForgetMemoryReview  = "responder_forget_memory_review"
@@ -3132,4 +3134,76 @@ func roundedDuration(value time.Duration) string {
 	default:
 		return "a minute"
 	}
+}
+
+// FeedbackSummary is one open feedback item as the App Home shows it.
+type FeedbackSummary struct {
+	ID        string
+	Category  string
+	Sentiment string
+	Summary   string
+	SourceRef string
+}
+
+// AppendFeedbackDigest adds open product feedback to the App Home, with the two
+// decisions an operator can make about each item.
+//
+// Capturing feedback and never acting on it is worse than not capturing it: the
+// person sees their input accepted and nothing change. Surfacing it with a way
+// to convert it into durable guidance is what closes that loop — and the
+// conversion goes through the ordinary guidance confirmation, so the model
+// never gains a path to write its own instructions.
+func AppendFeedbackDigest(message Message, items []FeedbackSummary) Message {
+	if len(items) == 0 {
+		return message
+	}
+	byCategory := map[string]int{}
+	for _, item := range items {
+		byCategory[item.Category]++
+	}
+	counts := make([]string, 0, len(byCategory))
+	for _, category := range []string{
+		"correctness", "ux", "tone", "latency", "reliability", "feature_request", "other",
+	} {
+		if count := byCategory[category]; count > 0 {
+			counts = append(counts, fmt.Sprintf("%s %d", strings.ReplaceAll(category, "_", " "), count))
+		}
+	}
+	message.Sections = append(message.Sections, fmt.Sprintf(
+		"*Product feedback awaiting a decision (%d)*\n%s",
+		len(items), escapeSlackText(strings.Join(counts, " · ")),
+	))
+	for index, item := range items {
+		if index >= 5 {
+			message.Context = append(message.Context, fmt.Sprintf(
+				"%d more feedback items are open; use `/responder feedback` to see them.",
+				len(items)-5,
+			))
+			break
+		}
+		line := fmt.Sprintf(
+			"%d. %s\n_%s · %s_",
+			index+1,
+			escapeSlackText(item.Summary),
+			escapeSlackText(item.Category),
+			escapeSlackText(item.Sentiment),
+		)
+		if item.SourceRef != "" {
+			line += " · " + escapeSlackText(item.SourceRef)
+		}
+		message.Sections = append(message.Sections, line)
+		message.Actions = append(message.Actions,
+			Action{
+				ID: ActionConvertFeedback, Label: fmt.Sprintf("Make it guidance %d", index+1),
+				Value: item.ID, Style: "primary",
+				Confirm: "Turn this feedback into durable guidance? You will confirm the exact " +
+					"wording before anything is saved.",
+			},
+			Action{
+				ID: ActionDismissFeedback, Label: fmt.Sprintf("Dismiss %d", index+1),
+				Value: item.ID,
+			},
+		)
+	}
+	return message
 }
