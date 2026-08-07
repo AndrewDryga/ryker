@@ -125,3 +125,44 @@ func (s *Store) ExpireFixtureCandidates(ctx context.Context, now time.Time) (int
 	}
 	return result.RowsAffected()
 }
+
+// ListApprovedFixtureCandidates returns lessons an operator kept.
+//
+// Approval and promotion are separate: keeping a lesson is a judgement about
+// the correction, and writing it into a corpus is a change to what blocks a
+// release. Splitting them means the second decision is made while looking at a
+// diff rather than at a button.
+func (s *Store) ListApprovedFixtureCandidates(
+	ctx context.Context,
+	limit int,
+) ([]core.FixtureCandidate, error) {
+	if limit < 1 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, episode_id, run_id, capability, correction_class, correction,
+		       status, reviewed_by, created_at, expires_at
+		FROM fixture_candidates
+		WHERE status = 'approved'
+		ORDER BY created_at LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.FixtureCandidate, 0)
+	for rows.Next() {
+		var candidate core.FixtureCandidate
+		var created, expires string
+		if err := rows.Scan(
+			&candidate.ID, &candidate.EpisodeID, &candidate.RunID, &candidate.Capability,
+			&candidate.CorrectionClass, &candidate.Correction, &candidate.Status,
+			&candidate.ReviewedBy, &created, &expires,
+		); err != nil {
+			return nil, err
+		}
+		candidate.CreatedAt = parseTime(created)
+		candidate.ExpiresAt = parseTime(expires)
+		result = append(result, candidate)
+	}
+	return result, rows.Err()
+}
