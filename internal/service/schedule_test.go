@@ -32,26 +32,71 @@ func (f *scheduleSlack) UserAllowed(_ context.Context, userID, teamID string) (b
 
 func TestScheduleOfferRequiresOperatorIntentAndNormalizesTypedCalendar(t *testing.T) {
 	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
 	s := &Service{cfg: cfg, slack: &fakeSlack{channel: slackui.Channel{
 		ID: "CREPORT", Name: "health-reports", Member: true,
-	}}}
+	}}, store: st}
 	start := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
 	input := core.SlackInput{ID: "slack_schedule", EventID: "EvSchedule", TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1", UserID: cfg.Slack.Operators[0], Text: "Every Monday at 09:00 schedule a deep production health report."}
 	offer := &core.ScheduleOffer{Title: "Weekly production health", Prompt: "Run a deep production health check and report material changes.", Repository: "repo", DeliveryChannel: "CREPORT", Recurrence: "weekly", StartAt: start.Format(time.RFC3339), Weekdays: []string{"monday"}, LocalTime: "09:00", Timezone: "UTC", CatchUp: "latest", ExpiresIn: "90d"}
 	value, task, when, ok := s.prepareScheduleOfferAction(context.Background(), input, offer)
-	if !ok || !strings.Contains(value, `"version":1`) || !strings.Contains(value, `"expires_in":"90d"`) || task.ChannelID != "COPS" || task.DeliveryChannel != "CREPORT" || task.ThreadTS != "100.1" || task.Recurrence != "weekly" || !strings.Contains(when, "monday") {
+	if !ok || !strings.Contains(value, `"version":2`) || strings.Contains(value, offer.Prompt) || task.ChannelID != "COPS" || task.DeliveryChannel != "CREPORT" || task.ThreadTS != "100.1" || task.Recurrence != "weekly" || !strings.Contains(when, "monday") {
 		t.Fatalf("schedule offer = ok=%t value=%q task=%+v when=%q", ok, value, task, when)
 	}
 	var payload scheduleActionPayload
 	if err := decisionpkg.DecodeStrictJSON([]byte(value), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.scheduledTaskFromOffer(context.Background(), input, payload.Offer, time.Now().UTC()); err != nil {
-		t.Fatalf("confirmed schedule payload did not round-trip: %v", err)
+	proposal, err := st.GetScheduleProposal(context.Background(), payload.ProposalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.Task.Prompt != offer.Prompt || proposal.Task.Recurrence != "weekly" {
+		t.Fatalf("stored schedule proposal = %+v", proposal)
 	}
 	input.Text = "Run a deep production health report."
 	if _, _, _, ok := s.prepareScheduleOfferAction(context.Background(), input, offer); ok {
 		t.Fatal("schedule offer accepted without explicit scheduling intent")
+	}
+}
+
+func TestScheduleOfferKeepsLongPromptOutOfSlackActionValue(t *testing.T) {
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	s := &Service{cfg: cfg, store: st, slack: &fakeSlack{channel: slackui.Channel{
+		ID: "COPS", Name: "operations", Member: true,
+	}}}
+	prompt := strings.Repeat("Collect fresh evidence, reconcile contradictions, and report only actionable findings. ", 13)
+	input := core.SlackInput{
+		ID: "slack_long_schedule", EventID: "EvLongSchedule", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", ThreadTS: "100.1", UserID: cfg.Slack.Operators[0],
+		Text: "Post this comprehensive report daily at 09:00.",
+	}
+	value, _, _, ok := s.prepareScheduleOfferAction(context.Background(), input, &core.ScheduleOffer{
+		Title: "Daily comprehensive report", Prompt: prompt, Repository: "repo",
+		Recurrence: "daily", LocalTime: "09:00", Timezone: "UTC", CatchUp: "latest", ExpiresIn: "90d",
+	})
+	if !ok {
+		t.Fatal("long schedule offer was discarded")
+	}
+	if len(value) >= 200 || strings.Contains(value, prompt[:80]) {
+		t.Fatalf("Slack action value contains schedule data: len=%d value=%q", len(value), value)
+	}
+	var payload scheduleActionPayload
+	if err := decisionpkg.DecodeStrictJSON([]byte(value), &payload); err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := st.GetScheduleProposal(context.Background(), payload.ProposalID)
+	if err != nil || proposal.Task.Prompt != strings.TrimSpace(prompt) {
+		t.Fatalf("durable long prompt = %q, err=%v", proposal.Task.Prompt, err)
 	}
 }
 
@@ -86,6 +131,69 @@ func TestScheduleRetryInheritsExplicitIntentFromSameOperatorThread(t *testing.T)
 	input.Text = "Do not schedule it."
 	if resolved := schedulepkg.ScheduleInputWithConversationIntent(input, recent); resolved.Text != input.Text {
 		t.Fatalf("non-continuation inherited stale intent = %q", resolved.Text)
+	}
+
+	input.Text = "activate it"
+	if resolved := schedulepkg.ScheduleInputWithConversationIntent(input, recent); resolved.Text != recent[1].Text {
+		t.Fatalf("activation did not inherit the existing schedule = %q", resolved.Text)
+	}
+	if !schedulepkg.ExplicitScheduleConfirmation(input.Text) {
+		t.Fatal("activation was not recognized as an explicit schedule confirmation")
+	}
+}
+
+func TestActivateItAcceptsPendingScheduleWithoutAnotherModelRun(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC().Truncate(time.Second)
+	proposal, err := st.CreateScheduleProposal(ctx, core.ScheduleProposal{
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1",
+		ActorID: cfg.Slack.Operators[0], SourceRef: "schedule-offer", ExpiresAt: now.Add(time.Hour),
+		Task: core.ScheduledTask{
+			TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1", DeliveryChannel: "COPS",
+			Repository: "repo", Title: "Daily report", Prompt: "Use the published runbook with fresh evidence.",
+			Recurrence: "daily", StartAt: now.Add(time.Hour), LocalTime: "09:00", Timezone: "UTC",
+			CatchUp: "latest", ActorID: cfg.Slack.Operators[0], SourceRef: "schedule-offer",
+			NextRunAt: now.Add(time.Hour), ExpiresAt: now.Add(90 * 24 * time.Hour),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{dedupePosts: true}
+	svc := New(cfg, st, nil, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	input := core.SlackInput{
+		ID: "activate-schedule", EventID: "EvActivateSchedule", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1", MessageTS: "100.2",
+		UserID: cfg.Slack.Operators[0], Text: "activate it",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit activation = %t, %v", admitted, admitErr)
+	}
+	input, err = st.LeaseSlackInput(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled, err := svc.confirmPendingScheduleReply(ctx, input)
+	if err != nil || !handled {
+		t.Fatalf("confirm pending schedule = %t, %v", handled, err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	accepted, err := st.GetScheduleProposal(ctx, proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := st.GetScheduledTask(ctx, accepted.AcceptedTaskID)
+	if err != nil || task.Title != "Daily report" {
+		t.Fatalf("activated schedule = %+v, err=%v", task, err)
+	}
+	if len(slackClient.posts) != 1 || !strings.Contains(strings.ToLower(slackClient.posts[0].message.Text), "scheduled") {
+		t.Fatalf("activation receipt = %+v", slackClient.posts)
 	}
 }
 

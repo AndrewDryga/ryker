@@ -91,3 +91,53 @@ func TestScheduledTaskCapacityIsEnforced(t *testing.T) {
 		t.Fatal("expected scheduled task capacity error")
 	}
 }
+
+func TestScheduleProposalUpdatesMatchingTaskInPlaceAndIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC().Truncate(time.Second)
+	existing, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "old-thread", DeliveryChannel: "C1",
+		Repository: "repo", Title: "Daily health v3", Prompt: "Run version 3.",
+		Recurrence: "daily", StartAt: now.Add(time.Hour), LocalTime: "09:00",
+		Timezone: "UTC", CatchUp: "latest", ActorID: "U1", SourceRef: "old-source",
+		NextRunAt: now.Add(time.Hour), ExpiresAt: now.Add(30 * 24 * time.Hour),
+	}, 10, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := st.CreateScheduleProposal(ctx, core.ScheduleProposal{
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "new-thread", ActorID: "U1",
+		SourceRef: "activation-message", ReplaceTaskID: existing.ID,
+		ExpiresAt: now.Add(24 * time.Hour),
+		Task: core.ScheduledTask{
+			TeamID: "T1", ChannelID: "C1", ThreadTS: "new-thread", DeliveryChannel: "C1",
+			Repository: "repo", Title: "Daily health v5", Prompt: "Run exact version 5 with fresh evidence.",
+			Recurrence: "daily", StartAt: now.Add(2 * time.Hour), LocalTime: "09:00",
+			Timezone: "UTC", CatchUp: "latest", ActorID: "U1", SourceRef: "activation-message",
+			NextRunAt: now.Add(2 * time.Hour), ExpiresAt: now.Add(90 * 24 * time.Hour),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := st.AcceptScheduleProposal(ctx, proposal.ID, "T1", "C1", "U1", 10, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted.ID != existing.ID || accepted.Title != "Daily health v5" || accepted.Prompt != proposal.Task.Prompt || accepted.ThreadTS != "new-thread" {
+		t.Fatalf("updated schedule = %+v", accepted)
+	}
+	replayed, err := st.AcceptScheduleProposal(ctx, proposal.ID, "T1", "C1", "U1", 10, 5)
+	if err != nil || replayed.ID != existing.ID {
+		t.Fatalf("replayed acceptance = %+v, err=%v", replayed, err)
+	}
+	listed, err := st.ListScheduledTasksForChannel(ctx, "C1", 10)
+	if err != nil || len(listed) != 1 || listed[0].Prompt != proposal.Task.Prompt {
+		t.Fatalf("scheduled tasks after replacement = %+v, err=%v", listed, err)
+	}
+}

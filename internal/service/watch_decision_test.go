@@ -758,6 +758,86 @@ func TestWatchedScheduleAndRunbookRequestUsesEmisarAndOffersSchedule(t *testing.
 	}
 }
 
+func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC().Truncate(time.Second)
+	existing, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
+		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", ThreadTS: "older-thread", DeliveryChannel: "CWATCH",
+		Repository: "repo", Title: "Daily report v3", Prompt: "Execute whole-platform-health-review-v3@3.",
+		Recurrence: "daily", StartAt: now.Add(time.Hour), LocalTime: "09:00", Timezone: "UTC",
+		CatchUp: "latest", ActorID: cfg.Slack.Operators[0], SourceRef: "old-schedule",
+		NextRunAt: now.Add(time.Hour), ExpiresAt: now.Add(90 * 24 * time.Hour),
+	}, 10, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{
+		dedupePosts: true,
+		history: []slackui.HistoryMessage{
+			{Timestamp: "1700.800", UserID: "U123ABC", Text: "Published, use whole-platform-health-review-v5@5 for daily reports."},
+			{Timestamp: "1700.820", ThreadTS: "1700.800", UserID: "U999BOT", BotID: "B999BOT", Text: "The runbook is ready; activating the recurring 09:00 delivery remains."},
+			{Timestamp: "1700.850", ThreadTS: "1700.800", UserID: "U123ABC", Text: "activate it"},
+		},
+	}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},
+		"reason":"the operator explicitly activated the established daily report",
+		"message":"The daily report is ready.",
+		"schedule_offer":{
+			"title":"Daily comprehensive health report",
+			"prompt":"Execute whole-platform-health-review-v5@5 with fresh evidence and report actionable findings.",
+			"repository":"repo",
+			"recurrence":"daily",
+			"local_time":"09:00",
+			"timezone":"UTC",
+			"catch_up":"latest",
+			"expires_in":"90d"
+		}
+	}`
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT"}
+	input := core.SlackInput{
+		ID: "slack-activate-daily", EnvelopeID: "env-activate-daily", EventID: "event-activate-daily",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", ThreadTS: "1700.800",
+		MessageTS: "1700.850", UserID: "U123ABC", Text: "activate it <@U999BOT>",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit activation = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("activation posts = %+v", slackClient.posts)
+	}
+	message := slackClient.posts[0].message
+	for _, action := range message.Actions {
+		if action.ID == slackui.ActionRememberSchedule {
+			t.Fatalf("activation asked for another confirmation: %+v", message)
+		}
+	}
+	if !strings.Contains(strings.ToLower(message.Text), "scheduled") {
+		t.Fatalf("activation receipt = %+v", message)
+	}
+	schedules, err := st.ListScheduledTasksForChannel(ctx, "CWATCH", 10)
+	if err != nil || len(schedules) != 1 {
+		t.Fatalf("daily schedules = %+v, err=%v", schedules, err)
+	}
+	if schedules[0].ID != existing.ID || !strings.Contains(schedules[0].Prompt, "v5@5") {
+		t.Fatalf("updated daily schedule = %+v", schedules[0])
+	}
+}
+
 func TestWatchedCompoundRequestPostsOrderedMessagesInOneThread(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

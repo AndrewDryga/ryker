@@ -33,8 +33,15 @@ var ScheduleIntentPattern = regexp.MustCompile(
 
 var ScheduleContinuationPattern = regexp.MustCompile(
 	`(?i)^\s*(?:(?:<@[^>]+>)\s*)?(?:please\s+)?(?:` +
-		`try\s+again|retry|do\s+(?:it|that|this|them|both)|go\s+ahead|proceed|yes(?:\s+please)?` +
+		`try\s+again|retry|do\s+(?:it|that|this|them|both)|go\s+ahead|proceed|yes(?:\s+please)?|` +
+		`(?:activate|enable|schedule|save|set\s+up)\s+(?:it|that|this)` +
 		`)(?:\s+(?:<@[^>]+>))?[.!?]?\s*$`,
+)
+
+var scheduleConfirmationPattern = regexp.MustCompile(
+	`(?i)^\s*(?:(?:<@[^>]+>)\s*)?(?:please\s+)?(?:` +
+		`activate|enable|schedule|save|confirm|set\s+up` +
+		`)\s+(?:it|that|this)(?:\s+(?:<@[^>]+>))?[.!?]?\s*$`,
 )
 
 func ScheduleInputWithConversationIntent(
@@ -134,6 +141,10 @@ func ValidateScheduleShape(task core.ScheduledTask) error {
 
 func ExplicitScheduleRequest(text string) bool {
 	return ScheduleIntentPattern.MatchString(strings.TrimSpace(text))
+}
+
+func ExplicitScheduleConfirmation(text string) bool {
+	return scheduleConfirmationPattern.MatchString(strings.TrimSpace(text))
 }
 
 func ScheduleDescription(task core.ScheduledTask) string {

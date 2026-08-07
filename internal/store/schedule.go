@@ -19,6 +19,11 @@ const scheduledTaskSelect = `
 	  next_run_at, last_run_at, last_outcome, expires_at, created_at, updated_at
 	FROM scheduled_tasks`
 
+const scheduleProposalSelect = `
+	SELECT id, team_id, channel_id, thread_ts, actor_id, source_ref, task_json,
+	  replace_task_id, status, accepted_task_id, expires_at, created_at, updated_at
+	FROM schedule_proposals`
+
 func (s *Store) CreateScheduledTask(
 	ctx context.Context,
 	task core.ScheduledTask,
@@ -65,10 +70,21 @@ func (s *Store) CreateScheduledTask(
 	if channel >= maxPerChannel {
 		return core.ScheduledTask{}, fmt.Errorf("scheduled task capacity reached for this channel (%d unexpired tasks)", maxPerChannel)
 	}
+	if err := insertScheduledTask(ctx, tx, &task, now); err != nil {
+		return core.ScheduledTask{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.ScheduledTask{}, err
+	}
+	return task, nil
+}
+
+func insertScheduledTask(ctx context.Context, tx *sql.Tx, task *core.ScheduledTask, now time.Time) error {
+	var err error
 	if task.ID == "" {
 		task.ID, err = core.NewID("schedule")
 		if err != nil {
-			return core.ScheduledTask{}, err
+			return err
 		}
 	}
 	task.Enabled = true
@@ -76,7 +92,7 @@ func (s *Store) CreateScheduledTask(
 	task.UpdatedAt = now
 	weekdays, err := json.Marshal(task.Weekdays)
 	if err != nil {
-		return core.ScheduledTask{}, err
+		return err
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO scheduled_tasks (
@@ -94,13 +110,214 @@ func (s *Store) CreateScheduledTask(
 		task.ExpiresAt.UTC().Format(timestampFormat),
 		task.CreatedAt.Format(timestampFormat), task.UpdatedAt.Format(timestampFormat),
 	)
+	return err
+}
+
+// CreateScheduleProposal durably stores the full normalized task before any
+// Slack control is rendered. The Slack action carries only the returned ID.
+func (s *Store) CreateScheduleProposal(ctx context.Context, proposal core.ScheduleProposal) (core.ScheduleProposal, error) {
+	if proposal.TeamID == "" || proposal.ChannelID == "" || proposal.ActorID == "" || proposal.SourceRef == "" {
+		return core.ScheduleProposal{}, errors.New("schedule proposal identity is incomplete")
+	}
+	if err := validateScheduledTask(proposal.Task); err != nil {
+		return core.ScheduleProposal{}, err
+	}
+	now := s.now().UTC()
+	if proposal.ExpiresAt.IsZero() {
+		proposal.ExpiresAt = now.Add(24 * time.Hour)
+	}
+	if !proposal.ExpiresAt.After(now) {
+		return core.ScheduleProposal{}, errors.New("schedule proposal expiration must be in the future")
+	}
+	if proposal.ID == "" {
+		var err error
+		proposal.ID, err = core.NewID("schedule_proposal")
+		if err != nil {
+			return core.ScheduleProposal{}, err
+		}
+	}
+	proposal.Status = "pending"
+	proposal.CreatedAt = now
+	proposal.UpdatedAt = now
+	taskJSON, err := json.Marshal(proposal.Task)
 	if err != nil {
+		return core.ScheduleProposal{}, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO schedule_proposals (
+		  id, team_id, channel_id, thread_ts, actor_id, source_ref, task_json,
+		  replace_task_id, status, accepted_task_id, expires_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?)`,
+		proposal.ID, proposal.TeamID, proposal.ChannelID, proposal.ThreadTS,
+		proposal.ActorID, proposal.SourceRef, taskJSON, proposal.ReplaceTaskID,
+		proposal.ExpiresAt.Format(timestampFormat), now.Format(timestampFormat), now.Format(timestampFormat),
+	)
+	if err != nil {
+		return core.ScheduleProposal{}, err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return core.ScheduleProposal{}, err
+	}
+	if inserted == 0 {
+		return scanScheduleProposal(s.db.QueryRowContext(ctx, scheduleProposalSelect+`
+			WHERE team_id = ? AND channel_id = ? AND source_ref = ?`,
+			proposal.TeamID, proposal.ChannelID, proposal.SourceRef))
+	}
+	return proposal, nil
+}
+
+func (s *Store) GetScheduleProposal(ctx context.Context, id string) (core.ScheduleProposal, error) {
+	return scanScheduleProposal(s.db.QueryRowContext(ctx, scheduleProposalSelect+` WHERE id = ?`, id))
+}
+
+func (s *Store) GetPendingScheduleProposalForConversation(
+	ctx context.Context,
+	teamID string,
+	channelID string,
+	threadTS string,
+	actorID string,
+) (core.ScheduleProposal, error) {
+	return scanScheduleProposal(s.db.QueryRowContext(ctx, scheduleProposalSelect+`
+		WHERE team_id = ? AND channel_id = ? AND thread_ts = ? AND actor_id = ?
+		  AND status = 'pending' AND expires_at > ?
+		ORDER BY created_at DESC LIMIT 1`, teamID, channelID, threadTS, actorID, s.nowText()))
+}
+
+// AcceptScheduleProposal atomically activates a pending proposal. When the
+// proposal targets an existing schedule, that row is updated in place so its
+// occurrence history and external controls remain valid.
+func (s *Store) AcceptScheduleProposal(
+	ctx context.Context,
+	id string,
+	teamID string,
+	channelID string,
+	actorID string,
+	maxTotal int,
+	maxPerChannel int,
+) (core.ScheduledTask, error) {
+	if maxTotal < 1 || maxPerChannel < 1 || maxPerChannel > maxTotal {
+		return core.ScheduledTask{}, errors.New("scheduled task limits are invalid")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.ScheduledTask{}, err
+	}
+	defer tx.Rollback()
+	proposal, err := scanScheduleProposal(tx.QueryRowContext(ctx, scheduleProposalSelect+` WHERE id = ?`, id))
+	if err != nil {
+		return core.ScheduledTask{}, err
+	}
+	if proposal.TeamID != teamID || proposal.ChannelID != channelID || proposal.ActorID != actorID {
+		return core.ScheduledTask{}, errors.New("schedule proposal belongs to another conversation or operator")
+	}
+	now := s.now().UTC()
+	if proposal.Status == "accepted" && proposal.AcceptedTaskID != "" {
+		task, getErr := scanScheduledTask(tx.QueryRowContext(ctx, scheduledTaskSelect+` WHERE id = ?`, proposal.AcceptedTaskID))
+		if getErr != nil {
+			return core.ScheduledTask{}, getErr
+		}
+		return task, tx.Commit()
+	}
+	if proposal.Status != "pending" || !proposal.ExpiresAt.After(now) {
+		if proposal.Status == "pending" {
+			_, _ = tx.ExecContext(ctx, `UPDATE schedule_proposals SET status = 'expired', updated_at = ? WHERE id = ?`, s.nowText(), id)
+		}
+		return core.ScheduledTask{}, errors.New("schedule proposal is no longer pending")
+	}
+	task := proposal.Task
+	if err := validateScheduledTask(task); err != nil {
+		return core.ScheduledTask{}, err
+	}
+	if !task.ExpiresAt.After(now) || !task.NextRunAt.After(now.Add(-time.Second)) || !task.NextRunAt.Before(task.ExpiresAt) {
+		return core.ScheduledTask{}, errors.New("scheduled task must have a future expiry and runnable next occurrence")
+	}
+	if proposal.ReplaceTaskID != "" {
+		existing, getErr := scanScheduledTask(tx.QueryRowContext(ctx, scheduledTaskSelect+` WHERE id = ?`, proposal.ReplaceTaskID))
+		if getErr != nil {
+			return core.ScheduledTask{}, getErr
+		}
+		if existing.TeamID != teamID || existing.ChannelID != channelID {
+			return core.ScheduledTask{}, errors.New("replacement schedule belongs to another conversation")
+		}
+		weekdays, marshalErr := json.Marshal(task.Weekdays)
+		if marshalErr != nil {
+			return core.ScheduledTask{}, marshalErr
+		}
+		_, err = tx.ExecContext(ctx, `
+			UPDATE scheduled_tasks SET
+			  thread_ts = ?, delivery_channel_id = ?, repository = ?, title = ?, prompt = ?,
+			  recurrence = ?, start_at = ?, interval_seconds = ?, weekdays_json = ?,
+			  day_of_month = ?, local_time = ?, timezone = ?, catch_up = ?, enabled = 1,
+			  actor_id = ?, source_ref = ?, next_run_at = ?, expires_at = ?, updated_at = ?
+			WHERE id = ?`,
+			task.ThreadTS, firstNonemptySchedule(task.DeliveryChannel, task.ChannelID),
+			task.Repository, task.Title, task.Prompt, task.Recurrence,
+			task.StartAt.UTC().Format(timestampFormat), task.IntervalSeconds, weekdays,
+			task.DayOfMonth, task.LocalTime, task.Timezone, task.CatchUp,
+			task.ActorID, task.SourceRef, task.NextRunAt.UTC().Format(timestampFormat),
+			task.ExpiresAt.UTC().Format(timestampFormat), now.Format(timestampFormat), existing.ID,
+		)
+		if err != nil {
+			return core.ScheduledTask{}, err
+		}
+		task.ID = existing.ID
+		task.Enabled = true
+		task.LastRunAt = existing.LastRunAt
+		task.LastOutcome = existing.LastOutcome
+		task.CreatedAt = existing.CreatedAt
+		task.UpdatedAt = now
+	} else {
+		var total, channel int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_tasks WHERE expires_at > ?`, now.Format(timestampFormat)).Scan(&total); err != nil {
+			return core.ScheduledTask{}, err
+		}
+		if total >= maxTotal {
+			return core.ScheduledTask{}, fmt.Errorf("scheduled task capacity reached (%d unexpired tasks)", maxTotal)
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_tasks WHERE channel_id = ? AND expires_at > ?`, channelID, now.Format(timestampFormat)).Scan(&channel); err != nil {
+			return core.ScheduledTask{}, err
+		}
+		if channel >= maxPerChannel {
+			return core.ScheduledTask{}, fmt.Errorf("scheduled task capacity reached for this channel (%d unexpired tasks)", maxPerChannel)
+		}
+		if err := insertScheduledTask(ctx, tx, &task, now); err != nil {
+			return core.ScheduledTask{}, err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE schedule_proposals SET status = 'accepted', accepted_task_id = ?, updated_at = ?
+		WHERE id = ? AND status = 'pending'`, task.ID, now.Format(timestampFormat), id)
+	if err := expectOne(result, err, "accept schedule proposal"); err != nil {
 		return core.ScheduledTask{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return core.ScheduledTask{}, err
 	}
 	return task, nil
+}
+
+func scanScheduleProposal(row rowScanner) (core.ScheduleProposal, error) {
+	var proposal core.ScheduleProposal
+	var taskJSON []byte
+	var expires, created, updated string
+	if err := row.Scan(
+		&proposal.ID, &proposal.TeamID, &proposal.ChannelID, &proposal.ThreadTS,
+		&proposal.ActorID, &proposal.SourceRef, &taskJSON, &proposal.ReplaceTaskID,
+		&proposal.Status, &proposal.AcceptedTaskID, &expires, &created, &updated,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return core.ScheduleProposal{}, ErrNotFound
+		}
+		return core.ScheduleProposal{}, err
+	}
+	if err := json.Unmarshal(taskJSON, &proposal.Task); err != nil {
+		return core.ScheduleProposal{}, err
+	}
+	proposal.ExpiresAt = parseTime(expires)
+	proposal.CreatedAt = parseTime(created)
+	proposal.UpdatedAt = parseTime(updated)
+	return proposal, nil
 }
 
 func validateScheduledTask(task core.ScheduledTask) error {
