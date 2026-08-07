@@ -1186,3 +1186,42 @@ func (s *Service) finishBehaviorMessage(
 	}
 	return s.finishSlashMessage(ctx, input, message)
 }
+
+// operatorOffers is the offer set one reply carries, in the form both the watch
+// decision path and the incident report path hold it.
+//
+// The normalization below lived in two places against two types that happened
+// to have the same fields, which is how one copy drifts from the other. It is
+// one rule: only an operator can confirm an offer, a location preference that
+// arrives alone becomes a plain acknowledgement, and arriving alongside other
+// offers it says so instead — two confirmations in one message have to be told
+// apart.
+type operatorOffers struct {
+	Memory     *core.MemoryOffer
+	Preference *core.PreferenceOffer
+	Rule       *core.RuleOffer
+	Schedule   *core.ScheduleOffer
+}
+
+// normalizedOffers reports the corrected offers, a replacement message when the
+// preference alone answers the request, and whether the evidence and coverage
+// should be dropped with it — "noted, I will reply in thread" does not need an
+// investigation attached.
+func normalizedOffers(
+	input core.SlackInput,
+	repository string,
+	offers operatorOffers,
+) (operatorOffers, string, bool) {
+	if offer, ok := normalizeOperationalAlertRule(input, repository, offers.Rule); ok {
+		offers.Rule = offer
+	}
+	offer, acknowledgement, ok := normalizeResponseLocationPreference(input, offers.Preference)
+	if !ok {
+		return offers, "", false
+	}
+	offers.Preference = offer
+	if offers.Memory != nil || offers.Rule != nil || offers.Schedule != nil {
+		acknowledgement = "I split that into separate settings so each part stays clear and reversible. Confirm the reply-location preference and the alert-triage rule below."
+	}
+	return offers, acknowledgement, true
+}

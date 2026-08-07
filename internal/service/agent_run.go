@@ -2423,6 +2423,97 @@ func (s *Service) persistPrivateReplayKnowledge(
 	})
 }
 
+// reportTurnFailure builds the message an operator sees when a turn did not
+// complete, and records it on the incident timeline.
+//
+// A structured failure is reported verbatim because the model already phrased
+// it for a person. Anything else goes through provider.Classify, which turns a
+// transport or quota error into what the operator can actually do about it —
+// the raw text is almost never actionable on its own.
+func (s *Service) reportTurnFailure(
+	ctx context.Context,
+	run core.AgentRun,
+	incident core.Incident,
+	state string,
+	detail string,
+) slackui.Message {
+	message := slackui.AgentReportFailureMessage(detail)
+	if !structuredResultFailure(detail) {
+		failure := provider.Classify(detail)
+		message = slackui.TurnFailureMessage(
+			state,
+			failure.Summary+"\n\nReported detail: `"+detail+"`\n\n"+failure.OperatorFix,
+		)
+	}
+	s.recordTimeline(ctx, core.TimelineEvent{
+		ID:         "tl_agent_failure_" + run.ID,
+		IncidentID: incident.ID, ChannelID: incident.ChannelID,
+		Kind: "agent.failure", ActorID: "responder",
+		Title: "Agent turn " + state, Detail: detail,
+	})
+	return message
+}
+
+// recordProposalExecution closes out the proposal this run was executing. The
+// error is deliberately ignored: the run itself already succeeded or failed,
+// and refusing to finalize it because a bookkeeping write failed would leave
+// the operator with no answer at all.
+func (s *Service) recordProposalExecution(
+	ctx context.Context,
+	run core.AgentRun,
+	state string,
+	detail string,
+) {
+	proposalState := "failed"
+	if state == "completed" {
+		proposalState = "finished"
+	}
+	result := s.sanitizeText(core.FirstNonempty(string(run.Result), detail))
+	_ = s.store.MarkProposalExecution(ctx, run.SourceID, proposalState, run.CoopTurnID, result)
+}
+
+// withEngineeringTaskChanges marks an engineering task's published diff stale
+// when this turn actually changed the working tree, and says so in the message.
+//
+// It compares against the fingerprint taken before the turn rather than asking
+// whether the turn claimed to change anything: a model that says it edited
+// nothing while leaving a dirty tree would otherwise leave a published diff
+// that no longer matches the branch, which is the worst kind of wrong — it
+// looks reviewed.
+func (s *Service) withEngineeringTaskChanges(
+	ctx context.Context,
+	run core.AgentRun,
+	incident core.Incident,
+	state string,
+	message slackui.Message,
+) slackui.Message {
+	changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
+	if err != nil {
+		s.log.Warn(
+			"inspect completed engineering task changes failed",
+			"incident", incident.ID,
+			"error", err,
+		)
+		return message
+	}
+	assembled, _ := decodeAssembledAgentContext(run.Context)
+	if !engineeringTaskTurnCreatedChanges(assembled.InitialTaskChangesFingerprint, changes) {
+		return message
+	}
+	publication, publicationErr := s.markTaskPublicationStale(ctx, incident)
+	if publicationErr != nil {
+		s.log.Error(
+			"mark changed engineering task publication stale",
+			"incident", incident.ID,
+			"error", publicationErr,
+		)
+	}
+	if state != "completed" {
+		return message
+	}
+	return slackui.WithEngineeringTaskDelivery(message, incident, true, publication)
+}
+
 func (s *Service) finalizeIncidentAgentRun(
 	ctx context.Context,
 	run core.AgentRun,
@@ -2479,22 +2570,20 @@ func (s *Service) finalizeIncidentAgentRun(
 			episodeCompletion = report.Completion
 			episodeOperations = report.AppliedOperations
 			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
-				if offer, ok := normalizeOperationalAlertRule(
+				offers, acknowledgement, replaced := normalizedOffers(
 					conversationInput,
 					core.FirstNonempty(run.Repository, incident.Repository),
-					report.RuleOffer,
-				); ok {
-					report.RuleOffer = offer
-				}
-				if offer, acknowledgement, ok := normalizeResponseLocationPreference(
-					conversationInput, report.PreferenceOffer,
-				); ok {
-					report.PreferenceOffer = offer
-					if report.MemoryOffer == nil && report.RuleOffer == nil && report.ScheduleOffer == nil {
-						report.Message = acknowledgement
-					} else {
-						report.Message = "I split that into separate settings so each part stays clear and reversible. Confirm the reply-location preference and the alert-triage rule below."
-					}
+					operatorOffers{
+						Memory:     report.MemoryOffer,
+						Preference: report.PreferenceOffer,
+						Rule:       report.RuleOffer,
+						Schedule:   report.ScheduleOffer,
+					},
+				)
+				report.MemoryOffer, report.PreferenceOffer = offers.Memory, offers.Preference
+				report.RuleOffer, report.ScheduleOffer = offers.Rule, offers.Schedule
+				if replaced {
+					report.Message = acknowledgement
 					report.Evidence = nil
 					report.Coverage = nil
 				}
@@ -2618,73 +2707,13 @@ func (s *Service) finalizeIncidentAgentRun(
 			})
 		}
 	} else {
-		if structuredResultFailure(detail) {
-			message = slackui.AgentReportFailureMessage(detail)
-		} else {
-			failure := provider.Classify(detail)
-			message = slackui.TurnFailureMessage(
-				state,
-				failure.Summary+"\n\nReported detail: `"+detail+"`\n\n"+failure.OperatorFix,
-			)
-		}
-		s.recordTimeline(ctx, core.TimelineEvent{
-			ID:         "tl_agent_failure_" + run.ID,
-			IncidentID: incident.ID, ChannelID: incident.ChannelID,
-			Kind: "agent.failure", ActorID: "responder",
-			Title: "Agent turn " + state, Detail: detail,
-		})
+		message = s.reportTurnFailure(ctx, run, incident, state, detail)
 	}
 	if incident.IsEngineeringTask() {
-		if changes, changesErr := s.coop.Changes(
-			ctx, incident.CoopSessionID,
-		); changesErr == nil {
-			assembled, _ := decodeAssembledAgentContext(run.Context)
-			if engineeringTaskTurnCreatedChanges(
-				assembled.InitialTaskChangesFingerprint,
-				changes,
-			) {
-				publication, publicationErr := s.markTaskPublicationStale(
-					ctx,
-					incident,
-				)
-				if publicationErr != nil {
-					s.log.Error(
-						"mark changed engineering task publication stale",
-						"incident", incident.ID,
-						"error", publicationErr,
-					)
-				}
-				if state == "completed" {
-					message = slackui.WithEngineeringTaskDelivery(
-						message,
-						incident,
-						true,
-						publication,
-					)
-				}
-			}
-		} else {
-			s.log.Warn(
-				"inspect completed engineering task changes failed",
-				"incident", incident.ID,
-				"error", changesErr,
-			)
-		}
+		message = s.withEngineeringTaskChanges(ctx, run, incident, state, message)
 	}
 	if run.SourceKind == "proposal" {
-		proposalState := "failed"
-		if state == "completed" {
-			proposalState = "finished"
-		}
-		proposalResult := core.FirstNonempty(string(run.Result), detail)
-		proposalResult = s.sanitizeText(proposalResult)
-		_ = s.store.MarkProposalExecution(
-			ctx,
-			run.SourceID,
-			proposalState,
-			run.CoopTurnID,
-			proposalResult,
-		)
+		s.recordProposalExecution(ctx, run, state, detail)
 	}
 	baseDeliveryID := "out_run_" + run.ID
 	if len(reportReplyParts) > 1 {

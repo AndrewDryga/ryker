@@ -753,20 +753,20 @@ func (s *Service) applyWatchDecision(
 	episodeID string,
 ) error {
 	if s.cfg.IsOperator(input.UserID) {
-		if offer, ok := normalizeOperationalAlertRule(
-			input, state.Repository, decision.RuleOffer,
-		); ok {
-			decision.RuleOffer = offer
-		}
-		if offer, acknowledgement, ok := normalizeResponseLocationPreference(
-			input, decision.PreferenceOffer,
-		); ok {
-			decision.PreferenceOffer = offer
-			if decision.MemoryOffer == nil && decision.RuleOffer == nil && decision.ScheduleOffer == nil {
-				decision.Message = acknowledgement
-			} else {
-				decision.Message = "I split that into separate settings so each part stays clear and reversible. Confirm the reply-location preference and the alert-triage rule below."
-			}
+		offers, acknowledgement, replaced := normalizedOffers(
+			input,
+			state.Repository,
+			operatorOffers{
+				Memory:     decision.MemoryOffer,
+				Preference: decision.PreferenceOffer,
+				Rule:       decision.RuleOffer,
+				Schedule:   decision.ScheduleOffer,
+			},
+		)
+		decision.MemoryOffer, decision.PreferenceOffer = offers.Memory, offers.Preference
+		decision.RuleOffer, decision.ScheduleOffer = offers.Rule, offers.Schedule
+		if replaced {
+			decision.Message = acknowledgement
 			decision.Evidence = nil
 			decision.Coverage = nil
 		}
@@ -1215,6 +1215,77 @@ func watchDecisionCorrection(
 	return watchDecisionCorrectionAt(input, state, decision, time.Now().UTC())
 }
 
+// alertAssessmentCorrection holds a matched operational alert to the standard
+// an operator needs: a verdict backed by a fresh observation, reconciled
+// against the repository that declares what should be running.
+//
+// The recovery case is the one worth reading twice. A resolved alert with fresh
+// evidence that the condition cleared must be reported as decision-ready, not
+// blocked — "the alert recovered but I could not fully investigate" is
+// technically honest and practically useless, and it leaves the earlier failure
+// message open forever.
+func alertAssessmentCorrection(
+	input core.SlackInput,
+	state watchTurnState,
+	decision watchDecision,
+	now time.Time,
+) string {
+	if state.FailureDetail != "" && decision.Action != "reply" {
+		return "the prior alert assessment was incomplete; continue that investigation and " +
+			"return its decision-ready reply instead of abandoning it"
+	}
+	if decision.Action == "incident" {
+		return "a matched operational-alert rule requires an in-place read-only investigation; " +
+			"return reply with a decision-ready alert assessment, never incident"
+	}
+	if decision.Action == "reply" {
+		if decision.AlertAssessment == nil {
+			return "the alert reply has no alert_assessment; continue the read-only investigation " +
+				"until you can state a verdict, impact, immediate action, and durable solution"
+		}
+		evidence := sanitizeEvidence(decision.Evidence, "", "", "", now)
+		recovered := decision.AlertAssessment.Verdict == "not_issue" &&
+			operationalAlertResolvedEvent(input.Text)
+		if recovered && hasFreshOperationalEvidence(evidence, now) &&
+			decision.Completion != nil && decision.Completion.Status == "blocked" {
+			return "fresh evidence verifies that the exact alert condition recovered; return " +
+				"decision_ready with the healthy verdict, say plainly what completed, and close " +
+				"the earlier alert without broadening this into a platform-health assessment"
+		}
+		if !recovered && !watchDecisionHasEvidenceSource(evidence, "repository") {
+			return "the alert reply does not reconcile the live signal with declared repository " +
+				"topology; inspect the configured repository before deciding"
+		}
+		if !hasFreshOperationalEvidence(evidence, now) {
+			return "the alert reply has no fresh Emisar or monitoring observation; use the " +
+				"available read-only operational tools and verify the current state before deciding"
+		}
+	}
+	return ""
+}
+
+// alertPolicyCorrection applies the extra standard a channel opts into when its
+// alert policy is anything other than automatic: terminal app events get an
+// investigated reply with a verdict, not a reaction and not an incident room.
+func alertPolicyCorrection(input core.SlackInput, decision watchDecision) string {
+	if externalAppEventRequiresDecision(input.Text) && decision.Action != "reply" {
+		return "this terminal or actionable app event requires an evidence-backed in-place " +
+			"alert assessment and reply; investigate the exact event instead of ignoring it " +
+			"or reducing it to a reaction"
+	}
+	if decision.Action == "incident" {
+		return "this channel requires an evidence-backed in-place alert assessment; " +
+			"continue the read-only investigation and return reply with typed evidence, " +
+			"coverage, and a completion verdict instead of reducing the result to incident admission"
+	}
+	if externalAppEventRequiresDecision(input.Text) && decision.Action == "reply" &&
+		(decision.Completion == nil || strings.TrimSpace(decision.Completion.Verdict) == "") {
+		return "this terminal or actionable app event has no completion verdict; establish " +
+			"the exact state, impact, cause or boundary, and concrete next action before finishing"
+	}
+	return ""
+}
+
 func watchDecisionCorrectionAt(
 	input core.SlackInput,
 	state watchTurnState,
@@ -1232,54 +1303,14 @@ func watchDecisionCorrectionAt(
 		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
 			operationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text))
 	if requiresAlertAssessment {
-		if state.FailureDetail != "" && decision.Action != "reply" {
-			return "the prior alert assessment was incomplete; continue that investigation and " +
-				"return its decision-ready reply instead of abandoning it"
-		}
-		if decision.Action == "incident" {
-			return "a matched operational-alert rule requires an in-place read-only investigation; " +
-				"return reply with a decision-ready alert assessment, never incident"
-		}
-		if decision.Action == "reply" {
-			if decision.AlertAssessment == nil {
-				return "the alert reply has no alert_assessment; continue the read-only investigation " +
-					"until you can state a verdict, impact, immediate action, and durable solution"
-			}
-			evidence := sanitizeEvidence(decision.Evidence, "", "", "", now)
-			recovered := decision.AlertAssessment.Verdict == "not_issue" &&
-				operationalAlertResolvedEvent(input.Text)
-			if recovered && hasFreshOperationalEvidence(evidence, now) &&
-				decision.Completion != nil && decision.Completion.Status == "blocked" {
-				return "fresh evidence verifies that the exact alert condition recovered; return " +
-					"decision_ready with the healthy verdict, say plainly what completed, and close " +
-					"the earlier alert without broadening this into a platform-health assessment"
-			}
-			if !recovered && !watchDecisionHasEvidenceSource(evidence, "repository") {
-				return "the alert reply does not reconcile the live signal with declared repository " +
-					"topology; inspect the configured repository before deciding"
-			}
-			if !hasFreshOperationalEvidence(evidence, now) {
-				return "the alert reply has no fresh Emisar or monitoring observation; use the " +
-					"available read-only operational tools and verify the current state before deciding"
-			}
+		if correction := alertAssessmentCorrection(input, state, decision, now); correction != "" {
+			return correction
 		}
 	}
 	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
 		state.AlertPolicy != "automatic" {
-		if externalAppEventRequiresDecision(input.Text) && decision.Action != "reply" {
-			return "this terminal or actionable app event requires an evidence-backed in-place " +
-				"alert assessment and reply; investigate the exact event instead of ignoring it " +
-				"or reducing it to a reaction"
-		}
-		if decision.Action == "incident" {
-			return "this channel requires an evidence-backed in-place alert assessment; " +
-				"continue the read-only investigation and return reply with typed evidence, " +
-				"coverage, and a completion verdict instead of reducing the result to incident admission"
-		}
-		if externalAppEventRequiresDecision(input.Text) && decision.Action == "reply" &&
-			(decision.Completion == nil || strings.TrimSpace(decision.Completion.Verdict) == "") {
-			return "this terminal or actionable app event has no completion verdict; establish " +
-				"the exact state, impact, cause or boundary, and concrete next action before finishing"
+		if correction := alertPolicyCorrection(input, decision); correction != "" {
+			return correction
 		}
 	}
 	if requestedConversationLocation(input.Text) != conversationLocationFollow &&
@@ -2416,22 +2447,10 @@ func rejectUnexpectedWatchFields(decision watchDecision) error {
 // validateReplyDecision owns the rules that only apply to a reply: the offer
 // and visual exclusivity matrix, engineering-task boundaries, and the
 // assessment validators.
-func validateReplyDecision(d *watchDecision, now time.Time) error {
-	var err error
-	d.Message, d.FollowupMessages, err = normalizeReplySequence(
-		d.Message,
-		d.FollowupMessages,
-	)
-	if err != nil {
-		return err
-	}
-	d.IncidentTitle = strings.TrimSpace(d.IncidentTitle)
-	d.TaskTitle = strings.TrimSpace(d.TaskTitle)
-	d.TaskRepository = strings.TrimSpace(d.TaskRepository)
-	d.TaskPrompt = strings.TrimSpace(d.TaskPrompt)
-	if d.Reaction != "" || d.Title != "" {
-		return errors.New("reply decision has an unexpected title")
-	}
+// boundReplyDecisionFields enforces the size limits and the dependencies
+// between the engineering-task fields. A task offer with a prompt but no
+// repository is not something a person can accept — there is nowhere to run it.
+func boundReplyDecisionFields(d *watchDecision) error {
 	if len(d.Visuals) > 4 {
 		return errors.New("reply decision references too many generated visuals")
 	}
@@ -2456,6 +2475,18 @@ func validateReplyDecision(d *watchDecision, now time.Time) error {
 	if d.TaskPrompt != "" && d.TaskRepository == "" {
 		return errors.New("suggested engineering task requires task_repository")
 	}
+	return nil
+}
+
+// validateReplyOfferExclusivity keeps one reply from asking for two unrelated
+// confirmations at once.
+//
+// The rule is about what a person can actually answer. "Should I open an
+// incident, and also should I remember that you prefer thread replies?" has one
+// button and two questions, so whichever they press means something Responder
+// cannot determine. A pending approval is the strictest case: it is a governed
+// action waiting on a decision, and nothing else belongs in that message.
+func validateReplyOfferExclusivity(d *watchDecision) error {
 	if d.PendingApproval != nil &&
 		(d.IncidentTitle != "" || d.TaskTitle != "" ||
 			d.MemoryOffer != nil || d.PreferenceOffer != nil ||
@@ -2495,6 +2526,31 @@ func validateReplyDecision(d *watchDecision, now time.Time) error {
 	}
 	if offerCount > 0 && len(d.Visuals) > 0 {
 		return errors.New("reply decision cannot combine durable behavior and generated visuals")
+	}
+	return nil
+}
+
+func validateReplyDecision(d *watchDecision, now time.Time) error {
+	var err error
+	d.Message, d.FollowupMessages, err = normalizeReplySequence(
+		d.Message,
+		d.FollowupMessages,
+	)
+	if err != nil {
+		return err
+	}
+	d.IncidentTitle = strings.TrimSpace(d.IncidentTitle)
+	d.TaskTitle = strings.TrimSpace(d.TaskTitle)
+	d.TaskRepository = strings.TrimSpace(d.TaskRepository)
+	d.TaskPrompt = strings.TrimSpace(d.TaskPrompt)
+	if d.Reaction != "" || d.Title != "" {
+		return errors.New("reply decision has an unexpected title")
+	}
+	if err := boundReplyDecisionFields(d); err != nil {
+		return err
+	}
+	if err := validateReplyOfferExclusivity(d); err != nil {
+		return err
 	}
 	if d.AlertAssessment != nil {
 		if err := validateAlertAssessment(d.AlertAssessment); err != nil {
