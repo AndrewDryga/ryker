@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -575,7 +576,7 @@ func (s *Service) preparePreferenceOfferAction(
 	offer.Scope = preference.ScopeKind
 	offer.Name = preference.Name
 	offer.Value = preference.Value
-	offer.ExpiresIn = memoryTTLValue(ttl)
+	offer.ExpiresIn = memorypkg.MemoryTTLValue(ttl)
 	if preference.ScopeKind == "repository" {
 		offer.Repository = preference.ScopeKey
 	} else {
@@ -589,7 +590,7 @@ func (s *Service) preparePreferenceOfferAction(
 	if err != nil || len(payload) > 1900 {
 		return "", core.ResponderPreference{}, "", false
 	}
-	return string(payload), preference, formatMemoryTTL(ttl), true
+	return string(payload), preference, memorypkg.FormatMemoryTTL(ttl), true
 }
 
 func (s *Service) preferenceFromOffer(
@@ -601,7 +602,7 @@ func (s *Service) preferenceFromOffer(
 	offer.Repository = strings.ToLower(strings.TrimSpace(offer.Repository))
 	offer.Name = strings.ToLower(strings.TrimSpace(offer.Name))
 	offer.Value = strings.ToLower(strings.TrimSpace(offer.Value))
-	ttl, err := parseMemoryTTL(offer.ExpiresIn)
+	ttl, err := memorypkg.ParseMemoryTTL(offer.ExpiresIn)
 	if err != nil {
 		return core.ResponderPreference{}, 0, err
 	}
@@ -634,7 +635,7 @@ func (s *Service) preferenceFromOffer(
 			"preference scope must be operator, channel, repository, or workspace",
 		)
 	}
-	if containsSecretLikeValue(preference.Value) {
+	if memorypkg.ContainsSecretLikeValue(preference.Value) {
 		return core.ResponderPreference{}, 0, errors.New(
 			"preference cannot contain a credential-like value",
 		)
@@ -698,7 +699,7 @@ func (s *Service) prepareRuleOfferAction(
 	offer.Trigger = rule.Trigger
 	offer.Action = rule.Action
 	offer.SourceKind = rule.SourceKind
-	offer.ExpiresIn = memoryTTLValue(ttl)
+	offer.ExpiresIn = memorypkg.MemoryTTLValue(ttl)
 	payload, err := json.Marshal(ruleActionPayload{
 		Version: 1, ChannelID: input.ChannelID,
 		SourceRef: core.FirstNonempty(input.EventID, input.ID),
@@ -707,7 +708,7 @@ func (s *Service) prepareRuleOfferAction(
 	if err != nil || len(payload) > 1900 {
 		return "", core.StandingRule{}, "", false
 	}
-	return string(payload), rule, formatMemoryTTL(ttl), true
+	return string(payload), rule, memorypkg.FormatMemoryTTL(ttl), true
 }
 
 func (s *Service) standingRuleFromOffer(
@@ -723,7 +724,7 @@ func (s *Service) standingRuleFromOffer(
 	if offer.SourceKind == "" {
 		offer.SourceKind = "any"
 	}
-	ttl, err := parseMemoryTTL(offer.ExpiresIn)
+	ttl, err := memorypkg.ParseMemoryTTL(offer.ExpiresIn)
 	if err != nil {
 		return core.StandingRule{}, 0, err
 	}

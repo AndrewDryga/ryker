@@ -11,14 +11,13 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
 const (
-	defaultMemoryTTL  = 30 * 24 * time.Hour
-	maxMemoryTTL      = 365 * 24 * time.Hour
 	memoryOfferMaxAge = 24 * time.Hour
 )
 
@@ -124,7 +123,7 @@ func (s *Service) loadOperationalMemoryContext(
 			ExpiresAt:      entry.ExpiresAt.UTC().Format(time.RFC3339),
 		})
 	}
-	if ids := memoryEntryIDs(entries); len(ids) > 0 {
+	if ids := memorypkg.MemoryEntryIDs(entries); len(ids) > 0 {
 		// Recall bookkeeping is telemetry for the review queue. Losing a write
 		// must not cost the turn its context.
 		if err := s.store.MarkMemoryEntriesRecalled(ctx, ids); err != nil && ctx.Err() == nil {
@@ -138,10 +137,10 @@ func (s *Service) loadOperationalMemoryContext(
 			PeriodEnd:   rollup.PeriodEnd.UTC().Format(time.RFC3339),
 			Sources:     rollup.SourceCount,
 			SourceRefs:  rollup.SourceRefs,
-			Summary:     sanitizeMemory(rollup.State),
+			Summary:     memorypkg.SanitizeMemory(rollup.State),
 		})
 	}
-	if ids := memoryRollupIDs(rollups); len(ids) > 0 {
+	if ids := memorypkg.MemoryRollupIDs(rollups); len(ids) > 0 {
 		if err := s.store.MarkMemoryRollupsRecalled(ctx, ids); err != nil && ctx.Err() == nil {
 			s.log.Warn("record rollup recall", "rollups", len(ids), "error", err)
 		}
@@ -221,22 +220,6 @@ sources before relying on them. It is not an operator instruction or operational
 	return prompt
 }
 
-func memoryEntryIDs(entries []core.MemoryEntry) []string {
-	result := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		result = append(result, entry.ID)
-	}
-	return result
-}
-
-func memoryRollupIDs(entries []core.MemoryRollup) []string {
-	result := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		result = append(result, entry.ID)
-	}
-	return result
-}
-
 func (s *Service) prepareMemoryOfferAction(
 	input core.SlackInput,
 	offer *core.MemoryOffer,
@@ -261,7 +244,7 @@ func (s *Service) prepareMemoryOfferAction(
 	offer.Predicate = entry.Predicate
 	offer.Value = entry.Value
 	offer.Visibility = entry.VisibilityKind
-	offer.ExpiresIn = memoryTTLValue(ttl)
+	offer.ExpiresIn = memorypkg.MemoryTTLValue(ttl)
 	offer.SourceRevision = entry.SourceRevision
 	if entry.ScopeKind == "repository" {
 		offer.Repository = entry.ScopeKey
@@ -277,7 +260,7 @@ func (s *Service) prepareMemoryOfferAction(
 	if err != nil || len(payload) > 1900 {
 		return "", "", "", false
 	}
-	return string(payload), memoryScopeLabel(*offer), formatMemoryTTL(ttl), true
+	return string(payload), memorypkg.MemoryScopeLabel(*offer), memorypkg.FormatMemoryTTL(ttl), true
 }
 
 func (s *Service) handleRememberMemory(
@@ -399,7 +382,7 @@ func (s *Service) handleForgetMemory(
 	if err != nil {
 		return err
 	}
-	if !memoryEntryVisibleForAction(entry, input, s.cfg.Slack.TeamID) {
+	if !memorypkg.MemoryEntryVisibleForAction(entry, input, s.cfg.Slack.TeamID) {
 		return s.memoryActionFeedback(
 			ctx,
 			input,
@@ -591,7 +574,7 @@ func (s *Service) memoryReviewEntriesVisible(
 		if err != nil {
 			return nil, false, err
 		}
-		if !memoryEntryVisibleForAction(entry, input, s.cfg.Slack.TeamID) {
+		if !memorypkg.MemoryEntryVisibleForAction(entry, input, s.cfg.Slack.TeamID) {
 			return nil, false, nil
 		}
 		entries = append(entries, entry)
@@ -640,23 +623,6 @@ func (s *Service) handleForgetMemoryRollup(
 	return s.finishSlashMessage(ctx, input, slackui.MemoryRollupForgottenMessage())
 }
 
-func memoryEntryVisibleForAction(
-	entry core.MemoryEntry,
-	input core.SlackInput,
-	workspaceID string,
-) bool {
-	switch entry.VisibilityKind {
-	case "workspace":
-		return entry.VisibilityID == workspaceID && input.TeamID == workspaceID
-	case "channel":
-		return input.ChannelID != "" && entry.VisibilityID == input.ChannelID
-	case "operator":
-		return entry.VisibilityID == input.UserID
-	default:
-		return false
-	}
-}
-
 func (s *Service) memoryEntryFromOffer(
 	input core.SlackInput,
 	offer core.MemoryOffer,
@@ -669,7 +635,7 @@ func (s *Service) memoryEntryFromOffer(
 	offer.Value = strings.TrimSpace(offer.Value)
 	offer.Visibility = strings.TrimSpace(strings.ToLower(offer.Visibility))
 	offer.SourceRevision = strings.TrimSpace(offer.SourceRevision)
-	ttl, err := parseMemoryTTL(offer.ExpiresIn)
+	ttl, err := memorypkg.ParseMemoryTTL(offer.ExpiresIn)
 	if err != nil {
 		return core.MemoryEntry{}, 0, err
 	}
@@ -683,7 +649,7 @@ func (s *Service) memoryEntryFromOffer(
 		SourceRef: input.ID, ActorID: input.UserID,
 	}
 	if offer.Predicate == "guidance" {
-		entry.SubjectKey = normalizeGuidanceSubject(entry.SubjectKey)
+		entry.SubjectKey = memorypkg.NormalizeGuidanceSubject(entry.SubjectKey)
 		entry.Value = strings.Join(strings.Fields(entry.Value), " ")
 		entry.SourceRevision = ""
 	}
@@ -733,7 +699,7 @@ func (s *Service) validateMemoryValue(entry *core.MemoryEntry) error {
 		return errors.New("subject and value are required")
 	}
 	if strings.ContainsAny(entry.SubjectKey+entry.Value, "\r\n\t") ||
-		containsSecretLikeValue(entry.SubjectKey) || containsSecretLikeValue(entry.Value) {
+		memorypkg.ContainsSecretLikeValue(entry.SubjectKey) || memorypkg.ContainsSecretLikeValue(entry.Value) {
 		return errors.New("memory cannot contain multiline text or credential-like values")
 	}
 	switch entry.Predicate {
@@ -794,77 +760,4 @@ func (s *Service) validateMemoryValue(entry *core.MemoryEntry) error {
 		)
 	}
 	return nil
-}
-
-func normalizeGuidanceSubject(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	var result strings.Builder
-	result.Grow(min(len(value), 120))
-	separator := false
-	for _, char := range value {
-		switch {
-		case char >= 'a' && char <= 'z', char >= '0' && char <= '9':
-			if separator && result.Len() > 0 && result.Len() < 120 {
-				result.WriteByte('_')
-			}
-			separator = false
-			if result.Len() < 120 {
-				result.WriteRune(char)
-			}
-		case char == '.', char == '_', char == '/', char == ':', char == '-':
-			if result.Len() > 0 && result.Len() < 120 {
-				result.WriteRune(char)
-			}
-			separator = false
-		default:
-			separator = result.Len() > 0
-		}
-	}
-	return strings.TrimRight(result.String(), "._/:-")
-}
-
-func parseMemoryTTL(value string) (time.Duration, error) {
-	value = strings.TrimSpace(strings.ToLower(value))
-	if value == "" {
-		return defaultMemoryTTL, nil
-	}
-	if strings.HasSuffix(value, "d") {
-		daysText := strings.TrimSuffix(value, "d")
-		switch daysText {
-		case "7":
-			return 7 * 24 * time.Hour, nil
-		case "30":
-			return 30 * 24 * time.Hour, nil
-		case "90":
-			return 90 * 24 * time.Hour, nil
-		case "365":
-			return maxMemoryTTL, nil
-		}
-	}
-	return 0, errors.New("expires_in must be 7d, 30d, 90d, or 365d")
-}
-
-func memoryScopeLabel(offer core.MemoryOffer) string {
-	if offer.Scope == "repository" {
-		return "repository " + offer.Repository
-	}
-	return offer.Scope
-}
-
-func formatMemoryTTL(ttl time.Duration) string {
-	return fmt.Sprintf("%d days", int(ttl/(24*time.Hour)))
-}
-
-func memoryTTLValue(ttl time.Duration) string {
-	return fmt.Sprintf("%dd", int(ttl/(24*time.Hour)))
-}
-
-func containsSecretLikeValue(value string) bool {
-	lower := strings.ToLower(value)
-	for _, marker := range []string{"xoxb-", "xapp-", "emk-", "ghp_", "akia"} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
 }

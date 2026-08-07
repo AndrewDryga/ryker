@@ -15,6 +15,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -721,7 +722,7 @@ func requestNativeStatus(text string) string {
 }
 
 func channelSituationPrompt(memory core.AgentMemory) string {
-	memory = sanitizeMemory(memory)
+	memory = memorypkg.SanitizeMemory(memory)
 	data, err := json.Marshal(memory)
 	if err != nil || string(data) == "{}" {
 		return ""
@@ -2399,7 +2400,7 @@ func (s *Service) persistPrivateReplayKnowledge(
 	merged := core.AgentMemory{Knowledge: knowledge}
 	existing, err := s.store.GetConversationMemory(ctx, input.ChannelID, input.ThreadTS)
 	if err == nil {
-		merged = mergeAgentMemories([]core.AgentMemory{existing.State, merged})
+		merged = memorypkg.MergeAgentMemories([]core.AgentMemory{existing.State, merged})
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return err
 	}

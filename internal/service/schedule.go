@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -42,7 +43,7 @@ func (s *Service) prepareScheduleOfferAction(
 	}
 	expiresIn := strings.ToLower(strings.TrimSpace(offer.ExpiresIn))
 	if expiresIn == "" {
-		expiresIn = memoryTTLValue(defaultMemoryTTL)
+		expiresIn = memorypkg.MemoryTTLValue(memorypkg.DefaultTTL)
 	}
 	task, err := s.scheduledTaskFromOffer(ctx, input, *offer, s.now().UTC())
 	if err != nil {
@@ -124,10 +125,10 @@ func (s *Service) scheduledTaskFromOffer(
 			return core.ScheduledTask{}, errors.New("Emisar must be an active member of the scheduled delivery channel")
 		}
 	}
-	if containsSecretLikeValue(offer.Prompt) {
+	if memorypkg.ContainsSecretLikeValue(offer.Prompt) {
 		return core.ScheduledTask{}, errors.New("scheduled task cannot contain a credential-like value")
 	}
-	ttl, err := parseMemoryTTL(offer.ExpiresIn)
+	ttl, err := memorypkg.ParseMemoryTTL(offer.ExpiresIn)
 	if err != nil {
 		return core.ScheduledTask{}, err
 	}

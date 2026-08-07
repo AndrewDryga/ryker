@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -295,11 +296,11 @@ func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInp
 	}
 	entry := core.MemoryEntry{
 		ScopeKind: "workspace", ScopeKey: s.cfg.Slack.TeamID,
-		SubjectKey:     normalizeGuidanceSubject(item.Category),
+		SubjectKey:     memorypkg.NormalizeGuidanceSubject(item.Category),
 		Predicate:      "guidance",
 		Value:          core.BoundedText(item.Summary, 1000),
 		VisibilityKind: "workspace", VisibilityID: s.cfg.Slack.TeamID,
-		ExpiresAt: s.now().UTC().Add(defaultMemoryTTL),
+		ExpiresAt: s.now().UTC().Add(memorypkg.DefaultTTL),
 		SourceRef: "feedback:" + item.ID,
 		ActorID:   input.UserID,
 	}

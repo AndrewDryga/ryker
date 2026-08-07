@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -83,7 +84,7 @@ func (s *Service) persistAgentReport(
 	}
 	report.Evidence = decisionpkg.SanitizeEvidence(report.Evidence, incident.ID, channelID, sourceInput, s.now())
 	report.Coverage = decisionpkg.SanitizeCoverage(report.Coverage, incident.ID, channelID, sourceInput, s.now())
-	report.Memory = sanitizeMemory(report.Memory)
+	report.Memory = memorypkg.SanitizeMemory(report.Memory)
 	for index := range report.Evidence {
 		item := &report.Evidence[index]
 		item.ClaimID = s.cleanStructuredField(item.ClaimID, 120)
@@ -271,20 +272,6 @@ func (s *Service) persistAgentReport(
 	return report, nil
 }
 
-func sanitizeMemory(memory core.AgentMemory) core.AgentMemory {
-	memory.Goal = decisionpkg.BoundedField(memory.Goal, 1000)
-	memory.ChannelPurpose = decisionpkg.BoundedField(memory.ChannelPurpose, 500)
-	memory.SituationSummary = decisionpkg.BoundedField(memory.SituationSummary, 1000)
-	memory.ActiveTopics = boundedStrings(memory.ActiveTopics, 12, 240)
-	memory.OpenLoops = boundedStrings(memory.OpenLoops, 20, 400)
-	memory.Topology = boundedStrings(memory.Topology, 30, 400)
-	memory.Decisions = boundedStrings(memory.Decisions, 30, 400)
-	memory.UnresolvedQuestions = boundedStrings(memory.UnresolvedQuestions, 30, 400)
-	memory.EvidenceRefs = boundedStrings(memory.EvidenceRefs, 50, 120)
-	memory.Knowledge = recall.SanitizeKnowledge(memory.Knowledge)
-	return memory
-}
-
 func (s *Service) prepareActionProposals(
 	items []core.ActionProposal,
 	incident core.Incident,
@@ -413,16 +400,6 @@ func (s *Service) cleanStructuredMetadata(values map[string]string) map[string]s
 		value = s.cleanStructuredField(value, 1000)
 		if key != "" {
 			result[key] = value
-		}
-	}
-	return result
-}
-
-func boundedStrings(values []string, limit int, fieldLimit int) []string {
-	result := make([]string, 0, min(len(values), limit))
-	for _, value := range values[:min(len(values), limit)] {
-		if value = decisionpkg.BoundedField(value, fieldLimit); value != "" {
-			result = append(result, value)
 		}
 	}
 	return result

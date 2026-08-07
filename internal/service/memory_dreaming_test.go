@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -68,7 +69,7 @@ func TestGroupMemoryRollupsKeepsPrivateChannelsIsolated(t *testing.T) {
 		{Memory: core.ConversationMemory{ChannelID: "CPUBLIC2", Repository: "repo", UpdatedAt: now.Add(time.Hour)}},
 		{Memory: core.ConversationMemory{ChannelID: "CPRIVATE", Repository: "repo", UpdatedAt: now}, Private: true},
 	}
-	groups := groupMemoryRollups(candidates)
+	groups := memorypkg.GroupMemoryRollups(candidates)
 	if len(groups) != 2 {
 		t.Fatalf("groups = %+v", groups)
 	}
@@ -93,7 +94,7 @@ func TestMergeAgentMemoriesIsBoundedAndNewestWins(t *testing.T) {
 		{Goal: "new goal", Decisions: []string{"keep canary", "keep canary"}},
 		{Goal: "old goal", Decisions: []string{"old decision"}},
 	}
-	merged := mergeAgentMemories(states)
+	merged := memorypkg.MergeAgentMemories(states)
 	if merged.Goal != "new goal" || len(merged.Decisions) != 2 ||
 		merged.Decisions[0] != "keep canary" {
 		t.Fatalf("merged = %+v", merged)
@@ -105,7 +106,7 @@ func TestMergeAgentMemoriesIsBoundedAndNewestWins(t *testing.T) {
 func TestBoundedUniqueKeepsRunesIntact(t *testing.T) {
 	// 199 ASCII bytes then a 3-byte rune, so a 200-byte bound lands inside it.
 	value := strings.Repeat("a", 199) + "→ tail"
-	result := boundedUnique([]string{value}, 10, 200)
+	result := memorypkg.BoundedUnique([]string{value}, 10, 200)
 	if len(result) != 1 {
 		t.Fatalf("result = %+v", result)
 	}
@@ -118,7 +119,7 @@ func TestBoundedUniqueKeepsRunesIntact(t *testing.T) {
 }
 
 func TestMergeAgentMemoriesSupersedesOlderKnowledge(t *testing.T) {
-	merged := mergeAgentMemories([]core.AgentMemory{
+	merged := memorypkg.MergeAgentMemories([]core.AgentMemory{
 		{Knowledge: []core.KnowledgeItem{{
 			Subject: "Symbol storage", Kind: "decision", Statement: "Use GCS.",
 			Status: "accepted", Confidence: 3, SourceRef: "https://app.slack.com/client/T/C/thread/C-200", SourceMessageTS: "200.001",
@@ -137,7 +138,7 @@ func TestMergeAgentMemoriesSupersedesOlderKnowledge(t *testing.T) {
 // fact said different ways is how consolidated memory gets noisier the longer a
 // channel runs.
 func TestBoundedUniqueCollapsesNearDuplicates(t *testing.T) {
-	result := boundedUnique([]string{
+	result := memorypkg.BoundedUnique([]string{
 		"payments-api is degraded",
 		"payments-api degraded",
 		"The payments-api is degraded.",
@@ -158,7 +159,7 @@ func TestBoundedUniqueCollapsesNearDuplicates(t *testing.T) {
 
 // Collapsing must not merge facts that merely share vocabulary.
 func TestBoundedUniqueKeepsDistinctFacts(t *testing.T) {
-	result := boundedUnique([]string{
+	result := memorypkg.BoundedUnique([]string{
 		"payments-api is degraded",
 		"payments-api is healthy",
 		"payments-db is degraded",
@@ -192,7 +193,7 @@ func TestMergeAgentMemoriesIsDeterministic(t *testing.T) {
 	}
 
 	// Newest first, matching how buildMemoryRollup orders its sources.
-	merged := mergeAgentMemories([]core.AgentMemory{newer, older})
+	merged := memorypkg.MergeAgentMemories([]core.AgentMemory{newer, older})
 
 	if merged.Goal != "keep checkout healthy after the rollback" {
 		t.Fatalf("goal = %q; the newest non-empty value should win", merged.Goal)
@@ -215,7 +216,7 @@ func TestMergeAgentMemoriesIsDeterministic(t *testing.T) {
 	}
 
 	// Merging is stable: the same inputs give the same result.
-	again := mergeAgentMemories([]core.AgentMemory{newer, older})
+	again := memorypkg.MergeAgentMemories([]core.AgentMemory{newer, older})
 	if !reflect.DeepEqual(merged, again) {
 		t.Fatal("merging the same sources twice produced different summaries")
 	}

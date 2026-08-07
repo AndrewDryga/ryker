@@ -15,6 +15,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 )
 
 type EvaluationScenario struct {
@@ -516,7 +517,7 @@ func liveScenarioPrompt(
 			ThreadTS:     item.Thread,
 			Repository:   item.Repository,
 			Relationship: relationship,
-			Summary:      sanitizeMemory(item.Memory),
+			Summary:      memorypkg.SanitizeMemory(item.Memory),
 			UpdatedAt:    item.UpdatedAt.UTC().Format(time.RFC3339),
 		})
 	}

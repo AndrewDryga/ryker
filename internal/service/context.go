@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -127,7 +128,7 @@ func (s *Service) assembleAgentContext(
 					ChannelID: item.ChannelID, ChannelName: item.ChannelName,
 					ThreadTS:   item.ThreadTS,
 					Repository: item.Repository, Relationship: relationship,
-					Summary:   sanitizeMemory(item.State),
+					Summary:   memorypkg.SanitizeMemory(item.State),
 					UpdatedAt: item.UpdatedAt.UTC().Format(time.RFC3339),
 				},
 			)
@@ -176,7 +177,7 @@ func (s *Service) assembleAgentContext(
 		)
 		if conversationErr == nil {
 			referenced.LastMessageTS = conversation.LastMessage
-			referenced.Summary = sanitizeMemory(conversation.State)
+			referenced.Summary = memorypkg.SanitizeMemory(conversation.State)
 			if err := s.store.MarkConversationMemoriesRecalled(
 				ctx, []core.ConversationMemory{conversation},
 			); err != nil {
