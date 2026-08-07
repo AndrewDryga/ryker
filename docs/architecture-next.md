@@ -33,14 +33,19 @@ it: `internal/service/result_operations.go` folds typed operations back into
 the older free-text fields so both shapes stay readable. That fold is the
 remaining compatibility seam and the next thing to retire.
 
-Retiring it is gated on evidence, not on effort. Phase 0's instrumentation has
-landed — `result.legacy_fallback` and `result.legacy_shape` audit events are
-written on every terminal turn — but the seven-day observation window has not
-started, because the deployed instance predates the build that emits them. The
-window starts at the next deploy. Six items in the backlog descend from that one
-answer: retiring the fold, extracting the decision domain, extracting the
-evaluation family, splitting `internal/service`, this cutover, and re-anchoring
-projections to episode identity.
+**The fold is retired.** The evidence came from replaying history rather than
+waiting for it: `responder audit-result-protocol` re-reads stored model results
+through the parser each run's mode actually used. Across 259 real production
+turns the result was 187 typed, 72 plain prose, and zero fallbacks — with the
+non-zero prose count as the check that the measurement worked at all. An invalid
+operation stream is now a correction the model is told about rather than a
+silent second reading of whatever prose sat beside it.
+
+That unblocked the rest. `internal/decision` now owns the result shapes, their
+parsers, validators and correction rules; `internal/investigation` owns the
+completion rules beside the contract they check; and `internal/service` has
+dropped from 27,180 to 23,743 code lines with publication, schedule, memory and
+channel setup extracted behind their own boundaries.
 
 Two things that do not need the window have landed in the meantime.
 `internal/episode_replay_coverage_test.go` parses the capability matrix in
@@ -1218,7 +1223,22 @@ Exit criteria:
 - current behavior has a measurable baseline;
 - no production behavior changes yet.
 
-### Phase 1: Episode owns attempts
+### Phase 1: Episode owns attempts — landed
+
+Every agent run in the deployed database carries an episode and an attempt, and
+episodes with two and three attempts exist, so replacement attempts demonstrably
+resume rather than fork. Commitments are keyed by episode as of schema 42: they
+were keyed by run, and the projection reached the episode through the
+originating run, so a promise made by a replacement attempt joined to nothing
+and vanished from every view while still sitting in the table — 16 of 335 on the
+deployed database. That is the hard invariant "no accepted commitment disappears
+without a terminal explanation", and it was being violated silently.
+
+What remains of this phase is deletion rather than construction: fifteen places
+still bridge run and episode identity, and `agent_runs` remains the transport
+table those bridges read.
+
+### Phase 1 (original plan): Episode owns attempts
 
 - remove the one-to-one ownership from work episode to agent run;
 - make every execution an attempt referencing an episode;
