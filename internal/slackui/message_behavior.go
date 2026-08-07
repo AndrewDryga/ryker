@@ -854,6 +854,21 @@ func AppendFeedbackDigest(message Message, items []FeedbackSummary) Message {
 			line += " · " + escapeSlackText(item.SourceRef)
 		}
 		message.Sections = append(message.Sections, line)
+		// Tone feedback is the one category a typed preference can actually
+		// express: response_detail is enforced, where guidance is only weighed.
+		// The direction is NOT inferred from the text — "be more concise" and
+		// "too terse" are both tone, and guessing between them from prose is
+		// how an agent starts confidently doing the opposite of what was asked.
+		// The operator picks.
+		if item.Category == "tone" {
+			message.Actions = append(message.Actions, Action{
+				ID:    ActionConvertFeedbackBrief,
+				Label: fmt.Sprintf("Always be briefer %d", index+1),
+				Value: item.ID,
+				Confirm: "Set a standing preference for briefer replies in this workspace? " +
+					"This is enforced, not a hint, and you can change it any time.",
+			})
+		}
 		message.Actions = append(message.Actions,
 			Action{
 				ID: ActionConvertFeedback, Label: fmt.Sprintf("Make it guidance %d", index+1),

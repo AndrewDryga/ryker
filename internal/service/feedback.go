@@ -278,6 +278,66 @@ func (s *Service) handleDismissFeedback(ctx context.Context, input core.SlackInp
 // operator sees and approves the exact wording before anything is stored. The
 // model never gains a path to write its own instructions — feedback it recorded
 // becomes behaviour only when a person says so.
+// handleConvertFeedbackToBriefer turns tone feedback into a typed
+// response_detail preference.
+//
+// The difference from handleConvertFeedback is enforcement. Guidance is
+// context the model weighs and may reasonably set aside; a preference is a
+// rule the host applies. Someone who has said "be more concise" three times is
+// not asking to be weighed.
+//
+// The value is fixed by which button was pressed rather than read out of the
+// feedback text. "Be more concise" and "that was too terse" are both tone, and
+// inferring the direction from prose is how an agent ends up confidently doing
+// the opposite of what was asked.
+func (s *Service) handleConvertFeedbackToBriefer(
+	ctx context.Context,
+	input core.SlackInput,
+) error {
+	allowed, err := s.authorizeMemoryAction(ctx, input)
+	if err != nil || !allowed {
+		return err
+	}
+	item, err := s.store.GetFeedback(ctx, input.ActionValue)
+	if err != nil {
+		return s.memoryActionFeedback(
+			ctx, input, "*That feedback is no longer available.* Nothing changed.",
+		)
+	}
+	if item.Status != "open" {
+		return s.memoryActionFeedback(
+			ctx, input, "*That feedback was already resolved.* Nothing changed.",
+		)
+	}
+	preference, _, err := s.preferenceFromOffer(input, core.PreferenceOffer{
+		Scope: "workspace", Name: "response_detail", Value: "brief",
+	}, s.now().UTC())
+	if err != nil {
+		return s.memoryActionFeedback(
+			ctx, input,
+			"*I could not set that preference.* "+err.Error()+" Nothing changed.",
+		)
+	}
+	preference.SourceRef = "feedback:" + item.ID
+	saved, _, err := s.store.UpsertPreference(
+		ctx, preference, s.cfg.Limits.MaxPreferences, s.cfg.Limits.MaxPreferencesPerScope,
+	)
+	if err != nil {
+		return err
+	}
+	if err = s.store.ResolveFeedback(
+		ctx, item.ID, "converted", input.UserID,
+	); err != nil && !errors.Is(err, store.ErrFeedbackNotOpen) {
+		return err
+	}
+	s.audit(ctx, core.AuditEvent{
+		ID: "audit_feedback_preference_" + input.ID, Kind: "feedback.convert",
+		ActorID: input.UserID, ObjectID: item.ID, Outcome: "preference",
+		Detail: "preference=" + saved.ID,
+	})
+	return s.refreshHomeAfterFeedback(ctx, input)
+}
+
 func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInput) error {
 	allowed, err := s.authorizeMemoryAction(ctx, input)
 	if err != nil || !allowed {
