@@ -43,6 +43,7 @@ const (
 	EventCompletionSubmitted = "completion_submitted"
 	EventCompletionAccepted  = "completion_accepted"
 	EventDeliveryProjected   = "delivery_projected"
+	EventCommitmentOverdue   = "commitment_overdue"
 )
 
 type Transition struct {

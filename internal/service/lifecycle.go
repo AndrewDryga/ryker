@@ -26,6 +26,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 		ctx.Err() == nil {
 		s.log.Warn("orphaned Coop session reconciliation failed", "error", err)
 	}
+	s.surfaceOverdueEpisodes(ctx, now)
 	if _, err := s.store.ScheduleExpiredChannelMemoryCleanup(
 		ctx,
 		now.Add(-s.cfg.Coop.WatchSessionAge.Duration),

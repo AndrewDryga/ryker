@@ -56,6 +56,7 @@ type Metrics struct {
 	SchedulesActive        int `json:"schedules_active"`
 	SchedulesPaused        int `json:"schedules_paused"`
 	ScheduleRunsActive     int `json:"schedule_runs_active"`
+	EpisodesOverdue        int `json:"episodes_overdue"`
 }
 
 type FailedWork struct {
@@ -653,6 +654,10 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 		{&result.SchedulesActive, `SELECT count(*) FROM scheduled_tasks WHERE enabled = 1 AND julianday(expires_at) > julianday('now')`},
 		{&result.SchedulesPaused, `SELECT count(*) FROM scheduled_tasks WHERE enabled = 0 AND next_run_at IS NOT NULL AND julianday(expires_at) > julianday('now')`},
 		{&result.ScheduleRunsActive, `SELECT count(*) FROM scheduled_task_runs WHERE outcome IN ('queued', 'running')`},
+		{&result.EpisodesOverdue, `SELECT count(*) FROM work_episodes
+		  WHERE completed_at IS NULL AND progress_due_at IS NOT NULL
+		    AND julianday(progress_due_at) <= julianday('now')
+		    AND state NOT IN ('completed', 'cancelled', 'failed', 'superseded')`},
 		{&result.WorkFailed, `
 			SELECT
 			  (SELECT count(*) FROM webhook_events WHERE state = 'failed') +

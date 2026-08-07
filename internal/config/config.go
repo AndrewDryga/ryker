@@ -258,6 +258,7 @@ type Limits struct {
 	MaxSchedulesPerChannel       int      `yaml:"max_schedules_per_channel"`
 	ScheduleMisfireGrace         Duration `yaml:"schedule_misfire_grace"`
 	EpisodeProgressInterval      Duration `yaml:"episode_progress_interval"`
+	EpisodeOverdueAfter          Duration `yaml:"episode_overdue_after"`
 	ControlWorkers               int      `yaml:"control_workers"`
 	BackgroundWorkers            int      `yaml:"background_workers"`
 	MaintenanceWorkers           int      `yaml:"maintenance_workers"`
@@ -361,6 +362,7 @@ func defaults() Config {
 			MaxScheduledTasks:            500,
 			MaxSchedulesPerChannel:       25,
 			ScheduleMisfireGrace:         Duration{15 * time.Minute},
+			EpisodeOverdueAfter:          Duration{30 * time.Minute},
 			EpisodeProgressInterval:      Duration{2 * time.Minute},
 			ControlWorkers:               2,
 			BackgroundWorkers:            3,
@@ -775,6 +777,7 @@ func (c Config) validateLimits() error {
 	for _, bound := range []durationRange{
 		{name: "schedule_misfire_grace", value: limits.ScheduleMisfireGrace.Duration, min: time.Minute, max: 24 * time.Hour},
 		{name: "episode_progress_interval", value: limits.EpisodeProgressInterval.Duration, min: 30 * time.Second, max: time.Hour},
+		{name: "episode_overdue_after", value: limits.EpisodeOverdueAfter.Duration, min: 5 * time.Minute, max: 24 * time.Hour},
 		{name: "worker_interval", value: limits.WorkerInterval.Duration, min: 50 * time.Millisecond, max: 10 * time.Second},
 		{name: "work_lease", value: limits.WorkLease.Duration, min: 10 * time.Second, max: 30 * time.Minute},
 		{

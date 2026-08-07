@@ -218,6 +218,10 @@ limits:
   # Refresh durable work-episode progress while a long Coop turn is running. This updates
   # operator-visible commitment state without posting noisy Slack heartbeat messages.
   episode_progress_interval: 2m
+  # How long accepted work may go without reporting progress before Responder
+  # says so in its thread. A second interval without progress moves the episode
+  # to blocked rather than repeating the notice.
+  episode_overdue_after: 30m
   # Independent scheduler lanes. Increase background workers for installations serving many
   # active Slack channels; conversation keys still serialize work within one conversation.
   control_workers: 2

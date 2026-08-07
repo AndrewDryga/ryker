@@ -3094,3 +3094,42 @@ func ChannelName(prefix string, incident core.Incident) string {
 	}
 	return result + suffix
 }
+
+// CommitmentOverdueMessage tells a thread that accepted work has stopped
+// reporting progress.
+//
+// The tone matters here: this is Responder admitting it has not delivered
+// something it took on, so it states the fact and what the operator can do,
+// without apologising at length or implying the work is lost.
+func CommitmentOverdueMessage(episode core.WorkEpisode, overdueBy time.Duration) Message {
+	objective := displayOr(episode.Objective, "this request")
+	return Message{
+		Text: "Still working on " + objective + ", but I have not made progress recently.",
+		Sections: []string{
+			fmt.Sprintf(
+				"*No progress for %s.* I am still holding this request, but it has not advanced "+
+					"since my last update.",
+				roundedDuration(overdueBy),
+			),
+			"*Current state:* " + displayOr(episode.Status, "working") +
+				"\n*Next action:* " + displayOr(episode.NextAction, "none recorded"),
+		},
+		Context: []string{
+			"Ask me to retry, narrow the request, or close it. Nothing has been lost.",
+		},
+	}
+}
+
+// roundedDuration renders a duration the way a person would say it.
+func roundedDuration(value time.Duration) string {
+	switch {
+	case value >= 2*time.Hour:
+		return fmt.Sprintf("%d hours", int(value.Hours()))
+	case value >= time.Hour:
+		return "an hour"
+	case value >= 2*time.Minute:
+		return fmt.Sprintf("%d minutes", int(value.Minutes()))
+	default:
+		return "a minute"
+	}
+}

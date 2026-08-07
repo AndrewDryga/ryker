@@ -823,3 +823,46 @@ func (s *Store) ListEpisodeProgress(
 	}
 	return result, rows.Err()
 }
+
+// ListOverdueEpisodes returns accepted work that has stopped reporting
+// progress.
+//
+// An episode carries a progress deadline so the host can tell "still working"
+// apart from "stopped". Nothing consumed that deadline, so an episode could
+// stall indefinitely and the only sign would be a thread that went quiet —
+// which reads to an operator as an answer that never came rather than as a
+// failure. Terminal states are excluded because a finished episode has no
+// progress left to owe.
+func (s *Store) ListOverdueEpisodes(
+	ctx context.Context,
+	now time.Time,
+	limit int,
+) ([]core.WorkEpisode, error) {
+	if limit < 1 || limit > 100 {
+		return nil, errors.New("overdue episode limit must be between 1 and 100")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+workEpisodeColumns+`
+		FROM work_episodes
+		WHERE completed_at IS NULL
+		  AND progress_due_at IS NOT NULL
+		  AND julianday(progress_due_at) <= julianday(?)
+		  AND state NOT IN ('completed', 'cancelled', 'failed', 'superseded')
+		ORDER BY progress_due_at
+		LIMIT ?`,
+		now.UTC().Format(timestampFormat), limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.WorkEpisode, 0, limit)
+	for rows.Next() {
+		episode, err := scanWorkEpisode(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, episode)
+	}
+	return result, rows.Err()
+}
