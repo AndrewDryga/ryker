@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -45,9 +46,20 @@ type accountLister func(ctx context.Context, agent string) ([]string, error)
 // coopAccountLister asks the coop binary, which owns the credential store.
 func coopAccountLister(cfg config.Config) accountLister {
 	return func(ctx context.Context, agent string) ([]string, error) {
-		output, err := exec.CommandContext(
-			ctx, cfg.Coop.Binary, "credentials", agent,
-		).Output()
+		command := exec.CommandContext(ctx, cfg.Coop.Binary, "credentials", agent)
+		// Credentials are per-deployment, not global. Coop reads them from
+		// COOP_CONFIG_DIR, and without it this asks about a completely
+		// different credential store — one where the deployment's accounts do
+		// not appear and unrelated ones do.
+		//
+		// This check shipped without it and immediately reported a signed-in
+		// account as missing. The same mistake, made by hand, sent a day of
+		// diagnosis chasing an account that was signed in the whole time.
+		command.Env = append(
+			os.Environ(),
+			"COOP_CONFIG_DIR="+filepath.Join(cfg.Coop.StateDir, "agents"),
+		)
+		output, err := command.Output()
 		if err != nil {
 			return nil, fmt.Errorf("list %s accounts: %w", agent, err)
 		}
