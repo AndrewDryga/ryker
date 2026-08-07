@@ -397,3 +397,69 @@ func (s *Service) refreshHomeAfterFeedback(ctx context.Context, input core.Slack
 	}
 	return s.finishSlashInput(ctx, input, "*Feedback resolved.*")
 }
+
+// pendingFixtureReview lists corrections awaiting an operator's judgement.
+func (s *Service) pendingFixtureReview(
+	ctx context.Context,
+) ([]slackui.FixtureCandidateSummary, error) {
+	candidates, err := s.store.ListPendingFixtureCandidates(ctx, s.now().UTC(), 5)
+	if err != nil {
+		return nil, err
+	}
+	summaries := make([]slackui.FixtureCandidateSummary, 0, len(candidates))
+	for _, candidate := range candidates {
+		summaries = append(summaries, slackui.FixtureCandidateSummary{
+			ID:         candidate.ID,
+			Capability: candidate.Capability,
+			Reason:     candidate.CorrectionClass,
+			Correction: candidate.Correction,
+		})
+	}
+	return summaries, nil
+}
+
+// handleKeepFixtureCandidate and handleDiscardFixtureCandidate record what an
+// operator decided about a correction.
+//
+// Approval here is not promotion into a release gate — it is one human saying
+// the lesson is worth keeping. The corpus write is a separate, reviewed step,
+// which is what section 23.3 asks for.
+func (s *Service) handleKeepFixtureCandidate(ctx context.Context, input core.SlackInput) error {
+	return s.reviewFixtureCandidate(ctx, input, "approved",
+		"*Kept.* I will turn that correction into a regression test.")
+}
+
+func (s *Service) handleDiscardFixtureCandidate(ctx context.Context, input core.SlackInput) error {
+	return s.reviewFixtureCandidate(ctx, input, "rejected",
+		"*Discarded.* I will not pin that correction as a test.")
+}
+
+func (s *Service) reviewFixtureCandidate(
+	ctx context.Context,
+	input core.SlackInput,
+	status string,
+	confirmation string,
+) error {
+	allowed, err := s.authorizeMemoryAction(ctx, input)
+	if err != nil || !allowed {
+		return err
+	}
+	if err := s.store.ReviewFixtureCandidate(
+		ctx, input.ActionValue, status, input.UserID,
+	); err != nil {
+		// Already reviewed, or lapsed. Both are ordinary — a stale App Home
+		// view and a double click look the same from here — so say so plainly
+		// rather than reporting an error.
+		return s.memoryActionFeedback(
+			ctx, input, "*That correction is no longer awaiting review.* Nothing changed.",
+		)
+	}
+	s.audit(ctx, core.AuditEvent{
+		ID: "audit_fixture_review_" + input.ID, Kind: "fixture.review",
+		ActorID: input.UserID, ObjectID: input.ActionValue, Outcome: status,
+	})
+	if err := s.memoryActionFeedback(ctx, input, confirmation); err != nil {
+		return err
+	}
+	return s.refreshHomeAfterFeedback(ctx, input)
+}

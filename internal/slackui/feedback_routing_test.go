@@ -70,3 +70,49 @@ func TestTypedPreferenceButtonStatesDirectionAndEnforcement(t *testing.T) {
 	}
 	t.Fatal("tone feedback offered no typed preference button")
 }
+
+// The review section asks an operator to judge a lesson, not to triage an error.
+//
+// Someone opening App Home is being asked whether a correction is worth keeping
+// as a test. Leading with the internal check that produced it would make that a
+// debugging task, which is not what is being asked and not something most
+// operators can answer.
+func TestFixtureReviewAsksAboutTheLessonNotTheMachinery(t *testing.T) {
+	message := AppendFixtureReview(Message{}, []FixtureCandidateSummary{
+		{ID: "cand_1", Reason: "incomplete", Capability: "operational-health",
+			Correction: "the reply claimed healthy without fresh evidence"},
+	})
+	content := strings.Join(message.Sections, "\n")
+
+	if !strings.Contains(content, "told I got something wrong") {
+		t.Errorf("review section does not frame this as a judgement:\n%s", content)
+	}
+	if !strings.Contains(content, "claimed healthy without fresh evidence") {
+		t.Errorf("review section does not show what the correction said:\n%s", content)
+	}
+	// The internal class name is not what an operator is being asked about.
+	if strings.Contains(content, "incomplete") {
+		t.Errorf("review section leads with the internal check class:\n%s", content)
+	}
+
+	var keep, discard bool
+	for _, action := range message.Actions {
+		switch action.ID {
+		case ActionKeepFixtureCandidate:
+			keep = true
+			if !strings.Contains(action.Confirm, "regression test") {
+				t.Errorf("keep confirmation does not say what keeping does: %q", action.Confirm)
+			}
+		case ActionDiscardFixtureCandidate:
+			discard = true
+		}
+	}
+	if !keep || !discard {
+		t.Fatalf("review offers keep=%t discard=%t; both are needed", keep, discard)
+	}
+
+	// Nothing to review means no section at all, not an empty heading.
+	if empty := AppendFixtureReview(Message{}, nil); len(empty.Sections) != 0 {
+		t.Errorf("an empty review queue still rendered a section: %+v", empty.Sections)
+	}
+}

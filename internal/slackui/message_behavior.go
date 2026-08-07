@@ -884,3 +884,51 @@ func AppendFeedbackDigest(message Message, items []FeedbackSummary) Message {
 	}
 	return message
 }
+
+// FixtureCandidateSummary is one correction awaiting review.
+type FixtureCandidateSummary struct {
+	ID         string
+	Capability string
+	Reason     string
+	Correction string
+}
+
+// AppendFixtureReview adds corrections awaiting review to the App Home.
+//
+// These are the moments Responder was told it got something wrong. Keeping one
+// turns it into a regression test so the same mistake cannot come back;
+// discarding says the correction was situational and not worth pinning.
+//
+// The framing matters. An operator reading this is being asked to judge a
+// lesson, not to triage an error — so the section leads with what Responder was
+// told, not with which internal check produced it.
+func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Message {
+	if len(items) == 0 {
+		return message
+	}
+	message.Sections = append(message.Sections,
+		"*Corrections worth keeping?*\nEach of these is a moment I was told I got something "+
+			"wrong. Keep one and it becomes a test, so that mistake cannot come back. "+
+			"Discard it if it was situational.",
+	)
+	for index, item := range items {
+		line := "• " + escapeSlackText(truncateUTF8(item.Correction, 300))
+		if item.Capability != "" {
+			line += " · " + escapeSlackText(item.Capability)
+		}
+		message.Sections = append(message.Sections, line)
+		message.Actions = append(message.Actions,
+			Action{
+				ID: ActionKeepFixtureCandidate, Label: fmt.Sprintf("Keep %d", index+1),
+				Value: item.ID, Style: "primary",
+				Confirm: "Turn this correction into a regression test? " +
+					"It will be reviewed once more before it reaches a release gate.",
+			},
+			Action{
+				ID: ActionDiscardFixtureCandidate, Label: fmt.Sprintf("Discard %d", index+1),
+				Value: item.ID,
+			},
+		)
+	}
+	return message
+}

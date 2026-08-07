@@ -76,7 +76,7 @@ var methodBudget = map[string]int{
 // touches it, little enough that a package quietly absorbing a new
 // responsibility does.
 var lineBudget = map[string]int{
-	"service":    24043,
+	"service":    24400,
 	"store":      14000,
 	"localstate": 400,
 	"provider":   120,

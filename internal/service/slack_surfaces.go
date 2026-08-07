@@ -86,6 +86,11 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 		s.log.Warn("read open feedback for App Home", "error", err)
 	} else {
 		message = slackui.AppendFeedbackDigest(message, feedback)
+		candidates, candidatesErr := s.pendingFixtureReview(ctx)
+		if candidatesErr != nil {
+			return candidatesErr
+		}
+		message = slackui.AppendFixtureReview(message, candidates)
 	}
 	message = s.sanitizeMessage(message)
 	return s.slack.PublishHome(ctx, userID, message)
