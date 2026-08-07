@@ -117,11 +117,6 @@ func (s *Store) QueueAgentRun(
 		return core.AgentRun{}, false, err
 	}
 	stored.CommitmentTitle = run.CommitmentTitle
-	if err := s.ensureCommitment(ctx, stored); err != nil {
-		cleanupInsertedRun()
-		return core.AgentRun{}, false, fmt.Errorf("ensure agent commitment: %w", err)
-	}
-	stored.CommitmentTitle = run.CommitmentTitle
 	stored.Episode = run.Episode
 	if err := s.ensureWorkEpisode(ctx, stored); err != nil {
 		cleanupInsertedRun()
@@ -131,6 +126,13 @@ func (s *Store) QueueAgentRun(
 	if err != nil {
 		cleanupInsertedRun()
 		return core.AgentRun{}, false, err
+	}
+	// After the episode, not before: the commitment is keyed by episode, so the
+	// episode row has to exist for it to reference.
+	stored.CommitmentTitle = run.CommitmentTitle
+	if err := s.ensureCommitment(ctx, stored); err != nil {
+		cleanupInsertedRun()
+		return core.AgentRun{}, false, fmt.Errorf("ensure agent commitment: %w", err)
 	}
 	return stored, rows == 1, nil
 }

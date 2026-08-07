@@ -59,6 +59,11 @@ func (s *Store) AdvanceChannelMemory(
 	return expectOne(result, err, "advance channel memory")
 }
 
+// GetCommitmentByRun finds the commitment for the episode a run belongs to.
+//
+// It reaches through the run's episode rather than the run itself, because a
+// replacement attempt shares its predecessor's promise — that is the whole
+// point of keying commitments by episode.
 func (s *Store) GetCommitmentByRun(
 	ctx context.Context,
 	runID string,
@@ -67,9 +72,9 @@ func (s *Store) GetCommitmentByRun(
 		ctx,
 		`SELECT `+commitmentProjectionColumns+`
 		 FROM commitments AS c
-		 JOIN agent_runs AS r ON r.id = c.agent_run_id
-		 JOIN work_episodes AS e ON e.agent_run_id = r.id
-		 WHERE c.agent_run_id = ?`,
+		 JOIN work_episodes AS e ON e.id = c.episode_id
+		 JOIN agent_runs AS r ON r.id = e.agent_run_id
+		 WHERE c.episode_id = (SELECT episode_id FROM agent_runs WHERE id = ?)`,
 		runID,
 	))
 }

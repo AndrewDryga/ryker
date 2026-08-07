@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 41
+const currentSchemaVersion = 42
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1110,6 +1110,36 @@ DROP INDEX IF EXISTS episode_effects_episode_idx;
 DROP TABLE IF EXISTS episode_effects;
 `
 
+const schemaV42 = `
+-- Commitments were keyed by the agent run that made them, and the projection
+-- reached the episode through work_episodes.agent_run_id — which names the
+-- ORIGINATING run. A commitment made by a replacement attempt therefore joined
+-- to nothing and vanished from every "what are you working on" view, while
+-- still sitting in the table. On the database this migration was written
+-- against, 16 of 335 were invisible.
+--
+-- A commitment is a promise to a person about a unit of work, not about the
+-- transport attempt that happened to carry it, so the episode is its real key.
+-- Re-keying makes the disappearance structurally impossible rather than fixed.
+CREATE TABLE commitments_by_episode (
+  episode_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE
+);
+
+-- Earliest title wins: it is the promise as originally made, and a later
+-- attempt restating it should not overwrite the words the operator saw first.
+INSERT OR IGNORE INTO commitments_by_episode (episode_id, title)
+SELECT r.episode_id, c.title
+FROM commitments AS c
+JOIN agent_runs AS r ON r.id = c.agent_run_id
+WHERE r.episode_id != ''
+ORDER BY r.created_at ASC;
+
+DROP TABLE commitments;
+ALTER TABLE commitments_by_episode RENAME TO commitments;
+`
+
 // migrations maps a target schema version to the statement that reaches it
 // from the version before. Versions at or below the baseline are absent
 // because baselineSchema already produces them.
@@ -1148,4 +1178,5 @@ CREATE INDEX feedback_items_workspace_status_updated
 var migrations = map[int]string{
 	40: schemaV40,
 	41: schemaV41,
+	42: schemaV42,
 }

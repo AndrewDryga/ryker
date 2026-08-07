@@ -11,13 +11,22 @@ import (
 )
 
 const commitmentProjectionColumns = `
-	'commitment_' || r.id, r.id, r.channel_id, r.thread_ts, r.user_id, r.repository, c.title,
+	'commitment_' || e.id, r.id, r.channel_id, r.thread_ts, r.user_id, r.repository, c.title,
 	e.lifecycle_state,
 	e.status,
 	e.next_action,
 	r.source_kind, r.source_id, r.created_at, r.updated_at, r.completed_at`
 
+// ensureCommitment records the promise this work represents, keyed by episode.
+//
+// Keyed by episode, not by run: a commitment is a promise to a person about a
+// unit of work, and a replacement attempt after a restart is the same promise.
+// While it was keyed by run, a commitment made by a replacement attempt joined
+// to nothing in the projection and silently disappeared from every view.
 func (s *Store) ensureCommitment(ctx context.Context, run core.AgentRun) error {
+	if strings.TrimSpace(run.EpisodeID) == "" {
+		return nil
+	}
 	title := strings.TrimSpace(run.CommitmentTitle)
 	if title == "" {
 		switch run.Mode {
@@ -32,8 +41,8 @@ func (s *Store) ensureCommitment(ctx context.Context, run core.AgentRun) error {
 	title = core.TruncateUTF8(title, 240)
 	_, err := s.db.ExecContext(
 		ctx,
-		`INSERT OR IGNORE INTO commitments (agent_run_id, title) VALUES (?, ?)`,
-		run.ID,
+		`INSERT OR IGNORE INTO commitments (episode_id, title) VALUES (?, ?)`,
+		run.EpisodeID,
 		title,
 	)
 	return err
@@ -86,8 +95,8 @@ func (s *Store) ListActiveCommitments(
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+commitmentProjectionColumns+`
 		FROM commitments AS c
-		JOIN agent_runs AS r ON r.id = c.agent_run_id
-		JOIN work_episodes AS e ON e.agent_run_id = r.id
+		JOIN work_episodes AS e ON e.id = c.episode_id
+		JOIN agent_runs AS r ON r.id = e.agent_run_id
 		WHERE e.lifecycle_state IN (
 		  'accepted', 'acknowledged', 'planning', 'working', 'retrying', 'verifying',
 		  'waiting_operator', 'waiting_external', 'waiting_approval', 'blocked', 'failed'
@@ -125,8 +134,8 @@ func (s *Store) CountActiveCommitments(ctx context.Context) (int, error) {
 	err := s.db.QueryRowContext(ctx, `
 		SELECT count(*)
 		FROM commitments AS c
-		JOIN agent_runs AS r ON r.id = c.agent_run_id
-		JOIN work_episodes AS e ON e.agent_run_id = r.id
+		JOIN work_episodes AS e ON e.id = c.episode_id
+		JOIN agent_runs AS r ON r.id = e.agent_run_id
 		WHERE e.lifecycle_state IN (
 		  'accepted', 'acknowledged', 'planning', 'working', 'retrying', 'verifying',
 		  'waiting_operator', 'waiting_external', 'waiting_approval', 'blocked', 'failed'
