@@ -287,6 +287,124 @@ func TestCustomerJourneySchedulesEngineeringFollowupWithoutStalePRControls(t *te
 	}
 }
 
+func TestCustomerJourneyActivatesExistingScheduleInsideEngineeringTask(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	task, created, err := st.CreateEngineeringTask(
+		ctx,
+		"repo",
+		"EvActivateTaskSchedule",
+		"Publish the whole-platform health runbook",
+		"Publish the runbook and activate its daily report.",
+		cfg.Slack.Operators[0],
+		"COPS",
+		"1700.300",
+		cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil || !created {
+		t.Fatalf("create engineering task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.301"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_schedule", "task-runbook", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	existing, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
+		TeamID: cfg.Slack.TeamID, ChannelID: task.ChannelID,
+		ThreadTS: task.ConversationThreadTS(), DeliveryChannel: "CREPORTS",
+		Repository: "repo", Title: "Daily platform health report",
+		Prompt:     "Execute whole-platform-health-review-v3@3.",
+		Recurrence: "daily", StartAt: now.Add(time.Hour), LocalTime: "09:00",
+		Timezone: "America/Mexico_City", CatchUp: "latest",
+		ActorID: cfg.Slack.Operators[0], SourceRef: "old-schedule",
+		NextRunAt: now.Add(time.Hour), ExpiresAt: now.Add(90 * 24 * time.Hour),
+	}, 10, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	coopClient := newFakeCoop()
+	coopClient.session.ID = "ses_schedule"
+	coopClient.session.ForkName = "task-runbook"
+	coopClient.session.Revision = 1
+	coopClient.completeQueue = []string{
+		`{"message":"Activated. The comprehensive report will run every day at 09:00.","completion":{"status":"decision_ready","verdict":"completed","summary":"The daily report is active."}}`,
+		`{"message":"I’ll use the published v5 runbook for the daily report.","schedule_offer":{"prompt":"Execute whole-platform-health-review-v5@5 with fresh evidence and report actionable findings.","repository":"repo","recurrence":"daily","local_time":"09:00","catch_up":"latest"},"completion":{"status":"decision_ready","verdict":"completed","summary":"The daily report schedule is ready."}}`,
+	}
+	slackClient := &fakeSlack{
+		dedupePosts: true,
+		channel:     slackui.Channel{ID: "CREPORTS", Name: "reports", Member: true},
+	}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-activate-task-schedule", EnvelopeID: "env-activate-task-schedule",
+		EventID: "EvActivateTaskScheduleInput", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: task.ChannelID,
+		ThreadTS: task.ConversationThreadTS(), MessageTS: "1700.400",
+		UserID: cfg.Slack.Operators[0], Text: "activate it",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit activation = %v, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	run, err := st.GetAgentRunBySource(ctx, "slack", input.ID)
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 ||
+		!strings.Contains(run.LastError, "typed schedule_offer") {
+		t.Fatalf("plain task activation claim was not corrected = %+v, %v", run, err)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("false task activation reached Slack: %+v", slackClient.posts)
+	}
+
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("activation posts = %+v", slackClient.posts)
+	}
+	message := slackClient.posts[0].message
+	if !strings.Contains(strings.ToLower(message.Text), "scheduled") {
+		t.Fatalf("activation receipt = %+v", message)
+	}
+	for _, action := range message.Actions {
+		if action.ID == slackui.ActionRememberSchedule ||
+			action.ID == slackui.ActionChanges || action.ID == slackui.ActionPublishPR {
+			t.Fatalf("activation retained unrelated confirmation or PR control: %+v", message)
+		}
+	}
+	schedules, err := st.ListScheduledTasksForChannel(ctx, task.ChannelID, 10)
+	if err != nil || len(schedules) != 1 {
+		t.Fatalf("daily schedules = %+v, err=%v", schedules, err)
+	}
+	if schedules[0].ID != existing.ID || !strings.Contains(schedules[0].Prompt, "v5@5") ||
+		schedules[0].Title != existing.Title || schedules[0].DeliveryChannel != "CREPORTS" ||
+		schedules[0].Timezone != "America/Mexico_City" {
+		t.Fatalf("updated daily schedule = %+v", schedules[0])
+	}
+}
+
 func TestCustomerJourneyMentionOnlyContinuesIncidentThread(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

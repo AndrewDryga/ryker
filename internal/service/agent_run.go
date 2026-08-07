@@ -18,6 +18,7 @@ import (
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/recall"
+	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -1634,7 +1635,19 @@ func (s *Service) stageTriageTerminal(
 			}
 			staged.result = marshaledResult
 		}
-		correction := decisionpkg.WatchDecisionCorrection(input, state, decision, operationalCorrelationKey)
+		correction := ""
+		needsScheduleOffer, scheduleErr := s.scheduleActivationNeedsOffer(
+			ctx, input, decision.ScheduleOffer,
+		)
+		if scheduleErr != nil {
+			return true, scheduleErr
+		}
+		if needsScheduleOffer {
+			correction = scheduleActivationOfferCorrection()
+		}
+		if correction == "" {
+			correction = decisionpkg.WatchDecisionCorrection(input, state, decision, operationalCorrelationKey)
+		}
 		if correction == "" {
 			correction = decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision)
 		}
@@ -1759,12 +1772,30 @@ func (s *Service) stageIncidentTerminal(
 		if episodeErr != nil {
 			return true, episodeErr
 		}
-		correction := investigation.CompletionCorrection(
-			episode,
-			"reply",
-			decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()),
-			report.Completion,
-		)
+		correction := ""
+		if run.SourceKind == "slack" {
+			input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
+			if inputErr != nil {
+				return true, inputErr
+			}
+			needsScheduleOffer, scheduleErr := s.scheduleActivationNeedsOffer(
+				ctx, input, report.ScheduleOffer,
+			)
+			if scheduleErr != nil {
+				return true, scheduleErr
+			}
+			if needsScheduleOffer {
+				correction = scheduleActivationOfferCorrection()
+			}
+		}
+		if correction == "" {
+			correction = investigation.CompletionCorrection(
+				episode,
+				"reply",
+				decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()),
+				report.Completion,
+			)
+		}
 		if correction == "" {
 			correction = investigation.ConclusionLanguageCorrection(
 				episode, "reply", report.Message,
@@ -2802,7 +2833,30 @@ func (s *Service) finalizeIncidentAgentRun(
 					if actionValue, task, when, ok := s.prepareScheduleOfferAction(
 						ctx, conversationInput, report.ScheduleOffer,
 					); ok {
-						message = slackui.WithScheduleOffer(message, task, actionValue, when)
+						if schedulepkg.ExplicitScheduleConfirmation(
+							s.stripBotMention(conversationInput.Text),
+						) && agentReportCanActivateSchedule(report) {
+							var payload scheduleActionPayload
+							if err := decisionpkg.DecodeStrictJSON(
+								[]byte(actionValue), &payload,
+							); err != nil {
+								return err
+							}
+							acceptedTask, err := s.acceptScheduleProposal(
+								ctx, conversationInput, payload.ProposalID,
+							)
+							if err != nil {
+								return err
+							}
+							task = acceptedTask
+							s.audit(ctx, core.AuditEvent{
+								Kind: "schedule.created", ActorID: conversationInput.UserID,
+								ObjectID: task.ID, Outcome: "enabled", Detail: task.Title,
+							})
+							message = slackui.ScheduleSavedMessage(task)
+						} else {
+							message = slackui.WithScheduleOffer(message, task, actionValue, when)
+						}
 					} else {
 						message = slackui.ScheduleOfferUnavailable(message)
 					}
@@ -2922,6 +2976,13 @@ func (s *Service) finalizeIncidentAgentRun(
 	}
 	s.forgetNativeStatus(incident.ID)
 	return nil
+}
+
+func agentReportCanActivateSchedule(report decisionpkg.AgentReport) bool {
+	return report.ScheduleOffer != nil && report.MemoryOffer == nil &&
+		report.PreferenceOffer == nil && report.RuleOffer == nil &&
+		report.PendingApproval == nil && len(report.Proposals) == 0 &&
+		len(report.Visuals) == 0
 }
 
 type taskChangesFingerprint struct {

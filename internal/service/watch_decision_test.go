@@ -788,7 +788,13 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 		},
 	}
 	coopClient := newFakeCoop()
-	coopClient.completeOnSubmit = `{
+	coopClient.completeQueue = []string{`{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},
+		"reason":"the operator explicitly activated the established daily report",
+		"message":"Activated. The daily report will run at 09:00.",
+		"completion":{"status":"decision_ready","verdict":"completed","summary":"The daily report is active."}
+	}`, `{
 		"action":"reply",
 		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},
 		"reason":"the operator explicitly activated the established daily report",
@@ -800,7 +806,7 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 			"local_time":"09:00",
 			"catch_up":"latest"
 		}
-	}`
+	}`}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT"}
 	input := core.SlackInput{
@@ -813,6 +819,15 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 	}
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 ||
+		!strings.Contains(run.LastError, "typed schedule_offer") {
+		t.Fatalf("plain activation claim was not corrected = %+v, %v", run, err)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("false activation reached Slack: %+v", slackClient.posts)
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	if len(slackClient.posts) != 1 {

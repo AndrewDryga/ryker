@@ -44,7 +44,16 @@ func (s *Service) prepareScheduleOfferAction(
 		}
 		return "", core.ScheduledTask{}, "", false
 	}
-	task, when, ok := s.normalizeScheduleOffer(ctx, input, offer)
+	normalizeInput := input
+	if replacementID != "" &&
+		schedulepkg.ExplicitScheduleConfirmation(s.stripBotMention(input.Text)) &&
+		!schedulepkg.ExplicitScheduleRequest(input.Text) {
+		// The existing schedule supplies the durable intent and stable fields.
+		// Treat the operator's short confirmation as the scheduling request so
+		// the model does not have to repeat the original sentence verbatim.
+		normalizeInput.Text = "schedule this"
+	}
+	task, when, ok := s.normalizeScheduleOffer(ctx, normalizeInput, offer)
 	if !ok {
 		return "", core.ScheduledTask{}, "", false
 	}
@@ -74,6 +83,40 @@ func (s *Service) prepareScheduleOfferAction(
 		return "", core.ScheduledTask{}, "", false
 	}
 	return string(payload), task, when, true
+}
+
+// scheduleActivationNeedsOffer identifies the one case where a conversational
+// completion is not enough: an operator explicitly activated the single live
+// schedule anchored to this thread. The model still chooses the updated typed
+// task, but the host refuses a prose claim that it was activated without the
+// operation that can actually update the schedule.
+func (s *Service) scheduleActivationNeedsOffer(
+	ctx context.Context,
+	input core.SlackInput,
+	offer *core.ScheduleOffer,
+) (bool, error) {
+	if offer != nil || s.store == nil || input.ThreadTS == "" ||
+		!s.cfg.IsOperator(input.UserID) ||
+		!schedulepkg.ExplicitScheduleConfirmation(s.stripBotMention(input.Text)) {
+		return false, nil
+	}
+	tasks, err := s.store.ListScheduledTasksForChannel(ctx, input.ChannelID, 100)
+	if err != nil {
+		return false, err
+	}
+	matches := 0
+	for _, task := range tasks {
+		if task.Enabled && task.TeamID == s.cfg.Slack.TeamID && task.ThreadTS == input.ThreadTS {
+			matches++
+		}
+	}
+	return matches == 1, nil
+}
+
+func scheduleActivationOfferCorrection() string {
+	return "The operator explicitly activated the existing schedule in this conversation. " +
+		"Do not merely say it was activated. Return one typed schedule_offer containing the intended updated task; " +
+		"Responder will inherit unchanged title, destination, timezone, and cadence from the existing schedule and update it atomically."
 }
 
 // inheritScheduleOfferFromConversation makes short confirmations such as
