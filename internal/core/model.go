@@ -1310,3 +1310,12 @@ func (r PruneResult) Total() int64 {
 		r.EmisarApprovals + r.ConfigurationSessions +
 		r.ClosedIncidents + r.AuditEvents
 }
+
+// StoredAgentResult is one historical model output, for replaying the result
+// protocol against traffic that already happened.
+type StoredAgentResult struct {
+	RunID     string    `json:"run_id"`
+	Mode      string    `json:"mode"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
+}

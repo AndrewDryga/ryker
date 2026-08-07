@@ -1397,3 +1397,43 @@ func (s *Store) HasNewerAgentRun(ctx context.Context, run core.AgentRun) (bool, 
 	).Scan(&count)
 	return count > 0, err
 }
+
+// ListStoredResults returns historical model outputs for replay, newest first.
+//
+// It exists so the legacy compatibility path can be measured against traffic
+// that already happened rather than only by watching forward for a week. Only
+// runs that produced a result are returned; a failed run has nothing to replay.
+func (s *Store) ListStoredResults(
+	ctx context.Context,
+	since time.Time,
+	limit int,
+) ([]core.StoredAgentResult, error) {
+	if limit < 1 || limit > 5000 {
+		limit = 1000
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, mode, result_json, created_at
+		FROM agent_runs
+		WHERE terminal_state = 'completed'
+		  AND result_json IS NOT NULL AND length(result_json) > 2
+		  AND created_at >= ?
+		ORDER BY created_at DESC
+		LIMIT ?`, timeText(since), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	results := make([]core.StoredAgentResult, 0, limit)
+	for rows.Next() {
+		var result core.StoredAgentResult
+		var message []byte
+		var created string
+		if err := rows.Scan(&result.RunID, &result.Mode, &message, &created); err != nil {
+			return nil, err
+		}
+		result.Message = string(message)
+		result.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+		results = append(results, result)
+	}
+	return results, rows.Err()
+}
