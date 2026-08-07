@@ -5,12 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/channelsetup"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -26,7 +25,6 @@ const (
 var (
 	slackUserMentionPattern  = regexp.MustCompile(`<@([A-Z0-9]+)>`)
 	slackGroupMentionPattern = regexp.MustCompile(`<!subteam\^([A-Z0-9]+)(?:\|[^>]+)?>`)
-	turnLimitRequestPattern  = regexp.MustCompile(`(?i)\b(?:turn(?:-| )?limit|turns?)\s+(?:to\s+)?([0-9]{3,5}|inherit)\b`)
 )
 
 func (s *Service) startChannelConfiguration(
@@ -384,8 +382,8 @@ func (s *Service) resolveConfigurationAudience(
 	text string,
 ) ([]string, []string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(text))
-	users := captureSlackIDs(slackUserMentionPattern, text)
-	groups := captureSlackIDs(slackGroupMentionPattern, text)
+	users := channelsetup.CaptureSlackIDs(slackUserMentionPattern, text)
+	groups := channelsetup.CaptureSlackIDs(slackGroupMentionPattern, text)
 	if strings.Contains(normalized, "include me") || normalized == "me" {
 		users = append(users, actorID)
 	}
@@ -396,8 +394,8 @@ func (s *Service) resolveConfigurationAudience(
 		len(users) == 0 && len(groups) == 0 {
 		return nil, nil, nil
 	}
-	users = uniqueSorted(users)
-	groups = uniqueSorted(groups)
+	users = channelsetup.UniqueSorted(users)
+	groups = channelsetup.UniqueSorted(groups)
 	if len(users) == 0 && len(groups) == 0 {
 		return nil, nil, errors.New(
 			"Choose `no additional invitees`, or mention at least one active Slack member or user group.",
@@ -512,7 +510,7 @@ func (s *Service) handleChannelConfigurationAction(
 	case slackui.ActionSetupCustomize:
 		return s.startCustomChannelSetup(ctx, input, session, quickSetup, responseThreadTS)
 	}
-	if expectedStep, answer, choice := channelSetupChoice(input.ActionID); choice {
+	if expectedStep, answer, choice := channelsetup.ChannelSetupChoice(input.ActionID); choice {
 		return s.answerChannelSetupQuestion(
 			ctx, input, session, expectedStep, answer, responseThreadTS,
 		)
@@ -779,49 +777,6 @@ func (s *Service) answerChannelSetupQuestion(
 	return s.finishSlackInput(ctx, input)
 }
 
-func channelSetupChoice(actionID string) (string, string, bool) {
-	switch actionID {
-	case slackui.ActionSetupMentions:
-		return "participation", "mentions only", true
-	case slackui.ActionSetupProactive:
-		return "participation", "proactive", true
-	case slackui.ActionSetupShadow:
-		return "participation", "shadow", true
-	case slackui.ActionSetupDefaultRepo:
-		return "repository", "default", true
-	case slackui.ActionSetupAlertReply:
-		return "alerts", "reply here", true
-	case slackui.ActionSetupAlertOffer:
-		return "alerts", "offer incident", true
-	case slackui.ActionSetupAlertAutomatic:
-		return "alerts", "automatic incident", true
-	case slackui.ActionSetupOperatorsOnly:
-		return "audience", "operators only", true
-	case slackui.ActionSetupIncludeMe:
-		return "audience", "include me", true
-	default:
-		if strings.HasPrefix(actionID, slackui.ActionSetupRepository) {
-			return "repository", strings.TrimPrefix(actionID, slackui.ActionSetupRepository), true
-		}
-		return "", "", false
-	}
-}
-
-func isChannelSetupAction(actionID string) bool {
-	switch actionID {
-	case slackui.ActionSaveChannelConfig,
-		slackui.ActionRestartChannelSetup,
-		slackui.ActionCancelChannelSetup,
-		slackui.ActionSetupQuickMentions,
-		slackui.ActionSetupQuickProactive,
-		slackui.ActionSetupCustomize:
-		return true
-	default:
-		_, _, choice := channelSetupChoice(actionID)
-		return choice
-	}
-}
-
 func (s *Service) postConfigurationMessage(
 	ctx context.Context,
 	deliveryID string,
@@ -905,7 +860,7 @@ func (s *Service) configuredIncidentInviteUsers(
 	users := append([]string(nil), s.inviteUsers()...)
 	configuration, err := s.store.GetChannelConfiguration(ctx, originChannelID)
 	if errors.Is(err, store.ErrNotFound) || originChannelID == "" {
-		return uniqueSorted(users), nil
+		return channelsetup.UniqueSorted(users), nil
 	}
 	if err != nil {
 		return nil, err
@@ -921,7 +876,7 @@ func (s *Service) configuredIncidentInviteUsers(
 		}
 		users = append(users, members...)
 	}
-	return uniqueSorted(users), nil
+	return channelsetup.UniqueSorted(users), nil
 }
 
 func (s *Service) validateUserGroupMembers(
@@ -945,128 +900,4 @@ func (s *Service) validateUserGroupMembers(
 		}
 	}
 	return nil
-}
-
-func captureSlackIDs(pattern *regexp.Regexp, text string) []string {
-	matches := pattern.FindAllStringSubmatch(text, -1)
-	result := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) == 2 {
-			result = append(result, match[1])
-		}
-	}
-	return result
-}
-
-func uniqueSorted(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	sort.Strings(result)
-	return result
-}
-
-// conversationalAliases maps the phrasings people actually use to the command
-// they mean.
-//
-// This is a table rather than a chain of conditions because it is a table: the
-// only thing that varies between entries is the words. First match wins, so
-// more specific phrasings come first.
-var conversationalAliases = []struct {
-	command  string
-	exact    []string
-	contains []string
-}{
-	{command: "help", exact: []string{"help"}, contains: []string{"what can you do"}},
-	{command: "status", contains: []string{
-		"how are you configured", "show settings", "show status",
-	}},
-	{command: "incidents open", contains: []string{"open incidents", "active incidents"}},
-	{command: "work", contains: []string{
-		"what are you working on", "what do you owe", "show commitments", "show active work",
-	}},
-	{command: "incidents all", contains: []string{"all incidents", "incident history"}},
-	{command: "memory", contains: []string{"show memory", "what do you remember"}},
-	{command: "preferences", contains: []string{"show preferences"}},
-	{command: "rules", contains: []string{"show rules", "show automations"}},
-	{command: "schedules", contains: []string{"show schedules", "show reminders"}},
-}
-
-// toggleSubjects are the settings a channel can turn on, off, or inherit from
-// the workspace default.
-var toggleSubjects = []string{"proactive", "shadow"}
-
-// directCommands are recognized on their own or behind a "show"/"get".
-var directCommands = []string{
-	"timeline", "evidence", "handoff", "update", "changes", "review",
-	"publish", "stop", "close",
-}
-
-// toggleState reads which way a toggle request points, or "" if it does not
-// point anywhere. The " on" and "on" suffix cases are separate because
-// "proactive on" and "turn proactive on" both occur and neither contains "on"
-// as a standalone word in a position the other does.
-func toggleState(text string) string {
-	switch {
-	case strings.Contains(text, "inherit"):
-		return "inherit"
-	case strings.Contains(text, " on") || strings.HasSuffix(text, "on") ||
-		strings.Contains(text, "enable"):
-		return "on"
-	case strings.Contains(text, " off") || strings.HasSuffix(text, "off") ||
-		strings.Contains(text, "disable"):
-		return "off"
-	default:
-		return ""
-	}
-}
-
-func conversationalCommand(text string) (string, bool) {
-	text = strings.TrimSpace(strings.ToLower(text))
-	text = strings.Trim(text, "?.! ")
-	for _, alias := range conversationalAliases {
-		if slices.Contains(alias.exact, text) {
-			return alias.command, true
-		}
-		for _, phrase := range alias.contains {
-			if strings.Contains(text, phrase) {
-				return alias.command, true
-			}
-		}
-	}
-	for _, subject := range toggleSubjects {
-		if !strings.Contains(text, subject) {
-			continue
-		}
-		if state := toggleState(text); state != "" {
-			return subject + " " + state, true
-		}
-	}
-	if match := turnLimitRequestPattern.FindStringSubmatch(text); len(match) == 2 {
-		return "turn-limit " + match[1], true
-	}
-	for _, command := range directCommands {
-		if text == command || text == "show "+command || text == "get "+command {
-			return command, true
-		}
-	}
-	return "", false
-}
-
-func explicitChannelConfigurationRequest(text string) bool {
-	text = strings.ToLower(text)
-	return strings.Contains(text, "configure this channel") ||
-		strings.Contains(text, "reconfigure this channel") ||
-		strings.Contains(text, "set up this channel") ||
-		strings.Contains(text, "setup this channel")
 }

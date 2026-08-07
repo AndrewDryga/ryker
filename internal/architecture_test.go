@@ -72,11 +72,13 @@ var methodBudget = map[string]int{
 // touches it, little enough that a package quietly absorbing a new
 // responsibility does.
 var lineBudget = map[string]int{
-	"service":    24188,
+	"service":    24043,
 	"store":      14000,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
+	// channelsetup reads what an operator is asking for about a channel.
+	"channelsetup": 235,
 	// memory owns what may be remembered, for how long, and who may see it.
 	"memory": 364,
 	// schedule owns recurrence arithmetic and schedule validation.
@@ -107,6 +109,7 @@ var forbiddenImports = map[string][]string{
 	"publication":   {"service", "httpapi", "app", "coop", "decision"},
 	"schedule":      {"service", "store", "httpapi", "app", "coop", "publisher", "slackui"},
 	"memory":        {"service", "httpapi", "app", "coop", "publisher", "slackui"},
+	"channelsetup":  {"service", "store", "httpapi", "app", "coop", "publisher"},
 	"publisher":     {"service", "store", "slackui", "httpapi", "app"},
 	"localstate":    {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
 	"provider":      {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "core"},

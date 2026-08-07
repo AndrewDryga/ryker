@@ -1,4 +1,4 @@
-package service
+package channelsetup
 
 import "testing"
 
@@ -37,9 +37,9 @@ func TestConversationalCommandRecognizesHowPeopleAsk(t *testing.T) {
 		"get handoff":              "handoff",
 	} {
 		t.Run(text, func(t *testing.T) {
-			command, ok := conversationalCommand(text)
+			command, ok := ConversationalCommand(text)
 			if !ok || command != want {
-				t.Fatalf("conversationalCommand(%q) = %q, %v; want %q", text, command, ok, want)
+				t.Fatalf("ConversationalCommand(%q) = %q, %v; want %q", text, command, ok, want)
 			}
 		})
 	}
@@ -51,8 +51,8 @@ func TestConversationalCommandRecognizesHowPeopleAsk(t *testing.T) {
 		"", "can you look at the deploy", "the proactive approach worked well",
 		"we should close the loop on this", "any idea why checkout is slow",
 	} {
-		if command, ok := conversationalCommand(text); ok {
-			t.Errorf("conversationalCommand(%q) = %q, want no command", text, command)
+		if command, ok := ConversationalCommand(text); ok {
+			t.Errorf("ConversationalCommand(%q) = %q, want no command", text, command)
 		}
 	}
 }

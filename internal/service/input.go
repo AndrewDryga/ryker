@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/AndrewDryga/responder/internal/channelsetup"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -204,7 +205,7 @@ func (s *Service) routeSlackInputKind(
 			}
 			return true, nil
 		}
-		if isChannelSetupAction(input.ActionID) {
+		if channelsetup.IsChannelSetupAction(input.ActionID) {
 			if err := s.handleChannelConfigurationAction(ctx, input); err != nil {
 				return true, s.retrySlackInput(ctx, input, err)
 			}
@@ -284,7 +285,7 @@ func (s *Service) handleConversationPrefix(
 	}
 	if input.Kind == "mention" || input.Kind == "direct" ||
 		(input.Kind == "message" && s.cfg.IsOperator(input.UserID)) {
-		if explicitChannelConfigurationRequest(text) {
+		if channelsetup.ExplicitChannelConfigurationRequest(text) {
 			if !s.cfg.IsOperator(input.UserID) {
 				return true, s.finishSlashInput(
 					ctx, input,
@@ -296,7 +297,7 @@ func (s *Service) handleConversationPrefix(
 			}
 			return true, nil
 		}
-		if command, ok := conversationalCommand(text); ok {
+		if command, ok := channelsetup.ConversationalCommand(text); ok {
 			input.Kind = "conversation_command"
 			input.Text = command
 			if err := s.processSlashInput(ctx, input); err != nil {
