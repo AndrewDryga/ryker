@@ -8,6 +8,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 const commitmentProjectionColumns = `
@@ -76,9 +77,9 @@ func scanCommitment(row interface{ Scan(...any) error }) (core.Commitment, error
 	if err != nil {
 		return core.Commitment{}, err
 	}
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
-	item.CompletedAt = scanTime(completed)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
+	item.CompletedAt = sqlutil.ScanTime(completed)
 	item.State = core.CommitmentState(
 		episode.Project(core.WorkEpisode{State: episodeState}).CommitmentState,
 	)

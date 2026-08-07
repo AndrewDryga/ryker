@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func (s *Store) GetPublication(ctx context.Context, incidentID string) (core.Publication, error) {
@@ -30,9 +31,9 @@ func (s *Store) GetPublication(ctx context.Context, incidentID string) (core.Pub
 	if err != nil {
 		return core.Publication{}, err
 	}
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
-	item.PublishedAt = scanTime(published)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
+	item.PublishedAt = sqlutil.ScanTime(published)
 	return item, nil
 }
 
@@ -97,7 +98,7 @@ func (s *Store) SavePublication(ctx context.Context, item core.Publication) erro
 	result, err := tx.ExecContext(ctx, `
 		UPDATE incidents SET updated_at = ?, card_version = card_version + 1
 		WHERE id = ?`, now.Format(timestampFormat), item.IncidentID)
-	if err := expectOne(result, err, "mark publication on incident"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "mark publication on incident"); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -137,7 +138,7 @@ func (s *Store) MarkPublicationStale(
 		UPDATE incidents
 		SET updated_at = ?, card_version = card_version + 1
 		WHERE id = ?`, now, incidentID)
-	if err := expectOne(result, err, "mark stale publication on incident"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "mark stale publication on incident"); err != nil {
 		return false, err
 	}
 	return true, tx.Commit()
@@ -361,10 +362,10 @@ func (s *Store) NextCleanup(ctx context.Context, now time.Time) (core.CoopCleanu
 		return core.CoopCleanup{}, err
 	}
 	item.AllowUnmerged = allow != 0
-	item.EligibleAt = parseTime(eligible)
-	item.NextAttemptAt = parseTime(next)
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
+	item.EligibleAt = sqlutil.ParseTime(eligible)
+	item.NextAttemptAt = sqlutil.ParseTime(next)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
 	return item, nil
 }
 
@@ -386,7 +387,7 @@ func (s *Store) SetCleanupState(
 		state, planOperationID, lastError, retryAt.UTC().Format(timestampFormat),
 		s.nowText(), sessionID,
 	)
-	if err := expectOne(result, err, "update Coop cleanup"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "update Coop cleanup"); err != nil {
 		return err
 	}
 	if state == "done" {

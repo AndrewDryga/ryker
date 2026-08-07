@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func (s *Store) EnsurePublicationFollowup(
@@ -77,10 +78,10 @@ func (s *Store) GetPublicationFollowup(
 	if err != nil {
 		return core.PublicationFollowup{}, err
 	}
-	item.MergedAt = scanTime(merged)
-	item.NextCheckAt = parseTime(next)
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
+	item.MergedAt = sqlutil.ScanTime(merged)
+	item.NextCheckAt = sqlutil.ParseTime(next)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
 	return item, nil
 }
 
@@ -121,13 +122,13 @@ func (s *Store) NextPublicationFollowup(
 		return core.PublicationFollowup{}, core.Publication{}, err
 	}
 	publication.IncidentID = followup.IncidentID
-	followup.MergedAt = scanTime(merged)
-	followup.NextCheckAt = parseTime(next)
-	followup.CreatedAt = parseTime(followupCreated)
-	followup.UpdatedAt = parseTime(followupUpdated)
-	publication.CreatedAt = parseTime(publicationCreated)
-	publication.UpdatedAt = parseTime(publicationUpdated)
-	publication.PublishedAt = scanTime(published)
+	followup.MergedAt = sqlutil.ScanTime(merged)
+	followup.NextCheckAt = sqlutil.ParseTime(next)
+	followup.CreatedAt = sqlutil.ParseTime(followupCreated)
+	followup.UpdatedAt = sqlutil.ParseTime(followupUpdated)
+	publication.CreatedAt = sqlutil.ParseTime(publicationCreated)
+	publication.UpdatedAt = sqlutil.ParseTime(publicationUpdated)
+	publication.PublishedAt = sqlutil.ScanTime(published)
 	return followup, publication, nil
 }
 
@@ -155,7 +156,7 @@ func (s *Store) SavePublicationFollowup(
 		item.LastError, item.LastEventKey, now.Format(timestampFormat),
 		item.IncidentID,
 	)
-	return expectOne(result, err, "save publication follow-up")
+	return sqlutil.ExpectOne(result, err, "save publication follow-up")
 }
 
 func (s *Store) RecordPublicationLifecycleEvent(

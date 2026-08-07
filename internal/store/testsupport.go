@@ -19,6 +19,7 @@ import (
 	"errors"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func (s *Store) SetRoot(ctx context.Context, id, rootTS string) error {
@@ -26,7 +27,7 @@ func (s *Store) SetRoot(ctx context.Context, id, rootTS string) error {
 		UPDATE incidents SET root_ts = ?, workflow = 'provisioning_session',
 		  updated_at = ?, card_version = card_version + 1, last_error = ''
 		WHERE id = ? AND channel_id != '' AND root_ts = ''`, rootTS, s.nowText(), id)
-	return expectOne(result, err, "bind incident root")
+	return sqlutil.ExpectOne(result, err, "bind incident root")
 }
 
 func (s *Store) MarkCardRendered(ctx context.Context, id string, version int64) error {
@@ -56,7 +57,7 @@ func (s *Store) AdvanceChannelMemory(
 		WHERE channel_id = ?`,
 		sessionRevision, data, s.nowText(), channelID,
 	)
-	return expectOne(result, err, "advance channel memory")
+	return sqlutil.ExpectOne(result, err, "advance channel memory")
 }
 
 // GetCommitmentByRun finds the commitment for the episode a run belongs to.

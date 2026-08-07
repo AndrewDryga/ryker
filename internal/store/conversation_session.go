@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func (s *Store) GetConversationSession(
@@ -40,9 +41,9 @@ func (s *Store) GetConversationSession(
 	if err != nil {
 		return core.ConversationSession{}, err
 	}
-	session.SessionStarted = scanTime(started)
-	session.RotatedAt = scanTime(rotated)
-	session.UpdatedAt = parseTime(updated)
+	session.SessionStarted = sqlutil.ScanTime(started)
+	session.RotatedAt = sqlutil.ScanTime(rotated)
+	session.UpdatedAt = sqlutil.ParseTime(updated)
 	return session, nil
 }
 
@@ -133,7 +134,7 @@ func (s *Store) AdvanceConversationSessionEvents(
 		WHERE channel_id = ? AND session_id = ?`,
 		sequence, s.nowText(), channelID, sessionID,
 	)
-	return expectOne(result, err, "advance conversation session events")
+	return sqlutil.ExpectOne(result, err, "advance conversation session events")
 }
 
 func (s *Store) DetachConversationSession(
@@ -210,7 +211,7 @@ func (s *Store) GetConversationRoute(
 		return core.ConversationRoute{}, err
 	}
 	route.Explicit = explicit != 0
-	route.UpdatedAt = parseTime(updated)
+	route.UpdatedAt = sqlutil.ParseTime(updated)
 	return route, nil
 }
 

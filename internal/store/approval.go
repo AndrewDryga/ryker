@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 const emisarApprovalColumns = `
@@ -189,11 +190,11 @@ func scanEmisarApproval(
 		return core.EmisarApproval{}, err
 	}
 	item.ContinuationQueued = continuation != 0
-	item.NextCheckAt = parseTime(next)
-	item.ExpiresAt = parseTime(expires)
-	item.TerminalAt = scanTime(terminal)
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
+	item.NextCheckAt = sqlutil.ParseTime(next)
+	item.ExpiresAt = sqlutil.ParseTime(expires)
+	item.TerminalAt = sqlutil.ScanTime(terminal)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
 	return item, nil
 }
 
@@ -265,13 +266,13 @@ func (s *Store) AdvanceEmisarApproval(
 		WHERE request_id = ?`,
 		status,
 		runURL,
-		boundedError(detail),
+		sqlutil.BoundedError(detail),
 		nextCheckAt.UTC().Format(timestampFormat),
 		terminal,
 		now.Format(timestampFormat),
 		requestID,
 	)
-	if err := expectOne(result, err, "advance Emisar approval"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "advance Emisar approval"); err != nil {
 		return core.EmisarApproval{}, false, err
 	}
 	updated, err := s.GetEmisarApproval(ctx, requestID)
@@ -289,12 +290,12 @@ func (s *Store) RetryEmisarApproval(
 		SET failure_count = failure_count + 1, last_error = ?, next_check_at = ?,
 		    updated_at = ?
 		WHERE request_id = ? AND continuation_queued = 0`,
-		boundedError(detail),
+		sqlutil.BoundedError(detail),
 		nextCheckAt.UTC().Format(timestampFormat),
 		s.nowText(),
 		requestID,
 	)
-	return expectOne(result, err, "retry Emisar approval")
+	return sqlutil.ExpectOne(result, err, "retry Emisar approval")
 }
 
 func (s *Store) MarkEmisarApprovalContinuationQueued(
@@ -308,7 +309,7 @@ func (s *Store) MarkEmisarApprovalContinuationQueued(
 		s.nowText(),
 		requestID,
 	)
-	return expectOne(result, err, "mark Emisar approval continuation queued")
+	return sqlutil.ExpectOne(result, err, "mark Emisar approval continuation queued")
 }
 
 func validEmisarRunStatus(status string) bool {

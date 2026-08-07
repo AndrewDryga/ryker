@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 const memoryDreamingStateKey = "memory_dreaming_last_run"
@@ -31,7 +32,7 @@ func (s *Store) MemoryDreamingDue(ctx context.Context, now time.Time, interval t
 	if err != nil {
 		return false, err
 	}
-	last := parseTime(value)
+	last := sqlutil.ParseTime(value)
 	return last.IsZero() || !last.Add(interval).After(now), nil
 }
 
@@ -92,8 +93,8 @@ func (s *Store) ListConversationMemoryCandidates(
 		if err := json.Unmarshal(state, &item.Memory.State); err != nil {
 			return nil, fmt.Errorf("decode conversation memory candidate: %w", err)
 		}
-		item.Memory.LastRecalledAt = scanTime(recalled)
-		item.Memory.UpdatedAt = parseTime(updated)
+		item.Memory.LastRecalledAt = sqlutil.ScanTime(recalled)
+		item.Memory.UpdatedAt = sqlutil.ParseTime(updated)
 		item.Private = private == 1
 		result = append(result, item)
 	}
@@ -121,7 +122,7 @@ func (s *Store) DeleteMemoryRollup(ctx context.Context, id string) (core.MemoryR
 		return core.MemoryRollup{}, err
 	}
 	result, err := s.db.ExecContext(ctx, `DELETE FROM memory_rollups WHERE id = ?`, id)
-	if err := expectOne(result, err, "delete memory rollup"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "delete memory rollup"); err != nil {
 		return core.MemoryRollup{}, err
 	}
 	return rollup, nil
@@ -385,9 +386,9 @@ func (s *Store) ListPendingMemoryReviews(ctx context.Context, limit int) ([]core
 		if err := json.Unmarshal([]byte(ids), &item.EntryIDs); err != nil {
 			return nil, err
 		}
-		item.ReviewedAt = scanTime(reviewed)
-		item.CreatedAt = parseTime(created)
-		item.UpdatedAt = parseTime(updated)
+		item.ReviewedAt = sqlutil.ScanTime(reviewed)
+		item.CreatedAt = sqlutil.ParseTime(created)
+		item.UpdatedAt = sqlutil.ParseTime(updated)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -481,7 +482,7 @@ func (s *Store) ResolveMemoryReview(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE memory_review_items SET status = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ?
 		WHERE id = ? AND status = 'pending'`, newStatus, actor, now, now, id)
-	if err := expectOne(result, err, "resolve memory review"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "resolve memory review"); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -520,7 +521,7 @@ func (s *Store) MemoryHealth(ctx context.Context) (core.MemoryHealth, error) {
 	}
 	var dreamed string
 	if err := s.db.QueryRowContext(ctx, `SELECT value FROM responder_state WHERE key = ?`, memoryDreamingStateKey).Scan(&dreamed); err == nil {
-		health.LastDreamedAt = parseTime(dreamed)
+		health.LastDreamedAt = sqlutil.ParseTime(dreamed)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return core.MemoryHealth{}, err
 	}
@@ -552,11 +553,11 @@ func scanMemoryRollup(row rowScanner) (core.MemoryRollup, error) {
 	if err := json.Unmarshal([]byte(refs), &item.SourceRefs); err != nil {
 		return core.MemoryRollup{}, err
 	}
-	item.PeriodStart = parseTime(start)
-	item.PeriodEnd = parseTime(end)
-	item.LastRecalledAt = scanTime(recalled)
-	item.ExpiresAt = parseTime(expires)
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
+	item.PeriodStart = sqlutil.ParseTime(start)
+	item.PeriodEnd = sqlutil.ParseTime(end)
+	item.LastRecalledAt = sqlutil.ScanTime(recalled)
+	item.ExpiresAt = sqlutil.ParseTime(expires)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
 	return item, nil
 }

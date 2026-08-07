@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 const scheduledTaskSelect = `
@@ -196,7 +197,7 @@ func (s *Store) SetScheduledTaskEnabled(ctx context.Context, id string, enabled 
 		query += ` AND next_run_at IS NOT NULL`
 	}
 	result, err := s.db.ExecContext(ctx, query, value, s.nowText(), id, s.nowText())
-	if err := expectOne(result, err, "set scheduled task state"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "set scheduled task state"); err != nil {
 		return core.ScheduledTask{}, err
 	}
 	return s.GetScheduledTask(ctx, id)
@@ -208,7 +209,7 @@ func (s *Store) DeleteScheduledTask(ctx context.Context, id string) (core.Schedu
 		return core.ScheduledTask{}, err
 	}
 	result, err := s.db.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE id = ?`, id)
-	if err := expectOne(result, err, "delete scheduled task"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "delete scheduled task"); err != nil {
 		return core.ScheduledTask{}, err
 	}
 	return task, nil
@@ -306,7 +307,7 @@ func (s *Store) ClaimScheduledTaskRun(
 
 func (s *Store) LinkScheduledTaskRun(ctx context.Context, taskID string, scheduledFor time.Time, agentRunID string, episodeID string) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET agent_run_id = ?, episode_id = ?, outcome = 'running', started_at = COALESCE(started_at, ?), updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome = 'queued'`, agentRunID, episodeID, s.nowText(), s.nowText(), taskID, scheduledFor.UTC().Format(timestampFormat))
-	return expectOne(result, err, "link scheduled task run")
+	return sqlutil.ExpectOne(result, err, "link scheduled task run")
 }
 
 func (s *Store) CompleteScheduledTaskRun(ctx context.Context, taskID string, scheduledFor time.Time, outcome string, detail string) error {
@@ -314,8 +315,8 @@ func (s *Store) CompleteScheduledTaskRun(ctx context.Context, taskID string, sch
 		return errors.New("scheduled task terminal outcome must be completed or failed")
 	}
 	now := s.nowText()
-	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET outcome = ?, last_error = ?, completed_at = ?, updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome IN ('queued', 'running')`, outcome, boundedError(detail), now, now, taskID, scheduledFor.UTC().Format(timestampFormat))
-	if err := expectOne(result, err, "complete scheduled task run"); err != nil {
+	result, err := s.db.ExecContext(ctx, `UPDATE scheduled_task_runs SET outcome = ?, last_error = ?, completed_at = ?, updated_at = ? WHERE task_id = ? AND scheduled_for = ? AND outcome IN ('queued', 'running')`, outcome, sqlutil.BoundedError(detail), now, now, taskID, scheduledFor.UTC().Format(timestampFormat))
+	if err := sqlutil.ExpectOne(result, err, "complete scheduled task run"); err != nil {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `UPDATE scheduled_tasks SET last_outcome = ?, updated_at = ? WHERE id = ?`, outcome, now, taskID)
@@ -351,7 +352,7 @@ func (s *Store) AdmitSyntheticSlackInput(ctx context.Context, input core.SlackIn
 		return admitted, err
 	}
 	result, err := s.db.ExecContext(ctx, `UPDATE slack_inputs SET state = 'processing', attempts = 1, updated_at = ? WHERE id = ? AND state = 'pending'`, s.nowText(), input.ID)
-	if err := expectOne(result, err, "activate synthetic Slack input"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "activate synthetic Slack input"); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -412,5 +413,5 @@ func parseNullTime(value sql.NullString) time.Time {
 	if !value.Valid || value.String == "" {
 		return time.Time{}
 	}
-	return parseTime(value.String)
+	return sqlutil.ParseTime(value.String)
 }

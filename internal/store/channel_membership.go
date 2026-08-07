@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 type SlackChannelMembershipObservation struct {
@@ -247,7 +248,7 @@ func (s *Store) ListPendingSlackChannelOnboarding(
 			return nil, err
 		}
 		item.Private = private != 0
-		item.JoinedAt = parseTime(joinedAt)
+		item.JoinedAt = sqlutil.ParseTime(joinedAt)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -290,14 +291,14 @@ func (s *Store) FinishSlackChannelOnboarding(
 		  AND joined_at = ?`,
 		s.nowText(), channelID, joinedAt.UTC().Format(timestampFormat),
 	)
-	return expectOne(result, err, "finish Slack channel onboarding")
+	return sqlutil.ExpectOne(result, err, "finish Slack channel onboarding")
 }
 
 func parseNullableTime(value sql.NullString) time.Time {
 	if !value.Valid {
 		return time.Time{}
 	}
-	return parseTime(value.String)
+	return sqlutil.ParseTime(value.String)
 }
 
 func boolInt(value bool) int {

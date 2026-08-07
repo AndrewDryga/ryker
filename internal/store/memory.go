@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func (s *Store) UpsertMemoryEntry(
@@ -85,7 +86,7 @@ func (s *Store) UpsertMemoryEntry(
 		entry.CreatedAt = now
 	} else {
 		entry.ID = existingID
-		entry.CreatedAt = parseTime(createdAt)
+		entry.CreatedAt = sqlutil.ParseTime(createdAt)
 	}
 	entry.UpdatedAt = now
 	entry.LastReviewedAt = now
@@ -299,7 +300,7 @@ func (s *Store) DeleteMemoryEntry(ctx context.Context, id string) (core.MemoryEn
 		return core.MemoryEntry{}, err
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM memory_entries WHERE id = ?`, id)
-	if err := expectOne(result, err, "delete memory entry"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "delete memory entry"); err != nil {
 		return core.MemoryEntry{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -443,8 +444,8 @@ func (s *Store) ListRecentChannelEvidence(
 		if err := json.Unmarshal(metadata, &item.Metadata); err != nil {
 			return nil, err
 		}
-		item.ObservedAt = scanTime(observed)
-		item.CreatedAt = parseTime(created)
+		item.ObservedAt = sqlutil.ScanTime(observed)
+		item.CreatedAt = sqlutil.ParseTime(created)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -481,11 +482,11 @@ func scanMemoryEntry(row rowScanner) (core.MemoryEntry, error) {
 	if err := json.Unmarshal([]byte(valueJSON), &entry.Value); err != nil {
 		return core.MemoryEntry{}, fmt.Errorf("decode memory value: %w", err)
 	}
-	entry.ExpiresAt = parseTime(expires)
-	entry.LastRecalledAt = scanTime(recalled)
-	entry.LastReviewedAt = scanTime(reviewed)
-	entry.CreatedAt = parseTime(created)
-	entry.UpdatedAt = parseTime(updated)
+	entry.ExpiresAt = sqlutil.ParseTime(expires)
+	entry.LastRecalledAt = sqlutil.ScanTime(recalled)
+	entry.LastReviewedAt = sqlutil.ScanTime(reviewed)
+	entry.CreatedAt = sqlutil.ParseTime(created)
+	entry.UpdatedAt = sqlutil.ParseTime(updated)
 	return entry, nil
 }
 

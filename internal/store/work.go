@@ -1,6 +1,8 @@
 package store
 
 import (
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -62,7 +64,7 @@ func enqueueWorkTx(
 		return fmt.Errorf("unsupported scheduled work lane %q", item.Lane)
 	}
 	if item.AvailableAt.IsZero() {
-		item.AvailableAt = parseTime(now)
+		item.AvailableAt = sqlutil.ParseTime(now)
 	}
 	var deadline any
 	if !item.DeadlineAt.IsZero() {
@@ -181,14 +183,14 @@ func scanWorkItem(row interface{ Scan(...any) error }) (WorkItem, error) {
 	if err != nil {
 		return WorkItem{}, err
 	}
-	item.AvailableAt = parseTime(available)
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
+	item.AvailableAt = sqlutil.ParseTime(available)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
 	if lease.Valid {
-		item.LeaseExpiresAt = parseTime(lease.String)
+		item.LeaseExpiresAt = sqlutil.ParseTime(lease.String)
 	}
 	if deadline.Valid {
-		item.DeadlineAt = parseTime(deadline.String)
+		item.DeadlineAt = sqlutil.ParseTime(deadline.String)
 	}
 	return item, nil
 }
@@ -282,7 +284,7 @@ func (s *Store) LeaseWork(
 		item.Kind,
 		item.SubjectID,
 	)
-	if err := expectOne(result, err, "lease scheduled work"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "lease scheduled work"); err != nil {
 		return WorkItem{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -328,7 +330,7 @@ func (s *Store) CompleteWork(ctx context.Context, item WorkItem) error {
 			item.SubjectID,
 			item.LeaseToken,
 		)
-		if err := expectOne(result, err, "rerun scheduled work"); err != nil {
+		if err := sqlutil.ExpectOne(result, err, "rerun scheduled work"); err != nil {
 			return err
 		}
 	} else {
@@ -340,7 +342,7 @@ func (s *Store) CompleteWork(ctx context.Context, item WorkItem) error {
 			item.SubjectID,
 			item.LeaseToken,
 		)
-		if err := expectOne(result, err, "complete scheduled work"); err != nil {
+		if err := sqlutil.ExpectOne(result, err, "complete scheduled work"); err != nil {
 			return err
 		}
 	}
@@ -368,13 +370,13 @@ func (s *Store) RetryWork(
 		  AND lease_token = ?`,
 		state,
 		next.UTC().Format(timestampFormat),
-		boundedError(detail),
+		sqlutil.BoundedError(detail),
 		s.nowText(),
 		item.Kind,
 		item.SubjectID,
 		item.LeaseToken,
 	)
-	return expectOne(result, err, "retry scheduled work")
+	return sqlutil.ExpectOne(result, err, "retry scheduled work")
 }
 
 func (s *Store) DeferWork(
@@ -394,7 +396,7 @@ func (s *Store) DeferWork(
 		item.SubjectID,
 		item.LeaseToken,
 	)
-	return expectOne(result, err, "defer scheduled work")
+	return sqlutil.ExpectOne(result, err, "defer scheduled work")
 }
 
 func (s *Store) RecoverWorkLeases(ctx context.Context, now time.Time) error {
@@ -452,10 +454,10 @@ func (s *Store) WorkMetrics(
 	}
 	now := s.now().UTC()
 	if oldestDue.Valid {
-		result.OldestDueAge = max(now.Sub(parseTime(oldestDue.String)), 0)
+		result.OldestDueAge = max(now.Sub(sqlutil.ParseTime(oldestDue.String)), 0)
 	}
 	if oldestRunning.Valid {
-		result.OldestRunning = max(now.Sub(parseTime(oldestRunning.String)), 0)
+		result.OldestRunning = max(now.Sub(sqlutil.ParseTime(oldestRunning.String)), 0)
 	}
 	return result, nil
 }

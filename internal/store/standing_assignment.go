@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 // maxStandingAssignmentPathGlobs bounds how many paths one assignment covers.
@@ -108,10 +109,10 @@ func scanStandingAssignment(
 	}
 	_ = json.Unmarshal([]byte(globs), &assignment.PathGlobs)
 	assignment.Enabled = enabled == 1
-	assignment.ConfirmedAt = parseTime(confirmed)
-	assignment.ExpiresAt = parseTime(expires)
-	assignment.CreatedAt = parseTime(created)
-	assignment.UpdatedAt = parseTime(updated)
+	assignment.ConfirmedAt = sqlutil.ParseTime(confirmed)
+	assignment.ExpiresAt = sqlutil.ParseTime(expires)
+	assignment.CreatedAt = sqlutil.ParseTime(created)
+	assignment.UpdatedAt = sqlutil.ParseTime(updated)
 	return assignment, nil
 }
 

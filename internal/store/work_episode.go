@@ -13,6 +13,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 const workEpisodeColumns = `
@@ -300,11 +301,11 @@ func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, err
 	if err := json.Unmarshal([]byte(criteriaJSON), &item.CompletionCriteria); err != nil {
 		return core.WorkEpisode{}, fmt.Errorf("decode work episode criteria: %w", err)
 	}
-	item.LastProgressAt = scanTime(lastProgress)
-	item.ProgressDueAt = scanTime(progressDue)
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
-	item.CompletedAt = scanTime(completed)
+	item.LastProgressAt = sqlutil.ScanTime(lastProgress)
+	item.ProgressDueAt = sqlutil.ScanTime(progressDue)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
+	item.CompletedAt = sqlutil.ScanTime(completed)
 	item.Revision = item.EventSequence
 	return item, nil
 }
@@ -430,7 +431,7 @@ func (s *Store) ResolveWaitingApprovalEpisodes(
 			runID,
 			core.EpisodeVerifying,
 			"verifying_approval_result",
-			"Emisar decision received: "+boundedError(status),
+			"Emisar decision received: "+sqlutil.BoundedError(status),
 			"Verify the terminal run and live effect",
 			time.Time{},
 		); err != nil {
@@ -656,7 +657,7 @@ func (s *Store) appendEpisodeEventTx(
 			  (id, episode_id, sequence, phase, summary, created_at)
 			VALUES (?, ?, ?, ?, ?, ?)`,
 			progressID, current.ID, next.ProgressSequence,
-			strings.TrimSpace(transition.Phase), boundedError(summary),
+			strings.TrimSpace(transition.Phase), sqlutil.BoundedError(summary),
 			event.CreatedAt.Format(time.RFC3339Nano),
 		); err != nil {
 			return core.WorkEpisodeEvent{}, err
@@ -670,12 +671,12 @@ func (s *Store) appendEpisodeEventTx(
 		    progress_due_at = ?, completed_at = ?, updated_at = ?
 		WHERE id = ? AND event_sequence = ?`,
 		next.State, next.Phase,
-		boundedError(next.Status), boundedError(next.NextAction),
+		sqlutil.BoundedError(next.Status), sqlutil.BoundedError(next.NextAction),
 		next.EventSequence, next.ProgressSequence, nullableTime(next.LastProgressAt),
 		nullableTime(next.ProgressDueAt), nullableTime(next.CompletedAt),
 		event.CreatedAt.Format(time.RFC3339Nano), current.ID, current.EventSequence,
 	)
-	if err := expectOne(result, err, "append work episode event"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "append work episode event"); err != nil {
 		return core.WorkEpisodeEvent{}, err
 	}
 	return event, nil
@@ -767,7 +768,7 @@ func scanWorkEpisodeEvent(row interface{ Scan(...any) error }) (core.WorkEpisode
 		return core.WorkEpisodeEvent{}, err
 	}
 	event.Payload = json.RawMessage(payload)
-	event.CreatedAt = parseTime(created)
+	event.CreatedAt = sqlutil.ParseTime(created)
 	return event, nil
 }
 
@@ -810,7 +811,7 @@ func (s *Store) ListEpisodeProgress(
 		); err != nil {
 			return nil, err
 		}
-		item.CreatedAt = parseTime(created)
+		item.CreatedAt = sqlutil.ParseTime(created)
 		result = append(result, item)
 	}
 	return result, rows.Err()

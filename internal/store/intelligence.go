@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func (s *Store) GetChannelMemory(ctx context.Context, channelID string) (core.ChannelMemory, error) {
@@ -34,9 +35,9 @@ func (s *Store) GetChannelMemory(ctx context.Context, channelID string) (core.Ch
 	if err := json.Unmarshal(state, &memory.State); err != nil {
 		return core.ChannelMemory{}, fmt.Errorf("decode channel memory: %w", err)
 	}
-	memory.SessionStarted = scanTime(started)
-	memory.RotatedAt = scanTime(rotated)
-	memory.UpdatedAt = parseTime(updated)
+	memory.SessionStarted = sqlutil.ScanTime(started)
+	memory.RotatedAt = sqlutil.ScanTime(rotated)
+	memory.UpdatedAt = sqlutil.ParseTime(updated)
 	return memory, nil
 }
 
@@ -87,9 +88,9 @@ func (s *Store) ListChannelSituations(
 				err,
 			)
 		}
-		memory.SessionStarted = scanTime(started)
-		memory.RotatedAt = scanTime(rotated)
-		memory.UpdatedAt = parseTime(updated)
+		memory.SessionStarted = sqlutil.ScanTime(started)
+		memory.RotatedAt = sqlutil.ScanTime(rotated)
+		memory.UpdatedAt = sqlutil.ParseTime(updated)
 		result = append(result, memory)
 	}
 	return result, rows.Err()
@@ -125,7 +126,7 @@ func (s *Store) GetConversationMemory(
 	if err := json.Unmarshal(state, &memory.State); err != nil {
 		return core.ConversationMemory{}, fmt.Errorf("decode conversation memory: %w", err)
 	}
-	memory.UpdatedAt = parseTime(updated)
+	memory.UpdatedAt = sqlutil.ParseTime(updated)
 	return memory, nil
 }
 
@@ -247,7 +248,7 @@ func (s *Store) ListRelatedConversationMemories(
 				err,
 			)
 		}
-		memory.UpdatedAt = parseTime(updated)
+		memory.UpdatedAt = sqlutil.ParseTime(updated)
 		result = append(result, memory)
 	}
 	return result, rows.Err()
@@ -384,7 +385,7 @@ func (s *Store) AdvanceChannelEvents(
 		SET coop_event_sequence = MAX(coop_event_sequence, ?), updated_at = ?
 		WHERE channel_id = ? AND session_id = ?`,
 		sequence, s.nowText(), channelID, sessionID)
-	return expectOne(result, err, "advance channel Coop events")
+	return sqlutil.ExpectOne(result, err, "advance channel Coop events")
 }
 
 func (s *Store) ApplyWatchDecision(
@@ -452,7 +453,7 @@ func (s *Store) ApplyWatchDecision(
 			WHERE channel_id = ?`,
 			sessionRevision, memory, s.nowText(), sessionChannelID,
 		)
-		if err := expectOne(update, err, "apply watch decision memory"); err != nil {
+		if err := sqlutil.ExpectOne(update, err, "apply watch decision memory"); err != nil {
 			return false, err
 		}
 		if sessionChannelID != decision.ChannelID {
@@ -462,7 +463,7 @@ func (s *Store) ApplyWatchDecision(
 				WHERE channel_id = ?`,
 				memory, s.nowText(), decision.ChannelID,
 			)
-			if err := expectOne(update, err, "apply scheduled decision channel memory"); err != nil {
+			if err := sqlutil.ExpectOne(update, err, "apply scheduled decision channel memory"); err != nil {
 				return false, err
 			}
 		}
@@ -473,7 +474,7 @@ func (s *Store) ApplyWatchDecision(
 			WHERE channel_id = ?`,
 			sessionRevision, s.nowText(), decision.ChannelID,
 		)
-		if err := expectOne(update, err, "apply conversation decision session"); err != nil {
+		if err := sqlutil.ExpectOne(update, err, "apply conversation decision session"); err != nil {
 			return false, err
 		}
 		update, err = tx.ExecContext(ctx, `
@@ -482,7 +483,7 @@ func (s *Store) ApplyWatchDecision(
 			WHERE channel_id = ?`,
 			memory, s.nowText(), decision.ChannelID,
 		)
-		if err := expectOne(update, err, "apply conversation decision memory"); err != nil {
+		if err := sqlutil.ExpectOne(update, err, "apply conversation decision memory"); err != nil {
 			return false, err
 		}
 	default:
@@ -597,7 +598,7 @@ func (s *Store) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([
 			).Scan(&item.ID, &created); err != nil {
 				return nil, err
 			}
-			item.CreatedAt = parseTime(created)
+			item.CreatedAt = sqlutil.ParseTime(created)
 		}
 		result = append(result, item)
 	}
@@ -693,9 +694,9 @@ func (s *Store) ListEvidence(
 		if err := json.Unmarshal(metadata, &item.Metadata); err != nil {
 			return nil, err
 		}
-		item.ObservedAt = scanTime(observed)
-		item.ValidUntil = scanTime(validUntil)
-		item.CreatedAt = parseTime(created)
+		item.ObservedAt = sqlutil.ScanTime(observed)
+		item.ValidUntil = sqlutil.ScanTime(validUntil)
+		item.CreatedAt = sqlutil.ParseTime(created)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -737,8 +738,8 @@ func (s *Store) ListCoverage(
 		if err := json.Unmarshal(claimIDs, &item.ClaimIDs); err != nil {
 			return nil, err
 		}
-		item.ObservedAt = scanTime(observed)
-		item.CreatedAt = parseTime(created)
+		item.ObservedAt = sqlutil.ScanTime(observed)
+		item.CreatedAt = sqlutil.ParseTime(created)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -812,9 +813,9 @@ func (s *Store) ListEpisodeEvidence(
 		if err := json.Unmarshal(metadata, &item.Metadata); err != nil {
 			return nil, err
 		}
-		item.ObservedAt = scanTime(observed)
-		item.ValidUntil = scanTime(validUntil)
-		item.CreatedAt = parseTime(created)
+		item.ObservedAt = sqlutil.ScanTime(observed)
+		item.ValidUntil = sqlutil.ScanTime(validUntil)
+		item.CreatedAt = sqlutil.ParseTime(created)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -877,8 +878,8 @@ func (s *Store) ListEpisodeCoverage(
 		if err := json.Unmarshal(claimIDs, &item.ClaimIDs); err != nil {
 			return nil, err
 		}
-		item.ObservedAt = scanTime(observed)
-		item.CreatedAt = parseTime(created)
+		item.ObservedAt = sqlutil.ScanTime(observed)
+		item.CreatedAt = sqlutil.ParseTime(created)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -1007,7 +1008,7 @@ func (s *Store) ListTimeline(
 		if err := json.Unmarshal(evidence, &item.EvidenceIDs); err != nil {
 			return nil, err
 		}
-		item.CreatedAt = parseTime(created)
+		item.CreatedAt = sqlutil.ParseTime(created)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -1145,9 +1146,9 @@ func scanActionProposal(row interface{ Scan(...any) error }) (core.ActionProposa
 	if err := json.Unmarshal(parameters, &proposal.Parameters); err != nil {
 		return core.ActionProposal{}, err
 	}
-	proposal.ExpiresAt = parseTime(expires)
-	proposal.CreatedAt = parseTime(created)
-	proposal.UpdatedAt = parseTime(updated)
+	proposal.ExpiresAt = sqlutil.ParseTime(expires)
+	proposal.CreatedAt = sqlutil.ParseTime(created)
+	proposal.UpdatedAt = sqlutil.ParseTime(updated)
 	return proposal, nil
 }
 
@@ -1243,7 +1244,7 @@ func (s *Store) MarkProposalExecution(
 		SET status = ?, execution_turn = CASE WHEN ? != '' THEN ? ELSE execution_turn END,
 		  result = ?, updated_at = ?
 		WHERE id = ? AND status IN ('approved', 'executing')`,
-		status, turnID, turnID, boundedError(result), s.nowText(), id,
+		status, turnID, turnID, sqlutil.BoundedError(result), s.nowText(), id,
 	)
-	return expectOne(update, err, "mark proposal execution")
+	return sqlutil.ExpectOne(update, err, "mark proposal execution")
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func attemptStateFromAgent(state core.AgentRunState) core.EpisodeAttemptState {
@@ -142,11 +143,11 @@ func scanEpisodeAttempt(row interface{ Scan(...any) error }) (core.EpisodeAttemp
 	if err != nil {
 		return core.EpisodeAttempt{}, err
 	}
-	item.LeaseExpiresAt = scanTime(leaseExpires)
-	item.StartedAt = scanTime(started)
-	item.CompletedAt = scanTime(completed)
-	item.CreatedAt = parseTime(created)
-	item.UpdatedAt = parseTime(updated)
+	item.LeaseExpiresAt = sqlutil.ScanTime(leaseExpires)
+	item.StartedAt = sqlutil.ScanTime(started)
+	item.CompletedAt = sqlutil.ScanTime(completed)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
 	return item, nil
 }
 
@@ -190,10 +191,10 @@ func (s *Store) setEpisodeAttemptStateTx(
 		    lease_expires_at = ?, started_at = COALESCE(started_at, ?),
 		    completed_at = ?, updated_at = ?
 		WHERE agent_run_id = ?`,
-		state, boundedError(failureClass), state, leaseOwner, lease, leaseExpires,
+		state, sqlutil.BoundedError(failureClass), state, leaseOwner, lease, leaseExpires,
 		startedAt, completedAt, now.Format(timestampFormat), runID,
 	)
-	return expectOne(result, err, "set episode attempt state")
+	return sqlutil.ExpectOne(result, err, "set episode attempt state")
 }
 
 func (s *Store) SetEpisodePhase(
@@ -272,7 +273,7 @@ func (s *Store) ChangeEpisodeDestination(
 		destination.ChannelID, destination.ThreadTS, event.CreatedAt.Format(timestampFormat),
 		episodeID, event.Sequence,
 	)
-	if err := expectOne(result, err, "change episode destination"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "change episode destination"); err != nil {
 		return core.WorkEpisode{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -439,9 +440,9 @@ func (s *Store) SetEpisodeGoalState(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE episode_goals
 		SET state = ?, blocker = ?, completed_at = ?, updated_at = ?
-		WHERE id = ?`, state, boundedError(blocker), terminalGoalTime(state, now),
+		WHERE id = ?`, state, sqlutil.BoundedError(blocker), terminalGoalTime(state, now),
 		now.Format(timestampFormat), goal.ID)
-	if err := expectOne(result, err, "set episode goal state"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "set episode goal state"); err != nil {
 		return err
 	}
 	kind := episodepkg.EventGoalStarted
@@ -503,8 +504,8 @@ func scanEpisodeGoal(row interface{ Scan(...any) error }) (core.EpisodeGoal, err
 		return core.EpisodeGoal{}, err
 	}
 	item.Required = required == 1
-	item.CreatedAt, item.UpdatedAt = parseTime(created), parseTime(updated)
-	item.CompletedAt = scanTime(completed)
+	item.CreatedAt, item.UpdatedAt = sqlutil.ParseTime(created), sqlutil.ParseTime(updated)
+	item.CompletedAt = sqlutil.ScanTime(completed)
 	return item, nil
 }
 
@@ -686,7 +687,7 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 	if err := json.Unmarshal([]byte(omissionsJSON), &item.Omissions); err != nil {
 		return core.ContextManifest{}, err
 	}
-	item.CreatedAt = parseTime(created)
+	item.CreatedAt = sqlutil.ParseTime(created)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, manifest_id, kind, source_ref, content_digest, source_revision,
 		       visibility, ordinal, omitted_reason, metadata_json
@@ -848,9 +849,9 @@ func scanEpisodeWakeup(row interface{ Scan(...any) error }) (core.EpisodeWakeup,
 	if err != nil {
 		return core.EpisodeWakeup{}, err
 	}
-	item.DueAt, item.PollAfter, item.Deadline = scanTime(due), scanTime(poll), scanTime(deadline)
-	item.LeaseExpiresAt, item.ResolvedAt = scanTime(leaseExpires), scanTime(resolved)
-	item.CreatedAt, item.UpdatedAt = parseTime(created), parseTime(updated)
+	item.DueAt, item.PollAfter, item.Deadline = sqlutil.ScanTime(due), sqlutil.ScanTime(poll), sqlutil.ScanTime(deadline)
+	item.LeaseExpiresAt, item.ResolvedAt = sqlutil.ScanTime(leaseExpires), sqlutil.ScanTime(resolved)
+	item.CreatedAt, item.UpdatedAt = sqlutil.ParseTime(created), sqlutil.ParseTime(updated)
 	return item, nil
 }
 
@@ -917,7 +918,7 @@ func (s *Store) LeaseDueEpisodeWakeup(
 		owner, expires.Format(timestampFormat), now.Format(timestampFormat), wakeup.ID,
 		now.Format(timestampFormat),
 	)
-	if err := expectOne(result, err, "lease episode wakeup"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "lease episode wakeup"); err != nil {
 		return core.EpisodeWakeup{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -966,7 +967,7 @@ func (s *Store) ResolveEpisodeWakeup(
 		observation, now.Format(timestampFormat), now.Format(timestampFormat), id,
 		strings.TrimSpace(owner), fencingToken,
 	)
-	if err := expectOne(result, err, "resolve episode wakeup"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "resolve episode wakeup"); err != nil {
 		return err
 	}
 	payload, _ := episodepkg.Encode(map[string]any{
@@ -1006,5 +1007,5 @@ func (s *Store) RetryEpisodeWakeup(
 		next.UTC().Format(timestampFormat), observation, s.nowText(), id,
 		strings.TrimSpace(owner), fencingToken,
 	)
-	return expectOne(result, err, "retry episode wakeup")
+	return sqlutil.ExpectOne(result, err, "retry episode wakeup")
 }

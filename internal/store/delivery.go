@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 const slackDeliveryColumns = `
@@ -218,8 +219,8 @@ func scanSlackDelivery(
 			)
 		}
 	}
-	delivery.NextAttemptAt = parseTime(next)
-	delivery.CreatedAt = parseTime(created)
+	delivery.NextAttemptAt = sqlutil.ParseTime(next)
+	delivery.CreatedAt = sqlutil.ParseTime(created)
 	return delivery, nil
 }
 
@@ -310,7 +311,7 @@ func (s *Store) RetryLatestGeneratedVisual(
 		delivery.ID,
 		delivery.State,
 	)
-	if err := expectOne(result, err, "retry retained Slack visual"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "retry retained Slack visual"); err != nil {
 		return core.SlackDelivery{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -318,7 +319,7 @@ func (s *Store) RetryLatestGeneratedVisual(
 	}
 	delivery.State = "retry"
 	delivery.Attempts = 0
-	delivery.NextAttemptAt = parseTime(now)
+	delivery.NextAttemptAt = sqlutil.ParseTime(now)
 	delivery.LastError = ""
 	return delivery, nil
 }
@@ -450,7 +451,7 @@ func (s *Store) LeaseSlackDelivery(
 		SET state = 'sending', updated_at = ?
 		WHERE id = ? AND state IN ('pending', 'retry')`,
 		now, delivery.ID)
-	if err := expectOne(result, err, "lease Slack delivery"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "lease Slack delivery"); err != nil {
 		return core.SlackDelivery{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -503,7 +504,7 @@ func (s *Store) FinishSlackDelivery(
 		    last_error = '', updated_at = ?
 		WHERE id = ? AND state = ?`,
 		messageTS, messageTS, s.nowText(), id, fromState)
-	if err := expectOne(result, err, "finish Slack delivery"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "finish Slack delivery"); err != nil {
 		return err
 	}
 	if incidentID.Valid && kind == "root" {
@@ -513,7 +514,7 @@ func (s *Store) FinishSlackDelivery(
 			    updated_at = ?, card_version = card_version + 1, last_error = ''
 			WHERE id = ? AND channel_id != '' AND root_ts = ''`,
 			messageTS, s.nowText(), incidentID.String)
-		if err := expectOne(result, err, "bind incident root"); err != nil {
+		if err := sqlutil.ExpectOne(result, err, "bind incident root"); err != nil {
 			return err
 		}
 	}
@@ -560,9 +561,9 @@ func (s *Store) RetrySlackDelivery(
 		SET state = ?, failure_count = failure_count + 1,
 		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'sending'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat),
+		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
 		s.nowText(), id)
-	return expectOne(result, err, "retry Slack delivery")
+	return sqlutil.ExpectOne(result, err, "retry Slack delivery")
 }
 
 func (s *Store) ListUncertainSlackDeliveries(
@@ -610,7 +611,7 @@ func (s *Store) RetryUncertainSlackDelivery(
 		SET state = ?, failure_count = failure_count + 1,
 		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'uncertain'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat),
+		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
 		s.nowText(), id)
-	return expectOne(result, err, "retry uncertain Slack delivery")
+	return sqlutil.ExpectOne(result, err, "retry uncertain Slack delivery")
 }

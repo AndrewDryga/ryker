@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func (s *Store) UpsertPreference(
@@ -78,7 +79,7 @@ func (s *Store) UpsertPreference(
 		preference.CreatedAt = now
 	} else {
 		preference.ID = existingID
-		preference.CreatedAt = parseTime(createdAt)
+		preference.CreatedAt = sqlutil.ParseTime(createdAt)
 	}
 	preference.Enabled = true
 	preference.UpdatedAt = now
@@ -243,7 +244,7 @@ func (s *Store) SetPreferenceEnabled(
 		WHERE id = ? AND expires_at > ?`,
 		value, s.nowText(), id, s.nowText(),
 	)
-	if err := expectOne(result, err, "set preference state"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "set preference state"); err != nil {
 		return core.ResponderPreference{}, err
 	}
 	return s.GetPreference(ctx, id)
@@ -258,7 +259,7 @@ func (s *Store) DeletePreference(
 		return core.ResponderPreference{}, err
 	}
 	result, err := s.db.ExecContext(ctx, `DELETE FROM responder_preferences WHERE id = ?`, id)
-	if err := expectOne(result, err, "delete preference"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "delete preference"); err != nil {
 		return core.ResponderPreference{}, err
 	}
 	return preference, nil
@@ -332,7 +333,7 @@ func (s *Store) UpsertStandingRule(
 		rule.CreatedAt = now
 	} else {
 		rule.ID = existingID
-		rule.CreatedAt = parseTime(createdAt)
+		rule.CreatedAt = sqlutil.ParseTime(createdAt)
 	}
 	rule.Enabled = true
 	rule.UpdatedAt = now
@@ -454,7 +455,7 @@ func (s *Store) SetStandingRuleEnabled(
 		WHERE id = ? AND expires_at > ?`,
 		value, s.nowText(), id, s.nowText(),
 	)
-	if err := expectOne(result, err, "set standing rule state"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "set standing rule state"); err != nil {
 		return core.StandingRule{}, err
 	}
 	return s.GetStandingRule(ctx, id)
@@ -469,7 +470,7 @@ func (s *Store) DeleteStandingRule(
 		return core.StandingRule{}, err
 	}
 	result, err := s.db.ExecContext(ctx, `DELETE FROM standing_rules WHERE id = ?`, id)
-	if err := expectOne(result, err, "delete standing rule"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "delete standing rule"); err != nil {
 		return core.StandingRule{}, err
 	}
 	return rule, nil
@@ -513,7 +514,7 @@ func (s *Store) RecordStandingRuleRun(
 			WHERE id = ?`,
 			now, now, ruleID,
 		)
-		if err := expectOne(result, err, "record standing rule trigger"); err != nil {
+		if err := sqlutil.ExpectOne(result, err, "record standing rule trigger"); err != nil {
 			return false, err
 		}
 	}
@@ -623,9 +624,9 @@ func scanPreference(row rowScanner) (core.ResponderPreference, error) {
 		return core.ResponderPreference{}, err
 	}
 	preference.Enabled = enabled == 1
-	preference.ExpiresAt = parseTime(expiresAt)
-	preference.CreatedAt = parseTime(createdAt)
-	preference.UpdatedAt = parseTime(updatedAt)
+	preference.ExpiresAt = sqlutil.ParseTime(expiresAt)
+	preference.CreatedAt = sqlutil.ParseTime(createdAt)
+	preference.UpdatedAt = sqlutil.ParseTime(updatedAt)
 	return preference, nil
 }
 
@@ -665,11 +666,11 @@ func scanStandingRule(row rowScanner) (core.StandingRule, error) {
 	}
 	rule.Enabled = enabled == 1
 	if lastTriggered.Valid {
-		rule.LastTriggered = parseTime(lastTriggered.String)
+		rule.LastTriggered = sqlutil.ParseTime(lastTriggered.String)
 	}
-	rule.ExpiresAt = parseTime(expiresAt)
-	rule.CreatedAt = parseTime(createdAt)
-	rule.UpdatedAt = parseTime(updatedAt)
+	rule.ExpiresAt = sqlutil.ParseTime(expiresAt)
+	rule.CreatedAt = sqlutil.ParseTime(createdAt)
+	rule.UpdatedAt = sqlutil.ParseTime(updatedAt)
 	return rule, nil
 }
 

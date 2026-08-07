@@ -82,12 +82,11 @@ var methodBudget = map[string]int{
 // extraction, not another raise.
 var lineBudget = map[string]int{
 	"service": 24600,
-	// Raised 14000 -> 14100 for foreign-key-safe table rebuilds in the migration
-	// runner. That code is safety-critical and belongs with the runner, so it is
-	// not a candidate for extraction — but the package is now past the headroom
-	// the others have, and the fix is 2026-08-07-extract-cohesive-areas-out-of-store
-	// rather than a fourth raise.
-	"store":      14100,
+	// 14083 today. It has come down twice by extraction rather than being
+	// raised — sqlutil and lifecyclecheck both left — and the remaining areas
+	// are tracked in 2026-08-07-extract-cohesive-areas-out-of-store. Lower this
+	// again as they land; a ratchet that only loosens is not a ratchet.
+	"store":      14090,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

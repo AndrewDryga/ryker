@@ -15,6 +15,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store/scheduleproposal"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -215,7 +216,7 @@ func verifyMigrationBackup(path string, sourceVersion int) error {
 			return fmt.Errorf("verify migration backup integrity: %w", err)
 		}
 		if result != "ok" {
-			return fmt.Errorf("migration backup quick check failed: %s", boundedError(result))
+			return fmt.Errorf("migration backup quick check failed: %s", sqlutil.BoundedError(result))
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -451,7 +452,7 @@ func applySchemaStep(db *sql.DB, statement string, from, to int) error {
 		var result sql.Result
 		result, err = tx.Exec(`UPDATE schema_version SET version = ? WHERE version = ?`, to, from)
 		if err == nil {
-			err = expectOne(result, nil, fmt.Sprintf("record database migration %d", to))
+			err = sqlutil.ExpectOne(result, nil, fmt.Sprintf("record database migration %d", to))
 		}
 	}
 	if err != nil {
@@ -658,7 +659,7 @@ func (s *Store) GetSlackSetting(
 	if err != nil {
 		return SlackSetting{}, err
 	}
-	setting.UpdatedAt = parseTime(updated)
+	setting.UpdatedAt = sqlutil.ParseTime(updated)
 	return setting, nil
 }
 
@@ -698,7 +699,7 @@ func (s *Store) Check(ctx context.Context) error {
 		return fmt.Errorf("check database: %w", err)
 	}
 	if len(problems) > 0 {
-		return fmt.Errorf("database quick check failed: %s", boundedError(strings.Join(problems, "; ")))
+		return fmt.Errorf("database quick check failed: %s", sqlutil.BoundedError(strings.Join(problems, "; ")))
 	}
 	return nil
 }
@@ -856,7 +857,7 @@ func (s *Store) ListFailedWork(ctx context.Context, limit int) ([]FailedWork, er
 			return nil, fmt.Errorf("scan failed work: %w", err)
 		}
 		item.Retryable = retryable != 0
-		item.UpdatedAt = parseTime(updated)
+		item.UpdatedAt = sqlutil.ParseTime(updated)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -899,7 +900,7 @@ func (s *Store) RetryFailedWork(ctx context.Context, kind, id string) (FailedWor
 		}
 		return FailedWork{}, err
 	}
-	item.UpdatedAt = parseTime(updated)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
 	item.Retryable = true
 	if kind == "turn" || kind == "agent_run" {
 		var coopTurnID string
@@ -940,7 +941,7 @@ func (s *Store) RetryFailedWork(ctx context.Context, kind, id string) (FailedWor
 		    last_error = '', updated_at = ?
 		WHERE id = ? AND state = 'failed'`, table, attemptColumn)
 	result, err := tx.ExecContext(ctx, update, retryState, now, now, id)
-	if err := expectOne(result, err, "retry failed "+kind); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "retry failed "+kind); err != nil {
 		return FailedWork{}, err
 	}
 	auditID, err := core.NewID("audit")
@@ -951,7 +952,7 @@ func (s *Store) RetryFailedWork(ctx context.Context, kind, id string) (FailedWor
 		INSERT INTO audit_events
 		  (id, incident_id, kind, actor_id, object_id, outcome, detail, created_at)
 		VALUES (?, '', 'operator.work.retried', 'local-cli', ?, 'succeeded', ?, ?)`,
-		auditID, kind+":"+id, boundedError(item.LastError), now); err != nil {
+		auditID, kind+":"+id, sqlutil.BoundedError(item.LastError), now); err != nil {
 		return FailedWork{}, fmt.Errorf("record retry audit event: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -986,21 +987,6 @@ func timeText(t time.Time) any {
 		return nil
 	}
 	return t.UTC().Format(timestampFormat)
-}
-
-func parseTime(value string) time.Time {
-	if value == "" {
-		return time.Time{}
-	}
-	parsed, _ := time.Parse(timestampParseFormat, value)
-	return parsed
-}
-
-func scanTime(value sql.NullString) time.Time {
-	if !value.Valid {
-		return time.Time{}
-	}
-	return parseTime(value.String)
 }
 
 func (s *Store) AdmitWebhook(ctx context.Context, route, dedupeKey, bodyDigest string, signals []core.Signal) (core.WebhookEvent, bool, error) {
@@ -1056,8 +1042,8 @@ func scanWebhook(row interface{ Scan(...any) error }) (core.WebhookEvent, error)
 		return core.WebhookEvent{}, fmt.Errorf("decode affected incidents: %w", err)
 	}
 	event.Applied = applied != 0
-	event.NextAttemptAt = parseTime(next)
-	event.ReceivedAt = parseTime(received)
+	event.NextAttemptAt = sqlutil.ParseTime(next)
+	event.ReceivedAt = sqlutil.ParseTime(received)
 	return event, nil
 }
 
@@ -1101,7 +1087,7 @@ func (s *Store) FinishWebhook(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE webhook_events SET state = 'done', last_error = '', updated_at = ?
 		WHERE id = ? AND state = 'processing'`, s.nowText(), id)
-	return expectOne(result, err, "finish webhook")
+	return sqlutil.ExpectOne(result, err, "finish webhook")
 }
 
 func (s *Store) RetryWebhook(ctx context.Context, id, detail string, next time.Time, terminal bool) error {
@@ -1112,26 +1098,8 @@ func (s *Store) RetryWebhook(ctx context.Context, id, detail string, next time.T
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE webhook_events SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'processing'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
-	return expectOne(result, err, "retry webhook")
-}
-
-func expectOne(result sql.Result, err error, action string) error {
-	if err != nil {
-		return fmt.Errorf("%s: %w", action, err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("%s: %w", action, err)
-	}
-	if rows != 1 {
-		return fmt.Errorf("%s: %w", action, ErrConflict)
-	}
-	return nil
-}
-
-func boundedError(value string) string {
-	return core.BoundedText(value, 1000)
+		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
+	return sqlutil.ExpectOne(result, err, "retry webhook")
 }
 
 func (s *Store) ApplySignals(
@@ -1182,7 +1150,7 @@ func (s *Store) ApplySignals(
 			UPDATE webhook_events SET applied = ?, incident_ids_json = ?, updated_at = ?
 			WHERE id = ? AND state = 'processing'`,
 			applied, encoded, now.Format(timestampFormat), event.ID)
-		if err := expectOne(result, err, "record applied webhook"); err != nil {
+		if err := sqlutil.ExpectOne(result, err, "record applied webhook"); err != nil {
 			return nil, err
 		}
 	}
@@ -1229,7 +1197,7 @@ func applySignal(
 			Scan(&incidentStatus, &incidentUpdated); err != nil {
 			return "", false, err
 		}
-		tooOld := parseTime(incidentUpdated).Before(now.Add(-correlationWindow))
+		tooOld := sqlutil.ParseTime(incidentUpdated).Before(now.Add(-correlationWindow))
 		endedOccurrence := incidentStatus == string(core.IncidentClosed) ||
 			(incidentStatus == string(core.IncidentResolved) && tooOld)
 		if endedOccurrence {
@@ -1367,7 +1335,7 @@ func refreshIncident(ctx context.Context, tx *sql.Tx, incidentID string, now tim
 		if status == string(core.SignalFiring) {
 			firing++
 			title = candidateTitle
-			lastFiring = parseTime(received)
+			lastFiring = sqlutil.ParseTime(received)
 		} else if title == "" {
 			title = candidateTitle
 		}
@@ -1444,14 +1412,14 @@ func scanIncident(row interface{ Scan(...any) error }) (core.Incident, error) {
 		return core.Incident{}, err
 	}
 	incident.InitialTurnQueued = initial != 0
-	incident.CreatedAt = parseTime(created)
-	incident.UpdatedAt = parseTime(updated)
-	incident.LastFiringAt = scanTime(firing)
-	incident.ResolveDueAt = scanTime(due)
-	incident.ResolvedAt = scanTime(resolved)
-	incident.ClosedAt = scanTime(closed)
-	incident.ChannelStateChangedAt = scanTime(channelChanged)
-	incident.ChannelCheckedAt = scanTime(channelChecked)
+	incident.CreatedAt = sqlutil.ParseTime(created)
+	incident.UpdatedAt = sqlutil.ParseTime(updated)
+	incident.LastFiringAt = sqlutil.ScanTime(firing)
+	incident.ResolveDueAt = sqlutil.ScanTime(due)
+	incident.ResolvedAt = sqlutil.ScanTime(resolved)
+	incident.ClosedAt = sqlutil.ScanTime(closed)
+	incident.ChannelStateChangedAt = sqlutil.ScanTime(channelChanged)
+	incident.ChannelCheckedAt = sqlutil.ScanTime(channelChecked)
 	return incident, nil
 }
 
@@ -1589,9 +1557,9 @@ func (s *Store) ListSignals(ctx context.Context, incidentID string) ([]core.Sign
 		if err := json.Unmarshal(annotations, &signal.Annotations); err != nil {
 			return nil, fmt.Errorf("decode signal annotations: %w", err)
 		}
-		signal.StartsAt = scanTime(starts)
-		signal.EndsAt = scanTime(ends)
-		signal.ReceivedAt = parseTime(received)
+		signal.StartsAt = sqlutil.ScanTime(starts)
+		signal.EndsAt = sqlutil.ScanTime(ends)
+		signal.ReceivedAt = sqlutil.ParseTime(received)
 		result = append(result, signal)
 	}
 	return result, rows.Err()
@@ -1648,7 +1616,7 @@ func (s *Store) SetChannel(ctx context.Context, id, channelID, channelName strin
 		  channel_state = 'active', channel_state_changed_at = ?, channel_checked_at = ?,
 		  updated_at = ?, card_version = card_version + 1, last_error = ''
 		WHERE id = ? AND channel_id = ''`, channelID, channelName, now, now, now, id)
-	return expectOne(result, err, "bind incident channel")
+	return sqlutil.ExpectOne(result, err, "bind incident channel")
 }
 
 func (s *Store) BindThreadWork(ctx context.Context, id string) error {
@@ -1660,7 +1628,7 @@ func (s *Store) BindThreadWork(ctx context.Context, id string) error {
 		WHERE id = ? AND work_scope = 'thread' AND channel_id = ''
 		  AND origin_channel_id != '' AND origin_thread_ts != ''`,
 		now, now, now, id)
-	return expectOne(result, err, "bind thread work conversation")
+	return sqlutil.ExpectOne(result, err, "bind thread work conversation")
 }
 
 func (s *Store) ListChannelReconciliationWork(
@@ -1920,7 +1888,7 @@ func (s *Store) SetCoopSession(ctx context.Context, id, sessionID, forkName stri
 		  updated_at = ?, card_version = card_version + 1, last_error = ''
 		WHERE id = ? AND root_ts != '' AND coop_session_id = ''`,
 		sessionID, forkName, revision, s.nowText(), id)
-	return expectOne(result, err, "bind Coop session")
+	return sqlutil.ExpectOne(result, err, "bind Coop session")
 }
 
 func (s *Store) UpdateCoopState(ctx context.Context, id string, revision, cursor int64, activeTurnID string, workflow core.WorkflowState) error {
@@ -1941,7 +1909,7 @@ func (s *Store) SetIncidentError(ctx context.Context, id string, workflow core.W
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET workflow = ?, last_error = ?, updated_at = ?,
 		  card_version = card_version + 1 WHERE id = ?`,
-		workflow, boundedError(detail), s.nowText(), id)
+		workflow, sqlutil.BoundedError(detail), s.nowText(), id)
 	return err
 }
 
@@ -1971,14 +1939,14 @@ func (s *Store) CloseIncident(ctx context.Context, id string) error {
 		UPDATE incidents SET status = 'closed', workflow = 'closed', closed_at = ?,
 		  updated_at = ?, card_version = card_version + 1, active_turn_id = ''
 		WHERE id = ? AND status != 'closed'`, s.nowText(), s.nowText(), id)
-	return expectOne(result, err, "close incident")
+	return sqlutil.ExpectOne(result, err, "close incident")
 }
 
 func (s *Store) MarkInitialTurnQueued(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET initial_turn_queued = 1, updated_at = ?
 		WHERE id = ? AND initial_turn_queued = 0`, s.nowText(), id)
-	return expectOne(result, err, "mark initial turn queued")
+	return sqlutil.ExpectOne(result, err, "mark initial turn queued")
 }
 
 func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (bool, error) {
@@ -2006,7 +1974,7 @@ func admitSlackInput(
 	}
 	received := input.ReceivedAt
 	if received.IsZero() {
-		received = parseTime(now)
+		received = sqlutil.ParseTime(now)
 	}
 	result, err := executor.ExecContext(ctx, `
 		INSERT OR IGNORE INTO slack_inputs
@@ -2121,7 +2089,7 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 	result, err := tx.ExecContext(ctx, `
 		UPDATE slack_inputs SET state = 'processing', attempts = attempts + 1, updated_at = ?
 		WHERE id = ? AND state IN ('pending', 'retry')`, now, input.ID)
-	if err := expectOne(result, err, "lease Slack input"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "lease Slack input"); err != nil {
 		return core.SlackInput{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -2299,7 +2267,7 @@ func (s *Store) LatestSlackConversationAt(
 	if !latest.Valid || latest.String == "" {
 		return time.Time{}, ErrNotFound
 	}
-	return parseTime(latest.String), nil
+	return sqlutil.ParseTime(latest.String), nil
 }
 
 func (s *Store) HasNewerWatchDecision(
@@ -2395,7 +2363,7 @@ func scanSlackInput(row interface{ Scan(...any) error }) (core.SlackInput, error
 			return core.SlackInput{}, fmt.Errorf("decode Slack input attachments: %w", err)
 		}
 	}
-	input.ReceivedAt = parseTime(received)
+	input.ReceivedAt = sqlutil.ParseTime(received)
 	return input, nil
 }
 
@@ -2403,7 +2371,7 @@ func (s *Store) FinishSlackInput(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE slack_inputs SET state = 'done', last_error = '', updated_at = ?
 		WHERE id = ? AND state = 'processing'`, s.nowText(), id)
-	return expectOne(result, err, "finish Slack input")
+	return sqlutil.ExpectOne(result, err, "finish Slack input")
 }
 
 func (s *Store) RetrySlackInput(ctx context.Context, id, detail string, next time.Time, terminal bool) error {
@@ -2414,8 +2382,8 @@ func (s *Store) RetrySlackInput(ctx context.Context, id, detail string, next tim
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE slack_inputs SET state = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'processing'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
-	return expectOne(result, err, "retry Slack input")
+		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
+	return sqlutil.ExpectOne(result, err, "retry Slack input")
 }
 
 func (s *Store) RetrySlackInputFailure(
@@ -2434,8 +2402,8 @@ func (s *Store) RetrySlackInputFailure(
 		SET state = ?, failure_count = failure_count + 1, last_error = ?,
 		    next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'processing'`,
-		state, boundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
-	return expectOne(result, err, "retry failed Slack input")
+		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
+	return sqlutil.ExpectOne(result, err, "retry failed Slack input")
 }
 
 func (s *Store) FreezeSlackInput(ctx context.Context, id string, frozen []byte) ([]byte, error) {
@@ -2471,7 +2439,7 @@ func (s *Store) SetSlackInputFrozen(ctx context.Context, id string, frozen []byt
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE slack_inputs SET frozen_json = ?, updated_at = ?
 		WHERE id = ? AND state = 'processing'`, frozen, s.nowText(), id)
-	return expectOne(result, err, "set Slack input state")
+	return sqlutil.ExpectOne(result, err, "set Slack input state")
 }
 
 func (s *Store) Audit(ctx context.Context, event core.AuditEvent) error {
@@ -2490,7 +2458,7 @@ func (s *Store) Audit(ctx context.Context, event core.AuditEvent) error {
 		  (id, incident_id, kind, actor_id, object_id, outcome, detail, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		event.ID, event.IncidentID, event.Kind, event.ActorID, event.ObjectID,
-		event.Outcome, boundedError(event.Detail), event.CreatedAt.Format(timestampFormat))
+		event.Outcome, sqlutil.BoundedError(event.Detail), event.CreatedAt.Format(timestampFormat))
 	return err
 }
 

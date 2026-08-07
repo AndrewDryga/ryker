@@ -10,11 +10,10 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 const timestampFormat = core.TimestampFormat
-
-const timestampParseFormat = core.TimestampParseFormat
 
 const proposalSelect = `
 	SELECT id, team_id, channel_id, thread_ts, actor_id, source_ref, task_json,
@@ -176,7 +175,7 @@ func (s *Repository) Accept(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE schedule_proposals SET status = 'accepted', accepted_task_id = ?, updated_at = ?
 		WHERE id = ? AND status = 'pending'`, task.ID, now.Format(timestampFormat), id)
-	if err := expectOne(result, err, "accept schedule proposal"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "accept schedule proposal"); err != nil {
 		return core.ScheduledTask{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -327,9 +326,9 @@ func scanProposal(row rowScanner) (core.ScheduleProposal, error) {
 	if err := json.Unmarshal(taskJSON, &proposal.Task); err != nil {
 		return core.ScheduleProposal{}, err
 	}
-	proposal.ExpiresAt = parseTime(expires)
-	proposal.CreatedAt = parseTime(created)
-	proposal.UpdatedAt = parseTime(updated)
+	proposal.ExpiresAt = sqlutil.ParseTime(expires)
+	proposal.CreatedAt = sqlutil.ParseTime(created)
+	proposal.UpdatedAt = sqlutil.ParseTime(updated)
 	return proposal, nil
 }
 
@@ -374,16 +373,11 @@ func (s *Repository) timeText() string {
 	return s.currentTime().Format(timestampFormat)
 }
 
-func parseTime(value string) time.Time {
-	parsed, _ := time.Parse(timestampParseFormat, value)
-	return parsed
-}
-
 func parseNullTime(value sql.NullString) time.Time {
 	if !value.Valid || value.String == "" {
 		return time.Time{}
 	}
-	return parseTime(value.String)
+	return sqlutil.ParseTime(value.String)
 }
 
 func firstNonempty(values ...string) string {
@@ -393,20 +387,6 @@ func firstNonempty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func expectOne(result sql.Result, err error, action string) error {
-	if err != nil {
-		return fmt.Errorf("%s: %w", action, err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("%s: %w", action, err)
-	}
-	if rows != 1 {
-		return ConflictFor(action)
-	}
-	return nil
 }
 
 type rowScanner interface {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func (s *Store) CreateConfigurationSession(
@@ -121,7 +122,7 @@ func (s *Store) BindConfigurationThread(
 		WHERE id = ? AND status IN ('asking', 'confirming') AND thread_ts = ''`,
 		threadTS, roots, s.nowText(), id,
 	)
-	return expectOne(result, err, "bind configuration thread")
+	return sqlutil.ExpectOne(result, err, "bind configuration thread")
 }
 
 func (s *Store) RecordConfigurationMessage(
@@ -160,7 +161,7 @@ func (s *Store) RecordConfigurationMessage(
 		WHERE id = ? AND status IN ('asking', 'confirming')`,
 		responseThreadTS, data, s.nowText(), id,
 	)
-	return expectOne(result, err, "record configuration message location")
+	return sqlutil.ExpectOne(result, err, "record configuration message location")
 }
 
 func (s *Store) AdvanceConfigurationSession(
@@ -185,7 +186,7 @@ func (s *Store) AdvanceConfigurationSession(
 		  AND julianday(expires_at) > julianday(?)`,
 		step, status, data, s.nowText(), id, expectedRevision, s.nowText(),
 	)
-	if err := expectOne(result, err, "advance configuration session"); err != nil {
+	if err := sqlutil.ExpectOne(result, err, "advance configuration session"); err != nil {
 		return core.ConfigurationSession{}, err
 	}
 	return s.GetConfigurationSession(ctx, id)
@@ -206,7 +207,7 @@ func (s *Store) FinishConfigurationSession(
 		WHERE id = ? AND revision = ? AND status IN ('asking', 'confirming')`,
 		status, s.nowText(), id, expectedRevision,
 	)
-	return expectOne(result, err, "finish configuration session")
+	return sqlutil.ExpectOne(result, err, "finish configuration session")
 }
 
 func (s *Store) SaveChannelConfiguration(
@@ -279,8 +280,8 @@ func (s *Store) GetChannelConfiguration(
 	if err := json.Unmarshal(groups, &configuration.InviteUserGroups); err != nil {
 		return core.ChannelConfiguration{}, fmt.Errorf("decode configured invite groups: %w", err)
 	}
-	configuration.CreatedAt = parseTime(created)
-	configuration.UpdatedAt = parseTime(updated)
+	configuration.CreatedAt = sqlutil.ParseTime(created)
+	configuration.UpdatedAt = sqlutil.ParseTime(updated)
 	return configuration, nil
 }
 
@@ -333,9 +334,9 @@ func scanConfigurationSession(row *sql.Row) (core.ConfigurationSession, error) {
 	if err := json.Unmarshal(threadRoots, &session.ThreadRoots); err != nil {
 		return core.ConfigurationSession{}, fmt.Errorf("decode configuration thread roots: %w", err)
 	}
-	session.ExpiresAt = parseTime(expires)
-	session.CreatedAt = parseTime(created)
-	session.UpdatedAt = parseTime(updated)
+	session.ExpiresAt = sqlutil.ParseTime(expires)
+	session.CreatedAt = sqlutil.ParseTime(created)
+	session.UpdatedAt = sqlutil.ParseTime(updated)
 	return session, nil
 }
 

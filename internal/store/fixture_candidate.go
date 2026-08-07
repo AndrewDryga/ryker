@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 // fixtureCandidateTTL is how long an unreviewed candidate stays useful.
@@ -80,8 +81,8 @@ func (s *Store) ListPendingFixtureCandidates(
 		); err != nil {
 			return nil, err
 		}
-		candidate.CreatedAt = parseTime(created)
-		candidate.ExpiresAt = parseTime(expires)
+		candidate.CreatedAt = sqlutil.ParseTime(created)
+		candidate.ExpiresAt = sqlutil.ParseTime(expires)
 		result = append(result, candidate)
 	}
 	return result, rows.Err()
@@ -160,8 +161,8 @@ func (s *Store) ListApprovedFixtureCandidates(
 		); err != nil {
 			return nil, err
 		}
-		candidate.CreatedAt = parseTime(created)
-		candidate.ExpiresAt = parseTime(expires)
+		candidate.CreatedAt = sqlutil.ParseTime(created)
+		candidate.ExpiresAt = sqlutil.ParseTime(expires)
 		result = append(result, candidate)
 	}
 	return result, rows.Err()
