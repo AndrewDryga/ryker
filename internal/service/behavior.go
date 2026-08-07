@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -288,7 +289,7 @@ that does not fit the typed catalogs. Omit all offers for one-time requests.`
 
 func explicitBehaviorRequest(text string) bool {
 	return explicitPreferenceRequestPattern.MatchString(text) ||
-		explicitRuleRequestPattern.MatchString(text) || explicitScheduleRequest(text)
+		explicitRuleRequestPattern.MatchString(text) || schedulepkg.ExplicitScheduleRequest(text)
 }
 
 func normalizeResponseLocationPreference(

@@ -14,6 +14,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/provider"
+	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -431,7 +432,7 @@ func (s *Service) applyReplyDecision(
 	}
 	scheduleInput := input
 	scheduleInput.ThreadTS = responseThreadTS
-	scheduleInput = scheduleInputWithConversationIntent(
+	scheduleInput = schedulepkg.ScheduleInputWithConversationIntent(
 		scheduleInput,
 		state.RecentMessages,
 	)

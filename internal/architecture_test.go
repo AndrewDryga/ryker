@@ -72,11 +72,13 @@ var methodBudget = map[string]int{
 // touches it, little enough that a package quietly absorbing a new
 // responsibility does.
 var lineBudget = map[string]int{
-	"service":    24630,
+	"service":    24432,
 	"store":      14000,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
+	// schedule owns recurrence arithmetic and schedule validation.
+	"schedule": 291,
 	// publication tracks a published PR through checks, merge and deployment.
 	"publication": 392,
 	// decision owns the shapes a model result arrives in and the rules for
@@ -101,6 +103,7 @@ var forbiddenImports = map[string][]string{
 	"investigation": {"service", "store", "slackui", "httpapi", "app"},
 	"decision":      {"service", "store", "httpapi", "app", "publisher", "coop"},
 	"publication":   {"service", "httpapi", "app", "coop", "decision"},
+	"schedule":      {"service", "store", "httpapi", "app", "coop", "publisher", "slackui"},
 	"publisher":     {"service", "store", "slackui", "httpapi", "app"},
 	"localstate":    {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
 	"provider":      {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "core"},

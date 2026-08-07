@@ -10,6 +10,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 )
 
 type completionAssessment = investigation.CompletionAssessment
@@ -180,7 +181,7 @@ func requestEpisodeActivity(text string) core.EpisodeActivity {
 	switch {
 	case simpleExplanationRequest(text):
 		return core.ActivityExplaining
-	case explicitScheduleRequest(text):
+	case schedulepkg.ExplicitScheduleRequest(text):
 		return core.ActivityScheduling
 	default:
 		return core.ActivityInvestigating

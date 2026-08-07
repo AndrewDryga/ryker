@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -59,11 +60,11 @@ func TestScheduleIntentHandlesNaturalRelativeDurations(t *testing.T) {
 		"check this in 12 hours", "do this every Thursday", "run it weekly", "remind me tomorrow",
 		"check this every 6 hours", "prepare this once a month",
 	} {
-		if !explicitScheduleRequest(text) {
+		if !schedulepkg.ExplicitScheduleRequest(text) {
 			t.Fatalf("schedule intent not recognized: %q", text)
 		}
 	}
-	if explicitScheduleRequest("check production health now") {
+	if schedulepkg.ExplicitScheduleRequest("check production health now") {
 		t.Fatal("one-time immediate request was treated as a schedule")
 	}
 }
@@ -77,13 +78,13 @@ func TestScheduleRetryInheritsExplicitIntentFromSameOperatorThread(t *testing.T)
 		{MessageTS: "1700.100", SenderID: "UOPERATOR", SenderType: "human", Text: "Post a deep review daily around 9 am."},
 		{MessageTS: "1700.200", ThreadTS: "1700.100", SenderID: "UOPERATOR", SenderType: "human", Text: "Try again", Target: true},
 	}
-	resolved := scheduleInputWithConversationIntent(input, recent)
-	if resolved.Text != recent[1].Text || !explicitScheduleRequest(resolved.Text) {
+	resolved := schedulepkg.ScheduleInputWithConversationIntent(input, recent)
+	if resolved.Text != recent[1].Text || !schedulepkg.ExplicitScheduleRequest(resolved.Text) {
 		t.Fatalf("resolved schedule intent = %q", resolved.Text)
 	}
 
 	input.Text = "Do not schedule it."
-	if resolved := scheduleInputWithConversationIntent(input, recent); resolved.Text != input.Text {
+	if resolved := schedulepkg.ScheduleInputWithConversationIntent(input, recent); resolved.Text != input.Text {
 		t.Fatalf("non-continuation inherited stale intent = %q", resolved.Text)
 	}
 }
@@ -102,7 +103,7 @@ func TestCalendarScheduleComputesNextRunWithoutModelDateArithmetic(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	local := task.NextRunAt.In(mustLocation(task.Timezone))
+	local := task.NextRunAt.In(schedulepkg.MustLocation(task.Timezone))
 	if !task.StartAt.Equal(task.NextRunAt) || local.Hour() != 9 || !task.NextRunAt.After(now) {
 		t.Fatalf("computed next run = %s (%s)", task.NextRunAt, local)
 	}
@@ -136,13 +137,13 @@ func TestScheduleOfferRejectsInvalidTimezoneAndExpiryBeforeFirstRun(t *testing.T
 func TestNextScheduledOccurrencePreservesCalendarAndSkipsMissingMonthDay(t *testing.T) {
 	task := core.ScheduledTask{Recurrence: "monthly", DayOfMonth: 31, LocalTime: "09:30", Timezone: "America/New_York"}
 	after := time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC)
-	next := nextScheduledOccurrence(task, after).In(mustLocation(task.Timezone))
+	next := schedulepkg.NextScheduledOccurrence(task, after).In(schedulepkg.MustLocation(task.Timezone))
 	if next.Month() != time.May || next.Day() != 31 || next.Hour() != 9 || next.Minute() != 30 {
 		t.Fatalf("next monthly occurrence = %s", next)
 	}
 
 	interval := core.ScheduledTask{Recurrence: "interval", StartAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), IntervalSeconds: 3600}
-	got := nextScheduledOccurrence(interval, time.Date(2026, 1, 1, 5, 20, 0, 0, time.UTC))
+	got := schedulepkg.NextScheduledOccurrence(interval, time.Date(2026, 1, 1, 5, 20, 0, 0, time.UTC))
 	want := time.Date(2026, 1, 1, 6, 0, 0, 0, time.UTC)
 	if !got.Equal(want) {
 		t.Fatalf("next interval = %s, want %s", got, want)
@@ -150,10 +151,10 @@ func TestNextScheduledOccurrencePreservesCalendarAndSkipsMissingMonthDay(t *test
 }
 
 func TestNextScheduledOccurrenceSkipsNonexistentDSTWallTime(t *testing.T) {
-	location := mustLocation("America/New_York")
+	location := schedulepkg.MustLocation("America/New_York")
 	task := core.ScheduledTask{Recurrence: "daily", LocalTime: "02:30", Timezone: "America/New_York"}
 	after := time.Date(2026, time.March, 8, 0, 0, 0, 0, location)
-	next := nextScheduledOccurrence(task, after).In(location)
+	next := schedulepkg.NextScheduledOccurrence(task, after).In(location)
 	if next.Day() != 9 || next.Hour() != 2 || next.Minute() != 30 {
 		t.Fatalf("next DST occurrence = %s, want Mar 9 at 02:30", next)
 	}
