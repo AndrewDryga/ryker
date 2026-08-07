@@ -606,28 +606,21 @@ func TurnFailureMessage(state, detail string) Message {
 // AgentReportFailureMessage is what an operator sees when Responder exhausted
 // its corrections and still could not read its own model's result.
 //
-// It deliberately carries no parse error. The operator asked a question; that
-// the answer arrived in the wrong envelope is Responder's problem, and quoting
-// `json: unknown field "reply"` at someone waiting on an incident tells them
-// nothing they can act on. What they need is what survived, and what to do next.
-//
-// The detail argument is retained for callers that have something genuinely
-// operator-facing to add; an internal error is not that, and passing "" is the
-// normal case.
-func AgentReportFailureMessage(detail string) Message {
-	sections := []string{
-		"The investigation ran and its findings are preserved, but the final " +
-			"summary did not come back in a form I could publish.",
-		"Reply in this thread and I will write it up again from the same work — " +
-			"nothing was lost and nothing was changed.",
-	}
-	if detail = strings.TrimSpace(detail); detail != "" {
-		sections = append([]string{escapeSlackText(truncateUTF8(detail, 800))}, sections...)
-	}
+// It takes no detail argument on purpose. An earlier version accepted one "for
+// callers with something operator-facing to add", and the only thing callers
+// ever had was the parse error — so the parameter was a hole that put
+// `json: cannot unmarshal ...` in front of someone waiting on an incident.
+// What they need is what survived, that nothing changed, and what to do next.
+func AgentReportFailureMessage() Message {
 	return Message{
-		Text:     "I could not publish a clean summary of that turn.",
-		Header:   "Summary needs another pass",
-		Sections: sections,
+		Text:   "I could not publish a clean summary of that turn.",
+		Header: "Summary needs another pass",
+		Sections: []string{
+			"The investigation ran and its findings are preserved, but the final " +
+				"summary did not come back in a form I could publish.",
+			"Reply in this thread and I will write it up again from the same work — " +
+				"nothing was lost and nothing was changed.",
+		},
 		Context: []string{
 			"No merge, push, signing, or deployment occurred. " +
 				"Raw transcripts and tool output are not posted to Slack.",

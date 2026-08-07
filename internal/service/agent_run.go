@@ -2479,12 +2479,17 @@ func (s *Service) reportTurnFailure(
 	state string,
 	detail string,
 ) slackui.Message {
-	message := slackui.AgentReportFailureMessage(detail)
+	message := slackui.AgentReportFailureMessage()
 	if !decisionpkg.StructuredResultFailure(detail) {
 		failure := provider.Classify(detail)
 		message = slackui.TurnFailureMessage(
 			state,
-			failure.Summary+"\n\nReported detail: `"+detail+"`\n\n"+failure.OperatorFix,
+			// provider.Classify already turned the provider's error into
+			// something an operator can act on. Appending the raw detail after
+			// it undoes that work — the classification exists precisely because
+			// the raw text is not actionable. It stays in the log and the audit
+			// event, where whoever is debugging Responder will look for it.
+			failure.Summary+"\n\n"+failure.OperatorFix,
 		)
 	}
 	s.recordTimeline(ctx, core.TimelineEvent{
@@ -2613,7 +2618,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			// Out of corrections. Say so in the operator's terms — what was
 			// lost, what survived, and what they can do — without the parse
 			// error, which means nothing to them.
-			message = slackui.AgentReportFailureMessage("")
+			message = slackui.AgentReportFailureMessage()
 			s.recordTimeline(ctx, core.TimelineEvent{
 				ID:         "tl_agent_failure_" + run.ID,
 				IncidentID: incident.ID, ChannelID: incident.ChannelID,

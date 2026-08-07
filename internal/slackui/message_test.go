@@ -865,7 +865,7 @@ func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
 // turn" and "Result needs a clean summary" — both of which describe Responder's
 // plumbing rather than the operator's situation.
 func TestAgentReportFailureSpeaksToTheOperatorNotAboutTheParser(t *testing.T) {
-	message := AgentReportFailureMessage("")
+	message := AgentReportFailureMessage()
 	content := message.Text + "\n" + message.Header + "\n" +
 		strings.Join(message.Sections, "\n") + "\n" + strings.Join(message.Context, "\n")
 
@@ -895,13 +895,9 @@ func TestAgentReportFailureSpeaksToTheOperatorNotAboutTheParser(t *testing.T) {
 		t.Error("failure message dropped the statement bounding what happened")
 	}
 
-	// A caller with something genuinely operator-facing may still add it, and a
-	// raw internal error passed here would be a bug at the call site rather
-	// than in this function — so the incident path passes "".
-	withDetail := AgentReportFailureMessage("The repository is not reachable from this runner.")
-	if !strings.Contains(strings.Join(withDetail.Sections, "\n"), "not reachable") {
-		t.Error("an operator-facing detail was dropped")
-	}
+	// It takes no detail argument at all now. The parameter existed "for
+	// callers with something operator-facing to add", and the only thing any
+	// caller ever had was the parse error.
 }
 
 func TestTimelineHandoffAndPostmortemRemainEvidenceGrounded(t *testing.T) {
