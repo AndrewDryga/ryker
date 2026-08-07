@@ -1504,6 +1504,26 @@ func (s *Service) requeueWithCorrection(
 		Outcome:    string(class),
 		Detail:     s.sanitizeText(decisionpkg.BoundedField(correction, 500)),
 	})
+	// Queue the correction for review as a regression fixture. This is the
+	// whole self-improving loop in one line: the host already decided the model
+	// was wrong and said why, so the label is free — all it needs is a person
+	// deciding the lesson is worth keeping.
+	//
+	// A failure here must not fail the retry. The correction is the useful
+	// thing; capturing it for later is a bonus, and losing the bonus is not a
+	// reason to lose the turn.
+	if err := s.store.RecordFixtureCandidate(ctx, core.FixtureCandidate{
+		EpisodeID:       run.EpisodeID,
+		RunID:           run.ID,
+		CorrectionClass: string(class),
+		Correction:      s.sanitizeText(correction),
+	}); err != nil && s.log != nil {
+		s.log.Warn(
+			"could not queue a correction for review",
+			"run", run.ID,
+			"error", err,
+		)
+	}
 	return nil
 }
 

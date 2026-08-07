@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 43
+const currentSchemaVersion = 44
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1192,6 +1192,37 @@ CREATE INDEX standing_assignment_actions_budget_idx
   ON standing_assignment_actions(assignment_id, created_at);
 `
 
+const schemaV44 = `
+-- A correction is a regression fixture that writes itself: the host already
+-- decided the model was wrong and said exactly why, which is a label no one had
+-- to produce by hand. This table is the queue between that moment and the
+-- corpus, because section 23.3 requires a human to review anything entering a
+-- release gate — and because review is also what keeps the corpus from filling
+-- with the same three mistakes.
+--
+-- expires_at is not housekeeping. A candidate nobody reviewed for a fortnight is
+-- evidence about a prompt version that may no longer exist, and promoting it
+-- later encodes a bug that was already fixed. Stale candidates must lapse rather
+-- than wait forever.
+CREATE TABLE fixture_candidates (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  capability TEXT NOT NULL DEFAULT '',
+  correction_class TEXT NOT NULL,
+  correction TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
+  reviewed_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(episode_id, correction_class)
+);
+
+CREATE INDEX fixture_candidates_review_idx
+  ON fixture_candidates(status, created_at);
+`
+
 // migrations maps a target schema version to the statement that reaches it
 // from the version before. Versions at or below the baseline are absent
 // because baselineSchema already produces them.
@@ -1232,4 +1263,5 @@ var migrations = map[int]string{
 	41: schemaV41,
 	42: schemaV42,
 	43: schemaV43,
+	44: schemaV44,
 }

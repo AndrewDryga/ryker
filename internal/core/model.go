@@ -1360,3 +1360,23 @@ type StandingAssignment struct {
 func (a StandingAssignment) Live(now time.Time) bool {
 	return a.Enabled && a.ExpiresAt.After(now)
 }
+
+// FixtureCandidate is a correction waiting to become a regression fixture.
+//
+// The host already decided the model was wrong and said why, so the label costs
+// nothing to produce. What it still needs is a human deciding the lesson is
+// worth keeping — both because the design document requires review before
+// anything enters a release gate, and because unreviewed corrections would fill
+// the corpus with the same few mistakes.
+type FixtureCandidate struct {
+	ID              string    `json:"id"`
+	EpisodeID       string    `json:"episode_id"`
+	RunID           string    `json:"run_id"`
+	Capability      string    `json:"capability,omitempty"`
+	CorrectionClass string    `json:"correction_class"`
+	Correction      string    `json:"correction"`
+	Status          string    `json:"status"`
+	ReviewedBy      string    `json:"reviewed_by,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	ExpiresAt       time.Time `json:"expires_at"`
+}
