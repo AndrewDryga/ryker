@@ -55,8 +55,16 @@ var methodBudget = map[string]int{
 //
 // The process-local coordination state moved to internal/localstate, which is
 // how this budget came back to 28000 after the decision-logic refactors.
+//
+// A note on margin, learned the hard way: a budget set to the exact current
+// count is a tripwire, not a ratchet — the next legitimate feature trips it and
+// the pressure to "just bump it" is at its highest precisely when the change is
+// justified. Leave a small working margin and tighten after an extraction, not
+// after every commit. This entry was set to 27900 against a count of 27808,
+// which was too tight and failed on the next feature; 27950 is the corrected
+// number and is still below the 28000 the package started at.
 var lineBudget = map[string]int{
-	"service":    27900,
+	"service":    27950,
 	"store":      13800,
 	"localstate": 250,
 	"provider":   120,

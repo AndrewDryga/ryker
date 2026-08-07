@@ -66,25 +66,6 @@ func (s *Service) ensureWatchSessionAtGeneration(
 	)
 }
 
-func watchPrompt(
-	input core.SlackInput,
-	botUserID string,
-	recent []watchContextMessage,
-) string {
-	return (&Service{}).watchPrompt(
-		input,
-		botUserID,
-		false,
-		recent,
-		core.AgentMemory{},
-		nil,
-		nil,
-		operationalMemoryContext{},
-		"",
-		nil,
-	)
-}
-
 func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision) string {
 	return alertReplyLanguageCorrectionWithContext(input, watchTurnState{}, decision)
 }

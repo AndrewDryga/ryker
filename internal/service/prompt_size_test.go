@@ -21,7 +21,11 @@ import (
 // raising one means every future turn sees less of its channel, which needs a
 // reason written here.
 var promptCeilings = map[string]int{
-	"watch": 50 * 1024,
+	// Lowered from 50 KiB when conditional inclusion landed: an ambient channel
+	// message no longer carries the scheduled-occurrence, host-recheck,
+	// publication-correlation or durable-behavior rules, none of which it can
+	// use.
+	"watch": 42 * 1024,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {
@@ -203,4 +207,58 @@ func omittedSection(t *testing.T, prompt string) string {
 	}
 	end := min(index+400, len(prompt))
 	return prompt[index:end]
+}
+
+// Every byte of instruction is a byte the model cannot spend on the
+// conversation, so a rule that cannot apply to this turn should not be sent.
+// Each block must appear exactly when its precondition holds.
+func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
+	cfg := serviceConfig(t)
+	svc := &Service{cfg: cfg}
+	operator := cfg.Slack.Operators[0]
+
+	build := func(input core.SlackInput) string {
+		return svc.unboundedWatchPrompt(
+			input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+			operationalMemoryContext{}, "emisar", nil, nil,
+		)
+	}
+
+	ambient := build(core.SlackInput{ChannelID: "C1", Text: "is checkout slow?"})
+	for _, absent := range []struct{ name, marker string }{
+		{"scheduled occurrence", "sender_type is operator_schedule"},
+		{"host recheck", "sender_type is host_recheck"},
+		{"publication correlation", "trusted-active-publications"},
+		{"behavior offers", "A configured operator may define typed Responder behavior"},
+	} {
+		if strings.Contains(ambient, absent.marker) {
+			t.Errorf("the %s block was sent to a turn that cannot use it", absent.name)
+		}
+	}
+
+	fromOperator := build(core.SlackInput{ChannelID: "C1", UserID: operator, Text: "remember this"})
+	if !strings.Contains(fromOperator, "A configured operator may define typed Responder behavior") {
+		t.Error("an operator turn did not carry the behavior offer rules")
+	}
+
+	scheduled := build(core.SlackInput{ChannelID: "C1", Kind: "scheduled", Text: "daily check"})
+	if !strings.Contains(scheduled, "sender_type is operator_schedule") {
+		t.Error("a scheduled occurrence did not carry its own handling rules")
+	}
+	if strings.Contains(scheduled, "sender_type is host_recheck") {
+		t.Error("a scheduled occurrence carried the recheck rules")
+	}
+
+	recheck := build(core.SlackInput{ChannelID: "C1", Kind: "recheck", Text: "recheck"})
+	if !strings.Contains(recheck, "sender_type is host_recheck") {
+		t.Error("a recheck did not carry its own handling rules")
+	}
+
+	// An ambient turn is the common case, so its saving is the one that matters.
+	if len(ambient) >= len(fromOperator) {
+		t.Errorf("an ambient turn (%d bytes) was not cheaper than an operator turn (%d bytes)",
+			len(ambient), len(fromOperator))
+	}
+	t.Logf("ambient turn %d bytes, operator turn %d bytes, saving %d",
+		len(ambient), len(fromOperator), len(fromOperator)-len(ambient))
 }

@@ -54,15 +54,29 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 	}
 }
 
+// The policy text below must survive every edit to the prompt. Some of it is
+// conditional now, so this builds the turn that enables everything — an
+// operator's scheduled occurrence — and asserts the wording is intact.
+// TestPromptSectionsAppearOnlyWhenTheyApply owns the separate question of which
+// blocks reach which turn.
 func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
-	prompt := watchPrompt(
+	cfg := serviceConfig(t)
+	prompt := (&Service{cfg: cfg}).watchPrompt(
 		core.SlackInput{
 			ChannelID: "C123ABC",
 			MessageTS: "1700.001",
-			UserID:    "U123ABC",
+			UserID:    cfg.Slack.Operators[0],
+			Kind:      "scheduled",
 			Text:      "How is the health of our infrastructure?",
 		},
 		"U999BOT",
+		false,
+		nil,
+		core.AgentMemory{},
+		nil,
+		nil,
+		operationalMemoryContext{},
+		"",
 		nil,
 	)
 	for _, required := range []string{
