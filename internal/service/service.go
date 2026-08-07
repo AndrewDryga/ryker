@@ -517,7 +517,39 @@ func (s *Service) runMaintenance(ctx context.Context) {
 	} else {
 		s.coopHealthy.Store(true)
 	}
+	s.warnAboutLapsingCorrections(ctx)
 	s.maintainLifecycle(ctx)
+}
+
+// warnAboutLapsingCorrections logs when the product's own corrections are about
+// to be forgotten.
+//
+// A fixture candidate is a correction Responder made about itself, and it is
+// only actionable while it is pending. Until this existed the only place a
+// pending correction appeared was App Home, so the loop could stall for a
+// fortnight and then lose the evidence with nothing said anywhere.
+//
+// A log line rather than a Slack message, deliberately. The count is already on
+// /metrics, and this deployment alerts from Grafana — so the alertable signal
+// exists, and a proactive Slack notice would mean new plumbing whose failure
+// mode is pestering operators about a queue they may be working through
+// deliberately. The log is the second signal, not the primary one.
+func (s *Service) warnAboutLapsingCorrections(ctx context.Context) {
+	metrics, err := s.store.Metrics(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.log.Warn("read correction review backlog", "error", err)
+		}
+		return
+	}
+	if metrics.CorrectionsLapsingSoon == 0 {
+		return
+	}
+	s.log.Warn(
+		"corrections are about to lapse unreviewed; they will not be learned from",
+		"lapsing_within_3_days", metrics.CorrectionsLapsingSoon,
+		"awaiting_review", metrics.CorrectionsAwaitingReview,
+	)
 }
 
 func (s *Service) reconcileIncidentChannel(ctx context.Context) error {

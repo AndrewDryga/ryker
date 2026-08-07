@@ -59,3 +59,46 @@ func TestCorrectionsAwaitingReviewAreCounted(t *testing.T) {
 		)
 	}
 }
+
+// A correction that lapses is one the product made about itself, kept for a
+// fortnight, and then forgot. Nothing else counted them, so this is the only
+// thing standing between a stalled review queue and silent data loss.
+func TestLapsedCorrectionsStopBeingCounted(t *testing.T) {
+	ctx := context.Background()
+	st := openAt(t, t.TempDir())
+	now := time.Now().UTC()
+
+	if _, err := st.db.ExecContext(ctx, `
+		INSERT INTO fixture_candidates (id, episode_id, run_id, capability,
+		  correction_class, correction, status, created_at, expires_at, updated_at)
+		VALUES ('fixcand_edge','ep_edge','run','cap','incomplete','detail','pending',?,?,?)`,
+		now.Format(timestampFormat),
+		now.Add(time.Minute).Format(timestampFormat),
+		now.Format(timestampFormat),
+	); err != nil {
+		t.Fatal(err)
+	}
+	before, err := st.Metrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.CorrectionsAwaitingReview != 1 || before.CorrectionsLapsingSoon != 1 {
+		t.Fatalf("a candidate one minute from lapsing was not flagged: %+v", before)
+	}
+
+	// Push it past its expiry. It is gone as far as review is concerned, and
+	// counting it would report work that can no longer be done.
+	if _, err := st.db.ExecContext(ctx,
+		`UPDATE fixture_candidates SET expires_at = ?`,
+		now.Add(-time.Minute).Format(timestampFormat),
+	); err != nil {
+		t.Fatal(err)
+	}
+	after, err := st.Metrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.CorrectionsAwaitingReview != 0 || after.CorrectionsLapsingSoon != 0 {
+		t.Fatalf("a lapsed candidate is still counted as reviewable: %+v", after)
+	}
+}
