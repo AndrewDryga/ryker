@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/scheduleproposal"
 	_ "modernc.org/sqlite"
 )
 
@@ -55,8 +56,9 @@ var (
 )
 
 type Store struct {
-	db    *sql.DB
-	clock func() time.Time
+	db                *sql.DB
+	clock             func() time.Time
+	ScheduleProposals *scheduleproposal.Store
 }
 
 type Metrics struct {
@@ -117,6 +119,7 @@ func Open(stateDir string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	store := &Store{db: db}
+	store.ScheduleProposals = scheduleproposal.New(db, func() time.Time { return store.now() })
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("open database: %w", err)
