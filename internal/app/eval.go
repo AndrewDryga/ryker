@@ -19,9 +19,41 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
-func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
-	flags := flag.NewFlagSet("eval", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+// evalOptions collects the eval command's flags.
+//
+// The eval command is the entry point for every release gate, so a mistake in
+// its wiring weakens a gate silently rather than failing loudly. Keeping the
+// twenty-four flag declarations out of the command body leaves the part with
+// actual logic — the validation and the mode dispatch — short enough to read
+// against the Makefile targets that depend on it.
+type evalOptions struct {
+	inputPath             *string
+	jsonOutput            *bool
+	resultsPath           *string
+	replay                *bool
+	episodeReplay         *bool
+	canary                *bool
+	configPath            *string
+	caseTimeout           *time.Duration
+	caseFilter            *string
+	repeat                *int
+	scenarios             *bool
+	calibrateJudge        *bool
+	judge                 *bool
+	verifyEvidence        *bool
+	taskPolicy            *string
+	minOverallPassRate    *float64
+	minCasePassRate       *float64
+	minProactivePrecision *float64
+	minProactiveRecall    *float64
+	maxFalseInterruption  *float64
+	minMeanQuality        *float64
+	baselinePath          *string
+	writeBaselinePath     *string
+	maxRegression         *float64
+}
+
+func defineEvalFlags(flags *flag.FlagSet) *evalOptions {
 	inputPath := flags.String(
 		"input", "",
 		"JSONL corpus (defaults to testdata/eval/live.jsonl or golden.jsonl with --replay)",
@@ -133,6 +165,128 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		0,
 		"maximum allowed per-case pass-rate regression from baseline",
 	)
+	return &evalOptions{
+		inputPath:             inputPath,
+		jsonOutput:            jsonOutput,
+		resultsPath:           resultsPath,
+		replay:                replay,
+		episodeReplay:         episodeReplay,
+		canary:                canary,
+		configPath:            configPath,
+		caseTimeout:           caseTimeout,
+		caseFilter:            caseFilter,
+		repeat:                repeat,
+		scenarios:             scenarios,
+		calibrateJudge:        calibrateJudge,
+		judge:                 judge,
+		verifyEvidence:        verifyEvidence,
+		taskPolicy:            taskPolicy,
+		minOverallPassRate:    minOverallPassRate,
+		minCasePassRate:       minCasePassRate,
+		minProactivePrecision: minProactivePrecision,
+		minProactiveRecall:    minProactiveRecall,
+		maxFalseInterruption:  maxFalseInterruption,
+		minMeanQuality:        minMeanQuality,
+		baselinePath:          baselinePath,
+		writeBaselinePath:     writeBaselinePath,
+		maxRegression:         maxRegression,
+	}
+}
+
+// validate rejects flag combinations that would produce a meaningless gate —
+// a replay asked to judge, two modes at once, a threshold outside its range.
+// It reports whether the false-interruption ceiling was explicitly set, which
+// cannot be inferred from its value because zero is a meaningful ceiling.
+func (options *evalOptions) validate(flags *flag.FlagSet) (bool, error) {
+	enforce := false
+	flags.Visit(func(candidate *flag.Flag) {
+		if candidate.Name == "max-false-interruption-rate" {
+			enforce = true
+		}
+	})
+	if *options.repeat < 1 || *options.repeat > 10 {
+		return false, errors.New("eval --repeat must be between 1 and 10")
+	}
+	for name, value := range map[string]float64{
+		"min-overall-pass-rate":       *options.minOverallPassRate,
+		"min-case-pass-rate":          *options.minCasePassRate,
+		"min-proactive-precision":     *options.minProactivePrecision,
+		"min-proactive-recall":        *options.minProactiveRecall,
+		"max-false-interruption-rate": *options.maxFalseInterruption,
+		"max-regression":              *options.maxRegression,
+	} {
+		if value < 0 || value > 1 {
+			return false, fmt.Errorf("eval --%s must be between 0 and 1", name)
+		}
+	}
+	if *options.minMeanQuality < 0 || *options.minMeanQuality > 5 {
+		return false, errors.New("eval --min-mean-quality must be between 0 and 5")
+	}
+	modeCount := 0
+	for _, enabled := range []bool{*options.replay, *options.episodeReplay, *options.scenarios, *options.calibrateJudge} {
+		if enabled {
+			modeCount++
+		}
+	}
+	if modeCount > 1 {
+		return false, errors.New("eval --replay, --episode-replay, --scenarios, and --calibrate-judge are mutually exclusive")
+	}
+	if *options.calibrateJudge && *options.repeat != 1 {
+		return false, errors.New("eval --repeat is not supported with --calibrate-judge")
+	}
+	if *options.replay && (*options.caseFilter != "" || *options.repeat != 1 || *options.scenarios ||
+		*options.calibrateJudge ||
+		*options.judge || *options.verifyEvidence) {
+		return false, errors.New(
+			"eval --case, --repeat, --scenarios, --calibrate-judge, --judge, and --verify-evidence require a real model run",
+		)
+	}
+	if *options.canary && *options.caseFilter != "" {
+		return false, errors.New("eval --canary and --case are mutually exclusive")
+	}
+	if *options.canary {
+		*options.caseFilter = "canary"
+	}
+	if *options.inputPath == "" && *options.replay {
+		*options.inputPath = "testdata/eval/golden.jsonl"
+	}
+	if *options.inputPath == "" && *options.episodeReplay {
+		*options.inputPath = "testdata/eval/episode-replay.jsonl"
+	}
+	if *options.inputPath == "" {
+		*options.inputPath = "testdata/eval/live.jsonl"
+	}
+	return enforce, nil
+}
+
+func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
+	flags := flag.NewFlagSet("eval", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	options := defineEvalFlags(flags)
+	inputPath := options.inputPath
+	jsonOutput := options.jsonOutput
+	resultsPath := options.resultsPath
+	replay := options.replay
+	episodeReplay := options.episodeReplay
+	canary := options.canary
+	configPath := options.configPath
+	caseTimeout := options.caseTimeout
+	caseFilter := options.caseFilter
+	repeat := options.repeat
+	scenarios := options.scenarios
+	calibrateJudge := options.calibrateJudge
+	judge := options.judge
+	verifyEvidence := options.verifyEvidence
+	taskPolicy := options.taskPolicy
+	minOverallPassRate := options.minOverallPassRate
+	minCasePassRate := options.minCasePassRate
+	minProactivePrecision := options.minProactivePrecision
+	minProactiveRecall := options.minProactiveRecall
+	maxFalseInterruption := options.maxFalseInterruption
+	minMeanQuality := options.minMeanQuality
+	baselinePath := options.baselinePath
+	writeBaselinePath := options.writeBaselinePath
+	maxRegression := options.maxRegression
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -142,63 +296,9 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if flags.NArg() != 0 {
 		return errors.New("eval accepts no positional arguments")
 	}
-	enforceFalseInterruption := false
-	flags.Visit(func(candidate *flag.Flag) {
-		if candidate.Name == "max-false-interruption-rate" {
-			enforceFalseInterruption = true
-		}
-	})
-	if *repeat < 1 || *repeat > 10 {
-		return errors.New("eval --repeat must be between 1 and 10")
-	}
-	for name, value := range map[string]float64{
-		"min-overall-pass-rate":       *minOverallPassRate,
-		"min-case-pass-rate":          *minCasePassRate,
-		"min-proactive-precision":     *minProactivePrecision,
-		"min-proactive-recall":        *minProactiveRecall,
-		"max-false-interruption-rate": *maxFalseInterruption,
-		"max-regression":              *maxRegression,
-	} {
-		if value < 0 || value > 1 {
-			return fmt.Errorf("eval --%s must be between 0 and 1", name)
-		}
-	}
-	if *minMeanQuality < 0 || *minMeanQuality > 5 {
-		return errors.New("eval --min-mean-quality must be between 0 and 5")
-	}
-	modeCount := 0
-	for _, enabled := range []bool{*replay, *episodeReplay, *scenarios, *calibrateJudge} {
-		if enabled {
-			modeCount++
-		}
-	}
-	if modeCount > 1 {
-		return errors.New("eval --replay, --episode-replay, --scenarios, and --calibrate-judge are mutually exclusive")
-	}
-	if *calibrateJudge && *repeat != 1 {
-		return errors.New("eval --repeat is not supported with --calibrate-judge")
-	}
-	if *replay && (*caseFilter != "" || *repeat != 1 || *scenarios ||
-		*calibrateJudge ||
-		*judge || *verifyEvidence) {
-		return errors.New(
-			"eval --case, --repeat, --scenarios, --calibrate-judge, --judge, and --verify-evidence require a real model run",
-		)
-	}
-	if *canary && *caseFilter != "" {
-		return errors.New("eval --canary and --case are mutually exclusive")
-	}
-	if *canary {
-		*caseFilter = "canary"
-	}
-	if *inputPath == "" && *replay {
-		*inputPath = "testdata/eval/golden.jsonl"
-	}
-	if *inputPath == "" && *episodeReplay {
-		*inputPath = "testdata/eval/episode-replay.jsonl"
-	}
-	if *inputPath == "" {
-		*inputPath = "testdata/eval/live.jsonl"
+	enforceFalseInterruption, err := options.validate(flags)
+	if err != nil {
+		return err
 	}
 	file, err := os.Open(*inputPath)
 	if err != nil {
