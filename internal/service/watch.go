@@ -13,7 +13,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/provider"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -392,6 +391,10 @@ func (s *Service) applyReplyDecision(
 	responseThreadTS string,
 	post func(context.Context, string, core.SlackInput, slackui.Message) error,
 ) error {
+	// The answer is arriving, so the pause comes off. A message that was
+	// marked "not yet" and then answered should not keep the mark.
+	s.clearInputPaused(ctx, input)
+
 	replyParts := decisionpkg.ReplySequence(decision.Message, decision.FollowupMessages)
 	finalReply := replyParts[len(replyParts)-1]
 	message := s.watchReplyMessage(
@@ -1616,25 +1619,6 @@ func (s *Service) retireFailedWatchSession(
 		}
 	}
 	return errors.Join(errs...)
-}
-
-func watchFailureNotice(detail string) string {
-	detail = trimError(errors.New(detail))
-	if decisionpkg.StructuredResultFailure(detail) {
-		return "*I couldn't finish this assessment.*\n\n" +
-			"I gathered evidence, but the final answer still did not pass Responder's " +
-			"completeness checks after retrying. No incident was created and nothing was changed. " +
-			"Try the request once more; if it repeats, check the Responder and Coop logs."
-	}
-	// provider.Classify exists to turn the reported failure into something an
-	// operator can act on. Appending the raw text after it puts the
-	// unactionable version back in front of them, which is what the
-	// classification was for. It stays in the log and the audit event.
-	failure := provider.Classify(detail)
-	return "*Responder could not complete this check.*\n\n" +
-		failure.Summary + "\n\n" +
-		"No incident was created, and Responder made no repository or infrastructure changes. " +
-		failure.OperatorFix
 }
 
 func (s *Service) clearWatchPendingStatus(

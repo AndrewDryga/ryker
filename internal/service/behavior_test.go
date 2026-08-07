@@ -282,17 +282,31 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 		t.Fatalf("alert acknowledgement = %+v", slackClient.reactions)
 	}
 	finishQueuedAgentRun(t, ctx, svc)
-	if len(slackClient.removedReactions) != 0 {
-		t.Fatalf("alert acknowledgement cleared before deep triage completed: %+v", slackClient.removedReactions)
+	// The acknowledgement specifically. Clearing a pause is a different
+	// reaction and a legitimate thing to do when a reply is on its way.
+	for _, removed := range slackClient.removedReactions {
+		if removed.name == "eyes" {
+			t.Fatalf(
+				"alert acknowledgement cleared before deep triage completed: %+v",
+				slackClient.removedReactions,
+			)
+		}
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	correctionPrompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
 	if !strings.Contains(correctionPrompt, "decision-ready alert assessment") {
 		t.Fatalf("shallow alert decision was not corrected:\n%s", correctionPrompt)
 	}
-	if len(slackClient.removedReactions) != 1 ||
-		slackClient.removedReactions[0].name != "eyes" ||
-		slackClient.removedReactions[0].timestamp != alert.MessageTS {
+	// The acknowledgement is cleared exactly once, on the alert. Pause marks
+	// are cleared alongside it whenever a reply is on its way, which is a
+	// different reaction and not what this is checking.
+	cleared := 0
+	for _, removed := range slackClient.removedReactions {
+		if removed.name == "eyes" && removed.timestamp == alert.MessageTS {
+			cleared++
+		}
+	}
+	if cleared != 1 {
 		t.Fatalf("cleared alert acknowledgement = %+v", slackClient.removedReactions)
 	}
 	last := slackClient.posts[len(slackClient.posts)-1]
@@ -769,9 +783,11 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	if err != nil || cleanup.SessionID != "ses_1" {
 		t.Fatalf("failed session was not immediately eligible for cleanup: %+v, %v", cleanup, err)
 	}
-	if len(slackClient.posts) != 1 ||
-		!strings.Contains(slackClient.posts[0].message.Text, "could not complete") {
-		t.Fatalf("failure posts = %+v", slackClient.posts)
+	// The session is cleaned up and nothing is said. "Responder could not
+	// complete this check" told the channel about Responder's plumbing, once
+	// per retry, in a room full of people who could do nothing with it.
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("a failed session posted to Slack: %+v", slackClient.posts)
 	}
 }
 
@@ -808,12 +824,10 @@ func TestAmbientBotAlertFailureDoesNotPostToSlack(t *testing.T) {
 	if len(slackClient.posts) != 0 {
 		t.Fatalf("ambient alert failure posts = %+v", slackClient.posts)
 	}
-	if publishTriageFailure(input, decisionpkg.WatchTurnState{}) {
-		t.Fatal("ambient app alert failure is publishable")
-	}
-	if !publishTriageFailure(input, decisionpkg.WatchTurnState{ApprovalContinuation: true}) {
-		t.Fatal("approval continuation failure was suppressed")
-	}
+	// Nothing decides whether a failure is publishable any more, because
+	// nothing publishes one. Every terminal triage failure pauses the message
+	// and stays queued instead, including an approval continuation — which used
+	// to be the case that always spoke up.
 }
 
 func TestWatchSessionTerminalIncludesDiscarded(t *testing.T) {

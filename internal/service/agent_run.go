@@ -1379,23 +1379,10 @@ func (s *Service) failPreparingTriageRun(
 	state decisionpkg.WatchTurnState,
 	detail string,
 ) error {
-	publish := publishTriageFailure(input, state)
-	if publish {
-		if err := s.postInputNotice(
-			ctx,
-			"watch_failure_"+input.ID,
-			input,
-			watchFailureNotice(detail),
-		); err != nil {
-			return s.store.RetryAgentRun(
-				ctx,
-				run.ID,
-				"deliver terminal triage failure: "+trimError(err),
-				s.queueDelay(run.Failures+1),
-				false,
-			)
-		}
-	}
+	// The channel is never told that Responder failed. It is told, with a
+	// pause on the message, that this has not been answered yet — and the work
+	// stays queued so it still can be.
+	s.markInputPaused(ctx, input)
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return s.store.RetryAgentRun(
 			ctx,
@@ -1408,7 +1395,7 @@ func (s *Service) failPreparingTriageRun(
 	_ = s.retireFailedWatchSession(ctx, input, state)
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-		Outcome: triageFailureOutcome(publish), Detail: detail,
+		Outcome: "failed_paused", Detail: detail,
 	})
 	return s.store.RetryAgentRun(ctx, run.ID, detail, s.now(), true)
 }
@@ -2534,21 +2521,10 @@ func (s *Service) stageTerminalFinalizationFailure(
 			})
 			return nil
 		}
-		state, _ := decodeWatchRunContext(run)
-		publish := publishTriageFailure(input, state)
-		if publish {
-			if err := s.postInputNotice(
-				ctx,
-				"watch_finalization_failure_"+run.ID,
-				input,
-				watchFailureNotice(detail),
-			); err != nil {
-				return err
-			}
-		}
+		s.markInputPaused(ctx, input)
 		s.audit(ctx, core.AuditEvent{
 			Kind: "agent.finalization", ObjectID: run.ID,
-			Outcome: triageFailureOutcome(publish), Detail: detail,
+			Outcome: "failed_paused", Detail: detail,
 		})
 		if !s.cfg.Slack.NativeStatus {
 			return nil
@@ -3168,28 +3144,12 @@ func (s *Service) finishTriageRunFailure(
 	state decisionpkg.WatchTurnState,
 	detail string,
 ) error {
-	message := slackui.Notice(watchFailureNotice(detail))
+	// No message, in any of these cases. The channel gets a pause on the
+	// original message and the work stays queued; an error about Responder's
+	// plumbing is not something the person who asked can act on.
+	s.markInputPaused(ctx, input)
 	if state.ApprovalContinuation {
-		if err := s.postInputMessageAt(
-			ctx,
-			core.FirstNonempty(state.ReplyDeliveryID, "emisar_approval_failure_"+run.ID),
-			input.ChannelID,
-			state.ResponseThreadTS,
-			message,
-		); err != nil {
-			return err
-		}
 		return s.clearWatchPendingStatus(ctx, input, state)
-	}
-	publish := publishTriageFailure(input, state)
-	if publish {
-		post := s.postInputMessage
-		if input.Kind == "shortcut" || len(state.MatchedRules) > 0 {
-			post = s.postInputMessageInSourceThread
-		}
-		if err := post(ctx, "watch_failure_"+input.ID, input, message); err != nil {
-			return err
-		}
 	}
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return err
@@ -3199,45 +3159,7 @@ func (s *Service) finishTriageRunFailure(
 	}
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-		Outcome: triageFailureOutcome(publish), Detail: detail,
+		Outcome: "failed_paused", Detail: detail,
 	})
 	return nil
-}
-
-// publishTriageFailure decides whether a terminally failed triage tells anyone.
-//
-// The question is whether someone is waiting. Work Responder was asked to do
-// must never disappear silently: an alert that matched a standing rule, or a
-// message addressed to Responder, has an operator behind it who will otherwise
-// read the silence as "handled".
-//
-// Purely ambient work is different. Responder watches alert channels and
-// sometimes decides on its own to look at something. Nobody is waiting on that,
-// and announcing every such failure would flood an alert channel at precisely
-// the moment it is most crowded — a provider outage makes Responder fail on
-// every alert at once, and a wall of "I could not check this" helps no one.
-//
-// So: asked-for work always reports. Unasked work stays quiet and is recorded
-// as failed_suppressed for whoever reads the audit log.
-//
-// Two further suppressions are deliberate. A private verification replay has no
-// audience by construction. A recheck failure is silent because the original
-// turn already answered — the recheck was Responder's own follow-up, and
-// reporting its failure would surface machinery the operator never asked about.
-func publishTriageFailure(input core.SlackInput, state decisionpkg.WatchTurnState) bool {
-	if isPrivateSlackVerificationReplay(input) || state.RecheckOriginRunID != "" {
-		return false
-	}
-	if state.ApprovalContinuation || input.Kind != "bot_message" {
-		return true
-	}
-	// An alert someone told Responder to watch is asked-for work.
-	return len(state.MatchedRules) > 0
-}
-
-func triageFailureOutcome(published bool) string {
-	if published {
-		return "failed"
-	}
-	return "failed_suppressed"
 }

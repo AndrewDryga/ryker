@@ -4,9 +4,6 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
-
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 )
 
 // A result Responder cannot read must go back to the model, not to the person
@@ -94,61 +91,6 @@ func TestUndecodableContextIsNotOverwrittenByACorrection(t *testing.T) {
 	}
 }
 
-// Work someone is waiting on must never disappear silently.
-//
-// The rule turns on whether Responder was asked. An alert matching a standing
-// rule, or a message addressed to Responder, has a person behind it who will
-// read silence as "handled" — the single most damaging thing an on-call tool
-// can do. Purely ambient work has nobody waiting, and announcing every failure
-// would flood an alert channel exactly when a provider outage makes Responder
-// fail on every alert at once.
-func TestTerminalTriageFailureReportsAskedForWork(t *testing.T) {
-	alert := core.SlackInput{Kind: "bot_message", ChannelID: "CALERTS"}
-	mention := core.SlackInput{Kind: "mention", ChannelID: "CINFRA"}
-
-	for _, testCase := range []struct {
-		name    string
-		input   core.SlackInput
-		state   decisionpkg.WatchTurnState
-		publish bool
-	}{
-		{
-			name:    "an alert Responder was told to watch reports its failure",
-			input:   alert,
-			state:   decisionpkg.WatchTurnState{MatchedRules: []core.StandingRule{{Trigger: "memory"}}},
-			publish: true,
-		},
-		{
-			name:    "an ambient alert nobody asked about stays quiet",
-			input:   alert,
-			state:   decisionpkg.WatchTurnState{},
-			publish: false,
-		},
-		{
-			name:    "a message addressed to Responder always reports",
-			input:   mention,
-			state:   decisionpkg.WatchTurnState{},
-			publish: true,
-		},
-		{
-			name:    "an approval continuation reports even on an alert",
-			input:   alert,
-			state:   decisionpkg.WatchTurnState{ApprovalContinuation: true},
-			publish: true,
-		},
-		{
-			name:  "a recheck stays quiet: the original turn already answered",
-			input: mention,
-			state: decisionpkg.WatchTurnState{RecheckOriginRunID: "run_original"},
-			// Reporting this would surface Responder's own follow-up machinery
-			// to someone who never asked for it.
-			publish: false,
-		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			if got := publishTriageFailure(testCase.input, testCase.state); got != testCase.publish {
-				t.Fatalf("publish = %t, want %t", got, testCase.publish)
-			}
-		})
-	}
-}
+// The table that used to live here checked which terminal triage failures were
+// worth telling a channel about. Nothing is: every one of them now pauses the
+// message and stays queued, so there is no decision left to test.
