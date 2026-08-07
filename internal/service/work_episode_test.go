@@ -18,7 +18,7 @@ func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
 	cases := []struct {
 		name      string
 		input     core.SlackInput
-		state     watchTurnState
+		state     decisionpkg.WatchTurnState
 		effort    core.EffortContract
 		authority core.AuthorityBoundary
 		coverage  []string
@@ -80,7 +80,7 @@ func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
 		{
 			name:   "assigned alert",
 			input:  core.SlackInput{Kind: "bot_message", UserID: "BGRAFANA", Text: "High disk I/O latency on dbzrk103"},
-			state:  watchTurnState{MatchedRules: []core.StandingRule{{Trigger: "operational_alert", Action: "triage_alert"}}},
+			state:  decisionpkg.WatchTurnState{MatchedRules: []core.StandingRule{{Trigger: "operational_alert", Action: "triage_alert"}}},
 			effort: core.EffortIncidentInvestigation, authority: core.AuthorityReadOnly,
 			coverage: []string{"change", "application", "slo", "host"},
 		},
@@ -90,7 +90,7 @@ func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
 				Kind: "bot_message", UserID: "BGRAFANA",
 				Text: "CRITICAL alert: Typesense node service is down",
 			},
-			state:  watchTurnState{AlertPolicy: "reply"},
+			state:  decisionpkg.WatchTurnState{AlertPolicy: "reply"},
 			effort: core.EffortIncidentInvestigation, authority: core.AuthorityReadOnly,
 			coverage: []string{"change", "application", "slo", "host", "workload"},
 		},
@@ -359,7 +359,7 @@ func TestFocusedCoverageDoesNotTreatNegatedHealthLanguageAsRequestedCoverage(t *
 	episode := svc.episodeForWatchedInput(core.SlackInput{
 		Kind: "mention",
 		Text: "Review this exact Terraform plan. Do not infer operational health from change risk alone.",
-	}, watchTurnState{})
+	}, decisionpkg.WatchTurnState{})
 	if got := investigation.Compile(*episode).Completion.ConclusionKind; got != "change_review" {
 		t.Fatalf("conclusion kind = %q", got)
 	}
@@ -369,7 +369,7 @@ func TestFocusedCoverageDoesNotTreatNegatedHealthLanguageAsRequestedCoverage(t *
 
 	recovery := svc.episodeForWatchedInput(core.SlackInput{
 		Kind: "mention", Text: "Assess whether checkout recovered after the deployment.",
-	}, watchTurnState{})
+	}, decisionpkg.WatchTurnState{})
 	if got := investigation.Compile(*recovery).Completion.ConclusionKind; got != "operational_health" {
 		t.Fatalf("recovery conclusion kind = %q", got)
 	}
@@ -383,7 +383,7 @@ func TestRunbookWorkDoesNotUseHealthVerdictLanguage(t *testing.T) {
 	episode := svc.episodeForWatchedInput(core.SlackInput{
 		Kind: "mention",
 		Text: "Also extend that runbook and test it; make sure it is all we need for daily checkups.",
-	}, watchTurnState{})
+	}, decisionpkg.WatchTurnState{})
 	contract := investigation.Compile(*episode)
 	if episode.Effort != core.EffortFocusedCheck || contract.Completion.ConclusionKind != "factual_assessment" {
 		t.Fatalf("runbook episode = %+v, completion = %+v", episode, contract.Completion)
@@ -448,7 +448,7 @@ func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
 	episode := service.episodeForWatchedInput(core.SlackInput{
 		Kind: "mention",
 		Text: "Also extend that runbook and test it; make sure it is all we need for daily checkups.",
-	}, watchTurnState{})
+	}, decisionpkg.WatchTurnState{})
 	if got := episode.RequiredCoverage; !slices.Equal(got, []string{"task"}) {
 		t.Fatalf("required coverage = %v, want [task]", got)
 	}
@@ -487,7 +487,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		ImmediateAction:  "Prioritize endpoint attribution and trace the timeout source.",
 		LongTermSolution: "Fix the LoL and Rivals request paths.",
 	}
-	if got := episodeDiagnosisCorrection(
+	if got := decisionpkg.EpisodeDiagnosisCorrection(
 		episode, "reply", coverage, unfinished, completion,
 	); !strings.Contains(got, "identified or bounded cause") {
 		t.Fatalf("unfinished diagnosis correction = %q", got)
@@ -502,7 +502,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		Verification:     "Repeat affected requests and confirm ingress 5xx returns below 0.1 percent.",
 		LongTermSolution: "Accept the new rank values and add compatibility fixtures.",
 	}
-	if got := episodeDiagnosisCorrection(
+	if got := decisionpkg.EpisodeDiagnosisCorrection(
 		episode, "reply", coverage, bounded, completion,
 	); got != "" {
 		t.Fatalf("bounded diagnosis rejected: %s", got)
@@ -510,7 +510,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 
 	unfinishedAction := *bounded
 	unfinishedAction.ImmediateAction = "Inspect the current allocations and service registrations."
-	if got := episodeDiagnosisCorrection(
+	if got := decisionpkg.EpisodeDiagnosisCorrection(
 		episode, "reply", coverage, &unfinishedAction, completion,
 	); !strings.Contains(got, "investigative handoff") {
 		t.Fatalf("unfinished action correction = %q", got)
@@ -522,7 +522,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		Attempts:   []string{"Queried the configured log and trace sources; neither contains endpoint labels"},
 		NextAction: "Restore endpoint labels in the application telemetry, then retry",
 	}
-	if got := episodeDiagnosisCorrection(
+	if got := decisionpkg.EpisodeDiagnosisCorrection(
 		episode, "reply", coverage, nil, blocked,
 	); got != "" {
 		t.Fatalf("exact diagnostic blocker rejected: %s", got)

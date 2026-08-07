@@ -49,14 +49,14 @@ type EvaluationScenarioStep struct {
 }
 
 type scenarioConversation struct {
-	Channel     string                `json:"channel"`
-	ChannelName string                `json:"channel_name,omitempty"`
-	Thread      string                `json:"thread,omitempty"`
-	Repository  string                `json:"repository"`
-	Memory      core.AgentMemory      `json:"memory,omitempty"`
-	History     []watchContextMessage `json:"history,omitempty"`
-	Answered    bool                  `json:"answered,omitempty"`
-	UpdatedAt   time.Time             `json:"updated_at"`
+	Channel     string                            `json:"channel"`
+	ChannelName string                            `json:"channel_name,omitempty"`
+	Thread      string                            `json:"thread,omitempty"`
+	Repository  string                            `json:"repository"`
+	Memory      core.AgentMemory                  `json:"memory,omitempty"`
+	History     []decisionpkg.WatchContextMessage `json:"history,omitempty"`
+	Answered    bool                              `json:"answered,omitempty"`
+	UpdatedAt   time.Time                         `json:"updated_at"`
 }
 
 func decodeEvaluationScenarios(reader io.Reader) ([]EvaluationScenario, error) {
@@ -416,7 +416,7 @@ func runLiveEvaluationScenario(
 					watchPromptMessage(input, "UEVALBOT", true),
 				)
 				if decision.Action == "reply" {
-					current.History = append(current.History, watchContextMessage{
+					current.History = append(current.History, decisionpkg.WatchContextMessage{
 						MessageTS: fmt.Sprintf(
 							"1800.%06d",
 							len(current.History)+1,
@@ -496,12 +496,12 @@ func liveScenarioPrompt(
 		}
 		conversations[key] = current
 	}
-	history := append([]watchContextMessage(nil), current.History...)
+	history := append([]decisionpkg.WatchContextMessage(nil), current.History...)
 	history = append(history, recent...)
 	if len(history) > cfg.Slack.WatchContext {
 		history = history[len(history)-cfg.Slack.WatchContext:]
 	}
-	var related []conversationSituationContext
+	var related []decisionpkg.ConversationSituationContext
 	for otherKey, item := range conversations {
 		if otherKey == key || memoryEmpty(item.Memory) {
 			continue
@@ -510,7 +510,7 @@ func liveScenarioPrompt(
 		if item.Repository == current.Repository {
 			relationship = "same_repository"
 		}
-		related = append(related, conversationSituationContext{
+		related = append(related, decisionpkg.ConversationSituationContext{
 			ChannelID:    item.Channel,
 			ChannelName:  item.ChannelName,
 			ThreadTS:     item.Thread,
@@ -521,7 +521,7 @@ func liveScenarioPrompt(
 		})
 	}
 	evaluator := &Service{cfg: cfg}
-	episode := evaluator.episodeForWatchedInput(input, watchTurnState{})
+	episode := evaluator.episodeForWatchedInput(input, decisionpkg.WatchTurnState{})
 	return evaluator.watchPrompt(
 		input,
 		"UEVALBOT",
@@ -530,7 +530,7 @@ func liveScenarioPrompt(
 		current.Memory,
 		related,
 		nil,
-		operationalMemoryContext{},
+		decisionpkg.OperationalMemoryContext{},
 		testCase.Repository,
 		nil,
 	) + "\n\n" + workEpisodePrompt(*episode), input, current, nil

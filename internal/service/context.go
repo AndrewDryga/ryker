@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -26,31 +27,14 @@ type agentContextRequest struct {
 }
 
 type assembledAgentContext struct {
-	Repository                    string                         `json:"repository"`
-	Prior                         operationalMemoryContext       `json:"prior_operational_context,omitempty"`
-	Situation                     core.AgentMemory               `json:"conversation_situation,omitempty"`
-	RelatedSituations             []conversationSituationContext `json:"related_situations,omitempty"`
-	RecentMessages                []watchContextMessage          `json:"recent_messages_around_target,omitempty"`
-	ReferencedThread              *referencedThreadContext       `json:"referenced_thread,omitempty"`
-	InitialTaskChangesFingerprint string                         `json:"initial_task_changes_fingerprint,omitempty"`
-	CapturedAt                    time.Time                      `json:"captured_at"`
-}
-
-type referencedThreadContext struct {
-	ThreadTS       string                `json:"thread_ts"`
-	LastMessageTS  string                `json:"last_message_ts,omitempty"`
-	Summary        core.AgentMemory      `json:"summary,omitempty"`
-	RecentMessages []watchContextMessage `json:"recent_messages,omitempty"`
-}
-
-type conversationSituationContext struct {
-	ChannelID    string           `json:"channel_id"`
-	ChannelName  string           `json:"channel_name,omitempty"`
-	ThreadTS     string           `json:"thread_ts,omitempty"`
-	Repository   string           `json:"repository"`
-	Relationship string           `json:"relationship"`
-	Summary      core.AgentMemory `json:"summary"`
-	UpdatedAt    string           `json:"updated_at"`
+	Repository                    string                                     `json:"repository"`
+	Prior                         decisionpkg.OperationalMemoryContext       `json:"prior_operational_context,omitempty"`
+	Situation                     core.AgentMemory                           `json:"conversation_situation,omitempty"`
+	RelatedSituations             []decisionpkg.ConversationSituationContext `json:"related_situations,omitempty"`
+	RecentMessages                []decisionpkg.WatchContextMessage          `json:"recent_messages_around_target,omitempty"`
+	ReferencedThread              *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
+	InitialTaskChangesFingerprint string                                     `json:"initial_task_changes_fingerprint,omitempty"`
+	CapturedAt                    time.Time                                  `json:"captured_at"`
 }
 
 func (s *Service) assembleAgentContext(
@@ -126,7 +110,7 @@ func (s *Service) assembleAgentContext(
 		related = recall.SelectConversationMemories(related, memoryQuery, 6)
 		s.markRecalled(ctx, related)
 		result.RelatedSituations = make(
-			[]conversationSituationContext,
+			[]decisionpkg.ConversationSituationContext,
 			0,
 			len(related),
 		)
@@ -139,7 +123,7 @@ func (s *Service) assembleAgentContext(
 			}
 			result.RelatedSituations = append(
 				result.RelatedSituations,
-				conversationSituationContext{
+				decisionpkg.ConversationSituationContext{
 					ChannelID: item.ChannelID, ChannelName: item.ChannelName,
 					ThreadTS:   item.ThreadTS,
 					Repository: item.Repository, Relationship: relationship,
@@ -184,7 +168,7 @@ func (s *Service) assembleAgentContext(
 	if request.ReferencedThreadTS != "" &&
 		(request.TargetInput == nil ||
 			request.ReferencedThreadTS != request.TargetInput.ThreadTS) {
-		referenced := &referencedThreadContext{ThreadTS: request.ReferencedThreadTS}
+		referenced := &decisionpkg.ReferencedThreadContext{ThreadTS: request.ReferencedThreadTS}
 		conversation, conversationErr := s.store.GetConversationMemory(
 			ctx,
 			request.ChannelID,
@@ -276,7 +260,7 @@ func historyWatchContext(
 	history []slackui.HistoryMessage,
 	channelID string,
 	botUserID string,
-) []watchContextMessage {
+) []decisionpkg.WatchContextMessage {
 	inputs := make([]core.SlackInput, 0, len(history))
 	for _, message := range history {
 		kind := "message"
@@ -303,7 +287,7 @@ func historyWatchContext(
 			return 0
 		}
 	})
-	result := make([]watchContextMessage, 0, len(inputs))
+	result := make([]decisionpkg.WatchContextMessage, 0, len(inputs))
 	for _, input := range inputs {
 		result = append(result, watchPromptMessage(input, botUserID, false))
 	}

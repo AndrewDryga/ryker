@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -16,7 +17,7 @@ func TestConversationLocationDetection(t *testing.T) {
 		MessageTS: "1700.1",
 		Text:      "Let's switch to a thread not to pollute the channel.",
 	}
-	if !locationOnlyRequest(threadInput.Text) ||
+	if !decisionpkg.LocationOnlyRequest(threadInput.Text) ||
 		conversationalResponseThread(threadInput) != threadInput.MessageTS {
 		t.Fatalf("thread location request was not recognized: %+v", threadInput)
 	}
@@ -25,7 +26,7 @@ func TestConversationLocationDetection(t *testing.T) {
 		MessageTS: "1700.2",
 		Text:      "Please continue in the channel.",
 	}
-	if !locationOnlyRequest(channelInput.Text) ||
+	if !decisionpkg.LocationOnlyRequest(channelInput.Text) ||
 		conversationalResponseThread(channelInput) != "" {
 		t.Fatalf("channel location request was not recognized: %+v", channelInput)
 	}
@@ -33,12 +34,12 @@ func TestConversationLocationDetection(t *testing.T) {
 		MessageTS: "1700.3",
 		Text:      "Take this to a thread and check production health.",
 	}
-	if locationOnlyRequest(combined.Text) ||
+	if decisionpkg.LocationOnlyRequest(combined.Text) ||
 		conversationalResponseThread(combined) != combined.MessageTS {
 		t.Fatalf("combined work and location request = %+v", combined)
 	}
-	if !watchInputTargeted(combined, watchTurnState{}) ||
-		!watchInputWantsPendingStatus(combined, watchTurnState{}) {
+	if !decisionpkg.WatchInputTargeted(combined, decisionpkg.WatchTurnState{}) ||
+		!watchInputWantsPendingStatus(combined, decisionpkg.WatchTurnState{}) {
 		t.Fatalf("location work should be targeted and request status: %+v", combined)
 	}
 }

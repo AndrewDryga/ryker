@@ -52,7 +52,7 @@ type scheduleTogglePayload struct {
 
 func scheduleInputWithConversationIntent(
 	input core.SlackInput,
-	recent []watchContextMessage,
+	recent []decisionpkg.WatchContextMessage,
 ) core.SlackInput {
 	if explicitScheduleRequest(input.Text) ||
 		!scheduleContinuationPattern.MatchString(input.Text) {
@@ -594,7 +594,7 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 		); err != nil {
 			return err
 		}
-		state := watchTurnState{
+		state := decisionpkg.WatchTurnState{
 			Lane: "investigation", Repository: task.Repository,
 			RepositoryPinned: true,
 			SessionChannelID: "scheduled:" + task.ID,

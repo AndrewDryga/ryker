@@ -9,6 +9,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 )
 
@@ -84,7 +85,7 @@ func staticPromptSizes(t *testing.T) map[string]int {
 		"watch": len(svc.unboundedWatchPrompt(
 			core.SlackInput{ChannelID: "C1", Text: "check the api"},
 			"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
-			operationalMemoryContext{}, "emisar", nil,
+			decisionpkg.OperationalMemoryContext{}, "emisar", nil,
 			nil,
 		)),
 	}
@@ -98,28 +99,28 @@ func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 	svc := &Service{cfg: serviceConfig(t)}
 	filler := strings.Repeat("saturated evidence detail ", 60)
 
-	recent := make([]watchContextMessage, 0, 40)
+	recent := make([]decisionpkg.WatchContextMessage, 0, 40)
 	for index := range 40 {
-		recent = append(recent, watchContextMessage{
+		recent = append(recent, decisionpkg.WatchContextMessage{
 			MessageTS: fmt.Sprintf("170%02d.000", index),
 			SenderID:  "U123ABC",
 			Text:      fmt.Sprintf("message %02d %s", index, filler),
 		})
 	}
-	related := make([]conversationSituationContext, 0, 6)
+	related := make([]decisionpkg.ConversationSituationContext, 0, 6)
 	for index := range 6 {
-		related = append(related, conversationSituationContext{
+		related = append(related, decisionpkg.ConversationSituationContext{
 			ChannelID: fmt.Sprintf("CREL%02d", index), Repository: "emisar",
 			Relationship: "workspace",
 			Summary:      core.AgentMemory{SituationSummary: filler},
 		})
 	}
-	prior := operationalMemoryContext{}
+	prior := decisionpkg.OperationalMemoryContext{}
 	for index := range 10 {
-		prior.RecentEvidence = append(prior.RecentEvidence, evidencePromptEntry{
+		prior.RecentEvidence = append(prior.RecentEvidence, decisionpkg.EvidencePromptEntry{
 			ID: fmt.Sprintf("ev_%02d", index), Claim: filler, Observation: filler,
 		})
-		prior.ConfirmedMemory = append(prior.ConfirmedMemory, memoryPromptEntry{
+		prior.ConfirmedMemory = append(prior.ConfirmedMemory, decisionpkg.MemoryPromptEntry{
 			Scope: "channel:C1", Subject: fmt.Sprintf("subject-%02d", index),
 			Predicate: "guidance", Value: filler,
 		})
@@ -174,16 +175,16 @@ func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 func TestBudgetedContextRemainsValidJSON(t *testing.T) {
 	svc := &Service{cfg: serviceConfig(t)}
 	filler := strings.Repeat("detail ", 400)
-	recent := make([]watchContextMessage, 0, 30)
+	recent := make([]decisionpkg.WatchContextMessage, 0, 30)
 	for index := range 30 {
-		recent = append(recent, watchContextMessage{
+		recent = append(recent, decisionpkg.WatchContextMessage{
 			MessageTS: fmt.Sprintf("170%02d.000", index), Text: filler,
 		})
 	}
 	prompt := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "status?"},
 		"U999BOT", false, recent, core.AgentMemory{}, nil, nil,
-		operationalMemoryContext{}, "emisar", nil,
+		decisionpkg.OperationalMemoryContext{}, "emisar", nil,
 	)
 	start := strings.Index(prompt, `{"channel_id"`)
 	if start < 0 {
@@ -220,7 +221,7 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 	build := func(input core.SlackInput) string {
 		return svc.unboundedWatchPrompt(
 			input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
-			operationalMemoryContext{}, "emisar", nil, nil,
+			decisionpkg.OperationalMemoryContext{}, "emisar", nil, nil,
 		)
 	}
 

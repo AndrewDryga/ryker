@@ -166,26 +166,26 @@ func enforceExternalLifecycleCommunication(
 	switch phase {
 	case externalLifecycleCreated, externalLifecyclePlanning:
 		decision.PublicationUpdates = nil
-		return suppressWatchDecision(
+		return decisionpkg.SuppressWatchDecision(
 			decision,
 			"host correlated a non-actionable external lifecycle update without public narration",
 		)
 	case externalLifecycleApplying:
-		return suppressWatchDecision(
+		return decisionpkg.SuppressWatchDecision(
 			decision,
 			"host correlated an in-progress external lifecycle update without public narration",
 		)
 	case externalLifecycleReviewable:
 		if decision.Completion == nil || decision.Completion.Verdict == "" ||
 			decision.Completion.Verdict == "in_progress" {
-			return suppressWatchDecision(
+			return decisionpkg.SuppressWatchDecision(
 				decision,
 				"host suppressed a plan-status update without a completed material review",
 			)
 		}
 	case externalLifecycleSucceeded:
 		if !successfulExternalLifecycleReplyAddsValue(decision, time.Now().UTC()) {
-			return suppressWatchDecision(
+			return decisionpkg.SuppressWatchDecision(
 				decision,
 				"host suppressed a successful lifecycle status that added no fresh runtime result",
 			)
@@ -245,7 +245,7 @@ func successfulExternalLifecycleReplyAddsValue(
 	now time.Time,
 ) bool {
 	if decision.Action != "reply" ||
-		!hasFreshOperationalEvidence(decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", now), now) {
+		!decisionpkg.HasFreshOperationalEvidence(decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", now), now) {
 		return false
 	}
 	for _, item := range decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", now) {
@@ -452,7 +452,7 @@ func deterministicExternalLifecycleIgnore(input core.SlackInput) (string, bool) 
 	if input.Kind != "bot_message" {
 		return "", false
 	}
-	if externalCoordinationOnlyEvent(input.Text) {
+	if decisionpkg.ExternalCoordinationOnlyEvent(input.Text) {
 		return "host recorded an incident coordination update without repeating the alert investigation", true
 	}
 	switch externalMessageLifecyclePhase(input.Text) {
@@ -463,21 +463,6 @@ func deterministicExternalLifecycleIgnore(input core.SlackInput) (string, bool) 
 	default:
 		return "", false
 	}
-}
-
-// externalCoordinationOnlyEvent identifies app updates that change who owns or
-// has seen an incident without changing the underlying system state. They remain
-// available in Slack context and the audit log, but do not deserve a second
-// investigation or a public explanation of what acknowledgement means.
-func externalCoordinationOnlyEvent(text string) bool {
-	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
-	if normalized == "" {
-		return false
-	}
-	return strings.Contains(normalized, "incident acknowledged") ||
-		strings.Contains(normalized, "incident was acknowledged") ||
-		(strings.Contains(normalized, " acknowledged ") &&
-			strings.Contains(normalized, " incident"))
 }
 
 func externalLifecycleCorrelationKey(text string) string {

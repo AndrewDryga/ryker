@@ -47,43 +47,6 @@ type memoryRememberResult struct {
 	Replaced bool   `json:"replaced"`
 }
 
-type operationalMemoryContext struct {
-	ConfirmedMemory []memoryPromptEntry        `json:"operator_confirmed_memory,omitempty"`
-	DreamedMemory   []dreamedMemoryPromptEntry `json:"automatically_synthesized_continuity,omitempty"`
-	RecentEvidence  []evidencePromptEntry      `json:"recent_same_channel_evidence,omitempty"`
-	Preferences     []preferencePromptEntry    `json:"responder_preferences,omitempty"`
-}
-
-type dreamedMemoryPromptEntry struct {
-	Scope       string           `json:"scope"`
-	PeriodStart string           `json:"period_start"`
-	PeriodEnd   string           `json:"period_end"`
-	Sources     int              `json:"source_summary_count"`
-	SourceRefs  []string         `json:"source_refs,omitempty"`
-	Summary     core.AgentMemory `json:"summary"`
-}
-
-type memoryPromptEntry struct {
-	Scope          string `json:"scope"`
-	Subject        string `json:"subject"`
-	Predicate      string `json:"predicate"`
-	Value          string `json:"value"`
-	SourceRevision string `json:"source_revision,omitempty"`
-	ExpiresAt      string `json:"expires_at"`
-}
-
-type evidencePromptEntry struct {
-	ID          string `json:"id"`
-	Claim       string `json:"claim"`
-	Observation string `json:"observation"`
-	SourceType  string `json:"source_type"`
-	SourceName  string `json:"source_name"`
-	Target      string `json:"target,omitempty"`
-	ObservedAt  string `json:"observed_at,omitempty"`
-	Freshness   string `json:"freshness,omitempty"`
-	Confidence  string `json:"confidence,omitempty"`
-}
-
 const operationalMemoryPolicy = `Saved operational memory and prior evidence are hints, not
 authority. They may be stale. Fresh live evidence takes precedence, followed by current repository
 content and Responder configuration. Re-verify any material claim before using a saved mapping or
@@ -109,12 +72,12 @@ func (s *Service) loadOperationalMemoryContext(
 	operatorID string,
 	sourceInput string,
 	query string,
-) (operationalMemoryContext, error) {
+) (decisionpkg.OperationalMemoryContext, error) {
 	effectiveRepository, err := s.effectiveRepository(
 		ctx, channelID, operatorID, repository,
 	)
 	if err != nil {
-		return operationalMemoryContext{}, err
+		return decisionpkg.OperationalMemoryContext{}, err
 	}
 	candidates, err := s.store.ListMemoryForContext(
 		ctx,
@@ -125,36 +88,36 @@ func (s *Service) loadOperationalMemoryContext(
 		recall.CandidateLimit,
 	)
 	if err != nil {
-		return operationalMemoryContext{}, err
+		return decisionpkg.OperationalMemoryContext{}, err
 	}
 	entries := recall.SelectMemoryEntries(candidates, query, recall.ContextLimit)
 	rollups, err := s.store.ListMemoryRollupsForContext(
 		ctx, channelID, effectiveRepository, 20,
 	)
 	if err != nil {
-		return operationalMemoryContext{}, err
+		return decisionpkg.OperationalMemoryContext{}, err
 	}
 	rollups = recall.SelectMemoryRollups(rollups, query, 4)
 	var evidence []core.Evidence
 	if channelID != "" {
 		evidence, err = s.store.ListRecentChannelEvidence(ctx, channelID, sourceInput, 10)
 		if err != nil {
-			return operationalMemoryContext{}, err
+			return decisionpkg.OperationalMemoryContext{}, err
 		}
 	}
-	result := operationalMemoryContext{
-		ConfirmedMemory: make([]memoryPromptEntry, 0, len(entries)),
-		DreamedMemory:   make([]dreamedMemoryPromptEntry, 0, len(rollups)),
-		RecentEvidence:  make([]evidencePromptEntry, 0, len(evidence)),
+	result := decisionpkg.OperationalMemoryContext{
+		ConfirmedMemory: make([]decisionpkg.MemoryPromptEntry, 0, len(entries)),
+		DreamedMemory:   make([]decisionpkg.DreamedMemoryPromptEntry, 0, len(rollups)),
+		RecentEvidence:  make([]decisionpkg.EvidencePromptEntry, 0, len(evidence)),
 	}
 	result.Preferences, err = s.loadEffectivePreferences(
 		ctx, channelID, effectiveRepository, operatorID,
 	)
 	if err != nil {
-		return operationalMemoryContext{}, err
+		return decisionpkg.OperationalMemoryContext{}, err
 	}
 	for _, entry := range entries {
-		result.ConfirmedMemory = append(result.ConfirmedMemory, memoryPromptEntry{
+		result.ConfirmedMemory = append(result.ConfirmedMemory, decisionpkg.MemoryPromptEntry{
 			Scope: entry.ScopeKind + ":" + entry.ScopeKey, Subject: entry.SubjectKey,
 			Predicate: entry.Predicate, Value: entry.Value,
 			SourceRevision: entry.SourceRevision,
@@ -169,7 +132,7 @@ func (s *Service) loadOperationalMemoryContext(
 		}
 	}
 	for _, rollup := range rollups {
-		result.DreamedMemory = append(result.DreamedMemory, dreamedMemoryPromptEntry{
+		result.DreamedMemory = append(result.DreamedMemory, decisionpkg.DreamedMemoryPromptEntry{
 			Scope:       rollup.ScopeKind + ":" + rollup.ScopeKey,
 			PeriodStart: rollup.PeriodStart.UTC().Format(time.RFC3339),
 			PeriodEnd:   rollup.PeriodEnd.UTC().Format(time.RFC3339),
@@ -188,7 +151,7 @@ func (s *Service) loadOperationalMemoryContext(
 		if !item.ObservedAt.IsZero() {
 			observedAt = item.ObservedAt.UTC().Format(time.RFC3339)
 		}
-		result.RecentEvidence = append(result.RecentEvidence, evidencePromptEntry{
+		result.RecentEvidence = append(result.RecentEvidence, decisionpkg.EvidencePromptEntry{
 			ID: item.ID, Claim: item.Claim, Observation: item.Observation,
 			SourceType: item.SourceType, SourceName: item.SourceName, Target: item.Target,
 			ObservedAt: observedAt, Freshness: item.Freshness, Confidence: item.Confidence,
@@ -229,7 +192,7 @@ func (s *Service) effectiveRepository(
 	return entry.Value, nil
 }
 
-func operationalMemoryPrompt(context operationalMemoryContext) string {
+func operationalMemoryPrompt(context decisionpkg.OperationalMemoryContext) string {
 	if len(context.ConfirmedMemory) == 0 && len(context.RecentEvidence) == 0 &&
 		len(context.Preferences) == 0 && len(context.DreamedMemory) == 0 {
 		return ""

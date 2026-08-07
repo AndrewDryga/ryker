@@ -137,8 +137,8 @@ func TestWatchedDecisionReceivesFreshChronologicalChannelContext(t *testing.T) {
 		t.Fatalf("prompt has no bounded context: %s", prompt)
 	}
 	var evidence struct {
-		TargetMessage  watchContextMessage   `json:"target_message"`
-		RecentMessages []watchContextMessage `json:"recent_channel_messages"`
+		TargetMessage  decisionpkg.WatchContextMessage   `json:"target_message"`
+		RecentMessages []decisionpkg.WatchContextMessage `json:"recent_channel_messages"`
 	}
 	start += len("<untrusted-slack-context>\n")
 	if err := json.Unmarshal([]byte(prompt[start:end]), &evidence); err != nil {
@@ -683,28 +683,28 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 			Addressee: "human", Urgency: 1, Confidence: 3, Novelty: 1, Ownership: 1,
 		},
 	}
-	filtered := enforceAttentionPolicy(input, watchTurnState{}, decision, 7, 4)
+	filtered := decisionpkg.EnforceAttentionPolicy(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
 	if filtered.Action != "ignore" || filtered.Message != "" ||
 		!strings.Contains(filtered.Reason, "suppressed") {
 		t.Fatalf("filtered decision = %+v", filtered)
 	}
 
 	input.Kind = "mention"
-	filtered = enforceAttentionPolicy(input, watchTurnState{}, decision, 7, 4)
+	filtered = decisionpkg.EnforceAttentionPolicy(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
 	if filtered.Action != "reply" || filtered.Message == "" {
 		t.Fatalf("explicit mention was suppressed: %+v", filtered)
 	}
 
 	input.Kind = "message"
 	decision.Attention = decisionpkg.AttentionAssessment{}
-	filtered = enforceAttentionPolicy(input, watchTurnState{}, decision, 7, 4)
+	filtered = decisionpkg.EnforceAttentionPolicy(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
 	if filtered.Action != "ignore" {
 		t.Fatalf("ambient action without assessment = %q, want ignore", filtered.Action)
 	}
 
 	decision.Action = "react"
 	decision.Reaction = "eyes"
-	filtered = enforceAttentionPolicy(input, watchTurnState{}, decision, 7, 4)
+	filtered = decisionpkg.EnforceAttentionPolicy(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
 	if filtered.Action != "ignore" || filtered.Reaction != "" {
 		t.Fatalf("reaction without assessment = %+v, want suppressed", filtered)
 	}
@@ -714,9 +714,9 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 	decision.Attention = decisionpkg.AttentionAssessment{
 		Addressee: "human", Urgency: 2, Confidence: 3, Novelty: 2, Ownership: 2,
 	}
-	filtered = enforceAttentionPolicy(
+	filtered = decisionpkg.EnforceAttentionPolicy(
 		input,
-		watchTurnState{ConversationFollowup: true},
+		decisionpkg.WatchTurnState{ConversationFollowup: true},
 		decision,
 		7,
 		4,

@@ -285,7 +285,7 @@ func TestExplicitMentionLoadsAmbientSlackHistoryWhenProactiveTriageIsOff(t *test
 		t.Fatalf("prompt has no bounded context: %s", prompt)
 	}
 	var evidence struct {
-		RecentMessages []watchContextMessage `json:"recent_channel_messages"`
+		RecentMessages []decisionpkg.WatchContextMessage `json:"recent_channel_messages"`
 	}
 	start += len("<untrusted-slack-context>\n")
 	if err := json.Unmarshal([]byte(prompt[start:end]), &evidence); err != nil {
@@ -327,9 +327,9 @@ func TestAttentionPolicyKeepsTypedAppAlertRecovery(t *testing.T) {
 			Impact:  "The overdue condition cleared.",
 		},
 	}
-	filtered := enforceAttentionPolicy(
+	filtered := decisionpkg.EnforceAttentionPolicy(
 		input,
-		watchTurnState{AlertPolicy: "reply_here"},
+		decisionpkg.WatchTurnState{AlertPolicy: "reply_here"},
 		decision,
 		7,
 		4,

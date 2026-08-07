@@ -314,7 +314,7 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 		ID: "input-deploy-1", Kind: "bot_message", ChannelID: "CDEPLOY",
 		MessageTS: "1700.200", Text: "Run run-abc\nRevision 0123456\nRun Planning",
 	}
-	state := watchTurnState{ActivePublications: []core.PublicationContext{{
+	state := decisionpkg.WatchTurnState{ActivePublications: []core.PublicationContext{{
 		IncidentID: incident.ID, PRNumber: 493, PRURL: publication.PRURL,
 		HeadBranch: publication.HeadBranch, HeadSHA: publication.RemoteSHA,
 	}}}

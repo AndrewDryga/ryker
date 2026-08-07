@@ -186,12 +186,12 @@ func TestConfirmedMemoryActionPersistsAndForgetDeletes(t *testing.T) {
 }
 
 func TestOperationalMemoryPromptDeclaresPrecedence(t *testing.T) {
-	prompt := operationalMemoryPrompt(operationalMemoryContext{
-		ConfirmedMemory: []memoryPromptEntry{{
+	prompt := operationalMemoryPrompt(decisionpkg.OperationalMemoryContext{
+		ConfirmedMemory: []decisionpkg.MemoryPromptEntry{{
 			Scope: "channel:COPS", Subject: "old portal", Predicate: "alias_of",
 			Value: "service:portal", ExpiresAt: time.Now().Add(time.Hour).Format(time.RFC3339),
 		}},
-		RecentEvidence: []evidencePromptEntry{{
+		RecentEvidence: []decisionpkg.EvidencePromptEntry{{
 			ID: "ev_1", Claim: "portal was healthy", Observation: "HTTP 200",
 			SourceType: "emisar", SourceName: "health check",
 		}},
@@ -290,7 +290,7 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 		),
 		"full": svc.unboundedWatchPrompt(
 			input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
-			operationalMemoryContext{}, "repo", nil,
+			decisionpkg.OperationalMemoryContext{}, "repo", nil,
 			nil,
 		),
 	} {
@@ -310,7 +310,7 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 	}
 	full := svc.unboundedWatchPrompt(
 		input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
-		operationalMemoryContext{}, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		nil,
 	)
 	for _, required := range []string{

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -161,7 +162,7 @@ func (s *Service) processConfigurationReply(
 	}
 	text := strings.TrimSpace(s.stripBotMention(input.Text))
 	responseThreadTS := conversationalResponseThread(input)
-	command := normalizeLocationRequest(text)
+	command := decisionpkg.NormalizeLocationRequest(text)
 	if command == "cancel" || command == "cancel setup" {
 		if err := s.store.FinishConfigurationSession(
 			ctx, session.ID, session.Revision, "cancelled",
@@ -179,7 +180,7 @@ func (s *Service) processConfigurationReply(
 	next, status, answerErr := s.applyConfigurationAnswer(ctx, &session, input.UserID, text)
 	if answerErr != nil {
 		var message slackui.Message
-		if requestedConversationLocation(text) != conversationLocationFollow {
+		if decisionpkg.RequestedConversationLocation(text) != decisionpkg.ConversationLocationFollow {
 			channel, channelErr := s.slack.GetChannel(ctx, session.ChannelID)
 			if channelErr != nil {
 				return true, channelErr

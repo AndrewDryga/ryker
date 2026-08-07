@@ -375,8 +375,8 @@ func (s *Service) handleUnboundConversation(
 				return true, s.finishSlackInput(ctx, input)
 			}
 		}
-		location := requestedConversationLocation(s.stripBotMention(input.Text))
-		if locationOnlyRequest(s.stripBotMention(input.Text)) {
+		location := decisionpkg.RequestedConversationLocation(s.stripBotMention(input.Text))
+		if decisionpkg.LocationOnlyRequest(s.stripBotMention(input.Text)) {
 			responseThreadTS, _, routeErr := s.resolveConversationRoute(ctx, input)
 			if routeErr != nil {
 				return true, s.retrySlackInput(ctx, input, routeErr)
@@ -499,9 +499,9 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.retrySlackInput(ctx, input, incidentErr)
 	}
 	if input.Kind != "action" &&
-		locationOnlyRequest(s.stripBotMention(input.Text)) {
-		location := requestedConversationLocation(s.stripBotMention(input.Text))
-		if incident.IsThreadScoped() && location == conversationLocationChannel {
+		decisionpkg.LocationOnlyRequest(s.stripBotMention(input.Text)) {
+		location := decisionpkg.RequestedConversationLocation(s.stripBotMention(input.Text))
+		if incident.IsThreadScoped() && location == decisionpkg.ConversationLocationChannel {
 			err = s.enqueue(
 				ctx, "conversation_location_"+input.ID, incident, "notice",
 				incident.ConversationThreadTS(), slackui.Notice(
@@ -1147,11 +1147,11 @@ func (s *Service) postInputMessageDelivery(
 	return err
 }
 
-func conversationLocationName(location conversationLocation) string {
+func conversationLocationName(location decisionpkg.ConversationLocation) string {
 	switch location {
-	case conversationLocationChannel:
+	case decisionpkg.ConversationLocationChannel:
 		return "channel"
-	case conversationLocationThread:
+	case decisionpkg.ConversationLocationThread:
 		return "thread"
 	default:
 		return "follow"

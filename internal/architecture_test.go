@@ -72,14 +72,14 @@ var methodBudget = map[string]int{
 // touches it, little enough that a package quietly absorbing a new
 // responsibility does.
 var lineBudget = map[string]int{
-	"service":    25700,
+	"service":    24892,
 	"store":      14000,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
 	// decision owns the shapes a model result arrives in and the rules for
 	// reading one, so the evaluation family can reach them without the runtime.
-	"decision": 1400,
+	"decision": 2161,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	"investigation": 1800,

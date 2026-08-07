@@ -82,13 +82,6 @@ type ruleSaveResult struct {
 	Replaced bool   `json:"replaced"`
 }
 
-type preferencePromptEntry struct {
-	Scope     string `json:"scope"`
-	Name      string `json:"name"`
-	Value     string `json:"value"`
-	ExpiresAt string `json:"expires_at"`
-}
-
 type standingRulePromptEntry struct {
 	ID         string `json:"id"`
 	Trigger    string `json:"trigger"`
@@ -135,7 +128,7 @@ func (s *Service) loadEffectivePreferences(
 	channelID string,
 	repository string,
 	operatorID string,
-) ([]preferencePromptEntry, error) {
+) ([]decisionpkg.PreferencePromptEntry, error) {
 	entries, err := s.store.ListPreferencesForContext(
 		ctx,
 		s.cfg.Slack.TeamID,
@@ -149,13 +142,13 @@ func (s *Service) loadEffectivePreferences(
 		return nil, err
 	}
 	seen := make(map[string]bool, len(entries))
-	result := make([]preferencePromptEntry, 0, len(entries))
+	result := make([]decisionpkg.PreferencePromptEntry, 0, len(entries))
 	for _, entry := range entries {
 		if seen[entry.Name] {
 			continue
 		}
 		seen[entry.Name] = true
-		result = append(result, preferencePromptEntry{
+		result = append(result, decisionpkg.PreferencePromptEntry{
 			Scope:     entry.ScopeKind + ":" + entry.ScopeKey,
 			Name:      entry.Name,
 			Value:     entry.Value,
@@ -165,7 +158,7 @@ func (s *Service) loadEffectivePreferences(
 	return result, nil
 }
 
-func behaviorPreferencePrompt(preferences []preferencePromptEntry) string {
+func behaviorPreferencePrompt(preferences []decisionpkg.PreferencePromptEntry) string {
 	if len(preferences) == 0 {
 		return ""
 	}
@@ -305,7 +298,7 @@ func normalizeResponseLocationPreference(
 	if !explicitPreferenceRequestPattern.MatchString(input.Text) {
 		return proposed, "", false
 	}
-	normalized := normalizeLocationRequest(input.Text)
+	normalized := decisionpkg.NormalizeLocationRequest(input.Text)
 	value := ""
 	switch {
 	case containsAnyPhrase(normalized,

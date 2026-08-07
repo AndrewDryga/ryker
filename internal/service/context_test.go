@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -69,7 +70,7 @@ func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 		false,
 		nil,
 		core.AgentMemory{SituationSummary: "Current thread summary"},
-		[]conversationSituationContext{{
+		[]decisionpkg.ConversationSituationContext{{
 			ChannelID: "CDEPLOY", Repository: "emisar",
 			Relationship: "same_repository",
 			Summary: core.AgentMemory{
@@ -78,7 +79,7 @@ func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 			UpdatedAt: "2026-07-30T12:00:00Z",
 		}},
 		nil,
-		operationalMemoryContext{},
+		decisionpkg.OperationalMemoryContext{},
 		"emisar",
 		nil,
 	)
@@ -103,7 +104,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	}
 	prompt := svc.watchPrompt(
 		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
-		operationalMemoryContext{}, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 	)
 	for _, required := range []string{
 		"explicit host verification replay",
@@ -119,7 +120,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	input.EnvelopeID = "env:ordinary"
 	ordinary := svc.watchPrompt(
 		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
-		operationalMemoryContext{}, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 	)
 	if strings.Contains(ordinary, "explicit host verification replay") {
 		t.Fatalf("ordinary prompt contains replay policy:\n%s", ordinary)
@@ -127,9 +128,9 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 }
 
 func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
-	recent := make([]watchContextMessage, 0, 20)
+	recent := make([]decisionpkg.WatchContextMessage, 0, 20)
 	for index := 0; index < 20; index++ {
-		recent = append(recent, watchContextMessage{
+		recent = append(recent, decisionpkg.WatchContextMessage{
 			MessageTS: fmt.Sprintf("1700.%06d", index),
 			SenderID:  "B_GRAFANA", SenderType: "external_app",
 			Text: strings.Repeat(fmt.Sprintf("old-alert-%02d ", index), 260),
@@ -143,7 +144,7 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	svc := &Service{}
 	raw := svc.unboundedWatchPrompt(
 		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
-		operationalMemoryContext{}, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		nil,
 	)
 	if len(raw) <= maxAssembledWatchPromptBytes {
@@ -151,7 +152,7 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	}
 	prompt := svc.watchPrompt(
 		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
-		operationalMemoryContext{}, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 	)
 	if len(prompt) > maxAssembledWatchPromptBytes {
 		t.Fatalf("watch prompt bytes = %d", len(prompt))

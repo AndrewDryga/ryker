@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -257,7 +258,7 @@ func (s *Service) queueEmisarApprovalContinuation(
 	if err != nil {
 		return core.AgentRun{}, false, err
 	}
-	state := watchTurnState{
+	state := decisionpkg.WatchTurnState{
 		Lane:                 "investigation",
 		Repository:           repository,
 		ResponseThreadTS:     delivery.ThreadTS,

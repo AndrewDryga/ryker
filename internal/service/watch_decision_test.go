@@ -544,7 +544,7 @@ func TestWatchedCorrectionExhaustionQueuesBlockedNotice(t *testing.T) {
 }
 
 func TestWatchStructuredCorrectionBudgetIsIndependentFromRunFailures(t *testing.T) {
-	state := watchTurnState{}
+	state := decisionpkg.WatchTurnState{}
 	first := consumeWatchStructuredCorrection(&state, 4)
 	second := consumeWatchStructuredCorrection(&state, 4)
 	third := consumeWatchStructuredCorrection(&state, 4)

@@ -7,6 +7,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 )
 
 // Lane selection used to be five conditions buried in the middle of a
@@ -17,13 +18,13 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 	repository := config.Repository{ConversationPolicy: "repo-conversation"}
 	mention := core.SlackInput{Kind: "mention"}
 
-	if lane := triageLane(watchTurnState{}, mention, repository); lane != "conversation" {
+	if lane := triageLane(decisionpkg.WatchTurnState{}, mention, repository); lane != "conversation" {
 		t.Fatalf("a plain mention with a conversation policy = %q", lane)
 	}
 
 	for _, testCase := range []struct {
 		name       string
-		state      watchTurnState
+		state      decisionpkg.WatchTurnState
 		input      core.SlackInput
 		repository config.Repository
 	}{
@@ -39,7 +40,7 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 		},
 		{
 			name:       "a matched alert rule means this is operational",
-			state:      watchTurnState{MatchedRules: []core.StandingRule{{Trigger: "pager"}}},
+			state:      decisionpkg.WatchTurnState{MatchedRules: []core.StandingRule{{Trigger: "pager"}}},
 			input:      mention,
 			repository: repository,
 		},
@@ -75,7 +76,7 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 
 	// A channel message counts as targeted once it is a follow-up in an
 	// ongoing conversation, which is the case the untargeted test above turns on.
-	followup := watchTurnState{ConversationFollowup: true}
+	followup := decisionpkg.WatchTurnState{ConversationFollowup: true}
 	if lane := triageLane(followup, core.SlackInput{Kind: "message"}, repository); lane != "conversation" {
 		t.Fatalf("a conversation follow-up = %q, want conversation", lane)
 	}
@@ -93,35 +94,35 @@ func unusableSessionError() error {
 func TestRetryAtNextSessionGenerationOnlyMovesForward(t *testing.T) {
 	for _, testCase := range []struct {
 		name      string
-		state     watchTurnState
+		state     decisionpkg.WatchTurnState
 		observed  int
 		cause     error
 		wantAfter int
 	}{
 		{
 			name:      "a transient failure keeps the current generation",
-			state:     watchTurnState{Generation: 3},
+			state:     decisionpkg.WatchTurnState{Generation: 3},
 			observed:  3,
 			cause:     errors.New("coop is briefly unavailable"),
 			wantAfter: 3,
 		},
 		{
 			name:      "an unusable session advances past itself",
-			state:     watchTurnState{Generation: 3},
+			state:     decisionpkg.WatchTurnState{Generation: 3},
 			observed:  3,
 			cause:     unusableSessionError(),
 			wantAfter: 4,
 		},
 		{
 			name:      "a stale run catches up to the observed generation",
-			state:     watchTurnState{Generation: 1},
+			state:     decisionpkg.WatchTurnState{Generation: 1},
 			observed:  5,
 			cause:     errors.New("coop is briefly unavailable"),
 			wantAfter: 5,
 		},
 		{
 			name:      "a generation never moves backwards",
-			state:     watchTurnState{Generation: 7},
+			state:     decisionpkg.WatchTurnState{Generation: 7},
 			observed:  2,
 			cause:     unusableSessionError(),
 			wantAfter: 7,

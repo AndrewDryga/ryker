@@ -26,7 +26,7 @@ var operationalCounterPattern = regexp.MustCompile(
 	`(?i)(?:\[[^\]]*(?:firing|resolved|critical|warning)[^\]]*\]|\b[0-9]+\s+alerts?\b|\b[0-9]+\s+of\s+[0-9]+\b)`,
 )
 
-func (s *Service) obviousHumanDialogue(input core.SlackInput, state watchTurnState) bool {
+func (s *Service) obviousHumanDialogue(input core.SlackInput, state decisionpkg.WatchTurnState) bool {
 	if input.Kind != "message" || state.ConversationFollowup ||
 		len(state.MatchedRules) > 0 || len(input.Attachments) > 0 {
 		return false
@@ -44,45 +44,6 @@ func (s *Service) obviousHumanDialogue(input core.SlackInput, state watchTurnSta
 	return mentionedAnotherHuman
 }
 
-// operationalCorrelationKey is deliberately source-agnostic. Exact external
-// lifecycle IDs win; alert apps fall back to stable alert/service/component
-// labels and a phase-free title. FIRING and RESOLVED updates therefore share a
-// stream without grouping unrelated alerts merely because they share a channel.
-func operationalCorrelationKey(input core.SlackInput) string {
-	if decisionpkg.OperationalAlertEvent(input.Text) {
-		if key := stableOperationalAlertLink(input.Text); key != "" {
-			return boundedCorrelationKey("alert-link:" + key)
-		}
-	}
-	if key := externalLifecycleCorrelationKey(input.Text); key != "" {
-		return boundedCorrelationKey("lifecycle:" + key)
-	}
-	if !decisionpkg.OperationalAlertEvent(input.Text) {
-		return ""
-	}
-	labels := make([]string, 0, 4)
-	for _, match := range operationalLabelPattern.FindAllStringSubmatch(input.Text, -1) {
-		if len(match) < 3 {
-			continue
-		}
-		labels = append(labels,
-			strings.ToLower(match[1])+":"+strings.ToLower(strings.Trim(match[2], ".,;")),
-		)
-	}
-	title := operationalAlertTitle(input.Text)
-	identity := strings.Join(labels, "|")
-	if title != "" {
-		identity += "|title:" + title
-	}
-	if identity == "" {
-		return ""
-	}
-	return boundedCorrelationKey("alert:" + input.UserID + ":" + identity)
-}
-
-// Alert notifications commonly include both a stable alert URL and a dashboard
-// URL whose time-range query changes on every delivery. Prefer the stable alert
-// identity so repeats and recovery updates remain one operational stream.
 func stableOperationalAlertLink(text string) string {
 	for _, match := range externalLifecycleLinkPattern.FindAllStringSubmatch(text, -1) {
 		if len(match) < 2 {
@@ -126,3 +87,43 @@ func boundedCorrelationKey(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return core.TruncateUTF8(value, 180) + ":sha256:" + hex.EncodeToString(sum[:8])
 }
+
+// operationalCorrelationKey is deliberately source-agnostic. Exact external
+// lifecycle IDs win; alert apps fall back to stable alert/service/component
+// labels and a phase-free title. FIRING and RESOLVED updates therefore share a
+// stream without grouping unrelated alerts merely because they share a channel.
+func operationalCorrelationKey(input core.SlackInput) string {
+	if decisionpkg.OperationalAlertEvent(input.Text) {
+		if key := stableOperationalAlertLink(input.Text); key != "" {
+			return boundedCorrelationKey("alert-link:" + key)
+		}
+	}
+	if key := externalLifecycleCorrelationKey(input.Text); key != "" {
+		return boundedCorrelationKey("lifecycle:" + key)
+	}
+	if !decisionpkg.OperationalAlertEvent(input.Text) {
+		return ""
+	}
+	labels := make([]string, 0, 4)
+	for _, match := range operationalLabelPattern.FindAllStringSubmatch(input.Text, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		labels = append(labels,
+			strings.ToLower(match[1])+":"+strings.ToLower(strings.Trim(match[2], ".,;")),
+		)
+	}
+	title := operationalAlertTitle(input.Text)
+	identity := strings.Join(labels, "|")
+	if title != "" {
+		identity += "|title:" + title
+	}
+	if identity == "" {
+		return ""
+	}
+	return boundedCorrelationKey("alert:" + input.UserID + ":" + identity)
+}
+
+// Alert notifications commonly include both a stable alert URL and a dashboard
+// URL whose time-range query changes on every delivery. Prefer the stable alert
+// identity so repeats and recovery updates remain one operational stream.

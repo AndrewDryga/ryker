@@ -4,68 +4,14 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"unicode"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-type conversationLocation int
-
-const (
-	conversationLocationFollow conversationLocation = iota
-	conversationLocationChannel
-	conversationLocationThread
-)
-
-func requestedConversationLocation(text string) conversationLocation {
-	normalized := normalizeLocationRequest(text)
-	for _, phrase := range []string{
-		"switch to channel",
-		"switch to the channel",
-		"continue in channel",
-		"continue in the channel",
-		"back to channel",
-		"back to the channel",
-		"reply in channel",
-		"reply in the channel",
-		"move this to channel",
-		"move this to the channel",
-	} {
-		if strings.Contains(normalized, phrase) {
-			return conversationLocationChannel
-		}
-	}
-	for _, phrase := range []string{
-		"switch to thread",
-		"switch to a thread",
-		"continue in thread",
-		"continue in the thread",
-		"continue in a thread",
-		"reply in thread",
-		"reply in the thread",
-		"move this to thread",
-		"move this to a thread",
-		"take this to thread",
-		"take this to a thread",
-		"use a thread",
-		"back to that thread",
-		"reply in that thread",
-		"post back to that thread",
-		"post it back to that thread",
-		"post hi back to that thread",
-		"not pollute the channel",
-		"not pollute channel",
-	} {
-		if strings.Contains(normalized, phrase) {
-			return conversationLocationThread
-		}
-	}
-	return conversationLocationFollow
-}
-
 func referencesPreviousThread(text string) bool {
-	normalized := normalizeLocationRequest(text)
+	normalized := decisionpkg.NormalizeLocationRequest(text)
 	return strings.Contains(normalized, "that thread") ||
 		strings.Contains(normalized, "previous thread") ||
 		strings.Contains(normalized, "prior thread")
@@ -85,9 +31,9 @@ func (s *Service) resolveConversationRoute(
 	}
 	route.ChannelID = input.ChannelID
 	route.UserID = input.UserID
-	location := requestedConversationLocation(input.Text)
-	preferred := conversationLocationFollow
-	if location == conversationLocationFollow {
+	location := decisionpkg.RequestedConversationLocation(input.Text)
+	preferred := decisionpkg.ConversationLocationFollow
+	if location == decisionpkg.ConversationLocationFollow {
 		preferred, err = s.preferredConversationLocation(ctx, input)
 		if err != nil {
 			return "", "", err
@@ -96,7 +42,7 @@ func (s *Service) resolveConversationRoute(
 	responseThreadTS := ""
 	referencedThreadTS := ""
 	switch location {
-	case conversationLocationChannel:
+	case decisionpkg.ConversationLocationChannel:
 		if input.ThreadTS != "" {
 			route.PreviousThreadTS = input.ThreadTS
 		} else if route.ActiveThreadTS != "" {
@@ -105,7 +51,7 @@ func (s *Service) resolveConversationRoute(
 		route.ActiveThreadTS = ""
 		route.Explicit = true
 		responseThreadTS = ""
-	case conversationLocationThread:
+	case decisionpkg.ConversationLocationThread:
 		switch {
 		case referencesPreviousThread(input.Text) && route.PreviousThreadTS != "":
 			responseThreadTS = route.PreviousThreadTS
@@ -131,7 +77,7 @@ func (s *Service) resolveConversationRoute(
 			responseThreadTS = ""
 			referencedThreadTS = input.ThreadTS
 		case input.ThreadTS != "":
-			if preferred == conversationLocationChannel {
+			if preferred == decisionpkg.ConversationLocationChannel {
 				responseThreadTS = ""
 				referencedThreadTS = input.ThreadTS
 				route.PreviousThreadTS = input.ThreadTS
@@ -145,7 +91,7 @@ func (s *Service) resolveConversationRoute(
 			}
 			route.Explicit = false
 		default:
-			if preferred == conversationLocationThread && input.MessageTS != "" {
+			if preferred == decisionpkg.ConversationLocationThread && input.MessageTS != "" {
 				responseThreadTS = input.MessageTS
 				if route.ActiveThreadTS != "" && route.ActiveThreadTS != input.MessageTS {
 					route.PreviousThreadTS = route.ActiveThreadTS
@@ -170,18 +116,18 @@ func (s *Service) resolveConversationRoute(
 func (s *Service) preferredConversationLocation(
 	ctx context.Context,
 	input core.SlackInput,
-) (conversationLocation, error) {
+) (decisionpkg.ConversationLocation, error) {
 	repository, err := s.effectiveRepository(
 		ctx, input.ChannelID, input.UserID, s.cfg.Slack.DefaultRepository,
 	)
 	if err != nil {
-		return conversationLocationFollow, err
+		return decisionpkg.ConversationLocationFollow, err
 	}
 	preferences, err := s.loadEffectivePreferences(
 		ctx, input.ChannelID, repository, input.UserID,
 	)
 	if err != nil {
-		return conversationLocationFollow, err
+		return decisionpkg.ConversationLocationFollow, err
 	}
 	for _, preference := range preferences {
 		if preference.Name != "response_location" {
@@ -189,21 +135,21 @@ func (s *Service) preferredConversationLocation(
 		}
 		switch preference.Value {
 		case "prefer_thread":
-			return conversationLocationThread, nil
+			return decisionpkg.ConversationLocationThread, nil
 		case "prefer_channel":
-			return conversationLocationChannel, nil
+			return decisionpkg.ConversationLocationChannel, nil
 		default:
-			return conversationLocationFollow, nil
+			return decisionpkg.ConversationLocationFollow, nil
 		}
 	}
-	return conversationLocationFollow, nil
+	return decisionpkg.ConversationLocationFollow, nil
 }
 
 func conversationalResponseThread(input core.SlackInput) string {
-	switch requestedConversationLocation(input.Text) {
-	case conversationLocationChannel:
+	switch decisionpkg.RequestedConversationLocation(input.Text) {
+	case decisionpkg.ConversationLocationChannel:
 		return ""
-	case conversationLocationThread:
+	case decisionpkg.ConversationLocationThread:
 		if input.ThreadTS != "" {
 			return input.ThreadTS
 		}
@@ -213,61 +159,11 @@ func conversationalResponseThread(input core.SlackInput) string {
 	}
 }
 
-func locationOnlyRequest(text string) bool {
-	normalized := normalizeLocationRequest(text)
-	normalized = strings.TrimPrefix(normalized, "lets ")
-	normalized = strings.TrimPrefix(normalized, "please ")
-	normalized = strings.TrimSuffix(normalized, " please")
-	switch normalized {
-	case "switch to channel",
-		"switch to the channel",
-		"continue in channel",
-		"continue in the channel",
-		"back to channel",
-		"back to the channel",
-		"reply in channel",
-		"reply in the channel",
-		"switch to thread",
-		"switch to a thread",
-		"continue in thread",
-		"continue in the thread",
-		"continue in a thread",
-		"reply in thread",
-		"reply in the thread",
-		"move this to thread",
-		"move this to a thread",
-		"take this to thread",
-		"take this to a thread",
-		"use a thread",
-		"switch to thread not to pollute channel",
-		"switch to a thread not to pollute the channel",
-		"continue in thread not to pollute channel",
-		"continue in a thread not to pollute the channel",
-		"not pollute the channel",
-		"not pollute channel":
-		return true
-	default:
-		return false
-	}
-}
-
-func normalizeLocationRequest(value string) string {
-	value = strings.ToLower(value)
-	value = strings.ReplaceAll(value, "let's", "lets")
-	value = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.IsSpace(r) {
-			return r
-		}
-		return ' '
-	}, value)
-	return strings.Join(strings.Fields(value), " ")
-}
-
-func conversationLocationAcknowledgement(location conversationLocation) string {
+func conversationLocationAcknowledgement(location decisionpkg.ConversationLocation) string {
 	switch location {
-	case conversationLocationChannel:
+	case decisionpkg.ConversationLocationChannel:
 		return "Continuing in the channel."
-	case conversationLocationThread:
+	case decisionpkg.ConversationLocationThread:
 		return "Continuing in this thread."
 	default:
 		return ""

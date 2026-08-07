@@ -601,14 +601,14 @@ func evaluateCaseWithConfig(
 			decisionpkg.NormalizeAppAlertCompletion(input, &decision)
 			decision = enforceExternalLifecycleCommunication(input, decision)
 			decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
-			decision = enforceAttentionPolicy(
+			decision = decisionpkg.EnforceAttentionPolicy(
 				input,
 				state,
 				decision,
 				cfg.Slack.ReplyAttention,
 				cfg.Slack.ReactionAttention,
 			)
-			decision, _ = enforceRecoveredAlertLink(input, state, decision)
+			decision, _ = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
 			offers = hostedWatchDecisionOffers(*cfg, testCase, decision)
 		} else {
 			offers = watchDecisionOffers(decision)
@@ -698,7 +698,7 @@ func evaluateCaseWithConfig(
 			return result
 		}
 		if testCase.Kind == "watch" {
-			if correction := episodeDiagnosisCorrection(
+			if correction := decisionpkg.EpisodeDiagnosisCorrection(
 				*episode, completionAction, coverage, assessment, completion,
 			); correction != "" {
 				result.Detail = "premature diagnosis: " + correction

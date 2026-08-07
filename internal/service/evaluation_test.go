@@ -318,7 +318,7 @@ func TestEvaluationProjectsRecoveredAlertLinkFromRecentContext(t *testing.T) {
 	}
 	state := evaluationWatchState(testCase)
 	state.RecentMessages = recent
-	decision, adjusted := enforceRecoveredAlertLink(input, state, decisionpkg.WatchDecision{
+	decision, adjusted := decisionpkg.EnforceRecoveredAlertLink(input, state, decisionpkg.WatchDecision{
 		Action:          "reply",
 		Message:         "The scheduled repair completed.",
 		AlertAssessment: &decisionpkg.AlertAssessment{Verdict: "not_issue", Impact: "The alert cleared."},

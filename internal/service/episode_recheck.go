@@ -21,7 +21,7 @@ func (s *Service) scheduleEpisodeRechecks(
 	ctx context.Context,
 	run core.AgentRun,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	action string,
 	completion *completionAssessment,
 ) error {

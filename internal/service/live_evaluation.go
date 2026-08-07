@@ -949,10 +949,10 @@ func evaluationStructuredCorrection(
 				decisionpkg.NormalizeAppAlertCompletion(input, &decision)
 				decision = enforceExternalLifecycleCommunication(input, decision)
 				decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
-				decision, _ = enforceRecoveredAlertLink(input, state, decision)
+				decision, _ = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
 				for _, correction := range []string{
-					watchDecisionCorrectionAt(input, state, decision, now),
-					alertReplyLanguageCorrectionWithContext(input, state, decision),
+					decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, operationalCorrelationKey),
+					decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision),
 					externalLifecycleReplyLanguageCorrection(input, decision),
 					investigation.CompletionCorrection(
 						*episode,
@@ -982,8 +982,8 @@ func evaluationStructuredCorrection(
 	return ""
 }
 
-func evaluationWatchState(testCase EvaluationCase) watchTurnState {
-	state := watchTurnState{Lane: testCase.Lane}
+func evaluationWatchState(testCase EvaluationCase) decisionpkg.WatchTurnState {
+	state := decisionpkg.WatchTurnState{Lane: testCase.Lane}
 	if testCase.SenderType == "external_app" || testCase.WantAlertAssessment {
 		state.AlertPolicy = "reply_here"
 	}
@@ -1043,14 +1043,14 @@ func liveEvaluationPrompt(
 		if err != nil {
 			return "", err
 		}
-		prior := operationalMemoryContext{
+		prior := decisionpkg.OperationalMemoryContext{
 			ConfirmedMemory: make(
-				[]memoryPromptEntry,
+				[]decisionpkg.MemoryPromptEntry,
 				0,
 				len(testCase.Memories),
 			),
 			Preferences: make(
-				[]preferencePromptEntry,
+				[]decisionpkg.PreferencePromptEntry,
 				0,
 				len(testCase.Preferences),
 			),
@@ -1058,13 +1058,13 @@ func liveEvaluationPrompt(
 		for _, memory := range testCase.Memories {
 			prior.ConfirmedMemory = append(
 				prior.ConfirmedMemory,
-				memoryPromptEntry(memory),
+				decisionpkg.MemoryPromptEntry(memory),
 			)
 		}
 		for _, preference := range testCase.Preferences {
 			prior.Preferences = append(
 				prior.Preferences,
-				preferencePromptEntry(preference),
+				decisionpkg.PreferencePromptEntry(preference),
 			)
 		}
 		rules := make([]core.StandingRule, 0, len(testCase.StandingRules))
@@ -1149,7 +1149,7 @@ func liveEvaluationWatchContext(
 	testCase EvaluationCase,
 	caseID string,
 	operatorID string,
-) (core.SlackInput, []watchContextMessage, error) {
+) (core.SlackInput, []decisionpkg.WatchContextMessage, error) {
 	kind := "message"
 	userID := operatorID
 	switch strings.TrimSpace(testCase.SenderType) {
@@ -1192,7 +1192,7 @@ func liveEvaluationWatchContext(
 		Text:      text,
 	}
 	recent := make(
-		[]watchContextMessage,
+		[]decisionpkg.WatchContextMessage,
 		0,
 		len(testCase.RecentMessages)+len(testCase.FollowingMessages)+1,
 	)
@@ -1237,7 +1237,7 @@ func liveEvaluationContextMessage(
 	message EvaluationMessage,
 	ordinal int,
 	operatorID string,
-) (watchContextMessage, error) {
+) (decisionpkg.WatchContextMessage, error) {
 	senderType := strings.TrimSpace(message.SenderType)
 	if senderType == "" {
 		senderType = "human"
@@ -1250,7 +1250,7 @@ func liveEvaluationContextMessage(
 		case "operator":
 			senderID = operatorID
 		default:
-			return watchContextMessage{}, fmt.Errorf(
+			return decisionpkg.WatchContextMessage{}, fmt.Errorf(
 				"unsupported sender_role %q",
 				message.SenderRole,
 			)
@@ -1260,12 +1260,12 @@ func liveEvaluationContextMessage(
 	case "responder":
 		senderID = "UEVALBOT"
 	default:
-		return watchContextMessage{}, fmt.Errorf(
+		return decisionpkg.WatchContextMessage{}, fmt.Errorf(
 			"unsupported sender_type %q",
 			message.SenderType,
 		)
 	}
-	return watchContextMessage{
+	return decisionpkg.WatchContextMessage{
 		MessageTS:         fmt.Sprintf("1700.%06d", ordinal),
 		SenderID:          senderID,
 		SenderType:        senderType,

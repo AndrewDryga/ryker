@@ -101,7 +101,7 @@ func TestFeedbackOperationPersistsBoundedConversationContext(t *testing.T) {
 		ThreadTS: "100.000", MessageTS: "101.000", UserID: "U123ABC",
 		Text: "That answer was too vague.",
 	}
-	state := watchTurnState{RecentMessages: []watchContextMessage{
+	state := decisionpkg.WatchTurnState{RecentMessages: []decisionpkg.WatchContextMessage{
 		{MessageTS: "100.000", SenderID: "U999BOT", SenderType: "responder", Text: "Everything looks fine."},
 		{MessageTS: "101.000", SenderID: "U123ABC", SenderType: "human", Text: input.Text},
 	}}
@@ -128,7 +128,7 @@ func TestWatchPromptSeparatesResponderFeedbackFromOperationalFrustration(t *test
 	prompt := (&Service{}).unboundedWatchPrompt(
 		core.SlackInput{TeamID: "T123ABC", ChannelID: "C123ABC", UserID: "U123ABC", Text: "This answer is not useful"},
 		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
-		operationalMemoryContext{}, "", nil,
+		decisionpkg.OperationalMemoryContext{}, "", nil,
 		nil,
 	)
 	for _, required := range []string{

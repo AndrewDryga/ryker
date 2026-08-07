@@ -72,7 +72,7 @@ func TestScheduleRetryInheritsExplicitIntentFromSameOperatorThread(t *testing.T)
 	input := core.SlackInput{
 		UserID: "UOPERATOR", ThreadTS: "1700.100", Text: "Try again <@UEMISAR>",
 	}
-	recent := []watchContextMessage{
+	recent := []decisionpkg.WatchContextMessage{
 		{MessageTS: "1699.900", SenderID: "UOTHER", SenderType: "human", Text: "Run this weekly."},
 		{MessageTS: "1700.100", SenderID: "UOPERATOR", SenderType: "human", Text: "Post a deep review daily around 9 am."},
 		{MessageTS: "1700.200", ThreadTS: "1700.100", SenderID: "UOPERATOR", SenderType: "human", Text: "Try again", Target: true},
@@ -198,7 +198,7 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 	if err != nil || input.Kind != "scheduled" || input.Text != task.Prompt || input.ChannelID != task.DeliveryChannel || input.ThreadTS != "" {
 		t.Fatalf("synthetic input = %+v, err=%v", input, err)
 	}
-	var state watchTurnState
+	var state decisionpkg.WatchTurnState
 	if err := json.Unmarshal(input.Frozen, &state); err != nil ||
 		!state.RepositoryPinned || state.Repository != task.Repository ||
 		state.SessionChannelID != "scheduled:"+task.ID ||
@@ -260,10 +260,10 @@ func TestDueScheduleCreatesRecoverableNativeStatusAnchor(t *testing.T) {
 		t.Fatalf("scheduled runs = %+v, err=%v", runs, err)
 	}
 	input, err := st.GetSlackInput(ctx, runs[0].SourceInput)
-	if err != nil || input.ThreadTS == "" || !watchInputWantsPendingStatus(input, watchTurnState{ConversationFollowup: true}) {
+	if err != nil || input.ThreadTS == "" || !watchInputWantsPendingStatus(input, decisionpkg.WatchTurnState{ConversationFollowup: true}) {
 		t.Fatalf("scheduled input = %+v, err=%v", input, err)
 	}
-	var state watchTurnState
+	var state decisionpkg.WatchTurnState
 	if err := json.Unmarshal(input.Frozen, &state); err != nil || state.ResponseThreadTS != input.ThreadTS {
 		t.Fatalf("scheduled route = %+v, err=%v", state, err)
 	}

@@ -71,7 +71,7 @@ func approvalContinuationEpisode(actionID string) *core.WorkEpisode {
 
 func (s *Service) episodeForWatchedInput(
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 ) *core.WorkEpisode {
 	text := strings.ToLower(strings.Join(strings.Fields(input.Text), " "))
 	episode := &core.WorkEpisode{
@@ -135,9 +135,9 @@ func (s *Service) episodeForWatchedInput(
 			}
 		}
 	}
-	if matchedOperationalAlertRule(state.MatchedRules) ||
+	if decisionpkg.MatchedOperationalAlertRule(state.MatchedRules) ||
 		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
-			decisionpkg.OperationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text)) {
+			decisionpkg.OperationalAlertEvent(input.Text) && !decisionpkg.ExternalCoordinationOnlyEvent(input.Text)) {
 		episode.Effort = core.EffortIncidentInvestigation
 		episode.RequiredCoverage = alertInvestigationCoverage(text)
 		episode.CompletionCriteria = []string{
@@ -278,65 +278,6 @@ func explicitGovernedOperationRequest(text string) bool {
 
 func workEpisodePrompt(episode core.WorkEpisode) string {
 	return investigation.Compile(episode).Prompt()
-}
-
-func episodeDiagnosisCorrection(
-	episode core.WorkEpisode,
-	action string,
-	coverage []core.Coverage,
-	assessment *decisionpkg.AlertAssessment,
-	completion *completionAssessment,
-) string {
-	if action != "reply" || (episode.Effort != core.EffortOperationalAssessment &&
-		episode.Effort != core.EffortIncidentInvestigation) {
-		return ""
-	}
-	activeDegradation := false
-	for _, item := range coverage {
-		if item.Status == "degraded" || item.Status == "unhealthy" {
-			activeDegradation = true
-			break
-		}
-	}
-	if !activeDegradation {
-		return ""
-	}
-	if completion != nil && completion.Status == "blocked" {
-		return ""
-	}
-	if assessment == nil {
-		return "the deep work episode found active degradation but has no diagnostic closure; continue until the affected scope, cause boundary, mitigation, and verification are established"
-	}
-	if assessment.Verdict != "confirmed_issue" && assessment.Verdict != "likely_issue" {
-		return "degraded or unhealthy coverage conflicts with an alert assessment that does not identify an active issue; reconcile the evidence before finishing"
-	}
-	if assessment.CauseStatus != "identified" && assessment.CauseStatus != "bounded" {
-		return "the active issue has no identified or bounded cause; continue through available logs, metrics, traces, repository context, and dependencies instead of assigning that investigation to the operator"
-	}
-	if strings.TrimSpace(assessment.Cause) == "" {
-		return "the active issue has no actionable cause boundary; continue the diagnosis or return an exact external blocker"
-	}
-	if strings.TrimSpace(assessment.Verification) == "" {
-		return "the active issue has no fresh verification plan for its mitigation; continue until the result is operationally testable"
-	}
-	if alertActionIsUnfinishedInvestigation(assessment.ImmediateAction) {
-		return "the active alert's immediate action is still an investigative handoff; perform the available read-only inspection now, then recommend an actual mitigation or return an exact external blocker"
-	}
-	return ""
-}
-
-func alertActionIsUnfinishedInvestigation(action string) bool {
-	action = strings.ToLower(strings.TrimSpace(action))
-	action = strings.TrimLeft(action, "*_>` -")
-	for _, prefix := range []string{
-		"check ", "inspect ", "investigate ", "look at ", "query ", "review ",
-		"trace ", "determine ", "identify ",
-	} {
-		if strings.HasPrefix(action, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func unsupportedOperationalClaimCorrection(

@@ -42,7 +42,7 @@ func (s *Service) queueIncidentAgentRun(
 		if mode == core.AgentRunIncident {
 			episode = s.episodeForWatchedInput(
 				input,
-				watchTurnState{ConversationFollowup: true},
+				decisionpkg.WatchTurnState{ConversationFollowup: true},
 			)
 		} else if activity := requestEpisodeActivity(input.Text); activity != core.ActivityInvestigating {
 			episode.Activity = activity
@@ -194,22 +194,22 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 func (s *Service) resumeLegacyWatchedTurn(
 	ctx context.Context,
 	input core.SlackInput,
-) (watchTurnState, bool, error) {
+) (decisionpkg.WatchTurnState, bool, error) {
 	if len(input.Frozen) > 0 {
-		legacy, err := decodeWatchState(input.Frozen)
+		legacy, err := decisionpkg.DecodeWatchState(input.Frozen)
 		if err != nil {
-			return watchTurnState{}, true, fmt.Errorf("migrate legacy watched input state: %w", err)
+			return decisionpkg.WatchTurnState{}, true, fmt.Errorf("migrate legacy watched input state: %w", err)
 		}
 		if legacy.TurnID != "" {
 			memory, memoryErr := s.store.GetChannelMemory(
 				ctx, input.ChannelID,
 			)
 			if memoryErr != nil && !errors.Is(memoryErr, store.ErrNotFound) {
-				return watchTurnState{}, true, memoryErr
+				return decisionpkg.WatchTurnState{}, true, memoryErr
 			}
 			contextJSON, marshalErr := json.Marshal(legacy)
 			if marshalErr != nil {
-				return watchTurnState{}, true, marshalErr
+				return decisionpkg.WatchTurnState{}, true, marshalErr
 			}
 			_, _, queueErr := s.store.QueueAgentRun(ctx, core.AgentRun{
 				Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
@@ -230,13 +230,13 @@ func (s *Service) resumeLegacyWatchedTurn(
 				Episode:         s.episodeForWatchedInput(input, legacy),
 			})
 			if queueErr != nil {
-				return watchTurnState{}, true, queueErr
+				return decisionpkg.WatchTurnState{}, true, queueErr
 			}
-			return watchTurnState{}, true, s.finishInputIfOpen(ctx, input)
+			return decisionpkg.WatchTurnState{}, true, s.finishInputIfOpen(ctx, input)
 		}
 		return legacy, false, nil
 	}
-	return watchTurnState{}, false, nil
+	return decisionpkg.WatchTurnState{}, false, nil
 }
 
 // captureWatchTurnState resolves the facts a turn must decide once and then
@@ -251,7 +251,7 @@ func (s *Service) resumeLegacyWatchedTurn(
 func (s *Service) captureWatchTurnState(
 	ctx context.Context,
 	input core.SlackInput,
-	state *watchTurnState,
+	state *decisionpkg.WatchTurnState,
 ) error {
 	if input.Kind == "bot_message" && state.AlertPolicy == "" {
 		alertPolicy, err := s.channelAlertPolicy(ctx, input.ChannelID)
@@ -333,7 +333,7 @@ func (s *Service) correlateWatchEpisode(
 	ctx context.Context,
 	input core.SlackInput,
 	conversationKey string,
-	state *watchTurnState,
+	state *decisionpkg.WatchTurnState,
 ) (*core.WorkEpisode, error) {
 	episode := s.episodeForWatchedInput(input, *state)
 	if previous, previousErr := s.store.GetLatestWorkEpisodeByConversationKey(
@@ -403,7 +403,7 @@ func (s *Service) completeIgnoredLifecycleInput(
 		SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
 		State: core.AgentRunRunning, StartedAt: s.now().UTC(),
 		CommitmentTitle: commitmentTitleForInput(input),
-		Episode:         s.episodeForWatchedInput(input, watchTurnState{}),
+		Episode:         s.episodeForWatchedInput(input, decisionpkg.WatchTurnState{}),
 	})
 	if err != nil {
 		return err
@@ -444,24 +444,14 @@ func commitmentTitleForInput(input core.SlackInput) string {
 	return core.TruncateUTF8WithSuffix(text, 180, "...")
 }
 
-func watchInputTargeted(input core.SlackInput, state watchTurnState) bool {
-	return watchInputExplicitlyTargeted(input, state) || state.ConversationFollowup
-}
-
 func watchInputWantsPendingStatus(
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 ) bool {
 	return !isPrivateSlackVerificationReplay(input) &&
 		input.Kind != "recheck" && slackReplyThread(input) != "" &&
-		(watchInputTargeted(input, state) ||
-			requestedConversationLocation(input.Text) != conversationLocationFollow)
-}
-
-func watchInputExplicitlyTargeted(input core.SlackInput, state watchTurnState) bool {
-	return input.Kind == "direct" || input.Kind == "mention" ||
-		input.Kind == "shortcut" || len(state.MatchedRules) > 0 ||
-		requestedConversationLocation(input.Text) != conversationLocationFollow
+		(decisionpkg.WatchInputTargeted(input, state) ||
+			decisionpkg.RequestedConversationLocation(input.Text) != decisionpkg.ConversationLocationFollow)
 }
 
 func (s *Service) mentionOnlyNudge(input core.SlackInput) bool {
@@ -489,13 +479,13 @@ func watchProgressSteps() []string {
 	}
 }
 
-func decodeWatchRunContext(run core.AgentRun) (watchTurnState, error) {
+func decodeWatchRunContext(run core.AgentRun) (decisionpkg.WatchTurnState, error) {
 	if len(run.Context) == 0 {
-		return watchTurnState{}, nil
+		return decisionpkg.WatchTurnState{}, nil
 	}
-	var state watchTurnState
+	var state decisionpkg.WatchTurnState
 	if err := decisionpkg.DecodeStrictJSON(run.Context, &state); err != nil {
-		return watchTurnState{}, err
+		return decisionpkg.WatchTurnState{}, err
 	}
 	return state, nil
 }
@@ -757,7 +747,7 @@ func agentMemoryPresent(memory core.AgentMemory) bool {
 		len(memory.Knowledge) != 0
 }
 
-func relatedSituationsPrompt(situations []conversationSituationContext) string {
+func relatedSituationsPrompt(situations []decisionpkg.ConversationSituationContext) string {
 	if len(situations) == 0 {
 		return ""
 	}
@@ -809,7 +799,7 @@ func (s *Service) retryIncidentAgentRun(
 // on.
 func (s *Service) freezeTriageContext(
 	ctx context.Context,
-	state *watchTurnState,
+	state *decisionpkg.WatchTurnState,
 	input core.SlackInput,
 ) error {
 	if !state.ContextCaptured || !state.PriorCaptured {
@@ -1043,7 +1033,7 @@ func (s *Service) admitTriageRun(
 	ctx context.Context,
 	run core.AgentRun,
 	input core.SlackInput,
-	state *watchTurnState,
+	state *decisionpkg.WatchTurnState,
 ) (bool, error) {
 	var err error
 	if input.Kind == "bot_message" && state.AlertPolicy == "" {
@@ -1122,7 +1112,7 @@ func (s *Service) admitTriageRun(
 // attachments, matched alert rules, a verification replay — that implies a
 // real investigation.
 func triageLane(
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	input core.SlackInput,
 	repository config.Repository,
 ) string {
@@ -1133,7 +1123,7 @@ func triageLane(
 		len(state.MatchedRules) == 0 &&
 		(input.Kind == "message" || input.Kind == "mention" ||
 			input.Kind == "direct") &&
-		watchInputTargeted(input, state) {
+		decisionpkg.WatchInputTargeted(input, state) {
 		lane = "conversation"
 	}
 	return lane
@@ -1161,7 +1151,7 @@ func nextSessionGeneration(current, observed int, cause error) int {
 func (s *Service) retryAtNextSessionGeneration(
 	ctx context.Context,
 	run core.AgentRun,
-	state *watchTurnState,
+	state *decisionpkg.WatchTurnState,
 	observedGeneration int,
 	cause error,
 ) error {
@@ -1193,7 +1183,7 @@ func (s *Service) resolveTriageSession(
 	ctx context.Context,
 	run core.AgentRun,
 	input core.SlackInput,
-	state *watchTurnState,
+	state *decisionpkg.WatchTurnState,
 	repository config.Repository,
 ) (triageSessionBinding, error) {
 	var (
@@ -1259,7 +1249,7 @@ func (s *Service) resolveTriageSession(
 func (s *Service) persistTriageRunState(
 	ctx context.Context,
 	runID string,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 ) error {
 	contextJSON, err := json.Marshal(state)
 	if err != nil {
@@ -1308,7 +1298,7 @@ func (s *Service) failPreparingTriageRun(
 	ctx context.Context,
 	run core.AgentRun,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	detail string,
 ) error {
 	publish := publishTriageFailure(input, state)
@@ -1552,7 +1542,7 @@ func (s *Service) stageTriageTerminal(
 			input, episode, decision,
 		)
 		var recoveryLinkAdjusted bool
-		decision, recoveryLinkAdjusted = enforceRecoveredAlertLink(input, state, decision)
+		decision, recoveryLinkAdjusted = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
 		if lifecycleEvidenceAdjusted || decision.Action != originalAction ||
 			len(decision.PublicationUpdates) != originalPublicationUpdates ||
 			recoveryLinkAdjusted {
@@ -1562,9 +1552,9 @@ func (s *Service) stageTriageTerminal(
 			}
 			staged.result = marshaledResult
 		}
-		correction := watchDecisionCorrection(input, state, decision)
+		correction := decisionpkg.WatchDecisionCorrection(input, state, decision, operationalCorrelationKey)
 		if correction == "" {
-			correction = alertReplyLanguageCorrectionWithContext(input, state, decision)
+			correction = decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision)
 		}
 		if correction == "" {
 			correction = externalLifecycleReplyLanguageCorrection(input, decision)
@@ -1603,7 +1593,7 @@ func (s *Service) stageTriageTerminal(
 				}
 			}
 			if correction == "" {
-				correction = episodeDiagnosisCorrection(
+				correction = decisionpkg.EpisodeDiagnosisCorrection(
 					episode,
 					decision.Action,
 					decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
@@ -1882,7 +1872,7 @@ func terminalStructuredCorrection(attempt, maximum int) bool {
 	return terminalAttempt(attempt, maximum)
 }
 
-func consumeWatchStructuredCorrection(state *watchTurnState, maximum int) bool {
+func consumeWatchStructuredCorrection(state *decisionpkg.WatchTurnState, maximum int) bool {
 	state.StructuredCorrections++
 	return terminalStructuredCorrection(state.StructuredCorrections, maximum)
 }
@@ -1890,7 +1880,7 @@ func consumeWatchStructuredCorrection(state *watchTurnState, maximum int) bool {
 func blockedWatchContinuation(
 	run core.AgentRun,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	reason string,
 	prior *decisionpkg.WatchDecision,
 ) decisionpkg.WatchDecision {
@@ -2105,7 +2095,7 @@ func (s *Service) ensureWatchRunPendingStatus(
 	ctx context.Context,
 	run core.AgentRun,
 	input core.SlackInput,
-	state *watchTurnState,
+	state *decisionpkg.WatchTurnState,
 ) error {
 	if !s.cfg.Slack.NativeStatus {
 		return nil
@@ -2137,7 +2127,7 @@ func (s *Service) ensureWatchRunPendingStatus(
 	return s.store.SetAgentRunContext(ctx, run.ID, contextJSON)
 }
 
-func watchRunStatusThread(input core.SlackInput, state watchTurnState) string {
+func watchRunStatusThread(input core.SlackInput, state decisionpkg.WatchTurnState) string {
 	if state.ApprovalContinuation {
 		return state.ResponseThreadTS
 	}
@@ -2352,7 +2342,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 			return policyErr
 		}
 		if alertPolicy != "automatic" {
-			decision = standingRuleIncidentAsReply(decision, alertPolicy == "offer")
+			decision = decisionpkg.StandingRuleIncidentAsReply(decision, alertPolicy == "offer")
 		}
 	}
 	if isPrivateSlackVerificationReplay(input) {
@@ -2399,7 +2389,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 func (s *Service) persistPrivateReplayKnowledge(
 	ctx context.Context,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	memory core.AgentMemory,
 ) error {
 	knowledge := recall.SanitizeKnowledge(memory.Knowledge)
@@ -2820,7 +2810,7 @@ func (s *Service) finishTriageRunFailure(
 	ctx context.Context,
 	run core.AgentRun,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	detail string,
 ) error {
 	message := slackui.Notice(watchFailureNotice(detail))
@@ -2859,7 +2849,7 @@ func (s *Service) finishTriageRunFailure(
 	return nil
 }
 
-func publishTriageFailure(input core.SlackInput, state watchTurnState) bool {
+func publishTriageFailure(input core.SlackInput, state decisionpkg.WatchTurnState) bool {
 	return !isPrivateSlackVerificationReplay(input) && state.RecheckOriginRunID == "" &&
 		(state.ApprovalContinuation || input.Kind != "bot_message")
 }

@@ -61,7 +61,7 @@ func TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation(t *
 		Text: "[VA1 RESOLVED:1] WARNING | High disk I/O latency\n" +
 			"RESOLVED - 1 alert\nService: cluster\nComponent: cassandra",
 	}
-	state := watchTurnState{RecentMessages: []watchContextMessage{
+	state := decisionpkg.WatchTurnState{RecentMessages: []decisionpkg.WatchContextMessage{
 		{
 			MessageTS: "1700.001", SenderID: "BGRAFANA",
 			SenderType: "external_app", Text: firingText,
@@ -71,8 +71,8 @@ func TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation(t *
 			SenderType: "external_app", Text: resolved.Text, Target: true,
 		},
 	}}
-	correction := watchDecisionCorrectionAt(
-		resolved, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(),
+	correction := decisionpkg.WatchDecisionCorrectionAt(
+		resolved, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(), operationalCorrelationKey,
 	)
 	if !strings.Contains(correction, "investigation was already admitted") {
 		t.Fatalf("resolved alert correction = %q", correction)
@@ -80,8 +80,8 @@ func TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation(t *
 
 	unrelated := resolved
 	unrelated.Text = strings.ReplaceAll(unrelated.Text, "cassandra", "typesense")
-	if correction := watchDecisionCorrectionAt(
-		unrelated, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(),
+	if correction := decisionpkg.WatchDecisionCorrectionAt(
+		unrelated, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(), operationalCorrelationKey,
 	); correction != "" {
 		t.Fatalf("unrelated resolved alert correction = %q", correction)
 	}
@@ -93,11 +93,11 @@ func TestOperationalAlertResolvedEventRecognizesProviderLifecycleWording(t *test
 		"logging/user/emisar/recurrent_job_failures returned to normal with a value of 0.000.",
 		"Alert closed No severity",
 	} {
-		if !operationalAlertResolvedEvent(text) {
+		if !decisionpkg.OperationalAlertResolvedEvent(text) {
 			t.Fatalf("resolved alert wording not recognized: %q", text)
 		}
 	}
-	if operationalAlertResolvedEvent("Alert open No severity") {
+	if decisionpkg.OperationalAlertResolvedEvent("Alert open No severity") {
 		t.Fatal("open alert was classified as resolved")
 	}
 }
@@ -298,11 +298,11 @@ func TestRelatedAlertFamiliesShareRecentOperationalAncestry(t *testing.T) {
 func TestObviousHumanDialogueIsSuppressedBeforeCoop(t *testing.T) {
 	svc := &Service{identity: slackui.Identity{BotUserID: "UBOT"}}
 	input := core.SlackInput{Kind: "message", Text: "<@UALICE> can you check the failed build?"}
-	if !svc.obviousHumanDialogue(input, watchTurnState{}) {
+	if !svc.obviousHumanDialogue(input, decisionpkg.WatchTurnState{}) {
 		t.Fatal("obvious human addressee was not suppressed")
 	}
 	input.Text = "<@UBOT> can you check the failed build?"
-	if svc.obviousHumanDialogue(input, watchTurnState{}) {
+	if svc.obviousHumanDialogue(input, decisionpkg.WatchTurnState{}) {
 		t.Fatal("direct bot mention was suppressed")
 	}
 }

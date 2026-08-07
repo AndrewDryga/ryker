@@ -68,7 +68,7 @@ func (s *Service) ensureWatchSessionAtGeneration(
 }
 
 func alertReplyLanguageCorrection(input core.SlackInput, decision decisionpkg.WatchDecision) string {
-	return alertReplyLanguageCorrectionWithContext(input, watchTurnState{}, decision)
+	return decisionpkg.AlertReplyLanguageCorrectionWithContext(input, decisionpkg.WatchTurnState{}, decision)
 }
 
 // testClock is a manually advanced clock shared by a Service and its Store, so

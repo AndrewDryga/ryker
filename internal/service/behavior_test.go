@@ -426,7 +426,7 @@ func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.
 
 func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 	input := core.SlackInput{Text: "FIRING: storage latency is above 50 ms"}
-	state := watchTurnState{MatchedRules: []core.StandingRule{{
+	state := decisionpkg.WatchTurnState{MatchedRules: []core.StandingRule{{
 		Trigger: "operational_alert", Action: "triage_alert",
 	}}}
 	assessment := &decisionpkg.AlertAssessment{
@@ -460,7 +460,7 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if correction := watchDecisionCorrection(input, state, decision); correction == "" {
+			if correction := decisionpkg.WatchDecisionCorrection(input, state, decision, operationalCorrelationKey); correction == "" {
 				t.Fatalf("accepted shallow alert decision: %+v", decision)
 			}
 		})
@@ -469,12 +469,12 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 		Action: "reply", Message: "Likely shared-path issue.", AlertAssessment: assessment,
 		Evidence: []core.Evidence{repositoryEvidence, liveEvidence},
 	}
-	if correction := watchDecisionCorrection(input, state, complete); correction != "" {
+	if correction := decisionpkg.WatchDecisionCorrection(input, state, complete, operationalCorrelationKey); correction != "" {
 		t.Fatalf("rejected decision-ready alert: %s", correction)
 	}
 	state.FailureDetail = "the first alert reply was incomplete"
-	if correction := watchDecisionCorrection(
-		input, state, decisionpkg.WatchDecision{Action: "ignore"},
+	if correction := decisionpkg.WatchDecisionCorrection(
+		input, state, decisionpkg.WatchDecision{Action: "ignore"}, operationalCorrelationKey,
 	); correction == "" {
 		t.Fatal("corrected alert investigation was allowed to disappear")
 	}
@@ -487,7 +487,7 @@ func TestRecoveredAlertCanCloseFromFreshExactEvidenceWithoutRepositorySweep(t *t
 		Text: "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue\n" +
 			"sts_ks overdue gauge returned to zero.",
 	}
-	state := watchTurnState{AlertPolicy: "reply_here"}
+	state := decisionpkg.WatchTurnState{AlertPolicy: "reply_here"}
 	decision := decisionpkg.WatchDecision{
 		Action:  "reply",
 		Message: "The scheduled `sts_ks` repair completed, closing the earlier alert.",
@@ -508,7 +508,7 @@ func TestRecoveredAlertCanCloseFromFreshExactEvidenceWithoutRepositorySweep(t *t
 			Summary: "The scheduled repair completed.",
 		},
 	}
-	if correction := watchDecisionCorrectionAt(input, state, decision, now); correction != "" {
+	if correction := decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, operationalCorrelationKey); correction != "" {
 		t.Fatalf("rejected exact recovered-alert evidence: %s", correction)
 	}
 }
@@ -520,9 +520,9 @@ func TestRecoveredAlertCorrectsBlockedBroadAssessmentAndRequiresPriorLink(t *tes
 		Text: "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue\n" +
 			"sts_ks overdue gauge returned to zero.",
 	}
-	state := watchTurnState{
+	state := decisionpkg.WatchTurnState{
 		AlertPolicy: "reply_here",
-		RecentMessages: []watchContextMessage{{
+		RecentMessages: []decisionpkg.WatchContextMessage{{
 			SenderType:  "external_app",
 			Text:        "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
 			MessageLink: "https://app.slack.com/client/T123/C123/thread/C123-1700.100",
@@ -542,23 +542,23 @@ func TestRecoveredAlertCorrectsBlockedBroadAssessmentAndRequiresPriorLink(t *tes
 			Attempts: []string{"verified the repair"}, NextAction: "check application traffic",
 		},
 	}
-	if correction := watchDecisionCorrectionAt(input, state, decision, now); correction == "" {
+	if correction := decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, operationalCorrelationKey); correction == "" {
 		t.Fatal("accepted a blocked completion for an exactly verified recovery")
 	}
 	decision.Completion = &completionAssessment{
 		Status: "decision_ready", Verdict: "healthy", Summary: "The repair completed.",
 	}
-	if correction := alertReplyLanguageCorrectionWithContext(input, state, decision); correction == "" ||
+	if correction := decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision); correction == "" ||
 		!strings.Contains(correction, state.RecentMessages[0].MessageLink) {
 		t.Fatalf("recovery link correction = %q", correction)
 	}
 	decision.Message = "The scheduled repair completed, closing [the earlier alert](" +
 		state.RecentMessages[0].MessageLink + ")."
-	if correction := alertReplyLanguageCorrectionWithContext(input, state, decision); correction != "" {
+	if correction := decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision); correction != "" {
 		t.Fatalf("rejected linked recovery closure: %s", correction)
 	}
 	decision.Message = "The scheduled repair completed."
-	linked, adjusted := enforceRecoveredAlertLink(input, state, decision)
+	linked, adjusted := decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
 	if !adjusted || !strings.Contains(linked.Message, state.RecentMessages[0].MessageLink) {
 		t.Fatalf("host-linked recovery = %+v, adjusted=%t", linked, adjusted)
 	}
@@ -733,7 +733,7 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 		ctx,
 		core.AgentRun{ID: "run_failed_watch"},
 		leased,
-		watchTurnState{SessionID: "ses_1"},
+		decisionpkg.WatchTurnState{SessionID: "ses_1"},
 		"watch triage failed: turn cleanup failed",
 	); err != nil {
 		t.Fatal(err)
@@ -799,7 +799,7 @@ func TestAmbientBotAlertFailureDoesNotPostToSlack(t *testing.T) {
 		ctx,
 		core.AgentRun{ID: "run_failed_grafana_alert"},
 		input,
-		watchTurnState{},
+		decisionpkg.WatchTurnState{},
 		"Coop API invalid_request (400): prompt must be bounded UTF-8 text",
 	); err != nil {
 		t.Fatal(err)
@@ -808,10 +808,10 @@ func TestAmbientBotAlertFailureDoesNotPostToSlack(t *testing.T) {
 	if len(slackClient.posts) != 0 {
 		t.Fatalf("ambient alert failure posts = %+v", slackClient.posts)
 	}
-	if publishTriageFailure(input, watchTurnState{}) {
+	if publishTriageFailure(input, decisionpkg.WatchTurnState{}) {
 		t.Fatal("ambient app alert failure is publishable")
 	}
-	if !publishTriageFailure(input, watchTurnState{ApprovalContinuation: true}) {
+	if !publishTriageFailure(input, decisionpkg.WatchTurnState{ApprovalContinuation: true}) {
 		t.Fatal("approval continuation failure was suppressed")
 	}
 }

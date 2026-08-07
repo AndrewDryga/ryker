@@ -288,7 +288,7 @@ func publicationContextAppearsInText(source string, publication core.Publication
 func (s *Service) applyPublicationUpdates(
 	ctx context.Context,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	updates []decisionpkg.PublicationUpdate,
 ) error {
 	if len(updates) == 0 || input.Kind != "bot_message" {

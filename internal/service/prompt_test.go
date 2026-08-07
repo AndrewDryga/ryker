@@ -6,6 +6,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 )
 
 func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
@@ -75,7 +76,7 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		core.AgentMemory{},
 		nil,
 		nil,
-		operationalMemoryContext{},
+		decisionpkg.OperationalMemoryContext{},
 		"",
 		nil,
 	)

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -47,7 +48,7 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 	if input.Kind == "reaction_removed" {
 		return s.store.WithdrawFeedback(ctx, id)
 	}
-	contextMessages, err := s.feedbackContext(ctx, input, watchTurnState{}, input.ActionValue)
+	contextMessages, err := s.feedbackContext(ctx, input, decisionpkg.WatchTurnState{}, input.ActionValue)
 	if err != nil {
 		return err
 	}
@@ -70,7 +71,7 @@ func (s *Service) recordFeedbackOperations(
 	ctx context.Context,
 	run core.AgentRun,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	operations []investigation.ResultOperation,
 ) error {
 	for _, operation := range operations {
@@ -105,7 +106,7 @@ func (s *Service) recordExplicitFeedback(
 	input core.SlackInput,
 	text string,
 ) error {
-	contextMessages, err := s.feedbackContext(ctx, input, watchTurnState{}, "")
+	contextMessages, err := s.feedbackContext(ctx, input, decisionpkg.WatchTurnState{}, "")
 	if err != nil {
 		return err
 	}
@@ -126,7 +127,7 @@ func (s *Service) recordExplicitFeedback(
 func (s *Service) feedbackContext(
 	ctx context.Context,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	targetMessageTS string,
 ) ([]store.FeedbackContextMessage, error) {
 	messages := state.RecentMessages
@@ -142,7 +143,7 @@ func (s *Service) feedbackContext(
 			if err != nil {
 				return nil, err
 			}
-			messages = make([]watchContextMessage, 0, len(recent)+1)
+			messages = make([]decisionpkg.WatchContextMessage, 0, len(recent)+1)
 			for _, value := range recent {
 				messages = append(messages, watchPromptMessage(value, s.identity.BotUserID, false))
 			}

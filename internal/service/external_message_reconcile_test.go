@@ -286,7 +286,7 @@ func TestExternalCoordinationOnlyEvent(t *testing.T) {
 		"New incident for Typesense\nIncident acknowledged",
 		"The incident was acknowledged by Andrew.",
 	} {
-		if !externalCoordinationOnlyEvent(text) {
+		if !decisionpkg.ExternalCoordinationOnlyEvent(text) {
 			t.Errorf("did not recognize coordination-only event %q", text)
 		}
 	}
@@ -295,7 +295,7 @@ func TestExternalCoordinationOnlyEvent(t *testing.T) {
 		"Typesense alert is firing.",
 		"The service recovered after the deployment.",
 	} {
-		if externalCoordinationOnlyEvent(text) {
+		if decisionpkg.ExternalCoordinationOnlyEvent(text) {
 			t.Errorf("misclassified operational event as coordination-only %q", text)
 		}
 	}

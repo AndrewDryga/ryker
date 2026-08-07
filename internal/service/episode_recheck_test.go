@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -82,7 +83,7 @@ func TestEpisodeRechecksAreChainedAfterEachCompletedAttempt(t *testing.T) {
 		Key: "catalog", AfterSeconds: 30, AdditionalAttempts: 3,
 	}}
 	if err := svc.scheduleEpisodeRechecks(
-		ctx, origin, input, watchTurnState{}, "reply", completion,
+		ctx, origin, input, decisionpkg.WatchTurnState{}, "reply", completion,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +104,7 @@ func TestEpisodeRechecksAreChainedAfterEachCompletedAttempt(t *testing.T) {
 		t.Fatalf("later attempts were queued eagerly: %v", err)
 	}
 
-	state := watchTurnState{RecheckOriginRunID: origin.ID, RecheckAttempt: 1}
+	state := decisionpkg.WatchTurnState{RecheckOriginRunID: origin.ID, RecheckAttempt: 1}
 	if err := svc.scheduleEpisodeRechecks(
 		ctx, core.AgentRun{ID: "run_chain_recheck_1"}, input, state, "ignore", nil,
 	); err != nil {
@@ -171,7 +172,7 @@ func TestEpisodeRecheckIsSilentWhileBackgroundWorkRunsOrFails(t *testing.T) {
 		ID: "slack_recheck", Kind: "recheck", ChannelID: "COPS",
 		ThreadTS: "100.1", MessageTS: "100.2",
 	}
-	state := watchTurnState{
+	state := decisionpkg.WatchTurnState{
 		ConversationFollowup: true,
 		RecheckOriginRunID:   "run_origin",
 		RecheckKey:           "emisar:pack:gcp-billing",
@@ -202,7 +203,7 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 	if created, err := st.AdmitSlackInput(ctx, origin); err != nil || !created {
 		t.Fatalf("admit origin = %t, %v", created, err)
 	}
-	stateJSON, err := json.Marshal(watchTurnState{
+	stateJSON, err := json.Marshal(decisionpkg.WatchTurnState{
 		SessionID: "session_origin", SessionChannelID: "COPS",
 		Repository: "repo", RouteCaptured: true, ResponseThreadTS: "100.1",
 	})
@@ -246,7 +247,7 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 		recheck.ThreadTS != origin.ThreadTS || recheck.MessageTS != origin.MessageTS {
 		t.Fatalf("recheck input = %+v", recheck)
 	}
-	var recheckState watchTurnState
+	var recheckState decisionpkg.WatchTurnState
 	if err := json.Unmarshal(recheck.Frozen, &recheckState); err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +292,7 @@ func TestSyntheticRecheckBypassesHumanSlackMembershipValidation(t *testing.T) {
 	if err := st.FinishSlackInput(ctx, leased.ID); err != nil {
 		t.Fatal(err)
 	}
-	frozen, err := json.Marshal(watchTurnState{
+	frozen, err := json.Marshal(decisionpkg.WatchTurnState{
 		RouteCaptured: true, ResponseThreadTS: "1700.100", RulesCaptured: true,
 		ConversationFollowup: true, RecheckOriginRunID: "run_origin", RecheckAttempt: 1,
 	})

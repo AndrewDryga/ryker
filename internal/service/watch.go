@@ -27,78 +27,6 @@ var explicitIncidentRequestPattern = regexp.MustCompile(
 		`\b(?:make|mark|treat|turn)\s+(?:this|that|it)\s+(?:as|into)\s+an?\s+incident\b`,
 )
 
-type watchTurnState struct {
-	Lane                  string                         `json:"lane,omitempty"`
-	AlertPolicy           string                         `json:"alert_policy,omitempty"`
-	SessionID             string                         `json:"session_id"`
-	SessionChannelID      string                         `json:"session_channel_id,omitempty"`
-	Repository            string                         `json:"repository,omitempty"`
-	RepositoryPinned      bool                           `json:"repository_pinned,omitempty"`
-	Generation            int                            `json:"generation,omitempty"`
-	ExpectedRevision      int64                          `json:"expected_revision,omitempty"`
-	TurnID                string                         `json:"turn_id,omitempty"`
-	ContextCaptured       bool                           `json:"context_captured,omitempty"`
-	RecentMessages        []watchContextMessage          `json:"recent_messages,omitempty"`
-	Memory                core.AgentMemory               `json:"memory,omitempty"`
-	RelatedSituations     []conversationSituationContext `json:"related_situations,omitempty"`
-	ReferencedThread      *referencedThreadContext       `json:"referenced_thread,omitempty"`
-	ResponseThreadTS      string                         `json:"response_thread_ts,omitempty"`
-	ReferencedThreadTS    string                         `json:"referenced_thread_ts,omitempty"`
-	RouteCaptured         bool                           `json:"route_captured,omitempty"`
-	EscalationReason      string                         `json:"escalation_reason,omitempty"`
-	Prior                 operationalMemoryContext       `json:"prior_operational_context,omitempty"`
-	PriorCaptured         bool                           `json:"prior_captured,omitempty"`
-	RulesCaptured         bool                           `json:"rules_captured,omitempty"`
-	MatchedRules          []core.StandingRule            `json:"matched_rules,omitempty"`
-	RuleAcknowledged      bool                           `json:"rule_acknowledged,omitempty"`
-	ConversationFollowup  bool                           `json:"conversation_followup,omitempty"`
-	OfferedIncidentTitle  string                         `json:"offered_incident_title,omitempty"`
-	OfferedTaskTitle      string                         `json:"offered_task_title,omitempty"`
-	OfferedTaskRepository string                         `json:"offered_task_repository,omitempty"`
-	OfferedTaskPrompt     string                         `json:"offered_task_prompt,omitempty"`
-	StructuredCorrections int                            `json:"structured_corrections,omitempty"`
-	PendingStatusSet      bool                           `json:"pending_status_set,omitempty"`
-	PendingStatusAt       int64                          `json:"pending_status_at,omitempty"`
-	FailureDetail         string                         `json:"failure_detail,omitempty"`
-	ApprovalContinuation  bool                           `json:"approval_continuation,omitempty"`
-	DecisionSourceID      string                         `json:"decision_source_id,omitempty"`
-	ReplyDeliveryID       string                         `json:"reply_delivery_id,omitempty"`
-	PublicationsCaptured  bool                           `json:"publications_captured,omitempty"`
-	ActivePublications    []core.PublicationContext      `json:"active_publications,omitempty"`
-	RecheckOriginRunID    string                         `json:"recheck_origin_run_id,omitempty"`
-	RecheckKey            string                         `json:"recheck_key,omitempty"`
-	RecheckAttempt        int                            `json:"recheck_attempt,omitempty"`
-}
-
-type watchContextMessage struct {
-	MessageTS         string                   `json:"message_ts"`
-	ThreadTS          string                   `json:"thread_ts,omitempty"`
-	MessageLink       string                   `json:"message_link,omitempty"`
-	SenderID          string                   `json:"sender_id"`
-	SenderType        string                   `json:"sender_type"`
-	Text              string                   `json:"text"`
-	Attachments       []watchContextAttachment `json:"attachments,omitempty"`
-	Reactions         []watchContextReaction   `json:"reactions,omitempty"`
-	MentionsResponder bool                     `json:"mentions_responder,omitempty"`
-	RequestedBy       string                   `json:"requested_by,omitempty"`
-	Continuation      bool                     `json:"conversation_continuation,omitempty"`
-	Target            bool                     `json:"target,omitempty"`
-}
-
-type watchContextReaction struct {
-	Name            string   `json:"name"`
-	Count           int      `json:"count"`
-	UserIDs         []string `json:"user_ids,omitempty"`
-	Change          string   `json:"change,omitempty"`
-	TargetMessageTS string   `json:"target_message_ts,omitempty"`
-}
-
-type watchContextAttachment struct {
-	Name      string `json:"name"`
-	MediaType string `json:"media_type"`
-	Size      int64  `json:"size"`
-}
-
 type watchPromptRepository struct {
 	Key         string `json:"key"`
 	DisplayName string `json:"display_name"`
@@ -457,7 +385,7 @@ func watchTurnIdempotencyKey(inputID string, generation int) string {
 func (s *Service) applyReplyDecision(
 	ctx context.Context,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	decision decisionpkg.WatchDecision,
 	episodeID string,
 	responseThreadTS string,
@@ -670,7 +598,7 @@ func (s *Service) applyReplyDecision(
 func (s *Service) finishShadowedWatchDecision(
 	ctx context.Context,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	decision decisionpkg.WatchDecision,
 ) error {
 	s.audit(ctx, core.AuditEvent{
@@ -689,7 +617,7 @@ func (s *Service) finishShadowedWatchDecision(
 func (s *Service) applyWatchDecision(
 	ctx context.Context,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 	decision decisionpkg.WatchDecision,
 	episodeID string,
 ) error {
@@ -713,7 +641,7 @@ func (s *Service) applyWatchDecision(
 		}
 	}
 	if !state.ApprovalContinuation {
-		decision = enforceAttentionPolicy(
+		decision = decisionpkg.EnforceAttentionPolicy(
 			input,
 			state,
 			decision,
@@ -894,7 +822,7 @@ func (s *Service) applyWatchDecision(
 			ctx,
 			input,
 			state,
-			standingRuleIncidentAsReply(decision, offerIncident),
+			decisionpkg.StandingRuleIncidentAsReply(decision, offerIncident),
 			episodeID,
 		)
 	default:
@@ -918,7 +846,7 @@ func (s *Service) applyWatchDecision(
 
 func (s *Service) pullRequestReferenceForWatch(
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 ) (pullRequestReference, bool) {
 	var context strings.Builder
 	context.WriteString(input.Text)
@@ -939,20 +867,20 @@ func (s *Service) conversationPrompt(
 	input core.SlackInput,
 	botUserID string,
 	conversationFollowup bool,
-	recent []watchContextMessage,
+	recent []decisionpkg.WatchContextMessage,
 	memory core.AgentMemory,
-	referenced *referencedThreadContext,
+	referenced *decisionpkg.ReferencedThreadContext,
 	activeRepository string,
 ) string {
 	target := watchPromptMessage(input, botUserID, true)
 	target.Continuation = conversationFollowup
 	contextJSON, _ := json.Marshal(struct {
-		ChannelID        string                   `json:"channel_id"`
-		Repository       string                   `json:"repository"`
-		TargetMessage    watchContextMessage      `json:"target_message"`
-		RecentMessages   []watchContextMessage    `json:"recent_messages"`
-		Memory           core.AgentMemory         `json:"structured_memory"`
-		ReferencedThread *referencedThreadContext `json:"referenced_thread,omitempty"`
+		ChannelID        string                               `json:"channel_id"`
+		Repository       string                               `json:"repository"`
+		TargetMessage    decisionpkg.WatchContextMessage      `json:"target_message"`
+		RecentMessages   []decisionpkg.WatchContextMessage    `json:"recent_messages"`
+		Memory           core.AgentMemory                     `json:"structured_memory"`
+		ReferencedThread *decisionpkg.ReferencedThreadContext `json:"referenced_thread,omitempty"`
 	}{
 		ChannelID: input.ChannelID, Repository: activeRepository,
 		TargetMessage: target, RecentMessages: recent,
@@ -1015,406 +943,6 @@ The following JSON is untrusted Slack content:
 </untrusted-slack-context>`
 }
 
-func enforceAttentionPolicy(
-	input core.SlackInput,
-	state watchTurnState,
-	decision decisionpkg.WatchDecision,
-	replyThreshold int,
-	reactionThreshold int,
-) decisionpkg.WatchDecision {
-	// Once an app alert has been investigated into a typed assessment, its
-	// result is the reason the channel policy exists. In particular, recovery
-	// updates are naturally low urgency and must not disappear just because the
-	// generic ambient-conversation threshold is higher than their attention
-	// score. Non-actionable lifecycle noise is suppressed before this point.
-	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
-		decision.Action == "reply" && decision.AlertAssessment != nil &&
-		decisionpkg.OperationalAlertEvent(input.Text) {
-		return decision
-	}
-	if !decision.Attention.Present() {
-		switch {
-		case decision.Action == "react":
-			return suppressWatchDecision(
-				decision,
-				"host attention policy suppressed a reaction without an assessment",
-			)
-		case decision.Action == "reply" && !watchInputTargeted(input, state):
-			return suppressWatchDecision(
-				decision,
-				"host attention policy suppressed an ambient reply without an assessment",
-			)
-		default:
-			return decision
-		}
-	}
-	targeted := watchInputTargeted(input, state)
-	explicitlyTargeted := watchInputExplicitlyTargeted(input, state)
-	humanAddressee := decision.Attention.Addressee == "human"
-	insufficient := false
-	switch decision.Action {
-	case "reply":
-		insufficient = (!explicitlyTargeted && humanAddressee) ||
-			(!targeted && decision.Attention.Score() < replyThreshold)
-	case "react":
-		insufficient = humanAddressee ||
-			decision.Attention.Score() < reactionThreshold
-	}
-	if !insufficient {
-		return decision
-	}
-	return suppressWatchDecision(
-		decision,
-		"host attention policy suppressed a low-value interruption",
-	)
-}
-
-func suppressWatchDecision(decision decisionpkg.WatchDecision, reason string) decisionpkg.WatchDecision {
-	decision.Action = "ignore"
-	decision.Reaction = ""
-	decision.Message = ""
-	decision.FollowupMessages = nil
-	decision.Visuals = nil
-	decision.Title = ""
-	decision.IncidentTitle = ""
-	decision.TaskTitle = ""
-	decision.TaskRepository = ""
-	decision.TaskPrompt = ""
-	decision.MemoryOffer = nil
-	decision.PreferenceOffer = nil
-	decision.RuleOffer = nil
-	decision.ScheduleOffer = nil
-	decision.PendingApproval = nil
-	decision.AlertAssessment = nil
-	decision.Completion = nil
-	decision.Reason = strings.TrimSpace(
-		decision.Reason + "; " + reason,
-	)
-	return decision
-}
-
-func standingRuleIncidentAsReply(decision decisionpkg.WatchDecision, offerIncident bool) decisionpkg.WatchDecision {
-	title := strings.TrimSpace(decision.Title)
-	message := strings.TrimSpace(decision.Reason)
-	if message == "" {
-		message = title
-	}
-	if title != "" && !strings.Contains(strings.ToLower(message), strings.ToLower(title)) {
-		message = "**" + title + "**\n\n" + message
-	}
-	decision.Action = "reply"
-	decision.Message = message
-	if !decision.Attention.Present() {
-		decision.Attention = decisionpkg.AttentionAssessment{
-			Addressee: "channel", Urgency: 3, Confidence: 3, Novelty: 3, Ownership: 2,
-		}
-	}
-	if offerIncident {
-		decision.IncidentTitle = title
-	}
-	decision.Title = ""
-	decision.Memory.SituationSummary = title
-	decisions := make([]string, 0, len(decision.Memory.Decisions)+1)
-	for _, item := range decision.Memory.Decisions {
-		if !strings.Contains(strings.ToLower(item), "incident") {
-			decisions = append(decisions, item)
-		}
-	}
-	if offerIncident {
-		decisions = append(decisions,
-			"Offer incident coordination for operator confirmation.",
-		)
-	} else {
-		decisions = append(decisions,
-			"Continue this alert's investigation in its source thread.",
-		)
-	}
-	decision.Memory.Decisions = decisions
-	decision.Reason = strings.TrimSpace(
-		decision.Reason + "; host routed the matched standing-rule result through the channel alert policy",
-	)
-	return decision
-}
-
-func watchDecisionCorrection(
-	input core.SlackInput,
-	state watchTurnState,
-	decision decisionpkg.WatchDecision,
-) string {
-	return watchDecisionCorrectionAt(input, state, decision, time.Now().UTC())
-}
-
-// alertAssessmentCorrection holds a matched operational alert to the standard
-// an operator needs: a verdict backed by a fresh observation, reconciled
-// against the repository that declares what should be running.
-//
-// The recovery case is the one worth reading twice. A resolved alert with fresh
-// evidence that the condition cleared must be reported as decision-ready, not
-// blocked — "the alert recovered but I could not fully investigate" is
-// technically honest and practically useless, and it leaves the earlier failure
-// message open forever.
-func alertAssessmentCorrection(
-	input core.SlackInput,
-	state watchTurnState,
-	decision decisionpkg.WatchDecision,
-	now time.Time,
-) string {
-	if state.FailureDetail != "" && decision.Action != "reply" {
-		return "the prior alert assessment was incomplete; continue that investigation and " +
-			"return its decision-ready reply instead of abandoning it"
-	}
-	if decision.Action == "incident" {
-		return "a matched operational-alert rule requires an in-place read-only investigation; " +
-			"return reply with a decision-ready alert assessment, never incident"
-	}
-	if decision.Action == "reply" {
-		if decision.AlertAssessment == nil {
-			return "the alert reply has no alert_assessment; continue the read-only investigation " +
-				"until you can state a verdict, impact, immediate action, and durable solution"
-		}
-		evidence := decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", now)
-		recovered := decision.AlertAssessment.Verdict == "not_issue" &&
-			operationalAlertResolvedEvent(input.Text)
-		if recovered && hasFreshOperationalEvidence(evidence, now) &&
-			decision.Completion != nil && decision.Completion.Status == "blocked" {
-			return "fresh evidence verifies that the exact alert condition recovered; return " +
-				"decision_ready with the healthy verdict, say plainly what completed, and close " +
-				"the earlier alert without broadening this into a platform-health assessment"
-		}
-		if !recovered && !decisionpkg.WatchDecisionHasEvidenceSource(evidence, "repository") {
-			return "the alert reply does not reconcile the live signal with declared repository " +
-				"topology; inspect the configured repository before deciding"
-		}
-		if !hasFreshOperationalEvidence(evidence, now) {
-			return "the alert reply has no fresh Emisar or monitoring observation; use the " +
-				"available read-only operational tools and verify the current state before deciding"
-		}
-	}
-	return ""
-}
-
-// alertPolicyCorrection applies the extra standard a channel opts into when its
-// alert policy is anything other than automatic: terminal app events get an
-// investigated reply with a verdict, not a reaction and not an incident room.
-func alertPolicyCorrection(input core.SlackInput, decision decisionpkg.WatchDecision) string {
-	if externalAppEventRequiresDecision(input.Text) && decision.Action != "reply" {
-		return "this terminal or actionable app event requires an evidence-backed in-place " +
-			"alert assessment and reply; investigate the exact event instead of ignoring it " +
-			"or reducing it to a reaction"
-	}
-	if decision.Action == "incident" {
-		return "this channel requires an evidence-backed in-place alert assessment; " +
-			"continue the read-only investigation and return reply with typed evidence, " +
-			"coverage, and a completion verdict instead of reducing the result to incident admission"
-	}
-	if externalAppEventRequiresDecision(input.Text) && decision.Action == "reply" &&
-		(decision.Completion == nil || strings.TrimSpace(decision.Completion.Verdict) == "") {
-		return "this terminal or actionable app event has no completion verdict; establish " +
-			"the exact state, impact, cause or boundary, and concrete next action before finishing"
-	}
-	return ""
-}
-
-func watchDecisionCorrectionAt(
-	input core.SlackInput,
-	state watchTurnState,
-	decision decisionpkg.WatchDecision,
-	now time.Time,
-) string {
-	if input.Kind == "bot_message" && decision.Action == "ignore" &&
-		operationalAlertResolvedEvent(input.Text) &&
-		hasPriorCorrelatedFiringAlert(input, state.RecentMessages) {
-		return "this resolved update closes a firing alert whose investigation was already admitted; " +
-			"finish that investigation and return one concise evidence-backed closure that distinguishes " +
-			"metric recovery from service recovery instead of discarding the earlier failure"
-	}
-	requiresAlertAssessment := matchedOperationalAlertRule(state.MatchedRules) ||
-		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
-			decisionpkg.OperationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text))
-	if requiresAlertAssessment {
-		if correction := alertAssessmentCorrection(input, state, decision, now); correction != "" {
-			return correction
-		}
-	}
-	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
-		state.AlertPolicy != "automatic" {
-		if correction := alertPolicyCorrection(input, decision); correction != "" {
-			return correction
-		}
-	}
-	if requestedConversationLocation(input.Text) != conversationLocationFollow &&
-		!locationOnlyRequest(input.Text) &&
-		decision.Action != "reply" &&
-		decision.Action != "incident" &&
-		!(state.Lane == "conversation" && decision.Action == "escalate") {
-		return "the operator combined a conversation-location change with new work; " +
-			"answer the new work and honor the requested response location"
-	}
-	if decision.Action == "ignore" &&
-		watchInputTargeted(input, state) &&
-		decision.Attention.Addressee == "responder" {
-		return "the target is an active conversation follow-up addressed to Emisar; " +
-			"answer the current message instead of treating it as a duplicate of an earlier turn"
-	}
-	return ""
-}
-
-func hasPriorCorrelatedFiringAlert(
-	input core.SlackInput,
-	messages []watchContextMessage,
-) bool {
-	key := operationalCorrelationKey(input)
-	if key == "" {
-		return false
-	}
-	for index := len(messages) - 1; index >= 0; index-- {
-		message := messages[index]
-		if message.Target || message.SenderType != "external_app" ||
-			!decisionpkg.OperationalAlertEvent(message.Text) ||
-			operationalAlertResolvedEvent(message.Text) {
-			continue
-		}
-		candidate := core.SlackInput{
-			Kind: "bot_message", UserID: message.SenderID, Text: message.Text,
-		}
-		if operationalCorrelationKey(candidate) == key {
-			return true
-		}
-	}
-	return false
-}
-
-func alertReplyLanguageCorrectionWithContext(
-	input core.SlackInput,
-	state watchTurnState,
-	decision decisionpkg.WatchDecision,
-) string {
-	if input.Kind != "bot_message" || decision.Action != "reply" ||
-		!decisionpkg.OperationalAlertEvent(input.Text) {
-		return ""
-	}
-	message := strings.TrimSpace(decision.Message)
-	opening := strings.ToLower(strings.TrimLeft(message, "#*_>` \t\r\n"))
-	for _, prefix := range []string{
-		"this alert", "the alert", "this resolution", "the resolution",
-		"this notification", "the notification", "this signal", "the signal",
-	} {
-		if strings.HasPrefix(opening, prefix) {
-			return "rewrite the alert reply for an operator: open with the affected service or " +
-				"component and its plain current state, then explain any mismatch with the app's " +
-				"status and give one concrete next action with its success check"
-		}
-	}
-	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
-	if strings.Contains(normalized, "acknowledg") && decisionpkg.EpisodeContainsAny(
-		normalized,
-		"did not restore", "didn't restore", "did not fix", "does not fix", "did not recover",
-	) {
-		return "remove the acknowledgement narration; acknowledgement is coordination metadata, " +
-			"not remediation, so say only what fresh evidence establishes about the service and what " +
-			"useful action follows"
-	}
-	if decisionpkg.EpisodeContainsAny(normalized, "confirmed issue", "likely issue", "not an issue") {
-		return "remove the typed alert-verdict label from the Slack prose; open with the exact " +
-			"plain condition, such as behind schedule, still down, or recovered, then say whether " +
-			"anyone needs to act now"
-	}
-	for _, phrase := range []string{
-		"alert split", "alert family", "alert families", "workload recovery",
-		"exporter-deficit", "lifecycle boundary", "terminal notification",
-		"alert path", "host, scheduler, and workload", "scheduler and workload layers",
-		"control-plane state", "exporter registrations", "fault remains bounded",
-		"remains bounded to", "allocation state",
-	} {
-		if strings.Contains(normalized, phrase) {
-			return "rewrite the alert reply in common operational language; remove monitoring and " +
-				"workflow shorthand such as `" + phrase + "`, say what is actually broken, why the " +
-				"visible status may be misleading, and what to do next"
-		}
-	}
-	technicalTerms := 0
-	for _, term := range []string{
-		"consul", "registration", "nomad allocation", "service discovery",
-		"exporter", "scheduler", "control plane", "control-plane",
-	} {
-		if strings.Contains(normalized, term) {
-			technicalTerms++
-		}
-	}
-	if technicalTerms > 1 {
-		return "rewrite the alert reply for a teammate, not an infrastructure diagram: use at " +
-			"most one necessary technical term and explain it in common words; say whether the " +
-			"service works, what monitoring can see, and whether anyone needs to act"
-	}
-	wordCount := len(strings.Fields(message))
-	resolved := strings.Contains(
-		strings.ToLower(strings.Join(strings.Fields(input.Text), " ")), "resolved",
-	)
-	recovered := decision.AlertAssessment != nil &&
-		decision.AlertAssessment.Verdict == "not_issue"
-	if decision.Completion != nil && decision.Completion.Verdict == "healthy" {
-		recovered = true
-	}
-	if resolved && recovered {
-		if link := priorFiringMessageLink(state.RecentMessages); link != "" &&
-			!strings.Contains(message, link) {
-			return "rewrite this recovered-alert update as a compact closure and link the earlier " +
-				"firing message using its exact message_link `" + link + "`; say plainly what " +
-				"completed and omit unrelated healthy inventory"
-		}
-		if wordCount > 60 {
-			return "rewrite this recovered-alert update as a compact closure: say what recovered and " +
-				"link the earlier firing message when its exact message_link is present in recent context; " +
-				"remove the normal-system inventory, no-op instructions, and hypothetical future tuning"
-		}
-	}
-	if !resolved && wordCount > 90 {
-		return "edit this active-alert update down to the decision-useful delta: current impact, the " +
-			"evidence that changes the decision, a relevant known fix or rollout, and only the action " +
-			"needed now; keep background healthy evidence in the ledger"
-	}
-	return ""
-}
-
-func priorFiringMessageLink(messages []watchContextMessage) string {
-	for index := len(messages) - 1; index >= 0; index-- {
-		message := messages[index]
-		if message.SenderType != "external_app" || message.MessageLink == "" ||
-			!decisionpkg.OperationalAlertEvent(message.Text) || operationalAlertResolvedEvent(message.Text) {
-			continue
-		}
-		return message.MessageLink
-	}
-	return ""
-}
-
-func enforceRecoveredAlertLink(
-	input core.SlackInput,
-	state watchTurnState,
-	decision decisionpkg.WatchDecision,
-) (decisionpkg.WatchDecision, bool) {
-	if input.Kind != "bot_message" || decision.Action != "reply" ||
-		!operationalAlertResolvedEvent(input.Text) || decision.AlertAssessment == nil ||
-		decision.AlertAssessment.Verdict != "not_issue" {
-		return decision, false
-	}
-	link := priorFiringMessageLink(state.RecentMessages)
-	if link == "" || strings.Contains(decision.Message, link) {
-		return decision, false
-	}
-	decision.Message = strings.TrimSpace(decision.Message) +
-		"\n\nClosing [the earlier alert](" + link + ")."
-	return decision, true
-}
-
-func operationalAlertResolvedEvent(text string) bool {
-	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
-	return decisionpkg.EpisodeContainsAny(
-		normalized,
-		"resolved", "recovered", "recovery", "returned to normal", "alert closed",
-	)
-}
-
 func (s *Service) watchReplyMessage(
 	input core.SlackInput,
 	text string,
@@ -1429,37 +957,6 @@ func (s *Service) watchReplyMessage(
 	return slackui.ConciseEvidenceResponse(
 		text, evidence, coverage, nil, s.sanitizer,
 	)
-}
-
-func externalAppEventRequiresDecision(text string) bool {
-	text = strings.ToLower(strings.Join(strings.Fields(text), " "))
-	return decisionpkg.EpisodeContainsAny(
-		text, "errored", "failed", "failure", "firing", "critical", "warning",
-	)
-}
-
-func matchedOperationalAlertRule(rules []core.StandingRule) bool {
-	for _, rule := range rules {
-		if rule.Trigger == "operational_alert" && rule.Action == "triage_alert" {
-			return true
-		}
-	}
-	return false
-}
-
-func hasFreshOperationalEvidence(evidence []core.Evidence, now time.Time) bool {
-	for _, item := range evidence {
-		if item.SourceType != "emisar" && item.SourceType != "monitoring" {
-			continue
-		}
-		if item.ObservedAt.IsZero() || item.ObservedAt.After(now.Add(5*time.Minute)) {
-			continue
-		}
-		if now.Sub(item.ObservedAt) <= 30*time.Minute {
-			return true
-		}
-	}
-	return false
 }
 
 func watchDecisionCorrectionPrompt(detail string) string {
@@ -2024,7 +1521,7 @@ func (s *Service) finishWatchTaskOffer(
 func (s *Service) retireFailedWatchSession(
 	ctx context.Context,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 ) error {
 	if input.ChannelID == "" || state.SessionID == "" {
 		return nil
@@ -2094,7 +1591,7 @@ func watchFailureNotice(detail string) string {
 func (s *Service) clearWatchPendingStatus(
 	ctx context.Context,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 ) error {
 	if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil {
 		return err
@@ -2122,7 +1619,7 @@ func (s *Service) clearWatchPendingStatus(
 func (s *Service) clearWatchRuleAcknowledgement(
 	ctx context.Context,
 	input core.SlackInput,
-	state watchTurnState,
+	state decisionpkg.WatchTurnState,
 ) error {
 	if !state.RuleAcknowledged || input.MessageTS == "" {
 		return nil
@@ -2147,26 +1644,12 @@ func (s *Service) clearWatchRuleAcknowledgement(
 	return nil
 }
 
-func decodeWatchState(data []byte) (watchTurnState, error) {
-	if len(data) == 0 {
-		return watchTurnState{}, nil
-	}
-	var state watchTurnState
-	if err := decisionpkg.DecodeStrictJSON(data, &state); err != nil {
-		return watchTurnState{}, err
-	}
-	if state.SessionID == "" && (state.ExpectedRevision != 0 || state.TurnID != "") {
-		return watchTurnState{}, errors.New("watch turn state has no session ID")
-	}
-	return state, nil
-}
-
 func makeWatchContext(
 	inputs []core.SlackInput,
 	target core.SlackInput,
 	botUserID string,
-) []watchContextMessage {
-	result := make([]watchContextMessage, 0, len(inputs))
+) []decisionpkg.WatchContextMessage {
+	result := make([]decisionpkg.WatchContextMessage, 0, len(inputs))
 	for _, input := range inputs {
 		result = append(result, watchPromptMessage(input, botUserID, input.ID == target.ID))
 	}
@@ -2177,7 +1660,7 @@ func watchPromptMessage(
 	input core.SlackInput,
 	botUserID string,
 	target bool,
-) watchContextMessage {
+) decisionpkg.WatchContextMessage {
 	senderType := "human"
 	if input.Kind == "bot_message" {
 		if botUserID != "" && input.UserID == botUserID {
@@ -2206,27 +1689,27 @@ func watchPromptMessage(
 		senderID = core.FirstNonempty(input.ActionValue, input.UserID)
 		requestedBy = input.UserID
 	}
-	attachments := make([]watchContextAttachment, 0, len(input.Attachments))
+	attachments := make([]decisionpkg.WatchContextAttachment, 0, len(input.Attachments))
 	for _, attachment := range input.Attachments {
-		attachments = append(attachments, watchContextAttachment{
+		attachments = append(attachments, decisionpkg.WatchContextAttachment{
 			Name:      safeAttachmentName(attachment.Name, attachment.ID),
 			MediaType: attachment.MediaType,
 			Size:      attachment.Size,
 		})
 	}
-	reactions := make([]watchContextReaction, 0, len(input.Reactions)+1)
+	reactions := make([]decisionpkg.WatchContextReaction, 0, len(input.Reactions)+1)
 	for _, reaction := range input.Reactions {
 		name, err := decisionpkg.NormalizeSlackReactionName(reaction.Name)
 		if err != nil {
 			continue
 		}
-		reactions = append(reactions, watchContextReaction{
+		reactions = append(reactions, decisionpkg.WatchContextReaction{
 			Name: name, Count: reaction.Count,
 			UserIDs: append([]string(nil), reaction.UserIDs...),
 		})
 	}
 	if input.Kind == "reaction_added" || input.Kind == "reaction_removed" {
-		reactions = append(reactions, watchContextReaction{
+		reactions = append(reactions, decisionpkg.WatchContextReaction{
 			Name: input.ActionID, Count: 1, UserIDs: []string{input.UserID},
 			Change:          strings.TrimPrefix(input.Kind, "reaction_"),
 			TargetMessageTS: input.ActionValue,
@@ -2240,7 +1723,7 @@ func watchPromptMessage(
 			text = fmt.Sprintf("%d attached files for inspection.", len(attachments))
 		}
 	}
-	return watchContextMessage{
+	return decisionpkg.WatchContextMessage{
 		MessageTS: input.MessageTS, ThreadTS: input.ThreadTS,
 		MessageLink: slackMessageLink(input),
 		SenderID:    senderID, SenderType: senderType, Text: text, Attachments: attachments,
@@ -2302,11 +1785,11 @@ func (s *Service) watchPrompt(
 	input core.SlackInput,
 	botUserID string,
 	conversationFollowup bool,
-	recent []watchContextMessage,
+	recent []decisionpkg.WatchContextMessage,
 	memory core.AgentMemory,
-	related []conversationSituationContext,
-	referenced *referencedThreadContext,
-	prior operationalMemoryContext,
+	related []decisionpkg.ConversationSituationContext,
+	referenced *decisionpkg.ReferencedThreadContext,
+	prior decisionpkg.OperationalMemoryContext,
 	activeRepository string,
 	matchedRules []core.StandingRule,
 ) string {
@@ -2449,11 +1932,11 @@ func (s *Service) unboundedWatchPrompt(
 	input core.SlackInput,
 	botUserID string,
 	conversationFollowup bool,
-	recent []watchContextMessage,
+	recent []decisionpkg.WatchContextMessage,
 	memory core.AgentMemory,
-	related []conversationSituationContext,
-	referenced *referencedThreadContext,
-	prior operationalMemoryContext,
+	related []decisionpkg.ConversationSituationContext,
+	referenced *decisionpkg.ReferencedThreadContext,
+	prior decisionpkg.OperationalMemoryContext,
 	activeRepository string,
 	matchedRules []core.StandingRule,
 	omitted []string,
@@ -2507,14 +1990,14 @@ context for comparison only; they must not cause action=ignore or replace the re
 	behaviorOffers := includeWhen(targetIsOperator, behaviorOfferPolicy)
 	governedActions := includeWhen(targetIsOperator, emisarGovernedActionPolicy)
 	evidence, _ := json.Marshal(struct {
-		ChannelID      string                         `json:"channel_id"`
-		RecentMessages []watchContextMessage          `json:"recent_channel_messages"`
-		Memory         core.AgentMemory               `json:"structured_memory"`
-		Related        []conversationSituationContext `json:"related_situations,omitempty"`
-		Referenced     *referencedThreadContext       `json:"referenced_thread,omitempty"`
-		Prior          operationalMemoryContext       `json:"prior_operational_context,omitempty"`
-		TargetMessage  watchContextMessage            `json:"target_message"`
-		Omitted        []string                       `json:"context_omitted,omitempty"`
+		ChannelID      string                                     `json:"channel_id"`
+		RecentMessages []decisionpkg.WatchContextMessage          `json:"recent_channel_messages"`
+		Memory         core.AgentMemory                           `json:"structured_memory"`
+		Related        []decisionpkg.ConversationSituationContext `json:"related_situations,omitempty"`
+		Referenced     *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
+		Prior          decisionpkg.OperationalMemoryContext       `json:"prior_operational_context,omitempty"`
+		TargetMessage  decisionpkg.WatchContextMessage            `json:"target_message"`
+		Omitted        []string                                   `json:"context_omitted,omitempty"`
 	}{
 		ChannelID:      input.ChannelID,
 		RecentMessages: recent,
