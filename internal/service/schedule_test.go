@@ -51,7 +51,7 @@ func TestScheduleOfferRequiresOperatorIntentAndNormalizesTypedCalendar(t *testin
 	if err := decisionpkg.DecodeStrictJSON([]byte(value), &payload); err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := st.GetScheduleProposal(context.Background(), payload.ProposalID)
+	proposal, err := st.ScheduleProposals.Get(context.Background(), payload.ProposalID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestScheduleOfferKeepsLongPromptOutOfSlackActionValue(t *testing.T) {
 	if err := decisionpkg.DecodeStrictJSON([]byte(value), &payload); err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := st.GetScheduleProposal(context.Background(), payload.ProposalID)
+	proposal, err := st.ScheduleProposals.Get(context.Background(), payload.ProposalID)
 	if err != nil || proposal.Task.Prompt != strings.TrimSpace(prompt) {
 		t.Fatalf("durable long prompt = %q, err=%v", proposal.Task.Prompt, err)
 	}
@@ -151,7 +151,7 @@ func TestActivateItAcceptsPendingScheduleWithoutAnotherModelRun(t *testing.T) {
 	}
 	defer st.Close()
 	now := time.Now().UTC().Truncate(time.Second)
-	proposal, err := st.CreateScheduleProposal(ctx, core.ScheduleProposal{
+	proposal, err := st.ScheduleProposals.Create(ctx, core.ScheduleProposal{
 		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1",
 		ActorID: cfg.Slack.Operators[0], SourceRef: "schedule-offer", ExpiresAt: now.Add(time.Hour),
 		Task: core.ScheduledTask{
@@ -184,7 +184,7 @@ func TestActivateItAcceptsPendingScheduleWithoutAnotherModelRun(t *testing.T) {
 		t.Fatalf("confirm pending schedule = %t, %v", handled, err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	accepted, err := st.GetScheduleProposal(ctx, proposal.ID)
+	accepted, err := st.ScheduleProposals.Get(ctx, proposal.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

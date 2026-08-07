@@ -28,18 +28,18 @@ const taskSelect = `
 
 var ErrNotFound = errors.New("schedule proposal not found")
 
-type Store struct {
+type Repository struct {
 	db  *sql.DB
 	now func() time.Time
 }
 
-func New(db *sql.DB, now func() time.Time) *Store {
-	return &Store{db: db, now: now}
+func New(db *sql.DB, now func() time.Time) *Repository {
+	return &Repository{db: db, now: now}
 }
 
 // Create keeps the full normalized task server-side before Slack renders an
 // inert confirmation control containing only the proposal ID.
-func (s *Store) Create(ctx context.Context, proposal core.ScheduleProposal) (core.ScheduleProposal, error) {
+func (s *Repository) Create(ctx context.Context, proposal core.ScheduleProposal) (core.ScheduleProposal, error) {
 	if proposal.TeamID == "" || proposal.ChannelID == "" || proposal.ActorID == "" || proposal.SourceRef == "" {
 		return core.ScheduleProposal{}, errors.New("schedule proposal identity is incomplete")
 	}
@@ -91,11 +91,11 @@ func (s *Store) Create(ctx context.Context, proposal core.ScheduleProposal) (cor
 	return proposal, nil
 }
 
-func (s *Store) Get(ctx context.Context, id string) (core.ScheduleProposal, error) {
+func (s *Repository) Get(ctx context.Context, id string) (core.ScheduleProposal, error) {
 	return scanProposal(s.db.QueryRowContext(ctx, proposalSelect+` WHERE id = ?`, id))
 }
 
-func (s *Store) GetPendingForConversation(
+func (s *Repository) GetPendingForConversation(
 	ctx context.Context,
 	teamID string,
 	channelID string,
@@ -110,7 +110,7 @@ func (s *Store) GetPendingForConversation(
 
 // Accept atomically activates a pending proposal. A proposal that targets an
 // existing schedule updates that row in place, preserving occurrence history.
-func (s *Store) Accept(
+func (s *Repository) Accept(
 	ctx context.Context,
 	id string,
 	teamID string,
@@ -361,14 +361,14 @@ func scanTask(row rowScanner) (core.ScheduledTask, error) {
 	return task, nil
 }
 
-func (s *Store) currentTime() time.Time {
+func (s *Repository) currentTime() time.Time {
 	if s.now != nil {
 		return s.now().UTC()
 	}
 	return time.Now().UTC()
 }
 
-func (s *Store) timeText() string {
+func (s *Repository) timeText() string {
 	return s.currentTime().Format(timestampFormat)
 }
 

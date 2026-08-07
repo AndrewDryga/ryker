@@ -15,6 +15,7 @@ import (
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/scheduleproposal"
 )
 
 const behaviorOfferMaxAge = 24 * time.Hour
@@ -400,11 +401,11 @@ func (s *Service) confirmPendingScheduleReply(
 		!schedulepkg.ExplicitScheduleConfirmation(s.stripBotMention(input.Text)) {
 		return false, nil
 	}
-	proposal, err := s.store.GetPendingScheduleProposalForConversation(
+	proposal, err := s.store.ScheduleProposals.GetPendingForConversation(
 		ctx, core.FirstNonempty(input.TeamID, s.cfg.Slack.TeamID), input.ChannelID,
 		input.ThreadTS, input.UserID,
 	)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, scheduleproposal.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {

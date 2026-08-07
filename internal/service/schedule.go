@@ -45,7 +45,7 @@ func (s *Service) prepareScheduleOfferAction(
 		}
 		return "", core.ScheduledTask{}, "", false
 	}
-	proposal, err := s.store.CreateScheduleProposal(ctx, core.ScheduleProposal{
+	proposal, err := s.store.ScheduleProposals.Create(ctx, core.ScheduleProposal{
 		TeamID: s.cfg.Slack.TeamID, ChannelID: input.ChannelID,
 		ThreadTS: conversationalResponseThread(input), ActorID: input.UserID,
 		SourceRef: core.FirstNonempty(input.EventID, input.ID), Task: task,
@@ -272,7 +272,7 @@ func (s *Service) acceptScheduleProposal(ctx context.Context, input core.SlackIn
 	if !s.cfg.IsOperator(input.UserID) || !allowed {
 		return core.ScheduledTask{}, errors.New("only a configured operator can activate this schedule")
 	}
-	return s.store.AcceptScheduleProposal(
+	return s.store.ScheduleProposals.Accept(
 		ctx, proposalID, core.FirstNonempty(input.TeamID, s.cfg.Slack.TeamID), input.ChannelID, input.UserID,
 		s.cfg.Limits.MaxScheduledTasks, s.cfg.Limits.MaxSchedulesPerChannel,
 	)

@@ -110,7 +110,7 @@ func TestScheduleProposalUpdatesMatchingTaskInPlaceAndIsIdempotent(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := st.CreateScheduleProposal(ctx, core.ScheduleProposal{
+	proposal, err := st.ScheduleProposals.Create(ctx, core.ScheduleProposal{
 		TeamID: "T1", ChannelID: "C1", ThreadTS: "new-thread", ActorID: "U1",
 		SourceRef: "activation-message", ReplaceTaskID: existing.ID,
 		ExpiresAt: now.Add(24 * time.Hour),
@@ -125,14 +125,14 @@ func TestScheduleProposalUpdatesMatchingTaskInPlaceAndIsIdempotent(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := st.AcceptScheduleProposal(ctx, proposal.ID, "T1", "C1", "U1", 10, 5)
+	accepted, err := st.ScheduleProposals.Accept(ctx, proposal.ID, "T1", "C1", "U1", 10, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if accepted.ID != existing.ID || accepted.Title != "Daily health v5" || accepted.Prompt != proposal.Task.Prompt || accepted.ThreadTS != "new-thread" {
 		t.Fatalf("updated schedule = %+v", accepted)
 	}
-	replayed, err := st.AcceptScheduleProposal(ctx, proposal.ID, "T1", "C1", "U1", 10, 5)
+	replayed, err := st.ScheduleProposals.Accept(ctx, proposal.ID, "T1", "C1", "U1", 10, 5)
 	if err != nil || replayed.ID != existing.ID {
 		t.Fatalf("replayed acceptance = %+v, err=%v", replayed, err)
 	}

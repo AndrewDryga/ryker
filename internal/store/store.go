@@ -58,7 +58,7 @@ var (
 type Store struct {
 	db                *sql.DB
 	clock             func() time.Time
-	ScheduleProposals *scheduleproposal.Store
+	ScheduleProposals *scheduleproposal.Repository
 }
 
 type Metrics struct {
