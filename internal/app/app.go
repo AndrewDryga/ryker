@@ -62,6 +62,8 @@ func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 		return runAuditResultProtocol(args[1:], stdout, stderr)
 	case "correction-rate":
 		return runCorrectionRate(args[1:], stdout, stderr)
+	case "migration-check":
+		return runMigrationCheck(args[1:], stdout, stderr)
 	case "lifecycle-divergence":
 		return runLifecycleDivergence(args[1:], stdout, stderr)
 	case "promote-fixtures":
@@ -638,6 +640,7 @@ Usage:
   responder record-episode Turn a completed episode into a sanitized replay fixture
   responder promote-fixtures
                            Write approved corrections into the regression corpus
+  responder migration-check
   responder correction-rate
   responder lifecycle-divergence
                            Report how often the host had to correct the model
