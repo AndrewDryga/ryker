@@ -56,6 +56,8 @@ func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 		return runReplay(args[1:], stdout, stderr)
 	case "eval":
 		return runEval(args[1:], stdout, stderr)
+	case "record-episode":
+		return runRecordEpisode(args[1:], stdout, stderr)
 	case "version", "--version", "-version":
 		fmt.Fprintln(stdout, buildVersion)
 		return nil
@@ -594,6 +596,7 @@ Usage:
   responder retry          Requeue one failed work item while Responder is stopped
   responder replay slack   Privately reprocess a saved Slack message; --publish sends the result
   responder eval           Run the real configured model against the evaluation corpus
+  responder record-episode Turn a completed episode into a sanitized replay fixture
   responder version        Print the build version
 
 Every command accepts --help. The default config is ~/.config/responder/responder.yaml.`)
