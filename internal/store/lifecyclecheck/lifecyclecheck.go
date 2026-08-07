@@ -11,7 +11,7 @@ import (
 	"database/sql"
 )
 
-// LifecycleDivergence is what the two lifecycles disagree about.
+// Report is what the two lifecycles disagree about.
 //
 // The cutover from agent-run states to episode states follows the project's own
 // migration rule: compare projections, cut over, then delete the legacy path.
@@ -31,18 +31,27 @@ type Report struct {
 	// legitimately contains a failed attempt followed by a successful one, and
 	// comparing against every run reports that correct behaviour as a conflict.
 	OutcomeConflict []string
-	// DuplicateStateColumn: rows where work_episodes.state and
-	// work_episodes.lifecycle_state hold different values. They are written
-	// together and were identical in every deployed row when this was built, so
-	// any drift here means one write path was missed.
-	DuplicateStateColumn []string
+	// ProjectionMismatch: rows where work_episodes.state is not what the
+	// legacy projection of lifecycle_state would produce.
+	//
+	// The two columns are not copies. state is a lossy projection of
+	// lifecycle_state — accepted collapses to acknowledged, waiting_operator,
+	// waiting_external and retrying all collapse to blocked, refused collapses
+	// to failed — so comparing them for equality reports a correctly projected
+	// episode as drift. They are equal in the deployed data only because no
+	// episode comes to rest in one of the collapsing states.
+	//
+	// A mismatch against the projection means a write path set one column
+	// without the other, which is the thing worth knowing before deleting
+	// either.
+	ProjectionMismatch []string
 }
 
 // Clean reports whether the legacy lifecycle can be retired without losing
 // information the episode does not already carry.
 func (r Report) Clean() bool {
 	return len(r.RunningUnderFinished) == 0 && len(r.ExecutingWithoutRun) == 0 &&
-		len(r.OutcomeConflict) == 0 && len(r.DuplicateStateColumn) == 0
+		len(r.OutcomeConflict) == 0 && len(r.ProjectionMismatch) == 0
 }
 
 // Divergences compares the agent-run lifecycle against the episode lifecycle
@@ -74,8 +83,14 @@ func Divergences(ctx context.Context, db *sql.DB) (Report, error) {
 			    SELECT max(r2.created_at) FROM agent_runs r2 WHERE r2.episode_id = e.id)
 			  AND ((e.lifecycle_state = 'completed' AND r.state = 'failed')
 			    OR (e.lifecycle_state = 'failed' AND r.state = 'completed'))`},
-		{&report.DuplicateStateColumn, `
-			SELECT id FROM work_episodes WHERE state != lifecycle_state`},
+		{&report.ProjectionMismatch, `
+			SELECT id FROM work_episodes WHERE state != CASE lifecycle_state
+			  WHEN 'accepted'         THEN 'acknowledged'
+			  WHEN 'waiting_operator' THEN 'blocked'
+			  WHEN 'waiting_external' THEN 'blocked'
+			  WHEN 'retrying'         THEN 'blocked'
+			  WHEN 'refused'          THEN 'failed'
+			  ELSE lifecycle_state END`},
 	} {
 		rows, err := db.QueryContext(ctx, probe.query)
 		if err != nil {

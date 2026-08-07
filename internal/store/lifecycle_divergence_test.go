@@ -45,7 +45,7 @@ func TestLifecycleDivergenceDetectsEachDisagreement(t *testing.T) {
 			name:    "state and lifecycle_state drifted apart",
 			episode: "completed", run: "completed",
 			sameCols: true,
-			want:     func(d lifecyclecheck.Report) []string { return d.DuplicateStateColumn },
+			want:     func(d lifecyclecheck.Report) []string { return d.ProjectionMismatch },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -141,5 +141,43 @@ func seedEpisodeWithRun(
 		); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// state is a lossy projection of lifecycle_state, not a copy of it:
+// waiting_operator, waiting_external and retrying all collapse to blocked,
+// accepted collapses to acknowledged, refused collapses to failed.
+//
+// Comparing the two columns for equality reports every one of those as drift.
+// They look equal in the deployed data only because no episode comes to rest in
+// a collapsing state, so the mistake survives a clean production run — which is
+// how it shipped in 4551562 and why this test exists.
+func TestLifecycleDivergenceAcceptsACorrectlyProjectedState(t *testing.T) {
+	ctx := context.Background()
+	for lifecycle, legacy := range map[string]string{
+		"waiting_operator": "blocked",
+		"waiting_external": "blocked",
+		"retrying":         "blocked",
+		"accepted":         "acknowledged",
+		"refused":          "failed",
+	} {
+		t.Run(lifecycle, func(t *testing.T) {
+			st := openAt(t, t.TempDir())
+			// A live run, so the executing-without-a-run probe stays quiet and
+			// this test only measures the projection.
+			seedEpisodeWithRun(t, st, "ep_1", legacy, lifecycle,
+				map[string][2]string{"run_1": {"running", "2026-08-07T12:00:00.000000000Z"}})
+
+			report, err := lifecyclecheck.Divergences(ctx, st.db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(report.ProjectionMismatch) != 0 {
+				t.Fatalf(
+					"%s correctly projects to %s, but was reported as drift",
+					lifecycle, legacy,
+				)
+			}
+		})
 	}
 }
