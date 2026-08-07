@@ -11,6 +11,23 @@
 # change spans both repositories.
 set -euo pipefail
 
+# --stage builds and prepares everything a deploy would use — the immutable
+# commit-named binary and a .staged plist beside each live one — without
+# repointing or restarting anything. It is the automatic-preparation half of
+# self-deployment: a machine may stage endlessly, and rotating onto a staged
+# candidate stays a separate, deliberate act. Activation is this same script
+# without --stage, which rebuilds nothing (the binary is content-addressed by
+# commit) and performs only the pointer move and restart.
+stage=0
+if [[ ${1:-} == "--stage" ]]; then
+  stage=1
+  shift
+fi
+if [[ $# -gt 0 ]]; then
+  echo "deploy: unknown argument $1 (only --stage is accepted)" >&2
+  exit 2
+fi
+
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 libexec=${RESPONDER_LIBEXEC:-$HOME/.local/libexec/responder}
 agents=${RESPONDER_LAUNCH_AGENTS:-$HOME/Library/LaunchAgents}
@@ -34,6 +51,25 @@ go build -trimpath \
   -ldflags "-s -w -X github.com/AndrewDryga/responder/internal/version.Version=$version" \
   -o "$binary" ./cmd/responder
 echo "deploy: built $binary ($version)"
+
+if [[ $stage -eq 1 ]]; then
+  staged=0
+  for plist in "$agents"/ai.emisar.responder.*.plist; do
+    [[ -e $plist ]] || continue
+    grep -q "libexec/responder/responder-" "$plist" || continue
+    /usr/bin/sed -E "s#libexec/responder/responder-[0-9a-f]+#libexec/responder/responder-$sha#g" \
+      "$plist" > "$plist.staged-$sha"
+    echo "deploy: staged $(basename "$plist").staged-$sha"
+    staged=$((staged + 1))
+  done
+  if [[ $staged -eq 0 ]]; then
+    echo "deploy: no launch agent pins a Responder binary — nothing was staged" >&2
+    exit 1
+  fi
+  echo "deploy: staged responder-$sha for $staged agent(s); nothing was rotated or restarted"
+  echo "deploy: activate with scripts/deploy.sh at this commit"
+  exit 0
+fi
 
 deployed=0
 for plist in "$agents"/ai.emisar.responder.*.plist; do
