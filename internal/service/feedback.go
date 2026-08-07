@@ -146,7 +146,7 @@ func (s *Service) feedbackContext(
 ) ([]feedbackstore.ContextMessage, error) {
 	messages := state.RecentMessages
 	if len(messages) == 0 {
-		targetTS := firstNonempty(targetMessageTS, input.MessageTS)
+		targetTS := core.FirstNonempty(targetMessageTS, input.MessageTS)
 		history, historyErr := s.recentMessages(
 			ctx, input.ChannelID, input.ThreadTS, targetTS, "", 20,
 		)
@@ -184,7 +184,7 @@ func (s *Service) feedbackContext(
 		if err == nil {
 			var message slackui.Message
 			if json.Unmarshal(delivery.Body, &message) == nil {
-				text := firstNonempty(message.Markdown, strings.Join(message.Sections, "\n"), message.Text)
+				text := core.FirstNonempty(message.Markdown, strings.Join(message.Sections, "\n"), message.Text)
 				result = append(result, feedbackstore.ContextMessage{
 					MessageTS: targetMessageTS, ThreadTS: delivery.ThreadTS,
 					SenderID: s.identity.BotUserID, SenderType: "responder",

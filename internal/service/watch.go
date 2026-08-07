@@ -697,7 +697,7 @@ func (s *Service) applyReplyDecision(
 			message = slackui.WithPullRequestReview(message, input.ID)
 		}
 	}
-	baseDeliveryID := firstNonempty(
+	baseDeliveryID := core.FirstNonempty(
 		state.ReplyDeliveryID,
 		"watch_reply_"+input.ID,
 	)
@@ -780,7 +780,7 @@ func (s *Service) applyWatchDecision(
 			s.cfg.Slack.ReactionAttention,
 		)
 	}
-	sourceInput := firstNonempty(state.DecisionSourceID, input.ID)
+	sourceInput := core.FirstNonempty(state.DecisionSourceID, input.ID)
 	report, err := s.persistAgentReport(
 		ctx,
 		agentReport{
@@ -2108,7 +2108,7 @@ func (s *Service) retireFailedWatchSession(
 			ctx, input.ChannelID, state.SessionID,
 		)
 	} else {
-		sessionChannelID := firstNonempty(state.SessionChannelID, input.ChannelID)
+		sessionChannelID := core.FirstNonempty(state.SessionChannelID, input.ChannelID)
 		_, detachErr = s.store.DetachChannelSession(
 			ctx, sessionChannelID, state.SessionID,
 		)
@@ -2767,7 +2767,7 @@ func watchPromptMessage(
 	senderID := input.UserID
 	requestedBy := ""
 	if input.Kind == "shortcut" {
-		senderID = firstNonempty(input.ActionValue, input.UserID)
+		senderID = core.FirstNonempty(input.ActionValue, input.UserID)
 		requestedBy = input.UserID
 	}
 	attachments := make([]watchContextAttachment, 0, len(input.Attachments))
@@ -2816,7 +2816,7 @@ func watchPromptMessage(
 func slackMessageLink(input core.SlackInput) string {
 	teamID := strings.TrimSpace(input.TeamID)
 	channelID := strings.TrimSpace(input.ChannelID)
-	messageTS := strings.TrimSpace(firstNonempty(input.ThreadTS, input.MessageTS))
+	messageTS := strings.TrimSpace(core.FirstNonempty(input.ThreadTS, input.MessageTS))
 	if teamID == "" || channelID == "" || messageTS == "" {
 		return ""
 	}
@@ -2856,6 +2856,12 @@ func isPrivateSlackVerificationReplay(input core.SlackInput) bool {
 // while preserving operator-confirmed memory when host policy grows.
 const maxAssembledWatchPromptBytes = 56 << 10
 
+// minimumWatchMessages is the floor on how much conversation survives
+// budgeting. Below this the model is answering about a thread it cannot see,
+// which produces a confidently wrong answer rather than an honest "I need more
+// context" — so it is better to drop remembered context and keep the room.
+const minimumWatchMessages = 8
+
 func (s *Service) watchPrompt(
 	input core.SlackInput,
 	botUserID string,
@@ -2868,29 +2874,77 @@ func (s *Service) watchPrompt(
 	activeRepository string,
 	matchedRules []core.StandingRule,
 ) string {
+	// Drop order matters more than the budget itself. The transport will elide
+	// the middle of anything oversized, which cuts through the structured
+	// context block, so the assembler has to choose — and what it chooses first
+	// should be the least load-bearing.
+	//
+	// Prior context goes before the conversation: a stale evidence record or a
+	// summary of another channel is genuinely less useful than the message
+	// three above the one being answered. Confirmed memory goes last of the
+	// remembered layers because an operator put it there deliberately.
+	//
+	// Every drop is reported to the model as context_omitted. Silently thinner
+	// context reads as confident ignorance; a stated gap reads as a reason to
+	// ask.
+	var omitted []string
+	note := func(format string, args ...any) {
+		omitted = append(omitted, fmt.Sprintf(format, args...))
+	}
 	for {
 		prompt := s.unboundedWatchPrompt(
 			input, botUserID, conversationFollowup, recent, memory, related,
-			referenced, prior, activeRepository, matchedRules,
+			referenced, prior, activeRepository, matchedRules, omitted,
 		)
 		if len(prompt) <= maxAssembledWatchPromptBytes {
 			return prompt
 		}
 		switch {
-		case len(recent) > 0:
-			recent = recent[1:]
+		case len(prior.RecentEvidence) > 0:
+			prior.RecentEvidence = prior.RecentEvidence[1:]
+			if len(prior.RecentEvidence) == 0 {
+				note("earlier evidence records from this channel were omitted to fit the turn")
+			}
+		case len(related) > 0:
+			related = related[1:]
+			if len(related) == 0 {
+				note("summaries of related conversations were omitted to fit the turn")
+			}
 		case referenced != nil && len(referenced.RecentMessages) > 0:
 			copyReferenced := *referenced
 			copyReferenced.RecentMessages = referenced.RecentMessages[1:]
 			referenced = &copyReferenced
-		case len(related) > 0:
-			related = related[1:]
-		case len(prior.RecentEvidence) > 0:
-			prior.RecentEvidence = prior.RecentEvidence[1:]
+			if len(copyReferenced.RecentMessages) == 0 {
+				note("the referenced thread's transcript was omitted; only its summary remains")
+			}
 		case len(prior.DreamedMemory) > 0:
 			prior.DreamedMemory = prior.DreamedMemory[1:]
+			if len(prior.DreamedMemory) == 0 {
+				note("synthesized continuity summaries were omitted to fit the turn")
+			}
+		case len(recent) > minimumWatchMessages:
+			recent = recent[1:]
+			if len(recent) == minimumWatchMessages {
+				note(
+					"older channel messages were omitted to fit the turn; only the %d nearest the target remain",
+					minimumWatchMessages,
+				)
+			}
 		case len(prior.ConfirmedMemory) > 0:
 			prior.ConfirmedMemory = prior.ConfirmedMemory[1:]
+			if len(prior.ConfirmedMemory) == 0 {
+				note("operator-confirmed memory was omitted to fit the turn")
+			}
+		case len(memory.Knowledge) > 0:
+			memory.Knowledge = memory.Knowledge[:len(memory.Knowledge)-1]
+			if len(memory.Knowledge) == 0 {
+				note("learned conversation knowledge was omitted to fit the turn")
+			}
+		case len(recent) > 1:
+			// Past the floor the instructions themselves no longer fit. Keep
+			// the target and its immediate neighbour rather than handing the
+			// transport something it will cut through.
+			recent = recent[1:]
 		default:
 			return prompt
 		}
@@ -2908,6 +2962,7 @@ func (s *Service) unboundedWatchPrompt(
 	prior operationalMemoryContext,
 	activeRepository string,
 	matchedRules []core.StandingRule,
+	omitted []string,
 ) string {
 	replayPolicy := ""
 	if isSlackVerificationReplay(input) {
@@ -2939,6 +2994,7 @@ context for comparison only; they must not cause action=ignore or replace the re
 		Referenced     *referencedThreadContext       `json:"referenced_thread,omitempty"`
 		Prior          operationalMemoryContext       `json:"prior_operational_context,omitempty"`
 		TargetMessage  watchContextMessage            `json:"target_message"`
+		Omitted        []string                       `json:"context_omitted,omitempty"`
 	}{
 		ChannelID:      input.ChannelID,
 		RecentMessages: recent,
@@ -2947,6 +3003,7 @@ context for comparison only; they must not cause action=ignore or replace the re
 		Referenced:     referenced,
 		Prior:          prior,
 		TargetMessage:  target,
+		Omitted:        omitted,
 	})
 	return `You are Responder participating in a shared Slack operations feed. Decide whether to act on target_message. Use both the earlier Coop conversation and recent_channel_messages, which is a bounded chronological transcript centered on the target and may include a few messages posted shortly after it.
 ` + replayPolicy + `

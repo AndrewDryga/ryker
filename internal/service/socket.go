@@ -330,7 +330,7 @@ func (s *Service) setMessageInput(
 			return dropMessage
 		}
 		input.Kind = "bot_message"
-		input.UserID = firstNonempty(message.BotID, message.User)
+		input.UserID = core.FirstNonempty(message.BotID, message.User)
 	case humanMessageSubtype(inner.SubType) && message.User != "":
 		input.Kind = "message"
 		if strings.HasPrefix(inner.Channel, "D") {
@@ -449,7 +449,7 @@ func humanMessageSubtype(subtype string) bool {
 func slackInputAttachments(files []slack.File) []core.SlackAttachment {
 	result := make([]core.SlackAttachment, 0, len(files))
 	for _, file := range files {
-		downloadURL := strings.TrimSpace(firstNonempty(file.URLPrivateDownload, file.URLPrivate))
+		downloadURL := strings.TrimSpace(core.FirstNonempty(file.URLPrivateDownload, file.URLPrivate))
 		name := strings.TrimSpace(filepath.Base(file.Name))
 		if name == "" || name == "." {
 			name = "attachment"
@@ -598,9 +598,9 @@ func (s *Service) admitInteraction(ctx context.Context, event socketmode.Event) 
 		EventID:     "interaction:" + event.Request.EnvelopeID,
 		Kind:        "action",
 		TeamID:      callback.Team.ID,
-		ChannelID:   firstNonempty(callback.Container.ChannelID, callback.Channel.ID),
-		ThreadTS:    firstNonempty(callback.Container.ThreadTs, callback.Message.ThreadTimestamp),
-		MessageTS:   firstNonempty(callback.Container.MessageTs, callback.Message.Timestamp),
+		ChannelID:   core.FirstNonempty(callback.Container.ChannelID, callback.Channel.ID),
+		ThreadTS:    core.FirstNonempty(callback.Container.ThreadTs, callback.Message.ThreadTimestamp),
+		MessageTS:   core.FirstNonempty(callback.Container.MessageTs, callback.Message.Timestamp),
 		UserID:      callback.User.ID,
 		ActionID:    action.ActionID,
 		ActionValue: action.Value,

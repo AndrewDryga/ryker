@@ -549,7 +549,7 @@ func (s *Service) prepareIncidentAgentRun(
 		run.ID,
 		session.ID,
 		0,
-		firstNonempty(run.Repository, incident.Repository),
+		core.FirstNonempty(run.Repository, incident.Repository),
 		incident.CoopEventSequence,
 		run.Context,
 	); err != nil {
@@ -746,7 +746,7 @@ func (s *Service) freezeTriageContext(
 			ctx,
 			agentContextRequest{
 				ChannelID: input.ChannelID,
-				Repository: firstNonempty(
+				Repository: core.FirstNonempty(
 					state.Repository,
 					s.cfg.Slack.DefaultRepository,
 				),
@@ -862,7 +862,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		return s.retryAgentRun(ctx, run, err)
 	}
 	repository, ok := s.cfg.RepositoryContext(
-		firstNonempty(state.Repository, s.cfg.Slack.DefaultRepository),
+		core.FirstNonempty(state.Repository, s.cfg.Slack.DefaultRepository),
 	)
 	if !ok {
 		return s.retryAgentRun(
@@ -924,7 +924,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		generation = conversation.Generation
 		eventSequence = conversation.CoopEventSequence
 	} else {
-		sessionChannelID := firstNonempty(state.SessionChannelID, input.ChannelID)
+		sessionChannelID := core.FirstNonempty(state.SessionChannelID, input.ChannelID)
 		pinnedRepository := ""
 		if state.RepositoryPinned {
 			pinnedRepository = state.Repository
@@ -1020,7 +1020,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		state.RelatedSituations,
 		state.ReferencedThread,
 		state.Prior,
-		firstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
+		core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 		state.MatchedRules,
 	) + "\n\n" + repositorySetPrompt(session)
 	if input.Kind == "bot_message" {
@@ -1601,7 +1601,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 	cursor int64,
 ) error {
 	detail := strings.TrimSpace(
-		firstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
+		core.FirstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
 	)
 	if missingCoopImageFailure(turn) &&
 		s.repairCoopRuntime != nil {
@@ -1806,7 +1806,7 @@ func (s *Service) advanceTriageSessionEvents(
 	}
 	sessionChannelID := run.ChannelID
 	if err == nil {
-		sessionChannelID = firstNonempty(state.SessionChannelID, run.ChannelID)
+		sessionChannelID = core.FirstNonempty(state.SessionChannelID, run.ChannelID)
 	}
 	return s.store.AdvanceChannelEvents(
 		ctx, sessionChannelID, run.SessionID, cursor,
@@ -2147,7 +2147,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	state.Generation = run.SessionGeneration
 	state.TurnID = run.CoopTurnID
 	if run.TerminalState != "completed" {
-		detail := strings.TrimSpace(firstNonempty(run.LastError, run.TerminalState))
+		detail := strings.TrimSpace(core.FirstNonempty(run.LastError, run.TerminalState))
 		if err := s.finishTriageRunFailure(ctx, run, input, state, detail); err != nil {
 			return err
 		}
@@ -2279,7 +2279,7 @@ func (s *Service) finalizeIncidentAgentRun(
 		return err
 	}
 	state := run.TerminalState
-	detail := strings.TrimSpace(firstNonempty(run.LastError, state))
+	detail := strings.TrimSpace(core.FirstNonempty(run.LastError, state))
 	detail = s.sanitizeText(detail)
 	threadTS := incident.ConversationThreadTS()
 	conversation := run.SourceKind == "slack"
@@ -2328,7 +2328,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
 				if offer, ok := normalizeOperationalAlertRule(
 					conversationInput,
-					firstNonempty(run.Repository, incident.Repository),
+					core.FirstNonempty(run.Repository, incident.Repository),
 					report.RuleOffer,
 				); ok {
 					report.RuleOffer = offer
@@ -2523,7 +2523,7 @@ func (s *Service) finalizeIncidentAgentRun(
 		if state == "completed" {
 			proposalState = "finished"
 		}
-		proposalResult := firstNonempty(string(run.Result), detail)
+		proposalResult := core.FirstNonempty(string(run.Result), detail)
 		proposalResult = s.sanitizeText(proposalResult)
 		_ = s.store.MarkProposalExecution(
 			ctx,
@@ -2646,7 +2646,7 @@ func (s *Service) finishTriageRunFailure(
 	if state.ApprovalContinuation {
 		if err := s.postInputMessageAt(
 			ctx,
-			firstNonempty(state.ReplyDeliveryID, "emisar_approval_failure_"+run.ID),
+			core.FirstNonempty(state.ReplyDeliveryID, "emisar_approval_failure_"+run.ID),
 			input.ChannelID,
 			state.ResponseThreadTS,
 			message,

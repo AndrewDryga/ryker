@@ -148,6 +148,7 @@ func TestWatchPromptSeparatesResponderFeedbackFromOperationalFrustration(t *test
 		core.SlackInput{TeamID: "T123ABC", ChannelID: "C123ABC", UserID: "U123ABC", Text: "This answer is not useful"},
 		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
 		operationalMemoryContext{}, "", nil,
+		nil,
 	)
 	for _, required := range []string{
 		"Product feedback is distinct from operational frustration",

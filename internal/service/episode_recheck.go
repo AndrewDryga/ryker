@@ -50,7 +50,7 @@ func (s *Service) scheduleEpisodeRechecks(
 	}
 	return s.store.EnqueueWork(ctx, store.WorkItem{
 		Kind:            workEpisodeRecheck,
-		SubjectID:       episodeRecheckSubject(firstNonempty(state.RecheckOriginRunID, run.ID), nextAttempt),
+		SubjectID:       episodeRecheckSubject(core.FirstNonempty(state.RecheckOriginRunID, run.ID), nextAttempt),
 		Lane:            store.WorkLaneBackground,
 		ConversationKey: watchConversationKey(input),
 		Priority:        48,

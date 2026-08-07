@@ -86,8 +86,8 @@ func (s *Service) refreshPublicationFollowup(
 		return err
 	}
 	old := followup
-	followup.PRState = firstNonempty(status.PRState, "unknown")
-	followup.ChecksState = firstNonempty(status.ChecksState, "unknown")
+	followup.PRState = core.FirstNonempty(status.PRState, "unknown")
+	followup.ChecksState = core.FirstNonempty(status.ChecksState, "unknown")
 	followup.MergeSHA = status.MergeSHA
 	followup.MergedAt = status.MergedAt
 	followup.FailureCount = 0

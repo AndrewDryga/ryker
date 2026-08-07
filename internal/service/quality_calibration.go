@@ -115,7 +115,7 @@ func EvaluateQualityCalibrationJSONL(
 			Name:           item.Name,
 			Kind:           "watch",
 			Input:          item.Input,
-			Repository:     firstNonempty(item.Repository, cfg.Slack.DefaultRepository),
+			Repository:     core.FirstNonempty(item.Repository, cfg.Slack.DefaultRepository),
 			RecentMessages: item.RecentMessages,
 		}
 		if options.Progress != nil {

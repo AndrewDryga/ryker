@@ -237,7 +237,7 @@ func runLiveEvaluationScenario(
 	repetition int,
 	options LiveEvaluationOptions,
 ) ([]EvaluationResult, int, error) {
-	repositoryKey := firstNonempty(
+	repositoryKey := core.FirstNonempty(
 		strings.TrimSpace(scenario.Repository),
 		cfg.Slack.DefaultRepository,
 	)
@@ -262,7 +262,7 @@ func runLiveEvaluationScenario(
 			Channel:     seed.Channel,
 			ChannelName: seed.ChannelName,
 			Thread:      seed.Thread,
-			Repository:  firstNonempty(seed.Repository, repositoryKey),
+			Repository:  core.FirstNonempty(seed.Repository, repositoryKey),
 			Memory:      seed.Memory,
 			UpdatedAt:   time.Now().UTC().Add(-time.Hour),
 		}
@@ -562,7 +562,7 @@ func waitEvaluationTurn(
 		case "completed":
 			return current.AssistantMessage, nil
 		case "failed", "cancelled":
-			return current.AssistantMessage, errors.New(firstNonempty(
+			return current.AssistantMessage, errors.New(core.FirstNonempty(
 				current.ErrorDetail,
 				current.ErrorCode,
 				current.StopReason,

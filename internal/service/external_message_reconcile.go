@@ -621,7 +621,7 @@ func newestCorrelatedExternalLifecycle(
 	var newest slackui.HistoryMessage
 	for _, message := range history {
 		sameMessage := message.Timestamp == source.MessageTS
-		sameActor := firstNonempty(message.BotID, message.UserID) == source.UserID
+		sameActor := core.FirstNonempty(message.BotID, message.UserID) == source.UserID
 		if !sameMessage && (key == "" || !sameActor ||
 			externalLifecycleCorrelationKey(message.Text) != key) {
 			continue
@@ -655,7 +655,7 @@ func reconciledExternalMessageInput(
 		EventID:    eventID,
 		Kind:       "bot_message", TeamID: teamID, ChannelID: source.ChannelID,
 		ThreadTS: message.ThreadTS, MessageTS: message.Timestamp,
-		UserID: firstNonempty(message.BotID, message.UserID, source.UserID),
+		UserID: core.FirstNonempty(message.BotID, message.UserID, source.UserID),
 		Text:   message.Text, Attachments: attachments, ReceivedAt: time.Now().UTC(),
 	}
 	bindCanonicalSlackMessageInputID(&input)

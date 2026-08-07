@@ -130,11 +130,11 @@ func normalizeGrafana(route config.Webhook, body []byte, receivedAt time.Time) (
 	for index, alert := range payload.Alerts {
 		labels := mergeMaps(payload.CommonLabels, alert.Labels)
 		annotations := mergeMaps(payload.CommonAnnotations, alert.Annotations)
-		status, err := normalizeStatus(firstNonempty(alert.Status, payload.Status))
+		status, err := normalizeStatus(core.FirstNonempty(alert.Status, payload.Status))
 		if err != nil {
 			return nil, fmt.Errorf("alert %d: %w", index, err)
 		}
-		title := firstNonempty(
+		title := core.FirstNonempty(
 			annotations["summary"], annotations["title"], labels["alertname"], payload.Title,
 		)
 		if strings.TrimSpace(title) == "" {
@@ -144,7 +144,7 @@ func normalizeGrafana(route config.Webhook, body []byte, receivedAt time.Time) (
 		if sourceID == "" {
 			sourceID = stableDigest(route.Name, canonicalMap(labels), alert.StartsAt.UTC().Format(time.RFC3339Nano))
 		}
-		sourceURL := firstNonempty(alert.PanelURL, alert.DashboardURL, alert.GeneratorURL, payload.ExternalURL)
+		sourceURL := core.FirstNonempty(alert.PanelURL, alert.DashboardURL, alert.GeneratorURL, payload.ExternalURL)
 		if sourceURL != "" {
 			if parsed, err := url.Parse(sourceURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 				sourceURL = ""
@@ -158,8 +158,8 @@ func normalizeGrafana(route config.Webhook, body []byte, receivedAt time.Time) (
 			Repository:       route.Repository,
 			Status:           status,
 			Title:            trimBounded(title, 500),
-			Severity:         trimBounded(firstNonempty(labels["severity"], labels["priority"], labels["level"]), 64),
-			Summary:          trimBounded(firstNonempty(annotations["description"], annotations["message"], payload.Message), 4000),
+			Severity:         trimBounded(core.FirstNonempty(labels["severity"], labels["priority"], labels["level"]), 64),
+			Summary:          trimBounded(core.FirstNonempty(annotations["description"], annotations["message"], payload.Message), 4000),
 			SourceURL:        trimBounded(sourceURL, 2000),
 			Labels:           boundedMap(labels, 64),
 			Annotations:      boundedMap(annotations, 64),
@@ -235,7 +235,7 @@ func normalizeGeneric(route config.Webhook, body []byte, receivedAt time.Time) (
 	if err != nil {
 		return nil, fmt.Errorf("mapping.ends_at: %w", err)
 	}
-	sourceID := firstNonempty(incidentID, eventID)
+	sourceID := core.FirstNonempty(incidentID, eventID)
 	signal := core.Signal{
 		Route:            route.Name,
 		SourceID:         stableDigest(route.Name, sourceID),
@@ -360,15 +360,6 @@ func boundedMap(values map[string]string, limit int) map[string]string {
 func trimBounded(value string, limit int) string {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\x00", ""))
 	return core.TruncateUTF8(value, limit)
-}
-
-func firstNonempty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func lookup(payload map[string]any, path string) (any, bool) {

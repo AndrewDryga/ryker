@@ -290,6 +290,7 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 		"full": svc.unboundedWatchPrompt(
 			input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
 			operationalMemoryContext{}, "repo", nil,
+			nil,
 		),
 	} {
 		for _, required := range []string{
@@ -309,6 +310,7 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 	full := svc.unboundedWatchPrompt(
 		input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
 		operationalMemoryContext{}, "repo", nil,
+		nil,
 	)
 	for _, required := range []string{
 		"Recording a decision as evidence",

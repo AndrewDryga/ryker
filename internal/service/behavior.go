@@ -588,7 +588,7 @@ func (s *Service) preparePreferenceOfferAction(
 	}
 	payload, err := json.Marshal(preferenceActionPayload{
 		Version: 1, ChannelID: input.ChannelID,
-		SourceRef: firstNonempty(input.EventID, input.ID),
+		SourceRef: core.FirstNonempty(input.EventID, input.ID),
 		IssuedAt:  s.now().UTC(), Offer: *offer,
 	})
 	if err != nil || len(payload) > 1900 {
@@ -706,7 +706,7 @@ func (s *Service) prepareRuleOfferAction(
 	offer.ExpiresIn = memoryTTLValue(ttl)
 	payload, err := json.Marshal(ruleActionPayload{
 		Version: 1, ChannelID: input.ChannelID,
-		SourceRef: firstNonempty(input.EventID, input.ID),
+		SourceRef: core.FirstNonempty(input.EventID, input.ID),
 		IssuedAt:  s.now().UTC(), Offer: *offer,
 	})
 	if err != nil || len(payload) > 1900 {

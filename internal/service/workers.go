@@ -1385,15 +1385,6 @@ func reviewReasonMessage(reason string, gateError string) string {
 	}
 }
 
-func firstNonempty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func displayOr(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback

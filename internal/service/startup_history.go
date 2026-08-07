@@ -134,7 +134,7 @@ func slackHistoryAppInput(
 		ChannelID:   channelID,
 		ThreadTS:    message.ThreadTS,
 		MessageTS:   message.Timestamp,
-		UserID:      firstNonempty(message.BotID, message.UserID),
+		UserID:      core.FirstNonempty(message.BotID, message.UserID),
 		Text:        message.Text,
 		Attachments: attachments,
 		Reactions:   coreSlackReactions(message.Reactions),

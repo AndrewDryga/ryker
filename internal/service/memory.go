@@ -306,7 +306,7 @@ func (s *Service) prepareMemoryOfferAction(
 	}
 	payload, err := json.Marshal(memoryActionPayload{
 		Version: 1, ChannelID: input.ChannelID,
-		SourceRef: firstNonempty(input.EventID, input.ID),
+		SourceRef: core.FirstNonempty(input.EventID, input.ID),
 		IssuedAt:  s.now().UTC(),
 		Offer:     *offer,
 	})

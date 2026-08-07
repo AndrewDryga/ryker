@@ -41,3 +41,16 @@ func TruncateUTF8WithSuffix(value string, limit int, suffix string) string {
 	}
 	return TruncateUTF8(value, limit-len(suffix)) + suffix
 }
+
+// FirstNonempty returns the first value that is not blank, or "" when none is.
+// It is the standard way to express a fallback chain over optional fields —
+// Slack, Grafana and Coop payloads all carry the same fact under several names,
+// and each caller writing its own loop is how two copies of this drifted apart.
+func FirstNonempty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}

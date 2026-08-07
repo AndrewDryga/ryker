@@ -525,7 +525,7 @@ func (s *Service) configureShadow(
 	}
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.settings", ActorID: input.UserID,
-		ObjectID: scope + ":" + firstNonempty(channelID, "workspace"),
+		ObjectID: scope + ":" + core.FirstNonempty(channelID, "workspace"),
 		Outcome:  "updated", Detail: "shadow=" + value,
 	})
 	return s.finishSlashInput(
@@ -582,7 +582,7 @@ func (s *Service) configureTurnLimit(
 	}
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.settings", ActorID: input.UserID,
-		ObjectID: scope + ":" + firstNonempty(channelID, "workspace"),
+		ObjectID: scope + ":" + core.FirstNonempty(channelID, "workspace"),
 		Outcome:  "updated", Detail: "turn_limit=" + value,
 	})
 	status, err := s.turnLimitStatus(ctx, input.ChannelID)
@@ -669,7 +669,7 @@ func (s *Service) configureProactive(
 	}
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.settings", ActorID: input.UserID,
-		ObjectID: scope + ":" + firstNonempty(channelID, "workspace"),
+		ObjectID: scope + ":" + core.FirstNonempty(channelID, "workspace"),
 		Outcome:  "updated", Detail: "proactive=" + value,
 	})
 	status, err := s.proactiveStatus(ctx, input.ChannelID)
@@ -1164,7 +1164,7 @@ func incidentDirectoryEntry(incident core.Incident) string {
 		}
 		workKind = "`engineering task` | "
 	}
-	title = escapeSlackDirectoryText(firstNonempty(title, fallbackTitle))
+	title = escapeSlackDirectoryText(core.FirstNonempty(title, fallbackTitle))
 	repository := escapeSlackDirectoryText(incident.Repository)
 	if incident.ChannelID != "" {
 		switch incident.ChannelState {

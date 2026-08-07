@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -263,7 +264,7 @@ func renderEvaluationMessage(
 				}
 			}
 			if decision.TaskTitle != "" {
-				label := "`" + firstNonempty(decision.TaskRepository, testCase.Repository) + "`"
+				label := "`" + core.FirstNonempty(decision.TaskRepository, testCase.Repository) + "`"
 				if decision.TaskPrompt != "" {
 					message = slackui.WithSuggestedEngineeringTaskOffer(
 						message, decision.TaskTitle, "evaluation-source", label,
@@ -522,7 +523,7 @@ func summarizeEvaluation(summary *EvaluationSummary) {
 	var qualityTotal float64
 	for index := range summary.Results {
 		result := &summary.Results[index]
-		name := firstNonempty(result.CaseName, result.Name)
+		name := core.FirstNonempty(result.CaseName, result.Name)
 		aggregate := byCase[name]
 		if aggregate == nil {
 			aggregate = &CaseAggregate{Name: name}
@@ -546,7 +547,7 @@ func summarizeEvaluation(summary *EvaluationSummary) {
 		if aggregate.MeanQuality > 0 {
 			qualitySamples := 0
 			for _, result := range summary.Results {
-				if firstNonempty(result.CaseName, result.Name) == aggregate.Name &&
+				if core.FirstNonempty(result.CaseName, result.Name) == aggregate.Name &&
 					result.Quality.Evaluated {
 					qualitySamples++
 				}

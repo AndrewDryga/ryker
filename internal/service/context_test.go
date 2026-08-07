@@ -144,6 +144,7 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	raw := svc.unboundedWatchPrompt(
 		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
 		operationalMemoryContext{}, "repo", nil,
+		nil,
 	)
 	if len(raw) <= maxAssembledWatchPromptBytes {
 		t.Fatalf("test prompt did not exceed assembly bound: %d", len(raw))

@@ -108,7 +108,7 @@ func (s *Service) prepareScheduleOfferAction(
 	payload, err := json.Marshal(scheduleActionPayload{
 		Version: 1, ChannelID: input.ChannelID,
 		ThreadTS:  conversationalResponseThread(input),
-		SourceRef: firstNonempty(input.EventID, input.ID),
+		SourceRef: core.FirstNonempty(input.EventID, input.ID),
 		IssuedAt:  s.now().UTC(), Offer: *offer,
 	})
 	if err != nil || len(payload) > 1900 {
@@ -180,7 +180,7 @@ func (s *Service) scheduledTaskFromOffer(
 		IntervalSeconds: offer.IntervalSeconds,
 		DayOfMonth:      offer.DayOfMonth, LocalTime: offer.LocalTime,
 		Timezone: offer.Timezone, CatchUp: offer.CatchUp,
-		ActorID: input.UserID, SourceRef: firstNonempty(input.EventID, input.ID),
+		ActorID: input.UserID, SourceRef: core.FirstNonempty(input.EventID, input.ID),
 		ExpiresAt: now.Add(ttl), Enabled: true,
 	}
 	seen := map[string]bool{}
@@ -566,7 +566,7 @@ func (s *Service) processScheduledTasks(ctx context.Context) error {
 func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.ScheduledTask, occurrence core.ScheduledTaskRun) error {
 	input, err := s.store.GetSlackInput(ctx, occurrence.SourceInput)
 	if errors.Is(err, store.ErrNotFound) {
-		deliveryChannel := firstNonempty(task.DeliveryChannel, task.ChannelID)
+		deliveryChannel := core.FirstNonempty(task.DeliveryChannel, task.ChannelID)
 		deliveryThread := task.ThreadTS
 		if deliveryChannel != task.ChannelID {
 			deliveryThread = ""

@@ -1,7 +1,10 @@
 package service
 
 import (
+	"encoding/json"
+	"fmt"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/AndrewDryga/responder/internal/coop"
@@ -78,6 +81,126 @@ func staticPromptSizes(t *testing.T) map[string]int {
 			core.SlackInput{ChannelID: "C1", Text: "check the api"},
 			"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
 			operationalMemoryContext{}, "emisar", nil,
+			nil,
 		)),
 	}
+}
+
+// When context does not fit, the assembler has to choose what to drop. The
+// transport's fallback is to cut the middle out, which slices through the
+// structured context block — so the only acceptable outcome here is a prompt
+// that fits, still carries the target, and says what it lost.
+func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
+	svc := &Service{cfg: serviceConfig(t)}
+	filler := strings.Repeat("saturated evidence detail ", 60)
+
+	recent := make([]watchContextMessage, 0, 40)
+	for index := range 40 {
+		recent = append(recent, watchContextMessage{
+			MessageTS: fmt.Sprintf("170%02d.000", index),
+			SenderID:  "U123ABC",
+			Text:      fmt.Sprintf("message %02d %s", index, filler),
+		})
+	}
+	related := make([]conversationSituationContext, 0, 6)
+	for index := range 6 {
+		related = append(related, conversationSituationContext{
+			ChannelID: fmt.Sprintf("CREL%02d", index), Repository: "emisar",
+			Relationship: "workspace",
+			Summary:      core.AgentMemory{SituationSummary: filler},
+		})
+	}
+	prior := operationalMemoryContext{}
+	for index := range 10 {
+		prior.RecentEvidence = append(prior.RecentEvidence, evidencePromptEntry{
+			ID: fmt.Sprintf("ev_%02d", index), Claim: filler, Observation: filler,
+		})
+		prior.ConfirmedMemory = append(prior.ConfirmedMemory, memoryPromptEntry{
+			Scope: "channel:C1", Subject: fmt.Sprintf("subject-%02d", index),
+			Predicate: "guidance", Value: filler,
+		})
+	}
+
+	prompt := svc.watchPrompt(
+		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "why is checkout failing"},
+		"U999BOT", false, recent, core.AgentMemory{}, related, nil, prior, "emisar", nil,
+	)
+
+	if len(prompt) > maxAssembledWatchPromptBytes {
+		t.Fatalf("budgeted prompt is %d bytes, over the %d bound",
+			len(prompt), maxAssembledWatchPromptBytes)
+	}
+	if !strings.Contains(prompt, "why is checkout failing") {
+		t.Fatal("budgeting dropped the target message")
+	}
+	if !strings.Contains(prompt, "context_omitted") {
+		t.Fatal("the model was not told what had been omitted")
+	}
+	// Prior context goes before the conversation, and operator-confirmed
+	// memory goes after it: someone put that there deliberately, so it is the
+	// last remembered layer to give up its place.
+	evidenceAt := strings.Index(prompt, "evidence records from this channel were omitted")
+	relatedAt := strings.Index(prompt, "summaries of related conversations were omitted")
+	messagesAt := strings.Index(prompt, "older channel messages were omitted")
+	confirmedAt := strings.Index(prompt, "operator-confirmed memory was omitted")
+	if evidenceAt < 0 {
+		t.Fatalf("evidence was never dropped:\n%s", omittedSection(t, prompt))
+	}
+	for _, step := range []struct {
+		name    string
+		earlier int
+		later   int
+	}{
+		{"evidence before related", evidenceAt, relatedAt},
+		{"related before messages", relatedAt, messagesAt},
+		{"messages before confirmed memory", messagesAt, confirmedAt},
+	} {
+		if step.later >= 0 && step.earlier > step.later {
+			t.Fatalf("drop order violated (%s):\n%s", step.name, omittedSection(t, prompt))
+		}
+	}
+	// The floor holds: the conversation nearest the target survives.
+	if !strings.Contains(prompt, "only the 8 nearest the target remain") {
+		t.Fatalf("the message floor was not applied:\n%s", omittedSection(t, prompt))
+	}
+}
+
+// The structured context block must remain parseable after budgeting — that is
+// the whole point of budgeting rather than letting the transport elide.
+func TestBudgetedContextRemainsValidJSON(t *testing.T) {
+	svc := &Service{cfg: serviceConfig(t)}
+	filler := strings.Repeat("detail ", 400)
+	recent := make([]watchContextMessage, 0, 30)
+	for index := range 30 {
+		recent = append(recent, watchContextMessage{
+			MessageTS: fmt.Sprintf("170%02d.000", index), Text: filler,
+		})
+	}
+	prompt := svc.watchPrompt(
+		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "status?"},
+		"U999BOT", false, recent, core.AgentMemory{}, nil, nil,
+		operationalMemoryContext{}, "emisar", nil,
+	)
+	start := strings.Index(prompt, `{"channel_id"`)
+	if start < 0 {
+		t.Fatal("no structured context block in the prompt")
+	}
+	var decoded map[string]any
+	decoder := json.NewDecoder(strings.NewReader(prompt[start:]))
+	if err := decoder.Decode(&decoded); err != nil {
+		t.Fatalf("structured context is not valid JSON after budgeting: %v", err)
+	}
+	if _, ok := decoded["target_message"]; !ok {
+		t.Fatal("the target message did not survive budgeting")
+	}
+}
+
+func omittedSection(t *testing.T, prompt string) string {
+	t.Helper()
+	index := strings.Index(prompt, "context_omitted")
+	if index < 0 {
+		return "(no context_omitted section)"
+	}
+	end := min(index+400, len(prompt))
+	return prompt[index:end]
 }

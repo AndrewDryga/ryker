@@ -692,7 +692,7 @@ func runAuxiliaryEvaluation(
 					output = current.AssistantMessage
 					goto completed
 				case "failed", "cancelled":
-					runErr = errors.New(firstNonempty(
+					runErr = errors.New(core.FirstNonempty(
 						current.ErrorDetail,
 						current.ErrorCode,
 						current.StopReason,
@@ -783,7 +783,7 @@ func runLiveEvaluationCase(
 		policy = repository.ConversationPolicy
 	}
 	if testCase.Kind == "task" {
-		policy = firstNonempty(
+		policy = core.FirstNonempty(
 			strings.TrimSpace(testCase.CoopPolicy),
 			strings.TrimSpace(taskPolicy),
 		)
