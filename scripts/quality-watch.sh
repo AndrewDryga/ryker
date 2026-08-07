@@ -7,8 +7,8 @@ Usage: quality-watch.sh [--once|--watch] [--from-now]
 
 Review newly completed Responder turns with Codex and, for high-confidence
 product defects, prepare a fix in an isolated worktree. The wrapper validates,
-commits, integrates, installs, and restarts only after the full repository gate
-passes.
+commits, integrates, and deploys (scripts/deploy.sh) only after the full
+repository gate passes.
 
 Required environment:
   RESPONDER_QUALITY_STATE_DIR       Responder state directory containing responder.db
@@ -19,7 +19,6 @@ Optional environment:
   RESPONDER_QUALITY_CODEX           codex executable (defaults to PATH lookup)
   RESPONDER_QUALITY_INTERVAL        Watch interval in seconds (default: 300)
   RESPONDER_QUALITY_BATCH_SIZE      Completed turns per review, 1-10 (default: 5)
-  RESPONDER_QUALITY_RESTART_LABELS  Space-separated launchd labels restarted after install
   RESPONDER_QUALITY_MODEL           Explicit Codex model override
   RESPONDER_QUALITY_REASONING       Codex reasoning effort (default: high)
   RESPONDER_QUALITY_RETENTION_DAYS  Review artifact retention (default: 30)
@@ -56,7 +55,6 @@ test_channel=${RESPONDER_QUALITY_TEST_CHANNEL:-}
 codex_bin=${RESPONDER_QUALITY_CODEX:-codex}
 interval=${RESPONDER_QUALITY_INTERVAL:-300}
 batch_size=${RESPONDER_QUALITY_BATCH_SIZE:-5}
-restart_labels=${RESPONDER_QUALITY_RESTART_LABELS:-}
 model=${RESPONDER_QUALITY_MODEL:-}
 reasoning=${RESPONDER_QUALITY_REASONING:-high}
 retention_days=${RESPONDER_QUALITY_RETENTION_DAYS:-30}
@@ -635,19 +633,15 @@ LIMIT $batch_size;"
   fi
   cleanup_worktree "$worktree" "$branch"
 
-  if ! (cd "$repository" && make install) >>"$fixer_log" 2>&1; then
-    log "integrated $fix_commit, but installation failed; inspect $fixer_log"
+  # scripts/deploy.sh, not `make install`: the agents pin responder-<sha> under libexec, so
+  # installing to ~/.local/bin and restarting used to leave them running the old binary — the fix
+  # was integrated and reported as deployed while nothing about the running service changed.
+  if ! (cd "$repository" && scripts/deploy.sh) >>"$fixer_log" 2>&1; then
+    log "integrated $fix_commit, but deployment failed; inspect $fixer_log"
     advance_from_batch "$batch_path"
     return 0
   fi
-  local label domain
-  domain="gui/$(id -u)"
-  for label in $restart_labels; do
-    if ! launchctl kickstart -k "$domain/$label" >>"$fixer_log" 2>&1; then
-      log "integrated and installed $fix_commit, but restart failed for $label"
-    fi
-  done
-  log "integrated, installed, and restarted validated fix $fix_commit for $batch_id"
+  log "integrated, deployed, and restarted validated fix $fix_commit for $batch_id"
   advance_from_batch "$batch_path"
 }
 
