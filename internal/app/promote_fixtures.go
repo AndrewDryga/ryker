@@ -127,7 +127,10 @@ func withCorrectionAssertion(
 	if summary := strings.TrimSpace(correction); summary != "" {
 		fixture.Tags = append(fixture.Tags, "corrected:"+truncateTag(summary))
 	}
-	if class == "incomplete" {
+	// Both classes reached a decision: incomplete means the answer fell
+	// short, rejected means an attached offer did. Neither is a turn that
+	// failed to produce one, so a replay must still get that far.
+	if class == "incomplete" || class == "rejected" {
 		fixture.RequireCompletion = true
 		fixture.WantCompletionStatus = "decision_ready"
 	}

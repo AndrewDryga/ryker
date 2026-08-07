@@ -74,8 +74,14 @@ var methodBudget = map[string]int{
 // Each is roughly 5% above today's count: enough that ordinary work never
 // touches it, little enough that a package quietly absorbing a new
 // responsibility does.
+// service was raised from 24400 to 24600 for the offer-correction path: the
+// host now hands a rejected offer back to the model instead of dropping it.
+// The new headroom is deliberately thin — under half a percent — because this
+// package has grown past the 5% the others still have, and the next thing that
+// wants room here should have to answer for it. What it really needs is an
+// extraction, not another raise.
 var lineBudget = map[string]int{
-	"service":    24400,
+	"service":    24600,
 	"store":      14000,
 	"localstate": 400,
 	"provider":   120,

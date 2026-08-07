@@ -588,8 +588,7 @@ func (s *Service) preparePreferenceOfferAction(
 	input core.SlackInput,
 	offer *core.PreferenceOffer,
 ) (string, core.ResponderPreference, string, bool) {
-	if offer == nil || !s.cfg.IsOperator(input.UserID) ||
-		!explicitPreferenceRequestPattern.MatchString(input.Text) {
+	if offer == nil || !s.preferenceOfferInScope(input) {
 		return "", core.ResponderPreference{}, "", false
 	}
 	preference, ttl, err := s.preferenceFromOffer(input, *offer, s.now().UTC())
@@ -709,8 +708,7 @@ func (s *Service) prepareRuleOfferAction(
 	input core.SlackInput,
 	offer *core.RuleOffer,
 ) (string, core.StandingRule, string, bool) {
-	if offer == nil || !s.cfg.IsOperator(input.UserID) ||
-		!explicitRuleRequestPattern.MatchString(input.Text) {
+	if offer == nil || !s.ruleOfferInScope(input) {
 		return "", core.StandingRule{}, "", false
 	}
 	rule, ttl, err := s.standingRuleFromOffer(input, *offer, s.now().UTC())

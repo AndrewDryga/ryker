@@ -1489,7 +1489,28 @@ const (
 	// whose boundary is unclear makes the count ambiguous — which defeats the
 	// only reason the class exists.
 	correctionIncomplete correctionClass = "incomplete"
+	// correctionRejected: the conclusion was fine but an artifact attached to
+	// it — an offer the model built — could not be accepted.
+	//
+	// Distinct from incomplete on a line that can be stated: incomplete is
+	// about the answer, rejected is about something attached to it. A turn can
+	// be perfectly correct and still offer a malformed button.
+	correctionRejected correctionClass = "rejected"
 )
+
+// CorrectionClasses lists every class a turn can be corrected under, so a
+// reader of the correction rate covers all of them.
+//
+// A hand-written list in the reporting command drifts the moment a class is
+// added here: the new class is emitted, counted by nobody, and the totals
+// quietly understate. Deriving the report from this keeps the two in step.
+func CorrectionClasses() []string {
+	return []string{
+		string(correctionUnreadable),
+		string(correctionIncomplete),
+		string(correctionRejected),
+	}
+}
 
 // requeueWithCorrection sends a result back to the model and records that it
 // happened.
@@ -1636,6 +1657,8 @@ func (s *Service) stageTriageTerminal(
 			staged.result = marshaledResult
 		}
 		correction := ""
+		// The default class; a rejected artifact overrides it below.
+		correctionKind := correctionIncomplete
 		needsScheduleOffer, scheduleErr := s.scheduleActivationNeedsOffer(
 			ctx, input, decision.ScheduleOffer,
 		)
@@ -1688,6 +1711,11 @@ func (s *Service) stageTriageTerminal(
 				}
 			}
 			if correction == "" {
+				if rejected := s.offerRejectionCorrection(ctx, input, decision); rejected != "" {
+					correction, correctionKind = rejected, correctionRejected
+				}
+			}
+			if correction == "" {
 				correction = decisionpkg.EpisodeDiagnosisCorrection(
 					episode,
 					decision.Action,
@@ -1712,14 +1740,25 @@ func (s *Service) stageTriageTerminal(
 					return true, err
 				}
 				if err := s.requeueWithCorrection(
-					ctx, run, correctionIncomplete, correction, cursor,
+					ctx, run, correctionKind, correction, cursor,
 				); err != nil {
 					return true, err
 				}
 				_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 				return true, nil
 			}
-			decision = blockedWatchContinuation(run, input, state, correction, &decision)
+			// A rejected offer is not a failed turn. The answer was
+			// produced and is fine; only something attached to it could not
+			// be stored. Blocking here would replace a good reply with "I
+			// couldn't finish this check safely yet" — untrue, and it throws
+			// away work the user is waiting on over a malformed button.
+			// Drop the offer that failed, keep the answer, and tell the
+			// operator what was dropped.
+			if correctionKind == correctionRejected {
+				s.dropRejectedOffers(ctx, input, &decision, run)
+			} else {
+				decision = blockedWatchContinuation(run, input, state, correction, &decision)
+			}
 			marshaledResult, marshalErr := decisionpkg.MarshalWatchDecisionResult(decision)
 			if marshalErr != nil {
 				return true, marshalErr

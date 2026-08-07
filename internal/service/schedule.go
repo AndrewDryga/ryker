@@ -227,7 +227,7 @@ func (s *Service) normalizeScheduleOffer(
 	input core.SlackInput,
 	offer *core.ScheduleOffer,
 ) (core.ScheduledTask, string, bool) {
-	if offer == nil || input.Kind == "scheduled" || !s.cfg.IsOperator(input.UserID) || !schedulepkg.ExplicitScheduleRequest(input.Text) {
+	if offer == nil || !s.scheduleOfferInScope(input) {
 		return core.ScheduledTask{}, "", false
 	}
 	expiresIn := strings.ToLower(strings.TrimSpace(offer.ExpiresIn))

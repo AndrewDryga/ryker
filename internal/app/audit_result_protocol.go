@@ -67,7 +67,7 @@ func runCorrectionRate(args []string, stdout, stderr io.Writer) error {
 		return nil
 	}
 	total := 0
-	for _, class := range []string{"unreadable", "incomplete"} {
+	for _, class := range service.CorrectionClasses() {
 		count := counts[class]
 		total += count
 		fmt.Fprintf(stdout, "  %-12s %4d  %5.1f%% of turns\n",

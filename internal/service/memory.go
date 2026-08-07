@@ -224,8 +224,7 @@ func (s *Service) prepareMemoryOfferAction(
 	input core.SlackInput,
 	offer *core.MemoryOffer,
 ) (string, string, string, bool) {
-	if offer == nil || !s.cfg.IsOperator(input.UserID) ||
-		!explicitMemoryRequestPattern.MatchString(input.Text) {
+	if offer == nil || !s.memoryOfferInScope(input) {
 		return "", "", "", false
 	}
 	entry, ttl, err := s.memoryEntryFromOffer(input, *offer, s.now().UTC())
