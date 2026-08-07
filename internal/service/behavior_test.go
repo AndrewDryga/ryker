@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -320,7 +321,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 }
 
 func TestStructuredResponsesAllowCompoundDurableOffers(t *testing.T) {
-	decision, err := decodeWatchDecision(`{
+	decision, err := decisionpkg.DecodeWatchDecision(`{
 	  "action":"reply",
 	  "message":"Confirm both settings.",
 	  "preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread"},
@@ -329,7 +330,7 @@ func TestStructuredResponsesAllowCompoundDurableOffers(t *testing.T) {
 	if err != nil || decision.PreferenceOffer == nil || decision.RuleOffer == nil {
 		t.Fatalf("compound watch decision = %+v, %v", decision, err)
 	}
-	report, err := decodeAgentReport(`{
+	report, err := decisionpkg.DecodeAgentReport(`{
 	  "message":"Confirm both settings.",
 	  "preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread"},
 	  "rule_offer":{"scope":"channel","repository":"repo","trigger":"operational_alert","action":"triage_alert","source_kind":"app"}
@@ -337,7 +338,7 @@ func TestStructuredResponsesAllowCompoundDurableOffers(t *testing.T) {
 	if err != nil || report.PreferenceOffer == nil || report.RuleOffer == nil {
 		t.Fatalf("compound agent report = %+v, %v", report, err)
 	}
-	approvalAndSchedule, err := decodeWatchDecision(`{
+	approvalAndSchedule, err := decisionpkg.DecodeWatchDecision(`{
 	  "action":"reply",
 	  "message":"Runbook publication is waiting in Emisar. The daily review is ready for separate confirmation.",
 	  "pending_approval":{"request_id":"apr_1","run_id":"run_1","operation_id":"op_1","action_id":"runbooks.publish","pack_ref":"runbooks@1#sha256:abc","runner_ref":"control~abc","status":"pending_approval","approval_url":"https://emisar.dev/app/acme/approvals/apr_1","expires_at":"2026-08-02T00:00:00Z"},
@@ -363,12 +364,12 @@ func TestAlertAssessmentRequiresDecisionUsefulRemediation(t *testing.T) {
 		}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := decodeWatchDecision(raw, testDecodeClock); err == nil {
+			if _, err := decisionpkg.DecodeWatchDecision(raw, testDecodeClock); err == nil {
 				t.Fatalf("accepted incomplete alert assessment: %s", raw)
 			}
 		})
 	}
-	decision, err := decodeWatchDecision(`{
+	decision, err := decisionpkg.DecodeWatchDecision(`{
 	  "action":"reply",
 	  "message":"The alert is not verified because the live runner is unavailable.",
 	  "alert_assessment":{"verdict":"unverified","impact":"Current impact is unknown.","immediate_action":"Restore the read-only runner and repeat the storage check."}
@@ -380,7 +381,7 @@ func TestAlertAssessmentRequiresDecisionUsefulRemediation(t *testing.T) {
 }
 
 func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.T) {
-	decision, err := decodeWatchDecision(`{
+	decision, err := decisionpkg.DecodeWatchDecision(`{
 	  "action":"reply",
 	  "message":"The repair is behind schedule but still progressing.",
 	  "alert_assessment":{"verdict":"confirmed_issue","impact":"The repair missed its cadence.","cause_status":"bounded","cause":"The current cycle is taking longer than its configured interval.","immediate_action":"Let the active repair finish.","verification":"Confirm progress reaches 100 percent and the overdue gauge clears.","long_term_solution":"Deploy the Reaper scheduling fix."},
@@ -393,7 +394,7 @@ func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.
 		t.Fatalf("normalized completion = %+v", decision.Completion)
 	}
 
-	inferred, err := decodeWatchDecision(`{
+	inferred, err := decisionpkg.DecodeWatchDecision(`{
 	  "action":"reply",
 	  "message":"The repair is behind schedule but still progressing.",
 	  "alert_assessment":{"verdict":"confirmed_issue","impact":"The repair missed its cadence.","cause_status":"bounded","cause":"The current cycle is taking longer than its configured interval.","immediate_action":"Let the active repair finish.","verification":"Confirm progress reaches 100 percent and the overdue gauge clears.","long_term_solution":"Deploy the Reaper scheduling fix."},
@@ -402,14 +403,14 @@ func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	normalizeAppAlertCompletion(core.SlackInput{
+	decisionpkg.NormalizeAppAlertCompletion(core.SlackInput{
 		Kind: "bot_message", Text: "FIRING: Cassandra repair overdue",
 	}, &inferred)
 	if inferred.Completion == nil || inferred.Completion.Verdict != "degraded" {
 		t.Fatalf("inferred completion = %+v", inferred.Completion)
 	}
 
-	blocked, err := decodeWatchDecision(`{
+	blocked, err := decisionpkg.DecodeWatchDecision(`{
 	  "action":"reply",
 	  "message":"The exact repair completed, but the result needs correction.",
 	  "alert_assessment":{"verdict":"not_issue","impact":"The overdue condition cleared."},
@@ -428,7 +429,7 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 	state := watchTurnState{MatchedRules: []core.StandingRule{{
 		Trigger: "operational_alert", Action: "triage_alert",
 	}}}
-	assessment := &alertAssessment{
+	assessment := &decisionpkg.AlertAssessment{
 		Verdict: "likely_issue", Impact: "One database host may be slow.",
 		CauseStatus: "bounded", Cause: "Both devices on one host share a degraded storage path.",
 		ImmediateAction:  "Drain the host if latency persists.",
@@ -444,7 +445,7 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 		Claim: "latency is elevated", Observation: "both devices exceed 50 ms",
 		SourceType: "emisar", SourceName: "storage health", ObservedAt: now,
 	}
-	for name, decision := range map[string]watchDecision{
+	for name, decision := range map[string]decisionpkg.WatchDecision{
 		"symptom summary": {Action: "reply", Message: "Both devices are slow."},
 		"no topology": {
 			Action: "reply", Message: "Likely shared-path issue.", AlertAssessment: assessment,
@@ -464,7 +465,7 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 			}
 		})
 	}
-	complete := watchDecision{
+	complete := decisionpkg.WatchDecision{
 		Action: "reply", Message: "Likely shared-path issue.", AlertAssessment: assessment,
 		Evidence: []core.Evidence{repositoryEvidence, liveEvidence},
 	}
@@ -473,7 +474,7 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 	}
 	state.FailureDetail = "the first alert reply was incomplete"
 	if correction := watchDecisionCorrection(
-		input, state, watchDecision{Action: "ignore"},
+		input, state, decisionpkg.WatchDecision{Action: "ignore"},
 	); correction == "" {
 		t.Fatal("corrected alert investigation was allowed to disappear")
 	}
@@ -487,10 +488,10 @@ func TestRecoveredAlertCanCloseFromFreshExactEvidenceWithoutRepositorySweep(t *t
 			"sts_ks overdue gauge returned to zero.",
 	}
 	state := watchTurnState{AlertPolicy: "reply_here"}
-	decision := watchDecision{
+	decision := decisionpkg.WatchDecision{
 		Action:  "reply",
 		Message: "The scheduled `sts_ks` repair completed, closing the earlier alert.",
-		AlertAssessment: &alertAssessment{
+		AlertAssessment: &decisionpkg.AlertAssessment{
 			Verdict: "not_issue",
 			Impact:  "The overdue repair condition is no longer active.",
 		},
@@ -527,10 +528,10 @@ func TestRecoveredAlertCorrectsBlockedBroadAssessmentAndRequiresPriorLink(t *tes
 			MessageLink: "https://app.slack.com/client/T123/C123/thread/C123-1700.100",
 		}},
 	}
-	decision := watchDecision{
+	decision := decisionpkg.WatchDecision{
 		Action:          "reply",
 		Message:         "The scheduled repair completed.",
-		AlertAssessment: &alertAssessment{Verdict: "not_issue", Impact: "The overdue condition cleared."},
+		AlertAssessment: &decisionpkg.AlertAssessment{Verdict: "not_issue", Impact: "The overdue condition cleared."},
 		Evidence: []core.Evidence{{
 			Claim: "the repair completed", Observation: "progress reached 100 percent",
 			SourceType: "emisar", SourceName: "repair status", ObservedAt: now,
@@ -578,13 +579,13 @@ func TestOperationalAlertReplyLeadsWithPlainServiceState(t *testing.T) {
 		"unfinished investigation":    "**Typesense is down.** The fault remains bounded to its current allocation state.",
 	} {
 		t.Run(name, func(t *testing.T) {
-			decision := watchDecision{Action: "reply", Message: message}
+			decision := decisionpkg.WatchDecision{Action: "reply", Message: message}
 			if correction := alertReplyLanguageCorrection(input, decision); correction == "" {
 				t.Fatalf("accepted cryptic operational reply %q", message)
 			}
 		})
 	}
-	good := watchDecision{
+	good := decisionpkg.WatchDecision{
 		Action: "reply",
 		Message: "**Typesense is still down.** Grafana marked this alert resolved because " +
 			"monitoring stopped seeing the failed node; the service did not recover.\n\n" +
@@ -601,7 +602,7 @@ func TestOperationalAlertReplyEditsToTheDecisionUsefulDelta(t *testing.T) {
 		Kind: "bot_message",
 		Text: "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
 	}
-	verboseActive := watchDecision{
+	verboseActive := decisionpkg.WatchDecision{
 		Action: "reply",
 		Message: "Cassandra remains available, but the sts_ks repair schedule is genuinely degraded: " +
 			"its last completed cycle was 5.625 days ago, beyond the five-day interval plus grace. " +
@@ -615,7 +616,7 @@ func TestOperationalAlertReplyEditsToTheDecisionUsefulDelta(t *testing.T) {
 	if correction := alertReplyLanguageCorrection(active, verboseActive); correction == "" {
 		t.Fatal("accepted an evidence-inventory alert reply")
 	}
-	conciseActive := watchDecision{
+	conciseActive := decisionpkg.WatchDecision{
 		Action: "reply",
 		Message: "**`sts_ks` repair is behind schedule**, but the active repair advanced from " +
 			"73.10% to 74.62% during this check and traffic has no error spike, so there is nothing " +
@@ -630,7 +631,7 @@ func TestOperationalAlertReplyEditsToTheDecisionUsefulDelta(t *testing.T) {
 		Kind: "bot_message",
 		Text: "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue",
 	}
-	verboseResolved := watchDecision{
+	verboseResolved := decisionpkg.WatchDecision{
 		Action: "reply",
 		Message: "Cassandra Reaper has recovered: the sts_ks repair reached 100%, its overdue " +
 			"gauge returned to zero, and the completion-age metric reset. All three Cassandra nodes " +
@@ -639,15 +640,15 @@ func TestOperationalAlertReplyEditsToTheDecisionUsefulDelta(t *testing.T) {
 			"should not be started. Keep this cycle's runtime for comparison; if later cycles also " +
 			"exceed the five-day cadence, compare them around the Reaper 5.0.0 upgrade before tuning " +
 			"the schedule or repair parameters.",
-		AlertAssessment: &alertAssessment{Verdict: "not_issue"},
+		AlertAssessment: &decisionpkg.AlertAssessment{Verdict: "not_issue"},
 	}
 	if correction := alertReplyLanguageCorrection(resolved, verboseResolved); correction == "" {
 		t.Fatal("accepted a verbose recovered-alert inventory")
 	}
-	conciseResolved := watchDecision{
+	conciseResolved := decisionpkg.WatchDecision{
 		Action:          "reply",
 		Message:         "**`sts_ks` is fully repaired**, closing [the earlier alert](https://app.slack.com/client/T123/C123/thread/C123-1700.100).",
-		AlertAssessment: &alertAssessment{Verdict: "not_issue"},
+		AlertAssessment: &decisionpkg.AlertAssessment{Verdict: "not_issue"},
 	}
 	if correction := alertReplyLanguageCorrection(resolved, conciseResolved); correction != "" {
 		t.Fatalf("rejected concise recovered alert: %s", correction)

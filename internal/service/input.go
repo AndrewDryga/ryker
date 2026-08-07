@@ -13,6 +13,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -604,7 +605,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 					IncidentID: incident.ID, ChannelID: incident.ChannelID,
 					Kind: "operator.message", ActorID: input.UserID,
 					Title:  "Operator requested investigation",
-					Detail: boundedField(text, 2000), CreatedAt: input.ReceivedAt,
+					Detail: decisionpkg.BoundedField(text, 2000), CreatedAt: input.ReceivedAt,
 				})
 			}
 		}

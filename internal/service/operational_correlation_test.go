@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -71,7 +72,7 @@ func TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation(t *
 		},
 	}}
 	correction := watchDecisionCorrectionAt(
-		resolved, state, watchDecision{Action: "ignore"}, time.Now().UTC(),
+		resolved, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(),
 	)
 	if !strings.Contains(correction, "investigation was already admitted") {
 		t.Fatalf("resolved alert correction = %q", correction)
@@ -80,7 +81,7 @@ func TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation(t *
 	unrelated := resolved
 	unrelated.Text = strings.ReplaceAll(unrelated.Text, "cassandra", "typesense")
 	if correction := watchDecisionCorrectionAt(
-		unrelated, state, watchDecision{Action: "ignore"}, time.Now().UTC(),
+		unrelated, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(),
 	); correction != "" {
 		t.Fatalf("unrelated resolved alert correction = %q", correction)
 	}

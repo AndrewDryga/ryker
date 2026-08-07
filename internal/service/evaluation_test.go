@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/coop"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -317,10 +318,10 @@ func TestEvaluationProjectsRecoveredAlertLinkFromRecentContext(t *testing.T) {
 	}
 	state := evaluationWatchState(testCase)
 	state.RecentMessages = recent
-	decision, adjusted := enforceRecoveredAlertLink(input, state, watchDecision{
+	decision, adjusted := enforceRecoveredAlertLink(input, state, decisionpkg.WatchDecision{
 		Action:          "reply",
 		Message:         "The scheduled repair completed.",
-		AlertAssessment: &alertAssessment{Verdict: "not_issue", Impact: "The alert cleared."},
+		AlertAssessment: &decisionpkg.AlertAssessment{Verdict: "not_issue", Impact: "The alert cleared."},
 	})
 	if !adjusted || !strings.Contains(
 		decision.Message,

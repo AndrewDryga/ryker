@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 )
 
 const operationalBurstWindow = 90 * time.Second
@@ -48,7 +49,7 @@ func (s *Service) obviousHumanDialogue(input core.SlackInput, state watchTurnSta
 // labels and a phase-free title. FIRING and RESOLVED updates therefore share a
 // stream without grouping unrelated alerts merely because they share a channel.
 func operationalCorrelationKey(input core.SlackInput) string {
-	if operationalAlertEvent(input.Text) {
+	if decisionpkg.OperationalAlertEvent(input.Text) {
 		if key := stableOperationalAlertLink(input.Text); key != "" {
 			return boundedCorrelationKey("alert-link:" + key)
 		}
@@ -56,7 +57,7 @@ func operationalCorrelationKey(input core.SlackInput) string {
 	if key := externalLifecycleCorrelationKey(input.Text); key != "" {
 		return boundedCorrelationKey("lifecycle:" + key)
 	}
-	if !operationalAlertEvent(input.Text) {
+	if !decisionpkg.OperationalAlertEvent(input.Text) {
 		return ""
 	}
 	labels := make([]string, 0, 4)

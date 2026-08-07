@@ -14,6 +14,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 )
 
 type EvaluationScenario struct {
@@ -405,7 +406,7 @@ func runLiveEvaluationScenario(
 					}
 				}
 			}
-			decision, parseErr := parseWatchDecision(response, time.Now().UTC())
+			decision, parseErr := decisionpkg.ParseWatchDecision(response, time.Now().UTC())
 			if parseErr == nil {
 				current.Memory = decision.Memory
 				current.Answered = decision.Action == "reply"

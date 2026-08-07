@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -393,7 +394,7 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 		return err
 	}
 	var payload scheduleActionPayload
-	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil || payload.Version != 1 || payload.ChannelID != input.ChannelID || payload.SourceRef == "" || payload.IssuedAt.IsZero() || payload.IssuedAt.After(s.now().UTC().Add(5*time.Minute)) || time.Since(payload.IssuedAt) > scheduleOfferMaxAge {
+	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil || payload.Version != 1 || payload.ChannelID != input.ChannelID || payload.SourceRef == "" || payload.IssuedAt.IsZero() || payload.IssuedAt.After(s.now().UTC().Add(5*time.Minute)) || time.Since(payload.IssuedAt) > scheduleOfferMaxAge {
 		return s.behaviorActionFeedback(ctx, input, "*This schedule confirmation is invalid or stale.* Nothing was saved. Ask Emisar to schedule it again and use the new button.")
 	}
 	if len(input.Frozen) != 0 {
@@ -430,7 +431,7 @@ func (s *Service) handleToggleSchedule(ctx context.Context, input core.SlackInpu
 		return err
 	}
 	var payload scheduleTogglePayload
-	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil || payload.ID == "" {
+	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil || payload.ID == "" {
 		return s.behaviorActionFeedback(ctx, input, "*This schedule control is invalid.* Nothing changed.")
 	}
 	if _, err := s.authorizedScheduledTask(ctx, input, payload.ID); err != nil {

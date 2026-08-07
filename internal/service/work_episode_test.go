@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -309,7 +310,7 @@ func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 			}
 		})
 	}
-	if _, err := decodeWatchDecision(`{"action":"react","reaction":"eyes","completion":{"status":"decision_ready","summary":"Done"}}`, testDecodeClock); err == nil {
+	if _, err := decisionpkg.DecodeWatchDecision(`{"action":"react","reaction":"eyes","completion":{"status":"decision_ready","summary":"Done"}}`, testDecodeClock); err == nil {
 		t.Fatal("reaction accepted a completion assessment")
 	}
 }
@@ -407,7 +408,7 @@ func TestRunbookWorkDoesNotUseHealthVerdictLanguage(t *testing.T) {
 }
 
 func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
-	decision, err := parseWatchDecision(`{
+	decision, err := decisionpkg.ParseWatchDecision(`{
 		"action":"reply",
 		"operations":[
 			{"id":"evidence-task","type":"record_evidence","evidence":{
@@ -438,7 +439,7 @@ func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
 	if len(decision.Evidence) != 1 || decision.Evidence[0].ClaimID != "task.requested_outcome" {
 		t.Fatalf("evidence = %+v, want requested outcome evidence", decision.Evidence)
 	}
-	decision.Coverage = sanitizeCoverage(decision.Coverage, "eval", "CEVALUATION", "input", testDecodeClock)
+	decision.Coverage = decisionpkg.SanitizeCoverage(decision.Coverage, "eval", "CEVALUATION", "input", testDecodeClock)
 	if len(decision.Coverage) != 1 || decision.Coverage[0].Layer != "task" {
 		t.Fatalf("sanitized coverage = %+v, want task coverage", decision.Coverage)
 	}
@@ -480,7 +481,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 	completion := &completionAssessment{
 		Status: "decision_ready", Summary: "Production is operational but degraded.",
 	}
-	unfinished := &alertAssessment{
+	unfinished := &decisionpkg.AlertAssessment{
 		Verdict:          "confirmed_issue",
 		Impact:           "LoL and Rivals requests are failing, but affected endpoints remain unattributed.",
 		ImmediateAction:  "Prioritize endpoint attribution and trace the timeout source.",
@@ -492,7 +493,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		t.Fatalf("unfinished diagnosis correction = %q", got)
 	}
 
-	bounded := &alertAssessment{
+	bounded := &decisionpkg.AlertAssessment{
 		Verdict:          "confirmed_issue",
 		Impact:           "LoL requests using the ranked-profile endpoint fail for affected accounts.",
 		CauseStatus:      "bounded",

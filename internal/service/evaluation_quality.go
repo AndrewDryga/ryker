@@ -12,6 +12,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -177,12 +178,12 @@ func parseEvidenceVerification(output string) (EvidenceVerification, error) {
 
 func decodeEvaluationJSON(output string, target any) error {
 	trimmed := strings.TrimSpace(output)
-	if err := decodeStrictJSON([]byte(trimmed), target); err == nil || strings.HasPrefix(trimmed, "{") {
+	if err := decisionpkg.DecodeStrictJSON([]byte(trimmed), target); err == nil || strings.HasPrefix(trimmed, "{") {
 		return err
 	}
 	if start := strings.Index(trimmed, "{"); start >= 0 {
-		if object, objectErr := firstJSONObject(trimmed[start:]); objectErr == nil {
-			if err := decodeStrictJSON([]byte(object), target); err == nil {
+		if object, objectErr := decisionpkg.FirstJSONObject(trimmed[start:]); objectErr == nil {
+			if err := decisionpkg.DecodeStrictJSON([]byte(object), target); err == nil {
 				return nil
 			}
 		}
@@ -194,7 +195,7 @@ func decodeEvaluationJSON(output string, target any) error {
 			break
 		}
 		candidate := strings.TrimSpace(trimmed[index:])
-		if err := decodeStrictJSON([]byte(candidate), target); err == nil {
+		if err := decisionpkg.DecodeStrictJSON([]byte(candidate), target); err == nil {
 			return nil
 		} else {
 			candidateErr = err
@@ -215,7 +216,7 @@ func renderEvaluationMessage(
 	sanitizer := slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes)
 	switch testCase.Kind {
 	case "watch":
-		decision, err := parseWatchDecision(output, time.Now().UTC())
+		decision, err := decisionpkg.ParseWatchDecision(output, time.Now().UTC())
 		if err != nil {
 			return slackui.Message{}, "", err
 		}
@@ -233,7 +234,7 @@ func renderEvaluationMessage(
 				Text: "Slack reaction :" + decision.Reaction + ":",
 			}, decision.Action, nil
 		case "reply":
-			replies := replySequence(decision.Message, decision.FollowupMessages)
+			replies := decisionpkg.ReplySequence(decision.Message, decision.FollowupMessages)
 			finalReply := replies[len(replies)-1]
 			message := slackui.ConciseEvidenceResponse(
 				finalReply,
@@ -299,7 +300,7 @@ func renderEvaluationMessage(
 			)
 		}
 	case "incident", "task":
-		report, structured, err := parseAgentReport(output)
+		report, structured, err := decisionpkg.ParseAgentReport(output)
 		if err != nil {
 			return slackui.Message{}, "", err
 		}
@@ -307,7 +308,7 @@ func renderEvaluationMessage(
 			return slackui.Message{}, "", errors.New("incident response is not structured")
 		}
 		message := slackui.IncidentEvidenceResponse(
-			replySequence(report.Message, report.FollowupMessages)[len(report.FollowupMessages)],
+			decisionpkg.ReplySequence(report.Message, report.FollowupMessages)[len(report.FollowupMessages)],
 			report.Evidence,
 			report.Coverage,
 			report.Proposals,

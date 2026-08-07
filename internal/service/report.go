@@ -1,91 +1,21 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-type agentReport struct {
-	Message           string                          `json:"message"`
-	FollowupMessages  []string                        `json:"followup_messages,omitempty"`
-	Visuals           []core.GeneratedVisual          `json:"visuals,omitempty"`
-	Evidence          []core.Evidence                 `json:"evidence,omitempty"`
-	Coverage          []core.Coverage                 `json:"coverage,omitempty"`
-	Memory            core.AgentMemory                `json:"memory,omitempty"`
-	MemoryOffer       *core.MemoryOffer               `json:"memory_offer,omitempty"`
-	PreferenceOffer   *core.PreferenceOffer           `json:"preference_offer,omitempty"`
-	RuleOffer         *core.RuleOffer                 `json:"rule_offer,omitempty"`
-	ScheduleOffer     *core.ScheduleOffer             `json:"schedule_offer,omitempty"`
-	PendingApproval   *core.EmisarApproval            `json:"pending_approval,omitempty"`
-	Proposals         []core.ActionProposal           `json:"proposals,omitempty"`
-	Completion        *completionAssessment           `json:"completion,omitempty"`
-	Operations        []investigation.ResultOperation `json:"operations,omitempty"`
-	AppliedOperations []investigation.ResultOperation `json:"-"`
-
-	// LegacyShape
-	// records a response that never used the typed protocol at all. Both exist
-	// to answer one question before the legacy path is deleted: does anything
-	// still depend on it?
-	LegacyShape bool `json:"-"`
-}
-
-const (
-	maxFollowupMessages   = 5
-	maxReplyPartBytes     = 12 << 10
-	maxReplySequenceBytes = 48 << 10
-)
-
-func normalizeReplySequence(message string, followups []string) (string, []string, error) {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return "", nil, errors.New("structured agent response has no message")
-	}
-	if len(followups) > maxFollowupMessages {
-		return "", nil, fmt.Errorf(
-			"structured agent response has more than %d follow-up messages",
-			maxFollowupMessages,
-		)
-	}
-	total := len(message)
-	if len(message) > maxReplyPartBytes {
-		return "", nil, errors.New("structured agent response message exceeds 12 KiB")
-	}
-	normalized := make([]string, 0, len(followups))
-	for _, followup := range followups {
-		followup = strings.TrimSpace(followup)
-		if followup == "" {
-			return "", nil, errors.New("structured agent response has an empty follow-up message")
-		}
-		if len(followup) > maxReplyPartBytes {
-			return "", nil, errors.New("structured agent response follow-up exceeds 12 KiB")
-		}
-		total += len(followup)
-		if total > maxReplySequenceBytes {
-			return "", nil, errors.New("structured agent response sequence exceeds 48 KiB")
-		}
-		normalized = append(normalized, followup)
-	}
-	return message, normalized, nil
-}
-
-func replySequence(message string, followups []string) []string {
-	result := make([]string, 0, 1+len(followups))
-	result = append(result, message)
-	return append(result, followups...)
-}
+const ()
 
 func replySequenceDeliveryID(base string, index int, total int) string {
 	if total <= 1 {
@@ -97,235 +27,6 @@ func replySequenceDeliveryID(base string, index int, total int) string {
 	return fmt.Sprintf("%s_part_%03d", base, index+1)
 }
 
-func parseAgentReport(message string) (agentReport, bool, error) {
-	trimmed := strings.TrimSpace(message)
-	if trimmed == "" {
-		return agentReport{}, false, errors.New("agent response is empty")
-	}
-	if err := rejectMultipleJSONObjects(trimmed); err != nil {
-		return agentReport{}, true, err
-	}
-	if strings.HasPrefix(trimmed, "{") {
-		report, err := decodeAgentReport(trimmed)
-		if err == nil {
-			return report, true, nil
-		}
-		if object, objectErr := firstJSONObject(trimmed); objectErr == nil {
-			if recovered, recoverErr := decodeAgentReport(object); recoverErr == nil {
-				return recovered, true, nil
-			}
-		}
-		// Prose recovery is for broken JSON, not for a well-formed envelope
-		// whose operation stream is invalid. Recovering there would accept the
-		// turn while leaving the model believing its operations applied.
-		if !errors.Is(err, errInvalidOperations) {
-			if recovered, recoverErr := decodeAgentMessage(trimmed); recoverErr == nil {
-				return agentReport{Message: recovered}, false, nil
-			}
-		}
-		return agentReport{}, true, err
-	}
-	// Prose-wrapped structured output must recover the outer result object. A
-	// backwards scan can otherwise decode an inner completion payload as a full
-	// report and silently lose its evidence and typed operation stream.
-	if start := strings.Index(trimmed, "{"); start >= 0 {
-		if object, objectErr := firstJSONObject(trimmed[start:]); objectErr == nil {
-			if recovered, recoverErr := decodeAgentReport(object); recoverErr == nil {
-				return recovered, true, nil
-			}
-		}
-	}
-	var candidateErr error
-	for end := len(trimmed); end > 0; {
-		index := strings.LastIndex(trimmed[:end], "{")
-		if index < 0 {
-			break
-		}
-		candidate := strings.TrimSpace(trimmed[index:])
-		report, err := decodeAgentReport(candidate)
-		if err == nil {
-			return report, true, nil
-		}
-		if object, objectErr := firstJSONObject(candidate); objectErr == nil {
-			if recovered, recoverErr := decodeAgentReport(object); recoverErr == nil {
-				return recovered, true, nil
-			}
-		}
-		if recovered, recoverErr := decodeAgentMessage(candidate); recoverErr == nil {
-			return agentReport{Message: recovered}, false, nil
-		}
-		if strings.Contains(candidate, `"message"`) {
-			candidateErr = err
-		}
-		end = index
-	}
-	if candidateErr != nil {
-		return agentReport{}, true, candidateErr
-	}
-	return agentReport{Message: trimmed}, false, nil
-}
-
-func firstJSONObject(message string) (string, error) {
-	decoder := json.NewDecoder(strings.NewReader(message))
-	var value json.RawMessage
-	if err := decoder.Decode(&value); err != nil {
-		return "", err
-	}
-	remainder := strings.TrimSpace(message[decoder.InputOffset():])
-	if strings.HasPrefix(remainder, "{") || strings.HasPrefix(remainder, "[") {
-		return "", errors.New("response contains multiple JSON values")
-	}
-	trimmed := bytes.TrimSpace(value)
-	if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
-		return "", errors.New("first JSON value is not an object")
-	}
-	return string(trimmed), nil
-}
-
-func rejectMultipleJSONObjects(message string) error {
-	start := strings.Index(message, "{")
-	if start < 0 {
-		return nil
-	}
-	_, err := firstJSONObject(message[start:])
-	if err != nil && strings.Contains(err.Error(), "multiple JSON values") {
-		return err
-	}
-	return nil
-}
-
-func decodeAgentReport(message string) (agentReport, error) {
-	normalized, err := normalizeEmptyStructuredTimestamps(message)
-	if err != nil {
-		return agentReport{}, fmt.Errorf("decode structured agent response: %w", err)
-	}
-	var report agentReport
-	if err := decodeStrictJSON(normalized, &report); err != nil {
-		return agentReport{}, fmt.Errorf("decode structured agent response: %w", err)
-	}
-	if err := applyAgentResultOperations(&report); err != nil {
-		return agentReport{}, err
-	}
-	report.Message, report.FollowupMessages, err = normalizeReplySequence(
-		report.Message,
-		report.FollowupMessages,
-	)
-	if err != nil {
-		return agentReport{}, err
-	}
-	if report.Message == noConversationReply && len(report.FollowupMessages) > 0 {
-		return agentReport{}, errors.New(
-			"structured agent response cannot combine no-reply with follow-up messages",
-		)
-	}
-	offerCount := 0
-	for _, present := range []bool{
-		report.MemoryOffer != nil,
-		report.PreferenceOffer != nil,
-		report.RuleOffer != nil,
-		report.ScheduleOffer != nil,
-	} {
-		if present {
-			offerCount++
-		}
-	}
-	if offerCount > 0 && len(report.Visuals) > 0 {
-		return agentReport{}, errors.New("structured agent response cannot combine a durable behavior offer with generated visuals")
-	}
-	if err := investigation.ValidateCompletion(report.Completion); err != nil {
-		return agentReport{}, err
-	}
-	if err := investigation.ValidateCapabilityGapEvidence(report.Completion, report.Evidence); err != nil {
-		return agentReport{}, err
-	}
-	report.Message, report.FollowupMessages = investigation.AppendCapabilityGuidance(
-		report.Message,
-		report.FollowupMessages,
-		report.Completion,
-	)
-	report.Message, report.FollowupMessages, err = normalizeReplySequence(
-		report.Message,
-		report.FollowupMessages,
-	)
-	if err != nil {
-		return agentReport{}, err
-	}
-	return report, nil
-}
-
-func normalizeEmptyStructuredTimestamps(message string) ([]byte, error) {
-	decoder := json.NewDecoder(strings.NewReader(message))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("multiple JSON values")
-		}
-		return nil, err
-	}
-	// `verdict` belongs to completion (or alert_assessment), not the response
-	// envelope. Older prompts and some models occasionally emit it at the root.
-	// It carries no additional authority there, so discard it rather than
-	// retrying an otherwise valid result until the episode disappears.
-	if root, ok := value.(map[string]any); ok {
-		delete(root, "verdict")
-	}
-	var visit func(any)
-	visit = func(current any) {
-		switch typed := current.(type) {
-		case map[string]any:
-			for key, child := range typed {
-				if (key == "observed_at" || key == "created_at" || key == "expires_at") &&
-					child == "" {
-					delete(typed, key)
-					continue
-				}
-				visit(child)
-			}
-		case []any:
-			for _, child := range typed {
-				visit(child)
-			}
-		}
-	}
-	visit(value)
-	return json.Marshal(value)
-}
-
-func decodeAgentMessage(message string) (string, error) {
-	var fields map[string]json.RawMessage
-	decoder := json.NewDecoder(strings.NewReader(message))
-	if err := decoder.Decode(&fields); err != nil {
-		return "", err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return "", errors.New("multiple JSON values")
-		}
-		return "", err
-	}
-	var result string
-	if err := json.Unmarshal(fields["message"], &result); err != nil {
-		return "", err
-	}
-	result = strings.TrimSpace(result)
-	if result == "" {
-		return "", errors.New("structured agent response has no message")
-	}
-	return result, nil
-}
-
-// recordResultProtocol notes whether a model result actually used the typed
-// operation protocol.
-//
-// The fallback that silently re-read a failed typed fold as legacy free text
-// is gone: an invalid operation stream is now a correction the model is told
-// about. What remains worth counting is the plain-prose reply, which is a valid
-// answer rather than a failure — Responder is in these channels to talk, and
-// not every turn needs a typed envelope.
 func (s *Service) recordResultProtocol(ctx context.Context, runID string, legacyShape bool) {
 	if !legacyShape {
 		return
@@ -338,12 +39,12 @@ func (s *Service) recordResultProtocol(ctx context.Context, runID string, legacy
 
 func (s *Service) persistAgentReport(
 	ctx context.Context,
-	report agentReport,
+	report decisionpkg.AgentReport,
 	incident core.Incident,
 	channelID string,
 	sourceInput string,
 	requestedBy string,
-) (agentReport, error) {
+) (decisionpkg.AgentReport, error) {
 	if s.sanitizer != nil {
 		report.Message = s.sanitizer.Text(report.Message)
 		for index := range report.FollowupMessages {
@@ -354,11 +55,11 @@ func (s *Service) persistAgentReport(
 	} else {
 		// Only reachable from tests that build a Service literal; the real
 		// service always has a sanitizer. Still bound the parts.
-		report.Message = boundedField(report.Message, 30000)
+		report.Message = decisionpkg.BoundedField(report.Message, 30000)
 		for index := range report.FollowupMessages {
-			report.FollowupMessages[index] = boundedField(
+			report.FollowupMessages[index] = decisionpkg.BoundedField(
 				report.FollowupMessages[index],
-				maxReplyPartBytes,
+				decisionpkg.MaxReplyPartBytes,
 			)
 		}
 	}
@@ -370,18 +71,18 @@ func (s *Service) persistAgentReport(
 		report.Visuals = nil
 	}
 	if len(report.Visuals) > s.cfg.Limits.MaxGeneratedVisuals {
-		return agentReport{}, errors.New("structured agent response references too many generated visuals")
+		return decisionpkg.AgentReport{}, errors.New("structured agent response references too many generated visuals")
 	}
 	for index := range report.Visuals {
 		report.Visuals[index].Artifact = s.cleanStructuredField(report.Visuals[index].Artifact, 255)
 		report.Visuals[index].Title = s.cleanStructuredField(report.Visuals[index].Title, 200)
 		report.Visuals[index].AltText = s.cleanStructuredField(report.Visuals[index].AltText, 1000)
 		if report.Visuals[index].Artifact == "" || report.Visuals[index].Title == "" || report.Visuals[index].AltText == "" {
-			return agentReport{}, errors.New("generated visual requires artifact, title, and alt_text")
+			return decisionpkg.AgentReport{}, errors.New("generated visual requires artifact, title, and alt_text")
 		}
 	}
-	report.Evidence = sanitizeEvidence(report.Evidence, incident.ID, channelID, sourceInput, s.now())
-	report.Coverage = sanitizeCoverage(report.Coverage, incident.ID, channelID, sourceInput, s.now())
+	report.Evidence = decisionpkg.SanitizeEvidence(report.Evidence, incident.ID, channelID, sourceInput, s.now())
+	report.Coverage = decisionpkg.SanitizeCoverage(report.Coverage, incident.ID, channelID, sourceInput, s.now())
 	report.Memory = sanitizeMemory(report.Memory)
 	for index := range report.Evidence {
 		item := &report.Evidence[index]
@@ -494,7 +195,7 @@ func (s *Service) persistAgentReport(
 		report.ScheduleOffer.CatchUp = s.cleanStructuredField(report.ScheduleOffer.CatchUp, 10)
 		report.ScheduleOffer.ExpiresIn = s.cleanStructuredField(report.ScheduleOffer.ExpiresIn, 20)
 		if len(report.ScheduleOffer.Weekdays) > 7 {
-			return agentReport{}, errors.New("schedule offer has too many weekdays")
+			return decisionpkg.AgentReport{}, errors.New("schedule offer has too many weekdays")
 		}
 	}
 	if report.PendingApproval != nil {
@@ -509,22 +210,22 @@ func (s *Service) persistAgentReport(
 
 	evidence, err := s.store.RecordEvidence(ctx, report.Evidence)
 	if err != nil {
-		return agentReport{}, err
+		return decisionpkg.AgentReport{}, err
 	}
 	report.Evidence = evidence
 	if err := s.store.RecordCoverage(ctx, report.Coverage); err != nil {
-		return agentReport{}, err
+		return decisionpkg.AgentReport{}, err
 	}
 	if sourceInput != "" {
 		episode, episodeErr := s.store.GetWorkEpisodeBySource(ctx, sourceInput)
 		if episodeErr == nil {
 			ledgerEvidence, listErr := s.store.ListEpisodeEvidence(ctx, episode.ID, 200)
 			if listErr != nil {
-				return agentReport{}, listErr
+				return decisionpkg.AgentReport{}, listErr
 			}
 			ledgerCoverage, listErr := s.store.ListEpisodeCoverage(ctx, episode.ID, 200)
 			if listErr != nil {
-				return agentReport{}, listErr
+				return decisionpkg.AgentReport{}, listErr
 			}
 			ledger := investigation.BuildLedger(
 				investigation.Compile(episode), ledgerEvidence, ledgerCoverage, s.now().UTC(),
@@ -532,10 +233,10 @@ func (s *Service) persistAgentReport(
 			if err := s.store.RecordClaimAssessments(
 				ctx, ledger.Assessments(episode.ID, s.now().UTC()),
 			); err != nil {
-				return agentReport{}, err
+				return decisionpkg.AgentReport{}, err
 			}
 		} else if !errors.Is(episodeErr, store.ErrNotFound) {
-			return agentReport{}, episodeErr
+			return decisionpkg.AgentReport{}, episodeErr
 		}
 	}
 	if incident.ID != "" {
@@ -543,11 +244,11 @@ func (s *Service) persistAgentReport(
 			report.Proposals, incident, sourceInput, requestedBy,
 		)
 		if err != nil {
-			return agentReport{}, err
+			return decisionpkg.AgentReport{}, err
 		}
 		report.Proposals, err = s.store.CreateActionProposals(ctx, proposals)
 		if err != nil {
-			return agentReport{}, err
+			return decisionpkg.AgentReport{}, err
 		}
 	} else {
 		report.Proposals = nil
@@ -555,7 +256,7 @@ func (s *Service) persistAgentReport(
 	if report.PendingApproval != nil {
 		approval, _, err := s.store.RecordEmisarApproval(ctx, *report.PendingApproval)
 		if err != nil {
-			return agentReport{}, err
+			return decisionpkg.AgentReport{}, err
 		}
 		report.PendingApproval = &approval
 		s.audit(ctx, core.AuditEvent{
@@ -570,155 +271,10 @@ func (s *Service) persistAgentReport(
 	return report, nil
 }
 
-func sanitizeEvidence(
-	items []core.Evidence,
-	incidentID string,
-	channelID string,
-	sourceInput string,
-	now time.Time,
-) []core.Evidence {
-	result := make([]core.Evidence, 0, min(len(items), 50))
-	for _, item := range items[:min(len(items), 50)] {
-		item.IncidentID = incidentID
-		item.ChannelID = channelID
-		item.SourceInput = sourceInput
-		item.ClaimID = boundedField(item.ClaimID, 120)
-		item.Claim = boundedField(item.Claim, 1000)
-		item.Observation = boundedField(item.Observation, 2000)
-		item.Relation = strings.ToLower(boundedField(item.Relation, 20))
-		if item.Relation == "" {
-			item.Relation = "supports"
-		}
-		item.HealthEffect = strings.ToLower(boundedField(item.HealthEffect, 20))
-		if item.HealthEffect == "" {
-			item.HealthEffect = "none"
-		}
-		if !validEvidenceHealthEffect(item.HealthEffect) {
-			item.HealthEffect = "unknown"
-		}
-		item.SourceType = boundedField(item.SourceType, 80)
-		item.SourceName = boundedField(item.SourceName, 200)
-		item.Target = boundedField(item.Target, 300)
-		item.ScopeNote = boundedField(item.ScopeNote, 1000)
-		item.Freshness = boundedField(item.Freshness, 120)
-		item.Confidence = boundedField(item.Confidence, 40)
-		item.SourceURL = safeEvidenceURL(item.SourceURL)
-		item.Metadata = boundedMetadata(item.Metadata)
-		item.Dimensions = boundedMetadata(item.Dimensions)
-		if !validEvidenceSourceType(item.SourceType) {
-			item.SourceType = "other"
-		}
-		if !validConfidence(item.Confidence) {
-			item.Confidence = ""
-		}
-		if item.ObservedAt.After(now.Add(5 * time.Minute)) {
-			item.ObservedAt = time.Time{}
-		}
-		if (item.ClaimID == "" && item.Claim == "") ||
-			(item.Observation == "" && len(item.Dimensions) == 0) ||
-			item.SourceType == "" || item.SourceName == "" {
-			continue
-		}
-		result = append(result, item)
-	}
-	return result
-}
-
-func validEvidenceHealthEffect(value string) bool {
-	switch value {
-	case "none", "risk", "degraded", "unhealthy", "unknown":
-		return true
-	default:
-		return false
-	}
-}
-
-func sanitizeCoverage(
-	items []core.Coverage,
-	incidentID string,
-	channelID string,
-	sourceInput string,
-	now time.Time,
-) []core.Coverage {
-	result := make([]core.Coverage, 0, min(len(items), 30))
-	for _, item := range items[:min(len(items), 30)] {
-		item.IncidentID = incidentID
-		item.ChannelID = channelID
-		item.SourceInput = sourceInput
-		item.Layer = boundedField(item.Layer, 100)
-		item.Status = boundedField(item.Status, 40)
-		item.Source = boundedField(item.Source, 200)
-		item.Detail = boundedField(item.Detail, 1000)
-		item.ClaimIDs = boundedUniqueFields(item.ClaimIDs, 20, 120)
-		if !validCoverageLayer(item.Layer) || !validCoverageStatus(item.Status) {
-			continue
-		}
-		if item.ObservedAt.After(now.Add(5 * time.Minute)) {
-			item.ObservedAt = time.Time{}
-		}
-		if item.Layer == "" || item.Status == "" {
-			continue
-		}
-		result = append(result, item)
-	}
-	return result
-}
-
-func boundedUniqueFields(values []string, limit int, bound int) []string {
-	result := make([]string, 0, min(len(values), limit))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		value = boundedField(value, bound)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-		if len(result) == limit {
-			break
-		}
-	}
-	return result
-}
-
-func validEvidenceSourceType(value string) bool {
-	switch value {
-	case "repository", "emisar", "monitoring", "slack", "other":
-		return true
-	default:
-		return false
-	}
-}
-
-func validConfidence(value string) bool {
-	switch value {
-	case "", "high", "medium", "low":
-		return true
-	default:
-		return false
-	}
-}
-
-func validCoverageLayer(value string) bool {
-	return investigation.ValidCoverageLayer(value)
-}
-
-func validCoverageStatus(value string) bool {
-	switch value {
-	case "healthy", "degraded", "unhealthy", "unknown", "not_applicable":
-		return true
-	default:
-		return false
-	}
-}
-
 func sanitizeMemory(memory core.AgentMemory) core.AgentMemory {
-	memory.Goal = boundedField(memory.Goal, 1000)
-	memory.ChannelPurpose = boundedField(memory.ChannelPurpose, 500)
-	memory.SituationSummary = boundedField(memory.SituationSummary, 1000)
+	memory.Goal = decisionpkg.BoundedField(memory.Goal, 1000)
+	memory.ChannelPurpose = decisionpkg.BoundedField(memory.ChannelPurpose, 500)
+	memory.SituationSummary = decisionpkg.BoundedField(memory.SituationSummary, 1000)
 	memory.ActiveTopics = boundedStrings(memory.ActiveTopics, 12, 240)
 	memory.OpenLoops = boundedStrings(memory.OpenLoops, 20, 400)
 	memory.Topology = boundedStrings(memory.Topology, 30, 400)
@@ -763,13 +319,13 @@ func (s *Service) prepareActionProposals(
 			item.Required = 2
 		}
 		item.ExpiresAt = s.now().UTC().Add(policy.ExpiresAfter.Duration)
-		item.Title = boundedField(item.Title, 200)
-		item.Summary = boundedField(item.Summary, 1000)
-		item.Target = boundedField(item.Target, 300)
-		item.BlastRadius = boundedField(item.BlastRadius, 1000)
-		item.Rollback = boundedField(item.Rollback, 1000)
-		item.Verification = boundedField(item.Verification, 1000)
-		item.Parameters = boundedMetadata(item.Parameters)
+		item.Title = decisionpkg.BoundedField(item.Title, 200)
+		item.Summary = decisionpkg.BoundedField(item.Summary, 1000)
+		item.Target = decisionpkg.BoundedField(item.Target, 300)
+		item.BlastRadius = decisionpkg.BoundedField(item.BlastRadius, 1000)
+		item.Rollback = decisionpkg.BoundedField(item.Rollback, 1000)
+		item.Verification = decisionpkg.BoundedField(item.Verification, 1000)
+		item.Parameters = decisionpkg.BoundedMetadata(item.Parameters)
 		item.Title = s.cleanStructuredField(item.Title, 200)
 		item.Summary = s.cleanStructuredField(item.Summary, 1000)
 		item.Target = s.cleanStructuredField(item.Target, 300)
@@ -827,7 +383,7 @@ func (s *Service) prepareEmisarApproval(
 
 func (s *Service) cleanStructuredField(value string, limit int) string {
 	value = s.sanitizeText(value)
-	return boundedField(value, limit)
+	return decisionpkg.BoundedField(value, limit)
 }
 
 func (s *Service) cleanStructuredStrings(
@@ -862,52 +418,14 @@ func (s *Service) cleanStructuredMetadata(values map[string]string) map[string]s
 	return result
 }
 
-func boundedField(value string, limit int) string {
-	return core.BoundedText(value, limit)
-}
-
 func boundedStrings(values []string, limit int, fieldLimit int) []string {
 	result := make([]string, 0, min(len(values), limit))
 	for _, value := range values[:min(len(values), limit)] {
-		if value = boundedField(value, fieldLimit); value != "" {
+		if value = decisionpkg.BoundedField(value, fieldLimit); value != "" {
 			result = append(result, value)
 		}
 	}
 	return result
-}
-
-func boundedMetadata(values map[string]string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	result := make(map[string]string)
-	count := 0
-	for key, value := range values {
-		if count >= 30 {
-			break
-		}
-		key = boundedField(key, 100)
-		value = boundedField(value, 1000)
-		if key != "" {
-			result[key] = value
-			count++
-		}
-	}
-	return result
-}
-
-func safeEvidenceURL(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-		return ""
-	}
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	return parsed.String()
 }
 
 func safeEmisarApprovalURL(value, emisarRPCURL, requestID string) string {

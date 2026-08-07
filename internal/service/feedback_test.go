@@ -7,6 +7,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -143,7 +144,7 @@ func TestWatchPromptSeparatesResponderFeedbackFromOperationalFrustration(t *test
 
 func TestFeedbackFollowupIsIncludedOnce(t *testing.T) {
 	question := "What did you expect to see instead?"
-	decision := watchDecision{Operations: []investigation.ResultOperation{
+	decision := decisionpkg.WatchDecision{Operations: []investigation.ResultOperation{
 		{
 			ID: "feedback-1", Type: "record_feedback",
 			Feedback: &investigation.FeedbackOperation{
@@ -156,7 +157,7 @@ func TestFeedbackFollowupIsIncludedOnce(t *testing.T) {
 			Completion: &investigation.CompleteEpisode{Message: "I saved that feedback."},
 		},
 	}}
-	if err := applyWatchResultOperations(&decision); err != nil {
+	if err := decisionpkg.ApplyWatchResultOperations(&decision); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Count(decision.Message, question) != 1 {

@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/provider"
@@ -391,7 +392,7 @@ func (s *Service) completeIgnoredLifecycleInput(
 	if !isPrivateSlackVerificationReplay(input) {
 		return s.finishSlackInput(ctx, input)
 	}
-	result, err := json.Marshal(watchDecision{Action: "ignore", Reason: reason})
+	result, err := json.Marshal(decisionpkg.WatchDecision{Action: "ignore", Reason: reason})
 	if err != nil {
 		return err
 	}
@@ -493,7 +494,7 @@ func decodeWatchRunContext(run core.AgentRun) (watchTurnState, error) {
 		return watchTurnState{}, nil
 	}
 	var state watchTurnState
-	if err := decodeStrictJSON(run.Context, &state); err != nil {
+	if err := decisionpkg.DecodeStrictJSON(run.Context, &state); err != nil {
 		return watchTurnState{}, err
 	}
 	return state, nil
@@ -1474,7 +1475,7 @@ func (s *Service) stageTriageTerminal(
 ) (bool, error) {
 	input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 	state, stateErr := decodeWatchRunContext(run)
-	decision, decisionErr := parseWatchDecision(turn.AssistantMessage, s.now())
+	decision, decisionErr := decisionpkg.ParseWatchDecision(turn.AssistantMessage, s.now())
 	if decisionErr == nil {
 		s.recordResultProtocol(
 			ctx, run.ID, decision.LegacyShape)
@@ -1507,7 +1508,7 @@ func (s *Service) stageTriageTerminal(
 			return true, nil
 		}
 		decision = blockedWatchContinuation(run, input, state, correction, nil)
-		staged.result, decisionErr = marshalWatchDecisionResult(decision)
+		staged.result, decisionErr = decisionpkg.MarshalWatchDecisionResult(decision)
 		if decisionErr != nil {
 			return true, decisionErr
 		}
@@ -1542,7 +1543,7 @@ func (s *Service) stageTriageTerminal(
 		if episodeErr != nil {
 			return true, episodeErr
 		}
-		normalizeAppAlertCompletion(input, &decision)
+		decisionpkg.NormalizeAppAlertCompletion(input, &decision)
 		originalAction := decision.Action
 		originalPublicationUpdates := len(decision.PublicationUpdates)
 		decision = enforceExternalLifecycleCommunication(input, decision)
@@ -1555,7 +1556,7 @@ func (s *Service) stageTriageTerminal(
 		if lifecycleEvidenceAdjusted || decision.Action != originalAction ||
 			len(decision.PublicationUpdates) != originalPublicationUpdates ||
 			recoveryLinkAdjusted {
-			marshaledResult, marshalErr := marshalWatchDecisionResult(decision)
+			marshaledResult, marshalErr := decisionpkg.MarshalWatchDecisionResult(decision)
 			if marshalErr != nil {
 				return true, marshalErr
 			}
@@ -1572,7 +1573,7 @@ func (s *Service) stageTriageTerminal(
 			correction = investigation.CompletionCorrection(
 				episode,
 				decision.Action,
-				sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
+				decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 				decision.Completion,
 			)
 			if correction == "" {
@@ -1583,7 +1584,7 @@ func (s *Service) stageTriageTerminal(
 			if correction == "" {
 				correction = unsupportedOperationalClaimCorrection(
 					decision.Action, decision.Message,
-					sanitizeEvidence(decision.Evidence, "", "", "", s.now()),
+					decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", s.now()),
 				)
 			}
 			if correction == "" {
@@ -1591,8 +1592,8 @@ func (s *Service) stageTriageTerminal(
 					ctx,
 					episode,
 					decision.Action,
-					sanitizeEvidence(decision.Evidence, "", "", "", s.now()),
-					sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
+					decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", s.now()),
+					decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 					decision.Completion,
 					s.now(),
 					len(decision.AppliedOperations) > 0,
@@ -1605,7 +1606,7 @@ func (s *Service) stageTriageTerminal(
 				correction = episodeDiagnosisCorrection(
 					episode,
 					decision.Action,
-					sanitizeCoverage(decision.Coverage, "", "", "", s.now()),
+					decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 					decision.AlertAssessment,
 					decision.Completion,
 				)
@@ -1634,7 +1635,7 @@ func (s *Service) stageTriageTerminal(
 				return true, nil
 			}
 			decision = blockedWatchContinuation(run, input, state, correction, &decision)
-			marshaledResult, marshalErr := marshalWatchDecisionResult(decision)
+			marshaledResult, marshalErr := decisionpkg.MarshalWatchDecisionResult(decision)
 			if marshalErr != nil {
 				return true, marshalErr
 			}
@@ -1658,7 +1659,7 @@ func (s *Service) stageIncidentTerminal(
 	cursor int64,
 	staged *stagedTurn,
 ) (bool, error) {
-	report, _, reportErr := parseAgentReport(turn.AssistantMessage)
+	report, _, reportErr := decisionpkg.ParseAgentReport(turn.AssistantMessage)
 	if reportErr == nil {
 		s.recordResultProtocol(
 			ctx, run.ID, report.LegacyShape)
@@ -1689,7 +1690,7 @@ func (s *Service) stageIncidentTerminal(
 		correction := investigation.CompletionCorrection(
 			episode,
 			"reply",
-			sanitizeCoverage(report.Coverage, "", "", "", s.now()),
+			decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()),
 			report.Completion,
 		)
 		if correction == "" {
@@ -1700,7 +1701,7 @@ func (s *Service) stageIncidentTerminal(
 		if correction == "" {
 			correction = unsupportedOperationalClaimCorrection(
 				"reply", report.Message,
-				sanitizeEvidence(report.Evidence, "", "", "", s.now()),
+				decisionpkg.SanitizeEvidence(report.Evidence, "", "", "", s.now()),
 			)
 		}
 		if correction == "" {
@@ -1708,8 +1709,8 @@ func (s *Service) stageIncidentTerminal(
 				ctx,
 				episode,
 				"reply",
-				sanitizeEvidence(report.Evidence, "", "", "", s.now()),
-				sanitizeCoverage(report.Coverage, "", "", "", s.now()),
+				decisionpkg.SanitizeEvidence(report.Evidence, "", "", "", s.now()),
+				decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()),
 				report.Completion,
 				s.now(),
 				len(report.AppliedOperations) > 0,
@@ -1891,9 +1892,9 @@ func blockedWatchContinuation(
 	input core.SlackInput,
 	state watchTurnState,
 	reason string,
-	prior *watchDecision,
-) watchDecision {
-	decision := watchDecision{}
+	prior *decisionpkg.WatchDecision,
+) decisionpkg.WatchDecision {
+	decision := decisionpkg.WatchDecision{}
 	if prior != nil {
 		decision.Evidence = prior.Evidence
 		decision.Coverage = prior.Coverage
@@ -1909,7 +1910,7 @@ func blockedWatchContinuation(
 	completion := &completionAssessment{
 		Status:       "blocked",
 		Summary:      "The host could not validate the final structured result.",
-		MaterialGaps: []string{boundedField(reason, 500)},
+		MaterialGaps: []string{decisionpkg.BoundedField(reason, 500)},
 		BlockerKind:  "tool_failure",
 		Attempts:     []string{"Responder validated the result and requested a corrected completion."},
 		NextAction:   "Retry the same investigation from its saved evidence.",
@@ -1924,13 +1925,13 @@ func blockedWatchContinuation(
 	return decision
 }
 
-func blockedAgentContinuation(reason string, prior *agentReport) agentReport {
-	report := agentReport{
+func blockedAgentContinuation(reason string, prior *decisionpkg.AgentReport) decisionpkg.AgentReport {
+	report := decisionpkg.AgentReport{
 		Message: "I couldn't finish this check safely yet. The evidence is saved in this task, so it can continue without starting over.",
 		Completion: &completionAssessment{
 			Status:       "blocked",
 			Summary:      "The host could not validate the final structured result.",
-			MaterialGaps: []string{boundedField(reason, 500)},
+			MaterialGaps: []string{decisionpkg.BoundedField(reason, 500)},
 			BlockerKind:  "tool_failure",
 			Attempts:     []string{"Responder validated the result and requested a corrected completion."},
 			NextAction:   "Continue the same task from its saved evidence.",
@@ -2063,13 +2064,13 @@ blocker.
 
 func agentRunContinuationPrompt(run core.AgentRun) string {
 	lower := strings.ToLower(run.LastError)
-	if structuredResultFailure(run.LastError) {
+	if decisionpkg.StructuredResultFailure(run.LastError) {
 		return `
 
 <host-structured-correction>
 The previous turn completed its work, but Responder rejected only its final structured report.
 Preserve the work and verified result. Return a corrected report that fixes this exact host validation
-error: ` + boundedField(trimError(errors.New(run.LastError)), 1200) + `
+error: ` + decisionpkg.BoundedField(trimError(errors.New(run.LastError)), 1200) + `
 Do not repeat the investigation or drop completed work merely to repair the response envelope.
 </host-structured-correction>`
 	}
@@ -2217,7 +2218,7 @@ func (s *Service) stageTerminalFinalizationFailure(
 ) error {
 	detail := "Responder could not finalize this agent result after repeated attempts. " +
 		"The run and collected state are preserved for operator inspection.\n\n" +
-		"Reported detail: `" + boundedField(trimError(cause), 1200) + "`"
+		"Reported detail: `" + decisionpkg.BoundedField(trimError(cause), 1200) + "`"
 	switch run.Mode {
 	case core.AgentRunTriage:
 		input, err := s.store.GetSlackInput(ctx, run.SourceID)
@@ -2332,7 +2333,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 			return s.store.FinishAgentRun(ctx, run.ID)
 		}
 	}
-	decision, err := parseWatchDecision(string(run.Result), s.now())
+	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), s.now())
 	if err != nil {
 		detail := "malformed watch decision: " + trimError(err)
 		if failErr := s.finishTriageRunFailure(
@@ -2436,7 +2437,7 @@ func (s *Service) reportTurnFailure(
 	detail string,
 ) slackui.Message {
 	message := slackui.AgentReportFailureMessage(detail)
-	if !structuredResultFailure(detail) {
+	if !decisionpkg.StructuredResultFailure(detail) {
 		failure := provider.Classify(detail)
 		message = slackui.TurnFailureMessage(
 			state,
@@ -2540,7 +2541,7 @@ func (s *Service) finalizeIncidentAgentRun(
 	var episodeOperations []investigation.ResultOperation
 	var reportReplyParts []string
 	if state == "completed" {
-		report, structured, reportErr := parseAgentReport(string(run.Result))
+		report, structured, reportErr := decisionpkg.ParseAgentReport(string(run.Result))
 		if reportErr != nil {
 			s.log.Warn(
 				"agent returned malformed structured response",
@@ -2562,7 +2563,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				IncidentID: incident.ID, ChannelID: incident.ChannelID,
 				Kind: "agent.failure", ActorID: "responder",
 				Title:  "Agent result could not be rendered",
-				Detail: boundedField(trimError(reportErr), 1000),
+				Detail: decisionpkg.BoundedField(trimError(reportErr), 1000),
 			})
 		} else {
 			episodeCompletion = report.Completion
@@ -2605,7 +2606,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				return err
 			}
 			visuals = report.Visuals
-			reportReplyParts = replySequence(
+			reportReplyParts = decisionpkg.ReplySequence(
 				report.Message,
 				report.FollowupMessages,
 			)
@@ -2700,7 +2701,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				Kind:        "agent.finding",
 				ActorID:     "responder",
 				Title:       "Investigation update",
-				Detail:      boundedField(strings.Join(reportReplyParts, "\n\n"), 2000),
+				Detail:      decisionpkg.BoundedField(strings.Join(reportReplyParts, "\n\n"), 2000),
 				EvidenceIDs: evidenceIDs,
 			})
 		}

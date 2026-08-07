@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack/slackevents"
@@ -1148,7 +1149,7 @@ func TestDecisionReadyDiagnosisOffersIncidentAndPreparedFix(t *testing.T) {
 		"evidence":[{"claim":"the decoder is strict","observation":"the repository decoder enumerates rank values","source_type":"repository","source_name":"lib/rank.ex"}],
 		"coverage":[{"layer":"application","status":"degraded","detail":"LoL requests fail on new rank values"}]
 	}`
-	if _, err := parseWatchDecision(coopClient.completeOnSubmit, testDecodeClock); err != nil {
+	if _, err := decisionpkg.ParseWatchDecision(coopClient.completeOnSubmit, testDecodeClock); err != nil {
 		t.Fatalf("parse diagnosis decision: %v", err)
 	}
 	svc := New(
@@ -1211,7 +1212,7 @@ func TestDecisionReadyDiagnosisOffersIncidentAndPreparedFix(t *testing.T) {
 }
 
 func TestDecisionReadyFactualAssessmentCanOfferSourceBackedFix(t *testing.T) {
-	decision, err := parseWatchDecision(`{
+	decision, err := decisionpkg.ParseWatchDecision(`{
 		"action":"reply",
 		"operations":[
 			{"id":"evidence-source","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"The source fix is bounded.","observation":"Two optional jq regex calls have core-operation replacements.","relation":"supports","health_effect":"none","source_type":"repository","source_name":"packs/hcp-terraform","confidence":"high"}},
@@ -1230,7 +1231,7 @@ func TestDecisionReadyFactualAssessmentCanOfferSourceBackedFix(t *testing.T) {
 	decision.Completion = &completionAssessment{
 		Status: "blocked", BlockerKind: "source_unavailable",
 	}
-	if validSuggestedEngineeringTaskBoundary(decision) {
+	if decisionpkg.ValidSuggestedEngineeringTaskBoundary(decision) {
 		t.Fatal("source-unavailable blocker unexpectedly allowed a suggested code fix")
 	}
 }

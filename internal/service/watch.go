@@ -1,18 +1,17 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -26,10 +25,6 @@ const watchPendingStatusRefresh = 75 * time.Second
 var explicitIncidentRequestPattern = regexp.MustCompile(
 	`(?i)\b(?:open|create|start|declare)\s+(?:(?:an?|the)\s+)?incident\b|` +
 		`\b(?:make|mark|treat|turn)\s+(?:this|that|it)\s+(?:as|into)\s+an?\s+incident\b`,
-)
-
-var slackReactionNamePattern = regexp.MustCompile(
-	`^[a-z0-9_+\-]{1,255}(?:::skin-tone-[2-6])?$`,
 )
 
 type watchTurnState struct {
@@ -102,85 +97,6 @@ type watchContextAttachment struct {
 	Name      string `json:"name"`
 	MediaType string `json:"media_type"`
 	Size      int64  `json:"size"`
-}
-
-type watchDecision struct {
-	Action             string                          `json:"action"`
-	Reaction           string                          `json:"reaction,omitempty"`
-	Attention          attentionAssessment             `json:"attention,omitempty"`
-	Message            string                          `json:"message,omitempty"`
-	FollowupMessages   []string                        `json:"followup_messages,omitempty"`
-	Visuals            []core.GeneratedVisual          `json:"visuals,omitempty"`
-	Title              string                          `json:"title,omitempty"`
-	IncidentTitle      string                          `json:"incident_title,omitempty"`
-	TaskTitle          string                          `json:"task_title,omitempty"`
-	TaskRepository     string                          `json:"task_repository,omitempty"`
-	TaskPrompt         string                          `json:"task_prompt,omitempty"`
-	Evidence           []core.Evidence                 `json:"evidence,omitempty"`
-	Coverage           []core.Coverage                 `json:"coverage,omitempty"`
-	Memory             core.AgentMemory                `json:"memory,omitempty"`
-	MemoryOffer        *core.MemoryOffer               `json:"memory_offer,omitempty"`
-	PreferenceOffer    *core.PreferenceOffer           `json:"preference_offer,omitempty"`
-	RuleOffer          *core.RuleOffer                 `json:"rule_offer,omitempty"`
-	ScheduleOffer      *core.ScheduleOffer             `json:"schedule_offer,omitempty"`
-	PendingApproval    *core.EmisarApproval            `json:"pending_approval,omitempty"`
-	AlertAssessment    *alertAssessment                `json:"alert_assessment,omitempty"`
-	Completion         *completionAssessment           `json:"completion,omitempty"`
-	PublicationUpdates []publicationUpdate             `json:"publication_updates,omitempty"`
-	Reason             string                          `json:"reason,omitempty"`
-	Operations         []investigation.ResultOperation `json:"operations,omitempty"`
-	AppliedOperations  []investigation.ResultOperation `json:"-"`
-
-	// See agentReport: these record whether the typed protocol was actually
-	// used, so the legacy path can be deleted on evidence rather than hope.
-	LegacyShape bool `json:"-"`
-}
-
-// marshalWatchDecisionResult persists the same transport shape accepted from
-// Coop. Typed operations are folded into legacy fields for validation and
-// rendering, but those projections must not be serialized beside operations.
-func marshalWatchDecisionResult(decision watchDecision) ([]byte, error) {
-	if len(decision.Operations) == 0 {
-		return json.Marshal(decision)
-	}
-	type operationsEnvelope struct {
-		Action             string                          `json:"action"`
-		Attention          attentionAssessment             `json:"attention,omitempty"`
-		Reason             string                          `json:"reason,omitempty"`
-		PublicationUpdates []publicationUpdate             `json:"publication_updates,omitempty"`
-		Operations         []investigation.ResultOperation `json:"operations"`
-	}
-	return json.Marshal(operationsEnvelope{
-		Action: decision.Action, Attention: decision.Attention, Reason: decision.Reason,
-		PublicationUpdates: decision.PublicationUpdates, Operations: decision.Operations,
-	})
-}
-
-type publicationUpdate struct {
-	IncidentID string `json:"incident_id"`
-	Kind       string `json:"kind"`
-	State      string `json:"state"`
-	Reference  string `json:"reference"`
-	Summary    string `json:"summary"`
-}
-
-type alertAssessment = investigation.AlertAssessment
-
-type attentionAssessment struct {
-	Addressee  string `json:"addressee,omitempty"`
-	Urgency    int    `json:"urgency,omitempty"`
-	Confidence int    `json:"confidence,omitempty"`
-	Novelty    int    `json:"novelty,omitempty"`
-	Ownership  int    `json:"ownership,omitempty"`
-}
-
-func (a attentionAssessment) present() bool {
-	return a.Addressee != "" || a.Urgency != 0 || a.Confidence != 0 ||
-		a.Novelty != 0 || a.Ownership != 0
-}
-
-func (a attentionAssessment) score() int {
-	return a.Urgency + a.Confidence + a.Novelty + a.Ownership
 }
 
 type watchPromptRepository struct {
@@ -542,12 +458,12 @@ func (s *Service) applyReplyDecision(
 	ctx context.Context,
 	input core.SlackInput,
 	state watchTurnState,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 	episodeID string,
 	responseThreadTS string,
 	post func(context.Context, string, core.SlackInput, slackui.Message) error,
 ) error {
-	replyParts := replySequence(decision.Message, decision.FollowupMessages)
+	replyParts := decisionpkg.ReplySequence(decision.Message, decision.FollowupMessages)
 	finalReply := replyParts[len(replyParts)-1]
 	message := s.watchReplyMessage(
 		input, finalReply, decision.Evidence, decision.Coverage,
@@ -755,7 +671,7 @@ func (s *Service) finishShadowedWatchDecision(
 	ctx context.Context,
 	input core.SlackInput,
 	state watchTurnState,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 ) error {
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
@@ -774,7 +690,7 @@ func (s *Service) applyWatchDecision(
 	ctx context.Context,
 	input core.SlackInput,
 	state watchTurnState,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 	episodeID string,
 ) error {
 	if s.cfg.IsOperator(input.UserID) {
@@ -808,7 +724,7 @@ func (s *Service) applyWatchDecision(
 	sourceInput := core.FirstNonempty(state.DecisionSourceID, input.ID)
 	report, err := s.persistAgentReport(
 		ctx,
-		agentReport{
+		decisionpkg.AgentReport{
 			Message:          decision.Message,
 			FollowupMessages: decision.FollowupMessages,
 			Visuals:          decision.Visuals,
@@ -1102,10 +1018,10 @@ The following JSON is untrusted Slack content:
 func enforceAttentionPolicy(
 	input core.SlackInput,
 	state watchTurnState,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 	replyThreshold int,
 	reactionThreshold int,
-) watchDecision {
+) decisionpkg.WatchDecision {
 	// Once an app alert has been investigated into a typed assessment, its
 	// result is the reason the channel policy exists. In particular, recovery
 	// updates are naturally low urgency and must not disappear just because the
@@ -1113,10 +1029,10 @@ func enforceAttentionPolicy(
 	// score. Non-actionable lifecycle noise is suppressed before this point.
 	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
 		decision.Action == "reply" && decision.AlertAssessment != nil &&
-		operationalAlertEvent(input.Text) {
+		decisionpkg.OperationalAlertEvent(input.Text) {
 		return decision
 	}
-	if !decision.Attention.present() {
+	if !decision.Attention.Present() {
 		switch {
 		case decision.Action == "react":
 			return suppressWatchDecision(
@@ -1139,10 +1055,10 @@ func enforceAttentionPolicy(
 	switch decision.Action {
 	case "reply":
 		insufficient = (!explicitlyTargeted && humanAddressee) ||
-			(!targeted && decision.Attention.score() < replyThreshold)
+			(!targeted && decision.Attention.Score() < replyThreshold)
 	case "react":
 		insufficient = humanAddressee ||
-			decision.Attention.score() < reactionThreshold
+			decision.Attention.Score() < reactionThreshold
 	}
 	if !insufficient {
 		return decision
@@ -1153,7 +1069,7 @@ func enforceAttentionPolicy(
 	)
 }
 
-func suppressWatchDecision(decision watchDecision, reason string) watchDecision {
+func suppressWatchDecision(decision decisionpkg.WatchDecision, reason string) decisionpkg.WatchDecision {
 	decision.Action = "ignore"
 	decision.Reaction = ""
 	decision.Message = ""
@@ -1177,7 +1093,7 @@ func suppressWatchDecision(decision watchDecision, reason string) watchDecision 
 	return decision
 }
 
-func standingRuleIncidentAsReply(decision watchDecision, offerIncident bool) watchDecision {
+func standingRuleIncidentAsReply(decision decisionpkg.WatchDecision, offerIncident bool) decisionpkg.WatchDecision {
 	title := strings.TrimSpace(decision.Title)
 	message := strings.TrimSpace(decision.Reason)
 	if message == "" {
@@ -1188,8 +1104,8 @@ func standingRuleIncidentAsReply(decision watchDecision, offerIncident bool) wat
 	}
 	decision.Action = "reply"
 	decision.Message = message
-	if !decision.Attention.present() {
-		decision.Attention = attentionAssessment{
+	if !decision.Attention.Present() {
+		decision.Attention = decisionpkg.AttentionAssessment{
 			Addressee: "channel", Urgency: 3, Confidence: 3, Novelty: 3, Ownership: 2,
 		}
 	}
@@ -1223,7 +1139,7 @@ func standingRuleIncidentAsReply(decision watchDecision, offerIncident bool) wat
 func watchDecisionCorrection(
 	input core.SlackInput,
 	state watchTurnState,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 ) string {
 	return watchDecisionCorrectionAt(input, state, decision, time.Now().UTC())
 }
@@ -1240,7 +1156,7 @@ func watchDecisionCorrection(
 func alertAssessmentCorrection(
 	input core.SlackInput,
 	state watchTurnState,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 	now time.Time,
 ) string {
 	if state.FailureDetail != "" && decision.Action != "reply" {
@@ -1256,7 +1172,7 @@ func alertAssessmentCorrection(
 			return "the alert reply has no alert_assessment; continue the read-only investigation " +
 				"until you can state a verdict, impact, immediate action, and durable solution"
 		}
-		evidence := sanitizeEvidence(decision.Evidence, "", "", "", now)
+		evidence := decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", now)
 		recovered := decision.AlertAssessment.Verdict == "not_issue" &&
 			operationalAlertResolvedEvent(input.Text)
 		if recovered && hasFreshOperationalEvidence(evidence, now) &&
@@ -1265,7 +1181,7 @@ func alertAssessmentCorrection(
 				"decision_ready with the healthy verdict, say plainly what completed, and close " +
 				"the earlier alert without broadening this into a platform-health assessment"
 		}
-		if !recovered && !watchDecisionHasEvidenceSource(evidence, "repository") {
+		if !recovered && !decisionpkg.WatchDecisionHasEvidenceSource(evidence, "repository") {
 			return "the alert reply does not reconcile the live signal with declared repository " +
 				"topology; inspect the configured repository before deciding"
 		}
@@ -1280,7 +1196,7 @@ func alertAssessmentCorrection(
 // alertPolicyCorrection applies the extra standard a channel opts into when its
 // alert policy is anything other than automatic: terminal app events get an
 // investigated reply with a verdict, not a reaction and not an incident room.
-func alertPolicyCorrection(input core.SlackInput, decision watchDecision) string {
+func alertPolicyCorrection(input core.SlackInput, decision decisionpkg.WatchDecision) string {
 	if externalAppEventRequiresDecision(input.Text) && decision.Action != "reply" {
 		return "this terminal or actionable app event requires an evidence-backed in-place " +
 			"alert assessment and reply; investigate the exact event instead of ignoring it " +
@@ -1302,7 +1218,7 @@ func alertPolicyCorrection(input core.SlackInput, decision watchDecision) string
 func watchDecisionCorrectionAt(
 	input core.SlackInput,
 	state watchTurnState,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 	now time.Time,
 ) string {
 	if input.Kind == "bot_message" && decision.Action == "ignore" &&
@@ -1314,7 +1230,7 @@ func watchDecisionCorrectionAt(
 	}
 	requiresAlertAssessment := matchedOperationalAlertRule(state.MatchedRules) ||
 		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
-			operationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text))
+			decisionpkg.OperationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text))
 	if requiresAlertAssessment {
 		if correction := alertAssessmentCorrection(input, state, decision, now); correction != "" {
 			return correction
@@ -1354,7 +1270,7 @@ func hasPriorCorrelatedFiringAlert(
 	for index := len(messages) - 1; index >= 0; index-- {
 		message := messages[index]
 		if message.Target || message.SenderType != "external_app" ||
-			!operationalAlertEvent(message.Text) ||
+			!decisionpkg.OperationalAlertEvent(message.Text) ||
 			operationalAlertResolvedEvent(message.Text) {
 			continue
 		}
@@ -1371,10 +1287,10 @@ func hasPriorCorrelatedFiringAlert(
 func alertReplyLanguageCorrectionWithContext(
 	input core.SlackInput,
 	state watchTurnState,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 ) string {
 	if input.Kind != "bot_message" || decision.Action != "reply" ||
-		!operationalAlertEvent(input.Text) {
+		!decisionpkg.OperationalAlertEvent(input.Text) {
 		return ""
 	}
 	message := strings.TrimSpace(decision.Message)
@@ -1390,7 +1306,7 @@ func alertReplyLanguageCorrectionWithContext(
 		}
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
-	if strings.Contains(normalized, "acknowledg") && episodeContainsAny(
+	if strings.Contains(normalized, "acknowledg") && decisionpkg.EpisodeContainsAny(
 		normalized,
 		"did not restore", "didn't restore", "did not fix", "does not fix", "did not recover",
 	) {
@@ -1398,7 +1314,7 @@ func alertReplyLanguageCorrectionWithContext(
 			"not remediation, so say only what fresh evidence establishes about the service and what " +
 			"useful action follows"
 	}
-	if episodeContainsAny(normalized, "confirmed issue", "likely issue", "not an issue") {
+	if decisionpkg.EpisodeContainsAny(normalized, "confirmed issue", "likely issue", "not an issue") {
 		return "remove the typed alert-verdict label from the Slack prose; open with the exact " +
 			"plain condition, such as behind schedule, still down, or recovered, then say whether " +
 			"anyone needs to act now"
@@ -1464,7 +1380,7 @@ func priorFiringMessageLink(messages []watchContextMessage) string {
 	for index := len(messages) - 1; index >= 0; index-- {
 		message := messages[index]
 		if message.SenderType != "external_app" || message.MessageLink == "" ||
-			!operationalAlertEvent(message.Text) || operationalAlertResolvedEvent(message.Text) {
+			!decisionpkg.OperationalAlertEvent(message.Text) || operationalAlertResolvedEvent(message.Text) {
 			continue
 		}
 		return message.MessageLink
@@ -1475,8 +1391,8 @@ func priorFiringMessageLink(messages []watchContextMessage) string {
 func enforceRecoveredAlertLink(
 	input core.SlackInput,
 	state watchTurnState,
-	decision watchDecision,
-) (watchDecision, bool) {
+	decision decisionpkg.WatchDecision,
+) (decisionpkg.WatchDecision, bool) {
 	if input.Kind != "bot_message" || decision.Action != "reply" ||
 		!operationalAlertResolvedEvent(input.Text) || decision.AlertAssessment == nil ||
 		decision.AlertAssessment.Verdict != "not_issue" {
@@ -1491,16 +1407,9 @@ func enforceRecoveredAlertLink(
 	return decision, true
 }
 
-func operationalAlertEvent(text string) bool {
-	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
-	return episodeContainsAny(
-		normalized, " alert", "alert ", "firing", "resolved", "critical", "warning",
-	)
-}
-
 func operationalAlertResolvedEvent(text string) bool {
 	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
-	return episodeContainsAny(
+	return decisionpkg.EpisodeContainsAny(
 		normalized,
 		"resolved", "recovered", "recovery", "returned to normal", "alert closed",
 	)
@@ -1524,7 +1433,7 @@ func (s *Service) watchReplyMessage(
 
 func externalAppEventRequiresDecision(text string) bool {
 	text = strings.ToLower(strings.Join(strings.Fields(text), " "))
-	return episodeContainsAny(
+	return decisionpkg.EpisodeContainsAny(
 		text, "errored", "failed", "failure", "firing", "critical", "warning",
 	)
 }
@@ -1532,15 +1441,6 @@ func externalAppEventRequiresDecision(text string) bool {
 func matchedOperationalAlertRule(rules []core.StandingRule) bool {
 	for _, rule := range rules {
 		if rule.Trigger == "operational_alert" && rule.Action == "triage_alert" {
-			return true
-		}
-	}
-	return false
-}
-
-func watchDecisionHasEvidenceSource(evidence []core.Evidence, sourceType string) bool {
-	for _, item := range evidence {
-		if item.SourceType == sourceType {
 			return true
 		}
 	}
@@ -2178,7 +2078,7 @@ func (s *Service) retireFailedWatchSession(
 
 func watchFailureNotice(detail string) string {
 	detail = trimError(errors.New(detail))
-	if structuredResultFailure(detail) {
+	if decisionpkg.StructuredResultFailure(detail) {
 		return "*I couldn't finish this assessment.*\n\n" +
 			"I gathered evidence, but the final answer still did not pass Responder's " +
 			"completeness checks after retrying. No incident was created and nothing was changed. " +
@@ -2189,14 +2089,6 @@ func watchFailureNotice(detail string) string {
 		failure.Summary + "\n\nReason reported by Coop: `" + detail + "`\n\n" +
 		"No incident was created, and Responder made no repository or infrastructure changes. " +
 		failure.OperatorFix
-}
-
-func structuredResultFailure(detail string) bool {
-	detail = strings.ToLower(strings.TrimSpace(detail))
-	return strings.Contains(detail, "structured slack response is invalid") ||
-		strings.Contains(detail, "structured agent report is invalid") ||
-		strings.Contains(detail, "completion assessment") ||
-		strings.Contains(detail, "blocked completion")
 }
 
 func (s *Service) clearWatchPendingStatus(
@@ -2260,538 +2152,13 @@ func decodeWatchState(data []byte) (watchTurnState, error) {
 		return watchTurnState{}, nil
 	}
 	var state watchTurnState
-	if err := decodeStrictJSON(data, &state); err != nil {
+	if err := decisionpkg.DecodeStrictJSON(data, &state); err != nil {
 		return watchTurnState{}, err
 	}
 	if state.SessionID == "" && (state.ExpectedRevision != 0 || state.TurnID != "") {
 		return watchTurnState{}, errors.New("watch turn state has no session ID")
 	}
 	return state, nil
-}
-
-func parseWatchDecision(message string, now time.Time) (watchDecision, error) {
-	trimmed := strings.TrimSpace(message)
-	if err := rejectMultipleJSONObjects(trimmed); err != nil {
-		return watchDecision{}, err
-	}
-	decision, err := decodeWatchDecision(trimmed, now)
-	if err == nil {
-		return decision, nil
-	}
-	if strings.HasPrefix(trimmed, "{") {
-		if object, objectErr := firstJSONObject(trimmed); objectErr == nil {
-			if recovered, recoverErr := decodeWatchDecision(object, now); recoverErr == nil {
-				return recovered, nil
-			}
-		}
-	}
-	if start := strings.Index(trimmed, "{"); start >= 0 {
-		if object, objectErr := firstJSONObject(trimmed[start:]); objectErr == nil {
-			if recovered, recoverErr := decodeWatchDecision(object, now); recoverErr == nil {
-				return recovered, nil
-			}
-		}
-	}
-	candidateErr := err
-	for end := len(trimmed); end > 0; {
-		index := strings.LastIndex(trimmed[:end], "{")
-		if index < 0 {
-			break
-		}
-		candidate := strings.TrimSpace(trimmed[index:])
-		decision, err = decodeWatchDecision(candidate, now)
-		if err == nil {
-			return decision, nil
-		}
-		if object, objectErr := firstJSONObject(candidate); objectErr == nil {
-			if recovered, recoverErr := decodeWatchDecision(object, now); recoverErr == nil {
-				return recovered, nil
-			}
-		}
-		if strings.Contains(candidate, `"action"`) {
-			candidateErr = err
-		}
-		end = index
-	}
-	return watchDecision{}, candidateErr
-}
-
-// WatchDecisionAction validates a persisted Coop transcript with the same
-// production parser used during finalization and returns its terminal action.
-// Local replay verification uses this instead of maintaining a second parser.
-func WatchDecisionAction(message string) (string, error) {
-	decision, err := parseWatchDecision(message, time.Now().UTC())
-	if err != nil {
-		return "", err
-	}
-	return decision.Action, nil
-}
-
-func decodeWatchDecision(message string, now time.Time) (watchDecision, error) {
-	normalized, err := normalizeEmptyStructuredTimestamps(message)
-	if err != nil {
-		return watchDecision{}, err
-	}
-	var decision watchDecision
-	if err := decodeStrictJSON(normalized, &decision); err != nil {
-		return watchDecision{}, err
-	}
-	if err := applyWatchResultOperations(&decision); err != nil {
-		return watchDecision{}, err
-	}
-	normalizeWatchDecisionCompletion(&decision)
-	switch decision.Action {
-	case "escalate":
-		decision.Reason = strings.TrimSpace(decision.Reason)
-		if decision.Reason == "" {
-			return watchDecision{}, errors.New("escalation decision has no reason")
-		}
-	case "ignore", "react":
-	case "reply":
-		if err := validateReplyDecision(&decision, now); err != nil {
-			return watchDecision{}, err
-		}
-	case "incident":
-		decision.Title = strings.TrimSpace(decision.Title)
-		if decision.Title == "" {
-			return watchDecision{}, errors.New("incident decision has no title")
-		}
-		if len(decision.Title) > 200 {
-			return watchDecision{}, errors.New("incident title exceeds 200 bytes")
-		}
-	default:
-		return watchDecision{}, fmt.Errorf("unknown action %q", decision.Action)
-	}
-	if decision.Action == "react" {
-		reaction, err := normalizeSlackReactionName(decision.Reaction)
-		if err != nil {
-			return watchDecision{}, err
-		}
-		decision.Reaction = reaction
-	}
-	if err := rejectUnexpectedWatchFields(decision); err != nil {
-		return watchDecision{}, err
-	}
-	if err := validateWatchPublicationUpdates(&decision); err != nil {
-		return watchDecision{}, err
-	}
-	if err := validateAttentionAssessment(decision.Attention); err != nil {
-		return watchDecision{}, err
-	}
-	return decision, nil
-}
-
-// watchDecisionPayload names every optional field a watch decision may carry.
-// Each action declares which of them it may use, and anything else present is
-// rejected. Keeping that in one table means adding a field to watchDecision is
-// a single-line change that every action is then checked against, instead of
-// four hand-maintained boolean chains that quietly drift apart.
-var watchDecisionPayload = []struct {
-	name    string
-	present func(watchDecision) bool
-}{
-	{"reaction", func(d watchDecision) bool { return d.Reaction != "" }},
-	{"message", func(d watchDecision) bool { return d.Message != "" }},
-	{"followup_messages", func(d watchDecision) bool { return len(d.FollowupMessages) != 0 }},
-	{"title", func(d watchDecision) bool { return d.Title != "" }},
-	{"incident_title", func(d watchDecision) bool { return d.IncidentTitle != "" }},
-	{"task_title", func(d watchDecision) bool { return d.TaskTitle != "" }},
-	{"task_repository", func(d watchDecision) bool { return d.TaskRepository != "" }},
-	{"task_prompt", func(d watchDecision) bool { return d.TaskPrompt != "" }},
-	{"memory_offer", func(d watchDecision) bool { return d.MemoryOffer != nil }},
-	{"preference_offer", func(d watchDecision) bool { return d.PreferenceOffer != nil }},
-	{"rule_offer", func(d watchDecision) bool { return d.RuleOffer != nil }},
-	{"schedule_offer", func(d watchDecision) bool { return d.ScheduleOffer != nil }},
-	{"pending_approval", func(d watchDecision) bool { return d.PendingApproval != nil }},
-	{"alert_assessment", func(d watchDecision) bool { return d.AlertAssessment != nil }},
-	{"completion", func(d watchDecision) bool { return d.Completion != nil }},
-	{"evidence", func(d watchDecision) bool { return len(d.Evidence) != 0 }},
-	{"coverage", func(d watchDecision) bool { return len(d.Coverage) != 0 }},
-	{"visuals", func(d watchDecision) bool { return len(d.Visuals) != 0 }},
-	{"publication_updates", func(d watchDecision) bool { return len(d.PublicationUpdates) != 0 }},
-}
-
-// watchActionPayload declares the fields each action may carry, and the noun
-// used when rejecting anything else. A reply carries almost everything and has
-// its own richer rules, so it is validated separately.
-var watchActionPayload = map[string]struct {
-	noun    string
-	allowed map[string]bool
-}{
-	"escalate": {noun: "escalation", allowed: map[string]bool{}},
-	"ignore": {noun: "ignore", allowed: map[string]bool{
-		"evidence": true, "coverage": true, "publication_updates": true,
-	}},
-	"react":    {noun: "react", allowed: map[string]bool{"reaction": true}},
-	"incident": {noun: "incident", allowed: map[string]bool{"title": true, "evidence": true, "coverage": true}},
-	"reply": {noun: "reply", allowed: map[string]bool{
-		"message": true, "followup_messages": true, "incident_title": true,
-		"task_title": true, "task_repository": true, "task_prompt": true,
-		"memory_offer": true, "preference_offer": true, "rule_offer": true,
-		"schedule_offer": true, "pending_approval": true, "alert_assessment": true,
-		"completion": true, "evidence": true, "coverage": true, "visuals": true,
-		"publication_updates": true,
-	}},
-}
-
-func rejectUnexpectedWatchFields(decision watchDecision) error {
-	action, ok := watchActionPayload[decision.Action]
-	if !ok {
-		return fmt.Errorf("unknown action %q", decision.Action)
-	}
-	for _, field := range watchDecisionPayload {
-		if action.allowed[field.name] || !field.present(decision) {
-			continue
-		}
-		// An ignore decision may carry a completion only when it is a durable
-		// background block that schedules its own recheck.
-		if decision.Action == "ignore" && field.name == "completion" &&
-			decision.Completion.Status == "blocked" && decision.Completion.Recheck != nil {
-			continue
-		}
-		if decision.Action == "reply" {
-			return fmt.Errorf("reply decision has an unexpected %s", field.name)
-		}
-		return fmt.Errorf("%s decision has unexpected fields", action.noun)
-	}
-	return nil
-}
-
-// validateReplyDecision owns the rules that only apply to a reply: the offer
-// and visual exclusivity matrix, engineering-task boundaries, and the
-// assessment validators.
-// boundReplyDecisionFields enforces the size limits and the dependencies
-// between the engineering-task fields. A task offer with a prompt but no
-// repository is not something a person can accept — there is nowhere to run it.
-func boundReplyDecisionFields(d *watchDecision) error {
-	if len(d.Visuals) > 4 {
-		return errors.New("reply decision references too many generated visuals")
-	}
-	if len(d.IncidentTitle) > 200 {
-		return errors.New("incident offer title exceeds 200 bytes")
-	}
-	if len(d.TaskTitle) > 200 {
-		return errors.New("engineering task offer title exceeds 200 bytes")
-	}
-	if len(d.TaskRepository) > 63 {
-		return errors.New("engineering task repository exceeds 63 bytes")
-	}
-	if len(d.TaskPrompt) > 4000 {
-		return errors.New("engineering task prompt exceeds 4000 bytes")
-	}
-	if d.TaskTitle == "" && d.TaskRepository != "" {
-		return errors.New("task_repository requires task_title")
-	}
-	if d.TaskTitle == "" && d.TaskPrompt != "" {
-		return errors.New("task_prompt requires task_title")
-	}
-	if d.TaskPrompt != "" && d.TaskRepository == "" {
-		return errors.New("suggested engineering task requires task_repository")
-	}
-	return nil
-}
-
-// validateReplyOfferExclusivity keeps one reply from asking for two unrelated
-// confirmations at once.
-//
-// The rule is about what a person can actually answer. "Should I open an
-// incident, and also should I remember that you prefer thread replies?" has one
-// button and two questions, so whichever they press means something Responder
-// cannot determine. A pending approval is the strictest case: it is a governed
-// action waiting on a decision, and nothing else belongs in that message.
-func validateReplyOfferExclusivity(d *watchDecision) error {
-	if d.PendingApproval != nil &&
-		(d.IncidentTitle != "" || d.TaskTitle != "" ||
-			d.MemoryOffer != nil || d.PreferenceOffer != nil ||
-			d.RuleOffer != nil || len(d.Visuals) != 0) {
-		return errors.New(
-			"pending approval cannot be combined with another offer or generated visual",
-		)
-	}
-	if d.MemoryOffer != nil &&
-		(d.IncidentTitle != "" || d.TaskTitle != "") {
-		return errors.New(
-			"reply decision cannot offer memory and work in the same response",
-		)
-	}
-	offerCount := 0
-	for _, present := range []bool{
-		d.MemoryOffer != nil,
-		d.PreferenceOffer != nil,
-		d.RuleOffer != nil,
-		d.ScheduleOffer != nil,
-	} {
-		if present {
-			offerCount++
-		}
-	}
-	if offerCount > 0 && d.IncidentTitle != "" {
-		return errors.New(
-			"reply decision cannot offer durable behavior and work in the same response",
-		)
-	}
-	if d.TaskTitle != "" &&
-		(d.MemoryOffer != nil || d.PreferenceOffer != nil ||
-			d.RuleOffer != nil) {
-		return errors.New(
-			"reply decision cannot offer durable behavior and work in the same response",
-		)
-	}
-	if offerCount > 0 && len(d.Visuals) > 0 {
-		return errors.New("reply decision cannot combine durable behavior and generated visuals")
-	}
-	return nil
-}
-
-func validateReplyDecision(d *watchDecision, now time.Time) error {
-	var err error
-	d.Message, d.FollowupMessages, err = normalizeReplySequence(
-		d.Message,
-		d.FollowupMessages,
-	)
-	if err != nil {
-		return err
-	}
-	d.IncidentTitle = strings.TrimSpace(d.IncidentTitle)
-	d.TaskTitle = strings.TrimSpace(d.TaskTitle)
-	d.TaskRepository = strings.TrimSpace(d.TaskRepository)
-	d.TaskPrompt = strings.TrimSpace(d.TaskPrompt)
-	if d.Reaction != "" || d.Title != "" {
-		return errors.New("reply decision has an unexpected title")
-	}
-	if err := boundReplyDecisionFields(d); err != nil {
-		return err
-	}
-	if err := validateReplyOfferExclusivity(d); err != nil {
-		return err
-	}
-	if d.AlertAssessment != nil {
-		if err := validateAlertAssessment(d.AlertAssessment); err != nil {
-			return err
-		}
-	}
-	if err := investigation.ValidateCompletion(d.Completion); err != nil {
-		return err
-	}
-	if err := investigation.ValidateCapabilityGapEvidence(d.Completion, d.Evidence); err != nil {
-		return err
-	}
-	d.Message, d.FollowupMessages = investigation.AppendCapabilityGuidance(
-		d.Message,
-		d.FollowupMessages,
-		d.Completion,
-	)
-	d.Message, d.FollowupMessages, err = normalizeReplySequence(
-		d.Message,
-		d.FollowupMessages,
-	)
-	if err != nil {
-		return err
-	}
-	if d.TaskPrompt != "" {
-		if !validSuggestedEngineeringTaskBoundary(*d) {
-			return errors.New(
-				"suggested engineering task requires a decision-ready result or an exact tool-failure blocker",
-			)
-		}
-		if !watchDecisionHasEvidenceSource(
-			sanitizeEvidence(d.Evidence, "", "", "", now),
-			"repository",
-		) {
-			return errors.New(
-				"suggested engineering task requires repository evidence",
-			)
-		}
-	}
-	return nil
-}
-
-// validateWatchPublicationUpdates bounds and normalizes the external lifecycle
-// events a decision may report.
-func validateWatchPublicationUpdates(d *watchDecision) error {
-	if len(d.PublicationUpdates) > 4 {
-		return errors.New("decision contains too many publication updates")
-	}
-	for index := range d.PublicationUpdates {
-		item := &d.PublicationUpdates[index]
-		item.IncidentID = strings.TrimSpace(item.IncidentID)
-		item.Kind = strings.TrimSpace(item.Kind)
-		item.State = strings.TrimSpace(item.State)
-		item.Reference = strings.TrimSpace(item.Reference)
-		item.Summary = strings.TrimSpace(item.Summary)
-		switch item.Kind {
-		case "deployment", "terraform":
-		default:
-			return fmt.Errorf("publication update kind %q is invalid", item.Kind)
-		}
-		switch item.State {
-		case "pending", "succeeded", "failed":
-		default:
-			return fmt.Errorf("publication update state %q is invalid", item.State)
-		}
-		if item.IncidentID == "" || item.Reference == "" || item.Summary == "" {
-			return errors.New("publication update is incomplete")
-		}
-		if len(item.Reference) > 300 || len(item.Summary) > 1200 {
-			return errors.New("publication update exceeds its bound")
-		}
-	}
-	return nil
-}
-
-// normalizeWatchDecisionCompletion repairs two common, unambiguous transport
-// mistakes before strict validation. Alert verdicts describe the signal while
-// completion verdicts describe the episode; confusing those enums must not
-// discard an otherwise usable investigation. A blocked result cannot carry a
-// verdict, so the verdict is simply ignored until host correction resolves the
-// blocker or asks the model for a decision-ready completion.
-func normalizeWatchDecisionCompletion(decision *watchDecision) {
-	if decision == nil || decision.Completion == nil {
-		return
-	}
-	completion := decision.Completion
-	completion.Status = strings.TrimSpace(completion.Status)
-	completion.Verdict = strings.TrimSpace(completion.Verdict)
-	if completion.Status == "blocked" {
-		completion.Verdict = ""
-		return
-	}
-	if completion.Status != "decision_ready" || decision.AlertAssessment == nil {
-		return
-	}
-	switch completion.Verdict {
-	case "confirmed_issue", "likely_issue":
-		completion.Verdict = "degraded"
-	case "not_issue":
-		completion.Verdict = "healthy"
-	case "unverified":
-		completion.Verdict = "inconclusive"
-	}
-}
-
-// normalizeAppAlertCompletion fills the episode verdict only when the source
-// is an external app alert. Human requests may carry an alert assessment while
-// still using a direct-answer or task contract, so this inference must remain
-// context-aware rather than living in the transport parser.
-func normalizeAppAlertCompletion(input core.SlackInput, decision *watchDecision) {
-	if decision == nil || input.Kind != "bot_message" ||
-		!operationalAlertEvent(input.Text) || decision.AlertAssessment == nil ||
-		decision.Completion == nil || decision.Completion.Status != "decision_ready" ||
-		strings.TrimSpace(decision.Completion.Verdict) != "" {
-		return
-	}
-	switch decision.AlertAssessment.Verdict {
-	case "confirmed_issue", "likely_issue":
-		decision.Completion.Verdict = "degraded"
-	case "not_issue":
-		decision.Completion.Verdict = "healthy"
-	case "unverified":
-		decision.Completion.Verdict = "inconclusive"
-	}
-}
-
-func validSuggestedEngineeringTaskBoundary(decision watchDecision) bool {
-	if decision.Completion == nil {
-		return false
-	}
-	if decision.Completion.Status == "blocked" {
-		return decision.Completion.BlockerKind == "tool_failure"
-	}
-	return decision.Completion.Status == "decision_ready"
-}
-
-func validateAlertAssessment(assessment *alertAssessment) error {
-	assessment.Verdict = strings.TrimSpace(assessment.Verdict)
-	assessment.Impact = strings.TrimSpace(assessment.Impact)
-	assessment.CauseStatus = strings.TrimSpace(assessment.CauseStatus)
-	assessment.Cause = strings.TrimSpace(assessment.Cause)
-	assessment.ImmediateAction = strings.TrimSpace(assessment.ImmediateAction)
-	assessment.Verification = strings.TrimSpace(assessment.Verification)
-	assessment.LongTermSolution = strings.TrimSpace(assessment.LongTermSolution)
-	if len(assessment.Verdict) > 32 || len(assessment.Impact) > 2000 ||
-		len(assessment.CauseStatus) > 32 || len(assessment.Cause) > 2000 ||
-		len(assessment.ImmediateAction) > 2000 || len(assessment.Verification) > 2000 ||
-		len(assessment.LongTermSolution) > 2000 {
-		return errors.New("alert assessment exceeds its field bounds")
-	}
-	switch assessment.Verdict {
-	case "confirmed_issue", "likely_issue":
-		if assessment.Impact == "" || assessment.Cause == "" ||
-			assessment.ImmediateAction == "" || assessment.Verification == "" ||
-			assessment.LongTermSolution == "" {
-			return errors.New(
-				"confirmed or likely alert assessment requires impact, cause, immediate_action, verification, and long_term_solution",
-			)
-		}
-		if assessment.CauseStatus != "identified" && assessment.CauseStatus != "bounded" {
-			return errors.New(
-				"confirmed or likely alert assessment requires cause_status identified or bounded",
-			)
-		}
-	case "not_issue":
-		if assessment.Impact == "" {
-			return errors.New("not_issue alert assessment requires impact")
-		}
-	case "unverified":
-		if assessment.Impact == "" || assessment.ImmediateAction == "" {
-			return errors.New(
-				"unverified alert assessment requires impact and the next verification in immediate_action",
-			)
-		}
-	default:
-		return errors.New(
-			"alert assessment verdict must be confirmed_issue, likely_issue, not_issue, or unverified",
-		)
-	}
-	return nil
-}
-
-func normalizeSlackReactionName(name string) (string, error) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if len(name) >= 2 && strings.HasPrefix(name, ":") && strings.HasSuffix(name, ":") {
-		name = name[1 : len(name)-1]
-	}
-	if !slackReactionNamePattern.MatchString(name) {
-		return "", errors.New(
-			"react decision requires a valid Slack emoji name",
-		)
-	}
-	return name, nil
-}
-
-func validateAttentionAssessment(value attentionAssessment) error {
-	if !value.present() {
-		return nil
-	}
-	switch value.Addressee {
-	case "responder", "channel", "human", "unclear":
-	default:
-		return fmt.Errorf("unsupported attention addressee %q", value.Addressee)
-	}
-	for name, score := range map[string]int{
-		"urgency": value.Urgency, "confidence": value.Confidence,
-		"novelty": value.Novelty, "ownership": value.Ownership,
-	} {
-		if score < 0 || score > 3 {
-			return fmt.Errorf("attention %s must be between 0 and 3", name)
-		}
-	}
-	return nil
-}
-
-func decodeStrictJSON(data []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("multiple JSON values")
-		}
-		return err
-	}
-	return nil
 }
 
 func makeWatchContext(
@@ -2849,7 +2216,7 @@ func watchPromptMessage(
 	}
 	reactions := make([]watchContextReaction, 0, len(input.Reactions)+1)
 	for _, reaction := range input.Reactions {
-		name, err := normalizeSlackReactionName(reaction.Name)
+		name, err := decisionpkg.NormalizeSlackReactionName(reaction.Name)
 		if err != nil {
 			continue
 		}

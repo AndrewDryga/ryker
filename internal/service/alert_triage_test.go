@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -315,13 +316,13 @@ func TestAttentionPolicyKeepsTypedAppAlertRecovery(t *testing.T) {
 		Kind: "bot_message",
 		Text: "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue",
 	}
-	decision := watchDecision{
+	decision := decisionpkg.WatchDecision{
 		Action:  "reply",
 		Message: "The scheduled repair completed.",
-		Attention: attentionAssessment{
+		Attention: decisionpkg.AttentionAssessment{
 			Addressee: "channel", Urgency: 0, Confidence: 3, Novelty: 1, Ownership: 2,
 		},
-		AlertAssessment: &alertAssessment{
+		AlertAssessment: &decisionpkg.AlertAssessment{
 			Verdict: "not_issue",
 			Impact:  "The overdue condition cleared.",
 		},

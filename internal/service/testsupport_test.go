@@ -16,6 +16,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/localstate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -66,7 +67,7 @@ func (s *Service) ensureWatchSessionAtGeneration(
 	)
 }
 
-func alertReplyLanguageCorrection(input core.SlackInput, decision watchDecision) string {
+func alertReplyLanguageCorrection(input core.SlackInput, decision decisionpkg.WatchDecision) string {
 	return alertReplyLanguageCorrectionWithContext(input, watchTurnState{}, decision)
 }
 

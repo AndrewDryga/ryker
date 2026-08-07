@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
@@ -932,7 +933,7 @@ func evaluationStructuredCorrection(
 	now time.Time,
 ) string {
 	if testCase.Kind == "watch" {
-		decision, err := parseWatchDecision(response, now)
+		decision, err := decisionpkg.ParseWatchDecision(response, now)
 		if err == nil {
 			operatorID := "UEVALOPERATOR"
 			if len(cfg.Slack.Operators) > 0 {
@@ -945,7 +946,7 @@ func evaluationStructuredCorrection(
 				state := evaluationWatchState(testCase)
 				state.RecentMessages = recent
 				episode := (&Service{cfg: cfg}).episodeForWatchedInput(input, state)
-				normalizeAppAlertCompletion(input, &decision)
+				decisionpkg.NormalizeAppAlertCompletion(input, &decision)
 				decision = enforceExternalLifecycleCommunication(input, decision)
 				decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
 				decision, _ = enforceRecoveredAlertLink(input, state, decision)
@@ -956,7 +957,7 @@ func evaluationStructuredCorrection(
 					investigation.CompletionCorrection(
 						*episode,
 						decision.Action,
-						sanitizeCoverage(decision.Coverage, "", "", "", now),
+						decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", now),
 						decision.Completion,
 					),
 				} {

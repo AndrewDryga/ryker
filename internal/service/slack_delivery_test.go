@@ -13,6 +13,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
@@ -466,7 +467,7 @@ func TestAmbientConversationMayCompleteWithoutSlackReply(t *testing.T) {
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
-	coopClient.complete(noConversationReply)
+	coopClient.complete(decisionpkg.NoConversationReply)
 	incident, _ = st.GetIncident(ctx, incident.ID)
 	if err := svc.pollIncident(ctx, incident); err != nil {
 		t.Fatal(err)

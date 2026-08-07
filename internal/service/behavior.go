@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -375,7 +376,7 @@ func (s *Service) confirmPendingPreferenceReply(
 	if err != nil {
 		return false, err
 	}
-	decision, err := parseWatchDecision(string(run.Result), s.now())
+	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), s.now())
 	if err != nil || decision.PreferenceOffer == nil ||
 		decision.MemoryOffer != nil || decision.RuleOffer != nil ||
 		decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
@@ -775,7 +776,7 @@ func (s *Service) handleRememberPreference(
 		return err
 	}
 	var payload preferenceActionPayload
-	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
+	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
 		payload.Version != 1 || payload.ChannelID == "" ||
 		payload.ChannelID != input.ChannelID || payload.SourceRef == "" ||
 		offerIssuedAtInvalid(payload.IssuedAt, s.now()) {
@@ -814,7 +815,7 @@ func (s *Service) handleRememberPreference(
 		if err := s.freezeBehaviorResult(ctx, input.ID, result); err != nil {
 			return err
 		}
-	} else if err := decodeStrictJSON(input.Frozen, &result); err != nil {
+	} else if err := decisionpkg.DecodeStrictJSON(input.Frozen, &result); err != nil {
 		return fmt.Errorf("decode saved preference action result: %w", err)
 	}
 	preference, err := s.store.GetPreference(ctx, result.ID)
@@ -841,7 +842,7 @@ func (s *Service) handleRememberRule(
 		return err
 	}
 	var payload ruleActionPayload
-	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
+	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
 		payload.Version != 1 || payload.ChannelID == "" ||
 		payload.ChannelID != input.ChannelID || payload.SourceRef == "" ||
 		offerIssuedAtInvalid(payload.IssuedAt, s.now()) {
@@ -878,7 +879,7 @@ func (s *Service) handleRememberRule(
 		if err := s.freezeBehaviorResult(ctx, input.ID, result); err != nil {
 			return err
 		}
-	} else if err := decodeStrictJSON(input.Frozen, &result); err != nil {
+	} else if err := decisionpkg.DecodeStrictJSON(input.Frozen, &result); err != nil {
 		return fmt.Errorf("decode saved standing rule action result: %w", err)
 	}
 	rule, err := s.store.GetStandingRule(ctx, result.ID)
@@ -905,7 +906,7 @@ func (s *Service) handleTogglePreference(
 		return err
 	}
 	var payload toggleBehaviorPayload
-	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
+	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
 		payload.ID == "" {
 		return s.behaviorActionFeedback(
 			ctx, input, "*This preference control is invalid.* Nothing was changed.",
@@ -980,7 +981,7 @@ func (s *Service) handleToggleRule(
 		return err
 	}
 	var payload toggleBehaviorPayload
-	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
+	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
 		payload.ID == "" {
 		return s.behaviorActionFeedback(
 			ctx, input, "*This standing-rule control is invalid.* Nothing was changed.",

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -210,13 +211,13 @@ func TestIgnoreDecisionMayUpdateOnlyConversationMemory(t *testing.T) {
 		Subject: "Sentry placement", Kind: "decision", Statement: "Keep Sentry in GCP.",
 		Status: "accepted", Confidence: 3, SourceRef: "https://app.slack.com/client/T/C/thread/C-100", SourceMessageTS: "100.001",
 	}}}
-	decision := watchDecision{
+	decision := decisionpkg.WatchDecision{
 		Action: "ignore",
 		Operations: []investigation.ResultOperation{{
 			ID: "memory-1", Type: "update_memory", Memory: &memory,
 		}},
 	}
-	if err := applyWatchResultOperations(&decision); err != nil {
+	if err := decisionpkg.ApplyWatchResultOperations(&decision); err != nil {
 		t.Fatal(err)
 	}
 	if decision.Message != "" || len(decision.Memory.Knowledge) != 1 ||
@@ -228,19 +229,19 @@ func TestIgnoreDecisionMayUpdateOnlyConversationMemory(t *testing.T) {
 		ID: "complete-1", Type: "complete_episode",
 		Completion: &investigation.CompleteEpisode{Message: "This must not be hidden."},
 	})
-	if err := applyWatchResultOperations(&decision); err == nil ||
+	if err := decisionpkg.ApplyWatchResultOperations(&decision); err == nil ||
 		!strings.Contains(err.Error(), "exactly one") {
 		t.Fatalf("silent mixed operations error = %v", err)
 	}
 
-	decision = watchDecision{
+	decision = decisionpkg.WatchDecision{
 		Action:   "ignore",
 		Evidence: []core.Evidence{{Claim: "hidden work"}},
 		Operations: []investigation.ResultOperation{{
 			ID: "memory-1", Type: "update_memory", Memory: &memory,
 		}},
 	}
-	if err := applyWatchResultOperations(&decision); err == nil ||
+	if err := decisionpkg.ApplyWatchResultOperations(&decision); err == nil ||
 		!strings.Contains(err.Error(), "other result fields") {
 		t.Fatalf("silent legacy side effect error = %v", err)
 	}
@@ -253,7 +254,7 @@ func TestReplyDecisionMayAnswerAndUpdateConversationMemory(t *testing.T) {
 		Status:    "accepted", Confidence: 3,
 		SourceRef: "https://app.slack.com/client/T/C/thread/C-100", SourceMessageTS: "100.001",
 	}}}
-	decision := watchDecision{
+	decision := decisionpkg.WatchDecision{
 		Action: "reply",
 		Operations: []investigation.ResultOperation{
 			{ID: "memory-1", Type: "update_memory", Memory: &memory},
@@ -268,7 +269,7 @@ func TestReplyDecisionMayAnswerAndUpdateConversationMemory(t *testing.T) {
 			},
 		},
 	}
-	if err := applyWatchResultOperations(&decision); err != nil {
+	if err := decisionpkg.ApplyWatchResultOperations(&decision); err != nil {
 		t.Fatal(err)
 	}
 	if decision.Message != "GCS with WIF is the accepted direction." ||

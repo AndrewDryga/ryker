@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
@@ -407,7 +408,7 @@ func (s *Service) setReactionInput(
 		item.Type != "message" || item.Channel == "" || item.Timestamp == "" || eventTS == "" {
 		return false, nil
 	}
-	reaction, err := normalizeSlackReactionName(reaction)
+	reaction, err := decisionpkg.NormalizeSlackReactionName(reaction)
 	if err != nil {
 		return false, nil
 	}

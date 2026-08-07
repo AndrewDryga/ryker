@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -569,7 +570,7 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"incident","title":"API unavailable"}`,
 	}
 	for _, input := range valid {
-		if _, err := parseWatchDecision(input, testDecodeClock); err != nil {
+		if _, err := decisionpkg.ParseWatchDecision(input, testDecodeClock); err != nil {
 			t.Fatalf("valid decision %s: %v", input, err)
 		}
 	}
@@ -597,14 +598,14 @@ func TestParseWatchDecisionIsStrict(t *testing.T) {
 		`{"action":"ignore"} {"action":"ignore"}`,
 	}
 	for _, input := range invalid {
-		if _, err := parseWatchDecision(input, testDecodeClock); err == nil {
+		if _, err := decisionpkg.ParseWatchDecision(input, testDecodeClock); err == nil {
 			t.Fatalf("invalid decision accepted: %s", input)
 		}
 	}
 }
 
 func TestParseWatchDecisionAcceptsEmptyOptionalObservationTimestamps(t *testing.T) {
-	decision, err := parseWatchDecision(`{
+	decision, err := decisionpkg.ParseWatchDecision(`{
 		"action":"reply",
 		"message":"The live layer is healthy; the declared layer has no source timestamp.",
 		"attention":{"addressee":"responder","confidence":3,"ownership":3},
@@ -649,7 +650,7 @@ func TestSlackReactionNameNormalization(t *testing.T) {
 		"custom-release-ready": "custom-release-ready",
 	}
 	for input, want := range valid {
-		got, err := normalizeSlackReactionName(input)
+		got, err := decisionpkg.NormalizeSlackReactionName(input)
 		if err != nil {
 			t.Fatalf("normalize %q: %v", input, err)
 		}
@@ -667,7 +668,7 @@ func TestSlackReactionNameNormalization(t *testing.T) {
 		strings.Repeat("a", 256),
 	}
 	for _, input := range invalid {
-		if got, err := normalizeSlackReactionName(input); err == nil {
+		if got, err := decisionpkg.NormalizeSlackReactionName(input); err == nil {
 			t.Fatalf("normalize %q = %q, want error", input, got)
 		}
 	}
@@ -675,10 +676,10 @@ func TestSlackReactionNameNormalization(t *testing.T) {
 
 func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 	input := core.SlackInput{Kind: "message", ChannelID: "CINFRA"}
-	decision := watchDecision{
+	decision := decisionpkg.WatchDecision{
 		Action:  "reply",
 		Message: "I can add something.",
-		Attention: attentionAssessment{
+		Attention: decisionpkg.AttentionAssessment{
 			Addressee: "human", Urgency: 1, Confidence: 3, Novelty: 1, Ownership: 1,
 		},
 	}
@@ -695,7 +696,7 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 	}
 
 	input.Kind = "message"
-	decision.Attention = attentionAssessment{}
+	decision.Attention = decisionpkg.AttentionAssessment{}
 	filtered = enforceAttentionPolicy(input, watchTurnState{}, decision, 7, 4)
 	if filtered.Action != "ignore" {
 		t.Fatalf("ambient action without assessment = %q, want ignore", filtered.Action)
@@ -710,7 +711,7 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 
 	decision.Action = "reply"
 	decision.Message = "I will interrupt them."
-	decision.Attention = attentionAssessment{
+	decision.Attention = decisionpkg.AttentionAssessment{
 		Addressee: "human", Urgency: 2, Confidence: 3, Novelty: 2, Ownership: 2,
 	}
 	filtered = enforceAttentionPolicy(
@@ -726,7 +727,7 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 }
 
 func TestParseWatchDecisionNormalizesStructuredMemoryTopology(t *testing.T) {
-	decision, err := parseWatchDecision(`{
+	decision, err := decisionpkg.ParseWatchDecision(`{
 		"action":"reply",
 		"message":"I can make that change.",
 		"task_title":"Audit infrastructure packs",
@@ -748,7 +749,7 @@ func TestParseWatchDecisionNormalizesStructuredMemoryTopology(t *testing.T) {
 		t.Fatalf("normalized topology = %#v, want %#v", decision.Memory.Topology, want)
 	}
 
-	decision, err = parseWatchDecision(`{
+	decision, err = decisionpkg.ParseWatchDecision(`{
 		"action":"reply",
 		"message":"I can make that change.",
 		"task_title":"Audit infrastructure packs",
@@ -779,7 +780,7 @@ func TestParseWatchDecisionExtractsFinalEnvelopeAfterCoopProgress(t *testing.T) 
 		`"evidence":[{"claim":"Both hosts are connected","observation":"Two of two runners are connected",` +
 		`"source_type":"emisar","source_name":"list_runners"}],` +
 		`"coverage":[{"layer":"host","status":"healthy"}],"memory":{}}`
-	decision, err := parseWatchDecision(output, testDecodeClock)
+	decision, err := decisionpkg.ParseWatchDecision(output, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -72,11 +72,14 @@ var methodBudget = map[string]int{
 // touches it, little enough that a package quietly absorbing a new
 // responsibility does.
 var lineBudget = map[string]int{
-	"service":    27800,
+	"service":    25700,
 	"store":      14000,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
+	// decision owns the shapes a model result arrives in and the rules for
+	// reading one, so the evaluation family can reach them without the runtime.
+	"decision": 1400,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	"investigation": 1800,
@@ -94,6 +97,7 @@ var forbiddenImports = map[string][]string{
 	"webhook":       {"service", "store", "slackui", "httpapi", "app"},
 	"episode":       {"service", "store", "slackui", "httpapi", "app"},
 	"investigation": {"service", "store", "slackui", "httpapi", "app"},
+	"decision":      {"service", "store", "httpapi", "app", "publisher", "coop"},
 	"publisher":     {"service", "store", "slackui", "httpapi", "app"},
 	"localstate":    {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
 	"provider":      {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "core"},

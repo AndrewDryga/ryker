@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -156,8 +157,8 @@ func containsLifecycleState(line string, states ...string) bool {
 
 func enforceExternalLifecycleCommunication(
 	input core.SlackInput,
-	decision watchDecision,
-) watchDecision {
+	decision decisionpkg.WatchDecision,
+) decisionpkg.WatchDecision {
 	if input.Kind != "bot_message" {
 		return decision
 	}
@@ -195,7 +196,7 @@ func enforceExternalLifecycleCommunication(
 
 func externalLifecycleReplyLanguageCorrection(
 	input core.SlackInput,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 ) string {
 	if input.Kind != "bot_message" || decision.Action != "reply" {
 		return ""
@@ -209,7 +210,7 @@ func externalLifecycleReplyLanguageCorrection(
 	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
 	if phase == externalLifecycleReviewable && decision.Completion != nil &&
 		(decision.Completion.Verdict == "healthy" || decision.Completion.Verdict == "succeeded") &&
-		episodeContainsAny(normalized, "applied", "succeeded", "successful") &&
+		decisionpkg.EpisodeContainsAny(normalized, "applied", "succeeded", "successful") &&
 		!strings.Contains(normalized, "stale") {
 		return "say explicitly that the source confirmation card is stale, then summarize only " +
 			"the material change, its fresh post-rollout health, and one independent caveat"
@@ -240,14 +241,14 @@ func externalLifecycleReplyLanguageCorrection(
 // health. Publication correlations are preserved even when source-channel
 // prose is suppressed.
 func successfulExternalLifecycleReplyAddsValue(
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 	now time.Time,
 ) bool {
 	if decision.Action != "reply" ||
-		!hasFreshOperationalEvidence(sanitizeEvidence(decision.Evidence, "", "", "", now), now) {
+		!hasFreshOperationalEvidence(decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", now), now) {
 		return false
 	}
-	for _, item := range sanitizeCoverage(decision.Coverage, "", "", "", now) {
+	for _, item := range decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", now) {
 		layer := strings.ToLower(strings.TrimSpace(item.Layer))
 		status := strings.ToLower(strings.TrimSpace(item.Status))
 		if layer == "" || layer == "change" {
@@ -270,8 +271,8 @@ func successfulExternalLifecycleReplyAddsValue(
 func enforceExternalLifecycleEvidence(
 	input core.SlackInput,
 	episode core.WorkEpisode,
-	decision watchDecision,
-) (watchDecision, bool) {
+	decision decisionpkg.WatchDecision,
+) (decisionpkg.WatchDecision, bool) {
 	if input.Kind != "bot_message" || decision.Action != "reply" ||
 		externalMessageLifecyclePhase(input.Text) != externalLifecycleFailed {
 		return decision, false

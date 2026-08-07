@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 )
 
@@ -136,7 +137,7 @@ func (s *Service) episodeForWatchedInput(
 	}
 	if matchedOperationalAlertRule(state.MatchedRules) ||
 		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
-			operationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text)) {
+			decisionpkg.OperationalAlertEvent(input.Text) && !externalCoordinationOnlyEvent(input.Text)) {
 		episode.Effort = core.EffortIncidentInvestigation
 		episode.RequiredCoverage = alertInvestigationCoverage(text)
 		episode.CompletionCriteria = []string{
@@ -168,7 +169,7 @@ func externalChangeLifecycleEvent(text string) bool {
 		!strings.Contains(text, "deployment ") && !strings.Contains(text, "build ") {
 		return false
 	}
-	return episodeContainsAny(
+	return decisionpkg.EpisodeContainsAny(
 		text,
 		"planning", "planned", "applying", "applied", "errored", "failed",
 		"discarded", "canceled", "cancelled",
@@ -187,7 +188,7 @@ func requestEpisodeActivity(text string) core.EpisodeActivity {
 }
 
 func isOperationalAssessmentRequest(text string) bool {
-	return episodeContainsAny(text,
+	return decisionpkg.EpisodeContainsAny(text,
 		"infrastructure health", "infra health", "production health", "system health",
 		"health of our", "health of everything", "end-to-end", "end to end",
 		"deep health", "deep check", "health review", "health assessment",
@@ -196,7 +197,7 @@ func isOperationalAssessmentRequest(text string) bool {
 }
 
 func isFocusedCheckRequest(text string) bool {
-	return episodeContainsAny(text,
+	return decisionpkg.EpisodeContainsAny(text,
 		"check ", "review ", "verify ", "inspect ", "look into", "investigate", "analyze", "analyse",
 		"assess", "assessment",
 		"rollout", "recovered", "recovery", "is it green", "is it healthy", "what failed",
@@ -206,10 +207,10 @@ func isFocusedCheckRequest(text string) bool {
 
 func operationalAssessmentCoverage(text string) []string {
 	result := []string{"change", "host", "runtime", "workload", "dependency", "application", "slo"}
-	if episodeContainsAny(text, "hardware", "disk", "cpu", "memory", "thermal") {
+	if decisionpkg.EpisodeContainsAny(text, "hardware", "disk", "cpu", "memory", "thermal") {
 		result = append([]string{"hardware"}, result...)
 	}
-	if episodeContainsAny(text, "nomad", "kubernetes", "scheduler", "allocation") {
+	if decisionpkg.EpisodeContainsAny(text, "nomad", "kubernetes", "scheduler", "allocation") {
 		result = append(result, "scheduler")
 	}
 	return result
@@ -217,21 +218,21 @@ func operationalAssessmentCoverage(text string) []string {
 
 func alertInvestigationCoverage(text string) []string {
 	result := []string{"change", "application", "slo"}
-	if episodeContainsAny(text,
+	if decisionpkg.EpisodeContainsAny(text,
 		"host", "node", "vm", "disk", "i/o", "io latency", "cpu", "memory",
 		"oom", "systemd", "nvme", "filesystem",
 	) {
 		result = append(result, "host")
 	}
-	if episodeContainsAny(text,
+	if decisionpkg.EpisodeContainsAny(text,
 		"workload", "job", "process", "service", "container", "pod", "task",
 	) {
 		result = append(result, "workload")
 	}
-	if episodeContainsAny(text, "nomad", "kubernetes", "scheduler", "alloc") {
+	if decisionpkg.EpisodeContainsAny(text, "nomad", "kubernetes", "scheduler", "alloc") {
 		result = append(result, "scheduler")
 	}
-	if episodeContainsAny(text, "database", "postgres", "cassandra", "redis", "dependency", "upstream") {
+	if decisionpkg.EpisodeContainsAny(text, "database", "postgres", "cassandra", "redis", "dependency", "upstream") {
 		result = append(result, "dependency")
 	}
 	return result
@@ -253,13 +254,13 @@ func focusedCoverage(text string) []string {
 		{"application", []string{"application", "api", "endpoint", "request", "error", "timeout", "user path"}},
 		{"slo", []string{"slo", "customer", "impact", "latency", "availability"}},
 	} {
-		if episodeContainsAny(text, candidate.terms...) {
+		if decisionpkg.EpisodeContainsAny(text, candidate.terms...) {
 			result = append(result, candidate.layer)
 		}
 	}
 	if slices.Contains(result, "task") && slices.Contains(result, "change") &&
-		episodeContainsAny(text, "cost", "billing", "spend") &&
-		!episodeContainsAny(text,
+		decisionpkg.EpisodeContainsAny(text, "cost", "billing", "spend") &&
+		!decisionpkg.EpisodeContainsAny(text,
 			"ci ", "cd ", "deploy", "release", "rollout", "revision", "terraform",
 			"plan ", "diff ", "repository", "validation command",
 		) {
@@ -269,19 +270,10 @@ func focusedCoverage(text string) []string {
 }
 
 func explicitGovernedOperationRequest(text string) bool {
-	if !episodeContainsAny(text, "enable", "disable", "restart", "apply", "retry", "drain", "failover", "roll back", "rollback") {
+	if !decisionpkg.EpisodeContainsAny(text, "enable", "disable", "restart", "apply", "retry", "drain", "failover", "roll back", "rollback") {
 		return false
 	}
-	return episodeContainsAny(text, "can you", "please", "do it", "go ahead", "i want you to", "now")
-}
-
-func episodeContainsAny(value string, terms ...string) bool {
-	for _, term := range terms {
-		if strings.Contains(value, term) {
-			return true
-		}
-	}
-	return false
+	return decisionpkg.EpisodeContainsAny(text, "can you", "please", "do it", "go ahead", "i want you to", "now")
 }
 
 func workEpisodePrompt(episode core.WorkEpisode) string {
@@ -292,7 +284,7 @@ func episodeDiagnosisCorrection(
 	episode core.WorkEpisode,
 	action string,
 	coverage []core.Coverage,
-	assessment *alertAssessment,
+	assessment *decisionpkg.AlertAssessment,
 	completion *completionAssessment,
 ) string {
 	if action != "reply" || (episode.Effort != core.EffortOperationalAssessment &&
@@ -356,11 +348,11 @@ func unsupportedOperationalClaimCorrection(
 		return ""
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
-	noImpactClaim := episodeContainsAny(normalized,
+	noImpactClaim := decisionpkg.EpisodeContainsAny(normalized,
 		"no current user impact", "no user impact", "no customer impact",
 		"customers are unaffected", "users are unaffected",
 	)
-	recoveryClaim := episodeContainsAny(normalized,
+	recoveryClaim := decisionpkg.EpisodeContainsAny(normalized,
 		"service recovered", "service has recovered", "fully recovered",
 	)
 	if !noImpactClaim && !recoveryClaim {

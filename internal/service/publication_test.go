@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -325,7 +326,7 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 		input.ID = fmt.Sprintf("input-deploy-pending-%d", index)
 		input.MessageTS = fmt.Sprintf("1700.20%d", index)
 		input.Text = "Run run-abc\nRevision 0123456\n" + summary
-		if err := svc.applyPublicationUpdates(ctx, input, state, []publicationUpdate{{
+		if err := svc.applyPublicationUpdates(ctx, input, state, []decisionpkg.PublicationUpdate{{
 			IncidentID: incident.ID, Kind: "terraform", State: "pending",
 			Reference: "0123456", Summary: summary,
 		}}); err != nil {
@@ -340,7 +341,7 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	input.ID = "input-deploy-terminal-1"
 	input.MessageTS = "1700.300"
 	input.Text = "Run run-abc\nRevision 0123456\nRun Applied"
-	if err := svc.applyPublicationUpdates(ctx, input, state, []publicationUpdate{{
+	if err := svc.applyPublicationUpdates(ctx, input, state, []decisionpkg.PublicationUpdate{{
 		IncidentID: incident.ID, Kind: "terraform", State: "succeeded",
 		Reference: "0123456", Summary: "Production apply completed successfully.",
 	}}); err != nil {
@@ -349,7 +350,7 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	input.ID = "input-deploy-terminal-2"
 	input.MessageTS = "1700.400"
 	input.Text = "Run run-abc\nRevision 0123456789abcdef\nRun Applied"
-	if err := svc.applyPublicationUpdates(ctx, input, state, []publicationUpdate{{
+	if err := svc.applyPublicationUpdates(ctx, input, state, []decisionpkg.PublicationUpdate{{
 		IncidentID: incident.ID, Kind: "deployment", State: "succeeded",
 		Reference: "0123456789abcdef", Summary: "HCP reports the exact run as applied.",
 	}}); err != nil {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -41,7 +42,7 @@ func TestScheduleOfferRequiresOperatorIntentAndNormalizesTypedCalendar(t *testin
 		t.Fatalf("schedule offer = ok=%t value=%q task=%+v when=%q", ok, value, task, when)
 	}
 	var payload scheduleActionPayload
-	if err := decodeStrictJSON([]byte(value), &payload); err != nil {
+	if err := decisionpkg.DecodeStrictJSON([]byte(value), &payload); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.scheduledTaskFromOffer(context.Background(), input, payload.Offer, time.Now().UTC()); err != nil {

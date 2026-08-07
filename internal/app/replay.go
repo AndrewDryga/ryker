@@ -14,6 +14,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -473,7 +474,7 @@ func replayUXState(assessment service.SlackUXAssessment) string {
 }
 
 func replayAction(result []byte) (string, error) {
-	action, err := service.WatchDecisionAction(string(result))
+	action, err := decision.WatchDecisionAction(string(result))
 	if err != nil {
 		return "", err
 	}

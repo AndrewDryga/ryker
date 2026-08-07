@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -288,7 +289,7 @@ func (s *Service) applyPublicationUpdates(
 	ctx context.Context,
 	input core.SlackInput,
 	state watchTurnState,
-	updates []publicationUpdate,
+	updates []decisionpkg.PublicationUpdate,
 ) error {
 	if len(updates) == 0 || input.Kind != "bot_message" {
 		return nil
@@ -357,7 +358,7 @@ func (s *Service) applyPublicationUpdates(
 	return nil
 }
 
-func publicationUpdateNotifies(update publicationUpdate) bool {
+func publicationUpdateNotifies(update decisionpkg.PublicationUpdate) bool {
 	return update.State == "succeeded" || update.State == "failed"
 }
 

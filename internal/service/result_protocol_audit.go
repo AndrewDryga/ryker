@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 )
 
 // ResultProtocolAudit is what replaying stored model results says about the
@@ -89,13 +90,13 @@ func replayStoredResult(
 	now time.Time,
 ) (fallback bool, legacyShape bool, reason string, err error) {
 	if result.Mode == string(core.AgentRunTriage) {
-		decision, parseErr := parseWatchDecision(result.Message, now)
+		decision, parseErr := decisionpkg.ParseWatchDecision(result.Message, now)
 		if parseErr != nil {
 			return false, false, "", parseErr
 		}
 		return false, decision.LegacyShape, "", nil
 	}
-	report, _, parseErr := parseAgentReport(result.Message)
+	report, _, parseErr := decisionpkg.ParseAgentReport(result.Message)
 	if parseErr != nil {
 		return false, false, "", parseErr
 	}

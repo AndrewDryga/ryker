@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -325,7 +326,7 @@ func (s *Service) handleRememberMemory(
 		return err
 	}
 	var payload memoryActionPayload
-	if err := decodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
+	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
 		payload.Version != 1 || payload.SourceRef == "" ||
 		payload.ChannelID == "" || payload.ChannelID != input.ChannelID ||
 		payload.IssuedAt.IsZero() ||
@@ -369,10 +370,10 @@ func (s *Service) handleRememberMemory(
 		if err != nil {
 			return err
 		}
-		if err := decodeStrictJSON(frozen, &result); err != nil {
+		if err := decisionpkg.DecodeStrictJSON(frozen, &result); err != nil {
 			return err
 		}
-	} else if err := decodeStrictJSON(input.Frozen, &result); err != nil {
+	} else if err := decisionpkg.DecodeStrictJSON(input.Frozen, &result); err != nil {
 		return fmt.Errorf("decode remembered Slack action result: %w", err)
 	}
 	entry, err := s.store.GetMemoryEntry(ctx, result.EntryID)

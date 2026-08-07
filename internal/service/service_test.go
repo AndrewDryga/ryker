@@ -18,6 +18,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -591,7 +592,7 @@ func TestToolFailureBlockerOffersBoundedRepositoryFix(t *testing.T) {
 			{"id":"complete","type":"complete_episode","completion":{"message":"The HCP inspection is blocked because this runner's jq lacks optional regex support. The source fix is bounded: replace the two regex-dependent expressions while preserving cleanup, output limits, and version checks.","completion":{"status":"blocked","summary":"HCP run details remain unavailable until the pack is portable.","material_gaps":["The failed Terraform resource and partial-apply state remain unavailable."],"blocker_kind":"tool_failure","attempts":["Ran tfc.run_details and tfc.run_diagnostics; both failed on unsupported jq regex functions."],"next_action":"Apply and validate the bounded pack compatibility fix, publish its immutable version, then rerun both inspections."}}}
 		]
 	}`
-	if _, err := parseWatchDecision(coopClient.completeOnSubmit, testDecodeClock); err != nil {
+	if _, err := decisionpkg.ParseWatchDecision(coopClient.completeOnSubmit, testDecodeClock); err != nil {
 		t.Fatalf("parse tool blocker decision: %v", err)
 	}
 

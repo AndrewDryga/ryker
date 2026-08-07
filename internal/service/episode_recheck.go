@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -38,7 +39,7 @@ func (s *Service) scheduleEpisodeRechecks(
 		if err != nil {
 			return err
 		}
-		decision, err := parseWatchDecision(string(origin.Result), s.now())
+		decision, err := decisionpkg.ParseWatchDecision(string(origin.Result), s.now())
 		if err != nil || decision.Completion == nil {
 			return nil
 		}
@@ -93,7 +94,7 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 	if err != nil {
 		return err
 	}
-	decision, err := parseWatchDecision(string(originRun.Result), s.now())
+	decision, err := decisionpkg.ParseWatchDecision(string(originRun.Result), s.now())
 	if err != nil || decision.Completion == nil || decision.Completion.Recheck == nil {
 		return nil
 	}
@@ -123,7 +124,7 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 		if priorRun.TerminalState != "completed" {
 			continue
 		}
-		priorDecision, parseErr := parseWatchDecision(string(priorRun.Result), s.now())
+		priorDecision, parseErr := decisionpkg.ParseWatchDecision(string(priorRun.Result), s.now())
 		if parseErr == nil && priorDecision.Action != "ignore" {
 			return nil
 		}

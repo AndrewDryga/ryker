@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -218,7 +219,7 @@ func TestExternalLifecycleFastPathSkipsCoopAndCompletesPrivateReplay(t *testing.
 	if err != nil || run.State != core.AgentRunCompleted {
 		t.Fatalf("deterministic replay run = %+v, %v", run, err)
 	}
-	decision, err := parseWatchDecision(string(run.Result), testDecodeClock)
+	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), testDecodeClock)
 	if err != nil || decision.Action != "ignore" {
 		t.Fatalf("deterministic replay result = %+v, %v", decision, err)
 	}
@@ -273,7 +274,7 @@ func TestIncidentAcknowledgementFastPathSkipsCoopAndSlackOutput(t *testing.T) {
 	if err != nil || run.State != core.AgentRunCompleted {
 		t.Fatalf("deterministic acknowledgement run = %+v, %v", run, err)
 	}
-	decision, err := parseWatchDecision(string(run.Result), testDecodeClock)
+	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), testDecodeClock)
 	if err != nil || decision.Action != "ignore" {
 		t.Fatalf("deterministic acknowledgement result = %+v, %v", decision, err)
 	}
@@ -375,11 +376,11 @@ func TestExternalLifecycleReconciliationIsProviderNeutralAndBounded(t *testing.T
 }
 
 func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *testing.T) {
-	updates := []publicationUpdate{{
+	updates := []decisionpkg.PublicationUpdate{{
 		IncidentID: "task-1", Kind: "terraform", State: "pending",
 		Reference: "0123456", Summary: "Terraform is applying.",
 	}}
-	base := watchDecision{
+	base := decisionpkg.WatchDecision{
 		Action: "reply", Message: "Terraform is still running.",
 		PublicationUpdates: updates,
 	}
@@ -450,7 +451,7 @@ func TestSuccessfulLifecycleDoesNotParaphraseVisibleStatusOrOldPlanContext(t *te
 		Kind: "bot_message",
 		Text: "Run notification for SME-Tenant/tenant-infra\n" +
 			"Run run-RvK3U9VVwhcujW6D\nRun Applied",
-	}, watchDecision{
+	}, decisionpkg.WatchDecision{
 		Action: "reply",
 		Message: "run-RvK3U9VVwhcujW6D is applied. This terminal notification closes " +
 			"the Terraform lifecycle check. Runtime verification remains.",
@@ -476,7 +477,7 @@ func TestStaleLifecycleReplyKeepsOnlyChangeHealthAndIndependentCaveat(t *testing
 		Kind: "bot_message",
 		Text: "Run run-UBwFpsiiVMtXwtbi\nRun Planned - Needs Confirmation",
 	}
-	verbose := watchDecision{
+	verbose := decisionpkg.WatchDecision{
 		Action: "reply",
 		Message: "Terraform run run-UBwFpsiiVMtXwtbi has already applied successfully; the Needs " +
 			"Confirmation notification is stale. The plan replaced the Emisar GCP runner VM and " +
@@ -490,7 +491,7 @@ func TestStaleLifecycleReplyKeepsOnlyChangeHealthAndIndependentCaveat(t *testing
 	if correction := externalLifecycleReplyLanguageCorrection(input, verbose); correction == "" {
 		t.Fatal("accepted bureaucratic stale lifecycle narration")
 	}
-	concise := watchDecision{
+	concise := decisionpkg.WatchDecision{
 		Action: "reply",
 		Message: "**This plan already applied, so the confirmation card is stale.** It replaced " +
 			"the Emisar runner VM and updated Tolgee Cloud SQL; the runner is connected and the " +
@@ -520,7 +521,7 @@ func TestTerminalLifecycleEvidenceIsHostBoundBeforeCompletionValidation(t *testi
 		ReceivedAt: observedAt,
 		Text: "Run notification for <https://example.com/acme/infra|acme/infra>\n" +
 			"<https://example.com/acme/infra/runs/run-abc|Run run-abc>\nRun Errored",
-	}, episode, watchDecision{
+	}, episode, decisionpkg.WatchDecision{
 		Action: "reply",
 		Coverage: []core.Coverage{{
 			Layer: "change", Status: "unknown", Detail: "Partial effects are unknown.",
@@ -551,7 +552,7 @@ func TestTerminalLifecycleEvidencePreservesTypedOperationsTransport(t *testing.T
 		`{"id":"coverage-change","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"unknown","detail":"Partial effects are unknown."}},` +
 		`{"id":"complete","type":"complete_episode","completion":{"message":"The apply failed; inspect the exact diagnostic before retrying.","completion":{"status":"decision_ready","verdict":"failed","summary":"The apply failed."}}}` +
 		`]}`
-	decision, err := parseWatchDecision(message, testDecodeClock)
+	decision, err := decisionpkg.ParseWatchDecision(message, testDecodeClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -562,11 +563,11 @@ func TestTerminalLifecycleEvidencePreservesTypedOperationsTransport(t *testing.T
 	if !adjusted {
 		t.Fatal("terminal lifecycle evidence was not adjusted")
 	}
-	encoded, err := marshalWatchDecisionResult(decision)
+	encoded, err := decisionpkg.MarshalWatchDecisionResult(decision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reparsed, err := parseWatchDecision(string(encoded), testDecodeClock)
+	reparsed, err := decisionpkg.ParseWatchDecision(string(encoded), testDecodeClock)
 	if err != nil {
 		t.Fatalf("reparse typed transport: %v\n%s", err, encoded)
 	}

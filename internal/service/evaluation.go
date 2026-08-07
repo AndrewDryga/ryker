@@ -12,6 +12,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
@@ -306,8 +307,8 @@ type evaluationObservation struct {
 	evidence          []core.Evidence
 	coverage          []core.Coverage
 	completion        *completionAssessment
-	assessment        *alertAssessment
-	attention         attentionAssessment
+	assessment        *decisionpkg.AlertAssessment
+	attention         decisionpkg.AttentionAssessment
 	memory            core.AgentMemory
 	proposals         int
 	replyMessageCount int
@@ -409,10 +410,10 @@ func evaluationExpectationMismatch(
 		)
 	}
 	if testCase.MinAttentionScore > 0 &&
-		observed.attention.score() < testCase.MinAttentionScore {
+		observed.attention.Score() < testCase.MinAttentionScore {
 		return fmt.Sprintf(
 			"attention score = %d, want at least %d",
-			observed.attention.score(),
+			observed.attention.Score(),
 			testCase.MinAttentionScore,
 		)
 	}
@@ -563,11 +564,11 @@ func evaluateCaseWithConfig(
 	var replyMessageCount int
 	var reason string
 	var reaction string
-	var attention attentionAssessment
+	var attention decisionpkg.AttentionAssessment
 	var memory core.AgentMemory
 	var evidence []core.Evidence
 	var coverage []core.Coverage
-	var assessment *alertAssessment
+	var assessment *decisionpkg.AlertAssessment
 	var completion *completionAssessment
 	var episode *core.WorkEpisode
 	var pendingApproval bool
@@ -575,7 +576,7 @@ func evaluateCaseWithConfig(
 	var strictOperations bool
 	switch testCase.Kind {
 	case "watch":
-		decision, err := parseWatchDecision(testCase.Output, now)
+		decision, err := decisionpkg.ParseWatchDecision(testCase.Output, now)
 		if err != nil {
 			result.Detail = err.Error()
 			return result
@@ -597,7 +598,7 @@ func evaluateCaseWithConfig(
 			state := evaluationWatchState(testCase)
 			state.RecentMessages = recent
 			episode = (&Service{cfg: *cfg}).episodeForWatchedInput(input, state)
-			normalizeAppAlertCompletion(input, &decision)
+			decisionpkg.NormalizeAppAlertCompletion(input, &decision)
 			decision = enforceExternalLifecycleCommunication(input, decision)
 			decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
 			decision = enforceAttentionPolicy(
@@ -619,7 +620,7 @@ func evaluateCaseWithConfig(
 		memory = decision.Memory
 		reason = decision.Reason
 		if decision.Action == "reply" {
-			replies := replySequence(decision.Message, decision.FollowupMessages)
+			replies := decisionpkg.ReplySequence(decision.Message, decision.FollowupMessages)
 			message = strings.Join(replies, "\n\n")
 			replyMessageCount = len(replies)
 		}
@@ -629,7 +630,7 @@ func evaluateCaseWithConfig(
 		completion = decision.Completion
 		strictOperations = len(decision.AppliedOperations) > 0
 	case "incident", "task":
-		report, structured, err := parseAgentReport(testCase.Output)
+		report, structured, err := decisionpkg.ParseAgentReport(testCase.Output)
 		if err != nil {
 			result.Detail = err.Error()
 			return result
@@ -640,7 +641,7 @@ func evaluateCaseWithConfig(
 		}
 		offers = agentReportOffers(report)
 		offer = firstEvaluationOffer(offers)
-		replies := replySequence(report.Message, report.FollowupMessages)
+		replies := decisionpkg.ReplySequence(report.Message, report.FollowupMessages)
 		message = strings.Join(replies, "\n\n")
 		replyMessageCount = len(replies)
 		evidence = report.Evidence
@@ -663,8 +664,8 @@ func evaluateCaseWithConfig(
 		return result
 	}
 	if cfg != nil {
-		evidence = sanitizeEvidence(evidence, "eval", "CEVALUATION", "", now)
-		coverage = sanitizeCoverage(coverage, "eval", "CEVALUATION", "", now)
+		evidence = decisionpkg.SanitizeEvidence(evidence, "eval", "CEVALUATION", "", now)
+		coverage = decisionpkg.SanitizeCoverage(coverage, "eval", "CEVALUATION", "", now)
 		sanitizer := slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes)
 		message = sanitizer.Text(message)
 		reason = sanitizer.Text(reason)
@@ -723,7 +724,7 @@ func evaluateCaseWithConfig(
 func hostedWatchDecisionOffers(
 	cfg config.Config,
 	testCase EvaluationCase,
-	decision watchDecision,
+	decision decisionpkg.WatchDecision,
 ) []string {
 	operatorID := "UEVALOPERATOR"
 	if len(cfg.Slack.Operators) > 0 {
@@ -778,7 +779,7 @@ func hostedWatchDecisionOffers(
 	return result
 }
 
-func watchDecisionOffers(decision watchDecision) []string {
+func watchDecisionOffers(decision decisionpkg.WatchDecision) []string {
 	result := make([]string, 0, 4)
 	if decision.IncidentTitle != "" {
 		return []string{"incident"}
@@ -801,7 +802,7 @@ func watchDecisionOffers(decision watchDecision) []string {
 	return result
 }
 
-func agentReportOffers(report agentReport) []string {
+func agentReportOffers(report decisionpkg.AgentReport) []string {
 	result := make([]string, 0, 3)
 	if report.MemoryOffer != nil {
 		result = append(result, "memory")

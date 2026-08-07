@@ -7,16 +7,17 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
 func TestAgentReportStrictSchemaAndLegacyCompatibility(t *testing.T) {
-	report, structured, err := parseAgentReport("A concise legacy answer.")
+	report, structured, err := decisionpkg.ParseAgentReport("A concise legacy answer.")
 	if err != nil || structured || report.Message != "A concise legacy answer." {
 		t.Fatalf("legacy = %+v, %v, %v", report, structured, err)
 	}
-	report, structured, err = parseAgentReport(`{
+	report, structured, err = decisionpkg.ParseAgentReport(`{
 	  "message":"Current state is degraded.",
 	  "evidence":[],
 	  "coverage":[],
@@ -43,7 +44,7 @@ func TestAgentReportStrictSchemaAndLegacyCompatibility(t *testing.T) {
 		"two values":    `{"message":"answer"} {"message":"other"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, _, err := parseAgentReport(input); err == nil {
+			if _, _, err := decisionpkg.ParseAgentReport(input); err == nil {
 				t.Fatal("invalid structured report was accepted")
 			}
 		})
@@ -51,7 +52,7 @@ func TestAgentReportStrictSchemaAndLegacyCompatibility(t *testing.T) {
 }
 
 func TestAgentReportAcceptsBoundedOrderedFollowupMessages(t *testing.T) {
-	report, structured, err := parseAgentReport(`{
+	report, structured, err := decisionpkg.ParseAgentReport(`{
 	  "message":"CI is green.",
 	  "followup_messages":[
 	    "The deployment is waiting for approval.",
@@ -66,13 +67,13 @@ func TestAgentReportAcceptsBoundedOrderedFollowupMessages(t *testing.T) {
 		t.Fatalf("compound report = %+v, structured=%t, err=%v", report, structured, err)
 	}
 
-	if _, err := decodeAgentReport(`{
+	if _, err := decisionpkg.DecodeAgentReport(`{
 	  "message":"First.",
 	  "followup_messages":["1","2","3","4","5","6"]
 	}`); err == nil || !strings.Contains(err.Error(), "more than 5") {
 		t.Fatalf("unbounded follow-up sequence error = %v", err)
 	}
-	if _, err := parseWatchDecision(`{
+	if _, err := decisionpkg.ParseWatchDecision(`{
 	  "action":"reply",
 	  "message":"First.",
 	  "followup_messages":[""]
@@ -82,7 +83,7 @@ func TestAgentReportAcceptsBoundedOrderedFollowupMessages(t *testing.T) {
 }
 
 func TestAgentReportGeneratedVisualContract(t *testing.T) {
-	report, structured, err := parseAgentReport(`{
+	report, structured, err := decisionpkg.ParseAgentReport(`{
 	  "message":"Here is the requested load chart.",
 	  "visuals":[{"artifact":"load.png","title":"Production load","alt_text":"Line chart of load over 24 hours."}]
 	}`)
@@ -90,14 +91,14 @@ func TestAgentReportGeneratedVisualContract(t *testing.T) {
 		report.Visuals[0].Artifact != "load.png" {
 		t.Fatalf("generated visual report = %+v, %v, %v", report, structured, err)
 	}
-	if _, err := decodeAgentReport(`{
+	if _, err := decisionpkg.DecodeAgentReport(`{
 	  "message":"Remember this and show a chart.",
 	  "visuals":[{"artifact":"load.png","title":"Load","alt_text":"Load chart."}],
 	  "memory_offer":{"scope":"workspace","subject":"health","predicate":"guidance","value":"deep","visibility":"workspace"}
 	}`); err == nil {
 		t.Fatal("generated visual was combined with a durable behavior offer")
 	}
-	if _, err := parseWatchDecision(`{
+	if _, err := decisionpkg.ParseWatchDecision(`{
 	  "action":"ignore",
 	  "visuals":[{"artifact":"load.png","title":"Load","alt_text":"Load chart."}]
 	}`, testDecodeClock); err == nil {
@@ -106,7 +107,7 @@ func TestAgentReportGeneratedVisualContract(t *testing.T) {
 }
 
 func TestAgentReportPreservesMessageWhenOptionalEnvelopeIsMalformed(t *testing.T) {
-	report, structured, err := parseAgentReport(
+	report, structured, err := decisionpkg.ParseAgentReport(
 		`{"message":"The database is healthy.","evidence":{"unexpected":"shape"}}`,
 	)
 	if err != nil || structured || report.Message != "The database is healthy." {
@@ -118,7 +119,7 @@ func TestAgentReportPreservesMessageWhenOptionalEnvelopeIsMalformed(t *testing.T
 }
 
 func TestAgentReportPreservesScheduleOfferWithDecisionReadyFollowup(t *testing.T) {
-	report, structured, err := parseAgentReport(`{
+	report, structured, err := decisionpkg.ParseAgentReport(`{
 	  "message":"I’ll recheck cms-web in 24 hours and report here.",
 	  "schedule_offer":{
 	    "title":"Recheck cms-web after 24 hours",
@@ -149,7 +150,7 @@ func TestAgentReportExtractsFinalEnvelopeAfterCoopProgress(t *testing.T) {
 		`"evidence":[{"claim":"Packs match","observation":"Nine declared packs are live",` +
 		`"source_type":"emisar","source_name":"list_packs"}],` +
 		`"coverage":[{"layer":"runtime","status":"healthy"}],"memory":{},"proposals":[]}`
-	report, structured, err := parseAgentReport(output)
+	report, structured, err := decisionpkg.ParseAgentReport(output)
 	if err != nil || !structured {
 		t.Fatalf("progress-prefixed report = %+v, %v, %v", report, structured, err)
 	}
@@ -165,7 +166,7 @@ func TestAgentReportAcceptsEmptyOptionalObservationTimestamps(t *testing.T) {
 		`"source_type":"repository","source_name":"infra/main.tf","observed_at":""}],` +
 		`"coverage":[{"layer":"application","status":"unknown","observed_at":""}],` +
 		`"memory":{},"proposals":[]}`
-	report, structured, err := parseAgentReport(output)
+	report, structured, err := decisionpkg.ParseAgentReport(output)
 	if err != nil || !structured || len(report.Evidence) != 1 ||
 		len(report.Coverage) != 1 || !report.Evidence[0].ObservedAt.IsZero() ||
 		!report.Coverage[0].ObservedAt.IsZero() {
@@ -190,7 +191,7 @@ func TestAgentReportRendersOnlyEvidenceBoundPackRecommendation(t *testing.T) {
 		`"capability_gaps":[{"capability":"GitHub Actions run and job inspection",` +
 		`"status":"not_installed","pack_id":"github-cli","evidence_refs":["pack-catalog"],` +
 		`"recommendation":"Install the ` + "`github-cli`" + ` pack on a runner with repository read access."}]}}}]}`
-	report, structured, err := parseAgentReport(output)
+	report, structured, err := decisionpkg.ParseAgentReport(output)
 	if err != nil || !structured {
 		t.Fatalf("capability report = %+v, structured=%v, err=%v", report, structured, err)
 	}
@@ -200,7 +201,7 @@ func TestAgentReportRendersOnlyEvidenceBoundPackRecommendation(t *testing.T) {
 
 	output = strings.Replace(output, "contains github-cli", "contains git provider utilities", 1)
 	output = strings.Replace(output, "packs/github-cli/pack.yaml", "packs/provider-tools/pack.yaml", 1)
-	if _, _, err := parseAgentReport(output); err == nil || !strings.Contains(err.Error(), "not identified by its evidence") {
+	if _, _, err := decisionpkg.ParseAgentReport(output); err == nil || !strings.Contains(err.Error(), "not identified by its evidence") {
 		t.Fatalf("fabricated pack recommendation accepted: %v", err)
 	}
 }
@@ -216,7 +217,7 @@ func TestAgentReportAddsObservedPackIDToCapabilityGuidance(t *testing.T) {
 		`"capability_gaps":[{"capability":"GCP billing inspection","status":"not_advertised",` +
 		`"pack_id":"gcp-billing","evidence_refs":["pack-catalog"],` +
 		`"recommendation":"Reload the runner after deploying the observed version."}]}}`
-	report, structured, err := parseAgentReport(output)
+	report, structured, err := decisionpkg.ParseAgentReport(output)
 	if err != nil || !structured {
 		t.Fatalf("capability report = %+v, structured=%t, err=%v", report, structured, err)
 	}
@@ -230,7 +231,7 @@ func TestAgentReportAddsObservedPackIDToCapabilityGuidance(t *testing.T) {
 
 func TestAgentReportRecoversMessageFromMalformedFinalEnvelopeAfterCoopProgress(t *testing.T) {
 	output := `I’m checking the repository.{"message":"Audit complete","tool_output":"secret"}`
-	report, structured, err := parseAgentReport(output)
+	report, structured, err := decisionpkg.ParseAgentReport(output)
 	if err != nil || structured || report.Message != "Audit complete" {
 		t.Fatalf("recovered progress-prefixed report = %+v structured:%v err:%v",
 			report, structured, err)
@@ -238,7 +239,7 @@ func TestAgentReportRecoversMessageFromMalformedFinalEnvelopeAfterCoopProgress(t
 }
 
 func TestStructuredEvidenceAndCoverageEnumsAreHostValidated(t *testing.T) {
-	evidence := sanitizeEvidence([]core.Evidence{{
+	evidence := decisionpkg.SanitizeEvidence([]core.Evidence{{
 		Claim: "A claim", Observation: "An observation",
 		SourceType: "shell", SourceName: "tool",
 		Confidence: "certain",
@@ -248,7 +249,7 @@ func TestStructuredEvidenceAndCoverageEnumsAreHostValidated(t *testing.T) {
 		evidence[0].Confidence != "" || evidence[0].SourceURL != "" {
 		t.Fatalf("evidence = %+v", evidence)
 	}
-	coverage := sanitizeCoverage([]core.Coverage{
+	coverage := decisionpkg.SanitizeCoverage([]core.Coverage{
 		{Layer: "scheduler", Status: "healthy"},
 		{Layer: "everything", Status: "perfect"},
 	}, "", "C1", "slack_1", testDecodeClock)
@@ -276,7 +277,7 @@ func TestStructuredResponsePolicyOwnsFormattingAndActionCatalog(t *testing.T) {
 }
 
 func TestTypedResultOperationsFoldIntoAgentAndWatchResults(t *testing.T) {
-	report, structured, err := parseAgentReport(`{
+	report, structured, err := decisionpkg.ParseAgentReport(`{
   "operations": [
     {"id":"e1","type":"record_evidence","evidence":{"claim_id":"host.current_state","relation":"supports","claim":"host responds","observation":"api-1 responded","source_type":"emisar","source_name":"host check","dimensions":{"host":"api-1","environment":"production"}}},
     {"id":"p1","type":"report_progress","progress":{"phase":"verifying","summary":"Host evidence is complete"}},
@@ -288,7 +289,7 @@ func TestTypedResultOperationsFoldIntoAgentAndWatchResults(t *testing.T) {
 		t.Fatalf("typed report = %+v, structured = %t, err = %v", report, structured, err)
 	}
 
-	decision, err := parseWatchDecision(`{
+	decision, err := decisionpkg.ParseWatchDecision(`{
   "action":"reply",
   "attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":1,"ownership":3},
   "reason":"direct request",
@@ -302,7 +303,7 @@ func TestTypedResultOperationsFoldIntoAgentAndWatchResults(t *testing.T) {
 }
 
 func TestTypedResultOperationsAreAuthoritativeOverRedundantLegacyFields(t *testing.T) {
-	report, structured, err := parseAgentReport(`Result follows:
+	report, structured, err := decisionpkg.ParseAgentReport(`Result follows:
 {
   "message":"Old projection that should not win.",
   "verdict":"healthy",
@@ -316,7 +317,7 @@ That is the complete result.`)
 		t.Fatalf("authoritative typed report = %+v, structured=%t, err=%v", report, structured, err)
 	}
 
-	decision, err := parseWatchDecision(`{
+	decision, err := decisionpkg.ParseWatchDecision(`{
   "action":"ignore",
   "message":"Redundant legacy projection.",
   "operations":[
@@ -330,7 +331,7 @@ That is the complete result.`)
 }
 
 func TestMalformedTypedOperationsCannotDisappearBehindLegacyIgnore(t *testing.T) {
-	_, err := parseWatchDecision(`{
+	_, err := decisionpkg.ParseWatchDecision(`{
   "action":"ignore",
   "operations":[
     {"id":"bad","type":"request_approval","task":{"kind":"incident","title":"wrong payload"}}
@@ -342,7 +343,7 @@ func TestMalformedTypedOperationsCannotDisappearBehindLegacyIgnore(t *testing.T)
 }
 
 func TestTypedResultOperationsReturnExactOperationError(t *testing.T) {
-	_, _, err := parseAgentReport(`{
+	_, _, err := decisionpkg.ParseAgentReport(`{
   "operations":[
     {"id":"e1","type":"record_evidence","evidence":{"claim_id":"host.current_state","claim":"host state","observation":"host responded","relation":"supports","source_type":"emisar","source_name":"host check"}},
     {"id":"bad","type":"request_approval","task":{"kind":"incident","title":"wrong payload"}}
@@ -355,7 +356,7 @@ func TestTypedResultOperationsReturnExactOperationError(t *testing.T) {
 }
 
 func TestTypedResultOperationsReturnActionableCompletionShapeError(t *testing.T) {
-	_, _, err := parseAgentReport(`{
+	_, _, err := decisionpkg.ParseAgentReport(`{
   "operations":[
     {"id":"c1","type":"complete_episode","completion":{"message":"Blocked.","completion":{"status":"blocked","blocker_kind":"source_unavailable","blocker":"missing later evidence"}}}
   ]
@@ -389,7 +390,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	}
 	report, err := svc.persistAgentReport(
 		ctx,
-		agentReport{Message: "Emisar is waiting for approval.", PendingApproval: &pending},
+		decisionpkg.AgentReport{Message: "Emisar is waiting for approval.", PendingApproval: &pending},
 		incident,
 		incident.ChannelID,
 		"slack_approval_1",
@@ -410,7 +411,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	foreign.ApprovalURL = "https://evil.example/app/acme/approvals/apr_evil"
 	report, err = svc.persistAgentReport(
 		ctx,
-		agentReport{Message: "Untrusted link.", PendingApproval: &foreign},
+		decisionpkg.AgentReport{Message: "Untrusted link.", PendingApproval: &foreign},
 		incident,
 		incident.ChannelID,
 		"slack_approval_2",
@@ -429,7 +430,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	unowned.ApprovalURL = "https://emisar.dev/app/acme/approvals/apr_unowned"
 	report, err = svc.persistAgentReport(
 		ctx,
-		agentReport{Message: "No operator.", PendingApproval: &unowned},
+		decisionpkg.AgentReport{Message: "No operator.", PendingApproval: &unowned},
 		incident,
 		incident.ChannelID,
 		"initial_turn",
@@ -445,7 +446,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	shared.ApprovalURL = "https://emisar.dev/app/acme/approvals/apr_shared"
 	report, err = svc.persistAgentReport(
 		ctx,
-		agentReport{Message: "Emisar is waiting for approval.", PendingApproval: &shared},
+		decisionpkg.AgentReport{Message: "Emisar is waiting for approval.", PendingApproval: &shared},
 		core.Incident{},
 		"CSHARED",
 		"slack_shared_approval",
@@ -471,7 +472,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 // downstream could tell which reading they got.
 func TestResultProtocolShapeIsRecorded(t *testing.T) {
 	// A response with no operations at all never used the typed protocol.
-	legacyOnly, _, err := parseAgentReport(`{"message":"plain prose answer"}`)
+	legacyOnly, _, err := decisionpkg.ParseAgentReport(`{"message":"plain prose answer"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +481,7 @@ func TestResultProtocolShapeIsRecorded(t *testing.T) {
 	}
 
 	// A well-formed typed response used it, so neither flag is set.
-	typed, _, err := parseAgentReport(`{"message":"","operations":[
+	typed, _, err := decisionpkg.ParseAgentReport(`{"message":"","operations":[
 		{"id":"c1","type":"complete_episode","completion":{"message":"answered"}}]}`)
 	if err != nil {
 		t.Fatal(err)
@@ -493,7 +494,7 @@ func TestResultProtocolShapeIsRecorded(t *testing.T) {
 	// beside it. Accepting the prose would mean the same turn could be read two
 	// ways with nobody told which happened — and the model would never learn
 	// that its operation stream was wrong.
-	_, _, err = parseAgentReport(`{"message":"usable prose","operations":[
+	_, _, err = decisionpkg.ParseAgentReport(`{"message":"usable prose","operations":[
 		{"id":"bad","type":"complete_episode"}]}`)
 	if err == nil {
 		t.Fatal("a malformed operation stream was silently accepted beside legacy prose")

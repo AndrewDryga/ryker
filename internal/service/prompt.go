@@ -8,14 +8,13 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 )
 
 const maxPromptBytes = 60 << 10
 
 var errEvidenceTooLarge = errors.New("incident evidence exceeds the Coop prompt limit")
-
-const noConversationReply = "<responder-no-reply/>"
 
 const slackPlainLanguagePolicy = "Write like a capable teammate in Slack, not a report generator, policy engine, or technical manual.\n\n" +
 	"- Default to natural, plain English. Use common words, contractions, and the team's established vocabulary. Prefer `use` to `utilize`, `before` to `prior to`, and `because` to wordy causal phrases. Do not sound stiff merely to sound professional.\n" +
@@ -186,7 +185,7 @@ func operatorPrompt(userID, text string) string {
 
 func conversationPrompt(userID, text string, direct bool) string {
 	text = boundedOperatorText(text)
-	replyPolicy := "This message was ambient room conversation. Reply naturally and concisely if it asks a question, requests work, addresses you, corrects material incident context, or gives you something useful to add. If a human teammate would reasonably stay silent, use " + noConversationReply + " as the structured response message."
+	replyPolicy := "This message was ambient room conversation. Reply naturally and concisely if it asks a question, requests work, addresses you, corrects material incident context, or gives you something useful to add. If a human teammate would reasonably stay silent, use " + decisionpkg.NoConversationReply + " as the structured response message."
 	if direct {
 		replyPolicy = "This message directly addresses you in the incident conversation. Reply naturally and concisely. Do not require an @mention."
 	}
@@ -217,9 +216,9 @@ func boundedOperatorText(text string) string {
 }
 
 func suppressConversationReply(text string) bool {
-	report, _, err := parseAgentReport(text)
+	report, _, err := decisionpkg.ParseAgentReport(text)
 	if err == nil {
 		text = report.Message
 	}
-	return strings.TrimSpace(text) == noConversationReply
+	return strings.TrimSpace(text) == decisionpkg.NoConversationReply
 }
