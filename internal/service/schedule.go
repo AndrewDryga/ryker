@@ -34,16 +34,28 @@ func (s *Service) prepareScheduleOfferAction(
 	input core.SlackInput,
 	offer *core.ScheduleOffer,
 ) (string, core.ScheduledTask, string, bool) {
-	task, when, ok := s.normalizeScheduleOffer(ctx, input, offer)
-	if !ok || s.store == nil {
+	if s.store == nil {
 		return "", core.ScheduledTask{}, "", false
 	}
-	replacementID, err := s.scheduleReplacementCandidate(ctx, task)
+	replacementID, err := s.inheritScheduleOfferFromConversation(ctx, input, offer)
 	if err != nil {
 		if s.log != nil {
-			s.log.Warn("find schedule replacement", "source_input", input.ID, "error", err)
+			s.log.Warn("inherit schedule continuation", "source_input", input.ID, "error", err)
 		}
 		return "", core.ScheduledTask{}, "", false
+	}
+	task, when, ok := s.normalizeScheduleOffer(ctx, input, offer)
+	if !ok {
+		return "", core.ScheduledTask{}, "", false
+	}
+	if replacementID == "" {
+		replacementID, err = s.scheduleReplacementCandidate(ctx, task)
+		if err != nil {
+			if s.log != nil {
+				s.log.Warn("find schedule replacement", "source_input", input.ID, "error", err)
+			}
+			return "", core.ScheduledTask{}, "", false
+		}
 	}
 	proposal, err := s.store.ScheduleProposals.Create(ctx, core.ScheduleProposal{
 		TeamID: s.cfg.Slack.TeamID, ChannelID: input.ChannelID,
@@ -62,6 +74,109 @@ func (s *Service) prepareScheduleOfferAction(
 		return "", core.ScheduledTask{}, "", false
 	}
 	return string(payload), task, when, true
+}
+
+// inheritScheduleOfferFromConversation makes short confirmations such as
+// "activate it" reliable without asking the model to repeat stable schedule
+// metadata. The source thread is the authority: only one enabled compatible
+// schedule may be inherited, so a new or ambiguous request still has to stand
+// on its own.
+func (s *Service) inheritScheduleOfferFromConversation(
+	ctx context.Context,
+	input core.SlackInput,
+	offer *core.ScheduleOffer,
+) (string, error) {
+	if offer == nil || input.ThreadTS == "" {
+		return "", nil
+	}
+	tasks, err := s.store.ListScheduledTasksForChannel(ctx, input.ChannelID, 100)
+	if err != nil {
+		return "", err
+	}
+	matches := make([]core.ScheduledTask, 0, 1)
+	for _, existing := range tasks {
+		if !existing.Enabled || existing.TeamID != s.cfg.Slack.TeamID || existing.ThreadTS != input.ThreadTS ||
+			!scheduleOfferCompatibleWithTask(*offer, existing) {
+			continue
+		}
+		matches = append(matches, existing)
+	}
+	if len(matches) != 1 {
+		return "", nil
+	}
+	existing := matches[0]
+	if strings.TrimSpace(offer.Title) == "" {
+		offer.Title = existing.Title
+	}
+	if strings.TrimSpace(offer.Prompt) == "" {
+		offer.Prompt = existing.Prompt
+	}
+	if strings.TrimSpace(offer.Repository) == "" {
+		offer.Repository = existing.Repository
+	}
+	if strings.TrimSpace(offer.DeliveryChannel) == "" {
+		offer.DeliveryChannel = existing.DeliveryChannel
+	}
+	if strings.TrimSpace(offer.Recurrence) == "" {
+		offer.Recurrence = existing.Recurrence
+	}
+	if offer.IntervalSeconds == 0 {
+		offer.IntervalSeconds = existing.IntervalSeconds
+	}
+	if len(offer.Weekdays) == 0 {
+		offer.Weekdays = append([]string(nil), existing.Weekdays...)
+	}
+	if offer.DayOfMonth == 0 {
+		offer.DayOfMonth = existing.DayOfMonth
+	}
+	if strings.TrimSpace(offer.LocalTime) == "" {
+		offer.LocalTime = existing.LocalTime
+	}
+	if strings.TrimSpace(offer.Timezone) == "" {
+		offer.Timezone = existing.Timezone
+	}
+	if strings.TrimSpace(offer.CatchUp) == "" {
+		offer.CatchUp = existing.CatchUp
+	}
+	return existing.ID, nil
+}
+
+func scheduleOfferCompatibleWithTask(offer core.ScheduleOffer, task core.ScheduledTask) bool {
+	if value := strings.ToLower(strings.TrimSpace(offer.Repository)); value != "" && value != task.Repository {
+		return false
+	}
+	if value := strings.TrimSpace(offer.DeliveryChannel); value != "" && value != firstNonemptyScheduleChannel(task) {
+		return false
+	}
+	if value := strings.ToLower(strings.TrimSpace(offer.Recurrence)); value != "" && value != task.Recurrence {
+		return false
+	}
+	if offer.IntervalSeconds != 0 && offer.IntervalSeconds != task.IntervalSeconds {
+		return false
+	}
+	if offer.DayOfMonth != 0 && offer.DayOfMonth != task.DayOfMonth {
+		return false
+	}
+	if value := strings.TrimSpace(offer.LocalTime); value != "" && value != task.LocalTime {
+		return false
+	}
+	if value := strings.TrimSpace(offer.Timezone); value != "" && value != task.Timezone {
+		return false
+	}
+	if value := strings.ToLower(strings.TrimSpace(offer.CatchUp)); value != "" && value != task.CatchUp {
+		return false
+	}
+	if len(offer.Weekdays) != 0 {
+		weekdays := append([]string(nil), offer.Weekdays...)
+		for index := range weekdays {
+			weekdays[index] = strings.ToLower(strings.TrimSpace(weekdays[index]))
+		}
+		sort.Strings(weekdays)
+		if !equalScheduleWeekdays(weekdays, task.Weekdays) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) normalizeScheduleOffer(

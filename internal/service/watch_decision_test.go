@@ -769,9 +769,9 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 	defer st.Close()
 	now := time.Now().UTC().Truncate(time.Second)
 	existing, err := st.CreateScheduledTask(ctx, core.ScheduledTask{
-		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", ThreadTS: "older-thread", DeliveryChannel: "CWATCH",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", ThreadTS: "1700.800", DeliveryChannel: "CREPORTS",
 		Repository: "repo", Title: "Daily report v3", Prompt: "Execute whole-platform-health-review-v3@3.",
-		Recurrence: "daily", StartAt: now.Add(time.Hour), LocalTime: "09:00", Timezone: "UTC",
+		Recurrence: "daily", StartAt: now.Add(time.Hour), LocalTime: "09:00", Timezone: "America/Mexico_City",
 		CatchUp: "latest", ActorID: cfg.Slack.Operators[0], SourceRef: "old-schedule",
 		NextRunAt: now.Add(time.Hour), ExpiresAt: now.Add(90 * 24 * time.Hour),
 	}, 10, 5)
@@ -780,6 +780,7 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 	}
 	slackClient := &fakeSlack{
 		dedupePosts: true,
+		channel:     slackui.Channel{ID: "CREPORTS", Name: "reports", Member: true},
 		history: []slackui.HistoryMessage{
 			{Timestamp: "1700.800", UserID: "U123ABC", Text: "Published, use whole-platform-health-review-v5@5 for daily reports."},
 			{Timestamp: "1700.820", ThreadTS: "1700.800", UserID: "U999BOT", BotID: "B999BOT", Text: "The runbook is ready; activating the recurring 09:00 delivery remains."},
@@ -793,14 +794,11 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 		"reason":"the operator explicitly activated the established daily report",
 		"message":"The daily report is ready.",
 		"schedule_offer":{
-			"title":"Daily comprehensive health report",
 			"prompt":"Execute whole-platform-health-review-v5@5 with fresh evidence and report actionable findings.",
 			"repository":"repo",
 			"recurrence":"daily",
 			"local_time":"09:00",
-			"timezone":"UTC",
-			"catch_up":"latest",
-			"expires_in":"90d"
+			"catch_up":"latest"
 		}
 	}`
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
@@ -833,7 +831,9 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 	if err != nil || len(schedules) != 1 {
 		t.Fatalf("daily schedules = %+v, err=%v", schedules, err)
 	}
-	if schedules[0].ID != existing.ID || !strings.Contains(schedules[0].Prompt, "v5@5") {
+	if schedules[0].ID != existing.ID || !strings.Contains(schedules[0].Prompt, "v5@5") ||
+		schedules[0].Title != existing.Title || schedules[0].DeliveryChannel != "CREPORTS" ||
+		schedules[0].Timezone != "America/Mexico_City" {
 		t.Fatalf("updated daily schedule = %+v", schedules[0])
 	}
 }
