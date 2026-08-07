@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - 2026-08-07
+## 0.1.0
 
 - **Cross-provider model failover.** Session policies may name an ordered target ladder
   (`target: [claude:opus/max@oncall, codex:gpt-5.6-sol/xhigh@oncall]`). Coop rotates a rate-limited
