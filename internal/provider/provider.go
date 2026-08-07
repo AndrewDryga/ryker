@@ -75,8 +75,23 @@ const (
 	// distinct from KindUsageLimit, which is a quota that will not recover on
 	// its own.
 	KindRateLimit = "rate_limit"
-	// KindUsageLimit: the account has no usable quota. Waiting does not fix it.
+	// KindUsageLimit: the account has no usable quota. It recovers on a billing
+	// boundary rather than in a burst window, so it waits longer.
 	KindUsageLimit = "usage_limit"
+	// KindProviderRefused: the agent protocol refused the request and did not
+	// say why.
+	//
+	// Responder sees only "ACP request was rejected"; the reason lives in
+	// Coop's session log, two layers down. On 2026-08-07 that reason was a
+	// spent quota with a reset date four days out, and every refusal in between
+	// surfaced in Slack as "Responder could not complete this check" for work
+	// that was fine.
+	//
+	// Treated as a wait rather than a failure because every cause of it is one:
+	// a quota, a rate limit, or a credential that needs attention. None is
+	// improved by telling the person who asked, and the first two clear on
+	// their own. It stays visible in last_error, the logs and the metrics.
+	KindProviderRefused = "provider_refused"
 )
 
 type Failure struct {
@@ -128,6 +143,17 @@ func Classify(detail string) Failure {
 			Kind:        "model",
 			Summary:     "The configured model is unavailable to the current provider account.",
 			OperatorFix: "Choose a model available to that account, restart Responder so managed Coop reloads it, then retry.",
+		}
+	// After the specific causes, not before: Coop now carries the adapter's own
+	// reason inside this string ("ACP request was rejected: <reason>"), and a
+	// reason that names a quota, login, or model must classify as that. This
+	// case is what remains — a refusal whose reason said nothing recognisable.
+	case containsAny(lower, "acp request was rejected"):
+		return Failure{
+			Kind: KindProviderRefused,
+			Summary: "The AI provider refused the request without a recognisable reason. " +
+				"The turn's error detail carries the provider's own words.",
+			OperatorFix: "Check the provider's quota and credentials; the work stays queued meanwhile.",
 		}
 	default:
 		return Failure{

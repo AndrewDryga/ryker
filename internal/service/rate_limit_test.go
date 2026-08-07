@@ -221,3 +221,52 @@ func seedPreparingRun(t *testing.T, st *store.Store) core.AgentRun {
 	}
 	return leased
 }
+
+// The string Responder actually receives must be recognised.
+//
+// The classifier matched "acl request was rejected" while the transport emits
+// "ACP request was rejected" — one letter apart, and the reason nothing
+// downstream ever handled it. Every such refusal fell through to the default
+// and failed the run, which is how a spent quota reached Slack as "Responder
+// could not complete this check" for four days.
+func TestUnexplainedACPRefusalWaitsRatherThanFailing(t *testing.T) {
+	if kind := provider.Classify("ACP request was rejected").Kind; kind != provider.KindProviderRefused {
+		t.Fatalf("Classify(\"ACP request was rejected\").Kind = %q; the exact string the transport emits must be handled", kind)
+	}
+	if _, waits := providerBackoff[provider.KindProviderRefused]; !waits {
+		t.Fatal("an unexplained refusal fails the run, so it reaches Slack")
+	}
+
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	svc.log = slog.New(slog.DiscardHandler)
+	run := seedPreparingRun(t, st)
+
+	handled, requeueErr := svc.requeueIfRateLimited(
+		ctx, run, errors.New("ACP request was rejected"),
+	)
+	if requeueErr != nil {
+		t.Fatal(requeueErr)
+	}
+	if !handled {
+		t.Fatal("the refusal was treated as a real failure")
+	}
+	after, getErr := st.GetAgentRun(ctx, run.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if after.State != core.AgentRunPending || after.Failures != run.Failures {
+		t.Fatalf("run = %q with %d failures; want pending and no attempt spent",
+			after.State, after.Failures)
+	}
+	if len(slack.posts) != 0 {
+		t.Fatalf("an unexplained refusal reached Slack: %+v", slack.posts)
+	}
+}

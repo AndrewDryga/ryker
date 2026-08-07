@@ -155,9 +155,10 @@ func TestTriageFinalizationExhaustionUsesFrozenSlackDestination(t *testing.T) {
 		t.Fatalf("terminal triage run = %+v, %v", stored, err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	if len(slack.posts) != 1 || slack.posts[0].channel != run.ChannelID ||
-		slack.posts[0].thread != run.ThreadTS {
-		t.Fatalf("fallback triage notice = %+v", slack.posts)
+	// Nothing is posted. A failure Responder cannot explain is not something a
+	// channel can act on, so the message is paused and the work stays queued.
+	if len(slack.posts) != 0 {
+		t.Fatalf("a terminal triage failure posted to Slack: %+v", slack.posts)
 	}
 	if len(slack.statuses) != 1 || slack.statuses[0].text != "" ||
 		slack.statuses[0].channel != run.ChannelID ||

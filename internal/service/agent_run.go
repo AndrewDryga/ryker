@@ -1309,6 +1309,10 @@ func advanceFailedSessionGeneration(err error) bool {
 var providerBackoff = map[string]time.Duration{
 	provider.KindRateLimit:  provider.RateLimitRetryDelay,
 	provider.KindUsageLimit: provider.UsageLimitRetryDelay,
+	// An unexplained refusal polls at the rate-limit interval: it is the
+	// shortest of the causes it might be, and guessing long would delay
+	// recovery from the one that clears fastest.
+	provider.KindProviderRefused: provider.RateLimitRetryDelay,
 }
 
 func (s *Service) requeueIfRateLimited(
@@ -1322,6 +1326,17 @@ func (s *Service) requeueIfRateLimited(
 	if !waits {
 		return false, nil
 	}
+	// An exhausted Coop ladder stamps the soonest rung reset into its detail;
+	// waiting for that instant beats polling on the generic interval.
+	if kind == provider.KindRateLimit {
+		if reset := provider.LadderRetryDelay(detail, s.now()); reset > delay {
+			delay = reset
+		}
+	}
+	// A wait this long should not sit behind a "working on it" status. The
+	// pause is cosmetic and the queue is the guarantee, exactly as with the
+	// paused-message reaction.
+	s.parkWatchedStatus(ctx, run, "clear watched Slack status while the provider refuses work")
 	next := s.now().Add(delay)
 	if s.log != nil {
 		s.log.Warn(
@@ -1375,23 +1390,10 @@ func (s *Service) failPreparingTriageRun(
 	state decisionpkg.WatchTurnState,
 	detail string,
 ) error {
-	publish := publishTriageFailure(input, state)
-	if publish {
-		if err := s.postInputNotice(
-			ctx,
-			"watch_failure_"+input.ID,
-			input,
-			watchFailureNotice(detail),
-		); err != nil {
-			return s.store.RetryAgentRun(
-				ctx,
-				run.ID,
-				"deliver terminal triage failure: "+trimError(err),
-				s.queueDelay(run.Failures+1),
-				false,
-			)
-		}
-	}
+	// The channel is never told that Responder failed. It is told, with a
+	// pause on the message, that this has not been answered yet — and the work
+	// stays queued so it still can be.
+	s.markInputPaused(ctx, input)
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return s.store.RetryAgentRun(
 			ctx,
@@ -1404,7 +1406,7 @@ func (s *Service) failPreparingTriageRun(
 	_ = s.retireFailedWatchSession(ctx, input, state)
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-		Outcome: triageFailureOutcome(publish), Detail: detail,
+		Outcome: "failed_paused", Detail: detail,
 	})
 	return s.store.RetryAgentRun(ctx, run.ID, detail, s.now(), true)
 }
@@ -1995,25 +1997,6 @@ func (s *Service) stagePolledAgentRunTerminal(
 			return nil
 		}
 	}
-	if provider.LadderExhausted(turn.ErrorCode) {
-		next := s.now().Add(provider.LadderRetryDelay(detail, s.now()))
-		reason := "Coop reports " + detail + "; the work stays queued"
-		s.parkWatchedStatus(ctx, run, "clear watched Slack status while every model is rate limited")
-		if err := s.store.DeferRunningAgentRun(
-			ctx, run.ID, reason, cursor, next,
-		); err != nil {
-			return err
-		}
-		if run.Mode == core.AgentRunTriage {
-			_ = s.advanceTriageSessionEvents(ctx, run, cursor)
-		}
-		s.log.Warn(
-			"every model in the Coop policy ladder is rate limited; work remains queued",
-			"run", run.ID, "retry_at", next.UTC().Format(time.RFC3339),
-			"detail", detail,
-		)
-		return nil
-	}
 	if reason, replay := replayAgentRunFailure(
 		run, eventType, turn, s.cfg.Limits.MaxAgentRunAttempts,
 	); replay {
@@ -2053,6 +2036,16 @@ func (s *Service) stagePolledAgentRunTerminal(
 		return nil
 	}
 	terminalState := strings.TrimPrefix(eventType, "turn.")
+	// A turn the provider refused is not a turn that failed. This is the path
+	// a refusal actually takes — Coop reports turn.failed and the result is
+	// staged as terminal without any retry function seeing it, which is why a
+	// refused run ended as 'failed' with failure_count 0 while three other
+	// guards were in place.
+	if terminalState == "failed" {
+		if requeued, err := s.requeueIfRateLimited(ctx, run, errors.New(detail)); requeued {
+			return err
+		}
+	}
 	staged := stagedTurn{result: []byte(turn.AssistantMessage), detail: detail}
 	if run.Mode == core.AgentRunTriage && terminalState == "completed" {
 		if handled, err := s.stageTriageTerminal(ctx, run, turn, cursor, &staged); handled {
@@ -2457,11 +2450,40 @@ func (s *Service) processAgentRunFinalization(ctx context.Context) error {
 	}
 }
 
+// requeueRefusedFinalization is requeueIfRateLimited for the finalization lane.
+func (s *Service) requeueRefusedFinalization(
+	ctx context.Context,
+	run core.AgentRun,
+	cause error,
+) (bool, error) {
+	detail := trimError(cause)
+	delay, waits := providerBackoff[provider.Classify(detail).Kind]
+	if !waits {
+		return false, nil
+	}
+	next := s.now().Add(delay)
+	if s.log != nil {
+		s.log.Warn(
+			"the AI provider refused this finalization; it stays queued rather than failing",
+			"run", run.ID, "retry_at", next.UTC().Format(time.RFC3339), "detail", detail,
+		)
+	}
+	return true, s.store.RequeueRateLimitedFinalization(ctx, run.ID, detail, next)
+}
+
 func (s *Service) retryAgentRunFinalization(
 	ctx context.Context,
 	run core.AgentRun,
 	cause error,
 ) error {
+	// The third path a provider refusal can arrive on, after retryAgentRun and
+	// retryIncidentAgentRun. It was missed when the first two were guarded, and
+	// the symptom was that refusals still reached Slack — from finalization
+	// rather than preparation. Anything added later that fails a run needs this
+	// too.
+	if requeued, err := s.requeueRefusedFinalization(ctx, run, cause); requeued {
+		return err
+	}
 	attempt := run.Failures + 1
 	if attempt >= s.cfg.Limits.MaxAgentRunAttempts {
 		if err := s.stageTerminalFinalizationFailure(ctx, run, cause); err == nil {
@@ -2525,21 +2547,10 @@ func (s *Service) stageTerminalFinalizationFailure(
 			})
 			return nil
 		}
-		state, _ := decodeWatchRunContext(run)
-		publish := publishTriageFailure(input, state)
-		if publish {
-			if err := s.postInputNotice(
-				ctx,
-				"watch_finalization_failure_"+run.ID,
-				input,
-				watchFailureNotice(detail),
-			); err != nil {
-				return err
-			}
-		}
+		s.markInputPaused(ctx, input)
 		s.audit(ctx, core.AuditEvent{
 			Kind: "agent.finalization", ObjectID: run.ID,
-			Outcome: triageFailureOutcome(publish), Detail: detail,
+			Outcome: "failed_paused", Detail: detail,
 		})
 		if !s.cfg.Slack.NativeStatus {
 			return nil
@@ -3159,28 +3170,12 @@ func (s *Service) finishTriageRunFailure(
 	state decisionpkg.WatchTurnState,
 	detail string,
 ) error {
-	message := slackui.Notice(watchFailureNotice(detail))
+	// No message, in any of these cases. The channel gets a pause on the
+	// original message and the work stays queued; an error about Responder's
+	// plumbing is not something the person who asked can act on.
+	s.markInputPaused(ctx, input)
 	if state.ApprovalContinuation {
-		if err := s.postInputMessageAt(
-			ctx,
-			core.FirstNonempty(state.ReplyDeliveryID, "emisar_approval_failure_"+run.ID),
-			input.ChannelID,
-			state.ResponseThreadTS,
-			message,
-		); err != nil {
-			return err
-		}
 		return s.clearWatchPendingStatus(ctx, input, state)
-	}
-	publish := publishTriageFailure(input, state)
-	if publish {
-		post := s.postInputMessage
-		if input.Kind == "shortcut" || len(state.MatchedRules) > 0 {
-			post = s.postInputMessageInSourceThread
-		}
-		if err := post(ctx, "watch_failure_"+input.ID, input, message); err != nil {
-			return err
-		}
 	}
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return err
@@ -3190,45 +3185,7 @@ func (s *Service) finishTriageRunFailure(
 	}
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-		Outcome: triageFailureOutcome(publish), Detail: detail,
+		Outcome: "failed_paused", Detail: detail,
 	})
 	return nil
-}
-
-// publishTriageFailure decides whether a terminally failed triage tells anyone.
-//
-// The question is whether someone is waiting. Work Responder was asked to do
-// must never disappear silently: an alert that matched a standing rule, or a
-// message addressed to Responder, has an operator behind it who will otherwise
-// read the silence as "handled".
-//
-// Purely ambient work is different. Responder watches alert channels and
-// sometimes decides on its own to look at something. Nobody is waiting on that,
-// and announcing every such failure would flood an alert channel at precisely
-// the moment it is most crowded — a provider outage makes Responder fail on
-// every alert at once, and a wall of "I could not check this" helps no one.
-//
-// So: asked-for work always reports. Unasked work stays quiet and is recorded
-// as failed_suppressed for whoever reads the audit log.
-//
-// Two further suppressions are deliberate. A private verification replay has no
-// audience by construction. A recheck failure is silent because the original
-// turn already answered — the recheck was Responder's own follow-up, and
-// reporting its failure would surface machinery the operator never asked about.
-func publishTriageFailure(input core.SlackInput, state decisionpkg.WatchTurnState) bool {
-	if isPrivateSlackVerificationReplay(input) || state.RecheckOriginRunID != "" {
-		return false
-	}
-	if state.ApprovalContinuation || input.Kind != "bot_message" {
-		return true
-	}
-	// An alert someone told Responder to watch is asked-for work.
-	return len(state.MatchedRules) > 0
-}
-
-func triageFailureOutcome(published bool) string {
-	if published {
-		return "failed"
-	}
-	return "failed_suppressed"
 }

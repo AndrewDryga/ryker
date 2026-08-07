@@ -180,9 +180,6 @@ func TestEpisodeRecheckIsSilentWhileBackgroundWorkRunsOrFails(t *testing.T) {
 	if watchInputWantsPendingStatus(input, state) {
 		t.Fatal("background recheck requested a visible pending status")
 	}
-	if publishTriageFailure(input, state) {
-		t.Fatal("background recheck failure was publishable")
-	}
 }
 
 func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {

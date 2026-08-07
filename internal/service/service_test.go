@@ -550,16 +550,8 @@ func TestMalformedDeepCompletionIsCorrectedAndRetried(t *testing.T) {
 	}
 }
 
-func TestStructuredResultFailureNoticeIsOperatorFacing(t *testing.T) {
-	detail := "the deep work episode has no completion assessment; continue until ready"
-	notice := watchFailureNotice(detail)
-	if !strings.Contains(notice, "couldn't finish this assessment") ||
-		!strings.Contains(notice, "completeness checks after retrying") ||
-		strings.Contains(notice, detail) ||
-		strings.Contains(notice, "Reason reported by Coop") {
-		t.Fatalf("structured failure notice = %q", notice)
-	}
-}
+// The operator-facing failure notice is gone. Responder does not tell a channel
+// that it failed — it pauses the message and keeps the work queued.
 
 func TestStructuredCorrectionBudgetIsBounded(t *testing.T) {
 	if terminalStructuredCorrection(1, 20) ||

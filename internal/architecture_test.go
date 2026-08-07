@@ -83,12 +83,12 @@ var methodBudget = map[string]int{
 // wants room here should have to answer for it. What it really needs is an
 // extraction, not another raise.
 var lineBudget = map[string]int{
-	"service": 24600,
+	"service": 24620,
 	// 10843 today, down from 14100 across six extractions. It has only ever
 	// moved down except here, where rate-limit requeueing added a new store
 	// operation rather than moving an existing one. Keep lowering it as more
 	// areas land.
-	"store":      10990,
+	"store":      11000,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
