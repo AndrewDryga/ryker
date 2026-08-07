@@ -319,7 +319,7 @@ func (s *Service) handleConvertFeedbackToBriefer(
 		)
 	}
 	preference.SourceRef = "feedback:" + item.ID
-	saved, _, err := s.store.UpsertPreference(
+	saved, _, err := s.store.Behavior.UpsertPreference(
 		ctx, preference, s.cfg.Limits.MaxPreferences, s.cfg.Limits.MaxPreferencesPerScope,
 	)
 	if err != nil {

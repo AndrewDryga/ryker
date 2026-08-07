@@ -27,14 +27,14 @@ func TestPruneOrphanBehaviorFollowsTheConfiguration(t *testing.T) {
 	expires := time.Now().UTC().Add(24 * time.Hour)
 
 	for _, repository := range []string{"kept", "removed"} {
-		if _, _, err := st.UpsertPreference(ctx, core.ResponderPreference{
+		if _, _, err := st.Behavior.UpsertPreference(ctx, core.ResponderPreference{
 			ScopeKind: "repository", ScopeKey: repository,
 			Name: "health_check_depth", Value: "deep",
 			SourceRef: "slack_1", ActorID: "U1", ExpiresAt: expires,
 		}, 100, 50); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := st.UpsertStandingRule(ctx, core.StandingRule{
+		if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
 			ChannelID: "C1", Repository: repository,
 			Trigger: "operational_alert", Action: "triage_alert", SourceKind: "app",
 			SourceRef: "slack_2", ActorID: "U1", ExpiresAt: expires,
@@ -45,18 +45,18 @@ func TestPruneOrphanBehaviorFollowsTheConfiguration(t *testing.T) {
 
 	// An empty configuration is refused rather than treated as "remove
 	// everything" — a misread config must not delete an operator's work.
-	if _, _, err := st.PruneOrphanBehavior(ctx, nil); err == nil {
+	if _, _, err := st.Behavior.PruneOrphanBehavior(ctx, nil); err == nil {
 		t.Fatal("an empty repository list was treated as a valid configuration")
 	}
 
-	preferences, rules, err := st.PruneOrphanBehavior(ctx, []string{"kept"})
+	preferences, rules, err := st.Behavior.PruneOrphanBehavior(ctx, []string{"kept"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if preferences != 1 || rules != 1 {
 		t.Fatalf("pruned %d preferences and %d rules, want 1 and 1", preferences, rules)
 	}
-	remaining, err := st.ListPreferencesForHome(ctx, 100)
+	remaining, err := st.Behavior.ListPreferencesForHome(ctx, 100)
 	if err != nil {
 		t.Fatal(err)
 	}

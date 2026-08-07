@@ -634,7 +634,7 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 	}
 	defer st.Close()
 	operator := cfg.Slack.Operators[0]
-	preference, _, err := st.UpsertPreference(
+	preference, _, err := st.Behavior.UpsertPreference(
 		ctx,
 		core.ResponderPreference{
 			ScopeKind: "channel",
@@ -652,7 +652,7 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rule, _, err := st.UpsertStandingRule(
+	rule, _, err := st.Behavior.UpsertStandingRule(
 		ctx,
 		core.StandingRule{
 			ChannelID:  "COPS",
@@ -718,7 +718,7 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 		slackui.ActionTogglePreference,
 		toggleValue(preference.ID, false),
 	)
-	preference, err = st.GetPreference(ctx, preference.ID)
+	preference, err = st.Behavior.GetPreference(ctx, preference.ID)
 	if err != nil || preference.Enabled {
 		t.Fatalf("disabled preference = %+v, %v", preference, err)
 	}
@@ -728,7 +728,7 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 		slackui.ActionToggleRule,
 		toggleValue(rule.ID, false),
 	)
-	rule, err = st.GetStandingRule(ctx, rule.ID)
+	rule, err = st.Behavior.GetStandingRule(ctx, rule.ID)
 	if err != nil || !rule.Enabled {
 		t.Fatalf("cross-channel rule control changed state = %+v, %v", rule, err)
 	}
@@ -741,13 +741,13 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 	}
 
 	runAction("COPS", slackui.ActionToggleRule, toggleValue(rule.ID, false))
-	rule, err = st.GetStandingRule(ctx, rule.ID)
+	rule, err = st.Behavior.GetStandingRule(ctx, rule.ID)
 	if err != nil || rule.Enabled {
 		t.Fatalf("disabled standing rule = %+v, %v", rule, err)
 	}
 
 	runAction("COPS", slackui.ActionEditPreference, preference.ID)
-	preference, err = st.GetPreference(ctx, preference.ID)
+	preference, err = st.Behavior.GetPreference(ctx, preference.ID)
 	if err != nil || preference.Enabled {
 		t.Fatalf("edit guidance changed preference = %+v, %v", preference, err)
 	}
@@ -759,11 +759,11 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 	}
 
 	runAction("COPS", slackui.ActionDeletePreference, preference.ID)
-	if _, err := st.GetPreference(ctx, preference.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.Behavior.GetPreference(ctx, preference.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("deleted preference lookup = %v", err)
 	}
 	runAction("COPS", slackui.ActionDeleteRule, rule.ID)
-	if _, err := st.GetStandingRule(ctx, rule.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.Behavior.GetStandingRule(ctx, rule.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("deleted rule lookup = %v", err)
 	}
 	incidents, err := st.ListIncidents(ctx, 10)

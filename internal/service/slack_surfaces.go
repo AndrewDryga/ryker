@@ -41,11 +41,11 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 	if err != nil {
 		return err
 	}
-	preferences, err := s.store.ListPreferencesForHome(ctx, 3)
+	preferences, err := s.store.Behavior.ListPreferencesForHome(ctx, 3)
 	if err != nil {
 		return err
 	}
-	rules, err := s.store.ListStandingRulesForHome(ctx, 3)
+	rules, err := s.store.Behavior.ListStandingRulesForHome(ctx, 3)
 	if err != nil {
 		return err
 	}

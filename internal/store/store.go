@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
 	"github.com/AndrewDryga/responder/internal/store/scheduleproposal"
@@ -54,6 +55,9 @@ type Store struct {
 	// Intelligence owns what an investigation established — evidence,
 	// coverage, timeline, proposals.
 	Intelligence *intelligencestore.Repository
+	// Behavior owns what an operator has taught Responder to do: preferences
+	// and standing rules.
+	Behavior *behaviorstore.Repository
 }
 
 type Metrics struct {
@@ -117,6 +121,7 @@ func Open(stateDir string) (*Store, error) {
 	store.ScheduleProposals = scheduleproposal.New(db, func() time.Time { return store.now() })
 	store.Memory = memorystore.New(db, func() time.Time { return store.now() })
 	store.Intelligence = intelligencestore.New(db, func() time.Time { return store.now() })
+	store.Behavior = behaviorstore.New(db, func() time.Time { return store.now() })
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("open database: %w", err)

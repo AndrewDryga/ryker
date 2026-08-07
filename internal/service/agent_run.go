@@ -381,7 +381,7 @@ func (s *Service) completeIgnoredLifecycleInput(
 		return err
 	}
 	for _, rule := range rules {
-		if _, err := s.store.RecordStandingRuleRun(
+		if _, err := s.store.Behavior.RecordStandingRuleRun(
 			ctx, rule.ID, input.ID, input.EventID, "ignore",
 		); err != nil {
 			return err

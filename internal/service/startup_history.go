@@ -43,7 +43,7 @@ func (s *Service) catchUpSlackAppMessages(ctx context.Context) error {
 		if shadowErr != nil {
 			return shadowErr
 		}
-		rules, rulesErr := s.store.ListStandingRulesForChannel(ctx, channelID, true, 100)
+		rules, rulesErr := s.store.Behavior.ListStandingRulesForChannel(ctx, channelID, true, 100)
 		if rulesErr != nil {
 			return rulesErr
 		}

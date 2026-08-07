@@ -1,4 +1,4 @@
-package store
+package behaviorstore
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
-func (s *Store) UpsertPreference(
+func (r *Repository) UpsertPreference(
 	ctx context.Context,
 	preference core.ResponderPreference,
 	maxTotal int,
@@ -23,13 +23,13 @@ func (s *Store) UpsertPreference(
 	if maxTotal < 1 || maxPerScope < 1 || maxPerScope > maxTotal {
 		return core.ResponderPreference{}, false, errors.New("preference limits are invalid")
 	}
-	now := s.now().UTC()
+	now := r.now().UTC()
 	if preference.ExpiresAt.IsZero() || !preference.ExpiresAt.After(now) {
 		return core.ResponderPreference{}, false, errors.New(
 			"preference expiry must be in the future",
 		)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return core.ResponderPreference{}, false, err
 	}
@@ -50,7 +50,7 @@ func (s *Store) UpsertPreference(
 		var total, scoped int
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*) FROM responder_preferences WHERE expires_at > ?`,
-			now.Format(timestampFormat),
+			now.Format(core.TimestampFormat),
 		).Scan(&total); err != nil {
 			return core.ResponderPreference{}, false, err
 		}
@@ -62,7 +62,7 @@ func (s *Store) UpsertPreference(
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*) FROM responder_preferences
 			WHERE scope_kind = ? AND scope_key = ? AND expires_at > ?`,
-			preference.ScopeKind, preference.ScopeKey, now.Format(timestampFormat),
+			preference.ScopeKind, preference.ScopeKey, now.Format(core.TimestampFormat),
 		).Scan(&scoped); err != nil {
 			return core.ResponderPreference{}, false, err
 		}
@@ -97,9 +97,9 @@ func (s *Store) UpsertPreference(
 		  updated_at = excluded.updated_at`,
 		preference.ID, preference.ScopeKind, preference.ScopeKey, preference.Name,
 		preference.Value, preference.SourceRef, preference.ActorID,
-		preference.ExpiresAt.UTC().Format(timestampFormat),
-		preference.CreatedAt.UTC().Format(timestampFormat),
-		preference.UpdatedAt.UTC().Format(timestampFormat),
+		preference.ExpiresAt.UTC().Format(core.TimestampFormat),
+		preference.CreatedAt.UTC().Format(core.TimestampFormat),
+		preference.UpdatedAt.UTC().Format(core.TimestampFormat),
 	)
 	if err != nil {
 		return core.ResponderPreference{}, false, err
@@ -161,16 +161,16 @@ func validatePreference(preference core.ResponderPreference) error {
 	return nil
 }
 
-func (s *Store) GetPreference(
+func (r *Repository) GetPreference(
 	ctx context.Context,
 	id string,
 ) (core.ResponderPreference, error) {
-	return scanPreference(s.db.QueryRowContext(
+	return scanPreference(r.db.QueryRowContext(
 		ctx, preferenceSelect+` WHERE id = ?`, id,
 	))
 }
 
-func (s *Store) ListPreferencesForContext(
+func (r *Repository) ListPreferencesForContext(
 	ctx context.Context,
 	workspaceID string,
 	channelID string,
@@ -186,7 +186,7 @@ func (s *Store) ListPreferencesForContext(
 	if enabledOnly {
 		enabled = " AND enabled = 1"
 	}
-	rows, err := s.db.QueryContext(ctx, preferenceSelect+`
+	rows, err := r.db.QueryContext(ctx, preferenceSelect+`
 		WHERE expires_at > ?`+enabled+`
 		  AND (
 		    (scope_kind = 'workspace' AND scope_key = ?) OR
@@ -203,7 +203,7 @@ func (s *Store) ListPreferencesForContext(
 		  END,
 		  updated_at DESC
 		LIMIT ?`,
-		s.nowText(), workspaceID, channelID, repository, operatorID, limit,
+		r.nowText(), workspaceID, channelID, repository, operatorID, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -212,17 +212,17 @@ func (s *Store) ListPreferencesForContext(
 	return scanPreferences(rows)
 }
 
-func (s *Store) ListPreferencesForHome(
+func (r *Repository) ListPreferencesForHome(
 	ctx context.Context,
 	limit int,
 ) ([]core.ResponderPreference, error) {
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("home preference limit must be between 1 and 100")
 	}
-	rows, err := s.db.QueryContext(ctx, preferenceSelect+`
+	rows, err := r.db.QueryContext(ctx, preferenceSelect+`
 		WHERE expires_at > ?
 		ORDER BY updated_at DESC
-		LIMIT ?`, s.nowText(), limit)
+		LIMIT ?`, r.nowText(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +230,7 @@ func (s *Store) ListPreferencesForHome(
 	return scanPreferences(rows)
 }
 
-func (s *Store) SetPreferenceEnabled(
+func (r *Repository) SetPreferenceEnabled(
 	ctx context.Context,
 	id string,
 	enabled bool,
@@ -239,33 +239,33 @@ func (s *Store) SetPreferenceEnabled(
 	if enabled {
 		value = 1
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, `
 		UPDATE responder_preferences SET enabled = ?, updated_at = ?
 		WHERE id = ? AND expires_at > ?`,
-		value, s.nowText(), id, s.nowText(),
+		value, r.nowText(), id, r.nowText(),
 	)
 	if err := sqlutil.ExpectOne(result, err, "set preference state"); err != nil {
 		return core.ResponderPreference{}, err
 	}
-	return s.GetPreference(ctx, id)
+	return r.GetPreference(ctx, id)
 }
 
-func (s *Store) DeletePreference(
+func (r *Repository) DeletePreference(
 	ctx context.Context,
 	id string,
 ) (core.ResponderPreference, error) {
-	preference, err := s.GetPreference(ctx, id)
+	preference, err := r.GetPreference(ctx, id)
 	if err != nil {
 		return core.ResponderPreference{}, err
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM responder_preferences WHERE id = ?`, id)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM responder_preferences WHERE id = ?`, id)
 	if err := sqlutil.ExpectOne(result, err, "delete preference"); err != nil {
 		return core.ResponderPreference{}, err
 	}
 	return preference, nil
 }
 
-func (s *Store) UpsertStandingRule(
+func (r *Repository) UpsertStandingRule(
 	ctx context.Context,
 	rule core.StandingRule,
 	maxTotal int,
@@ -277,13 +277,13 @@ func (s *Store) UpsertStandingRule(
 	if maxTotal < 1 || maxPerChannel < 1 || maxPerChannel > maxTotal {
 		return core.StandingRule{}, false, errors.New("standing rule limits are invalid")
 	}
-	now := s.now().UTC()
+	now := r.now().UTC()
 	if rule.ExpiresAt.IsZero() || !rule.ExpiresAt.After(now) {
 		return core.StandingRule{}, false, errors.New(
 			"standing rule expiry must be in the future",
 		)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return core.StandingRule{}, false, err
 	}
@@ -304,7 +304,7 @@ func (s *Store) UpsertStandingRule(
 		var total, channel int
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*) FROM standing_rules WHERE expires_at > ?`,
-			now.Format(timestampFormat),
+			now.Format(core.TimestampFormat),
 		).Scan(&total); err != nil {
 			return core.StandingRule{}, false, err
 		}
@@ -316,7 +316,7 @@ func (s *Store) UpsertStandingRule(
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*) FROM standing_rules
 			WHERE channel_id = ? AND expires_at > ?`,
-			rule.ChannelID, now.Format(timestampFormat),
+			rule.ChannelID, now.Format(core.TimestampFormat),
 		).Scan(&channel); err != nil {
 			return core.StandingRule{}, false, err
 		}
@@ -351,9 +351,9 @@ func (s *Store) UpsertStandingRule(
 		  updated_at = excluded.updated_at`,
 		rule.ID, rule.ChannelID, rule.Repository, rule.Trigger, rule.Action,
 		rule.SourceKind, rule.SourceRef, rule.ActorID,
-		rule.ExpiresAt.UTC().Format(timestampFormat),
-		rule.CreatedAt.UTC().Format(timestampFormat),
-		rule.UpdatedAt.UTC().Format(timestampFormat),
+		rule.ExpiresAt.UTC().Format(core.TimestampFormat),
+		rule.CreatedAt.UTC().Format(core.TimestampFormat),
+		rule.UpdatedAt.UTC().Format(core.TimestampFormat),
 	)
 	if err != nil {
 		return core.StandingRule{}, false, err
@@ -393,13 +393,13 @@ func validateStandingRule(rule core.StandingRule) error {
 	return nil
 }
 
-func (s *Store) GetStandingRule(ctx context.Context, id string) (core.StandingRule, error) {
-	return scanStandingRule(s.db.QueryRowContext(
+func (r *Repository) GetStandingRule(ctx context.Context, id string) (core.StandingRule, error) {
+	return scanStandingRule(r.db.QueryRowContext(
 		ctx, standingRuleSelect+` WHERE id = ?`, id,
 	))
 }
 
-func (s *Store) ListStandingRulesForChannel(
+func (r *Repository) ListStandingRulesForChannel(
 	ctx context.Context,
 	channelID string,
 	enabledOnly bool,
@@ -412,10 +412,10 @@ func (s *Store) ListStandingRulesForChannel(
 	if enabledOnly {
 		enabled = " AND enabled = 1"
 	}
-	rows, err := s.db.QueryContext(ctx, standingRuleSelect+`
+	rows, err := r.db.QueryContext(ctx, standingRuleSelect+`
 		WHERE channel_id = ? AND expires_at > ?`+enabled+`
 		ORDER BY updated_at DESC
-		LIMIT ?`, channelID, s.nowText(), limit)
+		LIMIT ?`, channelID, r.nowText(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -423,17 +423,17 @@ func (s *Store) ListStandingRulesForChannel(
 	return scanStandingRules(rows)
 }
 
-func (s *Store) ListStandingRulesForHome(
+func (r *Repository) ListStandingRulesForHome(
 	ctx context.Context,
 	limit int,
 ) ([]core.StandingRule, error) {
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("home standing rule limit must be between 1 and 100")
 	}
-	rows, err := s.db.QueryContext(ctx, standingRuleSelect+`
+	rows, err := r.db.QueryContext(ctx, standingRuleSelect+`
 		WHERE expires_at > ?
 		ORDER BY updated_at DESC
-		LIMIT ?`, s.nowText(), limit)
+		LIMIT ?`, r.nowText(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +441,7 @@ func (s *Store) ListStandingRulesForHome(
 	return scanStandingRules(rows)
 }
 
-func (s *Store) SetStandingRuleEnabled(
+func (r *Repository) SetStandingRuleEnabled(
 	ctx context.Context,
 	id string,
 	enabled bool,
@@ -450,33 +450,33 @@ func (s *Store) SetStandingRuleEnabled(
 	if enabled {
 		value = 1
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, `
 		UPDATE standing_rules SET enabled = ?, updated_at = ?
 		WHERE id = ? AND expires_at > ?`,
-		value, s.nowText(), id, s.nowText(),
+		value, r.nowText(), id, r.nowText(),
 	)
 	if err := sqlutil.ExpectOne(result, err, "set standing rule state"); err != nil {
 		return core.StandingRule{}, err
 	}
-	return s.GetStandingRule(ctx, id)
+	return r.GetStandingRule(ctx, id)
 }
 
-func (s *Store) DeleteStandingRule(
+func (r *Repository) DeleteStandingRule(
 	ctx context.Context,
 	id string,
 ) (core.StandingRule, error) {
-	rule, err := s.GetStandingRule(ctx, id)
+	rule, err := r.GetStandingRule(ctx, id)
 	if err != nil {
 		return core.StandingRule{}, err
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM standing_rules WHERE id = ?`, id)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM standing_rules WHERE id = ?`, id)
 	if err := sqlutil.ExpectOne(result, err, "delete standing rule"); err != nil {
 		return core.StandingRule{}, err
 	}
 	return rule, nil
 }
 
-func (s *Store) RecordStandingRuleRun(
+func (r *Repository) RecordStandingRuleRun(
 	ctx context.Context,
 	ruleID string,
 	sourceInput string,
@@ -486,12 +486,12 @@ func (s *Store) RecordStandingRuleRun(
 	if ruleID == "" || sourceInput == "" || eventID == "" || outcome == "" {
 		return false, errors.New("standing rule run fields are required")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
-	now := s.nowText()
+	now := r.nowText()
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO standing_rule_runs
 		  (rule_id, source_input, event_id, outcome, created_at)
@@ -524,11 +524,11 @@ func (s *Store) RecordStandingRuleRun(
 	return rows == 1, nil
 }
 
-func (s *Store) DeleteChannelBehavior(
+func (r *Repository) DeleteChannelBehavior(
 	ctx context.Context,
 	channelID string,
 ) (int64, int64, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -557,7 +557,7 @@ func (s *Store) DeleteChannelBehavior(
 	return preferenceCount, ruleCount, nil
 }
 
-func (s *Store) PruneOrphanBehavior(
+func (r *Repository) PruneOrphanBehavior(
 	ctx context.Context,
 	validRepositories []string,
 ) (int64, int64, error) {
@@ -569,7 +569,7 @@ func (s *Store) PruneOrphanBehavior(
 	for _, repository := range validRepositories {
 		args = append(args, repository)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -618,7 +618,7 @@ func scanPreference(row sqlutil.RowScanner) (core.ResponderPreference, error) {
 		&preference.ActorID, &expiresAt, &createdAt, &updatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return core.ResponderPreference{}, ErrNotFound
+		return core.ResponderPreference{}, core.ErrNotFound
 	}
 	if err != nil {
 		return core.ResponderPreference{}, err
@@ -659,7 +659,7 @@ func scanStandingRule(row sqlutil.RowScanner) (core.StandingRule, error) {
 		&rule.TriggerCount, &lastTriggered, &expiresAt, &createdAt, &updatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return core.StandingRule{}, ErrNotFound
+		return core.StandingRule{}, core.ErrNotFound
 	}
 	if err != nil {
 		return core.StandingRule{}, err

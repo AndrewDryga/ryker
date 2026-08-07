@@ -132,7 +132,7 @@ func (s *Service) loadEffectivePreferences(
 	repository string,
 	operatorID string,
 ) ([]decisionpkg.PreferencePromptEntry, error) {
-	entries, err := s.store.ListPreferencesForContext(
+	entries, err := s.store.Behavior.ListPreferencesForContext(
 		ctx,
 		s.cfg.Slack.TeamID,
 		channelID,
@@ -486,7 +486,7 @@ func (s *Service) matchingStandingRules(
 	if input.ChannelID == "" || strings.HasPrefix(input.ChannelID, "D") {
 		return nil, nil
 	}
-	rules, err := s.store.ListStandingRulesForChannel(ctx, input.ChannelID, true, 100)
+	rules, err := s.store.Behavior.ListStandingRulesForChannel(ctx, input.ChannelID, true, 100)
 	if err != nil {
 		return nil, err
 	}
@@ -821,7 +821,7 @@ func (s *Service) handleRememberPreference(
 			)
 		}
 		preference.SourceRef = payload.SourceRef
-		preference, result.Replaced, err = s.store.UpsertPreference(
+		preference, result.Replaced, err = s.store.Behavior.UpsertPreference(
 			ctx,
 			preference,
 			s.cfg.Limits.MaxPreferences,
@@ -841,7 +841,7 @@ func (s *Service) handleRememberPreference(
 	} else if err := decisionpkg.DecodeStrictJSON(input.Frozen, &result); err != nil {
 		return fmt.Errorf("decode saved preference action result: %w", err)
 	}
-	preference, err := s.store.GetPreference(ctx, result.ID)
+	preference, err := s.store.Behavior.GetPreference(ctx, result.ID)
 	if err != nil {
 		return err
 	}
@@ -885,7 +885,7 @@ func (s *Service) handleRememberRule(
 			)
 		}
 		rule.SourceRef = payload.SourceRef
-		rule, result.Replaced, err = s.store.UpsertStandingRule(
+		rule, result.Replaced, err = s.store.Behavior.UpsertStandingRule(
 			ctx,
 			rule,
 			s.cfg.Limits.MaxStandingRules,
@@ -905,7 +905,7 @@ func (s *Service) handleRememberRule(
 	} else if err := decisionpkg.DecodeStrictJSON(input.Frozen, &result); err != nil {
 		return fmt.Errorf("decode saved standing rule action result: %w", err)
 	}
-	rule, err := s.store.GetStandingRule(ctx, result.ID)
+	rule, err := s.store.Behavior.GetStandingRule(ctx, result.ID)
 	if err != nil {
 		return err
 	}
@@ -935,7 +935,7 @@ func (s *Service) handleTogglePreference(
 			ctx, input, "*This preference control is invalid.* Nothing was changed.",
 		)
 	}
-	preference, err := s.store.GetPreference(ctx, payload.ID)
+	preference, err := s.store.Behavior.GetPreference(ctx, payload.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.behaviorActionFeedback(
 			ctx, input, "*This preference was already removed or expired.*",
@@ -949,7 +949,7 @@ func (s *Service) handleTogglePreference(
 			ctx, input, "*This preference is not manageable from this Slack context.*",
 		)
 	}
-	preference, err = s.store.SetPreferenceEnabled(ctx, preference.ID, payload.Enabled)
+	preference, err = s.store.Behavior.SetPreferenceEnabled(ctx, preference.ID, payload.Enabled)
 	if err != nil {
 		return err
 	}
@@ -971,7 +971,7 @@ func (s *Service) handleDeletePreference(
 	if err != nil || !allowed {
 		return err
 	}
-	preference, err := s.store.GetPreference(ctx, input.ActionValue)
+	preference, err := s.store.Behavior.GetPreference(ctx, input.ActionValue)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.behaviorActionFeedback(
 			ctx, input, "*This preference was already removed or expired.*",
@@ -985,7 +985,7 @@ func (s *Service) handleDeletePreference(
 			ctx, input, "*This preference is not manageable from this Slack context.*",
 		)
 	}
-	if _, err := s.store.DeletePreference(ctx, preference.ID); err != nil {
+	if _, err := s.store.Behavior.DeletePreference(ctx, preference.ID); err != nil {
 		return err
 	}
 	s.audit(ctx, core.AuditEvent{
@@ -1010,7 +1010,7 @@ func (s *Service) handleToggleRule(
 			ctx, input, "*This standing-rule control is invalid.* Nothing was changed.",
 		)
 	}
-	rule, err := s.store.GetStandingRule(ctx, payload.ID)
+	rule, err := s.store.Behavior.GetStandingRule(ctx, payload.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.behaviorActionFeedback(
 			ctx, input, "*This standing rule was already removed or expired.*",
@@ -1024,7 +1024,7 @@ func (s *Service) handleToggleRule(
 			ctx, input, "*This standing rule belongs to a different Slack channel.*",
 		)
 	}
-	rule, err = s.store.SetStandingRuleEnabled(ctx, rule.ID, payload.Enabled)
+	rule, err = s.store.Behavior.SetStandingRuleEnabled(ctx, rule.ID, payload.Enabled)
 	if err != nil {
 		return err
 	}
@@ -1044,7 +1044,7 @@ func (s *Service) handleDeleteRule(
 	if err != nil || !allowed {
 		return err
 	}
-	rule, err := s.store.GetStandingRule(ctx, input.ActionValue)
+	rule, err := s.store.Behavior.GetStandingRule(ctx, input.ActionValue)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.behaviorActionFeedback(
 			ctx, input, "*This standing rule was already removed or expired.*",
@@ -1058,7 +1058,7 @@ func (s *Service) handleDeleteRule(
 			ctx, input, "*This standing rule belongs to a different Slack channel.*",
 		)
 	}
-	if _, err := s.store.DeleteStandingRule(ctx, rule.ID); err != nil {
+	if _, err := s.store.Behavior.DeleteStandingRule(ctx, rule.ID); err != nil {
 		return err
 	}
 	s.audit(ctx, core.AuditEvent{
@@ -1076,7 +1076,7 @@ func (s *Service) handleEditPreference(
 	if err != nil || !allowed {
 		return err
 	}
-	preference, err := s.store.GetPreference(ctx, input.ActionValue)
+	preference, err := s.store.Behavior.GetPreference(ctx, input.ActionValue)
 	if err != nil {
 		return s.behaviorActionFeedback(
 			ctx, input, "*This preference was already removed or expired.*",
@@ -1107,7 +1107,7 @@ func (s *Service) handleEditRule(
 	if err != nil || !allowed {
 		return err
 	}
-	rule, err := s.store.GetStandingRule(ctx, input.ActionValue)
+	rule, err := s.store.Behavior.GetStandingRule(ctx, input.ActionValue)
 	if err != nil {
 		return s.behaviorActionFeedback(
 			ctx, input, "*This standing rule was already removed or expired.*",

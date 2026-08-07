@@ -243,7 +243,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	preferences, err := st.ListPreferencesForContext(
+	preferences, err := st.Behavior.ListPreferencesForContext(
 		ctx, cfg.Slack.TeamID, request.ChannelID, "repo", request.UserID, true, 20,
 	)
 	if err != nil {
@@ -253,7 +253,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 		preferences[0].Value != "prefer_thread" {
 		t.Fatalf("saved compound preference = %+v", preferences)
 	}
-	rules, err := st.ListStandingRulesForChannel(ctx, request.ChannelID, true, 20)
+	rules, err := st.Behavior.ListStandingRulesForChannel(ctx, request.ChannelID, true, 20)
 	if err != nil || len(rules) != 1 || rules[0].Trigger != "operational_alert" ||
 		rules[0].Action != "triage_alert" || rules[0].SourceKind != "app" {
 		t.Fatalf("saved compound rules = %+v, %v", rules, err)
@@ -1034,7 +1034,7 @@ func TestConfirmedPreferenceReachesFutureHealthPrompt(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	preferences, err := st.ListPreferencesForContext(
+	preferences, err := st.Behavior.ListPreferencesForContext(
 		ctx, cfg.Slack.TeamID, "COPS", "repo", cfg.Slack.Operators[0], true, 20,
 	)
 	if err != nil || len(preferences) != 1 ||
@@ -1129,7 +1129,7 @@ func TestConversationReplyConfirmsSinglePendingPreference(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	preferences, err := st.ListPreferencesForContext(
+	preferences, err := st.Behavior.ListPreferencesForContext(
 		ctx, cfg.Slack.TeamID, request.ChannelID, "repo",
 		cfg.Slack.Operators[0], true, 20,
 	)
@@ -1213,7 +1213,7 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	rules, err := st.ListStandingRulesForChannel(ctx, "COPS", true, 20)
+	rules, err := st.Behavior.ListStandingRulesForChannel(ctx, "COPS", true, 20)
 	if err != nil || len(rules) != 1 {
 		t.Fatalf("saved rules = %+v, %v", rules, err)
 	}
@@ -1245,7 +1245,7 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	finishQueuedAgentRun(t, ctx, svc)
-	rule, err := st.GetStandingRule(ctx, rules[0].ID)
+	rule, err := st.Behavior.GetStandingRule(ctx, rules[0].ID)
 	if err != nil || rule.TriggerCount != 1 || rule.LastTriggered.IsZero() {
 		t.Fatalf("triggered rule = %+v, %v", rule, err)
 	}
@@ -1291,7 +1291,7 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	if len(slackClient.posts) != postsAfterReview {
 		t.Fatalf("pending lifecycle event posted a Slack reply: %+v", slackClient.posts[postsAfterReview:])
 	}
-	rule, err = st.GetStandingRule(ctx, rules[0].ID)
+	rule, err = st.Behavior.GetStandingRule(ctx, rules[0].ID)
 	if err != nil || rule.TriggerCount != 2 {
 		t.Fatalf("rule executions after silent evaluation = %+v, %v", rule, err)
 	}

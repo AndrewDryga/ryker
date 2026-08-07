@@ -384,7 +384,7 @@ func (s *Service) finishSlashPreferences(
 	if err != nil {
 		return err
 	}
-	preferences, err := s.store.ListPreferencesForContext(
+	preferences, err := s.store.Behavior.ListPreferencesForContext(
 		ctx,
 		s.cfg.Slack.TeamID,
 		input.ChannelID,
@@ -405,7 +405,7 @@ func (s *Service) finishSlashRules(
 	ctx context.Context,
 	input core.SlackInput,
 ) error {
-	rules, err := s.store.ListStandingRulesForChannel(
+	rules, err := s.store.Behavior.ListStandingRulesForChannel(
 		ctx, input.ChannelID, false, 20,
 	)
 	if err != nil {
@@ -729,7 +729,7 @@ func (s *Service) finishSlashStatus(ctx context.Context, input core.SlackInput) 
 	if err != nil {
 		return err
 	}
-	preferences, err := s.store.ListPreferencesForContext(
+	preferences, err := s.store.Behavior.ListPreferencesForContext(
 		ctx,
 		s.cfg.Slack.TeamID,
 		input.ChannelID,
@@ -741,7 +741,7 @@ func (s *Service) finishSlashStatus(ctx context.Context, input core.SlackInput) 
 	if err != nil {
 		return err
 	}
-	rules, err := s.store.ListStandingRulesForChannel(
+	rules, err := s.store.Behavior.ListStandingRulesForChannel(
 		ctx, input.ChannelID, true, 100,
 	)
 	if err != nil {

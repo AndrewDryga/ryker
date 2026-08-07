@@ -633,7 +633,7 @@ func (s *Service) finishShadowedWatchDecision(
 		Outcome: "shadowed", Detail: decision.Action,
 	})
 	for _, rule := range state.MatchedRules {
-		_, _ = s.store.RecordStandingRuleRun(ctx, rule.ID, input.ID, input.EventID, "shadowed")
+		_, _ = s.store.Behavior.RecordStandingRuleRun(ctx, rule.ID, input.ID, input.EventID, "shadowed")
 	}
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return err
@@ -859,7 +859,7 @@ func (s *Service) applyWatchDecision(
 		return err
 	}
 	for _, rule := range state.MatchedRules {
-		if _, err := s.store.RecordStandingRuleRun(
+		if _, err := s.store.Behavior.RecordStandingRuleRun(
 			ctx, rule.ID, input.ID, input.EventID, decision.Action,
 		); err != nil {
 			return err

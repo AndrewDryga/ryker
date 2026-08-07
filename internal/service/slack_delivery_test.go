@@ -631,7 +631,7 @@ func TestSocketAdmitsAttachmentOnlyTerraformRuleAndThreadFollowup(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if _, _, err := st.UpsertStandingRule(ctx, core.StandingRule{
+	if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
 		ChannelID: "CPLAN", Repository: "repo", Trigger: "terraform_plan",
 		Action: "review_terraform_plan", SourceKind: "any",
 		SourceRef: "EvRule", ActorID: cfg.Slack.Operators[0],

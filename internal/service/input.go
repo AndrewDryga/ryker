@@ -917,7 +917,7 @@ func (s *Service) processChannelLifecycleInput(
 				Detail: fmt.Sprintf("entries=%d", deleted),
 			})
 		}
-		preferences, rules, err := s.store.DeleteChannelBehavior(ctx, input.ChannelID)
+		preferences, rules, err := s.store.Behavior.DeleteChannelBehavior(ctx, input.ChannelID)
 		if err != nil {
 			return err
 		}

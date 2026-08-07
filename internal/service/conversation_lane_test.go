@@ -134,7 +134,7 @@ func TestConversationRouteAppliesPreferencePrecedenceAndExplicitOverride(t *test
 			SourceRef: "operator_pref", ActorID: cfg.Slack.Operators[0], ExpiresAt: now,
 		},
 	} {
-		if _, _, err := st.UpsertPreference(ctx, preference, 20, 10); err != nil {
+		if _, _, err := st.Behavior.UpsertPreference(ctx, preference, 20, 10); err != nil {
 			t.Fatal(err)
 		}
 	}
