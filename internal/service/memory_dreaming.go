@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/recall"
@@ -206,7 +207,7 @@ func mergeAgentMemories(states []core.AgentMemory) core.AgentMemory {
 }
 
 func boundedUnique(values []string, limit int, maxBytes int) []string {
-	seen := make(map[string]struct{}, len(values))
+	seen := make(map[string]int, len(values))
 	result := make([]string, 0, min(len(values), limit))
 	for _, value := range values {
 		value = strings.TrimSpace(value)
@@ -214,17 +215,56 @@ func boundedUnique(values []string, limit int, maxBytes int) []string {
 			continue
 		}
 		value = core.TruncateUTF8(value, maxBytes)
-		key := strings.ToLower(value)
-		if _, ok := seen[key]; ok {
+		key := dedupeKey(value)
+		if index, ok := seen[key]; ok {
+			// Same fact, different phrasing. Keep the longer one: it is the
+			// more specific statement, and a rollup's whole value is that the
+			// detail survives consolidation.
+			if len(value) > len(result[index]) {
+				result[index] = value
+			}
 			continue
 		}
-		seen[key] = struct{}{}
-		result = append(result, value)
 		if len(result) == limit {
-			break
+			continue
 		}
+		seen[key] = len(result)
+		result = append(result, value)
 	}
 	return result
+}
+
+// dedupeKey collapses the differences that make two statements of the same fact
+// look distinct: case, spacing, trailing punctuation, and the filler words that
+// carry no meaning on their own.
+//
+// Without it a rollup spends its bounded slots on restatements — "payments-api
+// is degraded" and "payments-api degraded" both survive — and the longer a
+// channel runs, the more of its memory is the same fact said several ways.
+func dedupeKey(value string) string {
+	terms := strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	kept := make([]string, 0, len(terms))
+	for _, term := range terms {
+		if _, filler := dedupeFillerWords[term]; filler {
+			continue
+		}
+		kept = append(kept, term)
+	}
+	if len(kept) == 0 {
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+	return strings.Join(kept, " ")
+}
+
+// dedupeFillerWords are words whose presence or absence does not change which
+// fact a line states.
+var dedupeFillerWords = map[string]struct{}{
+	"a": {}, "an": {}, "the": {}, "is": {}, "are": {}, "was": {}, "were": {},
+	"be": {}, "been": {}, "being": {}, "to": {}, "of": {}, "in": {}, "on": {},
+	"at": {}, "by": {}, "for": {}, "and": {}, "or": {}, "that": {}, "this": {},
+	"it": {}, "its": {}, "has": {}, "have": {}, "had": {},
 }
 
 func startOfUTCWeek(value time.Time) time.Time {

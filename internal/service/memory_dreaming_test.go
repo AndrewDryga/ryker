@@ -131,3 +131,38 @@ func TestMergeAgentMemoriesSupersedesOlderKnowledge(t *testing.T) {
 		t.Fatalf("merged knowledge = %#v", merged.Knowledge)
 	}
 }
+
+// A rollup has a bounded number of slots. Spending several of them on the same
+// fact said different ways is how consolidated memory gets noisier the longer a
+// channel runs.
+func TestBoundedUniqueCollapsesNearDuplicates(t *testing.T) {
+	result := boundedUnique([]string{
+		"payments-api is degraded",
+		"payments-api degraded",
+		"The payments-api is degraded.",
+		"checkout latency is elevated",
+	}, 12, 400)
+
+	if len(result) != 2 {
+		t.Fatalf("near-duplicates were not collapsed: %+v", result)
+	}
+	// The longest phrasing survives: it is the most specific statement.
+	if result[0] != "The payments-api is degraded." {
+		t.Fatalf("collapsed to the less specific phrasing: %q", result[0])
+	}
+	if result[1] != "checkout latency is elevated" {
+		t.Fatalf("a distinct fact was collapsed away: %+v", result)
+	}
+}
+
+// Collapsing must not merge facts that merely share vocabulary.
+func TestBoundedUniqueKeepsDistinctFacts(t *testing.T) {
+	result := boundedUnique([]string{
+		"payments-api is degraded",
+		"payments-api is healthy",
+		"payments-db is degraded",
+	}, 12, 400)
+	if len(result) != 3 {
+		t.Fatalf("distinct facts were collapsed: %+v", result)
+	}
+}
