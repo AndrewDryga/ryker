@@ -45,7 +45,6 @@ var acknowledgedCoverageGaps = map[string]string{
 	"standing-assignments":                           "needs a recorded assignment through pause and expiry",
 	"incidents":                                      "needs a recorded escalation into a room",
 	"incident-timeline-and-postmortem":               "needs a recorded postmortem derived from verified events",
-	"engineering-changes":                            "needs a recorded writable-fork task",
 	"diff-and-draft-pr-controls":                     "needs recorded revision-bound controls",
 	"contextual-next-step-controls":                  "needs a recorded stale-control replacement",
 	"pr-checks-merge-deployment-verification":        "needs a recorded follow-through with a missing webhook",
