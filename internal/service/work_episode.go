@@ -18,10 +18,41 @@ type completionAssessment = investigation.CompletionAssessment
 
 var transientRecheckKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._/@-]{0,159}$`)
 
+// validateCompletionAssessment normalizes a model's completion claim and
+// rejects it if it does not hold together.
+//
+// This runs before anything is shown to an operator or written down, because a
+// malformed completion is worse than no completion: it either claims a decision
+// nobody can act on, or reports a blocker with nothing to unblock.
 func validateCompletionAssessment(completion *completionAssessment) error {
 	if completion == nil {
 		return nil
 	}
+	normalizeCompletionAssessment(completion)
+	if err := boundCompletionAssessment(completion); err != nil {
+		return err
+	}
+	switch completion.Status {
+	case "decision_ready":
+		if err := validateDecisionReadyCompletion(completion); err != nil {
+			return err
+		}
+	case "blocked":
+		if err := validateBlockedCompletion(completion); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported completion status %q", completion.Status)
+	}
+	if completion.Verdict != "" && !validCompletionVerdict(completion.Verdict) {
+		return fmt.Errorf("unsupported completion verdict %q", completion.Verdict)
+	}
+	return nil
+}
+
+// normalizeCompletionAssessment trims every free-text field to its canonical
+// form, so validation and every later comparison see one spelling.
+func normalizeCompletionAssessment(completion *completionAssessment) {
 	completion.Status = strings.TrimSpace(completion.Status)
 	completion.Verdict = strings.TrimSpace(completion.Verdict)
 	completion.Summary = strings.TrimSpace(completion.Summary)
@@ -32,6 +63,23 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 		completion.Recheck.Key = strings.TrimSpace(completion.Recheck.Key)
 		completion.Recheck.Reason = strings.TrimSpace(completion.Recheck.Reason)
 	}
+	completion.MaterialGaps = normalizedCompletionGaps(completion.MaterialGaps)
+	completion.Attempts = normalizedCompletionAttempts(completion.Attempts)
+	for index := range completion.CapabilityGaps {
+		gap := &completion.CapabilityGaps[index]
+		gap.Capability = strings.TrimSpace(gap.Capability)
+		gap.Status = strings.TrimSpace(gap.Status)
+		gap.PackID = strings.TrimSpace(gap.PackID)
+		gap.PackRef = strings.TrimSpace(gap.PackRef)
+		gap.Recommendation = strings.TrimSpace(gap.Recommendation)
+		gap.EvidenceRefs = normalizedCompletionAttempts(gap.EvidenceRefs)
+	}
+}
+
+// boundCompletionAssessment enforces the size limits. They exist because every
+// one of these fields is model-authored and ends up in a Slack message or a
+// stored record, both of which have hard limits of their own.
+func boundCompletionAssessment(completion *completionAssessment) error {
 	if len(completion.MaterialGaps) > 20 {
 		return errors.New("completion assessment has too many material gaps")
 	}
@@ -49,14 +97,7 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	completion.MaterialGaps = normalizedCompletionGaps(completion.MaterialGaps)
 	completion.Attempts = normalizedCompletionAttempts(completion.Attempts)
 	for index := range completion.CapabilityGaps {
-		gap := &completion.CapabilityGaps[index]
-		gap.Capability = strings.TrimSpace(gap.Capability)
-		gap.Status = strings.TrimSpace(gap.Status)
-		gap.PackID = strings.TrimSpace(gap.PackID)
-		gap.PackRef = strings.TrimSpace(gap.PackRef)
-		gap.Recommendation = strings.TrimSpace(gap.Recommendation)
-		gap.EvidenceRefs = normalizedCompletionAttempts(gap.EvidenceRefs)
-		if err := validateCapabilityGap(*gap); err != nil {
+		if err := validateCapabilityGap(completion.CapabilityGaps[index]); err != nil {
 			return fmt.Errorf("completion capability gap %d: %w", index+1, err)
 		}
 	}
@@ -67,60 +108,66 @@ func validateCompletionAssessment(completion *completionAssessment) error {
 	if completion.Blocker != "" {
 		return errors.New("completion.blocker is descriptive but incomplete; use summary, material_gaps, blocker_kind, attempts, and next_action")
 	}
-	switch completion.Status {
-	case "decision_ready":
-		if completion.Summary == "" {
-			return errors.New("decision-ready completion requires a summary")
-		}
-		boundedFailure := completion.Verdict == "failed" && completion.NextAction != ""
-		if len(completion.MaterialGaps) > 0 && !boundedFailure {
-			return errors.New("decision-ready completion cannot contain material gaps")
-		}
-		if completion.BlockerKind != "" || len(completion.Attempts) > 0 {
-			return errors.New("decision-ready completion cannot contain blocker fields")
-		}
-		if completion.Recheck != nil {
-			return errors.New("decision-ready completion cannot request a recheck")
-		}
-	case "blocked":
-		if completion.Verdict != "" {
-			return errors.New("blocked completion cannot contain an operational verdict")
-		}
-		if completion.Summary == "" || len(completion.MaterialGaps) == 0 ||
-			completion.BlockerKind == "" || len(completion.Attempts) == 0 ||
-			completion.NextAction == "" {
-			return errors.New(
-				"blocked completion requires summary, material_gaps, blocker_kind, attempts, and next_action",
-			)
-		}
-		if !validCompletionBlockerKind(completion.BlockerKind) {
-			return fmt.Errorf("unsupported completion blocker kind %q", completion.BlockerKind)
-		}
-		if completion.BlockerKind == "capability_unavailable" && len(completion.CapabilityGaps) == 0 {
-			return errors.New("capability_unavailable blocker requires capability_gaps")
-		}
-		if completion.Recheck != nil {
-			if completion.BlockerKind != "source_unavailable" && completion.BlockerKind != "tool_failure" {
-				return errors.New("only a transient source or tool blocker can request a recheck")
-			}
-			if !transientRecheckKeyPattern.MatchString(completion.Recheck.Key) {
-				return errors.New("completion recheck requires a bounded stable key")
-			}
-			if completion.Recheck.Reason == "" || len(completion.Recheck.Reason) > 500 {
-				return errors.New("completion recheck requires a bounded reason")
-			}
-			if completion.Recheck.AfterSeconds < 30 || completion.Recheck.AfterSeconds > 1800 {
-				return errors.New("completion recheck delay must be between 30 and 1800 seconds")
-			}
-			if completion.Recheck.AdditionalAttempts < 1 || completion.Recheck.AdditionalAttempts > 4 {
-				return errors.New("completion recheck attempts must be between 1 and 4")
-			}
-		}
-	default:
-		return fmt.Errorf("unsupported completion status %q", completion.Status)
+	return nil
+}
+
+// validateDecisionReadyCompletion rejects a decision-ready claim that is not
+// actually decision-ready. The rule underneath all of these: if the model still
+// has open gaps or an unresolved blocker, saying "decision ready" would put an
+// operator's name on a conclusion that was never reached.
+func validateDecisionReadyCompletion(completion *completionAssessment) error {
+	if completion.Summary == "" {
+		return errors.New("decision-ready completion requires a summary")
 	}
-	if completion.Verdict != "" && !validCompletionVerdict(completion.Verdict) {
-		return fmt.Errorf("unsupported completion verdict %q", completion.Verdict)
+	boundedFailure := completion.Verdict == "failed" && completion.NextAction != ""
+	if len(completion.MaterialGaps) > 0 && !boundedFailure {
+		return errors.New("decision-ready completion cannot contain material gaps")
+	}
+	if completion.BlockerKind != "" || len(completion.Attempts) > 0 {
+		return errors.New("decision-ready completion cannot contain blocker fields")
+	}
+	if completion.Recheck != nil {
+		return errors.New("decision-ready completion cannot request a recheck")
+	}
+	return nil
+}
+
+// validateBlockedCompletion rejects a blocker nobody could act on. A block is
+// only useful if it names what is missing, what was already tried, and what
+// would move it forward — which is why all five fields are required together.
+func validateBlockedCompletion(completion *completionAssessment) error {
+	if completion.Verdict != "" {
+		return errors.New("blocked completion cannot contain an operational verdict")
+	}
+	if completion.Summary == "" || len(completion.MaterialGaps) == 0 ||
+		completion.BlockerKind == "" || len(completion.Attempts) == 0 ||
+		completion.NextAction == "" {
+		return errors.New(
+			"blocked completion requires summary, material_gaps, blocker_kind, attempts, and next_action",
+		)
+	}
+	if !validCompletionBlockerKind(completion.BlockerKind) {
+		return fmt.Errorf("unsupported completion blocker kind %q", completion.BlockerKind)
+	}
+	if completion.BlockerKind == "capability_unavailable" && len(completion.CapabilityGaps) == 0 {
+		return errors.New("capability_unavailable blocker requires capability_gaps")
+	}
+	if completion.Recheck != nil {
+		if completion.BlockerKind != "source_unavailable" && completion.BlockerKind != "tool_failure" {
+			return errors.New("only a transient source or tool blocker can request a recheck")
+		}
+		if !transientRecheckKeyPattern.MatchString(completion.Recheck.Key) {
+			return errors.New("completion recheck requires a bounded stable key")
+		}
+		if completion.Recheck.Reason == "" || len(completion.Recheck.Reason) > 500 {
+			return errors.New("completion recheck requires a bounded reason")
+		}
+		if completion.Recheck.AfterSeconds < 30 || completion.Recheck.AfterSeconds > 1800 {
+			return errors.New("completion recheck delay must be between 30 and 1800 seconds")
+		}
+		if completion.Recheck.AdditionalAttempts < 1 || completion.Recheck.AdditionalAttempts > 4 {
+			return errors.New("completion recheck attempts must be between 1 and 4")
+		}
 	}
 	return nil
 }
@@ -695,6 +742,102 @@ func episodeCompletionCorrection(
 			)
 		}
 	}
+	covered, unknown, correction := episodeCoverageState(episode, coverage)
+	if correction != "" {
+		return correction
+	}
+	if correction := unknownCoverageCorrection(contract, completion, covered, unknown); correction != "" {
+		return correction
+	}
+	if completion.Status != "decision_ready" {
+		return blockedCompletionCorrection(completion)
+	}
+	if episode.Effort == core.EffortOperationalAssessment {
+		if !validOperationalHealthVerdict(completion.Verdict) {
+			return "an operational assessment must set completion.verdict to healthy, degraded, or unhealthy; unknown is not an operational verdict"
+		}
+		if correction := operationalHealthVerdictCorrection(completion.Verdict, covered, unknown); correction != "" {
+			return correction
+		}
+	}
+	if contract.Completion.ConclusionKind == "change_review" {
+		return changeReviewVerdictCorrection(completion, covered)
+	}
+	return ""
+}
+
+// unknownCoverageCorrection rejects a decision-ready claim made while material
+// coverage is still unknown.
+//
+// The exceptions are narrow and deliberate. An operational health call can be
+// made with gaps — "degraded, and here is what I could not see" is a useful
+// answer. A change review can too, but only when its verdict already says the
+// outcome is not final, or when it is a terminal failure with a stated next
+// action: knowing a deploy failed is worth reporting even if the blast radius
+// is not fully mapped.
+func unknownCoverageCorrection(
+	contract investigation.InvestigationContract,
+	completion *completionAssessment,
+	covered map[string]core.Coverage,
+	unknown []string,
+) string {
+	if completion.Status != "decision_ready" ||
+		(len(completion.MaterialGaps) == 0 && len(unknown) == 0) {
+		return ""
+	}
+	change := covered["change"]
+	boundedTerminalFailure := contract.Completion.ConclusionKind == "change_review" &&
+		completion.Verdict == "failed" && change.Status == "unhealthy" &&
+		strings.TrimSpace(completion.NextAction) != ""
+	unknownAllowed := contract.Completion.ConclusionKind == "operational_health" ||
+		(contract.Completion.ConclusionKind == "change_review" &&
+			(completion.Verdict == "in_progress" || completion.Verdict == "needs_review" ||
+				completion.Verdict == "inconclusive" || boundedTerminalFailure)) ||
+		(contract.Completion.ConclusionKind == "factual_assessment" &&
+			(completion.Verdict == "" || completion.Verdict == "not_confirmed" ||
+				completion.Verdict == "inconclusive"))
+	if !unknownAllowed || (len(completion.MaterialGaps) > 0 && !boundedTerminalFailure) {
+		return "the result claims decision_ready while material coverage remains unknown; either continue the investigation or return blocked with the exact next action"
+	}
+	return ""
+}
+
+// changeReviewVerdictCorrection keeps a change verdict honest against the
+// terminal evidence. A change that is still running cannot be called succeeded
+// or failed, and one that finished cannot be called in progress.
+func changeReviewVerdictCorrection(
+	completion *completionAssessment,
+	covered map[string]core.Coverage,
+) string {
+	change, ok := covered["change"]
+	if !ok {
+		return "a change review must assess the change coverage layer"
+	}
+	switch completion.Verdict {
+	case "succeeded":
+		if change.Status != "healthy" {
+			return "a succeeded change verdict requires healthy terminal change evidence"
+		}
+	case "failed":
+		if change.Status != "unhealthy" {
+			return "a failed change verdict requires terminal failed change evidence"
+		}
+	case "in_progress":
+		if change.Status != "unknown" {
+			return "an in_progress change verdict must keep the terminal outcome unknown"
+		}
+	}
+	return ""
+}
+
+// episodeCoverageState indexes what was actually assessed and reports the
+// layers that came back unknown. A layer declared unknown without saying why is
+// a correction on its own: "unknown" with no explanation is indistinguishable
+// from not having looked.
+func episodeCoverageState(
+	episode core.WorkEpisode,
+	coverage []core.Coverage,
+) (map[string]core.Coverage, []string, string) {
 	covered := make(map[string]core.Coverage, len(coverage))
 	for _, item := range coverage {
 		covered[item.Layer] = item
@@ -709,71 +852,33 @@ func episodeCompletionCorrection(
 		}
 		if item.Status == "unknown" {
 			if strings.TrimSpace(item.Detail) == "" {
-				return fmt.Sprintf("coverage layer %s is unknown without explaining the evidence gap", layer)
+				return nil, nil, fmt.Sprintf("coverage layer %s is unknown without explaining the evidence gap", layer)
 			}
 			unknown = append(unknown, layer)
 		}
 	}
 	if len(missing) > 0 {
-		return "the deep work episode has not assessed required coverage layers: " + strings.Join(missing, ", ")
+		return nil, nil, "the deep work episode has not assessed required coverage layers: " +
+			strings.Join(missing, ", ")
 	}
-	if completion.Status == "decision_ready" && (len(completion.MaterialGaps) > 0 || len(unknown) > 0) {
-		change := covered["change"]
-		boundedTerminalFailure := contract.Completion.ConclusionKind == "change_review" &&
-			completion.Verdict == "failed" && change.Status == "unhealthy" &&
-			strings.TrimSpace(completion.NextAction) != ""
-		unknownAllowed := contract.Completion.ConclusionKind == "operational_health" ||
-			(contract.Completion.ConclusionKind == "change_review" &&
-				(completion.Verdict == "in_progress" || completion.Verdict == "needs_review" ||
-					completion.Verdict == "inconclusive" || boundedTerminalFailure)) ||
-			(contract.Completion.ConclusionKind == "factual_assessment" &&
-				(completion.Verdict == "" || completion.Verdict == "not_confirmed" ||
-					completion.Verdict == "inconclusive"))
-		if !unknownAllowed || (len(completion.MaterialGaps) > 0 && !boundedTerminalFailure) {
-			return "the result claims decision_ready while material coverage remains unknown; either continue the investigation or return blocked with the exact next action"
-		}
+	return covered, unknown, ""
+}
+
+// blockedCompletionCorrection rejects a block an operator could not act on. A
+// block is only useful if it names the gap, what was already tried, and what
+// would move it forward.
+func blockedCompletionCorrection(completion *completionAssessment) string {
+	if len(completion.MaterialGaps) == 0 {
+		return "a blocked completion must list the material evidence or authority gaps"
 	}
-	if completion.Status == "decision_ready" && episode.Effort == core.EffortOperationalAssessment {
-		if !validOperationalHealthVerdict(completion.Verdict) {
-			return "an operational assessment must set completion.verdict to healthy, degraded, or unhealthy; unknown is not an operational verdict"
-		}
-		if correction := operationalHealthVerdictCorrection(completion.Verdict, covered, unknown); correction != "" {
-			return correction
-		}
+	if !validCompletionBlockerKind(completion.BlockerKind) {
+		return "a blocked completion must identify an external blocker_kind: source_unavailable, access_denied, operator_input_required, authority_boundary, or tool_failure"
 	}
-	if completion.Status == "decision_ready" && contract.Completion.ConclusionKind == "change_review" {
-		change, ok := covered["change"]
-		if !ok {
-			return "a change review must assess the change coverage layer"
-		}
-		switch completion.Verdict {
-		case "succeeded":
-			if change.Status != "healthy" {
-				return "a succeeded change verdict requires healthy terminal change evidence"
-			}
-		case "failed":
-			if change.Status != "unhealthy" {
-				return "a failed change verdict requires terminal failed change evidence"
-			}
-		case "in_progress":
-			if change.Status != "unknown" {
-				return "an in_progress change verdict must keep the terminal outcome unknown"
-			}
-		}
+	if len(completion.Attempts) == 0 {
+		return "a blocked completion must state which relevant evidence routes or actions were already attempted"
 	}
-	if completion.Status == "blocked" {
-		if len(completion.MaterialGaps) == 0 {
-			return "a blocked completion must list the material evidence or authority gaps"
-		}
-		if !validCompletionBlockerKind(completion.BlockerKind) {
-			return "a blocked completion must identify an external blocker_kind: source_unavailable, access_denied, operator_input_required, authority_boundary, or tool_failure"
-		}
-		if len(completion.Attempts) == 0 {
-			return "a blocked completion must state which relevant evidence routes or actions were already attempted"
-		}
-		if strings.TrimSpace(completion.NextAction) == "" {
-			return "a blocked completion must state the concrete next action that unblocks the work"
-		}
+	if strings.TrimSpace(completion.NextAction) == "" {
+		return "a blocked completion must state the concrete next action that unblocks the work"
 	}
 	return ""
 }
