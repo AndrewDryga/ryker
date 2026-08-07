@@ -45,8 +45,19 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
   # bootout + bootstrap, not `kickstart -k`: kickstart restarts the definition launchd already
   # has in memory, so editing the plist on disk and kickstarting relaunches the OLD binary and
   # reports success. The job has to be unloaded for the new ProgramArguments to be read.
+  #
+  # bootout returns before the job is gone, and bootstrapping a label that is still present fails
+  # with a bare "Input/output error" — which, mid-loop under set -e, leaves the service down and
+  # the remaining agents untouched. Wait for it to actually leave the domain.
   launchctl bootout "$domain/$label" 2>/dev/null || true
-  launchctl bootstrap "$domain" "$plist"
+  for _ in $(seq 1 40); do
+    launchctl print "$domain/$label" >/dev/null 2>&1 || break
+    sleep 0.25
+  done
+  if ! launchctl bootstrap "$domain" "$plist"; then
+    echo "deploy: $label is BOOTED OUT and failed to bootstrap — it is down" >&2
+    exit 1
+  fi
   echo "deploy: reloaded $label on responder-$sha"
   deployed=$((deployed + 1))
 done
