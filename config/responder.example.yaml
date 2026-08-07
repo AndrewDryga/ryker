@@ -17,6 +17,10 @@ slack:
   # Static proactive defaults. Durable Slack overrides can replace these globally or per channel.
   watch_channels:
     - C0123456789
+  # Channels where Emisar evaluates every message through the full triage path but never replies,
+  # creates incidents, or offers anything. Use these to measure how it would behave in a room
+  # before letting it speak there.
+  shadow_channels: []
   # Give triage a fresh chronological transcript and a short window for nearby human replies.
   watch_context_messages: 20
   # How long a channel stays eligible for follow-ups after Emisar answers there,
@@ -70,6 +74,7 @@ coop:
   emisar_approval_poll_interval: 3s
   # Optional owner-private standard MCP configuration and NAME=value environment.
   # Responder merges these while retaining ownership of the "emisar" server and service secrets.
+  # Service secrets (Slack, GitHub, Emisar, webhook) are refused here and never reach the agent box.
   # additional_mcp_file: /etc/responder/additional-mcp.json
   # additional_env_file: /etc/responder/additional-mcp.env
   instructions: >-
@@ -230,3 +235,19 @@ limits:
   worker_interval: 250ms
   work_lease: 3m
   worker_stall_after: 2m
+
+# Operational actions an authorized operator may request in Slack. Emisar remains the authority for
+# the exact action, its policy revision, approvers, execution, and audit — this map only declares
+# which actions Responder will carry a request for, and how it describes them to an operator.
+# Model-proposed, inferred, and autonomous mutation stays disabled regardless of what is listed.
+actions: {}
+  # restart_service:
+  #   description: Restart a single service instance that is failing its health check.
+  #   # Who may request it: operator (a configured Slack operator) or automation.
+  #   authority: operator
+  #   # low | medium | high — shown on the confirmation card so the blast radius is explicit.
+  #   risk: medium
+  #   # required | none. Required approvals are held and resolved by Emisar, never in Slack.
+  #   approval: required
+  #   # How long a pending request stays valid before an operator must ask again.
+  #   expires_after: 30m
