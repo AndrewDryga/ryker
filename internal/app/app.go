@@ -347,6 +347,19 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 		emisarReport.ToolCount,
 	)
 	fmt.Fprintln(stdout, "Coop config     private")
+	// Reported rather than fatal, and reported here rather than at startup on
+	// purpose. A policy naming an account nobody signed in does not stop a
+	// running instance — its Coop keeps serving sessions it already holds — so
+	// refusing to start would turn a partial failure into a total one. It does
+	// stop every new session, and it becomes total at the next restart, which
+	// is exactly what doctor is for.
+	if err := validatePolicyAccounts(
+		ctx, cfg, coopAccountLister(cfg),
+	); err != nil {
+		fmt.Fprintf(stdout, "Coop accounts   NOT READY — %v\n", err)
+	} else {
+		fmt.Fprintln(stdout, "Coop accounts   every session policy target is signed in")
+	}
 	fmt.Fprintf(stdout, "GitHub          %s\n", checks["github_publisher"])
 	return nil
 }
