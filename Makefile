@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-live-canary model-release-check eval-replay customer-check dev-check quality-watch-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-live-canary model-release-check eval-replay customer-check dev-check quality-watch-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -99,6 +99,35 @@ customer-check: test product-e2e eval-replay
 
 # Fast deterministic feedback for normal development. CI and releases use check.
 dev-check: tidy-check lint test eval-replay build
+
+# promote-corrections turns reviewed corrections into regression cases and
+# proves the result still passes the gate.
+#
+# The gate runs twice on purpose. The first run establishes that the tree was
+# already green, so a failure after promotion is attributable to the corrections
+# rather than to whatever was already broken — without that, a promotion gets
+# blamed for a pre-existing failure and the correction is discarded for nothing.
+#
+# Promotion appends to the corpus before the second gate runs, so a failure
+# leaves the new cases in the working tree. That is deliberate: they are the
+# evidence needed to decide whether the fixture or the product is wrong. Revert
+# with `git checkout $(REGRESSION_CORPUS)` once that decision is made.
+REGRESSION_CORPUS = testdata/eval/regressions.jsonl
+
+promote-corrections:
+	@echo "== gate before promotion (establishing a clean baseline) =="
+	@$(MAKE) dev-check
+	@echo "== promoting reviewed corrections =="
+	go run ./cmd/responder promote-fixtures --config "$(CONFIG)"
+	@echo "== gate after promotion =="
+	@$(MAKE) dev-check || ( \
+		echo ""; \
+		echo "The gate was green before promotion and is not now, so the"; \
+		echo "corrections just promoted are what broke it. They are still in"; \
+		echo "$(REGRESSION_CORPUS) — read them before deciding whether the"; \
+		echo "fixture is wrong or the product is. Revert with:"; \
+		echo "    git checkout $(REGRESSION_CORPUS)"; \
+		exit 1 )
 
 race:
 	go test -race ./...
