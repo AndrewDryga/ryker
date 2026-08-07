@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 44
+const currentSchemaVersion = 45
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1258,10 +1258,37 @@ CREATE INDEX feedback_items_workspace_status_updated
   ON feedback_items(workspace_id, status, updated_at DESC);
 `
 
+const schemaV45 = `
+-- Schedule prompts can be much larger than Slack's interactive action value.
+-- Keep the normalized proposal in SQLite and send Slack only this row's opaque
+-- ID. Acceptance is an atomic pending -> accepted transition, so button retries
+-- and conversational confirmations cannot create duplicate schedules.
+CREATE TABLE schedule_proposals (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL DEFAULT '',
+  actor_id TEXT NOT NULL,
+  source_ref TEXT NOT NULL,
+  task_json BLOB NOT NULL,
+  replace_task_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'expired')),
+  accepted_task_id TEXT NOT NULL DEFAULT '',
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(team_id, channel_id, source_ref)
+);
+
+CREATE INDEX schedule_proposals_conversation_idx
+  ON schedule_proposals(team_id, channel_id, thread_ts, actor_id, status, created_at DESC);
+`
+
 var migrations = map[int]string{
 	40: schemaV40,
 	41: schemaV41,
 	42: schemaV42,
 	43: schemaV43,
 	44: schemaV44,
+	45: schemaV45,
 }

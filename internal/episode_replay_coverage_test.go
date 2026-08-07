@@ -34,7 +34,6 @@ import (
 // history exists, the honest statement is "not proven", and the phase of the
 // migration that would delete this capability's legacy projection stays shut.
 var acknowledgedCoverageGaps = map[string]string{
-	"thread-and-channel-switching":                   "needs a recorded routing correction",
 	"reactions":                                      "needs a recorded reaction-only signal",
 	"attachments-and-screenshots":                    "needs a sanitized manifest recording",
 	"generated-charts-and-files":                     "needs a recorded upload, including one that failed",
@@ -54,7 +53,6 @@ var acknowledgedCoverageGaps = map[string]string{
 	"scheduled-and-recurring-work":                   "needs a recorded schedule firing a child episode",
 	"multi-repository-work":                          "needs a recorded parent episode with child goals",
 	"model-choice-and-byoc":                          "needs recordings across two execution profiles",
-	"progress-updates":                               "needs a recorded durable progress sequence",
 	"cleanup":                                        "needs a recorded retention pass",
 }
 

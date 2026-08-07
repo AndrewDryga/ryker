@@ -567,6 +567,25 @@ type ScheduledTask struct {
 	UpdatedAt       time.Time
 }
 
+// ScheduleProposal keeps the complete normalized task on the server while
+// Slack carries only its opaque ID. A proposal is inert until its actor accepts
+// it, at which point AcceptedTaskID makes retries idempotent.
+type ScheduleProposal struct {
+	ID             string
+	TeamID         string
+	ChannelID      string
+	ThreadTS       string
+	ActorID        string
+	SourceRef      string
+	Task           ScheduledTask
+	ReplaceTaskID  string
+	Status         string
+	AcceptedTaskID string
+	ExpiresAt      time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type ScheduledTaskRun struct {
 	TaskID       string
 	ScheduledFor time.Time
