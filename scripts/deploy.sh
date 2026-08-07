@@ -71,8 +71,9 @@ fi
 # drifted apart once already, and a check that only proves "something restarted" would have
 # reported that drift as a success.
 sleep 3
-total=$(pgrep -cf "libexec/responder/responder-" || true)
-current=$(pgrep -cf "libexec/responder/responder-$sha " || true)
+# `pgrep -c` is Linux-only; count the matched pids instead so this works on macOS too.
+total=$(pgrep -f "libexec/responder/responder-" | wc -l | tr -d ' ')
+current=$(pgrep -f "libexec/responder/responder-$sha " | wc -l | tr -d ' ')
 if [[ ${total:-0} -eq 0 ]]; then
   echo "deploy: no Responder process is running after reload" >&2
   exit 1
