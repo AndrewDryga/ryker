@@ -42,8 +42,12 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
   # The quality watcher runs a script rather than the server binary, so it has no pin to move.
   grep -q "libexec/responder/responder-" "$plist" || continue
   /usr/bin/sed -i '' -E "s#libexec/responder/responder-[0-9a-f]+#libexec/responder/responder-$sha#g" "$plist"
-  launchctl kickstart -k "$domain/$label"
-  echo "deploy: restarted $label on responder-$sha"
+  # bootout + bootstrap, not `kickstart -k`: kickstart restarts the definition launchd already
+  # has in memory, so editing the plist on disk and kickstarting relaunches the OLD binary and
+  # reports success. The job has to be unloaded for the new ProgramArguments to be read.
+  launchctl bootout "$domain/$label" 2>/dev/null || true
+  launchctl bootstrap "$domain" "$plist"
+  echo "deploy: reloaded $label on responder-$sha"
   deployed=$((deployed + 1))
 done
 
@@ -52,11 +56,18 @@ if [[ $deployed -eq 0 ]]; then
   exit 1
 fi
 
-# Report what is actually running, not what was asked for: this script exists because those two
-# drifted apart once already.
-sleep 2
-echo "deploy: running processes"
-pgrep -af "libexec/responder/responder-" | sed 's/^/  /' || {
-  echo "deploy: no Responder process is running after restart" >&2
+# Assert what is actually running, not what was asked for. This script exists because those two
+# drifted apart once already, and a check that only proves "something restarted" would have
+# reported that drift as a success.
+sleep 3
+running=$(ps -eo command= | grep "libexec/responder/responder-" | grep -v grep || true)
+if [[ -z $running ]]; then
+  echo "deploy: no Responder process is running after reload" >&2
   exit 1
-}
+fi
+if stale=$(printf '%s\n' "$running" | grep -v "responder-$sha " || true); [[ -n $stale ]]; then
+  echo "deploy: a Responder process is NOT running responder-$sha:" >&2
+  printf '  %s\n' "$stale" >&2
+  exit 1
+fi
+echo "deploy: $(printf '%s\n' "$running" | wc -l | tr -d ' ') process(es) running responder-$sha"
