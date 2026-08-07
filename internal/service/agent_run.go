@@ -2427,11 +2427,40 @@ func (s *Service) processAgentRunFinalization(ctx context.Context) error {
 	}
 }
 
+// requeueRefusedFinalization is requeueIfRateLimited for the finalization lane.
+func (s *Service) requeueRefusedFinalization(
+	ctx context.Context,
+	run core.AgentRun,
+	cause error,
+) (bool, error) {
+	detail := trimError(cause)
+	delay, waits := providerBackoff[provider.Classify(detail).Kind]
+	if !waits {
+		return false, nil
+	}
+	next := s.now().Add(delay)
+	if s.log != nil {
+		s.log.Warn(
+			"the AI provider refused this finalization; it stays queued rather than failing",
+			"run", run.ID, "retry_at", next.UTC().Format(time.RFC3339), "detail", detail,
+		)
+	}
+	return true, s.store.RequeueRateLimitedFinalization(ctx, run.ID, detail, next)
+}
+
 func (s *Service) retryAgentRunFinalization(
 	ctx context.Context,
 	run core.AgentRun,
 	cause error,
 ) error {
+	// The third path a provider refusal can arrive on, after retryAgentRun and
+	// retryIncidentAgentRun. It was missed when the first two were guarded, and
+	// the symptom was that refusals still reached Slack — from finalization
+	// rather than preparation. Anything added later that fails a run needs this
+	// too.
+	if requeued, err := s.requeueRefusedFinalization(ctx, run, cause); requeued {
+		return err
+	}
 	attempt := run.Failures + 1
 	if attempt >= s.cfg.Limits.MaxAgentRunAttempts {
 		if err := s.stageTerminalFinalizationFailure(ctx, run, cause); err == nil {
