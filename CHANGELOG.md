@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+<!--
+Everything below is prepared for the first tagged release. To cut it:
+  1. change the heading above this block to "## v0.1.0 - <date>" and delete this comment
+  2. re-express minimumUpgradableVersion in internal/store/schema.go against the released
+     version rather than "oldest deployed database" (its comment says how)
+  3. tag and push; the release workflow does the rest
+Nothing here needs writing first — this is the whole preparation.
+-->
+
 - **Reliability and maintenance pass.** The Slack write slot now defers its scheduler item instead
   of reporting success, ending a busy loop that issued thousands of database transactions per second
   for a second after every Slack message. Shutdown waits for the service workers to drain before the
