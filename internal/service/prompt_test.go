@@ -268,7 +268,7 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // Measured in production on 2026-08-07: assembled prompts ran a median 3.2 KiB
 // over the cap across 89 truncations in a day. Freeing 4 KiB of instruction
 // would have prevented 91% of them; 8 KiB, all of them.
-const staticWatchPromptBytes = 47189
+const staticWatchPromptBytes = 47149
 
 // The static prompt must not grow without someone deciding it should.
 //
