@@ -118,6 +118,14 @@ func ConversationResponseWithIncidentOffer(
 func WithIncidentOffer(message Message, sourceInputID string) Message {
 	// The incident button and confirmation dialog carry the boundary. A context
 	// footer is redundant and is concatenated to copied Slack Markdown.
+	//
+	// So drop it, which this said for months without doing. Every
+	// evidence-backed reply that also offered an incident shipped the footer
+	// anyway, because the composer adds it upstream: ConciseEvidenceResponse
+	// appends "Details saved: N findings…" and this only ever appended the
+	// button. Nothing is lost — that footer is a count, not attribution, and
+	// the incident room carries the findings themselves.
+	message.Context = nil
 	message.Actions = append(message.Actions, Action{
 		ID: ActionOpenIncident, Label: "Open incident room", Value: sourceInputID,
 		Style: "primary",
