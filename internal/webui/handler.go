@@ -155,18 +155,28 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 			`SELECT COUNT(*) FROM fixture_candidates WHERE correction_class = ?`, class)
 		rates = append(rates, rate{class, count, total, percent(count, total)})
 	}
+	feedback, _ := h.reader.Feedback(ctx)
 	h.page(w, "decisions", "decisions", struct {
 		Rates       []rate
 		Corrections []Correction
-	}{rates, corrections})
+		Feedback    []Feedback
+	}{rates, corrections, feedback})
 }
 
 func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
-	channels, _ := h.reader.ChannelMemory(r.Context())
+	ctx := r.Context()
+	channels, _ := h.reader.ChannelMemory(ctx)
+	entries, _ := h.reader.MemoryEntries(ctx)
+	conversations, _ := h.reader.Conversations(ctx)
+	rollups, _ := h.reader.Rollups(ctx)
+	review, _ := h.reader.MemoryReview(ctx)
 	h.page(w, "memory", "memory", struct {
-		Channels []ChannelMemoryRow
-		Entries  []struct{ Subject, Predicate, Value, Scope string }
-	}{channels, nil})
+		Channels      []ChannelMemoryRow
+		Entries       []MemoryEntry
+		Conversations []Conversation
+		Rollups       []Rollup
+		Review        []ReviewItem
+	}{channels, entries, conversations, rollups, review})
 }
 
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {

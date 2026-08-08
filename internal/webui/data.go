@@ -376,7 +376,7 @@ func (r *Reader) ChannelMemory(ctx context.Context) ([]ChannelMemoryRow, error) 
 			return nil, err
 		}
 		item.Updated = parseStamp(updated)
-		item.Channel = "#" + item.Channel
+		item.Channel = r.channelName(ctx, item.Channel)
 		var decoded struct {
 			SituationSummary string `json:"situation_summary"`
 			OpenLoops        []any  `json:"open_loops"`
@@ -414,6 +414,186 @@ func (r *Reader) Channels(ctx context.Context) ([]ChannelConfigRow, error) {
 			return nil, err
 		}
 		item.Channel = "#" + item.Channel
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// MemoryEntry is one saved operational fact.
+//
+// Recall count is shown because it is the only evidence that a memory is worth
+// keeping. A store nobody reads from is a store to prune, and that is invisible
+// without it.
+type MemoryEntry struct {
+	Subject, Predicate, Value, Scope string
+	Recalls                          int
+	Expires, LastRecalled            time.Time
+}
+
+func (r *Reader) MemoryEntries(ctx context.Context) ([]MemoryEntry, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT subject_key, predicate, value_json, scope_kind, scope_key,
+	         recall_count, expires_at, COALESCE(last_recalled_at,'')
+	  FROM memory_entries ORDER BY updated_at DESC LIMIT 100`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MemoryEntry{}
+	for rows.Next() {
+		var item MemoryEntry
+		var scopeKey, expires, recalled string
+		if err := rows.Scan(&item.Subject, &item.Predicate, &item.Value, &item.Scope,
+			&scopeKey, &item.Recalls, &expires, &recalled); err != nil {
+			return nil, err
+		}
+		if scopeKey != "" {
+			item.Scope += " " + scopeKey
+		}
+		item.Value = strings.Trim(item.Value, `"`)
+		item.Expires, item.LastRecalled = parseStamp(expires), parseStamp(recalled)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// Rollup is synthesized continuity for a scope over a period — the lossy
+// summary that survives when individual conversations age out.
+type Rollup struct {
+	Scope   string
+	Sources int
+	Recalls int
+	From    time.Time
+	To      time.Time
+}
+
+func (r *Reader) Rollups(ctx context.Context) ([]Rollup, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT scope_kind, scope_key, source_count, recall_count, period_start, period_end
+	  FROM memory_rollups ORDER BY period_end DESC LIMIT 50`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Rollup{}
+	for rows.Next() {
+		var item Rollup
+		var kind, key, from, to string
+		if err := rows.Scan(&kind, &key, &item.Sources, &item.Recalls, &from, &to); err != nil {
+			return nil, err
+		}
+		item.Scope = kind + " " + key
+		item.From, item.To = parseStamp(from), parseStamp(to)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// Conversation is per-channel-and-thread memory, distinct from the channel
+// situation: there are twenty-one of these against four situations, and only
+// the situations were visible anywhere.
+type Conversation struct {
+	Channel, Thread, Repository string
+	Recalls                     int
+	Updated                     time.Time
+}
+
+func (r *Reader) Conversations(ctx context.Context) ([]Conversation, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT channel_id, thread_ts, repository, recall_count, updated_at
+	  FROM conversation_memories ORDER BY updated_at DESC LIMIT 60`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Conversation{}
+	for rows.Next() {
+		var item Conversation
+		var channel, updated string
+		if err := rows.Scan(&channel, &item.Thread, &item.Repository, &item.Recalls, &updated); err != nil {
+			return nil, err
+		}
+		item.Channel = r.channelName(ctx, channel)
+		item.Updated = parseStamp(updated)
+		if item.Thread == "" {
+			item.Thread = "channel"
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// ReviewItem is memory the host flagged as stale or duplicated and is holding
+// for a person. Zero of them today, and no surface existed to notice that.
+type ReviewItem struct {
+	Kind, Reason, Status string
+	Created              time.Time
+}
+
+func (r *Reader) MemoryReview(ctx context.Context) ([]ReviewItem, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT kind, reason, status, created_at FROM memory_review_items
+	  WHERE status = 'pending' ORDER BY created_at DESC LIMIT 50`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ReviewItem{}
+	for rows.Next() {
+		var item ReviewItem
+		var created string
+		if err := rows.Scan(&item.Kind, &item.Reason, &item.Status, &created); err != nil {
+			return nil, err
+		}
+		item.Created = parseStamp(created)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// Feedback is what a person said about a Responder answer. It had no surface
+// at all, which is a poor showing for the one entity that records a human
+// telling the system it was wrong.
+type Feedback struct {
+	Category, Sentiment, Summary, Status, Channel string
+	EpisodeID                                     string
+	Created                                       time.Time
+}
+
+func (r *Reader) Feedback(ctx context.Context) ([]Feedback, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT category, sentiment, summary, COALESCE(status,''), channel_id,
+	         COALESCE(episode_id,''), created_at
+	  FROM feedback_items ORDER BY created_at DESC LIMIT 50`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Feedback{}
+	for rows.Next() {
+		var item Feedback
+		var channel, created string
+		if err := rows.Scan(&item.Category, &item.Sentiment, &item.Summary,
+			&item.Status, &channel, &item.EpisodeID, &created); err != nil {
+			return nil, err
+		}
+		item.Channel = r.channelName(ctx, channel)
+		item.Created = parseStamp(created)
 		items = append(items, item)
 	}
 	return items, rows.Err()

@@ -113,6 +113,23 @@ authentication each one is opted into deliberately rather than shipped by defaul
   {{end}}
 </div>
 
+<h2>Feedback from people <span class="note">{{len .Feedback}}</span></h2>
+{{if .Feedback}}
+<div class="rows">
+  {{range .Feedback}}
+  <div class="row">
+    <div class="title">{{truncate 200 .Summary}}</div>
+    <div class="meta">
+      <span class="pill{{if eq .Sentiment "negative"}} bad{{end}}">{{.Sentiment}}</span>
+      {{.Category}} · {{.Channel}} · {{since .Created}}{{if .Status}} · {{.Status}}{{end}}
+    </div>
+    {{if .EpisodeID}}<div class="meta"><a href="/episodes/{{.EpisodeID}}">the episode that prompted it →</a></div>{{end}}
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">Nobody has told Responder it got something wrong. This records
+a person saying so, which is distinct from the host's own checks rejecting an answer below.</p>{{end}}
+
 <h2>Corrections waiting to become tests</h2>
 {{if .Corrections}}
 <div class="rows">
@@ -130,7 +147,23 @@ why fifteen of these have gone unreviewed.</p>
 {{end}}
 
 {{define "memory"}}
-<h2>Channel situations</h2>
+<p class="note">Five stores, each with a different lifetime. Recall counts are shown
+because a memory nothing reads is a memory to prune, and that is invisible without them.</p>
+
+<h2>Operational memory <span class="note">{{len .Entries}}</span></h2>
+{{if .Entries}}
+<table>
+  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th>Recalled</th><th>Expires</th></tr>
+  {{range .Entries}}
+  <tr><td>{{.Subject}}</td><td class="mono">{{.Predicate}}</td><td>{{truncate 60 .Value}}</td>
+      <td class="note">{{.Scope}}</td>
+      <td class="mono">{{.Recalls}}{{if .Recalls}} · {{since .LastRecalled}}{{end}}</td>
+      <td class="note">{{stamp .Expires}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">Nothing saved.</p>{{end}}
+
+<h2>Channel situations <span class="note">{{len .Channels}}</span></h2>
 {{if .Channels}}
 <div class="rows">
   {{range .Channels}}
@@ -141,18 +174,42 @@ why fifteen of these have gone unreviewed.</p>
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">No conversation memory.</p>{{end}}
+{{else}}<p class="empty">No channel situations.</p>{{end}}
 
-<h2>Operational memory</h2>
-{{if .Entries}}
+<h2>Conversation memory <span class="note">{{len .Conversations}}</span></h2>
+{{if .Conversations}}
 <table>
-  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th>Expires</th></tr>
-  {{range .Entries}}
-  <tr><td>{{.Subject}}</td><td class="mono">{{.Predicate}}</td><td>{{truncate 60 .Value}}</td>
-      <td>{{.Scope}}</td><td class="note">{{stamp .Expires}}</td></tr>
+  <tr><th>Channel</th><th>Thread</th><th>Repository</th><th>Recalled</th><th>Updated</th></tr>
+  {{range .Conversations}}
+  <tr><td>{{.Channel}}</td><td class="mono">{{.Thread}}</td><td class="mono">{{.Repository}}</td>
+      <td class="mono">{{.Recalls}}</td><td class="note">{{since .Updated}}</td></tr>
   {{end}}
 </table>
-{{else}}<p class="empty">Nothing saved.</p>{{end}}
+{{else}}<p class="empty">No conversation memory.</p>{{end}}
+
+<h2>Rollups <span class="note">{{len .Rollups}}</span></h2>
+{{if .Rollups}}
+<table>
+  <tr><th>Scope</th><th>Sources</th><th>Recalled</th><th>Period</th></tr>
+  {{range .Rollups}}
+  <tr><td>{{.Scope}}</td><td class="mono">{{.Sources}}</td><td class="mono">{{.Recalls}}</td>
+      <td class="note">{{stamp .From}} → {{stamp .To}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">Nothing synthesized yet. A rollup is the lossy summary that
+survives when individual conversations age out.</p>{{end}}
+
+<h2>Awaiting review <span class="note">{{len .Review}}</span></h2>
+{{if .Review}}
+<div class="rows">
+  {{range .Review}}
+  <div class="row">
+    <div class="title">{{.Kind}}</div>
+    <div class="meta">{{.Reason}} · flagged {{since .Created}}</div>
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">Nothing flagged as stale or duplicated.</p>{{end}}
 {{end}}
 
 {{define "configuration"}}
