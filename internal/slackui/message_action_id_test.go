@@ -126,20 +126,17 @@ func TestSectionFieldsAreChunkedToSlacksLimit(t *testing.T) {
 // mixed in with preference and rule controls, none of them next to what they
 // referred to. The operator could not tell which button was which.
 func TestRowActionsRenderBesideTheirRow(t *testing.T) {
-	message := Message{
-		Text:     "list",
-		Sections: []string{"*Corrections worth keeping?*"},
-		Rows: []Row{
-			{Text: "first correction", Actions: []Action{
-				{ID: ActionKeepFixtureCandidate, Label: "Keep", Value: "a"},
-				{ID: ActionDiscardFixtureCandidate, Label: "Discard", Value: "a"},
-			}},
-			{Text: "second correction", Actions: []Action{
-				{ID: ActionKeepFixtureCandidate, Label: "Keep", Value: "b"},
-				{ID: ActionDiscardFixtureCandidate, Label: "Discard", Value: "b"},
-			}},
-		},
-	}
+	// AppendRow records the position, so rows land under the heading they
+	// belong to instead of after every section on the surface.
+	message := Message{Text: "list", Sections: []string{"*Corrections worth keeping?*"}}
+	message = AppendRow(message, "first correction", []Action{
+		{ID: ActionKeepFixtureCandidate, Label: "Keep", Value: "a"},
+		{ID: ActionDiscardFixtureCandidate, Label: "Discard", Value: "a"},
+	})
+	message = AppendRow(message, "second correction", []Action{
+		{ID: ActionKeepFixtureCandidate, Label: "Keep", Value: "b"},
+		{ID: ActionDiscardFixtureCandidate, Label: "Discard", Value: "b"},
+	})
 
 	var order []string
 	for _, block := range message.Blocks() {

@@ -138,9 +138,24 @@ type Message struct {
 }
 
 // Row is one item in a list, with the controls that act on that item.
+//
+// After records how many Sections existed when the row was appended, so rows
+// render in the position they were added rather than after every section. A
+// heading is a section and its items are rows; without this the App Home
+// stacked "Responder preferences", "Standing rules" and "Corrections worth
+// keeping?" together and then listed every row beneath all three.
 type Row struct {
 	Text    string   `json:"text"`
 	Actions []Action `json:"actions,omitempty"`
+	After   int      `json:"after,omitempty"`
+}
+
+// AppendRow adds a row directly beneath the sections added so far.
+func AppendRow(message Message, text string, actions []Action) Message {
+	message.Rows = append(message.Rows, Row{
+		Text: text, Actions: actions, After: len(message.Sections),
+	})
+	return message
 }
 
 type Field struct {
@@ -209,30 +224,30 @@ func (m Message) Blocks() []slack.Block {
 			truncateMarkdown(m.Markdown, 12000),
 		))
 	}
-	for _, section := range m.Sections {
-		if section == "" {
-			continue
-		}
-		blocks = append(blocks, slack.NewSectionBlock(
-			slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(section, 2900), false, true),
-			nil, nil,
-		))
-	}
-	// Each row keeps its controls under its own text, so "Keep" is next to the
-	// thing it keeps rather than in a pile of identical buttons at the bottom.
-	for _, row := range m.Rows {
-		if row.Text == "" {
-			continue
-		}
-		blocks = append(blocks, slack.NewSectionBlock(
-			slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(row.Text, 2900), false, true),
-			nil, nil,
-		))
-		if elements := buttonElements(row.Actions, occurrences); len(elements) > 0 {
-			blocks = append(blocks, slack.NewActionBlock("", elements...))
+	emitRows := func(after int) {
+		for _, row := range m.Rows {
+			if row.After != after || row.Text == "" {
+				continue
+			}
+			blocks = append(blocks, slack.NewSectionBlock(
+				slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(row.Text, 2900), false, true),
+				nil, nil,
+			))
+			if elements := buttonElements(row.Actions, occurrences); len(elements) > 0 {
+				blocks = append(blocks, slack.NewActionBlock("", elements...))
+			}
 		}
 	}
-
+	emitRows(0)
+	for index, section := range m.Sections {
+		if section != "" {
+			blocks = append(blocks, slack.NewSectionBlock(
+				slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(section, 2900), false, true),
+				nil, nil,
+			))
+		}
+		emitRows(index + 1)
+	}
 	// Slack allows ten fields in a section and rejects the whole surface over
 	// that, which is how the App Home came to publish nothing at all: the
 	// dashboard carries a dozen counters, so every view it ever built was

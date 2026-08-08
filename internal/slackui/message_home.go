@@ -106,11 +106,23 @@ func OperationsHome(
 	// and to the failure count, not to a list titled with what is owed to the
 	// team — that framing put a Coop idempotency conflict in front of an
 	// operator as a task.
+	// The same alert firing twice produces two commitments with the same
+	// headline and nothing to tell them apart on the page, which reads as a
+	// rendering fault. Collapse them and say how many.
 	owedItems := make([]core.Commitment, 0, len(commitments))
+	repeats := make(map[string]int, len(commitments))
+	seenHeadline := make(map[string]bool, len(commitments))
 	for _, commitment := range commitments {
-		if operatorActionable(commitment.State) {
-			owedItems = append(owedItems, commitment)
+		if !operatorActionable(commitment.State) {
+			continue
 		}
+		key := commitmentHeadline(commitment.Title)
+		repeats[key]++
+		if seenHeadline[key] {
+			continue
+		}
+		seenHeadline[key] = true
+		owedItems = append(owedItems, commitment)
 	}
 	if len(owedItems) > 0 {
 		var owed strings.Builder
@@ -120,11 +132,17 @@ func OperationsHome(
 			if commitment.ChannelID != "" {
 				location = " · <#" + commitment.ChannelID + ">"
 			}
+			headline := commitmentHeadline(commitment.Title)
+			repeated := ""
+			if count := repeats[headline]; count > 1 {
+				repeated = fmt.Sprintf(" ×%d", count)
+			}
 			fmt.Fprintf(
 				&owed,
-				"\n*%s* — %s%s",
-				commitmentHeadline(commitment.Title),
+				"\n*%s* — %s%s%s",
+				headline,
 				commitmentStateLabel(commitment.State),
+				repeated,
 				location,
 			)
 			// The status and the next action each earn their line only by
@@ -222,17 +240,14 @@ func OperationsHome(
 			if preference.ScopeKind == "channel" && preference.ScopeKey != "" {
 				scope = "<#" + preference.ScopeKey + ">"
 			}
-			message.Rows = append(message.Rows, Row{
-				Text: fmt.Sprintf(
-					"*`%s` = `%s`* — %s\n%s; expires %s",
-					preference.Name,
-					preference.Value,
-					state,
-					scope,
-					preference.ExpiresAt.UTC().Format("2006-01-02"),
-				),
-				Actions: preferenceActions(preference),
-			})
+			message = AppendRow(message, fmt.Sprintf(
+				"*`%s` = `%s`* — %s\n%s; expires %s",
+				preference.Name,
+				preference.Value,
+				state,
+				scope,
+				preference.ExpiresAt.UTC().Format("2006-01-02"),
+			), preferenceActions(preference))
 		}
 	}
 	if len(rules) > 0 {
@@ -242,18 +257,15 @@ func OperationsHome(
 			if rule.Enabled {
 				state = "enabled"
 			}
-			message.Rows = append(message.Rows, Row{
-				Text: fmt.Sprintf(
-					"*`%s` -> `%s`* — %s\n<#%s>; %d runs; expires %s",
-					rule.Trigger,
-					rule.Action,
-					state,
-					rule.ChannelID,
-					rule.TriggerCount,
-					rule.ExpiresAt.UTC().Format("2006-01-02"),
-				),
-				Actions: ruleActions(rule),
-			})
+			message = AppendRow(message, fmt.Sprintf(
+				"*`%s` -> `%s`* — %s\n<#%s>; %d runs; expires %s",
+				rule.Trigger,
+				rule.Action,
+				state,
+				rule.ChannelID,
+				rule.TriggerCount,
+				rule.ExpiresAt.UTC().Format("2006-01-02"),
+			), ruleActions(rule))
 		}
 	}
 	return message
@@ -288,10 +300,23 @@ func commitmentHeadline(title string) string {
 	cleaned := slackLinkTextPattern.ReplaceAllString(strings.TrimSpace(title), "$1")
 	cleaned = strings.TrimSpace(bareURLPattern.ReplaceAllString(cleaned, ""))
 	cleaned = singleLine(cleaned)
+	// The source message's own emphasis leaks in as stray * and _ once the
+	// surrounding text is cut, and a template that did not resolve arrives as
+	// "[no value]". Both read as corruption in a list.
+	cleaned = strings.NewReplacer("*", "", "_", "", "`", "").Replace(cleaned)
+	cleaned = strings.ReplaceAll(cleaned, "[no value]", "")
+	cleaned = strings.Join(strings.Fields(cleaned), " ")
 	if cleaned == "" {
 		cleaned = "Untitled work"
 	}
-	return escapeSlackText(truncateUTF8(cleaned, 120))
+	// Cut on a word so a headline does not end mid-token like "…for 24h FI".
+	if trimmed := truncateUTF8(cleaned, 110); trimmed != cleaned {
+		if cut := strings.LastIndex(trimmed, " "); cut > 40 {
+			trimmed = trimmed[:cut]
+		}
+		cleaned = strings.TrimRight(trimmed, " ,;:-") + "…"
+	}
+	return escapeSlackText(cleaned)
 }
 
 // genericProgressText reports whether a status or next action says nothing the

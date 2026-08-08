@@ -1,6 +1,7 @@
 package slackui
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -127,5 +128,95 @@ func TestZeroCountersAreHiddenButTheStateIsAlwaysShown(t *testing.T) {
 	}
 	if !strings.Contains(message.Text, "Nothing waiting on you") {
 		t.Errorf("an idle system should say so plainly: %q", message.Text)
+	}
+}
+
+// Headings must keep their items. Rendering every row after every section put
+// "Responder preferences", "Standing rules" and "Corrections worth keeping?"
+// in a stack with all of their rows below all three, so no heading described
+// what followed it.
+func TestHomeHeadingsKeepTheirRows(t *testing.T) {
+	expires := time.Now().Add(720 * time.Hour)
+	message := OperationsHome(
+		0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, nil, nil, nil, nil,
+		[]core.ResponderPreference{{
+			ID: "pref_1", Name: "response_location", Value: "prefer_thread",
+			ScopeKind: "channel", ScopeKey: "CBACKEND", Enabled: true, ExpiresAt: expires,
+		}},
+		[]core.StandingRule{{
+			ID: "rule_1", Trigger: "operational_alert", Action: "triage_alert",
+			ChannelID: "CBACKEND", Enabled: true, ExpiresAt: expires,
+		}},
+	)
+	message = AppendFixtureReview(message, []FixtureCandidateSummary{
+		{ID: "cand_1", Correction: "a correction to judge"},
+	})
+
+	var order []string
+	for _, block := range message.Blocks() {
+		raw, err := json.Marshal(block)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var probe struct {
+			Type string `json:"type"`
+			Text struct {
+				Text string `json:"text"`
+			} `json:"text"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			t.Fatal(err)
+		}
+		if probe.Type == "section" && probe.Text.Text != "" {
+			order = append(order, probe.Text.Text)
+		}
+	}
+
+	// Each heading must be immediately followed by its own item.
+	for _, pair := range [][2]string{
+		{"*Responder preferences*", "response_location"},
+		{"*Standing rules*", "operational_alert"},
+		{"*Corrections worth keeping?*", "a correction to judge"},
+	} {
+		found := false
+		for index, text := range order {
+			if !strings.Contains(text, pair[0]) {
+				continue
+			}
+			if index+1 >= len(order) || !strings.Contains(order[index+1], pair[1]) {
+				t.Errorf("%q is not followed by its row; order was:\n%s",
+					pair[0], strings.Join(order, "\n"))
+			}
+			found = true
+			break
+		}
+		if !found {
+			t.Errorf("heading %q missing; order was:\n%s", pair[0], strings.Join(order, "\n"))
+		}
+	}
+}
+
+// The same alert firing twice made two identical rows with nothing to tell
+// them apart, which reads as a rendering fault rather than two events.
+func TestRepeatedAlertsCollapseWithACount(t *testing.T) {
+	title := "<https://grafana.example.com/a|[VA1 FIRING:1] CRITICAL | Reaper overdue for 24h> *FIRING*"
+	message := OperationsHome(
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, nil,
+		[]core.Commitment{
+			{Title: title, State: core.CommitmentBlocked},
+			{Title: title, State: core.CommitmentBlocked},
+		},
+		nil, nil, nil, nil,
+	)
+	content := homeContent(message)
+	if strings.Count(content, "Reaper overdue") != 1 {
+		t.Errorf("the repeated alert was listed more than once:\n%s", content)
+	}
+	if !strings.Contains(content, "×2") {
+		t.Errorf("the repeat count is missing:\n%s", content)
+	}
+	// Emphasis from the source message must not leak into the headline.
+	if strings.Contains(content, "*FIRING*") {
+		t.Errorf("source markup leaked into the headline:\n%s", content)
 	}
 }

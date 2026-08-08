@@ -919,19 +919,16 @@ func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Messa
 		// A row, so Keep sits under the correction it keeps. The buttons used to
 		// be numbered because they were pooled at the bottom and needed to point
 		// back at a list; now they are next to their item and the number is noise.
-		message.Rows = append(message.Rows, Row{
-			Text: line,
-			Actions: []Action{
-				{
-					ID: ActionKeepFixtureCandidate, Label: "Keep",
-					Value: item.ID, Style: "primary",
-					Confirm: "Turn this correction into a regression test? " +
-						"It will be reviewed once more before it reaches a release gate.",
-				},
-				{
-					ID: ActionDiscardFixtureCandidate, Label: "Discard",
-					Value: item.ID,
-				},
+		message = AppendRow(message, line, []Action{
+			{
+				ID: ActionKeepFixtureCandidate, Label: "Keep",
+				Value: item.ID, Style: "primary",
+				Confirm: "Turn this correction into a regression test? " +
+					"It will be reviewed once more before it reaches a release gate.",
+			},
+			{
+				ID: ActionDiscardFixtureCandidate, Label: "Discard",
+				Value: item.ID,
 			},
 		})
 	}
