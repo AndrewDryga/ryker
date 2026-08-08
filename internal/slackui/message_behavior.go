@@ -913,9 +913,10 @@ func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Messa
 	// the host's own validator rejecting Responder's output. Both are worth
 	// pinning as tests; only one of them is somebody telling you off.
 	message.Sections = append(message.Sections,
-		"*Corrections worth keeping?*\nEach is a time Responder's answer was rejected — by "+
-			"the host's checks or by a person. Keep one and it becomes a regression test. "+
-			"Discard it if it was situational.",
+		"*Improve Responder* — corrections waiting to become tests\nEach is a time an "+
+			"answer was rejected, by the host's checks or by a person. Keep one and it "+
+			"becomes a regression test so the mistake cannot return. Discard it if it "+
+			"was situational.",
 	)
 	for _, item := range items {
 		line := escapeSlackText(truncateUTF8(correctionSummary(item.Correction), 300))

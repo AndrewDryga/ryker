@@ -27,38 +27,42 @@ func OperationsHome(
 	preferences []core.ResponderPreference,
 	rules []core.StandingRule,
 ) Message {
-	// The heading answers "is anything waiting for me?". "Needs attention" over
-	// a page of counters made the reader hunt for what needed attending to.
-	state := "Nothing waiting on you"
-	switch {
-	case commitmentActive > 0 && failedWork > 0:
-		state = fmt.Sprintf("%d waiting on you · %d failed", commitmentActive, failedWork)
-	case commitmentActive > 0:
-		state = fmt.Sprintf("%d waiting on you", commitmentActive)
-	case failedWork > 0:
-		state = fmt.Sprintf("%d failed work item%s, none waiting on you",
-			failedWork, map[bool]string{true: "s", false: ""}[failedWork != 1])
+	// This page answers one question: what needs me?
+	//
+	// It used to answer four at once — what needs you, a cleanup chore, how the
+	// workspace is configured, and which of Responder's own mistakes to pin as
+	// tests — with nothing marking where one ended and the next began. Four
+	// jobs in one scroll reads as a mess of text and buttons no matter how well
+	// each line is written, so the page now leads with the answer, and the two
+	// secondary jobs sit below it under their own headings.
+	needs := commitmentActive
+	state := "Nothing needs you"
+	if needs > 0 {
+		state = fmt.Sprintf("%d need%s you",
+			needs, map[bool]string{true: "", false: "s"}[needs != 1])
 	}
+	// Everything the page is not about, on one line, each with the command that
+	// opens it. These were nine tiles and a paragraph-length banner competing
+	// with the work for the reader's attention.
+	elsewhere := make([]string, 0, 4)
+	if failedWork > 0 {
+		elsewhere = append(elsewhere, fmt.Sprintf("%d failed · `/responder failures`", failedWork))
+	}
+	if cleanupBlocked > 0 {
+		elsewhere = append(elsewhere, fmt.Sprintf("%d retained workspaces · `/responder sessions`", cleanupBlocked))
+	}
+	if publishedPRs > 0 {
+		elsewhere = append(elsewhere, fmt.Sprintf("%d draft PRs", publishedPRs))
+	}
+	elsewhere = append(elsewhere, "`/responder status` for everything in flight")
+
 	message := Message{
 		Text: fmt.Sprintf(
-			"Responder operations: %s. %d open work items, %d failed work items.",
-			state, openIncidents+commitmentActive, failedWork,
+			"Emisar: %s. %d failed work items.", state, failedWork,
 		),
 		Header:   "Emisar",
 		Sections: []string{"*" + state + "*"},
-		// Two tiles. Everything else the block used to carry was either zero,
-		// already in the heading ("21 waiting on you · 100 failed"), already in
-		// the retained-workspace banner, or a count of rows listed in full
-		// further down the same page — "Preferences 2" sat below the two
-		// preferences. A number repeated beside itself is not a summary.
-		Fields: counterFields(
-			counter{"Failed work", failedWork, always},
-			counter{"Draft PRs", publishedPRs, whenSet},
-		),
-		Context: []string{
-			"`/responder failures` lists failed work · `/responder status` for everything in flight · " +
-				"ask Emisar what it remembers or how a channel is configured.",
-		},
+		Context:  []string{strings.Join(elsewhere, "\n")},
 	}
 	if len(incidents) > 0 {
 		var current strings.Builder
@@ -103,7 +107,7 @@ func OperationsHome(
 	}
 	if len(owedItems) > 0 {
 		var owed strings.Builder
-		owed.WriteString("*Waiting on you*\n")
+		owed.WriteString("*Needs a decision from you*\n")
 		for _, commitment := range owedItems[:min(len(owedItems), 5)] {
 			location := ""
 			if commitment.ChannelID != "" {
@@ -122,13 +126,16 @@ func OperationsHome(
 				repeated,
 				location,
 			)
-			// The status and the next action each earn their line only by
-			// saying something the state label did not.
-			if !genericProgressText(commitment.Status) {
-				fmt.Fprintf(&owed, "\n%s", escapeSlackText(truncateUTF8(singleLine(commitment.Status), 300)))
-			}
-			if !genericProgressText(commitment.NextAction) {
-				fmt.Fprintf(&owed, "\n→ %s", escapeSlackText(truncateUTF8(singleLine(commitment.NextAction), 300)))
+			// What to do, not why Responder stopped. The status paragraph is
+			// Responder reasoning about itself; five of them made a wall the
+			// reader had to mine for the one line that was an instruction. It
+			// is still in the thread, and it is used here only when there is no
+			// next action to show instead.
+			switch {
+			case !genericProgressText(commitment.NextAction):
+				fmt.Fprintf(&owed, "\n→ %s", escapeSlackText(truncateUTF8(singleLine(commitment.NextAction), 240)))
+			case !genericProgressText(commitment.Status):
+				fmt.Fprintf(&owed, "\n%s", escapeSlackText(truncateUTF8(singleLine(commitment.Status), 240)))
 			}
 		}
 		if extra := len(owedItems) - 5; extra > 0 {
@@ -137,24 +144,6 @@ func OperationsHome(
 		message.Sections = append(message.Sections, owed.String())
 	}
 
-	// After the work, not before it. Thirty retained workspaces is a standing
-	// cleanup chore; a blocked question with somebody waiting on the answer is
-	// today, and it was being pushed below the chore.
-	if cleanupBlocked > 0 {
-		// Says what to type. The previous wording — "inspect the related task
-		// before explicitly publishing or discarding it" — described a
-		// procedure without naming the command that starts it.
-		message.Sections = append(
-			message.Sections,
-			fmt.Sprintf(
-				"*%d retained workspace%s*\nEach holds committed work Responder would "+
-					"not discard on its own. `/responder sessions` lists them; publish or "+
-					"discard each one to release it.",
-				cleanupBlocked,
-				map[bool]string{true: "s", false: ""}[cleanupBlocked != 1],
-			),
-		)
-	}
 	// A channel with no summary and no goal has nothing to report, and
 	// "Context retained; no current summary" is a placeholder wearing the
 	// costume of content — three of them filled a section that said nothing.
@@ -223,7 +212,7 @@ func OperationsHome(
 		)
 	}
 	if len(preferences) > 0 {
-		message.Sections = append(message.Sections, "*Responder preferences*")
+		message.Sections = append(message.Sections, "*Settings* — how Responder behaves here")
 		for _, preference := range preferences[:min(len(preferences), 3)] {
 			state := "disabled"
 			if preference.Enabled {
@@ -247,7 +236,7 @@ func OperationsHome(
 		}
 	}
 	if len(rules) > 0 {
-		message.Sections = append(message.Sections, "*Standing rules*")
+		message.Sections = append(message.Sections, "*Standing rules* — what Responder does automatically")
 		for _, rule := range rules[:min(len(rules), 3)] {
 			state := "disabled"
 			if rule.Enabled {
@@ -359,39 +348,4 @@ func operatorActionable(state core.CommitmentState) bool {
 	default:
 		return false
 	}
-}
-
-// A counter is shown always, or only when it is not zero.
-type counterVisibility int
-
-const (
-	always counterVisibility = iota
-	whenSet
-)
-
-type counter struct {
-	label      string
-	value      int
-	visibility counterVisibility
-}
-
-// counterFields keeps the counters worth reading and caps them at Slack's
-// limit of ten per section.
-//
-// "Open work 0 · Active sessions 0 · Cleanup queued 0 · Saved memory 0" is four
-// tiles of nothing next to "Failed work 100", and the reader has to find the
-// one that matters. The always-shown three are the state of the system even
-// when they read zero — especially then, since zero failures is the news.
-func counterFields(counters ...counter) []Field {
-	fields := make([]Field, 0, len(counters))
-	for _, item := range counters {
-		if item.visibility == whenSet && item.value == 0 {
-			continue
-		}
-		if len(fields) == 10 {
-			break
-		}
-		fields = append(fields, Field{Label: item.label, Value: fmt.Sprint(item.value)})
-	}
-	return fields
 }

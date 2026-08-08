@@ -103,34 +103,35 @@ func TestChannelSituationsWithoutASummaryAreOmitted(t *testing.T) {
 	}
 }
 
-// Twelve counters, most reading zero, buried the two worth reading — and were
-// what pushed the section past Slack's ten-field limit so the page did not
-// render at all.
-func TestZeroCountersAreHiddenButTheStateIsAlwaysShown(t *testing.T) {
-	message := OperationsHome(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, nil, nil, nil, nil, nil, nil)
-	labels := map[string]string{}
-	for _, field := range message.Fields {
-		labels[field.Label] = field.Value
+// The page answers one question, so the numbers it is not about are one line
+// of context with the command that opens each — not a grid of tiles competing
+// with the work. Nine tiles, most of them zero or restating the heading, were
+// most of what made the page read as a mess.
+func TestSecondaryNumbersAreOneLineNotAGridOfTiles(t *testing.T) {
+	message := OperationsHome(0, 0, 0, 100, 3, 0, 30, 0, 0, 0, 0, 0, nil, nil, nil, nil, nil, nil)
+
+	if len(message.Fields) != 0 {
+		t.Errorf("the page still renders a tile block: %+v", message.Fields)
 	}
-	if len(message.Fields) > 10 {
-		t.Fatalf("%d fields exceeds Slack's limit of 10", len(message.Fields))
-	}
-	// Zero failures is news, so that one counter always shows.
-	if _, ok := labels["Failed work"]; !ok {
-		t.Errorf("failed work should always be shown, got %v", labels)
-	}
-	// Nothing that the heading, the retained-workspace banner, or a section
-	// listing the rows in full already says. A number beside itself is noise.
-	for _, duplicated := range []string{
-		"Waiting on you", "Cleanup blocked", "Preferences", "Standing rules",
-		"Open work", "Recorded work", "Schedules", "Saved memory", "Active sessions",
+	context := strings.Join(message.Context, "\n")
+	// Each number the page is not about names the command that opens it.
+	for _, expected := range []string{
+		"100 failed", "/responder failures",
+		"30 retained workspaces", "/responder sessions",
+		"3 draft PRs", "/responder status",
 	} {
-		if _, ok := labels[duplicated]; ok {
-			t.Errorf("%q is already stated elsewhere on the page, got %v", duplicated, labels)
+		if !strings.Contains(context, expected) {
+			t.Errorf("context is missing %q:\n%s", expected, context)
 		}
 	}
-	if !strings.Contains(message.Text, "Nothing waiting on you") {
-		t.Errorf("an idle system should say so plainly: %q", message.Text)
+
+	// An idle system says so in the one place the reader looks first.
+	idle := OperationsHome(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, nil, nil, nil, nil, nil, nil)
+	if !strings.Contains(strings.Join(idle.Sections, "\n"), "Nothing needs you") {
+		t.Errorf("an idle system should say so plainly: %+v", idle.Sections)
+	}
+	if strings.Contains(strings.Join(idle.Context, "\n"), "retained workspaces") {
+		t.Errorf("an idle system should not list chores it does not have: %+v", idle.Context)
 	}
 }
 
@@ -177,9 +178,9 @@ func TestHomeHeadingsKeepTheirRows(t *testing.T) {
 
 	// Each heading must be immediately followed by its own item.
 	for _, pair := range [][2]string{
-		{"*Responder preferences*", "response_location"},
+		{"*Settings*", "response_location"},
 		{"*Standing rules*", "operational_alert"},
-		{"*Corrections worth keeping?*", "correction to judge"},
+		{"*Improve Responder*", "correction to judge"},
 	} {
 		found := false
 		for index, text := range order {
@@ -252,8 +253,9 @@ func TestCorrectionsLeadWithWhatWasWrong(t *testing.T) {
 }
 
 // Active work outranks a standing chore. Thirty retained workspaces is cleanup
-// that has waited days; a blocked question has somebody waiting on the answer.
-func TestBlockedWorkIsListedBeforeTheCleanupBanner(t *testing.T) {
+// that has waited days; a blocked question has somebody waiting on the answer,
+// and the chore used to sit above it in a paragraph of its own.
+func TestTheChoreDoesNotOutrankTheWork(t *testing.T) {
 	message := OperationsHome(
 		0, 0, 0, 0, 0, 0, 30, 0, 0, 0, 0, 1, nil,
 		[]core.Commitment{{
@@ -262,13 +264,15 @@ func TestBlockedWorkIsListedBeforeTheCleanupBanner(t *testing.T) {
 		}},
 		nil, nil, nil, nil,
 	)
-	joined := strings.Join(message.Sections, "\n---\n")
-	work := strings.Index(joined, "Waiting on you")
-	chore := strings.Index(joined, "retained workspace")
-	if work < 0 || chore < 0 {
-		t.Fatalf("expected both sections:\n%s", joined)
+	sections := strings.Join(message.Sections, "\n")
+	if !strings.Contains(sections, "Deploy the website") {
+		t.Fatalf("the blocked work is missing:\n%s", sections)
 	}
-	if work > chore {
-		t.Errorf("the cleanup chore is above the blocked work:\n%s", joined)
+	// The chore is a line of context, not a section competing with the work.
+	if strings.Contains(sections, "retained workspace") {
+		t.Errorf("the cleanup chore is still a section:\n%s", sections)
+	}
+	if !strings.Contains(strings.Join(message.Context, "\n"), "30 retained workspaces") {
+		t.Errorf("the chore should still be reachable: %+v", message.Context)
 	}
 }

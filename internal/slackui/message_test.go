@@ -961,16 +961,12 @@ func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
 		ChannelID: "CINCIDENT",
 	}}, nil, nil, nil, nil)
 	content := message.Text + "\n" + message.Markdown + "\n" +
-		strings.Join(message.Sections, "\n")
-	for _, field := range message.Fields {
-		content += "\n" + field.Label + "\n" + field.Value
-	}
+		strings.Join(message.Sections, "\n") + "\n" +
+		strings.Join(message.Context, "\n")
 	for _, required := range []string{
 		// The heading answers "is anything waiting for me?" rather than saying
-		// "Needs attention" above a page the reader then has to search, and it
-		// carries the counts so the tile block does not repeat them.
-		"waiting on you",
-		"Failed work",
+		// "Needs attention" above a page the reader then has to search.
+		"needs you",
 		"API unavailable",
 		"Verify rollout",
 		"<#CINCIDENT>",
