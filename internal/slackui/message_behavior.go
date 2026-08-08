@@ -911,24 +911,29 @@ func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Messa
 			"wrong. Keep one and it becomes a test, so that mistake cannot come back. "+
 			"Discard it if it was situational.",
 	)
-	for index, item := range items {
-		line := "• " + escapeSlackText(truncateUTF8(item.Correction, 300))
+	for _, item := range items {
+		line := escapeSlackText(truncateUTF8(item.Correction, 300))
 		if item.Capability != "" {
 			line += " · " + escapeSlackText(item.Capability)
 		}
-		message.Sections = append(message.Sections, line)
-		message.Actions = append(message.Actions,
-			Action{
-				ID: ActionKeepFixtureCandidate, Label: fmt.Sprintf("Keep %d", index+1),
-				Value: item.ID, Style: "primary",
-				Confirm: "Turn this correction into a regression test? " +
-					"It will be reviewed once more before it reaches a release gate.",
+		// A row, so Keep sits under the correction it keeps. The buttons used to
+		// be numbered because they were pooled at the bottom and needed to point
+		// back at a list; now they are next to their item and the number is noise.
+		message.Rows = append(message.Rows, Row{
+			Text: line,
+			Actions: []Action{
+				{
+					ID: ActionKeepFixtureCandidate, Label: "Keep",
+					Value: item.ID, Style: "primary",
+					Confirm: "Turn this correction into a regression test? " +
+						"It will be reviewed once more before it reaches a release gate.",
+				},
+				{
+					ID: ActionDiscardFixtureCandidate, Label: "Discard",
+					Value: item.ID,
+				},
 			},
-			Action{
-				ID: ActionDiscardFixtureCandidate, Label: fmt.Sprintf("Discard %d", index+1),
-				Value: item.ID,
-			},
-		)
+		})
 	}
 	return message
 }

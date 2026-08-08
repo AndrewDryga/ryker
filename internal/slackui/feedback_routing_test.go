@@ -82,7 +82,13 @@ func TestFixtureReviewAsksAboutTheLessonNotTheMachinery(t *testing.T) {
 		{ID: "cand_1", Reason: "incomplete", Capability: "operational-health",
 			Correction: "the reply claimed healthy without fresh evidence"},
 	})
-	content := strings.Join(message.Sections, "\n")
+	// The heading is a section; each correction is a row that carries its own
+	// Keep and Discard, so the visible text is both together.
+	parts := append([]string{}, message.Sections...)
+	for _, row := range message.Rows {
+		parts = append(parts, row.Text)
+	}
+	content := strings.Join(parts, "\n")
 
 	if !strings.Contains(content, "told I got something wrong") {
 		t.Errorf("review section does not frame this as a judgement:\n%s", content)
@@ -96,7 +102,11 @@ func TestFixtureReviewAsksAboutTheLessonNotTheMachinery(t *testing.T) {
 	}
 
 	var keep, discard bool
-	for _, action := range message.Actions {
+	actions := append([]Action{}, message.Actions...)
+	for _, row := range message.Rows {
+		actions = append(actions, row.Actions...)
+	}
+	for _, action := range actions {
 		switch action.ID {
 		case ActionKeepFixtureCandidate:
 			keep = true
@@ -112,7 +122,7 @@ func TestFixtureReviewAsksAboutTheLessonNotTheMachinery(t *testing.T) {
 	}
 
 	// Nothing to review means no section at all, not an empty heading.
-	if empty := AppendFixtureReview(Message{}, nil); len(empty.Sections) != 0 {
+	if empty := AppendFixtureReview(Message{}, nil); len(empty.Sections) != 0 || len(empty.Rows) != 0 {
 		t.Errorf("an empty review queue still rendered a section: %+v", empty.Sections)
 	}
 }

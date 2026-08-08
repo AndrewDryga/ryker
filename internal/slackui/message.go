@@ -118,9 +118,25 @@ type Message struct {
 	Header   string   `json:"header,omitempty"`
 	Markdown string   `json:"markdown,omitempty"`
 	Sections []string `json:"sections,omitempty"`
-	Fields   []Field  `json:"fields,omitempty"`
-	Context  []string `json:"context,omitempty"`
-	Actions  []Action `json:"actions,omitempty"`
+	// Rows are sections that own their buttons, rendered before Fields with
+	// each row's controls directly beneath its text.
+	//
+	// Sections and Actions are parallel lists, which is right for a card with
+	// one set of controls and wrong for a list of things to act on: every
+	// button lands in a single pile at the bottom. The App Home ended up with
+	// nineteen of them — "Keep 1" through "Discard 5" mixed in with preference
+	// and rule controls, all far from the items they referred to, and no way to
+	// tell which was which. A caller rendering a list should use Rows.
+	Rows    []Row    `json:"rows,omitempty"`
+	Fields  []Field  `json:"fields,omitempty"`
+	Context []string `json:"context,omitempty"`
+	Actions []Action `json:"actions,omitempty"`
+}
+
+// Row is one item in a list, with the controls that act on that item.
+type Row struct {
+	Text    string   `json:"text"`
+	Actions []Action `json:"actions,omitempty"`
 }
 
 type Field struct {
@@ -174,6 +190,10 @@ func Decode(data []byte) (Message, error) {
 
 func (m Message) Blocks() []slack.Block {
 	blocks := make([]slack.Block, 0, 12)
+	// Slack rejects a surface whose action_ids repeat, and a list UI repeats one
+	// by nature: five "Keep" buttons all carry the keep action. Counted across
+	// the whole surface, not per block, because a view is rejected either way.
+	occurrences := make(map[string]int, len(m.Actions))
 	if m.Header != "" {
 		blocks = append(blocks, slack.NewHeaderBlock(
 			slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(singleLine(m.Header), 150), false, false),
@@ -194,6 +214,21 @@ func (m Message) Blocks() []slack.Block {
 			nil, nil,
 		))
 	}
+	// Each row keeps its controls under its own text, so "Keep" is next to the
+	// thing it keeps rather than in a pile of identical buttons at the bottom.
+	for _, row := range m.Rows {
+		if row.Text == "" {
+			continue
+		}
+		blocks = append(blocks, slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(row.Text, 2900), false, true),
+			nil, nil,
+		))
+		if elements := buttonElements(row.Actions, occurrences); len(elements) > 0 {
+			blocks = append(blocks, slack.NewActionBlock("", elements...))
+		}
+	}
+
 	// Slack allows ten fields in a section and rejects the whole surface over
 	// that, which is how the App Home came to publish nothing at all: the
 	// dashboard carries a dozen counters, so every view it ever built was
@@ -222,54 +257,57 @@ func (m Message) Blocks() []slack.Block {
 	}
 	if len(m.Actions) > 0 {
 		blocks = append(blocks, slack.NewDividerBlock())
-		// Slack rejects a surface whose action_ids repeat, and a list UI
-		// naturally repeats one: five "Keep" buttons all carry the keep action.
-		// views.publish answers invalid_arguments and shows the default "work in
-		// progress" tab, so the App Home was blank for two days with fifteen
-		// corrections behind it and no error anywhere a person would look. The
-		// per-button suffix is stripped again in routing; the payload the
-		// handler cares about has always travelled in Value.
-		occurrences := make(map[string]int, len(m.Actions))
-		for start := 0; start < len(m.Actions); start += 4 {
-			end := min(start+4, len(m.Actions))
-			elements := make([]slack.BlockElement, 0, end-start)
-			for _, action := range m.Actions[start:end] {
-				actionID := action.ID
-				occurrences[action.ID]++
-				if seen := occurrences[action.ID]; seen > 1 {
-					actionID = fmt.Sprintf("%s%s%d", action.ID, ActionInstanceSeparator, seen)
-				}
-				button := slack.NewButtonBlockElement(
-					actionID,
-					action.Value,
-					slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Label, 75), false, false),
-				)
-				switch action.Style {
-				case "primary":
-					button.WithStyle(slack.StylePrimary)
-				case "danger":
-					button.WithStyle(slack.StyleDanger)
-				}
-				if action.URL != "" {
-					button.WithURL(action.URL)
-				}
-				if action.Confirm != "" {
-					button.WithConfirm(slack.NewConfirmationBlockObject(
-						slack.NewTextBlockObject(slack.PlainTextType, "Confirm action", false, false),
-						slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Confirm, 300), false, false),
-						slack.NewTextBlockObject(slack.PlainTextType, "Confirm", false, false),
-						slack.NewTextBlockObject(slack.PlainTextType, "Cancel", false, false),
-					))
-				}
-				elements = append(elements, button)
+		for begin := 0; begin < len(m.Actions); begin += 4 {
+			stop := min(begin+4, len(m.Actions))
+			elements := buttonElements(m.Actions[begin:stop], occurrences)
+			if len(elements) == 0 {
+				continue
 			}
-			blocks = append(blocks, slack.NewActionBlock(
-				fmt.Sprintf("responder_incident_actions_%d", start/4+1),
-				elements...,
-			))
+			blocks = append(blocks, slack.NewActionBlock("", elements...))
 		}
 	}
 	return blocks
+}
+
+// buttonElements renders one group of buttons, suffixing an action_id that has
+// already appeared on this surface. The suffix is stripped again by
+// BaseActionID during routing; which copy was clicked travels in Value.
+func buttonElements(actions []Action, occurrences map[string]int) []slack.BlockElement {
+	elements := make([]slack.BlockElement, 0, len(actions))
+	for _, action := range actions {
+		if action.ID == "" {
+			continue
+		}
+		actionID := action.ID
+		occurrences[action.ID]++
+		if seen := occurrences[action.ID]; seen > 1 {
+			actionID = fmt.Sprintf("%s%s%d", action.ID, ActionInstanceSeparator, seen)
+		}
+		button := slack.NewButtonBlockElement(
+			actionID,
+			action.Value,
+			slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Label, 75), false, false),
+		)
+		switch action.Style {
+		case "primary":
+			button.WithStyle(slack.StylePrimary)
+		case "danger":
+			button.WithStyle(slack.StyleDanger)
+		}
+		if action.URL != "" {
+			button.WithURL(action.URL)
+		}
+		if action.Confirm != "" {
+			button.WithConfirm(slack.NewConfirmationBlockObject(
+				slack.NewTextBlockObject(slack.PlainTextType, "Confirm action", false, false),
+				slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Confirm, 300), false, false),
+				slack.NewTextBlockObject(slack.PlainTextType, "Confirm", false, false),
+				slack.NewTextBlockObject(slack.PlainTextType, "Cancel", false, false),
+			))
+		}
+		elements = append(elements, button)
+	}
+	return elements
 }
 
 func (m Message) FileBlocks() []slack.Block {

@@ -174,49 +174,52 @@ func OperationsHome(
 		)
 	}
 	if len(preferences) > 0 {
-		var saved strings.Builder
-		saved.WriteString("*Responder preferences*\n")
-		for index, preference := range preferences[:min(len(preferences), 3)] {
+		message.Sections = append(message.Sections, "*Responder preferences*")
+		for _, preference := range preferences[:min(len(preferences), 3)] {
 			state := "disabled"
 			if preference.Enabled {
 				state = "enabled"
 			}
-			fmt.Fprintf(
-				&saved,
-				"\n%d. **`%s` = `%s`** - %s\n   %s scope; expires %s",
-				index+1,
-				preference.Name,
-				preference.Value,
-				state,
-				preference.ScopeKind,
-				preference.ExpiresAt.UTC().Format("2006-01-02"),
-			)
-			message.Actions = append(message.Actions, preferenceActions(preference)...)
+			// One row per preference, so its controls sit under it. Two channel
+			// preferences read as identical duplicates when the scope says only
+			// "channel scope", so the row names the channel it applies to.
+			scope := preference.ScopeKind + " scope"
+			if preference.ScopeKind == "channel" && preference.ScopeKey != "" {
+				scope = "<#" + preference.ScopeKey + ">"
+			}
+			message.Rows = append(message.Rows, Row{
+				Text: fmt.Sprintf(
+					"*`%s` = `%s`* — %s\n%s; expires %s",
+					preference.Name,
+					preference.Value,
+					state,
+					scope,
+					preference.ExpiresAt.UTC().Format("2006-01-02"),
+				),
+				Actions: preferenceActions(preference),
+			})
 		}
-		message.Sections = append(message.Sections, saved.String())
 	}
 	if len(rules) > 0 {
-		var saved strings.Builder
-		saved.WriteString("*Standing rules*\n")
-		for index, rule := range rules[:min(len(rules), 3)] {
+		message.Sections = append(message.Sections, "*Standing rules*")
+		for _, rule := range rules[:min(len(rules), 3)] {
 			state := "disabled"
 			if rule.Enabled {
 				state = "enabled"
 			}
-			fmt.Fprintf(
-				&saved,
-				"\n%d. **`%s` -> `%s`** - %s\n   channel `%s`; %d runs; expires %s",
-				index+1,
-				rule.Trigger,
-				rule.Action,
-				state,
-				rule.ChannelID,
-				rule.TriggerCount,
-				rule.ExpiresAt.UTC().Format("2006-01-02"),
-			)
-			message.Actions = append(message.Actions, ruleActions(rule)...)
+			message.Rows = append(message.Rows, Row{
+				Text: fmt.Sprintf(
+					"*`%s` -> `%s`* — %s\n<#%s>; %d runs; expires %s",
+					rule.Trigger,
+					rule.Action,
+					state,
+					rule.ChannelID,
+					rule.TriggerCount,
+					rule.ExpiresAt.UTC().Format("2006-01-02"),
+				),
+				Actions: ruleActions(rule),
+			})
 		}
-		message.Sections = append(message.Sections, saved.String())
 	}
 	return message
 }

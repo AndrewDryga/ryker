@@ -119,3 +119,72 @@ func TestSectionFieldsAreChunkedToSlacksLimit(t *testing.T) {
 		t.Errorf("expected 3 field sections for 23 fields, got %d", sections)
 	}
 }
+
+// Buttons belong to the item they act on. When Sections and Actions were
+// parallel lists, a list of five corrections rendered five sections and then
+// nineteen buttons in one pile at the bottom — "Keep 1" through "Discard 5"
+// mixed in with preference and rule controls, none of them next to what they
+// referred to. The operator could not tell which button was which.
+func TestRowActionsRenderBesideTheirRow(t *testing.T) {
+	message := Message{
+		Text:     "list",
+		Sections: []string{"*Corrections worth keeping?*"},
+		Rows: []Row{
+			{Text: "first correction", Actions: []Action{
+				{ID: ActionKeepFixtureCandidate, Label: "Keep", Value: "a"},
+				{ID: ActionDiscardFixtureCandidate, Label: "Discard", Value: "a"},
+			}},
+			{Text: "second correction", Actions: []Action{
+				{ID: ActionKeepFixtureCandidate, Label: "Keep", Value: "b"},
+				{ID: ActionDiscardFixtureCandidate, Label: "Discard", Value: "b"},
+			}},
+		},
+	}
+
+	var order []string
+	for _, block := range message.Blocks() {
+		raw, err := json.Marshal(block)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var probe struct {
+			Type string `json:"type"`
+			Text struct {
+				Text string `json:"text"`
+			} `json:"text"`
+			Elements []struct {
+				Value string `json:"value"`
+			} `json:"elements"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			t.Fatal(err)
+		}
+		switch probe.Type {
+		case "section":
+			order = append(order, "section:"+probe.Text.Text)
+		case "actions":
+			values := ""
+			for _, element := range probe.Elements {
+				values += element.Value
+			}
+			order = append(order, "actions:"+values)
+		}
+	}
+
+	// Each row's buttons immediately follow its text, and carry that row's id.
+	want := []string{
+		"section:*Corrections worth keeping?*",
+		"section:first correction",
+		"actions:aa",
+		"section:second correction",
+		"actions:bb",
+	}
+	if len(order) != len(want) {
+		t.Fatalf("block order = %v, want %v", order, want)
+	}
+	for index := range want {
+		if order[index] != want[index] {
+			t.Fatalf("block order = %v, want %v", order, want)
+		}
+	}
+}
