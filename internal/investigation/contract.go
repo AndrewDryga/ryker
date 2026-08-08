@@ -349,9 +349,11 @@ task step remains. Do not translate validation, publication, review, or delivery
 `
 	case "factual_assessment":
 		return `
-This is a bounded factual or operational-task assessment. Use confirmed, not_confirmed, or inconclusive
-only when a verdict helps; otherwise omit it. Report what was completed, what remains, and the next action
-in the task's own language. Do not translate draft, validation, publication, scheduling, or approval state
+This is a bounded factual or operational-task assessment. A verdict answers the operator's question, not
+your work on it: confirmed when the asserted condition holds, not_confirmed when evidence shows it does
+not, inconclusive when it cannot be established. Diagnosing a failure is not confirmation — a proven
+blocker is not_confirmed. Omit the verdict when none of the three answers the question. Report what was
+completed, what remains, and the next action in the task's own language. Do not translate draft, validation, publication, scheduling, or approval state
 into health language. A known incomplete, draft, or unpublished artifact state is a decision-ready result,
 not a blocker. Treat publication or adoption as a next action unless the operator explicitly requested it
 as part of this episode.

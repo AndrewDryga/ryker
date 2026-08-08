@@ -194,9 +194,19 @@ func ParseWatchDecision(message string, now time.Time) (WatchDecision, error) {
 		if err == nil {
 			return decision, nil
 		}
+		// Decoding the cleanly extracted object says why the DECISION is bad;
+		// decoding the raw candidate only says the text around it is not JSON.
+		// Prefer the former. A model that fenced its reply and also invented a
+		// field was reported as 'invalid character ...' — true of the fence,
+		// useless about the field, and the correction retry that reads this
+		// then asks the model to fix the wrong thing.
 		if object, objectErr := FirstJSONObject(candidate); objectErr == nil {
-			if recovered, recoverErr := DecodeWatchDecision(object, now); recoverErr == nil {
+			recovered, recoverErr := DecodeWatchDecision(object, now)
+			if recoverErr == nil {
 				return recovered, nil
+			}
+			if strings.Contains(object, `"action"`) {
+				err = recoverErr
 			}
 		}
 		if strings.Contains(candidate, `"action"`) {
