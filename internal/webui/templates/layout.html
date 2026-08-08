@@ -1,0 +1,35 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · Responder</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<nav class="sidebar">
+  <div class="brand">Responder<span class="deploy">{{.Deploy}}</span></div>
+  <ul>
+    {{$active := .Active}}
+    {{range .Pages}}
+    <li><a href="/{{.Slug}}" class="{{if eq .Slug $active}}on{{end}}">{{.Title}}</a></li>
+    {{end}}
+  </ul>
+  <p class="foot">Loopback only. No accounts, no network calls.</p>
+</nav>
+<main>
+  <header>
+    <h1>{{.Title}}</h1>
+    <p class="ask">{{.Ask}}</p>
+  </header>
+  {{.Body}}
+</main>
+</body>
+</html>{{end}}
+
+{{define "unwired"}}
+<div class="unwired">
+  <p class="tag">Not recorded yet</p>
+  <p>{{.Needs}}</p>
+</div>
+{{end}}

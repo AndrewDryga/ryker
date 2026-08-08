@@ -1,0 +1,209 @@
+{{define "overview"}}
+<div class="grid">
+  <div class="panel metric{{if .NeedsYou}} warn{{end}}"><div class="n">{{.NeedsYou}}</div><div class="k">need a decision</div></div>
+  <div class="panel metric{{if .Failed}} bad{{end}}"><div class="n">{{.Failed}}</div><div class="k">failed work</div></div>
+  <div class="panel metric"><div class="n">{{.InFlight}}</div><div class="k">in flight</div></div>
+  <div class="panel metric{{if .Retained}} warn{{end}}"><div class="n">{{.Retained}}</div><div class="k">retained workspaces</div></div>
+</div>
+
+<h2>Needs a decision</h2>
+{{if .Blocked}}
+<div class="rows">
+  {{range .Blocked}}
+  <a class="row" href="/episodes/{{.ID}}">
+    <div class="title">{{truncate 110 .Title}}</div>
+    <div class="meta"><span class="pill warn">{{.State}}</span> {{.Channel}} · {{since .Updated}}</div>
+    {{if .Next}}<div class="todo">→ {{truncate 160 .Next}}</div>{{end}}
+  </a>
+  {{end}}
+</div>
+{{else}}<p class="empty">Nothing is waiting on you.</p>{{end}}
+
+<h2>Health</h2>
+<table>
+  <tr><th>Deployment</th><th>Binary</th><th>Ready</th><th>Schema</th></tr>
+  <tr><td>{{.Deployment}}</td><td class="mono">{{.Binary}}</td>
+      <td>{{if .Ready}}<span class="pill good">ready</span>{{else}}<span class="pill bad">not ready</span>{{end}}</td>
+      <td class="mono">{{.Schema}}</td></tr>
+</table>
+{{end}}
+
+{{define "episodes"}}
+<p class="note">{{.Total}} episodes recorded. Newest first.</p>
+<div class="rows">
+  {{range .Episodes}}
+  <a class="row" href="/episodes/{{.ID}}">
+    <div class="title">{{truncate 120 .Title}}</div>
+    <div class="meta">
+      <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
+      {{.Channel}} · {{.Kind}} · {{since .Updated}}
+    </div>
+  </a>
+  {{end}}
+</div>
+{{end}}
+
+{{define "episode"}}
+<p class="note"><a href="/episodes">← all episodes</a></p>
+<div class="panel">
+  <div class="title"><strong>{{.Title}}</strong></div>
+  <div class="meta">
+    <span class="pill">{{.State}}</span> {{.Channel}} · {{.Kind}} · started {{stamp .Created}}
+  </div>
+  {{if .Status}}<p class="note">{{.Status}}</p>{{end}}
+  {{if .Next}}<p class="todo">→ {{.Next}}</p>{{end}}
+</div>
+
+<h2>Timeline <span class="note">{{len .Events}} events</span></h2>
+{{if .Events}}
+<div class="timeline">
+  {{range .Events}}
+  <div class="ev">
+    <div class="when">{{stamp .At}} · {{.Actor}}</div>
+    <div>{{.Kind}}{{if .Detail}} — <span class="note">{{truncate 200 .Detail}}</span>{{end}}</div>
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">No events recorded for this episode.</p>{{end}}
+
+<h2>Evidence</h2>
+{{if .Evidence}}
+<table>
+  <tr><th>Claim</th><th>Observation</th><th>Source</th><th>Confidence</th></tr>
+  {{range .Evidence}}
+  <tr><td>{{truncate 90 .Claim}}</td><td>{{truncate 180 .Observation}}</td>
+      <td class="mono">{{.Source}}</td><td>{{.Confidence}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No evidence was recorded.</p>{{end}}
+
+<h2>Model and context</h2>
+{{if .Manifest.Model}}
+<table>
+  <tr><th>Provider</th><th>Model</th><th>Effort</th><th>Prompt version</th></tr>
+  <tr><td>{{.Manifest.Provider}}</td><td class="mono">{{.Manifest.Model}}</td>
+      <td>{{.Manifest.Effort}}</td><td class="mono">{{.Manifest.PromptVersion}}</td></tr>
+</table>
+{{else}}<p class="empty">No context manifest for this episode.</p>{{end}}
+{{template "unwired" .Usage}}
+{{end}}
+
+{{define "failures"}}
+<p class="note">{{.Total}} failed work items, grouped by cause.</p>
+{{if .Err}}<p class="unwired"><span class="tag">Could not load</span>{{.Err}}</p>{{else if .Groups}}
+<table>
+  <tr><th>Cause</th><th>Count</th><th>Most recent</th></tr>
+  {{range .Groups}}
+  <tr><td>{{truncate 110 .Cause}}</td><td class="mono">{{.Count}}</td>
+      <td class="note">{{since .Latest}}</td></tr>
+  {{end}}
+</table>
+<p class="note">Retry lands in v2. It is a write path, and on a surface with no
+authentication each one is opted into deliberately rather than shipped by default.</p>
+{{else}}<p class="empty">No failed work.</p>{{end}}
+{{end}}
+
+{{define "decisions"}}
+<h2>Correction rate</h2>
+<div class="grid">
+  {{range .Rates}}
+  <div class="panel metric{{if gt .Percent 20}} bad{{else if gt .Percent 5}} warn{{end}}">
+    <div class="n">{{.Percent}}%</div><div class="k">{{.Label}} · {{.Count}} of {{.Total}}</div>
+  </div>
+  {{end}}
+</div>
+
+<h2>Corrections waiting to become tests</h2>
+{{if .Corrections}}
+<div class="rows">
+  {{range .Corrections}}
+  <div class="row">
+    <div class="title">{{truncate 200 .Text}}</div>
+    <div class="meta">{{.Class}} · captured {{since .Created}} · expires {{stamp .Expires}}</div>
+  </div>
+  {{end}}
+</div>
+<p class="note">Keep and Discard land in v2, with the episode that produced each
+correction on the same page. Deciding from a one-line string with no context is
+why fifteen of these have gone unreviewed.</p>
+{{else}}<p class="empty">Nothing waiting.</p>{{end}}
+{{end}}
+
+{{define "memory"}}
+<h2>Channel situations</h2>
+{{if .Channels}}
+<div class="rows">
+  {{range .Channels}}
+  <div class="row">
+    <div class="title">{{.Channel}}</div>
+    <div class="meta">{{if .Summary}}{{truncate 220 .Summary}}{{else}}No current summary{{end}}</div>
+    <div class="meta">{{.OpenLoops}} open loops · updated {{since .Updated}}</div>
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">No conversation memory.</p>{{end}}
+
+<h2>Operational memory</h2>
+{{if .Entries}}
+<table>
+  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th>Expires</th></tr>
+  {{range .Entries}}
+  <tr><td>{{.Subject}}</td><td class="mono">{{.Predicate}}</td><td>{{truncate 60 .Value}}</td>
+      <td>{{.Scope}}</td><td class="note">{{stamp .Expires}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">Nothing saved.</p>{{end}}
+{{end}}
+
+{{define "configuration"}}
+<h2>Prompt budget</h2>
+<table>
+  <tr><th>Prompt</th><th>Instructions</th><th>Left for conversation</th></tr>
+  {{range .Prompts}}
+  <tr><td>{{.Name}}</td><td class="mono">{{.Bytes}} B</td>
+      <td class="mono">{{.Left}} B ({{.LeftPct}}%)</td></tr>
+  {{end}}
+</table>
+
+<h2>Channels</h2>
+{{if .Channels}}
+<table>
+  <tr><th>Channel</th><th>Participation</th><th>Repository</th></tr>
+  {{range .Channels}}
+  <tr><td>{{.Channel}}</td><td>{{.Mode}}</td><td class="mono">{{.Repository}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No channel configuration.</p>{{end}}
+
+<h2>Schedules</h2>
+{{if .Schedules}}
+<table>
+  <tr><th>Prompt</th><th>Cadence</th><th>Next</th></tr>
+  {{range .Schedules}}
+  <tr><td>{{truncate 80 .Prompt}}</td><td>{{.Cadence}}</td><td class="note">{{stamp .Next}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No schedules.</p>{{end}}
+{{end}}
+
+{{define "usage"}}
+<p class="note">
+Coop already parses <code>input_tokens</code>, <code>cached_input_tokens</code>,
+<code>output_tokens</code> and <code>reasoning_output_tokens</code> from the provider
+stream. Responder never receives them and nothing is persisted, so every panel here
+is a shape waiting on that plumbing rather than a number waiting on traffic.
+</p>
+
+<h2>Tokens by provider and model</h2>
+{{template "unwired" .ByModel}}
+<h2>Tokens by deployment, channel and repository</h2>
+{{template "unwired" .ByScope}}
+<h2>Prompt composition</h2>
+{{template "unwired" .Composition}}
+<h2>Cache hit rate</h2>
+{{template "unwired" .Cache}}
+<h2>Cost</h2>
+{{template "unwired" .Cost}}
+<h2>Wall clock</h2>
+{{template "unwired" .Latency}}
+{{end}}

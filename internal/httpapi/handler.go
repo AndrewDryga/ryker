@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,7 +19,9 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/version"
 	"github.com/AndrewDryga/responder/internal/webhook"
+	"github.com/AndrewDryga/responder/internal/webui"
 )
 
 type Handler struct {
@@ -110,7 +113,36 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("GET /readyz", h.ready)
 	mux.HandleFunc("GET /metrics", h.metrics)
 	mux.HandleFunc("POST /v1/hooks/{route}", h.webhook)
+	// The control plane, when the database can be opened for reading. A
+	// dashboard that cannot start must not stop the service from answering
+	// Slack, so a failure here is logged and the rest of the API serves on.
+	if err := h.mountControlPlane(mux); err != nil {
+		h.log.Warn("control plane unavailable", "error", err)
+	}
 	return mux
+}
+
+func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
+	reader, err := webui.OpenReader(filepath.Join(h.cfg.StateDir, "responder.db"))
+	if err != nil {
+		return err
+	}
+	// Read from the database rather than a constant, so the page reports the
+	// schema actually in use rather than the one this binary expects. Those
+	// differ exactly when something is wrong.
+	dashboard, err := webui.NewHandler(
+		reader,
+		filepath.Base(strings.TrimSuffix(h.cfg.StateDir, "/state")),
+		reader.Schema(context.Background()),
+		version.Version,
+		func() bool { ready, _ := h.service.Ready(context.Background()); return ready },
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	dashboard.Register(mux)
+	return nil
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
