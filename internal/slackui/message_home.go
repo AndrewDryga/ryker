@@ -27,9 +27,17 @@ func OperationsHome(
 	preferences []core.ResponderPreference,
 	rules []core.StandingRule,
 ) Message {
-	state := "Operational"
-	if failedWork > 0 {
-		state = "Needs attention"
+	// The heading answers "is anything waiting for me?". "Needs attention" over
+	// a page of counters made the reader hunt for what needed attending to.
+	state := "Nothing waiting on you"
+	switch {
+	case commitmentActive > 0 && failedWork > 0:
+		state = fmt.Sprintf("%d waiting on you · %d failed", commitmentActive, failedWork)
+	case commitmentActive > 0:
+		state = fmt.Sprintf("%d waiting on you", commitmentActive)
+	case failedWork > 0:
+		state = fmt.Sprintf("%d failed work item%s, none waiting on you",
+			failedWork, map[bool]string{true: "s", false: ""}[failedWork != 1])
 	}
 	message := Message{
 		Text: fmt.Sprintf(
@@ -38,31 +46,38 @@ func OperationsHome(
 		),
 		Header:   "Emisar",
 		Sections: []string{"*" + state + "*"},
-		Fields: []Field{
-			{Label: "Open work", Value: fmt.Sprint(openIncidents)},
-			{Label: "Active commitments", Value: fmt.Sprint(commitmentActive)},
-			{Label: "Active sessions", Value: fmt.Sprint(openSessions)},
-			{Label: "Failed work", Value: fmt.Sprint(failedWork)},
-			{Label: "Recorded work", Value: fmt.Sprint(totalIncidents)},
-			{Label: "Draft PRs", Value: fmt.Sprint(publishedPRs)},
-			{Label: "Cleanup queued", Value: fmt.Sprint(cleanupPending)},
-			{Label: "Cleanup blocked", Value: fmt.Sprint(cleanupBlocked)},
-			{Label: "Saved memory visible here", Value: fmt.Sprint(memoryActive)},
-			{Label: "Enabled preferences", Value: fmt.Sprint(preferenceActive)},
-			{Label: "Enabled standing rules", Value: fmt.Sprint(ruleActive)},
-			{Label: "Active schedules", Value: fmt.Sprint(scheduleActive)},
-		},
+		Fields: counterFields(
+			// A counter earns its place by being worth acting on. Twelve of
+			// them, mostly reading zero, said nothing and buried the two that
+			// mattered — a dozen tiles is also what pushed the section past
+			// Slack's ten-field limit and stopped the page rendering at all.
+			counter{"Open work", openIncidents, always},
+			counter{"Waiting on you", commitmentActive, always},
+			counter{"Failed work", failedWork, always},
+			counter{"Cleanup blocked", cleanupBlocked, whenSet},
+			counter{"Active sessions", openSessions, whenSet},
+			counter{"Draft PRs", publishedPRs, whenSet},
+			counter{"Cleanup queued", cleanupPending, whenSet},
+			counter{"Recorded work", totalIncidents, whenSet},
+			counter{"Saved memory", memoryActive, whenSet},
+			counter{"Preferences", preferenceActive, whenSet},
+			counter{"Standing rules", ruleActive, whenSet},
+			counter{"Schedules", scheduleActive, whenSet},
+		),
 		Context: []string{
 			"Ask Emisar what it is working on, what it remembers, or how a channel is configured. Slash commands remain available as recovery controls.",
 		},
 	}
 	if cleanupBlocked > 0 {
+		// Says what to type. The previous wording — "inspect the related task
+		// before explicitly publishing or discarding it" — described a
+		// procedure without naming the command that starts it.
 		message.Sections = append(
 			message.Sections,
 			fmt.Sprintf(
-				"*Retained work needs attention*\n%d Coop workspace%s could not be reclaimed "+
-					"because Responder found dirty or unpublished changes. Inspect the related "+
-					"task before explicitly publishing or discarding it.",
+				"*%d retained workspace%s*\nEach holds committed work Responder would "+
+					"not discard on its own. `/responder sessions` lists them; publish or "+
+					"discard each one to release it.",
 				cleanupBlocked,
 				map[bool]string{true: "s", false: ""}[cleanupBlocked != 1],
 			),
@@ -87,42 +102,62 @@ func OperationsHome(
 		}
 		message.Sections = append(message.Sections, current.String())
 	}
-	if len(commitments) > 0 {
+	// Only work a person can move. A failed run belongs to the retry machinery
+	// and to the failure count, not to a list titled with what is owed to the
+	// team — that framing put a Coop idempotency conflict in front of an
+	// operator as a task.
+	owedItems := make([]core.Commitment, 0, len(commitments))
+	for _, commitment := range commitments {
+		if operatorActionable(commitment.State) {
+			owedItems = append(owedItems, commitment)
+		}
+	}
+	if len(owedItems) > 0 {
 		var owed strings.Builder
-		owed.WriteString("*What Emisar owes the team*\n")
-		for _, commitment := range commitments[:min(len(commitments), 8)] {
+		owed.WriteString("*Waiting on you*\n")
+		for _, commitment := range owedItems[:min(len(owedItems), 5)] {
 			location := ""
 			if commitment.ChannelID != "" {
-				location = " in <#" + commitment.ChannelID + ">"
+				location = " · <#" + commitment.ChannelID + ">"
 			}
 			fmt.Fprintf(
 				&owed,
-				"\n- **%s**%s\n  %s - %s",
-				escapeSlackText(commitment.Title),
-				location,
+				"\n*%s* — %s%s",
+				commitmentHeadline(commitment.Title),
 				commitmentStateLabel(commitment.State),
-				escapeSlackText(commitment.Status),
+				location,
 			)
-			if commitment.NextAction != "" {
-				fmt.Fprintf(
-					&owed,
-					"\n  Next: %s",
-					escapeSlackText(commitment.NextAction),
-				)
+			// The status and the next action each earn their line only by
+			// saying something the state label did not.
+			if !genericProgressText(commitment.Status) {
+				fmt.Fprintf(&owed, "\n%s", escapeSlackText(truncateUTF8(singleLine(commitment.Status), 300)))
 			}
+			if !genericProgressText(commitment.NextAction) {
+				fmt.Fprintf(&owed, "\n→ %s", escapeSlackText(truncateUTF8(singleLine(commitment.NextAction), 300)))
+			}
+		}
+		if extra := len(owedItems) - 5; extra > 0 {
+			fmt.Fprintf(&owed, "\n\n_and %d more — ask what you are working on_", extra)
 		}
 		message.Sections = append(message.Sections, owed.String())
 	}
-	if len(situations) > 0 {
+	// A channel with no summary and no goal has nothing to report, and
+	// "Context retained; no current summary" is a placeholder wearing the
+	// costume of content — three of them filled a section that said nothing.
+	described := make([]core.ChannelMemory, 0, len(situations))
+	for _, situation := range situations {
+		if strings.TrimSpace(situation.State.SituationSummary) != "" ||
+			strings.TrimSpace(situation.State.Goal) != "" {
+			described = append(described, situation)
+		}
+	}
+	if len(described) > 0 {
 		var current strings.Builder
-		current.WriteString("*Current channel situations*\n")
-		for _, situation := range situations[:min(len(situations), 5)] {
+		current.WriteString("*Channel situations*\n")
+		for _, situation := range described[:min(len(described), 5)] {
 			summary := strings.TrimSpace(situation.State.SituationSummary)
 			if summary == "" {
-				summary = displayOr(
-					strings.TrimSpace(situation.State.Goal),
-					"Context retained; no current summary",
-				)
+				summary = strings.TrimSpace(situation.State.Goal)
 			}
 			fmt.Fprintf(
 				&current,
@@ -240,4 +275,102 @@ func OperationsHomeRestricted() Message {
 			"An administrator can grant access by adding your Slack user ID to `slack.operators` and restarting Responder.",
 		},
 	}
+}
+
+// commitmentHeadline turns a work title into something readable in a list.
+//
+// A title is often the Slack message that started the work, so it arrives as
+// raw markup: an alert row renders as the whole
+// "<https://grafana…/view?orgId=1|[VA1 FIRING:1] WARNING | …> *FIRING - 1 ale…"
+// and fills three lines with a URL nobody can act on. Keep the link text,
+// which is the alert name, and drop the address.
+func commitmentHeadline(title string) string {
+	cleaned := slackLinkTextPattern.ReplaceAllString(strings.TrimSpace(title), "$1")
+	cleaned = strings.TrimSpace(bareURLPattern.ReplaceAllString(cleaned, ""))
+	cleaned = singleLine(cleaned)
+	if cleaned == "" {
+		cleaned = "Untitled work"
+	}
+	return escapeSlackText(truncateUTF8(cleaned, 120))
+}
+
+// genericProgressText reports whether a status or next action says nothing the
+// reader can act on. "Needs operator attention" beside a Blocked label is the
+// label again, and "Review the blocker or retry" is a restatement of the word
+// blocked — six of those in a row was most of the App Home's owed-work list.
+func genericProgressText(value string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(value), " "))
+	normalized = strings.TrimRight(normalized, ".")
+	switch normalized {
+	case "",
+		"needs operator attention",
+		"review the blocker or retry",
+		"retry the same investigation from its saved evidence",
+		"the host could not validate the final structured result",
+		"needs attention",
+		"blocked":
+		return true
+	}
+	// Internal machinery, not a sentence for an operator. A transport error
+	// names a component the reader does not operate and cannot act on, so it
+	// belongs in the failure record rather than in a list of things to do.
+	for _, marker := range []string{
+		"coop api", "idempotency", "dial unix", "context deadline exceeded",
+		"connection refused", "acp request was rejected", "500 internal",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// operatorActionable reports whether a work item is waiting on a person.
+//
+// A failed run is not a promise owed to the team; it is a run that died, and
+// the retry is Responder's job. Listing failures as owed work is what put a
+// Coop idempotency conflict in front of an operator as something to do.
+func operatorActionable(state core.CommitmentState) bool {
+	switch state {
+	case core.CommitmentBlocked, core.CommitmentQueued,
+		core.CommitmentWorking, core.CommitmentFinishing:
+		return true
+	default:
+		return false
+	}
+}
+
+// A counter is shown always, or only when it is not zero.
+type counterVisibility int
+
+const (
+	always counterVisibility = iota
+	whenSet
+)
+
+type counter struct {
+	label      string
+	value      int
+	visibility counterVisibility
+}
+
+// counterFields keeps the counters worth reading and caps them at Slack's
+// limit of ten per section.
+//
+// "Open work 0 · Active sessions 0 · Cleanup queued 0 · Saved memory 0" is four
+// tiles of nothing next to "Failed work 100", and the reader has to find the
+// one that matters. The always-shown three are the state of the system even
+// when they read zero — especially then, since zero failures is the news.
+func counterFields(counters ...counter) []Field {
+	fields := make([]Field, 0, len(counters))
+	for _, item := range counters {
+		if item.visibility == whenSet && item.value == 0 {
+			continue
+		}
+		if len(fields) == 10 {
+			break
+		}
+		fields = append(fields, Field{Label: item.label, Value: fmt.Sprint(item.value)})
+	}
+	return fields
 }

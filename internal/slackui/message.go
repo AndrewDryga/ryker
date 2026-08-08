@@ -109,7 +109,11 @@ var (
 		regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{20,}\b`),
 		regexp.MustCompile(`\bAKIA[A-Z0-9]{16}\b`),
 	}
-	slackMentionPattern       = regexp.MustCompile(`<(?:@[A-Z0-9]+|![^>]+)>`)
+	slackMentionPattern = regexp.MustCompile(`<(?:@[A-Z0-9]+|![^>]+)>`)
+	// <https://host/path|Label> renders as Label. A work title is often the
+	// Slack message that started it, so it arrives full of these.
+	slackLinkTextPattern      = regexp.MustCompile(`<https?://[^|>]+\|([^>]*)>`)
+	bareURLPattern            = regexp.MustCompile(`<?https?://[^\s|>]+>?`)
 	scheduleCommitmentPattern = regexp.MustCompile(`(?i)^\s*i(?:['’]ll| will)\s+`)
 )
 

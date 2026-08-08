@@ -966,12 +966,13 @@ func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
 		content += "\n" + field.Label + "\n" + field.Value
 	}
 	for _, required := range []string{
-		"Needs attention",
+		// The heading answers "is anything waiting for me?" rather than saying
+		// "Needs attention" above a page the reader then has to search.
+		"waiting on you",
 		"Open work",
 		"Failed work",
 		"API unavailable",
 		"Verify rollout",
-		"What Emisar owes the team",
 		"<#CINCIDENT>",
 	} {
 		if !strings.Contains(content, required) {

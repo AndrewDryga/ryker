@@ -98,9 +98,12 @@ func (s *Store) ListActiveCommitments(
 		FROM commitments AS c
 		JOIN work_episodes AS e ON e.id = c.episode_id
 		JOIN agent_runs AS r ON r.id = e.agent_run_id
+		-- 'failed' is deliberately absent: a crash the retry machinery owns,
+		-- already counted as failed work. Including it read 104 commitments
+		-- when 100 were failures nobody could act on.
 		WHERE e.lifecycle_state IN (
 		  'accepted', 'acknowledged', 'planning', 'working', 'retrying', 'verifying',
-		  'waiting_operator', 'waiting_external', 'waiting_approval', 'blocked', 'failed'
+		  'waiting_operator', 'waiting_external', 'waiting_approval', 'blocked'
 		)
 		ORDER BY
 		  CASE e.lifecycle_state
@@ -137,9 +140,12 @@ func (s *Store) CountActiveCommitments(ctx context.Context) (int, error) {
 		FROM commitments AS c
 		JOIN work_episodes AS e ON e.id = c.episode_id
 		JOIN agent_runs AS r ON r.id = e.agent_run_id
+		-- 'failed' is deliberately absent: a crash the retry machinery owns,
+		-- already counted as failed work. Including it read 104 commitments
+		-- when 100 were failures nobody could act on.
 		WHERE e.lifecycle_state IN (
 		  'accepted', 'acknowledged', 'planning', 'working', 'retrying', 'verifying',
-		  'waiting_operator', 'waiting_external', 'waiting_approval', 'blocked', 'failed'
+		  'waiting_operator', 'waiting_external', 'waiting_approval', 'blocked'
 		)`,
 	).Scan(&count)
 	return count, err
