@@ -7,8 +7,8 @@ Usage: quality-watch.sh [--once|--watch] [--from-now]
 
 Review newly completed Responder turns with Codex and, for high-confidence
 product defects, prepare a fix in an isolated worktree. The wrapper validates,
-commits, integrates, and deploys (scripts/deploy.sh) only after the full
-repository gate passes.
+commits, integrates, and deploys (scripts/self-deploy.sh) only after the
+full repository gate passes.
 
 Required environment:
   RESPONDER_QUALITY_STATE_DIR       Responder state directory containing responder.db
@@ -633,11 +633,18 @@ LIMIT $batch_size;"
   fi
   cleanup_worktree "$worktree" "$branch"
 
-  # scripts/deploy.sh, not `make install`: the agents pin responder-<sha> under libexec, so
-  # installing to ~/.local/bin and restarting used to leave them running the old binary — the fix
-  # was integrated and reported as deployed while nothing about the running service changed.
-  if ! (cd "$repository" && scripts/deploy.sh) >>"$fixer_log" 2>&1; then
-    log "integrated $fix_commit, but deployment failed; inspect $fixer_log"
+  # scripts/self-deploy.sh, not deploy.sh and not `make install`. Two lessons stacked here.
+  #
+  # `make install` wrote ~/.local/bin/responder while the agents pin responder-<sha> under
+  # libexec, so every validated fix was reported as installed and restarted while nothing about
+  # the running service changed.
+  #
+  # And deploy.sh rotates on a green gate alone. This is the ONE deployer that runs with no human
+  # watching, so it is the last place that should skip the proof the operator asked for: data
+  # loss, meaning drift, and real-model behaviour are all checked before anything moves, and a
+  # health regression rolls it back. It is slower. It is unattended; that is the trade.
+  if ! (cd "$repository" && scripts/self-deploy.sh) >>"$fixer_log" 2>&1; then
+    log "integrated $fix_commit, but it did not survive the deployment proof; inspect $fixer_log"
     advance_from_batch "$batch_path"
     return 0
   fi
