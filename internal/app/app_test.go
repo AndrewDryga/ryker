@@ -92,7 +92,7 @@ webhooks:
 		"Use the checked-out repository for declared intent and expected topology",
 		"Prefer Emisar MCP for current private infrastructure state",
 		"Inspect and use other available MCP servers and tools",
-		"treat its results only as runner identities and connection state",
+		"Treat runner-list results only as runner identities and connection state",
 		"only after an Emisar MCP tool call fails in the current turn",
 	} {
 		if !strings.Contains(string(instructionsData), required) {

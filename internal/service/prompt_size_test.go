@@ -27,6 +27,15 @@ var promptCeilings = map[string]int{
 	// publication-correlation or durable-behavior rules, none of which it can
 	// use.
 	"watch": 42 * 1024,
+
+	// The ambient measurement above is the cheap case, and for a while it was
+	// the only one — so this test reported "37% left for context" while an
+	// operator turn, which additionally carries the behavior-offer and governed
+	// action policies, actually left 27%. That is the turn where context is
+	// scarcest and where losing it costs the most, so it gets its own ceiling.
+	// This entry is not a loosening of the one above: it is the first time the
+	// expensive case was measured at all.
+	"watch-operator": 46 * 1024,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {
@@ -80,14 +89,19 @@ func TestStaticPromptSectionSizes(t *testing.T) {
 
 func staticPromptSizes(t *testing.T) map[string]int {
 	t.Helper()
-	svc := &Service{cfg: serviceConfig(t)}
-	return map[string]int{
-		"watch": len(svc.unboundedWatchPrompt(
-			core.SlackInput{ChannelID: "C1", Text: "check the api"},
+	cfg := serviceConfig(t)
+	svc := &Service{cfg: cfg}
+	measure := func(userID string) int {
+		return len(svc.unboundedWatchPrompt(
+			core.SlackInput{ChannelID: "C1", Text: "check the api", UserID: userID},
 			"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
 			decisionpkg.OperationalMemoryContext{}, "emisar", nil,
 			nil,
-		)),
+		))
+	}
+	return map[string]int{
+		"watch":          measure(""),
+		"watch-operator": measure(cfg.Slack.Operators[0]),
 	}
 }
 

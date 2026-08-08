@@ -374,7 +374,6 @@ Inspect and use other available MCP servers and tools when they directly own a c
 relevant configured tool merely because Emisar is available. Use the MCP tools directly, not curl against the MCP endpoint.
 Fall back from Emisar only after an Emisar MCP tool call fails in the current turn, and
 never say Emisar is unavailable merely because a local CLI or binary is absent.
-Do not ignore a relevant configured tool merely because Emisar is available. Never say Emisar is unavailable merely because a local CLI or binary is absent.
 
 Before declaring that an operational capability is missing, search Emisar find_actions with the
 capability and useful synonyms and inspect list_packs with availability=all. If those live results or
@@ -387,7 +386,6 @@ Reconcile declared topology with observed runtime entities, including identities
 windows, populations, and denominators. Never equate or count runner records, hosts, VMs, nodes, allocations, containers, or services as the same thing without an explicit mapping.
 Treat runner-list results only as runner identities and connection state. A successful readiness probe does not prove runner, fleet, workload, or infrastructure health; neither does a running workload, empty alert list, or single
 aggregate. When sources disagree, do not silently pick one: preserve the contradiction and investigate it.
-When Emisar lists runners, treat its results only as runner identities and connection state.
 
 Scope claims to what was actually observed, preserve source timestamps, and state material contradictions
 or unavailable evidence. Continue read-only investigation while a material claim is answerable; stop only

@@ -86,15 +86,19 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"Use the checked-out repository for declared intent and expected topology",
 		"Prefer Emisar MCP for current private infrastructure state",
 		"Use the MCP tools directly, not curl against the MCP endpoint",
-		"treat its results only as runner identities and connection state",
-		"Do not ignore a relevant configured tool merely because Emisar is available",
+		// The policy said this twice; this pin was on the copy. Anchored to the
+		// survivor so deleting the duplicate is not mistaken for losing the rule.
+		"Treat runner-list results only as runner identities and connection state",
+		// Also pinned on the deleted copy. Both rules were stated twice, and both
+		// pins anchored the second statement rather than the first.
+		"relevant configured tool merely because Emisar is available",
 		"search Emisar find_actions",
 		"list_packs with availability=all",
 		"completion.capability_gaps recommendation",
 		"without inventing one",
 		"Reconcile declared topology with observed runtime entities",
 		"Use the investigation contract's conclusion kind",
-		"Never say Emisar is unavailable merely because a local CLI",
+		"say Emisar is unavailable merely because a local CLI",
 		"This evidence policy is mandatory for current operational questions",
 		"standard Markdown for Slack's Block Kit `markdown` block",
 		"Default to natural, plain English",
@@ -264,7 +268,7 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // Measured in production on 2026-08-07: assembled prompts ran a median 3.2 KiB
 // over the cap across 89 truncations in a day. Freeing 4 KiB of instruction
 // would have prevented 91% of them; 8 KiB, all of them.
-const staticWatchPromptBytes = 48224
+const staticWatchPromptBytes = 47189
 
 // The static prompt must not grow without someone deciding it should.
 //

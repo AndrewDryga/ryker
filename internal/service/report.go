@@ -443,6 +443,8 @@ approval belongs in request_approval with the exact approval.url. Do not place t
 Responder validates and renders it. Generated visuals reference only artifacts created in the
 exact Coop output directory; never inline bytes, base64, data URLs, or local paths.
 
+` + offerContractPolicy + `
+
 ` + behaviorOfferPolicy
 }
 
