@@ -103,7 +103,10 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"standard Markdown for Slack's Block Kit `markdown` block",
 		"Default to natural, plain English",
 		"Use common words, contractions",
-		"a simple explanation should usually be a few sentences",
+		// The soft version of this ("a simple explanation should usually be a few
+		// sentences") let a nine-word question draw a 350-word answer, because the
+		// only hard length bound lived in the alert-reply block. Pin the number.
+		"a one-line question gets one to three sentences",
 		"Translate evidence into meaning",
 		"Use humor like a trusted teammate",
 		"make light of customer impact",
@@ -268,7 +271,7 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // Measured in production on 2026-08-07: assembled prompts ran a median 3.2 KiB
 // over the cap across 89 truncations in a day. Freeing 4 KiB of instruction
 // would have prevented 91% of them; 8 KiB, all of them.
-const staticWatchPromptBytes = 47149
+const staticWatchPromptBytes = 47728
 
 // The static prompt must not grow without someone deciding it should.
 //
