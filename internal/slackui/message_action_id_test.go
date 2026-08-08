@@ -71,3 +71,51 @@ func TestBaseActionIDRecoversTheRoute(t *testing.T) {
 		}
 	}
 }
+
+// Slack allows ten fields per section and rejects the entire view over it. The
+// App Home dashboard carries a dozen counters, so every view it built was
+// invalid and the tab showed Slack's default placeholder instead. The error was
+// "invalid_arguments" and nothing else until the response metadata was read:
+// "no more than 10 items allowed [json-pointer:/view/blocks/13/fields]".
+func TestSectionFieldsAreChunkedToSlacksLimit(t *testing.T) {
+	message := Message{Text: "dashboard"}
+	for index := range 23 {
+		message.Fields = append(message.Fields, Field{
+			Label: "Metric", Value: string(rune('a' + index%26)),
+		})
+	}
+
+	total := 0
+	sections := 0
+	for _, block := range message.Blocks() {
+		raw, err := json.Marshal(block)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var probe struct {
+			Type   string `json:"type"`
+			Fields []struct {
+				Text string `json:"text"`
+			} `json:"fields"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			t.Fatal(err)
+		}
+		if probe.Type != "section" || len(probe.Fields) == 0 {
+			continue
+		}
+		sections++
+		total += len(probe.Fields)
+		if len(probe.Fields) > 10 {
+			t.Errorf("section carries %d fields, over Slack's limit of 10", len(probe.Fields))
+		}
+	}
+	// Chunked, not truncated: a dropped counter would be a silent failure
+	// replacing a loud one.
+	if total != 23 {
+		t.Errorf("rendered %d of 23 fields; the rest were dropped", total)
+	}
+	if sections != 3 {
+		t.Errorf("expected 3 field sections for 23 fields, got %d", sections)
+	}
+}

@@ -194,9 +194,15 @@ func (m Message) Blocks() []slack.Block {
 			nil, nil,
 		))
 	}
-	if len(m.Fields) > 0 {
-		fields := make([]*slack.TextBlockObject, 0, len(m.Fields))
-		for _, field := range m.Fields {
+	// Slack allows ten fields in a section and rejects the whole surface over
+	// that, which is how the App Home came to publish nothing at all: the
+	// dashboard carries a dozen counters, so every view it ever built was
+	// invalid. Chunked rather than truncated — dropping the last two counters
+	// silently would trade a visible failure for an invisible one.
+	for start := 0; start < len(m.Fields); start += 10 {
+		end := min(start+10, len(m.Fields))
+		fields := make([]*slack.TextBlockObject, 0, end-start)
+		for _, field := range m.Fields[start:end] {
 			fields = append(fields, slack.NewTextBlockObject(
 				slack.MarkdownType,
 				fmt.Sprintf("*%s*\n%s", truncateUTF8(field.Label, 100), truncateUTF8(field.Value, 500)),
