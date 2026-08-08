@@ -202,6 +202,10 @@ func (s *Service) routeSlackInputKind(
 			}
 			return true, nil
 		}
+		// A list surface repeats one action across its rows, and Slack requires
+		// distinct action_ids, so Blocks suffixes the copies. Route on the action
+		// itself; which copy was clicked is already carried in ActionValue.
+		input.ActionID = slackui.BaseActionID(input.ActionID)
 		if handler, ok := slackActionRoutes[input.ActionID]; ok {
 			if err := handler(s, ctx, input); err != nil {
 				return true, s.retrySlackInput(ctx, input, err)

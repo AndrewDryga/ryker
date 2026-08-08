@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -48,6 +49,11 @@ const (
 	// it. A preference is enforced by the host. "Be more concise", said three
 	// times, should stop being a suggestion.
 	ActionConvertFeedbackBrief = "responder_convert_feedback_brief"
+	// ActionInstanceSeparator disambiguates repeated actions in one surface.
+	// Chosen because no action constant contains it, so BaseActionID can strip
+	// the suffix without knowing which action it is looking at.
+	ActionInstanceSeparator = "__i"
+
 	// Reviewing a correction that Responder was told was wrong, and deciding
 	// whether the lesson is worth keeping as a regression fixture.
 	ActionKeepFixtureCandidate    = "responder_keep_fixture_candidate"
@@ -210,12 +216,25 @@ func (m Message) Blocks() []slack.Block {
 	}
 	if len(m.Actions) > 0 {
 		blocks = append(blocks, slack.NewDividerBlock())
+		// Slack rejects a surface whose action_ids repeat, and a list UI
+		// naturally repeats one: five "Keep" buttons all carry the keep action.
+		// views.publish answers invalid_arguments and shows the default "work in
+		// progress" tab, so the App Home was blank for two days with fifteen
+		// corrections behind it and no error anywhere a person would look. The
+		// per-button suffix is stripped again in routing; the payload the
+		// handler cares about has always travelled in Value.
+		occurrences := make(map[string]int, len(m.Actions))
 		for start := 0; start < len(m.Actions); start += 4 {
 			end := min(start+4, len(m.Actions))
 			elements := make([]slack.BlockElement, 0, end-start)
 			for _, action := range m.Actions[start:end] {
+				actionID := action.ID
+				occurrences[action.ID]++
+				if seen := occurrences[action.ID]; seen > 1 {
+					actionID = fmt.Sprintf("%s%s%d", action.ID, ActionInstanceSeparator, seen)
+				}
 				button := slack.NewButtonBlockElement(
-					action.ID,
+					actionID,
 					action.Value,
 					slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Label, 75), false, false),
 				)
@@ -1006,3 +1025,15 @@ func roundedDuration(value time.Duration) string {
 }
 
 // FeedbackSummary is one open feedback item as the App Home shows it.
+
+// BaseActionID strips the per-instance suffix Blocks adds to repeated actions,
+// so routing sees the action a button represents rather than which copy of it
+// the operator clicked. Ids without a suffix pass through untouched.
+func BaseActionID(actionID string) string {
+	if index := strings.LastIndex(actionID, ActionInstanceSeparator); index > 0 {
+		if _, err := strconv.Atoi(actionID[index+len(ActionInstanceSeparator):]); err == nil {
+			return actionID[:index]
+		}
+	}
+	return actionID
+}
