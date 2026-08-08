@@ -156,12 +156,36 @@ for label in "${labels[@]}"; do
 done
 
 # ---- 4. staged rollout ------------------------------------------------------
-reload() { # label plist
+# reload takes the binary it is reloading ONTO because the private Coop files
+# are generated from that binary's prompt policies and serve refuses to start
+# against stale ones. Rollback passes the older binary for the same reason:
+# re-projecting with the candidate would leave the restored build running
+# against files it did not write.
+reload() { # label plist binary
   launchctl bootout "$domain/$1" 2>/dev/null || true
   for _ in $(seq 1 40); do
     launchctl print "$domain/$1" >/dev/null 2>&1 || break
     sleep 0.25
   done
+  local dir binary=$3 projected=0
+  dir=$(deployment_dir "$1")
+  [[ -n $dir && -f "$dir/.responder/responder.yaml" ]] || {
+    say "$1: no config at ${dir:-<unresolved>}/.responder/responder.yaml"
+    return 1
+  }
+  project() (
+    cd "$dir" || return 1
+    if [[ -f .responder/local.env ]]; then
+      # shellcheck source=/dev/null  # the deployment's own secret env, not in this repo
+      set -a && . .responder/local.env && set +a
+    fi
+    "$binary" bootstrap-coop --config .responder/responder.yaml
+  )
+  for _ in $(seq 1 20); do
+    project >/dev/null 2>&1 && { projected=1; break; }
+    sleep 0.5
+  done
+  [[ $projected -eq 1 ]] || { project >&2 || true; say "$1: could not re-project Coop bootstrap files for $binary"; return 1; }
   launchctl bootstrap "$domain" "$2"
 }
 
@@ -174,7 +198,7 @@ for label in "${labels[@]}"; do
   say "$label: rotating $previous -> $sha (baseline $before terminal failures)"
 
   /usr/bin/sed -i '' -E "s#libexec/responder/responder-[0-9a-f]+#libexec/responder/responder-$sha#g" "$plist"
-  reload "$label" "$plist" || die "$label: failed to bootstrap; it is DOWN"
+  reload "$label" "$plist" "$candidate" || die "$label: failed to reload; it is DOWN"
 
   # ---- 5. health window, and rollback if it regresses -----------------------
   healthy=0
@@ -197,7 +221,7 @@ for label in "${labels[@]}"; do
   if [[ $healthy -ne 1 ]]; then
     say "$label: ROLLING BACK to $previous"
     /usr/bin/sed -i '' -E "s#libexec/responder/responder-[0-9a-f]+#libexec/responder/responder-$previous#g" "$plist"
-    reload "$label" "$plist" || die "$label: rollback failed to bootstrap; it is DOWN and needs a human"
+    reload "$label" "$plist" "$libexec/responder-$previous" || die "$label: rollback failed; it is DOWN and needs a human"
     die "$label: rolled back to $previous; later deployments were not attempted"
   fi
   say "$label: healthy on $sha through a ${health_window}s window"

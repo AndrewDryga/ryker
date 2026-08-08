@@ -71,6 +71,46 @@ if [[ $stage -eq 1 ]]; then
   exit 0
 fi
 
+# The private files Responder projects into the agent box — INSTRUCTIONS.md
+# among them — are generated from this binary's own prompt policies, and serve
+# refuses to start against stale ones whenever it supervises Coop. So any change
+# to a prompt policy deploys, by default, as a service that never comes back up.
+# They can only be rewritten while Coop is stopped, which is exactly the window
+# between bootout and bootstrap below.
+#
+# The binary doing the projecting must be the one about to run: rolling back
+# re-projects with the older binary for the same reason.
+deployment_dir() {
+  plutil -extract ProgramArguments.2 raw "$1" 2>/dev/null |
+    sed -n 's/^cd \([^ ]*\) .*/\1/p'
+}
+project_bootstrap_files() { # binary deployment-dir
+  local binary=$1 dir=$2
+  # An unresolvable directory must fail loudly. Returning success here would
+  # skip the projection silently and hand the agent back to launchd with files
+  # serve is about to reject — a deploy that reports success and stays down.
+  [[ -n $dir && -f "$dir/.responder/responder.yaml" ]] || {
+    echo "deploy: no config at ${dir:-<unresolved>}/.responder/responder.yaml" >&2
+    return 1
+  }
+  project() (
+    cd "$dir" || return 1
+    if [[ -f .responder/local.env ]]; then
+      # shellcheck source=/dev/null  # the deployment's own secret env, not in this repo
+      set -a && . .responder/local.env && set +a
+    fi
+    "$binary" bootstrap-coop --config .responder/responder.yaml
+  )
+  # Coop is torn down by the supervisor rather than by us, so the socket can
+  # outlive the bootout by a moment; bootstrap-coop refuses while it is live.
+  for _ in $(seq 1 20); do
+    project >/dev/null 2>&1 && return 0
+    sleep 0.5
+  done
+  project >&2 || true
+  return 1
+}
+
 deployed=0
 for plist in "$agents"/ai.emisar.responder.*.plist; do
   [[ -e $plist ]] || continue
@@ -90,6 +130,11 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
     launchctl print "$domain/$label" >/dev/null 2>&1 || break
     sleep 0.25
   done
+  if ! project_bootstrap_files "$binary" "$(deployment_dir "$plist")"; then
+    echo "deploy: $label: could not re-project the Coop bootstrap files for responder-$sha." >&2
+    echo "deploy: $label is BOOTED OUT and serve would refuse to start against the stale ones." >&2
+    exit 1
+  fi
   if ! launchctl bootstrap "$domain" "$plist"; then
     echo "deploy: $label is BOOTED OUT and failed to bootstrap — it is down" >&2
     exit 1
