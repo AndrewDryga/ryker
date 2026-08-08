@@ -35,7 +35,17 @@ var promptCeilings = map[string]int{
 	// scarcest and where losing it costs the most, so it gets its own ceiling.
 	// This entry is not a loosening of the one above: it is the first time the
 	// expensive case was measured at all.
-	"watch-operator": 46 * 1024,
+	//
+	// Raised from 46 KiB on 2026-08-08, deliberately. Two rules that stop real
+	// defects were scoped to alert replies only — the length bound and "finish
+	// the diagnosis yourself" — so a reply to a human question was governed by
+	// neither. A nine-word question drew a 350-word answer, and a status report
+	// ended by telling the operator to go look up the image tag themselves.
+	// Generalising both cost 959 bytes, against 1072 bytes the compression
+	// slices had just saved. Net for the day is 113 bytes; the budget bought
+	// two behaviours instead of context, which is the right way round when the
+	// context was being spent on unreadable answers.
+	"watch-operator": 47 * 1024,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {
