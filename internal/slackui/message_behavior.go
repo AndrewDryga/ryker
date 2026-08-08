@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
@@ -906,13 +908,17 @@ func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Messa
 	if len(items) == 0 {
 		return message
 	}
+	// Honest about where these came from. "A moment I was told I got something
+	// wrong" describes human feedback, and four of the five on the page were
+	// the host's own validator rejecting Responder's output. Both are worth
+	// pinning as tests; only one of them is somebody telling you off.
 	message.Sections = append(message.Sections,
-		"*Corrections worth keeping?*\nEach of these is a moment I was told I got something "+
-			"wrong. Keep one and it becomes a test, so that mistake cannot come back. "+
+		"*Corrections worth keeping?*\nEach is a time Responder's answer was rejected — by "+
+			"the host's checks or by a person. Keep one and it becomes a regression test. "+
 			"Discard it if it was situational.",
 	)
 	for _, item := range items {
-		line := escapeSlackText(truncateUTF8(item.Correction, 300))
+		line := escapeSlackText(truncateUTF8(correctionSummary(item.Correction), 300))
 		if item.Capability != "" {
 			line += " · " + escapeSlackText(item.Capability)
 		}
@@ -933,4 +939,32 @@ func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Messa
 		})
 	}
 	return message
+}
+
+// correctionSummary drops the machinery prefix a validation failure carries.
+//
+// Four of five corrections on the App Home began "the structured Slack response
+// is invalid:", which is the same words every time and pushes the part that
+// differs — the actual rule that was broken — to the right of the colon.
+func correctionSummary(correction string) string {
+	trimmed := strings.TrimSpace(correction)
+	for _, prefix := range []string{
+		"the structured Slack response is invalid:",
+		"the structured response is invalid:",
+	} {
+		if len(trimmed) > len(prefix) && strings.EqualFold(trimmed[:len(prefix)], prefix) {
+			trimmed = strings.TrimSpace(trimmed[len(prefix):])
+			break
+		}
+	}
+	if trimmed == "" {
+		return strings.TrimSpace(correction)
+	}
+	// Rune-aware: a correction can begin with a multi-byte character, and
+	// slicing the first byte off one would corrupt it.
+	first, width := utf8.DecodeRuneInString(trimmed)
+	if first == utf8.RuneError {
+		return trimmed
+	}
+	return string(unicode.ToUpper(first)) + trimmed[width:]
 }

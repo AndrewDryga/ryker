@@ -967,9 +967,9 @@ func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
 	}
 	for _, required := range []string{
 		// The heading answers "is anything waiting for me?" rather than saying
-		// "Needs attention" above a page the reader then has to search.
+		// "Needs attention" above a page the reader then has to search, and it
+		// carries the counts so the tile block does not repeat them.
 		"waiting on you",
-		"Open work",
 		"Failed work",
 		"API unavailable",
 		"Verify rollout",

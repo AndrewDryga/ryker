@@ -46,42 +46,19 @@ func OperationsHome(
 		),
 		Header:   "Emisar",
 		Sections: []string{"*" + state + "*"},
+		// Two tiles. Everything else the block used to carry was either zero,
+		// already in the heading ("21 waiting on you · 100 failed"), already in
+		// the retained-workspace banner, or a count of rows listed in full
+		// further down the same page — "Preferences 2" sat below the two
+		// preferences. A number repeated beside itself is not a summary.
 		Fields: counterFields(
-			// A counter earns its place by being worth acting on. Twelve of
-			// them, mostly reading zero, said nothing and buried the two that
-			// mattered — a dozen tiles is also what pushed the section past
-			// Slack's ten-field limit and stopped the page rendering at all.
-			counter{"Open work", openIncidents, always},
-			counter{"Waiting on you", commitmentActive, always},
 			counter{"Failed work", failedWork, always},
-			counter{"Cleanup blocked", cleanupBlocked, whenSet},
-			counter{"Active sessions", openSessions, whenSet},
 			counter{"Draft PRs", publishedPRs, whenSet},
-			counter{"Cleanup queued", cleanupPending, whenSet},
-			counter{"Recorded work", totalIncidents, whenSet},
-			counter{"Saved memory", memoryActive, whenSet},
-			counter{"Preferences", preferenceActive, whenSet},
-			counter{"Standing rules", ruleActive, whenSet},
-			counter{"Schedules", scheduleActive, whenSet},
 		),
 		Context: []string{
-			"Ask Emisar what it is working on, what it remembers, or how a channel is configured. Slash commands remain available as recovery controls.",
+			"`/responder failures` lists failed work · `/responder status` for everything in flight · " +
+				"ask Emisar what it remembers or how a channel is configured.",
 		},
-	}
-	if cleanupBlocked > 0 {
-		// Says what to type. The previous wording — "inspect the related task
-		// before explicitly publishing or discarding it" — described a
-		// procedure without naming the command that starts it.
-		message.Sections = append(
-			message.Sections,
-			fmt.Sprintf(
-				"*%d retained workspace%s*\nEach holds committed work Responder would "+
-					"not discard on its own. `/responder sessions` lists them; publish or "+
-					"discard each one to release it.",
-				cleanupBlocked,
-				map[bool]string{true: "s", false: ""}[cleanupBlocked != 1],
-			),
-		)
 	}
 	if len(incidents) > 0 {
 		var current strings.Builder
@@ -155,9 +132,28 @@ func OperationsHome(
 			}
 		}
 		if extra := len(owedItems) - 5; extra > 0 {
-			fmt.Fprintf(&owed, "\n\n_and %d more — ask what you are working on_", extra)
+			fmt.Fprintf(&owed, "\n\n_and %d more — `/responder status`_", extra)
 		}
 		message.Sections = append(message.Sections, owed.String())
+	}
+
+	// After the work, not before it. Thirty retained workspaces is a standing
+	// cleanup chore; a blocked question with somebody waiting on the answer is
+	// today, and it was being pushed below the chore.
+	if cleanupBlocked > 0 {
+		// Says what to type. The previous wording — "inspect the related task
+		// before explicitly publishing or discarding it" — described a
+		// procedure without naming the command that starts it.
+		message.Sections = append(
+			message.Sections,
+			fmt.Sprintf(
+				"*%d retained workspace%s*\nEach holds committed work Responder would "+
+					"not discard on its own. `/responder sessions` lists them; publish or "+
+					"discard each one to release it.",
+				cleanupBlocked,
+				map[bool]string{true: "s", false: ""}[cleanupBlocked != 1],
+			),
+		)
 	}
 	// A channel with no summary and no goal has nothing to report, and
 	// "Context retained; no current summary" is a placeholder wearing the

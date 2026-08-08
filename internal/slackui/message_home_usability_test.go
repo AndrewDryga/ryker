@@ -115,15 +115,18 @@ func TestZeroCountersAreHiddenButTheStateIsAlwaysShown(t *testing.T) {
 	if len(message.Fields) > 10 {
 		t.Fatalf("%d fields exceeds Slack's limit of 10", len(message.Fields))
 	}
-	// Zero failures is news, so the three state counters always show.
-	for _, required := range []string{"Open work", "Waiting on you", "Failed work"} {
-		if _, ok := labels[required]; !ok {
-			t.Errorf("%q should always be shown, got %v", required, labels)
-		}
+	// Zero failures is news, so that one counter always shows.
+	if _, ok := labels["Failed work"]; !ok {
+		t.Errorf("failed work should always be shown, got %v", labels)
 	}
-	for _, hidden := range []string{"Draft PRs", "Cleanup queued", "Saved memory", "Schedules"} {
-		if _, ok := labels[hidden]; ok {
-			t.Errorf("%q reads zero and should be hidden, got %v", hidden, labels)
+	// Nothing that the heading, the retained-workspace banner, or a section
+	// listing the rows in full already says. A number beside itself is noise.
+	for _, duplicated := range []string{
+		"Waiting on you", "Cleanup blocked", "Preferences", "Standing rules",
+		"Open work", "Recorded work", "Schedules", "Saved memory", "Active sessions",
+	} {
+		if _, ok := labels[duplicated]; ok {
+			t.Errorf("%q is already stated elsewhere on the page, got %v", duplicated, labels)
 		}
 	}
 	if !strings.Contains(message.Text, "Nothing waiting on you") {
@@ -176,7 +179,7 @@ func TestHomeHeadingsKeepTheirRows(t *testing.T) {
 	for _, pair := range [][2]string{
 		{"*Responder preferences*", "response_location"},
 		{"*Standing rules*", "operational_alert"},
-		{"*Corrections worth keeping?*", "a correction to judge"},
+		{"*Corrections worth keeping?*", "correction to judge"},
 	} {
 		found := false
 		for index, text := range order {
@@ -218,5 +221,54 @@ func TestRepeatedAlertsCollapseWithACount(t *testing.T) {
 	// Emphasis from the source message must not leak into the headline.
 	if strings.Contains(content, "*FIRING*") {
 		t.Errorf("source markup leaked into the headline:\n%s", content)
+	}
+}
+
+// A correction reads as the rule that was broken, not as the same machinery
+// prefix five times over. Four of the five on the page opened with "the
+// structured Slack response is invalid:", which pushed the part that differs
+// to the right of a colon the reader had to scan past every time.
+func TestCorrectionsLeadWithWhatWasWrong(t *testing.T) {
+	message := AppendFixtureReview(Message{}, []FixtureCandidateSummary{
+		{ID: "c1", Correction: "the structured Slack response is invalid: decision-ready completion cannot contain material gaps"},
+		{ID: "c2", Correction: "the deep work episode found active degradation but has no diagnostic closure"},
+	})
+	var rows []string
+	for _, row := range message.Rows {
+		rows = append(rows, row.Text)
+	}
+	content := strings.Join(rows, "\n")
+
+	if strings.Contains(content, "structured Slack response is invalid") {
+		t.Errorf("the machinery prefix survived:\n%s", content)
+	}
+	if !strings.Contains(content, "Decision-ready completion cannot contain material gaps") {
+		t.Errorf("the rule that was broken is missing:\n%s", content)
+	}
+	// A correction that never had the prefix is left alone apart from its case.
+	if !strings.Contains(content, "The deep work episode found active degradation") {
+		t.Errorf("an unprefixed correction was mangled:\n%s", content)
+	}
+}
+
+// Active work outranks a standing chore. Thirty retained workspaces is cleanup
+// that has waited days; a blocked question has somebody waiting on the answer.
+func TestBlockedWorkIsListedBeforeTheCleanupBanner(t *testing.T) {
+	message := OperationsHome(
+		0, 0, 0, 0, 0, 0, 30, 0, 0, 0, 0, 1, nil,
+		[]core.Commitment{{
+			Title: "Deploy the website", State: core.CommitmentBlocked,
+			Status: "Waiting on a workspace lock", NextAction: "Force-unlock va1-apps",
+		}},
+		nil, nil, nil, nil,
+	)
+	joined := strings.Join(message.Sections, "\n---\n")
+	work := strings.Index(joined, "Waiting on you")
+	chore := strings.Index(joined, "retained workspace")
+	if work < 0 || chore < 0 {
+		t.Fatalf("expected both sections:\n%s", joined)
+	}
+	if work > chore {
+		t.Errorf("the cleanup chore is above the blocked work:\n%s", joined)
 	}
 }

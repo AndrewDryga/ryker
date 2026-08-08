@@ -90,8 +90,10 @@ func TestFixtureReviewAsksAboutTheLessonNotTheMachinery(t *testing.T) {
 	}
 	content := strings.Join(parts, "\n")
 
-	if !strings.Contains(content, "told I got something wrong") {
-		t.Errorf("review section does not frame this as a judgement:\n%s", content)
+	// Accurate about the source: most of these are the host's own checks
+	// rejecting an answer, not a person saying so.
+	if !strings.Contains(content, "rejected") {
+		t.Errorf("review section does not say what a correction is:\n%s", content)
 	}
 	if !strings.Contains(content, "claimed healthy without fresh evidence") {
 		t.Errorf("review section does not show what the correction said:\n%s", content)
