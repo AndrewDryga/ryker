@@ -654,7 +654,31 @@ func (c *Client) PublishHome(ctx context.Context, userID string, message Message
 			CallbackID: "responder_operations_home",
 		},
 	})
-	return err
+	return describeViewError(err)
+}
+
+// describeViewError says which block Slack objected to.
+//
+// SlackErrorResponse carries Slack's explanation in ResponseMetadata.Messages
+// — "invalid block at index 7", and so on — but its Error() returns only the
+// bare code. So a rejected App Home surfaced as "invalid_arguments" and nothing
+// else, and diagnosing it meant guessing at Block Kit limits one at a time.
+// The API already knew the answer; it just was not being read.
+func describeViewError(err error) error {
+	var response slack.SlackErrorResponse
+	if !errors.As(err, &response) {
+		return err
+	}
+	detail := append([]string{}, response.ResponseMetadata.Messages...)
+	for _, item := range response.Errors {
+		if item.Message != nil {
+			detail = append(detail, *item.Message)
+		}
+	}
+	if len(detail) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, strings.Join(detail, "; "))
 }
 
 func (c *Client) UserAllowed(ctx context.Context, userID, teamID string) (bool, error) {
