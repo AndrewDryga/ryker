@@ -79,14 +79,33 @@ say "gate: make check"
 make check >/tmp/self-deploy-check.log 2>&1 || die "the gate failed; see /tmp/self-deploy-check.log"
 say "gate: green"
 
+# The candidate binary is built once, here, and every later step uses it. Proof
+# has to be about the artifact that will actually run: `go run` from inside a
+# deployment directory also picks up that directory's go.work and fails for
+# reasons that have nothing to do with this build.
+scripts/deploy.sh --stage >/dev/null || die "staging failed"
+candidate="$libexec/responder-$sha"
+[[ -x $candidate ]] || die "staging did not produce $candidate"
+say "staged responder-$sha"
+
 # ---- 2 and 3. proof against every deployment's real state ------------------
 for label in "${labels[@]}"; do
   dir=$(deployment_dir "$label")
   [[ -n $dir && -d $dir ]] || die "$label has no resolvable working directory"
 
+  # Separated on purpose: "the check could not run" and "the check found data
+  # loss" are different facts, and reporting the first as the second is how a
+  # go.work conflict came to announce that a build destroys production data.
   say "$label: migration-check against the deployed database"
-  ( cd "$dir" && go run "$repository/cmd/responder" migration-check --config .responder/responder.yaml ) \
-    || die "$label: this build's migrations lose data on the deployed database"
+  if ! ( cd "$dir" && "$candidate" migration-check --config .responder/responder.yaml ) \
+      >"/tmp/self-deploy-migration-$label.log" 2>&1; then
+    if grep -q "migrations lose data" "/tmp/self-deploy-migration-$label.log"; then
+      die "$label: this build's migrations lose data on the deployed database"
+    fi
+    say "$(cat "/tmp/self-deploy-migration-$label.log")"
+    die "$label: migration-check could not run — the build is unproven, not condemned"
+  fi
+  cat "/tmp/self-deploy-migration-$label.log"
 
   corpus="testdata/eval/episode-replay/${label##*.}.jsonl"
   if [[ $skip_evals -eq 1 ]]; then
@@ -101,7 +120,7 @@ for label in "${labels[@]}"; do
     replay() {
       # shellcheck source=/dev/null  # the deployment's own secret env, not in this repo
       ( cd "$dir" && set -a && . .responder/local.env && set +a &&
-        go run "$repository/cmd/responder" eval --config .responder/responder.yaml \
+        "$candidate" eval --config .responder/responder.yaml \
           --episode-replay --input "$repository/$corpus" --min-overall-pass-rate 1 ) \
         >"/tmp/self-deploy-replay-$label.log" 2>&1
     }
@@ -121,9 +140,6 @@ for label in "${labels[@]}"; do
 done
 
 # ---- 4. staged rollout ------------------------------------------------------
-scripts/deploy.sh --stage >/dev/null || die "staging failed"
-say "staged responder-$sha"
-
 reload() { # label plist
   launchctl bootout "$domain/$1" 2>/dev/null || true
   for _ in $(seq 1 40); do
