@@ -107,6 +107,22 @@ for label in "${labels[@]}"; do
   fi
   cat "/tmp/self-deploy-migration-$label.log"
 
+  # What migration-check and the gate both miss: a build that keeps every row,
+  # passes every test, and changes what a word COUNTS. Both builds are asked
+  # the same questions about the same database and their answers compared.
+  previous_binary="$libexec/responder-$(current_sha "$label")"
+  if [[ -x $previous_binary ]]; then
+    say "$label: projection diff against the running build"
+    if ! scripts/projection-diff.sh "$dir" "$previous_binary" "$candidate" \
+        >"/tmp/self-deploy-projections-$label.log" 2>&1; then
+      cat "/tmp/self-deploy-projections-$label.log"
+      die "$label: this build reports differently about the same data — intended for a change that redefines a count, otherwise it is drift"
+    fi
+    say "$label: projections unchanged"
+  else
+    say "$label: previous binary is gone; projections cannot be compared"
+  fi
+
   corpus="testdata/eval/episode-replay/${label##*.}.jsonl"
   if [[ $skip_evals -eq 1 ]]; then
     say "$label: episode replay SKIPPED by RESPONDER_SKIP_EVALS — this run is not proven"
