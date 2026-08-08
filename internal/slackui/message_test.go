@@ -963,6 +963,9 @@ func TestOperationsHomeSummarizesWorkWithoutMarketingCopy(t *testing.T) {
 	content := message.Text + "\n" + message.Markdown + "\n" +
 		strings.Join(message.Sections, "\n") + "\n" +
 		strings.Join(message.Context, "\n")
+	for _, row := range message.Rows {
+		content += "\n" + row.Text
+	}
 	for _, required := range []string{
 		// The heading answers "is anything waiting for me?" rather than saying
 		// "Needs attention" above a page the reader then has to search.
@@ -1076,6 +1079,9 @@ func TestScheduleOfferMakesFutureCommitmentConditional(t *testing.T) {
 	content := message.Text + "\n" + message.Markdown + "\n" +
 		strings.Join(message.Sections, "\n") + "\n" +
 		strings.Join(message.Context, "\n")
+	for _, row := range message.Rows {
+		content += "\n" + row.Text
+	}
 	if len(message.Actions) != 1 || message.Actions[0].ID != ActionRememberSchedule {
 		t.Fatalf("schedule confirmation action = %+v", message.Actions)
 	}

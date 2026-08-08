@@ -106,42 +106,32 @@ func OperationsHome(
 		owedItems = append(owedItems, commitment)
 	}
 	if len(owedItems) > 0 {
-		var owed strings.Builder
-		owed.WriteString("*Needs a decision from you*\n")
+		message.Sections = append(message.Sections, "*Needs a decision from you*")
 		for _, commitment := range owedItems[:min(len(owedItems), 5)] {
-			location := ""
-			if commitment.ChannelID != "" {
-				location = " · <#" + commitment.ChannelID + ">"
-			}
 			headline := commitmentHeadline(commitment.Title)
-			repeated := ""
+			line := "*" + headline + "*"
 			if count := repeats[headline]; count > 1 {
-				repeated = fmt.Sprintf(" ×%d", count)
+				line += fmt.Sprintf(" ×%d", count)
 			}
-			fmt.Fprintf(
-				&owed,
-				"\n*%s* — %s%s%s",
-				headline,
-				commitmentStateLabel(commitment.State),
-				repeated,
-				location,
-			)
+			if commitment.ChannelID != "" {
+				line += " · <#" + commitment.ChannelID + ">"
+			}
 			// What to do, not why Responder stopped. The status paragraph is
-			// Responder reasoning about itself; five of them made a wall the
-			// reader had to mine for the one line that was an instruction. It
-			// is still in the thread, and it is used here only when there is no
-			// next action to show instead.
+			// Responder reasoning about itself; five of them made a wall to mine
+			// for the one line that was an instruction. It stays in the thread,
+			// and is used here only when there is no next action to show.
 			switch {
 			case !genericProgressText(commitment.NextAction):
-				fmt.Fprintf(&owed, "\n→ %s", escapeSlackText(truncateUTF8(singleLine(commitment.NextAction), 240)))
+				line += "\n" + escapeSlackText(shortInstruction(commitment.NextAction))
 			case !genericProgressText(commitment.Status):
-				fmt.Fprintf(&owed, "\n%s", escapeSlackText(truncateUTF8(singleLine(commitment.Status), 240)))
+				line += "\n" + escapeSlackText(shortInstruction(commitment.Status))
 			}
+			message = AppendRow(message, line, openThreadAction(commitment))
 		}
 		if extra := len(owedItems) - 5; extra > 0 {
-			fmt.Fprintf(&owed, "\n\n_and %d more — `/responder status`_", extra)
+			message.Sections = append(message.Sections,
+				fmt.Sprintf("_and %d more — `/responder status`_", extra))
 		}
-		message.Sections = append(message.Sections, owed.String())
 	}
 
 	// A channel with no summary and no goal has nothing to report, and
@@ -348,4 +338,46 @@ func operatorActionable(state core.CommitmentState) bool {
 	default:
 		return false
 	}
+}
+
+// openThreadAction is the button that makes an item on this page actionable.
+//
+// A page headed "needs a decision from you" that offers no way to reach the
+// conversation is a list of homework. app_redirect is used rather than a
+// workspace permalink because it needs no team domain, which this process does
+// not store, and Slack resolves it to the same message.
+func openThreadAction(commitment core.Commitment) []Action {
+	if commitment.ChannelID == "" {
+		return nil
+	}
+	url := "https://slack.com/app_redirect?channel=" + commitment.ChannelID
+	if anchor := strings.TrimSpace(commitment.ThreadTS); anchor != "" {
+		url += "&message_ts=" + anchor
+	}
+	return []Action{{ID: ActionOpenWorkThread, Label: "Open", Value: commitment.ID, URL: url}}
+}
+
+// shortInstruction keeps the first sentence of a next action.
+//
+// These arrive as a paragraph — "read the run holding the lock: if it is stuck
+// in Applying with a dead executor, force-unlock and queue a fresh run; if it
+// is genuinely applying, wait. Say which workspace and I can carry the rest."
+// The first sentence is the instruction; the rest is the caveats, which belong
+// in the thread the Open button now reaches.
+func shortInstruction(value string) string {
+	trimmed := singleLine(strings.TrimSpace(value))
+	if trimmed == "" {
+		return ""
+	}
+	if cut := strings.IndexAny(trimmed, ".!?"); cut > 30 && cut < len(trimmed)-1 {
+		trimmed = trimmed[:cut+1]
+	}
+	if len(trimmed) > 160 {
+		trimmed = truncateUTF8(trimmed, 160)
+		if space := strings.LastIndex(trimmed, " "); space > 60 {
+			trimmed = trimmed[:space]
+		}
+		trimmed = strings.TrimRight(trimmed, " ,;:-") + "…"
+	}
+	return "→ " + trimmed
 }

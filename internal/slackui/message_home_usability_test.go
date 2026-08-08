@@ -264,15 +264,68 @@ func TestTheChoreDoesNotOutrankTheWork(t *testing.T) {
 		}},
 		nil, nil, nil, nil,
 	)
-	sections := strings.Join(message.Sections, "\n")
-	if !strings.Contains(sections, "Deploy the website") {
-		t.Fatalf("the blocked work is missing:\n%s", sections)
+	visible := homeContent(message)
+	if !strings.Contains(visible, "Deploy the website") {
+		t.Fatalf("the blocked work is missing:\n%s", visible)
 	}
 	// The chore is a line of context, not a section competing with the work.
-	if strings.Contains(sections, "retained workspace") {
-		t.Errorf("the cleanup chore is still a section:\n%s", sections)
+	if strings.Contains(strings.Join(message.Sections, "\n"), "retained workspace") {
+		t.Errorf("the cleanup chore is still a section:\n%s", visible)
 	}
 	if !strings.Contains(strings.Join(message.Context, "\n"), "30 retained workspaces") {
 		t.Errorf("the chore should still be reachable: %+v", message.Context)
+	}
+}
+
+// A page headed "needs a decision from you" that offers no way to reach the
+// conversation is a list of homework. Every item gets a button to the thread.
+func TestEachItemNeedingYouCanBeOpened(t *testing.T) {
+	message := OperationsHome(
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, nil,
+		[]core.Commitment{{
+			ID: "commitment_1", Title: "Deploy the website", State: core.CommitmentBlocked,
+			ChannelID: "CBACKEND", ThreadTS: "1786198712.282779",
+			NextAction: "Force-unlock va1-apps and queue a fresh run",
+		}},
+		nil, nil, nil, nil,
+	)
+
+	var opened *Action
+	for _, row := range message.Rows {
+		for index, action := range row.Actions {
+			if action.ID == ActionOpenWorkThread {
+				opened = &row.Actions[index]
+			}
+		}
+	}
+	if opened == nil {
+		t.Fatalf("no way to reach the work from the page: %+v", message.Rows)
+	}
+	for _, expected := range []string{"CBACKEND", "1786198712.282779"} {
+		if !strings.Contains(opened.URL, expected) {
+			t.Errorf("open link does not reach the message: %q", opened.URL)
+		}
+	}
+	if !strings.HasPrefix(opened.URL, "https://") {
+		t.Errorf("open link is not an ordinary web link: %q", opened.URL)
+	}
+}
+
+// The next action arrives as a paragraph with the instruction first and the
+// caveats after. On a list, the instruction is the part that has to fit.
+func TestNextActionIsTrimmedToTheInstruction(t *testing.T) {
+	got := shortInstruction(
+		"Open the workspace's run list in Terraform Cloud and read the run holding the lock: " +
+			"if it is stuck in Applying with a dead executor, force-unlock and queue a fresh run " +
+			"for the current commit; if it is genuinely applying, wait. Say which workspace and I can carry the rest.",
+	)
+	if len([]rune(got)) > 165 {
+		t.Errorf("instruction is still a paragraph (%d chars): %q", len([]rune(got)), got)
+	}
+	if !strings.Contains(got, "Terraform Cloud") {
+		t.Errorf("instruction lost its subject: %q", got)
+	}
+	if strings.Contains(got, "carry the rest") {
+		t.Errorf("the trailing caveats survived: %q", got)
 	}
 }
