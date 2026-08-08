@@ -3,15 +3,28 @@
    leave the machine. */
 
 :root {
-  --bg: #14161a;
-  --panel: #1b1e24;
-  --line: #2a2f38;
-  --ink: #e6e8ec;
-  --dim: #98a0ad;
-  --accent: #6ea8fe;
-  --warn: #e8b923;
-  --bad: #e5534b;
-  --good: #4ec9a5;
+  /* Emisar's palette, so the two control planes read as one system. Taken from
+     portal/apps/emisar_web/assets/tailwind.config.js and the zinc scale that
+     portal uses for every surface: zinc-950 page, zinc-900 panel, zinc-800
+     rule, zinc-400 secondary text. brand-400 (#36e6a5) is the logo green.
+     Values are literal rather than imported because this dashboard vendors
+     everything and builds no CSS. */
+  --bg: #09090b;          /* zinc-950 */
+  --panel: #18181b;       /* zinc-900 */
+  --line: #27272a;        /* zinc-800 */
+  --ink: #f4f4f5;         /* zinc-100 */
+  --dim: #a1a1aa;         /* zinc-400 */
+  --faint: #71717a;       /* zinc-500 */
+  --accent: #36e6a5;      /* brand-400, the logo green */
+  --accent-dim: #14cf8d;  /* brand-500 */
+  --warn: #fbbf24;        /* amber-400 */
+  --bad: #fb7185;         /* rose-400 */
+  --good: #36e6a5;
+  /* Portal self-hosts InterVariable to avoid a third-party request. This
+     dashboard takes the same stack minus the webfont: vendoring a 340 KB woff2
+     into the binary is a poor trade for an internal page, and the fallback
+     portal already declares resolves to SF on this machine. */
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
@@ -23,7 +36,9 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: 14px/1.6 var(--sans);
+  font-feature-settings: "liga" 1, "calt" 1;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Sidebar ---------------------------------------------------------------- */
@@ -42,6 +57,7 @@ body {
 
 .brand {
   font-weight: 600;
+  color: var(--accent);
   padding: 0 22px 18px;
   letter-spacing: .2px;
 }
@@ -68,7 +84,7 @@ body {
 .sidebar a.on {
   color: var(--ink);
   border-left-color: var(--accent);
-  background: rgba(110, 168, 254, .07);
+  background: rgb(54 230 165 / .06);
 }
 
 .sidebar .foot {
@@ -134,6 +150,7 @@ a.row:hover { background: var(--panel); }
 .row .title { font-weight: 500; }
 .row .meta { color: var(--dim); font-size: 13px; margin-top: 3px; }
 .row .todo { color: var(--accent); font-size: 13px; margin-top: 5px; }
+.pill.on { color: #09090b; background: var(--accent-dim); border-color: var(--accent-dim); }
 
 .pill {
   display: inline-block;

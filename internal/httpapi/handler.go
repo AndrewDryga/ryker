@@ -373,14 +373,40 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// securityHeaders keeps the JSON API at default-src 'none' and gives the
+// control plane the narrowest policy that lets it render.
+//
+// One policy for both did not work: 'none' blocked the dashboard's own
+// stylesheet, so every page served as unstyled HTML while returning 200. The
+// browser reported it and the server could not — a failure visible only to
+// whoever opened the page.
+//
+// The dashboard policy still forbids scripts, frames, form posts and any
+// external origin. It permits exactly same-origin styles and images, which is
+// what a server-rendered page with one vendored stylesheet needs.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", contentSecurityPolicy(r.URL.Path))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// apiOnlyPaths are the machine endpoints. Everything else on this server is the
+// control plane, so a new dashboard route cannot accidentally inherit a policy
+// that stops it rendering.
+var apiOnlyPaths = []string{"/healthz", "/readyz", "/metrics", "/v1/"}
+
+func contentSecurityPolicy(path string) string {
+	for _, prefix := range apiOnlyPaths {
+		if path == prefix || strings.HasPrefix(path, prefix) {
+			return "default-src 'none'; frame-ancestors 'none'"
+		}
+	}
+	return "default-src 'none'; style-src 'self'; img-src 'self' data:; " +
+		"form-action 'none'; base-uri 'none'; frame-ancestors 'none'"
 }
 
 func writeError(w http.ResponseWriter, status int, detail string) {
