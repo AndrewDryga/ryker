@@ -17,6 +17,9 @@ Required environment:
 Optional environment:
   RESPONDER_QUALITY_REPOSITORY      Responder source checkout (defaults to script parent)
   RESPONDER_QUALITY_CODEX           codex executable (defaults to PATH lookup)
+  RESPONDER_QUALITY_CLAUDE          claude executable (defaults to PATH lookup)
+  RESPONDER_QUALITY_ASSESSORS       Assessor ladder, first that answers wins (default: "codex claude")
+  RESPONDER_QUALITY_ASSESSOR_RETRIES  Retries before a batch is skipped unassessed (default: 5)
   RESPONDER_QUALITY_INTERVAL        Watch interval in seconds (default: 300)
   RESPONDER_QUALITY_BATCH_SIZE      Completed turns per review, 1-10 (default: 5)
   RESPONDER_QUALITY_MODEL           Explicit Codex model override
@@ -53,6 +56,10 @@ repository=${RESPONDER_QUALITY_REPOSITORY:-$(CDPATH='' cd -- "$script_dir/.." &&
 state_dir=${RESPONDER_QUALITY_STATE_DIR:-}
 test_channel=${RESPONDER_QUALITY_TEST_CHANNEL:-}
 codex_bin=${RESPONDER_QUALITY_CODEX:-codex}
+claude_bin=${RESPONDER_QUALITY_CLAUDE:-claude}
+# One dead account used to stop the watchdog entirely. Tried in order; the first
+# rung that answers wins.
+assessors=${RESPONDER_QUALITY_ASSESSORS:-"codex claude"}
 interval=${RESPONDER_QUALITY_INTERVAL:-300}
 batch_size=${RESPONDER_QUALITY_BATCH_SIZE:-5}
 model=${RESPONDER_QUALITY_MODEL:-}
@@ -118,6 +125,22 @@ if [[ ! -f "$fix_review_schema" ]]; then
   printf 'quality-watch: fix review schema is missing: %s\n' "$fix_review_schema" >&2
   exit 2
 fi
+for rung in $assessors; do
+  case "$rung" in
+    codex) rung_bin=$codex_bin ;;
+    claude) rung_bin=$claude_bin ;;
+    *)
+      printf 'quality-watch: unknown assessor %s in RESPONDER_QUALITY_ASSESSORS\n' "$rung" >&2
+      exit 2
+      ;;
+  esac
+  if ! command -v "$rung_bin" >/dev/null 2>&1; then
+    printf 'quality-watch: %s executable not found: %s\n' "$rung" "$rung_bin" >&2
+    exit 2
+  fi
+done
+# The fixer still runs on codex alone: it edits a worktree, and swapping the
+# provider that writes code is a larger change than swapping the one that reads.
 if ! command -v "$codex_bin" >/dev/null 2>&1; then
   printf 'quality-watch: Codex executable not found: %s\n' "$codex_bin" >&2
   exit 2
@@ -132,6 +155,9 @@ done
 database="$state_dir/responder.db"
 watch_dir="$state_dir/quality-watch"
 cursor_file="$watch_dir/cursor.tsv"
+# Consecutive assessor failures for the batch at the cursor, so a provider
+# outage retries instead of skipping, and a poisoned batch still moves on.
+failure_file="$watch_dir/assessor-failures.tsv"
 lock_dir="$watch_dir/lock"
 review_dir="$watch_dir/reviews"
 worktree_dir="$watch_dir/worktrees"
@@ -268,6 +294,85 @@ advance_from_batch() {
   timestamp=$(jq -r '.[-1].sort_time' "$batch")
   run_id=$(jq -r '.[-1].run_id' "$batch")
   write_cursor "$timestamp" "$run_id"
+}
+
+# A structured judgement from the first assessor that can produce one.
+#
+# This used to be a bare call to codex. When that account hit its usage limit on
+# 2026-08-07 the call failed 56 times in a row, and because the caller advanced
+# the cursor and returned success every time, the loop kept reporting "no
+# high-confidence product defect" for episodes nothing had looked at. A watchdog
+# that cannot run must not read like a watchdog that found nothing.
+#
+# Rungs are tried in order. codex enforces the schema itself; claude has no
+# equivalent flag, so its output is only as valid as the prompt makes it — which
+# is why every caller still validates with jq afterwards.
+run_structured_assessor() { # workdir schema out log prompt
+  local workdir=$1 out_schema=$2 out=$3 log=$4 prompt=$5 rung status
+  : >"$log"
+  for rung in $assessors; do
+    case "$rung" in
+      codex)
+        codex_args read-only
+        if "$codex_bin" "${CODEX_ARGS[@]}" -C "$workdir" \
+          --output-schema "$out_schema" --output-last-message "$out" - \
+          <"$prompt" >>"$log" 2>&1; then
+          return 0
+        fi
+        ;;
+      claude)
+        # Read-only by construction: no tools are allowed, so the model can only
+        # answer from the prompt. That is weaker than the codex rung, which may
+        # inspect the tree — recorded in the log so a finding from this rung is
+        # not mistaken for one backed by code reading.
+        if "$claude_bin" -p --output-format text --permission-mode plan \
+          --allowed-tools '' --add-dir "$workdir" \
+          >"$out" 2>>"$log" <"$prompt"; then
+          printf 'quality-watch: assessed by the claude rung (no repository tools)\n' >>"$log"
+          return 0
+        fi
+        ;;
+      *)
+        printf 'quality-watch: unknown assessor rung %s\n' "$rung" >>"$log"
+        ;;
+    esac
+    status=$?
+    printf 'quality-watch: assessor rung %s failed (status %s)\n' "$rung" "$status" >>"$log"
+  done
+  return 1
+}
+
+# The reason, short enough to belong on one log line. Whoever reads the loop
+# should learn "out of credits" without opening a file.
+assessor_failure_reason() { # log
+  grep -m1 -oE "You've hit your usage limit[^\"]*|[Rr]ate limit[^\"]*|401 [^\"]*|not authenticated[^\"]*" "$1" 2>/dev/null |
+    cut -c1-120 || true
+}
+
+# Retry the same batch rather than skipping it, so a transient provider outage
+# costs latency instead of coverage. A batch that fails this many times in a row
+# is skipped to keep the cursor moving, and says so in those words.
+assessor_failure_budget=${RESPONDER_QUALITY_ASSESSOR_RETRIES:-5}
+note_assessor_failure() { # batch_id batch_path log kind
+  local batch_id=$1 batch_path=$2 log=$3 kind=$4 seen=0 reason
+  reason=$(assessor_failure_reason "$log")
+  if [[ -f "$failure_file" ]]; then
+    IFS=$'\t' read -r previous seen <"$failure_file" || true
+    [[ "$previous" == "$batch_id" ]] || seen=0
+  fi
+  seen=$((seen + 1))
+  printf '%s\t%s\n' "$batch_id" "$seen" >"$failure_file"
+  if ((seen >= assessor_failure_budget)); then
+    log "$kind failed $seen times for $batch_id; SKIPPING these episodes UNASSESSED${reason:+ — $reason}"
+    rm -f "$failure_file"
+    advance_from_batch "$batch_path"
+    return 0
+  fi
+  # Always 0: whether the batch was held or skipped is a fact for the log, not a
+  # status for the caller, and returning non-zero here trips errexit before the
+  # caller can decide anything.
+  log "$kind failed for $batch_id (attempt $seen/$assessor_failure_budget); retrying, cursor held${reason:+ — $reason}"
+  return 0
 }
 
 review_once() {
@@ -439,17 +544,15 @@ LIMIT $batch_size;"
   } >"$prompt_path"
   chmod 600 "$prompt_path"
 
-  codex_args read-only
-  if ! "$codex_bin" "${CODEX_ARGS[@]}" -C "$repository" \
-    --output-schema "$schema" --output-last-message "$assessment_path" - \
-    <"$prompt_path" >"$assessor_log" 2>&1; then
+  if ! run_structured_assessor "$repository" "$schema" "$assessment_path" \
+    "$assessor_log" "$prompt_path"; then
     rm -f "$prompt_path"
     chmod 600 "$assessor_log"
-    log "quality assessment failed for $batch_id; details: $assessor_log"
-    advance_from_batch "$batch_path"
+    note_assessor_failure "$batch_id" "$batch_path" "$assessor_log" "quality assessment"
     return 0
   fi
   rm -f "$prompt_path"
+  rm -f "$failure_file"
   chmod 600 "$assessment_path" "$assessor_log"
   if ! jq -e '.needs_fix | type == "boolean"' "$assessment_path" >/dev/null; then
     log "quality assessment was malformed for $batch_id; details: $assessment_path"
@@ -482,14 +585,11 @@ LIMIT $batch_size;"
     printf '</episodes_json>\n'
   } >"$challenger_prompt"
   chmod 600 "$challenger_prompt"
-  codex_args read-only
-  if ! "$codex_bin" "${CODEX_ARGS[@]}" -C "$repository" \
-    --output-schema "$schema" --output-last-message "$challenger_path" - \
-    <"$challenger_prompt" >"$challenger_log" 2>&1; then
+  if ! run_structured_assessor "$repository" "$schema" "$challenger_path" \
+    "$challenger_log" "$challenger_prompt"; then
     rm -f "$challenger_prompt"
     chmod 600 "$challenger_log"
-    log "adversarial assessment failed for $batch_id; no fix was attempted"
-    advance_from_batch "$batch_path"
+    note_assessor_failure "$batch_id" "$batch_path" "$challenger_log" "adversarial assessment"
     return 0
   fi
   rm -f "$challenger_prompt"

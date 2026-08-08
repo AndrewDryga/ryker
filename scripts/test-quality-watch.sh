@@ -270,4 +270,78 @@ fi
 grep -Fq 'fixer confirmed no code change was justified' \
   "$state_dir/quality-watch/quality-watch.log"
 
+# The bug this file exists to prevent a second time: when the assessor could not
+# run at all, the watcher advanced its cursor and logged "no high-confidence
+# product defect", so 56 batches were discarded unexamined over a day while the
+# loop reported clean. A check that cannot run must not read like one that
+# passed. Both rungs are pointed at a binary that always fails.
+failing="$temporary/always-fails"
+cat >"$failing" <<'EOF'
+#!/usr/bin/env bash
+printf "You've hit your usage limit.\n" >&2
+exit 1
+EOF
+chmod 700 "$failing"
+
+sqlite3 "$state_dir/responder.db" <<'SQL'
+INSERT INTO slack_inputs (
+  id, kind, channel_id, thread_ts, user_id, message_ts, text, state,
+  failure_count, last_error, received_at, updated_at
+) VALUES (
+  'slack_six', 'mention', 'C0TENANTX01', '', 'U123', '2999.021',
+  'unassessable turn', 'done', 0, '',
+  '2999-01-01T00:00:21.000Z', '2999-01-01T00:00:23.000Z'
+);
+INSERT INTO agent_runs VALUES (
+  'run_six', 'triage', 'completed', 'succeeded', 'C0TENANTX01', '',
+  'watch', 'slack_six', 'tenant-platform', 'answered',
+  '2999-01-01T00:00:21.000Z', '2999-01-01T00:00:22.000Z',
+  '2999-01-01T00:00:23.000Z', '2999-01-01T00:00:23.000Z', '', 0
+);
+SQL
+
+run_failing() {
+  QUALITY_WATCH_TEST_CAPTURE="$capture" \
+  QUALITY_WATCH_TEST_COUNT="$count_file" \
+  QUALITY_WATCH_TEST_MODE=clean \
+  RESPONDER_QUALITY_STATE_DIR="$state_dir" \
+  RESPONDER_QUALITY_TEST_CHANNEL=C0TENANTX01 \
+  RESPONDER_QUALITY_REPOSITORY="$repository" \
+  RESPONDER_QUALITY_CODEX="$failing" \
+  RESPONDER_QUALITY_CLAUDE="$failing" \
+  RESPONDER_QUALITY_ASSESSOR_RETRIES="${1:-5}" \
+    "$repository/scripts/quality-watch.sh" --once
+}
+
+before_cursor=$(<"$state_dir/quality-watch/cursor.tsv")
+run_failing 5
+if [[ $(<"$state_dir/quality-watch/cursor.tsv") != "$before_cursor" ]]; then
+  printf 'quality-watch test: cursor advanced past a batch nothing assessed\n' >&2
+  exit 1
+fi
+if grep -Fq 'no high-confidence product defect' <(tail -2 "$state_dir/quality-watch/quality-watch.log"); then
+  printf 'quality-watch test: a failed assessment was reported as a clean review\n' >&2
+  exit 1
+fi
+grep -Fq 'cursor held' "$state_dir/quality-watch/quality-watch.log" || {
+  printf 'quality-watch test: the retry was not announced\n' >&2
+  exit 1
+}
+grep -Fq "hit your usage limit" "$state_dir/quality-watch/quality-watch.log" || {
+  printf 'quality-watch test: the provider reason never reached the loop log\n' >&2
+  exit 1
+}
+
+# A batch that can never be assessed still has to stop blocking the queue, and
+# must say plainly that it was skipped rather than reviewed.
+run_failing 1
+if [[ $(<"$state_dir/quality-watch/cursor.tsv") == "$before_cursor" ]]; then
+  printf 'quality-watch test: an unassessable batch blocked the cursor forever\n' >&2
+  exit 1
+fi
+grep -Fq 'SKIPPING these episodes UNASSESSED' "$state_dir/quality-watch/quality-watch.log" || {
+  printf 'quality-watch test: the skip was not reported as a skip\n' >&2
+  exit 1
+}
+
 printf 'quality-watch test: ok\n'
