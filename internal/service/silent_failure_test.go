@@ -255,6 +255,106 @@ func TestChannellessInteractionRepaintsTheAppHomeInsteadOfFailing(t *testing.T) 
 	}
 }
 
+// A deployment that keeps its channels in the database still gets prewarmed.
+//
+// This is tenant exactly: watch_channels and summon_channels are both [] in
+// YAML, all eight channels live in channel_configurations, and nobody had
+// spoken yet so conversation_sessions was empty. Both of the sources prewarming
+// read were therefore empty, the loop iterated nothing, and the function
+// returned having done nothing and said nothing — through roughly thirty-five
+// restarts, while the deployment whose channels happen to be in YAML prewarmed
+// after every one.
+func TestPrewarmUsesChannelsConfiguredInTheDatabase(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = nil
+	cfg.Slack.SummonChannels = nil
+	cfg.Coop.PrewarmSessions = 2
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CDBONLY", Participation: "proactive", Repository: "repo",
+		AlertPolicy: "reply", ActorID: "U123ABC",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	logger, logged := capturingLogger()
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), logger)
+
+	svc.prewarmConversationSessions(ctx)
+
+	session, err := st.GetConversationSession(ctx, "CDBONLY")
+	if err != nil {
+		t.Fatalf("a channel configured in the database was never prewarmed: %v", err)
+	}
+	if session.Policy != "repo-conversation" {
+		t.Fatalf("prewarmed session = %+v", session)
+	}
+	if len(coopClient.prepareSessions) != 1 {
+		t.Fatalf("prepared sessions = %v", coopClient.prepareSessions)
+	}
+	if !strings.Contains(logged.String(), "finished prewarming conversation sessions") {
+		t.Fatalf("prewarming did not report its result; log = %s", logged)
+	}
+}
+
+// A prewarm that decides to do nothing says so.
+//
+// Doing nothing can be correct — an empty workspace has nothing to warm — but
+// it is indistinguishable from a broken source of truth unless it is stated,
+// and that is precisely the ambiguity that hid the defect above.
+func TestPrewarmSaysSoWhenItWarmsNothing(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = nil
+	cfg.Slack.SummonChannels = nil
+	cfg.Coop.PrewarmSessions = 2
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	logger, logged := capturingLogger()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), logger)
+
+	svc.prewarmConversationSessions(ctx)
+
+	if !strings.Contains(logged.String(), "prewarmed no conversation sessions") {
+		t.Fatalf("prewarming did nothing without saying so; log = %s", logged)
+	}
+}
+
+// A configured channel whose repository declares no conversation policy is a
+// legitimate skip, but it must still be legible: it used to look exactly like
+// a channel that had been warmed, because neither produced any output.
+func TestPrewarmNamesTheChannelsItSkips(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CNOPOLICY"}
+	cfg.Coop.PrewarmSessions = 2
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	logger, logged := capturingLogger()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), logger)
+
+	svc.prewarmConversationSessions(ctx)
+
+	if !strings.Contains(logged.String(), "CNOPOLICY") ||
+		!strings.Contains(logged.String(), "no conversation policy") {
+		t.Fatalf("a skipped channel was skipped silently; log = %s", logged)
+	}
+}
+
 // Slack has already answered these; asking again eleven more times cannot
 // change the answer, and the eleven extra rejections are the only thing the
 // budget buys.

@@ -308,22 +308,43 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 }
 
+// prewarmConversationSessions warms a model session for the channels most
+// likely to be spoken to next, so the first question of the day does not wait
+// for a cold start.
+//
+// It reads three sources, and the third is the one that was missing. Recent
+// conversation lanes come from conversation_sessions; the static watch and
+// summon lists come from YAML; and the channels an operator configured come
+// from channel_configurations, the database control plane. A deployment that
+// onboards channels by inviting the bot — which is the supported path, and the
+// one tenant uses for all eight of its channels — has an empty YAML and, until
+// someone has spoken, an empty conversation_sessions. Both of the old sources
+// were therefore empty, the loop iterated nothing, and the function returned
+// without warming anything and without saying it had not.
+//
+// That silence is fixed here too. Every exit reports what it decided: how many
+// channels were considered, how many were warmed, and why any were skipped. A
+// prewarm that does nothing is a fact worth one line, and its absence is what
+// let thirty-five restarts pass with no warm session and no warning.
 func (s *Service) prewarmConversationSessions(ctx context.Context) {
-	recent, err := s.store.ListRecentConversationChannels(
-		ctx,
-		s.cfg.Coop.PrewarmSessions,
-	)
+	budget := s.cfg.Coop.PrewarmSessions
+	recent, err := s.store.ListRecentConversationChannels(ctx, budget)
 	if err != nil && ctx.Err() == nil {
 		s.log.Warn("could not list recent conversation sessions for prewarming", "error", err)
+	}
+	operatorConfigured, err := s.store.ListConfiguredChannelIDs(ctx, budget)
+	if err != nil && ctx.Err() == nil {
+		s.log.Warn("could not list configured channels for prewarming", "error", err)
 	}
 	configured := append(
 		append([]string(nil), s.cfg.Slack.WatchChannels...),
 		s.cfg.Slack.SummonChannels...,
 	)
 	slices.Sort(configured)
-	channelIDs := make([]string, 0, len(recent)+len(configured))
-	seen := make(map[string]struct{}, len(recent)+len(configured))
-	for _, channelID := range append(recent, configured...) {
+	candidates := len(recent) + len(operatorConfigured) + len(configured)
+	channelIDs := make([]string, 0, candidates)
+	seen := make(map[string]struct{}, candidates)
+	for _, channelID := range slices.Concat(recent, operatorConfigured, configured) {
 		channelID = strings.TrimSpace(channelID)
 		if channelID == "" {
 			continue
@@ -334,9 +355,38 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 		seen[channelID] = struct{}{}
 		channelIDs = append(channelIDs, channelID)
 	}
+	if len(channelIDs) == 0 {
+		s.log.Warn(
+			"prewarmed no conversation sessions: no channel is configured or recently active",
+			"budget", budget,
+		)
+		return
+	}
 	prewarmed := 0
+	skipped := 0
+	defer func() {
+		if ctx.Err() != nil {
+			return
+		}
+		if prewarmed == 0 {
+			s.log.Warn(
+				"prewarmed no conversation sessions",
+				"considered", len(channelIDs),
+				"skipped", skipped,
+				"budget", budget,
+			)
+			return
+		}
+		s.log.Info(
+			"finished prewarming conversation sessions",
+			"prewarmed", prewarmed,
+			"considered", len(channelIDs),
+			"skipped", skipped,
+			"budget", budget,
+		)
+	}()
 	for _, channelID := range channelIDs {
-		if prewarmed >= s.cfg.Coop.PrewarmSessions {
+		if prewarmed >= budget {
 			return
 		}
 		if ctx.Err() != nil {
@@ -349,6 +399,7 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 			s.cfg.Slack.DefaultRepository,
 		)
 		if err != nil {
+			skipped++
 			s.log.Warn(
 				"could not resolve conversation session for prewarming",
 				"channel", channelID,
@@ -356,8 +407,22 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 			)
 			continue
 		}
+		// A channel whose repository declares no conversation policy has
+		// nothing to warm. That is a legitimate configuration, but it used to
+		// be indistinguishable from a channel that was warmed, because both
+		// produced no output at all.
 		repository, ok := s.cfg.RepositoryContext(repositoryKey)
 		if !ok || strings.TrimSpace(repository.ConversationPolicy) == "" {
+			skipped++
+			reason := "its repository declares no conversation policy"
+			if !ok {
+				reason = "its repository is not configured"
+			}
+			s.log.Info(
+				"skipped prewarming a channel: "+reason,
+				"channel", channelID,
+				"repository", repositoryKey,
+			)
 			continue
 		}
 		memory, session, err := s.ensureConversationSession(
@@ -416,6 +481,7 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 			}
 		}
 		if err != nil && ctx.Err() == nil {
+			skipped++
 			s.log.Warn(
 				"could not prewarm conversation session",
 				"channel", channelID,

@@ -285,6 +285,75 @@ func (s *Store) GetChannelConfiguration(
 	return configuration, nil
 }
 
+// ListConfiguredChannelIDs returns the channels an operator has configured
+// Responder into, newest decision first.
+//
+// This is the control plane. A deployment that onboards channels by inviting
+// the bot and answering its questions has every one of them here and none of
+// them in YAML, so anything that reads only the static file sees an empty
+// workspace and behaves as though there is nothing to do.
+func (s *Store) ListConfiguredChannelIDs(ctx context.Context, limit int) ([]string, error) {
+	if limit <= 0 || limit > 10000 {
+		limit = 10000
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT channel_id
+		FROM channel_configurations
+		WHERE channel_id != ''
+		ORDER BY updated_at DESC, channel_id
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]string, 0, min(limit, 64))
+	for rows.Next() {
+		var channelID string
+		if err := rows.Scan(&channelID); err != nil {
+			return nil, err
+		}
+		result = append(result, channelID)
+	}
+	return result, rows.Err()
+}
+
+// ListConfiguredChannelsMissingMembership returns channels an operator
+// configured that the bot is not currently in.
+//
+// Each one is a coverage hole: the configuration says Responder is watching,
+// and Slack says it cannot see the room. Alerts posted there reach nobody and
+// nothing about the arrangement looks wrong from either side on its own.
+func (s *Store) ListConfiguredChannelsMissingMembership(
+	ctx context.Context,
+	limit int,
+) ([]string, error) {
+	if limit <= 0 || limit > 10000 {
+		limit = 10000
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT configured.channel_id
+		FROM channel_configurations AS configured
+		LEFT JOIN slack_channel_memberships AS membership
+		  ON membership.channel_id = configured.channel_id
+		WHERE configured.channel_id != ''
+		  AND (membership.channel_id IS NULL OR membership.present = 0)
+		ORDER BY configured.channel_id
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]string, 0, min(limit, 64))
+	for rows.Next() {
+		var channelID string
+		if err := rows.Scan(&channelID); err != nil {
+			return nil, err
+		}
+		result = append(result, channelID)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) DeleteChannelConfigurationState(
 	ctx context.Context,
 	channelID string,
