@@ -267,7 +267,7 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 		{"scheduled occurrence", "sender_type is operator_schedule"},
 		{"host recheck", "sender_type is host_recheck"},
 		{"publication correlation", "trusted-active-publications"},
-		{"behavior offers", "A configured operator may define typed Responder behavior"},
+		{"behavior offers", "Configured operators may request typed lasting behavior"},
 	} {
 		if strings.Contains(ambient, absent.marker) {
 			t.Errorf("the %s block was sent to a turn that cannot use it", absent.name)
@@ -275,7 +275,7 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 	}
 
 	fromOperator := build(core.SlackInput{ChannelID: "C1", UserID: operator, Text: "remember this"})
-	if !strings.Contains(fromOperator, "A configured operator may define typed Responder behavior") {
+	if !strings.Contains(fromOperator, "Configured operators may request typed lasting behavior") {
 		t.Error("an operator turn did not carry the behavior offer rules")
 	}
 

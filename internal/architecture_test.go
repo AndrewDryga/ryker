@@ -93,7 +93,10 @@ var lineBudget = map[string]int{
 	// the widened thread-location phrasings. Four lines over the previous
 	// entry; the alternative was compressing an unrelated block to make room,
 	// which is how a budget stops measuring anything.
-	"service": 24660,
+	// And five more on 2026-08-08 for the behavior-offer acknowledgements that
+	// stop a confirmation reply from explaining rule types and catalog
+	// internals — the "watery replies" complaint applied to offers.
+	"service": 24665,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
