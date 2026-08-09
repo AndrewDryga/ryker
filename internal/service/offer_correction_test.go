@@ -146,6 +146,33 @@ func TestAcceptedOfferProducesNoCorrection(t *testing.T) {
 	}
 }
 
+func TestRuleCorrectionFillsHostOwnedChannelAndRepository(t *testing.T) {
+	cfg := serviceConfig(t)
+	s := &Service{cfg: cfg}
+	input := core.SlackInput{
+		ID: "slack_contextual_rule", EventID: "EvContextualRule",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		UserID: cfg.Slack.Operators[0],
+		Text: "Look at the Terraform events in this channel and comment in a thread " +
+			"with red flags, check health after apply, and tag me if apply failed.",
+	}
+	decision := decisionpkg.WatchDecision{RuleOffer: &core.RuleOffer{
+		Trigger: "terraform_plan", Action: "review_terraform_plan",
+		SourceKind: "app", ExpiresIn: "30d",
+	}}
+	if correction := s.offerRejectionCorrection(
+		context.Background(), input, decision,
+	); correction != "" {
+		t.Fatalf("host-owned context caused a model retry: %q", correction)
+	}
+	decision.RuleOffer = decisionpkg.NormalizeStandingRule(input, "repo", decision.RuleOffer)
+	if decision.RuleOffer.Scope != "channel" || decision.RuleOffer.Repository != "repo" ||
+		decision.RuleOffer.Trigger != "terraform_lifecycle" ||
+		decision.RuleOffer.Action != "monitor_terraform_lifecycle" {
+		t.Fatalf("normalized contextual rule = %+v", decision.RuleOffer)
+	}
+}
+
 // The reporting command must count every class the service can emit. These
 // drifted apart once already: a hand-written list in the reader meant a class
 // was emitted, counted by nobody, and the totals quietly understated.

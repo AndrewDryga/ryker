@@ -92,6 +92,36 @@ func TestBehaviorOffersRequireExplicitTypedOperatorIntent(t *testing.T) {
 	}
 }
 
+func TestTerraformLifecycleInstructionCompilesToOneTypedChannelRule(t *testing.T) {
+	cfg := serviceConfig(t)
+	svc := &Service{cfg: cfg}
+	input := core.SlackInput{
+		ID: "slack_terraform_lifecycle", EventID: "EvTerraformLifecycle",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		UserID: cfg.Slack.Operators[0],
+		Text: "Look at the Terraform events in this channel and comment in a thread " +
+			"explaining the plan changes in short, flag red flags, check health after " +
+			"the run applies, and tag me if apply failed.",
+	}
+	if !decisionpkg.StandingRuleAssignment(input.Text) || !explicitBehaviorRequest(input.Text) {
+		t.Fatal("the explicit Terraform lifecycle assignment was treated as one-time work")
+	}
+	offers, _, _ := normalizedOffers(input, "repo", operatorOffers{})
+	if offers.Rule == nil {
+		t.Fatal("the host did not compile a lifecycle rule when the model omitted one")
+	}
+	if offers.Rule.Scope != "channel" || offers.Rule.Repository != "repo" ||
+		offers.Rule.Trigger != "terraform_lifecycle" ||
+		offers.Rule.Action != "monitor_terraform_lifecycle" ||
+		offers.Rule.SourceKind != "app" {
+		t.Fatalf("compiled lifecycle rule = %+v", offers.Rule)
+	}
+	if _, rule, _, ok := svc.prepareRuleOfferAction(input, offers.Rule); !ok ||
+		rule.ActorID != input.UserID || rule.ChannelID != input.ChannelID {
+		t.Fatalf("prepared lifecycle rule = ok=%t rule=%+v", ok, rule)
+	}
+}
+
 func TestNaturalThreadPreferenceOverridesUnsupportedModelReplyAndRoutesFutureTurn(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -1389,6 +1419,8 @@ func TestStandingRuleMatcherIsTypedAndSourceAware(t *testing.T) {
 		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Applying", true},
 		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Errored", true},
 		{"terraform_plan", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Discarded", true},
+		{"terraform_lifecycle", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Applied", true},
+		{"terraform_lifecycle", "Run notification for <https://app.terraform.io/app/acme/infra|acme/infra>\nRun run-abc\nRun Errored", true},
 		{"terraform_plan", "Can you review this plan?", true},
 		{"terraform_plan", "Here is our planning document.", false},
 		{"deployment", "Production rollout completed.", true},

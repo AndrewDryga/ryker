@@ -42,6 +42,15 @@ func TestConversationLocationDetection(t *testing.T) {
 		!watchInputWantsPendingStatus(combined, decisionpkg.WatchTurnState{}) {
 		t.Fatalf("location work should be targeted and request status: %+v", combined)
 	}
+	terraformRule := core.SlackInput{
+		MessageTS: "1700.4",
+		Text: "Look at the Terraform events in this channel and comment in a thread " +
+			"with the plan changes and red flags.",
+	}
+	if decisionpkg.LocationOnlyRequest(terraformRule.Text) ||
+		conversationalResponseThread(terraformRule) != terraformRule.MessageTS {
+		t.Fatalf("Terraform rule thread request was not recognized: %+v", terraformRule)
+	}
 }
 
 func TestLocationWorkAndOldThreadContinuationSetPendingStatus(t *testing.T) {

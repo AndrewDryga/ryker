@@ -89,7 +89,11 @@ var lineBudget = map[string]int{
 	// 57 production rows read empty and the control plane showed three blanks
 	// where the model that ran should be. The package had seven lines of margin
 	// and a real feature needed ten.
-	"service": 24640,
+	// Raised again on 2026-08-08 for the Terraform lifecycle standing rule and
+	// the widened thread-location phrasings. Four lines over the previous
+	// entry; the alternative was compressing an unrelated block to make room,
+	// which is how a budget stops measuring anything.
+	"service": 24660,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

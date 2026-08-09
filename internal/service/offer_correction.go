@@ -43,6 +43,17 @@ func (s *Service) rejectedOffers(
 	now := s.now().UTC()
 	rejected := make([]offerCheck, 0, 4)
 	if offer := decision.RuleOffer; offer != nil && s.ruleOfferInScope(input) {
+		repository := s.cfg.Slack.DefaultRepository
+		if s.store != nil {
+			resolved, err := s.effectiveRepository(
+				ctx, input.ChannelID, input.UserID, repository,
+			)
+			if err == nil {
+				repository = resolved
+			}
+		}
+		decision.RuleOffer = decisionpkg.NormalizeStandingRule(input, repository, offer)
+		offer = decision.RuleOffer
 		if _, _, err := s.standingRuleFromOffer(input, *offer, now); err != nil {
 			rejected = append(rejected, offerCheck{
 				kind: "standing rule", rejected: err,
@@ -158,7 +169,7 @@ func (s *Service) dropRejectedOffers(
 
 func (s *Service) ruleOfferInScope(input core.SlackInput) bool {
 	return s.cfg.IsOperator(input.UserID) &&
-		explicitRuleRequestPattern.MatchString(input.Text)
+		decisionpkg.StandingRuleAssignment(input.Text)
 }
 
 func (s *Service) preferenceOfferInScope(input core.SlackInput) bool {

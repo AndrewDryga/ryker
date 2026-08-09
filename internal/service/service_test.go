@@ -884,6 +884,12 @@ type fakeCoop struct {
 	// Zero by default, which is what an ACP adapter that reports nothing
 	// produces, so every existing test keeps describing an unmeasured turn.
 	completeUsage coop.Usage
+	// completeQueuedAt, if set, stamps the completed turn with the three times
+	// Coop reports. Unset leaves them zero, which is an older Coop and an
+	// unmeasurable turn, so existing tests keep describing exactly that.
+	completeQueuedAt         time.Time
+	completeQueuedFor        time.Duration
+	completeProviderDuration time.Duration
 }
 
 func newFakeCoop() *fakeCoop {
@@ -1069,6 +1075,11 @@ func (f *fakeCoop) complete(message string) {
 	f.turn.State = "completed"
 	f.turn.AssistantMessage = message
 	f.turn.Usage = f.completeUsage
+	if !f.completeQueuedAt.IsZero() {
+		f.turn.QueuedAt = f.completeQueuedAt
+		f.turn.StartedAt = f.completeQueuedAt.Add(f.completeQueuedFor)
+		f.turn.FinishedAt = f.turn.StartedAt.Add(f.completeProviderDuration)
+	}
 	f.session.ActiveTurnID = ""
 	f.session.State = "open"
 	f.session.Activity = "parked"

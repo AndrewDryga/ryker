@@ -96,7 +96,7 @@ func (s *Service) episodeForWatchedInput(
 	// when the requested preference happens to mention health checks or alerts.
 	if input.Kind != "scheduled" && explicitBehaviorRequest(input.Text) {
 		if explicitPreferenceRequestPattern.MatchString(input.Text) ||
-			explicitRuleRequestPattern.MatchString(input.Text) ||
+			decisionpkg.StandingRuleAssignment(input.Text) ||
 			!isFocusedCheckRequest(text) {
 			return episode
 		}
