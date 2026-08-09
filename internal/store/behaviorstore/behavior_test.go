@@ -186,6 +186,30 @@ func TestStandingRulesDeduplicateRunsAndCleanUpWithChannel(t *testing.T) {
 	}
 }
 
+func TestTerraformLifecycleStandingRulePersists(t *testing.T) {
+	ctx := context.Background()
+	repo := behaviorstore.New(storetest.DB(t), time.Now)
+	rule, replaced, err := repo.UpsertStandingRule(
+		ctx,
+		core.StandingRule{
+			ChannelID: "CTERRAFORM", Repository: "repo",
+			Trigger: "terraform_lifecycle", Action: "monitor_terraform_lifecycle",
+			SourceKind: "app", SourceRef: "slack_assignment", ActorID: "UOPERATOR",
+			ExpiresAt: time.Now().UTC().Add(90 * 24 * time.Hour),
+		},
+		20,
+		10,
+	)
+	if err != nil || replaced || rule.ID == "" {
+		t.Fatalf("terraform lifecycle rule = %+v, replaced=%t, err=%v", rule, replaced, err)
+	}
+	stored, err := repo.GetStandingRule(ctx, rule.ID)
+	if err != nil || stored.Trigger != "terraform_lifecycle" ||
+		stored.Action != "monitor_terraform_lifecycle" {
+		t.Fatalf("stored terraform lifecycle rule = %+v, err=%v", stored, err)
+	}
+}
+
 func TestBehaviorCapacityAllowsReplacementButRejectsNewEntries(t *testing.T) {
 	ctx := context.Background()
 	db := storetest.DB(t)

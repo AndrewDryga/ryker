@@ -137,6 +137,70 @@ func TestBaselineMatchesUpgradedDeployedDatabase(t *testing.T) {
 	}
 }
 
+func TestTerraformLifecycleMigrationPreservesRulesAndRunHistory(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(connectionPragmas); err != nil {
+		t.Fatal(err)
+	}
+	if err := applySchemaStep(db, baselineSchema, 0, baselineSchemaVersion); err != nil {
+		t.Fatal(err)
+	}
+	for version := baselineSchemaVersion + 1; version <= 49; version++ {
+		if err := applySchemaStep(db, migrations[version], version-1, version); err != nil {
+			t.Fatalf("apply migration %d: %v", version, err)
+		}
+	}
+	if _, err := db.Exec(`
+		INSERT INTO standing_rules (
+		  id, channel_id, repository, trigger_name, action_name, source_kind,
+		  enabled, source_ref, actor_id, trigger_count, last_triggered_at,
+		  expires_at, created_at, updated_at
+		) VALUES (
+		  'rule_keep', 'COPS', 'repo', 'terraform_plan',
+		  'review_terraform_plan', 'app', 1, 'slack_rule', 'UOPERATOR', 1,
+		  '2026-08-08T12:00:00Z', '2026-12-01T00:00:00Z',
+		  '2026-08-08T11:00:00Z', '2026-08-08T12:00:00Z'
+		);
+		INSERT INTO standing_rule_runs (
+		  rule_id, source_input, event_id, outcome, created_at
+		) VALUES (
+		  'rule_keep', 'slack_plan', 'EvPlan', 'replied', '2026-08-08T12:00:00Z'
+		);`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	openAt(t, stateDir)
+	verify, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer verify.Close()
+	if got := countRows(t, verify, "standing_rules", "standing_rule_runs"); got["standing_rules"] != 1 || got["standing_rule_runs"] != 1 {
+		t.Fatalf("rows after standing-rule migration = %+v", got)
+	}
+	if _, err := verify.Exec(`
+		INSERT INTO standing_rules (
+		  id, channel_id, repository, trigger_name, action_name, source_kind,
+		  source_ref, actor_id, expires_at, created_at, updated_at
+		) VALUES (
+		  'rule_lifecycle', 'COPS', 'repo', 'terraform_lifecycle',
+		  'monitor_terraform_lifecycle', 'app', 'slack_assignment', 'UOPERATOR',
+		  '2026-12-01T00:00:00Z', '2026-08-08T13:00:00Z', '2026-08-08T13:00:00Z'
+		)`); err != nil {
+		t.Fatalf("insert terraform lifecycle rule after migration: %v", err)
+	}
+}
+
 // Migration 40 removes the unused effect ledger, and it must do so without
 // disturbing rows in the tables that survive.
 func TestMigrationRemovesUnusedEffectLedgerAndPreservesRows(t *testing.T) {

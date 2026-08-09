@@ -366,6 +366,8 @@ func (r *Repository) UpsertStandingRule(
 
 func validateStandingRule(rule core.StandingRule) error {
 	validPair := (rule.Trigger == "terraform_plan" && rule.Action == "review_terraform_plan") ||
+		(rule.Trigger == "terraform_lifecycle" &&
+			rule.Action == "monitor_terraform_lifecycle") ||
 		(rule.Trigger == "deployment" && rule.Action == "verify_deployment") ||
 		(rule.Trigger == "operational_alert" && rule.Action == "triage_alert")
 	if !validPair {
