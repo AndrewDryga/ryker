@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -412,4 +413,53 @@ func admittedAction(
 		t.Fatal(err)
 	}
 	return leased
+}
+
+// The lifecycle tick lapses corrections nobody reviewed, and says so.
+//
+// ExpireFixtureCandidates had exactly one caller and it was its own test, so
+// the 'expired' status was unreachable in production and three surfaces
+// disagreed about what was pending: Slack filtered on expiry and hid a
+// fourteen-day-old candidate, the dashboard did not filter and showed it
+// forever, and the Prometheus gauge filtered and so contradicted the
+// dashboard's own badge. With the tick running, the status is the single
+// answer all three read.
+func TestTheLifecycleTickLapsesUnreviewedCorrections(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	if err := st.RecordFixtureCandidate(ctx, core.FixtureCandidate{
+		EpisodeID: "ep_1", RunID: "run_1", CorrectionClass: "unreadable",
+		Correction: "the structured Slack response is invalid",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := st.ListPendingFixtureCandidates(ctx, time.Now().UTC(), 10)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending before = %d, err = %v", len(pending), err)
+	}
+
+	// Past the fourteen-day review window.
+	later := time.Now().UTC().Add(20 * 24 * time.Hour)
+	svc.SetClock(func() time.Time { return later })
+	svc.maintainLifecycle(ctx)
+
+	// Asked as of the ORIGINAL time, when the row had not yet expired by
+	// timestamp. It must still be gone, because the status is now 'expired' —
+	// which is the point: a surface that filters on status alone, as the
+	// dashboard and its badge do, gets the same answer as one that compares
+	// timestamps, as Slack and the Prometheus gauge do.
+	after, err := st.ListPendingFixtureCandidates(ctx, time.Now().UTC(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 0 {
+		t.Fatalf("a lapsed correction is still pending: %#v", after)
+	}
 }

@@ -55,6 +55,28 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	} else if retired > 0 {
 		s.log.Info("retired disabled action proposals", "records", retired)
 	}
+	// Lapsing a correction is an event, so it is said out loud.
+	//
+	// ExpireFixtureCandidates had exactly one caller and it was its own test,
+	// so the 'expired' status was unreachable in production and three surfaces
+	// disagreed about what was pending: Slack filtered on expiry and hid a
+	// fourteen-day-old candidate, the dashboard did not filter and showed it
+	// forever, and the Prometheus gauge filtered and therefore disagreed with
+	// the dashboard's badge. Running it here makes the row say what all three
+	// already implied.
+	//
+	// It logs at info even for one, because a lapsed correction is a lesson
+	// nobody got round to keeping. Fifteen of them expiring in silence is how
+	// two weeks of real corrections would have been lost without a line
+	// anywhere saying so.
+	if expired, err := s.store.ExpireFixtureCandidates(ctx, now); err != nil && ctx.Err() == nil {
+		s.log.Warn("expire unreviewed corrections failed", "error", err)
+	} else if expired > 0 {
+		s.log.Info(
+			"corrections lapsed unreviewed; the lesson each carried is not kept",
+			"records", expired,
+		)
+	}
 	const cleanupBatch = 128
 	for range cleanupBatch {
 		err := s.processCleanup(ctx, now)
