@@ -16,6 +16,7 @@ type Handler struct {
 	binary     string
 	ready      func() bool
 	prompts    []PromptBudget
+	actions    Actions
 }
 
 // PromptBudget is measured by the caller, which owns the prompt builders.
@@ -33,6 +34,7 @@ func NewHandler(
 	deployment, schema, binary string,
 	ready func() bool,
 	prompts []PromptBudget,
+	actions Actions,
 ) (*Handler, error) {
 	render, err := NewRenderer()
 	if err != nil {
@@ -44,6 +46,7 @@ func NewHandler(
 	return &Handler{
 		reader: reader, render: render, deployment: deployment,
 		schema: schema, binary: binary, ready: ready, prompts: prompts,
+		actions: actions,
 	}, nil
 }
 
@@ -59,7 +62,16 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /memory", h.memory)
 	mux.HandleFunc("GET /configuration", h.configuration)
 	mux.HandleFunc("GET /usage", h.usage)
+	// Writes are POST only, and only these three. Each calls the same store
+	// path the equivalent Slack button calls.
+	mux.HandleFunc("POST /actions/corrections/keep", h.keepCorrection)
+	mux.HandleFunc("POST /actions/corrections/discard", h.discardCorrection)
+	mux.HandleFunc("POST /actions/failures/retry", h.retryFailure)
 }
+
+// CanAct reports whether this build was given write access, so a page can offer
+// a button only when pressing it would do something.
+func (h *Handler) CanAct() bool { return h.actions != nil }
 
 // page names the body template explicitly rather than deriving it from the
 // slug: the episode detail page lives under the Episodes nav entry but is its
@@ -152,9 +164,10 @@ func (h *Handler) failure(w http.ResponseWriter, r *http.Request) {
 	}
 	runs, _ := h.reader.FailureRuns(ctx, cause)
 	h.page(w, "failures", "failure", struct {
-		Cause string
-		Runs  []FailureRun
-	}{cause, runs})
+		Cause  string
+		Runs   []FailureRun
+		CanAct bool
+	}{cause, runs, h.CanAct()})
 }
 
 // conversation unpacks the state blob a list can only count. The goal, open
@@ -200,7 +213,8 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 		Rates       []rate
 		Corrections []Correction
 		Feedback    []Feedback
-	}{rates, corrections, feedback})
+		CanAct      bool
+	}{rates, corrections, feedback, h.CanAct()})
 }
 
 func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {

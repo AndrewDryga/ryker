@@ -325,6 +325,7 @@ func (r *Reader) Failures(ctx context.Context) ([]FailureGroup, error) {
 }
 
 type Correction struct {
+	ID      string
 	Text    string
 	Class   string
 	Created time.Time
@@ -336,7 +337,7 @@ func (r *Reader) Corrections(ctx context.Context) ([]Correction, error) {
 		return nil, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT correction, correction_class, created_at, expires_at
+	  SELECT id, correction, correction_class, created_at, expires_at
 	  FROM fixture_candidates WHERE status = 'pending'
 	  ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
@@ -347,7 +348,7 @@ func (r *Reader) Corrections(ctx context.Context) ([]Correction, error) {
 	for rows.Next() {
 		var item Correction
 		var created, expires string
-		if err := rows.Scan(&item.Text, &item.Class, &created, &expires); err != nil {
+		if err := rows.Scan(&item.ID, &item.Text, &item.Class, &created, &expires); err != nil {
 			return nil, err
 		}
 		item.Created, item.Expires = parseStamp(created), parseStamp(expires)
@@ -610,6 +611,7 @@ func (r *Reader) Feedback(ctx context.Context) ([]Feedback, error) {
 // than a dead end. Ninety-eight failures collapsed to seven causes is triage;
 // being unable to open one of them is a report.
 type FailureRun struct {
+	RunID                    string
 	EpisodeID, Channel, Mode string
 	Attempts                 int
 	Updated                  time.Time
@@ -634,7 +636,7 @@ func (r *Reader) FailureRuns(ctx context.Context, cause string) ([]FailureRun, e
 		return nil, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT COALESCE(e.id,''), COALESCE(a.channel_id,''), COALESCE(a.mode,''),
+	  SELECT a.id, COALESCE(e.id,''), COALESCE(a.channel_id,''), COALESCE(a.mode,''),
 	         COALESCE(a.failure_count,0), a.updated_at
 	  FROM agent_runs AS a
 	  LEFT JOIN work_episodes AS e ON e.agent_run_id = a.id
@@ -649,7 +651,8 @@ func (r *Reader) FailureRuns(ctx context.Context, cause string) ([]FailureRun, e
 	for rows.Next() {
 		var item FailureRun
 		var channel, updated string
-		if err := rows.Scan(&item.EpisodeID, &channel, &item.Mode, &item.Attempts, &updated); err != nil {
+		if err := rows.Scan(&item.RunID, &item.EpisodeID, &channel, &item.Mode,
+			&item.Attempts, &updated); err != nil {
 			return nil, err
 		}
 		item.Channel = r.channelName(ctx, channel)

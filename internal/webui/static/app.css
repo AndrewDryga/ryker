@@ -224,3 +224,31 @@ tr:last-child td { border-bottom: 0; }
 .unwired p { margin: 0; font-size: 13px; }
 
 .note { color: var(--dim); font-size: 13px; }
+
+/* Actions ---------------------------------------------------------------- */
+
+/* Every action is a form post. A GET that mutates would fire on a preload or an
+   accidental revisit, and on a surface with no authentication the browser is
+   the only thing that would have to be wrong. */
+.acts { display: flex; gap: 8px; margin-top: 8px; }
+.acts form { margin: 0; }
+
+button {
+  font: 500 12px/1.8 var(--sans);
+  padding: 2px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+button:hover { border-color: var(--faint); }
+
+button.go {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+  color: #09090b;
+}
+
+button.go:hover { background: var(--accent); border-color: var(--accent); }

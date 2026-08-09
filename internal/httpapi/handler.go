@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -122,6 +123,29 @@ func (h *Handler) mux() *http.ServeMux {
 	return mux
 }
 
+// dashboardActions gives the control plane exactly the mutations it offers, by
+// calling the same store paths the Slack buttons call. Routed through here
+// rather than the dashboard's own connection so the audit trail and the
+// invariants do not depend on which surface the operator used.
+type dashboardActions struct{ store *store.Store }
+
+func (a *dashboardActions) KeepCorrection(ctx context.Context, id, actor string) error {
+	return a.store.ReviewFixtureCandidate(ctx, id, "approved", actor)
+}
+
+func (a *dashboardActions) DiscardCorrection(ctx context.Context, id, actor string) error {
+	return a.store.ReviewFixtureCandidate(ctx, id, "rejected", actor)
+}
+
+// RetryFailure re-queues the work item behind a failed run. Not yet wired: the
+// retry path takes a WorkItem and a schedule rather than a run id, so offering
+// the button before that lookup exists would be a control that looks live and
+// is not — the defect this dashboard was built to stop showing.
+func (a *dashboardActions) RetryFailure(ctx context.Context, runID, actor string) error {
+	return errors.New("retry is not wired yet: it needs the work item behind the run, " +
+		"not the run id. Nothing was changed.")
+}
+
 func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 	reader, err := webui.OpenReader(filepath.Join(h.cfg.StateDir, "responder.db"))
 	if err != nil {
@@ -137,6 +161,7 @@ func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 		version.Version,
 		func() bool { ready, _ := h.service.Ready(context.Background()); return ready },
 		nil,
+		&dashboardActions{store: h.store},
 	)
 	if err != nil {
 		return err
@@ -406,7 +431,7 @@ func contentSecurityPolicy(path string) string {
 		}
 	}
 	return "default-src 'none'; style-src 'self'; img-src 'self' data:; " +
-		"form-action 'none'; base-uri 'none'; frame-ancestors 'none'"
+		"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 }
 
 func writeError(w http.ResponseWriter, status int, detail string) {

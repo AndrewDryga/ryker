@@ -133,16 +133,26 @@ a person saying so, which is distinct from the host's own checks rejecting an an
 <h2>Corrections waiting to become tests</h2>
 {{if .Corrections}}
 <div class="rows">
+  {{$act := .CanAct}}
   {{range .Corrections}}
   <div class="row">
     <div class="title">{{truncate 200 .Text}}</div>
     <div class="meta">{{.Class}} · captured {{since .Created}} · expires {{stamp .Expires}}</div>
+    {{if $act}}
+    <div class="acts">
+      <form method="post" action="/actions/corrections/keep">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <button class="go" onclick="return confirm('Turn this correction into a regression test?')">Keep</button>
+      </form>
+      <form method="post" action="/actions/corrections/discard">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <button onclick="return confirm('Discard this correction? It will not be pinned as a test.')">Discard</button>
+      </form>
+    </div>
+    {{end}}
   </div>
   {{end}}
 </div>
-<p class="note">Keep and Discard land in v2, with the episode that produced each
-correction on the same page. Deciding from a one-line string with no context is
-why fifteen of these have gone unreviewed.</p>
 {{else}}<p class="empty">Nothing waiting.</p>{{end}}
 {{end}}
 
@@ -274,11 +284,16 @@ is a shape waiting on that plumbing rather than a number waiting on traffic.
 <h2>Runs</h2>
 {{if .Runs}}
 <table>
-  <tr><th>Episode</th><th>Channel</th><th>Kind</th><th>Attempts</th><th>When</th></tr>
+  <tr><th>Episode</th><th>Channel</th><th>Kind</th><th>Attempts</th><th>When</th><th></th></tr>
+  {{$act := .CanAct}}
   {{range .Runs}}
   <tr><td>{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">open →</a>{{else}}<span class="note">no episode</span>{{end}}</td>
       <td>{{.Channel}}</td><td>{{.Mode}}</td><td class="mono">{{.Attempts}}</td>
-      <td class="note">{{since .Updated}}</td></tr>
+      <td class="note">{{since .Updated}}</td>
+      <td>{{if $act}}<form method="post" action="/actions/failures/retry">
+        <input type="hidden" name="id" value="{{.RunID}}">
+        <button onclick="return confirm('Queue this work to run again?')">Retry</button>
+      </form>{{end}}</td></tr>
   {{end}}
 </table>
 {{else}}<p class="empty">No runs behind this cause.</p>{{end}}
