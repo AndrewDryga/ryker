@@ -120,8 +120,9 @@ on today's production state:
 make eval-episode-replay CONFIG=../emisar/.responder/responder.yaml
 ```
 
-Cases in `testdata/eval/episode-replay.jsonl` contain an ordered, sanitized episode timeline and
-sanitized recorded tool results. Responder still calls the configured real model through Coop and
+Cases in `testdata/eval/episode-replay/<deployment>.jsonl` contain an ordered, sanitized episode
+timeline and sanitized recorded tool results. Responder still calls the configured real model
+through Coop and
 uses the production prompt, parser, typed result operations, Slack renderer, and behavioral scorer.
 The replay prompt forbids live tool calls and makes the recording the complete evidence boundary.
 Every case must include both event and tool-result fixtures; unsanitized, duplicate, unordered, or
@@ -131,6 +132,37 @@ This differs from `--replay`: checked-output replay calls no model, while episod
 the real model reasons over a stable work episode. Recordings should contain atomic source results,
 timestamps, contradictions, and terminal events rather than copied transcripts or secrets.
 
+One corpus per deployment, replayed against that deployment's config. They cannot be merged: a
+fixture that names a repository needs the config that has it, and no single `CONFIG` could reach a
+pass rate of 1 across both. `DEPLOYMENT` selects the corpus and must match the config passed in.
+
+### Promoted corrections
+
+When the host corrects a model result, the correction is queued as a fixture candidate. An operator
+keeps or discards each one in App Home or the control plane, and `make promote-corrections` turns
+the kept ones into replay fixtures in `testdata/eval/regressions.jsonl`. Replay them with:
+
+```bash
+make eval-regressions CONFIG=../emisar/.responder/responder.yaml
+```
+
+**This is the gate on a promoted correction.** Nothing offline can be. `make dev-check` proves a
+promoted case decodes, has a unique name, names a real capability from section 24, and does not
+duplicate an episode already in the corpus — every shape failure, and none of the behavior. Proving
+that a kept lesson still holds means replaying it against the real model, which is credentialed and
+costs model calls, so it is deliberately not part of the fast deterministic gate.
+
+`make promote-corrections` runs both tiers before and after promoting, so a failure is attributable
+to the corrections rather than to something already broken. It is the right place for a credentialed
+check because it already opens the live database and already needs a config; it is not an ordinary
+edit-test cycle. `make model-release-check` runs `eval-regressions` too, so a promoted lesson that
+stops holding blocks a model release.
+
+Unlike the per-deployment replay corpora, the promoted corpus is a single file. That is only safe
+because the recorder never writes a repository onto a fixture, and
+`TestThePromotedCorpusBindsNoRepository` fails if that stops being true. The honest response to that
+failure is to split the corpus per deployment, not to lower its pass rate.
+
 After deterministic episode replay, run the small changing-world canary:
 
 ```bash
@@ -139,8 +171,8 @@ make eval-live-canary CONFIG=../emisar/.responder/responder.yaml
 
 The canary uses only cases tagged `canary` in the live corpus. It verifies that the configured model,
 authenticated Coop account, repository projection, and current read-only tools still work together.
-`make model-release-check` runs deterministic episode replay and then this canary in addition to the
-quality, proactivity, scenario, and evidence gates.
+`make model-release-check` runs deterministic episode replay, promoted corrections, and then this
+canary in addition to the quality, proactivity, scenario, and evidence gates.
 
 ### Stateful behavior and human quality
 

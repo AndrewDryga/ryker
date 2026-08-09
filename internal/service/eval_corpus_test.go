@@ -3,7 +3,9 @@ package service
 import (
 	"io/fs"
 	"os"
+	gopath "path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -134,6 +136,117 @@ func checkCapabilityTags(t *testing.T, testCase EvaluationCase) {
 				"case %q claims capability %q; slugs are lowercase and hyphenated, "+
 					"and one that is not can never match the matrix",
 				testCase.Name, slug,
+			)
+		}
+	}
+}
+
+// evaluatedCorpusInputs reads the Makefile and returns what actually gets
+// replayed: the exact corpus paths passed with --input, and the directories a
+// target selects within from a variable.
+//
+// Only --input counts. Being mentioned somewhere in the Makefile is not being
+// run, and the distinction is the entire bug: REGRESSION_CORPUS was assigned at
+// the top of the file and referenced twice more, both times inside an echo in a
+// failure message, which reads like wiring and executes nothing.
+//
+// A variable whose value contains a slash is expanded, because it names a
+// corpus. One that does not — DEPLOYMENT, whose value is a bare selector — is
+// left alone, and the directory it selects within is recorded instead. Expanding
+// it would resolve to the default deployment and report every other
+// deployment's corpus as unreachable.
+func evaluatedCorpusInputs(t *testing.T, makefile string) (map[string]bool, map[string]bool) {
+	t.Helper()
+	paths := regexp.MustCompile(`(?m)^([A-Za-z_][A-Za-z0-9_]*)\s*[:?]?=\s*(\S*/\S*)\s*$`)
+	values := make(map[string]string)
+	for _, match := range paths.FindAllStringSubmatch(makefile, -1) {
+		values[match[1]] = match[2]
+	}
+	exact := make(map[string]bool)
+	parameterized := make(map[string]bool)
+	inputs := regexp.MustCompile(`--input\s+"?([^"\s]+)"?`)
+	for _, match := range inputs.FindAllStringSubmatch(makefile, -1) {
+		token := match[1]
+		for name, value := range values {
+			token = strings.ReplaceAll(token, "$("+name+")", value)
+		}
+		if strings.Contains(token, "$(") {
+			parameterized[gopath.Dir(token)] = true
+			continue
+		}
+		exact[token] = true
+	}
+	if len(exact) == 0 {
+		t.Fatal("no --input corpus found in the Makefile; this stopped parsing anything")
+	}
+	return exact, parameterized
+}
+
+// Every checked-in corpus must be passed to something that runs it.
+//
+// testdata/eval/regressions.jsonl existed for a day with no target, no script,
+// and no CI job passing it to anything. It was written by promotion, hand
+// reviewed, committed, and then read by nobody — the only references to it in
+// the whole repository were an assignment and two echo strings inside a failure
+// message. A corpus nothing replays is not a weak gate, it is the appearance of
+// one, and there is nothing about the file itself that says which it is.
+func TestEveryCorpusIsRunBySomeTarget(t *testing.T) {
+	root := filepath.Join("..", "..")
+	makefile, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact, parameterized := evaluatedCorpusInputs(t, string(makefile))
+	for _, path := range evaluationCorpora(t) {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rel = filepath.ToSlash(rel)
+		// testdata/eval itself never counts as a parameterized directory, or
+		// every top-level corpus would pass for free.
+		dir := gopath.Dir(rel)
+		if exact[rel] || (dir != "testdata/eval" && parameterized[dir]) {
+			continue
+		}
+		t.Errorf(
+			"no Makefile target passes %s to --input, so nothing ever replays it; "+
+				"a corpus nobody runs looks exactly like a gate and is not one",
+			rel,
+		)
+	}
+}
+
+// The promoted corpus stays replayable against any deployment's config.
+//
+// eval-episode-replay is split per deployment because a fixture that names a
+// repository needs the config that has it, and no single config could pass both
+// files. The promoted corpus is deliberately not split, which is only safe
+// because the recorder never writes a repository onto a fixture. If that ever
+// changes, one deployment's promoted lesson starts failing every other
+// deployment's gate with "repository ... is not configured", and the honest fix
+// is to split this corpus too — not to loosen its pass rate. Failing here is
+// how that decision gets made deliberately.
+func TestThePromotedCorpusBindsNoRepository(t *testing.T) {
+	path := filepath.Join("..", "..", "testdata", "eval", "regressions.jsonl")
+	file, err := os.Open(path)
+	if os.IsNotExist(err) {
+		t.Skip("nothing has been promoted yet")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	cases, err := decodeEvaluationCases(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, testCase := range cases {
+		if strings.TrimSpace(testCase.Repository) != "" {
+			t.Errorf(
+				"promoted case %q binds repository %q; a single-file corpus cannot be replayed "+
+					"against every deployment once a case needs one deployment's repositories",
+				testCase.Name, testCase.Repository,
 			)
 		}
 	}
