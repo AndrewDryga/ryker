@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -156,13 +155,19 @@ func (a *dashboardActions) DiscardCorrection(ctx context.Context, id, actor stri
 	return a.review(ctx, id, "rejected", actor)
 }
 
-// RetryFailure re-queues the work item behind a failed run. Not yet wired: the
-// retry path takes a WorkItem and a schedule rather than a run id, so offering
-// the button before that lookup exists would be a control that looks live and
-// is not — the defect this dashboard was built to stop showing.
+// RetryFailure puts a terminally failed run back in the pending queue through
+// the kernel's own requeue-and-reopen transition, so the ordinary workers pick
+// it up with a fresh Coop idempotency key. The store refuses anything that is
+// not the episode's latest attempt, and that refusal reaches the operator
+// verbatim — a superseded run must say why it is history, not shrug.
 func (a *dashboardActions) RetryFailure(ctx context.Context, runID, actor string) error {
-	return errors.New("retry is not wired yet: it needs the work item behind the run, " +
-		"not the run id. Nothing was changed.")
+	if err := a.store.RequeueFailedAgentRun(ctx, runID,
+		"operator retried this run from the control plane"); err != nil {
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "failure.retry", ActorID: actor, ObjectID: runID, Outcome: "requeued",
+	})
 }
 
 // PublishRetainedWork and DiscardRetainedWork go through the service, not the

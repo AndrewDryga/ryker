@@ -787,11 +787,19 @@ func (r *Reader) Feedback(ctx context.Context) ([]Feedback, error) {
 // FailureRun is one run behind a grouped cause, so a group is a way in rather
 // than a dead end. Ninety-eight failures collapsed to seven causes is triage;
 // being unable to open one of them is a report.
+//
+// Retryable is decided here by the same rule the store enforces — only the
+// episode's latest attempt can be requeued — so the page never offers a retry
+// the store will refuse. Why carries the refusal for the rows that would get
+// one, because a run without a button and without a reason reads as a
+// rendering fault.
 type FailureRun struct {
 	RunID                    string
 	EpisodeID, Channel, Mode string
 	Attempts                 int
 	Updated                  time.Time
+	Retryable                bool
+	Why                      string
 }
 
 // CauseForKey resolves the hash back to the error text.
@@ -812,11 +820,17 @@ func (r *Reader) FailureRuns(ctx context.Context, cause string) ([]FailureRun, e
 	if !r.live() {
 		return nil, nil
 	}
+	// Joined on the run's own episode_id, not on work_episodes.agent_run_id:
+	// that column names the episode's first run, so every later attempt of a
+	// retried episode rendered "no episode" over an episode that was right
+	// there.
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT a.id, COALESCE(e.id,''), COALESCE(a.channel_id,''), COALESCE(a.mode,''),
-	         COALESCE(a.failure_count,0), a.updated_at
+	  SELECT a.id, COALESCE(a.episode_id,''), COALESCE(a.channel_id,''), COALESCE(a.mode,''),
+	         COALESCE(a.failure_count,0), a.updated_at,
+	         COALESCE(a.attempt_id,''), COALESCE(e.latest_attempt_id,''),
+	         COALESCE(e.lifecycle_state,'')
 	  FROM agent_runs AS a
-	  LEFT JOIN work_episodes AS e ON e.agent_run_id = a.id
+	  LEFT JOIN work_episodes AS e ON e.id = a.episode_id
 	  WHERE a.terminal_state = 'failed'
 	    AND COALESCE(NULLIF(a.last_error,''),'(no error recorded)') = ?
 	  ORDER BY a.updated_at DESC LIMIT 100`, cause)
@@ -827,13 +841,23 @@ func (r *Reader) FailureRuns(ctx context.Context, cause string) ([]FailureRun, e
 	items := []FailureRun{}
 	for rows.Next() {
 		var item FailureRun
-		var channel, updated string
+		var channel, updated, attempt, latest, episodeState string
 		if err := rows.Scan(&item.RunID, &item.EpisodeID, &channel, &item.Mode,
-			&item.Attempts, &updated); err != nil {
+			&item.Attempts, &updated, &attempt, &latest, &episodeState); err != nil {
 			return nil, err
 		}
 		item.Channel = r.channelName(ctx, channel)
 		item.Updated = parseStamp(updated)
+		switch {
+		case episodeState == "":
+			item.Why = "no episode record to reopen"
+		case attempt != latest:
+			item.Why = "a newer attempt has run for this episode; retrying this one would race it"
+		case episodeState == "completed":
+			item.Why = "the episode completed on a later attempt"
+		default:
+			item.Retryable = true
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()

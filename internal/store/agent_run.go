@@ -904,6 +904,90 @@ func (s *Store) RequeueAgentRun(
 	return tx.Commit()
 }
 
+// RequeueFailedAgentRun puts a terminally failed run back in the pending queue
+// so the ordinary workers run it again, reopening its episode on the way.
+//
+// Only the episode's latest attempt may be requeued. Reviving an older failed
+// attempt would race the newer one for the same episode, and the reducer
+// enforces exactly that: a terminal episode reopens only through its latest
+// attempt. The refusal names the newer attempt so the operator is told why
+// this run is history rather than shown a retry that silently does nothing.
+//
+// The idempotency key is refreshed for the same reason RequeueAgentRun does
+// it: Coop deduplicates turn submissions by key, so replaying the old key
+// would return the already-failed turn instead of starting a new one.
+func (s *Store) RequeueFailedAgentRun(ctx context.Context, id, detail string) error {
+	recoveryID, err := core.NewID("recovery")
+	if err != nil {
+		return fmt.Errorf("generate agent run recovery identity: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var state, attemptID, episodeID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT state, attempt_id, episode_id FROM agent_runs WHERE id = ?`, id,
+	).Scan(&state, &attemptID, &episodeID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("requeue failed agent run: %w", ErrNotFound)
+		}
+		return err
+	}
+	if state != string(core.AgentRunFailed) {
+		return fmt.Errorf("run is %s, not failed; only a failed run can be retried", state)
+	}
+	var latestAttempt string
+	var episodeState core.WorkEpisodeState
+	if err := tx.QueryRowContext(ctx, `
+		SELECT latest_attempt_id, lifecycle_state FROM work_episodes WHERE id = ?`,
+		episodeID,
+	).Scan(&latestAttempt, &episodeState); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("this run has no episode record to reopen, so there is nothing to retry into")
+		}
+		return err
+	}
+	if attemptID != latestAttempt {
+		return fmt.Errorf(
+			"a newer attempt (%s) has run for this episode since; this run is history and retrying it would race that attempt",
+			latestAttempt,
+		)
+	}
+	if episodeState == core.EpisodeCompleted {
+		return errors.New("the episode completed on a later attempt; there is nothing left to retry")
+	}
+	now := s.nowText()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'pending', idempotency_key = ?,
+		    expected_revision = 0, coop_turn_id = '',
+		    result_json = X'', terminal_state = '', last_error = ?,
+		    next_attempt_at = ?, completed_at = NULL, updated_at = ?
+		WHERE id = ? AND state = 'failed'`,
+		fmt.Sprintf("responder:run:%s:%s", id, recoveryID),
+		sqlutil.BoundedError(detail),
+		now, now, id,
+	)
+	if err := sqlutil.ExpectOne(result, err, "requeue failed agent run"); err != nil {
+		return err
+	}
+	if err := s.setEpisodeAttemptStateTx(
+		ctx, tx, id, core.AttemptPending, detail, false,
+	); err != nil {
+		return err
+	}
+	if err := s.setWorkEpisodePhaseTx(
+		ctx, tx, id, core.EpisodeAcknowledged, "retrying", sqlutil.BoundedError(detail),
+		"Retry the work from preserved context", time.Time{},
+		fmt.Sprintf("agent-run:%s:%s", id, recoveryID),
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // DeferRunningAgentRun parks submitted work behind a shared dependency without counting the
 // outage as an agent failure. A fresh idempotency key prevents the failed Coop
 // turn from being replayed when the dependency becomes available again.

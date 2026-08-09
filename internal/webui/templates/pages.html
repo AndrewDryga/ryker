@@ -140,8 +140,8 @@ truncated list that does not say it is truncated reads as the whole record.</p>{
       <td class="note">{{since .Latest}}</td></tr>
   {{end}}
 </table>
-<p class="note">Retry lands in v2. It is a write path, and on a surface with no
-authentication each one is opted into deliberately rather than shipped by default.</p>
+<p class="note">Open a cause to reach the runs behind it. A run that is still its episode's
+latest attempt can be queued to run again from there; a superseded one says so instead.</p>
 {{else}}<p class="empty">No failed work.</p>{{end}}
 {{end}}
 
@@ -414,7 +414,7 @@ from a quiet day and is drawn differently for that reason.</p>
   <tr><td>{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">open →</a>{{else}}<span class="note">no episode</span>{{end}}</td>
       <td>{{.Channel}}</td><td>{{.Mode}}</td><td class="mono num">{{.Attempts}}</td>
       <td class="note">{{since .Updated}}</td>
-      <td>{{if $act}}{{template "confirm" confirm "Retry" "Queue this work to run again?" "Yes, run it again" "/actions/failures/retry" .RunID}}{{end}}</td></tr>
+      <td>{{if $act}}{{if .Retryable}}{{template "confirm" confirm "Retry" "The run goes back in the queue and its episode reopens." "Yes, run it again" "/actions/failures/retry" .RunID}}{{else}}<span class="note">{{.Why}}</span>{{end}}{{end}}</td></tr>
   {{end}}
 </table>
 {{else}}<p class="empty">No runs behind this cause.</p>{{end}}
