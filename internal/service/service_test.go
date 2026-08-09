@@ -1139,6 +1139,7 @@ type fakeSlack struct {
 	reactions          []slackReaction
 	removedReactions   []slackReaction
 	suggested          []slackStatus
+	suggestedErr       error
 	homes              []slackPost
 	postErr            error
 	ephemeralErr       error
@@ -1285,7 +1286,7 @@ func (f *fakeSlack) SetSuggestedPrompts(
 	thread string,
 ) error {
 	f.suggested = append(f.suggested, slackStatus{channel: channel, thread: thread})
-	return nil
+	return f.suggestedErr
 }
 func (f *fakeSlack) PublishHome(
 	_ context.Context,

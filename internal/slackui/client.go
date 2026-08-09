@@ -629,11 +629,21 @@ func (c *Client) SetProgress(
 	})
 }
 
+// SetSuggestedPrompts offers the opening questions above an assistant surface.
+//
+// An empty threadTS is legitimate and is the normal case. Slack's agent
+// messaging experience pins prompts to the top of the Messages tab and takes
+// only a channel; the thread form belongs to the older per-thread assistant
+// experience. slack-go drops the parameter entirely when it is empty rather
+// than sending a blank one, so both shapes reach Slack correctly.
 func (c *Client) SetSuggestedPrompts(
 	ctx context.Context,
 	channel string,
 	threadTS string,
 ) error {
+	if strings.TrimSpace(channel) == "" {
+		return errors.New("suggested prompts need a channel")
+	}
 	parameters := slack.AssistantThreadsSetSuggestedPromptsParameters{
 		Title:     "Investigate with Emisar",
 		ChannelID: channel,

@@ -81,6 +81,16 @@ func (s *Service) publishOperationsHome(ctx context.Context, userID string) erro
 		preferences,
 		rules,
 	)
+	// A configured channel the bot cannot see is a coverage hole, and the page
+	// that answers "does anything need me now" is where it belongs. A read
+	// failure here must not cost the operator the rest of the page, but it also
+	// must not pass as "no gaps" — the same could-not-run-reported-as-nothing-
+	// found defect this repository keeps finding.
+	if gaps, err := s.store.ListConfiguredChannelsMissingMembership(ctx, 25); err != nil {
+		s.log.Warn("read configured channels without membership for App Home", "error", err)
+	} else {
+		message = slackui.AppendCoverageGaps(message, gaps)
+	}
 	if feedback, err := s.openFeedbackSummaries(ctx); err != nil {
 		// The dashboard is still worth publishing without this section.
 		s.log.Warn("read open feedback for App Home", "error", err)

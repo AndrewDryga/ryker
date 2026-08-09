@@ -142,6 +142,17 @@ func (s *Service) classifyEventsAPIInput(
 			return dropMessage, false
 		}
 		switch {
+		// The messages tab has no thread, and that is not an omission.
+		//
+		// Slack has two shapes here. In the legacy assistant experience,
+		// prompts belong to a thread and arrive with assistant_thread_started,
+		// which is the branch above. In the agent experience — the one this
+		// app declares, through features.agent_view in
+		// deploy/slack-app-manifest.yaml — prompts pin to the top of the
+		// Messages tab and are set from app_home_opened with no thread_ts at
+		// all. Setting a ThreadTS here would address a thread that does not
+		// exist. Whatever else is wrong with a rejected refresh, the fix is
+		// not to invent a thread for it.
 		case inner.Tab == "messages" &&
 			s.cfg.Slack.AssistantExperience && inner.Channel != "":
 			input.Kind = inputSuggestedPrompts

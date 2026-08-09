@@ -853,6 +853,27 @@ func (s *Service) finishSlashMessage(
 		}
 		return s.store.FinishSlackInput(ctx, input.ID)
 	}
+	// An App Home interaction has no channel — its container is a view, so
+	// Slack sends neither container.channel_id nor channel.id — and an
+	// ephemeral message has nowhere to go without one. Repainting the App Home
+	// is the surface that click came from, so the reply lands where the person
+	// is looking instead of being addressed to the empty string and rejected.
+	if strings.TrimSpace(input.ChannelID) == "" {
+		s.log.Warn(
+			"Slack interaction has no channel to reply in; repainting the App Home instead",
+			"input", input.ID,
+			"kind", input.Kind,
+			"action", input.ActionID,
+			"user", input.UserID,
+		)
+		if input.UserID == "" {
+			return s.finishSlackInput(ctx, input)
+		}
+		if err := s.publishOperationsHome(ctx, input.UserID); err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		return s.store.FinishSlackInput(ctx, input.ID)
+	}
 	if err := s.slack.PostEphemeral(ctx, input.ChannelID, input.UserID, message); err != nil {
 		s.log.Warn(
 			"post Slack slash command result",

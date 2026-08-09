@@ -82,6 +82,19 @@ var methodBudget = map[string]int{
 // package has grown past the 5% the others still have, and the next thing that
 // wants room here should have to answer for it. What it really needs is an
 // extraction, not another raise.
+// service was raised from 24620 to 24880 to make four confirmed production
+// failures legible. Each was a path that could not work and said nothing: a
+// Slack retry loop with no log or audit at all, an App Home interaction posting
+// to a channel that does not exist, prewarming that read only static YAML and
+// so did nothing on a database-configured deployment, and a configured channel
+// the bot is not in that no code anywhere compared. Nearly all of the added
+// lines are the saying-so — structured log calls, an audit event, and the
+// skip-reason branches that used to be a bare continue.
+//
+// This is the raise the previous note warned about, and it does not earn the
+// package any room for features. The extraction it names — the offline
+// evaluation family, behind the decision domain becoming its own package — is
+// still the only thing that brings this number down, and it is still next.
 var lineBudget = map[string]int{
 	// Raised from 24620 on 2026-08-08 for the target parser that fills
 	// context_manifests.provider/model/reasoning_effort. Those columns had
@@ -116,7 +129,12 @@ var lineBudget = map[string]int{
 	// loads: two parameters and two payload fields on conversationPrompt, plus
 	// the scope choice when feedback becomes guidance. The lane had been
 	// bumping recall counters for context it then dropped on the floor.
-	"service": 24742,
+	// And a further raise for the Slack surface work: prewarming now reads the
+	// channel control plane rather than only YAML, configured-but-unjoined
+	// channels are reported, and a channelless interaction repaints the App
+	// Home instead of addressing the empty string. Three silent failures, each
+	// of which needed the code that makes its silence impossible.
+	"service": 24900,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -136,7 +154,13 @@ var lineBudget = map[string]int{
 	// raise so far has taken. That was not done here because rewriting the
 	// migration machinery while shipping a migration is how the 9934-row
 	// deletion happened, and one of those risks at a time is enough.
-	"store":      11200,
+	//
+	// Raised again for the two queries that read the channel control plane:
+	// which channels an operator configured, and which of those the bot is not
+	// in. Four copies of the same channel-ID scan loop collapsed into one
+	// helper in the same change, so the net cost of both queries is fourteen
+	// lines.
+	"store":      11260,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

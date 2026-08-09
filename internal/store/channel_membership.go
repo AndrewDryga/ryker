@@ -255,28 +255,12 @@ func (s *Store) ListPendingSlackChannelOnboarding(
 }
 
 func (s *Store) ListPresentSlackChannelIDs(ctx context.Context, limit int) ([]string, error) {
-	if limit <= 0 || limit > 10000 {
-		limit = 10000
-	}
-	rows, err := s.db.QueryContext(ctx, `
+	return channelIDRows(s.db.QueryContext(ctx, `
 		SELECT channel_id
 		FROM slack_channel_memberships
 		WHERE present = 1
 		ORDER BY channel_id
-		LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := make([]string, 0)
-	for rows.Next() {
-		var channelID string
-		if err := rows.Scan(&channelID); err != nil {
-			return nil, err
-		}
-		result = append(result, channelID)
-	}
-	return result, rows.Err()
+		LIMIT ?`, boundedChannelLimit(limit)))
 }
 
 func (s *Store) FinishSlackChannelOnboarding(

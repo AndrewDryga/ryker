@@ -96,6 +96,7 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionApproveProposal:         (*Service).handleActionProposal,
 	slackui.ActionRejectProposal:          (*Service).handleActionProposal,
 	slackui.ActionOpenApproval:            (*Service).handleOpenEmisarApproval,
+	slackui.ActionOpenWorkThread:          (*Service).acknowledgeLinkAction,
 	slackui.ActionRememberMemory:          (*Service).handleRememberMemory,
 	slackui.ActionForgetMemory:            (*Service).handleForgetMemory,
 	slackui.ActionForgetMemoryRollup:      (*Service).handleForgetMemoryRollup,
@@ -122,6 +123,23 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionRunSchedule:             (*Service).handleRunScheduleNow,
 	slackui.ActionEditSchedule:            (*Service).handleEditSchedule,
 	slackui.ActionDeleteSchedule:          (*Service).handleDeleteSchedule,
+}
+
+// acknowledgeLinkAction completes a button whose entire job is its URL.
+//
+// Slack opens the link in the client and still delivers a block_actions
+// payload, which has to be accepted or the button reports a failure to the
+// person who clicked it. There is no server-side work to do and nothing to
+// reply with.
+//
+// Saying so explicitly matters because the alternative is not "nothing
+// happens". The Open button on the App Home fell through to the incident
+// controls, which looked its commitment ID up as an incident, did not find one,
+// and tried to explain that in an ephemeral message — in the App Home, which is
+// not a channel. Slack answered channel_not_found twelve times over twenty-one
+// minutes for a button that had already done its job.
+func (s *Service) acknowledgeLinkAction(ctx context.Context, input core.SlackInput) error {
+	return s.finishSlackInput(ctx, input)
 }
 
 // routeSlackInputKind handles every Slack input whose destination is decided by
@@ -1740,13 +1758,57 @@ func (s *Service) incidentControlMatchesMessage(
 	return false, nil
 }
 
+// retrySlackInput records a failed attempt at a Slack input and decides whether
+// to try again.
+//
+// It also says so. This used to be entirely silent: the only operator-visible
+// output was a thread notice, and that notice is only posted when the input
+// belongs to a conversation that already has an incident. A failing App Home
+// refresh, a failing surface repaint, or any failure in a DM therefore produced
+// no log line, no audit row, and no message anywhere — just a row in
+// slack_inputs that nobody reads. Two deployments burned twelve Slack API
+// attempts per App Home open for months on a call that has never once
+// succeeded, and nothing told anyone. A retry that gives up is a fact about the
+// product, so it is now logged every attempt and audited when it stops.
 func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, err error) error {
-	terminal := terminalAttempt(input.Failures+1, s.cfg.Limits.MaxSlackInputAttempts)
+	attempt := input.Failures + 1
+	terminal := terminalAttempt(attempt, s.cfg.Limits.MaxSlackInputAttempts)
 	var apiErr *coop.APIError
 	if errors.As(err, &apiErr) && !apiErr.Retryable() {
 		terminal = true
 	}
+	// Slack has already given its final answer for these. Retrying a missing
+	// channel eleven more times cannot find it, and the only thing the attempts
+	// buy is a longer audit trail of the same rejection.
+	if permanentSlackInputError(err) {
+		terminal = true
+	}
+	// A cosmetic surface repaint is worth a couple of attempts, not the full
+	// budget reserved for work an operator asked for. Nobody loses an answer
+	// when suggested prompts fail to refresh.
+	if surfaceRefreshInput(input.Kind) && terminalAttempt(attempt, surfaceRefreshAttempts) {
+		terminal = true
+	}
+	record := s.log.Warn
 	if terminal {
+		record = s.log.Error
+	}
+	record(
+		"Slack input attempt failed",
+		"input", input.ID,
+		"kind", input.Kind,
+		"channel", input.ChannelID,
+		"action", input.ActionID,
+		"user", input.UserID,
+		"attempt", attempt,
+		"gave_up", terminal,
+		"error", trimError(err),
+	)
+	if terminal {
+		s.audit(ctx, core.AuditEvent{
+			Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: "abandoned", Detail: input.Kind + ": " + trimError(err),
+		})
 		if incident, incidentErr := s.store.FindIncidentForConversation(
 			ctx,
 			input.ChannelID,
@@ -1771,9 +1833,47 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 		ctx,
 		input.ID,
 		trimError(err),
-		s.queueDelay(input.Failures+1),
+		s.queueDelay(attempt),
 		terminal,
 	)
+}
+
+// surfaceRefreshAttempts caps retries of a Slack surface repaint.
+//
+// These carry no operator instruction — they repaint the App Home or the
+// suggested prompts above a DM — so a failure costs presentation, never an
+// answer. The general budget is twelve because losing a command an operator
+// typed is expensive; spending twelve Slack API calls to fail at redrawing a
+// prompt list is not the same trade.
+const surfaceRefreshAttempts = 3
+
+func surfaceRefreshInput(kind string) bool {
+	return kind == inputSuggestedPrompts || kind == inputAppHome
+}
+
+// permanentSlackInputError reports whether Slack's answer will be the same
+// next time.
+//
+// These fall in two families. Addressing errors mean the target does not exist
+// or cannot be reached from this token — a retry re-asks a question Slack has
+// already answered. Installation errors mean the app itself needs a scope
+// change or a reinstall, which no amount of waiting performs.
+func permanentSlackInputError(err error) bool {
+	detail := strings.ToLower(trimError(err))
+	if detail == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"channel_not_found", "user_not_found", "users_not_found",
+		"message_not_found", "is_archived",
+		"invalid_auth", "not_authed", "account_inactive", "token_revoked",
+		"missing_scope", "not_allowed_token_type",
+	} {
+		if strings.Contains(detail, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) finishSlackInput(ctx context.Context, input core.SlackInput) error {
