@@ -50,6 +50,17 @@ func DefaultFixtureCapability() string { return CapabilityConversation }
 // covers, so promotion can never close an acknowledged coverage gap by itself.
 // Closing a gap stays a human act, performed while reading the promotion diff,
 // which is the same moment the reviewer can sharpen the tag.
+func FixtureCapability(run AgentRun) string {
+	switch run.Mode {
+	case AgentRunEngineeringTask:
+		return CapabilityEngineering
+	case AgentRunIncident:
+		return CapabilityIncidents
+	default:
+		return DefaultFixtureCapability()
+	}
+}
+
 // NewFixtureCandidate assembles the correction a reviewer will be shown.
 //
 // What a candidate is made of belongs beside the type rather than at the one
@@ -68,16 +79,5 @@ func NewFixtureCandidate(run AgentRun, class string, sanitized string) FixtureCa
 		Capability:      FixtureCapability(run),
 		CorrectionClass: class,
 		Correction:      sanitized,
-	}
-}
-
-func FixtureCapability(run AgentRun) string {
-	switch run.Mode {
-	case AgentRunEngineeringTask:
-		return CapabilityEngineering
-	case AgentRunIncident:
-		return CapabilityIncidents
-	default:
-		return DefaultFixtureCapability()
 	}
 }
