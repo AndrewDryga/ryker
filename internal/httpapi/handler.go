@@ -146,6 +146,23 @@ func (a *dashboardActions) RetryFailure(ctx context.Context, runID, actor string
 		"not the run id. Nothing was changed.")
 }
 
+// deploymentName walks the state path up past the dot-directory. The naive
+// Base(TrimSuffix(path, "/state")) stopped one level short, and every header
+// on the dashboard introduced the deployment as ".responder" — the name of the
+// convention, not the name of anything.
+func deploymentName(stateDir string) string {
+	path := strings.TrimSuffix(strings.TrimSuffix(stateDir, "/"), "/state")
+	for _, step := range []int{0, 1} {
+		_ = step
+		if base := filepath.Base(path); base != "" && base != "." && base != "/" &&
+			!strings.HasPrefix(base, ".") {
+			return base
+		}
+		path = filepath.Dir(path)
+	}
+	return "responder"
+}
+
 func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 	reader, err := webui.OpenReader(filepath.Join(h.cfg.StateDir, "responder.db"))
 	if err != nil {
@@ -156,7 +173,7 @@ func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 	// differ exactly when something is wrong.
 	dashboard, err := webui.NewHandler(
 		reader,
-		filepath.Base(strings.TrimSuffix(h.cfg.StateDir, "/state")),
+		deploymentName(h.cfg.StateDir),
 		reader.Schema(context.Background()),
 		version.Version,
 		func() bool { ready, _ := h.service.Ready(context.Background()); return ready },

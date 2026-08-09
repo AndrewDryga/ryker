@@ -36,3 +36,19 @@ func TestContentSecurityPolicySuitsEachSurface(t *testing.T) {
 		}
 	}
 }
+
+// The dashboard introduces its deployment by name. The naive derivation
+// stopped at the dot-directory, and every page header said ".responder" — the
+// name of the convention, not of anything running.
+func TestDeploymentNameSkipsTheDotDirectory(t *testing.T) {
+	for _, testCase := range []struct{ in, want string }{
+		{"/Users/x/Projects/tenant/.responder/state", "tenant"},
+		{"/Users/x/Projects/os/emisar/.responder/state", "emisar"},
+		{"/srv/responder/state", "responder"},
+		{"", "responder"},
+	} {
+		if got := deploymentName(testCase.in); got != testCase.want {
+			t.Errorf("deploymentName(%q) = %q, want %q", testCase.in, got, testCase.want)
+		}
+	}
+}
