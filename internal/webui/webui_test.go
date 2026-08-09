@@ -171,3 +171,35 @@ func TestListsLinkToDetail(t *testing.T) {
 		}
 	}
 }
+
+// The timeline has to say what happened, not name event kinds. A generic scan
+// of top-level keys rendered six evidence rows as the word "evidence_recorded"
+// six times and a completion — the whole answer — as nothing at all, because
+// the substance is nested and differs per kind.
+func TestTimelineSummariesUnpackEachKind(t *testing.T) {
+	for _, testCase := range []struct{ kind, payload, want string }{
+		{"evidence_recorded",
+			`{"evidence":{"claim":"The run has not produced a plan","observation":"still planning"}}`,
+			"The run has not produced a plan"},
+		{"evidence_recorded",
+			`{"evidence":{"observation":"eight hosts responsive"}}`,
+			"eight hosts responsive"},
+		{"completion_submitted",
+			`{"completion":{"message":"Degraded.","completion":{"status":"blocked","verdict":"confirmed"}}}`,
+			"blocked · confirmed — Degraded."},
+		{"context_extended",
+			`{"reference_count":5,"version":1}`,
+			"5 references, manifest v1"},
+		{"destination_changed",
+			`{"reason":"communication_policy"}`,
+			"reply routed elsewhere · communication policy"},
+		{"phase_changed", `{"status":"Planning the work"}`, "Planning the work"},
+		// A kind-specific branch that guesses wrong must not silence the generic
+		// one; progress reports went blank that way while this was being built.
+		{"progress_reported", `{"summary":"Still working"}`, "Still working"},
+	} {
+		if got := summarizePayload(testCase.kind, testCase.payload); got != testCase.want {
+			t.Errorf("summarizePayload(%s) = %q, want %q", testCase.kind, got, testCase.want)
+		}
+	}
+}

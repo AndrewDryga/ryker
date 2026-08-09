@@ -196,7 +196,11 @@ tr:last-child td { border-bottom: 0; }
   border-radius: 50%;
   background: var(--line);
 }
-.timeline .ev .when { color: var(--dim); font: 12px/1.4 var(--mono); }
+.timeline .ev .when { color: var(--faint); font: 12px/1.4 var(--mono); }
+.timeline .ev .kind { font: 500 13px/1.5 var(--mono); color: var(--dim); }
+.timeline .ev .what { margin-top: 2px; }
+/* A six-minute gap between two rows is the interesting part of a timeline. */
+.timeline .ev .gap { color: var(--warn); }
 
 /* Empty and unwired ------------------------------------------------------ */
 

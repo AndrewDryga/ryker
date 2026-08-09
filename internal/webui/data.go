@@ -185,10 +185,12 @@ func (r *Reader) Schema(ctx context.Context) string {
 }
 
 type Event struct {
-	Kind   string
-	Actor  string
-	Detail string
-	At     time.Time
+	Kind    string
+	Actor   string
+	Detail  string
+	At      time.Time
+	Elapsed string
+	Attempt int
 }
 
 // Events renders the episode's own history. 11,679 of these exist and none is
@@ -207,6 +209,7 @@ func (r *Reader) Events(ctx context.Context, episodeID string) ([]Event, error) 
 	}
 	defer rows.Close()
 	events := []Event{}
+	attempt := 1
 	for rows.Next() {
 		var event Event
 		var payload, at string
@@ -214,21 +217,90 @@ func (r *Reader) Events(ctx context.Context, episodeID string) ([]Event, error) 
 			return nil, err
 		}
 		event.At = parseStamp(at)
-		event.Detail = summarizePayload(payload)
+		event.Detail = summarizePayload(event.Kind, payload)
+		// Where the time went. Six minutes between two rows is the interesting
+		// part of a timeline and was invisible when every row showed only a
+		// wall-clock stamp.
+		if len(events) > 0 {
+			if gap := event.At.Sub(events[len(events)-1].At); gap >= time.Second {
+				event.Elapsed = "+" + gap.Round(time.Second).String()
+			}
+		}
+		// A reopen starts a new attempt. This episode ran twice; the timeline
+		// read as one long sequence that inexplicably planned the work twice.
+		event.Attempt = attempt
+		if event.Kind == "episode_reopened" {
+			attempt++
+			event.Attempt = attempt
+		}
 		events = append(events, event)
 	}
 	return events, rows.Err()
 }
 
-// summarizePayload picks the human-readable field out of an event payload.
-// Rendering raw JSON would be the same mistake the Slack surface made with raw
-// Grafana URLs: technically complete, unreadable in a list.
-func summarizePayload(payload string) string {
+// summarizePayload says what an event actually was.
+//
+// A generic scan of top-level keys showed almost nothing: the content lives
+// nested and differs per kind. Six `evidence_recorded` rows rendered as the
+// word "evidence_recorded" six times, and a `completion_submitted` — the whole
+// answer — rendered as nothing at all. Each kind is unpacked where its
+// substance really is.
+func summarizePayload(kind, payload string) string {
 	var decoded map[string]any
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		return ""
 	}
-	for _, key := range []string{"summary", "detail", "status", "phase", "reason", "message", "claim"} {
+	nested := func(outer, inner string) string {
+		object, ok := decoded[outer].(map[string]any)
+		if !ok {
+			return ""
+		}
+		value, _ := object[inner].(string)
+		return value
+	}
+	number := func(key string) float64 {
+		value, _ := decoded[key].(float64)
+		return value
+	}
+	switch kind {
+	case "evidence_recorded":
+		if claim := nested("evidence", "claim"); claim != "" {
+			return claim
+		}
+		if observation := nested("evidence", "observation"); observation != "" {
+			return observation
+		}
+	case "completion_submitted":
+		status := ""
+		if inner, ok := decoded["completion"].(map[string]any); ok {
+			if deeper, ok := inner["completion"].(map[string]any); ok {
+				status, _ = deeper["status"].(string)
+				if verdict, _ := deeper["verdict"].(string); verdict != "" {
+					status += " · " + verdict
+				}
+			}
+		}
+		message := nested("completion", "message")
+		if status != "" && message != "" {
+			return status + " — " + message
+		}
+		return status + message
+	case "context_extended":
+		// A count is the substance here: how much context the turn was given.
+		return fmt.Sprintf("%d references, manifest v%d",
+			int(number("reference_count")), int(number("version")))
+	case "destination_changed":
+		reason, _ := decoded["reason"].(string)
+		return "reply routed elsewhere · " + strings.ReplaceAll(reason, "_", " ")
+	case "progress_reported":
+		// Falls through when the nested lookup is empty rather than returning
+		// it: a kind-specific branch that guesses wrong must not silence the
+		// generic one, which is how progress reports briefly went blank.
+		if summary := nested("progress", "summary"); summary != "" {
+			return summary
+		}
+	}
+	for _, key := range []string{"status", "summary", "detail", "reason", "message", "phase"} {
 		if value, ok := decoded[key].(string); ok && strings.TrimSpace(value) != "" {
 			return value
 		}

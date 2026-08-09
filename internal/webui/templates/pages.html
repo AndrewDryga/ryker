@@ -59,8 +59,9 @@
 <div class="timeline">
   {{range .Events}}
   <div class="ev">
-    <div class="when">{{stamp .At}} · {{.Actor}}</div>
-    <div>{{.Kind}}{{if .Detail}} — <span class="note">{{truncate 200 .Detail}}</span>{{end}}</div>
+    <div class="when">{{stamp .At}} · {{.Actor}}{{if .Elapsed}} · <span class="gap">{{.Elapsed}}</span>{{end}}{{if gt .Attempt 1}} · attempt {{.Attempt}}{{end}}</div>
+    <div class="kind">{{.Kind}}</div>
+    {{if .Detail}}<div class="what">{{truncate 300 .Detail}}</div>{{end}}
   </div>
   {{end}}
 </div>
