@@ -73,3 +73,31 @@ func TestNoWriteRoutesAreExposed(t *testing.T) {
 		}
 	}
 }
+
+// Every list must be a way in, not a dead end. A grouped failure that cannot be
+// opened tells you twenty-nine runs hit one error and gives you no route to any
+// of them; a conversation row that cannot be opened counts a memory without
+// showing what is in it.
+func TestListsLinkToDetail(t *testing.T) {
+	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	// The detail routes exist and answer, rather than falling through to the
+	// list route and silently rendering the wrong page.
+	for _, path := range []string{
+		"/episodes/ep_missing",
+		"/failures/0000000000000000",
+		"/conversations/C1/channel",
+	} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d; an unknown entity should be 404, not a page about something else",
+				path, recorder.Code)
+		}
+	}
+}

@@ -2,8 +2,10 @@ package webui
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -287,6 +289,7 @@ func (r *Reader) Manifest(ctx context.Context, episodeID string) ManifestRow {
 
 type FailureGroup struct {
 	Cause  string
+	Key    string
 	Count  int
 	Latest time.Time
 }
@@ -313,6 +316,9 @@ func (r *Reader) Failures(ctx context.Context) ([]FailureGroup, error) {
 			return nil, err
 		}
 		group.Latest = parseStamp(latest)
+		// A hash, because the cause is free text containing slashes, quotes and
+		// newlines. The page looks the cause back up from it.
+		group.Key = fmt.Sprintf("%x", sha256.Sum256([]byte(group.Cause)))[:16]
 		groups = append(groups, group)
 	}
 	return groups, rows.Err()
@@ -499,9 +505,9 @@ func (r *Reader) Rollups(ctx context.Context) ([]Rollup, error) {
 // situation: there are twenty-one of these against four situations, and only
 // the situations were visible anywhere.
 type Conversation struct {
-	Channel, Thread, Repository string
-	Recalls                     int
-	Updated                     time.Time
+	Channel, ChannelID, Thread, Repository string
+	Recalls                                int
+	Updated                                time.Time
 }
 
 func (r *Reader) Conversations(ctx context.Context) ([]Conversation, error) {
@@ -522,6 +528,7 @@ func (r *Reader) Conversations(ctx context.Context) ([]Conversation, error) {
 		if err := rows.Scan(&channel, &item.Thread, &item.Repository, &item.Recalls, &updated); err != nil {
 			return nil, err
 		}
+		item.ChannelID = channel
 		item.Channel = r.channelName(ctx, channel)
 		item.Updated = parseStamp(updated)
 		if item.Thread == "" {
@@ -597,4 +604,138 @@ func (r *Reader) Feedback(ctx context.Context) ([]Feedback, error) {
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// FailureRun is one run behind a grouped cause, so a group is a way in rather
+// than a dead end. Ninety-eight failures collapsed to seven causes is triage;
+// being unable to open one of them is a report.
+type FailureRun struct {
+	EpisodeID, Channel, Mode string
+	Attempts                 int
+	Updated                  time.Time
+}
+
+// CauseForKey resolves the hash back to the error text.
+func (r *Reader) CauseForKey(ctx context.Context, key string) string {
+	groups, err := r.Failures(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, group := range groups {
+		if group.Key == key {
+			return group.Cause
+		}
+	}
+	return ""
+}
+
+func (r *Reader) FailureRuns(ctx context.Context, cause string) ([]FailureRun, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT COALESCE(e.id,''), COALESCE(a.channel_id,''), COALESCE(a.mode,''),
+	         COALESCE(a.failure_count,0), a.updated_at
+	  FROM agent_runs AS a
+	  LEFT JOIN work_episodes AS e ON e.agent_run_id = a.id
+	  WHERE a.terminal_state = 'failed'
+	    AND COALESCE(NULLIF(a.last_error,''),'(no error recorded)') = ?
+	  ORDER BY a.updated_at DESC LIMIT 100`, cause)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FailureRun{}
+	for rows.Next() {
+		var item FailureRun
+		var channel, updated string
+		if err := rows.Scan(&item.EpisodeID, &channel, &item.Mode, &item.Attempts, &updated); err != nil {
+			return nil, err
+		}
+		item.Channel = r.channelName(ctx, channel)
+		item.Updated = parseStamp(updated)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// Knowledge is one learned fact inside a conversation's memory.
+type Knowledge struct {
+	Subject, Kind, Statement, Status, Source string
+	Confidence                               int
+}
+
+// ConversationDetail unpacks the state blob that a list can only count.
+//
+// The goal, open loops and knowledge items are the substance of what Responder
+// believes about a channel, and they were stored as one opaque JSON column that
+// nothing rendered. "21 conversation memories" is a number; this is the content.
+type ConversationDetail struct {
+	Channel, Thread, Repository string
+	Goal, Purpose, Summary      string
+	Topics, OpenLoops           []string
+	Decisions, Questions        []string
+	Knowledge                   []Knowledge
+	Recalls                     int
+	Updated                     time.Time
+}
+
+func (r *Reader) Conversation(ctx context.Context, channelID, thread string) (ConversationDetail, error) {
+	var detail ConversationDetail
+	if !r.live() {
+		return detail, nil
+	}
+	if thread == "channel" {
+		thread = ""
+	}
+	var state, updated string
+	err := r.db.QueryRowContext(ctx, `
+	  SELECT repository, state_json, recall_count, updated_at
+	  FROM conversation_memories WHERE channel_id = ? AND thread_ts = ?`,
+		channelID, thread).Scan(&detail.Repository, &state, &detail.Recalls, &updated)
+	if err != nil {
+		return detail, err
+	}
+	detail.Channel = r.channelName(ctx, channelID)
+	detail.Thread = thread
+	detail.Updated = parseStamp(updated)
+
+	var decoded struct {
+		Goal             string `json:"goal"`
+		ChannelPurpose   string `json:"channel_purpose"`
+		SituationSummary string `json:"situation_summary"`
+		ActiveTopics     []string
+		OpenLoops        []string
+		Decisions        []string
+		Unresolved       []string `json:"unresolved_questions"`
+		Knowledge        []struct {
+			Subject    string `json:"subject"`
+			Kind       string `json:"kind"`
+			Statement  string `json:"statement"`
+			Status     string `json:"status"`
+			Confidence int    `json:"confidence"`
+			SourceRef  string `json:"source_ref"`
+		} `json:"knowledge"`
+	}
+	if err := json.Unmarshal([]byte(state), &decoded); err != nil {
+		return detail, nil
+	}
+	detail.Goal, detail.Purpose = decoded.Goal, decoded.ChannelPurpose
+	detail.Summary = decoded.SituationSummary
+	detail.Topics, detail.OpenLoops = decoded.ActiveTopics, decoded.OpenLoops
+	detail.Decisions, detail.Questions = decoded.Decisions, decoded.Unresolved
+	for _, item := range decoded.Knowledge {
+		detail.Knowledge = append(detail.Knowledge, Knowledge{
+			Subject: item.Subject, Kind: item.Kind, Statement: item.Statement,
+			Status: item.Status, Confidence: item.Confidence, Source: item.SourceRef,
+		})
+	}
+	return detail, nil
+}
+
+// EpisodesForChannel is the link back: from anything that names a channel to
+// the work that happened in it.
+func (r *Reader) EpisodesForChannel(ctx context.Context, channelID string, limit int) ([]Item, error) {
+	return r.scanItems(ctx, episodeSelect+`
+	  WHERE r.channel_id = ? ORDER BY e.created_at DESC LIMIT ?`, channelID, limit)
 }

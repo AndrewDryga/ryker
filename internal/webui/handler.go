@@ -53,6 +53,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /episodes", h.episodes)
 	mux.HandleFunc("GET /episodes/{id}", h.episode)
 	mux.HandleFunc("GET /failures", h.failures)
+	mux.HandleFunc("GET /failures/{key}", h.failure)
+	mux.HandleFunc("GET /conversations/{channel}/{thread}", h.conversation)
 	mux.HandleFunc("GET /decisions", h.decisions)
 	mux.HandleFunc("GET /memory", h.memory)
 	mux.HandleFunc("GET /configuration", h.configuration)
@@ -136,6 +138,44 @@ func (h *Handler) failures(w http.ResponseWriter, r *http.Request) {
 		Total  int
 		Err    string
 	}{groups, h.reader.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`), message})
+}
+
+// failure opens one grouped cause. A group that cannot be opened is a report,
+// not triage: it tells you twenty-nine runs hit the same error and gives you no
+// way to reach one of them.
+func (h *Handler) failure(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	cause := h.reader.CauseForKey(ctx, r.PathValue("key"))
+	if cause == "" {
+		http.NotFound(w, r)
+		return
+	}
+	runs, _ := h.reader.FailureRuns(ctx, cause)
+	h.page(w, "failures", "failure", struct {
+		Cause string
+		Runs  []FailureRun
+	}{cause, runs})
+}
+
+// conversation unpacks the state blob a list can only count. The goal, open
+// loops and learned knowledge are the substance of what Responder believes
+// about a channel, stored as one opaque column that nothing rendered.
+func (h *Handler) conversation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	channelID := r.PathValue("channel")
+	detail, err := h.reader.Conversation(ctx, channelID, r.PathValue("thread"))
+	// An empty detail is checked as well as the error: a conversation that does
+	// not exist rendered a blank page with every heading and no content, which
+	// reads as a memory that holds nothing rather than one that is not there.
+	if err != nil || detail.Channel == "" {
+		http.NotFound(w, r)
+		return
+	}
+	episodes, _ := h.reader.EpisodesForChannel(ctx, channelID, 10)
+	h.page(w, "memory", "conversation", struct {
+		ConversationDetail
+		Episodes []Item
+	}{detail, episodes})
 }
 
 type rate struct {

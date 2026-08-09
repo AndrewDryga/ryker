@@ -94,7 +94,7 @@
 <table>
   <tr><th>Cause</th><th>Count</th><th>Most recent</th></tr>
   {{range .Groups}}
-  <tr><td>{{truncate 110 .Cause}}</td><td class="mono">{{.Count}}</td>
+  <tr><td><a href="/failures/{{.Key}}">{{truncate 110 .Cause}}</a></td><td class="mono">{{.Count}}</td>
       <td class="note">{{since .Latest}}</td></tr>
   {{end}}
 </table>
@@ -181,7 +181,8 @@ because a memory nothing reads is a memory to prune, and that is invisible witho
 <table>
   <tr><th>Channel</th><th>Thread</th><th>Repository</th><th>Recalled</th><th>Updated</th></tr>
   {{range .Conversations}}
-  <tr><td>{{.Channel}}</td><td class="mono">{{.Thread}}</td><td class="mono">{{.Repository}}</td>
+  <tr><td><a href="/conversations/{{.ChannelID}}/{{.Thread}}">{{.Channel}}</a></td>
+      <td class="mono">{{.Thread}}</td><td class="mono">{{.Repository}}</td>
       <td class="mono">{{.Recalls}}</td><td class="note">{{since .Updated}}</td></tr>
   {{end}}
 </table>
@@ -263,4 +264,66 @@ is a shape waiting on that plumbing rather than a number waiting on traffic.
 {{template "unwired" .Cost}}
 <h2>Wall clock</h2>
 {{template "unwired" .Latency}}
+{{end}}
+
+{{define "failure"}}
+<p class="note"><a href="/failures">← all failures</a></p>
+<div class="panel"><div class="title"><strong>{{.Cause}}</strong></div>
+  <div class="meta">{{len .Runs}} runs</div></div>
+
+<h2>Runs</h2>
+{{if .Runs}}
+<table>
+  <tr><th>Episode</th><th>Channel</th><th>Kind</th><th>Attempts</th><th>When</th></tr>
+  {{range .Runs}}
+  <tr><td>{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">open →</a>{{else}}<span class="note">no episode</span>{{end}}</td>
+      <td>{{.Channel}}</td><td>{{.Mode}}</td><td class="mono">{{.Attempts}}</td>
+      <td class="note">{{since .Updated}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No runs behind this cause.</p>{{end}}
+{{end}}
+
+{{define "conversation"}}
+<p class="note"><a href="/memory">← memory</a></p>
+<div class="panel">
+  <div class="title"><strong>{{.Channel}}</strong></div>
+  <div class="meta">{{.Repository}} · recalled {{.Recalls}} times · updated {{since .Updated}}</div>
+  {{if .Goal}}<p><strong>Goal.</strong> {{.Goal}}</p>{{end}}
+  {{if .Purpose}}<p class="note"><strong>Channel purpose.</strong> {{.Purpose}}</p>{{end}}
+  {{if .Summary}}<p>{{.Summary}}</p>{{end}}
+</div>
+
+{{if .OpenLoops}}<h2>Open loops</h2><div class="rows">
+  {{range .OpenLoops}}<div class="row">{{.}}</div>{{end}}</div>{{end}}
+
+{{if .Decisions}}<h2>Decisions</h2><div class="rows">
+  {{range .Decisions}}<div class="row">{{.}}</div>{{end}}</div>{{end}}
+
+{{if .Questions}}<h2>Unresolved questions</h2><div class="rows">
+  {{range .Questions}}<div class="row">{{.}}</div>{{end}}</div>{{end}}
+
+<h2>Learned knowledge <span class="note">{{len .Knowledge}}</span></h2>
+{{if .Knowledge}}
+<table>
+  <tr><th>Subject</th><th>Statement</th><th>Kind</th><th>Status</th><th>Confidence</th></tr>
+  {{range .Knowledge}}
+  <tr><td>{{.Subject}}</td><td>{{truncate 220 .Statement}}</td><td class="mono">{{.Kind}}</td>
+      <td><span class="pill{{if eq .Status "accepted"}} good{{else if eq .Status "superseded"}} bad{{end}}">{{.Status}}</span></td>
+      <td class="mono">{{.Confidence}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">Nothing learned in this conversation yet.</p>{{end}}
+
+<h2>Work in this channel</h2>
+{{if .Episodes}}
+<div class="rows">
+  {{range .Episodes}}
+  <a class="row" href="/episodes/{{.ID}}">
+    <div class="title">{{truncate 110 .Title}}</div>
+    <div class="meta"><span class="pill">{{.State}}</span> {{since .Updated}}</div>
+  </a>
+  {{end}}
+</div>
+{{else}}<p class="empty">No recorded work.</p>{{end}}
 {{end}}
