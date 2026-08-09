@@ -1220,8 +1220,7 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 	preferenceContent := strings.Join(preferenceMessage.Sections, "\n") + "\n" +
 		strings.Join(preferenceMessage.Context, "\n")
 	for _, expected := range []string{
-		"Proposed preference", "Health-check depth", "deep",
-		"Nothing is saved yet", "cannot establish health",
+		"Health-check depth", "deep", "Not active yet", "read-only",
 	} {
 		if !strings.Contains(preferenceContent, expected) {
 			t.Fatalf("preference offer lacks %q: %+v", expected, preferenceMessage)
@@ -1242,7 +1241,7 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 	locationContent := strings.Join(locationMessage.Sections, "\n") + "\n" +
 		strings.Join(locationMessage.Context, "\n")
 	for _, expected := range []string{
-		"Reply location", "Prefer threads", "future Slack replies", "Remember this",
+		"Reply in threads", "relevant thread", "Use this reply style",
 	} {
 		if !strings.Contains(locationContent+"\n"+locationMessage.Actions[0].Label, expected) {
 			t.Fatalf("location preference lacks %q: %+v", expected, locationMessage)
@@ -1295,8 +1294,8 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 	ruleContent := strings.Join(ruleMessage.Sections, "\n") + "\n" +
 		strings.Join(ruleMessage.Context, "\n")
 	for _, expected := range []string{
-		"Proposed standing rule", "terraform_plan", "review_terraform_plan",
-		"read-only", "proactive triage is off", "Nothing is saved yet",
+		"Review Terraform plans", "saved plan", "red flags",
+		"read-only", "Not active yet",
 	} {
 		if !strings.Contains(ruleContent, expected) {
 			t.Fatalf("rule offer lacks %q: %+v", expected, ruleMessage)
@@ -1304,7 +1303,7 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 	}
 	if strings.Contains(ruleContent, "**") ||
 		strings.Contains(ruleContent, rule.ChannelID) ||
-		!strings.Contains(ruleContent, "Scope: This channel") {
+		!strings.Contains(ruleContent, "This channel") {
 		t.Fatalf("rule offer has invalid Slack formatting or scope: %s", ruleContent)
 	}
 	if len(ruleMessage.Actions) != 1 ||

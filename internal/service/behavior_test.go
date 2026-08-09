@@ -211,7 +211,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	coopClient := newFakeCoop()
 	observedAt := time.Now().UTC().Format(time.RFC3339)
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"lasting channel behavior","message":"I can remember the thread preference.","preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"},"memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"lasting channel behavior","message":"I can remember the thread preference.","followup_messages":["This duplicate explanation must not reach Slack."],"preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"},"memory":{}}`,
 		`{"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"The critical checkout alert needs investigation.","title":"Critical checkout error rate","evidence":[{"claim":"checkout errors are firing","observation":"the app reports an error rate above 20 percent","source_type":"slack","source_name":"Grafana alert"}],"memory":{}}`,
 		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"fresh repository and live evidence confirm the alert","message":"**Checkout errors are affecting current requests:** more than 20 percent are failing.\n\nRemove the unhealthy backend from service and verify the error rate falls. The durable fix is to correct the deployment regression and add a rollout guard for checkout errors.","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."},"evidence":[{"claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf"},{"claim":"checkout errors remain elevated","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q}],"coverage":[{"layer":"change","status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"},{"layer":"application","status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"},{"layer":"slo","status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}],"completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."},"memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}}`, observedAt),
 	}
@@ -248,12 +248,24 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 		strings.Join(offerPost.message.Sections, "\n") + "\n" +
 		strings.Join(offerPost.message.Context, "\n")
 	for _, expected := range []string{
-		"separate settings", "Reply location", "Proposed standing rule",
-		"acknowledge with :eyes:", "focused fixes", "critical alerts",
-		"safest immediate remediation", "read-only",
+		"I can remember both", "Reply in threads", "Investigate alerts",
+		"current evidence", "focused fixes", "critical alerts",
+		"safest immediate step", "read-only",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("compound offer lacks %q:\n%s", expected, content)
+		}
+	}
+	if strings.Count(content, "Not active yet") != 1 {
+		t.Fatalf("compound offer repeated its confirmation boundary:\n%s", content)
+	}
+	if strings.Contains(content, "operational_alert") || strings.Contains(content, "triage_alert") {
+		t.Fatalf("compound offer leaked internal rule names:\n%s", content)
+	}
+	for _, post := range slackClient.posts {
+		if strings.Contains(post.message.Text, "duplicate explanation") ||
+			strings.Contains(post.message.Markdown, "duplicate explanation") {
+			t.Fatalf("compound offer published a model-authored follow-up: %+v", post.message)
 		}
 	}
 

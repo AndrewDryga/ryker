@@ -77,29 +77,23 @@ func WithPreferenceOffer(
 ) Message {
 	title, description := preferenceDescription(preference)
 	message.Sections = append(message.Sections, fmt.Sprintf(
-		"*Proposed preference: %s*\n"+
-			"%s\n\n"+
-			"Scope: %s · Expires: %s",
+		"*%s*\n%s\n_%s · %s_",
 		title,
 		description,
 		preferenceScopeLabel(preference),
 		expiresLabel,
 	))
-	boundary := "This changes investigation depth or presentation only"
+	message.Context = appendBehaviorOfferContext(message.Context)
+	label := "Remember this"
 	if offer.Name == "response_location" {
-		boundary = "This changes where future Slack replies appear only"
+		label = "Use this reply style"
 	}
-	message.Context = append(
-		message.Context,
-		"Nothing is saved yet. "+boundary+"; it cannot establish health, create an incident, edit files, approve an action, or mutate infrastructure.",
-	)
 	message.Actions = append(message.Actions, Action{
-		ID:    ActionRememberPreference,
-		Label: "Remember this",
-		Value: actionValue,
-		Style: "primary",
-		Confirm: "Save this " + preference.ScopeKind + " preference for " +
-			expiresLabel + "? It changes future Responder behavior within the shown scope.",
+		ID:      ActionRememberPreference,
+		Label:   label,
+		Value:   actionValue,
+		Style:   "primary",
+		Confirm: "Use this setting for " + expiresLabel + "?",
 	})
 	return message
 }
@@ -111,16 +105,24 @@ func WithRuleOffer(
 	actionValue string,
 	expiresLabel string,
 ) Message {
-	description := fmt.Sprintf(
-		"When `%s` matches a `%s` message, run `%s` against repository `%s` and reply in that message's thread.",
-		offer.Trigger,
-		offer.SourceKind,
-		offer.Action,
-		offer.Repository,
-	)
+	title := "Standing rule"
+	description := fmt.Sprintf("Watch matching messages and reply in their threads using `%s`.", offer.Repository)
 	label := "Enable standing rule"
-	confirmation := "Matching messages will start a bounded investigation and receive a threaded reply."
-	if offer.Trigger == "operational_alert" && offer.Action == "triage_alert" {
+	confirmation := "Enable this read-only rule for " + expiresLabel + "?"
+	switch {
+	case offer.Trigger == "terraform_lifecycle" && offer.Action == "monitor_terraform_lifecycle":
+		title = "Monitor Terraform runs"
+		description = "Summarize saved plans and red flags in each run's thread, ignore routine updates, verify health after an apply, and tag you if an apply fails."
+		label = "Monitor Terraform runs"
+	case offer.Trigger == "terraform_plan" && offer.Action == "review_terraform_plan":
+		title = "Review Terraform plans"
+		description = "Summarize each saved plan and its red flags in the run's thread."
+		label = "Review Terraform plans"
+	case offer.Trigger == "deployment" && offer.Action == "verify_deployment":
+		title = "Verify deployments"
+		description = "Check deployment health and reply in the deployment's thread when there is a useful result."
+		label = "Verify deployments"
+	case offer.Trigger == "operational_alert" && offer.Action == "triage_alert":
 		source := "alert messages"
 		switch offer.SourceKind {
 		case "app":
@@ -128,30 +130,36 @@ func WithRuleOffer(
 		case "human":
 			source = "alerts posted by teammates"
 		}
-		description = "For " + source + " in this channel, acknowledge with :eyes:, investigate using current repository and live evidence, and reply in the alert's thread with impact, likely cause, and focused fixes. For critical alerts, include the safest immediate remediation to consider."
+		title = "Investigate alerts"
+		description = "For " + source + ", investigate with current evidence and reply in the alert's thread with impact, likely cause, and focused fixes. For critical alerts, suggest the safest immediate step."
 		label = "Enable alert triage"
-		confirmation = "Matching alerts will be acknowledged, investigated read-only, and receive an evidence-backed threaded reply."
 	}
 	message.Sections = append(message.Sections, fmt.Sprintf(
-		"*Proposed standing rule*\n"+
-			"%s\n\n"+
-			"Scope: This channel · Expires: %s",
+		"*%s*\n%s\n_This channel · %s_",
+		title,
 		description,
 		expiresLabel,
 	))
-	message.Context = append(
-		message.Context,
-		"Nothing is saved yet. This rule listens only for its typed trigger, even when broad proactive triage is off. It is read-only and cannot create an incident, edit files, deploy, approve, or mutate infrastructure.",
-	)
+	message.Context = appendBehaviorOfferContext(message.Context)
 	message.Actions = append(message.Actions, Action{
-		ID:    ActionRememberRule,
-		Label: label,
-		Value: actionValue,
-		Style: "primary",
-		Confirm: "Enable this read-only standing rule in the current channel for " +
-			expiresLabel + "? " + confirmation,
+		ID:      ActionRememberRule,
+		Label:   label,
+		Value:   actionValue,
+		Style:   "primary",
+		Confirm: confirmation,
 	})
 	return message
+}
+
+const behaviorOfferContext = "Not active yet. Confirm each setting you want to enable. These settings are read-only and cannot approve or make changes."
+
+func appendBehaviorOfferContext(context []string) []string {
+	for _, item := range context {
+		if item == behaviorOfferContext {
+			return context
+		}
+	}
+	return append(context, behaviorOfferContext)
 }
 
 func WithScheduleOffer(
@@ -408,11 +416,11 @@ func preferenceDescription(preference core.ResponderPreference) (string, string)
 	case "response_location":
 		switch preference.Value {
 		case "prefer_thread":
-			return "Reply location", "Prefer threads unless the current conversation explicitly moves to the channel."
+			return "Reply in threads", "Reply in the relevant thread unless someone explicitly moves the conversation back to the channel."
 		case "prefer_channel":
-			return "Reply location", "Prefer channel replies unless the current conversation explicitly stays in a thread."
+			return "Reply in the channel", "Reply in the channel unless the conversation explicitly stays in a thread."
 		default:
-			return "Reply location", "Follow the current conversation location."
+			return "Follow the conversation", "Reply wherever the current conversation is happening."
 		}
 	default:
 		return preference.Name, "Use " + preference.Value + "."

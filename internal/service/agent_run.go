@@ -2947,6 +2947,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				report.RuleOffer, report.ScheduleOffer = offers.Rule, offers.Schedule
 				if replaced {
 					report.Message = acknowledgement
+					report.FollowupMessages = nil
 					report.Evidence = nil
 					report.Coverage = nil
 				}

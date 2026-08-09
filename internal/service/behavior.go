@@ -248,11 +248,10 @@ Action meanings:
 </trusted-responder-standing-rules>`
 }
 
-const behaviorOfferPolicy = `A configured operator may define typed Responder behavior in natural
-language. Do not claim that behavior was saved. Return inert typed offers when the operator
-explicitly asks for lasting behavior. A compound request may require both preference_offer and
-rule_offer. Cover every independently configurable clause; never silently preserve only one. If a
-clause cannot map safely to a supported type, explain that gap or ask a concise clarification:
+const behaviorOfferPolicy = `Configured operators may request typed lasting behavior in natural
+language. Reply in one short sentence; the host renders details and safety. Never narrate internal
+fields or claim an offer is saved. Preserve every configurable clause in a compound request using
+inert typed offers. If a clause has no safe type, state the gap or ask one concise question:
 
 - preference_offer is for how Responder should handle future requests. Supported names and values:
   health_check_depth=quick|standard|deep, response_detail=concise|standard|detailed, and
@@ -1242,13 +1241,22 @@ func normalizedOffers(
 	if offer, ok := normalizeOperationalAlertRule(input, repository, offers.Rule); ok {
 		offers.Rule = offer
 	}
-	offer, acknowledgement, ok := normalizeResponseLocationPreference(input, offers.Preference)
-	if !ok {
+	offer, acknowledgement, locationRequest := normalizeResponseLocationPreference(input, offers.Preference)
+	if locationRequest {
+		offers.Preference = offer
+	}
+	if !explicitBehaviorRequest(input.Text) ||
+		(offers.Preference == nil && offers.Rule == nil && offers.Memory == nil) {
 		return offers, "", false
 	}
-	offers.Preference = offer
-	if offers.Memory != nil || offers.Rule != nil || offers.Schedule != nil {
-		acknowledgement = "I split that into separate settings so each part stays clear and reversible. Confirm the reply-location preference and the alert-triage rule below."
+	multiple := offers.Preference != nil && (offers.Rule != nil || offers.Memory != nil) ||
+		offers.Rule != nil && offers.Memory != nil
+	if multiple {
+		acknowledgement = "I can remember both. Confirm below."
+	} else if offers.Rule != nil {
+		acknowledgement = "I can monitor that for this channel. Confirm below."
+	} else {
+		acknowledgement = "I can remember that. Confirm below."
 	}
 	return offers, acknowledgement, true
 }

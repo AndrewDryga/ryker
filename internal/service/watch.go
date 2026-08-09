@@ -666,6 +666,7 @@ func (s *Service) applyWatchDecision(
 		decision.RuleOffer, decision.ScheduleOffer = offers.Rule, offers.Schedule
 		if replaced {
 			decision.Message = acknowledgement
+			decision.FollowupMessages = nil
 			decision.Evidence = nil
 			decision.Coverage = nil
 		}
