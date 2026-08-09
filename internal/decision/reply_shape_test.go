@@ -41,7 +41,7 @@ func TestReplyShapeRejectsTheRepliesThatCausedThisRule(t *testing.T) {
 	correction = decisionpkg.ReplyShapeCorrection(
 		"is it save to unlock the terraform workspace?", "conversation", "reply", terraform,
 	)
-	if !strings.Contains(correction, "100-word bound") {
+	if !strings.Contains(correction, "140-word bound") {
 		t.Fatalf("a 266-word answer to an 8-word question was not rejected: %q", correction)
 	}
 	if decisionpkg.ReplyShapeCorrection(

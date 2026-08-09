@@ -2,7 +2,9 @@ package decision
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+	"unicode"
 )
 
 // How long a Slack answer may be, and how it may end.
@@ -17,13 +19,34 @@ import (
 // postdate every one of those rules are worse than the corpus average. The
 // instruction was present and read; it simply did not bind. So the host
 // measures the reply now instead of asking for it.
+//
+// The first cut of those measurements then shipped unmeasured, and it was
+// wrong. The audit read a sample; scripts/reply-shape-replay.sh replays all 246
+// posted replies through this file, and the first ladder rejected 27 of them —
+// eleven percent of everything Responder has ever said — of which reading every
+// one says eighteen were good answers. A rejection costs a whole extra model
+// turn, so a rule that is wrong two times in three does not survive contact
+// with an operator. It gets switched off, and then nothing bounds anything.
+//
+// The numbers below are the second cut: 11 rejections, 4.5%, of which two are
+// answers this file would rather have kept and does not know how to keep. Each
+// constant carries the messages that moved it, so changing one has to argue
+// with them, and the replay is the argument.
 
 // handBackFloor is the length below which the closing rule does not apply. A
 // short reply that is only a blocker is an honest answer — "the workspace is
 // locked by run-7nxL and I cannot clear it from here" is the finding. The
 // measured failure is a long message that trails off into caveats after the
 // answer has already been given.
-const handBackFloor = 40
+//
+// Raised from 40 after replaying the corpus: four replies landed in the 40-to-60
+// band and three of them were good — a 43-word apply report that ends "the
+// separate 63 detected drift entries still need review", a 44-word recovery
+// note that ends on a decision not to act, a 47-word commit report that ends on
+// the next governed step. At that length the reply has not had room to give the
+// answer and then trail off; the caveat is the second half of a two-sentence
+// finding.
+const handBackFloor = 60
 
 // ReplyShapeCorrection returns what to tell the model about a reply the host
 // refuses to post as written, or "" when the reply is acceptable.
@@ -64,26 +87,36 @@ func ReplyShapeCorrection(trigger, lane, action, message string) string {
 // ReplyWordBudget is the longest reply the host will accept for this trigger,
 // or 0 when the trigger asked for depth and no bound applies.
 //
-// The ladder is measured rather than chosen. A message of fifteen words or
-// fewer drew a median of 93 words across the audited corpus, so a bound has to
-// sit below what the model does unprompted or it enforces nothing. It sits
-// above the stated one-to-three-sentence target rather than on it, because
-// every rejection costs a whole extra turn and the prompt should still be
-// doing most of the work; the host is here for the answers that blow the bound
-// by a factor of four, not for the ones that miss it by a sentence.
+// The ladder is measured rather than chosen, and it was measured wrong the
+// first time. The replay found the fifteen-word tier bound of 150 rejecting
+// thirteen replies, of which a read of every one says ten were good: dense
+// alert triage where each bullet carries its own timestamped measurement,
+// engineering reports that name the commit and the validation that ran, a
+// 152-word answer that missed by two.
+//
+// 154 of the 246 replies answered a trigger of fifteen words or fewer, and that
+// tier has a median of 80 words, a 90th percentile of 149 and a 98th of 203.
+// The old bound sat on its 90th percentile, so it spent an extra model turn on
+// one reply in ten and caught the tenth for being ordinary. A bound belongs
+// above what a tier produces when it is behaving — the host is for the answer
+// that blows it by a factor of four, and at fifteen words of trigger the corpus
+// says that is 266 words, not 165.
 func ReplyWordBudget(trigger, lane string) int {
 	if RequestedDepth(trigger) {
 		return 0
 	}
-	budget := 260
-	switch words := len(strings.Fields(trigger)); {
-	case lane == "conversation" && words <= 4 && !strings.Contains(trigger, "?"):
-		// A greeting in the bounded lane. That turn calls no tools, so there is
-		// nothing to report that the conversation did not already contain, and
-		// this is the tier the word "hi" drew 245 words and four paragraphs in.
+	words := len(strings.Fields(trigger))
+	if GreetingTrigger(trigger) {
+		// A greeting, in either lane. This is the tier the word "hi" drew 245
+		// words and four paragraphs in, and no amount of fresh evidence makes
+		// that the answer to a greeting, so the investigation lane gets no
+		// extra room here.
 		return 60
+	}
+	budget := 260
+	switch {
 	case words <= 15:
-		budget = 100
+		budget = 140
 	case words <= 50:
 		budget = 180
 	}
@@ -94,6 +127,47 @@ func ReplyWordBudget(trigger, lane string) int {
 	}
 	return budget
 }
+
+// greetingWords maps the words a message may consist of and still be only an
+// opening. True is a greeting; false is a word allowed to keep one company. The
+// list is short on purpose: every word added takes a real request down to the
+// sixty-word tier, and the replay found that most short triggers are terse
+// instructions rather than pleasantries.
+var greetingWords = map[string]bool{
+	"hi": true, "hii": true, "hiya": true, "hey": true, "heya": true,
+	"hello": true, "yo": true, "howdy": true, "thanks": true, "thank": true,
+	"thankyou": true, "ty": true, "thx": true, "cheers": true, "gm": true,
+	"morning": true, "afternoon": true, "evening": true, "night": true,
+	"good": true, "you": false, "all": false, "there": false, "again": false,
+	"team": false, "everyone": false, "and": false,
+}
+
+// slackMarkup matches the angle-bracket spans Slack wraps mentions, channel
+// references, links and date renderings in.
+var slackMarkup = regexp.MustCompile(`<[^>]*>`)
+
+// GreetingTrigger reports whether the message is nothing but a greeting or a
+// thank-you once Slack markup and punctuation are removed.
+//
+// A greeting is recognised by what it says, not by how short it is. The
+// four-word triggers in the corpus are mostly terse instructions — "Make a pr",
+// "activate it", "Test again", "why it failed", a bare task title — and each of
+// them drew a good answer of 68 to 162 words that a length-only rule rejects.
+// One trigger in the corpus is a bare greeting, and it drew 245 words.
+func GreetingTrigger(trigger string) bool {
+	greeted := false
+	stripped := slackMarkup.ReplaceAllString(strings.ToLower(trigger), " ")
+	for _, field := range strings.FieldsFunc(stripped, notLetter) {
+		opener, allowed := greetingWords[field]
+		if !allowed {
+			return false
+		}
+		greeted = greeted || opener
+	}
+	return greeted
+}
+
+func notLetter(symbol rune) bool { return !unicode.IsLetter(symbol) }
 
 // RequestedDepth reports whether the message asked for a long answer. Someone
 // who says "walk me through it" has waived the bound, and correcting them into
@@ -129,11 +203,22 @@ func ProseWordCount(message string) int {
 
 // handBackClosings are the phrases measured at the ends of real replies, where
 // the last thing the reader was left holding was a gap rather than a finding.
-// Six replies closed on "still need", five on "one gap", three on "remain
-// unverified", three on "remaining boundary" — a phrase the prompt bans by
-// name — and two on "can't tell you".
+// Five replies closed on "one gap", three on "remain unverified", three on
+// "remaining boundary" — a phrase the prompt bans by name.
+//
+// "still need" was on this list and is not any more. It was the most frequent
+// closing in the audit at six replies, and replaying those six found that not
+// one of them handed anything back: "the separate 63 detected drift entries
+// still need review", "the two read actions still need to reveal the plan and
+// apply error first", "after deployment, we still need to verify the exact
+// account with account.show". Every one names remaining work after the answer
+// was delivered, which is what the correction this rule sends asks for. The
+// audit matched a grammatical form and read it as a speech act. What makes a
+// closing a hand-back is that it points at the reader — "I still need the
+// workspace ID", "you'll need to check" — so the phrase is narrowed to the
+// first person rather than dropped, and the reader-directed forms stay.
 var handBackClosings = []string{
-	"still need", "one gap", "gap worth naming", "remaining boundary",
+	"i still need", "one gap", "gap worth naming", "remaining boundary",
 	"remain unverified", "remains unverified", "stays unverified", "is unverified",
 	"cant tell you", "cannot tell you", "cant say", "cannot say for",
 	"couldnt verify", "could not verify", "couldnt check", "could not check",
@@ -156,14 +241,23 @@ func HandBackClosing(message string) string {
 	return ""
 }
 
-// replyClosing is the last two sentences of the last non-empty line, folded to
-// lowercase with apostrophes and inline emphasis removed so "can't", "can’t"
-// and "*can't*" are one phrase.
+// replyClosing is the last substantive sentence of the last non-empty line,
+// folded to lowercase with apostrophes and inline emphasis removed so "can't",
+// "can’t" and "*can't*" are one phrase.
 //
 // The last line rather than the last sentence of the message, because a reply
-// that trails off into a bullet list ends on that bullet. Two sentences rather
-// than one, because "I still need the workspace ID. Let me know." hands the
-// question back in the first of them.
+// that trails off into a bullet list ends on that bullet.
+//
+// One sentence rather than two. The two-sentence window was there to catch "I
+// still need the workspace ID. Let me know.", where the hand-back is followed
+// by a sign-off, and it is kept for that by skipping trailing sentences too
+// short to carry a finding. But a plain two-sentence window read the caveat in
+// the second-to-last sentence of replies that then closed on exactly what the
+// rule asks for: "Customer impact remains unverified, and ... The safest
+// follow-up is to verify the migration proxies through their representative
+// connection path." That reply ends on the next concrete action and was
+// rejected anyway. Position is the whole rule, so the window has to be the
+// position.
 func replyClosing(message string) string {
 	last := ""
 	lines := strings.Split(message, "\n")
@@ -176,8 +270,15 @@ func replyClosing(message string) string {
 	sentences := strings.FieldsFunc(last, func(symbol rune) bool {
 		return symbol == '.' || symbol == '!' || symbol == '?'
 	})
-	if len(sentences) > 2 {
-		sentences = sentences[len(sentences)-2:]
+	for index := len(sentences) - 1; index >= 0; index-- {
+		if words := strings.Fields(sentences[index]); len(words) >= closingSentenceWords {
+			return strings.Join(words, " ")
+		}
 	}
-	return strings.Join(strings.Fields(strings.Join(sentences, " ")), " ")
+	return strings.Join(strings.Fields(last), " ")
 }
+
+// closingSentenceWords is the shortest sentence that can be the closing rather
+// than a sign-off after it. "Let me know." and "Happy to dig in." are three and
+// four words; the shortest real closing in the corpus is nine.
+const closingSentenceWords = 6
