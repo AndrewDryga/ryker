@@ -155,6 +155,106 @@ func TestFailingSurfaceRefreshGivesUpEarlyAndIsReported(t *testing.T) {
 	}
 }
 
+// The Open button on the App Home is a link, and a link is finished when it is
+// acknowledged.
+//
+// This is the production row, reproduced: action responder_open_work_thread,
+// value commitment_episode_run_19664690e12b6af7e, channel_id empty. It was not
+// routed, so it fell through to the incident controls, which looked the
+// commitment up as an incident, failed to find one, and tried to say so in an
+// ephemeral message addressed to no channel at all. Slack answered
+// channel_not_found twelve times over twenty-one minutes, for a button whose
+// only job — opening a URL — Slack had already done in the client.
+func TestAppHomeLinkButtonIsFinishedWithoutPostingAnywhere(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	input := core.SlackInput{
+		ID: "slack_open_work", EnvelopeID: "env-open-work", EventID: "ev-open-work",
+		Kind: "action", TeamID: cfg.Slack.TeamID, UserID: "U123ABC",
+		ActionID:    slackui.ActionOpenWorkThread,
+		ActionValue: "commitment_episode_run_19664690e12b6af7e",
+		ReceivedAt:  svc.now().UTC(),
+	}
+	if _, err := st.AdmitSlackInput(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := st.GetSlackInput(ctx, input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != "done" {
+		t.Fatalf("state = %q, want done; a link button has nothing to retry", stored.State)
+	}
+	if len(slackClient.ephemerals) != 0 {
+		t.Fatalf("posted %d ephemerals with no channel to post them in", len(slackClient.ephemerals))
+	}
+	// Nothing at all, not even a repaint. A click that already did its work in
+	// the client should not send the App Home through a redraw, and an
+	// unrouted link button reaches here as a stale incident control that tries
+	// to explain itself.
+	if len(slackClient.homes) != 0 {
+		t.Fatalf("a link button caused %d App Home repaints; it is routed nowhere", len(slackClient.homes))
+	}
+}
+
+// Any other App Home interaction that needs to answer has the same problem:
+// there is no channel to answer in. It must repaint the surface the click came
+// from rather than address the empty string and be rejected forever.
+func TestChannellessInteractionRepaintsTheAppHomeInsteadOfFailing(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	logger, logged := capturingLogger()
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), logger)
+
+	input := core.SlackInput{
+		ID: "slack_stale_control", EnvelopeID: "env-stale", EventID: "ev-stale",
+		Kind: "action", TeamID: cfg.Slack.TeamID, UserID: "U123ABC",
+		ActionID: slackui.ActionResolve, ActionValue: "inc_missing",
+		ReceivedAt: svc.now().UTC(),
+	}
+	if _, err := st.AdmitSlackInput(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := st.GetSlackInput(ctx, input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != "done" {
+		t.Fatalf("state = %q, want done rather than a retry that cannot succeed", stored.State)
+	}
+	if len(slackClient.ephemerals) != 0 {
+		t.Fatalf("posted %d ephemerals with no channel", len(slackClient.ephemerals))
+	}
+	if len(slackClient.homes) != 1 {
+		t.Fatalf("App Home repaints = %d, want the reply to land where the click came from", len(slackClient.homes))
+	}
+	if !strings.Contains(logged.String(), "no channel to reply in") {
+		t.Fatalf("a channelless interaction was handled silently; log = %s", logged)
+	}
+}
+
 // Slack has already answered these; asking again eleven more times cannot
 // change the answer, and the eleven extra rejections are the only thing the
 // budget buys.

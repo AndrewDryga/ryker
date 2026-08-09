@@ -96,6 +96,7 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionApproveProposal:         (*Service).handleActionProposal,
 	slackui.ActionRejectProposal:          (*Service).handleActionProposal,
 	slackui.ActionOpenApproval:            (*Service).handleOpenEmisarApproval,
+	slackui.ActionOpenWorkThread:          (*Service).acknowledgeLinkAction,
 	slackui.ActionRememberMemory:          (*Service).handleRememberMemory,
 	slackui.ActionForgetMemory:            (*Service).handleForgetMemory,
 	slackui.ActionForgetMemoryRollup:      (*Service).handleForgetMemoryRollup,
@@ -122,6 +123,23 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionRunSchedule:             (*Service).handleRunScheduleNow,
 	slackui.ActionEditSchedule:            (*Service).handleEditSchedule,
 	slackui.ActionDeleteSchedule:          (*Service).handleDeleteSchedule,
+}
+
+// acknowledgeLinkAction completes a button whose entire job is its URL.
+//
+// Slack opens the link in the client and still delivers a block_actions
+// payload, which has to be accepted or the button reports a failure to the
+// person who clicked it. There is no server-side work to do and nothing to
+// reply with.
+//
+// Saying so explicitly matters because the alternative is not "nothing
+// happens". The Open button on the App Home fell through to the incident
+// controls, which looked its commitment ID up as an incident, did not find one,
+// and tried to explain that in an ephemeral message — in the App Home, which is
+// not a channel. Slack answered channel_not_found twelve times over twenty-one
+// minutes for a button that had already done its job.
+func (s *Service) acknowledgeLinkAction(ctx context.Context, input core.SlackInput) error {
+	return s.finishSlackInput(ctx, input)
 }
 
 // routeSlackInputKind handles every Slack input whose destination is decided by
