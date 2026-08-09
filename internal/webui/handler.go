@@ -90,6 +90,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /actions/workspaces/rerun", h.rerunCleanup)
 	mux.HandleFunc("POST /actions/episodes/resolve", h.resolveEpisode)
 	mux.HandleFunc("POST /actions/incidents/resolve", h.resolveIncident)
+	mux.HandleFunc("POST /actions/memory/forget", h.forgetMemory)
+	mux.HandleFunc("POST /actions/memory/keep", h.keepMemoryReview)
+	mux.HandleFunc("POST /actions/memory/dismiss", h.dismissMemoryReview)
+	mux.HandleFunc("POST /actions/feedback/dismiss", h.dismissFeedback)
+	mux.HandleFunc("POST /actions/feedback/convert", h.convertFeedback)
 }
 
 // CanAct reports whether this build was given write access, so a page can offer
@@ -646,7 +651,8 @@ func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
 		Conversations []Conversation
 		Rollups       []Rollup
 		Review        []ReviewItem
-	}{channels, entries, conversations, rollups, review})
+		CanAct        bool
+	}{channels, entries, conversations, rollups, review, h.CanAct()})
 }
 
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {

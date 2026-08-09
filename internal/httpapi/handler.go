@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/version"
@@ -131,6 +133,7 @@ func (h *Handler) mux() *http.ServeMux {
 type dashboardActions struct {
 	store   *store.Store
 	service *service.Service
+	cfg     config.Config
 }
 
 // review mirrors the Slack handler exactly: the store transition AND the audit
@@ -255,6 +258,126 @@ func (a *dashboardActions) ResolveIncident(ctx context.Context, incidentID, acto
 	return a.service.ControlPlaneAct(ctx, "close", incidentID, actor)
 }
 
+// ForgetMemory mirrors the Slack forget handler: the same delete, the same
+// memory.forget audit kind with the same scope-and-predicate detail, so the
+// log reads identically whichever surface removed the entry. The Slack
+// handler's channel-visibility dance is not mirrored because it is about
+// which Slack context may see an entry; the loopback operator is the person
+// those rules protect the entry for.
+func (a *dashboardActions) ForgetMemory(ctx context.Context, entryID, actor string) error {
+	entry, err := a.store.Memory.DeleteMemoryEntry(ctx, entryID)
+	if errors.Is(err, store.ErrNotFound) {
+		return errors.New("this memory entry was already removed or expired")
+	}
+	if err != nil {
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "memory.forget", ActorID: actor, ObjectID: entry.ID, Outcome: "deleted",
+		Detail: "scope=" + entry.ScopeKind + " predicate=" + entry.Predicate,
+	})
+}
+
+// reviewMemory mirrors handleMemoryReview for the two verdicts the dashboard
+// offers: the same ResolveMemoryReview call, the same memory.review audit
+// kind carrying the item's kind.
+func (a *dashboardActions) reviewMemory(ctx context.Context, reviewID, action, actor string) error {
+	items, err := a.store.Memory.ListPendingMemoryReviews(ctx, 100)
+	if err != nil {
+		return err
+	}
+	kind := ""
+	for _, item := range items {
+		if item.ID == reviewID {
+			kind = item.Kind
+		}
+	}
+	if kind == "" {
+		return errors.New("that memory review is already complete")
+	}
+	if _, err := a.store.Memory.ResolveMemoryReview(ctx, reviewID, action, actor); err != nil {
+		if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
+			return errors.New("that memory review is already complete")
+		}
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "memory.review", ActorID: actor, ObjectID: reviewID, Outcome: action,
+		Detail: "kind=" + kind,
+	})
+}
+
+func (a *dashboardActions) KeepMemoryReview(ctx context.Context, reviewID, actor string) error {
+	return a.reviewMemory(ctx, reviewID, "keep", actor)
+}
+
+func (a *dashboardActions) DismissMemoryReview(ctx context.Context, reviewID, actor string) error {
+	return a.reviewMemory(ctx, reviewID, "dismiss", actor)
+}
+
+// DismissFeedback mirrors handleDismissFeedback: dismissing is a real
+// outcome, because the alternative is a queue that only grows and teaches
+// everyone to ignore it.
+func (a *dashboardActions) DismissFeedback(ctx context.Context, feedbackID, actor string) error {
+	err := a.store.ResolveFeedback(ctx, feedbackID, "dismissed", actor)
+	if errors.Is(err, store.ErrFeedbackNotOpen) {
+		return errors.New("that feedback was already resolved")
+	}
+	if err != nil {
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "feedback.dismiss", ActorID: actor, ObjectID: feedbackID, Outcome: "dismissed",
+	})
+}
+
+// ConvertFeedback mirrors handleConvertFeedback field for field: the summary
+// becomes workspace-scoped guidance with the feedback item as its source, the
+// item resolves as converted, and the feedback.convert audit row names the
+// memory it became. The same refusals apply — multiline or credential-like
+// text cannot become guidance — because a second door with fewer checks is
+// how a rule stops being one.
+func (a *dashboardActions) ConvertFeedback(ctx context.Context, feedbackID, actor string) error {
+	item, err := a.store.GetFeedback(ctx, feedbackID)
+	if err != nil {
+		return err
+	}
+	if item.Status != "open" {
+		return errors.New("that feedback was already resolved")
+	}
+	entry := core.MemoryEntry{
+		ScopeKind: "workspace", ScopeKey: a.cfg.Slack.TeamID,
+		SubjectKey:     memorypkg.NormalizeGuidanceSubject(item.Category),
+		Predicate:      "guidance",
+		Value:          core.BoundedText(item.Summary, 1000),
+		VisibilityKind: "workspace", VisibilityID: a.cfg.Slack.TeamID,
+		ExpiresAt: time.Now().UTC().Add(memorypkg.DefaultTTL),
+		SourceRef: "feedback:" + item.ID,
+		ActorID:   actor,
+	}
+	if entry.SubjectKey == "" || entry.Value == "" ||
+		strings.ContainsAny(entry.SubjectKey+entry.Value, "\r\n\t") ||
+		memorypkg.ContainsSecretLikeValue(entry.SubjectKey) ||
+		memorypkg.ContainsSecretLikeValue(entry.Value) {
+		return errors.New("this feedback cannot become guidance as written: memory holds " +
+			"one line and never credential-like values")
+	}
+	saved, _, err := a.store.Memory.UpsertMemoryEntry(
+		ctx, entry, a.cfg.Limits.MaxMemoryEntries, a.cfg.Limits.MaxMemoryEntriesPerScope,
+	)
+	if err != nil {
+		return err
+	}
+	if err := a.store.ResolveFeedback(ctx, item.ID, "converted", actor); err != nil &&
+		!errors.Is(err, store.ErrFeedbackNotOpen) {
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "feedback.convert", ActorID: actor, ObjectID: item.ID, Outcome: "converted",
+		Detail: "memory=" + saved.ID,
+	})
+}
+
 // deploymentName walks the state path up past the dot-directory. The naive
 // Base(TrimSuffix(path, "/state")) stopped one level short, and every header
 // on the dashboard introduced the deployment as ".responder" — the name of the
@@ -288,7 +411,7 @@ func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 		func() bool { ready, _ := h.service.Ready(context.Background()); return ready },
 		nil,
 		h.cfg.Pricing,
-		&dashboardActions{store: h.store, service: h.service},
+		&dashboardActions{store: h.store, service: h.service, cfg: h.cfg},
 	)
 	if err != nil {
 		return err

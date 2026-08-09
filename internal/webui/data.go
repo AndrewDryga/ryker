@@ -607,6 +607,7 @@ func (r *Reader) Channels(ctx context.Context) ([]ChannelConfigRow, error) {
 // keeping. A store nobody reads from is a store to prune, and that is invisible
 // without it.
 type MemoryEntry struct {
+	ID                               string
 	Subject, Predicate, Value, Scope string
 	Recalls                          int
 	Expires, LastRecalled            time.Time
@@ -617,7 +618,7 @@ func (r *Reader) MemoryEntries(ctx context.Context) ([]MemoryEntry, error) {
 		return nil, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT subject_key, predicate, value_json, scope_kind, scope_key,
+	  SELECT id, subject_key, predicate, value_json, scope_kind, scope_key,
 	         recall_count, expires_at, COALESCE(last_recalled_at,'')
 	  FROM memory_entries ORDER BY updated_at DESC LIMIT 100`)
 	if err != nil {
@@ -628,7 +629,7 @@ func (r *Reader) MemoryEntries(ctx context.Context) ([]MemoryEntry, error) {
 	for rows.Next() {
 		var item MemoryEntry
 		var scopeKey, expires, recalled string
-		if err := rows.Scan(&item.Subject, &item.Predicate, &item.Value, &item.Scope,
+		if err := rows.Scan(&item.ID, &item.Subject, &item.Predicate, &item.Value, &item.Scope,
 			&scopeKey, &item.Recalls, &expires, &recalled); err != nil {
 			return nil, err
 		}
@@ -720,7 +721,9 @@ func (r *Reader) Conversations(ctx context.Context) ([]Conversation, error) {
 // ReviewItem is memory the host flagged as stale or duplicated and is holding
 // for a person. Zero of them today, and no surface existed to notice that.
 type ReviewItem struct {
+	ID                   string
 	Kind, Reason, Status string
+	Entries              int
 	Created              time.Time
 }
 
@@ -729,7 +732,8 @@ func (r *Reader) MemoryReview(ctx context.Context) ([]ReviewItem, error) {
 		return nil, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT kind, reason, status, created_at FROM memory_review_items
+	  SELECT id, kind, reason, status, json_array_length(entry_ids_json), created_at
+	  FROM memory_review_items
 	  WHERE status = 'pending' ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
 		return nil, err
@@ -739,7 +743,8 @@ func (r *Reader) MemoryReview(ctx context.Context) ([]ReviewItem, error) {
 	for rows.Next() {
 		var item ReviewItem
 		var created string
-		if err := rows.Scan(&item.Kind, &item.Reason, &item.Status, &created); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Reason, &item.Status,
+			&item.Entries, &created); err != nil {
 			return nil, err
 		}
 		item.Created = parseStamp(created)
@@ -752,17 +757,23 @@ func (r *Reader) MemoryReview(ctx context.Context) ([]ReviewItem, error) {
 // at all, which is a poor showing for the one entity that records a human
 // telling the system it was wrong.
 type Feedback struct {
+	ID                                            string
 	Category, Sentiment, Summary, Status, Channel string
 	EpisodeID                                     string
 	Created                                       time.Time
 }
+
+// Open reports whether the item still awaits a decision, which is what gates
+// its actions: dismissing or converting a resolved item is the no-op the
+// store refuses, so the page does not offer it.
+func (f Feedback) Open() bool { return f.Status == "open" || f.Status == "" }
 
 func (r *Reader) Feedback(ctx context.Context) ([]Feedback, error) {
 	if !r.live() {
 		return nil, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT category, sentiment, summary, COALESCE(status,''), channel_id,
+	  SELECT id, category, sentiment, summary, COALESCE(status,''), channel_id,
 	         COALESCE(episode_id,''), created_at
 	  FROM feedback_items ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
@@ -773,7 +784,7 @@ func (r *Reader) Feedback(ctx context.Context) ([]Feedback, error) {
 	for rows.Next() {
 		var item Feedback
 		var channel, created string
-		if err := rows.Scan(&item.Category, &item.Sentiment, &item.Summary,
+		if err := rows.Scan(&item.ID, &item.Category, &item.Sentiment, &item.Summary,
 			&item.Status, &channel, &item.EpisodeID, &created); err != nil {
 			return nil, err
 		}

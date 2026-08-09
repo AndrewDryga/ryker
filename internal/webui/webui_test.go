@@ -139,6 +139,8 @@ func TestNoWriteRoutesAreExposed(t *testing.T) {
 		"/actions/corrections/keep", "/actions/corrections/discard", "/actions/failures/retry",
 		"/actions/workspaces/publish", "/actions/workspaces/discard", "/actions/workspaces/rerun",
 		"/actions/episodes/resolve", "/actions/incidents/resolve",
+		"/actions/memory/forget", "/actions/memory/keep", "/actions/memory/dismiss",
+		"/actions/feedback/dismiss", "/actions/feedback/convert",
 	} {
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -217,6 +219,21 @@ func (failingActions) ResolveEpisodeOvertaken(context.Context, string, string) e
 	return errors.New("store refused")
 }
 func (failingActions) ResolveIncident(context.Context, string, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) ForgetMemory(context.Context, string, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) KeepMemoryReview(context.Context, string, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) DismissMemoryReview(context.Context, string, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) DismissFeedback(context.Context, string, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) ConvertFeedback(context.Context, string, string) error {
 	return errors.New("store refused")
 }
 

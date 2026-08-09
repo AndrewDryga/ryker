@@ -34,6 +34,14 @@ type Actions interface {
 	// ResolveIncident closes an open room through the same handler the Slack
 	// close control uses, cleanup scheduling and closing notice included.
 	ResolveIncident(ctx context.Context, incidentID, actor string) error
+	// The memory and feedback actions mirror the Slack handlers' store calls
+	// and audit kinds one for one, so the log reads the same whichever surface
+	// the operator used.
+	ForgetMemory(ctx context.Context, entryID, actor string) error
+	KeepMemoryReview(ctx context.Context, reviewID, actor string) error
+	DismissMemoryReview(ctx context.Context, reviewID, actor string) error
+	DismissFeedback(ctx context.Context, feedbackID, actor string) error
+	ConvertFeedback(ctx context.Context, feedbackID, actor string) error
 }
 
 // dashboardActor is recorded against anything done here.
@@ -119,5 +127,35 @@ func (h *Handler) resolveEpisode(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) resolveIncident(w http.ResponseWriter, r *http.Request) {
 	h.act(w, r, func(ctx context.Context, id string) error {
 		return h.actions.ResolveIncident(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) forgetMemory(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.ForgetMemory(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) keepMemoryReview(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.KeepMemoryReview(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) dismissMemoryReview(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.DismissMemoryReview(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) dismissFeedback(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.DismissFeedback(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) convertFeedback(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.ConvertFeedback(ctx, id, dashboardActor)
 	})
 }

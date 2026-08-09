@@ -175,6 +175,7 @@ latest attempt can be queued to run again from there; a superseded one says so i
 
 <h2>Feedback from people <span class="note">{{len .Feedback}}</span></h2>
 {{if .Feedback}}
+{{$act := .CanAct}}
 <div class="rows">
   {{range .Feedback}}
   <div class="row">
@@ -184,6 +185,12 @@ latest attempt can be queued to run again from there; a superseded one says so i
       {{.Category}} · {{.Channel}} · {{since .Created}}{{if .Status}} · {{.Status}}{{end}}
     </div>
     {{if .EpisodeID}}<div class="meta"><a href="/episodes/{{.EpisodeID}}">the episode that prompted it →</a></div>{{end}}
+    {{if and $act .Open}}
+    <div class="acts">
+      {{template "confirm" confirm "Convert to guidance" "The summary becomes workspace-scoped guidance the model reads, sourced to this feedback, and the item resolves as converted." "Yes, make it guidance" "/actions/feedback/convert" .ID}}
+      {{template "confirm" confirm "Dismiss" "The item resolves as read-and-not-acted-on. Dismissing is a real outcome — the alternative is a queue that only grows." "Yes, dismiss it" "/actions/feedback/dismiss" .ID}}
+    </div>
+    {{end}}
   </div>
   {{end}}
 </div>
@@ -216,13 +223,15 @@ because a memory nothing reads is a memory to prune, and that is invisible witho
 
 <h2>Operational memory <span class="note">{{len .Entries}}</span></h2>
 {{if .Entries}}
+{{$act := .CanAct}}
 <table>
-  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th class="num">Recalled</th><th>Expires</th></tr>
+  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th class="num">Recalled</th><th>Expires</th>{{if $act}}<th></th>{{end}}</tr>
   {{range .Entries}}
   <tr><td>{{.Subject}}</td><td class="mono">{{.Predicate}}</td><td>{{truncate 60 .Value}}</td>
       <td class="note">{{.Scope}}</td>
       <td class="mono num">{{.Recalls}}{{if .Recalls}} · {{since .LastRecalled}}{{end}}</td>
-      <td class="note">{{stamp .Expires}}</td></tr>
+      <td class="note">{{stamp .Expires}}</td>
+      {{if $act}}<td>{{template "confirm" confirm "Forget" "The entry is deleted and the removal audited. Responder stops recalling it immediately." "Yes, forget it" "/actions/memory/forget" .ID}}</td>{{end}}</tr>
   {{end}}
 </table>
 {{else}}<p class="empty">Nothing saved.</p>{{end}}
@@ -266,15 +275,24 @@ survives when individual conversations age out.</p>{{end}}
 
 <h2>Awaiting review <span class="note">{{len .Review}}</span></h2>
 {{if .Review}}
+{{$act := .CanAct}}
 <div class="rows">
   {{range .Review}}
   <div class="row">
     <div class="title">{{.Kind}}</div>
-    <div class="meta">{{.Reason}} · flagged {{since .Created}}</div>
+    <div class="meta">{{.Reason}} · {{.Entries}} {{if eq .Entries 1}}entry{{else}}entries{{end}} · flagged {{since .Created}}</div>
+    {{if $act}}
+    <div class="acts">
+      {{template "confirm" confirm "Keep" "The entries stay, marked reviewed so this queue stops asking about them." "Yes, keep them" "/actions/memory/keep" .ID}}
+      {{template "confirm" confirm "Dismiss" "The review is dismissed; the entries themselves are not touched." "Yes, dismiss it" "/actions/memory/dismiss" .ID}}
+    </div>
+    {{end}}
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">Nothing flagged as stale or duplicated.</p>{{end}}
+{{else}}<p class="empty">Nothing flagged as stale or duplicated. The consolidation pass files an
+item here when it finds operator-confirmed memory that has gone stale or duplicates another
+entry.</p>{{end}}
 {{end}}
 
 {{define "configuration"}}

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -76,5 +77,108 @@ func TestResolveEpisodeOvertakenClosesBlockedWorkAndAuditsIt(t *testing.T) {
 	err = actions.ResolveEpisodeOvertaken(ctx, episode.ID, "control-plane@localhost")
 	if err == nil {
 		t.Error("a terminal episode accepted a second resolve")
+	}
+}
+
+// Converting feedback mirrors the Slack handler field for field: the summary
+// becomes workspace guidance sourced to the item, the item resolves as
+// converted, and a second conversion refuses because the queue must not
+// silently no-op. Dismissal is the other real outcome.
+func TestFeedbackActionsMirrorTheSlackHandlers(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	item, err := st.RecordFeedback(ctx, store.FeedbackItem{
+		ID: "fb_tone_1", WorkspaceID: "T1", ChannelID: "C1", UserID: "U1",
+		Source: "reaction", Category: "tone", Sentiment: "negative",
+		Summary: "Answers are too long",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := &dashboardActions{store: st, cfg: config.Config{
+		Slack:  config.SlackConfig{TeamID: "T1"},
+		Limits: config.Limits{MaxMemoryEntries: 100, MaxMemoryEntriesPerScope: 50},
+	}}
+	if err := actions.ConvertFeedback(ctx, item.ID, "control-plane@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := st.GetFeedback(ctx, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Status != "converted" {
+		t.Fatalf("feedback status = %q, want converted", resolved.Status)
+	}
+	saved, err := st.Memory.GetMemoryEntry(ctx, guidanceEntryID(t, st))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Predicate != "guidance" || saved.SourceRef != "feedback:"+item.ID {
+		t.Fatalf("converted entry = %+v; guidance must trace back to its feedback", saved)
+	}
+	if err := actions.ConvertFeedback(ctx, item.ID, "control-plane@localhost"); err == nil {
+		t.Error("a resolved item converted twice")
+	}
+
+	second, err := st.RecordFeedback(ctx, store.FeedbackItem{
+		ID: "fb_accuracy_1", WorkspaceID: "T1", ChannelID: "C1", UserID: "U1",
+		Source: "reaction", Category: "accuracy", Sentiment: "negative",
+		Summary: "Wrong dashboard link",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := actions.DismissFeedback(ctx, second.ID, "control-plane@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	if err := actions.DismissFeedback(ctx, second.ID, "control-plane@localhost"); err == nil {
+		t.Error("a resolved item dismissed twice")
+	}
+}
+
+// guidanceEntryID finds the one guidance entry the conversion wrote.
+func guidanceEntryID(t *testing.T, st *store.Store) string {
+	t.Helper()
+	entries, err := st.Memory.ListMemoryForHome(context.Background(), "T1", "U1", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Predicate == "guidance" {
+			return entry.ID
+		}
+	}
+	t.Fatal("no guidance entry was written")
+	return ""
+}
+
+// Forgetting an entry from the dashboard is the same delete and the same
+// audit shape as the Slack forget button.
+func TestForgetMemoryDeletesAndRefusesTwice(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	entry, _, err := st.Memory.UpsertMemoryEntry(ctx, core.MemoryEntry{
+		ScopeKind: "workspace", ScopeKey: "T1", SubjectKey: "service:api",
+		Predicate: "guidance", Value: "Prefer the staging dashboard",
+		VisibilityKind: "workspace", VisibilityID: "T1", SourceRef: "test:manual",
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour), ActorID: "U1",
+	}, 100, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := &dashboardActions{store: st}
+	if err := actions.ForgetMemory(ctx, entry.ID, "control-plane@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	if err := actions.ForgetMemory(ctx, entry.ID, "control-plane@localhost"); err == nil {
+		t.Error("a deleted entry was forgotten twice without complaint")
 	}
 }
