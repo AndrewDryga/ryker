@@ -77,6 +77,29 @@ func TestRuleOfferDropsHostOwnedChannel(t *testing.T) {
 	}
 }
 
+// "event" is what a rule fires on, which is the only thing Trigger holds.
+func TestRuleOfferAcceptsEventAsTrigger(t *testing.T) {
+	var offer RuleOffer
+	if err := json.Unmarshal([]byte(`{
+		"event":"terraform_plan","action":"review_terraform_plan",
+		"source_kind":"any","scope":"channel","repository":"emisar"
+	}`), &offer); err != nil {
+		t.Fatal(err)
+	}
+	if offer.Trigger != "terraform_plan" {
+		t.Fatalf("trigger = %q", offer.Trigger)
+	}
+	var canonical RuleOffer
+	if err := json.Unmarshal([]byte(`{
+		"trigger":"canonical","event":"alias","action":"a","scope":"channel","repository":"r"
+	}`), &canonical); err != nil {
+		t.Fatal(err)
+	}
+	if canonical.Trigger != "canonical" {
+		t.Fatalf("trigger = %q", canonical.Trigger)
+	}
+}
+
 func TestRuleOfferStillRejectsUnknownFields(t *testing.T) {
 	var offer RuleOffer
 	err := json.Unmarshal([]byte(`{"trigger":"a","action":"b","invented":"c"}`), &offer)
