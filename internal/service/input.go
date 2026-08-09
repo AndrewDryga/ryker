@@ -73,13 +73,10 @@ func changesActionIncidentID(actionID string, value string) (string, bool) {
 	}
 }
 
-// Slack surface refreshes. These carry no operator instruction: they only
-// repaint a Slack surface, so they are admitted like any other input and
+// inputAppHome is a Slack surface refresh. It carries no operator instruction:
+// it only repaints the App Home, so it is admitted like any other input and
 // performed by the control lane rather than on the socket consumer.
-const (
-	inputSuggestedPrompts = "suggested_prompts"
-	inputAppHome          = "app_home"
-)
+const inputAppHome = "app_home"
 
 // slackActionRoutes maps a host-owned Slack button to the handler that owns it.
 // Routing is a table rather than a branch chain so the full set of interactive
@@ -158,12 +155,6 @@ func (s *Service) routeSlackInputKind(
 			Detail:   input.ActionID,
 		})
 		if err := s.recordReactionFeedback(ctx, input); err != nil {
-			return true, s.retrySlackInput(ctx, input, err)
-		}
-		return true, s.finishSlackInput(ctx, input)
-	}
-	if input.Kind == inputSuggestedPrompts {
-		if err := s.slack.SetSuggestedPrompts(ctx, input.ChannelID, input.ThreadTS); err != nil {
 			return true, s.retrySlackInput(ctx, input, err)
 		}
 		return true, s.finishSlackInput(ctx, input)
@@ -1840,15 +1831,14 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 
 // surfaceRefreshAttempts caps retries of a Slack surface repaint.
 //
-// These carry no operator instruction — they repaint the App Home or the
-// suggested prompts above a DM — so a failure costs presentation, never an
-// answer. The general budget is twelve because losing a command an operator
-// typed is expensive; spending twelve Slack API calls to fail at redrawing a
-// prompt list is not the same trade.
+// A repaint carries no operator instruction, so a failure costs presentation,
+// never an answer. The general budget is twelve because losing a command an
+// operator typed is expensive; spending twelve Slack API calls to fail at
+// redrawing a dashboard is not the same trade.
 const surfaceRefreshAttempts = 3
 
 func surfaceRefreshInput(kind string) bool {
-	return kind == inputSuggestedPrompts || kind == inputAppHome
+	return kind == inputAppHome
 }
 
 // permanentSlackInputError reports whether Slack's answer will be the same

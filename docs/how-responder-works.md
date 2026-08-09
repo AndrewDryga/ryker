@@ -125,9 +125,9 @@ decision later. A persistence or policy-resolution failure before that point is 
 so Slack can redeliver the envelope instead of Responder silently losing it.
 
 Nothing that talks to Slack happens on the socket consumer, including work that looks trivial.
-Refreshing suggested prompts or the App Home is a Slack round trip, so those are admitted as
-ordinary inputs and performed by the control lane; doing them inline would hold the single consumer
-and delay admission of every event behind them.
+Refreshing the App Home is a Slack round trip, so it is admitted as an ordinary input and performed
+by the control lane; doing it inline would hold the single consumer and delay admission of every
+event behind it.
 
 Reactions are admitted too. Adding or removing an emoji on one of Responder's own messages is
 retained as ordered conversation context and refreshes the current reaction state without starting

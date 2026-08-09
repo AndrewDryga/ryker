@@ -124,46 +124,28 @@ func (s *Service) classifyEventsAPIInput(
 	input *core.SlackInput,
 ) (messageOutcome, bool) {
 	switch inner := outer.InnerEvent.Data.(type) {
-	case *slackevents.AssistantThreadStartedEvent:
-		// Surface refreshes are Slack writes, so they are admitted like any
-		// other input and performed by the control lane. Doing them here would
-		// hold the single socket consumer for a full Slack round trip and delay
-		// admission of every event behind them.
-		if inner == nil || inner.AssistantThread.UserID == "" ||
-			inner.AssistantThread.ChannelID == "" || !s.cfg.Slack.AssistantExperience {
-			return dropMessage, false
-		}
-		input.Kind = inputSuggestedPrompts
-		input.ChannelID = inner.AssistantThread.ChannelID
-		input.ThreadTS = inner.AssistantThread.ThreadTimeStamp
-		input.UserID = inner.AssistantThread.UserID
 	case *slackevents.AppHomeOpenedEvent:
 		if inner == nil || inner.User == "" {
 			return dropMessage, false
 		}
-		switch {
-		// The messages tab has no thread, and that is not an omission.
+		// Opening the Messages tab is not work, because the prompts above it are
+		// configuration rather than a Slack write.
 		//
-		// Slack has two shapes here. In the legacy assistant experience,
-		// prompts belong to a thread and arrive with assistant_thread_started,
-		// which is the branch above. In the agent experience — the one this
-		// app declares, through features.agent_view in
-		// deploy/slack-app-manifest.yaml — prompts pin to the top of the
-		// Messages tab and are set from app_home_opened with no thread_ts at
-		// all. Setting a ThreadTS here would address a thread that does not
-		// exist. Whatever else is wrong with a rejected refresh, the fix is
-		// not to invent a thread for it.
-		case inner.Tab == "messages" &&
-			s.cfg.Slack.AssistantExperience && inner.Channel != "":
-			input.Kind = inputSuggestedPrompts
-			input.ChannelID = inner.Channel
-			input.UserID = inner.User
-		case inner.Tab == "home":
-			input.Kind = inputAppHome
-			input.UserID = inner.User
-		default:
+		// This app declares features.agent_view in
+		// deploy/slack-app-manifest.yaml, and that manifest already carries the
+		// three suggested prompts statically. Responder used to answer every
+		// Messages tab open by calling assistant.threads.setSuggestedPrompts to
+		// install a near-identical list at runtime, and Slack answered
+		// internal_error every single time — 8 of 8 rows on one deployment, 4 of
+		// 4 on the other, not one success since the code was written. The
+		// prompts were there the whole time; the API call was a second,
+		// failing copy of a setting that already worked. So a Messages tab open
+		// is acknowledged and dropped, and costs nothing.
+		if inner.Tab != "home" {
 			return dropMessage, false
 		}
+		input.Kind = inputAppHome
+		input.UserID = inner.User
 	case *slackevents.ReactionAddedEvent:
 		if inner == nil {
 			return dropMessage, false

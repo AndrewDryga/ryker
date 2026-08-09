@@ -76,8 +76,9 @@ state remains on the card rather than using a misleading persistent typing indic
 
 App Home shows durable open-incident, active-session, failed-work, incident-history, saved-memory,
 and active-commitment counts plus the current incident rooms, work Emisar owes the team, compact
-channel situations, and bounded memory controls. The Agent Messages tab offers suggested prompts
-for infrastructure health, alert explanation, and open work. A direct message always starts
+channel situations, and bounded memory controls. The Agent Messages tab offers the suggested
+prompts declared in the app manifest — production health, alert explanation, and open work. A
+direct message always starts
 read-only triage and does not require proactive mode or an `@mention`.
 
 The **Investigate message** shortcut runs the same ordered read-only triage against a

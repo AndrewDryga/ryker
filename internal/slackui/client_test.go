@@ -491,6 +491,11 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 		!*manifest.Features.AppHome.MessagesTabEnabled {
 		t.Fatal("manifest must enable the operations Home and agent Messages tabs")
 	}
+	// These three prompts are the only prompts. Responder also installed them
+	// at runtime through assistant.threads.setSuggestedPrompts until that call
+	// was deleted for never once having succeeded, so the manifest is no longer
+	// a duplicate of a code path — it is the code path, and deleting an entry
+	// here removes a prompt from the product.
 	agent := manifest.Features.AgentView
 	if agent.AgentDescription == "" || len(agent.AgentDescription) > 300 ||
 		len(agent.SuggestedPrompts) != 3 || len(agent.Actions) != 3 {

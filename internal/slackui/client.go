@@ -32,7 +32,6 @@ type API interface {
 	Pin(context.Context, string, string) error
 	SetStatus(context.Context, string, string, string) error
 	SetProgress(context.Context, string, string, string, []string) error
-	SetSuggestedPrompts(context.Context, string, string) error
 	PublishHome(context.Context, string, Message) error
 	UserAllowed(context.Context, string, string) (bool, error)
 	UserGroupMembers(context.Context, string, string) ([]string, error)
@@ -627,32 +626,6 @@ func (c *Client) SetProgress(
 		ChannelID: channel, ThreadTS: threadTS,
 		Status: truncateUTF8(status, 100), LoadingMessages: messages,
 	})
-}
-
-// SetSuggestedPrompts offers the opening questions above an assistant surface.
-//
-// An empty threadTS is legitimate and is the normal case. Slack's agent
-// messaging experience pins prompts to the top of the Messages tab and takes
-// only a channel; the thread form belongs to the older per-thread assistant
-// experience. slack-go drops the parameter entirely when it is empty rather
-// than sending a blank one, so both shapes reach Slack correctly.
-func (c *Client) SetSuggestedPrompts(
-	ctx context.Context,
-	channel string,
-	threadTS string,
-) error {
-	if strings.TrimSpace(channel) == "" {
-		return errors.New("suggested prompts need a channel")
-	}
-	parameters := slack.AssistantThreadsSetSuggestedPromptsParameters{
-		Title:     "Investigate with Emisar",
-		ChannelID: channel,
-		ThreadTS:  threadTS,
-	}
-	parameters.AddPrompt("Infrastructure health", "Assess current infrastructure health with live evidence.")
-	parameters.AddPrompt("Explain an alert", "Explain the selected alert and verify its current state.")
-	parameters.AddPrompt("Open work", "What are you working on, what is blocked, and what do you owe the team?")
-	return c.api.SetAssistantThreadsSuggestedPromptsContext(ctx, parameters)
 }
 
 func (c *Client) PublishHome(ctx context.Context, userID string, message Message) error {

@@ -152,7 +152,8 @@ raw webhook refreshes. Alert source links expose their destination hostname and 
 and fragments before leaving the service.
 
 The App Home is generated from durable incident and failure metrics using Home-supported Block Kit
-sections and fields. Opening the Agent Messages tab installs host-owned suggested prompts.
+sections and fields. The Agent Messages tab prompts are declared statically in
+`deploy/slack-app-manifest.yaml`, so opening that tab costs no Slack call at all.
 Accepted long-running work uses Slack's native agent status with semantic loading milestones; the
 status remains until a reply, explicit silence decision, handoff, or user-facing failure is durably
 handled.

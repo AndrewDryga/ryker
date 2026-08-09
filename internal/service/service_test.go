@@ -1138,9 +1138,8 @@ type fakeSlack struct {
 	statuses           []slackStatus
 	reactions          []slackReaction
 	removedReactions   []slackReaction
-	suggested          []slackStatus
-	suggestedErr       error
 	homes              []slackPost
+	homeErr            error
 	postErr            error
 	ephemeralErr       error
 	inviteErr          error
@@ -1280,21 +1279,13 @@ func (f *fakeSlack) SetProgress(
 ) error {
 	return f.SetStatus(context.Background(), channel, thread, text)
 }
-func (f *fakeSlack) SetSuggestedPrompts(
-	_ context.Context,
-	channel string,
-	thread string,
-) error {
-	f.suggested = append(f.suggested, slackStatus{channel: channel, thread: thread})
-	return f.suggestedErr
-}
 func (f *fakeSlack) PublishHome(
 	_ context.Context,
 	user string,
 	message slackui.Message,
 ) error {
 	f.homes = append(f.homes, slackPost{thread: user, message: message})
-	return nil
+	return f.homeErr
 }
 func (f *fakeSlack) UserAllowed(context.Context, string, string) (bool, error) {
 	return true, nil
