@@ -398,7 +398,7 @@ pre.dump {
 /* Every action is a form post. A GET that mutates would fire on a preload or an
    accidental revisit, and on a surface with no authentication the browser is
    the only thing that would have to be wrong. */
-.acts { display: flex; gap: 8px; margin-top: 9px; }
+.acts { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; align-items: flex-start; }
 .acts form { margin: 0; }
 
 button {
@@ -436,16 +436,38 @@ details.confirm > summary {
 details.confirm > summary::-webkit-details-marker { display: none; }
 details.confirm > summary:hover { border-color: var(--faint); }
 details.confirm[open] > summary { border-color: rgb(251 191 36 / .55); color: var(--warn); }
+
+/* The armed step is a contained panel on its own row, in the amber of "about
+   to happen" — not a bare accent-green sentence with the button drifting to
+   the card's far edge, which is how the first version rendered: the arm was an
+   inline flex child, so opening one confirm shoved every sibling button
+   sideways and the explanation read as a call-to-action. Opening moves the
+   whole control below its row (order + basis), which is motion that means
+   something: the button became a panel. */
+details.confirm[open] { order: 99; flex-basis: 100%; }
 details.confirm .arm {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 7px;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 9px 12px;
+  border: 1px solid rgb(251 191 36 / .3);
+  border-radius: 8px;
+  background: rgb(251 191 36 / .05);
   font-size: 12.5px;
-  color: var(--warn);
+  color: var(--ink-2);
   text-align: left;
+  max-width: 640px;
 }
-details.confirm .arm form { margin: 0; }
+details.confirm .arm form { margin: 0 0 0 auto; }
+details.confirm .arm button {
+  background: rgb(251 191 36 / .14);
+  border-color: rgb(251 191 36 / .55);
+  color: var(--warn);
+  font-weight: 600;
+  white-space: nowrap;
+}
+details.confirm .arm button:hover { background: rgb(251 191 36 / .24); border-color: var(--warn); }
 
 /* Filters are plain GET forms — a filtered list stays a URL, bookmarkable and
    pasteable into an incident thread, and needs no client-side state. */

@@ -65,19 +65,23 @@ const dashboardActor = "control-plane@localhost"
 // browser itself is the only thing that would have to be wrong.
 func (h *Handler) act(w http.ResponseWriter, r *http.Request, run func(context.Context, string) error) {
 	if h.actions == nil {
-		http.Error(w, "this build has no write access to the service", http.StatusNotImplemented)
+		h.trouble(w, r, http.StatusNotImplemented, "No write access",
+			"This build was not handed the service paths, so it can only read.")
 		return
 	}
 	id := strings.TrimSpace(r.FormValue("id"))
 	if id == "" {
-		http.Error(w, "missing id", http.StatusBadRequest)
+		h.trouble(w, r, http.StatusBadRequest, "Nothing to act on",
+			"The form arrived without an id. Reload the page and try the control again.")
 		return
 	}
 	if err := run(r.Context(), id); err != nil {
-		// Reported, not swallowed. An action that silently failed while the page
-		// re-rendered unchanged is the worst version of this: the operator
-		// believes the thing is done.
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// Reported, not swallowed — and in the shell, not as two words of bare
+		// plaintext. An action that silently failed while the page re-rendered
+		// unchanged is the worst version; an unstyled 500 that reads as a crash
+		// is the second worst, because the refusal is usually a sentence worth
+		// reading ("this work is closed; discard is the remaining exit").
+		h.trouble(w, r, http.StatusInternalServerError, "The action was refused", err.Error())
 		return
 	}
 	back := r.Header.Get("Referer")
@@ -170,7 +174,8 @@ func (h *Handler) convertFeedback(w http.ResponseWriter, r *http.Request) {
 // anything else is a request this surface did not offer.
 func (h *Handler) channelSetting(w http.ResponseWriter, r *http.Request) {
 	if h.actions == nil {
-		http.Error(w, "this build has no write access to the service", http.StatusNotImplemented)
+		h.trouble(w, r, http.StatusNotImplemented, "No write access",
+			"This build was not handed the service paths, so it can only read.")
 		return
 	}
 	id := strings.TrimSpace(r.FormValue("id"))
@@ -178,12 +183,12 @@ func (h *Handler) channelSetting(w http.ResponseWriter, r *http.Request) {
 	value := strings.TrimSpace(r.FormValue("value"))
 	if id == "" || (name != "proactive" && name != "shadow") ||
 		(value != "on" && value != "off" && value != "inherit") {
-		http.Error(w, "a channel, a known setting and one of on, off or inherit are required",
-			http.StatusBadRequest)
+		h.trouble(w, r, http.StatusBadRequest, "Not a setting this page offers",
+			"A channel, one of the two participation settings, and on, off or inherit are required.")
 		return
 	}
 	if err := h.actions.SetChannelSetting(r.Context(), id, name, value, dashboardActor); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.trouble(w, r, http.StatusInternalServerError, "The change was refused", err.Error())
 		return
 	}
 	http.Redirect(w, r, "/channels/"+url.PathEscape(id), http.StatusSeeOther)

@@ -103,6 +103,27 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // a button only when pressing it would do something.
 func (h *Handler) CanAct() bool { return h.actions != nil }
 
+// trouble renders a refusal or a miss inside the shell instead of as two
+// words of bare text. http.Error and http.NotFound answer in unstyled
+// plaintext, and on a dashboard where every other state is designed, the
+// browser-default page reads as a crash rather than an answer — the operator
+// who mistyped an episode id deserves the same typography as one who did not.
+func (h *Handler) trouble(w http.ResponseWriter, r *http.Request, code int, kind, message string) {
+	back := r.Header.Get("Referer")
+	if back == "" || !strings.HasPrefix(back, "http://127.0.0.1") {
+		back = "/"
+	}
+	w.WriteHeader(code)
+	shell := h.shell(r, "", struct {
+		Code          int
+		Kind, Message string
+		Back          string
+		Bad           bool
+	}{code, kind, message, back, code >= 500})
+	shell.TitleOverride = kind
+	h.render.Render(w, "trouble", shell)
+}
+
 // page names the body template explicitly rather than deriving it from the
 // slug: the episode detail page lives under the Episodes nav entry but is its
 // own template, and inferring one from the other would couple navigation to
@@ -352,7 +373,8 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	item, err := h.reader.Episode(ctx, id)
 	if err != nil || item.ID == "" {
-		http.NotFound(w, r)
+		h.trouble(w, r, http.StatusNotFound, "No such episode",
+			"Nothing on record carries this id. If it came from an old link, the episode may predate the event ledger.")
 		return
 	}
 	page := episodePage{Item: item, CanAct: h.CanAct(), Resolvable: resolvableState(item.State)}
@@ -429,7 +451,8 @@ func (h *Handler) incident(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	room, err := h.reader.Room(ctx, id)
 	if err != nil || room.ID == "" {
-		http.NotFound(w, r)
+		h.trouble(w, r, http.StatusNotFound, "No such incident room",
+			"Nothing on record carries this id.")
 		return
 	}
 	page := struct {
@@ -474,7 +497,8 @@ func (h *Handler) auditKind(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	kind := r.PathValue("kind")
 	if !h.reader.KnownAuditKind(ctx, kind) {
-		http.NotFound(w, r)
+		h.trouble(w, r, http.StatusNotFound, "No such audit kind",
+			"No event of this kind has been recorded. The audit page lists every kind that has.")
 		return
 	}
 	query := r.URL.Query()
@@ -566,7 +590,8 @@ func (h *Handler) failure(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	cause := h.reader.CauseForKey(ctx, r.PathValue("key"))
 	if cause == "" {
-		http.NotFound(w, r)
+		h.trouble(w, r, http.StatusNotFound, "No such failure group",
+			"No current failure matches this link — likely every run behind it was retried or aged out since the page that linked here was rendered.")
 		return
 	}
 	runs, _ := h.reader.FailureRuns(ctx, cause)
@@ -605,7 +630,8 @@ func (h *Handler) conversation(w http.ResponseWriter, r *http.Request) {
 	// not exist rendered a blank page with every heading and no content, which
 	// reads as a memory that holds nothing rather than one that is not there.
 	if err != nil || detail.Channel == "" {
-		http.NotFound(w, r)
+		h.trouble(w, r, http.StatusNotFound, "No such conversation",
+			"No conversation memory exists at this address. It is written the first time a turn in the conversation learns something worth carrying.")
 		return
 	}
 	episodes, _ := h.reader.EpisodesForChannel(ctx, channelID, 10)
@@ -667,7 +693,8 @@ func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	detail, found, err := h.reader.Channel(ctx, r.PathValue("id"))
 	if err != nil || !found {
-		http.NotFound(w, r)
+		h.trouble(w, r, http.StatusNotFound, "No such channel",
+			"Responder has never seen this channel: it is not a member, nothing is configured for it, and no work is recorded in it.")
 		return
 	}
 	var failed problems

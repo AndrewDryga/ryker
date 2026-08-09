@@ -59,3 +59,11 @@
   </div>
 </details>
 {{end}}
+
+{{define "trouble"}}
+<div class="panel">
+  <div class="meta"><span class="pill{{if .Bad}} bad{{else}} warn{{end}}">{{.Code}}</span> {{.Kind}}</div>
+  <p>{{.Message}}</p>
+  <p class="note"><a href="{{.Back}}">← back</a></p>
+</div>
+{{end}}
