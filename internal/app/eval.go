@@ -469,6 +469,9 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 			label,
 			summary.Passed, summary.Total, summary.Failed,
 		)
+		if summary.Unevaluated > 0 {
+			fmt.Fprintf(&line, ", %d never evaluated", summary.Unevaluated)
+		}
 		if !*replay {
 			fmt.Fprintf(
 				&line,
@@ -479,7 +482,13 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		}
 		fmt.Fprintln(stdout, line.String())
 		for _, result := range summary.Results {
-			if !result.Passed {
+			switch {
+			case result.Unevaluated:
+				// Not FAIL: the case never ran, and labelling it FAIL is what
+				// sent a reader looking for four regressions that did not
+				// exist.
+				fmt.Fprintf(stdout, "UNRUN %s: %s\n", result.Name, result.Detail)
+			case !result.Passed:
 				fmt.Fprintf(stdout, "FAIL %s: %s\n", result.Name, result.Detail)
 			}
 		}
@@ -489,6 +498,16 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	if summary.Failed > 0 {
 		return fmt.Errorf("%d evaluation cases failed", summary.Failed)
+	}
+	// Still a nonzero exit: an unproven fixture must not pass because a
+	// provider was busy. Only the sentence changes, and the sentence is the
+	// whole point — it is the difference between "go read four fixtures" and
+	// "wait for the rate limit and run it again".
+	if summary.Unevaluated > 0 {
+		return fmt.Errorf(
+			"%d of %d evaluation cases were never evaluated: the provider refused the turn",
+			summary.Unevaluated, summary.Total,
+		)
 	}
 	if !summary.Gate.Passed {
 		return errors.New("evaluation gate failed")

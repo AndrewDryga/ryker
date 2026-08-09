@@ -130,10 +130,24 @@ type EvaluationStandingRule struct {
 }
 
 type EvaluationResult struct {
-	Name         string                  `json:"name"`
-	CaseName     string                  `json:"case_name,omitempty"`
-	Repetition   int                     `json:"repetition,omitempty"`
-	Passed       bool                    `json:"passed"`
+	Name       string `json:"name"`
+	CaseName   string `json:"case_name,omitempty"`
+	Repetition int    `json:"repetition,omitempty"`
+	Passed     bool   `json:"passed"`
+	// Unevaluated marks a case the model never answered, as distinct from one
+	// it answered wrongly.
+	//
+	// The first real run of the promoted-corrections gate reported "0/4 passed,
+	// 4 failed" — and every one of the four had been rate limited before the
+	// model saw it. Read literally that says four kept lessons have regressed,
+	// which would send someone to read four fixtures looking for a product bug
+	// that is not there. Worse, it is the reading that trains people to ignore
+	// the gate, and a gate nobody believes is the same as no gate.
+	//
+	// An unevaluated case still fails the run — a rate limit must not let an
+	// unproven fixture through — but it fails saying the corpus could not be
+	// evaluated rather than that it did not pass.
+	Unevaluated  bool                    `json:"unevaluated,omitempty"`
 	Detail       string                  `json:"detail,omitempty"`
 	Response     string                  `json:"response,omitempty"`
 	DurationMS   int64                   `json:"duration_ms,omitempty"`
@@ -146,18 +160,22 @@ type EvaluationResult struct {
 }
 
 type EvaluationSummary struct {
-	Mode         string               `json:"mode,omitempty"`
-	CorpusDigest string               `json:"corpus_digest,omitempty"`
-	Total        int                  `json:"total"`
-	Passed       int                  `json:"passed"`
-	Failed       int                  `json:"failed"`
-	ModelCalls   int                  `json:"model_calls,omitempty"`
-	DurationMS   int64                `json:"duration_ms,omitempty"`
-	Proactivity  ProactivityMetrics   `json:"proactivity,omitempty"`
-	Quality      QualityMetrics       `json:"quality,omitempty"`
-	Cases        []CaseAggregate      `json:"cases,omitempty"`
-	Gate         EvaluationGateResult `json:"gate,omitempty"`
-	Results      []EvaluationResult   `json:"results"`
+	Mode         string `json:"mode,omitempty"`
+	CorpusDigest string `json:"corpus_digest,omitempty"`
+	Total        int    `json:"total"`
+	Passed       int    `json:"passed"`
+	Failed       int    `json:"failed"`
+	// Unevaluated counts cases the provider never let the model answer. They
+	// are counted out of Failed so "4 failed" keeps meaning "four answers were
+	// wrong", which is the only reading that sends a reader to the right place.
+	Unevaluated int                  `json:"unevaluated,omitempty"`
+	ModelCalls  int                  `json:"model_calls,omitempty"`
+	DurationMS  int64                `json:"duration_ms,omitempty"`
+	Proactivity ProactivityMetrics   `json:"proactivity,omitempty"`
+	Quality     QualityMetrics       `json:"quality,omitempty"`
+	Cases       []CaseAggregate      `json:"cases,omitempty"`
+	Gate        EvaluationGateResult `json:"gate,omitempty"`
+	Results     []EvaluationResult   `json:"results"`
 }
 
 func EvaluateJSONL(reader io.Reader) (EvaluationSummary, error) {

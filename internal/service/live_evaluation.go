@@ -18,6 +18,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -178,6 +179,17 @@ func EvaluateLiveJSONL(
 			switch {
 			case runErr != nil:
 				result.Detail = "model call: " + runErr.Error()
+				// The provider refusing to run the turn is not the corpus
+				// failing. Classify names the refusals that say nothing about
+				// the answer — a rate limit, an exhausted quota, an outright
+				// refusal — and those leave the case unevaluated rather than
+				// failed. The run still fails; it just says which.
+				switch provider.Classify(runErr.Error()).Kind {
+				case provider.KindRateLimit,
+					provider.KindUsageLimit,
+					provider.KindProviderRefused:
+					result.Unevaluated = true
+				}
 			case cleanupErr != nil:
 				result.Detail = "session cleanup: " + cleanupErr.Error()
 			default:
@@ -325,9 +337,12 @@ func EvaluateLiveJSONL(
 				}
 			}
 			summary.Total++
-			if result.Passed {
+			switch {
+			case result.Passed:
 				summary.Passed++
-			} else {
+			case result.Unevaluated:
+				summary.Unevaluated++
+			default:
 				summary.Failed++
 			}
 			summary.Results = append(summary.Results, result)

@@ -624,8 +624,25 @@ func ApplyEvaluationGates(
 		gate.Passed = false
 		gate.Failures = append(gate.Failures, fmt.Sprintf(format, args...))
 	}
+	// A corpus the provider would not run is reported as unrun, not as failed.
+	//
+	// The first real execution of the promoted-corrections gate said "overall
+	// pass rate 0.000 is below 1.000" when all four cases had been rate limited
+	// before the model saw them. That sentence is true and useless: it sends a
+	// reader to look for four regressions that do not exist, and the next time
+	// they see it they will assume the same. The run still fails — an unproven
+	// fixture must not pass because a provider was busy — but it fails naming
+	// the provider rather than the corpus.
+	if summary.Unevaluated > 0 {
+		fail(
+			"%d of %d cases were never evaluated: the provider refused the turn, so this "+
+				"says nothing about whether the corpus still holds",
+			summary.Unevaluated, summary.Total,
+		)
+	}
 	overall := ratio(summary.Passed, summary.Total)
-	if options.MinOverallPassRate > 0 && overall < options.MinOverallPassRate {
+	if options.MinOverallPassRate > 0 && overall < options.MinOverallPassRate &&
+		summary.Unevaluated == 0 {
 		fail("overall pass rate %.3f is below %.3f", overall, options.MinOverallPassRate)
 	}
 	if options.MinCasePassRate > 0 {

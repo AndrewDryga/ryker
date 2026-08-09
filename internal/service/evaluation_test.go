@@ -1103,3 +1103,35 @@ func TestEpisodeReplayRequiresCompleteSanitizedFixtures(t *testing.T) {
 		t.Fatalf("unsafe episode replay fixture = %v", err)
 	}
 }
+
+// A corpus the provider would not run is unrun, not failed.
+//
+// The first real execution of the promoted-corrections gate printed
+// "0/4 passed, 4 failed" and "overall pass rate 0.000 is below 1.000" when all
+// four cases had been rate limited before the model saw them. Both sentences
+// are true and both send a reader to look for four regressions that do not
+// exist — and the second time somebody reads that, they stop believing the
+// gate. The run must still fail, because an unproven fixture cannot pass on
+// the grounds that a provider was busy; only the reason changes.
+func TestRateLimitedCasesFailAsUnrunRatherThanAsRegressions(t *testing.T) {
+	summary := EvaluationSummary{
+		Total: 4, Passed: 0, Failed: 0, Unevaluated: 4,
+		Results: []EvaluationResult{
+			{Name: "runbook", Unevaluated: true, Detail: "model call: provider rate limited the turn"},
+			{Name: "baseline", Unevaluated: true, Detail: "model call: provider rate limited the turn"},
+			{Name: "terraform", Unevaluated: true, Detail: "model call: provider rate limited the turn"},
+			{Name: "feedback", Unevaluated: true, Detail: "model call: provider rate limited the turn"},
+		},
+	}
+	ApplyEvaluationGates(&summary, EvaluationGateOptions{MinOverallPassRate: 1})
+	if summary.Gate.Passed {
+		t.Fatal("an unevaluated corpus passed its gate")
+	}
+	joined := strings.Join(summary.Gate.Failures, "\n")
+	if !strings.Contains(joined, "never evaluated") {
+		t.Errorf("gate did not say the cases were never evaluated: %q", joined)
+	}
+	if strings.Contains(joined, "pass rate") {
+		t.Errorf("gate blamed the corpus for a provider refusal: %q", joined)
+	}
+}
