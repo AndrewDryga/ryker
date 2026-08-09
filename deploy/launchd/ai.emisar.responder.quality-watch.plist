@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The local quality watcher, as a launch agent.
+
+  This job was installed by hand on the dogfood machine and existed nowhere in
+  the repository, so the only copy of how it is configured was the file in
+  ~/Library/LaunchAgents. That copy drifted: it still exported
+  RESPONDER_QUALITY_RESTART_LABELS, a variable scripts/quality-watch.sh stopped
+  reading when the restart path moved to scripts/self-deploy.sh, and nothing
+  reported that the setting had become inert. A watcher that reviews Responder's
+  own quality is worth versioning alongside it.
+
+  Install with:
+    sed -e "s|__HOME__|$HOME|g" \
+        -e "s|__REPOSITORY__|$PWD|g" \
+        -e "s|__STATE_DIR__|/path/to/deployment/.responder/state|g" \
+        -e "s|__TEST_CHANNEL__|C0123TEST|g" \
+        deploy/launchd/ai.emisar.responder.quality-watch.plist \
+      > ~/Library/LaunchAgents/ai.emisar.responder.quality-watch.plist
+    launchctl bootstrap gui/$UID ~/Library/LaunchAgents/ai.emisar.responder.quality-watch.plist
+
+  The test channel is a hard boundary recorded in every assessment; the watcher
+  has no Slack write path of its own.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.emisar.responder.quality-watch</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPOSITORY__/scripts/quality-watch.sh</string>
+    <string>--watch</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>PATH</key>
+    <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>RESPONDER_QUALITY_REPOSITORY</key>
+    <string>__REPOSITORY__</string>
+    <key>RESPONDER_QUALITY_STATE_DIR</key>
+    <string>__STATE_DIR__</string>
+    <key>RESPONDER_QUALITY_TEST_CHANNEL</key>
+    <string>__TEST_CHANNEL__</string>
+    <key>RESPONDER_QUALITY_INTERVAL</key>
+    <string>300</string>
+    <key>RESPONDER_QUALITY_BATCH_SIZE</key>
+    <string>5</string>
+    <key>RESPONDER_QUALITY_MODEL</key>
+    <string>gpt-5.6-sol</string>
+    <key>RESPONDER_QUALITY_REASONING</key>
+    <string>high</string>
+    <key>RESPONDER_QUALITY_RETENTION_DAYS</key>
+    <string>30</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__STATE_DIR__/quality-watch/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__STATE_DIR__/quality-watch/launchd.log</string>
+</dict>
+</plist>

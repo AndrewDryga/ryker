@@ -462,3 +462,45 @@ func stringTypedLocals(file *ast.File) map[string]bool {
 	})
 	return names
 }
+
+// A shipped launch agent may not export a setting its script stopped reading.
+//
+// The quality watcher's plist was installed by hand and lived nowhere in the
+// repository, so its only copy was the file under ~/Library/LaunchAgents. That
+// copy drifted: it still exported RESPONDER_QUALITY_RESTART_LABELS long after
+// scripts/quality-watch.sh stopped reading it, and an inert setting looks
+// exactly like a working one. Now that the plist is versioned, the two can be
+// compared — an exported RESPONDER_QUALITY_* key that the script never reads is
+// either a typo or a rule that has quietly stopped applying.
+func TestShippedLaunchAgentsOnlyExportSettingsTheScriptReads(t *testing.T) {
+	root := repoRoot(t)
+	script, err := os.ReadFile(filepath.Join(root, "scripts", "quality-watch.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plist, err := os.ReadFile(filepath.Join(
+		root, "deploy", "launchd", "ai.emisar.responder.quality-watch.plist",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the keys, not the surrounding comment: the comment explains the
+	// variable that was removed, and naming it there must stay allowed.
+	body := string(plist)
+	if start := strings.Index(body, "<key>EnvironmentVariables</key>"); start >= 0 {
+		body = body[start:]
+	}
+	for _, line := range strings.Split(body, "\n") {
+		name := strings.TrimSpace(line)
+		if !strings.HasPrefix(name, "<key>RESPONDER_QUALITY_") {
+			continue
+		}
+		name = strings.TrimSuffix(strings.TrimPrefix(name, "<key>"), "</key>")
+		if !strings.Contains(string(script), name) {
+			t.Errorf(
+				"the quality-watch launch agent exports %s, which scripts/quality-watch.sh never reads",
+				name,
+			)
+		}
+	}
+}
