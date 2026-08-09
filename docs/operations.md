@@ -601,8 +601,15 @@ Startup verifies `PRAGMA quick_check`, verifies that the snapshot still has the 
 version, sets file mode `0600`, and aborts before migration if any step fails. Only the three newest
 files matching Responder's migration-backup name are retained; unrelated files are never removed.
 
+That last clause is a guarantee, not an omission, and it has a cost worth knowing about. Responder
+collects only what Responder wrote, so anything else left in `backups/` stays there forever and is
+yours to remove. On the tenant deployment that is 47.8 MB of hand-taken `manual-*.db` snapshots, and
+the emisar state directory holds a further set of `responder.db.backup-*` and `.bak` copies from
+older manual procedures. Check both directories occasionally; nothing else will.
+
 For an operator-initiated point-in-time backup outside an upgrade, stop Responder, copy
-`responder.db`, then restart it. The Coop state and repository forks are separate and must be backed
+`responder.db` **to a directory Responder does not own** — not `backups/`, which is where the
+snapshots above accumulated — then restart it. The Coop state and repository forks are separate and must be backed
 up according to Coop's operating policy. Never restore only one side and assume session mappings
 still match; run `doctor`, `status`, and `failures` after recovery.
 

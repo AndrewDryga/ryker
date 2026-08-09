@@ -535,9 +535,24 @@ func TestMigrationBackupRetentionIsBoundedAndScoped(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	unrelated := filepath.Join(dir, "operator-note.txt")
-	if err := os.WriteFile(unrelated, []byte("retain"), 0o600); err != nil {
-		t.Fatal(err)
+	// Files Responder did not write. The two database-shaped ones are the point:
+	// the deployed backups directory holds 47.8 MB of exactly these, hand-taken
+	// before something risky, and every proposal to reclaim that space arrives
+	// as "widen the glob". A stray .txt would survive that widening and prove
+	// nothing, so the promise is pinned with names that would not.
+	unrelated := []string{
+		filepath.Join(dir, "operator-note.txt"),
+		filepath.Join(dir, "manual-before-runbook-repin-20260806T202856Z.db"),
+		filepath.Join(dir, "responder.db.pre-v12-20260729T044637Z.bak"),
+	}
+	for _, path := range unrelated {
+		if err := os.WriteFile(path, []byte("retain"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		when := base.Add(-24 * time.Hour)
+		if err := os.Chtimes(path, when, when); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := pruneMigrationBackups(dir, migrationBackupRetention); err != nil {
 		t.Fatal(err)
@@ -546,8 +561,10 @@ func TestMigrationBackupRetentionIsBoundedAndScoped(t *testing.T) {
 	if err != nil || len(paths) != migrationBackupRetention {
 		t.Fatalf("retained migration backups = %v, %v", paths, err)
 	}
-	if _, err := os.Stat(unrelated); err != nil {
-		t.Fatalf("unrelated file was removed: %v", err)
+	for _, path := range unrelated {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("a file Responder did not create was removed: %s: %v", path, err)
+		}
 	}
 }
 
