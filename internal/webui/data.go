@@ -954,11 +954,16 @@ type EpisodeFilter struct {
 	Channel, ChannelName string
 	Repository, Mode     string
 	Provider, Model      string
+	// Query is free text over the commitment title and the episode status —
+	// the two lines a person remembers about work they saw go past. State
+	// narrows to one lifecycle state; Offset pages through what matched.
+	Query, State string
+	Offset       int
 }
 
 func (f EpisodeFilter) Active() bool {
 	return f.Channel != "" || f.Repository != "" || f.Mode != "" ||
-		f.Provider != "" || f.Model != ""
+		f.Provider != "" || f.Model != "" || f.Query != "" || f.State != ""
 }
 
 // Describe says what the reader is looking at, in the words of the dimension
@@ -966,6 +971,9 @@ func (f EpisodeFilter) Active() bool {
 // reader concludes that work stopped happening.
 func (f EpisodeFilter) Describe() string {
 	parts := []string{}
+	if f.Query != "" {
+		parts = append(parts, "matching \""+f.Query+"\"")
+	}
 	if f.Channel != "" {
 		where := f.ChannelName
 		if where == "" {
@@ -974,6 +982,7 @@ func (f EpisodeFilter) Describe() string {
 		parts = append(parts, "in "+where)
 	}
 	for _, named := range []struct{ label, value string }{
+		{"state", f.State},
 		{"repository", f.Repository}, {"kind", f.Mode},
 		{"provider", f.Provider}, {"model", f.Model},
 	} {
@@ -995,6 +1004,7 @@ func (f EpisodeFilter) where() (string, []any) {
 		{"r.channel_id = ?", f.Channel},
 		{"r.repository = ?", f.Repository},
 		{"r.mode = ?", f.Mode},
+		{"e.lifecycle_state = ?", f.State},
 		{`EXISTS (SELECT 1 FROM context_manifests AS m
 		    WHERE m.episode_id = e.id AND m.provider = ?)`, f.Provider},
 		{`EXISTS (SELECT 1 FROM context_manifests AS m
@@ -1004,6 +1014,18 @@ func (f EpisodeFilter) where() (string, []any) {
 			clauses = append(clauses, term.sql)
 			args = append(args, term.value)
 		}
+	}
+	if f.Query != "" {
+		// The searched text is escaped so an operator typing "100%" searches
+		// for a percent sign rather than turning it into a wildcard. LIKE is
+		// enough here: titles and statuses are one line each, and the corpus
+		// is hundreds of rows, not millions.
+		like := "%" + strings.NewReplacer(
+			`\`, `\\`, `%`, `\%`, `_`, `\_`,
+		).Replace(f.Query) + "%"
+		clauses = append(clauses,
+			`(COALESCE(c.title,'') LIKE ? ESCAPE '\' OR COALESCE(e.status,'') LIKE ? ESCAPE '\')`)
+		args = append(args, like, like)
 	}
 	if len(clauses) == 0 {
 		return "", nil
@@ -1018,7 +1040,8 @@ func (r *Reader) EpisodesMatching(
 ) ([]Item, error) {
 	where, args := filter.where()
 	return r.scanItems(ctx, episodeSelect+where+
-		` ORDER BY e.created_at DESC LIMIT ?`, append(args, limit)...)
+		` ORDER BY e.created_at DESC LIMIT ? OFFSET ?`,
+		append(args, limit, filter.Offset)...)
 }
 
 // CountMatching reports its failure, unlike Count.
@@ -1027,6 +1050,10 @@ func (r *Reader) EpisodesMatching(
 // dashboard means "none" and not "could not ask". A filtered list is exactly
 // where that lie would land: "0 episodes" over a filter that never ran reads as
 // a model nothing was spent on.
+//
+// Its FROM carries the same joins as episodeSelect, because the free-text
+// clause reaches the commitment title: a count taken over fewer tables than
+// the list it captions is how "N match" and the rows below it disagree.
 func (r *Reader) CountMatching(ctx context.Context, filter EpisodeFilter) (int, error) {
 	if !r.live() {
 		return 0, nil
@@ -1035,8 +1062,23 @@ func (r *Reader) CountMatching(ctx context.Context, filter EpisodeFilter) (int, 
 	var count int
 	err := r.db.QueryRowContext(ctx, `
 	  SELECT COUNT(*) FROM work_episodes AS e
+	  LEFT JOIN commitments AS c ON c.episode_id = e.id
 	  LEFT JOIN agent_runs AS r ON r.id = e.agent_run_id`+where, args...).Scan(&count)
 	return count, err
+}
+
+// EpisodeStates lists the lifecycle states that actually occur, for the state
+// dropdown. The full constant set would offer states no episode has ever been
+// in, and an option that can only produce an empty page is a control that
+// looks live and is not.
+func (r *Reader) EpisodeStates(ctx context.Context) ([]string, error) {
+	return collect(ctx, r,
+		`SELECT DISTINCT lifecycle_state FROM work_episodes ORDER BY 1`,
+		func(rows *sql.Rows) (string, error) {
+			var state string
+			err := rows.Scan(&state)
+			return state, err
+		})
 }
 
 // Schedule is one recurring task the operator has confirmed.

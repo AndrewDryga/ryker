@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 // AuditRow is one thing that was done, by whom, and what came of it.
@@ -123,6 +125,61 @@ func (r *Reader) AuditRecent(ctx context.Context, limit int) ([]AuditRow, error)
 func (r *Reader) AuditOfKind(ctx context.Context, kind string) ([]AuditRow, error) {
 	return r.scanAudit(ctx,
 		auditSelect+` WHERE a.kind = ? ORDER BY a.created_at DESC LIMIT 200`, kind)
+}
+
+// AuditFilter narrows one kind's events to an actor and a window, with an
+// offset. It exists because slack.watch holds hundreds of rows and a page
+// that shows the newest two hundred of them answers "what happened last
+// week" with silence.
+type AuditFilter struct {
+	Kind, Actor string
+	Since       time.Time
+	SinceKey    string
+	Offset      int
+}
+
+func (f AuditFilter) Active() bool { return f.Actor != "" || !f.Since.IsZero() }
+
+// where builds the predicate the list and its count share, so "N match" can
+// never disagree with the rows below it.
+func (f AuditFilter) where() (string, []any) {
+	clauses, args := []string{"a.kind = ?"}, []any{f.Kind}
+	if f.Actor != "" {
+		clauses = append(clauses, "a.actor_id = ?")
+		args = append(args, f.Actor)
+	}
+	if !f.Since.IsZero() {
+		// core.TimestampFormat, not RFC3339Nano: stored stamps are TEXT and
+		// SQLite compares them as text, and RFC3339Nano's trailing-zero
+		// stripping makes its Z sort after every digit — a threshold written
+		// that way excludes rows that happen to carry a fraction.
+		clauses = append(clauses, "a.created_at >= ?")
+		args = append(args, f.Since.UTC().Format(core.TimestampFormat))
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+// auditPageSize is raw rows per page, before identical neighbours fold.
+const auditPageSize = 100
+
+func (r *Reader) AuditOfKindFiltered(ctx context.Context, filter AuditFilter) ([]AuditRow, error) {
+	where, args := filter.where()
+	return r.scanAudit(ctx, auditSelect+where+
+		` ORDER BY a.created_at DESC LIMIT ? OFFSET ?`,
+		append(args, auditPageSize, filter.Offset)...)
+}
+
+// CountAuditOfKind reports its failure, for the same reason CountMatching
+// does: a zero from a broken query would read as "nothing matched".
+func (r *Reader) CountAuditOfKind(ctx context.Context, filter AuditFilter) (int, error) {
+	if !r.live() {
+		return 0, nil
+	}
+	where, args := filter.where()
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM audit_events AS a`+where, args...).Scan(&count)
+	return count, err
 }
 
 // AuditForEpisode is the link the other way: from work back to the record of

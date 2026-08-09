@@ -3,7 +3,10 @@ package webui
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -192,31 +195,51 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// episodePageSize keeps one page readable; the pager reaches the rest.
+const episodePageSize = 50
+
 // episodes lists the work, optionally narrowed to one slice of it.
 //
-// The filter is what makes the Usage breakdowns openable. Incident rooms are
-// dropped while one is active: they are not filtered by it, and an unfiltered
-// table sitting above a filtered list reads as part of the same answer.
+// The filter is what makes the Usage breakdowns openable, and the search box
+// is what makes eight hundred episodes findable: the query is a plain GET, so
+// a filtered page stays a URL that can be bookmarked or pasted into a thread.
+// Incident rooms are dropped while a filter is active: they are not filtered
+// by it, and an unfiltered table sitting above a filtered list reads as part
+// of the same answer.
 func (h *Handler) episodes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var failed problems
 	filter := h.episodeFilter(ctx, r)
-	episodes, err := h.reader.EpisodesMatching(ctx, filter, 200)
+	episodes, err := h.reader.EpisodesMatching(ctx, filter, episodePageSize)
 	failed.note("episodes", err)
 	total, err := h.reader.CountMatching(ctx, filter)
 	failed.note("episode count", err)
+	states, err := h.reader.EpisodeStates(ctx)
+	failed.note("states", err)
 	rooms := []Room{}
 	if !filter.Active() {
 		rooms, err = h.reader.Rooms(ctx)
 		failed.note("incident rooms", err)
 	}
-	h.page(w, r, "episodes", "episodes", struct {
-		Episodes []Item
-		Rooms    []Room
-		Errs     problems
-		Filter   EpisodeFilter
-		Total    int
-	}{episodes, rooms, failed, filter, total})
+	page := struct {
+		Episodes     []Item
+		Rooms        []Room
+		Errs         problems
+		Filter       EpisodeFilter
+		Total        int
+		States       []string
+		From, To     int
+		Older, Newer template.URL
+	}{Episodes: episodes, Rooms: rooms, Errs: failed, Filter: filter,
+		Total: total, States: states}
+	page.From, page.To = filter.Offset+1, filter.Offset+len(episodes)
+	if filter.Offset+episodePageSize < total {
+		page.Older = episodesURL(filter, filter.Offset+episodePageSize)
+	}
+	if filter.Offset > 0 {
+		page.Newer = episodesURL(filter, max(filter.Offset-episodePageSize, 0))
+	}
+	h.page(w, r, "episodes", "episodes", page)
 }
 
 func (h *Handler) episodeFilter(ctx context.Context, r *http.Request) EpisodeFilter {
@@ -227,9 +250,45 @@ func (h *Handler) episodeFilter(ctx context.Context, r *http.Request) EpisodeFil
 		Mode:       strings.TrimSpace(query.Get("mode")),
 		Provider:   strings.TrimSpace(query.Get("provider")),
 		Model:      strings.TrimSpace(query.Get("model")),
+		Query:      strings.TrimSpace(query.Get("q")),
+		State:      strings.TrimSpace(query.Get("state")),
+		Offset:     pageOffset(query.Get("offset")),
 	}
 	filter.ChannelName = h.reader.channelName(ctx, filter.Channel)
 	return filter
+}
+
+// pageOffset reads an offset that came from a link this dashboard wrote.
+// Anything unreadable or negative is page one, not an error page: the URL is
+// user-editable and a mistyped offset should land somewhere useful.
+func pageOffset(raw string) int {
+	offset, err := strconv.Atoi(raw)
+	if err != nil || offset < 0 {
+		return 0
+	}
+	return offset
+}
+
+// episodesURL rebuilds the list URL for a different page of the same filter,
+// so pagination can never drop a filter term and quietly widen the list.
+func episodesURL(filter EpisodeFilter, offset int) template.URL {
+	values := url.Values{}
+	for _, param := range []struct{ key, value string }{
+		{"q", filter.Query}, {"state", filter.State},
+		{"channel", filter.Channel}, {"repository", filter.Repository},
+		{"mode", filter.Mode}, {"provider", filter.Provider}, {"model", filter.Model},
+	} {
+		if param.value != "" {
+			values.Set(param.key, param.value)
+		}
+	}
+	if offset > 0 {
+		values.Set("offset", strconv.Itoa(offset))
+	}
+	if len(values) == 0 {
+		return template.URL("/episodes")
+	}
+	return template.URL("/episodes?" + values.Encode()) //nolint:gosec // literal path, encoded values
 }
 
 // episodePage is the whole record of one piece of work.
@@ -402,14 +461,68 @@ func (h *Handler) auditKind(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	query := r.URL.Query()
+	// The window keys are the Usage page's, so "last 7 days" means the same
+	// thing on every page; audit defaults to everything because its question
+	// is usually "when did this ever happen".
+	sinceKey := query.Get("since")
+	if sinceKey == "" {
+		sinceKey = "all"
+	}
+	windows := UsageWindows(sinceKey, time.Now().UTC())
+	window := chosenWindow(windows)
+	filter := AuditFilter{
+		Kind:     kind,
+		Actor:    strings.TrimSpace(query.Get("actor")),
+		Since:    window.Since,
+		SinceKey: window.Key,
+		Offset:   pageOffset(query.Get("offset")),
+	}
 	var failed problems
-	events, err := h.reader.AuditOfKind(ctx, kind)
+	events, err := h.reader.AuditOfKindFiltered(ctx, filter)
 	failed.note("events", err)
-	h.detail(w, r, "audit", "auditkind", kind, struct {
-		Kind   string
-		Events []AuditRow
-		Errs   problems
-	}{kind, events, failed})
+	total, err := h.reader.CountAuditOfKind(ctx, filter)
+	failed.note("count", err)
+	page := struct {
+		Kind         string
+		Events       []AuditRow
+		Errs         problems
+		Filter       AuditFilter
+		Total, Raw   int
+		From, To     int
+		Windows      []UsageWindow
+		Older, Newer template.URL
+	}{Kind: kind, Events: events, Errs: failed, Filter: filter,
+		Total: total, Windows: windows}
+	// Raw is rows before identical neighbours fold; the caption carries both
+	// so a folded page cannot be mistaken for a short one.
+	page.Raw = min(auditPageSize, max(total-filter.Offset, 0))
+	page.From, page.To = filter.Offset+1, filter.Offset+page.Raw
+	if filter.Offset+auditPageSize < total {
+		page.Older = auditKindURL(filter, filter.Offset+auditPageSize)
+	}
+	if filter.Offset > 0 {
+		page.Newer = auditKindURL(filter, max(filter.Offset-auditPageSize, 0))
+	}
+	h.detail(w, r, "audit", "auditkind", kind, page)
+}
+
+func auditKindURL(filter AuditFilter, offset int) template.URL {
+	values := url.Values{}
+	if filter.Actor != "" {
+		values.Set("actor", filter.Actor)
+	}
+	if filter.SinceKey != "" && filter.SinceKey != "all" {
+		values.Set("since", filter.SinceKey)
+	}
+	if offset > 0 {
+		values.Set("offset", strconv.Itoa(offset))
+	}
+	path := "/audit/" + url.PathEscape(filter.Kind)
+	if len(values) == 0 {
+		return template.URL(path) //nolint:gosec // path-escaped kind
+	}
+	return template.URL(path + "?" + values.Encode()) //nolint:gosec // path-escaped kind, encoded values
 }
 
 func (h *Handler) failures(w http.ResponseWriter, r *http.Request) {

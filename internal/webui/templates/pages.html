@@ -71,30 +71,33 @@ Only the work columns below represent jobs Responder still needs to process.</p>
 
 {{define "episodes"}}
 {{template "problems" .Errs}}
+<form method="get" action="/episodes" class="filter">
+  <input type="text" name="q" value="{{.Filter.Query}}" placeholder="search titles and status lines">
+  <select name="state">
+    <option value="">any state</option>
+    {{$chosen := .Filter.State}}
+    {{range .States}}<option value="{{.}}"{{if eq . $chosen}} selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  {{if .Filter.Channel}}<input type="hidden" name="channel" value="{{.Filter.Channel}}">{{end}}
+  {{if .Filter.Repository}}<input type="hidden" name="repository" value="{{.Filter.Repository}}">{{end}}
+  {{if .Filter.Mode}}<input type="hidden" name="mode" value="{{.Filter.Mode}}">{{end}}
+  {{if .Filter.Provider}}<input type="hidden" name="provider" value="{{.Filter.Provider}}">{{end}}
+  {{if .Filter.Model}}<input type="hidden" name="model" value="{{.Filter.Model}}">{{end}}
+  <button>Search</button>
+</form>
 {{if .Filter.Active}}
 <div class="tabs">
   <span class="on">{{.Filter.Describe}}</span>
   <a href="/episodes">clear filter</a>
 </div>
-<h2>Episodes <span class="note">{{.Total}} match</span></h2>
+<h2>Episodes <span class="note">{{.Total}} match{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
 <p class="note">One episode can hold several attempts and an episode that never froze a manifest
-holds none, so this count is not the attempt count the Usage page breaks spend down by.
-{{if gt .Total (len .Episodes)}}The {{len .Episodes}} most recent are listed; the rest are on
-record and not on this page.{{end}}</p>
+holds none, so this count is not the attempt count the Usage page breaks spend down by.</p>
 {{if .Episodes}}
-<div class="rows">
-  {{range .Episodes}}
-  <a class="row" href="/episodes/{{.ID}}">
-    <div class="title">{{truncate 120 .Title}}</div>
-    <div class="meta">
-      <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
-      {{.Channel}} · {{.Kind}} · {{since .Updated}}
-    </div>
-  </a>
-  {{end}}
-</div>
+{{template "episoderows" .Episodes}}
 {{else}}<p class="empty">No episode matches this filter. The count above came from the same
 query, so an empty list here means nothing matched rather than nothing loaded.</p>{{end}}
+{{template "pager" .}}
 {{else}}
 <h2>Incident rooms <span class="note">{{len .Rooms}}</span></h2>
 {{if .Rooms}}
@@ -113,11 +116,18 @@ are where the pull requests come from.</p>
 </table>
 {{else}}<p class="empty">No incident room has been opened.</p>{{end}}
 
-<h2>Episodes <span class="note">{{.Total}} recorded</span></h2>
-{{if gt .Total (len .Episodes)}}<p class="note">The {{len .Episodes}} most recent are listed. A
-truncated list that does not say it is truncated reads as the whole record.</p>{{end}}
+<h2>Episodes <span class="note">{{.Total}} recorded{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
+{{if .Episodes}}
+{{template "episoderows" .Episodes}}
+{{else}}<p class="empty">No episode is on record yet. One appears the first time Responder accepts
+a piece of work from Slack or a webhook.</p>{{end}}
+{{template "pager" .}}
+{{end}}
+{{end}}
+
+{{define "episoderows"}}
 <div class="rows">
-  {{range .Episodes}}
+  {{range .}}
   <a class="row" href="/episodes/{{.ID}}">
     <div class="title">{{truncate 120 .Title}}</div>
     <div class="meta">
@@ -126,6 +136,14 @@ truncated list that does not say it is truncated reads as the whole record.</p>{
     </div>
   </a>
   {{end}}
+</div>
+{{end}}
+
+{{define "pager"}}
+{{if or .Newer .Older}}
+<div class="pager">
+  {{if .Newer}}<a href="{{.Newer}}">← newer</a>{{end}}
+  {{if .Older}}<a href="{{.Older}}">older →</a>{{end}}
 </div>
 {{end}}
 {{end}}

@@ -14,11 +14,17 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-// everyFilterTerm exercises all five episode-list predicates at once, so a
-// column renamed under one of them cannot hide behind the four that still parse.
+// everyFilterTerm exercises every episode-list predicate at once, so a column
+// renamed under one of them cannot hide behind the others that still parse.
 var everyFilterTerm = EpisodeFilter{
 	Channel: "C1", Repository: "tenant-platform", Mode: "triage",
 	Provider: "anthropic", Model: "claude-opus-4-5",
+	Query: "checkout 100%", State: "failed", Offset: 10,
+}
+
+// everyAuditTerm does the same for the audit drill-down's predicates.
+var everyAuditTerm = AuditFilter{
+	Kind: "slack.watch", Actor: "U1", Since: time.Now().UTC(), Offset: 100,
 }
 
 // Every read runs against the real schema, not against a nil database.
@@ -54,32 +60,41 @@ func TestEveryQueryRunsAgainstTheMigratedSchema(t *testing.T) {
 		"Failures":            func() error { _, err := reader.Failures(ctx); return err },
 		"FailureRuns":         func() error { _, err := reader.FailureRuns(ctx, "boom"); return err },
 		"RetainedWorkspaces":  func() error { _, _, err := reader.RetainedWorkspaces(ctx); return err },
-		"Corrections":         func() error { _, err := reader.Corrections(ctx); return err },
-		"Feedback":            func() error { _, err := reader.Feedback(ctx); return err },
-		"ChannelMemory":       func() error { _, err := reader.ChannelMemory(ctx); return err },
-		"Channels":            func() error { _, err := reader.Channels(ctx); return err },
-		"MemoryEntries":       func() error { _, err := reader.MemoryEntries(ctx); return err },
-		"Rollups":             func() error { _, err := reader.Rollups(ctx); return err },
-		"Conversations":       func() error { _, err := reader.Conversations(ctx); return err },
-		"MemoryReview":        func() error { _, err := reader.MemoryReview(ctx); return err },
-		"Conversation":        func() error { _, err := reader.Conversation(ctx, "C1", "channel"); return err },
-		"Rooms":               func() error { _, err := reader.Rooms(ctx); return err },
-		"Signals":             func() error { _, err := reader.Signals(ctx, "inc"); return err },
-		"Moments":             func() error { _, err := reader.Moments(ctx, "inc"); return err },
-		"Publication":         func() error { _, err := reader.Publication(ctx, "inc"); return err },
-		"Lanes":               func() error { _, err := reader.Lanes(ctx); return err },
-		"AuditKinds":          func() error { _, err := reader.AuditKinds(ctx); return err },
-		"AuditRecent":         func() error { _, err := reader.AuditRecent(ctx, 10); return err },
-		"AuditOfKind":         func() error { _, err := reader.AuditOfKind(ctx, "slack.watch"); return err },
-		"AuditForEpisode":     func() error { _, err := reader.AuditForEpisode(ctx, "ep"); return err },
-		"AuditForIncident":    func() error { _, err := reader.AuditForIncident(ctx, "inc"); return err },
-		"UsageTotals":         func() error { _, err := reader.UsageTotals(ctx, window); return err },
-		"UsageTrend":          func() error { _, err := reader.UsageTrend(ctx, window); return err },
-		"UsageByModel":        func() error { _, err := reader.UsageByModel(ctx, window); return err },
-		"UsageByChannel":      func() error { _, err := reader.UsageByChannel(ctx, window); return err },
-		"UsageByRepository":   func() error { _, err := reader.UsageByRepository(ctx, window); return err },
-		"UsageByKind":         func() error { _, err := reader.UsageByKind(ctx, window); return err },
-		"EpisodeTokens":       func() error { _, err := reader.EpisodeTokens(ctx, "ep"); return err },
+		"EpisodeStates":       func() error { _, err := reader.EpisodeStates(ctx); return err },
+		"AuditOfKindFiltered": func() error {
+			_, err := reader.AuditOfKindFiltered(ctx, everyAuditTerm)
+			return err
+		},
+		"CountAuditOfKind": func() error {
+			_, err := reader.CountAuditOfKind(ctx, everyAuditTerm)
+			return err
+		},
+		"Corrections":       func() error { _, err := reader.Corrections(ctx); return err },
+		"Feedback":          func() error { _, err := reader.Feedback(ctx); return err },
+		"ChannelMemory":     func() error { _, err := reader.ChannelMemory(ctx); return err },
+		"Channels":          func() error { _, err := reader.Channels(ctx); return err },
+		"MemoryEntries":     func() error { _, err := reader.MemoryEntries(ctx); return err },
+		"Rollups":           func() error { _, err := reader.Rollups(ctx); return err },
+		"Conversations":     func() error { _, err := reader.Conversations(ctx); return err },
+		"MemoryReview":      func() error { _, err := reader.MemoryReview(ctx); return err },
+		"Conversation":      func() error { _, err := reader.Conversation(ctx, "C1", "channel"); return err },
+		"Rooms":             func() error { _, err := reader.Rooms(ctx); return err },
+		"Signals":           func() error { _, err := reader.Signals(ctx, "inc"); return err },
+		"Moments":           func() error { _, err := reader.Moments(ctx, "inc"); return err },
+		"Publication":       func() error { _, err := reader.Publication(ctx, "inc"); return err },
+		"Lanes":             func() error { _, err := reader.Lanes(ctx); return err },
+		"AuditKinds":        func() error { _, err := reader.AuditKinds(ctx); return err },
+		"AuditRecent":       func() error { _, err := reader.AuditRecent(ctx, 10); return err },
+		"AuditOfKind":       func() error { _, err := reader.AuditOfKind(ctx, "slack.watch"); return err },
+		"AuditForEpisode":   func() error { _, err := reader.AuditForEpisode(ctx, "ep"); return err },
+		"AuditForIncident":  func() error { _, err := reader.AuditForIncident(ctx, "inc"); return err },
+		"UsageTotals":       func() error { _, err := reader.UsageTotals(ctx, window); return err },
+		"UsageTrend":        func() error { _, err := reader.UsageTrend(ctx, window); return err },
+		"UsageByModel":      func() error { _, err := reader.UsageByModel(ctx, window); return err },
+		"UsageByChannel":    func() error { _, err := reader.UsageByChannel(ctx, window); return err },
+		"UsageByRepository": func() error { _, err := reader.UsageByRepository(ctx, window); return err },
+		"UsageByKind":       func() error { _, err := reader.UsageByKind(ctx, window); return err },
+		"EpisodeTokens":     func() error { _, err := reader.EpisodeTokens(ctx, "ep"); return err },
 		"EpisodesMatching": func() error {
 			_, err := reader.EpisodesMatching(ctx, everyFilterTerm, 5)
 			return err

@@ -443,6 +443,24 @@ details.confirm .arm {
 }
 details.confirm .arm form { margin: 0; }
 
+/* Filters are plain GET forms — a filtered list stays a URL, bookmarkable and
+   pasteable into an incident thread, and needs no client-side state. */
+form.filter { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+form.filter input[type=text], form.filter select {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 4px 10px;
+  font: 13px var(--sans);
+  min-width: 180px;
+}
+form.filter input::placeholder { color: var(--faint); }
+form.filter select { min-width: 0; }
+form.filter a { font-size: 12.5px; color: var(--dim); }
+
+.pager { display: flex; gap: 16px; font-size: 13px; }
+
 /* Empty and unwired ------------------------------------------------------------------- */
 
 .empty {
