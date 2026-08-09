@@ -530,9 +530,16 @@ func (r *Reader) ChannelMemory(ctx context.Context) ([]ChannelMemoryRow, error) 
 	if !r.live() {
 		return nil, nil
 	}
+	// conversation_memories at channel level, not channel_memories: the latter
+	// is the session-binding ledger, its state was being wiped to '{}' by every
+	// ignore decision until the store grew the guard its sibling had, and rows
+	// wiped before that fix stay empty until the next real memory update. The
+	// conversation table kept the truth throughout — reading it shows the
+	// summaries that "No current summary" was rendered on top of.
 	rows, err := r.db.QueryContext(ctx, `
 	  SELECT channel_id, COALESCE(state_json,'{}'), updated_at
-	  FROM channel_memories ORDER BY updated_at DESC LIMIT 25`)
+	  FROM conversation_memories WHERE thread_ts = ''
+	  ORDER BY updated_at DESC LIMIT 25`)
 	if err != nil {
 		return nil, err
 	}

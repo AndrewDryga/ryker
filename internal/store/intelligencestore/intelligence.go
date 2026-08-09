@@ -405,6 +405,16 @@ func (r *Repository) ApplyWatchDecision(
 	if inserted == 0 {
 		return false, tx.Commit()
 	}
+	// Both channel-memory writes carry the same empty-state guard the
+	// conversation upsert below has always had. Without it, every ignore
+	// decision — which marshals its memory as '{}' — erased the channel's
+	// situation on arrival: all four channel_memories rows in production read
+	// '{}' while the summaries they once held sat intact one table away, and
+	// the App Home introduced every channel as "no current summary".
+	//
+	// The compared parameter binds as a string on purpose. []byte binds as a
+	// BLOB, a BLOB never equals the TEXT literal '{}', and the first version
+	// of this guard silently never fired — caught by its own regression test.
 	switch lane {
 	case "", "investigation":
 		sessionChannelID := decision.SessionChannelID
@@ -414,9 +424,10 @@ func (r *Repository) ApplyWatchDecision(
 		update, err := tx.ExecContext(ctx, `
 			UPDATE channel_memories
 			SET session_revision = ?, turn_count = turn_count + 1,
-			    state_json = ?, updated_at = ?
+			    state_json = CASE WHEN ? = '{}' THEN state_json ELSE ? END,
+			    updated_at = ?
 			WHERE channel_id = ?`,
-			sessionRevision, memory, r.nowText(), sessionChannelID,
+			sessionRevision, string(memory), string(memory), r.nowText(), sessionChannelID,
 		)
 		if err := sqlutil.ExpectOne(update, err, "apply watch decision memory"); err != nil {
 			return false, err
@@ -424,9 +435,10 @@ func (r *Repository) ApplyWatchDecision(
 		if sessionChannelID != decision.ChannelID {
 			update, err = tx.ExecContext(ctx, `
 				UPDATE channel_memories
-				SET state_json = ?, updated_at = ?
+				SET state_json = CASE WHEN ? = '{}' THEN state_json ELSE ? END,
+				    updated_at = ?
 				WHERE channel_id = ?`,
-				memory, r.nowText(), decision.ChannelID,
+				string(memory), string(memory), r.nowText(), decision.ChannelID,
 			)
 			if err := sqlutil.ExpectOne(update, err, "apply scheduled decision channel memory"); err != nil {
 				return false, err
@@ -444,9 +456,10 @@ func (r *Repository) ApplyWatchDecision(
 		}
 		update, err = tx.ExecContext(ctx, `
 			UPDATE channel_memories
-			SET state_json = ?, updated_at = ?
+			SET state_json = CASE WHEN ? = '{}' THEN state_json ELSE ? END,
+			    updated_at = ?
 			WHERE channel_id = ?`,
-			memory, r.nowText(), decision.ChannelID,
+			string(memory), string(memory), r.nowText(), decision.ChannelID,
 		)
 		if err := sqlutil.ExpectOne(update, err, "apply conversation decision memory"); err != nil {
 			return false, err
