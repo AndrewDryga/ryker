@@ -154,7 +154,8 @@ eval-regressions: | $(EVAL_HISTORY)
 	fi; \
 	set -x; \
 	go run ./cmd/responder eval --config "$(CONFIG)" --episode-replay \
-		--input "$(REGRESSION_CORPUS)" --min-overall-pass-rate 1 \
+		--input "$(REGRESSION_CORPUS)" --repeat $(REGRESSION_REPEAT) \
+		--min-case-pass-rate $(REGRESSION_CASE_RATE) \
 		$(call history,regressions)
 
 eval-live-canary: | $(EVAL_HISTORY)
@@ -209,6 +210,27 @@ dev-check: tidy-check lint test eval-replay build
 # gate could not fail because of a promoted regression, and the four cases
 # promoted on 2026-08-08 were never replayed against a model at all.
 REGRESSION_CORPUS = testdata/eval/regressions.jsonl
+
+# The corpus is replayed three times per case and judged on the majority, not
+# on one perfect run.
+#
+# It used to demand an overall pass rate of 1 against a real model, which is a
+# gate that cannot hold: five credentialed runs on one afternoon produced a
+# materially different response to the same fixture every time. Every class of
+# defect fixed today stayed fixed, and the score still moved run to run — so a
+# single failing sample proved nothing, and a gate that cries regression at
+# noise gets switched off by the second week.
+#
+# Three samples with a two-thirds bar is the smallest thing that separates the
+# two: a lesson that genuinely broke fails all three, and a model that varied
+# fails one. It is a per-case bar rather than an overall one deliberately —
+# averaged across cases, two flaky samples in different fixtures look identical
+# to one fixture that regressed outright.
+#
+# Nine model calls per run, and only where credentials already exist. Raise
+# REGRESSION_REPEAT if a case turns out to be flakier than that resolves.
+REGRESSION_REPEAT ?= 3
+REGRESSION_CASE_RATE ?= 0.67
 
 promote-corrections:
 	@echo "== gate before promotion (establishing a clean baseline) =="

@@ -325,3 +325,74 @@ func TestMemoryCorpusAssertsRecallBehaviour(t *testing.T) {
 		})
 	}
 }
+
+// No new fixture may ask half a question.
+//
+// A fixture's input used to be copied from the episode objective, which is a
+// display headline the host builds with TruncateUTF8WithSuffix(text, 180,
+// "..."). So a promoted case asked the model a question that stopped
+// mid-sentence, and then the corpus scored the model's entirely reasonable
+// request for the rest of it as a regression. The recorder refuses to write one
+// now; this stops the two that predate the fix from being joined by more.
+//
+// The two are grandfathered rather than deleted because they are the only proof
+// for their capabilities, their originating slack_inputs rows are pruned, and
+// so the choice is between imperfect proof and moving two capabilities to the
+// acknowledged-gap list — a coverage decision, not a cleanup. They are named
+// here so that the choice stays visible instead of dissolving into the file.
+func TestNoNewCorpusFixtureAsksATruncatedQuestion(t *testing.T) {
+	unrepairable := map[string]string{
+		"progress-updates":             "episode d01ca30b; its slack_inputs row is pruned",
+		"thread-and-channel-switching": "episode 3d6fb54e; its slack_inputs row is pruned",
+	}
+	seen := map[string]bool{}
+	for _, path := range evaluationCorpora(t) {
+		// Scenarios and calibration carry their own shapes and no input field.
+		switch filepath.Base(path) {
+		case "scenarios.jsonl", "quality-calibration.jsonl":
+			continue
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cases, err := decodeEvaluationCases(file)
+		file.Close()
+		if err != nil {
+			t.Fatalf("%s: decode: %v", path, err)
+		}
+		for _, testCase := range cases {
+			if !strings.HasSuffix(testCase.Input, "...") {
+				continue
+			}
+			capability := ""
+			for _, tag := range testCase.Tags {
+				if rest, ok := strings.CutPrefix(tag, "capability:"); ok && rest != "" {
+					capability = rest
+				}
+			}
+			reason, allowed := unrepairable[capability]
+			if !allowed {
+				t.Errorf(
+					"%s: case %q asks a truncated question. Its input is the 180-byte "+
+						"objective headline, not the text that triggered the episode, so "+
+						"nothing can answer it. Re-record it with responder record-episode.",
+					path, testCase.Name,
+				)
+				continue
+			}
+			seen[capability] = true
+			t.Logf("%s: %q is grandfathered truncated (%s)", path, testCase.Name, reason)
+		}
+	}
+	// If a grandfathered case is repaired or dropped, its exemption must go
+	// with it, or the list quietly becomes permission for the next one.
+	for capability := range unrepairable {
+		if !seen[capability] {
+			t.Errorf(
+				"the truncated-input exemption for %q matches no case any more; delete it",
+				capability,
+			)
+		}
+	}
+}
