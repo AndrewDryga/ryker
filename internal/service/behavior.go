@@ -1241,7 +1241,7 @@ func normalizedOffers(
 	if offer, ok := normalizeOperationalAlertRule(input, repository, offers.Rule); ok {
 		offers.Rule = offer
 	}
-	offer, acknowledgement, locationRequest := normalizeResponseLocationPreference(input, offers.Preference)
+	offer, _, locationRequest := normalizeResponseLocationPreference(input, offers.Preference)
 	if locationRequest {
 		offers.Preference = offer
 	}
@@ -1251,12 +1251,11 @@ func normalizedOffers(
 	}
 	multiple := offers.Preference != nil && (offers.Rule != nil || offers.Memory != nil) ||
 		offers.Rule != nil && offers.Memory != nil
+	acknowledgement := "I can remember that. Confirm below."
 	if multiple {
 		acknowledgement = "I can remember both. Confirm below."
 	} else if offers.Rule != nil {
 		acknowledgement = "I can monitor that for this channel. Confirm below."
-	} else {
-		acknowledgement = "I can remember that. Confirm below."
 	}
 	return offers, acknowledgement, true
 }
