@@ -159,7 +159,7 @@ header {
   border-bottom: 1px solid var(--line-2);
 }
 
-.crumb { margin: 0 0 4px; font-size: 12.5px; color: var(--faint); }
+.crumb { margin: 0 0 4px !important; font-size: 12.5px; color: var(--faint); }
 .crumb a { color: var(--faint); }
 .crumb a:hover { color: var(--accent); }
 
@@ -193,12 +193,22 @@ h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.01em; line-
 }
 .status .ready.down::before { background: var(--bad); box-shadow: 0 0 8px rgb(251 113 133 / .6); }
 
+/* Vertical rhythm is one flow rule, not a margin per component. Blocks are
+   12px apart, a new section breathes 32px above its heading and holds its
+   content 10px close — so a table can never fuse with the next table, and an
+   unwired panel can never weld onto the one below it, which is exactly how
+   the episode page rendered before this existed. */
+main > * + * { margin-top: 12px; }
+main > * + h2 { margin-top: 32px; }
+main > h2 + * { margin-top: 10px; }
+main p { margin: 0; }
+
 h2 {
   font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: .8px;
   color: var(--dim);
-  margin: 34px 0 10px;
+  margin: 0;
   font-weight: 600;
 }
 
@@ -292,7 +302,7 @@ th {
   border-bottom: 1px solid var(--line);
 }
 
-td { padding: 8px 12px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+td { padding: 9px 12px; border-bottom: 1px solid var(--line-2); vertical-align: top; line-height: 1.5; }
 tr:last-child td { border-bottom: 0; }
 tr:hover td { background: var(--panel-2); }
 
@@ -304,7 +314,7 @@ td .note { font-size: 12px; }
 
 /* Timeline ---------------------------------------------------------------------- */
 
-.timeline { border-left: 2px solid var(--line); margin: 4px 0 0 7px; padding-left: 18px; }
+.timeline { border-left: 2px solid var(--line); margin-left: 7px; padding-left: 18px; }
 
 .timeline .ev { position: relative; padding: 8px 0; }
 .timeline .ev::before {
@@ -345,14 +355,16 @@ pre.dump {
   overflow-y: auto;
 }
 
-.panel p { max-width: 82ch; color: var(--ink-2); margin: 8px 0 2px; }
+.panel p, .panel .meta, .panel .todo { margin-top: 7px; }
+.panel p { max-width: 82ch; color: var(--ink-2); }
+.panel > :first-child { margin-top: 0; }
 .panel p strong { color: var(--ink); }
 .panel .title { font-weight: 550; }
 .panel .meta { color: var(--faint); font-size: 12.5px; margin-top: 3px; }
 
 /* Window tabs -------------------------------------------------------------------- */
 
-.tabs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 2px 0 14px; }
+.tabs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
 .tabs a, .tabs .on {
   font-size: 12.5px;
@@ -371,7 +383,7 @@ pre.dump {
 
 /* Trend ---------------------------------------------------------------------------- */
 
-.trend { display: block; margin: 2px 0 6px; }
+.trend { display: block; }
 .trend .bar { fill: var(--accent-dim); opacity: .85; }
 .trend .bar:hover { fill: var(--accent); opacity: 1; }
 .trend .gap { fill: var(--warn); opacity: .8; }
