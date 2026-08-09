@@ -153,7 +153,7 @@ a person saying so, which is distinct from the host's own checks rejecting an an
   {{range .Corrections}}
   <div class="row">
     <div class="title">{{truncate 200 .Text}}</div>
-    <div class="meta">{{.Class}} · captured {{since .Created}} · expires {{stamp .Expires}}</div>
+    <div class="meta">{{.Class}} · captured {{since .Created}} · expires {{stamp .Expires}}{{if .EpisodeID}} · <a href="/episodes/{{.EpisodeID}}">the episode →</a>{{end}}</div>
     {{if $act}}
     <div class="acts">
       <form method="post" action="/actions/corrections/keep">
@@ -259,15 +259,45 @@ survives when individual conversations age out.</p>{{end}}
 </table>
 {{else}}<p class="empty">No channel configuration.</p>{{end}}
 
-<h2>Schedules</h2>
+<h2>Schedules <span class="note">{{len .Schedules}}</span></h2>
 {{if .Schedules}}
 <table>
-  <tr><th>Prompt</th><th>Cadence</th><th>Next</th></tr>
+  <tr><th>Schedule</th><th>Cadence</th><th>Where</th><th class="num">Runs</th><th>Catch up</th><th>Next</th><th>State</th></tr>
   {{range .Schedules}}
-  <tr><td>{{truncate 80 .Prompt}}</td><td>{{.Cadence}}</td><td class="note">{{stamp .Next}}</td></tr>
+  <tr><td>{{if .Title}}{{truncate 60 .Title}}{{else}}{{truncate 60 .Prompt}}{{end}}</td>
+      <td class="mono">{{.Cadence}}</td>
+      <td>{{.Channel}} <span class="note">{{.Repository}}</span></td>
+      <td class="mono num">{{.Runs}}</td><td class="note">{{.CatchUp}}</td>
+      <td class="note">{{since .NextRun}}</td>
+      <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
   {{end}}
 </table>
-{{else}}<p class="empty">No schedules.</p>{{end}}
+{{else}}<p class="empty">No schedule is configured. An operator creates one in Slack by asking for
+recurring work; it appears here with its cadence and run history.</p>{{end}}
+
+<h2>Preferences <span class="note">{{len .Preferences}}</span></h2>
+{{if .Preferences}}
+<table>
+  <tr><th>Preference</th><th>Value</th><th>Scope</th><th>Expires</th><th>State</th></tr>
+  {{range .Preferences}}
+  <tr><td class="mono">{{.Name}}</td><td class="mono">{{.Value}}</td><td>{{.Scope}}</td>
+      <td class="note">{{stamp .Expires}}</td>
+      <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No preferences saved.</p>{{end}}
+
+<h2>Standing rules <span class="note">{{len .Rules}}</span></h2>
+{{if .Rules}}
+<table>
+  <tr><th>When</th><th>Do</th><th>Where</th><th class="num">Runs</th><th>Expires</th><th>State</th></tr>
+  {{range .Rules}}
+  <tr><td class="mono">{{.Trigger}}</td><td class="mono">{{.Action}}</td><td>{{.Channel}}</td>
+      <td class="mono num">{{.Runs}}</td><td class="note">{{stamp .Expires}}</td>
+      <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No standing rules.</p>{{end}}
 {{end}}
 
 {{define "usage"}}

@@ -487,11 +487,12 @@ func (r *Reader) Failures(ctx context.Context) ([]FailureGroup, error) {
 }
 
 type Correction struct {
-	ID      string
-	Text    string
-	Class   string
-	Created time.Time
-	Expires time.Time
+	ID        string
+	EpisodeID string
+	Text      string
+	Class     string
+	Created   time.Time
+	Expires   time.Time
 }
 
 func (r *Reader) Corrections(ctx context.Context) ([]Correction, error) {
@@ -510,7 +511,7 @@ func (r *Reader) Corrections(ctx context.Context) ([]Correction, error) {
 	for rows.Next() {
 		var item Correction
 		var created, expires string
-		if err := rows.Scan(&item.ID, &item.Text, &item.Class, &created, &expires); err != nil {
+		if err := rows.Scan(&item.ID, &item.EpisodeID, &item.Text, &item.Class, &created, &expires); err != nil {
 			return nil, err
 		}
 		item.Created, item.Expires = parseStamp(created), parseStamp(expires)
@@ -1011,4 +1012,125 @@ func (r *Reader) CountMatching(ctx context.Context, filter EpisodeFilter) (int, 
 	  SELECT COUNT(*) FROM work_episodes AS e
 	  LEFT JOIN agent_runs AS r ON r.id = e.agent_run_id`+where, args...).Scan(&count)
 	return count, err
+}
+
+// Schedule is one recurring task the operator has confirmed.
+//
+// The Configuration page rendered "No schedules" over a live schedule for a
+// day, because the handler passed a nil slice where a query belonged — the
+// section was scaffolding wearing the costume of an empty state.
+type Schedule struct {
+	Title, Prompt, Cadence, Channel, Repository, CatchUp string
+	Enabled                                              bool
+	NextRun                                              time.Time
+	Runs                                                 int
+}
+
+func (r *Reader) Schedules(ctx context.Context) ([]Schedule, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT s.title, s.prompt, s.recurrence, s.interval_seconds, s.local_time, s.timezone,
+	         s.channel_id, s.repository, s.catch_up, s.enabled, COALESCE(s.next_run_at,''),
+	         (SELECT COUNT(*) FROM scheduled_task_runs r WHERE r.task_id = s.id)
+	  FROM scheduled_tasks s ORDER BY s.next_run_at LIMIT 50`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Schedule{}
+	for rows.Next() {
+		var item Schedule
+		var recurrence, localTime, timezone, next string
+		var interval int
+		if err := rows.Scan(&item.Title, &item.Prompt, &recurrence, &interval, &localTime,
+			&timezone, &item.Channel, &item.Repository, &item.CatchUp, &item.Enabled,
+			&next, &item.Runs); err != nil {
+			return nil, err
+		}
+		item.Channel = r.channelName(ctx, item.Channel)
+		item.NextRun = parseStamp(next)
+		item.Cadence = recurrence
+		switch {
+		case recurrence == "interval" && interval > 0:
+			item.Cadence = "every " + (time.Duration(interval) * time.Second).String()
+		case localTime != "":
+			item.Cadence = recurrence + " at " + localTime + " " + timezone
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// Preference and StandingRule mirror what the App Home lists, because how
+// Responder is configured belongs on the Configuration page and lived only in
+// Slack.
+type Preference struct {
+	Name, Value, Scope string
+	Enabled            bool
+	Expires            time.Time
+}
+
+func (r *Reader) Preferences(ctx context.Context) ([]Preference, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT name, value, scope_kind, scope_key, enabled, expires_at
+	  FROM responder_preferences ORDER BY updated_at DESC LIMIT 50`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Preference{}
+	for rows.Next() {
+		var item Preference
+		var kind, key, expires string
+		if err := rows.Scan(&item.Name, &item.Value, &kind, &key, &item.Enabled, &expires); err != nil {
+			return nil, err
+		}
+		item.Scope = kind
+		if kind == "channel" && key != "" {
+			item.Scope = r.channelName(ctx, key)
+		} else if key != "" {
+			item.Scope = kind + " " + key
+		}
+		item.Expires = parseStamp(expires)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+type StandingRule struct {
+	Trigger, Action, Channel string
+	Enabled                  bool
+	Runs                     int
+	Expires                  time.Time
+}
+
+func (r *Reader) StandingRules(ctx context.Context) ([]StandingRule, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT trigger_name, action_name, channel_id, enabled, trigger_count, expires_at
+	  FROM standing_rules ORDER BY updated_at DESC LIMIT 50`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []StandingRule{}
+	for rows.Next() {
+		var item StandingRule
+		var channel, expires string
+		if err := rows.Scan(&item.Trigger, &item.Action, &channel, &item.Enabled,
+			&item.Runs, &expires); err != nil {
+			return nil, err
+		}
+		item.Channel = r.channelName(ctx, channel)
+		item.Expires = parseStamp(expires)
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }

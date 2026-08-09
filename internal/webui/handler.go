@@ -84,7 +84,11 @@ func (h *Handler) CanAct() bool { return h.actions != nil }
 // own template, and inferring one from the other would couple navigation to
 // rendering for no benefit.
 func (h *Handler) page(w http.ResponseWriter, r *http.Request, slug, body string, content any) {
-	h.render.Render(w, body, h.shell(r, slug, content))
+	shell := h.shell(r, slug, content)
+	if slug == "" {
+		shell.Refresh = 30
+	}
+	h.render.Render(w, body, shell)
 }
 
 // detail renders an entity page: titled after the entity, pointing back at its
@@ -156,6 +160,7 @@ func foldBlocked(items []Item) []blockedRow {
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	blocked, _ := h.reader.Blocked(ctx, 8)
+
 	var failed problems
 	lanes, err := h.reader.Lanes(ctx)
 	failed.note("queues", err)
@@ -477,12 +482,18 @@ func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
-	channels, _ := h.reader.Channels(r.Context())
+	ctx := r.Context()
+	channels, _ := h.reader.Channels(ctx)
+	schedules, _ := h.reader.Schedules(ctx)
+	preferences, _ := h.reader.Preferences(ctx)
+	rules, _ := h.reader.StandingRules(ctx)
 	h.page(w, r, "configuration", "configuration", struct {
-		Prompts   []PromptBudget
-		Channels  []ChannelConfigRow
-		Schedules []struct{ Prompt, Cadence string }
-	}{h.prompts, channels, nil})
+		Prompts     []PromptBudget
+		Channels    []ChannelConfigRow
+		Schedules   []Schedule
+		Preferences []Preference
+		Rules       []StandingRule
+	}{h.prompts, channels, schedules, preferences, rules})
 }
 
 // usagePage is what the machine spent, measured rather than estimated.

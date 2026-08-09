@@ -135,6 +135,12 @@ type Shell struct {
 	// "Episodes" and its actual subject was buried in a panel below.
 	Crumbs        []Crumb
 	TitleOverride string
+
+	// Refresh reloads the page after this many seconds. Only Overview sets it:
+	// a "what is happening right now" page that changes only on manual reload
+	// is a snapshot pretending to be live, and this dashboard allows no
+	// JavaScript, so the meta tag is the whole mechanism.
+	Refresh int
 }
 
 type Badge struct {
