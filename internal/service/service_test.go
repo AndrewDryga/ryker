@@ -1140,6 +1140,8 @@ type fakeSlack struct {
 	removedReactions   []slackReaction
 	homes              []slackPost
 	homeErr            error
+	joined             []string
+	joinErr            error
 	postErr            error
 	ephemeralErr       error
 	inviteErr          error
@@ -1191,9 +1193,16 @@ func (f *fakeSlack) CreateChannel(_ context.Context, name string, _ bool, _ stri
 func (f *fakeSlack) FindChannelByName(context.Context, string, string) (slackui.Channel, error) {
 	return slackui.Channel{}, slackui.ErrNotFound
 }
-func (f *fakeSlack) GetChannel(context.Context, string) (slackui.Channel, error) {
+func (f *fakeSlack) GetChannel(_ context.Context, channelID string) (slackui.Channel, error) {
 	if f.channelErr != nil {
 		return slackui.Channel{}, f.channelErr
+	}
+	// channels is the workspace as Slack sees it, so a test that describes a
+	// channel there gets the same answer from every lookup.
+	for _, channel := range f.channels {
+		if channel.ID == channelID {
+			return channel, nil
+		}
 	}
 	if f.channel.ID != "" {
 		return f.channel, nil
@@ -1286,6 +1295,10 @@ func (f *fakeSlack) PublishHome(
 ) error {
 	f.homes = append(f.homes, slackPost{thread: user, message: message})
 	return f.homeErr
+}
+func (f *fakeSlack) JoinChannel(_ context.Context, channelID string) error {
+	f.joined = append(f.joined, channelID)
+	return f.joinErr
 }
 func (f *fakeSlack) UserAllowed(context.Context, string, string) (bool, error) {
 	return true, nil

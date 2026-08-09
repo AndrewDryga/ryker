@@ -3,15 +3,20 @@ package service
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	_ "modernc.org/sqlite"
 )
 
 // capturingLogger returns a logger and the buffer it writes to, so a test can
@@ -354,6 +359,153 @@ func TestConfiguredChannelTheBotCannotSeeIsReportedNotSwallowed(t *testing.T) {
 	if !strings.Contains(home.Sections[0], "CABSENT") ||
 		!strings.Contains(home.Sections[0], "Configured but not joined") {
 		t.Fatalf("the App Home does not carry the coverage hole: %+v", home.Sections)
+	}
+}
+
+// auditOutcomes reads back what the service recorded about one object, so a
+// test can check the trail an operator would actually read rather than only the
+// log line beside it.
+func auditOutcomes(t *testing.T, cfg config.Config, kind, objectID string) []string {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(cfg.StateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(
+		`SELECT outcome, detail FROM audit_events
+		 WHERE kind = ? AND object_id = ? ORDER BY created_at, id`,
+		kind, objectID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var result []string
+	for rows.Next() {
+		var outcome, detail string
+		if err := rows.Scan(&outcome, &detail); err != nil {
+			t.Fatal(err)
+		}
+		result = append(result, outcome+": "+detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// configureChannelsAndReconcile is the arrangement every join case shares: an
+// operator has configured these channels, Slack reports this membership, and
+// the reconciliation loop has run once.
+func configureChannelsAndReconcile(
+	t *testing.T,
+	slackClient *fakeSlack,
+	configured []string,
+) (config.Config, *bytes.Buffer) {
+	t.Helper()
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, channelID := range configured {
+		if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+			ChannelID: channelID, Participation: "proactive", Repository: "repo",
+			AlertPolicy: "reply", ActorID: "U123ABC",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logger, logged := capturingLogger()
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), logger)
+	if err := svc.reconcileSlackChannelMemberships(ctx); err != nil &&
+		!errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	return cfg, logged
+}
+
+// A public channel an operator configured but nobody invited the bot to is a
+// hole Responder is now allowed to close by itself.
+//
+// Reporting C0TENANTAL1 was only half an answer: an operator still had to read
+// the warning and go type /invite. conversations.join needs no one, so the
+// remaining question is only whether the door opens, and the outcome is
+// recorded either way.
+func TestConfiguredPublicChannelIsJoinedWithoutWaitingForAHuman(t *testing.T) {
+	slackClient := &fakeSlack{channels: []slackui.Channel{
+		{ID: "CPUBLIC", Name: "frontend-ops-alerts", Member: false},
+	}}
+
+	cfg, logged := configureChannelsAndReconcile(t, slackClient, []string{"CPUBLIC"})
+
+	if !slices.Equal(slackClient.joined, []string{"CPUBLIC"}) {
+		t.Fatalf("join attempts = %v, want the configured public channel", slackClient.joined)
+	}
+	if !strings.Contains(logged.String(), "joined a configured channel") {
+		t.Fatalf("a join happened without saying so; log = %s", logged)
+	}
+	audited := auditOutcomes(t, cfg, "slack.channel.join", "CPUBLIC")
+	if len(audited) != 1 || !strings.HasPrefix(audited[0], "joined: ") {
+		t.Fatalf("join audit = %v, want one joined row", audited)
+	}
+}
+
+// A private channel cannot be entered by an app, and saying "the join failed"
+// would send an operator to look for a fault instead of running /invite.
+//
+// Slack's answer here is method_not_supported_for_channel_type and it will be
+// the same answer forever, so the attempt is not made at all: the audit names
+// the repair rather than the refusal.
+func TestConfiguredPrivateChannelAsksForAnInviteInsteadOfTrying(t *testing.T) {
+	slackClient := &fakeSlack{channels: []slackui.Channel{
+		{ID: "CPRIVATE", Name: "security-incidents", Member: false, Private: true},
+	}}
+
+	cfg, logged := configureChannelsAndReconcile(t, slackClient, []string{"CPRIVATE"})
+
+	if len(slackClient.joined) != 0 {
+		t.Fatalf("tried to join a private channel: %v", slackClient.joined)
+	}
+	if !strings.Contains(logged.String(), "/invite") {
+		t.Fatalf("the private-channel repair was not stated; log = %s", logged)
+	}
+	audited := auditOutcomes(t, cfg, "slack.channel.join", "CPRIVATE")
+	if len(audited) != 1 || !strings.HasPrefix(audited[0], "private_needs_invite: ") {
+		t.Fatalf("private channel audit = %v", audited)
+	}
+}
+
+// The build asking for a scope and the installation granting it are two
+// different events, and the code has to survive the gap between them.
+//
+// deploy/slack-app-manifest.yaml requests channels:join, but a manifest change
+// only takes effect when a person reinstalls the app. Until then Slack answers
+// missing_scope, and the only useful thing to say is which human action fixes
+// it — retrying cannot, and reporting it as an ordinary join failure would hide
+// the one instruction that works.
+func TestJoinWithoutTheScopeSaysTheAppMustBeReinstalled(t *testing.T) {
+	slackClient := &fakeSlack{
+		channels: []slackui.Channel{{ID: "CPUBLIC", Name: "frontend-ops-alerts"}},
+		joinErr:  errors.New("missing_scope"),
+	}
+
+	cfg, logged := configureChannelsAndReconcile(t, slackClient, []string{"CPUBLIC"})
+
+	if len(slackClient.joined) != 1 {
+		t.Fatalf("join attempts = %v, want exactly one rather than a retry loop", slackClient.joined)
+	}
+	if !strings.Contains(logged.String(), "channels:join") ||
+		!strings.Contains(logged.String(), "reinstall") {
+		t.Fatalf("a missing scope was reported as a generic failure; log = %s", logged)
+	}
+	audited := auditOutcomes(t, cfg, "slack.channel.join", "CPUBLIC")
+	if len(audited) != 1 || !strings.HasPrefix(audited[0], "missing_scope: ") ||
+		!strings.Contains(audited[0], "invite the bot manually") {
+		t.Fatalf("missing scope audit = %v", audited)
 	}
 }
 

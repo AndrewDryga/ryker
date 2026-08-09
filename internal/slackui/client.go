@@ -33,6 +33,7 @@ type API interface {
 	SetStatus(context.Context, string, string, string) error
 	SetProgress(context.Context, string, string, string, []string) error
 	PublishHome(context.Context, string, Message) error
+	JoinChannel(context.Context, string) error
 	UserAllowed(context.Context, string, string) (bool, error)
 	UserGroupMembers(context.Context, string, string) ([]string, error)
 	GetFile(context.Context, string) (HistoryFile, error)
@@ -295,6 +296,8 @@ func dialSocketMode(ctx context.Context, websocketURL string) error {
 	return nil
 }
 
+// requiredBotScopes are the scopes Responder cannot run without. Preflight
+// refuses to report a healthy Slack integration when one is absent.
 var requiredBotScopes = []string{
 	"app_mentions:read",
 	"assistant:write",
@@ -314,6 +317,29 @@ var requiredBotScopes = []string{
 	"reactions:write",
 	"usergroups:read",
 	"users:read",
+}
+
+// optionalBotScopes are requested by deploy/slack-app-manifest.yaml but do not
+// fail preflight when the installed app has not granted them.
+//
+// Adding a scope to a manifest does not add it to a token: the app has to be
+// reinstalled by a person, and until then a newer binary is running against an
+// older grant. Making channels:join required would turn that ordinary window
+// into "Slack: broken" on a deployment where every other Slack capability
+// works, which is a false report in the opposite direction. What the absence
+// actually costs is one thing — Responder cannot add itself to a public
+// channel an operator configured — and the join path says exactly that when it
+// happens instead of pretending the room is simply unreachable.
+var optionalBotScopes = []string{
+	"channels:join",
+}
+
+// manifestBotScopes is the full scope list deploy/slack-app-manifest.yaml must
+// request, sorted the way the manifest reads. Keeping it derived is what stops
+// the manifest and the binary from drifting into disagreement about what this
+// app asks for.
+func manifestBotScopes() []string {
+	return slices.Sorted(slices.Values(slices.Concat(requiredBotScopes, optionalBotScopes)))
 }
 
 func (c *Client) DownloadFile(ctx context.Context, downloadURL string, writer io.Writer) error {
@@ -472,6 +498,38 @@ func (c *Client) ListChannels(ctx context.Context, teamID string) ([]Channel, er
 		cursor = next
 	}
 	return nil, errors.New("Slack channel listing exceeded 100 pages")
+}
+
+// JoinChannel adds the bot to a public channel it was configured to watch.
+//
+// conversations.join is the only self-service door into a room, and it opens
+// for public channels only: a private channel needs a member to run /invite,
+// and Slack answers method_not_supported_for_channel_type rather than letting
+// an app add itself. Callers therefore have to know which kind of channel they
+// are looking at before they try, which is why this takes no decision of its
+// own beyond treating an existing membership as success.
+func (c *Client) JoinChannel(ctx context.Context, channelID string) error {
+	if strings.TrimSpace(channelID) == "" {
+		return errors.New("joining a channel needs a channel ID")
+	}
+	_, _, _, err := c.api.JoinConversationContext(ctx, channelID)
+	if err != nil && !strings.Contains(err.Error(), "already_in_channel") {
+		return err
+	}
+	return nil
+}
+
+// MissingScope reports that Slack refused because the installed app was never
+// granted the scope the call needs.
+//
+// This is the one failure a newer build produces on an older installation:
+// deploy/slack-app-manifest.yaml requests a scope, the binary calls the method,
+// and the token in the workspace predates the request. Waiting cannot fix it
+// and neither can retrying — only a human reinstalling the app can — so the
+// distinction has to be legible to the caller rather than folded into "the
+// join failed".
+func MissingScope(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "missing_scope")
 }
 
 func (c *Client) Invite(ctx context.Context, channel string, users ...string) error {

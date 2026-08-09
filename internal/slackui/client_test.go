@@ -562,8 +562,8 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 
 func TestMissingBotScopesUsesTheShippedManifestContract(t *testing.T) {
 	manifest := readShippedSlackManifest(t)
-	if !slices.Equal(manifest.OAuth.Scopes.Bot, requiredBotScopes) {
-		t.Fatalf("manifest scopes = %v; doctor scopes = %v", manifest.OAuth.Scopes.Bot, requiredBotScopes)
+	if !slices.Equal(manifest.OAuth.Scopes.Bot, manifestBotScopes()) {
+		t.Fatalf("manifest scopes = %v; binary asks for %v", manifest.OAuth.Scopes.Bot, manifestBotScopes())
 	}
 
 	granted := splitScopes("chat:write, users:read, groups:write")
@@ -582,6 +582,46 @@ func TestMissingBotScopesUsesTheShippedManifestContract(t *testing.T) {
 		[]string{"reactions:read", "reactions:write", "usergroups:read"},
 	).Error(); got != want {
 		t.Fatalf("scope repair error = %q; want %q", got, want)
+	}
+}
+
+// An optional scope is requested by the manifest and must not fail preflight.
+//
+// channels:join arrived in the manifest after both workspaces had already
+// installed the app, so every running deployment was a build asking for a scope
+// its token did not carry. Treating that as a fatal preflight failure would
+// report "Slack: broken" on an installation where posting, reading, reacting,
+// and every other capability works — a false alarm covering for a real but
+// narrow gap, which is the reverse of the mistake this file usually guards
+// against and just as misleading.
+func TestOptionalScopesAreRequestedWithoutBeingRequired(t *testing.T) {
+	if !slices.Contains(optionalBotScopes, "channels:join") {
+		t.Fatalf("optional scopes = %v; channels:join must be requested", optionalBotScopes)
+	}
+	if slices.Contains(requiredBotScopes, "channels:join") {
+		t.Fatal("channels:join must not fail preflight before the app is reinstalled")
+	}
+	if missing := missingBotScopes(requiredBotScopes); len(missing) != 0 {
+		t.Fatalf("an installation without the optional scopes was reported broken: %v", missing)
+	}
+}
+
+// missing_scope has one repair and it is not waiting.
+func TestMissingScopeIsDistinguishedFromAnOrdinaryRefusal(t *testing.T) {
+	if !MissingScope(errors.New("missing_scope")) ||
+		!MissingScope(fmt.Errorf("join channel: %w", errors.New("missing_scope"))) {
+		t.Fatal("a missing scope was not recognized")
+	}
+	if MissingScope(nil) || MissingScope(errors.New("channel_not_found")) ||
+		MissingScope(errors.New("method_not_supported_for_channel_type")) {
+		t.Fatal("an ordinary Slack refusal was reported as a missing scope")
+	}
+}
+
+func TestJoinChannelRefusesAnEmptyChannel(t *testing.T) {
+	client := &Client{}
+	if err := client.JoinChannel(context.Background(), "  "); err == nil {
+		t.Fatal("joining without a channel ID must not reach Slack")
 	}
 }
 
