@@ -157,31 +157,56 @@ func (r *Reader) EpisodesForIncident(ctx context.Context, incidentID string) ([]
 	  WHERE r.incident_id = ? ORDER BY e.created_at DESC LIMIT 40`, incidentID)
 }
 
-// Lane is one queue the host drains, with the state of its pollers.
+// Lane separates the scheduler's permanent poll loops from actual work.
 //
-// This is the answer to "is the machine turning?", which readyz cannot give:
-// readyz reports that the process is up, and a lane whose pollers are all
-// failed is a process that is up and doing nothing.
+// A recurring drain record normally spends almost all of its life pending for
+// its next poll. Counting that as queued work made an idle, healthy Responder
+// look as though dozens of tasks were stuck. Pollers remain visible as liveness
+// evidence, while the work columns contain only finite items.
 type Lane struct {
-	Name                     string
-	Pending, Running, Failed int
-	Failures                 int
-	Error                    string
-	Due                      time.Time
+	Name, Status                               string
+	Pollers, Ready, Running, Scheduled, Failed int
+	Retrying, RetryAttempts                    int
+	Error                                      string
+	Next                                       time.Time
 }
 
 func (r *Reader) Lanes(ctx context.Context) ([]Lane, error) {
 	return collect(ctx, r, `
 	  SELECT lane,
-	         SUM(state = 'pending'), SUM(state = 'running'), SUM(state = 'failed'),
-	         SUM(failure_count), COALESCE(MAX(last_error),''), MIN(available_at)
+	         SUM(subject_id = 'drain' OR subject_id GLOB 'drain-[0-9]*'),
+	         SUM(NOT (subject_id = 'drain' OR subject_id GLOB 'drain-[0-9]*') AND state = 'pending'
+	             AND julianday(available_at) <= julianday('now')),
+	         SUM(NOT (subject_id = 'drain' OR subject_id GLOB 'drain-[0-9]*') AND state = 'running'),
+	         SUM(NOT (subject_id = 'drain' OR subject_id GLOB 'drain-[0-9]*') AND state = 'pending'
+	             AND julianday(available_at) > julianday('now')),
+	         SUM(NOT (subject_id = 'drain' OR subject_id GLOB 'drain-[0-9]*') AND state = 'failed'),
+	         SUM(failure_count > 0), SUM(failure_count),
+	         COALESCE(MAX(NULLIF(last_error,'')),''),
+	         MIN(CASE WHEN NOT (subject_id = 'drain' OR subject_id GLOB 'drain-[0-9]*') AND state = 'pending'
+	             THEN available_at END)
 	  FROM work_items GROUP BY lane ORDER BY lane`,
 		func(rows *sql.Rows) (Lane, error) {
 			var item Lane
-			var due string
-			err := rows.Scan(&item.Name, &item.Pending, &item.Running, &item.Failed,
-				&item.Failures, &item.Error, &due)
-			item.Due = parseStamp(due)
+			var next sql.NullString
+			err := rows.Scan(
+				&item.Name, &item.Pollers, &item.Ready, &item.Running,
+				&item.Scheduled, &item.Failed, &item.Retrying,
+				&item.RetryAttempts, &item.Error, &next,
+			)
+			if next.Valid {
+				item.Next = parseStamp(next.String)
+			}
+			switch {
+			case item.Failed > 0:
+				item.Status = "failed"
+			case item.Retrying > 0:
+				item.Status = "retrying"
+			case item.Ready > 0 || item.Running > 0:
+				item.Status = "working"
+			default:
+				item.Status = "healthy"
+			}
 			return item, err
 		})
 }

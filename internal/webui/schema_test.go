@@ -143,6 +143,87 @@ func TestEveryPageRendersAgainstTheMigratedSchema(t *testing.T) {
 	}
 }
 
+// Recurring scheduler drains are infrastructure, not a backlog. They normally
+// wait in the pending state between polls, so presenting them as pending tasks
+// made an idle Responder look stuck. Finite work remains visible separately.
+func TestLanesSeparatePollersFromActualWork(t *testing.T) {
+	dir := t.TempDir()
+	live, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "responder.db")
+	writable, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	insert := func(kind, subject, state string, failures int, available time.Time, detail string) {
+		t.Helper()
+		_, err := writable.Exec(`INSERT INTO work_items
+		  (kind, subject_id, lane, conversation_key, priority, state, failure_count,
+		   available_at, lease_token, last_error, created_at, updated_at)
+		  VALUES (?, ?, 'background', '', 50, ?, ?, ?, '', ?, ?, ?)`,
+			kind, subject, state, failures, available.Format(time.RFC3339Nano), detail,
+			now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("agent_run", "drain", "pending", 0, now.Add(time.Second), "")
+	insert("agent_run", "drain-2", "pending", 0, now.Add(time.Second), "")
+	insert("episode_recheck", "ready-work", "pending", 0, now.Add(-time.Minute), "")
+	insert("emisar_approval", "scheduled-work", "pending", 2, now.Add(time.Hour), "temporary failure")
+	insert("episode_recheck", "running-work", "running", 0, now, "")
+	insert("episode_recheck", "failed-work", "failed", 3, now, "permanent failure")
+	if err := writable.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	lanes, err := reader.Lanes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lanes) != 1 {
+		t.Fatalf("got %d lanes, want 1", len(lanes))
+	}
+	lane := lanes[0]
+	if lane.Pollers != 2 || lane.Ready != 1 || lane.Running != 1 ||
+		lane.Scheduled != 1 || lane.Failed != 1 {
+		t.Errorf("lane counts = %+v", lane)
+	}
+	if lane.Retrying != 2 || lane.RetryAttempts != 5 {
+		t.Errorf("retry counts = %d items / %d attempts, want 2 / 5", lane.Retrying, lane.RetryAttempts)
+	}
+	if lane.Status != "failed" || lane.Error != "temporary failure" && lane.Error != "permanent failure" {
+		t.Errorf("lane status = %q, error = %q", lane.Status, lane.Error)
+	}
+
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("overview = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "not queued tasks") || strings.Contains(body, ">Pending<") {
+		t.Errorf("overview still presents pollers as pending tasks: %s", body)
+	}
+}
+
 // migratedReader opens the dashboard against a database the store itself
 // created, so the columns are the ones production has rather than the ones a
 // fixture guessed at.

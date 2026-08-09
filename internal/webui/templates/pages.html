@@ -19,20 +19,25 @@
 </div>
 {{else}}<p class="empty">Nothing is waiting on you.</p>{{end}}
 
-<h2>Queues</h2>
+<h2>Scheduler</h2>
 {{template "problems" .Errs}}
 {{if .Lanes}}
+<p class="note">Pollers are permanent worker loops waiting for their next check, not queued tasks.
+Only the work columns below represent jobs Responder still needs to process.</p>
 <table>
-  <tr><th>Lane</th><th class="num">Pending</th><th class="num">Running</th><th class="num">Failed</th><th class="num">Retries</th><th>Next due</th><th>Last error</th></tr>
+  <tr><th>Lane</th><th>Status</th><th class="num">Pollers</th><th class="num">Ready</th><th class="num">Running</th><th class="num">Scheduled</th><th class="num">Retrying</th><th class="num">Failed</th><th>Next work</th><th>Last issue</th></tr>
   {{range .Lanes}}
-  <tr><td>{{.Name}}</td><td class="mono num">{{.Pending}}</td><td class="mono num">{{.Running}}</td>
-      <td class="mono num">{{.Failed}}</td><td class="mono num">{{.Failures}}</td>
-      <td class="note">{{since .Due}}</td><td>{{if .Error}}{{truncate 90 .Error}}{{else}}<span class="note">—</span>{{end}}</td></tr>
+  <tr><td>{{.Name}}</td>
+      <td><span class="pill{{if eq .Status "healthy"}} good{{else if eq .Status "failed"}} bad{{else if eq .Status "retrying"}} warn{{end}}">{{.Status}}</span></td>
+      <td class="mono num">{{.Pollers}}</td><td class="mono num">{{.Ready}}</td>
+      <td class="mono num">{{.Running}}</td><td class="mono num">{{.Scheduled}}</td>
+      <td class="mono num">{{.Retrying}}{{if .RetryAttempts}} <span class="note">({{.RetryAttempts}} attempts)</span>{{end}}</td>
+      <td class="mono num">{{.Failed}}</td>
+      <td class="note">{{if .Next}}{{since .Next}}{{else}}—{{end}}</td>
+      <td>{{if .Error}}{{truncate 90 .Error}}{{else}}<span class="note">—</span>{{end}}</td></tr>
   {{end}}
 </table>
-<p class="note">Readyz says the process is up. A lane whose pollers are all failed is a process that
-is up and doing nothing, which is the difference these rows carry.</p>
-{{else}}<p class="empty">No queue has registered. Nothing is being drained.</p>{{end}}
+{{else}}<p class="empty">No scheduler workers have registered.</p>{{end}}
 
 <h2>Health</h2>
 <table>
