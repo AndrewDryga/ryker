@@ -93,7 +93,7 @@ func runPromoteFixtures(args []string, stdout, stderr io.Writer) error {
 		// a hand review of sixteen corrections.
 		capability := strings.TrimSpace(candidate.Capability)
 		if capability == "" {
-			capability = service.DefaultFixtureCapability()
+			capability = core.DefaultFixtureCapability()
 			fmt.Fprintf(stderr,
 				"%s was queued before corrections were labeled; tagging it %q — "+
 					"sharpen it in the diff if the episode proves something more specific\n",

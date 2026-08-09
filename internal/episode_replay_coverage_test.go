@@ -20,11 +20,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 // acknowledgedCoverageGaps are capabilities from the matrix with no replay
@@ -106,17 +107,36 @@ func coveredCapabilities(t *testing.T) map[string][]string {
 	// Every deployment's corpus, not one of them. A capability proven by a
 	// fixture recorded in one deployment is proven; reading a single file would
 	// report it as an uncovered gap and invite a duplicate recording.
-	pattern := filepath.Join(repoRoot(t), "testdata", "eval", "episode-replay", "*.jsonl")
-	corpora, err := filepath.Glob(pattern)
+	//
+	// Every directory under testdata/eval, not just episode-replay/. Promoted
+	// corrections are recorded episodes like any other — the promoter writes
+	// them through the same recorder and tags them the same way — but they land
+	// in regressions.jsonl, and a glob of episode-replay/ could not see them.
+	// That is how four fixtures tagged "capability:" sat in the tree for a day
+	// with the test that rejects exactly that tag looking straight past them.
+	root := filepath.Join(repoRoot(t), "testdata", "eval")
+	var corpora []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && filepath.Ext(path) == ".jsonl" {
+			corpora = append(corpora, path)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(corpora) == 0 {
-		t.Fatalf("no replay corpora found at %s; coverage would read as total", pattern)
+		t.Fatalf("no corpora found under %s; coverage would read as total", root)
 	}
 	covered := make(map[string][]string)
 	for _, corpus := range corpora {
 		readCorpusInto(t, corpus, covered)
+	}
+	if len(covered) == 0 {
+		t.Fatalf("no fixture under %s claims a capability; coverage would read as total", root)
 	}
 	return covered
 }
@@ -142,6 +162,13 @@ func readCorpusInto(t *testing.T, path string, covered map[string][]string) {
 		}
 		if err := json.Unmarshal([]byte(text), &fixture); err != nil {
 			t.Fatalf("%s line %d: %v", filepath.Base(path), line, err)
+		}
+		// Only a replay fixture proves a capability still works, and only a
+		// replay fixture is tagged episode-replay. Every corpus is read now, so
+		// without this a hand-written live or proactive case could claim
+		// coverage it never replays and close a gap by assertion.
+		if !slices.Contains(fixture.Tags, "episode-replay") {
+			continue
 		}
 		for _, tag := range fixture.Tags {
 			if capability, ok := strings.CutPrefix(tag, "capability:"); ok {
@@ -237,7 +264,7 @@ func TestPromotedCorrectionsClaimRealCapabilities(t *testing.T) {
 	for _, capability := range matrixCapabilities(t) {
 		matrix[capability] = true
 	}
-	promotable := service.PromotableCapabilities()
+	promotable := core.PromotableCapabilities()
 	if len(promotable) == 0 {
 		t.Fatal("promotion can label nothing; every promoted fixture would claim an empty capability")
 	}
@@ -249,10 +276,10 @@ func TestPromotedCorrectionsClaimRealCapabilities(t *testing.T) {
 			)
 		}
 	}
-	if !matrix[service.DefaultFixtureCapability()] {
+	if !matrix[core.DefaultFixtureCapability()] {
 		t.Errorf(
 			"the default promotion tag %q is not a capability in the matrix in section 24",
-			service.DefaultFixtureCapability(),
+			core.DefaultFixtureCapability(),
 		)
 	}
 	// Promotion must not be able to close a gap on its own. Deleting a line
@@ -284,7 +311,8 @@ func TestCoverageMergesEveryDeploymentsCorpus(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, capability string) string {
 		path := filepath.Join(dir, name)
-		line := `{"name":"case ` + capability + `","tags":["capability:` + capability + `"]}`
+		line := `{"name":"case ` + capability +
+			`","tags":["episode-replay","capability:` + capability + `"]}`
 		if err := os.WriteFile(path, []byte("# header\n"+line+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}

@@ -1,11 +1,9 @@
-package service
+package core
 
 import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/AndrewDryga/responder/internal/core"
 )
 
 // Every run mode a correction can arrive from must produce a capability the
@@ -17,12 +15,12 @@ import (
 // added later that falls through to nothing would put that back.
 func TestEveryRunModeNamesAPromotableCapability(t *testing.T) {
 	promotable := PromotableCapabilities()
-	for _, mode := range []core.AgentRunMode{
-		core.AgentRunTriage,
-		core.AgentRunIncident,
-		core.AgentRunEngineeringTask,
+	for _, mode := range []AgentRunMode{
+		AgentRunTriage,
+		AgentRunIncident,
+		AgentRunEngineeringTask,
 	} {
-		capability := fixtureCapability(core.AgentRun{Mode: mode})
+		capability := FixtureCapability(AgentRun{Mode: mode})
 		if strings.TrimSpace(capability) == "" {
 			t.Errorf("mode %q produces an empty capability tag", mode)
 			continue
@@ -38,7 +36,7 @@ func TestEveryRunModeNamesAPromotableCapability(t *testing.T) {
 	// An unset mode is the case that actually shipped: a candidate row written
 	// before anything filled the field in. It must still land on a real
 	// capability rather than the empty string.
-	if got := fixtureCapability(core.AgentRun{}); got != DefaultFixtureCapability() {
+	if got := FixtureCapability(AgentRun{}); got != DefaultFixtureCapability() {
 		t.Errorf("unset mode capability = %q, want %q", got, DefaultFixtureCapability())
 	}
 	if !slices.Contains(promotable, DefaultFixtureCapability()) {
