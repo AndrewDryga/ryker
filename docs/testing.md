@@ -313,8 +313,10 @@ make model-release-check CONFIG=../emisar/.responder/responder.yaml
 ```
 
 That target calibrates the judge, scores ordinary response quality, measures proactive behavior,
-runs stateful scenarios, and independently verifies high-risk evidence. Add
-`make eval-productivity` when a disposable writable policy is available.
+runs stateful scenarios, independently verifies high-risk evidence, and replays the promoted
+corrections. Add `make eval-productivity` when a disposable writable policy is available. Every one
+of those runs leaves a result behind, so `make eval-trend` afterwards shows what the release
+changed.
 
 Use `responder eval --replay` or `make eval-replay` only for deterministic contract replay. That
 path does not evaluate model behavior and is named accordingly.
