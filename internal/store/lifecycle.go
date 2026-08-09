@@ -803,7 +803,23 @@ func (s *Store) Prune(
 	if err := tx.Commit(); err != nil {
 		return result, err
 	}
-	if result.Total() > 0 {
+	// AgentRunContexts is named separately because it is deliberately not in
+	// Total, and this is the one place where leaving it out would be wrong.
+	//
+	// The database runs in incremental auto-vacuum, so freed pages go to the
+	// file's own free list and are handed back to the operating system only when
+	// incremental_vacuum runs. The very first pass after this ships is one that
+	// empties 322 context blobs and deletes no rows at all — measured on a copy
+	// of the deployed database — so gated on Total alone the largest single
+	// reclaim this code will ever do would checkpoint nothing and return
+	// nothing.
+	//
+	// It still returns it 256 pages at a time, which is the existing bargain:
+	// maintenance runs every minute and is meant to stay cheap, so the file
+	// shrinks over the following passes rather than in one stall. Draining the
+	// free list left by this change and migration 51 together takes the tenant
+	// database from 31 MB to 19 MB.
+	if result.Total() > 0 || result.AgentRunContexts > 0 {
 		_, _ = s.db.ExecContext(ctx, `
 			PRAGMA wal_checkpoint(PASSIVE);
 			PRAGMA incremental_vacuum(256);

@@ -429,6 +429,47 @@ func TestPruneEmptiesOnlySpentAgentRunContext(t *testing.T) {
 		}
 	})
 
+	// Emptying blobs frees pages, and under incremental auto-vacuum a freed page
+	// is only handed back to the operating system by a vacuum this pass has to
+	// ask for. Deleting no rows while reclaiming the largest payload in the
+	// database is the ordinary case here, not an edge one.
+	t.Run("emptying context alone still returns pages", func(t *testing.T) {
+		st, err := Open(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		run, _ := finishKernelEpisode(t, st, "message-1", core.EpisodeCompleted, 48*time.Hour)
+		if _, err := st.db.Exec(
+			`UPDATE agent_runs SET context_json = ? WHERE id = ?`,
+			make([]byte, 256*1024), run.ID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		freelist := func() int {
+			var pages int
+			if err := st.db.QueryRow(`PRAGMA freelist_count`).Scan(&pages); err != nil {
+				t.Fatal(err)
+			}
+			return pages
+		}
+		before := freelist()
+		now := time.Now().UTC()
+		result, err := st.Prune(
+			ctx, now.Add(-24*time.Hour), now.Add(-90*24*time.Hour),
+			now.Add(-7*24*time.Hour), now.Add(-30*24*time.Hour), now.Add(-30*24*time.Hour),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Total() != 0 || result.AgentRunContexts != 1 {
+			t.Fatalf("expected a pass that only emptied context: %+v", result)
+		}
+		if after := freelist(); after > before {
+			t.Fatalf("free list grew from %d to %d pages; the vacuum never ran", before, after)
+		}
+	})
+
 	t.Run("a live episode can still resume from it", func(t *testing.T) {
 		st, err := Open(t.TempDir())
 		if err != nil {
