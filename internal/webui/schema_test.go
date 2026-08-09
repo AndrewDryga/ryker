@@ -227,6 +227,65 @@ func TestLanesSeparatePollersFromActualWork(t *testing.T) {
 	}
 }
 
+func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
+	dir := t.TempDir()
+	live, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "responder.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	stamp := func(value time.Time) string { return value.Format(time.RFC3339Nano) }
+	_, err = db.Exec(`INSERT INTO scheduled_tasks (
+	  id, team_id, channel_id, thread_ts, delivery_channel_id, repository, title, prompt,
+	  recurrence, start_at, interval_seconds, weekdays_json, day_of_month, local_time,
+	  timezone, catch_up, enabled, actor_id, source_ref, next_run_at, last_run_at,
+	  last_outcome, expires_at, created_at, updated_at
+	) VALUES ('schedule-1','T1','C1','','C1','tenant-infra','Daily platform health review',
+	  'Check production health','daily',?,0,'[]',0,'09:00','America/Mexico_City',
+	  'latest',1,'U1','slack:C1:1',?,?,'completed',?,?,?)`,
+		stamp(now), stamp(now.Add(20*time.Hour)), stamp(now.Add(-4*time.Hour)),
+		stamp(now.Add(90*24*time.Hour)), stamp(now), stamp(now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		"Scheduled tasks", "Daily platform health review", "daily at 09:00 America/Mexico_City",
+		"Next in 19h", "Last completed 4h ago", "/responder schedules",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("overview is missing %q: %s", expected, body)
+		}
+	}
+	if strings.Contains(body, "Next just now") {
+		t.Errorf("future schedule is presented as current: %s", body)
+	}
+}
+
 // migratedReader opens the dashboard against a database the store itself
 // created, so the columns are the ones production has rather than the ones a
 // fixture guessed at.

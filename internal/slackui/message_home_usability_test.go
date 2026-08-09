@@ -108,7 +108,7 @@ func TestChannelSituationsWithoutASummaryAreOmitted(t *testing.T) {
 // with the work. Nine tiles, most of them zero or restating the heading, were
 // most of what made the page read as a mess.
 func TestSecondaryNumbersAreOneLineNotAGridOfTiles(t *testing.T) {
-	message := OperationsHome(0, 0, 0, 100, 3, 0, 30, 0, 0, 0, 0, 0, nil, nil, nil, nil, nil, nil)
+	message := OperationsHome(0, 0, 0, 100, 3, 0, 30, 0, 0, 0, 1, 0, nil, nil, nil, nil, nil, nil)
 
 	if len(message.Fields) != 0 {
 		t.Errorf("the page still renders a tile block: %+v", message.Fields)
@@ -119,6 +119,7 @@ func TestSecondaryNumbersAreOneLineNotAGridOfTiles(t *testing.T) {
 		"100 failed", "/responder failures",
 		"30 retained workspaces", "/responder sessions",
 		"3 draft PRs", "/responder status",
+		"1 scheduled task", "/responder schedules",
 	} {
 		if !strings.Contains(context, expected) {
 			t.Errorf("context is missing %q:\n%s", expected, context)

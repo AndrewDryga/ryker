@@ -71,6 +71,7 @@ type Renderer struct {
 func NewRenderer() (*Renderer, error) {
 	funcs := template.FuncMap{
 		"since":    humanSince,
+		"until":    humanUntil,
 		"stamp":    humanStamp,
 		"pct":      func(part, whole int) int { return percent(part, whole) },
 		"truncate": func(limit int, value string) string { return truncate(value, limit) },
@@ -219,6 +220,39 @@ func humanSince(value time.Time) string {
 		return fmt.Sprintf("%dh ago", int(elapsed.Hours()))
 	default:
 		return fmt.Sprintf("%dd ago", int(elapsed.Hours()/24))
+	}
+}
+
+// humanUntil describes a deadline rather than an observation. Reusing
+// humanSince for future schedule times made every task, however distant, say
+// "just now" because a negative elapsed duration satisfies elapsed < minute.
+func humanUntil(value time.Time) string {
+	if value.IsZero() {
+		return "not scheduled"
+	}
+	remaining := time.Until(value)
+	if remaining <= 0 {
+		overdue := -remaining
+		switch {
+		case overdue < time.Minute:
+			return "due now"
+		case overdue < time.Hour:
+			return fmt.Sprintf("overdue by %dm", int(overdue.Minutes()))
+		case overdue < 24*time.Hour:
+			return fmt.Sprintf("overdue by %dh", int(overdue.Hours()))
+		default:
+			return fmt.Sprintf("overdue by %dd", int(overdue.Hours()/24))
+		}
+	}
+	switch {
+	case remaining < time.Minute:
+		return "in less than a minute"
+	case remaining < time.Hour:
+		return fmt.Sprintf("in %dm", int(remaining.Minutes()))
+	case remaining < 24*time.Hour:
+		return fmt.Sprintf("in %dh", int(remaining.Hours()))
+	default:
+		return fmt.Sprintf("in %dd", int(remaining.Hours()/24))
 	}
 }
 

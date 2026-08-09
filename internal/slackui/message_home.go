@@ -54,6 +54,15 @@ func OperationsHome(
 	if publishedPRs > 0 {
 		elsewhere = append(elsewhere, fmt.Sprintf("%d draft PRs", publishedPRs))
 	}
+	if scheduleActive > 0 {
+		label := "tasks"
+		if scheduleActive == 1 {
+			label = "task"
+		}
+		elsewhere = append(elsewhere, fmt.Sprintf(
+			"%d scheduled %s · `/responder schedules`", scheduleActive, label,
+		))
+	}
 	elsewhere = append(elsewhere, "`/responder status` for everything in flight")
 
 	message := Message{

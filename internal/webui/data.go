@@ -1020,10 +1020,10 @@ func (r *Reader) CountMatching(ctx context.Context, filter EpisodeFilter) (int, 
 // day, because the handler passed a nil slice where a query belonged — the
 // section was scaffolding wearing the costume of an empty state.
 type Schedule struct {
-	Title, Prompt, Cadence, Channel, Repository, CatchUp string
-	Enabled                                              bool
-	NextRun                                              time.Time
-	Runs                                                 int
+	Title, Prompt, Cadence, Channel, Repository, CatchUp, LastOutcome string
+	Enabled                                                           bool
+	NextRun, LastRun                                                  time.Time
+	Runs                                                              int
 }
 
 func (r *Reader) Schedules(ctx context.Context) ([]Schedule, error) {
@@ -1033,8 +1033,11 @@ func (r *Reader) Schedules(ctx context.Context) ([]Schedule, error) {
 	rows, err := r.db.QueryContext(ctx, `
 	  SELECT s.title, s.prompt, s.recurrence, s.interval_seconds, s.local_time, s.timezone,
 	         s.channel_id, s.repository, s.catch_up, s.enabled, COALESCE(s.next_run_at,''),
+	         COALESCE(s.last_run_at,''), s.last_outcome,
 	         (SELECT COUNT(*) FROM scheduled_task_runs r WHERE r.task_id = s.id)
-	  FROM scheduled_tasks s ORDER BY s.next_run_at LIMIT 50`)
+	  FROM scheduled_tasks s
+	  WHERE julianday(s.expires_at) > julianday('now')
+	  ORDER BY s.enabled DESC, s.next_run_at IS NULL, s.next_run_at LIMIT 50`)
 	if err != nil {
 		return nil, err
 	}
@@ -1042,15 +1045,16 @@ func (r *Reader) Schedules(ctx context.Context) ([]Schedule, error) {
 	items := []Schedule{}
 	for rows.Next() {
 		var item Schedule
-		var recurrence, localTime, timezone, next string
+		var recurrence, localTime, timezone, next, last string
 		var interval int
 		if err := rows.Scan(&item.Title, &item.Prompt, &recurrence, &interval, &localTime,
 			&timezone, &item.Channel, &item.Repository, &item.CatchUp, &item.Enabled,
-			&next, &item.Runs); err != nil {
+			&next, &last, &item.LastOutcome, &item.Runs); err != nil {
 			return nil, err
 		}
 		item.Channel = r.channelName(ctx, item.Channel)
 		item.NextRun = parseStamp(next)
+		item.LastRun = parseStamp(last)
 		item.Cadence = recurrence
 		switch {
 		case recurrence == "interval" && interval > 0:

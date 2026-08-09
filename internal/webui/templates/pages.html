@@ -19,6 +19,27 @@
 </div>
 {{else}}<p class="empty">Nothing is waiting on you.</p>{{end}}
 
+<h2>Scheduled tasks <span class="note">{{len .Schedules}}</span></h2>
+{{if .Schedules}}
+<div class="rows">
+  {{range .Schedules}}
+  <div class="row">
+    <div class="title">{{if .Title}}{{truncate 100 .Title}}{{else}}{{truncate 100 .Prompt}}{{end}}</div>
+    <div class="meta">
+      <span class="pill{{if .Enabled}} good{{else}} warn{{end}}">{{if .Enabled}}enabled{{else}}paused{{end}}</span>
+      {{.Cadence}} · {{.Channel}}{{if .Repository}} · <span class="mono">{{.Repository}}</span>{{end}}
+    </div>
+    <div class="todo">
+      {{if .Enabled}}Next {{until .NextRun}}{{else}}No future run while paused{{end}}
+      · {{if .LastRun}}Last {{if .LastOutcome}}{{.LastOutcome}} {{end}}{{since .LastRun}}{{else}}Not run yet{{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+<p class="note">Manage cadence, pause, run-now, and deletion from <a href="/configuration">Configuration</a>
+or with <span class="mono">/responder schedules</span> in Slack.</p>
+{{else}}<p class="empty">No recurring or delayed tasks are configured.</p>{{end}}
+
 <h2>Scheduler</h2>
 {{template "problems" .Errs}}
 {{if .Lanes}}
@@ -267,7 +288,7 @@ survives when individual conversations age out.</p>{{end}}
       <td class="mono">{{.Cadence}}</td>
       <td>{{.Channel}} <span class="note">{{.Repository}}</span></td>
       <td class="mono num">{{.Runs}}</td><td class="note">{{.CatchUp}}</td>
-      <td class="note">{{since .NextRun}}</td>
+      <td class="note">{{until .NextRun}}</td>
       <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
   {{end}}
 </table>

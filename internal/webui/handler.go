@@ -164,15 +164,18 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	var failed problems
 	lanes, err := h.reader.Lanes(ctx)
 	failed.note("queues", err)
+	schedules, err := h.reader.Schedules(ctx)
+	failed.note("scheduled tasks", err)
 	h.page(w, r, "", "overview", struct {
 		NeedsYou, Failed, InFlight, Retained int
 		Blocked                              []blockedRow
 		Lanes                                []Lane
+		Schedules                            []Schedule
 		Errs                                 problems
 		Deployment, Binary, Schema           string
 		Ready                                bool
 	}{
-		Lanes: lanes, Errs: failed,
+		Lanes: lanes, Schedules: schedules, Errs: failed,
 		NeedsYou:   h.reader.Count(ctx, countNeedsDecision),
 		Failed:     h.reader.Count(ctx, countFailedRuns),
 		InFlight:   h.reader.Count(ctx, countInFlight),
