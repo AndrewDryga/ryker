@@ -89,6 +89,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /actions/workspaces/publish", h.publishRetainedWork)
 	mux.HandleFunc("POST /actions/workspaces/discard", h.discardRetainedWork)
 	mux.HandleFunc("POST /actions/workspaces/rerun", h.rerunCleanup)
+	mux.HandleFunc("POST /actions/workspaces/discard-session", h.discardWorkspace)
 	mux.HandleFunc("POST /actions/episodes/resolve", h.resolveEpisode)
 	mux.HandleFunc("POST /actions/incidents/resolve", h.resolveIncident)
 	mux.HandleFunc("POST /actions/memory/forget", h.forgetMemory)

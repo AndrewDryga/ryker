@@ -369,6 +369,39 @@ func (s *Store) NextCleanup(ctx context.Context, now time.Time) (core.CoopCleanu
 	return item, nil
 }
 
+// GetCoopCleanup reads one cleanup record by session.
+//
+// NextCleanup answers "what should the janitor do next", which is a different
+// question from "what is this row" — it filters to the states the janitor owns
+// and orders by eligibility, so it can never return a blocked row. An operator
+// acting on a blocked workspace needs exactly that row, by name.
+func (s *Store) GetCoopCleanup(ctx context.Context, sessionID string) (core.CoopCleanup, error) {
+	var item core.CoopCleanup
+	var allow int
+	var eligible, next, created, updated string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT session_id, incident_id, reason, allow_unmerged, state,
+		  plan_operation_id, attempts, eligible_at, next_attempt_at, last_error,
+		  created_at, updated_at
+		FROM coop_cleanup WHERE session_id = ?`, sessionID).Scan(
+		&item.SessionID, &item.IncidentID, &item.Reason, &allow, &item.State,
+		&item.PlanOperationID, &item.Attempts, &eligible, &next, &item.LastError,
+		&created, &updated,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.CoopCleanup{}, ErrNotFound
+	}
+	if err != nil {
+		return core.CoopCleanup{}, err
+	}
+	item.AllowUnmerged = allow != 0
+	item.EligibleAt = sqlutil.ParseTime(eligible)
+	item.NextAttemptAt = sqlutil.ParseTime(next)
+	item.CreatedAt = sqlutil.ParseTime(created)
+	item.UpdatedAt = sqlutil.ParseTime(updated)
+	return item, nil
+}
+
 func (s *Store) SetCleanupState(
 	ctx context.Context,
 	sessionID string,

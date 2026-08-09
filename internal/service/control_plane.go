@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -86,4 +88,113 @@ func (s *Service) ControlPlaneChannelSetting(
 		return nil
 	}
 	return s.store.SetSlackSetting(ctx, "channel", channelID, name, value, actor)
+}
+
+// ControlPlaneDiscardSession reclaims a retained workspace that belongs to no
+// work record.
+//
+// Thirty-two of the thirty-eight blocked cleanups on the two live deployments
+// have no incident, and the incident-shaped discard is the only one that
+// existed — so the workspaces page told an operator, in its own words, that
+// "reclaiming it needs an acknowledged discard path for record-less sessions,
+// which does not exist yet". That is a fair description of a dead end, and a
+// dead end that grows: every watch session that ends with a commit in its fork
+// lands here and stays.
+//
+// Every safety rule the incident path enforces is enforced here, because they
+// are rules about the workspace and not about the record:
+//
+//   - uncommitted work is never deleted, by anything, ever;
+//   - the session must be closed and idle, so no turn can race the deletion;
+//   - unpublished commits need Coop's explicitly acknowledged plan, not the
+//     ordinary one.
+//
+// What is dropped is only the bookkeeping that needs an incident: there is no
+// room to post an outcome notice to, and no work record to attribute. The
+// audit row is the record instead, which is also the only record a record-less
+// session could ever have.
+//
+// A session Coop has already forgotten is the common case here — the fork was
+// reaped, or the whole state root was rebuilt — and it is a success, not an
+// error. The cleanup row is the last thing holding a reference to something
+// that is already gone, so it is closed out and said so.
+func (s *Service) ControlPlaneDiscardSession(ctx context.Context, sessionID, actor string) error {
+	item, err := s.store.GetCoopCleanup(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("load the cleanup record: %w", err)
+	}
+	if item.IncidentID != "" {
+		return errors.New(
+			"this workspace belongs to a work record, so it discards through that record's " +
+				"own control, which posts the outcome to its Slack room",
+		)
+	}
+	inputID, err := core.NewID("cp")
+	if err != nil {
+		return err
+	}
+	now := s.now().UTC()
+	finish := func(operationID, detail string) error {
+		if err := s.store.SetCleanupState(
+			ctx, sessionID, "done", operationID, "", now,
+		); err != nil {
+			return err
+		}
+		s.audit(ctx, core.AuditEvent{
+			Kind: "workspace.discard", ActorID: actor, ObjectID: sessionID,
+			Outcome: "succeeded", Detail: detail,
+		})
+		return nil
+	}
+
+	session, err := s.coop.GetSession(ctx, sessionID)
+	var apiErr *coop.APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+		return finish("", "Coop no longer knows this session; the cleanup record was the last reference to a fork that is already gone.")
+	}
+	if err != nil {
+		return err
+	}
+	if session.State == "discarded" {
+		return finish("", "Coop had already discarded this session; only the cleanup record was still open.")
+	}
+	if session.State != "closed" || session.ActiveTurnID != "" || session.QueuedTurnCount != 0 {
+		return errors.New(
+			"the Coop session is not closed and idle, so nothing was deleted — a turn could " +
+				"still be writing to this workspace",
+		)
+	}
+	plan, _, err := s.coop.PlanDiscard(
+		ctx, "responder:discard-plan:"+inputID, session.ID, session.Revision, false, false,
+	)
+	if err != nil {
+		return err
+	}
+	if plan.Plan.Workspace.Dirty {
+		return errors.New(
+			"the workspace has uncommitted changes, and nothing deletes dirty work — not the " +
+				"janitor, not Slack, not this page; inspect the fork and decide what to preserve",
+		)
+	}
+	if plan.Plan.Workspace.Unmerged {
+		plan, _, err = s.coop.PlanDiscard(
+			ctx, "responder:discard-plan-unpublished:"+inputID,
+			session.ID, session.Revision, false, true,
+		)
+		if err != nil {
+			return err
+		}
+		if plan.Plan.Workspace.Dirty || !plan.Plan.Workspace.AcceptedUnmerged {
+			return errors.New("Coop did not return the exact acknowledged unpublished-work discard plan")
+		}
+	}
+	if _, _, err := s.coop.Discard(
+		ctx, "responder:discard:"+inputID, session.ID, plan.OperationID,
+	); err != nil {
+		return err
+	}
+	return finish(
+		plan.OperationID,
+		"Operator discarded a retained workspace that belongs to no work record.",
+	)
 }

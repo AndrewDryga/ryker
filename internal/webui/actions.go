@@ -28,6 +28,12 @@ type Actions interface {
 	PublishRetainedWork(ctx context.Context, incidentID, actor string) error
 	DiscardRetainedWork(ctx context.Context, incidentID, actor string) error
 	RerunCleanup(ctx context.Context, sessionID, actor string) error
+	// DiscardWorkspace reclaims a retained fork that belongs to no work
+	// record. It enforces the same workspace rules as the incident-scoped
+	// discard — never dirty, never busy, unpublished commits only through
+	// Coop's acknowledged plan — and drops only the bookkeeping that needs an
+	// incident, since there is no room to post an outcome to.
+	DiscardWorkspace(ctx context.Context, sessionID, actor string) error
 	// ResolveEpisodeOvertaken closes blocked or waiting work whose moment has
 	// passed, through the episode kernel's own cancel transition. Nothing is
 	// deleted: the event and the audit row are the record of who decided.
@@ -192,4 +198,10 @@ func (h *Handler) channelSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/channels/"+url.PathEscape(id), http.StatusSeeOther)
+}
+
+func (h *Handler) discardWorkspace(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.DiscardWorkspace(ctx, id, dashboardActor)
+	})
 }

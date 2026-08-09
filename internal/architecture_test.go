@@ -29,13 +29,21 @@ const modulePath = "github.com/AndrewDryga/responder/"
 // injected clock is a refactor, not new API, and should not trip this budget.
 // See the package comment: raising an entry is a decision, not a formality.
 var methodBudget = map[string]int{
-	"Service": 12,
+	// Thirteen for ControlPlaneDiscardSession, which reclaims a fork belonging
+	// to no work record. Thirty-two of thirty-eight blocked cleanups are
+	// record-less, and the incident-shaped discard cannot reach any of them —
+	// the page said so in its own words. It enforces the same workspace rules
+	// and drops only the bookkeeping that needs an incident.
+	"Service": 13,
 	// 221 today, down from 300. The budget has been raised for real capability
 	// before — the standing-assignment layer took it from 290 — but it now comes
 	// down by extraction. Callers reach an extracted area through a field like
 	// store.Memory, not a delegating method, because a passthrough still counts
 	// here and would make the extraction invisible to this number.
-	"Store": 228,
+	// 229 for GetCoopCleanup. NextCleanup answers "what should the janitor do
+	// next" and filters to the states the janitor owns, so it can never return
+	// the blocked row an operator is acting on.
+	"Store": 229,
 }
 
 // lineBudget caps non-test source lines per package.

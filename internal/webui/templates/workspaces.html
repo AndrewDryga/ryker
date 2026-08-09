@@ -23,6 +23,7 @@ shown.</p>
     <div class="acts">
       {{if .CanPublish}}{{template "confirm" confirm "Publish draft PR" "Coop reviews the fork and publishes it as a draft PR; the outcome is posted to the room's Slack channel." "Yes, review and publish" "/actions/workspaces/publish" .IncidentID}}{{end}}
       {{if .CanDiscard}}{{template "confirm" confirm "Discard retained work" "Coop verifies the exact closed workspace state, then deletes the fork and its unpublished commits. Nothing on GitHub changes." "Yes, discard the fork" "/actions/workspaces/discard" .IncidentID}}{{end}}
+      {{if .CanReclaim}}{{template "confirm" confirm "Reclaim the fork" "This workspace belongs to no work record, so there is no room to notify. Coop verifies the closed state, then deletes the fork and any unpublished commits. Nothing on GitHub changes, and a dirty tree is still refused." "Yes, reclaim it" "/actions/workspaces/discard-session" .SessionID}}{{end}}
       {{if .CanRerun}}{{template "confirm" confirm "Run cleanup again" "The janitor re-runs its own checks against this session. It deletes nothing a check refuses." "Yes, run the checks" "/actions/workspaces/rerun" .SessionID}}{{end}}
     </div>
     {{with .Explain}}<p class="note">{{.}}</p>{{end}}

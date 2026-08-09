@@ -34,6 +34,15 @@ func (w RetainedWorkspace) CanDiscard() bool {
 	return w.IncidentStatus == "closed" && w.WorkKind == "engineering_task"
 }
 
+// CanReclaim offers the record-less discard: a fork with no work record behind
+// it, which the incident-shaped controls cannot reach at all. Dirty trees are
+// excluded here as everywhere — the service refuses them too, and a page must
+// not offer what the service will refuse.
+func (w RetainedWorkspace) CanReclaim() bool {
+	return w.IncidentID == "" &&
+		!strings.HasPrefix(w.Refusal, "workspace has uncommitted changes")
+}
+
 // CanPublish mirrors the Slack admission gate, which refuses publish once the
 // work is closed. In practice a cleanup row usually exists because the work
 // closed, so this is rare here — but a page must not offer what the service
@@ -59,18 +68,14 @@ func (w RetainedWorkspace) CanRerun() bool {
 // reads as a rendering fault, and a button that the service would refuse is
 // worse.
 func (w RetainedWorkspace) Explain() string {
-	if w.CanPublish() || w.CanDiscard() || w.CanRerun() {
+	if w.CanPublish() || w.CanDiscard() || w.CanRerun() || w.CanReclaim() {
 		return ""
 	}
 	if strings.HasPrefix(w.Refusal, "workspace has uncommitted changes") {
 		return "Nothing may delete uncommitted work — not the janitor, not Slack, not this page. " +
 			"Inspect the fork directly and decide what to preserve; cleanup takes it once the tree is clean."
 	}
-	if w.IncidentID == "" {
-		return "This session belongs to no work record, so the Slack publish and discard paths do not " +
-			"exist for it, and unacknowledged cleanup refuses unpublished commits by design. Reclaiming " +
-			"it needs an acknowledged discard path for record-less sessions, which does not exist yet."
-	}
+
 	return "No Slack-equivalent action applies in this state; the refusal above says what the janitor needs."
 }
 

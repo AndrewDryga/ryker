@@ -218,6 +218,9 @@ func (failingActions) DiscardRetainedWork(context.Context, string, string) error
 func (failingActions) RerunCleanup(context.Context, string, string) error {
 	return errors.New("store refused")
 }
+func (failingActions) DiscardWorkspace(context.Context, string, string) error {
+	return errors.New("store refused")
+}
 func (failingActions) ResolveEpisodeOvertaken(context.Context, string, string) error {
 	return errors.New("store refused")
 }

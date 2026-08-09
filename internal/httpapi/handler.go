@@ -189,6 +189,14 @@ func (a *dashboardActions) DiscardRetainedWork(ctx context.Context, incidentID, 
 	return a.service.ControlPlaneAct(ctx, "discard", incidentID, actor)
 }
 
+// DiscardWorkspace reclaims a fork that belongs to no work record. Separate
+// from DiscardRetainedWork because the identifier is different in kind — a
+// Coop session rather than an incident — and routing both through one method
+// would mean guessing which one a caller meant from the shape of a string.
+func (a *dashboardActions) DiscardWorkspace(ctx context.Context, sessionID, actor string) error {
+	return a.service.ControlPlaneDiscardSession(ctx, sessionID, actor)
+}
+
 // RerunCleanup sends one blocked workspace back through the janitor's checks.
 // The transition and the audit row land in the same act: the dashboard once
 // shipped an action that changed state with no audit trail, and sixteen
