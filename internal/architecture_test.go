@@ -126,7 +126,21 @@ var lineBudget = map[string]int{
 	// raise so far has taken. That was not done here because rewriting the
 	// migration machinery while shipping a migration is how the 9934-row
 	// deletion happened, and one of those risks at a time is enough.
-	"store":      11200,
+	//
+	// Raised from 11200 to 11400 on 2026-08-09 to give this package a retention
+	// policy at all. Two things landed together: migration 51, which deletes the
+	// 5,483 per-second waiting events sitting in the deployed databases, and the
+	// episode-history sweep in lifecycle.go, which is the first code anywhere
+	// that expires work_episodes and the eight tables that cascade from it.
+	// Before it, 22 MB of a 32 MB database was governed by no policy at all and
+	// grew forever; the budget is a guard against drift, and an unbounded table
+	// is a worse kind of growth than the lines that bound it.
+	//
+	// Still not the extraction this note has asked for twice. Both of those
+	// changes are migrations and deletions against live data, and the paragraph
+	// above says why moving the migration machinery in the same breath as a
+	// migration is the one thing not to do here.
+	"store":      11400,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

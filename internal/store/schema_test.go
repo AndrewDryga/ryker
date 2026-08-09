@@ -381,3 +381,190 @@ func TestLegacyFeedbackIsAdopted(t *testing.T) {
 		t.Fatalf("adoption without a legacy database = %d, %v", adopted, err)
 	}
 }
+
+// writeSchemaVersion50Database builds a database at the version that shipped
+// before the deferred-event cleanup, so migration 51 can be exercised against
+// rows in the shape the deployed databases actually hold.
+func writeSchemaVersion50Database(t *testing.T) string {
+	t.Helper()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(connectionPragmas); err != nil {
+		t.Fatal(err)
+	}
+	if err := applySchemaStep(db, baselineSchema, 0, baselineSchemaVersion); err != nil {
+		t.Fatal(err)
+	}
+	for version := baselineSchemaVersion + 1; version <= 50; version++ {
+		if err := applySchemaStep(db, migrations[version], version-1, version); err != nil {
+			t.Fatalf("apply migration %d: %v", version, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return stateDir
+}
+
+// seedDeferredEventHistory writes one episode carrying the per-second waiting
+// events two agent runs produced, plus the real events they were buried in.
+func seedDeferredEventHistory(t *testing.T, path string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(connectionPragmas); err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []string{"run_first", "run_second"} {
+		if _, err := db.Exec(`
+			INSERT INTO agent_runs (
+			  id, mode, conversation_key, source_kind, source_id, idempotency_key,
+			  state, next_attempt_at, created_at, updated_at
+			) VALUES (?, 'triage', 'C1', 'watch', ?, ?, 'completed',
+			  '2026-08-06T00:00:00.000000000Z', '2026-08-06T00:00:00.000000000Z',
+			  '2026-08-06T00:00:00.000000000Z')`,
+			run, "input_"+run, "responder:run:"+run,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`
+		INSERT INTO work_episodes (
+		  id, agent_run_id, effort, authority, objective, lifecycle_state,
+		  event_sequence, created_at, updated_at
+		) VALUES ('ep_wait', 'run_first', 'focused_check', 'read_only',
+		  'answer the question', 'completed', 9,
+		  '2026-08-06T00:00:00.000000000Z', '2026-08-06T00:00:00.000000000Z')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(sequence int, kind, key string) {
+		t.Helper()
+		if _, err := db.Exec(`
+			INSERT INTO work_episode_events
+			  (id, episode_id, sequence, kind, actor, idempotency_key, payload_json, created_at)
+			VALUES (?, 'ep_wait', ?, ?, 'host', ?, '{"status":"waiting"}', ?)`,
+			fmt.Sprintf("episode_event_ep_wait_%06d", sequence), sequence, kind, key,
+			fmt.Sprintf("2026-08-06T00:00:%02dZ", sequence),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(1, "episode_created", "agent-run:run_first:created")
+	// run_first waits three times; only the first of the three is history.
+	insert(2, "phase_changed", "agent-run:run_first:deferred:2026-08-06T00:00:02Z")
+	insert(3, "phase_changed", "agent-run:run_first:deferred:2026-08-06T00:00:03Z")
+	insert(4, "phase_changed", "agent-run:run_first:deferred:2026-08-06T00:00:04Z")
+	insert(5, "evidence_recorded", "agent-run:run_first:evidence")
+	// A second attempt waiting is a separate fact and keeps its own row.
+	insert(6, "phase_changed", "agent-run:run_second:deferred:2026-08-06T00:00:06Z")
+	insert(7, "phase_changed", "agent-run:run_second:deferred:2026-08-06T00:00:07Z")
+	insert(8, "completion_submitted", "agent-run:run_second:completed")
+	// The shape the fixed emitter writes has no timestamp and is not touched.
+	insert(9, "phase_changed", "agent-run:run_third:deferred")
+}
+
+// Migration 51 deletes the waiting events that were written once per second,
+// keeps one per run, and leaves every other event alone.
+func TestMigrationCollapsesPerSecondDeferredEvents(t *testing.T) {
+	dir := writeSchemaVersion50Database(t)
+	path := filepath.Join(dir, "responder.db")
+	seedDeferredEventHistory(t, path)
+
+	openAt(t, dir)
+
+	if version := schemaVersionOf(t, dir); version != currentSchemaVersion {
+		t.Fatalf("upgraded schema version = %d, want %d", version, currentSchemaVersion)
+	}
+	verify, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer verify.Close()
+	rows, err := verify.Query(
+		`SELECT sequence, kind, idempotency_key FROM work_episode_events ORDER BY sequence`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var kept []string
+	for rows.Next() {
+		var sequence int
+		var kind, key string
+		if err := rows.Scan(&sequence, &kind, &key); err != nil {
+			t.Fatal(err)
+		}
+		kept = append(kept, fmt.Sprintf("%d %s %s", sequence, kind, key))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"1 episode_created agent-run:run_first:created",
+		"2 phase_changed agent-run:run_first:deferred:2026-08-06T00:00:02Z",
+		"5 evidence_recorded agent-run:run_first:evidence",
+		"6 phase_changed agent-run:run_second:deferred:2026-08-06T00:00:06Z",
+		"8 completion_submitted agent-run:run_second:completed",
+		"9 phase_changed agent-run:run_third:deferred",
+	}
+	if strings.Join(kept, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("events after migration 51:\n%s\nwant:\n%s",
+			strings.Join(kept, "\n"), strings.Join(want, "\n"))
+	}
+
+	// The aggregate keeps allocating sequences from its own high-water mark, so
+	// the gaps the deletion left cannot collide with anything written next.
+	var sequence int
+	if err := verify.QueryRow(
+		`SELECT event_sequence FROM work_episodes WHERE id = 'ep_wait'`,
+	).Scan(&sequence); err != nil {
+		t.Fatal(err)
+	}
+	if sequence != 9 {
+		t.Fatalf("episode event sequence = %d, want 9", sequence)
+	}
+}
+
+// The same migration has to be a no-op on a database that never wrote a
+// timestamped key, and on one it has already swept.
+func TestMigrationCollapsingDeferredEventsIsSafeToRepeat(t *testing.T) {
+	fresh := t.TempDir()
+	openAt(t, fresh)
+	db, err := sql.Open("sqlite", filepath.Join(fresh, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for range 2 {
+		if _, err := db.Exec(schemaV51); err != nil {
+			t.Fatalf("migration 51 on a database without deferred events: %v", err)
+		}
+	}
+
+	seeded := writeSchemaVersion50Database(t)
+	path := filepath.Join(seeded, "responder.db")
+	seedDeferredEventHistory(t, path)
+	openAt(t, seeded)
+	repeat, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repeat.Close()
+	before := countRows(t, repeat, "work_episode_events")["work_episode_events"]
+	if _, err := repeat.Exec(schemaV51); err != nil {
+		t.Fatal(err)
+	}
+	if after := countRows(t, repeat, "work_episode_events")["work_episode_events"]; after != before {
+		t.Fatalf("repeating migration 51 removed %d more rows", before-after)
+	}
+}
