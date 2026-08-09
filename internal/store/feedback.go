@@ -71,7 +71,18 @@ func (s *Store) RecordFeedback(ctx context.Context, item FeedbackItem) (Feedback
 		item.CreatedAt = now
 	}
 	item.UpdatedAt = now
-	item.Status = "open"
+	// Praise is recorded as settled, everything else as work.
+	//
+	// Every item used to be forced open, which is right for a complaint —
+	// somebody has to decide what to do about it — and wrong for a thumbs-up.
+	// Putting praise in the queue that means "a person must act" would fill
+	// that queue with rows whose only correct action is to dismiss them, and
+	// the App Home list that renders it is titled "awaiting a decision".
+	// Noted keeps it counted, readable and available to anything assembling
+	// examples of the target behaviour, without calling it work.
+	if item.Status != "noted" {
+		item.Status = "open"
+	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO feedback_items (
 		  id, workspace_id, channel_id, thread_ts, message_ts, target_message_ts,
@@ -87,7 +98,7 @@ func (s *Store) RecordFeedback(ctx context.Context, item FeedbackItem) (Feedback
 		  episode_id = excluded.episode_id,
 		  agent_run_id = excluded.agent_run_id,
 		  source_ref = excluded.source_ref,
-		  status = 'open',
+		  status = excluded.status,
 		  updated_at = excluded.updated_at`,
 		item.ID, item.WorkspaceID, item.ChannelID, item.ThreadTS, item.MessageTS,
 		item.TargetMessageTS, item.UserID, item.Source, item.Category, item.Sentiment,

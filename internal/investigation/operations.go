@@ -291,7 +291,13 @@ func validateFeedbackOperation(operation ResultOperation) error {
 		return fmt.Errorf("result operation %q has unsupported feedback category %q", operation.ID, operation.Feedback.Category)
 	}
 	switch operation.Feedback.Sentiment {
-	case "negative", "suggestion", "mixed":
+	// "positive" is here because a vocabulary of negative, suggestion and mixed
+	// can only ever record what went wrong. The corpus of what a good answer
+	// looks like then has to be assembled from complaints, and complaints are
+	// rare: nine days of traffic produced zero feedback rows on the busy
+	// deployment. An operator saying "this one was right" is the cheapest
+	// example of the target behaviour there is, and it had nowhere to go.
+	case "negative", "positive", "suggestion", "mixed":
 	default:
 		return fmt.Errorf("result operation %q has unsupported feedback sentiment %q", operation.ID, operation.Feedback.Sentiment)
 	}
@@ -346,7 +352,7 @@ accepted operations in the episode event stream.
 - update_goal: {"id":"goal-done-1","type":"update_goal","goal_state":{"goal_id":"goal-1","state":"ready|working|waiting|completed|blocked|excluded|cancelled","detail":"optional blocker"}}
 - request_operator_input: {"id":"input-1","type":"request_operator_input","operator_input":{"question":"one exact question","choices":["optional choice"]}}
 - wait_external: {"id":"wait-1","type":"wait_external","external_wait":{"id":"wakeup-1","kind":"github_checks|deployment|terraform_run|emisar_approval|scheduled_verification|other","event_matcher":{"provider":"github","pr":42},"poll_after":"RFC3339","deadline":"RFC3339"}}
-- record_feedback: {"id":"feedback-1","type":"record_feedback","feedback":{"category":"ux|correctness|tone|latency|reliability|feature_request|other","sentiment":"negative|suggestion|mixed","summary":"one actionable sentence","details":"optional concise context","target_message_ts":"optional Slack timestamp of the Responder reply being criticized","needs_followup":false,"followup_question":"required only when needs_followup is true"}}
+- record_feedback: {"id":"feedback-1","type":"record_feedback","feedback":{"category":"ux|correctness|tone|latency|reliability|feature_request|other","sentiment":"negative|positive|suggestion|mixed","summary":"one actionable sentence","details":"optional concise context","target_message_ts":"optional Slack timestamp of the Responder reply this is about","needs_followup":false,"followup_question":"required only when needs_followup is true"}}
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
 - record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current operator impact","cause_status":"identified|bounded when required","cause":"bounded cause when required","immediate_action":"what to do now","verification":"observable success condition","long_term_solution":"durable fix when required"}}

@@ -17,9 +17,42 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-var negativeFeedbackReactions = map[string]struct{}{
-	"-1": {}, "thumbsdown": {}, "confused": {}, "disappointed": {},
-	"face_with_raised_eyebrow": {}, "poop": {},
+// A reaction on a Responder message is the cheapest feedback Slack offers, and
+// half of it was being discarded.
+//
+// Only the six negative emoji counted. A thumbs-up on a reply the operator
+// liked recorded nothing at all, so the corpus of what a good answer looks like
+// could only ever be assembled from complaints — and complaints are rare. Nine
+// days of traffic on the busy deployment produced zero feedback rows while
+// thirteen reactions arrived and were dropped.
+//
+// Only unambiguous praise is listed. The acknowledgement emoji an operations
+// channel uses constantly — white_check_mark, eyes, heavy_check_mark — mean
+// "seen" or "handled" far more often than "this answer was right", and a
+// mislabelled positive is worse than a missing one: it teaches the wrong
+// example to everything downstream that treats these as targets.
+var feedbackReactionSentiment = map[string]string{
+	"-1": "negative", "thumbsdown": "negative", "confused": "negative",
+	"disappointed": "negative", "face_with_raised_eyebrow": "negative",
+	"poop": "negative",
+
+	"+1": "positive", "thumbsup": "positive", "tada": "positive",
+	"heart": "positive", "heart_eyes": "positive", "raised_hands": "positive",
+	"clap": "positive", "fire": "positive", "100": "positive",
+	"star-struck": "positive",
+}
+
+// reactionName strips the skin-tone modifier Slack appends.
+//
+// Slack delivers a toned thumbs-up as "+1::skin-tone-3", which matched nothing
+// in the table above. The negative half had the same hole: an operator whose
+// Slack has a default skin tone set could react thumbsdown and be recorded as
+// no feedback at all.
+func reactionName(value string) string {
+	if index := strings.Index(value, "::"); index >= 0 {
+		return value[:index]
+	}
+	return value
 }
 
 func feedbackID(parts ...string) string {
@@ -35,7 +68,9 @@ func (s *Service) sanitizeFeedbackText(value string) string {
 }
 
 func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackInput) error {
-	if _, negative := negativeFeedbackReactions[input.ActionID]; !negative {
+	name := reactionName(input.ActionID)
+	sentiment, graded := feedbackReactionSentiment[name]
+	if !graded {
 		return nil
 	}
 	if _, err := s.store.GetSentSlackMessageDelivery(
@@ -45,7 +80,7 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 	} else if err != nil {
 		return err
 	}
-	id := feedbackID("reaction", input.TeamID, input.ChannelID, input.ActionValue, input.UserID, input.ActionID)
+	id := feedbackID("reaction", input.TeamID, input.ChannelID, input.ActionValue, input.UserID, name)
 	if input.Kind == "reaction_removed" {
 		return s.store.WithdrawFeedback(ctx, id)
 	}
@@ -53,13 +88,17 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 	if err != nil {
 		return err
 	}
+	summary, status := "User reacted negatively to a Responder message", ""
+	if sentiment == "positive" {
+		summary, status = "User reacted positively to a Responder message", "noted"
+	}
 	item := store.FeedbackItem{
 		ID: id, WorkspaceID: input.TeamID, ChannelID: input.ChannelID,
 		ThreadTS: input.ThreadTS, MessageTS: input.MessageTS,
 		TargetMessageTS: input.ActionValue, UserID: input.UserID,
-		Source: "negative_reaction", Category: "other", Sentiment: "negative",
-		Summary: "User reacted negatively to a Responder message",
-		Details: "Slack reaction: :" + input.ActionID + ":",
+		Source: sentiment + "_reaction", Category: "other", Sentiment: sentiment,
+		Summary: summary, Status: status,
+		Details: "Slack reaction: :" + name + ":",
 		Context: contextMessages, SourceRef: exactSlackMessageLink(input, input.ActionValue),
 	}
 	if _, err := s.store.RecordFeedback(ctx, item); err != nil {

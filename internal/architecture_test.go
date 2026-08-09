@@ -106,7 +106,13 @@ var lineBudget = map[string]int{
 	// write a participation override through the same store call the slash
 	// command uses. The alternative was the dashboard writing slack_settings
 	// itself, which is a second implementation of the inherit rule.
-	"service": 24712,
+	// And seventeen more to grade a reaction rather than only detect a bad one.
+	// The map went from six negative emoji to a sentiment per emoji, gained a
+	// helper that strips Slack's skin-tone suffix — which the negative half was
+	// silently missing too — and the caller now picks a summary and a status
+	// from the grade. Praise records as noted, not open, so it never enters the
+	// queue whose only available decision would be to dismiss it.
+	"service": 24729,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

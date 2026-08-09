@@ -63,6 +63,68 @@ func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
 	}
 }
 
+// Praise is kept, and kept out of the queue that means somebody must act.
+//
+// A thumbs-up on a Responder reply used to record nothing, so every example of
+// the target behaviour had to come from a complaint. It is recorded as noted
+// rather than open: the App Home list it would otherwise join is titled
+// "awaiting a decision", and the only decision available for praise is to
+// dismiss it. The skin tone is what Slack actually delivers when the reacting
+// operator has one set, and it matched nothing in the table before.
+func TestPositiveReactionIsRecordedWithoutAskingForADecision(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{history: []slackui.HistoryMessage{
+		{Timestamp: "99.000", UserID: "U123ABC", Text: "Is the workspace safe to unlock?"},
+		{Timestamp: "100.000", UserID: "U999BOT", Text: "Yes — run-bKF5 finished with no changes."},
+	}}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "praised-reply", Kind: "reply", ChannelID: "C123ABC",
+		ThreadTS: "100.000", Body: []byte(`{"text":"Yes."}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, delivery.ID, "100.000", delivery.State); err != nil {
+		t.Fatal(err)
+	}
+	input := core.SlackInput{
+		ID: "reaction-1", Kind: "reaction_added", TeamID: cfg.Slack.TeamID,
+		ChannelID: "C123ABC", ThreadTS: "100.000", MessageTS: "101.000",
+		UserID: "U123ABC", ActionID: "+1::skin-tone-3", ActionValue: "100.000",
+	}
+	if err := svc.recordReactionFeedback(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	open, err := st.ListOpenFeedback(ctx, cfg.Slack.TeamID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 0 {
+		t.Fatalf("praise was queued as awaiting a decision: %#v", open)
+	}
+	stored, err := st.GetFeedback(ctx, feedbackID(
+		"reaction", cfg.Slack.TeamID, "C123ABC", "100.000", "U123ABC", "+1",
+	))
+	if err != nil {
+		t.Fatalf("praise was not recorded at all: %v", err)
+	}
+	if stored.Sentiment != "positive" || stored.Source != "positive_reaction" ||
+		stored.Status != "noted" || stored.Details != "Slack reaction: :+1:" {
+		t.Fatalf("stored = %#v", stored)
+	}
+}
+
 func TestNegativeReactionToSomeoneElsesMessageIsNotFeedback(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
