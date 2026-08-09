@@ -977,6 +977,7 @@ type ContextManifest struct {
 	CreatedAt         time.Time
 	References        []ContextReference
 	Usage             ContextUsage
+	Latency           ContextLatency
 }
 
 // ContextUsage is what one attempt spent, in tokens, totalled over every Coop
@@ -1007,6 +1008,66 @@ func (u ContextUsage) Recorded() bool {
 		u.OutputTokens > 0 || u.ReasoningTokens > 0
 }
 
+// ContextLatency is how long an attempt waited, totalled over every Coop turn
+// it took and split by who was doing the waiting.
+//
+// Three spans rather than one duration, because "the answer took four minutes"
+// and "the model took four minutes" are different faults with different fixes.
+// Queued is Coop holding the turn before a provider picked it up, Provider is
+// the provider working, and Host is Responder not yet having noticed that the
+// turn finished — it polls, so that gap is real and is nobody else's.
+//
+// Provider is not split into inference and tool calls. Coop's turn record
+// carries queued_at, started_at and finished_at and nothing between them, and
+// its activity states are session lifecycle rather than what the model is
+// doing, so that split would have to be invented. An invented split in a
+// latency report is a guess wearing a measurement's clothes.
+type ContextLatency struct {
+	Turns    int
+	Queued   time.Duration
+	Provider time.Duration
+	Host     time.Duration
+}
+
+// Recorded reports whether any turn of this attempt was timed at all.
+//
+// Turns counts only turns Coop timestamped, so zero means nobody measured
+// rather than "it was instant" — the same distinction ContextUsage.Recorded
+// keeps, and for the same reason. It also keeps an average over Turns honest:
+// a turn that failed before it started has no started_at, contributes no span,
+// and so must not be in the divisor either.
+func (l ContextLatency) Recorded() bool { return l.Turns > 0 }
+
+// NewContextLatency measures one finished turn. observedAt is when the host
+// saw it finish, which is what makes the poll lag visible.
+//
+// A turn missing either endpoint measures nothing rather than zero: Coop
+// leaves started_at unset on a turn that failed while queued, and subtracting
+// from a zero time would report a span since year one.
+//
+// Negative spans are clamped away rather than recorded. Coop runs on the same
+// host and shares its clock, so a negative here is a rounding artifact at a
+// boundary, not a fact about a turn that finished before it began.
+func NewContextLatency(queuedAt, startedAt, finishedAt, observedAt time.Time) ContextLatency {
+	if startedAt.IsZero() || finishedAt.IsZero() {
+		return ContextLatency{}
+	}
+	// A missing endpoint measures nothing. Subtracting a zero time would
+	// otherwise report two millennia of queueing as though it were a fact.
+	span := func(from, to time.Time) time.Duration {
+		if from.IsZero() || to.IsZero() {
+			return 0
+		}
+		return max(to.Sub(from), 0)
+	}
+	return ContextLatency{
+		Turns:    1,
+		Queued:   span(queuedAt, startedAt),
+		Provider: span(startedAt, finishedAt),
+		Host:     span(finishedAt, observedAt),
+	}
+}
+
 type ContextReference struct {
 	ID             string
 	ManifestID     string
@@ -1018,6 +1079,84 @@ type ContextReference struct {
 	Ordinal        int
 	OmittedReason  string
 	Metadata       map[string]string
+}
+
+// ContextOmission is one thing the assembler decided not to put in a prompt.
+//
+// It is recorded because "what was NOT in the prompt" is usually the answer to
+// "why did it say that". A prompt trimmed to a third of its context and a
+// complete one otherwise leave identical manifests: the references list what
+// went in, and nothing anywhere listed what did not. All 2,825 reference rows
+// and all 351 manifests on the deployed database say nothing was ever dropped,
+// which is not what happened — it is what nobody wrote down.
+//
+// Kind and SourceRef mirror ContextReference so an omission is stored beside
+// the references it displaced, rather than in a parallel shape a reader has to
+// know to go looking in.
+type ContextOmission struct {
+	Kind      string
+	SourceRef string
+	Reason    string
+}
+
+// DroppedContextLayer names a bounded context layer the assembler left out
+// whole, addressed by layer rather than by content — the point of the record is
+// that the content is precisely what there is no reference to.
+func DroppedContextLayer(kind, reason string) ContextOmission {
+	return ContextOmission{Kind: kind, SourceRef: "context-layer:" + kind, Reason: reason}
+}
+
+// AppendElidedPrompt adds the omission for a prompt the transport will have to
+// cut, and adds nothing when it fits.
+//
+// The host knows this before the turn is sent — it holds both the prompt and
+// the cap — so it is recorded against the attempt that suffered it. The Coop
+// client's own truncation counter only ever knew how many prompts had been
+// elided in this process and never which episode's, so an operator holding one
+// bad answer could not find out whether its prompt had been cut in half.
+func AppendElidedPrompt(
+	omissions []ContextOmission,
+	sourceRef string,
+	promptBytes, capBytes int,
+) []ContextOmission {
+	if capBytes <= 0 || promptBytes <= capBytes {
+		return omissions
+	}
+	return append(omissions, ContextOmission{
+		Kind: "compiled_prompt", SourceRef: sourceRef,
+		Reason: fmt.Sprintf(
+			"the transport elided %d bytes from the middle of this %d-byte prompt to fit the %d-byte Coop turn limit",
+			promptBytes-capBytes, promptBytes, capBytes,
+		),
+	})
+}
+
+// OmittedContextReferences turns omissions into the reference rows that record
+// them.
+//
+// Visibility is "omitted" rather than "eligible" or "private". Those two say
+// what may be shown of something that was sent; this was not sent, and calling
+// it private would hide a gap behind a word that means the opposite.
+func OmittedContextReferences(omissions []ContextOmission) []ContextReference {
+	references := make([]ContextReference, 0, len(omissions))
+	for _, omission := range omissions {
+		references = append(references, ContextReference{
+			Kind: omission.Kind, SourceRef: omission.SourceRef,
+			Visibility: "omitted", OmittedReason: omission.Reason,
+		})
+	}
+	return references
+}
+
+// ContextOmissionReasons is the same facts as the manifest-level summary, in
+// the order the assembler decided them, which is also the order of increasing
+// desperation: the first thing dropped was the least load-bearing.
+func ContextOmissionReasons(omissions []ContextOmission) []string {
+	reasons := make([]string, 0, len(omissions))
+	for _, omission := range omissions {
+		reasons = append(reasons, omission.Reason)
+	}
+	return reasons
 }
 
 type EpisodeWakeupState string

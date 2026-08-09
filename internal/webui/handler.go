@@ -514,13 +514,3 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 			"different claims that need different numbers."}
 	h.page(w, "usage", "usage", page)
 }
-
-func deploymentName(stateDir string) string {
-	parts := strings.Split(strings.TrimSuffix(stateDir, "/"), "/")
-	for index := len(parts) - 1; index >= 0; index-- {
-		if part := parts[index]; part != "" && part != "state" && part != ".responder" {
-			return part
-		}
-	}
-	return "responder"
-}

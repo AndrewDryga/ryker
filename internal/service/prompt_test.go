@@ -62,7 +62,7 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 // blocks reach which turn.
 func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 	cfg := serviceConfig(t)
-	prompt := (&Service{cfg: cfg}).watchPrompt(
+	prompt, _ := (&Service{cfg: cfg}).watchPrompt(
 		core.SlackInput{
 			ChannelID: "C123ABC",
 			MessageTS: "1700.001",
@@ -281,7 +281,7 @@ const staticWatchPromptBytes = 48281
 // is not a ratchet.
 func TestStaticWatchPromptSizeIsPinned(t *testing.T) {
 	cfg := serviceConfig(t)
-	prompt := (&Service{cfg: cfg}).watchPrompt(
+	prompt, _ := (&Service{cfg: cfg}).watchPrompt(
 		core.SlackInput{
 			ChannelID: "C123ABC", MessageTS: "1700.001",
 			UserID: cfg.Slack.Operators[0], Kind: "scheduled",

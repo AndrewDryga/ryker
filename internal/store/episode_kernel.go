@@ -632,8 +632,15 @@ func validateManifestLineage(ctx context.Context, tx *sql.Tx, manifest core.Cont
 	if parentEpisode != manifest.EpisodeID || parentVersion != manifest.Version-1 {
 		return errors.New("context manifest parent is not the preceding episode version")
 	}
+	// Only the parent's actual context has to be accounted for. A row carrying
+	// an omission reason records something the parent attempt did NOT send, so
+	// there is nothing for the child to have dropped and nothing for it to
+	// explain — and requiring the child to repeat it would make every omission
+	// permanent, so a layer trimmed once would read as trimmed forever even on
+	// the attempts that carried it in full.
 	rows, err := tx.QueryContext(ctx, `
-		SELECT source_ref, content_digest FROM context_manifest_refs WHERE manifest_id = ?`,
+		SELECT source_ref, content_digest FROM context_manifest_refs
+		WHERE manifest_id = ? AND omitted_reason = ''`,
 		manifest.ParentManifestID)
 	if err != nil {
 		return err
@@ -668,12 +675,14 @@ func validateManifestLineage(ctx context.Context, tx *sql.Tx, manifest core.Cont
 func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core.ContextManifest, error) {
 	var item core.ContextManifest
 	var omissionsJSON, created string
+	var queuedMS, providerMS, hostMS int64
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, episode_id, attempt_id, parent_manifest_id, version,
 		       prompt_version, contract_version, tool_schema_version, preset,
 		       provider, model, reasoning_effort, omissions_json, created_at,
 		       usage_input_tokens, usage_cached_input_tokens,
-		       usage_output_tokens, usage_reasoning_tokens
+		       usage_output_tokens, usage_reasoning_tokens,
+		       usage_timed_turns, usage_queued_ms, usage_provider_ms, usage_host_ms
 		FROM context_manifests WHERE id = ?`, manifestID).Scan(
 		&item.ID, &item.EpisodeID, &item.AttemptID, &item.ParentManifestID,
 		&item.Version, &item.PromptVersion, &item.ContractVersion,
@@ -681,6 +690,7 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 		&item.ReasoningEffort, &omissionsJSON, &created,
 		&item.Usage.InputTokens, &item.Usage.CachedInputTokens,
 		&item.Usage.OutputTokens, &item.Usage.ReasoningTokens,
+		&item.Latency.Turns, &queuedMS, &providerMS, &hostMS,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.ContextManifest{}, ErrNotFound
@@ -691,6 +701,9 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 	if err := json.Unmarshal([]byte(omissionsJSON), &item.Omissions); err != nil {
 		return core.ContextManifest{}, err
 	}
+	item.Latency.Queued = time.Duration(queuedMS) * time.Millisecond
+	item.Latency.Provider = time.Duration(providerMS) * time.Millisecond
+	item.Latency.Host = time.Duration(hostMS) * time.Millisecond
 	item.CreatedAt = sqlutil.ParseTime(created)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, manifest_id, kind, source_ref, content_digest, source_revision,
@@ -718,9 +731,18 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 	return item, rows.Err()
 }
 
-// RecordAttemptTokenUsage adds one finished Coop turn's token usage to the
-// attempt's context manifest, which is the per-attempt row that already froze
-// which model answered.
+// RecordAttemptTurnCost adds one finished Coop turn's tokens and wall-clock to
+// the attempt's context manifest, which is the per-attempt row that already
+// froze which model answered.
+//
+// Both in one statement rather than one call each, because they share the
+// idempotency key below and a second UPDATE would find that key already
+// written and silently drop whichever of the two went second.
+//
+// Either half may be absent and the other still worth keeping. Today that is
+// the common case and not a hypothetical: Coop reports no usage at all on the
+// ACP path, so gating the write on tokens would record no timings either, and
+// the latency columns would stay as empty as the ones this is meant to fill.
 //
 // It adds rather than assigns because an attempt is not one turn. A result the
 // host refuses is sent back to the model as a correction, and that correction
@@ -748,17 +770,18 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 // not an error. Coop omits the usage object entirely when a provider reported
 // nothing, and losing an episode between a turn finishing and this write is a
 // race — neither is worth failing a finished turn over.
-func (s *Store) RecordAttemptTokenUsage(
+func (s *Store) RecordAttemptTurnCost(
 	ctx context.Context,
 	attemptID string,
 	turnID string,
 	usage core.ContextUsage,
+	latency core.ContextLatency,
 ) error {
 	attemptID, turnID = strings.TrimSpace(attemptID), strings.TrimSpace(turnID)
 	if attemptID == "" || turnID == "" {
-		return errors.New("attempt and coop turn are required to record token usage")
+		return errors.New("attempt and coop turn are required to record what a turn cost")
 	}
-	if !usage.Recorded() {
+	if !usage.Recorded() && !latency.Recorded() {
 		return nil
 	}
 	_, err := s.db.ExecContext(ctx, `
@@ -767,11 +790,17 @@ func (s *Store) RecordAttemptTokenUsage(
 		  usage_cached_input_tokens = usage_cached_input_tokens + ?,
 		  usage_output_tokens = usage_output_tokens + ?,
 		  usage_reasoning_tokens = usage_reasoning_tokens + ?,
+		  usage_timed_turns = usage_timed_turns + ?,
+		  usage_queued_ms = usage_queued_ms + ?,
+		  usage_provider_ms = usage_provider_ms + ?,
+		  usage_host_ms = usage_host_ms + ?,
 		  usage_last_turn_id = ?
 		WHERE id = (SELECT context_manifest_id FROM episode_attempts WHERE id = ?)
 		  AND usage_last_turn_id <> ?`,
 		usage.InputTokens, usage.CachedInputTokens, usage.OutputTokens,
-		usage.ReasoningTokens, turnID, attemptID, turnID)
+		usage.ReasoningTokens, latency.Turns, latency.Queued.Milliseconds(),
+		latency.Provider.Milliseconds(), latency.Host.Milliseconds(),
+		turnID, attemptID, turnID)
 	return err
 }
 

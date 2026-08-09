@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/core"
 	"gopkg.in/yaml.v3"
 )
 
@@ -475,5 +476,89 @@ webhooks:
 		if err := cfg.Validate(); err == nil {
 			t.Fatalf("%s window was accepted", invalid)
 		}
+	}
+}
+
+// The whole reason cost lives in configuration: an unpriced model must report
+// no cost rather than a zero. A zero in a spend report reads as "this was
+// free", which is a claim about the world rather than a gap in setup, and it is
+// a claim nobody would think to go and check.
+func TestCostIsAbsentRatherThanZeroWhenNothingIsKnown(t *testing.T) {
+	usage := core.ContextUsage{
+		InputTokens: 1_000_000, CachedInputTokens: 2_000_000,
+		OutputTokens: 100_000, ReasoningTokens: 50_000,
+	}
+	priced := Pricing{Currency: "USD", Models: map[string]ModelPrice{
+		"claude:opus-4.5": {Input: 5, CachedInput: 0.5, Output: 25, Reasoning: 25},
+		"codex":           {Input: 1.25, CachedInput: 0.125, Output: 10},
+	}}
+	for name, testCase := range map[string]struct {
+		pricing    Pricing
+		provider   string
+		model      string
+		usage      core.ContextUsage
+		wantKnown  bool
+		wantAmount float64
+	}{
+		"no table at all":     {pricing: Pricing{}, provider: "claude", model: "opus-4.5", usage: usage},
+		"model not priced":    {pricing: priced, provider: "gemini", model: "pro", usage: usage},
+		"no provider at all":  {pricing: priced, provider: "", model: "opus-4.5", usage: usage},
+		"nothing was counted": {pricing: priced, provider: "claude", model: "opus-4.5"},
+		"exact model": {
+			pricing: priced, provider: "claude", model: "opus-4.5", usage: usage,
+			wantKnown: true, wantAmount: 5 + 1 + 2.5 + 1.25,
+		},
+		// A target that named no model, and a ladder that rotated to a model
+		// name the table has not learned, both fall back to the provider rate
+		// rather than silently reporting that the turn was free.
+		"provider fallback": {
+			pricing: priced, provider: "codex", model: "gpt-6-preview", usage: usage,
+			wantKnown: true, wantAmount: 1.25 + 0.25 + 1 + 0.5,
+		},
+	} {
+		amount, known := testCase.pricing.Cost(testCase.provider, testCase.model, testCase.usage)
+		if known != testCase.wantKnown {
+			t.Fatalf("%s: cost known = %t, want %t", name, known, testCase.wantKnown)
+		}
+		if !known && amount != 0 {
+			t.Fatalf("%s: unknown cost carried an amount of %v", name, amount)
+		}
+		if known && amount != testCase.wantAmount {
+			t.Fatalf("%s: cost = %v, want %v", name, amount, testCase.wantAmount)
+		}
+	}
+}
+
+// A price table that cannot be read back correctly is worse than none, because
+// it produces a number an operator will believe. Startup refuses it.
+func TestPriceTableIsRejectedWhenItCannotBeTrusted(t *testing.T) {
+	valid := ModelPrice{Input: 5, Output: 25}
+	for name, pricing := range map[string]Pricing{
+		"rates without a currency": {Models: map[string]ModelPrice{"claude": valid}},
+		"currency that is not a code": {
+			Currency: "dollars", Models: map[string]ModelPrice{"claude": valid},
+		},
+		"key that no target can match": {
+			Currency: "USD", Models: map[string]ModelPrice{"Claude/Opus": valid},
+		},
+		"negative rate": {
+			Currency: "USD", Models: map[string]ModelPrice{"claude": {Input: -1}},
+		},
+	} {
+		if err := validatePricing(pricing); err == nil {
+			t.Fatalf("%s was accepted", name)
+		}
+	}
+	// An empty table is the default and must stay valid: a deployment that has
+	// not been told any prices reports no cost, which is the honest answer.
+	if err := validatePricing(Pricing{}); err != nil {
+		t.Fatalf("the empty default price table was rejected: %v", err)
+	}
+	// Zero is a real rate. Several providers charge nothing for a cache read,
+	// and forcing an operator to invent a number for it would be inventing one.
+	if err := validatePricing(Pricing{
+		Currency: "USD", Models: map[string]ModelPrice{"claude:opus-4.5": {Input: 5, Output: 25}},
+	}); err != nil {
+		t.Fatalf("a table with an unset cached-input rate was rejected: %v", err)
 	}
 }

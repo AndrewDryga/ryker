@@ -1837,6 +1837,13 @@ func watchPromptBudget(suffixBytes int) int {
 // context" — so it is better to drop remembered context and keep the room.
 const minimumWatchMessages = 8
 
+// Named once because two branches drop channel history — down to the floor, and
+// then past it when the instructions alone no longer fit — and an operator
+// reading the record should not have to work out which branch trimmed their
+// transcript to know that it was trimmed.
+const droppedChannelHistory = "older channel messages were omitted to fit the turn; " +
+	"only those nearest the target remain"
+
 func (s *Service) watchPrompt(
 	input core.SlackInput,
 	botUserID string,
@@ -1849,7 +1856,7 @@ func (s *Service) watchPrompt(
 	activeRepository string,
 	matchedRules []core.StandingRule,
 	budget int,
-) string {
+) (string, []core.ContextOmission) {
 	// Drop order matters more than the budget itself. The transport will elide
 	// the middle of anything oversized, which cuts through the structured
 	// context block, so the assembler has to choose — and what it chooses first
@@ -1863,66 +1870,73 @@ func (s *Service) watchPrompt(
 	// Every drop is reported to the model as context_omitted. Silently thinner
 	// context reads as confident ignorance; a stated gap reads as a reason to
 	// ask.
-	var omitted []string
-	note := func(format string, args ...any) {
-		omitted = append(omitted, fmt.Sprintf(format, args...))
+	//
+	// The same drops are returned to the caller, which records them on the
+	// attempt's context manifest. Telling only the model meant the record of
+	// what a turn was missing lived for the length of one prompt and then was
+	// gone, so an operator reading a thin answer a day later had no way to learn
+	// that half its context had not fitted.
+	//
+	// A layer is reported the first time anything is taken from it, not when it
+	// happens to reach exactly empty. Reporting on exhaustion looked equivalent
+	// and is not: the loop stops the moment the prompt fits, so a turn that
+	// dropped 389 of 400 channel messages and then fitted at 11 left the layer
+	// non-empty and said nothing at all — silence for precisely the prompts that
+	// lost the most. Recorded once per layer, because the operator needs to know
+	// the transcript was cut, not to read the same sentence 389 times.
+	var omitted []core.ContextOmission
+	noted := map[string]bool{}
+	note := func(kind, reason string) {
+		if noted[kind] {
+			return
+		}
+		noted[kind] = true
+		omitted = append(omitted, core.DroppedContextLayer(kind, reason))
 	}
 	for {
 		prompt := s.unboundedWatchPrompt(
 			input, botUserID, conversationFollowup, recent, memory, related,
-			referenced, prior, activeRepository, matchedRules, omitted,
+			referenced, prior, activeRepository, matchedRules,
+			core.ContextOmissionReasons(omitted),
 		)
 		if len(prompt) <= budget {
-			return prompt
+			return prompt, omitted
 		}
 		switch {
 		case len(prior.RecentEvidence) > 0:
 			prior.RecentEvidence = prior.RecentEvidence[1:]
-			if len(prior.RecentEvidence) == 0 {
-				note("earlier evidence records from this channel were omitted to fit the turn")
-			}
+			note("prior_evidence", "earlier evidence records from this channel were omitted to fit the turn")
 		case len(related) > 0:
 			related = related[1:]
-			if len(related) == 0 {
-				note("summaries of related conversations were omitted to fit the turn")
-			}
+			note("related_situations", "summaries of related conversations were omitted to fit the turn")
 		case referenced != nil && len(referenced.RecentMessages) > 0:
 			copyReferenced := *referenced
 			copyReferenced.RecentMessages = referenced.RecentMessages[1:]
 			referenced = &copyReferenced
-			if len(copyReferenced.RecentMessages) == 0 {
-				note("the referenced thread's transcript was omitted; only its summary remains")
-			}
+			note("referenced_thread", "the referenced thread's transcript was cut back to fit the turn")
 		case len(prior.DreamedMemory) > 0:
 			prior.DreamedMemory = prior.DreamedMemory[1:]
-			if len(prior.DreamedMemory) == 0 {
-				note("synthesized continuity summaries were omitted to fit the turn")
-			}
+			note("dreamed_memory", "synthesized continuity summaries were omitted to fit the turn")
 		case len(recent) > minimumWatchMessages:
 			recent = recent[1:]
-			if len(recent) == minimumWatchMessages {
-				note(
-					"older channel messages were omitted to fit the turn; only the %d nearest the target remain",
-					minimumWatchMessages,
-				)
-			}
+			note("channel_history", droppedChannelHistory)
 		case len(prior.ConfirmedMemory) > 0:
 			prior.ConfirmedMemory = prior.ConfirmedMemory[1:]
-			if len(prior.ConfirmedMemory) == 0 {
-				note("operator-confirmed memory was omitted to fit the turn")
-			}
+			note("confirmed_memory", "operator-confirmed memory was omitted to fit the turn")
 		case len(memory.Knowledge) > 0:
 			memory.Knowledge = memory.Knowledge[:len(memory.Knowledge)-1]
-			if len(memory.Knowledge) == 0 {
-				note("learned conversation knowledge was omitted to fit the turn")
-			}
+			note("channel_knowledge", "learned conversation knowledge was omitted to fit the turn")
 		case len(recent) > 1:
 			// Past the floor the instructions themselves no longer fit. Keep
 			// the target and its immediate neighbour rather than handing the
 			// transport something it will cut through.
 			recent = recent[1:]
+			note("channel_history", droppedChannelHistory)
 		default:
-			return prompt
+			// The loop gave up with the prompt still over budget: nothing is
+			// left that may be dropped. The transport will cut it, and
+			// core.AppendElidedPrompt records that against the attempt.
+			return prompt, omitted
 		}
 	}
 }

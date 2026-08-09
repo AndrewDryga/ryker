@@ -150,7 +150,7 @@ func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 		})
 	}
 
-	prompt := svc.watchPrompt(
+	prompt, _ := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "why is checkout failing"},
 		"U999BOT", false, recent, core.AgentMemory{}, related, nil, prior, "emisar", nil,
 		watchPromptBudget(0),
@@ -189,9 +189,20 @@ func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 			t.Fatalf("drop order violated (%s):\n%s", step.name, omittedSection(t, prompt))
 		}
 	}
-	// The floor holds: the conversation nearest the target survives.
-	if !strings.Contains(prompt, "only the 8 nearest the target remain") {
-		t.Fatalf("the message floor was not applied:\n%s", omittedSection(t, prompt))
+	// The floor holds: the conversation nearest the target survives. Asserted
+	// against the messages themselves rather than against the sentence that
+	// announces them, because the sentence is prose that may be reworded and
+	// the surviving transcript is the thing the floor exists to protect.
+	for index := 40 - minimumWatchMessages; index < 40; index++ {
+		if !strings.Contains(prompt, fmt.Sprintf("message %02d ", index)) {
+			t.Fatalf(
+				"the message floor was not applied; message %02d was dropped:\n%s",
+				index, omittedSection(t, prompt),
+			)
+		}
+	}
+	if messagesAt < 0 {
+		t.Fatalf("the transcript was cut without saying so:\n%s", omittedSection(t, prompt))
 	}
 }
 
@@ -206,7 +217,7 @@ func TestBudgetedContextRemainsValidJSON(t *testing.T) {
 			MessageTS: fmt.Sprintf("170%02d.000", index), Text: filler,
 		})
 	}
-	prompt := svc.watchPrompt(
+	prompt, _ := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "status?"},
 		"U999BOT", false, recent, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "emisar", nil,

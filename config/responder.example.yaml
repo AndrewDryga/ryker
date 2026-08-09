@@ -251,3 +251,28 @@ actions: {}
   #   approval: required
   #   # How long a pending request stays valid before an operator must ask again.
   #   expires_after: 30m
+
+# What the configured providers charge, so the token counts recorded per attempt can be
+# reported as money. Empty by default and empty is a valid answer: an unpriced model reports
+# no cost at all, which is the honest reading, because a zero in a spend report says "free"
+# rather than "nobody told me the price". Rates live here and not in the binary because
+# providers change them on their own schedule, and a stale compiled-in rate reports confident
+# wrong money — the one failure worse than a blank.
+pricing: {}
+  # # Required once any rate is set. A number without a unit is not a price.
+  # currency: USD
+  # models:
+  #   # Keyed by the Coop target that context_manifests recorded: "provider:model", or bare
+  #   # "provider" as the fallback for a target that named no model or a ladder that rotated
+  #   # to a model name this table has not learned yet.
+  #   claude:opus-4.5:
+  #     # Price of one MILLION tokens of each kind — the unit every provider publishes, so
+  #     # these can be checked against a pricing page without dividing anything.
+  #     input: 5.00
+  #     # A cache read is a fraction of fresh input, and it is metered separately, so it is
+  #     # priced separately. 0 is a real answer for a provider that does not charge for it.
+  #     cached_input: 0.50
+  #     output: 25.00
+  #     # Omit to bill reasoning at the output rate, which is what a provider that does not
+  #     # meter it apart is doing.
+  #     reasoning: 25.00

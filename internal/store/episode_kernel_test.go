@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -218,14 +219,14 @@ func TestContextManifestUsageTotalsEveryTurnOfTheAttempt(t *testing.T) {
 	if manifest.Usage.Recorded() {
 		t.Fatalf("a fresh manifest claimed measured usage: %+v", manifest.Usage)
 	}
-	if err := st.RecordAttemptTokenUsage(ctx, run.AttemptID, "turn_1", core.ContextUsage{
+	if err := st.RecordAttemptTurnCost(ctx, run.AttemptID, "turn_1", core.ContextUsage{
 		InputTokens: 100, CachedInputTokens: 10, OutputTokens: 20, ReasoningTokens: 5,
-	}); err != nil {
+	}, core.ContextLatency{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RecordAttemptTokenUsage(ctx, run.AttemptID, "turn_2", core.ContextUsage{
+	if err := st.RecordAttemptTurnCost(ctx, run.AttemptID, "turn_2", core.ContextUsage{
 		InputTokens: 200, CachedInputTokens: 20, OutputTokens: 40, ReasoningTokens: 7,
-	}); err != nil {
+	}, core.ContextLatency{}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := st.GetContextManifest(ctx, manifest.ID)
@@ -266,7 +267,9 @@ func TestContextManifestUsageIgnoresTheSameTurnTwice(t *testing.T) {
 	}
 	usage := core.ContextUsage{InputTokens: 100, OutputTokens: 20}
 	for range 3 {
-		if err := st.RecordAttemptTokenUsage(ctx, run.AttemptID, "turn_1", usage); err != nil {
+		if err := st.RecordAttemptTurnCost(
+			ctx, run.AttemptID, "turn_1", usage, core.ContextLatency{},
+		); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -298,8 +301,8 @@ func TestContextManifestUsageKeepsUnreportedTurnsUnrecorded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RecordAttemptTokenUsage(
-		ctx, run.AttemptID, "turn_1", core.ContextUsage{},
+	if err := st.RecordAttemptTurnCost(
+		ctx, run.AttemptID, "turn_1", core.ContextUsage{}, core.ContextLatency{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -312,8 +315,8 @@ func TestContextManifestUsageKeepsUnreportedTurnsUnrecorded(t *testing.T) {
 	}
 	// A later turn that the provider did measure still lands: the silent turn
 	// must not have consumed the idempotency key.
-	if err := st.RecordAttemptTokenUsage(
-		ctx, run.AttemptID, "turn_2", core.ContextUsage{InputTokens: 5},
+	if err := st.RecordAttemptTurnCost(
+		ctx, run.AttemptID, "turn_2", core.ContextUsage{InputTokens: 5}, core.ContextLatency{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -323,6 +326,84 @@ func TestContextManifestUsageKeepsUnreportedTurnsUnrecorded(t *testing.T) {
 	}
 	if loaded.Usage.InputTokens != 5 {
 		t.Fatalf("measured turn after a silent one = %+v", loaded.Usage)
+	}
+}
+
+// Timings total across the turns of an attempt exactly as tokens do, and are
+// kept apart from each other because a slow reply blamed on the model when it
+// was actually the host waiting to notice sends someone to fix the wrong thing.
+func TestContextManifestLatencyTotalsEveryTurnOfTheAttempt(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, episode := queueKernelEpisode(t, st, "latency-total")
+	manifest, err := st.CreateContextManifest(ctx, core.ContextManifest{
+		EpisodeID: episode.ID, AttemptID: run.AttemptID,
+		References: []core.ContextReference{{
+			Kind: "slack_message", SourceRef: "slack:COPS:1.0", Visibility: "channel",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Latency.Recorded() {
+		t.Fatalf("a fresh manifest claimed measured latency: %+v", manifest.Latency)
+	}
+	for index, latency := range []core.ContextLatency{
+		{Turns: 1, Queued: 250 * time.Millisecond, Provider: 40 * time.Second, Host: time.Second},
+		{Turns: 1, Queued: 750 * time.Millisecond, Provider: 20 * time.Second, Host: 2 * time.Second},
+	} {
+		if err := st.RecordAttemptTurnCost(
+			ctx, run.AttemptID, fmt.Sprintf("turn_%d", index), core.ContextUsage{}, latency,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	loaded, err := st.GetContextManifest(ctx, manifest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := core.ContextLatency{
+		Turns: 2, Queued: time.Second, Provider: time.Minute, Host: 3 * time.Second,
+	}
+	if loaded.Latency != want {
+		t.Fatalf("attempt latency = %+v, want %+v", loaded.Latency, want)
+	}
+	// The usage columns must not have been disturbed by a timing-only write:
+	// today every real turn is exactly that, because Coop reports no tokens.
+	if loaded.Usage.Recorded() {
+		t.Fatalf("timing-only turns invented token usage: %+v", loaded.Usage)
+	}
+}
+
+// A turn that finished before it started, or that never started at all, has no
+// duration to record. Recording zero would put it in the divisor and drag every
+// average toward a number no turn actually took.
+func TestContextLatencyIgnoresTurnsItCannotMeasure(t *testing.T) {
+	start := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	for name, latency := range map[string]core.ContextLatency{
+		"never started": core.NewContextLatency(
+			start, time.Time{}, start.Add(time.Second), start.Add(2*time.Second),
+		),
+		"never finished": core.NewContextLatency(
+			start, start.Add(time.Second), time.Time{}, start.Add(2*time.Second),
+		),
+	} {
+		if latency.Recorded() {
+			t.Fatalf("%s: an unmeasurable turn reported a duration: %+v", name, latency)
+		}
+	}
+	// A turn Coop never queued still measures the spans it does have, rather
+	// than reporting two millennia of queueing from a zero timestamp.
+	unqueued := core.NewContextLatency(
+		time.Time{}, start, start.Add(30*time.Second), start.Add(31*time.Second),
+	)
+	want := core.ContextLatency{Turns: 1, Provider: 30 * time.Second, Host: time.Second}
+	if unqueued != want {
+		t.Fatalf("unqueued turn = %+v, want %+v", unqueued, want)
 	}
 }
 

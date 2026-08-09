@@ -109,6 +109,18 @@ Episode detail:
   "it said something the contract rejected".
 - **Delivery** from `slack_deliveries` — what was posted, where, whether it landed.
 - **Attempts** from `episode_attempts` — retries, and what changed between them.
+- **What it spent** from the usage columns on `context_manifests` — tokens per
+  manifest and totalled for the episode, with unmeasured attempts named as
+  unmeasured rather than summed as free. One row per manifest, because an
+  attempt whose context was extended froze a second one and the tokens are split
+  across both.
+- **What was left out** from `omissions_json` and the reference rows carrying an
+  `omitted_reason` — the context layers the budget dropped, and any elision the
+  transport had to make. The reference list says what the model read; this says
+  what it did not, which is usually the answer to "why did it say that".
+
+The list is filterable by channel, repository, episode kind, provider and model
+through the query string, which is what makes each Usage breakdown openable.
 
 Every debugging question in this repository's history is answered on this page.
 Today they are answered by running sqlite against a production database.
@@ -188,38 +200,55 @@ episode.
 
 ### 8. Usage — "what is it spending?"
 
-Tokens and time, broken down by:
-- Provider and model
-- Deployment, channel, repository
-- Episode kind: watch, incident, engineering task, scheduled
-- Prompt composition: how much of each turn was instructions, context, tool
-  results, conversation
-- Cache hit rate on cached input tokens
-- Cost, once a price table is configured
+Tokens, over a selectable window (24h, 7d, 30d, everything), broken down by:
+- Provider and model, as frozen on the attempt's manifest — so a turn that
+  rotated to a fallback after a rate limit counts against what actually answered
+- Channel, repository and episode kind
+- Cache hit rate: cached input over all input read
+- A daily trend, inline SVG rendered server-side
 
-**This is the one page that cannot be built from existing data.** See below.
+Every row links into an episode list filtered to it. A breakdown that cannot be
+opened says which model costs the most and gives no route to a single turn of
+it.
+
+Cost and the wall-clock split are recorded but not rendered here yet: the page
+is handed no price table and does not read the timing columns, so each keeps an
+unwired panel that says so about *this page* rather than about the product. A
+panel that looks live and is not is worse than no panel, and that is as true of
+one this file has promised as of one the code has faked.
+
+**Source:** `context_manifests`, joined to `agent_runs` on `attempt_id`. Not on
+`episode_id`: an episode holds several runs, so that join fans out — 351
+manifests became 953 rows on a production database — and every count would be
+added once per run that shared the episode.
+
+Two figures are counted separately everywhere: how many attempts are in a group,
+and how many of them a provider actually measured. Zero tokens and "nobody
+measured this" are different facts and are drawn differently, down to the trend,
+where a day that ran unmeasured attempts gets its own mark rather than an absent
+bar.
 
 ## Data gaps
 
-Everything above is present in the database today except four things.
+Everything above is present in the database today except one thing, and that one
+is in Coop.
 
-### Token usage — needs plumbing, not research
+Token usage has somewhere to go and nothing to put there yet. Responder adds a
+finished turn's usage to the attempt's context manifest (migration 48,
+`usage_input_tokens` and its four siblings); cached input is stored apart from
+fresh input, and reasoning apart from output, because Coop reports them apart
+and every provider prices those parts differently.
 
-Coop already parses `input_tokens`, `cached_input_tokens`, `output_tokens` and
-`reasoning_output_tokens` from the provider stream
-(`coop/internal/cli/streamjson_providers.go`). Responder never receives them and
-nothing is persisted.
-
-Required:
-1. Coop reports usage on the turn result
-2. Responder persists it per attempt, alongside the context manifest that already
-   records provider, model and effort
-3. Aggregation by the dimensions above
-
-Until then the Usage page renders its full shape with an explicit "not yet
-recorded" state per panel. It must not show an estimate dressed as a
-measurement — a number derived from prompt bytes is a guess, and a guess in a
-cost report is worse than a blank.
+**The counts are still zero on every row, and the missing piece is in Coop, not
+here.** Coop's ACP path parses a usage object off the `session/prompt` result
+into a struct nothing reads and never sets `CompleteTurnRequest.Usage`, so
+`CompleteTurn` writes four zeros for every turn — and the key names it parses
+are wrong as well, since the adapters return ACP's `inputTokens`,
+`outputTokens`, `cachedReadTokens` and `thoughtTokens`. Until both are fixed the
+page has to say the tokens were not recorded, because they were not.
+`core.ContextUsage.Recorded()` is the distinction to render on: it separates "no
+provider measured this" from "the turn was free", and a zero drawn as the second
+when it is the first is a lie the reader has no way to catch.
 
 ### The compiled prompt — kept as a digest, not as text
 
@@ -228,17 +257,90 @@ engineering-task path keeps the text itself. Twelve of 647 turns on a production
 database can be read back; the rest can only be compared between attempts. The
 digest is shown where the text is not, so the page says which of the two it has.
 
-### Cost — needs a price table
+### Prompt composition — needs a size per reference
 
-Tokens are provider-native; cost needs a per-model price table in configuration.
-Deliberately not hardcoded: prices change, and a stale hardcoded rate reports
-confident wrong money.
+The manifest names every reference that went into a prompt and the digest of
+each, and records the size of none of them, so "how much of this turn was
+instructions" cannot be recovered from what is stored. It needs a byte count per
+reference at freeze time.
 
-### Wall-clock breakdown — partially derivable
+### Cost — configured, and empty until it is
 
-Episode duration is derivable from timestamps. Time split between model
-inference, tool calls and host processing is not recorded, and would need
-timing on the turn result the same way usage does.
+Tokens are provider-native, so cost needs a per-model price table. It lives in
+`pricing` in the configuration file and not in the binary: prices change on the
+provider's schedule, and a stale compiled-in rate reports confident wrong money.
+
+`config.Pricing.Cost(provider, model, usage)` returns an amount and whether it is
+knowable. The bool is the point. An unpriced model reports **no cost, not a
+zero** — a zero in a spend report reads as "this was free", which is a claim
+about the world rather than a gap in setup, and it is a claim nobody would think
+to go and check. Usage nothing measured is unknowable for the same reason. Keys
+are `provider:model`, falling back to bare `provider`, matching the target
+grammar the manifest froze; rates are per million tokens, which is the unit
+every provider publishes, so the file can be checked against a pricing page
+without dividing anything.
+
+The default table is empty, and empty is a valid answer: a deployment nobody has
+told the prices reports no cost at all.
+
+### Wall-clock — recorded per attempt, except the split inside the provider
+
+`context_manifests` carries `usage_timed_turns`, `usage_queued_ms`,
+`usage_provider_ms` and `usage_host_ms` (migration 49), totalled over the same
+turns as the token columns and written in the same idempotent statement.
+
+Three spans, because there are three places a turn waits and they fail
+independently and are fixed differently:
+
+- **Queued** — Coop holding the turn before a provider picked it up: a busy
+  session, or an exhausted ladder.
+- **Provider** — the provider working.
+- **Host** — Responder not yet having noticed the turn finished. It polls, so
+  that gap is real, is nobody else's, and is the one span this repository can fix
+  on its own.
+
+`usage_timed_turns` is both the divisor for a per-turn figure and the recorded
+flag, because zero milliseconds is ambiguous between "instant" and "unmeasured".
+A turn that failed while still queued carries no `started_at`, contributes no
+span, and is kept out of the divisor rather than dragging every average toward a
+duration no turn actually took.
+
+**Provider time is not split into inference and tool calls, and cannot be from
+here.** Coop's turn record carries `queued_at`, `started_at` and `finished_at`
+and nothing between them, and its activity states (`starting`, `running`,
+`parked`, `cancelling`) are session lifecycle rather than what the model is
+doing. Splitting that span would mean inventing the boundary, and an invented
+split in a latency report is a guess wearing a measurement's clothes. Closing it
+needs per-tool-call timing on Coop's turn record — a change in that repository,
+the same as the token counts.
+
+### What was left out of a prompt — now recorded
+
+`context_manifests.omissions_json` and `context_manifest_refs.omitted_reason`
+were empty on every row of both deployed databases — 351 manifests and 2,825
+references saying nothing had ever been dropped from any prompt, which is not
+what happened. It is what nobody wrote down.
+
+The watch assembler trims context to fit the turn, and now returns what it
+trimmed instead of only telling the model. Each dropped layer is written twice:
+as a reference row with `visibility = 'omitted'` and a reason, so it sits beside
+the references it displaced, and as a line in the manifest's `omissions_json`
+summary. A prompt the transport had to elide is recorded too, with the byte
+count it lost, against the attempt that suffered it rather than in the
+process-local counter that only ever knew how many prompts had been cut and
+never which episode's.
+
+A layer is reported the first time anything is taken from it, not when it
+happens to reach exactly empty. That distinction is the whole value: budgeting
+stops the moment the prompt fits, so a turn that dropped 389 of 400 channel
+messages and then fitted at 11 left the layer non-empty — and under the old
+rule said nothing at all, staying silent for precisely the prompts that lost the
+most.
+
+Omissions do not travel forward when a later attempt extends the manifest. They
+are facts about the attempt that made them, and carried over, a layer trimmed
+once would read as trimmed forever, including on the attempts that carried it in
+full.
 
 ## What v1 wires
 
@@ -254,10 +356,14 @@ live, so the design can be judged as a whole.
 | Audit | Live, with a drill-down per kind |
 | Memory | Live, read-only; forget in v2 |
 | Configuration | Live, read-only |
-| Usage | Full layout, every panel marked "not recorded yet" |
+| Usage | Live for tokens, cache rate and the daily trend, each of which reads empty until Coop reports usage; cost, the wall-clock split and prompt composition stay marked unwired, and say so about this page rather than about the product |
 
-An unwired panel says exactly why it is empty and what would make it work. A
-panel that looks live and is not is worse than no panel, and this repository has
+An unwired panel says exactly why it is empty and what would make it work, and
+says it about the right thing: once a gap is filled, a panel still tagged "not
+recorded yet" reports a fixed problem as an open one and sends someone to plumb
+what is already plumbed. An attempt frozen before a change says so about itself
+rather than about the product. A panel that looks live and is not is worse than
+no panel, and this repository has
 already been bitten by that twice today: a deploy that reported success while
 old code ran, and a quality watcher that logged "no defects" for a day while
 its assessor could not start.
@@ -266,11 +372,14 @@ its assessor could not start.
 
 - **Go `html/template`**, server-rendered. No build step, no bundler, no
   node_modules. The service already serves HTTP from `internal/httpapi`.
-- **htmx** for filtering, sorting and partial refresh, vendored as a single
-  file. No SPA, no client-side router, no state duplication.
+- **Filters and time windows are links**, not controls. A filtered list is a
+  URL, which makes it bookmarkable and pasteable into an incident thread, and
+  costs no client-side state to keep in step with the server's.
 - **CSS in one hand-written stylesheet**, vendored. No framework.
-- **No JavaScript beyond htmx.** Charts are inline SVG rendered server-side, so
-  a sparkline is data rather than a runtime dependency.
+- **No JavaScript at all.** Nothing on this dashboard needs it, and the moment
+  something does it becomes the first thing on the page that cannot render with
+  the network off. Charts are inline SVG with the geometry computed server-side,
+  so a trend is data rather than a runtime dependency.
 
 The test is that the whole dashboard works offline, from one Go binary, with no
 assets fetched at runtime.

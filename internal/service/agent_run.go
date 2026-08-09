@@ -661,8 +661,11 @@ func (s *Service) prepareIncidentAgentRun(
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
 	submissionPrompt += agentInputArtifactsPrompt(artifacts)
+	// No omissions to declare: the incident path assembles its prompt without a
+	// budget pass, so nothing here decides to leave anything out. If the result
+	// is oversized the transport still cuts it, and the manifest records that.
 	if _, err := s.ensureAttemptContextManifest(
-		ctx, run, session, submissionPrompt, artifacts,
+		ctx, run, session, submissionPrompt, artifacts, nil,
 	); err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
@@ -970,6 +973,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	late.WriteString(agentRunContinuationPrompt(run))
 
 	var prompt string
+	var omissions []core.ContextOmission
 	if state.Lane == "conversation" {
 		prompt = s.conversationPrompt(
 			input,
@@ -981,7 +985,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			repositoryKey,
 		) + late.String()
 	} else {
-		prompt = s.watchPrompt(
+		prompt, omissions = s.watchPrompt(
 			input,
 			s.identity.BotUserID,
 			state.ConversationFollowup,
@@ -993,7 +997,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
 			watchPromptBudget(early.Len()+late.Len()),
-		) + early.String() + late.String()
+		)
+		prompt += early.String() + late.String()
 	}
 	artifacts, err = s.augmentAgentRunArtifacts(
 		ctx,
@@ -1005,7 +1010,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	}
 	prompt += agentInputArtifactsPrompt(artifacts)
 	if _, err := s.ensureAttemptContextManifest(
-		ctx, run, session, prompt, artifacts,
+		ctx, run, session, prompt, artifacts, omissions,
 	); err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
@@ -1954,28 +1959,36 @@ func (s *Service) stageIncidentTerminal(
 	return false, nil
 }
 
-// recordTurnUsage keeps what a finished Coop turn cost, on the attempt's
-// context manifest.
+// recordTurnCost keeps what a finished Coop turn cost — tokens and wall-clock
+// — on the attempt's context manifest.
 //
 // It returns nothing. Accounting is not worth failing a turn over: the answer
 // the operator is waiting for is already computed, and dropping it because a
-// token count could not be written would trade the product for a statistic.
+// statistic could not be written would trade the product for the statistic.
 //
-// An unmeasured turn costs nothing to skip. Coop leaves usage at zero whenever
-// the provider reported nothing — ACP does not require an adapter to report it
-// — so the common path today does not touch the database at all.
-func (s *Service) recordTurnUsage(ctx context.Context, run core.AgentRun, turn coop.Turn) {
-	if !turn.Usage.Recorded() || run.AttemptID == "" || turn.ID == "" {
+// s.now() is the fourth timestamp and it is the host's own. Coop reports when
+// the turn was queued, started and finished; only Responder knows when it got
+// round to noticing, and that gap is the part of a slow reply this repository
+// can actually do something about.
+//
+// The tokens are passed even when the provider reported none. The store drops a
+// write with nothing in it, and gating here on usage would have thrown away the
+// timings too — which is the entire measurement, since Coop's ACP path reports
+// no usage at all today.
+func (s *Service) recordTurnCost(ctx context.Context, run core.AgentRun, turn coop.Turn) {
+	if run.AttemptID == "" || turn.ID == "" {
 		return
 	}
-	if err := s.store.RecordAttemptTokenUsage(ctx, run.AttemptID, turn.ID, core.ContextUsage{
+	if err := s.store.RecordAttemptTurnCost(ctx, run.AttemptID, turn.ID, core.ContextUsage{
 		InputTokens:       turn.Usage.InputTokens,
 		CachedInputTokens: turn.Usage.CachedInputTokens,
 		OutputTokens:      turn.Usage.OutputTokens,
 		ReasoningTokens:   turn.Usage.ReasoningTokens,
-	}); err != nil && s.log != nil {
+	}, core.NewContextLatency(
+		turn.QueuedAt, turn.StartedAt, turn.FinishedAt, s.now(),
+	)); err != nil && s.log != nil {
 		s.log.Warn(
-			"could not record token usage for a finished turn",
+			"could not record what a finished turn cost",
 			"run", run.ID, "attempt", run.AttemptID, "error", err,
 		)
 	}
@@ -1991,10 +2004,10 @@ func (s *Service) stagePolledAgentRunTerminal(
 	// Record what the turn spent before deciding what to do with it. Every
 	// branch below can leave: a correction requeues the run, a rotated session
 	// replays it, a missing image defers it. Those are the turns an attempt
-	// takes on the way to an answer, and they cost tokens like any other, so
-	// waiting until the run reaches its final result would bill an attempt for
-	// its last turn only and lose every turn it took to get there.
-	s.recordTurnUsage(ctx, run, turn)
+	// takes on the way to an answer, and they cost tokens and minutes like any
+	// other, so waiting until the run reaches its final result would bill an
+	// attempt for its last turn only and lose every turn it took to get there.
+	s.recordTurnCost(ctx, run, turn)
 	detail := strings.TrimSpace(
 		core.FirstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
 	)

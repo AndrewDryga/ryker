@@ -1093,7 +1093,7 @@ func liveEvaluationPrompt(
 		state := evaluationWatchState(testCase)
 		state.MatchedRules = rules
 		episode := evaluator.episodeForWatchedInput(input, state)
-		return evaluator.watchPrompt(
+		watch, _ := evaluator.watchPrompt(
 			input,
 			"UEVALBOT",
 			false,
@@ -1107,7 +1107,8 @@ func liveEvaluationPrompt(
 			// Evaluation builds its own suffix, so the section gets the budget
 			// it would have with none.
 			watchPromptBudget(0),
-		) + "\n\n" + workEpisodePrompt(*episode), nil
+		)
+		return watch + "\n\n" + workEpisodePrompt(*episode), nil
 	case "incident", "task":
 		incident := core.Incident{
 			ID:         caseID,

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/core"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +28,12 @@ var (
 	channelPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,30}$`)
 	mappingPathRegex  = regexp.MustCompile(`^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$`)
 	githubNamePattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})$`)
+	currencyPattern   = regexp.MustCompile(`^[A-Z]{3}$`)
+	// A price table key is a Coop target's provider and optional model, which is
+	// the form context_manifests records. Nothing else can be looked up, so
+	// nothing else may be configured: a key that can never match is a rate an
+	// operator believes is in force and is not.
+	pricingKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}(?::[A-Za-z0-9][A-Za-z0-9_.-]{0,99})?$`)
 )
 
 type Duration struct {
@@ -61,6 +68,83 @@ type Config struct {
 	Webhooks       map[string]Webhook       `yaml:"webhooks"`
 	Actions        map[string]ActionPolicy  `yaml:"actions"`
 	Limits         Limits                   `yaml:"limits"`
+	Pricing        Pricing                  `yaml:"pricing"`
+}
+
+// Pricing is what the configured providers charge, so recorded token counts can
+// be reported as money.
+//
+// In configuration and not in code, deliberately. Provider prices change on the
+// provider's schedule, a rate compiled into a binary is only correct until the
+// next release, and a cost report that is confidently wrong about money is worse
+// than one that declines to guess. Empty by default for the same reason: a
+// deployment that has not been told the prices reports no cost at all rather
+// than reporting zero.
+type Pricing struct {
+	Currency string                `yaml:"currency"`
+	Models   map[string]ModelPrice `yaml:"models"`
+}
+
+// ModelPrice is the price of one million tokens of each kind.
+//
+// Per million rather than per token because that is the unit every provider
+// publishes, and a config file an operator has to divide by a million before
+// checking it against a pricing page is a config file that will eventually be
+// wrong by three orders of magnitude.
+//
+// Four rates, because the four are genuinely priced apart: a cache read is a
+// fraction of fresh input, and reasoning tokens are billed as output by some
+// providers and separately by others. Leaving Reasoning unset prices reasoning
+// at the Output rate, which is what a provider that does not bill it separately
+// is doing.
+type ModelPrice struct {
+	Input       float64 `yaml:"input"`
+	CachedInput float64 `yaml:"cached_input"`
+	Output      float64 `yaml:"output"`
+	Reasoning   float64 `yaml:"reasoning"`
+}
+
+// Cost reports what a recorded usage came to, and whether that is knowable.
+//
+// The bool is the whole point of the signature. An unpriced model must report
+// no cost, not a zero: a zero in a spend report reads as "this was free", which
+// is a claim about the world rather than a gap in configuration, and it is a
+// claim nobody would think to check. Usage nothing measured is unknowable for
+// the same reason — pricing tokens that were never counted returns 0.00 for an
+// attempt that in fact cost whatever it cost.
+func (p Pricing) Cost(provider, model string, usage core.ContextUsage) (float64, bool) {
+	price, ok := p.Price(provider, model)
+	if !ok || !usage.Recorded() {
+		return 0, false
+	}
+	reasoning := price.Reasoning
+	if reasoning == 0 {
+		reasoning = price.Output
+	}
+	const perMillion = 1_000_000.0
+	return (float64(usage.InputTokens)*price.Input +
+		float64(usage.CachedInputTokens)*price.CachedInput +
+		float64(usage.OutputTokens)*price.Output +
+		float64(usage.ReasoningTokens)*reasoning) / perMillion, true
+}
+
+// Price finds the rates for one provider and model.
+//
+// "provider:model" first and bare "provider" second, matching the Coop target
+// grammar the manifest records. The fallback is not a convenience: a target may
+// name no model at all, and a ladder that rotates within a provider records
+// whatever model answered, so a table keyed only by exact pair would silently
+// price nothing the first time a provider shipped a new model name.
+func (p Pricing) Price(provider, model string) (ModelPrice, bool) {
+	provider, model = strings.TrimSpace(provider), strings.TrimSpace(model)
+	if provider == "" {
+		return ModelPrice{}, false
+	}
+	if price, ok := p.Models[provider+":"+model]; ok && model != "" {
+		return price, true
+	}
+	price, ok := p.Models[provider]
+	return price, ok
 }
 
 type SlackConfig struct {
@@ -612,11 +696,48 @@ func (c Config) validateSubsystems() error {
 	if err := validateMemory(c.Memory, c.Retention); err != nil {
 		return fmt.Errorf("memory: %w", err)
 	}
+	if err := validatePricing(c.Pricing); err != nil {
+		return fmt.Errorf("pricing: %w", err)
+	}
 	if _, ok := c.RepositoryContext(c.Slack.DefaultRepository); !ok {
 		return fmt.Errorf(
 			"slack.default_repository names unknown repository or set %q",
 			c.Slack.DefaultRepository,
 		)
+	}
+	return nil
+}
+
+// validatePricing rejects a price table that would report the wrong money
+// rather than no money, which is the one failure mode worth failing startup
+// over. An absent table is fine and reports nothing; a present one that is
+// wrong reports a number an operator will believe.
+func validatePricing(p Pricing) error {
+	if len(p.Models) == 0 {
+		return nil
+	}
+	// A number without a unit is not a price. Guessing dollars for an operator
+	// who configured euros would be wrong by whatever the rate is that day,
+	// and silently so, so the currency is required once any rate is set.
+	if !currencyPattern.MatchString(p.Currency) {
+		return errors.New("currency must be a three-letter code such as USD once any model price is set")
+	}
+	for name, price := range p.Models {
+		if !pricingKeyPattern.MatchString(name) {
+			return fmt.Errorf("model %q must be named provider or provider:model", name)
+		}
+		for label, rate := range map[string]float64{
+			"input": price.Input, "cached_input": price.CachedInput,
+			"output": price.Output, "reasoning": price.Reasoning,
+		} {
+			// Negative rates are rejected and zero is not. Zero is a real price
+			// for a rate a provider does not charge — several bill nothing for
+			// cache reads — and rejecting it would force an operator to invent
+			// a number for a thing that is genuinely free.
+			if rate < 0 {
+				return fmt.Errorf("model %q has a negative %s price", name, label)
+			}
+		}
 	}
 	return nil
 }

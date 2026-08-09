@@ -61,7 +61,7 @@ func TestMergeSlackContextCentersTargetAndExcludesOtherThreads(t *testing.T) {
 }
 
 func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
-	prompt := (&Service{}).watchPrompt(
+	prompt, _ := (&Service{}).watchPrompt(
 		core.SlackInput{
 			ChannelID: "COPS", ThreadTS: "1700.1", MessageTS: "1700.2",
 			UserID: "U1", Text: "What did we decide?",
@@ -103,7 +103,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 		EnvelopeID: "replay:slack_replay_1", ChannelID: "COPS",
 		MessageTS: "1700.2", UserID: "U1", Text: "Check production health",
 	}
-	prompt := svc.watchPrompt(
+	prompt, _ := svc.watchPrompt(
 		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		watchPromptBudget(0),
@@ -120,7 +120,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	}
 
 	input.EnvelopeID = "env:ordinary"
-	ordinary := svc.watchPrompt(
+	ordinary, _ := svc.watchPrompt(
 		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		watchPromptBudget(0),
@@ -153,7 +153,7 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	if len(raw) <= watchPromptBudget(0) {
 		t.Fatalf("test prompt did not exceed assembly bound: %d", len(raw))
 	}
-	prompt := svc.watchPrompt(
+	prompt, _ := svc.watchPrompt(
 		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		watchPromptBudget(0),

@@ -523,7 +523,7 @@ func liveScenarioPrompt(
 	}
 	evaluator := &Service{cfg: cfg}
 	episode := evaluator.episodeForWatchedInput(input, decisionpkg.WatchTurnState{})
-	return evaluator.watchPrompt(
+	watch, _ := evaluator.watchPrompt(
 		input,
 		"UEVALBOT",
 		current.Answered,
@@ -535,7 +535,8 @@ func liveScenarioPrompt(
 		testCase.Repository,
 		nil,
 		watchPromptBudget(0),
-	) + "\n\n" + workEpisodePrompt(*episode), input, current, nil
+	)
+	return watch + "\n\n" + workEpisodePrompt(*episode), input, current, nil
 }
 
 func scenarioConversationKey(channel string, thread string) string {
