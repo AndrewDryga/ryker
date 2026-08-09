@@ -381,3 +381,47 @@ func shortInstruction(value string) string {
 	}
 	return "→ " + trimmed
 }
+
+// AppendCoverageGaps names channels Responder is configured for but cannot see.
+//
+// This is the quietest kind of broken. The configuration says Responder is
+// participating in a channel; Slack says the bot is not a member. Neither
+// record looks wrong on its own, nothing fails, no error is raised, and every
+// alert posted in that room reaches nobody. One channel sat in exactly this
+// state for two days — configured proactive, absent, and invisible from both
+// sides.
+//
+// It goes at the top of the App Home rather than the bottom, because it says
+// Responder is not doing what the operator believes it is doing, and that
+// outranks everything else the page reports.
+func AppendCoverageGaps(message Message, channelIDs []string) Message {
+	rooms := make([]string, 0, len(channelIDs))
+	for index, channelID := range channelIDs {
+		channelID = strings.TrimSpace(channelID)
+		if channelID == "" {
+			continue
+		}
+		if index >= 10 {
+			rooms = append(rooms, fmt.Sprintf("and %d more", len(channelIDs)-index))
+			break
+		}
+		rooms = append(rooms, "<#"+escapeSlackText(channelID)+">")
+	}
+	if len(rooms) == 0 {
+		return message
+	}
+	subject := "these channels"
+	if len(rooms) == 1 {
+		subject = "this channel"
+	}
+	message.Sections = append([]string{fmt.Sprintf(
+		"*:warning: Configured but not joined (%d)*\n%s\n"+
+			"Responder is configured to participate in %s but is not a member, so nothing "+
+			"posted there is seen. Invite the bot to close the gap, or remove the "+
+			"configuration if the channel is no longer wanted.",
+		len(rooms),
+		strings.Join(rooms, " · "),
+		subject,
+	)}, message.Sections...)
+	return message
+}

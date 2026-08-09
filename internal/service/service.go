@@ -118,6 +118,14 @@ type Service struct {
 	channelWrites *localstate.ChannelWriteSlots
 	nativeStatus  *localstate.NativeStatusTracker
 	historyCache  *localstate.SlackHistoryCache
+
+	// coverageGaps remembers the configured-but-unjoined channels last
+	// reported, so a standing gap is stated when it appears and when it
+	// changes rather than once a minute forever. Reconciliation is
+	// single-threaded through the work lane; the mutex is here because
+	// nothing else guarantees that stays true.
+	coverageGapsMu       sync.Mutex
+	reportedCoverageGaps string
 }
 
 // now is the service clock. Every scheduling window, retry delay, and lease

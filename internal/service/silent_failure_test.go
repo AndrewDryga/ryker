@@ -355,6 +355,74 @@ func TestPrewarmNamesTheChannelsItSkips(t *testing.T) {
 	}
 }
 
+// A channel configured for proactive participation that the bot is not in is
+// a coverage hole, and it must be impossible to have one quietly.
+//
+// This is C0TENANTAL1: configured proactive on the seventh, present = 0,
+// joined_at NULL, and an observed_at two days staler than the seven channels
+// beside it. Every alert posted there reached nobody. Neither record is wrong
+// on its own, which is why nothing raised it — the only way to find it was to
+// join channel_configurations against slack_channel_memberships by hand.
+func TestConfiguredChannelTheBotCannotSeeIsReportedNotSwallowed(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, channelID := range []string{"CJOINED", "CABSENT"} {
+		if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+			ChannelID: channelID, Participation: "proactive", Repository: "repo",
+			AlertPolicy: "reply", ActorID: "U123ABC",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logger, logged := capturingLogger()
+	slackClient := &fakeSlack{channels: []slackui.Channel{
+		{ID: "CJOINED", Name: "joined", Member: true},
+		{ID: "CABSENT", Name: "frontend-ops-alerts", Member: false},
+	}}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), logger)
+
+	if err := svc.reconcileSlackChannelMemberships(ctx); err != nil &&
+		!errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(logged.String(), "CABSENT") ||
+		!strings.Contains(logged.String(), "not joined") {
+		t.Fatalf("a configured channel the bot cannot see went unreported; log = %s", logged)
+	}
+	if strings.Contains(logged.String(), "CJOINED") {
+		t.Fatalf("a channel the bot is in was reported as a gap; log = %s", logged)
+	}
+
+	// Reconciliation runs every minute. A standing gap is stated when it
+	// appears, not 1,440 times a day, because a warning nobody can read is
+	// another way of not saying it.
+	logged.Reset()
+	if err := svc.reconcileSlackChannelMemberships(ctx); err != nil &&
+		!errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	if strings.Contains(logged.String(), "not joined") {
+		t.Fatalf("an unchanged coverage gap was repeated; log = %s", logged)
+	}
+
+	// And it reaches the operator, not only the log.
+	gaps, err := st.ListConfiguredChannelsMissingMembership(ctx, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := slackui.AppendCoverageGaps(slackui.Notice("nothing else"), gaps)
+	if !strings.Contains(home.Sections[0], "CABSENT") ||
+		!strings.Contains(home.Sections[0], "Configured but not joined") {
+		t.Fatalf("the App Home does not carry the coverage hole: %+v", home.Sections)
+	}
+}
+
 // Slack has already answered these; asking again eleven more times cannot
 // change the answer, and the eleven extra rejections are the only thing the
 // budget buys.
