@@ -22,14 +22,17 @@ func resultOperationJSONKeys() map[string]bool {
 	return keys
 }
 
+// bracedPayloadPattern reads the prompt's own "operation{key}" and
+// "operation{key: field,field}" notation back out of it.
+var bracedPayloadPattern = regexp.MustCompile(`([a-z_]+)\{([a-z_]+)(?:: ([a-z_,]+))?\}`)
+
 // The prompt used to describe these payload names instead of stating them, and
 // the description did not match the struct. A model followed the description
 // and its whole response was rejected. Anything the prompt now writes as
 // operation{key} must be a field that exists.
 func TestPromptBracedPayloadKeysExist(t *testing.T) {
 	keys := resultOperationJSONKeys()
-	pattern := regexp.MustCompile(`([a-z_]+)\{([a-z_]+)\}`)
-	matches := pattern.FindAllStringSubmatch(ResultOperationsPrompt(), -1)
+	matches := bracedPayloadPattern.FindAllStringSubmatch(ResultOperationsPrompt(), -1)
 	if len(matches) < 7 {
 		t.Fatalf("prompt names only %d braced payload keys", len(matches))
 	}
@@ -40,6 +43,58 @@ func TestPromptBracedPayloadKeysExist(t *testing.T) {
 				match[1], match[2],
 			)
 		}
+	}
+}
+
+// The four offer payloads are the ones the prompt now spells out field by
+// field, because they were the ones it never spelled out at all — and three
+// consecutive real runs each invented a different name for one of their fields
+// (topic, event, guidance). A field list that drifts from the struct would
+// teach the drift instead of curing it, so every name the prompt lists is
+// checked against the payload's own tags.
+func TestPromptOfferFieldListsMatchTheirStructs(t *testing.T) {
+	operation := reflect.TypeOf(ResultOperation{})
+	payloadFields := func(key string) map[string]bool {
+		for index := 0; index < operation.NumField(); index++ {
+			field := operation.Field(index)
+			tag, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+			if tag != key {
+				continue
+			}
+			payload := field.Type
+			for payload.Kind() == reflect.Pointer {
+				payload = payload.Elem()
+			}
+			names := map[string]bool{}
+			for inner := 0; inner < payload.NumField(); inner++ {
+				name, _, _ := strings.Cut(payload.Field(inner).Tag.Get("json"), ",")
+				if name != "" && name != "-" {
+					names[name] = true
+				}
+			}
+			return names
+		}
+		return nil
+	}
+	listed := 0
+	for _, match := range bracedPayloadPattern.FindAllStringSubmatch(ResultOperationsPrompt(), -1) {
+		if match[3] == "" {
+			continue
+		}
+		listed++
+		fields := payloadFields(match[2])
+		if fields == nil {
+			t.Fatalf("prompt lists fields for %q, which is not a result operation payload", match[2])
+		}
+		for _, name := range strings.Split(match[3], ",") {
+			if !fields[name] {
+				t.Errorf("prompt tells the model %s carries %q, which %s does not have",
+					match[1], name, match[2])
+			}
+		}
+	}
+	if listed != 4 {
+		t.Fatalf("expected the four offer payloads to list their fields, found %d", listed)
 	}
 }
 
@@ -127,7 +182,7 @@ func TestMemoryIsNotAliasedToMemoryOffer(t *testing.T) {
 	if _, aliased := resultOperationPayloadAliases["memory"]; aliased {
 		t.Fatal("memory is aliased despite belonging to update_memory")
 	}
-	if !strings.Contains(ResultOperationsPrompt(), "offer_memory{memory_offer}") {
+	if !strings.Contains(ResultOperationsPrompt(), "offer_memory{memory_offer:") {
 		t.Fatal("the prompt no longer tells the model offer_memory carries memory_offer")
 	}
 }

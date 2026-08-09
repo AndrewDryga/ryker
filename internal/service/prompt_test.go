@@ -301,7 +301,15 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // those three names, but tolerance cannot rescue offer_memory: "memory" is
 // already update_memory's payload, so the only fix for that one is to stop
 // implying it. The line now names each key instead of describing it.
-const staticWatchPromptBytes = 48240
+// Raised by a further 168 on 2026-08-09 to spell out the four offer payloads'
+// fields. Naming the keys was not enough: memory_offer, preference_offer,
+// rule_offer and schedule_offer were the only payloads in the list whose
+// fields were never shown, and three consecutive real regression runs each
+// invented a different name for one of them — topic, then event, then
+// guidance. Each invention cost the whole response. The host accepts all three
+// as aliases now, but a fourth was always coming, and a payload the model has
+// never seen the shape of is the reason. These are the bytes that stop it.
+const staticWatchPromptBytes = 48408
 
 // The static prompt must not grow without someone deciding it should.
 //
