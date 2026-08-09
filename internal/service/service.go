@@ -363,34 +363,22 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 		seen[channelID] = struct{}{}
 		channelIDs = append(channelIDs, channelID)
 	}
-	if len(channelIDs) == 0 {
-		s.log.Warn(
-			"prewarmed no conversation sessions: no channel is configured or recently active",
-			"budget", budget,
-		)
-		return
-	}
 	prewarmed := 0
 	skipped := 0
+	// Every exit reports, including the one that considered nothing at all.
+	// An empty candidate list is the exact state tenant was in for a week, and
+	// it used to return here in silence.
 	defer func() {
 		if ctx.Err() != nil {
 			return
 		}
+		record, outcome := s.log.Info, "finished prewarming conversation sessions"
 		if prewarmed == 0 {
-			s.log.Warn(
-				"prewarmed no conversation sessions",
-				"considered", len(channelIDs),
-				"skipped", skipped,
-				"budget", budget,
-			)
-			return
+			record, outcome = s.log.Warn, "prewarmed no conversation sessions"
 		}
-		s.log.Info(
-			"finished prewarming conversation sessions",
-			"prewarmed", prewarmed,
-			"considered", len(channelIDs),
-			"skipped", skipped,
-			"budget", budget,
+		record(outcome,
+			"prewarmed", prewarmed, "considered", len(channelIDs),
+			"skipped", skipped, "budget", budget,
 		)
 	}()
 	for _, channelID := range channelIDs {

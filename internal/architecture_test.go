@@ -82,13 +82,34 @@ var methodBudget = map[string]int{
 // package has grown past the 5% the others still have, and the next thing that
 // wants room here should have to answer for it. What it really needs is an
 // extraction, not another raise.
+// service was raised from 24620 to 24880 to make four confirmed production
+// failures legible. Each was a path that could not work and said nothing: a
+// Slack retry loop with no log or audit at all, an App Home interaction posting
+// to a channel that does not exist, prewarming that read only static YAML and
+// so did nothing on a database-configured deployment, and a configured channel
+// the bot is not in that no code anywhere compared. Nearly all of the added
+// lines are the saying-so — structured log calls, an audit event, and the
+// skip-reason branches that used to be a bare continue.
+//
+// This is the raise the previous note warned about, and it does not earn the
+// package any room for features. The extraction it names — the offline
+// evaluation family, behind the decision domain becoming its own package — is
+// still the only thing that brings this number down, and it is still next.
 var lineBudget = map[string]int{
-	"service": 24620,
+	"service": 24880,
 	// 10843 today, down from 14100 across six extractions. It has only ever
 	// moved down except here, where rate-limit requeueing added a new store
 	// operation rather than moving an existing one. Keep lowering it as more
 	// areas land.
-	"store":      11000,
+	//
+	// Raised from 11000 to 11120 for the two queries that read the channel
+	// control plane: which channels an operator configured, and which of those
+	// the bot is not in. The previous entry left the budget at exactly the
+	// package's line count, which is the tripwire this file's own comment warns
+	// against — any addition at all failed the gate. Four copies of the same
+	// channel-ID scan loop collapsed into one helper in the same change, so the
+	// net cost of both queries is fourteen lines.
+	"store":      11120,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

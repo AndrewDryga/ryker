@@ -1806,14 +1806,9 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 	)
 	if terminal {
 		s.audit(ctx, core.AuditEvent{
-			Kind:     "slack.input",
-			ActorID:  input.UserID,
-			ObjectID: input.ID,
-			Outcome:  "abandoned",
-			Detail:   input.Kind + ": " + trimError(err),
+			Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: "abandoned", Detail: input.Kind + ": " + trimError(err),
 		})
-	}
-	if terminal {
 		if incident, incidentErr := s.store.FindIncidentForConversation(
 			ctx,
 			input.ChannelID,

@@ -56,25 +56,12 @@ func (s *Store) ListRecentConversationChannels(
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	return channelIDRows(s.db.QueryContext(ctx, `
 		SELECT channel_id
 		FROM conversation_sessions
 		WHERE channel_id != ''
 		ORDER BY updated_at DESC, channel_id
-		LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	channels := make([]string, 0, limit)
-	for rows.Next() {
-		var channelID string
-		if err := rows.Scan(&channelID); err != nil {
-			return nil, err
-		}
-		channels = append(channels, channelID)
-	}
-	return channels, rows.Err()
+		LIMIT ?`, limit))
 }
 
 func (s *Store) BindConversationSession(

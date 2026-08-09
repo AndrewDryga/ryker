@@ -293,28 +293,12 @@ func (s *Store) GetChannelConfiguration(
 // them in YAML, so anything that reads only the static file sees an empty
 // workspace and behaves as though there is nothing to do.
 func (s *Store) ListConfiguredChannelIDs(ctx context.Context, limit int) ([]string, error) {
-	if limit <= 0 || limit > 10000 {
-		limit = 10000
-	}
-	rows, err := s.db.QueryContext(ctx, `
+	return channelIDRows(s.db.QueryContext(ctx, `
 		SELECT channel_id
 		FROM channel_configurations
 		WHERE channel_id != ''
 		ORDER BY updated_at DESC, channel_id
-		LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := make([]string, 0, min(limit, 64))
-	for rows.Next() {
-		var channelID string
-		if err := rows.Scan(&channelID); err != nil {
-			return nil, err
-		}
-		result = append(result, channelID)
-	}
-	return result, rows.Err()
+		LIMIT ?`, boundedChannelLimit(limit)))
 }
 
 // ListConfiguredChannelsMissingMembership returns channels an operator
@@ -327,10 +311,7 @@ func (s *Store) ListConfiguredChannelsMissingMembership(
 	ctx context.Context,
 	limit int,
 ) ([]string, error) {
-	if limit <= 0 || limit > 10000 {
-		limit = 10000
-	}
-	rows, err := s.db.QueryContext(ctx, `
+	return channelIDRows(s.db.QueryContext(ctx, `
 		SELECT configured.channel_id
 		FROM channel_configurations AS configured
 		LEFT JOIN slack_channel_memberships AS membership
@@ -338,12 +319,26 @@ func (s *Store) ListConfiguredChannelsMissingMembership(
 		WHERE configured.channel_id != ''
 		  AND (membership.channel_id IS NULL OR membership.present = 0)
 		ORDER BY configured.channel_id
-		LIMIT ?`, limit)
+		LIMIT ?`, boundedChannelLimit(limit)))
+}
+
+// boundedChannelLimit and channelIDRows carry the shape every channel-ID query
+// in this package repeats: clamp the caller's limit, then drain one string
+// column. Four copies of the same fifteen lines were four chances to forget
+// rows.Err(), which reports a truncated result as a complete one.
+func boundedChannelLimit(limit int) int {
+	if limit <= 0 || limit > 10000 {
+		return 10000
+	}
+	return limit
+}
+
+func channelIDRows(rows *sql.Rows, err error) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := make([]string, 0, min(limit, 64))
+	result := make([]string, 0, 64)
 	for rows.Next() {
 		var channelID string
 		if err := rows.Scan(&channelID); err != nil {
