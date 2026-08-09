@@ -53,7 +53,7 @@ Consequences to respect:
 
 ## Information architecture
 
-Eight pages. Each answers one question.
+Nine pages. Each answers one question.
 
 ### 1. Overview — "what is happening right now?"
 
@@ -130,11 +130,37 @@ Today they are answered by running sqlite against a production database.
 `Failed work: 100` is a number the App Home cannot open.
 
 - Grouped by cause, because a hundred failures are rarely a hundred problems
-- Retryable vs terminal, attempts, last error
-- Bulk retry within a group, with confirmation
+- Retryable vs superseded, attempts, last error
+- Retry per run, with a confirm step: the run goes back to pending with a
+  fresh Coop idempotency key and its episode reopens through the kernel's
+  latest-attempt rule. Only the episode's latest attempt qualifies; a
+  superseded run says which attempt replaced it instead of offering a button
+  the store would refuse
 - Link to the episode that failed
 
-**Source:** `agent_runs`, `episode_attempts`, `coop_cleanup`.
+**Source:** `agent_runs`, `episode_attempts`, `work_episodes`.
+
+### 3a. Workspaces — "what is still held, and why?"
+
+Every Coop fork still on disk, with the janitor's refusal verbatim. The
+blocked rows are the operator's queue: automatic cleanup has already declined
+each one for a stated reason — a dirty tree, unpublished commits, a Coop
+conflict — and will never look again without a person acting.
+
+- Split into "waiting on you" (blocked) and "queued for automatic cleanup"
+  (the janitor's own schedule), with reclaimed workspaces counted but not shown
+- Publish and discard run the identical service handlers the Slack buttons
+  call — the Coop review, the verified discard plan, the audit record, the
+  Slack outcome notice — and mirror the Slack admission gate, so closed work
+  refuses publish here too
+- Rerun sends a blocked row back through the janitor's checks, and is offered
+  only where a second pass could end differently; a dirty tree re-blocks
+  deterministically and gets an explanation instead of a dead button
+- A session with no work record says plainly that no safe discard path exists
+  for it yet, rather than inventing one
+
+**Source:** `coop_cleanup`, joined to `incidents`, `channel_memories` and
+`conversation_sessions` for what each session belonged to.
 
 ### 4. Decisions — "what did it choose, and was it right?"
 
@@ -211,11 +237,13 @@ Every row links into an episode list filtered to it. A breakdown that cannot be
 opened says which model costs the most and gives no route to a single turn of
 it.
 
-Cost and the wall-clock split are recorded but not rendered here yet: the page
-is handed no price table and does not read the timing columns, so each keeps an
-unwired panel that says so about *this page* rather than about the product. A
-panel that looks live and is not is worse than no panel, and that is as true of
-one this file has promised as of one the code has faked.
+Cost and the wall-clock split render from what was measured and configured.
+Cost is priced only through `config.Pricing.Cost`, so an unpriced model says
+"not priced" rather than zero, a partial table's total is labelled a floor,
+and a deployment with no table says so once and points at
+`config/responder.example.yaml`. Wall clock reads the migration-49 columns and
+averages only over timed turns; a window with none says "nothing timed" rather
+than inventing an instant.
 
 **Source:** `context_manifests`, joined to `agent_runs` on `attempt_id`. Not on
 `episode_id`: an episode holds several runs, so that join fans out — 351
@@ -347,16 +375,22 @@ full.
 The instruction is that the whole shape is visible even where it is not yet
 live, so the design can be judged as a whole.
 
-| Page | v1 |
+| Page | Wired |
 |---|---|
 | Overview | Live |
-| Episodes list and detail | Live — this is the reason to build it |
-| Failures | Live, read-only; retry in v2 |
-| Decisions | Live for history and correction rate; triage actions in v2 |
-| Audit | Live, with a drill-down per kind |
-| Memory | Live, read-only; forget in v2 |
+| Episodes list and detail | Live, with free-text search, a state filter, pagination, and resolve-as-overtaken on blocked and waiting work |
+| Failures | Live, with retry per run; superseded runs say why they are history |
+| Workspaces | Live, with publish, discard and rerun through the Slack buttons' own service paths; rows with no safe path say why |
+| Decisions | Live, with corrections triage and feedback dismiss/convert |
+| Audit | Live, with a drill-down per kind, an actor filter, a since window and pagination |
+| Memory | Live, with forget and the stale/duplicate review queue's keep and dismiss |
 | Configuration | Live, read-only |
-| Usage | Live for tokens, cache rate and the daily trend, each of which reads empty until Coop reports usage; cost, the wall-clock split and prompt composition stay marked unwired, and say so about this page rather than about the product |
+| Usage | Live for tokens, cache rate, the daily trend, cost and the wall-clock split — each empty state names what was not measured or configured; prompt composition stays marked unwired |
+
+Every action is a POST behind a native two-step confirm — the CSP forbids
+script, so `confirm()` was never an option that actually ran — and writes its
+store transition and its audit row in the same act, attributed to
+`control-plane@localhost`.
 
 An unwired panel says exactly why it is empty and what would make it work, and
 says it about the right thing: once a gap is filled, a panel still tagged "not
