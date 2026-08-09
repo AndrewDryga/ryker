@@ -3,7 +3,7 @@
 <div class="panel">
   <div class="meta">
     <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
-    {{.Channel}} · {{.Kind}} · started {{stamp .Created}}
+    {{.Channel}} · {{.Kind}} · started {{stamp .Created}}{{with .Answered}} · answered by <span class="who">{{.}}</span>{{end}}
   </div>
   {{if .Status}}<p class="note">{{.Status}}</p>{{end}}
   {{if .Next}}<p class="todo"><span class="arr">→</span> {{.Next}}</p>{{end}}
@@ -119,12 +119,12 @@ from "nobody looked", so an answer with none behind it rests on the model alone.
       <td class="mono">v{{.Version}}</td><td class="note">{{stamp .Created}}</td></tr>
 </table>
 {{end}}
-{{if .Model}}
 <table>
   <tr><th>Provider</th><th>Model</th><th>Reasoning effort</th></tr>
-  <tr><td>{{.Provider}}</td><td class="mono">{{.Model}}</td><td>{{.Effort}}</td></tr>
+  <tr><td>{{if .Provider}}{{.Provider}}{{else}}<span class="note">not recorded</span>{{end}}</td>
+      <td class="mono">{{if .Model}}{{.Model}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td>{{if .Effort}}{{.Effort}}{{else}}<span class="note">—</span>{{end}}</td></tr>
 </table>
-{{end}}
 {{if .Refs}}
 <table>
   <tr><th>Kind</th><th>What</th><th>Visibility</th><th>Digest</th></tr>

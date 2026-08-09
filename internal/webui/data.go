@@ -68,12 +68,46 @@ type Item struct {
 	Next    string
 	Created time.Time
 	Updated time.Time
+
+	// Which model answered. Recorded per attempt on the context manifest and
+	// carried on the row because "who did this work" is a scanning question:
+	// it belonged on every list and appeared only in a table near the bottom
+	// of one detail page, behind a conditional that was false for every row in
+	// the database because nothing had ever populated the column.
+	Provider string
+	Model    string
+	Effort   string
 }
 
+// Answered names the model in one token for a list. Effort is included because
+// on a ladder of claude:opus/max and claude:opus/high the effort is the whole
+// difference between the two rungs.
+func (i Item) Answered() string {
+	if i.Model == "" {
+		return ""
+	}
+	name := i.Model
+	if i.Effort != "" {
+		name += "/" + i.Effort
+	}
+	return name
+}
+
+// The manifest columns come from correlated subqueries rather than a join.
+// An episode whose context was extended froze several manifests, and joining
+// them would repeat the episode once per manifest — the same fan-out that
+// turned 351 manifests into 953 rows on the Usage page before it keyed on the
+// attempt. The latest manifest is the one that answered.
 const episodeSelect = `
   SELECT e.id, COALESCE(c.title, ''), e.lifecycle_state, COALESCE(r.mode, ''),
          COALESCE(r.channel_id, ''), COALESCE(e.status, ''), COALESCE(e.next_action, ''),
-         e.created_at, e.updated_at
+         e.created_at, e.updated_at,
+         COALESCE((SELECT m.provider FROM context_manifests m
+                   WHERE m.episode_id = e.id ORDER BY m.version DESC LIMIT 1), ''),
+         COALESCE((SELECT m.model FROM context_manifests m
+                   WHERE m.episode_id = e.id ORDER BY m.version DESC LIMIT 1), ''),
+         COALESCE((SELECT m.reasoning_effort FROM context_manifests m
+                   WHERE m.episode_id = e.id ORDER BY m.version DESC LIMIT 1), '')
   FROM work_episodes AS e
   LEFT JOIN commitments AS c ON c.episode_id = e.id
   LEFT JOIN agent_runs AS r ON r.id = e.agent_run_id`
@@ -92,7 +126,8 @@ func (r *Reader) scanItems(ctx context.Context, query string, args ...any) ([]It
 		var item Item
 		var created, updated string
 		if err := rows.Scan(&item.ID, &item.Title, &item.State, &item.Kind,
-			&item.Channel, &item.Status, &item.Next, &created, &updated); err != nil {
+			&item.Channel, &item.Status, &item.Next, &created, &updated,
+			&item.Provider, &item.Model, &item.Effort); err != nil {
 			return nil, err
 		}
 		item.Created, item.Updated = parseStamp(created), parseStamp(updated)

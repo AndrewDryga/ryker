@@ -12,7 +12,7 @@
   {{range .Blocked}}
   <a class="row" href="/episodes/{{.ID}}">
     <div class="title">{{truncate 110 .Title}}{{if .Repeats}} <span class="rep">×{{add1 .Repeats}}</span>{{end}}</div>
-    <div class="meta"><span class="pill warn">{{.State}}</span> {{.Channel}} · {{since .Updated}}</div>
+    <div class="meta"><span class="pill warn">{{.State}}</span> {{.Channel}} · {{since .Updated}}{{with .Answered}} · <span class="who">{{.}}</span>{{end}}</div>
     {{if .Next}}<div class="todo"><span class="arr">→</span> {{truncate 160 .Next}}</div>{{end}}
   </a>
   {{end}}
@@ -132,7 +132,7 @@ a piece of work from Slack or a webhook.</p>{{end}}
     <div class="title">{{truncate 120 .Title}}</div>
     <div class="meta">
       <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
-      {{.Channel}} · {{.Kind}} · {{since .Updated}}
+      {{.Channel}} · {{.Kind}} · {{since .Updated}}{{with .Answered}} · <span class="who">{{.}}</span>{{end}}
     </div>
   </a>
   {{end}}

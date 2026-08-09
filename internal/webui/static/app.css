@@ -274,6 +274,10 @@ a.row:hover { background: var(--panel-2); text-decoration: none; }
 .pill.good { color: var(--good); } .pill.good::before { background: var(--good); }
 
 .rep, .att { font: 500 11px/1.6 var(--mono); color: var(--faint); }
+
+/* Which model answered, on every row that has one. Monospaced because it is an
+   identifier, and dim because it qualifies the work rather than being it. */
+.who { font: 500 11.5px/1.6 var(--mono); color: var(--dim); }
 .gap { font: 500 11px/1.6 var(--mono); color: var(--warn); }
 
 code, .mono { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }

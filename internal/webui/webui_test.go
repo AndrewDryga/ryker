@@ -493,3 +493,28 @@ func TestATitleStrippedToPunctuationIsNotATitle(t *testing.T) {
 		t.Errorf("cleanTitle lost the alert text: %q", got)
 	}
 }
+
+// Which model answered belongs on every row that has one.
+//
+// It was recorded per attempt and rendered in one table near the bottom of the
+// episode page, behind a conditional that was false for every row in the
+// database because nothing had ever populated the column. Two separate
+// failures wearing one symptom: the value was missing, and the one place that
+// would have shown it hid itself when it was.
+func TestEveryEpisodeRowNamesTheModelThatAnsweredIt(t *testing.T) {
+	answered := Item{Model: "opus", Effort: "max", Provider: "claude"}
+	if got := answered.Answered(); got != "opus/max" {
+		t.Errorf("Answered() = %q, want the model and the effort", got)
+	}
+	// The effort is the whole difference between two rungs of one ladder, so
+	// it travels with the model rather than being dropped for brevity.
+	if got := (Item{Model: "opus", Provider: "claude"}).Answered(); got != "opus" {
+		t.Errorf("Answered() without an effort = %q, want just the model", got)
+	}
+	// An attempt frozen before the target was recorded says nothing rather
+	// than inventing a default — the row must not claim a model that may not
+	// have been the one that ran.
+	if got := (Item{}).Answered(); got != "" {
+		t.Errorf("Answered() with nothing recorded = %q, want empty", got)
+	}
+}
