@@ -3,18 +3,20 @@ package service
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"database/sql"
 	"errors"
 	"log/slog"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/slack-go/slack/slackevents"
-	"github.com/slack-go/slack/socketmode"
+	_ "modernc.org/sqlite"
 )
 
 // capturingLogger returns a logger and the buffer it writes to, so a test can
@@ -24,78 +26,15 @@ func capturingLogger() (*slog.Logger, *bytes.Buffer) {
 	return slog.New(slog.NewTextHandler(buffer, &slog.HandlerOptions{Level: slog.LevelDebug})), buffer
 }
 
-// The App Home messages tab carries no thread, and that is the contract.
-//
-// Slack's agent messaging experience pins suggested prompts to the top of the
-// Messages tab and sets them from app_home_opened with no thread_ts; the
-// per-thread form belongs to the older assistant experience and arrives with
-// assistant_thread_started. Both shapes are pinned here together because the
-// empty thread looks like an omission next to the branch that fills one in,
-// and "fixing" it by addressing a thread that does not exist would break the
-// surface rather than repair it.
-func TestSuggestedPromptsUseTheThreadOnlyWhenSlackProvidesOne(t *testing.T) {
-	ctx := context.Background()
-	cfg := serviceConfig(t)
-	st, err := store.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	slackClient := &fakeSlack{}
-	socket := &fakeSocket{events: make(chan socketmode.Event)}
-	svc := New(cfg, st, newFakeCoop(), slackClient, socket, slackui.NewSanitizer(12000), nil)
-
-	for _, event := range []struct {
-		name       string
-		envelope   string
-		data       slackevents.EventsAPIInnerEvent
-		wantThread string
-	}{
-		{
-			name:     "agent messages tab",
-			envelope: "env-messages",
-			data: slackevents.EventsAPIInnerEvent{Data: &slackevents.AppHomeOpenedEvent{
-				User: "U123ABC", Channel: "D123ABC", Tab: "messages",
-			}},
-			wantThread: "",
-		},
-		{
-			name:     "assistant thread",
-			envelope: "env-assistant",
-			data: slackevents.EventsAPIInnerEvent{Data: &slackevents.AssistantThreadStartedEvent{
-				AssistantThread: slackevents.AssistantThread{
-					UserID: "U123ABC", ChannelID: "D123ABC", ThreadTimeStamp: "1700.902",
-				},
-			}},
-			wantThread: "1700.902",
-		},
-	} {
-		payload, _ := json.Marshal(map[string]any{"event_id": event.envelope})
-		svc.admitEventsAPI(ctx, socketmode.Event{
-			Type: socketmode.EventTypeEventsAPI,
-			Data: slackevents.EventsAPIEvent{
-				TeamID: cfg.Slack.TeamID, InnerEvent: event.data,
-			},
-			Request: &socketmode.Request{EnvelopeID: event.envelope, Payload: payload},
-		})
-		if err := svc.processSlackInput(ctx); err != nil {
-			t.Fatalf("%s: %v", event.name, err)
-		}
-		last := slackClient.suggested[len(slackClient.suggested)-1]
-		if last.channel != "D123ABC" || last.thread != event.wantThread {
-			t.Fatalf("%s prompts = %+v, want thread %q", event.name, last, event.wantThread)
-		}
-	}
-}
-
 // A surface repaint that Slack keeps rejecting must stop, and must say so.
 //
-// This is the shape of the defect that went unnoticed for months: every App
-// Home open queued a suggested-prompts refresh, Slack answered internal_error,
-// and the input was retried to the full twelve-attempt budget reserved for work
-// an operator actually asked for. Nothing was logged, nothing was audited, and
-// the only trace was a failed row in a table nobody reads. Not one refresh has
-// ever succeeded on either deployment, and nothing said so.
+// This is the shape of the defect that went unnoticed for months: a surface
+// refresh Slack refused was retried to the full twelve-attempt budget reserved
+// for work an operator actually asked for. Nothing was logged, nothing was
+// audited, and the only trace was a failed row in a table nobody reads. The
+// suggested-prompts refresh that first showed this has since been deleted —
+// the manifest declares those prompts and the API call never once succeeded —
+// but the App Home is the same shape of write and inherits the same budget.
 func TestFailingSurfaceRefreshGivesUpEarlyAndIsReported(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -105,7 +44,7 @@ func TestFailingSurfaceRefreshGivesUpEarlyAndIsReported(t *testing.T) {
 	}
 	defer st.Close()
 	logger, logged := capturingLogger()
-	slackClient := &fakeSlack{suggestedErr: errors.New("internal_error")}
+	slackClient := &fakeSlack{homeErr: errors.New("internal_error")}
 	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), logger)
 	// The queue backs off between attempts, so the clock has to move for the
 	// next one to come due. Both the service and the store read it.
@@ -114,8 +53,8 @@ func TestFailingSurfaceRefreshGivesUpEarlyAndIsReported(t *testing.T) {
 	st.SetClock(func() time.Time { return clock })
 
 	input := core.SlackInput{
-		ID: "slack_prompts", EnvelopeID: "env-prompts", EventID: "ev-prompts",
-		Kind: inputSuggestedPrompts, TeamID: cfg.Slack.TeamID,
+		ID: "slack_home", EnvelopeID: "env-home", EventID: "ev-home",
+		Kind: inputAppHome, TeamID: cfg.Slack.TeamID,
 		ChannelID: "D123ABC", UserID: "U123ABC", ReceivedAt: clock,
 	}
 	if _, err := st.AdmitSlackInput(ctx, input); err != nil {
@@ -135,10 +74,10 @@ func TestFailingSurfaceRefreshGivesUpEarlyAndIsReported(t *testing.T) {
 		clock = clock.Add(10 * time.Minute)
 	}
 
-	if len(slackClient.suggested) != surfaceRefreshAttempts {
+	if len(slackClient.homes) != surfaceRefreshAttempts {
 		t.Fatalf(
 			"Slack calls before giving up = %d, want %d",
-			len(slackClient.suggested), surfaceRefreshAttempts,
+			len(slackClient.homes), surfaceRefreshAttempts,
 		)
 	}
 	stored, err := st.GetSlackInput(ctx, input.ID)
@@ -420,6 +359,153 @@ func TestConfiguredChannelTheBotCannotSeeIsReportedNotSwallowed(t *testing.T) {
 	if !strings.Contains(home.Sections[0], "CABSENT") ||
 		!strings.Contains(home.Sections[0], "Configured but not joined") {
 		t.Fatalf("the App Home does not carry the coverage hole: %+v", home.Sections)
+	}
+}
+
+// auditOutcomes reads back what the service recorded about one object, so a
+// test can check the trail an operator would actually read rather than only the
+// log line beside it.
+func auditOutcomes(t *testing.T, cfg config.Config, kind, objectID string) []string {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(cfg.StateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(
+		`SELECT outcome, detail FROM audit_events
+		 WHERE kind = ? AND object_id = ? ORDER BY created_at, id`,
+		kind, objectID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var result []string
+	for rows.Next() {
+		var outcome, detail string
+		if err := rows.Scan(&outcome, &detail); err != nil {
+			t.Fatal(err)
+		}
+		result = append(result, outcome+": "+detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// configureChannelsAndReconcile is the arrangement every join case shares: an
+// operator has configured these channels, Slack reports this membership, and
+// the reconciliation loop has run once.
+func configureChannelsAndReconcile(
+	t *testing.T,
+	slackClient *fakeSlack,
+	configured []string,
+) (config.Config, *bytes.Buffer) {
+	t.Helper()
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, channelID := range configured {
+		if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+			ChannelID: channelID, Participation: "proactive", Repository: "repo",
+			AlertPolicy: "reply", ActorID: "U123ABC",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logger, logged := capturingLogger()
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), logger)
+	if err := svc.reconcileSlackChannelMemberships(ctx); err != nil &&
+		!errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	return cfg, logged
+}
+
+// A public channel an operator configured but nobody invited the bot to is a
+// hole Responder is now allowed to close by itself.
+//
+// Reporting C0TENANTAL1 was only half an answer: an operator still had to read
+// the warning and go type /invite. conversations.join needs no one, so the
+// remaining question is only whether the door opens, and the outcome is
+// recorded either way.
+func TestConfiguredPublicChannelIsJoinedWithoutWaitingForAHuman(t *testing.T) {
+	slackClient := &fakeSlack{channels: []slackui.Channel{
+		{ID: "CPUBLIC", Name: "frontend-ops-alerts", Member: false},
+	}}
+
+	cfg, logged := configureChannelsAndReconcile(t, slackClient, []string{"CPUBLIC"})
+
+	if !slices.Equal(slackClient.joined, []string{"CPUBLIC"}) {
+		t.Fatalf("join attempts = %v, want the configured public channel", slackClient.joined)
+	}
+	if !strings.Contains(logged.String(), "joined a configured channel") {
+		t.Fatalf("a join happened without saying so; log = %s", logged)
+	}
+	audited := auditOutcomes(t, cfg, "slack.channel.join", "CPUBLIC")
+	if len(audited) != 1 || !strings.HasPrefix(audited[0], "joined: ") {
+		t.Fatalf("join audit = %v, want one joined row", audited)
+	}
+}
+
+// A private channel cannot be entered by an app, and saying "the join failed"
+// would send an operator to look for a fault instead of running /invite.
+//
+// Slack's answer here is method_not_supported_for_channel_type and it will be
+// the same answer forever, so the attempt is not made at all: the audit names
+// the repair rather than the refusal.
+func TestConfiguredPrivateChannelAsksForAnInviteInsteadOfTrying(t *testing.T) {
+	slackClient := &fakeSlack{channels: []slackui.Channel{
+		{ID: "CPRIVATE", Name: "security-incidents", Member: false, Private: true},
+	}}
+
+	cfg, logged := configureChannelsAndReconcile(t, slackClient, []string{"CPRIVATE"})
+
+	if len(slackClient.joined) != 0 {
+		t.Fatalf("tried to join a private channel: %v", slackClient.joined)
+	}
+	if !strings.Contains(logged.String(), "/invite") {
+		t.Fatalf("the private-channel repair was not stated; log = %s", logged)
+	}
+	audited := auditOutcomes(t, cfg, "slack.channel.join", "CPRIVATE")
+	if len(audited) != 1 || !strings.HasPrefix(audited[0], "private_needs_invite: ") {
+		t.Fatalf("private channel audit = %v", audited)
+	}
+}
+
+// The build asking for a scope and the installation granting it are two
+// different events, and the code has to survive the gap between them.
+//
+// deploy/slack-app-manifest.yaml requests channels:join, but a manifest change
+// only takes effect when a person reinstalls the app. Until then Slack answers
+// missing_scope, and the only useful thing to say is which human action fixes
+// it — retrying cannot, and reporting it as an ordinary join failure would hide
+// the one instruction that works.
+func TestJoinWithoutTheScopeSaysTheAppMustBeReinstalled(t *testing.T) {
+	slackClient := &fakeSlack{
+		channels: []slackui.Channel{{ID: "CPUBLIC", Name: "frontend-ops-alerts"}},
+		joinErr:  errors.New("missing_scope"),
+	}
+
+	cfg, logged := configureChannelsAndReconcile(t, slackClient, []string{"CPUBLIC"})
+
+	if len(slackClient.joined) != 1 {
+		t.Fatalf("join attempts = %v, want exactly one rather than a retry loop", slackClient.joined)
+	}
+	if !strings.Contains(logged.String(), "channels:join") ||
+		!strings.Contains(logged.String(), "reinstall") {
+		t.Fatalf("a missing scope was reported as a generic failure; log = %s", logged)
+	}
+	audited := auditOutcomes(t, cfg, "slack.channel.join", "CPUBLIC")
+	if len(audited) != 1 || !strings.HasPrefix(audited[0], "missing_scope: ") ||
+		!strings.Contains(audited[0], "invite the bot manually") {
+		t.Fatalf("missing scope audit = %v", audited)
 	}
 }
 

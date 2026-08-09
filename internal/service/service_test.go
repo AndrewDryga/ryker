@@ -1138,9 +1138,10 @@ type fakeSlack struct {
 	statuses           []slackStatus
 	reactions          []slackReaction
 	removedReactions   []slackReaction
-	suggested          []slackStatus
-	suggestedErr       error
 	homes              []slackPost
+	homeErr            error
+	joined             []string
+	joinErr            error
 	postErr            error
 	ephemeralErr       error
 	inviteErr          error
@@ -1192,9 +1193,16 @@ func (f *fakeSlack) CreateChannel(_ context.Context, name string, _ bool, _ stri
 func (f *fakeSlack) FindChannelByName(context.Context, string, string) (slackui.Channel, error) {
 	return slackui.Channel{}, slackui.ErrNotFound
 }
-func (f *fakeSlack) GetChannel(context.Context, string) (slackui.Channel, error) {
+func (f *fakeSlack) GetChannel(_ context.Context, channelID string) (slackui.Channel, error) {
 	if f.channelErr != nil {
 		return slackui.Channel{}, f.channelErr
+	}
+	// channels is the workspace as Slack sees it, so a test that describes a
+	// channel there gets the same answer from every lookup.
+	for _, channel := range f.channels {
+		if channel.ID == channelID {
+			return channel, nil
+		}
 	}
 	if f.channel.ID != "" {
 		return f.channel, nil
@@ -1280,21 +1288,17 @@ func (f *fakeSlack) SetProgress(
 ) error {
 	return f.SetStatus(context.Background(), channel, thread, text)
 }
-func (f *fakeSlack) SetSuggestedPrompts(
-	_ context.Context,
-	channel string,
-	thread string,
-) error {
-	f.suggested = append(f.suggested, slackStatus{channel: channel, thread: thread})
-	return f.suggestedErr
-}
 func (f *fakeSlack) PublishHome(
 	_ context.Context,
 	user string,
 	message slackui.Message,
 ) error {
 	f.homes = append(f.homes, slackPost{thread: user, message: message})
-	return nil
+	return f.homeErr
+}
+func (f *fakeSlack) JoinChannel(_ context.Context, channelID string) error {
+	f.joined = append(f.joined, channelID)
+	return f.joinErr
 }
 func (f *fakeSlack) UserAllowed(context.Context, string, string) (bool, error) {
 	return true, nil

@@ -434,7 +434,17 @@ func TestTwoPersonActionApprovalQueuesOnlyConfiguredProposal(t *testing.T) {
 	}
 }
 
-func TestSlackAssistantPromptsAndOperationsHome(t *testing.T) {
+// Opening an agent surface is acknowledged and costs nothing else.
+//
+// The prompts above the Messages tab are declared statically in
+// deploy/slack-app-manifest.yaml under features.agent_view.suggested_prompts.
+// Responder used to answer the same event by calling
+// assistant.threads.setSuggestedPrompts with a near-identical list, which Slack
+// refused with internal_error on every attempt either deployment ever made.
+// Queueing work for these events is therefore not a smaller failure than
+// failing at it — it is the whole defect, so the assertion is that no input is
+// admitted at all.
+func TestOpeningAnAgentSurfaceQueuesNoWorkAndTheHomeStillPublishes(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -448,70 +458,67 @@ func TestSlackAssistantPromptsAndOperationsHome(t *testing.T) {
 		cfg, st, newFakeCoop(), slackClient, socket,
 		slackui.NewSanitizer(12000), nil,
 	)
-	payload, _ := json.Marshal(map[string]any{"event_id": "EvAssistant"})
+
+	for _, event := range []struct {
+		name     string
+		envelope string
+		data     slackevents.EventsAPIInnerEvent
+	}{
+		{
+			name:     "assistant thread",
+			envelope: "env-assistant",
+			data: slackevents.EventsAPIInnerEvent{Data: &slackevents.AssistantThreadStartedEvent{
+				AssistantThread: slackevents.AssistantThread{
+					UserID: "U123ABC", ChannelID: "D123ABC", ThreadTimeStamp: "1700.902",
+				},
+			}},
+		},
+		{
+			name:     "agent messages tab",
+			envelope: "env-messages",
+			data: slackevents.EventsAPIInnerEvent{Data: &slackevents.AppHomeOpenedEvent{
+				User: "U123ABC", Channel: "D123ABC", Tab: "messages",
+			}},
+		},
+	} {
+		payload, _ := json.Marshal(map[string]any{"event_id": event.envelope})
+		svc.admitEventsAPI(ctx, socketmode.Event{
+			Type: socketmode.EventTypeEventsAPI,
+			Data: slackevents.EventsAPIEvent{
+				TeamID: cfg.Slack.TeamID, InnerEvent: event.data,
+			},
+			Request: &socketmode.Request{EnvelopeID: event.envelope, Payload: payload},
+		})
+		// Acknowledged so Slack stops redelivering, and nothing queued: the
+		// lane finds an empty queue rather than a surface repaint to attempt.
+		if err := svc.processSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("%s queued a Slack input: %v", event.name, err)
+		}
+	}
+	if socket.acks != 2 {
+		t.Fatalf("acks = %d, want both surface opens acknowledged", socket.acks)
+	}
+
+	// The Home tab is the surface that does have host-owned content, and it is
+	// unaffected.
+	payload, _ := json.Marshal(map[string]any{"event_id": "EvHome"})
 	svc.admitEventsAPI(ctx, socketmode.Event{
 		Type: socketmode.EventTypeEventsAPI,
 		Data: slackevents.EventsAPIEvent{
 			TeamID: cfg.Slack.TeamID,
 			InnerEvent: slackevents.EventsAPIInnerEvent{
-				Data: &slackevents.AssistantThreadStartedEvent{
-					AssistantThread: slackevents.AssistantThread{
-						UserID: "U123ABC", ChannelID: "D123ABC",
-						ThreadTimeStamp: "1700.902",
-					},
-				},
+				Data: &slackevents.AppHomeOpenedEvent{User: "U123ABC", Tab: "home"},
 			},
 		},
-		Request: &socketmode.Request{EnvelopeID: "env-assistant", Payload: payload},
+		Request: &socketmode.Request{EnvelopeID: "env-home", Payload: payload},
 	})
-	// The surface refresh is admitted durably and performed by the control
-	// lane, so nothing has been sent to Slack until the lane runs.
-	if socket.acks != 1 || len(slackClient.suggested) != 0 {
-		t.Fatalf(
-			"assistant thread admission = acks=%d suggested=%+v",
-			socket.acks, slackClient.suggested,
-		)
-	}
 	if err := svc.processSlackInput(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(slackClient.suggested) != 1 ||
-		slackClient.suggested[0].channel != "D123ABC" ||
-		slackClient.suggested[0].thread != "1700.902" {
-		t.Fatalf("assistant thread prompts = %+v", slackClient.suggested)
-	}
-	if err := svc.publishOperationsHome(ctx, "U123ABC"); err != nil {
 		t.Fatal(err)
 	}
 	if len(slackClient.homes) != 1 ||
 		slackClient.homes[0].thread != "U123ABC" ||
 		slackClient.homes[0].message.Header != "Emisar" {
 		t.Fatalf("operations home = %+v", slackClient.homes)
-	}
-
-	payload, _ = json.Marshal(map[string]any{"event_id": "EvMessages"})
-	svc.admitEventsAPI(ctx, socketmode.Event{
-		Type: socketmode.EventTypeEventsAPI,
-		Data: slackevents.EventsAPIEvent{
-			TeamID: cfg.Slack.TeamID,
-			InnerEvent: slackevents.EventsAPIInnerEvent{
-				Data: &slackevents.AppHomeOpenedEvent{
-					User: "U123ABC", Channel: "D123ABC", Tab: "messages",
-				},
-			},
-		},
-		Request: &socketmode.Request{EnvelopeID: "env-messages", Payload: payload},
-	})
-	if err := svc.processSlackInput(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if socket.acks != 2 || len(slackClient.suggested) != 2 ||
-		slackClient.suggested[1].channel != "D123ABC" ||
-		slackClient.suggested[1].thread != "" {
-		t.Fatalf(
-			"agent messages tab = acks=%d suggested=%+v",
-			socket.acks, slackClient.suggested,
-		)
 	}
 }
 

@@ -111,8 +111,9 @@ or duplicate lifecycle events, react when sufficient, or reply in the source thr
 Terraform review requires exact plan evidence from the message or a read-only tool rather than an
 inferred repository diff.
 
-The Messages tab is an Agent surface with host-owned suggested prompts and native progress
-indicators. Direct messages always start read-only triage even when normal-channel proactive mode
+The Messages tab is an Agent surface whose suggested prompts come from the app manifest, plus
+native progress indicators.
+Direct messages always start read-only triage even when normal-channel proactive mode
 is off. The **Investigate message** shortcut does the same for one selected message.
 App Home summarizes current incidents, active sessions, failed durable work, current channel
 situations, and the commitments Emisar owes the team. `/responder work` exposes the same active
