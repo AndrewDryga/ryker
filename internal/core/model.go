@@ -410,6 +410,19 @@ type MemoryOffer struct {
 	SourceRevision string `json:"source_revision,omitempty"`
 }
 
+// UnmarshalJSON accepts "topic" for the subject of a memory offer. The two
+// words mean the same thing here and no other field could be meant, so the
+// only thing the strict spelling bought was a discarded offer.
+func (offer *MemoryOffer) UnmarshalJSON(data []byte) error {
+	type wire MemoryOffer
+	var value wire
+	if err := DecodeModelObject(data, map[string]string{"topic": "subject"}, &value); err != nil {
+		return err
+	}
+	*offer = MemoryOffer(value)
+	return nil
+}
+
 type MemoryEntry struct {
 	ID             string    `json:"id"`
 	ScopeKind      string    `json:"scope_kind"`
@@ -501,6 +514,21 @@ type RuleOffer struct {
 	Action     string `json:"action"`
 	SourceKind string `json:"source_kind,omitempty"`
 	ExpiresIn  string `json:"expires_in,omitempty"`
+}
+
+// UnmarshalJSON accepts and drops a channel_id on a rule offer. A standing rule
+// is always bound to the channel the request arrived in — the host reads that
+// from the input and never from the offer — so a model that names the channel
+// is agreeing with a decision that was never its own. Rejecting the response
+// over it discarded the rule, the preference, and the reply along with it.
+func (offer *RuleOffer) UnmarshalJSON(data []byte) error {
+	type wire RuleOffer
+	var value wire
+	if err := DecodeModelObject(data, map[string]string{"channel_id": ""}, &value); err != nil {
+		return err
+	}
+	*offer = RuleOffer(value)
+	return nil
 }
 
 type StandingRule struct {

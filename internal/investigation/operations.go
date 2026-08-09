@@ -191,6 +191,36 @@ type ResultOperation struct {
 	Completion      *CompleteEpisode        `json:"completion,omitempty"`
 }
 
+// resultOperationPayloadAliases maps the payload names this prompt's own
+// operation list used to imply onto the fields that actually carry them.
+//
+// The list told the model that offer_preference, offer_rule and offer_schedule
+// "carry the same named typed payload that their operation name describes",
+// and every other operation in it really does: record_evidence carries
+// evidence, report_progress carries progress, propose_action carries proposal.
+// Read that way offer_preference carries "preference", so a model obeyed the
+// instruction and the host rejected the entire response over the field name.
+// The list now states each key, and these three stay accepted anyway because
+// each names exactly one real field and nothing else in a result operation
+// claims those names. "memory" is deliberately absent: update_memory already
+// uses it for conversation memory, so it is the one name here that would be
+// ambiguous.
+var resultOperationPayloadAliases = map[string]string{
+	"preference": "preference_offer",
+	"rule":       "rule_offer",
+	"schedule":   "schedule_offer",
+}
+
+func (operation *ResultOperation) UnmarshalJSON(data []byte) error {
+	type wire ResultOperation
+	var value wire
+	if err := core.DecodeModelObject(data, resultOperationPayloadAliases, &value); err != nil {
+		return err
+	}
+	*operation = ResultOperation(value)
+	return nil
+}
+
 // resultOperationPayloads lists every typed payload a result operation may
 // carry. It is the single source for the "exactly one payload" rule, so adding
 // a payload to ResultOperation is one line here rather than a second list to
@@ -356,7 +386,7 @@ accepted operations in the episode event stream.
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
 - record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current operator impact","cause_status":"identified|bounded when required","cause":"bounded cause when required","immediate_action":"what to do now","verification":"observable success condition","long_term_solution":"durable fix when required"}}
-- attach_visual, update_memory, offer_memory, offer_preference, offer_rule, offer_schedule, and propose_action carry the same named typed payload that their operation name describes.
+- attach_visual{visual}, update_memory{memory}, offer_memory{memory_offer}, offer_preference{preference_offer}, offer_rule{rule_offer}, offer_schedule{schedule_offer}, propose_action{proposal}: one payload under the braced key.
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
 - complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure|capability_unavailable","attempts":["route already attempted"],"next_action":"exact action that unblocks it","capability_gaps":[{"capability":"GitHub Actions run and job inspection","status":"not_installed|not_trusted|not_advertised|incompatible|not_found","pack_id":"github-cli when an evidence source identifies it; omit for not_found","pack_ref":"optional observed immutable ref","evidence_refs":["source_id or source_name from a record_evidence operation"],"recommendation":"one concise operator-facing installation, trust, deployment, or compatibility step"}],"recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}
 
