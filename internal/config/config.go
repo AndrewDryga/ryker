@@ -166,9 +166,23 @@ type SlackConfig struct {
 	ReactionAttention                int      `yaml:"proactive_reaction_attention_threshold"`
 	ChannelPrefix                    string   `yaml:"channel_prefix"`
 	PrivateChannels                  bool     `yaml:"private_channels"`
-	NativeStatus                     bool     `yaml:"native_status"`
-	AssistantExperience              bool     `yaml:"assistant_experience"`
-	ShadowChannels                   []string `yaml:"shadow_channels"`
+	// NativeStatus and AssistantExperience are accepted and ignored.
+	//
+	// Both are read by nothing. The decoder runs with KnownFields(true), so
+	// deleting them would stop every deployment whose YAML still sets them —
+	// which is both of the live ones — and a config that refuses to load is a
+	// worse answer than a key that does nothing. They stay as compatibility,
+	// the way MaxOutboxAttempts below does.
+	//
+	// They are named here rather than left looking live because a setting an
+	// operator can write, and reasonably believe in, is a promise. The
+	// behaviour each once gated is now unconditional: native status is always
+	// used, and the assistant-experience branches were deleted when the
+	// suggested-prompts call was retired — it had never once succeeded, and
+	// the manifest declares those prompts statically.
+	NativeStatus        bool     `yaml:"native_status"`
+	AssistantExperience bool     `yaml:"assistant_experience"`
+	ShadowChannels      []string `yaml:"shadow_channels"`
 }
 
 type CoopConfig struct {
