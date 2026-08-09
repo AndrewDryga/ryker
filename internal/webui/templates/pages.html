@@ -225,11 +225,12 @@ because a memory nothing reads is a memory to prune, and that is invisible witho
 {{if .Entries}}
 {{$act := .CanAct}}
 <table>
-  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th class="num">Recalled</th><th>Expires</th>{{if $act}}<th></th>{{end}}</tr>
+  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th class="num">Recalled</th><th class="num">Rewritten</th><th>Expires</th>{{if $act}}<th></th>{{end}}</tr>
   {{range .Entries}}
   <tr><td>{{.Subject}}</td><td class="mono">{{.Predicate}}</td><td>{{truncate 60 .Value}}</td>
       <td class="note">{{.Scope}}</td>
       <td class="mono num">{{.Recalls}}{{if .Recalls}} · {{since .LastRecalled}}{{end}}</td>
+      <td class="mono num">{{if .Rewrites}}{{.Rewrites}} · <span class="note">{{.LastRewrite}}</span>{{else}}<span class="note">never</span>{{end}}</td>
       <td class="note">{{stamp .Expires}}</td>
       {{if $act}}<td>{{template "confirm" confirm "Forget" "The entry is deleted and the removal audited. Responder stops recalling it immediately." "Yes, forget it" "/actions/memory/forget" .ID}}</td>{{end}}</tr>
   {{end}}

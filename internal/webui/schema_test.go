@@ -340,6 +340,17 @@ func TestReadersScanTheColumnsTheySelect(t *testing.T) {
 	if len(feedback) != 1 {
 		t.Fatalf("Feedback returned %d rows, want 1", len(feedback))
 	}
+
+	entries, err := reader.MemoryEntries(ctx)
+	if err != nil {
+		t.Fatalf("MemoryEntries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("MemoryEntries returned %d rows, want 1", len(entries))
+	}
+	if entries[0].Rewrites != 1 || entries[0].LastRewrite != "operator replacement" {
+		t.Errorf("memory history was not read back: %+v", entries[0])
+	}
 }
 
 // seededReader is migratedReader with one row in the tables the decisions page
@@ -378,6 +389,18 @@ func seededReader(t *testing.T) *Reader {
 		  VALUES (?, 'T1', 'C1', 'U1', 'model_sentiment', 'correctness', 'negative',
 		          'answer in thread, and make it durable', ?, 'open', ?, ?)`,
 			[]any{"fb_1", []byte("{}"), now, now}},
+		{`INSERT INTO memory_entries
+		    (id, scope_kind, scope_key, subject_key, predicate, value_json,
+		     value_hash, source_ref, actor_id, visibility_kind, visibility_id,
+		     expires_at, created_at, updated_at)
+		  VALUES (?, 'channel', 'C1', 'debug_symbols', 'guidance',
+		          'GCS with WIF is the accepted direction.', 'hash1',
+		          'feedback:fb_1', 'U1', 'channel', 'C1', ?, ?, ?)`,
+			[]any{"mem_1", later, now, now}},
+		{`INSERT INTO memory_supersessions
+		    (id, entry_id, previous_value_hash, replacement_value_hash, reason, created_at)
+		  VALUES (?, 'mem_1', 'hash0', 'hash1', 'operator replacement', ?)`,
+			[]any{"memsup_1", now}},
 	} {
 		if _, err := db.Exec(statement.query, statement.args...); err != nil {
 			t.Fatalf("seed: %v", err)

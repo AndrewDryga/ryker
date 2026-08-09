@@ -626,6 +626,18 @@ type MemoryEntry struct {
 	Subject, Predicate, Value, Scope string
 	Recalls                          int
 	Expires, LastRecalled            time.Time
+	// Rewrites is how many times this entry's value has been replaced, and
+	// LastRewrite why the most recent replacement happened.
+	//
+	// memory_supersessions had two writers, a pruner, a purpose-built index and
+	// no reader at all, so the record that a remembered thing had changed under
+	// an operator existed and could not be seen. It stores hashes rather than
+	// values, so it can never show what the memory used to say — what it can
+	// answer is "this has been rewritten three times, most recently by a
+	// duplicate merge", which is the difference between a settled memory and a
+	// contested one.
+	Rewrites    int
+	LastRewrite string
 }
 
 func (r *Reader) MemoryEntries(ctx context.Context) ([]MemoryEntry, error) {
@@ -633,9 +645,13 @@ func (r *Reader) MemoryEntries(ctx context.Context) ([]MemoryEntry, error) {
 		return nil, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT id, subject_key, predicate, value_json, scope_kind, scope_key,
-	         recall_count, expires_at, COALESCE(last_recalled_at,'')
-	  FROM memory_entries ORDER BY updated_at DESC LIMIT 100`)
+	  SELECT m.id, m.subject_key, m.predicate, m.value_json, m.scope_kind, m.scope_key,
+	         m.recall_count, m.expires_at, COALESCE(m.last_recalled_at,''),
+	         (SELECT COUNT(*) FROM memory_supersessions s WHERE s.entry_id = m.id),
+	         COALESCE((SELECT s.reason FROM memory_supersessions s
+	                   WHERE s.entry_id = m.id
+	                   ORDER BY s.created_at DESC LIMIT 1), '')
+	  FROM memory_entries m ORDER BY m.updated_at DESC LIMIT 100`)
 	if err != nil {
 		return nil, err
 	}
@@ -645,7 +661,8 @@ func (r *Reader) MemoryEntries(ctx context.Context) ([]MemoryEntry, error) {
 		var item MemoryEntry
 		var scopeKey, expires, recalled string
 		if err := rows.Scan(&item.ID, &item.Subject, &item.Predicate, &item.Value, &item.Scope,
-			&scopeKey, &item.Recalls, &expires, &recalled); err != nil {
+			&scopeKey, &item.Recalls, &expires, &recalled,
+			&item.Rewrites, &item.LastRewrite); err != nil {
 			return nil, err
 		}
 		// A memory scoped to a channel showed "channel C0TENANTX04", which names
