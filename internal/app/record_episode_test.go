@@ -127,6 +127,23 @@ func TestRecordingRefusesAnEpisodeWithNothingToReplay(t *testing.T) {
 	}
 }
 
+// An empty capability is not a missing tag, it is a false one: the fixture
+// claims "capability:" and the coverage ratchet has no such row. The flag
+// parser refused this, but promotion calls straight past the flag parser and
+// wrote four fixtures tagged that way, so the refusal belongs on the shared
+// path instead.
+func TestRecordingRefusesAnUnnamedCapability(t *testing.T) {
+	for _, capability := range []string{"", "   "} {
+		_, err := recordEpisodeFixture(
+			context.Background(), recordingFixtureSource("none"), config.Config{},
+			"ep_1", capability, "",
+		)
+		if err == nil || !strings.Contains(err.Error(), "section 24") {
+			t.Fatalf("capability %q: error = %v", capability, err)
+		}
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

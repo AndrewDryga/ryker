@@ -344,4 +344,33 @@ grep -Fq 'SKIPPING these episodes UNASSESSED' "$state_dir/quality-watch/quality-
   exit 1
 }
 
+# A fix is quarantined unless it changed something that proves the defect is
+# fixed. The pattern that decides this once read "^eval/" while every corpus
+# lives under testdata/eval/, so an evaluation case proved nothing and a real
+# fix was discarded. Driving the whole fixer path here would need a live gate
+# run, so the predicate itself is exercised against the paths it must classify.
+proof_pattern=$(
+  sed -n "s/^regression_proof_paths='\(.*\)'$/\1/p" "$repository/scripts/quality-watch.sh"
+)
+if [[ -z $proof_pattern ]]; then
+  printf 'quality-watch test: regression_proof_paths is no longer a single quoted assignment\n' >&2
+  exit 1
+fi
+for proof in \
+  internal/service/agent_run_test.go \
+  scripts/test-quality-watch.sh \
+  testdata/eval/regressions.jsonl \
+  testdata/eval/episode-replay/tenant.jsonl; do
+  grep -Eq "$proof_pattern" <<<"$proof" || {
+    printf 'quality-watch test: %s does not count as a regression test\n' "$proof" >&2
+    exit 1
+  }
+done
+for bare in internal/service/agent_run.go docs/testing.md; do
+  if grep -Eq "$proof_pattern" <<<"$bare"; then
+    printf 'quality-watch test: %s counted as a regression test\n' "$bare" >&2
+    exit 1
+  fi
+done
+
 printf 'quality-watch test: ok\n'

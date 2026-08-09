@@ -1619,12 +1619,8 @@ func (s *Service) requeueWithCorrection(
 	// A failure here must not fail the retry. The correction is the useful
 	// thing; capturing it for later is a bonus, and losing the bonus is not a
 	// reason to lose the turn.
-	if err := s.store.RecordFixtureCandidate(ctx, core.FixtureCandidate{
-		EpisodeID:       run.EpisodeID,
-		RunID:           run.ID,
-		CorrectionClass: string(class),
-		Correction:      s.sanitizeText(correction),
-	}); err != nil && s.log != nil {
+	candidate := core.NewFixtureCandidate(run, string(class), s.sanitizeText(correction))
+	if err := s.store.RecordFixtureCandidate(ctx, candidate); err != nil && s.log != nil {
 		s.log.Warn(
 			"could not queue a correction for review",
 			"run", run.ID,

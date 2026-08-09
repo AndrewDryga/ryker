@@ -120,8 +120,9 @@ on today's production state:
 make eval-episode-replay CONFIG=../emisar/.responder/responder.yaml
 ```
 
-Cases in `testdata/eval/episode-replay.jsonl` contain an ordered, sanitized episode timeline and
-sanitized recorded tool results. Responder still calls the configured real model through Coop and
+Cases in `testdata/eval/episode-replay/<deployment>.jsonl` contain an ordered, sanitized episode
+timeline and sanitized recorded tool results. Responder still calls the configured real model
+through Coop and
 uses the production prompt, parser, typed result operations, Slack renderer, and behavioral scorer.
 The replay prompt forbids live tool calls and makes the recording the complete evidence boundary.
 Every case must include both event and tool-result fixtures; unsanitized, duplicate, unordered, or
@@ -131,6 +132,37 @@ This differs from `--replay`: checked-output replay calls no model, while episod
 the real model reasons over a stable work episode. Recordings should contain atomic source results,
 timestamps, contradictions, and terminal events rather than copied transcripts or secrets.
 
+One corpus per deployment, replayed against that deployment's config. They cannot be merged: a
+fixture that names a repository needs the config that has it, and no single `CONFIG` could reach a
+pass rate of 1 across both. `DEPLOYMENT` selects the corpus and must match the config passed in.
+
+### Promoted corrections
+
+When the host corrects a model result, the correction is queued as a fixture candidate. An operator
+keeps or discards each one in App Home or the control plane, and `make promote-corrections` turns
+the kept ones into replay fixtures in `testdata/eval/regressions.jsonl`. Replay them with:
+
+```bash
+make eval-regressions CONFIG=../emisar/.responder/responder.yaml
+```
+
+**This is the gate on a promoted correction.** Nothing offline can be. `make dev-check` proves a
+promoted case decodes, has a unique name, names a real capability from section 24, and does not
+duplicate an episode already in the corpus — every shape failure, and none of the behavior. Proving
+that a kept lesson still holds means replaying it against the real model, which is credentialed and
+costs model calls, so it is deliberately not part of the fast deterministic gate.
+
+`make promote-corrections` runs both tiers before and after promoting, so a failure is attributable
+to the corrections rather than to something already broken. It is the right place for a credentialed
+check because it already opens the live database and already needs a config; it is not an ordinary
+edit-test cycle. `make model-release-check` runs `eval-regressions` too, so a promoted lesson that
+stops holding blocks a model release.
+
+Unlike the per-deployment replay corpora, the promoted corpus is a single file. That is only safe
+because the recorder never writes a repository onto a fixture, and
+`TestThePromotedCorpusBindsNoRepository` fails if that stops being true. The honest response to that
+failure is to split the corpus per deployment, not to lower its pass rate.
+
 After deterministic episode replay, run the small changing-world canary:
 
 ```bash
@@ -139,8 +171,8 @@ make eval-live-canary CONFIG=../emisar/.responder/responder.yaml
 
 The canary uses only cases tagged `canary` in the live corpus. It verifies that the configured model,
 authenticated Coop account, repository projection, and current read-only tools still work together.
-`make model-release-check` runs deterministic episode replay and then this canary in addition to the
-quality, proactivity, scenario, and evidence gates.
+`make model-release-check` runs deterministic episode replay, promoted corrections, and then this
+canary in addition to the quality, proactivity, scenario, and evidence gates.
 
 ### Stateful behavior and human quality
 
@@ -246,6 +278,33 @@ Baselines and detailed result reports are written mode `0600`. They contain a ca
 digest; adding or editing a case invalidates the old baseline instead of silently comparing
 different tests.
 
+### The trend
+
+Every model evaluation target writes its complete result into `$(EVAL_HISTORY)`, which defaults to
+`~/.local/state/responder/eval-history`. Read the series back with:
+
+```bash
+make eval-trend
+```
+
+It prints, per target and in time order, the pass rate and the mean judge score, with the change
+from that target's previous run.
+
+This exists because the judges were already doing the work and the answer was being discarded. The
+quality rubric scores six dimensions per case, the evidence verifier independently re-checks the
+claims, and `--calibrate-judge` scores the judge itself — and every one of those numbers went to
+stdout and nowhere else, because `--results` was passed by nothing and CI reads only the exit code.
+A gate that only ever reports pass or fail can tell you the bot is not broken. It cannot tell you
+whether it is getting better, and that was the question nobody could answer.
+
+The directory is private state, not a checked-in artifact: results carry sanitized model output and
+are written mode `0600`. Nothing prunes it automatically — deleting evaluation evidence on a timer
+would destroy the only record of when a regression started — so it grows by about one file per
+model evaluation and is pruned by hand.
+
+For enforcement rather than observation, `--baseline` with `--max-regression` still fails a run that
+drops against a recorded baseline. The trend is the record; the baseline is the ratchet.
+
 Run the complete credentialed model gate before changing the production model, prompt, tools, or
 Coop policy:
 
@@ -254,8 +313,10 @@ make model-release-check CONFIG=../emisar/.responder/responder.yaml
 ```
 
 That target calibrates the judge, scores ordinary response quality, measures proactive behavior,
-runs stateful scenarios, and independently verifies high-risk evidence. Add
-`make eval-productivity` when a disposable writable policy is available.
+runs stateful scenarios, independently verifies high-risk evidence, and replays the promoted
+corrections. Add `make eval-productivity` when a disposable writable policy is available. Every one
+of those runs leaves a result behind, so `make eval-trend` afterwards shows what the release
+changed.
 
 Use `responder eval --replay` or `make eval-replay` only for deterministic contract replay. That
 path does not evaluate model behavior and is named accordingly.

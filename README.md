@@ -540,9 +540,12 @@ corpus before changing prompts or models. Use `--case`, `--repeat`, and `--resul
 variance testing and private sanitized diagnostics. `make model-release-check` additionally
 calibrates the qualitative judge, evaluates the rendered Slack experience, measures proactive
 precision and recall, runs multi-turn cross-channel and old-thread scenarios, and independently
-re-checks high-risk operational claims. `make eval-productivity` adds an observable
-commit-and-review outcome when a disposable writable Coop policy is available. See
-[`docs/testing.md`](docs/testing.md) for the coverage matrix and bounded live acceptance set.
+re-checks high-risk operational claims, and replays the corrections an operator kept.
+`make eval-productivity` adds an observable commit-and-review outcome when a disposable writable
+Coop policy is available. Every model evaluation records its result, and `make eval-trend` prints
+the pass rate and mean judge score over time so a release can say whether answers are improving
+rather than only that the gate passed. See [`docs/testing.md`](docs/testing.md) for the coverage
+matrix and bounded live acceptance set.
 
 `make snapshot` builds the exact unsigned release archive layout locally; `make release-check`
 runs the full gate, builds both Linux archives, checks every checksum and required deployment file,
