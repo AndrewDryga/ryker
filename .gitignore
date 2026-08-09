@@ -8,6 +8,11 @@
 coverage.out
 .DS_Store
 
+# Scratch git worktrees for parallel agents. They are checkouts of this same
+# repository, so committing them would nest the tree inside itself — and
+# deploy.sh refuses a dirty tree, which is how they were noticed.
+/.claude/worktrees/
+
 # coop working state (commit knowledge, ignore state)
 **/.agent/*
 !**/.agent/kb/
