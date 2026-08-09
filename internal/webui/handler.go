@@ -650,20 +650,24 @@ type rate struct {
 
 func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	corrections, _ := h.reader.Corrections(ctx)
+	var failed problems
+	corrections, err := h.reader.Corrections(ctx)
+	failed.note("corrections", err)
 	total := h.reader.Count(ctx, countTerminalRuns)
 	rates := []rate{}
 	for _, class := range []string{"unreadable", "incomplete", "rejected"} {
 		count := h.reader.Count(ctx, countCorrections, class)
 		rates = append(rates, rate{class, count, total, percent(count, total)})
 	}
-	feedback, _ := h.reader.Feedback(ctx)
+	feedback, err := h.reader.Feedback(ctx)
+	failed.note("feedback", err)
 	h.page(w, r, "decisions", "decisions", struct {
 		Rates       []rate
 		Corrections []Correction
 		Feedback    []Feedback
+		Errs        problems
 		CanAct      bool
-	}{rates, corrections, feedback, h.CanAct()})
+	}{rates, corrections, feedback, failed, h.CanAct()})
 }
 
 func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {

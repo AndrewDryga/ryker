@@ -536,7 +536,7 @@ func (r *Reader) Corrections(ctx context.Context) ([]Correction, error) {
 		return nil, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT id, correction, correction_class, created_at, expires_at
+	  SELECT id, episode_id, correction, correction_class, created_at, expires_at
 	  FROM fixture_candidates WHERE status = 'pending'
 	  ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {

@@ -305,6 +305,95 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 	}
 }
 
+// A reader is only proven by a row, because an empty table never scans.
+//
+// TestEveryQueryRunsAgainstTheMigratedSchema makes SQLite parse each query, so
+// it catches a column that does not exist. It cannot catch a SELECT and a Scan
+// that disagree about how many columns there are: rows.Next() is false on an
+// empty table, so the Scan never runs. The corrections queue shipped that way —
+// five columns selected, six destinations passed — and the review surface the
+// whole correction loop depends on returned an error on its first row, which
+// the handler discarded, leaving an empty list beside a badge counting the rows
+// it had failed to read.
+//
+// These two are seeded because they are the pair that page reads. The rest of
+// the readers still need the same treatment; a generic seeder is the real fix.
+func TestReadersScanTheColumnsTheySelect(t *testing.T) {
+	reader := seededReader(t)
+	ctx := context.Background()
+
+	corrections, err := reader.Corrections(ctx)
+	if err != nil {
+		t.Fatalf("Corrections: %v", err)
+	}
+	if len(corrections) != 1 {
+		t.Fatalf("Corrections returned %d rows, want 1", len(corrections))
+	}
+	if corrections[0].EpisodeID != "ep_1" {
+		t.Errorf("correction lost its episode: %+v", corrections[0])
+	}
+
+	feedback, err := reader.Feedback(ctx)
+	if err != nil {
+		t.Fatalf("Feedback: %v", err)
+	}
+	if len(feedback) != 1 {
+		t.Fatalf("Feedback returned %d rows, want 1", len(feedback))
+	}
+}
+
+// seededReader is migratedReader with one row in the tables the decisions page
+// reads, written through raw SQL against the migrated schema so the columns are
+// production's own.
+func seededReader(t *testing.T) *Reader {
+	t.Helper()
+	dir := t.TempDir()
+	live, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "responder.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	later := time.Now().UTC().Add(14 * 24 * time.Hour).Format(time.RFC3339Nano)
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO fixture_candidates
+		    (id, episode_id, run_id, correction_class, correction, status,
+		     created_at, expires_at, updated_at)
+		  VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+			[]any{"fixcand_1", "ep_1", "run_1", "unreadable",
+				"the structured Slack response is invalid", now, later, now}},
+		{`INSERT INTO feedback_items
+		    (id, workspace_id, channel_id, user_id, source, category, sentiment,
+		     summary, context_json, status, created_at, updated_at)
+		  VALUES (?, 'T1', 'C1', 'U1', 'model_sentiment', 'correctness', 'negative',
+		          'answer in thread, and make it durable', ?, 'open', ?, ?)`,
+			[]any{"fb_1", []byte("{}"), now, now}},
+	} {
+		if _, err := db.Exec(statement.query, statement.args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+	return reader
+}
+
 // migratedReader opens the dashboard against a database the store itself
 // created, so the columns are the ones production has rather than the ones a
 // fixture guessed at.
