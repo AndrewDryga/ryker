@@ -206,6 +206,9 @@ func (failingActions) DiscardCorrection(context.Context, string, string) error {
 func (failingActions) RetryFailure(context.Context, string, string) error {
 	return errors.New("store refused")
 }
+func (failingActions) SetChannelSetting(context.Context, string, string, string, string) error {
+	return errors.New("store refused")
+}
 func (failingActions) PublishRetainedWork(context.Context, string, string) error {
 	return errors.New("store refused")
 }
@@ -516,5 +519,42 @@ func TestEveryEpisodeRowNamesTheModelThatAnsweredIt(t *testing.T) {
 	// have been the one that ran.
 	if got := (Item{}).Answered(); got != "" {
 		t.Errorf("Answered() with nothing recorded = %q, want empty", got)
+	}
+}
+
+// The channel settings action carries three fields, not one, so it validates
+// them itself rather than through act. The value list is closed: this surface
+// offers on, off and inherit, and anything else is a request it never made.
+func TestChannelSettingRefusesWhatItNeverOffered(t *testing.T) {
+	handler, err := NewHandler(&Reader{}, "test", "50", "abc", nil, nil,
+		config.Pricing{}, failingActions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	post := func(body string) int {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/actions/channels/setting",
+			strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		mux.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+
+	for _, refused := range []string{
+		"id=C1&name=proactive&value=maybe", // not one of the three
+		"id=C1&name=repository&value=on",   // a setting this surface cannot write
+		"name=proactive&value=on",          // no channel
+	} {
+		if code := post(refused); code != http.StatusBadRequest {
+			t.Errorf("POST %q = %d, want 400", refused, code)
+		}
+	}
+	// A well-formed request reaches the service, and its failure is reported
+	// rather than swallowed into a redirect that looks like success.
+	if code := post("id=C1&name=shadow&value=inherit"); code != http.StatusInternalServerError {
+		t.Errorf("a failing action returned %d, want the error surfaced", code)
 	}
 }

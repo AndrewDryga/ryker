@@ -102,7 +102,11 @@ var lineBudget = map[string]int{
 	// discard plan, and the cleanup scheduling live behind clients only this
 	// package holds, and a store-side reimplementation would be a second copy
 	// of the safety rules. Twenty-three lines of entrance, no new behavior.
-	"service": 24700,
+	// And twelve more for ControlPlaneChannelSetting, which lets the dashboard
+	// write a participation override through the same store call the slash
+	// command uses. The alternative was the dashboard writing slack_settings
+	// itself, which is a second implementation of the inherit rule.
+	"service": 24712,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

@@ -3,6 +3,7 @@ package webui
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -37,6 +38,10 @@ type Actions interface {
 	// The memory and feedback actions mirror the Slack handlers' store calls
 	// and audit kinds one for one, so the log reads the same whichever surface
 	// the operator used.
+	// SetChannelSetting writes a participation override the way the slash
+	// command writes it, "inherit" included — an override storing the word
+	// would shadow the workspace default it is meant to defer to.
+	SetChannelSetting(ctx context.Context, channelID, name, value, actor string) error
 	ForgetMemory(ctx context.Context, entryID, actor string) error
 	KeepMemoryReview(ctx context.Context, reviewID, actor string) error
 	DismissMemoryReview(ctx context.Context, reviewID, actor string) error
@@ -158,4 +163,28 @@ func (h *Handler) convertFeedback(w http.ResponseWriter, r *http.Request) {
 	h.act(w, r, func(ctx context.Context, id string) error {
 		return h.actions.ConvertFeedback(ctx, id, dashboardActor)
 	})
+}
+
+// channelSetting carries three fields where every other action carries one, so
+// it validates them here rather than through act. The value list is closed:
+// anything else is a request this surface did not offer.
+func (h *Handler) channelSetting(w http.ResponseWriter, r *http.Request) {
+	if h.actions == nil {
+		http.Error(w, "this build has no write access to the service", http.StatusNotImplemented)
+		return
+	}
+	id := strings.TrimSpace(r.FormValue("id"))
+	name := strings.TrimSpace(r.FormValue("name"))
+	value := strings.TrimSpace(r.FormValue("value"))
+	if id == "" || (name != "proactive" && name != "shadow") ||
+		(value != "on" && value != "off" && value != "inherit") {
+		http.Error(w, "a channel, a known setting and one of on, off or inherit are required",
+			http.StatusBadRequest)
+		return
+	}
+	if err := h.actions.SetChannelSetting(r.Context(), id, name, value, dashboardActor); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/channels/"+url.PathEscape(id), http.StatusSeeOther)
 }

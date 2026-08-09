@@ -79,6 +79,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /audit/{kind}", h.auditKind)
 	mux.HandleFunc("GET /memory", h.memory)
 	mux.HandleFunc("GET /configuration", h.configuration)
+	mux.HandleFunc("GET /channels/{id}", h.channel)
 	mux.HandleFunc("GET /usage", h.usage)
 	// Writes are POST only, and only these routes. Each calls the same store
 	// or service path the equivalent Slack button calls.
@@ -95,6 +96,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /actions/memory/dismiss", h.dismissMemoryReview)
 	mux.HandleFunc("POST /actions/feedback/dismiss", h.dismissFeedback)
 	mux.HandleFunc("POST /actions/feedback/convert", h.convertFeedback)
+	mux.HandleFunc("POST /actions/channels/setting", h.channelSetting)
 }
 
 // CanAct reports whether this build was given write access, so a page can offer
@@ -653,6 +655,39 @@ func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
 		Review        []ReviewItem
 		CanAct        bool
 	}{channels, entries, conversations, rollups, review, h.CanAct()})
+}
+
+// channel is the hub every other page's channel name now points at.
+//
+// Configuration listed channels and stopped there, so the question "how does
+// Responder behave here, and what has it done here" had no page: participation
+// lived in a slash command, memory on another page, work on a third, and
+// nothing tied them to the channel they belonged to.
+func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	detail, found, err := h.reader.Channel(ctx, r.PathValue("id"))
+	if err != nil || !found {
+		http.NotFound(w, r)
+		return
+	}
+	var failed problems
+	failed.note("channel", err)
+	h.detail(w, r, "configuration", "channel", detail.Name, struct {
+		ChannelDetail
+		CanAct bool
+		Errs   problems
+		Setup  Unwired
+	}{
+		ChannelDetail: detail, CanAct: h.CanAct(), Errs: failed,
+		Setup: Unwired{
+			Tag: "Changed in Slack",
+			Needs: "Repository binding, alert policy and the participation mode itself. " +
+				"Those come from the channel setup conversation, which offers the repository " +
+				"catalogue and confirms each choice; reproducing its questions in a form here " +
+				"would be a second implementation of that flow rather than a view onto it. " +
+				"Run /responder setup in the channel.",
+		},
+	})
 }
 
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {

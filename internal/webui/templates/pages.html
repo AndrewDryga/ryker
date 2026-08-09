@@ -305,15 +305,21 @@ entry.</p>{{end}}
   {{end}}
 </table>
 
-<h2>Channels</h2>
+<h2>Channels <span class="note">{{len .Channels}}</span></h2>
 {{if .Channels}}
 <table>
-  <tr><th>Channel</th><th>Participation</th><th>Repository</th></tr>
+  <tr><th>Channel</th><th>Participation</th><th>Repository</th><th class="num">Episodes</th><th>Member</th></tr>
   {{range .Channels}}
-  <tr><td>{{.Channel}}</td><td>{{.Mode}}</td><td class="mono">{{.Repository}}</td></tr>
+  <tr><td><a href="/channels/{{.ID}}">{{.Channel}}</a></td>
+      <td>{{if .Mode}}{{.Mode}}{{else}}<span class="note">not set up</span>{{end}}</td>
+      <td class="mono">{{if .Repository}}{{.Repository}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="mono num">{{.Episodes}}</td>
+      <td>{{if .Member}}<span class="pill good">yes</span>{{else}}<span class="pill">left</span>{{end}}</td></tr>
   {{end}}
 </table>
-{{else}}<p class="empty">No channel configuration.</p>{{end}}
+<p class="note">Every channel Responder is in or has been set up for, not only the configured ones:
+a channel it sits in and has never been set up for is the one worth opening.</p>
+{{else}}<p class="empty">Responder is not in any channel. Invite it to one in Slack.</p>{{end}}
 
 <h2>Schedules <span class="note">{{len .Schedules}}</span></h2>
 {{if .Schedules}}

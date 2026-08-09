@@ -78,9 +78,21 @@ func NewRenderer() (*Renderer, error) {
 		"truncate": func(limit int, value string) string { return truncate(value, limit) },
 		"lower":    strings.ToLower,
 		"add1":     func(value int) int { return value + 1 },
-		"tokens":   humanTokens,
-		"exact":    groupDigits,
-		"confirm":  confirmStep,
+		// dict builds the argument for a sub-template that needs more than one
+		// value. Only the channel settings control uses it: three buttons per
+		// row differing by one field each, which is a partial rather than three
+		// copies of the same form.
+		"dict": func(pairs ...any) map[string]any {
+			out := make(map[string]any, len(pairs)/2)
+			for index := 0; index+1 < len(pairs); index += 2 {
+				key, _ := pairs[index].(string)
+				out[key] = pairs[index+1]
+			}
+			return out
+		},
+		"tokens":  humanTokens,
+		"exact":   groupDigits,
+		"confirm": confirmStep,
 	}
 	parsed, err := template.New("webui").Funcs(funcs).ParseFS(assets, "templates/*.html")
 	if err != nil {

@@ -43,6 +43,8 @@ func TestEveryQueryRunsAgainstTheMigratedSchema(t *testing.T) {
 	window := chosenWindow(UsageWindows("30d", time.Now().UTC()))
 	checks := map[string]func() error{
 		"Blocked":             func() error { _, err := reader.Blocked(ctx, 5); return err },
+		"Channel":             func() error { _, _, err := reader.Channel(ctx, "C1"); return err },
+		"KnownChannels":       func() error { _, err := reader.KnownChannels(ctx); return err },
 		"Schedules":           func() error { _, err := reader.Schedules(ctx); return err },
 		"Preferences":         func() error { _, err := reader.Preferences(ctx); return err },
 		"StandingRules":       func() error { _, err := reader.StandingRules(ctx); return err },

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store"
 )
 
 // ControlPlaneAct runs one incident-scoped operator action for the local web
@@ -51,4 +53,37 @@ func (s *Service) ControlPlaneAct(ctx context.Context, action, incidentID, actor
 	default:
 		return fmt.Errorf("unsupported control plane action %q", action)
 	}
+}
+
+// ControlPlaneChannelSetting writes a participation override the way the
+// /responder slash command writes it: the same store call, the same three
+// values, and "inherit" deleting the row rather than storing the word — an
+// override that stored "inherit" would shadow the workspace default it is
+// meant to defer to.
+//
+// Only the two overrides are offered. The channel-setup flow that writes
+// channel_configurations is a guided Slack conversation with a repository
+// catalogue behind it, and reproducing its choices in a form would be a second
+// implementation of that flow rather than a view onto it.
+func (s *Service) ControlPlaneChannelSetting(
+	ctx context.Context,
+	channelID, name, value, actor string,
+) error {
+	if name != proactiveSettingName && name != shadowSettingName {
+		return fmt.Errorf("unsupported channel setting %q", name)
+	}
+	if value != "on" && value != "off" && value != "inherit" {
+		return fmt.Errorf("channel setting %q must be on, off or inherit", name)
+	}
+	if strings.TrimSpace(channelID) == "" {
+		return errors.New("a channel is required")
+	}
+	if value == "inherit" {
+		if err := s.store.DeleteSlackSetting(ctx, "channel", channelID, name); err != nil &&
+			!errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		return nil
+	}
+	return s.store.SetSlackSetting(ctx, "channel", channelID, name, value, actor)
 }

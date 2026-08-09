@@ -264,6 +264,17 @@ func (a *dashboardActions) ResolveIncident(ctx context.Context, incidentID, acto
 // handler's channel-visibility dance is not mirrored because it is about
 // which Slack context may see an entry; the loopback operator is the person
 // those rules protect the entry for.
+func (a *dashboardActions) SetChannelSetting(ctx context.Context, channelID, name, value, actor string) error {
+	if err := a.service.ControlPlaneChannelSetting(ctx, channelID, name, value, actor); err != nil {
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		ID:   "audit_channel_setting_" + channelID + "_" + name + "_" + value,
+		Kind: "channel.configure", ActorID: actor, ObjectID: channelID,
+		Outcome: name + "=" + value,
+	})
+}
+
 func (a *dashboardActions) ForgetMemory(ctx context.Context, entryID, actor string) error {
 	entry, err := a.store.Memory.DeleteMemoryEntry(ctx, entryID)
 	if errors.Is(err, store.ErrNotFound) {

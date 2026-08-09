@@ -604,36 +604,16 @@ func (r *Reader) ChannelMemory(ctx context.Context) ([]ChannelMemoryRow, error) 
 }
 
 type ChannelConfigRow struct {
+	ID         string
 	Channel    string
 	Mode       string
 	Repository string
+	Member     bool
+	Episodes   int
 }
 
 func (r *Reader) Channels(ctx context.Context) ([]ChannelConfigRow, error) {
-	if !r.live() {
-		return nil, nil
-	}
-	rows, err := r.db.QueryContext(ctx, `
-	  SELECT channel_id, COALESCE(participation,''), COALESCE(repository,'')
-	  FROM channel_configurations ORDER BY channel_id LIMIT 50`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ChannelConfigRow{}
-	for rows.Next() {
-		var item ChannelConfigRow
-		if err := rows.Scan(&item.Channel, &item.Mode, &item.Repository); err != nil {
-			return nil, err
-		}
-		// Through channelName like everywhere else. This page built the "#" by
-		// hand and rendered "#C0TENANTENG" for every configured channel, which
-		// is the one page an operator opens to check which channel a setting
-		// belongs to.
-		item.Channel = r.channelName(ctx, item.Channel)
-		items = append(items, item)
-	}
-	return items, rows.Err()
+	return r.KnownChannels(ctx)
 }
 
 // MemoryEntry is one saved operational fact.
@@ -1247,6 +1227,205 @@ func (r *Reader) StandingRules(ctx context.Context) ([]StandingRule, error) {
 		}
 		item.Channel = r.channelName(ctx, channel)
 		item.Expires = parseStamp(expires)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// ChannelSetting is one participation control with the reason it reads the way
+// it does. The effective value alone is not enough to act on: "proactive is
+// off" and "proactive is off because the workspace default says so and this
+// channel has no opinion" lead to different edits.
+type ChannelSetting struct {
+	Name, Effective, Source string
+	Channel, Global, Config string
+	On                      bool
+}
+
+// ChannelDetail is everything the dashboard knows about one channel.
+type ChannelDetail struct {
+	ID, Name, Repository, Participation, AlertPolicy string
+	Member, Private, Configured                      bool
+	Settings                                         []ChannelSetting
+	Summary                                          string
+	OpenLoops                                        int
+	MemoryUpdated                                    time.Time
+	Preferences                                      []Preference
+	Rules                                            []StandingRule
+	Schedules                                        []Schedule
+	Episodes                                         []Item
+	Blocked, Failed                                  int
+}
+
+// Channel gathers one channel's configuration, memory and history.
+//
+// Reported as (detail, found, error) rather than a bare error: a channel that
+// Responder is a member of but has never been configured for is a real answer
+// with a page worth showing, and collapsing it into "not found" would hide the
+// channels most likely to need attention.
+func (r *Reader) Channel(ctx context.Context, id string) (ChannelDetail, bool, error) {
+	detail := ChannelDetail{ID: id, Name: r.channelName(ctx, id)}
+	if !r.live() || id == "" {
+		return detail, false, nil
+	}
+
+	var name string
+	var private, present int
+	membership := r.db.QueryRowContext(ctx, `
+	  SELECT channel_name, private, present FROM slack_channel_memberships
+	  WHERE channel_id = ?`, id).Scan(&name, &private, &present)
+	if membership == nil {
+		detail.Member, detail.Private = present == 1, private == 1
+		if name != "" {
+			detail.Name = "#" + name
+		}
+	}
+
+	var participation, repository, alerts string
+	configured := r.db.QueryRowContext(ctx, `
+	  SELECT COALESCE(participation,''), COALESCE(repository,''), COALESCE(alert_policy,'')
+	  FROM channel_configurations WHERE channel_id = ?`, id).
+		Scan(&participation, &repository, &alerts)
+	if configured == nil {
+		detail.Configured = true
+		detail.Participation, detail.Repository, detail.AlertPolicy = participation, repository, alerts
+	}
+
+	// A channel nothing has ever seen is not a channel. Membership,
+	// configuration and recorded work are each enough on their own, so a
+	// channel Responder was invited to but has not worked in still opens.
+	seen := membership == nil || configured == nil ||
+		r.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE channel_id = ?`, id) > 0
+	if !seen {
+		return detail, false, nil
+	}
+
+	detail.Settings = r.channelSettings(ctx, id, participation)
+
+	var state, updated string
+	if r.db.QueryRowContext(ctx, `
+	  SELECT COALESCE(state_json,'{}'), updated_at FROM conversation_memories
+	  WHERE channel_id = ? AND thread_ts = ''`, id).Scan(&state, &updated) == nil {
+		detail.MemoryUpdated = parseStamp(updated)
+		var decoded struct {
+			SituationSummary string `json:"situation_summary"`
+			Goal             string `json:"goal"`
+			OpenLoops        []any  `json:"open_loops"`
+		}
+		if json.Unmarshal([]byte(state), &decoded) == nil {
+			detail.Summary = decoded.SituationSummary
+			if detail.Summary == "" {
+				detail.Summary = decoded.Goal
+			}
+			detail.OpenLoops = len(decoded.OpenLoops)
+		}
+	}
+
+	for _, preference := range mustSlice(r.Preferences(ctx)) {
+		if preference.Scope == detail.Name {
+			detail.Preferences = append(detail.Preferences, preference)
+		}
+	}
+	for _, rule := range mustSlice(r.StandingRules(ctx)) {
+		if rule.Channel == detail.Name {
+			detail.Rules = append(detail.Rules, rule)
+		}
+	}
+	for _, schedule := range mustSlice(r.Schedules(ctx)) {
+		if schedule.Channel == detail.Name {
+			detail.Schedules = append(detail.Schedules, schedule)
+		}
+	}
+
+	detail.Episodes, _ = r.EpisodesForChannel(ctx, id, 12)
+	detail.Blocked = r.Count(ctx, `SELECT COUNT(*) FROM work_episodes e
+	  JOIN agent_runs r ON r.id = e.agent_run_id
+	  WHERE r.channel_id = ? AND e.lifecycle_state IN
+	    ('blocked','waiting_operator','waiting_approval')`, id)
+	detail.Failed = r.Count(ctx,
+		`SELECT COUNT(*) FROM agent_runs WHERE channel_id = ? AND terminal_state = 'failed'`, id)
+	return detail, true, nil
+}
+
+// mustSlice drops the error from a list this page treats as decoration. Used
+// only where the section is a filtered view of a page that reports its own
+// failures; nothing here is the answer to the page's question.
+func mustSlice[T any](items []T, _ error) []T { return items }
+
+// channelSettings resolves each override the way the host resolves it.
+//
+// The precedence is the slash command's, restated here because the dashboard
+// reads the database directly and cannot call into the service to ask. It is
+// the one duplication in this package, and it is why the row shows its source:
+// if this drifts from service.shadowStatus, the page says which rule it
+// believes it applied and the difference is visible rather than silent.
+func (r *Reader) channelSettings(ctx context.Context, id, participation string) []ChannelSetting {
+	settings := make([]ChannelSetting, 0, 2)
+	for _, name := range []string{"proactive", "shadow"} {
+		setting := ChannelSetting{
+			Name:    name,
+			Channel: r.slackSetting(ctx, "channel", id, name),
+			Global:  r.slackSetting(ctx, "global", "", name),
+			Config:  "inherit",
+		}
+		if participation != "" {
+			setting.Config = "off"
+			if participation == name {
+				setting.Config = "on"
+			}
+		}
+		switch {
+		case setting.Channel != "inherit":
+			setting.Effective, setting.Source = setting.Channel, "channel override"
+		case setting.Config != "inherit":
+			setting.Effective, setting.Source = setting.Config, "channel setup"
+		case setting.Global != "inherit":
+			setting.Effective, setting.Source = setting.Global, "workspace override"
+		default:
+			setting.Effective, setting.Source = "off", "deployment configuration"
+		}
+		setting.On = setting.Effective == "on"
+		settings = append(settings, setting)
+	}
+	return settings
+}
+
+func (r *Reader) slackSetting(ctx context.Context, scope, channel, name string) string {
+	var value string
+	if err := r.db.QueryRowContext(ctx, `
+	  SELECT value FROM slack_settings WHERE scope = ? AND channel_id = ? AND name = ?`,
+		scope, channel, name).Scan(&value); err != nil || value == "" {
+		return "inherit"
+	}
+	return value
+}
+
+// KnownChannels lists every channel the dashboard can open a page for.
+func (r *Reader) KnownChannels(ctx context.Context) ([]ChannelConfigRow, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT m.channel_id, COALESCE(c.participation,''), COALESCE(c.repository,''),
+	         COALESCE(m.present,0),
+	         (SELECT COUNT(*) FROM agent_runs a WHERE a.channel_id = m.channel_id)
+	  FROM slack_channel_memberships m
+	  LEFT JOIN channel_configurations c ON c.channel_id = m.channel_id
+	  WHERE m.present = 1 OR c.channel_id IS NOT NULL
+	  ORDER BY m.channel_name LIMIT 100`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ChannelConfigRow{}
+	for rows.Next() {
+		var item ChannelConfigRow
+		var present int
+		if err := rows.Scan(&item.ID, &item.Mode, &item.Repository, &present, &item.Episodes); err != nil {
+			return nil, err
+		}
+		item.Member = present == 1
+		item.Channel = r.channelName(ctx, item.ID)
 		items = append(items, item)
 	}
 	return items, rows.Err()
