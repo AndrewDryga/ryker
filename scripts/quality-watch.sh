@@ -67,6 +67,13 @@ reasoning=${RESPONDER_QUALITY_REASONING:-high}
 retention_days=${RESPONDER_QUALITY_RETENTION_DAYS:-30}
 schema="$script_dir/quality-watch-assessment.schema.json"
 fix_review_schema="$script_dir/quality-watch-fix-review.schema.json"
+# Paths that count as proof a fix has a regression test. Named here rather than
+# inlined at the check because it was inlined and wrong: it said "eval/" while
+# every corpus lives under "testdata/eval/", so a fix whose whole proof was a
+# new evaluation case matched nothing, was quarantined as untested, and the work
+# was discarded. That happened at 2026-08-07T09:05:15Z.
+# scripts/test-quality-watch.sh exercises this pattern directly.
+regression_proof_paths='(_test\.go$|^scripts/test-|^testdata/eval/)'
 
 case "$interval" in
   ''|*[!0-9]*)
@@ -677,7 +684,7 @@ LIMIT $batch_size;"
   if ! {
     git -C "$worktree" diff --name-only
     git -C "$worktree" ls-files --others --exclude-standard
-  } | grep -Eq '(_test\.go$|^scripts/test-|^eval/)'; then
+  } | grep -Eq "$regression_proof_paths"; then
     quarantine_worktree "$worktree" "$branch" "fix for $batch_id has no regression-test change"
     advance_from_batch "$batch_path"
     return 0
