@@ -1,7 +1,7 @@
 {{define "overview"}}
 <div class="grid">
   <div class="panel metric{{if .NeedsYou}} warn{{end}}"><div class="n">{{.NeedsYou}}</div><div class="k">need a decision</div></div>
-  <div class="panel metric{{if .Failed}} bad{{end}}"><div class="n">{{.Failed}}</div><div class="k">failed work</div></div>
+  <a class="panel metric{{if .Failed}} bad{{end}}" href="/failures"><div class="n">{{.Failed}}</div><div class="k">failed work</div></a>
   <div class="panel metric"><div class="n">{{.InFlight}}</div><div class="k">in flight</div></div>
   <div class="panel metric{{if .Retained}} warn{{end}}"><div class="n">{{.Retained}}</div><div class="k">retained workspaces</div></div>
 </div>
@@ -11,9 +11,9 @@
 <div class="rows">
   {{range .Blocked}}
   <a class="row" href="/episodes/{{.ID}}">
-    <div class="title">{{truncate 110 .Title}}</div>
+    <div class="title">{{truncate 110 .Title}}{{if .Repeats}} <span class="rep">×{{add1 .Repeats}}</span>{{end}}</div>
     <div class="meta"><span class="pill warn">{{.State}}</span> {{.Channel}} · {{since .Updated}}</div>
-    {{if .Next}}<div class="todo">→ {{truncate 160 .Next}}</div>{{end}}
+    {{if .Next}}<div class="todo"><span class="arr">→</span> {{truncate 160 .Next}}</div>{{end}}
   </a>
   {{end}}
 </div>
@@ -23,11 +23,11 @@
 {{template "problems" .Errs}}
 {{if .Lanes}}
 <table>
-  <tr><th>Lane</th><th>Pending</th><th>Running</th><th>Failed</th><th>Retries</th><th>Next due</th><th>Last error</th></tr>
+  <tr><th>Lane</th><th class="num">Pending</th><th class="num">Running</th><th class="num">Failed</th><th class="num">Retries</th><th>Next due</th><th>Last error</th></tr>
   {{range .Lanes}}
-  <tr><td>{{.Name}}</td><td class="mono">{{.Pending}}</td><td class="mono">{{.Running}}</td>
-      <td class="mono">{{.Failed}}</td><td class="mono">{{.Failures}}</td>
-      <td class="note">{{since .Due}}</td><td>{{truncate 90 .Error}}</td></tr>
+  <tr><td>{{.Name}}</td><td class="mono num">{{.Pending}}</td><td class="mono num">{{.Running}}</td>
+      <td class="mono num">{{.Failed}}</td><td class="mono num">{{.Failures}}</td>
+      <td class="note">{{since .Due}}</td><td>{{if .Error}}{{truncate 90 .Error}}{{else}}<span class="note">—</span>{{end}}</td></tr>
   {{end}}
 </table>
 <p class="note">Readyz says the process is up. A lane whose pollers are all failed is a process that
@@ -75,12 +75,12 @@ query, so an empty list here means nothing matched rather than nothing loaded.</
 <p class="note">A room is a whole conversation of work; an episode below is one turn of it. These
 are where the pull requests come from.</p>
 <table>
-  <tr><th>Room</th><th>Status</th><th>Repository</th><th>Channel</th><th>Episodes</th><th>Pull request</th><th>Last change</th></tr>
+  <tr><th>Room</th><th>Status</th><th>Repository</th><th>Channel</th><th class="num">Episodes</th><th>Pull request</th><th>Last change</th></tr>
   {{range .Rooms}}
   <tr><td><a href="/incidents/{{.ID}}">{{truncate 70 .Title}}</a></td>
       <td><span class="pill{{if eq .Status "closed"}} good{{end}}">{{.Status}}</span></td>
       <td class="mono">{{.Repository}}</td><td>{{.Channel}}</td>
-      <td class="mono">{{.Episodes}}</td>
+      <td class="mono num">{{.Episodes}}</td>
       <td>{{if .PRNumber}}#{{.PRNumber}} <span class="note">{{.PRState}}{{if .Checks}} · checks {{.Checks}}{{end}}</span>{{else}}<span class="note">none</span>{{end}}</td>
       <td class="note">{{since .Updated}}</td></tr>
   {{end}}
@@ -108,9 +108,9 @@ truncated list that does not say it is truncated reads as the whole record.</p>{
 <p class="note">{{.Total}} failed work items, grouped by cause.</p>
 {{if .Err}}<p class="unwired"><span class="tag">Could not load</span>{{.Err}}</p>{{else if .Groups}}
 <table>
-  <tr><th>Cause</th><th>Count</th><th>Most recent</th></tr>
+  <tr><th>Cause</th><th class="num">Count</th><th>Most recent</th></tr>
   {{range .Groups}}
-  <tr><td><a href="/failures/{{.Key}}">{{truncate 110 .Cause}}</a></td><td class="mono">{{.Count}}</td>
+  <tr><td><a href="/failures/{{.Key}}">{{truncate 110 .Cause}}</a></td><td class="mono num">{{.Count}}</td>
       <td class="note">{{since .Latest}}</td></tr>
   {{end}}
 </table>
@@ -179,11 +179,11 @@ because a memory nothing reads is a memory to prune, and that is invisible witho
 <h2>Operational memory <span class="note">{{len .Entries}}</span></h2>
 {{if .Entries}}
 <table>
-  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th>Recalled</th><th>Expires</th></tr>
+  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th class="num">Recalled</th><th>Expires</th></tr>
   {{range .Entries}}
   <tr><td>{{.Subject}}</td><td class="mono">{{.Predicate}}</td><td>{{truncate 60 .Value}}</td>
       <td class="note">{{.Scope}}</td>
-      <td class="mono">{{.Recalls}}{{if .Recalls}} · {{since .LastRecalled}}{{end}}</td>
+      <td class="mono num">{{.Recalls}}{{if .Recalls}} · {{since .LastRecalled}}{{end}}</td>
       <td class="note">{{stamp .Expires}}</td></tr>
   {{end}}
 </table>
@@ -205,11 +205,11 @@ because a memory nothing reads is a memory to prune, and that is invisible witho
 <h2>Conversation memory <span class="note">{{len .Conversations}}</span></h2>
 {{if .Conversations}}
 <table>
-  <tr><th>Channel</th><th>Thread</th><th>Repository</th><th>Recalled</th><th>Updated</th></tr>
+  <tr><th>Channel</th><th>Thread</th><th>Repository</th><th class="num">Recalled</th><th>Updated</th></tr>
   {{range .Conversations}}
   <tr><td><a href="/conversations/{{.ChannelID}}/{{.Thread}}">{{.Channel}}</a></td>
       <td class="mono">{{.Thread}}</td><td class="mono">{{.Repository}}</td>
-      <td class="mono">{{.Recalls}}</td><td class="note">{{since .Updated}}</td></tr>
+      <td class="mono num">{{.Recalls}}</td><td class="note">{{since .Updated}}</td></tr>
   {{end}}
 </table>
 {{else}}<p class="empty">No conversation memory.</p>{{end}}
@@ -217,9 +217,9 @@ because a memory nothing reads is a memory to prune, and that is invisible witho
 <h2>Rollups <span class="note">{{len .Rollups}}</span></h2>
 {{if .Rollups}}
 <table>
-  <tr><th>Scope</th><th>Sources</th><th>Recalled</th><th>Period</th></tr>
+  <tr><th>Scope</th><th class="num">Sources</th><th class="num">Recalled</th><th>Period</th></tr>
   {{range .Rollups}}
-  <tr><td>{{.Scope}}</td><td class="mono">{{.Sources}}</td><td class="mono">{{.Recalls}}</td>
+  <tr><td>{{.Scope}}</td><td class="mono num">{{.Sources}}</td><td class="mono num">{{.Recalls}}</td>
       <td class="note">{{stamp .From}} → {{stamp .To}}</td></tr>
   {{end}}
 </table>
@@ -242,10 +242,10 @@ survives when individual conversations age out.</p>{{end}}
 {{define "configuration"}}
 <h2>Prompt budget</h2>
 <table>
-  <tr><th>Prompt</th><th>Instructions</th><th>Left for conversation</th></tr>
+  <tr><th>Prompt</th><th class="num">Instructions</th><th class="num">Left for conversation</th></tr>
   {{range .Prompts}}
-  <tr><td>{{.Name}}</td><td class="mono">{{.Bytes}} B</td>
-      <td class="mono">{{.Left}} B ({{.LeftPct}}%)</td></tr>
+  <tr><td>{{.Name}}</td><td class="mono num">{{.Bytes}} B</td>
+      <td class="mono num">{{.Left}} B ({{.LeftPct}}%)</td></tr>
   {{end}}
 </table>
 
@@ -326,17 +326,17 @@ from a quiet day and is drawn differently for that reason.</p>
 <p class="note">{{.Note}}</p>
 {{if .Rows}}
 <table>
-  <tr><th>{{.Column}}</th><th>Attempts</th><th>Tokens</th><th>Share</th><th>Fresh in</th>
-      <th>Cached in</th><th>Out</th><th>Reasoning</th><th>Cache</th><th></th></tr>
+  <tr><th>{{.Column}}</th><th class="num">Attempts</th><th class="num">Tokens</th><th class="num">Share</th><th class="num">Fresh in</th>
+      <th class="num">Cached in</th><th class="num">Out</th><th class="num">Reasoning</th><th class="num">Cache</th><th></th></tr>
   {{range .Rows}}
   <tr><td>{{.Label}}{{if .Sub}} <span class="mono">{{.Sub}}</span>{{end}}</td>
-      <td class="mono">{{.Attempts}}{{if and .Recorded (ne .Measured .Attempts)}}
+      <td class="mono num">{{.Attempts}}{{if and .Recorded (ne .Measured .Attempts)}}
         <span class="note">({{.Measured}} measured)</span>{{end}}</td>
       {{if .Recorded}}
-      <td class="mono" title="{{exact .Total}} tokens">{{tokens .Total}}</td><td class="mono">{{.Share}}</td>
-      <td class="mono">{{tokens .Input}}</td><td class="mono">{{tokens .Cached}}</td>
-      <td class="mono">{{tokens .Output}}</td><td class="mono">{{tokens .Reasoning}}</td>
-      <td class="mono">{{.CacheLabel}}</td>
+      <td class="mono num" title="{{exact .Total}} tokens">{{tokens .Total}}</td><td class="mono num">{{.Share}}</td>
+      <td class="mono num">{{tokens .Input}}</td><td class="mono num">{{tokens .Cached}}</td>
+      <td class="mono num">{{tokens .Output}}</td><td class="mono num">{{tokens .Reasoning}}</td>
+      <td class="mono num">{{.CacheLabel}}</td>
       {{else}}
       <td class="note" colspan="7">not measured</td>
       {{end}}
@@ -355,18 +355,14 @@ from a quiet day and is drawn differently for that reason.</p>
 {{end}}
 
 {{define "failure"}}
-<p class="note"><a href="/failures">← all failures</a></p>
-<div class="panel"><div class="title"><strong>{{.Cause}}</strong></div>
-  <div class="meta">{{len .Runs}} runs</div></div>
-
-<h2>Runs</h2>
+<h2>Runs <span class="note">{{len .Runs}}</span></h2>
 {{if .Runs}}
 <table>
-  <tr><th>Episode</th><th>Channel</th><th>Kind</th><th>Attempts</th><th>When</th><th></th></tr>
+  <tr><th>Episode</th><th>Channel</th><th>Kind</th><th class="num">Attempts</th><th>When</th><th></th></tr>
   {{$act := .CanAct}}
   {{range .Runs}}
   <tr><td>{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">open →</a>{{else}}<span class="note">no episode</span>{{end}}</td>
-      <td>{{.Channel}}</td><td>{{.Mode}}</td><td class="mono">{{.Attempts}}</td>
+      <td>{{.Channel}}</td><td>{{.Mode}}</td><td class="mono num">{{.Attempts}}</td>
       <td class="note">{{since .Updated}}</td>
       <td>{{if $act}}<form method="post" action="/actions/failures/retry">
         <input type="hidden" name="id" value="{{.RunID}}">
@@ -378,9 +374,7 @@ from a quiet day and is drawn differently for that reason.</p>
 {{end}}
 
 {{define "conversation"}}
-<p class="note"><a href="/memory">← memory</a></p>
 <div class="panel">
-  <div class="title"><strong>{{.Channel}}</strong></div>
   <div class="meta">{{.Repository}} · recalled {{.Recalls}} times · updated {{since .Updated}}</div>
   {{if .Goal}}<p><strong>Goal.</strong> {{.Goal}}</p>{{end}}
   {{if .Purpose}}<p class="note"><strong>Channel purpose.</strong> {{.Purpose}}</p>{{end}}

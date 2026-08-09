@@ -75,6 +75,7 @@ func NewRenderer() (*Renderer, error) {
 		"pct":      func(part, whole int) int { return percent(part, whole) },
 		"truncate": func(limit int, value string) string { return truncate(value, limit) },
 		"lower":    strings.ToLower,
+		"add1":     func(value int) int { return value + 1 },
 		"tokens":   humanTokens,
 		"exact":    groupDigits,
 	}
@@ -116,6 +117,47 @@ type Shell struct {
 	Deploy  string
 	Content any
 	Body    template.HTML
+
+	// The persistent answer to "what am I looking at, and is it alive". Health
+	// used to live only on Overview, which left every other page context-free.
+	Binary string
+	Schema string
+	Ready  bool
+
+	// Badges put the one number that would make someone open a page beside its
+	// name — needs-you on Overview, failures on Failures, corrections on
+	// Decisions. Keyed by slug; a zero renders nothing, because a zero badge is
+	// decoration.
+	Badges map[string]Badge
+
+	// Detail pages title themselves after the entity and point back at their
+	// section. With the section name as the h1, an episode page was headed
+	// "Episodes" and its actual subject was buried in a panel below.
+	Crumbs        []Crumb
+	TitleOverride string
+}
+
+type Badge struct {
+	N    int
+	Warn bool
+}
+
+type Crumb struct {
+	Href  string
+	Label string
+}
+
+// HeadTitle is the browser-tab line: the entity when there is one, then the
+// section, then the deployment — so ten open tabs stay tellable apart.
+func (s Shell) HeadTitle() string {
+	title := s.Title
+	if s.TitleOverride != "" {
+		title = s.TitleOverride
+	}
+	if len(title) > 60 {
+		title = truncate(title, 60)
+	}
+	return title + " · " + s.Deploy + " · Responder"
 }
 
 func NewShell(active, deployment string, content any) Shell {
@@ -171,7 +213,13 @@ func truncate(value string, limit int) string {
 	if len(runes) <= limit {
 		return value
 	}
-	return strings.TrimRight(string(runes[:limit]), " ,;:-") + "…"
+	cut := string(runes[:limit])
+	// Break on a word when one is near: "…overdue for 24h FI…" reads as
+	// corruption, and the two letters the hard cut saves are not worth it.
+	if space := strings.LastIndex(cut, " "); space > limit*2/3 {
+		cut = cut[:space]
+	}
+	return strings.TrimRight(cut, " ,;:-") + "…"
 }
 
 // Static serves the vendored stylesheet and htmx. Nothing is fetched from a CDN:

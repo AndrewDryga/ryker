@@ -1,34 +1,46 @@
 /* One hand-written stylesheet, vendored. No framework, no CDN: the dashboard
-   has to render with the network off, and nothing about production work should
-   leave the machine. */
+   must render with the network off, and nothing about production work should
+   leave the machine.
+
+   The system is Emisar's — the zinc scale and the emerald logo green
+   (portal/apps/emisar_web/assets/tailwind.config.js) — with rules this surface
+   learned by screenshotting itself:
+
+   - Accent means "you can go somewhere or do something". The first iteration
+     set every next-action paragraph in full emerald, and with everything
+     glowing nothing read as actionable.
+   - Numbers are tabular and right-aligned, or a table of them cannot be
+     compared by eye.
+   - State is a colored dot beside quiet text, not a filled badge. Eleven
+     bordered chips per screen out-shouted the content they described.
+   - A global anchor rule exists because it once did not, and every "episodes →"
+     link on the Usage page shipped browser-default blue on black. */
 
 :root {
-  /* Emisar's palette, so the two control planes read as one system. Taken from
-     portal/apps/emisar_web/assets/tailwind.config.js and the zinc scale that
-     portal uses for every surface: zinc-950 page, zinc-900 panel, zinc-800
-     rule, zinc-400 secondary text. brand-400 (#36e6a5) is the logo green.
-     Values are literal rather than imported because this dashboard vendors
-     everything and builds no CSS. */
   --bg: #09090b;          /* zinc-950 */
-  --panel: #18181b;       /* zinc-900 */
+  --panel: #131316;       /* between 950 and 900: cards barely lift off the page */
+  --panel-2: #18181b;     /* zinc-900, hover */
   --line: #27272a;        /* zinc-800 */
+  --line-2: #1e1e21;      /* hairlines inside components */
   --ink: #f4f4f5;         /* zinc-100 */
+  --ink-2: #d4d4d8;       /* zinc-300, long-form body */
   --dim: #a1a1aa;         /* zinc-400 */
   --faint: #71717a;       /* zinc-500 */
   --accent: #36e6a5;      /* brand-400, the logo green */
-  --accent-dim: #14cf8d;  /* brand-500 */
+  --accent-dim: #14cf8d;  /* brand-500, resting fills */
+  --accent-ghost: rgb(54 230 165 / .07);
   --warn: #fbbf24;        /* amber-400 */
   --bad: #fb7185;         /* rose-400 */
   --good: #36e6a5;
-  /* Portal self-hosts InterVariable to avoid a third-party request. This
-     dashboard takes the same stack minus the webfont: vendoring a 340 KB woff2
-     into the binary is a poor trade for an internal page, and the fallback
-     portal already declares resolves to SF on this machine. */
+  /* Portal self-hosts InterVariable; this takes the same stack minus the
+     webfont — 340 KB in the binary is a poor trade for an internal page. */
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
 * { box-sizing: border-box; }
+
+html { color-scheme: dark; }
 
 body {
   margin: 0;
@@ -36,273 +48,391 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
-  font: 14px/1.6 var(--sans);
+  font: 14px/1.55 var(--sans);
   font-feature-settings: "liga" 1, "calt" 1;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Sidebar ---------------------------------------------------------------- */
+::selection { background: rgb(54 230 165 / .25); }
+
+/* Links are the accent, quietly. Underline appears on hover so a table of
+   links does not render as a table of underlines. */
+a { color: var(--accent-dim); text-decoration: none; }
+a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+:focus-visible { outline: 2px solid var(--accent-dim); outline-offset: 2px; border-radius: 4px; }
+
+/* Thin theme scrollbars, as the portal does — the OS default fat grey bar
+   reads as a foreign widget inside dark insets. */
+* { scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Sidebar ------------------------------------------------------------------ */
 
 .sidebar {
-  width: 220px;
-  flex: 0 0 220px;
+  width: 224px;
+  flex: 0 0 224px;
   border-right: 1px solid var(--line);
-  padding: 22px 0;
+  padding: 20px 0;
   position: sticky;
   top: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
+  background: var(--bg);
 }
 
 .brand {
-  font-weight: 600;
-  color: var(--accent);
-  padding: 0 22px 18px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 20px 18px;
+  font-weight: 650;
   letter-spacing: .2px;
+  color: var(--ink);
 }
 
-.brand .deploy {
-  display: block;
-  font: 400 12px/1.4 var(--mono);
-  color: var(--dim);
-  margin-top: 2px;
+.brand .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgb(54 230 165 / .5);
 }
+
+.brand .deploy { font: 400 12px/1 var(--mono); color: var(--faint); margin-left: auto; }
 
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
 
 .sidebar a {
-  display: block;
-  padding: 8px 22px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 20px 7px 18px;
   color: var(--dim);
-  text-decoration: none;
   border-left: 2px solid transparent;
+  font-size: 13.5px;
 }
 
-.sidebar a:hover { color: var(--ink); }
+.sidebar a:hover { color: var(--ink); text-decoration: none; }
 
 .sidebar a.on {
   color: var(--ink);
   border-left-color: var(--accent);
-  background: rgb(54 230 165 / .06);
+  background: var(--accent-ghost);
 }
+
+/* A count that would make someone open the page: amber for "needs you",
+   plain for volume. Absent at zero — a zero badge is decoration. */
+.sidebar .badge {
+  margin-left: auto;
+  font: 600 11px/1.7 var(--mono);
+  padding: 0 7px;
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--dim);
+}
+
+.sidebar .badge.warn { background: rgb(251 191 36 / .12); color: var(--warn); }
 
 .sidebar .foot {
   margin-top: auto;
-  padding: 0 22px;
-  font-size: 12px;
-  color: var(--dim);
+  padding: 14px 20px 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--faint);
+  border-top: 1px solid var(--line-2);
 }
 
-/* Main ------------------------------------------------------------------- */
+/* Header ------------------------------------------------------------------- */
 
-main { flex: 1; padding: 26px 32px 60px; max-width: 1180px; }
+main { flex: 1; min-width: 0; padding: 22px 36px 72px; max-width: 1240px; }
 
-header { margin-bottom: 22px; }
+header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-2);
+}
 
-h1 { margin: 0; font-size: 22px; font-weight: 600; }
+.crumb { margin: 0 0 4px; font-size: 12.5px; color: var(--faint); }
+.crumb a { color: var(--faint); }
+.crumb a:hover { color: var(--accent); }
+
+h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.01em; line-height: 1.3; }
 
 /* Every page states the question it answers. A section that cannot say what
    it is for is usually one that should not exist. */
-.ask { margin: 4px 0 0; color: var(--dim); font-size: 14px; }
+.ask { margin: 3px 0 0; color: var(--dim); font-size: 13.5px; }
+
+/* The persistent answer to "what am I looking at, and is it alive" — health
+   lived only on Overview, and every other page was context-free. */
+.status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font: 12px/1 var(--mono);
+  color: var(--faint);
+  white-space: nowrap;
+  padding-top: 6px;
+}
+
+.status .ready { display: flex; align-items: center; gap: 6px; color: var(--dim); }
+.status .ready::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 8px rgb(54 230 165 / .6);
+}
+.status .ready.down::before { background: var(--bad); box-shadow: 0 0 8px rgb(251 113 133 / .6); }
 
 h2 {
-  font-size: 13px;
+  font-size: 11.5px;
   text-transform: uppercase;
-  letter-spacing: .6px;
+  letter-spacing: .8px;
   color: var(--dim);
-  margin: 28px 0 10px;
+  margin: 34px 0 10px;
   font-weight: 600;
 }
 
-/* Panels and metrics ----------------------------------------------------- */
+h2 .note { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 4px; }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+/* Metric cards --------------------------------------------------------------- */
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 14px 16px;
 }
 
-.metric .n { font: 600 26px/1.2 var(--mono); }
-.metric .k { color: var(--dim); font-size: 13px; margin-top: 2px; }
+.metric { display: flex; flex-direction: column; gap: 2px; }
+.metric .k {
+  order: -1;
+  color: var(--faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  font-weight: 600;
+}
+.metric .n { font: 600 26px/1.25 var(--mono); font-variant-numeric: tabular-nums; }
 .metric.bad .n { color: var(--bad); }
 .metric.warn .n { color: var(--warn); }
 .metric.good .n { color: var(--good); }
+a.metric { color: inherit; }
+a.metric:hover { text-decoration: none; border-color: var(--faint); background: var(--panel-2); }
 
-/* Lists ------------------------------------------------------------------ */
+/* Lists ---------------------------------------------------------------------- */
 
-.rows { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.rows { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
 
-.row {
-  display: block;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--line);
-  text-decoration: none;
-  color: inherit;
-}
-
+.row { display: block; padding: 11px 16px; border-bottom: 1px solid var(--line-2); color: inherit; }
 .row:last-child { border-bottom: 0; }
-a.row:hover { background: var(--panel); }
+a.row:hover { background: var(--panel-2); text-decoration: none; }
 
-.row .title { font-weight: 500; }
-.row .meta { color: var(--dim); font-size: 13px; margin-top: 3px; }
-.row .todo { color: var(--accent); font-size: 13px; margin-top: 5px; }
-.pill.on { color: #09090b; background: var(--accent-dim); border-color: var(--accent-dim); }
+.row .title { font-weight: 500; line-height: 1.45; }
+.row .meta { color: var(--faint); font-size: 12.5px; margin-top: 3px; }
+.row .meta a { color: var(--dim); }
+
+/* The instruction, not a glow: ink text behind one accent arrow. */
+.row .todo, p.todo { color: var(--ink-2); font-size: 13px; margin-top: 5px; max-width: 100ch; }
+.todo .arr { color: var(--accent); margin-right: 2px; }
+
+/* State dots ------------------------------------------------------------------ */
 
 .pill {
-  display: inline-block;
-  font: 500 11px/1.6 var(--mono);
-  padding: 0 7px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 500 11.5px/1.6 var(--mono);
   color: var(--dim);
   vertical-align: 1px;
 }
 
-.pill.bad { color: var(--bad); border-color: var(--bad); }
-.pill.warn { color: var(--warn); border-color: var(--warn); }
-.pill.good { color: var(--good); border-color: var(--good); }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none; }
+.pill.bad { color: var(--bad); } .pill.bad::before { background: var(--bad); }
+.pill.warn { color: var(--warn); } .pill.warn::before { background: var(--warn); }
+.pill.good { color: var(--good); } .pill.good::before { background: var(--good); }
 
-code, .mono { font-family: var(--mono); font-size: 13px; }
+.rep, .att { font: 500 11px/1.6 var(--mono); color: var(--faint); }
+.gap { font: 500 11px/1.6 var(--mono); color: var(--warn); }
 
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+/* Tables ----------------------------------------------------------------------- */
+
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
 th {
   text-align: left;
-  color: var(--dim);
-  font-weight: 500;
-  font-size: 12px;
+  color: var(--faint);
+  font-weight: 600;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: .5px;
-  padding: 6px 10px;
+  letter-spacing: .7px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--line);
 }
-td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+
+td { padding: 8px 12px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
 tr:last-child td { border-bottom: 0; }
+tr:hover td { background: var(--panel-2); }
 
-/* Timeline --------------------------------------------------------------- */
+/* Numbers compare only when they line up — and alignment is opt-in via .num,
+   because "mono" marks a typeface, not a number: right-aligning every mono
+   cell shoved source names and shas against the column edge. */
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td .note { font-size: 12px; }
 
-.timeline { border-left: 2px solid var(--line); margin-left: 6px; padding-left: 16px; }
-.timeline .ev { position: relative; padding: 7px 0; }
+/* Timeline ---------------------------------------------------------------------- */
+
+.timeline { border-left: 2px solid var(--line); margin: 4px 0 0 7px; padding-left: 18px; }
+
+.timeline .ev { position: relative; padding: 8px 0; }
 .timeline .ev::before {
   content: "";
   position: absolute;
-  left: -22px;
-  top: 13px;
-  width: 8px;
-  height: 8px;
+  left: -24.5px;
+  top: 14px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: var(--line);
+  background: #3f3f46;
+  border: 2px solid var(--bg);
 }
-.timeline .ev .when { color: var(--faint); font: 12px/1.4 var(--mono); }
-.timeline .ev .kind { font: 500 13px/1.5 var(--mono); color: var(--dim); }
-.timeline .ev .what { margin-top: 2px; }
-/* A six-minute gap between two rows is the interesting part of a timeline. */
-.timeline .ev .gap { color: var(--warn); }
-.timeline .ev .rep { color: var(--faint); font-weight: 400; }
+/* Who acted, at a glance: the model's contributions glow brand green, the
+   host's machinery stays zinc. */
+.timeline .ev.a-agent::before { background: var(--accent-dim); }
 
-/* Filters and time ranges ------------------------------------------------ */
+.timeline .what { color: var(--ink-2); font-size: 13.5px; line-height: 1.5; max-width: 100ch; }
+.timeline .when { color: var(--faint); font: 11.5px/1.7 var(--mono); margin-top: 1px; }
+.timeline .when .k { color: var(--dim); }
 
-/* Links, not controls. There is no JavaScript here, so a time window and a
-   breakdown filter are both just another URL — which also makes them something
-   an operator can bookmark and paste into an incident thread. */
-.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+/* A reopen restarts the story; without a seam, two attempts read as one run
+   that inexplicably planned the work twice. */
+.timeline .ev.reopen { margin-top: 10px; padding-top: 14px; border-top: 1px dashed var(--line); }
 
-.tabs a, .tabs span {
-  font: 500 12px/1.8 var(--sans);
-  padding: 1px 11px;
-  border-radius: 20px;
-  border: 1px solid var(--line);
-  color: var(--dim);
-  text-decoration: none;
-}
+/* Prose dumps (the model's reply, a kept prompt) --------------------------------- */
 
-.tabs a:hover { color: var(--ink); border-color: var(--faint); }
-.tabs .on { color: #09090b; background: var(--accent-dim); border-color: var(--accent-dim); }
-
-/* Trend ------------------------------------------------------------------ */
-
-/* Inline SVG, rendered server-side. A sparkline is data, not a runtime
-   dependency: this dashboard ships no JavaScript, and a chart library would be
-   the first thing on the page that could not render with the network off. */
-.trend { display: block; margin-bottom: 6px; overflow: visible; }
-.trend .bar { fill: var(--accent-dim); }
-.trend .axis { stroke: var(--line); stroke-width: 1; }
-
-/* A day that ran attempts nobody measured is not a day that spent nothing.
-   Drawing both as an absent bar is the "could not run, shown as nothing found"
-   defect in chart form, so the unmeasured day keeps its own flat mark. */
-.trend .gap { fill: var(--faint); }
-
-/* Empty and unwired ------------------------------------------------------ */
-
-.empty { color: var(--dim); padding: 18px; border: 1px dashed var(--line); border-radius: 8px; }
-
-/* An unwired panel says what is missing and what would fill it. It never
-   renders a zero, and never an estimate dressed as a measurement. */
-.unwired {
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  padding: 16px;
-  color: var(--dim);
-  background: repeating-linear-gradient(
-    45deg, transparent, transparent 9px, rgba(255, 255, 255, .012) 9px, rgba(255, 255, 255, .012) 18px);
-}
-
-.unwired .tag {
-  margin: 0 0 6px;
-  font: 600 11px/1.4 var(--mono);
-  letter-spacing: .5px;
-  text-transform: uppercase;
-  color: var(--warn);
-}
-
-.unwired p { margin: 0; font-size: 13px; }
-
-.note { color: var(--dim); font-size: 13px; }
-
-/* The compiled prompt, verbatim. Wrapped rather than scrolled sideways: the
-   question this answers is "what exactly did it read", and a horizontal
-   scrollbar hides the end of every line the model was actually given. */
-.dump {
-  margin: 0 0 14px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+pre.dump {
   background: var(--panel);
-  font: 12px/1.6 var(--mono);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font: 12.5px/1.6 var(--mono);
+  color: var(--ink-2);
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 460px;
+  word-break: break-word;
+  max-height: 480px;
   overflow-y: auto;
 }
 
-/* Actions ---------------------------------------------------------------- */
+.panel p { max-width: 82ch; color: var(--ink-2); margin: 8px 0 2px; }
+.panel p strong { color: var(--ink); }
+.panel .title { font-weight: 550; }
+.panel .meta { color: var(--faint); font-size: 12.5px; margin-top: 3px; }
+
+/* Window tabs -------------------------------------------------------------------- */
+
+.tabs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 2px 0 14px; }
+
+.tabs a, .tabs .on {
+  font-size: 12.5px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+
+.tabs a:hover { color: var(--ink); border-color: var(--faint); text-decoration: none; }
+.tabs .on, .tabs a.on {
+  background: var(--accent-ghost);
+  border-color: rgb(54 230 165 / .4);
+  color: var(--accent);
+}
+
+/* Trend ---------------------------------------------------------------------------- */
+
+.trend { display: block; margin: 2px 0 6px; }
+.trend .bar { fill: var(--accent-dim); opacity: .85; }
+.trend .bar:hover { fill: var(--accent); opacity: 1; }
+.trend .gap { fill: var(--warn); opacity: .8; }
+.trend .axis { stroke: var(--line); stroke-width: 1; }
+
+/* Actions ---------------------------------------------------------------------------- */
 
 /* Every action is a form post. A GET that mutates would fire on a preload or an
    accidental revisit, and on a surface with no authentication the browser is
    the only thing that would have to be wrong. */
-.acts { display: flex; gap: 8px; margin-top: 8px; }
+.acts { display: flex; gap: 8px; margin-top: 9px; }
 .acts form { margin: 0; }
 
 button {
-  font: 500 12px/1.8 var(--sans);
-  padding: 2px 12px;
-  border-radius: 6px;
+  font: 500 12px/1.9 var(--sans);
+  padding: 1px 13px;
+  border-radius: 7px;
   border: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--panel-2);
   color: var(--ink);
   cursor: pointer;
 }
 
 button:hover { border-color: var(--faint); }
 
-button.go {
-  background: var(--accent-dim);
-  border-color: var(--accent-dim);
-  color: #09090b;
+button.go { background: var(--accent-dim); border-color: var(--accent-dim); color: #09090b; font-weight: 600; }
+button.go:hover { background: var(--accent); border-color: var(--accent); }
+
+/* Empty and unwired ------------------------------------------------------------------- */
+
+.empty {
+  color: var(--dim);
+  font-size: 13.5px;
+  padding: 16px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  max-width: 82ch;
 }
 
-button.go:hover { background: var(--accent); border-color: var(--accent); }
+/* An unwired panel says what is missing and what would fill it. It never
+   renders a zero, and never an estimate dressed as a measurement. */
+.unwired {
+  border: 1px dashed rgb(251 191 36 / .35);
+  border-radius: 10px;
+  padding: 13px 16px;
+  color: var(--dim);
+  font-size: 13px;
+  max-width: 92ch;
+  background: repeating-linear-gradient(
+    45deg, transparent, transparent 9px, rgb(251 191 36 / .015) 9px, rgb(251 191 36 / .015) 18px);
+}
+
+.unwired .tag {
+  display: block;
+  margin: 0 0 5px;
+  font: 600 10.5px/1.4 var(--mono);
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.unwired p { margin: 0; }
+
+.note { color: var(--dim); font-size: 13px; max-width: 92ch; }

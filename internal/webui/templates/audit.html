@@ -9,7 +9,7 @@ it and what came of it.</p>
 <table>
   <tr><th>Kind</th><th>Count</th><th>Outcomes</th><th>Most recent</th></tr>
   {{range .Kinds}}
-  <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td><td class="mono">{{.Count}}</td>
+  <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td><td class="mono num">{{.Count}}</td>
       <td class="note">{{truncate 90 .Outcomes}}</td><td class="note">{{since .Latest}}</td></tr>
   {{end}}
 </table>

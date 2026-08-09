@@ -83,8 +83,38 @@ func (h *Handler) CanAct() bool { return h.actions != nil }
 // slug: the episode detail page lives under the Episodes nav entry but is its
 // own template, and inferring one from the other would couple navigation to
 // rendering for no benefit.
-func (h *Handler) page(w http.ResponseWriter, slug, body string, content any) {
-	h.render.Render(w, body, NewShell(slug, h.deployment, content))
+func (h *Handler) page(w http.ResponseWriter, r *http.Request, slug, body string, content any) {
+	h.render.Render(w, body, h.shell(r, slug, content))
+}
+
+// detail renders an entity page: titled after the entity, pointing back at its
+// section. With the section name as the h1, an episode page was headed
+// "Episodes" and its subject was buried in a panel below a bare back-link.
+func (h *Handler) detail(w http.ResponseWriter, r *http.Request, slug, body, title string, content any) {
+	shell := h.shell(r, slug, content)
+	shell.TitleOverride = truncate(title, 90)
+	for _, page := range pages {
+		if page.Slug == slug {
+			shell.Crumbs = []Crumb{{Href: "/" + slug, Label: page.Title}}
+		}
+	}
+	h.render.Render(w, body, shell)
+}
+
+func (h *Handler) shell(r *http.Request, slug string, content any) Shell {
+	shell := NewShell(slug, h.deployment, content)
+	shell.Binary, shell.Schema, shell.Ready = h.binary, h.schema, h.ready()
+	ctx := r.Context()
+	// Three tiny counts per render, against a local SQLite. The alternative —
+	// badges only on the pages that computed them — made the numbers appear
+	// and vanish as you navigated, which reads as the counts changing.
+	shell.Badges = map[string]Badge{
+		"": {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM work_episodes
+		  WHERE lifecycle_state IN ('blocked','waiting_operator','waiting_approval')`), Warn: true},
+		"failures":  {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`)},
+		"decisions": {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM fixture_candidates WHERE status = 'pending'`), Warn: true},
+	}
+	return shell
 }
 
 // problems collects what a page could not load.
@@ -102,15 +132,36 @@ func (p *problems) note(section string, err error) {
 	}
 }
 
+// blockedRow folds duplicates: the same alert firing twice makes two episodes
+// with the same headline, and two identical rows read as a rendering fault
+// rather than two events.
+type blockedRow struct {
+	Item
+	Repeats int
+}
+
+func foldBlocked(items []Item) []blockedRow {
+	rows := make([]blockedRow, 0, len(items))
+	for _, item := range items {
+		if last := len(rows) - 1; last >= 0 &&
+			rows[last].Title == item.Title && rows[last].Channel == item.Channel {
+			rows[last].Repeats++
+			continue
+		}
+		rows = append(rows, blockedRow{Item: item})
+	}
+	return rows
+}
+
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	blocked, _ := h.reader.Blocked(ctx, 6)
+	blocked, _ := h.reader.Blocked(ctx, 8)
 	var failed problems
 	lanes, err := h.reader.Lanes(ctx)
 	failed.note("queues", err)
-	h.page(w, "", "overview", struct {
+	h.page(w, r, "", "overview", struct {
 		NeedsYou, Failed, InFlight, Retained int
-		Blocked                              []Item
+		Blocked                              []blockedRow
 		Lanes                                []Lane
 		Errs                                 problems
 		Deployment, Binary, Schema           string
@@ -121,7 +172,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 		Failed:     h.reader.Count(ctx, countFailedRuns),
 		InFlight:   h.reader.Count(ctx, countInFlight),
 		Retained:   h.reader.Count(ctx, countRetained),
-		Blocked:    blocked,
+		Blocked:    foldBlocked(blocked),
 		Deployment: h.deployment, Binary: h.binary, Schema: h.schema, Ready: h.ready(),
 	})
 }
@@ -144,7 +195,7 @@ func (h *Handler) episodes(w http.ResponseWriter, r *http.Request) {
 		rooms, err = h.reader.Rooms(ctx)
 		failed.note("incident rooms", err)
 	}
-	h.page(w, "episodes", "episodes", struct {
+	h.page(w, r, "episodes", "episodes", struct {
 		Episodes []Item
 		Rooms    []Room
 		Errs     problems
@@ -242,7 +293,7 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 			"working, and the host noticing it had finished. The attempt ledger above gives the " +
 			"duration end to end; the split inside it is a separate per-attempt measurement this " +
 			"page does not read."}
-	h.page(w, "episodes", "episode", page)
+	h.detail(w, r, "episodes", "episode", page.Title, page)
 }
 
 // unmeteredEpisode says why there is no token count, and the two reasons are
@@ -292,7 +343,7 @@ func (h *Handler) incident(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("episodes", err)
 	page.Audit, err = h.reader.AuditForIncident(ctx, id)
 	page.Errs.note("audit trail", err)
-	h.page(w, "episodes", "incident", page)
+	h.detail(w, r, "episodes", "incident", page.Title, page)
 }
 
 func (h *Handler) audit(w http.ResponseWriter, r *http.Request) {
@@ -302,7 +353,7 @@ func (h *Handler) audit(w http.ResponseWriter, r *http.Request) {
 	failed.note("kinds", err)
 	recent, err := h.reader.AuditRecent(ctx, 40)
 	failed.note("recent activity", err)
-	h.page(w, "audit", "audit", struct {
+	h.page(w, r, "audit", "audit", struct {
 		Kinds  []AuditGroup
 		Recent []AuditRow
 		Errs   problems
@@ -320,7 +371,7 @@ func (h *Handler) auditKind(w http.ResponseWriter, r *http.Request) {
 	var failed problems
 	events, err := h.reader.AuditOfKind(ctx, kind)
 	failed.note("events", err)
-	h.page(w, "audit", "auditkind", struct {
+	h.detail(w, r, "audit", "auditkind", kind, struct {
 		Kind   string
 		Events []AuditRow
 		Errs   problems
@@ -338,7 +389,7 @@ func (h *Handler) failures(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		message = err.Error()
 	}
-	h.page(w, "failures", "failures", struct {
+	h.page(w, r, "failures", "failures", struct {
 		Groups []FailureGroup
 		Total  int
 		Err    string
@@ -356,7 +407,7 @@ func (h *Handler) failure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runs, _ := h.reader.FailureRuns(ctx, cause)
-	h.page(w, "failures", "failure", struct {
+	h.detail(w, r, "failures", "failure", cause, struct {
 		Cause  string
 		Runs   []FailureRun
 		CanAct bool
@@ -378,7 +429,7 @@ func (h *Handler) conversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	episodes, _ := h.reader.EpisodesForChannel(ctx, channelID, 10)
-	h.page(w, "memory", "conversation", struct {
+	h.detail(w, r, "memory", "conversation", detail.Channel, struct {
 		ConversationDetail
 		Episodes []Item
 	}{detail, episodes})
@@ -401,7 +452,7 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 		rates = append(rates, rate{class, count, total, percent(count, total)})
 	}
 	feedback, _ := h.reader.Feedback(ctx)
-	h.page(w, "decisions", "decisions", struct {
+	h.page(w, r, "decisions", "decisions", struct {
 		Rates       []rate
 		Corrections []Correction
 		Feedback    []Feedback
@@ -416,7 +467,7 @@ func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
 	conversations, _ := h.reader.Conversations(ctx)
 	rollups, _ := h.reader.Rollups(ctx)
 	review, _ := h.reader.MemoryReview(ctx)
-	h.page(w, "memory", "memory", struct {
+	h.page(w, r, "memory", "memory", struct {
 		Channels      []ChannelMemoryRow
 		Entries       []MemoryEntry
 		Conversations []Conversation
@@ -427,7 +478,7 @@ func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	channels, _ := h.reader.Channels(r.Context())
-	h.page(w, "configuration", "configuration", struct {
+	h.page(w, r, "configuration", "configuration", struct {
 		Prompts   []PromptBudget
 		Channels  []ChannelConfigRow
 		Schedules []struct{ Prompt, Cadence string }
@@ -512,5 +563,5 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 			"inside that duration is a separate per-attempt measurement this page does not read, " +
 			"and \"the answer took four minutes\" and \"the model took four minutes\" are " +
 			"different claims that need different numbers."}
-	h.page(w, "usage", "usage", page)
+	h.page(w, r, "usage", "usage", page)
 }

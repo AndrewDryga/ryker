@@ -187,8 +187,16 @@ func (r *Reader) resolveChannels(ctx context.Context, text string) string {
 func cleanTitle(title string) string {
 	cleaned := slackLink.ReplaceAllString(strings.TrimSpace(title), "$1")
 	cleaned = strings.TrimSpace(bareLink.ReplaceAllString(cleaned, ""))
-	cleaned = strings.NewReplacer("*", "", "_", "", "`", "").Replace(cleaned)
-	cleaned = strings.Join(strings.Fields(cleaned), " ")
+	// What the screenshots kept finding after the URL pass: ":fire:" rendered
+	// as literal colons, because only Slack expands shortcodes; "[no value]"
+	// leaked out of an upstream template handed a nil field; and a title cut
+	// at its storage bound mid-link left an orphaned "|Run run-Qmzu…" whose
+	// URL half had stripped as a bare link. The pipe becomes a separator dot
+	// rather than vanishing, since inside alert titles it separates clauses.
+	cleaned = emojiCode.ReplaceAllString(cleaned, "")
+	cleaned = strings.ReplaceAll(cleaned, "[no value]", "")
+	cleaned = strings.NewReplacer("*", "", "_", "", "`", "", "|", " · ").Replace(cleaned)
+	cleaned = strings.Trim(strings.Join(strings.Fields(cleaned), " "), "·—- ")
 	// Punctuation left over from stripping is not a title. A Slack permalink
 	// posted with the same URL as its own link text arrives truncated, so the
 	// closing bracket is missing, both halves strip as bare links, and the
@@ -205,6 +213,7 @@ func cleanTitle(title string) string {
 var (
 	slackLink = regexp.MustCompile(`<https?://[^|>]+\|([^>]*)>`)
 	bareLink  = regexp.MustCompile(`<?https?://[^\s|>]+>?`)
+	emojiCode = regexp.MustCompile(`:[a-z0-9_+-]{2,32}:`)
 )
 
 // The counted queries are named rather than written inline at each call site.

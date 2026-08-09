@@ -1,13 +1,12 @@
 {{define "episode"}}
-<p class="note"><a href="/episodes">← all episodes</a></p>
 {{template "problems" .Errs}}
 <div class="panel">
-  <div class="title"><strong>{{.Title}}</strong></div>
   <div class="meta">
-    <span class="pill">{{.State}}</span> {{.Channel}} · {{.Kind}} · started {{stamp .Created}}
+    <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
+    {{.Channel}} · {{.Kind}} · started {{stamp .Created}}
   </div>
   {{if .Status}}<p class="note">{{.Status}}</p>{{end}}
-  {{if .Next}}<p class="todo">→ {{.Next}}</p>{{end}}
+  {{if .Next}}<p class="todo"><span class="arr">→</span> {{.Next}}</p>{{end}}
 </div>
 
 {{with .Turn}}
@@ -18,8 +17,8 @@
     {{.Mode}}{{if .Attention}} · {{.Attention}}{{end}}</div>
   {{if .Action}}<p><strong>{{.Action}}.</strong> {{.Reason}}</p>{{end}}
   {{if .Message}}<p>{{.Message}}</p>{{end}}
-  {{if .Unreadable}}<p class="todo">The host could not read this answer: {{.Unreadable}}</p>{{end}}
-  {{if .Error}}<p class="todo">{{.Error}}</p>{{end}}
+  {{if .Unreadable}}<p class="todo"><span class="arr">→</span> The host could not read this answer: {{.Unreadable}}</p>{{end}}
+  {{if .Error}}<p class="todo"><span class="arr">→</span> {{.Error}}</p>{{end}}
   {{if .Operations}}<div class="meta">
     {{range .Operations}}<span class="pill">{{.Name}} ×{{.Count}}</span> {{end}}
   </div>{{end}}
@@ -52,10 +51,9 @@ watch can be compared between attempts but not read back.</p>
 {{if .Events}}
 <div class="timeline">
   {{range .Events}}
-  <div class="ev">
-    <div class="when">{{stamp .At}} · {{.Actor}}{{if .Elapsed}} · <span class="gap">{{.Elapsed}}</span>{{end}}{{if gt .Attempt 1}} · attempt {{.Attempt}}{{end}}</div>
-    <div class="kind">{{.Kind}}{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}}</div>
+  <div class="ev a-{{.Actor}}{{if eq .Kind "episode_reopened"}} reopen{{end}}">
     {{if .Detail}}<div class="what">{{truncate 300 .Detail}}</div>{{end}}
+    <div class="when"><span class="k">{{.Kind}}</span>{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}} · {{stamp .At}} · {{.Actor}}{{if .Elapsed}} · <span class="gap">{{.Elapsed}}</span>{{end}}{{if gt .Attempt 1}} · <span class="att">attempt {{.Attempt}}</span>{{end}}</div>
   </div>
   {{end}}
 </div>
@@ -64,11 +62,11 @@ watch can be compared between attempts but not read back.</p>
 <h2>Claims <span class="note">{{len .Claims}}</span></h2>
 {{if .Claims}}
 <table>
-  <tr><th>Claim</th><th>Verdict</th><th>For</th><th>Against</th><th>What settled it</th></tr>
+  <tr><th>Claim</th><th>Verdict</th><th class="num">For</th><th class="num">Against</th><th>What settled it</th></tr>
   {{range .Claims}}
   <tr><td class="mono">{{.Claim}}</td>
       <td><span class="pill{{if eq .Status "supported"}} good{{else if eq .Status "contradicted"}} bad{{else if eq .Status "mixed"}} warn{{end}}">{{.Status}}</span>{{if .Confidence}} <span class="note">{{.Confidence}}</span>{{end}}</td>
-      <td class="mono">{{.Supporting}}</td><td class="mono">{{.Contradicting}}</td>
+      <td class="mono num">{{.Supporting}}</td><td class="mono num">{{.Contradicting}}</td>
       <td>{{truncate 320 .Detail}}</td></tr>
   {{end}}
 </table>
@@ -142,9 +140,9 @@ from "nobody looked", so an answer with none behind it rests on the model alone.
 <h2>Attempts <span class="note">{{len .Attempts}}</span></h2>
 {{if .Attempts}}
 <table>
-  <tr><th>#</th><th>State</th><th>Failure class</th><th>Started</th><th>Ended</th><th>Error</th></tr>
+  <tr><th class="num">#</th><th>State</th><th>Failure class</th><th>Started</th><th>Ended</th><th>Error</th></tr>
   {{range .Attempts}}
-  <tr><td class="mono">{{.Number}}</td>
+  <tr><td class="mono num">{{.Number}}</td>
       <td><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "succeeded"}} good{{end}}">{{.State}}</span></td>
       <td>{{if .Failure}}{{.Failure}}{{else}}<span class="note">—</span>{{end}}</td>
       <td class="note">{{stamp .Started}}</td><td class="note">{{stamp .Completed}}</td>
@@ -156,12 +154,12 @@ from "nobody looked", so an answer with none behind it rests on the model alone.
 <h2>Slack delivery <span class="note">{{len .Delivered}}</span></h2>
 {{if .Delivered}}
 <table>
-  <tr><th>Kind</th><th>Operation</th><th>State</th><th>Channel</th><th>Status line</th><th>Tries</th><th>When</th></tr>
+  <tr><th>Kind</th><th>Operation</th><th>State</th><th>Channel</th><th>Status line</th><th class="num">Tries</th><th>When</th></tr>
   {{range .Delivered}}
   <tr><td>{{.Kind}}</td><td>{{.Operation}}</td>
       <td><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "sent"}} good{{end}}">{{.State}}</span></td>
       <td>{{.Channel}}</td><td>{{truncate 90 .Status}}</td>
-      <td class="mono">{{.Attempts}}</td><td class="note">{{since .At}}</td></tr>
+      <td class="mono num">{{.Attempts}}</td><td class="note">{{since .At}}</td></tr>
   {{end}}
 </table>
 {{else}}<p class="empty">Nothing queued is still on record. A delivery is deleted once it has been
@@ -184,23 +182,23 @@ sent and passed the operational retention window, so an older episode keeps none
 {{with .Spent}}
 {{if .Recorded}}
 <table>
-  <tr><th>Manifest</th><th>Provider</th><th>Model</th><th>Effort</th><th>Fresh in</th>
-      <th>Cached in</th><th>Out</th><th>Reasoning</th><th>Total</th></tr>
+  <tr><th>Manifest</th><th>Provider</th><th>Model</th><th>Effort</th><th class="num">Fresh in</th>
+      <th class="num">Cached in</th><th class="num">Out</th><th class="num">Reasoning</th><th class="num">Total</th></tr>
   {{range .Rows}}
   <tr><td class="mono">v{{.Version}}</td>
       <td>{{if .Provider}}{{.Provider}}{{else}}<span class="note">—</span>{{end}}</td>
       <td class="mono">{{if .Model}}{{.Model}}{{else}}<span class="note">—</span>{{end}}</td>
       <td>{{if .Effort}}{{.Effort}}{{else}}<span class="note">—</span>{{end}}</td>
       {{if .Measured}}
-      <td class="mono">{{tokens .Input}}</td><td class="mono">{{tokens .Cached}}</td>
-      <td class="mono">{{tokens .Output}}</td><td class="mono">{{tokens .Reasoning}}</td>
-      <td class="mono" title="{{exact .Total}} tokens">{{tokens .Total}}</td>
+      <td class="mono num">{{tokens .Input}}</td><td class="mono num">{{tokens .Cached}}</td>
+      <td class="mono num">{{tokens .Output}}</td><td class="mono num">{{tokens .Reasoning}}</td>
+      <td class="mono num" title="{{exact .Total}} tokens">{{tokens .Total}}</td>
       {{else}}<td class="note" colspan="5">not measured</td>{{end}}</tr>
   {{end}}
   <tr><td class="note" colspan="4">{{.Measured}} of {{.Manifests}} measured</td>
-      <td class="mono">{{tokens .Input}}</td><td class="mono">{{tokens .Cached}}</td>
-      <td class="mono">{{tokens .Output}}</td><td class="mono">{{tokens .Reasoning}}</td>
-      <td class="mono" title="{{exact .Total}} tokens"><strong>{{tokens .Total}}</strong></td></tr>
+      <td class="mono num">{{tokens .Input}}</td><td class="mono num">{{tokens .Cached}}</td>
+      <td class="mono num">{{tokens .Output}}</td><td class="mono num">{{tokens .Reasoning}}</td>
+      <td class="mono num" title="{{exact .Total}} tokens"><strong>{{tokens .Total}}</strong></td></tr>
 </table>
 <p class="note">One row per manifest, because an attempt that had its context extended froze a
 second one and the tokens are split across both. {{.CacheLabel}} of the input the model read came
