@@ -60,7 +60,7 @@
   {{range .Events}}
   <div class="ev">
     <div class="when">{{stamp .At}} · {{.Actor}}{{if .Elapsed}} · <span class="gap">{{.Elapsed}}</span>{{end}}{{if gt .Attempt 1}} · attempt {{.Attempt}}{{end}}</div>
-    <div class="kind">{{.Kind}}</div>
+    <div class="kind">{{.Kind}}{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}}</div>
     {{if .Detail}}<div class="what">{{truncate 300 .Detail}}</div>{{end}}
   </div>
   {{end}}

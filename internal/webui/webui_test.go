@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every page renders, and an unwired panel says so rather than showing a zero.
@@ -201,5 +202,40 @@ func TestTimelineSummariesUnpackEachKind(t *testing.T) {
 		if got := summarizePayload(testCase.kind, testCase.payload); got != testCase.want {
 			t.Errorf("summarizePayload(%s) = %q, want %q", testCase.kind, got, testCase.want)
 		}
+	}
+}
+
+// Waiting is one fact however long it lasts. A run polling once a second wrote
+// a phase_changed event every second — 5,483 identical "waiting for the
+// previous agent run" rows, 47% of the whole episode stream. The store no
+// longer writes those repeats, but they are already on disk and history still
+// has to be readable, so consecutive identical events collapse to one row with
+// a count and the span they cover.
+func TestConsecutiveIdenticalEventsCollapse(t *testing.T) {
+	base := time.Date(2026, 8, 8, 16, 31, 0, 0, time.UTC)
+	rows := []Event{}
+	for index := range 24 {
+		rows = append(rows, Event{
+			Kind: "phase_changed", Actor: "host",
+			Detail: "waiting for the previous agent run in this Slack channel",
+			At:     base.Add(time.Duration(index) * time.Second),
+		})
+	}
+	collapsed := collapseEvents(rows)
+	if len(collapsed) != 1 {
+		t.Fatalf("24 identical events rendered as %d rows, want 1", len(collapsed))
+	}
+	if collapsed[0].Repeats != 23 {
+		t.Errorf("repeat count = %d, want 23", collapsed[0].Repeats)
+	}
+	if collapsed[0].Span != "23s" {
+		t.Errorf("span = %q, want the time it covered", collapsed[0].Span)
+	}
+
+	// A different event breaks the run: collapsing must not merge across a
+	// change, or a timeline would hide the thing that actually happened.
+	rows = append(rows, Event{Kind: "phase_changed", Detail: "Investigating", At: base.Add(time.Minute)})
+	if got := len(collapseEvents(rows)); got != 2 {
+		t.Errorf("a distinct event was swallowed: %d rows, want 2", got)
 	}
 }

@@ -641,11 +641,15 @@ func (s *Store) DeferAgentRun(
 	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeAcknowledged, "queued", sqlutil.BoundedError(detail),
 		"Resume when the dependency is ready", time.Time{},
-		// RFC3339Nano, not the stored-timestamp format, on purpose. This is an
-		// idempotency key, never a value compared with <=, so the width hazard
-		// does not reach it — and re-formatting it would give the same logical
-		// event a different key across the deploy, which is duplicate work.
-		"agent-run:"+id+":deferred:"+next.UTC().Format(time.RFC3339Nano),
+		// Keyed on the run alone, deliberately. Including the next attempt time
+		// made every key unique, so a run polling once a second appended a
+		// phase_changed event every second: 5,483 identical "waiting for the
+		// previous agent run" rows, 47% of the whole episode event stream, and
+		// a timeline nobody could read. Waiting is one fact however long it
+		// lasts, and the UNIQUE(episode_id, idempotency_key) constraint now
+		// collapses the repeats where they are written rather than where they
+		// are displayed.
+		"agent-run:"+id+":deferred",
 	); err != nil {
 		return err
 	}

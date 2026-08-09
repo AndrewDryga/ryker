@@ -201,6 +201,7 @@ tr:last-child td { border-bottom: 0; }
 .timeline .ev .what { margin-top: 2px; }
 /* A six-minute gap between two rows is the interesting part of a timeline. */
 .timeline .ev .gap { color: var(--warn); }
+.timeline .ev .rep { color: var(--faint); font-weight: 400; }
 
 /* Empty and unwired ------------------------------------------------------ */
 

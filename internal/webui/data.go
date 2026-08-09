@@ -191,6 +191,8 @@ type Event struct {
 	At      time.Time
 	Elapsed string
 	Attempt int
+	Repeats int
+	Span    string
 }
 
 // Events renders the episode's own history. 11,679 of these exist and none is
@@ -235,7 +237,7 @@ func (r *Reader) Events(ctx context.Context, episodeID string) ([]Event, error) 
 		}
 		events = append(events, event)
 	}
-	return events, rows.Err()
+	return collapseEvents(events), rows.Err()
 }
 
 // summarizePayload says what an event actually was.
@@ -306,6 +308,30 @@ func summarizePayload(kind, payload string) string {
 		}
 	}
 	return ""
+}
+
+// collapseEvents folds consecutive identical events into one row with a count
+// and the span they cover.
+//
+// Waiting is one fact however long it lasts, and a hundred rows of it is not a
+// hundred things that happened. The store no longer writes those repeats, but
+// 5,483 of them are already on disk and history still has to be readable. Only
+// consecutive ones fold: merging across a different event would hide the thing
+// that actually happened.
+func collapseEvents(events []Event) []Event {
+	folded := make([]Event, 0, len(events))
+	for _, event := range events {
+		last := len(folded) - 1
+		if last >= 0 && folded[last].Kind == event.Kind && folded[last].Detail == event.Detail {
+			folded[last].Repeats++
+			if span := event.At.Sub(folded[last].At); span >= time.Second {
+				folded[last].Span = span.Round(time.Second).String()
+			}
+			continue
+		}
+		folded = append(folded, event)
+	}
+	return folded
 }
 
 type EvidenceRow struct {
