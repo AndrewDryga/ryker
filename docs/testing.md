@@ -278,6 +278,33 @@ Baselines and detailed result reports are written mode `0600`. They contain a ca
 digest; adding or editing a case invalidates the old baseline instead of silently comparing
 different tests.
 
+### The trend
+
+Every model evaluation target writes its complete result into `$(EVAL_HISTORY)`, which defaults to
+`~/.local/state/responder/eval-history`. Read the series back with:
+
+```bash
+make eval-trend
+```
+
+It prints, per target and in time order, the pass rate and the mean judge score, with the change
+from that target's previous run.
+
+This exists because the judges were already doing the work and the answer was being discarded. The
+quality rubric scores six dimensions per case, the evidence verifier independently re-checks the
+claims, and `--calibrate-judge` scores the judge itself — and every one of those numbers went to
+stdout and nowhere else, because `--results` was passed by nothing and CI reads only the exit code.
+A gate that only ever reports pass or fail can tell you the bot is not broken. It cannot tell you
+whether it is getting better, and that was the question nobody could answer.
+
+The directory is private state, not a checked-in artifact: results carry sanitized model output and
+are written mode `0600`. Nothing prunes it automatically — deleting evaluation evidence on a timer
+would destroy the only record of when a regression started — so it grows by about one file per
+model evaluation and is pruned by hand.
+
+For enforcement rather than observation, `--baseline` with `--max-regression` still fails a run that
+drops against a recorded baseline. The trend is the record; the baseline is the ratchet.
+
 Run the complete credentialed model gate before changing the production model, prompt, tools, or
 Coop policy:
 
