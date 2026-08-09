@@ -9,9 +9,17 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/store"
 )
+
+// everyFilterTerm exercises all five episode-list predicates at once, so a
+// column renamed under one of them cannot hide behind the four that still parse.
+var everyFilterTerm = EpisodeFilter{
+	Channel: "C1", Repository: "tenant-platform", Mode: "triage",
+	Provider: "anthropic", Model: "claude-opus-4-5",
+}
 
 // Every read runs against the real schema, not against a nil database.
 //
@@ -25,6 +33,7 @@ import (
 func TestEveryQueryRunsAgainstTheMigratedSchema(t *testing.T) {
 	reader := migratedReader(t)
 	ctx := context.Background()
+	window := chosenWindow(UsageWindows("30d", time.Now().UTC()))
 	checks := map[string]func() error{
 		"Blocked":             func() error { _, err := reader.Blocked(ctx, 5); return err },
 		"Episodes":            func() error { _, err := reader.Episodes(ctx, 5); return err },
@@ -60,6 +69,18 @@ func TestEveryQueryRunsAgainstTheMigratedSchema(t *testing.T) {
 		"AuditOfKind":         func() error { _, err := reader.AuditOfKind(ctx, "slack.watch"); return err },
 		"AuditForEpisode":     func() error { _, err := reader.AuditForEpisode(ctx, "ep"); return err },
 		"AuditForIncident":    func() error { _, err := reader.AuditForIncident(ctx, "inc"); return err },
+		"UsageTotals":         func() error { _, err := reader.UsageTotals(ctx, window); return err },
+		"UsageTrend":          func() error { _, err := reader.UsageTrend(ctx, window); return err },
+		"UsageByModel":        func() error { _, err := reader.UsageByModel(ctx, window); return err },
+		"UsageByChannel":      func() error { _, err := reader.UsageByChannel(ctx, window); return err },
+		"UsageByRepository":   func() error { _, err := reader.UsageByRepository(ctx, window); return err },
+		"UsageByKind":         func() error { _, err := reader.UsageByKind(ctx, window); return err },
+		"EpisodeTokens":       func() error { _, err := reader.EpisodeTokens(ctx, "ep"); return err },
+		"EpisodesMatching": func() error {
+			_, err := reader.EpisodesMatching(ctx, everyFilterTerm, 5)
+			return err
+		},
+		"CountMatching": func() error { _, err := reader.CountMatching(ctx, everyFilterTerm); return err },
 	}
 	for name, run := range checks {
 		// A missing row is the ordinary answer for an empty database; a missing

@@ -123,7 +123,8 @@ from "nobody looked", so an answer with none behind it rests on the model alone.
 <table>
   <tr><th>Kind</th><th>What</th><th>Visibility</th><th>Digest</th></tr>
   {{range .Refs}}
-  <tr><td class="mono">{{.Kind}}</td><td>{{.What}}</td>
+  <tr><td class="mono">{{.Kind}}</td>
+      <td>{{.What}}{{if .Omitted}} <span class="note">— left out: {{.Omitted}}</span>{{end}}</td>
       <td class="note">{{.Visibility}}</td><td class="mono">{{.Digest}}</td></tr>
   {{end}}
 </table>
@@ -179,5 +180,34 @@ sent and passed the operational retention window, so an older episode keeps none
 </table>
 {{else}}<p class="empty">Nothing was audited against this episode.</p>{{end}}
 
-{{template "unwired" .Usage}}
+<h2>What this episode spent</h2>
+{{with .Spent}}
+{{if .Recorded}}
+<table>
+  <tr><th>Manifest</th><th>Provider</th><th>Model</th><th>Effort</th><th>Fresh in</th>
+      <th>Cached in</th><th>Out</th><th>Reasoning</th><th>Total</th></tr>
+  {{range .Rows}}
+  <tr><td class="mono">v{{.Version}}</td>
+      <td>{{if .Provider}}{{.Provider}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="mono">{{if .Model}}{{.Model}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td>{{if .Effort}}{{.Effort}}{{else}}<span class="note">—</span>{{end}}</td>
+      {{if .Measured}}
+      <td class="mono">{{tokens .Input}}</td><td class="mono">{{tokens .Cached}}</td>
+      <td class="mono">{{tokens .Output}}</td><td class="mono">{{tokens .Reasoning}}</td>
+      <td class="mono" title="{{exact .Total}} tokens">{{tokens .Total}}</td>
+      {{else}}<td class="note" colspan="5">not measured</td>{{end}}</tr>
+  {{end}}
+  <tr><td class="note" colspan="4">{{.Measured}} of {{.Manifests}} measured</td>
+      <td class="mono">{{tokens .Input}}</td><td class="mono">{{tokens .Cached}}</td>
+      <td class="mono">{{tokens .Output}}</td><td class="mono">{{tokens .Reasoning}}</td>
+      <td class="mono" title="{{exact .Total}} tokens"><strong>{{tokens .Total}}</strong></td></tr>
+</table>
+<p class="note">One row per manifest, because an attempt that had its context extended froze a
+second one and the tokens are split across both. {{.CacheLabel}} of the input the model read came
+from cache. The four counts are added rather than overlapped: Coop reports cached input apart from
+fresh input and reasoning apart from output.</p>
+{{else}}{{template "unwired" $.Unmetered}}{{end}}
+{{end}}
+
+{{template "unwired" .Latency}}
 {{end}}

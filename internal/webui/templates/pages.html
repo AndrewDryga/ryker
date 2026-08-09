@@ -45,6 +45,31 @@ is up and doing nothing, which is the difference these rows carry.</p>
 
 {{define "episodes"}}
 {{template "problems" .Errs}}
+{{if .Filter.Active}}
+<div class="tabs">
+  <span class="on">{{.Filter.Describe}}</span>
+  <a href="/episodes">clear filter</a>
+</div>
+<h2>Episodes <span class="note">{{.Total}} match</span></h2>
+<p class="note">One episode can hold several attempts and an episode that never froze a manifest
+holds none, so this count is not the attempt count the Usage page breaks spend down by.
+{{if gt .Total (len .Episodes)}}The {{len .Episodes}} most recent are listed; the rest are on
+record and not on this page.{{end}}</p>
+{{if .Episodes}}
+<div class="rows">
+  {{range .Episodes}}
+  <a class="row" href="/episodes/{{.ID}}">
+    <div class="title">{{truncate 120 .Title}}</div>
+    <div class="meta">
+      <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
+      {{.Channel}} · {{.Kind}} · {{since .Updated}}
+    </div>
+  </a>
+  {{end}}
+</div>
+{{else}}<p class="empty">No episode matches this filter. The count above came from the same
+query, so an empty list here means nothing matched rather than nothing loaded.</p>{{end}}
+{{else}}
 <h2>Incident rooms <span class="note">{{len .Rooms}}</span></h2>
 {{if .Rooms}}
 <p class="note">A room is a whole conversation of work; an episode below is one turn of it. These
@@ -63,6 +88,8 @@ are where the pull requests come from.</p>
 {{else}}<p class="empty">No incident room has been opened.</p>{{end}}
 
 <h2>Episodes <span class="note">{{.Total}} recorded</span></h2>
+{{if gt .Total (len .Episodes)}}<p class="note">The {{len .Episodes}} most recent are listed. A
+truncated list that does not say it is truncated reads as the whole record.</p>{{end}}
 <div class="rows">
   {{range .Episodes}}
   <a class="row" href="/episodes/{{.ID}}">
@@ -74,6 +101,7 @@ are where the pull requests come from.</p>
   </a>
   {{end}}
 </div>
+{{end}}
 {{end}}
 
 {{define "failures"}}
@@ -243,21 +271,83 @@ survives when individual conversations age out.</p>{{end}}
 {{end}}
 
 {{define "usage"}}
-<p class="note">
-Coop already parses <code>input_tokens</code>, <code>cached_input_tokens</code>,
-<code>output_tokens</code> and <code>reasoning_output_tokens</code> from the provider
-stream. Responder never receives them and nothing is persisted, so every panel here
-is a shape waiting on that plumbing rather than a number waiting on traffic.
-</p>
+{{template "problems" .Errs}}
+<div class="tabs">
+  {{range .Windows}}<a href="/usage?window={{.Key}}" class="{{if .On}}on{{end}}">{{.Label}}</a>{{end}}
+</div>
 
-<h2>Tokens by provider and model</h2>
-{{template "unwired" .ByModel}}
-<h2>Tokens by deployment, channel and repository</h2>
-{{template "unwired" .ByScope}}
+{{with .Totals}}
+{{if .Attempts}}
+<p class="note">{{.Attempts}} attempts were frozen between {{stamp .First}} and {{stamp .Last}},
+and {{.Measured}} of them reported token usage ({{.CoverageLabel}} measured). Everything below
+sums only the ones that did: an unmeasured attempt is left out rather than counted as free.</p>
+{{else}}
+<p class="empty">No attempt was frozen in this window. Widen it to reach older work.</p>
+{{end}}
+
+{{if .Recorded}}
+<div class="grid">
+  <div class="panel metric" title="{{exact .Total}} tokens"><div class="n">{{tokens .Total}}</div><div class="k">tokens</div></div>
+  <div class="panel metric"><div class="n">{{tokens .Input}}</div><div class="k">fresh input</div></div>
+  <div class="panel metric"><div class="n">{{tokens .Cached}}</div><div class="k">cached input</div></div>
+  <div class="panel metric"><div class="n">{{tokens .Output}}</div><div class="k">output</div></div>
+  <div class="panel metric"><div class="n">{{tokens .Reasoning}}</div><div class="k">reasoning</div></div>
+  <div class="panel metric good"><div class="n">{{.CacheLabel}}</div><div class="k">input served from cache</div></div>
+</div>
+<p class="note">The four counts are added, not overlapped: Coop reports cached input apart from
+fresh input and reasoning apart from output, because every provider prices those parts
+differently. Cache hit rate is cached over all input read; output was never cacheable, so it is
+not in that denominator.</p>
+{{end}}
+{{end}}
+
+{{if not .Totals.Recorded}}{{template "unwired" .Unmetered}}{{end}}
+
+{{if .Trend.Measured}}
+<h2>Trend</h2>
+{{with .Trend}}
+<svg class="trend" viewBox="0 0 {{.Width}} {{.Height}}" width="100%" height="{{.Height}}"
+     preserveAspectRatio="none" role="img">
+  <title>Tokens per day, {{.First}} to {{.Last}}. Peak {{.MaxLabel}}.</title>
+  <line class="axis" x1="0" y1="{{.Baseline}}" x2="{{.Width}}" y2="{{.Baseline}}"></line>
+  {{range .Days}}
+  <rect class="{{if .Missing}}gap{{else}}bar{{end}}" x="{{.X}}" y="{{.Y}}"
+        width="{{.W}}" height="{{.H}}" rx="2"><title>{{.Title}}</title></rect>
+  {{end}}
+</svg>
+<p class="note">One bar per day, {{.First}} to {{.Last}}; the tallest is {{.MaxLabel}} tokens. A
+flat mark on the baseline is a day that ran attempts nobody measured, which is a different fact
+from a quiet day and is drawn differently for that reason.</p>
+{{end}}
+{{end}}
+
+{{range .Tables}}
+<h2>{{.Heading}}</h2>
+<p class="note">{{.Note}}</p>
+{{if .Rows}}
+<table>
+  <tr><th>{{.Column}}</th><th>Attempts</th><th>Tokens</th><th>Share</th><th>Fresh in</th>
+      <th>Cached in</th><th>Out</th><th>Reasoning</th><th>Cache</th><th></th></tr>
+  {{range .Rows}}
+  <tr><td>{{.Label}}{{if .Sub}} <span class="mono">{{.Sub}}</span>{{end}}</td>
+      <td class="mono">{{.Attempts}}{{if and .Recorded (ne .Measured .Attempts)}}
+        <span class="note">({{.Measured}} measured)</span>{{end}}</td>
+      {{if .Recorded}}
+      <td class="mono" title="{{exact .Total}} tokens">{{tokens .Total}}</td><td class="mono">{{.Share}}</td>
+      <td class="mono">{{tokens .Input}}</td><td class="mono">{{tokens .Cached}}</td>
+      <td class="mono">{{tokens .Output}}</td><td class="mono">{{tokens .Reasoning}}</td>
+      <td class="mono">{{.CacheLabel}}</td>
+      {{else}}
+      <td class="note" colspan="7">not measured</td>
+      {{end}}
+      <td>{{if .Href}}<a href="{{.Href}}">episodes →</a>{{end}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No attempt in this window.</p>{{end}}
+{{end}}
+
 <h2>Prompt composition</h2>
 {{template "unwired" .Composition}}
-<h2>Cache hit rate</h2>
-{{template "unwired" .Cache}}
 <h2>Cost</h2>
 {{template "unwired" .Cost}}
 <h2>Wall clock</h2>

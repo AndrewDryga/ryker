@@ -203,6 +203,39 @@ tr:last-child td { border-bottom: 0; }
 .timeline .ev .gap { color: var(--warn); }
 .timeline .ev .rep { color: var(--faint); font-weight: 400; }
 
+/* Filters and time ranges ------------------------------------------------ */
+
+/* Links, not controls. There is no JavaScript here, so a time window and a
+   breakdown filter are both just another URL — which also makes them something
+   an operator can bookmark and paste into an incident thread. */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+
+.tabs a, .tabs span {
+  font: 500 12px/1.8 var(--sans);
+  padding: 1px 11px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  text-decoration: none;
+}
+
+.tabs a:hover { color: var(--ink); border-color: var(--faint); }
+.tabs .on { color: #09090b; background: var(--accent-dim); border-color: var(--accent-dim); }
+
+/* Trend ------------------------------------------------------------------ */
+
+/* Inline SVG, rendered server-side. A sparkline is data, not a runtime
+   dependency: this dashboard ships no JavaScript, and a chart library would be
+   the first thing on the page that could not render with the network off. */
+.trend { display: block; margin-bottom: 6px; overflow: visible; }
+.trend .bar { fill: var(--accent-dim); }
+.trend .axis { stroke: var(--line); stroke-width: 1; }
+
+/* A day that ran attempts nobody measured is not a day that spent nothing.
+   Drawing both as an absent bar is the "could not run, shown as nothing found"
+   defect in chart form, so the unmeasured day keeps its own flat mark. */
+.trend .gap { fill: var(--faint); }
+
 /* Empty and unwired ------------------------------------------------------ */
 
 .empty { color: var(--dim); padding: 18px; border: 1px dashed var(--line); border-radius: 8px; }

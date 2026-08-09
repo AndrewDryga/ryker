@@ -29,7 +29,7 @@
 
 {{define "unwired"}}
 <div class="unwired">
-  <p class="tag">Not recorded yet</p>
+  <p class="tag">{{if .Tag}}{{.Tag}}{{else}}Not recorded yet{{end}}</p>
   <p>{{.Needs}}</p>
 </div>
 {{end}}

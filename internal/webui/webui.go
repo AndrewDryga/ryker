@@ -45,7 +45,7 @@ var pages = []Page{
 	{"usage", "Usage", "What is it spending?"},
 }
 
-// Unwired marks a panel whose data does not exist yet.
+// Unwired marks a panel whose data does not exist.
 //
 // It renders as an explicit empty state naming what is missing and what would
 // fill it, never as a zero or a plausible-looking estimate. This repository has
@@ -53,7 +53,14 @@ var pages = []Page{
 // announced an old binary as new, and a quality watcher that logged "no
 // defects" for a day with a dead assessor. A panel that looks live and is not
 // is the same defect in a nicer font.
+//
+// Tag overrides the default "Not recorded yet", because that phrase claims the
+// product is missing a pipe. Once token usage and the effective target began
+// being recorded, the same phrase over an attempt frozen before the change
+// reported a fixed gap as an open one, and would send someone to plumb what is
+// already plumbed. "Not recorded for this attempt" is the honest version.
 type Unwired struct {
+	Tag   string
 	Needs string
 }
 
@@ -68,6 +75,8 @@ func NewRenderer() (*Renderer, error) {
 		"pct":      func(part, whole int) int { return percent(part, whole) },
 		"truncate": func(limit int, value string) string { return truncate(value, limit) },
 		"lower":    strings.ToLower,
+		"tokens":   humanTokens,
+		"exact":    groupDigits,
 	}
 	parsed, err := template.New("webui").Funcs(funcs).ParseFS(assets, "templates/*.html")
 	if err != nil {

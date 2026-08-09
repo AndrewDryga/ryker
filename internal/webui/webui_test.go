@@ -48,12 +48,20 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/usage", nil))
 	body := recorder.Body.String()
 	if !strings.Contains(body, "Not recorded yet") {
-		t.Error("the usage page does not mark its panels unwired")
+		t.Error("the usage page does not mark its remaining panels unwired")
 	}
 	// An unwired panel names what would fill it, so nobody has to guess whether
-	// the number is zero or the pipe is missing.
-	if !strings.Contains(body, "does not report them on the turn") {
+	// the number is zero or the pipe is missing. Cost is one that is still
+	// unwired, and it says so about this page rather than about the product:
+	// written the other way it would go stale the day a price table landed.
+	if !strings.Contains(body, "handed no price table") {
 		t.Error("an unwired panel does not say what is missing")
+	}
+	// The token pipe landed. A page still claiming Coop does not report usage
+	// would send an operator to plumb what is already plumbed, which is the same
+	// class of lie as a panel that looks live and is not.
+	if strings.Contains(body, "does not report them on the turn") {
+		t.Error("the usage page still describes token accounting as unplumbed")
 	}
 	if strings.Contains(body, ">0<") {
 		t.Error("the usage page renders a zero where it has no data")

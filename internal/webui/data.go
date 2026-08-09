@@ -901,3 +901,98 @@ func (r *Reader) EpisodesForChannel(ctx context.Context, channelID string, limit
 	return r.scanItems(ctx, episodeSelect+`
 	  WHERE r.channel_id = ? ORDER BY e.created_at DESC LIMIT ?`, channelID, limit)
 }
+
+// EpisodeFilter narrows the episode list to one slice of the work.
+//
+// It exists because the Usage page breaks spend down by model, channel,
+// repository and kind, and a breakdown nobody can open is a report rather than
+// triage: it says which model costs the most and gives no route to a single
+// turn of it. Every list on this dashboard is a way in.
+type EpisodeFilter struct {
+	Channel, ChannelName string
+	Repository, Mode     string
+	Provider, Model      string
+}
+
+func (f EpisodeFilter) Active() bool {
+	return f.Channel != "" || f.Repository != "" || f.Mode != "" ||
+		f.Provider != "" || f.Model != ""
+}
+
+// Describe says what the reader is looking at, in the words of the dimension
+// they came from. A filtered list that looks like the unfiltered one is how a
+// reader concludes that work stopped happening.
+func (f EpisodeFilter) Describe() string {
+	parts := []string{}
+	if f.Channel != "" {
+		where := f.ChannelName
+		if where == "" {
+			where = f.Channel
+		}
+		parts = append(parts, "in "+where)
+	}
+	for _, named := range []struct{ label, value string }{
+		{"repository", f.Repository}, {"kind", f.Mode},
+		{"provider", f.Provider}, {"model", f.Model},
+	} {
+		if named.value != "" {
+			parts = append(parts, named.label+" "+named.value)
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// where builds the predicate.
+//
+// Provider and model are matched with EXISTS against the manifests rather than
+// by joining them, because an episode holds one manifest per attempt and a join
+// would return the episode once per attempt that used that model.
+func (f EpisodeFilter) where() (string, []any) {
+	clauses, args := []string{}, []any{}
+	for _, term := range []struct{ sql, value string }{
+		{"r.channel_id = ?", f.Channel},
+		{"r.repository = ?", f.Repository},
+		{"r.mode = ?", f.Mode},
+		{`EXISTS (SELECT 1 FROM context_manifests AS m
+		    WHERE m.episode_id = e.id AND m.provider = ?)`, f.Provider},
+		{`EXISTS (SELECT 1 FROM context_manifests AS m
+		    WHERE m.episode_id = e.id AND m.model = ?)`, f.Model},
+	} {
+		if term.value != "" {
+			clauses = append(clauses, term.sql)
+			args = append(args, term.value)
+		}
+	}
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+func (r *Reader) EpisodesMatching(
+	ctx context.Context,
+	filter EpisodeFilter,
+	limit int,
+) ([]Item, error) {
+	where, args := filter.where()
+	return r.scanItems(ctx, episodeSelect+where+
+		` ORDER BY e.created_at DESC LIMIT ?`, append(args, limit)...)
+}
+
+// CountMatching reports its failure, unlike Count.
+//
+// Count has one return value, so a broken query comes back as 0 — which on this
+// dashboard means "none" and not "could not ask". A filtered list is exactly
+// where that lie would land: "0 episodes" over a filter that never ran reads as
+// a model nothing was spent on.
+func (r *Reader) CountMatching(ctx context.Context, filter EpisodeFilter) (int, error) {
+	if !r.live() {
+		return 0, nil
+	}
+	where, args := filter.where()
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+	  SELECT COUNT(*) FROM work_episodes AS e
+	  LEFT JOIN agent_runs AS r ON r.id = e.agent_run_id`+where, args...).Scan(&count)
+	return count, err
+}
