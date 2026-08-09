@@ -7,6 +7,11 @@
     <span class="pill{{if eq .Status "closed"}} good{{end}}">{{.Status}}</span>
     {{.Kind}} · {{.Repository}} · {{.Channel}} · opened {{stamp .Created}}
   </div>
+  {{if and .CanAct (ne .Status "closed")}}
+  <div class="acts">
+    {{template "confirm" confirm "Resolve" "The room closes through the same handler as the Slack close control: no more turns start, cleanup is scheduled after the grace period, and the closing notice is posted to the room's channel. Nothing merges, pushes, or deploys." "Yes, close it" "/actions/incidents/resolve" .ID}}
+  </div>
+  {{end}}
 </div>
 
 <h2>What was asked</h2>

@@ -27,6 +27,13 @@ type Actions interface {
 	PublishRetainedWork(ctx context.Context, incidentID, actor string) error
 	DiscardRetainedWork(ctx context.Context, incidentID, actor string) error
 	RerunCleanup(ctx context.Context, sessionID, actor string) error
+	// ResolveEpisodeOvertaken closes blocked or waiting work whose moment has
+	// passed, through the episode kernel's own cancel transition. Nothing is
+	// deleted: the event and the audit row are the record of who decided.
+	ResolveEpisodeOvertaken(ctx context.Context, episodeID, actor string) error
+	// ResolveIncident closes an open room through the same handler the Slack
+	// close control uses, cleanup scheduling and closing notice included.
+	ResolveIncident(ctx context.Context, incidentID, actor string) error
 }
 
 // dashboardActor is recorded against anything done here.
@@ -100,5 +107,17 @@ func (h *Handler) discardRetainedWork(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) rerunCleanup(w http.ResponseWriter, r *http.Request) {
 	h.act(w, r, func(ctx context.Context, id string) error {
 		return h.actions.RerunCleanup(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) resolveEpisode(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.ResolveEpisodeOvertaken(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) resolveIncident(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.ResolveIncident(ctx, id, dashboardActor)
 	})
 }

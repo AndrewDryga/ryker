@@ -77,6 +77,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /actions/workspaces/publish", h.publishRetainedWork)
 	mux.HandleFunc("POST /actions/workspaces/discard", h.discardRetainedWork)
 	mux.HandleFunc("POST /actions/workspaces/rerun", h.rerunCleanup)
+	mux.HandleFunc("POST /actions/episodes/resolve", h.resolveEpisode)
+	mux.HandleFunc("POST /actions/incidents/resolve", h.resolveIncident)
 }
 
 // CanAct reports whether this build was given write access, so a page can offer
@@ -251,6 +253,24 @@ type episodePage struct {
 	Spent     EpisodeTokens
 	Unmetered Unwired
 	Latency   Unwired
+	CanAct    bool
+	// Resolvable gates the overtaken-by-events action to the states where a
+	// person is what the episode is waiting for. The kernel re-checks on the
+	// way through; this only decides whether a button is honest to offer.
+	Resolvable bool
+}
+
+// resolvableState lists the lifecycle states an operator may close as
+// overtaken: the episode is parked on a person, an approval, or an external
+// event, and no worker owns it. Running work is stopped through Slack's stop
+// control, not silently cancelled from a dashboard.
+func resolvableState(state string) bool {
+	switch state {
+	case "blocked", "waiting_operator", "waiting_approval", "waiting_external":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
@@ -261,7 +281,7 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	page := episodePage{Item: item}
+	page := episodePage{Item: item, CanAct: h.CanAct(), Resolvable: resolvableState(item.State)}
 	page.Events, err = h.reader.Events(ctx, id)
 	page.Errs.note("timeline", err)
 	page.Turn, err = h.reader.Turn(ctx, id)
@@ -345,7 +365,8 @@ func (h *Handler) incident(w http.ResponseWriter, r *http.Request) {
 		Episodes  []Item
 		Audit     []AuditRow
 		Errs      problems
-	}{Room: room}
+		CanAct    bool
+	}{Room: room, CanAct: h.CanAct()}
 	page.Signals, err = h.reader.Signals(ctx, id)
 	page.Errs.note("signals", err)
 	page.Moments, err = h.reader.Moments(ctx, id)

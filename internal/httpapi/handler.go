@@ -18,6 +18,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/version"
@@ -197,6 +198,61 @@ func (a *dashboardActions) RerunCleanup(ctx context.Context, sessionID, actor st
 		Kind: "cleanup.retry", ActorID: actor, ObjectID: sessionID, Outcome: "requeued",
 		Detail: "operator sent a blocked workspace back through the janitor's checks",
 	})
+}
+
+// ResolveEpisodeOvertaken closes blocked or waiting work whose moment has
+// passed. The transition is an episode_cancelled event through the kernel's
+// own reducer — the same validation every host transition passes — so an
+// episode that has moved on since the page rendered refuses it there rather
+// than being forced. Nothing is deleted; the event and the audit row are the
+// record of who decided.
+func (a *dashboardActions) ResolveEpisodeOvertaken(ctx context.Context, episodeID, actor string) error {
+	episode, err := a.store.GetWorkEpisode(ctx, episodeID)
+	if err != nil {
+		return err
+	}
+	switch episode.State {
+	case core.EpisodeBlocked, core.EpisodeWaitingOperator,
+		core.EpisodeWaitingApproval, core.EpisodeWaitingExternal:
+	default:
+		return fmt.Errorf(
+			"episode is %s; only blocked or waiting work can be resolved as overtaken",
+			episode.State,
+		)
+	}
+	payload, err := episodepkg.Encode(episodepkg.Transition{
+		State: core.EpisodeCancelled, Phase: "finished",
+		Status: "Resolved by the operator: overtaken by events",
+	})
+	if err != nil {
+		return err
+	}
+	// A fresh key per act, not per episode: the key exists to deduplicate
+	// replays of one logical act, and a resolve after a reopen is a new act
+	// that a fixed key would silently swallow.
+	actID, err := core.NewID("cpresolve")
+	if err != nil {
+		return err
+	}
+	if _, err := a.store.AppendEpisodeEvent(ctx, episodeID, core.WorkEpisodeEvent{
+		Kind: episodepkg.EventEpisodeCancelled, Actor: actor,
+		IdempotencyKey: "control-plane:overtaken:" + actID,
+		Payload:        payload,
+	}); err != nil {
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "episode.resolve", ActorID: actor, ObjectID: episodeID,
+		Outcome: "overtaken_by_events",
+		Detail:  "resolved from the control plane while " + string(episode.State),
+	})
+}
+
+// ResolveIncident closes an open room through the same service handler the
+// Slack close control calls: cleanup scheduling, audit, timeline and the
+// closing notice included.
+func (a *dashboardActions) ResolveIncident(ctx context.Context, incidentID, actor string) error {
+	return a.service.ControlPlaneAct(ctx, "close", incidentID, actor)
 }
 
 // deploymentName walks the state path up past the dot-directory. The naive

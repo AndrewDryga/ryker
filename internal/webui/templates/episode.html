@@ -7,6 +7,14 @@
   </div>
   {{if .Status}}<p class="note">{{.Status}}</p>{{end}}
   {{if .Next}}<p class="todo"><span class="arr">→</span> {{.Next}}</p>{{end}}
+  {{if and .CanAct .Resolvable}}
+  <div class="acts">
+    {{template "confirm" confirm "Resolve as overtaken" "The episode closes as cancelled — overtaken by events. Nothing is deleted: the lifecycle event and the audit row record who decided." "Yes, resolve it" "/actions/episodes/resolve" .ID}}
+  </div>
+  <p class="note">For work parked on a person, an approval, or an external event whose moment has
+  passed. The transition goes through the episode kernel, so an episode that has moved on since
+  this page loaded refuses it.</p>
+  {{end}}
 </div>
 
 {{with .Turn}}
