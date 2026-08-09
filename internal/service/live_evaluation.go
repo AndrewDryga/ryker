@@ -18,7 +18,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -179,17 +178,25 @@ func EvaluateLiveJSONL(
 			switch {
 			case runErr != nil:
 				result.Detail = "model call: " + runErr.Error()
-				// The provider refusing to run the turn is not the corpus
-				// failing. Classify names the refusals that say nothing about
-				// the answer — a rate limit, an exhausted quota, an outright
-				// refusal — and those leave the case unevaluated rather than
-				// failed. The run still fails; it just says which.
-				switch provider.Classify(runErr.Error()).Kind {
-				case provider.KindRateLimit,
-					provider.KindUsageLimit,
-					provider.KindProviderRefused:
-					result.Unevaluated = true
-				}
+				// A turn that never produced an answer leaves the case
+				// unevaluated rather than failed — there is nothing to score,
+				// and calling it a failure sends a reader to look for a
+				// regression that may not exist. Everything reaching here from
+				// Coop is that: GetSession and SubmitTurn are transport, and a
+				// model that answers badly answers, so its response comes back
+				// and fails scoring below.
+				//
+				// The exception is the case that was wrong before anything was
+				// attempted. A corpus entry with no input is a defect in the
+				// corpus, and reporting it as "the provider refused" would hide
+				// the one thing the maintainer can fix.
+				//
+				// This began as an allowlist of provider refusals, which was
+				// too narrow by exactly the case that proved it: a socket that
+				// vanished mid-run when a deploy restarted Coop was reported as
+				// four regressed lessons. Either way the run fails; only the
+				// sentence changes, and the sentence is the point.
+				result.Unevaluated = !errors.Is(runErr, errEvaluationCaseInvalid)
 			case cleanupErr != nil:
 				result.Detail = "session cleanup: " + cleanupErr.Error()
 			default:
@@ -790,6 +797,11 @@ func filterEvaluationCases(
 	return result
 }
 
+// errEvaluationCaseInvalid marks a corpus entry that was malformed before any
+// model was asked. It is a defect in the corpus, not in the provider, and it is
+// the one class of run error that must still read as a failure.
+var errEvaluationCaseInvalid = errors.New("invalid evaluation case")
+
 func runLiveEvaluationCase(
 	ctx context.Context,
 	cfg config.Config,
@@ -801,10 +813,12 @@ func runLiveEvaluationCase(
 	episodeReplay bool,
 ) (string, string, int, WorkspaceAssessment, time.Duration, error) {
 	if strings.TrimSpace(testCase.Name) == "" {
-		return "", "", 0, WorkspaceAssessment{}, 0, errors.New("case has no name")
+		return "", "", 0, WorkspaceAssessment{}, 0,
+			fmt.Errorf("%w: case has no name", errEvaluationCaseInvalid)
 	}
 	if strings.TrimSpace(testCase.Input) == "" {
-		return "", "", 0, WorkspaceAssessment{}, 0, errors.New("live case has no input")
+		return "", "", 0, WorkspaceAssessment{}, 0,
+			fmt.Errorf("%w: live case has no input", errEvaluationCaseInvalid)
 	}
 	repositoryKey := strings.TrimSpace(testCase.Repository)
 	if repositoryKey == "" {
