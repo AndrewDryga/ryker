@@ -23,6 +23,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/AndrewDryga/responder/internal/service"
 )
 
 // acknowledgedCoverageGaps are capabilities from the matrix with no replay
@@ -217,6 +219,51 @@ func TestFixturesClaimOnlyRealCapabilities(t *testing.T) {
 			t.Errorf(
 				"fixtures %v claim capability %q, which is not in the matrix in section 24",
 				fixtures, capability,
+			)
+		}
+	}
+}
+
+// A promoted correction labels itself, so the labels it can produce must be
+// matrix rows too.
+//
+// Nothing else checks this. The promoter does not read section 24, and the tag
+// it writes reaches the corpus without a human choosing it, so a slug that
+// drifts from the document — or is empty, which is what shipped — becomes a
+// fixture claiming coverage of a capability nobody has. Checked here because
+// this is the only test that already parses the matrix.
+func TestPromotedCorrectionsClaimRealCapabilities(t *testing.T) {
+	matrix := make(map[string]bool)
+	for _, capability := range matrixCapabilities(t) {
+		matrix[capability] = true
+	}
+	promotable := service.PromotableCapabilities()
+	if len(promotable) == 0 {
+		t.Fatal("promotion can label nothing; every promoted fixture would claim an empty capability")
+	}
+	for _, capability := range promotable {
+		if !matrix[capability] {
+			t.Errorf(
+				"promotion can tag a fixture %q, which is not a capability in the matrix in section 24",
+				capability,
+			)
+		}
+	}
+	if !matrix[service.DefaultFixtureCapability()] {
+		t.Errorf(
+			"the default promotion tag %q is not a capability in the matrix in section 24",
+			service.DefaultFixtureCapability(),
+		)
+	}
+	// Promotion must not be able to close a gap on its own. Deleting a line
+	// from acknowledgedCoverageGaps is a claim that a capability is proven, and
+	// an automatic label is not evidence for it.
+	for _, capability := range promotable {
+		if reason, gap := acknowledgedCoverageGaps[capability]; gap {
+			t.Errorf(
+				"promotion can tag a fixture %q, which is an acknowledged gap (%q); "+
+					"an automatic label would close a gap nobody proved",
+				capability, reason,
 			)
 		}
 	}

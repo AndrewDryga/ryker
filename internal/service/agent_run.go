@@ -1584,6 +1584,61 @@ func CorrectionClasses() []string {
 	}
 }
 
+// PromotableCapabilities lists every capability slug a promoted correction can
+// claim, so the coverage ratchet can check them against the matrix it parses
+// out of the design document.
+//
+// Same reason CorrectionClasses exists: a slug that drifts from section 24 of
+// docs/architecture-next.md is a fixture claiming coverage of a capability
+// nobody has, and the ratchet is the only thing that would notice.
+func PromotableCapabilities() []string {
+	return []string{
+		capabilityConversation,
+		capabilityIncidents,
+		capabilityEngineering,
+	}
+}
+
+// DefaultFixtureCapability is what a correction gets when its run mode says
+// nothing more specific, including a candidate queued before the recording site
+// labeled anything. It is the entry point every Slack turn shares.
+func DefaultFixtureCapability() string { return capabilityConversation }
+
+// The three section 24 rows a run's own mode can name without guessing.
+const (
+	capabilityConversation = "mentions-dms-and-proactive-messages"
+	capabilityIncidents    = "incidents"
+	capabilityEngineering  = "engineering-changes"
+)
+
+// fixtureCapability names the capability a corrected run exercised.
+//
+// Every fixture promoted before this existed carries "capability:" with nothing
+// after it, because the recording site never set the field the corpus format
+// requires. An empty slug is not a missing tag: it is a claim to cover a
+// capability that is not in the matrix, which is why the coverage ratchet
+// rejects it and why the promoted cases could never be moved anywhere the
+// ratchet looks.
+//
+// The run's mode is the finest label available here without guessing. It names
+// the entry point rather than the subject — a triage run that spent its whole
+// life building an Emisar runbook is tagged as a conversation, not as
+// runbook-control-plane-work — and that is deliberately the conservative
+// direction. All three reachable slugs are capabilities the corpus already
+// covers, so promotion can never close an acknowledged coverage gap by itself.
+// Closing a gap stays a human act, performed while reading the promotion diff,
+// which is the same moment the reviewer can sharpen the tag.
+func fixtureCapability(run core.AgentRun) string {
+	switch run.Mode {
+	case core.AgentRunEngineeringTask:
+		return capabilityEngineering
+	case core.AgentRunIncident:
+		return capabilityIncidents
+	default:
+		return DefaultFixtureCapability()
+	}
+}
+
 // requeueWithCorrection sends a result back to the model and records that it
 // happened.
 //
@@ -1620,6 +1675,7 @@ func (s *Service) requeueWithCorrection(
 	if err := s.store.RecordFixtureCandidate(ctx, core.FixtureCandidate{
 		EpisodeID:       run.EpisodeID,
 		RunID:           run.ID,
+		Capability:      fixtureCapability(run),
 		CorrectionClass: string(class),
 		Correction:      s.sanitizeText(correction),
 	}); err != nil && s.log != nil {

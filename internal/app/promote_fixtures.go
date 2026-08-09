@@ -85,8 +85,23 @@ func runPromoteFixtures(args []string, stdout, stderr io.Writer) error {
 			continue
 		}
 		present[candidate.EpisodeID] = true
+		// Candidates queued before the recording site labeled them carry no
+		// capability at all. Promoting one as-is is what produced the four
+		// fixtures tagged "capability:", so an unlabeled candidate takes the
+		// same conservative default the recording site now uses — and says so,
+		// because a default nobody is told about is how the empty tag survived
+		// a hand review of sixteen corrections.
+		capability := strings.TrimSpace(candidate.Capability)
+		if capability == "" {
+			capability = service.DefaultFixtureCapability()
+			fmt.Fprintf(stderr,
+				"%s was queued before corrections were labeled; tagging it %q — "+
+					"sharpen it in the diff if the episode proves something more specific\n",
+				candidate.EpisodeID, capability,
+			)
+		}
 		fixture, err := recordEpisodeFixture(
-			ctx, storeEpisodeSource{store: st}, cfg, candidate.EpisodeID, candidate.Capability, "",
+			ctx, storeEpisodeSource{store: st}, cfg, candidate.EpisodeID, capability, "",
 		)
 		if err != nil {
 			fmt.Fprintf(stderr, "skipped %s: %v\n", candidate.EpisodeID, err)

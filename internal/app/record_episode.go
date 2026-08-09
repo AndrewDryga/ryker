@@ -95,6 +95,16 @@ func recordEpisodeFixture(
 	capability string,
 	name string,
 ) (service.EvaluationCase, error) {
+	// Guarded here rather than only in the flag parser because there are two
+	// callers and only one of them had a check. Promotion went straight past it
+	// and wrote four fixtures tagged "capability:" with nothing after it, which
+	// the coverage ratchet reads as a claim to cover a capability that does not
+	// exist in the matrix.
+	if strings.TrimSpace(capability) == "" {
+		return service.EvaluationCase{}, errors.New(
+			"a replay fixture needs a capability from section 24; an empty tag claims coverage of nothing",
+		)
+	}
 	episode, err := source.GetWorkEpisode(ctx, episodeID)
 	if err != nil {
 		return service.EvaluationCase{}, err
