@@ -449,6 +449,17 @@ func TestAuthoringAHealthRunbookIsNotAHealthAssessment(t *testing.T) {
 	if plain.Effort != core.EffortOperationalAssessment {
 		t.Fatalf("plain health request effort = %q", plain.Effort)
 	}
+
+	// "build" is what CI calls a run and "make" is mostly the filler in "make
+	// sure", so neither counts as authoring. Otherwise an ordinary question
+	// about a workflow would suppress the health contract it needs.
+	incidental := svc.episodeForWatchedInput(core.SlackInput{
+		Kind: "mention",
+		Text: "The build for the deploy workflow failed. Make sure the health of our infrastructure is fine.",
+	}, decisionpkg.WatchTurnState{})
+	if incidental.Effort != core.EffortOperationalAssessment {
+		t.Fatalf("incidental workflow mention effort = %q", incidental.Effort)
+	}
 }
 
 func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {

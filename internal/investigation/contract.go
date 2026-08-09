@@ -224,17 +224,21 @@ func episodeConclusionKind(episode core.WorkEpisode) string {
 // five fields a blocker needs. The reported error was about missing blocker
 // fields; the actual mistake was made before the model ever saw the request.
 //
-// The verbs are deliberately restricted to authoring. "Run the published health
+// The verbs are deliberately restricted to authoring, and deliberately exclude
+// two that would read as authoring anywhere else. "Run the published health
 // review runbook and tell me if production is healthy" names the same artifact
-// and is a genuine health assessment, so execution words must not match here.
+// and is a genuine health assessment, so execution words must not match. Nor
+// may "build", which is what CI calls a run, or "make", which is mostly the
+// filler in "make sure" — either would let an ordinary question about a
+// workflow's health suppress the health contract it needs.
 func ReusableArtifactAuthoring(text string) bool {
 	text = strings.ToLower(strings.Join(strings.Fields(text), " "))
 	if !containsAny(text, "runbook", "playbook", "workflow") {
 		return false
 	}
 	return containsAny(text,
-		"create", "author", "write", "build", "draft", "reusable",
-		"extend", "edit", "make ", "rewrite", "revise",
+		"create", "author", "write", "draft", "reusable",
+		"extend", "edit", "rewrite", "revise",
 	)
 }
 
