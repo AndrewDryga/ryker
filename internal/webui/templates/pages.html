@@ -33,7 +33,7 @@ Only the work columns below represent jobs Responder still needs to process.</p>
       <td class="mono num">{{.Running}}</td><td class="mono num">{{.Scheduled}}</td>
       <td class="mono num">{{.Retrying}}{{if .RetryAttempts}} <span class="note">({{.RetryAttempts}} attempts)</span>{{end}}</td>
       <td class="mono num">{{.Failed}}</td>
-      <td class="note">{{if .Next}}{{since .Next}}{{else}}—{{end}}</td>
+      <td class="note">{{if .HasNext}}{{since .Next}}{{else}}—{{end}}</td>
       <td>{{if .Error}}{{truncate 90 .Error}}{{else}}<span class="note">—</span>{{end}}</td></tr>
   {{end}}
 </table>

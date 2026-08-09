@@ -222,6 +222,9 @@ func TestLanesSeparatePollersFromActualWork(t *testing.T) {
 	if !strings.Contains(body, "not queued tasks") || strings.Contains(body, ">Pending<") {
 		t.Errorf("overview still presents pollers as pending tasks: %s", body)
 	}
+	if strings.Contains(body, ">never<") {
+		t.Errorf("an empty next-work cell is presented as an event that never happens: %s", body)
+	}
 }
 
 // migratedReader opens the dashboard against a database the store itself

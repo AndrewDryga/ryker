@@ -169,6 +169,7 @@ type Lane struct {
 	Retrying, RetryAttempts                    int
 	Error                                      string
 	Next                                       time.Time
+	HasNext                                    bool
 }
 
 func (r *Reader) Lanes(ctx context.Context) ([]Lane, error) {
@@ -196,6 +197,7 @@ func (r *Reader) Lanes(ctx context.Context) ([]Lane, error) {
 			)
 			if next.Valid {
 				item.Next = parseStamp(next.String)
+				item.HasNext = !item.Next.IsZero()
 			}
 			switch {
 			case item.Failed > 0:
