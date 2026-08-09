@@ -1,0 +1,83 @@
+{{define "incident"}}
+<p class="note"><a href="/episodes">← all episodes</a></p>
+{{template "problems" .Errs}}
+<div class="panel">
+  <div class="title"><strong>{{.Title}}</strong></div>
+  <div class="meta">
+    <span class="pill{{if eq .Status "closed"}} good{{end}}">{{.Status}}</span>
+    {{.Kind}} · {{.Repository}} · {{.Channel}} · opened {{stamp .Created}}
+  </div>
+</div>
+
+<h2>What was asked</h2>
+{{if .Signals}}
+<div class="rows">
+  {{range .Signals}}
+  <div class="row">
+    <div class="title">{{.Title}}</div>
+    <div class="meta"><span class="pill">{{.Status}}</span> arrived by {{.Route}}{{if .Severity}} · {{.Severity}}{{end}} · {{stamp .Received}}</div>
+    {{if .Summary}}<div class="what">{{.Summary}}</div>{{end}}
+    {{if .URL}}<div class="meta"><a href="{{.URL}}">the source →</a></div>{{end}}
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">No signal is on record. The room was opened without one, or the signal
+was deleted with its retention window.</p>{{end}}
+
+<h2>What was said <span class="note">{{len .Moments}}</span></h2>
+{{if .Moments}}
+<div class="timeline">
+  {{range .Moments}}
+  <div class="ev">
+    <div class="when">{{stamp .At}} · {{.Whom}}</div>
+    <div class="kind">{{.Kind}}</div>
+    <div class="what"><strong>{{.Title}}</strong>{{if .Detail}} — {{truncate 400 .Detail}}{{end}}</div>
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">Nothing was recorded on the room's timeline.</p>{{end}}
+
+<h2>What shipped</h2>
+{{with .Published}}
+{{if .Repository}}
+<table>
+  <tr><th>Pull request</th><th>Repository</th><th>Branch</th><th>Commit</th><th>Publication</th><th>PR</th><th>Checks</th></tr>
+  <tr><td>{{if .URL}}<a href="{{.URL}}">#{{.PRNumber}} →</a>{{else}}<span class="note">not opened</span>{{end}}</td>
+      <td class="mono">{{.Repository}}</td><td class="mono">{{.Head}} → {{.Base}}</td>
+      <td class="mono">{{.Commit}}</td>
+      <td><span class="pill{{if eq .State "published"}} good{{end}}">{{.State}}</span></td>
+      <td><span class="pill{{if eq .PRState "merged"}} good{{end}}">{{.PRState}}</span></td>
+      <td><span class="pill{{if eq .Checks "passing"}} good{{else if eq .Checks "failing"}} bad{{end}}">{{.Checks}}</span></td></tr>
+</table>
+{{if .Error}}<p class="unwired"><span class="tag">Last error</span>{{.Error}}</p>{{end}}
+{{if .Events}}
+<div class="timeline">
+  {{range .Events}}
+  <div class="ev">
+    <div class="when">{{stamp .At}}</div>
+    <div class="kind">{{.Kind}} · <span class="{{if eq .Title "failed"}}rep{{end}}">{{.Title}}</span></div>
+    <div class="what">{{.Detail}}</div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{else}}<p class="empty">Nothing was published from this room. A read-only investigation ends in a
+reply; only an engineering task opens a pull request.</p>{{end}}
+{{end}}
+
+<h2>Work in this room <span class="note">{{len .Episodes}}</span></h2>
+{{if .Episodes}}
+<div class="rows">
+  {{range .Episodes}}
+  <a class="row" href="/episodes/{{.ID}}">
+    <div class="title">{{truncate 110 .Title}}</div>
+    <div class="meta"><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "completed"}} good{{end}}">{{.State}}</span> {{.Kind}} · {{since .Updated}}</div>
+  </a>
+  {{end}}
+</div>
+{{else}}<p class="empty">No episode ran in this room.</p>{{end}}
+
+<h2>Audit trail <span class="note">{{len .Audit}}</span></h2>
+{{if .Audit}}{{template "auditrows" .Audit}}
+{{else}}<p class="empty">Nothing was audited against this room.</p>{{end}}
+{{end}}

@@ -9,7 +9,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 )
 
 // Reader is the dashboard's own read-only view of the database.
@@ -19,7 +21,10 @@ import (
 // dashboard should never be able to hurt the thing it observes. And the queries
 // here are presentation shapes that would otherwise grow internal/store, which
 // is already at its line budget.
-type Reader struct{ db *sql.DB }
+type Reader struct {
+	db       *sql.DB
+	channels sync.Map
+}
 
 func OpenReader(path string) (*Reader, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(2000)")
@@ -123,19 +128,57 @@ func (r *Reader) Episode(ctx context.Context, id string) (Item, error) {
 }
 
 // channelName trades the raw id for the name, because "#C0TENANTOPS" tells a
-// reader nothing. Cached for the life of the request set; the membership table
-// is small and changes rarely.
+// reader nothing.
 func (r *Reader) channelName(ctx context.Context, id string) string {
 	if id == "" || !r.live() {
 		return ""
 	}
+	if name, known := r.channelLookup(ctx, id); known {
+		return "#" + name
+	}
+	return "#" + id
+}
+
+// channelLookup answers from a cache the earlier version only claimed to have.
+//
+// It is called once per row and now again for every id embedded in free text,
+// so a page of forty audit rows was forty round trips for a table with a dozen
+// entries in it. Names are cached for the life of the process because a channel
+// rename is not something this dashboard has to notice within a page load.
+func (r *Reader) channelLookup(ctx context.Context, id string) (string, bool) {
+	if cached, ok := r.channels.Load(id); ok {
+		name, _ := cached.(string)
+		return name, name != ""
+	}
 	var name string
 	if err := r.db.QueryRowContext(ctx,
 		`SELECT channel_name FROM slack_channel_memberships WHERE channel_id = ?`, id).
-		Scan(&name); err != nil || name == "" {
-		return "#" + id
+		Scan(&name); err != nil {
+		name = ""
 	}
-	return "#" + name
+	r.channels.Store(id, name)
+	return name, name != ""
+}
+
+// slackChannelID matches the raw ids that leak into stored free text.
+//
+// An audit detail reading "channel=C0TENANTX01 participation=proactive" says
+// which setting changed and not which channel it changed for, and a publication
+// note citing "Slack message C0TENANTOPS/1785885550.501459" is a coordinate
+// nobody can read. Only ids with a known name are swapped: turning an unknown
+// id into "#C0TENANTX01" would dress a failed lookup as a resolved one.
+var slackChannelID = regexp.MustCompile(`\bC[A-Z0-9]{8,}\b`)
+
+func (r *Reader) resolveChannels(ctx context.Context, text string) string {
+	if !r.live() || !strings.Contains(text, "C") {
+		return text
+	}
+	return slackChannelID.ReplaceAllStringFunc(text, func(id string) string {
+		if name, known := r.channelLookup(ctx, id); known {
+			return "#" + name
+		}
+		return id
+	})
 }
 
 // cleanTitle strips the source message's own markup. A title is usually the
@@ -146,7 +189,14 @@ func cleanTitle(title string) string {
 	cleaned = strings.TrimSpace(bareLink.ReplaceAllString(cleaned, ""))
 	cleaned = strings.NewReplacer("*", "", "_", "", "`", "").Replace(cleaned)
 	cleaned = strings.Join(strings.Fields(cleaned), " ")
-	if cleaned == "" {
+	// Punctuation left over from stripping is not a title. A Slack permalink
+	// posted with the same URL as its own link text arrives truncated, so the
+	// closing bracket is missing, both halves strip as bare links, and the
+	// separator survives alone: one row of the episode list was the single
+	// character "|".
+	if !strings.ContainsFunc(cleaned, func(symbol rune) bool {
+		return unicode.IsLetter(symbol) || unicode.IsDigit(symbol)
+	}) {
 		return "Untitled work"
 	}
 	return cleaned
@@ -155,6 +205,28 @@ func cleanTitle(title string) string {
 var (
 	slackLink = regexp.MustCompile(`<https?://[^|>]+\|([^>]*)>`)
 	bareLink  = regexp.MustCompile(`<?https?://[^\s|>]+>?`)
+)
+
+// The counted queries are named rather than written inline at each call site.
+//
+// Count cannot report a failure — it has one return value and a broken query
+// comes back as 0, which on this dashboard is supposed to mean "none" and not
+// "could not ask". That is the same defect as the swallowed evidence error,
+// only quieter, because a zero looks like an answer. Naming them lets one test
+// run every counter against a migrated schema; countedQueries below is the list
+// that test walks, and a new counter belongs in both places.
+const (
+	countNeedsDecision = `SELECT COUNT(*) FROM work_episodes
+	  WHERE lifecycle_state IN ('blocked','waiting_operator','waiting_approval')`
+	countFailedRuns = `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`
+	countInFlight   = `SELECT COUNT(*) FROM work_episodes
+	  WHERE lifecycle_state IN ('accepted','acknowledged','planning','working','retrying','verifying')`
+	countRetained     = `SELECT COUNT(*) FROM coop_cleanup WHERE state = 'blocked'`
+	countEpisodes     = `SELECT COUNT(*) FROM work_episodes`
+	countTerminalRuns = `SELECT COUNT(*) FROM agent_runs WHERE terminal_state <> ''`
+	countCorrections  = `SELECT COUNT(*) FROM fixture_candidates WHERE correction_class = ?`
+	countAudited      = `SELECT COUNT(*) FROM audit_events`
+	countAuditKind    = `SELECT COUNT(*) FROM audit_events WHERE kind = ?`
 )
 
 func (r *Reader) Count(ctx context.Context, query string, args ...any) int {
@@ -334,55 +406,38 @@ func collapseEvents(events []Event) []Event {
 	return folded
 }
 
+// EvidenceRow is one observation the episode recorded.
+//
+// Relation is shown because "supports" and "contradicts" are the whole point of
+// the ledger: without it a contradicting observation reads as another reason to
+// believe the claim it was recorded to refute.
 type EvidenceRow struct {
+	ClaimID     string
 	Claim       string
 	Observation string
+	Relation    string
 	Source      string
+	Freshness   string
 	Confidence  string
 }
 
 func (r *Reader) Evidence(ctx context.Context, episodeID string) ([]EvidenceRow, error) {
-	if !r.live() {
-		return nil, nil
-	}
-	rows, err := r.db.QueryContext(ctx, `
-	  SELECT COALESCE(claim,''), COALESCE(observation,''),
-	         COALESCE(source_name,''), COALESCE(confidence,'')
-	  FROM evidence WHERE episode_id = ? LIMIT 100`, episodeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []EvidenceRow{}
-	for rows.Next() {
-		var item EvidenceRow
-		if err := rows.Scan(&item.Claim, &item.Observation, &item.Source, &item.Confidence); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
-type ManifestRow struct {
-	Provider      string
-	Model         string
-	Effort        string
-	PromptVersion string
-}
-
-func (r *Reader) Manifest(ctx context.Context, episodeID string) ManifestRow {
-	var row ManifestRow
-	if !r.live() {
-		return row
-	}
-	_ = r.db.QueryRowContext(ctx, `
-	  SELECT COALESCE(provider,''), COALESCE(model,''),
-	         COALESCE(reasoning_effort,''), COALESCE(prompt_version,'')
-	  FROM context_manifests WHERE episode_id = ?
-	  ORDER BY version DESC LIMIT 1`, episodeID).
-		Scan(&row.Provider, &row.Model, &row.Effort, &row.PromptVersion)
-	return row
+	return collect(ctx, r, `
+	  SELECT COALESCE(claim_id,''), COALESCE(claim,''), COALESCE(observation,''),
+	         COALESCE(relation,''), COALESCE(source_name,''), COALESCE(freshness,''),
+	         COALESCE(confidence,'')
+	  FROM evidence WHERE source_input IN (`+episodeSources+`)
+	  ORDER BY created_at LIMIT 100`,
+		func(rows *sql.Rows) (EvidenceRow, error) {
+			var item EvidenceRow
+			err := rows.Scan(&item.ClaimID, &item.Claim, &item.Observation, &item.Relation,
+				&item.Source, &item.Freshness, &item.Confidence)
+			// An observation sourced from "HCP Terraform run notifications in
+			// C0TENANTOPS" names the wrong half of where it came from.
+			item.Source = r.resolveChannels(ctx, item.Source)
+			item.Observation = r.resolveChannels(ctx, item.Observation)
+			return item, err
+		}, episodeID, episodeID)
 }
 
 type FailureGroup struct {
@@ -518,7 +573,11 @@ func (r *Reader) Channels(ctx context.Context) ([]ChannelConfigRow, error) {
 		if err := rows.Scan(&item.Channel, &item.Mode, &item.Repository); err != nil {
 			return nil, err
 		}
-		item.Channel = "#" + item.Channel
+		// Through channelName like everywhere else. This page built the "#" by
+		// hand and rendered "#C0TENANTENG" for every configured channel, which
+		// is the one page an operator opens to check which channel a setting
+		// belongs to.
+		item.Channel = r.channelName(ctx, item.Channel)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -555,8 +614,10 @@ func (r *Reader) MemoryEntries(ctx context.Context) ([]MemoryEntry, error) {
 			&scopeKey, &item.Recalls, &expires, &recalled); err != nil {
 			return nil, err
 		}
+		// A memory scoped to a channel showed "channel C0TENANTX04", which names
+		// the scope and hides the channel.
 		if scopeKey != "" {
-			item.Scope += " " + scopeKey
+			item.Scope += " " + r.resolveChannels(ctx, scopeKey)
 		}
 		item.Value = strings.Trim(item.Value, `"`)
 		item.Expires, item.LastRecalled = parseStamp(expires), parseStamp(recalled)
@@ -593,7 +654,7 @@ func (r *Reader) Rollups(ctx context.Context) ([]Rollup, error) {
 		if err := rows.Scan(&kind, &key, &item.Sources, &item.Recalls, &from, &to); err != nil {
 			return nil, err
 		}
-		item.Scope = kind + " " + key
+		item.Scope = kind + " " + r.resolveChannels(ctx, key)
 		item.From, item.To = parseStamp(from), parseStamp(to)
 		items = append(items, item)
 	}

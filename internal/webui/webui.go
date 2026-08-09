@@ -39,6 +39,7 @@ var pages = []Page{
 	{"episodes", "Episodes", "What did it do, and why?"},
 	{"failures", "Failures", "What is broken, and can I retry it?"},
 	{"decisions", "Decisions", "What did it choose, and was it right?"},
+	{"audit", "Audit", "Who did what, and what came of it?"},
 	{"memory", "Memory", "What does it believe, and where did that come from?"},
 	{"configuration", "Configuration", "How is it set up?"},
 	{"usage", "Usage", "What is it spending?"},
@@ -63,7 +64,7 @@ type Renderer struct {
 func NewRenderer() (*Renderer, error) {
 	funcs := template.FuncMap{
 		"since":    humanSince,
-		"stamp":    func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") },
+		"stamp":    humanStamp,
 		"pct":      func(part, whole int) int { return percent(part, whole) },
 		"truncate": func(limit int, value string) string { return truncate(value, limit) },
 		"lower":    strings.ToLower,
@@ -117,6 +118,19 @@ func NewShell(active, deployment string, content any) Shell {
 		}
 	}
 	return shell
+}
+
+// humanStamp refuses to print a zero time as a date.
+//
+// An attempt that was cancelled before it began has no started_at, and
+// formatting the zero value put "0001-01-01 00:00 UTC" in the Started column —
+// a timestamp that looks like a fact and is the absence of one. Same rule as
+// every other panel here: nothing invented where there is no data.
+func humanStamp(value time.Time) string {
+	if value.IsZero() {
+		return "—"
+	}
+	return value.UTC().Format("2006-01-02 15:04 UTC")
 }
 
 func humanSince(value time.Time) string {

@@ -55,10 +55,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", h.overview)
 	mux.HandleFunc("GET /episodes", h.episodes)
 	mux.HandleFunc("GET /episodes/{id}", h.episode)
+	mux.HandleFunc("GET /incidents/{id}", h.incident)
 	mux.HandleFunc("GET /failures", h.failures)
 	mux.HandleFunc("GET /failures/{key}", h.failure)
 	mux.HandleFunc("GET /conversations/{channel}/{thread}", h.conversation)
 	mux.HandleFunc("GET /decisions", h.decisions)
+	mux.HandleFunc("GET /audit", h.audit)
+	mux.HandleFunc("GET /audit/{kind}", h.auditKind)
 	mux.HandleFunc("GET /memory", h.memory)
 	mux.HandleFunc("GET /configuration", h.configuration)
 	mux.HandleFunc("GET /usage", h.usage)
@@ -81,21 +84,40 @@ func (h *Handler) page(w http.ResponseWriter, slug, body string, content any) {
 	h.render.Render(w, body, NewShell(slug, h.deployment, content))
 }
 
+// problems collects what a page could not load.
+//
+// A read error is reported, not swallowed. Discarding one rendered "98 failed
+// work items" directly above "No failed work", and a second discarded error —
+// an evidence query against a column that does not exist — reported "No
+// evidence was recorded" on every episode in the database. Each section names
+// itself so the page says which part is missing rather than going quiet.
+type problems []string
+
+func (p *problems) note(section string, err error) {
+	if err != nil {
+		*p = append(*p, section+": "+err.Error())
+	}
+}
+
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	blocked, _ := h.reader.Blocked(ctx, 6)
+	var failed problems
+	lanes, err := h.reader.Lanes(ctx)
+	failed.note("queues", err)
 	h.page(w, "", "overview", struct {
 		NeedsYou, Failed, InFlight, Retained int
 		Blocked                              []Item
+		Lanes                                []Lane
+		Errs                                 problems
 		Deployment, Binary, Schema           string
 		Ready                                bool
 	}{
-		NeedsYou: h.reader.Count(ctx, `SELECT COUNT(*) FROM work_episodes
-		  WHERE lifecycle_state IN ('blocked','waiting_operator','waiting_approval')`),
-		Failed: h.reader.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`),
-		InFlight: h.reader.Count(ctx, `SELECT COUNT(*) FROM work_episodes
-		  WHERE lifecycle_state IN ('accepted','acknowledged','planning','working','retrying','verifying')`),
-		Retained:   h.reader.Count(ctx, `SELECT COUNT(*) FROM coop_cleanup WHERE state = 'blocked'`),
+		Lanes: lanes, Errs: failed,
+		NeedsYou:   h.reader.Count(ctx, countNeedsDecision),
+		Failed:     h.reader.Count(ctx, countFailedRuns),
+		InFlight:   h.reader.Count(ctx, countInFlight),
+		Retained:   h.reader.Count(ctx, countRetained),
 		Blocked:    blocked,
 		Deployment: h.deployment, Binary: h.binary, Schema: h.schema, Ready: h.ready(),
 	})
@@ -104,10 +126,36 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) episodes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	episodes, _ := h.reader.Episodes(ctx, 100)
+	var failed problems
+	rooms, err := h.reader.Rooms(ctx)
+	failed.note("incident rooms", err)
 	h.page(w, "episodes", "episodes", struct {
 		Episodes []Item
+		Rooms    []Room
+		Errs     problems
 		Total    int
-	}{episodes, h.reader.Count(ctx, `SELECT COUNT(*) FROM work_episodes`)})
+	}{episodes, rooms, failed, h.reader.Count(ctx, countEpisodes)})
+}
+
+// episodePage is the whole record of one piece of work.
+//
+// Every debugging question in this repository's history is answered here, and
+// until now was answered by running sqlite against a production database.
+type episodePage struct {
+	Item
+	Turn      Turn
+	Events    []Event
+	Claims    []ClaimRow
+	Evidence  []EvidenceRow
+	Coverage  []CoverageRow
+	Manifest  ManifestRow
+	Attempts  []Attempt
+	Delivered []Delivery
+	Audit     []AuditRow
+	Errs      problems
+	Answered  Unwired
+	Omitted   Unwired
+	Usage     Unwired
 }
 
 func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
@@ -118,20 +166,105 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	events, _ := h.reader.Events(ctx, id)
-	evidence, _ := h.reader.Evidence(ctx, id)
-	h.page(w, "episodes", "episode", struct {
-		Item
-		Events   []Event
-		Evidence []EvidenceRow
-		Manifest ManifestRow
-		Usage    Unwired
-	}{
-		Item: item, Events: events, Evidence: evidence,
-		Manifest: h.reader.Manifest(ctx, id),
-		Usage: Unwired{Needs: "Tokens and wall-clock for this episode. Coop parses usage " +
-			"from the provider stream but does not report it, so nothing is persisted per attempt."},
-	})
+	page := episodePage{Item: item}
+	page.Events, err = h.reader.Events(ctx, id)
+	page.Errs.note("timeline", err)
+	page.Turn, err = h.reader.Turn(ctx, id)
+	page.Errs.note("the turn", err)
+	page.Claims, err = h.reader.Claims(ctx, id)
+	page.Errs.note("claims", err)
+	page.Evidence, err = h.reader.Evidence(ctx, id)
+	page.Errs.note("evidence", err)
+	page.Coverage, err = h.reader.Coverage(ctx, id)
+	page.Errs.note("coverage", err)
+	page.Manifest, err = h.reader.Manifest(ctx, id)
+	page.Errs.note("context manifest", err)
+	page.Attempts, err = h.reader.Attempts(ctx, id)
+	page.Errs.note("attempts", err)
+	page.Delivered, err = h.reader.Deliveries(ctx, id)
+	page.Errs.note("delivery", err)
+	page.Audit, err = h.reader.AuditForEpisode(ctx, id)
+	page.Errs.note("audit trail", err)
+	// Both of these gaps were invisible because the page hid them. The manifest
+	// has carried provider, model and reasoning_effort since it was created and
+	// nothing assigned them until recently, so gating the whole section on the
+	// model name printed "No context manifest for this episode" over a manifest
+	// that was right there with six references in it.
+	page.Answered = Unwired{Needs: "Which provider and model answered, and at what reasoning " +
+		"effort. The manifest has always carried a column for each and nothing assigned them " +
+		"until the session's effective target started being recorded, so an attempt frozen " +
+		"before that reads blank and what ran cannot be recovered."}
+	page.Omitted = Unwired{Needs: "What was left out of this prompt and why. The manifest " +
+		"carries an omitted_reason per reference and an omissions list, and the service that " +
+		"freezes the manifest sets neither — it records what it included and has no path that " +
+		"records what it dropped. Every reference listed above is one that went in."}
+	page.Usage = Unwired{Needs: "Tokens and wall-clock for this episode. Coop parses usage " +
+		"from the provider stream but does not report it, so nothing is persisted per attempt."}
+	h.page(w, "episodes", "episode", page)
+}
+
+// incident opens the room a whole conversation of work happened in: the ask
+// that started it, what was said back, and the pull request that came out.
+func (h *Handler) incident(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	room, err := h.reader.Room(ctx, id)
+	if err != nil || room.ID == "" {
+		http.NotFound(w, r)
+		return
+	}
+	page := struct {
+		Room
+		Signals   []Signal
+		Moments   []Moment
+		Published Publication
+		Episodes  []Item
+		Audit     []AuditRow
+		Errs      problems
+	}{Room: room}
+	page.Signals, err = h.reader.Signals(ctx, id)
+	page.Errs.note("signals", err)
+	page.Moments, err = h.reader.Moments(ctx, id)
+	page.Errs.note("timeline", err)
+	page.Published, err = h.reader.Publication(ctx, id)
+	page.Errs.note("publication", err)
+	page.Episodes, err = h.reader.EpisodesForIncident(ctx, id)
+	page.Errs.note("episodes", err)
+	page.Audit, err = h.reader.AuditForIncident(ctx, id)
+	page.Errs.note("audit trail", err)
+	h.page(w, "episodes", "incident", page)
+}
+
+func (h *Handler) audit(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var failed problems
+	kinds, err := h.reader.AuditKinds(ctx)
+	failed.note("kinds", err)
+	recent, err := h.reader.AuditRecent(ctx, 40)
+	failed.note("recent activity", err)
+	h.page(w, "audit", "audit", struct {
+		Kinds  []AuditGroup
+		Recent []AuditRow
+		Errs   problems
+		Total  int
+	}{kinds, recent, failed, h.reader.Count(ctx, countAudited)})
+}
+
+func (h *Handler) auditKind(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	kind := r.PathValue("kind")
+	if !h.reader.KnownAuditKind(ctx, kind) {
+		http.NotFound(w, r)
+		return
+	}
+	var failed problems
+	events, err := h.reader.AuditOfKind(ctx, kind)
+	failed.note("events", err)
+	h.page(w, "audit", "auditkind", struct {
+		Kind   string
+		Events []AuditRow
+		Errs   problems
+	}{kind, events, failed})
 }
 
 func (h *Handler) failures(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +282,7 @@ func (h *Handler) failures(w http.ResponseWriter, r *http.Request) {
 		Groups []FailureGroup
 		Total  int
 		Err    string
-	}{groups, h.reader.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`), message})
+	}{groups, h.reader.Count(ctx, countFailedRuns), message})
 }
 
 // failure opens one grouped cause. A group that cannot be opened is a report,
@@ -201,11 +334,10 @@ type rate struct {
 func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	corrections, _ := h.reader.Corrections(ctx)
-	total := h.reader.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE terminal_state <> ''`)
+	total := h.reader.Count(ctx, countTerminalRuns)
 	rates := []rate{}
 	for _, class := range []string{"unreadable", "incomplete", "rejected"} {
-		count := h.reader.Count(ctx,
-			`SELECT COUNT(*) FROM fixture_candidates WHERE correction_class = ?`, class)
+		count := h.reader.Count(ctx, countCorrections, class)
 		rates = append(rates, rate{class, count, total, percent(count, total)})
 	}
 	feedback, _ := h.reader.Feedback(ctx)

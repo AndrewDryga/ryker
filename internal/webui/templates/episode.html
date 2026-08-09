@@ -1,0 +1,183 @@
+{{define "episode"}}
+<p class="note"><a href="/episodes">← all episodes</a></p>
+{{template "problems" .Errs}}
+<div class="panel">
+  <div class="title"><strong>{{.Title}}</strong></div>
+  <div class="meta">
+    <span class="pill">{{.State}}</span> {{.Channel}} · {{.Kind}} · started {{stamp .Created}}
+  </div>
+  {{if .Status}}<p class="note">{{.Status}}</p>{{end}}
+  {{if .Next}}<p class="todo">→ {{.Next}}</p>{{end}}
+</div>
+
+{{with .Turn}}
+<h2>The turn</h2>
+{{if .RunID}}
+<div class="panel">
+  <div class="meta"><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "completed"}} good{{end}}">{{if .State}}{{.State}}{{else}}no terminal state{{end}}</span>
+    {{.Mode}}{{if .Attention}} · {{.Attention}}{{end}}</div>
+  {{if .Action}}<p><strong>{{.Action}}.</strong> {{.Reason}}</p>{{end}}
+  {{if .Message}}<p>{{.Message}}</p>{{end}}
+  {{if .Unreadable}}<p class="todo">The host could not read this answer: {{.Unreadable}}</p>{{end}}
+  {{if .Error}}<p class="todo">{{.Error}}</p>{{end}}
+  {{if .Operations}}<div class="meta">
+    {{range .Operations}}<span class="pill">{{.Name}} ×{{.Count}}</span> {{end}}
+  </div>{{end}}
+</div>
+{{if .Prose}}<pre class="dump">{{.Prose}}</pre>{{end}}
+{{if .Prompt}}
+<h2>The prompt</h2>
+<pre class="dump">{{.Prompt}}</pre>
+{{else if .PromptDigest}}
+<p class="note">The prompt is recorded as sha256 <span class="mono">{{truncate 16 .PromptDigest}}</span>
+and the text is not retained. Only the engineering-task path keeps it, so the compiled prompt for a
+watch can be compared between attempts but not read back.</p>
+{{end}}
+{{if .Rejections}}
+<h2>Answers the host refused</h2>
+<div class="rows">
+  {{range .Rejections}}
+  <div class="row">
+    <div class="title"><span class="pill bad">{{.Outcome}}</span></div>
+    <div class="meta">{{.Detail}}</div>
+    <div class="meta">{{stamp .At}}</div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{else}}<p class="empty">No agent run is on record for this episode.</p>{{end}}
+{{end}}
+
+<h2>Timeline <span class="note">{{len .Events}} events</span></h2>
+{{if .Events}}
+<div class="timeline">
+  {{range .Events}}
+  <div class="ev">
+    <div class="when">{{stamp .At}} · {{.Actor}}{{if .Elapsed}} · <span class="gap">{{.Elapsed}}</span>{{end}}{{if gt .Attempt 1}} · attempt {{.Attempt}}{{end}}</div>
+    <div class="kind">{{.Kind}}{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}}</div>
+    {{if .Detail}}<div class="what">{{truncate 300 .Detail}}</div>{{end}}
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">No events recorded for this episode.</p>{{end}}
+
+<h2>Claims <span class="note">{{len .Claims}}</span></h2>
+{{if .Claims}}
+<table>
+  <tr><th>Claim</th><th>Verdict</th><th>For</th><th>Against</th><th>What settled it</th></tr>
+  {{range .Claims}}
+  <tr><td class="mono">{{.Claim}}</td>
+      <td><span class="pill{{if eq .Status "supported"}} good{{else if eq .Status "contradicted"}} bad{{else if eq .Status "mixed"}} warn{{end}}">{{.Status}}</span>{{if .Confidence}} <span class="note">{{.Confidence}}</span>{{end}}</td>
+      <td class="mono">{{.Supporting}}</td><td class="mono">{{.Contradicting}}</td>
+      <td>{{truncate 320 .Detail}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No claim was assessed. A conversational reply settles nothing and records
+nothing here; an investigation that reached a verdict would.</p>{{end}}
+
+<h2>Evidence <span class="note">{{len .Evidence}}</span></h2>
+{{if .Evidence}}
+<table>
+  <tr><th>Claim</th><th>Observation</th><th>Relation</th><th>Source</th><th>Freshness</th><th>Confidence</th></tr>
+  {{range .Evidence}}
+  <tr><td>{{if .ClaimID}}<span class="mono">{{.ClaimID}}</span><br>{{end}}{{truncate 90 .Claim}}</td>
+      <td>{{truncate 240 .Observation}}</td>
+      <td><span class="pill{{if eq .Relation "contradicts"}} bad{{end}}">{{.Relation}}</span></td>
+      <td class="mono">{{.Source}}</td><td class="note">{{truncate 60 .Freshness}}</td>
+      <td>{{.Confidence}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No evidence was recorded.</p>{{end}}
+
+<h2>Coverage <span class="note">{{len .Coverage}} layers</span></h2>
+{{if .Coverage}}
+<table>
+  <tr><th>Layer</th><th>Status</th><th>Source</th><th>Detail</th><th>Observed</th></tr>
+  {{range .Coverage}}
+  <tr><td>{{.Layer}}</td>
+      <td><span class="pill{{if eq .Status "healthy"}} good{{else if eq .Status "unhealthy"}} bad{{else if eq .Status "degraded"}} warn{{end}}">{{.Status}}</span></td>
+      <td class="note">{{truncate 60 .Source}}</td><td>{{truncate 320 .Detail}}</td>
+      <td class="note">{{since .Observed}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No layer was assessed. Coverage is what separates "checked and healthy"
+from "nobody looked", so an answer with none behind it rests on the model alone.</p>{{end}}
+
+<h2>What was in the prompt</h2>
+{{with .Manifest}}
+{{if .Version}}
+<table>
+  <tr><th>Prompt</th><th>Contract</th><th>Tools</th><th>Policy</th><th>Manifest</th><th>Frozen</th></tr>
+  <tr><td class="mono">{{.PromptVersion}}</td><td class="mono">{{.Contract}}</td>
+      <td class="mono">{{.ToolSchema}}</td><td class="mono">{{.Preset}}</td>
+      <td class="mono">v{{.Version}}</td><td class="note">{{stamp .Created}}</td></tr>
+</table>
+{{end}}
+{{if .Model}}
+<table>
+  <tr><th>Provider</th><th>Model</th><th>Reasoning effort</th></tr>
+  <tr><td>{{.Provider}}</td><td class="mono">{{.Model}}</td><td>{{.Effort}}</td></tr>
+</table>
+{{end}}
+{{if .Refs}}
+<table>
+  <tr><th>Kind</th><th>What</th><th>Visibility</th><th>Digest</th></tr>
+  {{range .Refs}}
+  <tr><td class="mono">{{.Kind}}</td><td>{{.What}}</td>
+      <td class="note">{{.Visibility}}</td><td class="mono">{{.Digest}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No context manifest was frozen for this episode.</p>{{end}}
+{{if .Omissions}}
+<h2>Left out</h2>
+<div class="rows">{{range .Omissions}}<div class="row">{{.}}</div>{{end}}</div>
+{{end}}
+{{end}}
+{{if .Manifest.Version}}
+{{if not .Manifest.Model}}{{template "unwired" .Answered}}{{end}}
+{{if not .Manifest.Omissions}}{{template "unwired" .Omitted}}{{end}}
+{{end}}
+
+<h2>Attempts <span class="note">{{len .Attempts}}</span></h2>
+{{if .Attempts}}
+<table>
+  <tr><th>#</th><th>State</th><th>Failure class</th><th>Started</th><th>Ended</th><th>Error</th></tr>
+  {{range .Attempts}}
+  <tr><td class="mono">{{.Number}}</td>
+      <td><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "succeeded"}} good{{end}}">{{.State}}</span></td>
+      <td>{{if .Failure}}{{.Failure}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="note">{{stamp .Started}}</td><td class="note">{{stamp .Completed}}</td>
+      <td>{{truncate 160 .Error}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No attempt record. Episodes created before the attempt ledger have none.</p>{{end}}
+
+<h2>Slack delivery <span class="note">{{len .Delivered}}</span></h2>
+{{if .Delivered}}
+<table>
+  <tr><th>Kind</th><th>Operation</th><th>State</th><th>Channel</th><th>Status line</th><th>Tries</th><th>When</th></tr>
+  {{range .Delivered}}
+  <tr><td>{{.Kind}}</td><td>{{.Operation}}</td>
+      <td><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "sent"}} good{{end}}">{{.State}}</span></td>
+      <td>{{.Channel}}</td><td>{{truncate 90 .Status}}</td>
+      <td class="mono">{{.Attempts}}</td><td class="note">{{since .At}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">Nothing queued is still on record. A delivery is deleted once it has been
+sent and passed the operational retention window, so an older episode keeps none.</p>{{end}}
+
+<h2>Audit trail <span class="note">{{len .Audit}}</span></h2>
+{{if .Audit}}
+<table>
+  <tr><th>What</th><th>Outcome</th><th>Actor</th><th>Detail</th><th>When</th></tr>
+  {{range .Audit}}
+  <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td>
+      <td>{{.Outcome}}{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}}</td>
+      <td class="note">{{.Whom}}</td><td>{{truncate 200 .Detail}}</td>
+      <td class="note">{{since .At}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">Nothing was audited against this episode.</p>{{end}}
+
+{{template "unwired" .Usage}}
+{{end}}

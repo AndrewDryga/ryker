@@ -1,0 +1,44 @@
+{{define "audit"}}
+<p class="note">{{.Total}} recorded actions. This is the only place an approval, a saved channel
+configuration, a remembered preference and a refused model answer sit in one sequence, with who did
+it and what came of it.</p>
+{{template "problems" .Errs}}
+
+<h2>By kind</h2>
+{{if .Kinds}}
+<table>
+  <tr><th>Kind</th><th>Count</th><th>Outcomes</th><th>Most recent</th></tr>
+  {{range .Kinds}}
+  <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td><td class="mono">{{.Count}}</td>
+      <td class="note">{{truncate 90 .Outcomes}}</td><td class="note">{{since .Latest}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">Nothing has been audited.</p>{{end}}
+
+<h2>Most recent</h2>
+{{if .Recent}}{{template "auditrows" .Recent}}
+{{else}}<p class="empty">No recent activity.</p>{{end}}
+{{end}}
+
+{{define "auditkind"}}
+<p class="note"><a href="/audit">← all audited actions</a></p>
+{{template "problems" .Errs}}
+<div class="panel"><div class="title"><strong>{{.Kind}}</strong></div>
+  <div class="meta">{{len .Events}} shown, newest first</div></div>
+{{if .Events}}{{template "auditrows" .Events}}
+{{else}}<p class="empty">No events of this kind.</p>{{end}}
+{{end}}
+
+{{define "auditrows"}}
+<table>
+  <tr><th>What</th><th>Outcome</th><th>Actor</th><th>Detail</th><th>Where</th><th>When</th></tr>
+  {{range .}}
+  <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td>
+      <td><span class="pill{{if eq .Outcome "failed"}} bad{{else if eq .Outcome "pending_approval"}} warn{{end}}">{{.Outcome}}</span>{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}}</td>
+      <td class="note">{{.Whom}}{{if or (eq .Whom "person") (eq .Whom "app")}} <span class="mono">{{.Actor}}</span>{{end}}</td>
+      <td>{{truncate 220 .Detail}}</td>
+      <td class="note">{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">episode →</a>{{else if .IncidentID}}<a href="/incidents/{{.IncidentID}}">room →</a>{{end}}</td>
+      <td class="note">{{since .At}}</td></tr>
+  {{end}}
+</table>
+{{end}}

@@ -24,7 +24,8 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	handler.Register(mux)
 
 	for _, path := range []string{
-		"/", "/episodes", "/failures", "/decisions", "/memory", "/configuration", "/usage",
+		"/", "/episodes", "/failures", "/decisions", "/audit", "/memory",
+		"/configuration", "/usage",
 	} {
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -161,8 +162,13 @@ func TestListsLinkToDetail(t *testing.T) {
 	// list route and silently rendering the wrong page.
 	for _, path := range []string{
 		"/episodes/ep_missing",
+		"/incidents/inc_missing",
 		"/failures/0000000000000000",
 		"/conversations/C1/channel",
+		// An audit kind nobody ever recorded must 404 rather than render an
+		// empty table, which reads as "this never happens" when the truth is
+		// that the URL was wrong.
+		"/audit/slack.invented",
 	} {
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -237,5 +243,162 @@ func TestConsecutiveIdenticalEventsCollapse(t *testing.T) {
 	rows = append(rows, Event{Kind: "phase_changed", Detail: "Investigating", At: base.Add(time.Minute)})
 	if got := len(collapseEvents(rows)); got != 2 {
 		t.Errorf("a distinct event was swallowed: %d rows, want 2", got)
+	}
+}
+
+// The response section shows the answer, not the transport.
+//
+// The stored result arrives in three shapes and a display decoder that only
+// handled the bare envelope rendered a thousand characters of raw JSON where
+// the reply should be, because the model narrated before fencing its answer.
+// This reads it with decision.ParseWatchDecision — the parser the host itself
+// used — so the page shows what was actually read rather than a second guess
+// at it.
+func TestTheTurnReadsEveryShapeTheResultArrivesIn(t *testing.T) {
+	evidence := func(id, claim string) string {
+		return `{"id":"` + id + `","type":"record_evidence","evidence":{"claim_id":"host.current_state",` +
+			`"claim":"` + claim + `","observation":"the host answered","relation":"supports",` +
+			`"source_type":"monitoring","source_name":"node exporter"}}`
+	}
+	envelope := `{"action":"reply","reason":"live evidence confirms the alert",` +
+		`"message":"Checkout errors are affecting requests.",` +
+		`"attention":{"addressee":"channel","confidence":3,"novelty":2,"ownership":2},` +
+		`"operations":[` + evidence("a", "the host is up") + `,` +
+		evidence("b", "the host has headroom") + `,` +
+		`{"id":"c","type":"record_coverage","coverage":{"layer":"host","status":"healthy",` +
+		`"detail":"every node answered"}},` +
+		`{"id":"done","type":"complete_episode","completion":{"message":"Checkout errors are ` +
+		`affecting requests.","completion":{"status":"decision_ready","verdict":"unhealthy",` +
+		`"summary":"One backend is failing checkout requests."}}}]}`
+
+	var bare Turn
+	bare.readResult(envelope)
+	if bare.Action != "reply" || bare.Message == "" {
+		t.Errorf("a bare envelope did not decode: %+v", bare)
+	}
+	if bare.Prose != "" {
+		t.Errorf("a decoded envelope was also dumped as prose: %q", truncate(bare.Prose, 60))
+	}
+	// The heaviest operation leads: a turn that recorded six pieces of evidence
+	// and completed once spent itself on the evidence, and map order would have
+	// buried that behind whichever key iterated first.
+	if len(bare.Operations) != 3 || bare.Operations[0] != (Tally{"record_evidence", 2}) {
+		t.Errorf("operations were not tallied by weight: %+v", bare.Operations)
+	}
+	// Urgency was not sent. Rendering it as 0 would read as "nothing urgent"
+	// rather than "not scored".
+	if bare.Attention != "channel · confidence 3 · novelty 2 · ownership 2" {
+		t.Errorf("attention line = %q", bare.Attention)
+	}
+
+	var fenced Turn
+	fenced.readResult("Let me emit the closure record properly.\n\n```json\n" + envelope + "\n```")
+	if fenced.Action != "reply" {
+		t.Errorf("an envelope fenced inside narration was not read: %+v", fenced)
+	}
+	if fenced.Prose != "" {
+		t.Error("a fenced envelope was dumped as prose instead of decoded")
+	}
+
+	var prose Turn
+	prose.readResult("I corrected the organization and re-ran the validation.")
+	if prose.Prose == "" {
+		t.Error("a prose answer rendered as nothing at all")
+	}
+	// The failure is the answer, not a gap: an unreadable result is why the
+	// episode retried, and the parser's own complaint says which part was wrong.
+	if prose.Unreadable == "" {
+		t.Error("an unreadable result did not say the host could not read it")
+	}
+}
+
+// A reference list has to say what the reference points at. The stored string
+// restates the kind column and buries the part a reader can use.
+func TestManifestReferencesAreDescribedNotRestated(t *testing.T) {
+	reader := &Reader{}
+	ctx := context.Background()
+	for _, testCase := range []struct{ kind, ref, revision, metadata, want string }{
+		{"compiled_prompt", "agent-run:run_2e29ee88f6d4be177b60ab9f7d66e062:prompt", "", "",
+			"attempt run_2e29ee88f6d4\u2026"},
+		{"repository", "repository:tenant-platform", "797bcedb8d26dfbedb36f6ec68847dc3f17296d6", "",
+			"tenant-platform @ 797bcedb\u2026"},
+		{"execution_policy", "coop-policy:tenant-platform-observe", "", "",
+			"tenant-platform-observe"},
+		{"artifact", "artifact:github-pr-509.md:0", "",
+			`{"media_type":"text/markdown","name":"github-pr-509.md"}`,
+			"github-pr-509.md (text/markdown)"},
+	} {
+		got := reader.describeRef(ctx, testCase.kind, testCase.ref, testCase.revision, testCase.metadata)
+		if got != testCase.want {
+			t.Errorf("describeRef(%s) = %q, want %q", testCase.kind, got, testCase.want)
+		}
+	}
+}
+
+// A slash command that failed on a dead channel eleven times in twenty minutes
+// took eleven of the forty rows on the audit page and pushed everything else
+// that happened that hour off it. Eleven identical failures are one fact.
+func TestIdenticalAuditRowsFold(t *testing.T) {
+	base := time.Date(2026, 8, 8, 23, 18, 0, 0, time.UTC)
+	rows := []AuditRow{}
+	for index := range 11 {
+		rows = append(rows, AuditRow{
+			Kind: "slack.command.feedback", Outcome: "failed", Actor: "U0TENANTUS2",
+			Detail: "channel_not_found",
+			At:     base.Add(time.Duration(index) * time.Minute),
+		})
+	}
+	folded := foldAudit(rows)
+	if len(folded) != 1 {
+		t.Fatalf("11 identical actions rendered as %d rows, want 1", len(folded))
+	}
+	if folded[0].Repeats != 10 || folded[0].Span != "10m0s" {
+		t.Errorf("fold lost the count or the span: %+v", folded[0])
+	}
+	// A different outcome breaks the run. Merging across one would hide the
+	// action that actually differed, which is the only one worth reading.
+	rows = append(rows, AuditRow{
+		Kind: "slack.command.feedback", Outcome: "succeeded", Actor: "U0TENANTUS2",
+		At: base.Add(time.Hour),
+	})
+	if got := len(foldAudit(rows)); got != 2 {
+		t.Errorf("a distinct outcome was swallowed: %d rows, want 2", got)
+	}
+}
+
+// There is no directory that turns a Slack id into a name, so the log says what
+// kind of thing acted. Inventing a name would be worse than the id, and the
+// distinction that matters reading back is person versus app versus the host.
+func TestAuditActorsAreClassifiedNotInvented(t *testing.T) {
+	for actor, want := range map[string]string{
+		"U0TENANTUS2":           "person",
+		"B0TENANTBT1":           "app",
+		"responder":             "responder",
+		dashboardActor:          "this dashboard",
+		"":                      "unattributed",
+		"scheduled-task-runner": "host",
+	} {
+		if got := whom(actor); got != want {
+			t.Errorf("whom(%q) = %q, want %q", actor, got, want)
+		}
+	}
+}
+
+// A title that cleaned down to punctuation is not a title. A Slack permalink
+// posted with the same URL as its own link text arrives truncated, both halves
+// strip as bare links, and the separator survives alone: one row of the episode
+// list was the single character "|".
+func TestATitleStrippedToPunctuationIsNotATitle(t *testing.T) {
+	permalink := "<https://tenantcorp.slack.com/archives/C0TENANTX03/p1786193195175159?" +
+		"thread_ts=1786136831.213219&cid=C0TENANTX03|https://tenantcorp.slack.com/archives/p178"
+	if got := cleanTitle(permalink); got != "Untitled work" {
+		t.Errorf("cleanTitle stripped a permalink down to %q", got)
+	}
+	// The ordinary case still keeps its words: stripping must not become
+	// discarding.
+	alert := "<https://grafana.example/alerting/view?orgId=1|[VA1 FIRING:1] CRITICAL " +
+		"Cassandra Reaper schedule overdue> *FIRING*"
+	if got := cleanTitle(alert); !strings.Contains(got, "Cassandra Reaper schedule overdue") {
+		t.Errorf("cleanTitle lost the alert text: %q", got)
 	}
 }

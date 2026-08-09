@@ -33,3 +33,5 @@
   <p>{{.Needs}}</p>
 </div>
 {{end}}
+
+{{define "problems"}}{{range .}}<p class="unwired"><span class="tag">Could not load</span>{{.}}</p>{{end}}{{end}}

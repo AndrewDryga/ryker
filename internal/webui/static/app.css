@@ -230,6 +230,22 @@ tr:last-child td { border-bottom: 0; }
 
 .note { color: var(--dim); font-size: 13px; }
 
+/* The compiled prompt, verbatim. Wrapped rather than scrolled sideways: the
+   question this answers is "what exactly did it read", and a horizontal
+   scrollbar hides the end of every line the model was actually given. */
+.dump {
+  margin: 0 0 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font: 12px/1.6 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 460px;
+  overflow-y: auto;
+}
+
 /* Actions ---------------------------------------------------------------- */
 
 /* Every action is a form post. A GET that mutates would fire on a preload or an

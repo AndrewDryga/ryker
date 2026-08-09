@@ -53,7 +53,7 @@ Consequences to respect:
 
 ## Information architecture
 
-Seven pages. Each answers one question.
+Eight pages. Each answers one question.
 
 ### 1. Overview — "what is happening right now?"
 
@@ -65,6 +65,9 @@ The landing page. Live state, not history.
 - Failure rate and correction rate over the last 24h and 30d, as sparklines
 - Provider state: which target is live, ladder position, last rotation, credential
   expiry
+- Queues: pending, running and failed pollers per lane. Readyz reports that the
+  process is up; a lane whose pollers are all failed is a process that is up and
+  doing nothing
 
 **Source:** `work_episodes`, `agent_runs`, `responder_state`, readyz probe,
 `coop credentials`. Mostly present.
@@ -75,18 +78,35 @@ The heart of the dashboard and the reason to build it first. A list, filterable
 by state, channel, repository, provider and outcome; each row opens a detail
 page.
 
+Incident rooms lead the page. A room is a whole conversation of work and an
+episode is one turn of it, so the room is where the ask that opened it, the
+narrative the channel saw, and the pull request that came out of it belong:
+`incidents`, `signals`, `timeline_events`, `publications` with their followups
+and lifecycle events. Three merged pull requests were visible only in GitHub.
+
 Episode detail:
 - **Timeline** from `work_episode_events` — every phase change, evidence record,
   progress report, destination change, reopen, with actor and timestamp. 11,679
   of these exist today and none is visible anywhere.
-- **Evidence ledger** from `evidence` and `claim_assessments` — each claim, what
-  supported or contradicted it, source, freshness, confidence. This is what makes
-  "why did it say that" answerable.
+- **Evidence ledger** from `evidence` and `claim_assessments` — each claim, its
+  verdict, what supported or contradicted it, source, freshness, confidence.
+  This is what makes "why did it say that" answerable. Neither table carries an
+  `episode_id`: both are filed under `source_input`, which is the Slack input id
+  for a watch and the agent run id otherwise.
 - **Coverage** from `coverage` — which layers were assessed, which were unknown.
+  `unknown` is the load-bearing value: it separates "checked and healthy" from
+  "nobody looked".
 - **Context manifest** from `context_manifests` and `context_manifest_refs` —
-  provider, model, reasoning effort, prompt version, and what was omitted from
-  the prompt and why. 2,825 refs exist and are invisible.
-- **The turn itself** — prompt sent, response received, parse outcome.
+  prompt, contract and tool-schema versions, execution policy, and the reference
+  list itself: the Slack message that started the work, the compiled prompt and
+  assembled context by digest, the repository at a revision, and any artifact.
+- **The turn itself** — prompt sent, response received, parse outcome. The
+  response is read with `decision.ParseWatchDecision`, the host's own parser,
+  rather than a display decoder that would be a second implementation of the
+  contract.
+- **Answers the host refused** from `audit_events` — the corrections handed back
+  when a result could not be read. The difference between "it said nothing" and
+  "it said something the contract rejected".
 - **Delivery** from `slack_deliveries` — what was posted, where, whether it landed.
 - **Attempts** from `episode_attempts` — retries, and what changed between them.
 
@@ -121,7 +141,26 @@ Responder's judgement, made inspectable.
 **Source:** `evaluation_decisions`, `fixture_candidates`, `agent_runs`,
 correction-rate projection.
 
-### 5. Memory — "what does it believe, and where did that come from?"
+### 5. Audit — "who did what, and what came of it?"
+
+The only place an approval, a saved channel configuration, a remembered
+preference and a refused model answer sit in one sequence.
+
+- Grouped by kind, because 976 events are not 976 different things
+- Each kind opens to its own events, with actor, outcome and detail
+- Rows link into the episode or the incident room they belong to, and episode
+  and room detail link back
+- Identical consecutive actions fold to one row with a count, the same way the
+  episode timeline does
+
+There is no directory that turns a Slack id into a name, so the actor column
+says what kind of thing acted — person, app, the host, this dashboard — beside
+the id. Inventing a name would be worse than the id.
+
+**Source:** `audit_events`, joined to `agent_runs` to resolve an object to its
+episode.
+
+### 6. Memory — "what does it believe, and where did that come from?"
 
 - Operational memory entries with scope, expiry, source, and the episode that
   proposed them
@@ -133,7 +172,7 @@ correction-rate projection.
 **Source:** `memory_entries`, `memory_rollups`, `conversation_memories`,
 `channel_memories`.
 
-### 6. Configuration — "how is it set up, and what is that costing me?"
+### 7. Configuration — "how is it set up, and what is that costing me?"
 
 - Effective configuration per deployment, and which file each value came from
 - Channels: participation mode, proactive, shadow, repository binding, alert
@@ -147,7 +186,7 @@ correction-rate projection.
 **Source:** `config`, `channel_configurations`, `responder_preferences`,
 `standing_rules`, `scheduled_tasks`, session policy YAML.
 
-### 7. Usage — "what is it spending?"
+### 8. Usage — "what is it spending?"
 
 Tokens and time, broken down by:
 - Provider and model
@@ -162,7 +201,7 @@ Tokens and time, broken down by:
 
 ## Data gaps
 
-Everything above is present in the database today except three things.
+Everything above is present in the database today except four things.
 
 ### Token usage — needs plumbing, not research
 
@@ -181,6 +220,13 @@ Until then the Usage page renders its full shape with an explicit "not yet
 recorded" state per panel. It must not show an estimate dressed as a
 measurement — a number derived from prompt bytes is a guess, and a guess in a
 cost report is worse than a blank.
+
+### The compiled prompt — kept as a digest, not as text
+
+The context manifest records a sha256 of the compiled prompt, and only the
+engineering-task path keeps the text itself. Twelve of 647 turns on a production
+database can be read back; the rest can only be compared between attempts. The
+digest is shown where the text is not, so the page says which of the two it has.
 
 ### Cost — needs a price table
 
@@ -205,6 +251,7 @@ live, so the design can be judged as a whole.
 | Episodes list and detail | Live — this is the reason to build it |
 | Failures | Live, read-only; retry in v2 |
 | Decisions | Live for history and correction rate; triage actions in v2 |
+| Audit | Live, with a drill-down per kind |
 | Memory | Live, read-only; forget in v2 |
 | Configuration | Live, read-only |
 | Usage | Full layout, every panel marked "not recorded yet" |
