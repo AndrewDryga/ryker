@@ -1490,7 +1490,17 @@ type PruneResult struct {
 	EmisarApprovals       int64
 	ConfigurationSessions int64
 	ClosedIncidents       int64
-	AuditEvents           int64
+	// Episodes is how many finished episodes expired. Each one takes its event
+	// stream, progress, attempts, manifests, claim assessments, goals and
+	// commitments with it through ON DELETE CASCADE, so this single number
+	// stands for a great many rows.
+	Episodes int64
+	// AgentRunContexts counts assembled prompt inputs emptied out of terminal
+	// runs. Not a deletion — the run row, and so the episode hanging off it,
+	// stays readable — which is why it is reported separately and left out of
+	// Total rather than inflating a count of records removed.
+	AgentRunContexts int64
+	AuditEvents      int64
 }
 
 func (r PruneResult) Total() int64 {
@@ -1500,7 +1510,7 @@ func (r PruneResult) Total() int64 {
 		r.ActionProposals + r.Preferences + r.StandingRules +
 		r.StandingRuleRuns + r.ScheduledTasks + r.ScheduledTaskRuns +
 		r.EmisarApprovals + r.ConfigurationSessions +
-		r.ClosedIncidents + r.AuditEvents
+		r.ClosedIncidents + r.Episodes + r.AuditEvents
 }
 
 // StoredAgentResult is one historical model output, for replaying the result

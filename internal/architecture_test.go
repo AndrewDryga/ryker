@@ -106,7 +106,21 @@ var lineBudget = map[string]int{
 	// write a participation override through the same store call the slash
 	// command uses. The alternative was the dashboard writing slack_settings
 	// itself, which is a second implementation of the inherit rule.
-	"service": 24712,
+	//
+	// Raised to 24760 on 2026-08-09 for the episode-history retention class.
+	// Four lines are the change itself — one horizon passed to Prune, and two
+	// counters in the prune log so the sweep can be checked from outside rather
+	// than believed. That mattered here: the symptom that started this was a log
+	// line that read "agent_runs":0 every time, forever, and a counter nobody
+	// prints is a counter nobody can catch lying.
+	//
+	// The other forty-four are margin, restored deliberately. This entry was
+	// sitting at the exact current count, which the warning four paragraphs up
+	// says is a tripwire rather than a ratchet: every addition to the package
+	// fails, whatever its merit, and the pressure to bump it is highest exactly
+	// when the change is justified. Moving off zero is what that warning asks
+	// for, and it is the same reasoning that moved store off 11000.
+	"service": 24760,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

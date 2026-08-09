@@ -424,11 +424,107 @@ func (s *Store) RequeueBlockedCleanup(ctx context.Context, sessionID string) err
 	return nil
 }
 
+// terminalEpisodeStates is the lifecycle boundary retention is allowed to act
+// on, spelled as SQL because these predicates run inside DELETE statements.
+// It matches episode.Terminal exactly; a state missing here would be an episode
+// this package quietly refuses to expire, and a state wrongly added would be
+// live work deleted underneath a running turn.
+const terminalEpisodeStates = `('completed', 'failed', 'refused', 'cancelled', 'superseded')`
+
+const terminalAgentRunStates = `('completed', 'failed', 'cancelled', 'superseded')`
+
+// pinnedEpisode is true while something still depends on episode e, and it has
+// nothing to do with age. Retention consults it on every path that could reach
+// episode history, whatever horizon that path is applying:
+//
+//   - a pending or approved correction is a lesson somebody queued or kept, and
+//     the episode is the evidence it will be reviewed and promoted against. An
+//     approved candidate pins its episode indefinitely and deliberately, until
+//     it is promoted or rejected, because deleting it would destroy the exact
+//     thing an operator said to keep. This is what makes the fourteen-day
+//     fixture TTL safe against any retention horizon anyone configures;
+//   - open feedback is a person's unanswered complaint about this episode;
+//   - a live wakeup means the episode is scheduled to resume, whatever its
+//     recorded lifecycle state says.
+//
+// All three are checked explicitly rather than trusted to foreign keys, because
+// not one of the three tables has one pointing here.
+//
+// Correlated on an episode aliased e.
+const pinnedEpisode = `
+	EXISTS (
+	  SELECT 1 FROM fixture_candidates f
+	  WHERE f.episode_id = e.id AND f.status IN ('pending', 'approved')
+	)
+	OR EXISTS (
+	  SELECT 1 FROM feedback_items b
+	  WHERE b.episode_id = e.id AND b.status = 'open'
+	)
+	OR EXISTS (
+	  SELECT 1 FROM episode_wakeups w
+	  WHERE w.episode_id = e.id AND w.state IN ('pending', 'leased')
+	)`
+
+// expirableEpisodes selects finished episodes nothing is still waiting on.
+//
+// Beyond the pins above, three more refusals, each naming something that would
+// break if the episode disappeared underneath it: a non-terminal child episode
+// still refers to this one as its parent; a run that is not terminal is work
+// still executing; and an open incident still displays this history on its own
+// page.
+//
+// work_episode_events, progress, attempts, manifests, refs, claims, goals,
+// wakeups and commitments all reference work_episodes ON DELETE CASCADE, so
+// deleting the episode row collects every one of them and this query does not
+// mention them. That is also why retention is episode-granular and never
+// deletes events out from under a surviving episode: the event stream is the
+// aggregate's own history, and thinning it in place would leave a record of the
+// work that is missing the parts nobody thought were interesting.
+const expirableEpisodes = `
+	SELECT e.id FROM work_episodes e
+	WHERE e.lifecycle_state IN ` + terminalEpisodeStates + `
+	  AND e.updated_at < ?
+	  AND NOT (` + pinnedEpisode + `)
+	  AND NOT EXISTS (
+	    SELECT 1 FROM work_episodes child
+	    WHERE child.parent_episode_id = e.id
+	      AND child.lifecycle_state NOT IN ` + terminalEpisodeStates + `
+	  )
+	  AND NOT EXISTS (
+	    SELECT 1 FROM agent_runs r
+	    WHERE (r.episode_id = e.id OR r.id = e.agent_run_id)
+	      AND r.state NOT IN ` + terminalAgentRunStates + `
+	  )
+	  AND NOT EXISTS (
+	    SELECT 1 FROM agent_runs r
+	    JOIN incidents i ON i.id = r.incident_id
+	    WHERE (r.episode_id = e.id OR r.id = e.agent_run_id)
+	      AND i.status != 'closed'
+	  )`
+
+// incidentHoldsPinnedEpisode is the same refusal reached from the other side.
+//
+// Closing an incident eventually deletes its agent runs, and work_episodes
+// references agent_runs ON DELETE CASCADE, so the closed-work sweep destroys
+// episode history too — on the closed-work horizon, which is seven days, which
+// is shorter than the fourteen-day fixture TTL. A correction queued on a closed
+// incident's episode could therefore be reviewed against nothing at all, and
+// the episode-history guards above would never have been consulted.
+//
+// Correlated on an incident aliased i.
+const incidentHoldsPinnedEpisode = `
+	EXISTS (
+	  SELECT 1 FROM work_episodes e
+	  JOIN agent_runs r ON (r.episode_id = e.id OR r.id = e.agent_run_id)
+	  WHERE r.incident_id = i.id AND (` + pinnedEpisode + `)
+	)`
+
 func (s *Store) Prune(
 	ctx context.Context,
 	operationalBefore time.Time,
 	conversationBefore time.Time,
 	closedBefore time.Time,
+	episodeHistoryBefore time.Time,
 	auditBefore time.Time,
 ) (core.PruneResult, error) {
 	var result core.PruneResult
@@ -461,9 +557,35 @@ func (s *Store) Prune(
 		operational); err != nil {
 		return result, err
 	}
+	// Episode history expires on its own, much longer clock, and it runs before
+	// the agent_runs sweep below on purpose — see the comment there.
+	if result.Episodes, err = deleteCount(
+		`DELETE FROM work_episodes WHERE id IN (`+expirableEpisodes+`)`,
+		episodeHistoryBefore.UTC().Format(timestampFormat),
+	); err != nil {
+		return result, fmt.Errorf("prune expired episode history: %w", err)
+	}
+	// The two NOT EXISTS clauses read like a no-op and are the opposite of one.
+	//
+	// work_episodes.agent_run_id references this table ON DELETE CASCADE, so
+	// deleting an aged run does not leave an orphaned episode — it deletes the
+	// episode, its event stream, its attempts, its manifests and its evidence.
+	// Without these clauses this statement would expire every episode in the
+	// database at the operational horizon, which is twenty-four hours, and the
+	// deletion would be invisible because the count reported is of runs.
+	//
+	// They did make the statement unreachable, which is the bug they got
+	// reported as: every episode-driven run writes an attempt row, so all 428
+	// runs on the deployed database were unprunable and every prune logged
+	// "agent_runs":0 forever. The fix is not to weaken the guard. It is that
+	// nothing ever expired the episodes, so the condition could never come true.
+	// It can now: the sweep above removes finished episode history on its own
+	// horizon, and the runs it leaves behind are collected here in the same
+	// pass, in the correct order, still refusing to touch a run any episode
+	// record still points at.
 	if result.AgentRuns, err = deleteCount(`
 		DELETE FROM agent_runs
-		WHERE state IN ('completed', 'failed', 'cancelled', 'superseded')
+		WHERE state IN `+terminalAgentRunStates+`
 		  AND updated_at < ?
 		  AND NOT EXISTS (
 		    SELECT 1 FROM episode_attempts
@@ -475,6 +597,46 @@ func (s *Store) Prune(
 		  )`,
 		operational); err != nil {
 		return result, err
+	}
+	// What is left is the assembled prompt input on runs that are over: 9.7 MB
+	// of the 11.9 MB agent_runs occupies on the deployed database, averaging
+	// 23.6 KB a row. Emptying the blob rather than deleting the row is the whole
+	// point — the row is the episode's transport record and its attempt history
+	// hangs off it, so deleting it would take the account of the work with it,
+	// while the assembled context is the one part that is genuinely spent.
+	//
+	// It expires on the operational horizon because that is what it is: channel
+	// memory, recent messages and matched rules, gathered to run one turn.
+	// architecture-next §29 draws exactly this line — message bodies expire
+	// before the episode events do.
+	//
+	// Two things can still read it back, and both are excluded rather than
+	// hoped about. A wakeup resumes a non-terminal episode by copying the
+	// previous run's context into the new attempt's frozen input. And an
+	// operator can retry a failed run from the control plane, which reuses the
+	// same row — "retry the work from preserved context" is what that path
+	// tells them — as long as it is still the episode's latest attempt and the
+	// episode has not completed on another one. A run neither of those can
+	// reach is a run whose context nothing will ever read again.
+	if result.AgentRunContexts, err = deleteCount(`
+		UPDATE agent_runs SET context_json = X''
+		WHERE state IN `+terminalAgentRunStates+`
+		  AND updated_at < ?
+		  AND length(context_json) > 0
+		  AND NOT EXISTS (
+		    SELECT 1 FROM work_episodes e
+		    WHERE (e.id = agent_runs.episode_id OR e.agent_run_id = agent_runs.id)
+		      AND (
+		        e.lifecycle_state NOT IN `+terminalEpisodeStates+`
+		        OR (
+		          agent_runs.state = 'failed'
+		          AND agent_runs.attempt_id = e.latest_attempt_id
+		          AND e.lifecycle_state != 'completed'
+		        )
+		      )
+		  )`,
+		operational); err != nil {
+		return result, fmt.Errorf("empty spent agent run context: %w", err)
 	}
 	if result.EvaluationDecisions, err = deleteCount(`
 		DELETE FROM evaluation_decisions WHERE created_at < ?`, operational); err != nil {
@@ -605,7 +767,8 @@ func (s *Store) Prune(
 		SELECT i.id FROM incidents i
 		LEFT JOIN coop_cleanup c ON c.session_id = i.coop_session_id
 		WHERE i.status = 'closed' AND i.closed_at IS NOT NULL AND i.closed_at < ?
-		  AND (i.coop_session_id = '' OR c.state = 'done')`
+		  AND (i.coop_session_id = '' OR c.state = 'done')
+		  AND NOT ` + incidentHoldsPinnedEpisode
 	for _, query := range []string{
 		`DELETE FROM emisar_approvals WHERE incident_id IN (` + eligible + `)`,
 		`DELETE FROM proposal_approvals WHERE proposal_id IN

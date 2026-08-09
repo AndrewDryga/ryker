@@ -657,9 +657,25 @@ Closing work closes its Coop session and records a cleanup intent. After
 
 `retention.operational_data` bounds completed Slack inputs, webhook payloads, Slack deliveries,
 agent runs, classifier decisions, and rotated channel intelligence after its Coop cleanup
-completes. `retention.closed_work` bounds closed incidents and their detailed evidence after Coop
-cleanup completes. `retention.audit_data` bounds the smaller
-audit and cleanup ledger. Maintenance checkpoints the SQLite WAL and runs `PRAGMA optimize` after
+completes. On the same horizon it empties the assembled prompt context out of runs that are over,
+which is the largest single payload Responder stores; the run row itself stays, so the episode and
+its attempt history remain readable. A run a wakeup can still resume from, or that the control
+plane can still retry, keeps its context.
+
+`retention.closed_work` bounds closed incidents and their detailed evidence after Coop
+cleanup completes. `retention.episode_history` bounds a finished episode's own record — its event
+stream, progress, attempts, context manifests, claim assessments and goals — and defaults to thirty
+days, far longer than the operational horizon, because that record is the account of what the agent
+did and the source the replay-fixture corpus is built from. `retention.audit_data` bounds the smaller
+audit and cleanup ledger. The classes are ordered: operational data expires first, then closed work,
+then episode history, then audit.
+
+No horizon deletes an episode that a pending or approved correction, open feedback, a live wakeup, a
+non-terminal child, an unfinished run, or an open incident still depends on — including the
+closed-work sweep, which reaches episode history by cascade through the incident's agent runs. Those
+refusals are absolute and are not relaxed by shortening a horizon.
+
+Maintenance checkpoints the SQLite WAL and runs `PRAGMA optimize` after
 pruning. Coop leaves a small discarded-session tombstone for its own audit while deleting the
 workspace and private ACP state.
 

@@ -113,6 +113,10 @@ retention:
   # Compact thread/channel summaries only; raw Slack events follow operational_data.
   conversation_memory: 2160h
   closed_work: 168h
+  # What a finished episode did, and the corpus it can still become. Kept far
+  # longer than the message bodies in operational_data, and never shorter than
+  # closed_work. A pending or approved correction pins its episode regardless.
+  episode_history: 720h
   audit_data: 720h
 
 memory:
