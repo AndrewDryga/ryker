@@ -44,6 +44,33 @@ func TestMemoryOfferPrefersSubjectOverTopic(t *testing.T) {
 	}
 }
 
+// A memory offer's value is the thing being remembered, and "guidance" is what
+// a model called it when the remembered thing was guidance.
+func TestMemoryOfferAcceptsGuidanceAsValue(t *testing.T) {
+	var offer MemoryOffer
+	if err := json.Unmarshal([]byte(`{
+		"topic":"Whole-platform health review method",
+		"predicate":"When conducting a whole-platform health assessment",
+		"guidance":"Prefer the published v5 runbook as a baseline, not the whole assessment.",
+		"scope":"workspace","visibility":"operator"
+	}`), &offer); err != nil {
+		t.Fatal(err)
+	}
+	if offer.Subject == "" || offer.Value == "" {
+		t.Fatalf("memory offer = %+v", offer)
+	}
+	var canonical MemoryOffer
+	if err := json.Unmarshal([]byte(`{
+		"subject":"s","predicate":"p","value":"canonical","guidance":"alias",
+		"scope":"workspace","visibility":"operator"
+	}`), &canonical); err != nil {
+		t.Fatal(err)
+	}
+	if canonical.Value != "canonical" {
+		t.Fatalf("value = %q", canonical.Value)
+	}
+}
+
 func TestMemoryOfferStillRejectsUnknownFields(t *testing.T) {
 	var offer MemoryOffer
 	err := json.Unmarshal([]byte(`{"subject":"a","invented":"b"}`), &offer)

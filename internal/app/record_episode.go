@@ -85,6 +85,50 @@ type episodeSource interface {
 	GetWorkEpisode(ctx context.Context, episodeID string) (core.WorkEpisode, error)
 	ListEpisodeEvents(ctx context.Context, episodeID string, limit int) ([]core.WorkEpisodeEvent, error)
 	ListEpisodeEvidence(ctx context.Context, episodeID string, limit int) ([]core.Evidence, error)
+	GetAgentRun(ctx context.Context, runID string) (core.AgentRun, error)
+	GetSlackInput(ctx context.Context, inputID string) (core.SlackInput, error)
+}
+
+// episodeTriggerText recovers the text that actually started the episode.
+//
+// The objective is not it. The objective is a display headline, built by
+// TruncateUTF8WithSuffix at 180 bytes, and recording it as the fixture's input
+// asked the model a question that stopped mid-sentence. Three of the four
+// promoted fixtures were cut that way — one of them lost the entire
+// instruction after "use a published read-only sema...", and the model
+// correctly replied asking what outcome to apply, which the corpus scored as a
+// failure. A corpus of unanswerable questions cannot go green no matter how
+// good the product gets.
+//
+// The originating row holds the real text, and one route reaches it for every
+// kind of trigger: the episode's first run records the input it came from, and
+// a scheduled task is admitted as a synthetic input whose text is the full
+// prompt. So a Slack message, a bot notification and a schedule all resolve the
+// same way.
+func episodeTriggerText(
+	ctx context.Context,
+	source episodeSource,
+	episode core.WorkEpisode,
+) (string, error) {
+	if strings.TrimSpace(episode.AgentRunID) == "" {
+		return "", errors.New("episode records no originating run, so its trigger text cannot be recovered")
+	}
+	run, err := source.GetAgentRun(ctx, episode.AgentRunID)
+	if err != nil {
+		return "", fmt.Errorf("read originating run %s: %w", episode.AgentRunID, err)
+	}
+	if strings.TrimSpace(run.SourceID) == "" {
+		return "", fmt.Errorf("run %s records no source input", run.ID)
+	}
+	input, err := source.GetSlackInput(ctx, run.SourceID)
+	if err != nil {
+		return "", fmt.Errorf("read source input %s: %w", run.SourceID, err)
+	}
+	text := strings.TrimSpace(input.Text)
+	if text == "" {
+		return "", fmt.Errorf("source input %s has no text", run.SourceID)
+	}
+	return text, nil
 }
 
 func recordEpisodeFixture(
@@ -121,6 +165,19 @@ func recordEpisodeFixture(
 		return service.EvaluationCase{}, fmt.Errorf(
 			"episode %s has %d events and %d evidence rows; a replay fixture requires both",
 			episodeID, len(events), len(evidence),
+		)
+	}
+	// Refusing here is the point. Recording the truncated headline instead
+	// produced fixtures that can never pass, and nothing about the resulting
+	// file said so — it read as four kept lessons, three of which asked half a
+	// question. A fixture that cannot be answered is worse than no fixture, so
+	// promotion stops rather than writing one.
+	trigger, err := episodeTriggerText(ctx, source, episode)
+	if err != nil {
+		return service.EvaluationCase{}, fmt.Errorf(
+			"episode %s: %w; a fixture recorded without its real trigger text asks a question "+
+				"nothing can answer, so it is not written at all",
+			episodeID, err,
 		)
 	}
 
@@ -182,7 +239,7 @@ func recordEpisodeFixture(
 			"source:episode/" + episode.ID,
 		},
 		Kind:                "watch",
-		Input:               sanitizer.Text(episode.Objective),
+		Input:               sanitizer.Text(trigger),
 		MentionsResponder:   true,
 		RecordedEvents:      recorded,
 		RecordedToolResults: results,
@@ -261,4 +318,16 @@ func (s storeEpisodeSource) ListEpisodeEvidence(
 	ctx context.Context, episodeID string, limit int,
 ) ([]core.Evidence, error) {
 	return s.store.Intelligence.ListEpisodeEvidence(ctx, episodeID, limit)
+}
+
+func (s storeEpisodeSource) GetAgentRun(
+	ctx context.Context, runID string,
+) (core.AgentRun, error) {
+	return s.store.GetAgentRun(ctx, runID)
+}
+
+func (s storeEpisodeSource) GetSlackInput(
+	ctx context.Context, inputID string,
+) (core.SlackInput, error) {
+	return s.store.GetSlackInput(ctx, inputID)
 }

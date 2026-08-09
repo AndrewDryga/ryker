@@ -410,13 +410,17 @@ type MemoryOffer struct {
 	SourceRevision string `json:"source_revision,omitempty"`
 }
 
-// UnmarshalJSON accepts "topic" for the subject of a memory offer. The two
-// words mean the same thing here and no other field could be meant, so the
-// only thing the strict spelling bought was a discarded offer.
+// UnmarshalJSON accepts "topic" for the subject of a memory offer and
+// "guidance" for its value. Both name exactly one real field and nothing else
+// in a memory offer could be meant, so the only thing the strict spelling
+// bought was a discarded offer — three separate real turns lost one that way.
 func (offer *MemoryOffer) UnmarshalJSON(data []byte) error {
 	type wire MemoryOffer
 	var value wire
-	if err := DecodeModelObject(data, map[string]string{"topic": "subject"}, &value); err != nil {
+	if err := DecodeModelObject(data, map[string]string{
+		"topic":    "subject",
+		"guidance": "value",
+	}, &value); err != nil {
 		return err
 	}
 	*offer = MemoryOffer(value)
