@@ -78,12 +78,27 @@ func NewRenderer() (*Renderer, error) {
 		"add1":     func(value int) int { return value + 1 },
 		"tokens":   humanTokens,
 		"exact":    groupDigits,
+		"confirm":  confirmStep,
 	}
 	parsed, err := template.New("webui").Funcs(funcs).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse control plane templates: %w", err)
 	}
 	return &Renderer{templates: parsed}, nil
+}
+
+// confirmStep feeds the "confirm" partial: a native <details> disclosure whose
+// real submit button does not exist on the page until the operator opens it.
+//
+// It replaces onclick="return confirm(...)", which never ran: this dashboard's
+// CSP is default-src 'none' with no script-src, so browsers refuse inline
+// handlers — every destructive button fired on first click while looking
+// guarded. A safety step that looks present and is not is the same defect as a
+// live-looking button that does nothing, aimed the other way.
+func confirmStep(label, ask, sure, action, id string) map[string]string {
+	return map[string]string{
+		"Label": label, "Ask": ask, "Sure": sure, "Action": action, "ID": id,
+	}
 }
 
 // Render writes one page inside the shared shell.

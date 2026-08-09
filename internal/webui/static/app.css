@@ -412,6 +412,37 @@ button:hover { border-color: var(--faint); }
 button.go { background: var(--accent-dim); border-color: var(--accent-dim); color: #09090b; font-weight: 600; }
 button.go:hover { background: var(--accent); border-color: var(--accent); }
 
+/* The confirm step is a native <details> disclosure, not confirm(). This page
+   ships no JavaScript and its CSP is default-src 'none' with no script-src, so
+   the inline onclick confirms it used to carry never executed — every
+   destructive button fired on first click while looking guarded. Here the real
+   submit button does not exist on the page until the operator opens the step. */
+details.confirm { display: inline-block; }
+details.confirm > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-block;
+  font: 500 12px/1.9 var(--sans);
+  padding: 1px 13px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+}
+details.confirm > summary::-webkit-details-marker { display: none; }
+details.confirm > summary:hover { border-color: var(--faint); }
+details.confirm[open] > summary { border-color: rgb(251 191 36 / .55); color: var(--warn); }
+details.confirm .arm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  font-size: 12.5px;
+  color: var(--warn);
+  text-align: left;
+}
+details.confirm .arm form { margin: 0; }
+
 /* Empty and unwired ------------------------------------------------------------------- */
 
 .empty {

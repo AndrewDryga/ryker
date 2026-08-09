@@ -161,14 +161,8 @@ a person saying so, which is distinct from the host's own checks rejecting an an
     <div class="meta">{{.Class}} · captured {{since .Created}} · expires {{stamp .Expires}}{{if .EpisodeID}} · <a href="/episodes/{{.EpisodeID}}">the episode →</a>{{end}}</div>
     {{if $act}}
     <div class="acts">
-      <form method="post" action="/actions/corrections/keep">
-        <input type="hidden" name="id" value="{{.ID}}">
-        <button class="go" onclick="return confirm('Turn this correction into a regression test?')">Keep</button>
-      </form>
-      <form method="post" action="/actions/corrections/discard">
-        <input type="hidden" name="id" value="{{.ID}}">
-        <button onclick="return confirm('Discard this correction? It will not be pinned as a test.')">Discard</button>
-      </form>
+      {{template "confirm" confirm "Keep" "Turn this correction into a regression test?" "Yes, keep it" "/actions/corrections/keep" .ID}}
+      {{template "confirm" confirm "Discard" "It will not be pinned as a test." "Yes, discard it" "/actions/corrections/discard" .ID}}
     </div>
     {{end}}
   </div>
@@ -399,10 +393,7 @@ from a quiet day and is drawn differently for that reason.</p>
   <tr><td>{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">open →</a>{{else}}<span class="note">no episode</span>{{end}}</td>
       <td>{{.Channel}}</td><td>{{.Mode}}</td><td class="mono num">{{.Attempts}}</td>
       <td class="note">{{since .Updated}}</td>
-      <td>{{if $act}}<form method="post" action="/actions/failures/retry">
-        <input type="hidden" name="id" value="{{.RunID}}">
-        <button onclick="return confirm('Queue this work to run again?')">Retry</button>
-      </form>{{end}}</td></tr>
+      <td>{{if $act}}{{template "confirm" confirm "Retry" "Queue this work to run again?" "Yes, run it again" "/actions/failures/retry" .RunID}}{{end}}</td></tr>
   {{end}}
 </table>
 {{else}}<p class="empty">No runs behind this cause.</p>{{end}}

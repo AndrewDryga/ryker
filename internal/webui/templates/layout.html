@@ -46,3 +46,16 @@
 {{end}}
 
 {{define "problems"}}{{range .}}<p class="unwired"><span class="tag">Could not load</span>{{.}}</p>{{end}}{{end}}
+
+{{define "confirm"}}
+<details class="confirm">
+  <summary>{{.Label}}</summary>
+  <div class="arm">
+    <span>{{.Ask}}</span>
+    <form method="post" action="{{.Action}}">
+      <input type="hidden" name="id" value="{{.ID}}">
+      <button class="go">{{.Sure}}</button>
+    </form>
+  </div>
+</details>
+{{end}}

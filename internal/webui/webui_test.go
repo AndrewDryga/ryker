@@ -68,6 +68,46 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	}
 }
 
+// Every action confirms through a native <details> disclosure, never through
+// script. The CSP is default-src 'none' with no script-src, so the inline
+// onclick confirms these buttons used to carry never executed in a real
+// browser — every destructive button fired on first click while looking
+// guarded, which is a safety step that looks present and is not.
+func TestActionsConfirmWithoutScript(t *testing.T) {
+	entries, err := assets.ReadDir("templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		data, err := assets.ReadFile("templates/" + entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "onclick") {
+			t.Errorf("%s carries an inline handler; the CSP refuses those, so it is a confirm that never runs", entry.Name())
+		}
+	}
+	render, err := NewRenderer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	err = render.templates.ExecuteTemplate(&out, "confirm",
+		confirmStep("Discard", "It will not be pinned.", "Yes, discard it", "/actions/corrections/discard", "cand_1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := out.String()
+	for _, needed := range []string{
+		"<details class=\"confirm\">", "<summary>Discard</summary>",
+		"action=\"/actions/corrections/discard\"", "value=\"cand_1\"", "Yes, discard it",
+	} {
+		if !strings.Contains(step, needed) {
+			t.Errorf("the confirm step is missing %q:\n%s", needed, step)
+		}
+	}
+}
+
 // The dashboard is read-only in v1. Loopback is the only thing between a button
 // and production state, so a write path is opted into deliberately.
 func TestNoWriteRoutesAreExposed(t *testing.T) {
