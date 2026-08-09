@@ -217,6 +217,53 @@ func TestClientPreparesWarmSession(t *testing.T) {
 	}
 }
 
+// The exact keys Coop writes, and the fact that it omits the whole object when
+// a provider reported nothing. A silent turn has to decode to "not recorded"
+// rather than to a free one, because ACP does not require an adapter to report
+// usage and a fabricated zero would be indistinguishable from a measurement.
+func TestClientReadsTurnUsageAndTreatsSilenceAsUnrecorded(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	body := `{"id":"turn_1","session_id":"ses_1","state":"completed"}`
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+	client := New(socket, time.Second)
+
+	silent, err := client.GetTurn(context.Background(), "ses_1", "turn_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if silent.Usage.Recorded() {
+		t.Fatalf("a turn Coop did not measure reported usage: %+v", silent.Usage)
+	}
+
+	body = `{"id":"turn_1","session_id":"ses_1","state":"completed","usage":{` +
+		`"input_tokens":1200,"cached_input_tokens":800,` +
+		`"output_tokens":300,"reasoning_tokens":64}}`
+	measured, err := client.GetTurn(context.Background(), "ses_1", "turn_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Usage{
+		InputTokens: 1200, CachedInputTokens: 800,
+		OutputTokens: 300, ReasoningTokens: 64,
+	}
+	if measured.Usage != want {
+		t.Fatalf("turn usage = %+v, want %+v", measured.Usage, want)
+	}
+	if !measured.Usage.Recorded() {
+		t.Fatal("measured usage reported itself as not recorded")
+	}
+}
+
 func TestClientReturnsTypedErrorsAndBoundsResponses(t *testing.T) {
 	socket := shortSocket(t)
 	listener, err := net.Listen("unix", socket)

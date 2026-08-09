@@ -194,6 +194,138 @@ func TestContextManifestRequiresMonotonicLineage(t *testing.T) {
 	}
 }
 
+// One attempt can run several Coop turns — a refused result is sent back as a
+// correction on the same attempt — so the manifest has to total them. Recording
+// only the last turn would report the smallest number for the attempts that
+// cost the most.
+func TestContextManifestUsageTotalsEveryTurnOfTheAttempt(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, episode := queueKernelEpisode(t, st, "usage-total")
+	manifest, err := st.CreateContextManifest(ctx, core.ContextManifest{
+		EpisodeID: episode.ID, AttemptID: run.AttemptID,
+		References: []core.ContextReference{{
+			Kind: "slack_message", SourceRef: "slack:COPS:1.0", Visibility: "channel",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Usage.Recorded() {
+		t.Fatalf("a fresh manifest claimed measured usage: %+v", manifest.Usage)
+	}
+	if err := st.RecordAttemptTokenUsage(ctx, run.AttemptID, "turn_1", core.ContextUsage{
+		InputTokens: 100, CachedInputTokens: 10, OutputTokens: 20, ReasoningTokens: 5,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordAttemptTokenUsage(ctx, run.AttemptID, "turn_2", core.ContextUsage{
+		InputTokens: 200, CachedInputTokens: 20, OutputTokens: 40, ReasoningTokens: 7,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := st.GetContextManifest(ctx, manifest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := core.ContextUsage{
+		InputTokens: 300, CachedInputTokens: 30, OutputTokens: 60, ReasoningTokens: 12,
+	}
+	if loaded.Usage != want {
+		t.Fatalf("attempt usage = %+v, want %+v", loaded.Usage, want)
+	}
+	if !loaded.Usage.Recorded() {
+		t.Fatal("measured usage reported itself as not recorded")
+	}
+}
+
+// Usage is written on the way out of a terminal turn, before the staging that
+// follows it can fail; when it does, the same turn is polled and recorded
+// again. A total that grows on every retry is worse than no total, because
+// nothing tells it apart from a real one.
+func TestContextManifestUsageIgnoresTheSameTurnTwice(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, episode := queueKernelEpisode(t, st, "usage-replay")
+	manifest, err := st.CreateContextManifest(ctx, core.ContextManifest{
+		EpisodeID: episode.ID, AttemptID: run.AttemptID,
+		References: []core.ContextReference{{
+			Kind: "slack_message", SourceRef: "slack:COPS:1.0", Visibility: "channel",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage := core.ContextUsage{InputTokens: 100, OutputTokens: 20}
+	for range 3 {
+		if err := st.RecordAttemptTokenUsage(ctx, run.AttemptID, "turn_1", usage); err != nil {
+			t.Fatal(err)
+		}
+	}
+	loaded, err := st.GetContextManifest(ctx, manifest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Usage != usage {
+		t.Fatalf("replayed turn counted more than once: %+v, want %+v", loaded.Usage, usage)
+	}
+}
+
+// A provider that reported nothing must not look like a turn that was free, and
+// must not mark the manifest as measured either.
+func TestContextManifestUsageKeepsUnreportedTurnsUnrecorded(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, episode := queueKernelEpisode(t, st, "usage-silent")
+	manifest, err := st.CreateContextManifest(ctx, core.ContextManifest{
+		EpisodeID: episode.ID, AttemptID: run.AttemptID,
+		References: []core.ContextReference{{
+			Kind: "slack_message", SourceRef: "slack:COPS:1.0", Visibility: "channel",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordAttemptTokenUsage(
+		ctx, run.AttemptID, "turn_1", core.ContextUsage{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := st.GetContextManifest(ctx, manifest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Usage.Recorded() {
+		t.Fatalf("an unmeasured turn was recorded as usage: %+v", loaded.Usage)
+	}
+	// A later turn that the provider did measure still lands: the silent turn
+	// must not have consumed the idempotency key.
+	if err := st.RecordAttemptTokenUsage(
+		ctx, run.AttemptID, "turn_2", core.ContextUsage{InputTokens: 5},
+	); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = st.GetContextManifest(ctx, manifest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Usage.InputTokens != 5 {
+		t.Fatalf("measured turn after a silent one = %+v", loaded.Usage)
+	}
+}
+
 func TestSlackDeliveryIsBoundToEpisodeDestinationRevision(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

@@ -1954,6 +1954,33 @@ func (s *Service) stageIncidentTerminal(
 	return false, nil
 }
 
+// recordTurnUsage keeps what a finished Coop turn cost, on the attempt's
+// context manifest.
+//
+// It returns nothing. Accounting is not worth failing a turn over: the answer
+// the operator is waiting for is already computed, and dropping it because a
+// token count could not be written would trade the product for a statistic.
+//
+// An unmeasured turn costs nothing to skip. Coop leaves usage at zero whenever
+// the provider reported nothing — ACP does not require an adapter to report it
+// — so the common path today does not touch the database at all.
+func (s *Service) recordTurnUsage(ctx context.Context, run core.AgentRun, turn coop.Turn) {
+	if !turn.Usage.Recorded() || run.AttemptID == "" || turn.ID == "" {
+		return
+	}
+	if err := s.store.RecordAttemptTokenUsage(ctx, run.AttemptID, turn.ID, core.ContextUsage{
+		InputTokens:       turn.Usage.InputTokens,
+		CachedInputTokens: turn.Usage.CachedInputTokens,
+		OutputTokens:      turn.Usage.OutputTokens,
+		ReasoningTokens:   turn.Usage.ReasoningTokens,
+	}); err != nil && s.log != nil {
+		s.log.Warn(
+			"could not record token usage for a finished turn",
+			"run", run.ID, "attempt", run.AttemptID, "error", err,
+		)
+	}
+}
+
 func (s *Service) stagePolledAgentRunTerminal(
 	ctx context.Context,
 	run core.AgentRun,
@@ -1961,6 +1988,13 @@ func (s *Service) stagePolledAgentRunTerminal(
 	turn coop.Turn,
 	cursor int64,
 ) error {
+	// Record what the turn spent before deciding what to do with it. Every
+	// branch below can leave: a correction requeues the run, a rotated session
+	// replays it, a missing image defers it. Those are the turns an attempt
+	// takes on the way to an answer, and they cost tokens like any other, so
+	// waiting until the run reaches its final result would bill an attempt for
+	// its last turn only and lose every turn it took to get there.
+	s.recordTurnUsage(ctx, run, turn)
 	detail := strings.TrimSpace(
 		core.FirstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
 	)

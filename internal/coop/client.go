@@ -129,6 +129,34 @@ type Turn struct {
 	StartedAt        time.Time        `json:"started_at,omitempty"`
 	FinishedAt       time.Time        `json:"finished_at,omitempty"`
 	OutputArtifacts  []OutputArtifact `json:"output_artifacts,omitempty"`
+	Usage            Usage            `json:"usage,omitzero"`
+}
+
+// Usage is what one turn cost the provider, as Coop reported it.
+//
+// Coop omits the whole `usage` object when every field is zero, so an older
+// Coop that predates schema v5 decodes to the same zero value as a turn no
+// provider measured. Both are "not recorded", which is what Recorded reports.
+//
+// Cached input stays separate from the input total because Coop keeps it
+// separate: every provider prices a cache read differently, and a total that
+// folded them together could not be turned back into a cost.
+type Usage struct {
+	InputTokens       int `json:"input_tokens,omitempty"`
+	CachedInputTokens int `json:"cached_input_tokens,omitempty"`
+	OutputTokens      int `json:"output_tokens,omitempty"`
+	ReasoningTokens   int `json:"reasoning_tokens,omitempty"`
+}
+
+// Recorded reports whether the provider gave us anything at all.
+//
+// Zero is a real answer for a trivial turn, so absence has to stay
+// distinguishable from free: ACP does not require an adapter to report usage,
+// and Responder must show "not recorded" rather than a fabricated zero when
+// nobody measured the turn.
+func (u Usage) Recorded() bool {
+	return u.InputTokens > 0 || u.CachedInputTokens > 0 ||
+		u.OutputTokens > 0 || u.ReasoningTokens > 0
 }
 
 type OutputArtifact struct {

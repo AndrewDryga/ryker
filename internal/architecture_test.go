@@ -84,11 +84,26 @@ var methodBudget = map[string]int{
 // extraction, not another raise.
 var lineBudget = map[string]int{
 	"service": 24620,
-	// 10843 today, down from 14100 across six extractions. It has only ever
-	// moved down except here, where rate-limit requeueing added a new store
-	// operation rather than moving an existing one. Keep lowering it as more
-	// areas land.
-	"store":      11000,
+	// Down from 14100 across six extractions. It has only ever moved down except
+	// twice, both times because a new store operation landed rather than an
+	// existing one moving: rate-limit requeueing, and now per-attempt token
+	// usage. Keep lowering it as more areas land.
+	//
+	// Raised from 11000 to 11200 for the usage columns and
+	// RecordAttemptTokenUsage. The count had reached exactly 11000 — the cap, to
+	// the line — so the budget had stopped being a ratchet and become the
+	// tripwire this file warns about four paragraphs up: every addition to the
+	// package failed, whatever its merit. Restoring a small margin is what that
+	// warning asks for.
+	//
+	// The margin is 161 lines, not the 5% the newer entries carry, because this
+	// package should still be shrinking. What it actually needs is the schema
+	// out: baselineSchema and the schemaVN constants are around 1,300 lines of
+	// DDL text carrying no logic, and moving them would return more than every
+	// raise so far has taken. That was not done here because rewriting the
+	// migration machinery while shipping a migration is how the 9934-row
+	// deletion happened, and one of those risks at a time is enough.
+	"store":      11200,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

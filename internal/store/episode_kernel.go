@@ -671,12 +671,16 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, episode_id, attempt_id, parent_manifest_id, version,
 		       prompt_version, contract_version, tool_schema_version, preset,
-		       provider, model, reasoning_effort, omissions_json, created_at
+		       provider, model, reasoning_effort, omissions_json, created_at,
+		       usage_input_tokens, usage_cached_input_tokens,
+		       usage_output_tokens, usage_reasoning_tokens
 		FROM context_manifests WHERE id = ?`, manifestID).Scan(
 		&item.ID, &item.EpisodeID, &item.AttemptID, &item.ParentManifestID,
 		&item.Version, &item.PromptVersion, &item.ContractVersion,
 		&item.ToolSchemaVersion, &item.Preset, &item.Provider, &item.Model,
 		&item.ReasoningEffort, &omissionsJSON, &created,
+		&item.Usage.InputTokens, &item.Usage.CachedInputTokens,
+		&item.Usage.OutputTokens, &item.Usage.ReasoningTokens,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.ContextManifest{}, ErrNotFound
@@ -712,6 +716,63 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 		item.References = append(item.References, ref)
 	}
 	return item, rows.Err()
+}
+
+// RecordAttemptTokenUsage adds one finished Coop turn's token usage to the
+// attempt's context manifest, which is the per-attempt row that already froze
+// which model answered.
+//
+// It adds rather than assigns because an attempt is not one turn. A result the
+// host refuses is sent back to the model as a correction, and that correction
+// reuses the same agent run, the same attempt and therefore the same manifest —
+// attempt_id is written once when the run is created and never updated. An
+// assignment would leave a three-correction attempt reporting only the tokens
+// of its final turn, understating exactly the attempts worth looking at.
+//
+// It is keyed on the Coop turn that produced the usage, and adding the same
+// turn twice does nothing. The caller records on the way out of a terminal
+// turn, before the staging that follows it can fail; when that staging does
+// fail the run stays running and the whole path runs again on the next poll
+// with the same turn. Without the key the retry would count those tokens a
+// second time, and a total that inflates on failure is worse than no total,
+// because nothing distinguishes it from a real one.
+//
+// The manifest is reached through episode_attempts.context_manifest_id rather
+// than by matching attempt_id on the manifest itself. Two manifests can carry
+// the same attempt_id — an extended context writes a second version against the
+// same attempt — and an UPDATE matching on it would count the same turn once
+// per version. That pointer names the one manifest the attempt is actually
+// using.
+//
+// A usage report with nothing in it, or an attempt whose manifest has gone, is
+// not an error. Coop omits the usage object entirely when a provider reported
+// nothing, and losing an episode between a turn finishing and this write is a
+// race — neither is worth failing a finished turn over.
+func (s *Store) RecordAttemptTokenUsage(
+	ctx context.Context,
+	attemptID string,
+	turnID string,
+	usage core.ContextUsage,
+) error {
+	attemptID, turnID = strings.TrimSpace(attemptID), strings.TrimSpace(turnID)
+	if attemptID == "" || turnID == "" {
+		return errors.New("attempt and coop turn are required to record token usage")
+	}
+	if !usage.Recorded() {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE context_manifests SET
+		  usage_input_tokens = usage_input_tokens + ?,
+		  usage_cached_input_tokens = usage_cached_input_tokens + ?,
+		  usage_output_tokens = usage_output_tokens + ?,
+		  usage_reasoning_tokens = usage_reasoning_tokens + ?,
+		  usage_last_turn_id = ?
+		WHERE id = (SELECT context_manifest_id FROM episode_attempts WHERE id = ?)
+		  AND usage_last_turn_id <> ?`,
+		usage.InputTokens, usage.CachedInputTokens, usage.OutputTokens,
+		usage.ReasoningTokens, turnID, attemptID, turnID)
+	return err
 }
 
 func (s *Store) GetLatestContextManifest(

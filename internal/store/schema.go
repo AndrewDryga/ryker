@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 47
+const currentSchemaVersion = 48
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1292,4 +1292,5 @@ var migrations = map[int]string{
 	45: schemaV45,
 	46: schemaV46,
 	47: schemaV47,
+	48: schemaV48,
 }

@@ -955,6 +955,11 @@ type EpisodeAttempt struct {
 
 // ContextManifest is immutable. ContextReference values point at
 // content-addressed or source-addressed inputs instead of duplicating payloads.
+//
+// Usage is the one exception, and it does not contradict that. The envelope is
+// frozen when the attempt starts; what the provider charged for it is only
+// known when the turn ends, so it is written afterwards by
+// RecordContextManifestUsage. Nothing about the context itself changes.
 type ContextManifest struct {
 	ID                string
 	EpisodeID         string
@@ -971,6 +976,35 @@ type ContextManifest struct {
 	Omissions         []string
 	CreatedAt         time.Time
 	References        []ContextReference
+	Usage             ContextUsage
+}
+
+// ContextUsage is what one attempt spent, in tokens, totalled over every Coop
+// turn that attempt took.
+//
+// It is a total rather than a single turn's figure because one attempt can run
+// several turns: a result the host refuses is sent back as a correction, which
+// reuses the same attempt and the same manifest. Recording only the last turn
+// would report the cheapest number for the attempts that cost the most, which
+// is precisely backwards for anyone reading a usage page to find spend.
+//
+// Cached input is kept apart from the input total because Coop reports it
+// apart, and every provider prices a cache read differently.
+type ContextUsage struct {
+	InputTokens       int
+	CachedInputTokens int
+	OutputTokens      int
+	ReasoningTokens   int
+}
+
+// Recorded reports whether any provider ever measured this attempt.
+//
+// Zero is a real answer for a trivial turn, so absence stays distinguishable
+// from free: ACP does not require an adapter to report usage, and an attempt
+// nobody measured must read as "not recorded" rather than as a free one.
+func (u ContextUsage) Recorded() bool {
+	return u.InputTokens > 0 || u.CachedInputTokens > 0 ||
+		u.OutputTokens > 0 || u.ReasoningTokens > 0
 }
 
 type ContextReference struct {

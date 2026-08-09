@@ -880,6 +880,10 @@ type fakeCoop struct {
 	discardAccepts     []bool
 	outputArtifacts    map[string]coop.OutputArtifact
 	getSessionErr      error
+	// completeUsage is what the provider reported for each completed turn.
+	// Zero by default, which is what an ACP adapter that reports nothing
+	// produces, so every existing test keeps describing an unmeasured turn.
+	completeUsage coop.Usage
 }
 
 func newFakeCoop() *fakeCoop {
@@ -1064,6 +1068,7 @@ func (f *fakeCoop) Discard(
 func (f *fakeCoop) complete(message string) {
 	f.turn.State = "completed"
 	f.turn.AssistantMessage = message
+	f.turn.Usage = f.completeUsage
 	f.session.ActiveTurnID = ""
 	f.session.State = "open"
 	f.session.Activity = "parked"
