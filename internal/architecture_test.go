@@ -166,7 +166,7 @@ var lineBudget = map[string]int{
 	// fails, whatever its merit, and the pressure to bump it is highest exactly
 	// when the change is justified. Moving off zero is what that warning asks
 	// for, and it is the same reasoning that moved store off 11000.
-	"service": 25120,
+	"service": 25200,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

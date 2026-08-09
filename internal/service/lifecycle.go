@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"strings"
 	"time"
 
@@ -378,16 +379,41 @@ func (s *Service) discardRetainedWork(
 			),
 		)
 	}
+	// A session Coop has already discarded, or has forgotten entirely, still
+	// leaves a cleanup row behind — and this used to post "no further action
+	// was needed" and leave that row blocked. Nothing was needed of Coop; the
+	// row itself was the remaining work. So the operator pressed a button, was
+	// told it was fine, and watched the workspace stay on the page forever.
+	// Closing the row out is the action, and it is the same one the
+	// record-less path takes for the same state.
+	closeOut := func(detail string) error {
+		if err := s.store.SetCleanupState(
+			ctx, incident.CoopSessionID, "done", "", "", s.now().UTC(),
+		); err != nil {
+			return err
+		}
+		s.audit(ctx, core.AuditEvent{
+			IncidentID: incident.ID, Kind: "engineering_task.discard",
+			ActorID: input.UserID, ObjectID: incident.CoopSessionID,
+			Outcome: "succeeded", Detail: detail,
+		})
+		return s.enqueue(
+			ctx, "out_discard_"+input.ID, incident, "notice",
+			incident.ConversationThreadTS(),
+			slackui.Notice("*Retained work is already gone.* The cleanup record was the last "+
+				"reference to it and has been closed."),
+		)
+	}
 	session, err := s.coop.GetSession(ctx, incident.CoopSessionID)
+	var apiErr *coop.APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+		return closeOut("Coop no longer knows this session; the cleanup record was the last reference to a fork that is already gone.")
+	}
 	if err != nil {
 		return err
 	}
 	if session.State == "discarded" {
-		return s.enqueue(
-			ctx, "out_discard_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(),
-			slackui.Notice("*Retained work is already discarded.* No further action was needed."),
-		)
+		return closeOut("Coop had already discarded this session; only the cleanup record was still open.")
 	}
 	if session.State != "closed" || session.ActiveTurnID != "" || session.QueuedTurnCount != 0 {
 		return s.enqueue(
