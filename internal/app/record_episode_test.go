@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -15,6 +16,10 @@ type fakeEpisodeSource struct {
 	episode  core.WorkEpisode
 	events   []core.WorkEpisodeEvent
 	evidence []core.Evidence
+	run      core.AgentRun
+	runErr   error
+	input    core.SlackInput
+	inputErr error
 }
 
 func (f fakeEpisodeSource) GetWorkEpisode(context.Context, string) (core.WorkEpisode, error) {
@@ -33,10 +38,29 @@ func (f fakeEpisodeSource) ListEpisodeEvidence(
 	return f.evidence, nil
 }
 
+func (f fakeEpisodeSource) GetAgentRun(context.Context, string) (core.AgentRun, error) {
+	return f.run, f.runErr
+}
+
+func (f fakeEpisodeSource) GetSlackInput(context.Context, string) (core.SlackInput, error) {
+	return f.input, f.inputErr
+}
+
+// recordingTriggerText is longer than the 180-byte objective headline on
+// purpose: the whole defect was that the headline was recorded in its place.
+const recordingTriggerText = "Assess the checkout rollout end to end. Start from the " +
+	"deployment that landed this morning, reconcile it against what the repository says should " +
+	"be running, and tell me whether customers can complete a purchase right now. If anything " +
+	"is degraded, say what and since when."
+
 func recordingFixtureSource(secret string) fakeEpisodeSource {
 	moment := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	return fakeEpisodeSource{
-		episode: core.WorkEpisode{ID: "ep_1", Objective: "assess the checkout rollout"},
+		episode: core.WorkEpisode{
+			ID: "ep_1", Objective: "assess the checkout rollout", AgentRunID: "run_1",
+		},
+		run:   core.AgentRun{ID: "run_1", SourceKind: "watch", SourceID: "slack_message_1"},
+		input: core.SlackInput{ID: "slack_message_1", Text: recordingTriggerText},
 		events: []core.WorkEpisodeEvent{
 			{
 				Sequence: 1, Kind: "episode.created", Actor: "operator", CreatedAt: moment,
@@ -141,6 +165,61 @@ func TestRecordingRefusesAnUnnamedCapability(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "section 24") {
 			t.Fatalf("capability %q: error = %v", capability, err)
 		}
+	}
+}
+
+// The fixture's input must be what the operator actually said, not the display
+// headline built from it.
+//
+// core.WorkEpisode.Objective is truncated to 180 bytes with an ellipsis for the
+// Slack status line, and recording it as the input cut three of the four
+// promoted fixtures mid-sentence. One lost its entire instruction, so the model
+// asked what outcome to apply — the correct answer to a question that had been
+// cut in half, scored as a regression.
+func TestRecordedFixtureCarriesTheRealTriggerText(t *testing.T) {
+	fixture, err := recordEpisodeFixture(
+		context.Background(), recordingFixtureSource("none"), config.Config{},
+		"ep_1", "reactions", "",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fixture.Input != recordingTriggerText {
+		t.Fatalf("fixture input = %q", fixture.Input)
+	}
+	if len(fixture.Input) <= 180 {
+		t.Fatalf("the test's own trigger text is not long enough to prove anything: %d bytes",
+			len(fixture.Input))
+	}
+	// The headline is still fine as a label.
+	if fixture.Name != "assess the checkout rollout" {
+		t.Fatalf("fixture name = %q", fixture.Name)
+	}
+}
+
+// A fixture whose trigger text cannot be read is unanswerable, and an
+// unanswerable fixture in a corpus gated at a 100% pass rate is a gate that can
+// never be green. Refusing is the only outcome that stays honest: retention had
+// already pruned the input row for one promoted episode, and nothing in the
+// resulting file said the question was missing its second half.
+func TestRecordingRefusesWhenTheTriggerTextIsGone(t *testing.T) {
+	for name, mutate := range map[string]func(*fakeEpisodeSource){
+		"no originating run": func(s *fakeEpisodeSource) { s.episode.AgentRunID = "" },
+		"run is gone":        func(s *fakeEpisodeSource) { s.runErr = sql.ErrNoRows },
+		"run has no source":  func(s *fakeEpisodeSource) { s.run.SourceID = "" },
+		"input row pruned":   func(s *fakeEpisodeSource) { s.inputErr = sql.ErrNoRows },
+		"input has no text":  func(s *fakeEpisodeSource) { s.input.Text = "   " },
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := recordingFixtureSource("none")
+			mutate(&source)
+			_, err := recordEpisodeFixture(
+				context.Background(), source, config.Config{}, "ep_1", "reactions", "",
+			)
+			if err == nil || !strings.Contains(err.Error(), "real trigger text") {
+				t.Fatalf("error = %v", err)
+			}
+		})
 	}
 }
 
