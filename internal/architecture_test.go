@@ -96,7 +96,13 @@ var lineBudget = map[string]int{
 	// And five more on 2026-08-08 for the behavior-offer acknowledgements that
 	// stop a confirmation reply from explaining rule types and catalog
 	// internals — the "watery replies" complaint applied to offers.
-	"service": 24665,
+	// Raised to 24700 on 2026-08-08 for ControlPlaneAct: the web control plane
+	// gained publish/discard/close actions, and those must run through the same
+	// service handlers the Slack buttons call — the Coop review, the verified
+	// discard plan, and the cleanup scheduling live behind clients only this
+	// package holds, and a store-side reimplementation would be a second copy
+	// of the safety rules. Twenty-three lines of entrance, no new behavior.
+	"service": 24700,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

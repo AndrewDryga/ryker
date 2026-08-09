@@ -24,7 +24,7 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	handler.Register(mux)
 
 	for _, path := range []string{
-		"/", "/episodes", "/failures", "/decisions", "/audit", "/memory",
+		"/", "/episodes", "/failures", "/workspaces", "/decisions", "/audit", "/memory",
 		"/configuration", "/usage",
 	} {
 		recorder := httptest.NewRecorder()
@@ -128,6 +128,7 @@ func TestNoWriteRoutesAreExposed(t *testing.T) {
 	// accidental revisit, and loopback is the only thing guarding it.
 	for _, path := range []string{
 		"/actions/corrections/keep", "/actions/corrections/discard", "/actions/failures/retry",
+		"/actions/workspaces/publish", "/actions/workspaces/discard", "/actions/workspaces/rerun",
 	} {
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -191,6 +192,15 @@ func (failingActions) DiscardCorrection(context.Context, string, string) error {
 	return errors.New("store refused")
 }
 func (failingActions) RetryFailure(context.Context, string, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) PublishRetainedWork(context.Context, string, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) DiscardRetainedWork(context.Context, string, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) RerunCleanup(context.Context, string, string) error {
 	return errors.New("store refused")
 }
 

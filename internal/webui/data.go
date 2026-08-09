@@ -231,6 +231,7 @@ const (
 	countInFlight   = `SELECT COUNT(*) FROM work_episodes
 	  WHERE lifecycle_state IN ('accepted','acknowledged','planning','working','retrying','verifying')`
 	countRetained     = `SELECT COUNT(*) FROM coop_cleanup WHERE state = 'blocked'`
+	countCleanupDone  = `SELECT COUNT(*) FROM coop_cleanup WHERE state = 'done'`
 	countEpisodes     = `SELECT COUNT(*) FROM work_episodes`
 	countTerminalRuns = `SELECT COUNT(*) FROM agent_runs WHERE terminal_state <> ''`
 	countCorrections  = `SELECT COUNT(*) FROM fixture_candidates WHERE correction_class = ?`

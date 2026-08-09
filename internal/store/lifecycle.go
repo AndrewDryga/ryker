@@ -400,6 +400,30 @@ func (s *Store) SetCleanupState(
 	return err
 }
 
+// RequeueBlockedCleanup puts one operator-held cleanup row back in front of
+// the janitor, which re-runs every safety check and deletes nothing a check
+// refuses. Attempts and the recorded refusal are kept: they are the history
+// of why the row was held, and the next pass overwrites them with its own
+// outcome. Only blocked rows qualify — requeueing a row the janitor already
+// owns would just double its schedule.
+func (s *Store) RequeueBlockedCleanup(ctx context.Context, sessionID string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE coop_cleanup SET state = 'retry', next_attempt_at = ?, updated_at = ?
+		WHERE session_id = ? AND state = 'blocked'`,
+		s.nowText(), s.nowText(), sessionID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return errors.New("this workspace is not operator-held; it is already queued, running, or reclaimed")
+	}
+	return nil
+}
+
 func (s *Store) Prune(
 	ctx context.Context,
 	operationalBefore time.Time,

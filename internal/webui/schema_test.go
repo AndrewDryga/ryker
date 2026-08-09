@@ -53,6 +53,7 @@ func TestEveryQueryRunsAgainstTheMigratedSchema(t *testing.T) {
 		"Deliveries":          func() error { _, err := reader.Deliveries(ctx, "ep"); return err },
 		"Failures":            func() error { _, err := reader.Failures(ctx); return err },
 		"FailureRuns":         func() error { _, err := reader.FailureRuns(ctx, "boom"); return err },
+		"RetainedWorkspaces":  func() error { _, _, err := reader.RetainedWorkspaces(ctx); return err },
 		"Corrections":         func() error { _, err := reader.Corrections(ctx); return err },
 		"Feedback":            func() error { _, err := reader.Feedback(ctx); return err },
 		"ChannelMemory":       func() error { _, err := reader.ChannelMemory(ctx); return err },
@@ -104,9 +105,9 @@ func TestEveryCounterRunsAgainstTheMigratedSchema(t *testing.T) {
 		args  []any
 	}{
 		{countNeedsDecision, nil}, {countFailedRuns, nil}, {countInFlight, nil},
-		{countRetained, nil}, {countEpisodes, nil}, {countTerminalRuns, nil},
-		{countCorrections, []any{"unreadable"}}, {countAudited, nil},
-		{countAuditKind, []any{"slack.watch"}},
+		{countRetained, nil}, {countCleanupDone, nil}, {countEpisodes, nil},
+		{countTerminalRuns, nil}, {countCorrections, []any{"unreadable"}},
+		{countAudited, nil}, {countAuditKind, []any{"slack.watch"}},
 	} {
 		var count int
 		err := reader.db.QueryRowContext(context.Background(), counted.query, counted.args...).Scan(&count)
@@ -128,7 +129,7 @@ func TestEveryPageRendersAgainstTheMigratedSchema(t *testing.T) {
 	mux := http.NewServeMux()
 	handler.Register(mux)
 	for _, path := range []string{
-		"/", "/episodes", "/failures", "/decisions", "/audit", "/memory",
+		"/", "/episodes", "/failures", "/workspaces", "/decisions", "/audit", "/memory",
 		"/configuration", "/usage",
 	} {
 		recorder := httptest.NewRecorder()

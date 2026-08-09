@@ -3,7 +3,7 @@
   <div class="panel metric{{if .NeedsYou}} warn{{end}}"><div class="n">{{.NeedsYou}}</div><div class="k">need a decision</div></div>
   <a class="panel metric{{if .Failed}} bad{{end}}" href="/failures"><div class="n">{{.Failed}}</div><div class="k">failed work</div></a>
   <div class="panel metric"><div class="n">{{.InFlight}}</div><div class="k">in flight</div></div>
-  <div class="panel metric{{if .Retained}} warn{{end}}"><div class="n">{{.Retained}}</div><div class="k">retained workspaces</div></div>
+  <a class="panel metric{{if .Retained}} warn{{end}}" href="/workspaces"><div class="n">{{.Retained}}</div><div class="k">retained workspaces</div></a>
 </div>
 
 <h2>Needs a decision</h2>

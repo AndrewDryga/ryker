@@ -61,6 +61,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /incidents/{id}", h.incident)
 	mux.HandleFunc("GET /failures", h.failures)
 	mux.HandleFunc("GET /failures/{key}", h.failure)
+	mux.HandleFunc("GET /workspaces", h.workspaces)
 	mux.HandleFunc("GET /conversations/{channel}/{thread}", h.conversation)
 	mux.HandleFunc("GET /decisions", h.decisions)
 	mux.HandleFunc("GET /audit", h.audit)
@@ -68,11 +69,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /memory", h.memory)
 	mux.HandleFunc("GET /configuration", h.configuration)
 	mux.HandleFunc("GET /usage", h.usage)
-	// Writes are POST only, and only these three. Each calls the same store
-	// path the equivalent Slack button calls.
+	// Writes are POST only, and only these routes. Each calls the same store
+	// or service path the equivalent Slack button calls.
 	mux.HandleFunc("POST /actions/corrections/keep", h.keepCorrection)
 	mux.HandleFunc("POST /actions/corrections/discard", h.discardCorrection)
 	mux.HandleFunc("POST /actions/failures/retry", h.retryFailure)
+	mux.HandleFunc("POST /actions/workspaces/publish", h.publishRetainedWork)
+	mux.HandleFunc("POST /actions/workspaces/discard", h.discardRetainedWork)
+	mux.HandleFunc("POST /actions/workspaces/rerun", h.rerunCleanup)
 }
 
 // CanAct reports whether this build was given write access, so a page can offer
@@ -115,8 +119,9 @@ func (h *Handler) shell(r *http.Request, slug string, content any) Shell {
 	shell.Badges = map[string]Badge{
 		"": {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM work_episodes
 		  WHERE lifecycle_state IN ('blocked','waiting_operator','waiting_approval')`), Warn: true},
-		"failures":  {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`)},
-		"decisions": {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM fixture_candidates WHERE status = 'pending'`), Warn: true},
+		"failures":   {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`)},
+		"workspaces": {N: h.reader.Count(ctx, countRetained), Warn: true},
+		"decisions":  {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM fixture_candidates WHERE status = 'pending'`), Warn: true},
 	}
 	return shell
 }
@@ -420,6 +425,23 @@ func (h *Handler) failure(w http.ResponseWriter, r *http.Request) {
 		Runs   []FailureRun
 		CanAct bool
 	}{cause, runs, h.CanAct()})
+}
+
+// workspaces lists every Coop fork still on disk and why. The blocked rows are
+// the operator's queue: the janitor has refused each for a stated reason and
+// will never look again unless a person publishes, discards, or sends it back
+// through the checks.
+func (h *Handler) workspaces(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var failed problems
+	held, queued, err := h.reader.RetainedWorkspaces(ctx)
+	failed.note("workspaces", err)
+	h.page(w, r, "workspaces", "workspaces", struct {
+		Held, Queued []RetainedWorkspace
+		Reclaimed    int
+		Errs         problems
+		CanAct       bool
+	}{held, queued, h.reader.Count(ctx, countCleanupDone), failed, h.CanAct()})
 }
 
 // conversation unpacks the state blob a list can only count. The goal, open

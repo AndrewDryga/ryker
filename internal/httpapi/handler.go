@@ -125,10 +125,13 @@ func (h *Handler) mux() *http.ServeMux {
 }
 
 // dashboardActions gives the control plane exactly the mutations it offers, by
-// calling the same store paths the Slack buttons call. Routed through here
-// rather than the dashboard's own connection so the audit trail and the
-// invariants do not depend on which surface the operator used.
-type dashboardActions struct{ store *store.Store }
+// calling the same store and service paths the Slack buttons call. Routed
+// through here rather than the dashboard's own connection so the audit trail
+// and the invariants do not depend on which surface the operator used.
+type dashboardActions struct {
+	store   *store.Store
+	service *service.Service
+}
 
 // review mirrors the Slack handler exactly: the store transition AND the audit
 // event. The first version called only the store method, so sixteen reviews
@@ -160,6 +163,35 @@ func (a *dashboardActions) DiscardCorrection(ctx context.Context, id, actor stri
 func (a *dashboardActions) RetryFailure(ctx context.Context, runID, actor string) error {
 	return errors.New("retry is not wired yet: it needs the work item behind the run, " +
 		"not the run id. Nothing was changed.")
+}
+
+// PublishRetainedWork and DiscardRetainedWork go through the service, not the
+// store: the Coop review, the verified discard plan, and the cleanup schedule
+// live behind clients only the service holds, and the service handler is the
+// same one the Slack button calls — audit record, Slack outcome notice and
+// all. A store-side reimplementation would be a second copy of the safety
+// rules, which is how a surface grows a button that skips the dirty-tree
+// check.
+func (a *dashboardActions) PublishRetainedWork(ctx context.Context, incidentID, actor string) error {
+	return a.service.ControlPlaneAct(ctx, "publish", incidentID, actor)
+}
+
+func (a *dashboardActions) DiscardRetainedWork(ctx context.Context, incidentID, actor string) error {
+	return a.service.ControlPlaneAct(ctx, "discard", incidentID, actor)
+}
+
+// RerunCleanup sends one blocked workspace back through the janitor's checks.
+// The transition and the audit row land in the same act: the dashboard once
+// shipped an action that changed state with no audit trail, and sixteen
+// unattributed reviews later that is a rule rather than a preference.
+func (a *dashboardActions) RerunCleanup(ctx context.Context, sessionID, actor string) error {
+	if err := a.store.RequeueBlockedCleanup(ctx, sessionID); err != nil {
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "cleanup.retry", ActorID: actor, ObjectID: sessionID, Outcome: "requeued",
+		Detail: "operator sent a blocked workspace back through the janitor's checks",
+	})
 }
 
 // deploymentName walks the state path up past the dot-directory. The naive
@@ -194,7 +226,7 @@ func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 		version.Version,
 		func() bool { ready, _ := h.service.Ready(context.Background()); return ready },
 		nil,
-		&dashboardActions{store: h.store},
+		&dashboardActions{store: h.store, service: h.service},
 	)
 	if err != nil {
 		return err

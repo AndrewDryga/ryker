@@ -19,6 +19,14 @@ type Actions interface {
 	KeepCorrection(ctx context.Context, id, actor string) error
 	DiscardCorrection(ctx context.Context, id, actor string) error
 	RetryFailure(ctx context.Context, runID, actor string) error
+	// PublishRetainedWork and DiscardRetainedWork run the identical service
+	// handlers the Slack buttons call, Coop review and verified discard plan
+	// included; their outcome notices land in the room's Slack channel exactly
+	// as a button press would. RerunCleanup sends a blocked workspace back
+	// through the janitor's own checks.
+	PublishRetainedWork(ctx context.Context, incidentID, actor string) error
+	DiscardRetainedWork(ctx context.Context, incidentID, actor string) error
+	RerunCleanup(ctx context.Context, sessionID, actor string) error
 }
 
 // dashboardActor is recorded against anything done here.
@@ -74,5 +82,23 @@ func (h *Handler) discardCorrection(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) retryFailure(w http.ResponseWriter, r *http.Request) {
 	h.act(w, r, func(ctx context.Context, id string) error {
 		return h.actions.RetryFailure(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) publishRetainedWork(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.PublishRetainedWork(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) discardRetainedWork(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.DiscardRetainedWork(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) rerunCleanup(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.RerunCleanup(ctx, id, dashboardActor)
 	})
 }

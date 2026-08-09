@@ -38,6 +38,7 @@ var pages = []Page{
 	{"", "Overview", "What is happening right now?"},
 	{"episodes", "Episodes", "What did it do, and why?"},
 	{"failures", "Failures", "What is broken, and can I retry it?"},
+	{"workspaces", "Workspaces", "What is still held, and why?"},
 	{"decisions", "Decisions", "What did it choose, and was it right?"},
 	{"audit", "Audit", "Who did what, and what came of it?"},
 	{"memory", "Memory", "What does it believe, and where did that come from?"},
