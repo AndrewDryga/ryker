@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/version"
@@ -129,12 +130,27 @@ func (h *Handler) mux() *http.ServeMux {
 // invariants do not depend on which surface the operator used.
 type dashboardActions struct{ store *store.Store }
 
+// review mirrors the Slack handler exactly: the store transition AND the audit
+// event. The first version called only the store method, so sixteen reviews
+// made from the dashboard changed state with one legacy Slack row in
+// fixture.review beside them — an action surface whose own audit trail
+// promise lasted until its first real use.
+func (a *dashboardActions) review(ctx context.Context, id, status, actor string) error {
+	if err := a.store.ReviewFixtureCandidate(ctx, id, status, actor); err != nil {
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		ID: "audit_fixture_review_cp_" + id, Kind: "fixture.review",
+		ActorID: actor, ObjectID: id, Outcome: status,
+	})
+}
+
 func (a *dashboardActions) KeepCorrection(ctx context.Context, id, actor string) error {
-	return a.store.ReviewFixtureCandidate(ctx, id, "approved", actor)
+	return a.review(ctx, id, "approved", actor)
 }
 
 func (a *dashboardActions) DiscardCorrection(ctx context.Context, id, actor string) error {
-	return a.store.ReviewFixtureCandidate(ctx, id, "rejected", actor)
+	return a.review(ctx, id, "rejected", actor)
 }
 
 // RetryFailure re-queues the work item behind a failed run. Not yet wired: the

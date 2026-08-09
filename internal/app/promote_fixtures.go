@@ -74,9 +74,17 @@ func runPromoteFixtures(args []string, stdout, stderr io.Writer) error {
 	var written int
 	var lines []string
 	for _, candidate := range approved {
+		// Also marked inside the loop: two corrections routinely land on one
+		// episode — the runbook episode carried both "no diagnostic closure"
+		// and "material gaps" — and deduplicating only against the existing
+		// corpus wrote both, which the corpus validator then rejected as a
+		// duplicate case name after the first gate had already passed. One
+		// episode replays once; its fixture asserts the corrected outcome for
+		// every correction class that pointed at it.
 		if present[candidate.EpisodeID] {
 			continue
 		}
+		present[candidate.EpisodeID] = true
 		fixture, err := recordEpisodeFixture(
 			ctx, storeEpisodeSource{store: st}, cfg, candidate.EpisodeID, candidate.Capability, "",
 		)
