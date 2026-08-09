@@ -83,7 +83,13 @@ var methodBudget = map[string]int{
 // wants room here should have to answer for it. What it really needs is an
 // extraction, not another raise.
 var lineBudget = map[string]int{
-	"service": 24620,
+	// Raised from 24620 on 2026-08-08 for the target parser that fills
+	// context_manifests.provider/model/reasoning_effort. Those columns had
+	// existed since the table was created with nothing assigning them, so all
+	// 57 production rows read empty and the control plane showed three blanks
+	// where the model that ran should be. The package had seven lines of margin
+	// and a real feature needed ten.
+	"service": 24640,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

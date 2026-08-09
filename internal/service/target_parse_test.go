@@ -20,14 +20,10 @@ func TestTargetPartsAreRecordedFromWhatActuallyRan(t *testing.T) {
 		// because another repository changed its target grammar.
 		{"::/", "", ":", ""},
 	} {
-		if got := targetProvider(testCase.target); got != testCase.provider {
-			t.Errorf("targetProvider(%q) = %q, want %q", testCase.target, got, testCase.provider)
-		}
-		if got := targetModel(testCase.target); got != testCase.model {
-			t.Errorf("targetModel(%q) = %q, want %q", testCase.target, got, testCase.model)
-		}
-		if got := targetEffort(testCase.target); got != testCase.effort {
-			t.Errorf("targetEffort(%q) = %q, want %q", testCase.target, got, testCase.effort)
+		provider, model, effort := targetParts(testCase.target)
+		if provider != testCase.provider || model != testCase.model || effort != testCase.effort {
+			t.Errorf("targetParts(%q) = %q/%q/%q, want %q/%q/%q", testCase.target,
+				provider, model, effort, testCase.provider, testCase.model, testCase.effort)
 		}
 	}
 }

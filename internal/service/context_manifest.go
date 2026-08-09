@@ -37,6 +37,7 @@ func (s *Service) ensureAttemptContextManifest(
 		return s.store.GetContextManifest(ctx, attempt.ContextManifestID)
 	}
 
+	provider, model, effort := targetParts(session.Target)
 	manifest := core.ContextManifest{
 		EpisodeID:         run.EpisodeID,
 		AttemptID:         run.AttemptID,
@@ -44,16 +45,13 @@ func (s *Service) ensureAttemptContextManifest(
 		ContractVersion:   investigationContractVersion,
 		ToolSchemaVersion: resultOperationsVersion,
 		Preset:            session.Policy,
-		// The effective target, after any rate-limit rotation Coop performed.
-		// These three columns existed from the start and nothing ever assigned
-		// them, so every one of the 57 manifest rows read empty and the control
-		// plane's "Model and context" panel showed three blanks. Read from the
-		// session rather than the configured policy on purpose: a ladder that
-		// rotated codex to claude mid-incident should record what actually ran,
-		// which is the whole reason to keep the field.
-		Provider:        targetProvider(session.Target),
-		Model:           targetModel(session.Target),
-		ReasoningEffort: targetEffort(session.Target),
+		// The EFFECTIVE target, after any rotation Coop performed: a ladder that
+		// moved codex to claude mid-incident must record what ran, not what was
+		// configured. These columns existed from the start and nothing assigned
+		// them, so all 57 rows read empty.
+		Provider:        provider,
+		Model:           model,
+		ReasoningEffort: effort,
 		References: []core.ContextReference{
 			contextReference("source_input", run.SourceKind+":"+run.SourceID, nil, "eligible", map[string]string{
 				"channel_id": run.ChannelID,
@@ -141,20 +139,13 @@ func mergeContextReferences(
 	return merged
 }
 
-// A Coop target is provider[:model][/effort][@credential]. Split in that
-// order — credential, then effort, then model — because splitting on the colon
-// first reads "claude/high" as a provider called "claude/high".
-//
-// Parsed here rather than imported from Coop because Responder records what it
-// was told, and a target it cannot read should leave a blank field rather than
-// fail an episode over a formatting change in another repository.
+// A Coop target is provider[:model][/effort][@credential], split in that order:
+// taking the colon first reads "claude/high" as a provider named "claude/high".
+// Parsed here rather than imported, so a target this cannot read leaves a blank
+// field instead of failing an episode over another repository's separator.
 func targetParts(target string) (provider, model, effort string) {
 	name, _, _ := strings.Cut(strings.TrimSpace(target), "@")
 	head, effort, _ := strings.Cut(name, "/")
 	provider, model, _ = strings.Cut(head, ":")
 	return strings.TrimSpace(provider), strings.TrimSpace(model), strings.TrimSpace(effort)
 }
-
-func targetProvider(target string) string { provider, _, _ := targetParts(target); return provider }
-func targetModel(target string) string    { _, model, _ := targetParts(target); return model }
-func targetEffort(target string) string   { _, _, effort := targetParts(target); return effort }
