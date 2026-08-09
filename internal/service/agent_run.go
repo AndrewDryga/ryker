@@ -849,6 +849,44 @@ func (s *Service) freezeTriageContext(
 	return nil
 }
 
+// dependencyWaitDelay is how long a run waits before looking again to see
+// whether the previous turn in its Slack channel has finished.
+//
+// It used to be one second flat, which meant a run queued behind a long turn
+// ran a three-statement transaction every second for as long as that turn
+// lasted. Fixing the idempotency key stopped each of those polls appending an
+// episode event, but the polls themselves stayed, and they are what fills the
+// write-ahead logs: 4.2 MB on both deployments, which on emisar is a WAL the
+// size of the entire database. The 4,632 waiting events recorded inside one
+// hour are the same loop counted a different way.
+//
+// The delay is an eighth of the time already spent waiting. Below eight seconds
+// that is the one-second floor, so the common case — a turn about to finish —
+// keeps exactly the handoff it had and the queue feels no different. Above it
+// the interval grows only for waits that are already long, where a few more
+// seconds are a rounding error on the wait itself. Stated as a promise: a run
+// resumes within an eighth of the time it has already been waiting.
+//
+// Fifteen seconds is the ceiling, so fifteen seconds is the worst case this
+// adds to any handoff, and it is only reached after two minutes of waiting. A
+// Coop turn runs for seconds to minutes, so a run that has waited two minutes
+// is queued behind something long and will not notice. At the ceiling the
+// transaction rate falls from 3,600 an hour to 240.
+//
+// Measured from when the run was queued, which is also true of a run put back
+// by an operator retry or a recovery: those keep their original created_at, so
+// they start at the ceiling rather than ramping up to it. That is the right
+// answer for them — a retry of an old run is not the latency anyone is
+// watching — and it is a consequence worth naming rather than discovering.
+func dependencyWaitDelay(waited time.Duration) time.Duration {
+	const (
+		floor   = time.Second
+		ceiling = 15 * time.Second
+		share   = 8
+	)
+	return min(max(waited/share, floor), ceiling)
+}
+
 func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) error {
 	input, err := s.store.GetSlackInput(ctx, run.SourceID)
 	if err != nil {
@@ -886,11 +924,12 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	session, repositoryKey := resolved.session, resolved.repositoryKey
 	generation, eventSequence := resolved.generation, resolved.eventSequence
 	if session.ActiveTurnID != "" {
+		now := s.now()
 		return s.store.DeferAgentRun(
 			ctx,
 			run.ID,
 			"waiting for the previous agent run in this Slack channel",
-			s.now().Add(time.Second),
+			now.Add(dependencyWaitDelay(now.Sub(run.CreatedAt))),
 		)
 	}
 	switch session.State {

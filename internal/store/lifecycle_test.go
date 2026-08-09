@@ -256,6 +256,7 @@ func TestExpiredChannelMemoryIsOwnedBeforeItIsPruned(t *testing.T) {
 		time.Now().Add(time.Hour),
 		time.Now().Add(time.Hour),
 		time.Now().Add(-time.Hour),
+		time.Now().Add(-time.Hour),
 	); err != nil {
 		t.Fatal(err)
 	}

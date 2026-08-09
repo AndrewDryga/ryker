@@ -55,6 +55,7 @@ func TestMemoryLifecyclePrunesMetadataAndDeletedChannelRollups(t *testing.T) {
 	result, err := st.Prune(
 		ctx, now.Add(-time.Hour), now.Add(-90*24*time.Hour),
 		now.Add(-7*24*time.Hour), now.Add(-30*24*time.Hour),
+		now.Add(-30*24*time.Hour),
 	)
 	if err != nil || result.MemorySupersessions != 1 {
 		t.Fatalf("memory metadata prune = %+v, %v", result, err)
@@ -84,6 +85,7 @@ func TestMemoryExpiryPruneAndRecentEvidenceIsolation(t *testing.T) {
 	}
 	result, err := st.Prune(
 		ctx,
+		time.Now().Add(-time.Hour),
 		time.Now().Add(-time.Hour),
 		time.Now().Add(-time.Hour),
 		time.Now().Add(-time.Hour),

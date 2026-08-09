@@ -264,7 +264,31 @@ type RetentionConfig struct {
 	OperationalData     Duration `yaml:"operational_data"`
 	ConversationMemory  Duration `yaml:"conversation_memory"`
 	ClosedWork          Duration `yaml:"closed_work"`
-	AuditData           Duration `yaml:"audit_data"`
+	// EpisodeHistory is how long a finished episode's own record is kept: the
+	// event stream, progress, attempts, context manifests, claim assessments and
+	// goals that say what the agent was asked to do and what it did.
+	//
+	// Its own class, not operational_data, because these are not the same kind
+	// of thing. operational_data expires message bodies and queue rows — the
+	// transport of a turn, worthless once the turn is over. Episode history is
+	// the account of the turn, and it is what the replay-fixture corpus is built
+	// from, so expiring it on the transport's schedule means the record is gone
+	// before anyone can decide whether to keep it. That is not hypothetical: the
+	// 24h sweep already destroyed a completed schedule run before it could be
+	// recorded as a fixture, which is written up in the episode-lifecycle
+	// cutover decision. architecture-next §29 asks for exactly this split —
+	// "keep episode events and effect receipts longer than message bodies".
+	//
+	// Thirty days by default, matching audit_data rather than closed_work,
+	// because episode history is an audit record of what an agent did. It also
+	// has to outlive the fourteen-day fixture-candidate TTL by a comfortable
+	// margin: a correction queued on day thirteen is reviewed against an episode
+	// that must still exist. Deletion is additionally refused outright for any
+	// episode a pending or approved correction still points at, so shortening
+	// this cannot destroy a queued lesson — the horizon decides when ordinary
+	// history expires, not whether the exceptions are protected.
+	EpisodeHistory Duration `yaml:"episode_history"`
+	AuditData      Duration `yaml:"audit_data"`
 }
 
 // MemoryConfig controls deterministic background consolidation. The source
@@ -408,6 +432,7 @@ func defaults() Config {
 			OperationalData:     Duration{24 * time.Hour},
 			ConversationMemory:  Duration{90 * 24 * time.Hour},
 			ClosedWork:          Duration{7 * 24 * time.Hour},
+			EpisodeHistory:      Duration{30 * 24 * time.Hour},
 			AuditData:           Duration{30 * 24 * time.Hour},
 		},
 		Memory: MemoryConfig{
@@ -975,9 +1000,15 @@ func validateRetention(c RetentionConfig) error {
 	case c.ClosedWork.Duration < c.OperationalData.Duration ||
 		c.ClosedWork.Duration > 365*24*time.Hour:
 		return errors.New("closed_work must be at least operational_data and at most 8760h")
-	case c.AuditData.Duration < c.ClosedWork.Duration ||
+	// The classes are ordered, and episode_history sits between closed work and
+	// audit: an episode's own account of a job must outlive the closed work
+	// record it explains, and the audit trail outlives everything.
+	case c.EpisodeHistory.Duration < c.ClosedWork.Duration ||
+		c.EpisodeHistory.Duration > 365*24*time.Hour:
+		return errors.New("episode_history must be at least closed_work and at most 8760h")
+	case c.AuditData.Duration < c.EpisodeHistory.Duration ||
 		c.AuditData.Duration > 5*365*24*time.Hour:
-		return errors.New("audit_data must be at least closed_work and at most 43800h")
+		return errors.New("audit_data must be at least episode_history and at most 43800h")
 	}
 	return nil
 }

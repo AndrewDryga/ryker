@@ -95,6 +95,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 		now.Add(-s.cfg.Retention.OperationalData.Duration),
 		now.Add(-s.cfg.Retention.ConversationMemory.Duration),
 		now.Add(-s.cfg.Retention.ClosedWork.Duration),
+		now.Add(-s.cfg.Retention.EpisodeHistory.Duration),
 		now.Add(-s.cfg.Retention.AuditData.Duration),
 	)
 	if err != nil {
@@ -127,6 +128,8 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"emisar_approvals", result.EmisarApprovals,
 			"configuration_sessions", result.ConfigurationSessions,
 			"closed_work", result.ClosedIncidents,
+			"episodes", result.Episodes,
+			"agent_run_contexts", result.AgentRunContexts,
 			"audit", result.AuditEvents,
 		)
 	}
@@ -136,9 +139,16 @@ func pruneResultWorthLogging(result core.PruneResult) bool {
 	if result.Total() >= 25 {
 		return true
 	}
+	// Episodes and emptied contexts are always worth a line even one at a time.
+	// Episode history is the record the replay corpus is built from, so a pass
+	// that expires any of it should be visible without waiting for two dozen
+	// rows of queue churn to make the threshold; and AgentRunContexts is not in
+	// Total at all, so without naming it here a pass that reclaimed megabytes
+	// could log nothing.
 	return result.MemoryEntries+result.MemoryRollups+result.MemoryReviews+
 		result.MemorySupersessions+result.Preferences+result.StandingRules+
-		result.ScheduledTasks+result.ActionProposals+result.ClosedIncidents > 0
+		result.ScheduledTasks+result.ActionProposals+result.ClosedIncidents+
+		result.Episodes+result.AgentRunContexts > 0
 }
 
 func (s *Service) reconcileOrphanedResponderSessions(

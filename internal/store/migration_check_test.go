@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,5 +116,80 @@ func TestCheckMigrationCatchesAMigrationThatDestroysRows(t *testing.T) {
 			"the cascade was not named; the report has to say which table lost rows: %s",
 			effect.Describe(),
 		)
+	}
+}
+
+// A declared deletion is reported, counted, and confined to the table it named.
+//
+// Migration 51 is the first migration here whose purpose is to remove rows, and
+// the check that guards every deploy fails any migration that loses one. The
+// declaration that lets it through has to be the narrowest thing that works, or
+// the next destructive migration inherits an exemption nobody re-examined.
+func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *testing.T) {
+	if !deletionIsIntended(50, 51, "work_episode_events") {
+		t.Fatal("migration 51 does not declare the deletion it exists to perform")
+	}
+	// The declaration belongs to the step that made it: a host upgrading from
+	// 47 runs 48 through 51 in one pass and must be covered.
+	if !deletionIsIntended(47, 51, "work_episode_events") {
+		t.Fatal("a multi-version upgrade does not carry the declaration")
+	}
+	// And it must not leak backwards onto migrations that never claimed it.
+	if deletionIsIntended(47, 50, "work_episode_events") {
+		t.Fatal("a version that declared nothing inherited the exemption")
+	}
+	for _, table := range []string{
+		"work_episodes", "episode_attempts", "agent_runs", "audit_events",
+	} {
+		if deletionIsIntended(0, currentSchemaVersion, table) {
+			t.Fatalf("%s may lose rows in a migration without anyone noticing", table)
+		}
+	}
+
+	// The real thing, end to end: a database holding the shape migration 51
+	// deletes reports safe, names the table, and prints the count.
+	dir := t.TempDir()
+	st := openAt(t, dir)
+	seedEpisodeWithRun(t, st, "ep_1", "completed",
+		map[string][2]string{"run_1": {"completed", "2026-08-07T12:00:00.000000000Z"}})
+	for sequence, key := range map[int]string{
+		2: "agent-run:run_1:deferred:2026-08-07T12:00:02Z",
+		3: "agent-run:run_1:deferred:2026-08-07T12:00:03Z",
+		4: "agent-run:run_1:deferred:2026-08-07T12:00:04Z",
+	} {
+		if _, err := st.db.Exec(`
+			INSERT INTO work_episode_events
+			  (id, episode_id, sequence, kind, actor, idempotency_key, payload_json, created_at)
+			VALUES (?, 'ep_1', ?, 'phase_changed', 'host', ?, '{}',
+			  '2026-08-07T12:00:00.000000000Z')`,
+			"episode_event_seed_"+key, sequence, key,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st.Close()
+
+	copied := copyStateDir(t, dir)
+	target, err := sql.Open("sqlite", filepath.Join(copied, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.Exec(`UPDATE schema_version SET version = 50`); err != nil {
+		t.Fatal(err)
+	}
+	target.Close()
+
+	effect, err := CheckMigration(copied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !effect.Safe() {
+		t.Fatalf("the declared deletion was reported as unsafe: %s", effect.Describe())
+	}
+	if effect.Removed["work_episode_events"] != 2 {
+		t.Fatalf("declared removals = %+v, want two of the three repeats", effect.Removed)
+	}
+	if !strings.Contains(effect.Describe(), "removed 2 rows on purpose") {
+		t.Fatalf("the report does not tell an operator what was deleted: %s", effect.Describe())
 	}
 }

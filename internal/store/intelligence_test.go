@@ -253,6 +253,7 @@ func TestConversationMemoryDeletionAndRetention(t *testing.T) {
 		time.Now().UTC().Add(-90*24*time.Hour),
 		time.Now().UTC().Add(-7*24*time.Hour),
 		time.Now().UTC().Add(-30*24*time.Hour),
+		time.Now().UTC().Add(-30*24*time.Hour),
 	)
 	if err != nil || result.ConversationMemories != 1 {
 		t.Fatalf("conversation memory prune = %+v, %v", result, err)

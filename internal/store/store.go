@@ -252,6 +252,28 @@ func verifyMigrationBackup(path string, sourceVersion int) error {
 	return nil
 }
 
+// pruneMigrationBackups keeps the newest few snapshots this package wrote, and
+// deletes nothing else in the directory.
+//
+// The glob is narrow on purpose, and it is worth saying so because the
+// narrowness reads like an oversight and gets reported as one. The backups
+// directory on the deployed databases holds 47.8 MB of operator files —
+// manual-alert-runtime-repair-20260806T165347Z.db,
+// manual-before-runbook-repin-20260806T202856Z.db — that this never collects,
+// and widening the pattern to *.db would collect them on the next schema
+// upgrade. Those are point-in-time copies somebody took by hand before doing
+// something risky. A snapshot taken deliberately, named for the thing it is
+// insurance against, is the last file an automatic sweep should decide it knows
+// better about, and deleting it as a side effect of an unrelated migration is
+// the kind of surprise that teaches an operator not to trust the tool.
+//
+// So the rule is that Responder collects what Responder created, and
+// docs/operations.md promises exactly that: unrelated files are never removed.
+// The disk those manual copies occupy is real and is the operator's to reclaim;
+// the documentation now says where a manual copy belongs so the next one is not
+// left in a directory that looks self-managing. The test that pins this uses a
+// manual-shaped .db rather than only a stray text file, because a .txt would
+// survive the very widening this comment exists to refuse.
 func pruneMigrationBackups(dir string, keep int) error {
 	paths, err := filepath.Glob(filepath.Join(dir, "responder-v*-to-v*.db"))
 	if err != nil {

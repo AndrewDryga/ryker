@@ -495,7 +495,10 @@ channel memory, operator-confirmed operational memory, Emisar approval holds, ti
 evaluation decisions, audit records, and the scheduler's compact work index are durable. Before a
 schema upgrade Responder creates and verifies a private pre-migration snapshot and retains the three
 newest migration backups.
-Bounded retention removes expired operational payloads and closed work. Coop cleanup is restricted
+Bounded retention removes expired operational payloads and closed work, and expires finished episode
+history on a separate, much longer horizon because that record is what the replay-fixture corpus is
+built from. No horizon deletes an episode a pending correction, open feedback, a live wakeup, an
+unfinished run, or an open incident still depends on. Coop cleanup is restricted
 to exact session IDs recorded by Responder: clean closed sessions and sessions whose reviewed tree
 is durable in a draft PR are discarded after a grace period, while dirty or unpublished work is
 retained. Deleting a Slack room does not itself discard work. See
