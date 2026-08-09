@@ -82,8 +82,18 @@ var methodBudget = map[string]int{
 // package has grown past the 5% the others still have, and the next thing that
 // wants room here should have to answer for it. What it really needs is an
 // extraction, not another raise.
+//
+// The next thing answered for it. 24620 to 24780 for host-side reply shape:
+// an audit of 244 posted replies found a median of 81 words against a stated
+// bar of one to three sentences, one in five inside it, 25 messages closing on
+// a caveat instead of an answer, and the word "hi" drawing 245 words. Every
+// one of those rules was already in the prompt that produced them. Prose had
+// stopped binding, so the bound moved into the host, which is where a rule you
+// can measure belongs — and this is the trade the budget exists to make
+// visible: 103 lines of enforcement bought back against instructions the model
+// was free to ignore.
 var lineBudget = map[string]int{
-	"service": 24620,
+	"service": 24780,
 	// 10843 today, down from 14100 across six extractions. It has only ever
 	// moved down except here, where rate-limit requeueing added a new store
 	// operation rather than moving an existing one. Keep lowering it as more
@@ -102,7 +112,14 @@ var lineBudget = map[string]int{
 	"publication": 392,
 	// decision owns the shapes a model result arrives in and the rules for
 	// reading one, so the evaluation family can reach them without the runtime.
-	"decision": 2161,
+	//
+	// Raised from 2161 to 2300 for two rules that had to stop being prose: how
+	// long a reply may be for the message it answers, and whether it may end on
+	// a caveat. They live here rather than in the service because the offline
+	// evaluation harness has to check the same bound the runtime enforces, and
+	// because a phrase list that only the runtime can see is how the
+	// conversation-location matcher went two months missing "answer in thread".
+	"decision": 2300,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	"investigation": 1800,

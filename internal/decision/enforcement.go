@@ -49,6 +49,7 @@ type WatchTurnState struct {
 	OfferedTaskRepository string                         `json:"offered_task_repository,omitempty"`
 	OfferedTaskPrompt     string                         `json:"offered_task_prompt,omitempty"`
 	StructuredCorrections int                            `json:"structured_corrections,omitempty"`
+	ReplyShapeCorrections int                            `json:"reply_shape_corrections,omitempty"`
 	PendingStatusSet      bool                           `json:"pending_status_set,omitempty"`
 	PendingStatusAt       int64                          `json:"pending_status_at,omitempty"`
 	FailureDetail         string                         `json:"failure_detail,omitempty"`

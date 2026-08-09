@@ -39,7 +39,11 @@ type assembledAgentContext struct {
 	// to the model because its result could not be read. The watch path has
 	// always had this; incident and engineering-task runs did not, so a single
 	// malformed response ended the turn and showed the operator a parse error.
-	StructuredCorrections int       `json:"structured_corrections,omitempty"`
+	StructuredCorrections int `json:"structured_corrections,omitempty"`
+	// ReplyShapeCorrections counts the reply-shape rewrites this run has been
+	// asked for. Separate from the count above because it has its own budget:
+	// exactly one, after which the answer is posted as written.
+	ReplyShapeCorrections int       `json:"reply_shape_corrections,omitempty"`
 	CapturedAt            time.Time `json:"captured_at"`
 }
 
