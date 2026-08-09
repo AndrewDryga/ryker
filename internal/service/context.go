@@ -99,9 +99,18 @@ func (s *Service) assembleAgentContext(
 				s.markRecalled(ctx, []core.ConversationMemory{conversation})
 			} else if !errors.Is(conversationErr, store.ErrNotFound) {
 				return assembledAgentContext{}, conversationErr
-			} else if threadTS != "" {
-				result.Situation = core.AgentMemory{}
 			}
+			// A thread with no memory of its own keeps the channel's.
+			//
+			// This used to zero the situation loaded twenty lines above, so the
+			// first reply in every new thread started blind — in the channel
+			// where Responder had been working all day, on a question that was
+			// usually a follow-up to it. A thread lives in its channel and is
+			// read by the same people, so there is no audience the channel
+			// summary could leak to that the thread does not already have.
+			//
+			// The conversation memory still wins when it exists: it is the same
+			// channel seen closer up, and it carries the last-message cursor.
 		}
 		related, relatedErr := s.store.Intelligence.ListRelatedConversationMemories(
 			ctx,

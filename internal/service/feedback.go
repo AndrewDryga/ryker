@@ -393,12 +393,34 @@ func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInp
 			ctx, input, "*That feedback was already resolved.* Nothing changed.",
 		)
 	}
+	// The subject carries the guidance, and the scope follows the complaint.
+	//
+	// Both used to be wrong in the same direction — too coarse. The subject was
+	// the category alone, and memory entries are unique on
+	// (scope_kind, scope_key, subject_key, predicate) with category a seven
+	// value enum, so a workspace could hold at most seven pieces of
+	// feedback-derived guidance and converting a second "correctness" item
+	// silently overwrote the first. The overwrite was recorded in
+	// memory_supersessions, which nothing reads, so it left no trace anywhere a
+	// person would look.
+	//
+	// The scope was always the whole workspace, even when the feedback was
+	// plainly about one channel. The one real complaint either deployment has
+	// received was "update channel memory/settings/rules so that you do what
+	// I've said when you see terraform notifications" — a rule for that channel,
+	// which as workspace guidance would have applied everywhere.
+	scopeKind, scopeKey := "workspace", s.cfg.Slack.TeamID
+	if item.ChannelID != "" {
+		scopeKind, scopeKey = "channel", item.ChannelID
+	}
 	entry := core.MemoryEntry{
-		ScopeKind: "workspace", ScopeKey: s.cfg.Slack.TeamID,
-		SubjectKey:     memorypkg.NormalizeGuidanceSubject(item.Category),
+		ScopeKind: scopeKind, ScopeKey: scopeKey,
+		SubjectKey: memorypkg.NormalizeGuidanceSubject(
+			item.Category + " " + item.Summary,
+		),
 		Predicate:      "guidance",
 		Value:          core.BoundedText(item.Summary, 1000),
-		VisibilityKind: "workspace", VisibilityID: s.cfg.Slack.TeamID,
+		VisibilityKind: scopeKind, VisibilityID: scopeKey,
 		ExpiresAt: s.now().UTC().Add(memorypkg.DefaultTTL),
 		SourceRef: "feedback:" + item.ID,
 		ActorID:   input.UserID,

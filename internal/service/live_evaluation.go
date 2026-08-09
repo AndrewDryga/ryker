@@ -1087,6 +1087,8 @@ func liveEvaluationPrompt(
 				recent,
 				core.AgentMemory{},
 				nil,
+				nil,
+				decisionpkg.OperationalMemoryContext{},
 				repositoryKey,
 			), nil
 		}

@@ -280,6 +280,41 @@ func TestReplyDecisionMayAnswerAndUpdateConversationMemory(t *testing.T) {
 	}
 }
 
+// The bounded lane sees the memory it makes the database load.
+//
+// It used to load all of it — confirmed memory, rollups, same-channel evidence,
+// related conversations — bump the recall counters, and then build a payload
+// struct with six fields that included none of them. A tenth of runs took this
+// lane and answered from channel history alone, so recall_count recorded "was
+// read out of the database" rather than "reached the model", and an operator
+// looking at a memory entry with two recalls could not tell which it meant.
+func TestBoundedConversationPromptCarriesOperatorConfirmedMemory(t *testing.T) {
+	input := core.SlackInput{
+		TeamID: "T123ABC", ChannelID: "C123ABC", MessageTS: "100.001",
+		UserID: "U123ABC", Text: "Is that still the plan?",
+	}
+	prior := decisionpkg.OperationalMemoryContext{
+		ConfirmedMemory: []decisionpkg.MemoryPromptEntry{{
+			Scope: "channel", Subject: "debug_symbols", Predicate: "guidance",
+			Value: "GCS with WIF is the accepted direction.", ExpiresAt: "2026-12-01T00:00:00Z",
+		}},
+	}
+	related := []decisionpkg.ConversationSituationContext{{ChannelID: "C456DEF"}}
+	prompt := (&Service{}).conversationPrompt(
+		input, "U999BOT", false, nil, core.AgentMemory{}, related, nil, prior, "repo",
+	)
+	for _, required := range []string{
+		"prior_operational_context",
+		"operator_confirmed_memory",
+		"GCS with WIF is the accepted direction.",
+		"related_situations",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("bounded conversation prompt dropped %q:\n%s", required, prompt)
+		}
+	}
+}
+
 func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 	input := core.SlackInput{
 		TeamID: "T123ABC", ChannelID: "C123ABC", MessageTS: "100.001",
@@ -288,7 +323,7 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 	svc := &Service{}
 	for name, prompt := range map[string]string{
 		"bounded": svc.conversationPrompt(
-			input, "U999BOT", false, nil, core.AgentMemory{}, nil, "repo",
+			input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil, decisionpkg.OperationalMemoryContext{}, "repo",
 		),
 		"full": svc.unboundedWatchPrompt(
 			input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,

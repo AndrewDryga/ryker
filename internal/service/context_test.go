@@ -169,6 +169,60 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	}
 }
 
+// A brand new thread inherits what the channel already knows.
+//
+// The assembler loaded the channel situation and then, twenty lines later,
+// zeroed it for any target carrying a thread timestamp with no conversation
+// memory of its own — which is every thread on its first reply. So the one turn
+// most likely to be a follow-up to work Responder had just done in that channel
+// was also the only turn that started with nothing.
+func TestANewThreadKeepsTheChannelSituationItHasNoMemoryOf(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Intelligence.BindChannelSession(
+		ctx, "COPS", "emisar", "session-context", 1, 1, time.Now().UTC(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	// No ThreadTS: this is the channel-level write, not a conversation.
+	applied, err := st.Intelligence.ApplyWatchDecision(
+		ctx,
+		core.EvaluationDecision{
+			ChannelID: "COPS", MessageTS: "1700.000010", Repository: "emisar",
+			SourceInput: "channel-source", Mode: "live", Action: "reply",
+		},
+		"investigation",
+		2,
+		core.AgentMemory{SituationSummary: "Cassandra disk latency alerts are being tuned."},
+	)
+	if err != nil || !applied {
+		t.Fatalf("apply channel summary = %t, %v", applied, err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	target := core.SlackInput{
+		ID: "target", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", ThreadTS: "1700.000099",
+		MessageTS: "1700.000100", UserID: "U1",
+		Text: "<@UBOT> is that still happening?",
+	}
+	assembled, err := svc.assembleAgentContext(ctx, agentContextRequest{
+		ChannelID: "COPS", Repository: "emisar", OperatorID: "U1",
+		SourceInputID: target.ID, TargetInput: &target,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assembled.Situation.SituationSummary !=
+		"Cassandra disk latency alerts are being tuned." {
+		t.Fatalf("new thread started blind: %+v", assembled.Situation)
+	}
+}
+
 func TestAssembleAgentContextUsesConversationSummaryAsThreadCursor(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

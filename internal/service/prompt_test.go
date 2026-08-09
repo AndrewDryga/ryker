@@ -181,7 +181,7 @@ func TestBoundedConversationUsesTheSameHumanVoicePolicy(t *testing.T) {
 			ChannelID: "C123ABC", MessageTS: "1700.001",
 			UserID: "U123ABC", Text: "Did the formatting check finally pass?",
 		},
-		"U999BOT", false, nil, core.AgentMemory{}, nil, "repo",
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil, decisionpkg.OperationalMemoryContext{}, "repo",
 	)
 	for _, required := range []string{
 		"not a report generator, policy engine, or technical manual",

@@ -918,22 +918,37 @@ func (s *Service) conversationPrompt(
 	conversationFollowup bool,
 	recent []decisionpkg.WatchContextMessage,
 	memory core.AgentMemory,
+	related []decisionpkg.ConversationSituationContext,
 	referenced *decisionpkg.ReferencedThreadContext,
+	prior decisionpkg.OperationalMemoryContext,
 	activeRepository string,
 ) string {
 	target := watchPromptMessage(input, botUserID, true)
 	target.Continuation = conversationFollowup
+	// The remembered layers use the watch lane's field names deliberately.
+	//
+	// Both lanes answer the same operator about the same channel, and a model
+	// that learns "prior_operational_context" on one turn should not have to
+	// learn a second spelling for the same thing on the next. This lane was
+	// missing the fields entirely: every one of them was loaded, the recall
+	// counters were bumped, and then the payload struct carried six fields that
+	// did not include them. Ten percent of runs took this lane and answered
+	// from channel history alone, which is why recall_count measured "was read
+	// out of the database" rather than "reached the model".
 	contextJSON, _ := json.Marshal(struct {
-		ChannelID        string                               `json:"channel_id"`
-		Repository       string                               `json:"repository"`
-		TargetMessage    decisionpkg.WatchContextMessage      `json:"target_message"`
-		RecentMessages   []decisionpkg.WatchContextMessage    `json:"recent_messages"`
-		Memory           core.AgentMemory                     `json:"structured_memory"`
-		ReferencedThread *decisionpkg.ReferencedThreadContext `json:"referenced_thread,omitempty"`
+		ChannelID        string                                     `json:"channel_id"`
+		Repository       string                                     `json:"repository"`
+		TargetMessage    decisionpkg.WatchContextMessage            `json:"target_message"`
+		RecentMessages   []decisionpkg.WatchContextMessage          `json:"recent_messages"`
+		Memory           core.AgentMemory                           `json:"structured_memory"`
+		Related          []decisionpkg.ConversationSituationContext `json:"related_situations,omitempty"`
+		ReferencedThread *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
+		Prior            decisionpkg.OperationalMemoryContext       `json:"prior_operational_context,omitempty"`
 	}{
 		ChannelID: input.ChannelID, Repository: activeRepository,
 		TargetMessage: target, RecentMessages: recent,
-		Memory: memory, ReferencedThread: referenced,
+		Memory: memory, Related: related, ReferencedThread: referenced,
+		Prior: prior,
 	})
 	return `You are Emisar, a clear and concise teammate in Slack. This is a bounded conversation turn,
 not an investigation. Do not call tools, inspect repositories, query live systems, create work,

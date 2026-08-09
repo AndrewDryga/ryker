@@ -981,7 +981,9 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.ConversationFollowup,
 			state.RecentMessages,
 			state.Memory,
+			state.RelatedSituations,
 			state.ReferencedThread,
+			state.Prior,
 			repositoryKey,
 		) + late.String()
 	} else {

@@ -112,7 +112,11 @@ var lineBudget = map[string]int{
 	// silently missing too — and the caller now picks a summary and a status
 	// from the grade. Praise records as noted, not open, so it never enters the
 	// queue whose only available decision would be to dismiss it.
-	"service": 24729,
+	// Thirteen more to hand the bounded conversation lane the memory it already
+	// loads: two parameters and two payload fields on conversationPrompt, plus
+	// the scope choice when feedback becomes guidance. The lane had been
+	// bumping recall counters for context it then dropped on the floor.
+	"service": 24742,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
