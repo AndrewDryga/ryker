@@ -189,6 +189,11 @@ func requestEpisodeActivity(text string) core.EpisodeActivity {
 }
 
 func isOperationalAssessmentRequest(text string) bool {
+	// Authoring a health-review runbook is not a health review, however much
+	// its title reads like one.
+	if investigation.ReusableArtifactAuthoring(text) {
+		return false
+	}
 	return decisionpkg.EpisodeContainsAny(text,
 		"infrastructure health", "infra health", "production health", "system health",
 		"health of our", "health of everything", "end-to-end", "end to end",

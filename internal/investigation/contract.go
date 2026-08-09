@@ -210,9 +210,37 @@ func episodeConclusionKind(episode core.WorkEpisode) string {
 	}
 }
 
+// ReusableArtifactAuthoring reports whether a request writes or revises a
+// reusable operational artifact rather than assessing current state.
+//
+// The two read almost identically, because an artifact is named after the
+// assessment it performs. "Create reusable deep infrastructure health review
+// runbook" contains every word an infrastructure health request does, and the
+// host duly compiled it as one: seven required coverage layers and a mandatory
+// healthy, degraded or unhealthy verdict, for a request to write a document.
+// The model had created, validated and tested the draft — a good result — but
+// no platform to grade and no verdict it could honestly give, so it returned a
+// bare blocked completion, and that failed validation for having none of the
+// five fields a blocker needs. The reported error was about missing blocker
+// fields; the actual mistake was made before the model ever saw the request.
+//
+// The verbs are deliberately restricted to authoring. "Run the published health
+// review runbook and tell me if production is healthy" names the same artifact
+// and is a genuine health assessment, so execution words must not match here.
+func ReusableArtifactAuthoring(text string) bool {
+	text = strings.ToLower(strings.Join(strings.Fields(text), " "))
+	if !containsAny(text, "runbook", "playbook", "workflow") {
+		return false
+	}
+	return containsAny(text,
+		"create", "author", "write", "build", "draft", "reusable",
+		"extend", "edit", "make ", "rewrite", "revise",
+	)
+}
+
 func focusedOperationalHealthObjective(objective string) bool {
 	objective = strings.ToLower(strings.Join(strings.Fields(objective), " "))
-	if focusedChangeReviewObjective(objective) {
+	if focusedChangeReviewObjective(objective) || ReusableArtifactAuthoring(objective) {
 		return false
 	}
 	return containsAny(objective,
