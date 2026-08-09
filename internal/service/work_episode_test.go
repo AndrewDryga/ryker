@@ -407,6 +407,61 @@ func TestRunbookWorkDoesNotUseHealthVerdictLanguage(t *testing.T) {
 	}
 }
 
+// A runbook is named after the assessment it performs, so the request to write
+// one contains every word the assessment does. "Create reusable deep
+// infrastructure health review runbook" was compiled as a whole-platform health
+// assessment: seven required coverage layers and a mandatory healthy, degraded
+// or unhealthy verdict, for a request to write a document. The model had built,
+// validated and tested the draft and had no platform to grade, so it returned a
+// bare blocked completion — which then failed validation for carrying none of
+// the five fields a blocker needs. The reported error was the missing blocker
+// fields; the mistake was made before the model saw the request.
+func TestAuthoringAHealthRunbookIsNotAHealthAssessment(t *testing.T) {
+	svc := &Service{}
+	episode := svc.episodeForWatchedInput(core.SlackInput{
+		Kind: "mention", Text: "Create reusable deep infrastructure health review runbook",
+	}, decisionpkg.WatchTurnState{})
+	contract := investigation.Compile(*episode)
+	if episode.Effort != core.EffortFocusedCheck ||
+		contract.Completion.ConclusionKind != "factual_assessment" {
+		t.Fatalf("authoring episode = %+v, completion = %+v", episode, contract.Completion)
+	}
+	if contract.Completion.RequireVerdict {
+		t.Fatal("writing a runbook was made to require an operational health verdict")
+	}
+	if !slices.Equal(episode.RequiredCoverage, []string{"task"}) {
+		t.Fatalf("authoring coverage = %v", episode.RequiredCoverage)
+	}
+
+	// Executing the same runbook to grade the platform is still an assessment.
+	// Only authoring verbs may suppress the health contract.
+	running := svc.episodeForWatchedInput(core.SlackInput{
+		Kind: "mention",
+		Text: "Run the deep infrastructure health review runbook and tell me the overall health.",
+	}, decisionpkg.WatchTurnState{})
+	if got := investigation.Compile(*running).Completion.ConclusionKind; got != "operational_health" {
+		t.Fatalf("running the runbook conclusion kind = %q", got)
+	}
+
+	plain := svc.episodeForWatchedInput(core.SlackInput{
+		Kind: "mention", Text: "How is the health of our infrastructure?",
+	}, decisionpkg.WatchTurnState{})
+	if plain.Effort != core.EffortOperationalAssessment {
+		t.Fatalf("plain health request effort = %q", plain.Effort)
+	}
+
+	// "build" is what CI calls a run and "make" is mostly the filler in "make
+	// sure", so neither counts as authoring. Otherwise an ordinary question
+	// about a workflow would suppress the health contract it needs.
+	incidental := svc.episodeForWatchedInput(core.SlackInput{
+		Kind: "mention",
+		Text: "The build for the deploy workflow failed. Make sure the health of our infrastructure is fine.",
+	}, decisionpkg.WatchTurnState{})
+	if incidental.Effort != core.EffortOperationalAssessment {
+		t.Fatalf("incidental workflow mention effort = %q", incidental.Effort)
+	}
+}
+
 func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
 	decision, err := decisionpkg.ParseWatchDecision(`{
 		"action":"reply",

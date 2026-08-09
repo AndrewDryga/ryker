@@ -410,6 +410,19 @@ type MemoryOffer struct {
 	SourceRevision string `json:"source_revision,omitempty"`
 }
 
+// UnmarshalJSON accepts "topic" for the subject of a memory offer. The two
+// words mean the same thing here and no other field could be meant, so the
+// only thing the strict spelling bought was a discarded offer.
+func (offer *MemoryOffer) UnmarshalJSON(data []byte) error {
+	type wire MemoryOffer
+	var value wire
+	if err := DecodeModelObject(data, map[string]string{"topic": "subject"}, &value); err != nil {
+		return err
+	}
+	*offer = MemoryOffer(value)
+	return nil
+}
+
 type MemoryEntry struct {
 	ID             string    `json:"id"`
 	ScopeKind      string    `json:"scope_kind"`
@@ -501,6 +514,30 @@ type RuleOffer struct {
 	Action     string `json:"action"`
 	SourceKind string `json:"source_kind,omitempty"`
 	ExpiresIn  string `json:"expires_in,omitempty"`
+}
+
+// UnmarshalJSON accepts "event" for the trigger, and accepts and drops a
+// channel_id.
+//
+// A rule offer is the one payload the prompt never shows field by field, and
+// two consecutive real runs invented a different name apiece for it. "event"
+// is what a rule fires on, which is what Trigger holds and the only field it
+// could be. The channel is different in kind: a standing rule always binds to
+// the channel the request arrived in, read from the Slack input and never from
+// the offer, so a model naming it is agreeing with a decision that was never
+// its own. Dropping it beats honoring it, and both beat rejecting the rule,
+// the preference and the reply together.
+func (offer *RuleOffer) UnmarshalJSON(data []byte) error {
+	type wire RuleOffer
+	var value wire
+	if err := DecodeModelObject(data, map[string]string{
+		"event":      "trigger",
+		"channel_id": "",
+	}, &value); err != nil {
+		return err
+	}
+	*offer = RuleOffer(value)
+	return nil
 }
 
 type StandingRule struct {

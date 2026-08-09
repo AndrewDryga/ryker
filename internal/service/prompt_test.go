@@ -292,7 +292,16 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // the feedback table empty at zero rows, and every example of the target
 // behaviour had to be inferred from complaints that never came. Nine bytes for
 // the new value, three back from rewording the sibling field.
-const staticWatchPromptBytes = 48195
+// Raised by 45 on 2026-08-09 because the operation list was lying. It said
+// offer_memory, offer_preference, offer_rule and offer_schedule "carry the
+// same named typed payload that their operation name describes", which reads
+// as preference, rule and schedule — and every other operation in the list
+// really does work that way. A model followed it and the host rejected the
+// whole response with unknown field "preference". The host now also accepts
+// those three names, but tolerance cannot rescue offer_memory: "memory" is
+// already update_memory's payload, so the only fix for that one is to stop
+// implying it. The line now names each key instead of describing it.
+const staticWatchPromptBytes = 48240
 
 // The static prompt must not grow without someone deciding it should.
 //
