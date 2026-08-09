@@ -2,6 +2,7 @@ package decision
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -48,6 +49,7 @@ type WatchTurnState struct {
 	OfferedTaskRepository string                         `json:"offered_task_repository,omitempty"`
 	OfferedTaskPrompt     string                         `json:"offered_task_prompt,omitempty"`
 	StructuredCorrections int                            `json:"structured_corrections,omitempty"`
+	ReplyShapeCorrections int                            `json:"reply_shape_corrections,omitempty"`
 	PendingStatusSet      bool                           `json:"pending_status_set,omitempty"`
 	PendingStatusAt       int64                          `json:"pending_status_at,omitempty"`
 	FailureDetail         string                         `json:"failure_detail,omitempty"`
@@ -653,98 +655,144 @@ type OperationalMemoryContext struct {
 	Preferences     []PreferencePromptEntry    `json:"responder_preferences,omitempty"`
 }
 
-func RequestedConversationLocation(text string) ConversationLocation {
-	normalized := NormalizeLocationRequest(text)
-	for _, phrase := range []string{
-		"switch to channel",
-		"switch to the channel",
-		"continue in channel",
-		"continue in the channel",
-		"back to channel",
-		"back to the channel",
-		"reply in channel",
-		"reply in the channel",
-		"move this to channel",
-		"move this to the channel",
-	} {
-		if strings.Contains(normalized, phrase) {
-			return ConversationLocationChannel
-		}
-	}
-	for _, phrase := range []string{
-		"switch to thread",
-		"switch to a thread",
-		"continue in thread",
-		"continue in the thread",
-		"continue in a thread",
-		"reply in thread",
-		"reply in the thread",
-		"reply in a thread",
-		"respond in thread",
-		"respond in the thread",
-		"respond in a thread",
-		"answer in thread",
-		"answer in the thread",
-		"answer in a thread",
-		"comment in thread",
-		"comment in the thread",
-		"comment in a thread",
-		"move this to thread",
-		"move this to a thread",
-		"take this to thread",
-		"take this to a thread",
-		"use a thread",
-		"back to that thread",
-		"reply in that thread",
-		"post back to that thread",
-		"post it back to that thread",
-		"post hi back to that thread",
-		"not pollute the channel",
-		"not pollute channel",
-	} {
-		if strings.Contains(normalized, phrase) {
-			return ConversationLocationThread
-		}
-	}
-	return ConversationLocationFollow
+// locationCueWindow is how many words in front of "thread" or "channel" are
+// read for the request. Five rather than three because the apostrophe is
+// normalized to a space, so "don't post in the channel" spends two of them on
+// "don" and "t".
+const locationCueWindow = 5
+
+// locationCues are the verbs that turn a mention of a thread or a channel into
+// a request to put the reply in one. Prefix-matched, so one entry covers
+// "post", "posting" and "posted".
+var locationCues = []string{
+	"switch", "mov", "tak", "continu", "repl", "respond", "answer", "post",
+	"put", "keep", "use", "comment", "send", "writ", "back", "get", "start",
+	"stay", "stick", "pollut", "spam",
 }
 
+// locationNegations flip a request inside out. "Not in the channel" asks for a
+// thread; "stop posting in the channel" is the same sentence with feeling.
+// "No" is absent on purpose: "no, back to the channel" rejects the previous
+// suggestion, not the channel.
+var locationNegations = []string{
+	"not", "dont", "don", "cant", "stop", "avoid", "quit", "never",
+	"instead", "rather", "without",
+}
+
+// RequestedConversationLocation reads where the operator asked the answer to
+// go.
+//
+// This used to be a list of literal phrases, and a list of literal phrases is
+// wrong the first time somebody phrases it differently. It did not contain
+// "comment in a thread" or "answer in thread" until the week a reply landed in
+// the channel and the operator had to say so twice, and even after that repair
+// it still missed "post in a thread", "thread this", "keep it threaded" and
+// "stop posting in the channel". The routing underneath was never the problem.
+//
+// So it reads intent instead: find each place word, decide from the few words
+// in front of it whether this is a request to put the reply there, and whether
+// that request is negated. The last clear intent wins, because an operator who
+// names both places is correcting themselves as they type.
+func RequestedConversationLocation(text string) ConversationLocation {
+	location := ConversationLocationFollow
+	words := strings.Fields(NormalizeLocationRequest(text))
+	for index, word := range words {
+		place := ConversationLocationFollow
+		switch {
+		case strings.HasPrefix(word, "thread"):
+			place = ConversationLocationThread
+		case strings.HasPrefix(word, "channel"):
+			place = ConversationLocationChannel
+		default:
+			continue
+		}
+		// A leading "thread this" is its own verb. Anywhere else the request
+		// has to be marked by one, or every mention of the ops channel would
+		// reroute the answer.
+		window := words[max(0, index-locationCueWindow):index]
+		if index > 0 && !anyWordStartsWith(window, locationCues) {
+			continue
+		}
+		if anyWordIn(window, locationNegations) {
+			place = oppositeLocation(place)
+		}
+		location = place
+	}
+	return location
+}
+
+func oppositeLocation(location ConversationLocation) ConversationLocation {
+	if location == ConversationLocationThread {
+		return ConversationLocationChannel
+	}
+	return ConversationLocationThread
+}
+
+func anyWordStartsWith(words, prefixes []string) bool {
+	for _, word := range words {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(word, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func anyWordIn(words, set []string) bool {
+	for _, word := range words {
+		if slices.Contains(set, word) {
+			return true
+		}
+	}
+	return false
+}
+
+// locationVocabulary is every word a message may contain while still being
+// nothing but "put it over there".
+//
+// Durable-preference words — always, prefer, default, from now on — are
+// deliberately absent: "always reply in thread" is a preference to store, and
+// it has to reach the code that stores it rather than being answered with an
+// acknowledgement. Greetings are absent for the same reason in the other
+// direction: "post hi back to that thread" is a request to post the word "hi".
+var locationVocabulary = locationWordSet(
+	"lets please ok okay no and so but to into in on at back over here there from",
+	"can could would you we i it this that the a an my our of than",
+	"not don t dont cant stop avoid quit never instead rather",
+	"switch switching move moving take taking continue continuing",
+	"reply replying replies respond responding answer answering",
+	"post posting put putting keep keeping use using comment commenting",
+	"send sending write writing get getting stay staying start starting stick",
+	"pollute polluting spam spamming",
+	"thread threads threaded threading channel channels",
+)
+
+func locationWordSet(groups ...string) map[string]bool {
+	set := make(map[string]bool)
+	for _, group := range groups {
+		for _, word := range strings.Fields(group) {
+			set[word] = true
+		}
+	}
+	return set
+}
+
+// LocationOnlyRequest reports whether the message asks for nothing but a
+// change of place. Responder answers those itself with an acknowledgement and
+// never involves the model, so a false positive swallows real work — which is
+// why this is a closed vocabulary and not a guess. Any word outside it means
+// there is something else in the message.
 func LocationOnlyRequest(text string) bool {
-	normalized := NormalizeLocationRequest(text)
-	normalized = strings.TrimPrefix(normalized, "lets ")
-	normalized = strings.TrimPrefix(normalized, "please ")
-	normalized = strings.TrimSuffix(normalized, " please")
-	switch normalized {
-	case "switch to channel",
-		"switch to the channel",
-		"continue in channel",
-		"continue in the channel",
-		"back to channel",
-		"back to the channel",
-		"reply in channel",
-		"reply in the channel",
-		"switch to thread",
-		"switch to a thread",
-		"continue in thread",
-		"continue in the thread",
-		"continue in a thread",
-		"reply in thread",
-		"reply in the thread",
-		"move this to thread",
-		"move this to a thread",
-		"take this to thread",
-		"take this to a thread",
-		"use a thread",
-		"switch to thread not to pollute channel",
-		"switch to a thread not to pollute the channel",
-		"continue in thread not to pollute channel",
-		"continue in a thread not to pollute the channel",
-		"not pollute the channel",
-		"not pollute channel":
-		return true
-	default:
+	if RequestedConversationLocation(text) == ConversationLocationFollow {
 		return false
 	}
+	for _, word := range strings.Fields(NormalizeLocationRequest(text)) {
+		if !locationVocabulary[word] {
+			return false
+		}
+	}
+	return true
 }
 
 // ExternalCoordinationOnlyEvent identifies app updates that change who owns or

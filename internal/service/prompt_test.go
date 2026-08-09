@@ -158,6 +158,11 @@ func TestConversationPromptReusesKnownResultForSimpleExplanation(t *testing.T) {
 		"Use common words, contractions",
 		"Stay straightforward during active incidents",
 		"Most messages need none; use at most one",
+		// The incident room used to get plain language and humor and nothing
+		// about how a Slack message is rendered, so twenty runs guessed. It
+		// carries the whole reply contract now.
+		"standard Markdown for Slack's Block Kit `markdown` block",
+		"a one-line question gets one to three sentences",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("conversation prompt does not contain %q:\n%s", required, prompt)
@@ -195,6 +200,16 @@ func TestBoundedConversationUsesTheSameHumanVoicePolicy(t *testing.T) {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("bounded conversation prompt lacks %q:\n%s", required, prompt)
 		}
+	}
+	// This prompt told the model to write mrkdwn in the same breath as the
+	// formatting policy told it to write Markdown, and the delivery path — a
+	// Block Kit `markdown` block, see slackui.Message.Blocks — renders the
+	// second. Only one of them can be in here.
+	if strings.Contains(prompt, "mrkdwn") {
+		t.Fatalf("the bounded conversation prompt still asks for mrkdwn:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "standard Markdown for Slack's Block Kit `markdown` block") {
+		t.Fatalf("the bounded conversation prompt lost the real format contract:\n%s", prompt)
 	}
 }
 

@@ -1609,6 +1609,15 @@ const (
 	// about the answer, rejected is about something attached to it. A turn can
 	// be perfectly correct and still offer a malformed button.
 	correctionRejected correctionClass = "rejected"
+	// correctionShape: everything the answer says is right and it says it
+	// wrong — too many words for the message it answers, or a closing sentence
+	// that hands the question back.
+	//
+	// The boundary against incomplete is the one line that matters: incomplete
+	// means the answer cannot be used, shape means it can and should not be
+	// read. That difference is why this class alone posts on the second
+	// attempt rather than blocking the turn.
+	correctionShape correctionClass = "shape"
 )
 
 // CorrectionClasses lists every class a turn can be corrected under, so a
@@ -1622,6 +1631,7 @@ func CorrectionClasses() []string {
 		string(correctionUnreadable),
 		string(correctionIncomplete),
 		string(correctionRejected),
+		string(correctionShape),
 	}
 }
 
@@ -1834,6 +1844,20 @@ func (s *Service) stageTriageTerminal(
 				)
 			}
 		}
+		// Last, because everything above says the answer cannot be used and
+		// this says only that it reads badly. There is no point spending the
+		// turn on length when the content is going back anyway.
+		if correction == "" {
+			var shaped bool
+			correction, shaped = s.replyShapeCorrection(
+				ctx, run, input.Text, state.Lane, decision.Action, decision.Message,
+				state.ReplyShapeCorrections,
+			)
+			if shaped {
+				state.ReplyShapeCorrections++
+				correctionKind = correctionShape
+			}
+		}
 		if correction != "" {
 			if !consumeWatchStructuredCorrection(
 				&state, s.cfg.Limits.MaxAgentRunAttempts,
@@ -1863,9 +1887,16 @@ func (s *Service) stageTriageTerminal(
 			// away work the user is waiting on over a malformed button.
 			// Drop the offer that failed, keep the answer, and tell the
 			// operator what was dropped.
-			if correctionKind == correctionRejected {
+			switch correctionKind {
+			case correctionRejected:
 				s.dropRejectedOffers(ctx, input, &decision, run)
-			} else {
+			case correctionShape:
+				// Same reasoning, one step further: the answer is not merely
+				// salvageable, it is correct. Replacing it with "I couldn't
+				// finish this check safely yet" over its word count would be
+				// the rule eating the answer it exists to improve.
+				s.recordUnshapedReply(ctx, run, correction)
+			default:
 				decision = blockedWatchContinuation(run, input, state, correction, &decision)
 			}
 			marshaledResult, marshalErr := decisionpkg.MarshalWatchDecisionResult(decision)
@@ -1921,11 +1952,14 @@ func (s *Service) stageIncidentTerminal(
 			return true, episodeErr
 		}
 		correction := ""
+		correctionKind := correctionIncomplete
+		trigger := ""
 		if run.SourceKind == "slack" {
 			input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 			if inputErr != nil {
 				return true, inputErr
 			}
+			trigger = input.Text
 			needsScheduleOffer, scheduleErr := s.scheduleActivationNeedsOffer(
 				ctx, input, report.ScheduleOffer,
 			)
@@ -1970,18 +2004,33 @@ func (s *Service) stageIncidentTerminal(
 				return true, episodeErr
 			}
 		}
+		if correction == "" && trigger != "" {
+			shape, shapeErr := s.incidentReplyShapeCorrection(ctx, run, trigger, report.Message)
+			if shapeErr != nil {
+				return true, shapeErr
+			}
+			if shape != "" {
+				correction, correctionKind = shape, correctionShape
+			}
+		}
 		if correction != "" {
 			if !terminalStructuredCorrection(
 				run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
 			) {
 				if err := s.requeueWithCorrection(
-					ctx, run, correctionIncomplete, correction, cursor,
+					ctx, run, correctionKind, correction, cursor,
 				); err != nil {
 					return true, err
 				}
 				return true, nil
 			}
-			report = blockedAgentContinuation(correction, &report)
+			// An answer refused only for its shape still gets posted; see
+			// replyShapeCorrection for why the alternative is worse.
+			if correctionKind == correctionShape {
+				s.recordUnshapedReply(ctx, run, correction)
+			} else {
+				report = blockedAgentContinuation(correction, &report)
+			}
 			staged.result, reportErr = json.Marshal(report)
 			if reportErr != nil {
 				return true, reportErr

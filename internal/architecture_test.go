@@ -95,6 +95,16 @@ var methodBudget = map[string]int{
 // package any room for features. The extraction it names — the offline
 // evaluation family, behind the decision domain becoming its own package — is
 // still the only thing that brings this number down, and it is still next.
+//
+// The next thing answered for it. 24620 to 24780 for host-side reply shape:
+// an audit of 244 posted replies found a median of 81 words against a stated
+// bar of one to three sentences, one in five inside it, 25 messages closing on
+// a caveat instead of an answer, and the word "hi" drawing 245 words. Every
+// one of those rules was already in the prompt that produced them. Prose had
+// stopped binding, so the bound moved into the host, which is where a rule you
+// can measure belongs — and this is the trade the budget exists to make
+// visible: 103 lines of enforcement bought back against instructions the model
+// was free to ignore.
 var lineBudget = map[string]int{
 	// Raised from 24620 on 2026-08-08 for the target parser that fills
 	// context_manifests.provider/model/reasoning_effort. Those columns had
@@ -148,7 +158,7 @@ var lineBudget = map[string]int{
 	// fails, whatever its merit, and the pressure to bump it is highest exactly
 	// when the change is justified. Moving off zero is what that warning asks
 	// for, and it is the same reasoning that moved store off 11000.
-	"service": 25000,
+	"service": 25120,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -202,7 +212,14 @@ var lineBudget = map[string]int{
 	"publication": 392,
 	// decision owns the shapes a model result arrives in and the rules for
 	// reading one, so the evaluation family can reach them without the runtime.
-	"decision": 2161,
+	//
+	// Raised from 2161 to 2300 for two rules that had to stop being prose: how
+	// long a reply may be for the message it answers, and whether it may end on
+	// a caveat. They live here rather than in the service because the offline
+	// evaluation harness has to check the same bound the runtime enforces, and
+	// because a phrase list that only the runtime can see is how the
+	// conversation-location matcher went two months missing "answer in thread".
+	"decision": 2300,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	"investigation": 1800,
