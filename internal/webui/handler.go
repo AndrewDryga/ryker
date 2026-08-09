@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/AndrewDryga/responder/internal/config"
 )
 
 // Handler serves the control plane. Read-only in v1: every write path is opted
@@ -22,6 +24,7 @@ type Handler struct {
 	binary     string
 	ready      func() bool
 	prompts    []PromptBudget
+	pricing    config.Pricing
 	actions    Actions
 }
 
@@ -35,11 +38,16 @@ type PromptBudget struct {
 func (p PromptBudget) Left() int    { return max(p.Cap-p.Bytes, 0) }
 func (p PromptBudget) LeftPct() int { return percent(p.Left(), p.Cap) }
 
+// NewHandler takes the price table by value from configuration: prices change
+// on the provider's schedule, so they live in the operator's file rather than
+// in this binary, and an empty table is a valid answer that the Usage page
+// reports as "not priced" rather than as zero money.
 func NewHandler(
 	reader *Reader,
 	deployment, schema, binary string,
 	ready func() bool,
 	prompts []PromptBudget,
+	pricing config.Pricing,
 	actions Actions,
 ) (*Handler, error) {
 	render, err := NewRenderer()
@@ -52,7 +60,7 @@ func NewHandler(
 	return &Handler{
 		reader: reader, render: render, deployment: deployment,
 		schema: schema, binary: binary, ready: ready, prompts: prompts,
-		actions: actions,
+		pricing: pricing, actions: actions,
 	}, nil
 }
 
@@ -380,11 +388,12 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 			"per reference and an omissions list, and this one sets neither: every reference " +
 			"listed above is one that went in, and nothing says what was dropped to make room."}
 	page.Unmetered = unmeteredEpisode(page.Spent)
-	page.Latency = Unwired{Tag: "Not read here",
-		Needs: "How this episode's wall clock divides: waiting for a provider, the provider " +
-			"working, and the host noticing it had finished. The attempt ledger above gives the " +
-			"duration end to end; the split inside it is a separate per-attempt measurement this " +
-			"page does not read."}
+	page.Latency = Unwired{Tag: "Not timed for this episode",
+		Needs: "Where this episode's wall clock went: queued in Coop, the provider working, and " +
+			"the host noticing the turn finished. Timing records against the attempt's manifest " +
+			"the same way tokens do, so an attempt frozen before the timing columns landed — or " +
+			"a turn Coop reported no timestamps for — leaves nothing to divide. The attempt " +
+			"ledger above still gives each attempt's duration end to end."}
 	h.detail(w, r, "episodes", "episode", page.Title, page)
 }
 
@@ -667,9 +676,10 @@ type usagePage struct {
 	Totals                 UsageTotals
 	Trend                  UsageTrend
 	Tables                 []UsageTable
+	Cost                   UsageCost
 	Errs                   problems
 	Unmetered, Composition Unwired
-	Cost, Latency          Unwired
+	CostUnwired, Latency   Unwired
 }
 
 func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
@@ -681,14 +691,23 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("totals", err)
 	page.Trend, err = h.reader.UsageTrend(ctx, page.Window)
 	page.Errs.note("trend", err)
+	// The model breakdown is loaded apart from the loop because it is the one
+	// that gets priced: cost is a property of which model answered, and the
+	// other dimensions would just re-total the same money.
+	byModel, err := h.reader.UsageByModel(ctx, page.Window)
+	page.Errs.note("tokens by provider and model", err)
+	byModel, page.Cost = priceUsage(h.pricing, byModel)
+	page.Tables = append(page.Tables, UsageTable{
+		Heading: "Tokens by provider and model", Column: "Provider and model",
+		Note: "What answered the attempt, frozen on its manifest — so a turn that rotated to a " +
+			"fallback after a rate limit counts against what actually ran.",
+		Money: page.Cost.Configured,
+		Rows:  shareOf(byModel, page.Totals.Total()),
+	})
 	for _, table := range []struct {
 		heading, column, note string
 		load                  func(context.Context, UsageWindow) ([]UsageGroup, error)
 	}{
-		{"Tokens by provider and model", "Provider and model",
-			"What answered the attempt, frozen on its manifest — so a turn that rotated to a " +
-				"fallback after a rate limit counts against what actually ran.",
-			h.reader.UsageByModel},
 		{"Tokens by channel", "Channel",
 			"Where the work came from.", h.reader.UsageByChannel},
 		{"Tokens by repository", "Repository",
@@ -715,23 +734,39 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 		"results and conversation. The manifest names every reference that went into the prompt " +
 		"and the digest of each, and carries no size for any of them, so the shares would have " +
 		"to be invented — it needs a byte count per reference at freeze time."}
-	// Cost and wall clock are scoped to what this page reads, not to what the
-	// system records. Written the other way they would go stale the moment a
-	// price table or a timing column landed, and a panel claiming a fixed gap is
-	// still open is the same defect as one claiming a live number it does not
-	// have — it sends an operator to plumb what is already plumbed.
-	page.Cost = Unwired{Tag: "Not priced here",
-		Needs: "What the tokens above cost. This page is handed no price table, so it prices " +
-			"nothing. The table belongs in configuration rather than in the binary — prices change " +
-			"on the provider's schedule and a compiled-in rate reports confident wrong money — and " +
-			"a model the table does not cover has to report no cost rather than a zero, because a " +
-			"zero in a spend report reads as \"this was free\"."}
-	page.Latency = Unwired{Tag: "Not read here",
-		Needs: "How the wall clock divides: waiting for a provider, the provider working, and the " +
-			"host noticing it had finished. This page totals tokens and not time. Each episode's " +
-			"duration end to end is already on its own page, from the attempt ledger; the split " +
-			"inside that duration is a separate per-attempt measurement this page does not read, " +
-			"and \"the answer took four minutes\" and \"the model took four minutes\" are " +
-			"different claims that need different numbers."}
+	page.CostUnwired = costUnwired(page.Cost)
+	page.Latency = Unwired{Tag: "Nothing timed in this window",
+		Needs: "How the wall clock divides: Coop queueing the turn, the provider working, and " +
+			"the host noticing it finished. Timing records against the attempt's manifest the " +
+			"same way tokens do, so an attempt frozen before the timing columns landed — or a " +
+			"turn Coop reported no timestamps for — leaves no timed turns to divide, and an " +
+			"average invented over them would be a guess wearing a measurement's clothes."}
 	h.page(w, r, "usage", "usage", page)
+}
+
+// costUnwired says which of the three reasons there is no money figure, about
+// the right thing: a missing table is the operator's to fill, an empty window
+// has nothing to price, and a table that covers none of the models that ran
+// names a mismatch rather than a gap.
+func costUnwired(cost UsageCost) Unwired {
+	switch {
+	case !cost.Configured:
+		return Unwired{Tag: "No price table configured",
+			Needs: "What the measured tokens above cost. Cost is priced only from the pricing " +
+				"table in the configuration file — prices change on the provider's schedule, and " +
+				"a rate compiled into the binary reports confident wrong money — and this " +
+				"deployment's configuration has none. config/responder.example.yaml shows the " +
+				"shape: per-model rates per million tokens, with the currency named."}
+	case cost.Measured == 0:
+		return Unwired{Tag: "Nothing measured to price",
+			Needs: "A price table is configured, but no attempt in this window reported token " +
+				"usage, and pricing tokens nobody counted would report money for a measurement " +
+				"that does not exist. The figure appears with the first measured attempt."}
+	default:
+		return Unwired{Tag: "The price table covers none of these models",
+			Needs: "A price table is configured and this window has measured spend, but no " +
+				"measured provider and model pair matches a table key. Keys are " +
+				"\"provider:model\" with bare \"provider\" as the fallback, exactly as the " +
+				"manifest froze them — the rows above show the pairs that ran."}
+	}
 }

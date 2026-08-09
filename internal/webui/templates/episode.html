@@ -191,7 +191,8 @@ sent and passed the operational retention window, so an older episode keeps none
 {{if .Recorded}}
 <table>
   <tr><th>Manifest</th><th>Provider</th><th>Model</th><th>Effort</th><th class="num">Fresh in</th>
-      <th class="num">Cached in</th><th class="num">Out</th><th class="num">Reasoning</th><th class="num">Total</th></tr>
+      <th class="num">Cached in</th><th class="num">Out</th><th class="num">Reasoning</th><th class="num">Total</th>
+      <th class="num">Wall clock</th></tr>
   {{range .Rows}}
   <tr><td class="mono">v{{.Version}}</td>
       <td>{{if .Provider}}{{.Provider}}{{else}}<span class="note">—</span>{{end}}</td>
@@ -201,12 +202,14 @@ sent and passed the operational retention window, so an older episode keeps none
       <td class="mono num">{{tokens .Input}}</td><td class="mono num">{{tokens .Cached}}</td>
       <td class="mono num">{{tokens .Output}}</td><td class="mono num">{{tokens .Reasoning}}</td>
       <td class="mono num" title="{{exact .Total}} tokens">{{tokens .Total}}</td>
-      {{else}}<td class="note" colspan="5">not measured</td>{{end}}</tr>
+      {{else}}<td class="note" colspan="5">not measured</td>{{end}}
+      <td class="mono num">{{if .Clock.Recorded}}<span title="{{.Clock.Split}} · {{.Clock.TimedTurns}} timed turns">{{.Clock.Total}}</span>{{else}}<span class="note">not timed</span>{{end}}</td></tr>
   {{end}}
   <tr><td class="note" colspan="4">{{.Measured}} of {{.Manifests}} measured</td>
       <td class="mono num">{{tokens .Input}}</td><td class="mono num">{{tokens .Cached}}</td>
       <td class="mono num">{{tokens .Output}}</td><td class="mono num">{{tokens .Reasoning}}</td>
-      <td class="mono num" title="{{exact .Total}} tokens"><strong>{{tokens .Total}}</strong></td></tr>
+      <td class="mono num" title="{{exact .Total}} tokens"><strong>{{tokens .Total}}</strong></td>
+      <td class="mono num">{{if .Clock.Recorded}}<strong>{{.Clock.Total}}</strong>{{end}}</td></tr>
 </table>
 <p class="note">One row per manifest, because an attempt that had its context extended froze a
 second one and the tokens are split across both. {{.CacheLabel}} of the input the model read came
@@ -215,5 +218,18 @@ fresh input and reasoning apart from output.</p>
 {{else}}{{template "unwired" $.Unmetered}}{{end}}
 {{end}}
 
-{{template "unwired" .Latency}}
+<h2>Where the time went</h2>
+{{with .Spent.Clock}}
+{{if .Recorded}}
+<div class="grid">
+  <div class="panel metric"><div class="n">{{.Total}}</div><div class="k">wall clock, {{.TimedTurns}} timed {{if eq .TimedTurns 1}}turn{{else}}turns{{end}}</div></div>
+  <div class="panel metric"><div class="n">{{.Queued}}</div><div class="k">queued — Coop holding the turn</div></div>
+  <div class="panel metric"><div class="n">{{.Provider}}</div><div class="k">provider working</div></div>
+  <div class="panel metric"><div class="n">{{.Host}}</div><div class="k">host noticing it finished</div></div>
+</div>
+<p class="note">Summed over the turns Coop timed for this episode's attempts. Queued is a busy
+session or an exhausted ladder, provider is the model working, and host is Responder's own polling
+gap. A turn that failed while still queued carries no span and is not in these totals.</p>
+{{else}}{{template "unwired" $.Latency}}{{end}}
+{{end}}
 {{end}}

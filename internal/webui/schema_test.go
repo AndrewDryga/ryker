@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -137,7 +138,7 @@ func TestEveryCounterRunsAgainstTheMigratedSchema(t *testing.T) {
 // no compile catches.
 func TestEveryPageRendersAgainstTheMigratedSchema(t *testing.T) {
 	reader := migratedReader(t)
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, nil)
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,7 @@ func TestLanesSeparatePollersFromActualWork(t *testing.T) {
 		t.Errorf("lane status = %q, error = %q", lane.Status, lane.Error)
 	}
 
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, nil)
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +281,7 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, nil)
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

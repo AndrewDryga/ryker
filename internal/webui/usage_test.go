@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -92,7 +93,7 @@ func seedUsage(t *testing.T, attempts ...attempt) *Reader {
 
 func servePage(t *testing.T, reader *Reader, target string) string {
 	t.Helper()
-	handler, err := NewHandler(reader, "test", "48", "responder-abc", nil, nil, nil)
+	handler, err := NewHandler(reader, "test", "48", "responder-abc", nil, nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,5 +315,84 @@ func TestTheWindowThresholdDoesNotDropRowsWithAFraction(t *testing.T) {
 	}
 	if all.Attempts != 2 {
 		t.Errorf("the all-time window held %d attempts, want both", all.Attempts)
+	}
+}
+
+// Cost is priced only through config.Pricing.Cost, and the two kinds of
+// absence stay distinguishable from money: a model the table does not cover
+// says "not priced", an unmeasured row is not priced at all, and a real spend
+// that rounds to 0.00 prints "<0.01" rather than a zero — a zero in a spend
+// report reads as "this was free", which is a claim about the world.
+func TestPricingNeverInventsOrHidesMoney(t *testing.T) {
+	pricing := config.Pricing{Currency: "USD", Models: map[string]config.ModelPrice{
+		"claude:opus-4.5": {Input: 5, CachedInput: 0.5, Output: 25},
+		"openai":          {Input: 2, Output: 8},
+	}}
+	rows := []UsageGroup{
+		{Provider: "claude", Model: "opus-4.5", Measured: 3,
+			Tokens: Tokens{Input: 1_000_000, Cached: 1_000_000, Output: 100_000, Reasoning: 100_000}},
+		// No exact model key: falls back to the bare provider rate, matching
+		// the target grammar the manifest froze.
+		{Provider: "openai", Model: "gpt-6", Measured: 1, Tokens: Tokens{Input: 500_000}},
+		{Provider: "mystery", Model: "m", Measured: 1, Tokens: Tokens{Input: 1_000_000}},
+		{Provider: "claude", Model: "opus-4.5", Measured: 0},
+	}
+	rows, cost := priceUsage(pricing, rows)
+	if !cost.Configured || cost.Measured != 3 || cost.Priced != 2 {
+		t.Fatalf("cost accounting = %+v, want 2 of 3 measured rows priced", cost)
+	}
+	// 5.00 input + 0.50 cached + 2.50 output + 2.50 reasoning-at-output-rate,
+	// plus 1.00 for the provider-rate row.
+	if cost.Money() != "11.50 USD" {
+		t.Errorf("total = %q, want 11.50 USD", cost.Money())
+	}
+	if rows[0].Cost != "10.50 USD" || rows[1].Cost != "1.00 USD" {
+		t.Errorf("row costs = %q, %q", rows[0].Cost, rows[1].Cost)
+	}
+	if rows[2].Cost != "not priced" {
+		t.Errorf("an uncovered model shows %q, want \"not priced\"", rows[2].Cost)
+	}
+	if rows[3].Cost != "" {
+		t.Errorf("an unmeasured row was priced: %q", rows[3].Cost)
+	}
+	if money(0.001, "USD") != "<0.01 USD" {
+		t.Errorf("a sub-cent spend rendered as %q", money(0.001, "USD"))
+	}
+
+	// With no table at all, nothing gets a per-row tag: the section-level
+	// panel explains the missing table once instead of forty rows repeating it.
+	bare := []UsageGroup{{Provider: "claude", Model: "opus-4.5", Measured: 1,
+		Tokens: Tokens{Input: 10}}}
+	bare, cost = priceUsage(config.Pricing{}, bare)
+	if cost.Configured || cost.Priceable() || bare[0].Cost != "" {
+		t.Errorf("an empty table produced output: %+v, row %q", cost, bare[0].Cost)
+	}
+}
+
+// Zero milliseconds is ambiguous between "instant" and "unmeasured", so the
+// timed-turn count is the recorded flag and every derived figure refuses to
+// divide by nothing.
+func TestWallClockRefusesToAverageNothing(t *testing.T) {
+	var idle WallClock
+	if idle.Recorded() || idle.Cell() != "" || idle.PerTurn() != "—" {
+		t.Errorf("an untimed clock invented output: cell=%q per-turn=%q", idle.Cell(), idle.PerTurn())
+	}
+	timed := WallClock{TimedTurns: 4, QueuedMS: 2_000, ProviderMS: 236_000, HostMS: 2_000}
+	if timed.PerTurn() != "1m00s" {
+		t.Errorf("per-turn = %q, want 1m00s", timed.PerTurn())
+	}
+	if timed.Split() != "queued 2.0s · provider 3m56s · host 2.0s" {
+		t.Errorf("split = %q", timed.Split())
+	}
+	if !strings.Contains(timed.Cell(), "98% provider") {
+		t.Errorf("cell does not attribute the time: %q", timed.Cell())
+	}
+	for _, format := range []struct {
+		milliseconds int64
+		want         string
+	}{{450, "450ms"}, {12_300, "12.3s"}, {83_000, "1m23s"}, {7_260_000, "2h01m"}} {
+		if got := humanMS(format.milliseconds); got != format.want {
+			t.Errorf("humanMS(%d) = %q, want %q", format.milliseconds, got, format.want)
+		}
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AndrewDryga/responder/internal/config"
 )
 
 // Every page renders, and an unwired panel says so rather than showing a zero.
@@ -16,7 +18,7 @@ import (
 func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	handler, err := NewHandler(&Reader{}, "test", "47", "responder-abc1234",
 		func() bool { return true },
-		[]PromptBudget{{Name: "watch", Bytes: 47000, Cap: 65536}}, nil)
+		[]PromptBudget{{Name: "watch", Bytes: 47000, Cap: 65536}}, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,11 +53,18 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 		t.Error("the usage page does not mark its remaining panels unwired")
 	}
 	// An unwired panel names what would fill it, so nobody has to guess whether
-	// the number is zero or the pipe is missing. Cost is one that is still
-	// unwired, and it says so about this page rather than about the product:
-	// written the other way it would go stale the day a price table landed.
-	if !strings.Contains(body, "handed no price table") {
-		t.Error("an unwired panel does not say what is missing")
+	// the number is zero or the pipe is missing. This deployment was handed an
+	// empty price table, so the cost panel must say the table is missing and
+	// where its shape is documented — not render zero money, and not claim the
+	// page cannot price, which stopped being true when pricing was plumbed in.
+	if !strings.Contains(body, "No price table configured") ||
+		!strings.Contains(body, "config/responder.example.yaml") {
+		t.Error("the cost panel does not say the price table is missing or where the shape lives")
+	}
+	// Wall clock reads the timing columns now; with nothing timed it must say
+	// nothing was timed rather than average an invented zero.
+	if !strings.Contains(body, "Nothing timed in this window") {
+		t.Error("the wall clock panel does not say nothing was timed")
 	}
 	// The token pipe landed. A page still claiming Coop does not report usage
 	// would send an operator to plumb what is already plumbed, which is the same
@@ -111,7 +120,7 @@ func TestActionsConfirmWithoutScript(t *testing.T) {
 // The dashboard is read-only in v1. Loopback is the only thing between a button
 // and production state, so a write path is opted into deliberately.
 func TestNoWriteRoutesAreExposed(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, nil, nil)
+	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +152,7 @@ func TestNoWriteRoutesAreExposed(t *testing.T) {
 // than appearing to accept them. A control that looks live and is not is the
 // defect this dashboard exists to stop showing.
 func TestActionsRefusedWhenTheBuildCannotWrite(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, nil, nil)
+	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +174,7 @@ func TestActionsRefusedWhenTheBuildCannotWrite(t *testing.T) {
 // An action reports its failure. One that failed quietly while the page
 // re-rendered unchanged would leave the operator believing it was done.
 func TestActionFailureIsReported(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, nil, failingActions{})
+	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, nil, config.Pricing{}, failingActions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +225,7 @@ func (failingActions) ResolveIncident(context.Context, string, string) error {
 // of them; a conversation row that cannot be opened counts a memory without
 // showing what is in it.
 func TestListsLinkToDetail(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, nil, nil)
+	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -287,6 +287,7 @@ func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 		version.Version,
 		func() bool { ready, _ := h.service.Ready(context.Background()); return ready },
 		nil,
+		h.cfg.Pricing,
 		&dashboardActions{store: h.store, service: h.service},
 	)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
@@ -107,13 +108,17 @@ func chosenWindow(windows []UsageWindow) UsageWindow {
 	return UsageWindow{Key: "all", Label: "everything on record"}
 }
 
-// usageColumns is the same five figures everywhere: how many attempts are in
-// the group, how many of them a provider actually measured, and the four counts.
+// usageColumns is the same nine figures everywhere: how many attempts are in
+// the group, how many of them a provider actually measured, the four token
+// counts, and the three wall-clock spans with the count of timed turns.
 //
 // Measured is counted rather than inferred from a zero total. Zero is a real
 // answer for a trivial turn and ACP does not require an adapter to report usage
 // at all, so an attempt nobody measured has to stay distinguishable from a free
 // one — the same rule core.ContextUsage.Recorded encodes, applied to a SUM.
+// usage_timed_turns plays the same role for the clock columns: zero
+// milliseconds is ambiguous between "instant" and "unmeasured", and the turn
+// count is both the recorded flag and the divisor for a per-turn figure.
 //
 // Every SUM is wrapped in COALESCE because SQLite sums no rows to NULL, not to
 // zero, and the driver refuses to scan that into an int. Left off the measured
@@ -123,7 +128,9 @@ const usageColumns = `COUNT(*),
   COALESCE(SUM(m.usage_input_tokens > 0 OR m.usage_cached_input_tokens > 0
       OR m.usage_output_tokens > 0 OR m.usage_reasoning_tokens > 0),0),
   COALESCE(SUM(m.usage_input_tokens),0), COALESCE(SUM(m.usage_cached_input_tokens),0),
-  COALESCE(SUM(m.usage_output_tokens),0), COALESCE(SUM(m.usage_reasoning_tokens),0)`
+  COALESCE(SUM(m.usage_output_tokens),0), COALESCE(SUM(m.usage_reasoning_tokens),0),
+  COALESCE(SUM(m.usage_timed_turns),0), COALESCE(SUM(m.usage_queued_ms),0),
+  COALESCE(SUM(m.usage_provider_ms),0), COALESCE(SUM(m.usage_host_ms),0)`
 
 // usageFrom joins each frozen attempt to the run that produced it.
 //
@@ -139,12 +146,76 @@ const usageFrom = `
   LEFT JOIN agent_runs AS a ON a.attempt_id = m.attempt_id AND m.attempt_id <> ''
   WHERE m.created_at >= ?`
 
+// WallClock is where a group's turns spent their wall time, split by who was
+// holding them: Coop queueing the turn, the provider working, and the host
+// not yet having noticed it finished. Three spans because they fail
+// independently and are fixed differently — the host span is the one this
+// repository can fix on its own.
+//
+// TimedTurns is both the divisor for a per-turn figure and the recorded flag:
+// zero milliseconds is ambiguous between "instant" and "unmeasured", and a
+// turn that failed while still queued contributes no span rather than
+// dragging every average toward a duration no turn took.
+type WallClock struct {
+	TimedTurns                   int64
+	QueuedMS, ProviderMS, HostMS int64
+}
+
+func (c WallClock) Recorded() bool { return c.TimedTurns > 0 }
+func (c WallClock) TotalMS() int64 { return c.QueuedMS + c.ProviderMS + c.HostMS }
+
+func (c WallClock) Total() string    { return humanMS(c.TotalMS()) }
+func (c WallClock) Queued() string   { return humanMS(c.QueuedMS) }
+func (c WallClock) Provider() string { return humanMS(c.ProviderMS) }
+func (c WallClock) Host() string     { return humanMS(c.HostMS) }
+
+// PerTurn is the average over the turns that were actually timed, never over
+// the group: an unmeasured attempt averaged in as zero would report a system
+// twice as fast as the one being run.
+func (c WallClock) PerTurn() string {
+	if c.TimedTurns == 0 {
+		return "—"
+	}
+	return humanMS(c.TotalMS() / c.TimedTurns)
+}
+
+// Split names the three spans in order, so "the answer took four minutes" and
+// "the model took four minutes" stay different claims.
+func (c WallClock) Split() string {
+	return "queued " + c.Queued() + " · provider " + c.Provider() + " · host " + c.Host()
+}
+
+// Cell is the one-column form for a breakdown row: the per-turn average and
+// where it went, with the exact totals in the title attribute.
+func (c WallClock) Cell() string {
+	if !c.Recorded() {
+		return ""
+	}
+	return c.PerTurn() + "/turn · " + pctLabel(c.ProviderMS, c.TotalMS()) + " provider"
+}
+
+// humanMS keeps durations readable without inventing precision: milliseconds
+// under a second, then seconds, then minutes with seconds.
+func humanMS(milliseconds int64) string {
+	switch duration := time.Duration(milliseconds) * time.Millisecond; {
+	case duration < time.Second:
+		return strconv.FormatInt(milliseconds, 10) + "ms"
+	case duration < time.Minute:
+		return strconv.FormatFloat(duration.Seconds(), 'f', 1, 64) + "s"
+	case duration < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(duration.Minutes()), int(duration.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh%02dm", int(duration.Hours()), int(duration.Minutes())%60)
+	}
+}
+
 // UsageTotals is the headline: what was spent in the window, and over how much
 // of it we actually have a measurement.
 type UsageTotals struct {
 	Tokens
 	Attempts, Measured int
 	First, Last        time.Time
+	Clock              WallClock
 }
 
 func (u UsageTotals) Recorded() bool { return u.Measured > 0 }
@@ -165,7 +236,9 @@ func (r *Reader) UsageTotals(ctx context.Context, window UsageWindow) (UsageTota
 	err := r.db.QueryRowContext(ctx, `SELECT `+usageColumns+`,
 	    MIN(m.created_at), MAX(m.created_at)`+usageFrom, window.since()).
 		Scan(&totals.Attempts, &totals.Measured, &totals.Input, &totals.Cached,
-			&totals.Output, &totals.Reasoning, &first, &last)
+			&totals.Output, &totals.Reasoning, &totals.Clock.TimedTurns,
+			&totals.Clock.QueuedMS, &totals.Clock.ProviderMS, &totals.Clock.HostMS,
+			&first, &last)
 	if err != nil {
 		return UsageTotals{}, err
 	}
@@ -180,9 +253,17 @@ func (r *Reader) UsageTotals(ctx context.Context, window UsageWindow) (UsageTota
 // an operator which model costs the most and gives them no route to a single
 // turn of it, which is the dead end this dashboard refuses everywhere else.
 type UsageGroup struct {
-	Label, Sub         string
+	Label, Sub string
+	// Provider and Model are the raw target as the manifest froze it, kept
+	// apart from Label/Sub because the model table rewrites those for display
+	// when the manifest recorded nothing. Pricing keys on the raw pair.
+	Provider, Model    string
 	Attempts, Measured int
 	Tokens
+	Clock WallClock
+	// Cost is the display string for the money column, computed only through
+	// config.Pricing.Cost. Empty on tables that are not priced.
+	Cost string
 	// Share of the window, filled in once the window total is known. It is the
 	// reason to read a breakdown at all: the row worth acting on is the big one,
 	// and a column of absolute counts makes the reader do that comparison.
@@ -194,9 +275,13 @@ func (g UsageGroup) Recorded() bool { return g.Measured > 0 }
 
 // UsageTable is one breakdown and the question it splits by. Four of them share
 // a single rendering, so a column added for one dimension appears for all four
-// rather than drifting apart per section.
+// rather than drifting apart per section. Money marks the one table that gets
+// a cost column — the model table, because cost is a property of which model
+// answered — and only when a price table exists at all, so the column is
+// never a row of dashes pretending to be a bill.
 type UsageTable struct {
 	Heading, Column, Note string
+	Money                 bool
 	Rows                  []UsageGroup
 }
 
@@ -234,7 +319,8 @@ func (r *Reader) usageBy(
 			var item UsageGroup
 			var key, sub string
 			err := rows.Scan(&key, &sub, &item.Attempts, &item.Measured, &item.Input,
-				&item.Cached, &item.Output, &item.Reasoning)
+				&item.Cached, &item.Output, &item.Reasoning, &item.Clock.TimedTurns,
+				&item.Clock.QueuedMS, &item.Clock.ProviderMS, &item.Clock.HostMS)
 			item.Label, item.Sub = key, sub
 			// Either half is enough to filter on. An attempt whose provider went
 			// unrecorded but whose model did not still has episodes behind it, and
@@ -259,6 +345,11 @@ func (r *Reader) UsageByModel(ctx context.Context, window UsageWindow) ([]UsageG
 			return episodeLink(url.Values{"provider": {provider}, "model": {model}})
 		})
 	for index, group := range groups {
+		// The raw target is kept apart from the display label: pricing keys on
+		// provider and model as the manifest froze them, and handing it the
+		// rewritten "provider not recorded" as a provider name would be a lookup
+		// that can never hit for a reason nobody could see.
+		groups[index].Provider, groups[index].Model = group.Label, group.Sub
 		// An attempt frozen before the effective target was recorded carries two
 		// empty columns. Naming that is the point: it says these attempts are real
 		// and unattributable, which a blank row would read as a rendering fault.
@@ -441,6 +532,7 @@ type EpisodeTokens struct {
 	Tokens
 	Manifests, Measured int
 	Rows                []AttemptTokens
+	Clock               WallClock
 }
 
 func (e EpisodeTokens) Recorded() bool { return e.Measured > 0 }
@@ -451,6 +543,7 @@ type AttemptTokens struct {
 	Frozen                  time.Time
 	Tokens
 	Measured bool
+	Clock    WallClock
 }
 
 func (r *Reader) EpisodeTokens(ctx context.Context, episodeID string) (EpisodeTokens, error) {
@@ -459,13 +552,16 @@ func (r *Reader) EpisodeTokens(ctx context.Context, episodeID string) (EpisodeTo
 	  SELECT version, COALESCE(provider,''), COALESCE(model,''),
 	         COALESCE(reasoning_effort,''), created_at,
 	         usage_input_tokens, usage_cached_input_tokens,
-	         usage_output_tokens, usage_reasoning_tokens
+	         usage_output_tokens, usage_reasoning_tokens,
+	         usage_timed_turns, usage_queued_ms, usage_provider_ms, usage_host_ms
 	  FROM context_manifests WHERE episode_id = ? ORDER BY version LIMIT 50`,
 		func(rows *sql.Rows) (AttemptTokens, error) {
 			var item AttemptTokens
 			var frozen string
 			err := rows.Scan(&item.Version, &item.Provider, &item.Model, &item.Effort,
-				&frozen, &item.Input, &item.Cached, &item.Output, &item.Reasoning)
+				&frozen, &item.Input, &item.Cached, &item.Output, &item.Reasoning,
+				&item.Clock.TimedTurns, &item.Clock.QueuedMS, &item.Clock.ProviderMS,
+				&item.Clock.HostMS)
 			item.Frozen = parseStamp(frozen)
 			item.Measured = item.Input > 0 || item.Cached > 0 ||
 				item.Output > 0 || item.Reasoning > 0
@@ -480,6 +576,10 @@ func (r *Reader) EpisodeTokens(ctx context.Context, episodeID string) (EpisodeTo
 		total.Cached += row.Cached
 		total.Output += row.Output
 		total.Reasoning += row.Reasoning
+		total.Clock.TimedTurns += row.Clock.TimedTurns
+		total.Clock.QueuedMS += row.Clock.QueuedMS
+		total.Clock.ProviderMS += row.Clock.ProviderMS
+		total.Clock.HostMS += row.Clock.HostMS
 		if row.Measured {
 			total.Measured++
 		}
@@ -497,6 +597,63 @@ func (r *Reader) EpisodeTokens(ctx context.Context, episodeID string) (EpisodeTo
 // database.
 func episodeLink(values url.Values) template.URL {
 	return template.URL("/episodes?" + values.Encode()) //nolint:gosec // built here from escaped values
+}
+
+// UsageCost is what the window's measured tokens cost, priced only through
+// config.Pricing.Cost — never by arithmetic done here, because the bool that
+// method returns is the whole point: an unpriced model reports no cost, not a
+// zero, and a zero in a spend report reads as "this was free".
+type UsageCost struct {
+	Currency   string
+	Configured bool
+	Total      float64
+	// Priced and Measured keep the total honest: a sum over three of five
+	// measured rows is three fifths of a bill, and saying so is what stops it
+	// being read as the bill.
+	Priced, Measured int
+}
+
+func (c UsageCost) Money() string   { return money(c.Total, c.Currency) }
+func (c UsageCost) Partial() bool   { return c.Priced < c.Measured }
+func (c UsageCost) Priceable() bool { return c.Configured && c.Priced > 0 }
+
+// priceUsage fills the money column of the by-model rows and totals what was
+// knowable. Unmeasured rows are left unpriced — Pricing.Cost refuses them —
+// because pricing tokens nobody counted returns confident zero money for an
+// attempt that cost whatever it cost.
+func priceUsage(pricing config.Pricing, byModel []UsageGroup) ([]UsageGroup, UsageCost) {
+	cost := UsageCost{Currency: pricing.Currency, Configured: len(pricing.Models) > 0}
+	for index, row := range byModel {
+		if !row.Recorded() {
+			continue
+		}
+		cost.Measured++
+		amount, known := pricing.Cost(row.Provider, row.Model, core.ContextUsage{
+			InputTokens:       int(row.Input),
+			CachedInputTokens: int(row.Cached),
+			OutputTokens:      int(row.Output),
+			ReasoningTokens:   int(row.Reasoning),
+		})
+		if !known {
+			if cost.Configured {
+				byModel[index].Cost = "not priced"
+			}
+			continue
+		}
+		byModel[index].Cost = money(amount, pricing.Currency)
+		cost.Total += amount
+		cost.Priced++
+	}
+	return byModel, cost
+}
+
+// money never renders a measured amount as a bare zero: a real spend that
+// rounds to 0.00 prints as "<0.01", the same rule pctLabel applies to shares.
+func money(amount float64, currency string) string {
+	if amount > 0 && amount < 0.005 {
+		return "<0.01 " + currency
+	}
+	return strconv.FormatFloat(amount, 'f', 2, 64) + " " + currency
 }
 
 // pctLabel rounds without rounding a real quantity away.

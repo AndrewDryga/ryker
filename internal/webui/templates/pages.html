@@ -393,9 +393,11 @@ from a quiet day and is drawn differently for that reason.</p>
 <h2>{{.Heading}}</h2>
 <p class="note">{{.Note}}</p>
 {{if .Rows}}
+{{$money := .Money}}
 <table>
   <tr><th>{{.Column}}</th><th class="num">Attempts</th><th class="num">Tokens</th><th class="num">Share</th><th class="num">Fresh in</th>
-      <th class="num">Cached in</th><th class="num">Out</th><th class="num">Reasoning</th><th class="num">Cache</th><th></th></tr>
+      <th class="num">Cached in</th><th class="num">Out</th><th class="num">Reasoning</th><th class="num">Cache</th>
+      <th class="num">Wall clock</th>{{if $money}}<th class="num">Cost</th>{{end}}<th></th></tr>
   {{range .Rows}}
   <tr><td>{{.Label}}{{if .Sub}} <span class="mono">{{.Sub}}</span>{{end}}</td>
       <td class="mono num">{{.Attempts}}{{if and .Recorded (ne .Measured .Attempts)}}
@@ -408,6 +410,8 @@ from a quiet day and is drawn differently for that reason.</p>
       {{else}}
       <td class="note" colspan="7">not measured</td>
       {{end}}
+      <td class="mono num">{{if .Clock.Recorded}}<span title="{{.Clock.Split}} · over {{.Clock.TimedTurns}} timed turns">{{.Clock.Cell}}</span>{{else}}<span class="note">not timed</span>{{end}}</td>
+      {{if $money}}<td class="mono num">{{if .Cost}}{{.Cost}}{{else}}<span class="note">—</span>{{end}}</td>{{end}}
       <td>{{if .Href}}<a href="{{.Href}}">episodes →</a>{{end}}</td></tr>
   {{end}}
 </table>
@@ -416,10 +420,35 @@ from a quiet day and is drawn differently for that reason.</p>
 
 <h2>Prompt composition</h2>
 {{template "unwired" .Composition}}
+
 <h2>Cost</h2>
-{{template "unwired" .Cost}}
+{{if .Cost.Priceable}}
+<div class="grid">
+  <div class="panel metric good"><div class="n">{{.Cost.Money}}</div><div class="k">priced spend · {{.Window.Label}}</div></div>
+</div>
+<p class="note">Priced only through the configured table, in {{.Cost.Currency}}, over
+{{.Cost.Priced}} of {{.Cost.Measured}} measured model rows.{{if .Cost.Partial}} The rows the table
+does not cover say “not priced” above rather than counting as free, so this figure is a floor,
+not the bill.{{end}} Unmeasured attempts are never priced: money over tokens nobody counted would
+be a measurement-shaped guess.</p>
+{{else}}{{template "unwired" .CostUnwired}}{{end}}
+
 <h2>Wall clock</h2>
-{{template "unwired" .Latency}}
+{{with .Totals.Clock}}
+{{if .Recorded}}
+<div class="grid">
+  <div class="panel metric"><div class="n">{{.PerTurn}}</div><div class="k">per timed turn</div></div>
+  <div class="panel metric"><div class="n">{{.Queued}}</div><div class="k">queued — Coop holding the turn</div></div>
+  <div class="panel metric"><div class="n">{{.Provider}}</div><div class="k">provider working</div></div>
+  <div class="panel metric"><div class="n">{{.Host}}</div><div class="k">host noticing it finished</div></div>
+</div>
+<p class="note">{{exact .TimedTurns}} timed turns in this window, {{.Total}} of wall clock in all.
+Three spans because they fail independently and are fixed differently: queued is a busy session or
+an exhausted ladder, provider is the model working, and host is this repository's own polling gap
+— the one span it can fix alone. The per-row figures above average within each breakdown; a turn
+that failed while still queued carries no span and stays out of every divisor.</p>
+{{else}}{{template "unwired" $.Latency}}{{end}}
+{{end}}
 {{end}}
 
 {{define "failure"}}
