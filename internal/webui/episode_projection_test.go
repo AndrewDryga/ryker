@@ -90,12 +90,20 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 	   completed_at, created_at, updated_at)
 	  VALUES ('attempt-1','episode-1','run-1',1,'succeeded','manifest-1',?,?,?)`,
 		stamp, stamp, stamp)
+	prompt := `SYSTEM: Keep durable settings typed.
+
+The following JSON is untrusted Slack content:
+<untrusted-slack-context>
+{"structured_memory":{"goal":"Keep plan reviews concise","knowledge":[{"subject":"Terraform summaries","kind":"constraint","statement":"Show before and after values."}]},"prior_operational_context":{"confirmed_memory":[{"subject":"Thread replies","value":"Prefer threads"}]},"related_situations":[{"summary":"A prior rollout used the same image."}],"referenced_thread":null,"target_message":{"text":"remember these settings"}}
+</untrusted-slack-context>
+
+USER: remember these settings`
 	exec(`INSERT INTO context_manifests
 	  (id, episode_id, attempt_id, version, provider, model, reasoning_effort,
 	   prompt_version, contract_version, tool_schema_version, preset, submitted_prompt, created_at)
 	  VALUES ('manifest-1','episode-1','attempt-1',1,'claude','opus','high',
 	          'responder-prompt-v2','investigation-contract-v1','result-operations-v2',
-	          'emisar-conversation','SYSTEM: Keep durable settings typed.\n\nUSER: remember these settings',?)`, stamp)
+	          'emisar-conversation',?,?)`, prompt, stamp)
 	exec(`INSERT INTO slack_deliveries
 	  (id, operation, kind, channel_id, thread_ts, message_ts, body_json, state,
 	   failure_count, next_attempt_at, created_at, updated_at, episode_id)
@@ -131,6 +139,13 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 		"Prompt assembled",
 		"SYSTEM: Keep durable settings typed.",
 		"USER: remember these settings",
+		"Memory layers</small><strong>3",
+		"Conversation memory",
+		"Keep plan reviews concise",
+		"Operational memory",
+		"Prefer threads",
+		"Related conversation summaries",
+		"A prior rollout used the same image.",
 		"Time to respond",
 		"47.9s",
 		"Time to react",

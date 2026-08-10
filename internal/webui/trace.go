@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -86,10 +87,15 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 			prompt = page.Turn.Prompt
 		}
 		promptDetails := []TraceDetail{}
+		memoryComponents := 0
 		if prompt != "" {
 			promptDetails = append(promptDetails, TraceDetail{Label: "Submitted prompt", Body: prompt, Kind: "prompt"})
+			components := promptContextDetails(prompt)
+			memoryComponents = len(components)
+			promptDetails = append(promptDetails, components...)
 		} else {
 			promptDetails = append(promptDetails, TraceDetail{Label: "Submitted prompt", Body: "The prompt text was not retained for this attempt. Its digest remains available in the context references.", Kind: "missing", Open: true})
+			promptDetails = append(promptDetails, TraceDetail{Label: "Memory components", Body: "The individual memory layers cannot be recovered for this historical attempt because its submitted prompt was not retained.", Kind: "missing", Open: true})
 		}
 		for _, ref := range page.Manifest.Refs {
 			body := ref.What + "\nVisibility: " + ref.Visibility
@@ -111,7 +117,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 			ID: "prompt", Stage: "Context", Actor: "Responder", State: "frozen",
 			Title: "Prompt assembled", Summary: fmt.Sprintf("Manifest v%d with %d context components", page.Manifest.Version, len(page.Manifest.Refs)), At: page.Manifest.Created,
 			Why:     "The frozen manifest makes the answer reproducible: it records the contract, policy, repository revision, memories, and artifacts that were eligible to influence this attempt.",
-			Stats:   []TraceStat{{"Prompt", fallback(page.Manifest.PromptVersion, "unversioned")}, {"Contract", fallback(page.Manifest.Contract, "none")}, {"Tool schema", fallback(page.Manifest.ToolSchema, "none")}, {"Components", fmt.Sprint(len(page.Manifest.Refs))}},
+			Stats:   []TraceStat{{"Prompt", fallback(page.Manifest.PromptVersion, "unversioned")}, {"Contract", fallback(page.Manifest.Contract, "none")}, {"Tool schema", fallback(page.Manifest.ToolSchema, "none")}, {"Context refs", fmt.Sprint(len(page.Manifest.Refs))}, {"Memory layers", fmt.Sprint(memoryComponents)}},
 			Details: promptDetails,
 		})
 	}
@@ -265,6 +271,57 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 		{"Slack deliveries", fmt.Sprint(len(page.Delivered))},
 	}
 	return trace
+}
+
+// promptContextDetails makes the memory envelope inspectable without storing a
+// second copy of it. The exact JSON already lives inside the submitted prompt;
+// this projection only labels its independently assembled layers so an
+// operator can answer "which memory influenced this turn?" without searching
+// a wall of instructions. It deliberately does not infer a layer when the
+// prompt predates retention or when a field is absent.
+func promptContextDetails(prompt string) []TraceDetail {
+	const open = "<untrusted-slack-context>\n"
+	const close = "\n</untrusted-slack-context>"
+	start := strings.LastIndex(prompt, open)
+	if start < 0 {
+		return nil
+	}
+	start += len(open)
+	end := strings.Index(prompt[start:], close)
+	if end < 0 {
+		return nil
+	}
+
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal([]byte(prompt[start:start+end]), &envelope) != nil {
+		return nil
+	}
+	layers := []struct {
+		key, label string
+	}{
+		{"structured_memory", "Conversation memory"},
+		{"prior_operational_context", "Operational memory"},
+		{"related_situations", "Related conversation summaries"},
+		{"referenced_thread", "Referenced thread memory"},
+	}
+	details := make([]TraceDetail, 0, len(layers))
+	for _, layer := range layers {
+		raw := envelope[layer.key]
+		if emptyJSON(raw) {
+			continue
+		}
+		details = append(details, TraceDetail{
+			Label: layer.label,
+			Body:  prettyJSON(string(raw)),
+			Kind:  "json",
+		})
+	}
+	return details
+}
+
+func emptyJSON(raw json.RawMessage) bool {
+	value := strings.TrimSpace(string(raw))
+	return value == "" || value == "null" || value == "{}" || value == "[]"
 }
 
 func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
