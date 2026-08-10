@@ -1677,6 +1677,18 @@ func (s *Service) freezeAction(
 			return frozenAction{}, errors.New("the active turn already finished")
 		}
 	}
+	// A control-plane action has no row to freeze against, and needs none.
+	//
+	// Freezing pins the session and revision onto the stored Slack input so
+	// that a redelivered event acts on the same turn it first resolved. The
+	// dashboard's input is synthetic: it is never admitted to slack_inputs and
+	// never redelivered, so the SELECT behind FreezeSlackInput matched nothing
+	// and the whole action failed with a bare "sql: no rows in result set".
+	// Close was broken that way for every incident holding a Coop session —
+	// the button existed, was offered, and could not work.
+	if input.Kind == controlPlaneInput {
+		return action, nil
+	}
 	data, err := json.Marshal(action)
 	if err != nil {
 		return frozenAction{}, err

@@ -972,3 +972,52 @@ func TestADashboardRefusalReachesTheDashboardAndNotTheRoom(t *testing.T) {
 		t.Fatalf("the refusal left no audit trail: %+v", trail)
 	}
 }
+
+// The dashboard's Close button has to work on a real Coop session.
+//
+// Closing freezes the session and revision onto the stored Slack input so a
+// redelivered Slack event acts on the turn it first resolved. The dashboard's
+// input is synthetic — never admitted to slack_inputs, never redelivered — so
+// the SELECT behind that freeze matched nothing and the whole action failed
+// with a bare "sql: no rows in result set". The button was offered on every
+// incident holding a session, and could not work on any of them.
+func TestTheDashboardCanCloseAnIncidentHoldingACoopSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "source_cp_close", "Closeable task",
+		"Make a temporary isolated change.", cfg.Slack.Operators[0],
+		"CTASK", "1700.200", cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.201"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_close", "closeable", 1); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.session.State = "closed"
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	if err := svc.ControlPlaneAct(ctx, "close", task.ID, "control-plane@localhost"); err != nil {
+		t.Fatalf("the dashboard could not close a session-holding incident: %v", err)
+	}
+	closed, err := st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed.Status != core.IncidentClosed {
+		t.Fatalf("the incident is still %q", closed.Status)
+	}
+}
