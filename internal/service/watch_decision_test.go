@@ -1448,3 +1448,81 @@ func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
 		t.Fatalf("multipart earlier offer = %v, %v", matches, err)
 	}
 }
+
+// A shadow channel answers the person who said its name, and nobody else.
+//
+// Shadow covered only message and bot_message, so a channel an operator had set
+// to observe-only still replied to anyone who typed the bot's name — including
+// the operator writing "do not reply to any of the messages in this channel,
+// you are here only to observe events", which drew a reply into the channel it
+// was asking for quiet in. The setting says "without posting"; a mention is not
+// an exception to that.
+//
+// It does not go silently dead either. Somebody who says the name is owed an
+// answer, and gets it ephemerally, so the channel stays quiet and the asker is
+// not waiting on a reply that is never coming.
+func TestAShadowChannelAnswersAMentionPrivatelyAndPostsNothing(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	mention := core.SlackInput{
+		ID: "slack_shadow_mention", EnvelopeID: "env_shadow_mention",
+		EventID: "ev_shadow_mention", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CSHADOW", MessageTS: "1700.001", UserID: cfg.Slack.Operators[0],
+		Text: "<@U999BOT> do not reply to any of the messages in this channel",
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, mention); err != nil || !admitted {
+		t.Fatalf("admit mention = %t, %v", admitted, err)
+	}
+	if _, err := st.LeaseSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.finishShadowedWatchDecision(
+		ctx, mention, decisionpkg.WatchTurnState{}, decisionpkg.WatchDecision{Action: "reply"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("a shadow channel was posted to: %+v", slackClient.posts)
+	}
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("the mention got no answer at all: %+v", slackClient.ephemerals)
+	}
+	if slackClient.ephemerals[0].thread != cfg.Slack.Operators[0] {
+		t.Errorf("the answer went to %q, not the person who asked",
+			slackClient.ephemerals[0].thread)
+	}
+	if !strings.Contains(slackClient.ephemerals[0].message.Text, "observe only") {
+		t.Errorf("the answer does not say why it is quiet: %q",
+			slackClient.ephemerals[0].message.Text)
+	}
+
+	// A bot alert in the same channel stays fully silent: nobody asked, so
+	// there is nobody to answer.
+	slackClient.posts, slackClient.ephemerals = nil, nil
+	alert := mention
+	alert.ID, alert.Kind, alert.UserID = "slack_shadow_alert", "bot_message", "BEXTERNAL"
+	alert.EnvelopeID, alert.EventID = "env_shadow_alert", "ev_shadow_alert"
+	if admitted, err := st.AdmitSlackInput(ctx, alert); err != nil || !admitted {
+		t.Fatalf("admit alert = %t, %v", admitted, err)
+	}
+	if _, err := st.LeaseSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.finishShadowedWatchDecision(
+		ctx, alert, decisionpkg.WatchTurnState{}, decisionpkg.WatchDecision{Action: "reply"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.posts) != 0 || len(slackClient.ephemerals) != 0 {
+		t.Fatalf("a shadowed alert was answered: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+}

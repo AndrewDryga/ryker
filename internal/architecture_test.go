@@ -211,7 +211,12 @@ var lineBudget = map[string]int{
 	// deletion is the right moment to fix that: the budget comes down by 220 and
 	// the margin goes up to 119. Locking in the whole win would leave the next
 	// legitimate change failing on the merits of this one.
-	"service": 25100,
+	// Seven more to make shadow mean what its own description says. It covered
+	// message and bot_message only, so an observe-only channel still answered
+	// anyone who typed the bot's name — including the operator asking it to
+	// stop. The mention now gets an ephemeral answer instead of a channel post,
+	// which is the extra branch.
+	"service": 25120,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

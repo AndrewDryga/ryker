@@ -635,6 +635,18 @@ func (s *Service) finishShadowedWatchDecision(
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
 		Outcome: "shadowed", Detail: decision.Action,
 	})
+	// Somebody who says the bot's name is owed an answer, even when the answer
+	// is "not here". Ephemeral, so the channel stays as quiet as it was asked
+	// to be and the asker is not left waiting on a reply that is never coming.
+	if input.Kind == "mention" && input.ChannelID != "" && input.UserID != "" {
+		if err := s.slack.PostEphemeral(ctx, input.ChannelID, input.UserID, s.sanitizeMessage(
+			slackui.Notice("*This channel is set to observe only.* I read everything here and "+
+				"keep the evidence, but I do not post. Change it with `/responder shadow off` "+
+				"or from the channel's page in the control plane."),
+		)); err != nil {
+			return err
+		}
+	}
 	for _, rule := range state.MatchedRules {
 		_, _ = s.store.Behavior.RecordStandingRuleRun(ctx, rule.ID, input.ID, input.EventID, "shadowed")
 	}
@@ -719,9 +731,23 @@ func (s *Service) applyWatchDecision(
 	if err != nil {
 		return err
 	}
+	// A mention is a message, and shadow says "without posting".
+	//
+	// Shadow used to cover only message and bot_message, so a channel an
+	// operator had set to observe-only still answered anyone who typed its
+	// name — including the operator writing "do not reply to any of the
+	// messages in this channel, you are here only to observe events", which
+	// drew a reply. The setting's own description is "evaluate messages and
+	// retain audit evidence without posting"; a direct mention is not an
+	// exception to that, it is the loudest case of it.
+	//
+	// It does not go silently dead. finishShadowedWatchDecision answers a
+	// mention ephemerally, so the person who asked learns the channel is
+	// observe-only and everyone else sees nothing — the same rule the rest of
+	// this surface follows.
 	shadow := false
 	if !state.ApprovalContinuation &&
-		(input.Kind == "message" || input.Kind == "bot_message") {
+		(input.Kind == "message" || input.Kind == "bot_message" || input.Kind == "mention") {
 		shadow, err = s.shadowEnabled(ctx, input.ChannelID)
 		if err != nil {
 			return err
