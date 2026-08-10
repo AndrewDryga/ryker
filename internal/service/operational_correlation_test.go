@@ -180,6 +180,76 @@ func TestOperationalBurstCoalescesBeforeCoopAndLinksEpisodes(t *testing.T) {
 	}
 }
 
+func TestOperationalRecoveryKeepsTheOriginalAlertThread(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT"}
+
+	firing := core.SlackInput{
+		ID: "alert-firing", EnvelopeID: "env-alert-firing", EventID: "event-alert-firing",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+		MessageTS: "1700.401", UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "[VA1 FIRING:1] WARNING | High disk I/O latency\n" +
+			"FIRING - 1 alert\nService: cluster\nComponent: node-exporter",
+	}
+	resolved := firing
+	resolved.ID, resolved.EnvelopeID, resolved.EventID =
+		"alert-resolved", "env-alert-resolved", "event-alert-resolved"
+	resolved.MessageTS = "1700.402"
+	resolved.ReceivedAt = firing.ReceivedAt.Add(5 * time.Minute)
+	resolved.Text = "[VA1 RESOLVED:1] WARNING | High disk I/O latency\n" +
+		"RESOLVED - 1 alert\nService: cluster\nComponent: node-exporter"
+
+	for _, input := range []core.SlackInput{firing, resolved} {
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit %s = %v, %v", input.ID, created, admitErr)
+		}
+		if err := svc.processSlackInput(ctx); err != nil {
+			t.Fatalf("queue %s: %v", input.ID, err)
+		}
+	}
+
+	firingRun, err := st.GetAgentRunBySource(ctx, "watch", firing.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firingRun.ThreadTS != firing.MessageTS {
+		t.Fatalf("firing thread = %q, want %q", firingRun.ThreadTS, firing.MessageTS)
+	}
+	episode, err := st.GetWorkEpisode(ctx, firingRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.Destination.ThreadTS != firing.MessageTS {
+		t.Fatalf("initial episode destination = %q, want %q", episode.Destination.ThreadTS, firing.MessageTS)
+	}
+
+	resolvedRun, err := st.GetAgentRunBySource(ctx, "watch", resolved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(resolvedRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolvedRun.EpisodeID != firingRun.EpisodeID {
+		t.Fatalf("recovery episode = %q, want %q", resolvedRun.EpisodeID, firingRun.EpisodeID)
+	}
+	if got := watchDecisionResponseThread(
+		resolvedRun.ConversationKey, resolved, state, resolvedRun.EpisodeID,
+	); got != firing.MessageTS {
+		t.Fatalf("recovery response thread = %q, want original alert %q", got, firing.MessageTS)
+	}
+}
+
 func TestDifferentAlertFamiliesInOneBurstUseOnlyNewestModelRun(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

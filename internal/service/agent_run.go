@@ -336,11 +336,19 @@ func (s *Service) correlateWatchEpisode(
 	conversationKey string,
 	state *decisionpkg.WatchTurnState,
 ) (*core.WorkEpisode, error) {
+	operationalLifecycle := input.Kind == "bot_message" &&
+		strings.HasPrefix(conversationKey, "operation:")
+	if operationalLifecycle {
+		// Bind the episode before the model finishes. A recovery can arrive while
+		// the firing investigation is still running; without an early binding the
+		// only durable destination is the later recovery notification's thread.
+		state.ResponseThreadTS = slackReplyThread(input)
+	}
 	episode := s.episodeForWatchedInput(input, *state)
 	if previous, previousErr := s.store.GetLatestWorkEpisodeByConversationKey(
 		ctx, conversationKey,
 	); previousErr == nil {
-		if input.Kind == "bot_message" && strings.HasPrefix(conversationKey, "operation:") {
+		if operationalLifecycle {
 			// A lifecycle update is another attempt in the same unit of work, not a
 			// new episode. Reuse both the episode and its bound Slack destination.
 			episode.ID = previous.ID
@@ -474,6 +482,33 @@ func watchConversationKey(input core.SlackInput) string {
 		}
 	}
 	return "channel:" + input.ChannelID
+}
+
+func watchDecisionResponseThread(
+	conversationKey string,
+	input core.SlackInput,
+	state decisionpkg.WatchTurnState,
+	episodeID string,
+) string {
+	if input.Kind == "bot_message" &&
+		operationalAlertConversationKey(conversationKey) &&
+		episodeID != "" && state.ResponseThreadTS != "" {
+		// Correlated lifecycle events keep the destination chosen by the first
+		// event. This makes FIRING -> RESOLVED read as one investigation instead
+		// of leaving the answer under the recovery notification.
+		return state.ResponseThreadTS
+	}
+	if input.Kind == "bot_message" || input.Kind == "shortcut" ||
+		len(state.MatchedRules) > 0 {
+		return slackReplyThread(input)
+	}
+	return state.ResponseThreadTS
+}
+
+func operationalAlertConversationKey(conversationKey string) bool {
+	return strings.HasPrefix(conversationKey, "operation:") &&
+		(strings.Contains(conversationKey, ":alert:") ||
+			strings.Contains(conversationKey, ":alert-link:"))
 }
 
 func watchProgressSteps() []string {

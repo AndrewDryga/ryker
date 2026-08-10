@@ -748,7 +748,9 @@ func (s *Service) applyWatchDecision(
 	if shadow {
 		return s.finishShadowedWatchDecision(ctx, input, state, decision)
 	}
-	responseThreadTS := state.ResponseThreadTS
+	responseThreadTS := watchDecisionResponseThread(
+		watchConversationKey(input), input, state, episodeID,
+	)
 	post := func(
 		ctx context.Context,
 		id string,
@@ -756,7 +758,7 @@ func (s *Service) applyWatchDecision(
 		message slackui.Message,
 	) error {
 		return s.postInputMessageAt(
-			ctx, id, input.ChannelID, state.ResponseThreadTS, message,
+			ctx, id, input.ChannelID, responseThreadTS, message,
 		)
 	}
 	if episodeID != "" {
@@ -769,24 +771,6 @@ func (s *Service) applyWatchDecision(
 			return s.postInputMessageAtEpisode(
 				ctx, id, episodeID, input.ChannelID, responseThreadTS, message,
 			)
-		}
-	}
-	if input.Kind == "bot_message" || input.Kind == "shortcut" ||
-		len(state.MatchedRules) > 0 {
-		responseThreadTS = slackReplyThread(input)
-		if episodeID == "" {
-			post = s.postInputMessageInSourceThread
-		} else {
-			post = func(
-				ctx context.Context,
-				id string,
-				input core.SlackInput,
-				message slackui.Message,
-			) error {
-				return s.postInputMessageAtEpisode(
-					ctx, id, episodeID, input.ChannelID, responseThreadTS, message,
-				)
-			}
 		}
 	}
 	switch decision.Action {
