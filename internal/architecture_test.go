@@ -166,7 +166,24 @@ var lineBudget = map[string]int{
 	// fails, whatever its merit, and the pressure to bump it is highest exactly
 	// when the change is justified. Moving off zero is what that warning asks
 	// for, and it is the same reasoning that moved store off 11000.
-	"service": 25200,
+	//
+	// Raised to 25260 on 2026-08-09 to stop this package shouting at rooms. An
+	// operator watched Responder post one person's mistyped setup answer to a
+	// shared channel and said never to do that again; the audit that followed
+	// found three more of the same shape. A colleague who is not an operator was
+	// refused in public, once per message they sent. A request Responder gave up
+	// on after twelve silent attempts put its raw error in front of the room and
+	// told everyone to retry a command only one person could run. And the same
+	// permission refusal was private through /responder and public through
+	// @Emisar, so the spelling decided who watched.
+	//
+	// Fifty-three lines: three routing branches, one shared helper, one extracted
+	// reportAbandonedInput, and the log call that keeps a failed ephemeral from
+	// being the silence this file's previous entry was written to prevent. It
+	// buys back rooms that were learning to tune Responder out, which costs more
+	// than any of the messages were worth. The extraction two entries up is still
+	// the only thing that brings this number down, and it is still next.
+	"service": 25260,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

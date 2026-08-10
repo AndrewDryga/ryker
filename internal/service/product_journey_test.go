@@ -554,6 +554,67 @@ func TestANonOperatorIsRefusedPrivatelyNotInTheIncidentRoom(t *testing.T) {
 	}
 }
 
+// Which spelling somebody used must not decide who watches them be refused.
+//
+// "/responder status" already answers privately, because Slack makes slash
+// replies private. The identical question typed as "@Emisar show settings"
+// takes the conversation-command path, and the identical refusal — your account
+// is not in slack.operators, go ask an administrator — was posted to the
+// channel, naming one person in front of the room, once per attempt.
+func TestANonOperatorAskingInChannelIsRefusedPrivately(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{channel: slackui.Channel{
+		ID: "COPS", Name: "backend-ops", Member: true,
+	}}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	asked := core.SlackInput{
+		ID: "ops_show_settings", EnvelopeID: "env_ops_show_settings",
+		EventID: "event_ops_show_settings", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", MessageTS: "1700.700",
+		UserID: "UBYSTANDER", Text: "<@U999BOT> show settings",
+		ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, asked); err != nil || !admitted {
+		t.Fatalf("admit question = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	const refusal = "not listed in `slack.operators`"
+	for _, post := range slackClient.posts {
+		if strings.Contains(renderedSlackMessage(post.message), refusal) {
+			t.Fatalf("a command refusal was posted to a shared channel: %q", post.message.Text)
+		}
+	}
+	refused := false
+	for _, ephemeral := range slackClient.ephemerals {
+		if !strings.Contains(renderedSlackMessage(ephemeral.message), refusal) {
+			continue
+		}
+		refused = true
+		if ephemeral.thread != "UBYSTANDER" || ephemeral.channel != "COPS" {
+			t.Errorf("refusal went to %q in %q", ephemeral.thread, ephemeral.channel)
+		}
+	}
+	if !refused {
+		t.Fatalf("the refusal reached nobody: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the refused question was not completed: %v", err)
+	}
+}
+
 // A request that Responder gave up on is news to the person who made it.
 //
 // "Responder could not complete that request after retrying", the raw error
