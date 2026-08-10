@@ -311,6 +311,50 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // guidance. Each invention cost the whole response. The host accepts all three
 // as aliases now, but a fourth was always coming, and a payload the model has
 // never seen the shape of is the reason. These are the bytes that stop it.
+const staticWatchPromptBytes = 48408
+
+// The static prompt must not grow without someone deciding it should.
+//
+// This is a two-sided bound on purpose. Over the pin means the instructions
+// grew and something has to give. Under it means a compression landed and the
+// pin should come down to lock the win in — a ratchet that only ever loosens
+// is not a ratchet.
+func TestStaticWatchPromptSizeIsPinned(t *testing.T) {
+	cfg := serviceConfig(t)
+	prompt, _ := (&Service{cfg: cfg}).watchPrompt(
+		core.SlackInput{
+			ChannelID: "C123ABC", MessageTS: "1700.001",
+			UserID: cfg.Slack.Operators[0], Kind: "scheduled",
+			Text: "How is the health of our infrastructure?",
+		},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, "", nil, watchPromptBudget(0),
+	)
+	switch {
+	case len(prompt) > staticWatchPromptBytes:
+		t.Fatalf(
+			"static watch prompt grew to %d bytes, over its pin of %d.\n"+
+				"Every byte here is a byte of conversation the model cannot see. "+
+				"Compress something else out, or raise the pin deliberately.",
+			len(prompt), staticWatchPromptBytes,
+		)
+	case len(prompt) < staticWatchPromptBytes:
+		t.Fatalf(
+			"static watch prompt is %d bytes, under its pin of %d — "+
+				"lower staticWatchPromptBytes to %d to keep the saving.",
+			len(prompt), staticWatchPromptBytes, len(prompt),
+		)
+	}
+	// The pin is only meaningful if the prompt actually leaves room for a
+	// conversation. This is the number that matters to answer quality.
+	if room := coop.MaxPromptBytes - len(prompt); room < 8<<10 {
+		t.Fatalf(
+			"instructions leave only %d bytes for conversation and evidence",
+			room,
+		)
+	}
+}
+
 // A replayed episode must not push the contract it is graded against out of
 // the turn.
 //
@@ -423,49 +467,5 @@ func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
 	)
 	if strings.Contains(fitting, "the host cut the rest of this message to fit") {
 		t.Fatal("a message that fitted was marked as cut")
-	}
-}
-
-const staticWatchPromptBytes = 48408
-
-// The static prompt must not grow without someone deciding it should.
-//
-// This is a two-sided bound on purpose. Over the pin means the instructions
-// grew and something has to give. Under it means a compression landed and the
-// pin should come down to lock the win in — a ratchet that only ever loosens
-// is not a ratchet.
-func TestStaticWatchPromptSizeIsPinned(t *testing.T) {
-	cfg := serviceConfig(t)
-	prompt, _ := (&Service{cfg: cfg}).watchPrompt(
-		core.SlackInput{
-			ChannelID: "C123ABC", MessageTS: "1700.001",
-			UserID: cfg.Slack.Operators[0], Kind: "scheduled",
-			Text: "How is the health of our infrastructure?",
-		},
-		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, "", nil, watchPromptBudget(0),
-	)
-	switch {
-	case len(prompt) > staticWatchPromptBytes:
-		t.Fatalf(
-			"static watch prompt grew to %d bytes, over its pin of %d.\n"+
-				"Every byte here is a byte of conversation the model cannot see. "+
-				"Compress something else out, or raise the pin deliberately.",
-			len(prompt), staticWatchPromptBytes,
-		)
-	case len(prompt) < staticWatchPromptBytes:
-		t.Fatalf(
-			"static watch prompt is %d bytes, under its pin of %d — "+
-				"lower staticWatchPromptBytes to %d to keep the saving.",
-			len(prompt), staticWatchPromptBytes, len(prompt),
-		)
-	}
-	// The pin is only meaningful if the prompt actually leaves room for a
-	// conversation. This is the number that matters to answer quality.
-	if room := coop.MaxPromptBytes - len(prompt); room < 8<<10 {
-		t.Fatalf(
-			"instructions leave only %d bytes for conversation and evidence",
-			room,
-		)
 	}
 }
