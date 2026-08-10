@@ -1252,12 +1252,7 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 	).Scan(&currentEpisodeState); err != nil {
 		return err
 	}
-	if currentEpisodeState != core.EpisodeBlocked &&
-		currentEpisodeState != core.EpisodeWaitingApproval &&
-		currentEpisodeState != core.EpisodeCompleted &&
-		currentEpisodeState != core.EpisodeFailed &&
-		currentEpisodeState != core.EpisodeCancelled &&
-		currentEpisodeState != core.EpisodeSuperseded {
+	if agentRunOwnsEpisodeCompletion(currentEpisodeState) {
 		if err := s.setWorkEpisodePhaseTx(
 			ctx, tx, id, episodeState, "finished", episodeStatus, episodeNextAction,
 			time.Time{}, "agent-run:"+id+":finished:"+string(finalState),
@@ -1266,6 +1261,20 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// The transport attempt may finish while the accepted work remains open. Only
+// active execution states are owned by FinishAgentRun; durable waiting,
+// blocked, refused, and terminal states were chosen earlier by the episode
+// reducer and must survive transport finalization.
+func agentRunOwnsEpisodeCompletion(state core.WorkEpisodeState) bool {
+	switch state {
+	case core.EpisodeAccepted, core.EpisodeAcknowledged, core.EpisodePlanning,
+		core.EpisodeWorking, core.EpisodeRetrying, core.EpisodeVerifying:
+		return true
+	default:
+		return false
+	}
 }
 
 func terminalResultError(terminalState string, detail string) string {

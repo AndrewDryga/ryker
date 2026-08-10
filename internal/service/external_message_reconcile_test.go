@@ -294,6 +294,9 @@ func TestExternalLifecyclePlanningRuleStartsQuietDurableExactRunWatch(t *testing
 		slackClient.reactions[0].timestamp != input.MessageTS {
 		t.Fatalf("planning lifecycle reactions = %+v", slackClient.reactions)
 	}
+	if len(slackClient.removedReactions) != 0 {
+		t.Fatalf("planning lifecycle acknowledgement was cleared: %+v", slackClient.removedReactions)
+	}
 	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -301,6 +304,9 @@ func TestExternalLifecyclePlanningRuleStartsQuietDurableExactRunWatch(t *testing
 	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeWaitingExternal || !episode.CompletedAt.IsZero() {
+		t.Fatalf("planning lifecycle episode = %+v", episode)
 	}
 	wakeups, err := st.ListEpisodeWakeups(ctx, episode.ID)
 	if err != nil {
@@ -310,6 +316,13 @@ func TestExternalLifecyclePlanningRuleStartsQuietDurableExactRunWatch(t *testing
 		wakeups[0].State != core.WakeupPending ||
 		!strings.Contains(string(wakeups[0].EventMatcher), `"run_id":"run-abc"`) {
 		t.Fatalf("planning lifecycle wakeups = %+v", wakeups)
+	}
+	metrics, err := st.WorkMetrics(ctx, store.WorkLaneBackground)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.Pending != 1 {
+		t.Fatalf("planning lifecycle scheduler metrics = %+v", metrics)
 	}
 }
 

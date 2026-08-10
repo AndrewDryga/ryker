@@ -198,3 +198,49 @@ func TestBlockedWorkEpisodeRemainsOpenAfterTransportFinishes(t *testing.T) {
 		t.Fatalf("blocked commitment = %+v, %v", commitment, err)
 	}
 }
+
+func TestWaitingWorkEpisodeRemainsOpenAfterTransportFinishes(t *testing.T) {
+	for _, state := range []core.WorkEpisodeState{
+		core.EpisodeWaitingOperator,
+		core.EpisodeWaitingExternal,
+		core.EpisodeWaitingApproval,
+	} {
+		t.Run(string(state), func(t *testing.T) {
+			ctx := context.Background()
+			st, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+
+			run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+				Mode: core.AgentRunTriage, ChannelID: "COPS",
+				ConversationKey: "channel:COPS", SourceKind: "watch",
+				SourceID: "waiting_episode_" + string(state), State: core.AgentRunRunning,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := st.StageAgentRunResult(
+				ctx, run.ID, "completed", []byte(`{"action":"ignore"}`), "", 1,
+			); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.SetWorkEpisodePhase(
+				ctx, run.ID, state, "waiting", "Waiting", "Resume later", time.Time{},
+			); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.BeginAgentRunFinalization(ctx, run.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.FinishAgentRun(ctx, run.ID); err != nil {
+				t.Fatal(err)
+			}
+			episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+			if err != nil || episode.State != state || !episode.CompletedAt.IsZero() {
+				t.Fatalf("waiting episode = %+v, %v", episode, err)
+			}
+		})
+	}
+}

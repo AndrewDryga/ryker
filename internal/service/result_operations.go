@@ -87,12 +87,16 @@ func (s *Service) recordResultOperationEvents(
 			if parseErr != nil {
 				return fmt.Errorf("result operation %q deadline: %w", operation.ID, parseErr)
 			}
-			if _, err := s.store.CreateEpisodeWakeup(ctx, core.EpisodeWakeup{
+			wakeup, err := s.store.CreateEpisodeWakeup(ctx, core.EpisodeWakeup{
 				ID: wait.ID, EpisodeID: episode.ID, Kind: wait.Kind,
 				EventMatcher: wait.EventMatcher, DueAt: dueAt, PollAfter: pollAfter,
 				Deadline: deadline,
-			}); err != nil {
+			})
+			if err != nil {
 				return fmt.Errorf("result operation %q: %w", operation.ID, err)
+			}
+			if err := s.enqueueEpisodeWakeup(ctx, wakeup); err != nil {
+				return fmt.Errorf("result operation %q scheduler: %w", operation.ID, err)
 			}
 			continue
 		case "request_approval":
@@ -119,6 +123,18 @@ func (s *Service) recordResultOperationEvents(
 		}
 	}
 	return nil
+}
+
+func (s *Service) enqueueEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWakeup) error {
+	availableAt := wakeup.DueAt
+	if availableAt.IsZero() ||
+		(!wakeup.PollAfter.IsZero() && wakeup.PollAfter.Before(availableAt)) {
+		availableAt = wakeup.PollAfter
+	}
+	return s.store.EnqueueWork(ctx, store.WorkItem{
+		Kind: workEpisodeWakeup, SubjectID: schedulerSingletonID,
+		Lane: store.WorkLaneBackground, Priority: 44, AvailableAt: availableAt,
+	})
 }
 
 func parseOptionalOperationTime(value string) (time.Time, error) {

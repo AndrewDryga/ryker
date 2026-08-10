@@ -741,10 +741,13 @@ func (s *Service) applyWatchDecision(
 	}, state.Lane, session.Revision, decision.Memory); err != nil {
 		return err
 	}
-	if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil {
-		return err
+	waitingExternal := watchDecisionWaitsExternal(decision)
+	if !waitingExternal {
+		if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil {
+			return err
+		}
+		state.RuleAcknowledged = false
 	}
-	state.RuleAcknowledged = false
 	if shadow {
 		return s.finishShadowedWatchDecision(ctx, input, state, decision)
 	}
@@ -853,7 +856,11 @@ func (s *Service) applyWatchDecision(
 			return err
 		}
 	}
-	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
+	if waitingExternal {
+		if err := s.clearWatchNativeStatus(ctx, input, state); err != nil {
+			return err
+		}
+	} else if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
 		return err
 	}
 	// After the answer is delivered, not before. A standing assignment acts on
@@ -1629,6 +1636,14 @@ func (s *Service) clearWatchPendingStatus(
 	if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil {
 		return err
 	}
+	return s.clearWatchNativeStatus(ctx, input, state)
+}
+
+func (s *Service) clearWatchNativeStatus(
+	ctx context.Context,
+	input core.SlackInput,
+	state decisionpkg.WatchTurnState,
+) error {
 	if !s.cfg.Slack.NativeStatus || !state.PendingStatusSet {
 		return nil
 	}
@@ -1647,6 +1662,15 @@ func (s *Service) clearWatchPendingStatus(
 		return fmt.Errorf("clear watched Slack thread status: %w", err)
 	}
 	return nil
+}
+
+func watchDecisionWaitsExternal(decision decisionpkg.WatchDecision) bool {
+	for _, operation := range decision.AppliedOperations {
+		if operation.Type == "wait_external" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) clearWatchRuleAcknowledgement(

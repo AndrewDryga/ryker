@@ -293,6 +293,7 @@ func recurringScheduledWork(kind string) bool {
 		workCoopPoll,
 		workMaintenance,
 		workScheduledTask,
+		workEpisodeWakeup,
 		workPublicationTrack:
 		return true
 	default:
