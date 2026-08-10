@@ -230,7 +230,11 @@ REGRESSION_CORPUS = testdata/eval/regressions.jsonl
 # Nine model calls per run, and only where credentials already exist. Raise
 # REGRESSION_REPEAT if a case turns out to be flakier than that resolves.
 REGRESSION_REPEAT ?= 3
-REGRESSION_CASE_RATE ?= 0.67
+# 0.66 and not 0.67: two passes out of three is 0.6667, and a bar of 0.67
+# rejects it by four ten-thousandths. The first run under this gate failed a
+# case that had passed twice for exactly that reason, which is a bar that
+# forbids the thing it was written to allow.
+REGRESSION_CASE_RATE ?= 0.66
 
 promote-corrections:
 	@echo "== gate before promotion (establishing a clean baseline) =="
