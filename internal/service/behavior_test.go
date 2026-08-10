@@ -1599,6 +1599,84 @@ func TestStandingRuleEvaluationIsPersistedAcrossQueueRetries(t *testing.T) {
 	if len(slackClient.reactions) != 1 {
 		t.Fatalf("retry duplicated rule acknowledgement: %+v", slackClient.reactions)
 	}
+	outcomes := auditOutcomes(t, cfg, "standing_rules.evaluated", input.ID)
+	if len(outcomes) != 1 || !strings.HasPrefix(outcomes[0], "matched: ") {
+		t.Fatalf("standing rule evaluation audits = %#v", outcomes)
+	}
+	var evaluation core.StandingRuleEvaluationAudit
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(outcomes[0], "matched: ")), &evaluation); err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.Checked != 1 || evaluation.Matched != 1 || len(evaluation.Rules) != 1 {
+		t.Fatalf("standing rule evaluation = %+v", evaluation)
+	}
+}
+
+func TestStandingRuleEvaluationRecordsEverySkippedRuleWithoutReaction(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.NativeStatus = false
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	for index, rule := range []core.StandingRule{
+		{
+			ChannelID: "CRULE", Repository: "repo", WorkflowName: "Review Terraform plans",
+			Trigger: "terraform_plan", Action: "review_terraform_plan",
+			SourceKind: "app", Enabled: true, SourceRef: "test-plan", ActorID: "UOPERATOR",
+			ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		},
+		{
+			ChannelID: "CRULE", Repository: "repo", WorkflowName: "Investigate alerts",
+			Trigger: "operational_alert", Action: "triage_alert",
+			SourceKind: "app", Enabled: true, SourceRef: "test-alert", ActorID: "UOPERATOR",
+			ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		},
+	} {
+		if _, _, err := st.Behavior.UpsertStandingRule(
+			ctx, rule, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel,
+		); err != nil {
+			t.Fatalf("upsert rule %d: %v", index, err)
+		}
+	}
+
+	input := core.SlackInput{
+		ID: "slack_rule_no_match", Kind: "bot_message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CRULE", MessageTS: "1702.200", UserID: "BAPP",
+		ReceivedAt: time.Now().UTC(), Text: "Routine application status update",
+	}
+	state := decisionpkg.WatchTurnState{AlertPolicy: "reply", PublicationsCaptured: true}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.captureWatchTurnState(ctx, input, &state); err != nil {
+		t.Fatal(err)
+	}
+	if !state.RulesCaptured || !state.RuleEvaluationCaptured || len(state.MatchedRules) != 0 {
+		t.Fatalf("captured state = %+v", state)
+	}
+	if len(slackClient.reactions) != 0 {
+		t.Fatalf("unexpected reactions = %+v", slackClient.reactions)
+	}
+
+	outcomes := auditOutcomes(t, cfg, "standing_rules.evaluated", input.ID)
+	if len(outcomes) != 1 || !strings.HasPrefix(outcomes[0], "not_matched: ") {
+		t.Fatalf("standing rule evaluation audits = %#v", outcomes)
+	}
+	var evaluation core.StandingRuleEvaluationAudit
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(outcomes[0], "not_matched: ")), &evaluation); err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.Checked != 2 || evaluation.Matched != 0 || len(evaluation.Rules) != 2 {
+		t.Fatalf("standing rule evaluation = %+v", evaluation)
+	}
+	for _, rule := range evaluation.Rules {
+		if rule.Matched || strings.TrimSpace(rule.Why) == "" {
+			t.Fatalf("skipped rule lacks reason = %+v", rule)
+		}
+	}
 }
 
 func findSlackAction(

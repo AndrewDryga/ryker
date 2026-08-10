@@ -20,6 +20,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/recall"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -287,8 +288,14 @@ func (s *Service) captureWatchTurnState(
 		state.PublicationsCaptured = true
 	}
 	if !isPrivateSlackVerificationReplay(input) &&
-		!state.RuleEvaluationCaptured && len(state.MatchedRules) > 0 {
-		state.RuleAcknowledgement = s.acknowledgeMatchedRule(ctx, input, state.MatchedRules)
+		!state.RuleEvaluationCaptured && standingrule.EvaluationEligible(input) {
+		acknowledgement, err := s.recordStandingRuleEvaluation(
+			ctx, input, state.MatchedRules, true,
+		)
+		if err != nil {
+			return err
+		}
+		state.RuleAcknowledgement = acknowledgement
 		state.RuleAcknowledged = state.RuleAcknowledgement != ""
 		state.RuleEvaluationCaptured = true
 	}
@@ -400,8 +407,13 @@ func (s *Service) completeIgnoredLifecycleInput(
 	}
 	if !isPrivateSlackVerificationReplay(input) {
 		phase := externalMessageLifecyclePhase(input.Text)
-		if phase == externalLifecycleCreated || phase == externalLifecyclePlanning {
-			s.acknowledgeMatchedRule(ctx, input, rules)
+		if _, err := s.recordStandingRuleEvaluation(
+			ctx,
+			input,
+			rules,
+			phase == externalLifecycleCreated || phase == externalLifecyclePlanning,
+		); err != nil {
+			return err
 		}
 	}
 	s.audit(ctx, core.AuditEvent{

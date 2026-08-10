@@ -238,18 +238,27 @@ func TestAuditTracePresentsSlackReactionAndStandingRuleMeaning(t *testing.T) {
 		Object: "slack_message_123", Detail: "eyes", Repeats: 1,
 	}
 	summary, stats := auditTracePresentation(audit, func(text string) string { return text })
-	if summary != "👀" {
-		t.Fatalf("reaction summary = %q, want eyes emoji", summary)
+	if !strings.Contains(summary, "At least one rule matched") ||
+		!strings.Contains(summary, "older episode") {
+		t.Fatalf("legacy evaluation summary = %q", summary)
 	}
-	if got := stats[len(stats)-1]; got.Label != "Slack name" || got.Value != ":eyes:" {
-		t.Fatalf("reaction stat = %+v", got)
+	if len(stats) != 4 || stats[0] != (TraceStat{"Active rules", "Not recorded"}) ||
+		stats[1] != (TraceStat{"Matched", "At least 1"}) ||
+		stats[2] != (TraceStat{"Skipped", "Not recorded"}) ||
+		stats[3] != (TraceStat{"Working marker", "👀"}) {
+		t.Fatalf("legacy evaluation stats = %+v", stats)
 	}
-	if got := auditTraceWhy(audit); !strings.Contains(got, "confirmed channel rule matched") ||
-		!strings.Contains(got, "read-only evaluation") {
-		t.Fatalf("standing-rule explanation = %q", got)
+	if got := auditTraceWhy(audit); got != "" {
+		t.Fatalf("legacy evaluation has generic explanation = %q", got)
 	}
-	if got := eventTitle(audit.Kind); got != "Standing rule acknowledged" {
+	if got := eventTitle(audit.Kind); got != "Standing rules checked" {
 		t.Fatalf("audit title = %q", got)
+	}
+	details := auditTraceDetails(audit, func(text string) string { return text })
+	if len(details) != 1 || !details[0].Open ||
+		details[0].Label != "Matched rule - details not recorded" ||
+		!strings.Contains(details[0].Body, "did not save the rule name") {
+		t.Fatalf("legacy evaluation details = %+v", details)
 	}
 }
 
@@ -289,7 +298,7 @@ func TestAuditTraceExplainsEveryMatchedAndSkippedStandingRule(t *testing.T) {
 	}
 
 	summary, stats := auditTracePresentation(audit, func(text string) string { return text })
-	if summary != "Checked 3 active rules. 1 now guides this message; 2 did not match." {
+	if summary != "1 of 3 active rules matched. 👀 marks the message while the matching work runs." {
 		t.Fatalf("evaluation summary = %q", summary)
 	}
 	if len(stats) != 4 || stats[0].Value != "3" || stats[1].Value != "1" ||
@@ -299,12 +308,13 @@ func TestAuditTraceExplainsEveryMatchedAndSkippedStandingRule(t *testing.T) {
 	details := auditTraceDetails(audit, func(text string) string { return text })
 	if len(details) != 3 || !details[0].Open ||
 		details[0].Label != "Matched - Review Terraform plans" ||
-		details[1].Label != "Did not match - Investigate operational alerts" {
+		details[1].Label != "Skipped - Investigate operational alerts" {
 		t.Fatalf("evaluation details = %+v", details)
 	}
 	for _, want := range []string{
-		"Why: Matched because", "Looks for:", "Checks:", "In Slack:",
-		"This rule controls", "Effect now: None",
+		"Why it matched\nMatched because", "Why it did not match\nSkipped because",
+		"What it watches", "What it does", "Slack behavior",
+		"This workflow now controls", "None. This rule does not affect",
 	} {
 		var found bool
 		for _, detail := range details {

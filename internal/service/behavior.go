@@ -524,42 +524,27 @@ func (s *Service) matchingStandingRules(
 	return match(root), nil
 }
 
-func (s *Service) standingRuleEvaluationAudit(
+func (s *Service) recordStandingRuleEvaluation(
 	ctx context.Context,
 	input core.SlackInput,
-	matchedRules []core.StandingRule,
-) core.StandingRuleEvaluationAudit {
-	rules, err := s.store.Behavior.ListStandingRulesForChannel(ctx, input.ChannelID, true, 100)
+	rules []core.StandingRule,
+	acknowledge bool,
+) (string, error) {
+	allRules, err := s.store.Behavior.ListStandingRulesForChannel(ctx, input.ChannelID, true, 100)
 	if err != nil {
-		rules = matchedRules
+		return "", fmt.Errorf("load standing rules for evaluation: %w", err)
 	}
 	var root core.SlackInput
 	if input.ThreadTS != "" && input.Kind == "message" {
 		root, _ = s.store.GetSlackInputForMessage(ctx, input.ChannelID, input.ThreadTS)
 	}
-	return standingrule.Evaluate(rules, matchedRules, input, root)
-}
-
-func (s *Service) acknowledgeMatchedRule(
-	ctx context.Context,
-	input core.SlackInput,
-	rules []core.StandingRule,
-) string {
-	evaluation := s.standingRuleEvaluationAudit(ctx, input, rules)
-	reaction := ""
-	for _, rule := range rules {
-		workflow, _, _, err := core.NormalizeStandingWorkflow(rule.Workflow, rule.Trigger, rule.Action)
-		if err == nil && workflow.Delivery.Acknowledge != "" &&
-			workflow.Delivery.Acknowledge != "none" {
-			reaction = workflow.Delivery.Acknowledge
-			break
-		}
-	}
+	evaluation := standingrule.Evaluate(allRules, rules, input, root)
+	reaction := standingrule.Acknowledgement(rules)
 	acknowledged := ""
 	client, ok := unpacedSlack(s.slack).(interface {
 		React(context.Context, string, string, string) error
 	})
-	if reaction != "" && input.MessageTS != "" && ok {
+	if acknowledge && reaction != "" && input.MessageTS != "" && ok {
 		if err := client.React(ctx, input.ChannelID, input.MessageTS, reaction); err != nil {
 			if s.log != nil {
 				s.log.Warn(
@@ -574,16 +559,14 @@ func (s *Service) acknowledgeMatchedRule(
 			evaluation.Acknowledged = reaction
 		}
 	}
-	detail, err := json.Marshal(evaluation)
-	if err == nil {
-		s.audit(ctx, core.AuditEvent{
-			Kind: "standing_rules.evaluated", ActorID: "responder", ObjectID: input.ID,
-			Outcome: "matched", Detail: string(detail),
-		})
-	} else if s.log != nil {
-		s.log.Warn("record standing workflow evaluation", "error", err)
+	audit, err := standingrule.EvaluationAuditEvent(input, evaluation)
+	if err != nil {
+		return "", fmt.Errorf("encode standing rule evaluation: %w", err)
 	}
-	return acknowledged
+	if err := s.store.Audit(ctx, audit); err != nil {
+		return "", fmt.Errorf("record standing rule evaluation: %w", err)
+	}
+	return acknowledged, nil
 }
 
 func (s *Service) preparePreferenceOfferAction(

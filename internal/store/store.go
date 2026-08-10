@@ -2523,12 +2523,16 @@ func (s *Store) Audit(ctx context.Context, event core.AuditEvent) error {
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = s.now().UTC()
 	}
+	detail := sqlutil.BoundedError(event.Detail)
+	if event.CompleteDetail {
+		detail = event.Detail
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO audit_events
 		  (id, incident_id, kind, actor_id, object_id, outcome, detail, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		event.ID, event.IncidentID, event.Kind, event.ActorID, event.ObjectID,
-		event.Outcome, sqlutil.BoundedError(event.Detail), event.CreatedAt.Format(timestampFormat))
+		event.Outcome, detail, event.CreatedAt.Format(timestampFormat))
 	return err
 }
 

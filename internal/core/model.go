@@ -270,7 +270,10 @@ type AuditEvent struct {
 	ObjectID   string
 	Outcome    string
 	Detail     string
-	CreatedAt  time.Time
+	// CompleteDetail is reserved for bounded, host-generated structured facts
+	// whose syntax would be corrupted by the ordinary error-text limit.
+	CompleteDetail bool
+	CreatedAt      time.Time
 }
 
 type Evidence struct {
