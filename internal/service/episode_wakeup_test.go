@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,16 @@ func TestEpisodeWakeupQueuesFreshAttemptOnSameEpisode(t *testing.T) {
 	if resumed.EpisodeID != run.EpisodeID || resumed.AttemptID == run.AttemptID ||
 		resumed.AttemptNumber != 2 {
 		t.Fatalf("resumed attempt = %+v; original = %+v", resumed, run)
+	}
+	for _, expected := range []string{
+		`"provider":"github"`,
+		`"state":"terminal"`,
+		"stay silent",
+		"still nonterminal",
+	} {
+		if !strings.Contains(resumed.Prompt, expected) {
+			t.Fatalf("resumed prompt lacks %q:\n%s", expected, resumed.Prompt)
+		}
 	}
 	wakeups, err := st.ListEpisodeWakeups(ctx, run.EpisodeID)
 	if err != nil || len(wakeups) != 1 || wakeups[0].State != core.WakeupResolved {

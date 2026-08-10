@@ -1332,14 +1332,24 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	if created, err := st.AdmitSlackInput(ctx, pending); err != nil || !created {
 		t.Fatalf("admit pending plan = %t, %v", created, err)
 	}
-	// The host owns lifecycle communication. Even if the model tries to narrate
-	// an intermediate state, no public reply should be posted and no model turn
-	// should be needed.
+	// The host owns public lifecycle communication, while the model establishes
+	// the exact provider watch needed to bridge Slack's missing reviewable event.
 	submitsBeforePending := len(coopClient.submitPrompts)
-	coopClient.completeOnSubmit = `{
+	now := time.Now().UTC().Truncate(time.Second)
+	coopClient.completeOnSubmit = fmt.Sprintf(`{
 	  "action":"reply",
-	  "message":"The Terraform run is planning. I will wait for the plan."
-	}`
+	  "operations":[
+	    {"id":"wait-run-pending","type":"wait_external","external_wait":{
+	      "id":"wakeup-run-pending","kind":"terraform_run",
+	      "event_matcher":{"provider":"hcp_terraform","run_id":"run-pending","desired_state":"reviewable_or_terminal"},
+	      "poll_after":%q,"deadline":%q
+	    }},
+	    {"id":"complete-planning","type":"complete_episode","completion":{
+	      "message":"The exact run is still planning.",
+	      "completion":{"status":"decision_ready","verdict":"in_progress","summary":"The exact run is still planning."}
+	    }}
+	  ]
+	}`, now.Add(time.Minute).Format(time.RFC3339), now.Add(24*time.Hour).Format(time.RFC3339))
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -1351,11 +1361,36 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	if err != nil || rule.TriggerCount != 2 {
 		t.Fatalf("rule executions after silent evaluation = %+v, %v", rule, err)
 	}
-	if len(coopClient.submitPrompts) != submitsBeforePending {
+	if len(coopClient.submitPrompts) != submitsBeforePending+1 {
 		t.Fatalf(
-			"pending lifecycle used the model: before=%d after=%d",
+			"pending lifecycle did not establish its provider watch: before=%d after=%d",
 			submitsBeforePending, len(coopClient.submitPrompts),
 		)
+	}
+	pendingPrompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
+	for _, expected := range []string{
+		"exact run ID",
+		"wait_external kind=terraform_run",
+		"canonical HCP approval URL",
+		"affected production scope",
+		"After Applied",
+	} {
+		if !strings.Contains(pendingPrompt, expected) {
+			t.Fatalf("Terraform lifecycle prompt lacks %q:\n%s", expected, pendingPrompt)
+		}
+	}
+	pendingRun, err := st.GetAgentRunBySource(ctx, "watch", pending.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingEpisode, err := st.GetWorkEpisodeByRun(ctx, pendingRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wakeups, err := st.ListEpisodeWakeups(ctx, pendingEpisode.ID)
+	if err != nil || len(wakeups) != 1 || wakeups[0].Kind != "terraform_run" ||
+		!strings.Contains(string(wakeups[0].EventMatcher), `"run_id":"run-pending"`) {
+		t.Fatalf("pending lifecycle wakeups = %+v, %v", wakeups, err)
 	}
 	incidents, err := st.ListIncidents(ctx, 20)
 	if err != nil || len(incidents) != 0 {

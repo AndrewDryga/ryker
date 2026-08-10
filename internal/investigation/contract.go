@@ -10,7 +10,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
-const Version = "2026-08-04.1"
+const Version = "2026-08-10.1"
 
 type FreshnessRequirement struct {
 	Class  string        `json:"class"`
@@ -182,7 +182,7 @@ func Compile(episode core.WorkEpisode) InvestigationContract {
 		// the response.
 		ResultOperations: []string{
 			"record_evidence", "record_coverage", "report_progress",
-			"request_approval", "request_operator_input", "offer_task",
+			"request_approval", "request_operator_input", "wait_external", "offer_task",
 			"complete_episode",
 		},
 	}

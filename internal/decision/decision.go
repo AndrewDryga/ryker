@@ -97,10 +97,6 @@ type WatchDecision struct {
 // MarshalWatchDecisionResult persists the same transport shape accepted from
 // Coop. Typed operations are folded into legacy fields for validation and
 // rendering, but those projections must not be serialized beside operations.
-
-// MarshalWatchDecisionResult persists the same transport shape accepted from
-// Coop. Typed operations are folded into legacy fields for validation and
-// rendering, but those projections must not be serialized beside operations.
 func MarshalWatchDecisionResult(decision WatchDecision) ([]byte, error) {
 	if len(decision.Operations) == 0 {
 		return json.Marshal(decision)
@@ -1275,6 +1271,9 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 			if operation.Type == "update_memory" {
 				return ApplySilentWatchMemoryOperation(decision)
 			}
+			if operation.Type == "wait_external" {
+				return ApplySilentWatchWaitOperations(decision)
+			}
 		}
 	}
 	// A complete_episode operation is itself an unambiguous reply decision. The
@@ -1312,6 +1311,76 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 		return fmt.Errorf("%w: %w", ErrInvalidOperations, err)
 	}
 	decision.Message = AppendFeedbackFollowup(decision.Message, decision.AppliedOperations)
+	return nil
+}
+
+// ApplySilentWatchWaitOperations preserves a provider wakeup without turning
+// its in-progress completion into a Slack reply. The host uses this after it
+// has determined that an external lifecycle update is not yet actionable.
+func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
+	for _, operation := range decision.Operations {
+		switch operation.Type {
+		case "record_evidence", "record_coverage", "plan_goal", "update_goal",
+			"wait_external", "complete_episode":
+		default:
+			return fmt.Errorf(
+				"ignore decision with wait_external cannot include %s",
+				operation.Type,
+			)
+		}
+	}
+	var (
+		message         string
+		followups       []string
+		visuals         []core.GeneratedVisual
+		evidence        []core.Evidence
+		coverage        []core.Coverage
+		memory          core.AgentMemory
+		memoryOffer     *core.MemoryOffer
+		preferenceOffer *core.PreferenceOffer
+		ruleOffer       *core.RuleOffer
+		scheduleOffer   *core.ScheduleOffer
+		approval        *core.EmisarApproval
+		alert           *AlertAssessment
+		completion      *investigation.CompletionAssessment
+		incidentTitle   string
+		taskTitle       string
+		taskRepository  string
+		taskPrompt      string
+		applied         []investigation.ResultOperation
+	)
+	if err := FoldResultOperations(decision.Operations, OperationTargets{
+		message: &message, followups: &followups, visuals: &visuals,
+		evidence: &evidence, coverage: &coverage, memory: &memory,
+		memoryOffer: &memoryOffer, preferenceOffer: &preferenceOffer,
+		ruleOffer: &ruleOffer, scheduleOffer: &scheduleOffer,
+		approval: &approval, alert: &alert, completion: &completion,
+		incidentTitle: &incidentTitle, taskTitle: &taskTitle,
+		taskRepository: &taskRepository, taskPrompt: &taskPrompt,
+	}, &applied); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidOperations, err)
+	}
+	if completion == nil || completion.Verdict != "in_progress" {
+		return errors.New("silent external wait requires an in_progress completion")
+	}
+	decision.Message = ""
+	decision.FollowupMessages = nil
+	decision.Visuals = nil
+	decision.Evidence = evidence
+	decision.Coverage = coverage
+	decision.Memory = core.AgentMemory{}
+	decision.MemoryOffer = nil
+	decision.PreferenceOffer = nil
+	decision.RuleOffer = nil
+	decision.ScheduleOffer = nil
+	decision.PendingApproval = nil
+	decision.AlertAssessment = nil
+	decision.Completion = nil
+	decision.IncidentTitle = ""
+	decision.TaskTitle = ""
+	decision.TaskRepository = ""
+	decision.TaskPrompt = ""
+	decision.AppliedOperations = applied
 	return nil
 }
 

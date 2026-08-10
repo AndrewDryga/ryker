@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -229,7 +231,7 @@ func TestExternalLifecycleFastPathSkipsCoopAndCompletesPrivateReplay(t *testing.
 	}
 }
 
-func TestExternalLifecyclePlanningRuleAddsTrackingReactionWithoutCoop(t *testing.T) {
+func TestExternalLifecyclePlanningRuleStartsQuietDurableExactRunWatch(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -249,12 +251,30 @@ func TestExternalLifecyclePlanningRuleAddsTrackingReactionWithoutCoop(t *testing
 	slackClient := &fakeSlack{}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 
+	now := time.Now().UTC().Truncate(time.Second)
+	coopClient.completeOnSubmit = fmt.Sprintf(`{
+	  "action":"reply",
+	  "operations":[
+	    {"id":"wait-run-abc","type":"wait_external","external_wait":{
+	      "id":"wakeup-run-abc","kind":"terraform_run",
+	      "event_matcher":{"provider":"hcp_terraform","run_id":"run-abc","desired_state":"reviewable_or_terminal"},
+	      "poll_after":%q,"deadline":%q
+	    }},
+	    {"id":"complete-planning","type":"complete_episode","completion":{
+	      "message":"The exact run is still planning.",
+	      "completion":{"status":"decision_ready","verdict":"in_progress","summary":"The exact run is still planning."}
+	    }}
+	  ]
+	}`, now.Add(time.Minute).Format(time.RFC3339), now.Add(24*time.Hour).Format(time.RFC3339))
 	input := core.SlackInput{
 		ID: "slack-planning", EnvelopeID: "env-planning", EventID: "event-planning",
 		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CPLAN",
-		MessageTS: "1700.801", UserID: "BTERRAFORM", ReceivedAt: time.Now().UTC(),
+		MessageTS: "1700.801", UserID: "BTERRAFORM", ReceivedAt: now,
 		Text: "Run notification for <https://app.terraform.io/app/acme/workspaces/infra|acme/infra>\n" +
 			"Run run-abc\nRun Planning",
+	}
+	if phase := externalMessageLifecyclePhase(input.Text); phase != externalLifecyclePlanning {
+		t.Fatalf("planning lifecycle phase = %q", phase)
 	}
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
 		t.Fatalf("admit planning input = %t, %v", created, err)
@@ -262,8 +282,9 @@ func TestExternalLifecyclePlanningRuleAddsTrackingReactionWithoutCoop(t *testing
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(coopClient.createKeys) != 0 || len(coopClient.submitKeys) != 0 {
-		t.Fatalf("planning lifecycle used Coop: creates=%+v submits=%+v",
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(coopClient.createKeys) != 1 || len(coopClient.submitKeys) != 1 {
+		t.Fatalf("planning lifecycle did not establish a durable model-owned watch: creates=%+v submits=%+v",
 			coopClient.createKeys, coopClient.submitKeys)
 	}
 	if len(slackClient.posts) != 0 {
@@ -272,6 +293,23 @@ func TestExternalLifecyclePlanningRuleAddsTrackingReactionWithoutCoop(t *testing
 	if len(slackClient.reactions) != 1 || slackClient.reactions[0].name != "eyes" ||
 		slackClient.reactions[0].timestamp != input.MessageTS {
 		t.Fatalf("planning lifecycle reactions = %+v", slackClient.reactions)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wakeups, err := st.ListEpisodeWakeups(ctx, episode.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wakeups) != 1 || wakeups[0].Kind != "terraform_run" ||
+		wakeups[0].State != core.WakeupPending ||
+		!strings.Contains(string(wakeups[0].EventMatcher), `"run_id":"run-abc"`) {
+		t.Fatalf("planning lifecycle wakeups = %+v", wakeups)
 	}
 }
 
@@ -413,7 +451,7 @@ func TestExternalLifecycleReconciliationIsProviderNeutralAndBounded(t *testing.T
 		"Run run-abc\nRun Planning":                   "run:run-abc",
 		"Deployment prod-api\nDeployment in progress": "deployment:prod-api",
 		"Run notification for <https://example.com/workspaces/acme|acme>\n" +
-			"<https://example.com/workspaces/acme/runs/run-abc|Run run-abc>": "link:https://example.com/workspaces/acme/runs/run-abc",
+			"<https://example.com/workspaces/acme/runs/run-abc|Run run-abc>": "run:run-abc",
 	} {
 		if actual := externalLifecycleCorrelationKey(input); actual != expected {
 			t.Errorf("correlation key for %q = %q, want %q", input, actual, expected)
@@ -472,6 +510,27 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 	}, materialReview); decision.Action != "reply" {
 		t.Fatalf("material plan review was suppressed: %+v", decision)
 	}
+	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+		Kind: "bot_message", Text: "Run run-abc\nRun Planning",
+	}, materialReview); decision.Action != "reply" {
+		t.Fatalf("provider-backed review discovered during planning was suppressed: %+v", decision)
+	}
+	quietWait := base
+	quietWait.AppliedOperations = []investigation.ResultOperation{{
+		ID: "wait-run", Type: "wait_external",
+		ExternalWait: &investigation.ExternalWaitOperation{
+			ID: "wake-run", Kind: "terraform_run",
+		},
+	}}
+	quietWait.Completion = &completionAssessment{
+		Status: "decision_ready", Verdict: "in_progress", Summary: "Still planning.",
+	}
+	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+		Kind: "recheck",
+	}, quietWait); decision.Action != "ignore" ||
+		!waitsForExternalKind(decision, "terraform_run") {
+		t.Fatalf("quiet recheck lost its durable wait: %+v", decision)
+	}
 
 	now := time.Now().UTC()
 	verifiedRollout := base
@@ -488,6 +547,100 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 		Kind: "bot_message", Text: "Run run-abc\nRun Applied",
 	}, verifiedRollout); decision.Action != "reply" {
 		t.Fatalf("fresh rollout verification was suppressed: %+v", decision)
+	}
+}
+
+func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "Run notification for acme/infra\nRun run-abc\nRun Planning",
+	}
+	state := decisionpkg.WatchTurnState{MatchedRules: []core.StandingRule{{
+		Trigger: "terraform_lifecycle", Action: "monitor_terraform_lifecycle",
+	}}}
+	unfinished := decisionpkg.WatchDecision{
+		Action: "reply",
+		Completion: &completionAssessment{
+			Status: "decision_ready", Verdict: "in_progress", Summary: "Still planning.",
+		},
+	}
+	if correction := terraformLifecycleContinuationCorrection(input, state, unfinished); correction == "" {
+		t.Fatal("accepted a nonterminal Terraform result without durable continuation")
+	}
+	waiting := unfinished
+	waiting.AppliedOperations = []investigation.ResultOperation{{
+		ID: "wait-run-abc", Type: "wait_external",
+		ExternalWait: &investigation.ExternalWaitOperation{
+			ID: "wakeup-run-abc", Kind: "terraform_run",
+			EventMatcher: []byte(`{"provider":"hcp_terraform","run_id":"run-abc"}`),
+			PollAfter:    now.Add(time.Minute).Format(time.RFC3339),
+			Deadline:     now.Add(24 * time.Hour).Format(time.RFC3339),
+		},
+	}}
+	if correction := terraformLifecycleContinuationCorrection(input, state, waiting); correction != "" {
+		t.Fatalf("rejected exact durable Terraform wait: %s", correction)
+	}
+	wrongRun := unfinished
+	wrongRun.AppliedOperations = []investigation.ResultOperation{{
+		ID: "wait-run-other", Type: "wait_external",
+		ExternalWait: &investigation.ExternalWaitOperation{
+			ID: "wakeup-run-other", Kind: "terraform_run",
+			EventMatcher: []byte(`{"run_id":"run-other"}`),
+			PollAfter:    now.Add(time.Minute).Format(time.RFC3339),
+			Deadline:     now.Add(24 * time.Hour).Format(time.RFC3339),
+		},
+	}}
+	if correction := terraformLifecycleContinuationCorrection(input, state, wrongRun); correction == "" {
+		t.Fatal("accepted a Terraform wait for a different run")
+	}
+	review := waiting
+	review.Message = "Review the plan at https://app.terraform.io/app/acme/infra/runs/run-abc."
+	review.Completion = &completionAssessment{
+		Status: "decision_ready", Verdict: "needs_review", Summary: "The saved plan needs approval.",
+	}
+	if correction := terraformLifecycleContinuationCorrection(input, state, review); !strings.Contains(correction, "fresh affected-scope") {
+		t.Fatalf("approval review without pre-change health correction = %q", correction)
+	}
+	review.Evidence = []core.Evidence{{
+		Claim: "the current workload is healthy", Observation: "both replicas are ready",
+		SourceType: "emisar", SourceName: "workload health", ObservedAt: now,
+	}}
+	review.Coverage = []core.Coverage{{
+		Layer: "workload", Status: "healthy", Source: "workload health",
+		Detail: "both replicas are ready", ObservedAt: now,
+	}}
+	if correction := terraformLifecycleContinuationCorrection(input, state, review); correction != "" {
+		t.Fatalf("rejected approval-ready review with URL, health, and terminal wait: %s", correction)
+	}
+	reviewWithoutURL := review
+	reviewWithoutURL.Message = "The saved plan needs approval."
+	if correction := terraformLifecycleContinuationCorrection(input, state, reviewWithoutURL); !strings.Contains(correction, "canonical provider") {
+		t.Fatalf("approval review without provider URL correction = %q", correction)
+	}
+	terminal := decisionpkg.WatchDecision{
+		Action:  "reply",
+		Message: "The rollout is healthy after the apply.",
+		Evidence: []core.Evidence{{
+			Claim: "the rollout is healthy", Observation: "both replicas serve the new revision",
+			SourceType: "emisar", SourceName: "rollout health", ObservedAt: now,
+		}},
+		Coverage: []core.Coverage{{
+			Layer: "workload", Status: "healthy", Source: "rollout health",
+			Detail: "both replicas serve the new revision", ObservedAt: now,
+		}},
+		Completion: &completionAssessment{
+			Status: "decision_ready", Verdict: "succeeded", Summary: "Applied and verified.",
+		},
+	}
+	if correction := terraformLifecycleContinuationCorrection(input, state, terminal); correction != "" {
+		t.Fatalf("required a wakeup after terminal completion: %s", correction)
+	}
+	terminalWithoutHealth := terminal
+	terminalWithoutHealth.Evidence = nil
+	terminalWithoutHealth.Coverage = nil
+	if correction := terraformLifecycleContinuationCorrection(input, state, terminalWithoutHealth); !strings.Contains(correction, "post") && !strings.Contains(correction, "applied") {
+		t.Fatalf("applied result without post-change health correction = %q", correction)
 	}
 }
 

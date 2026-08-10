@@ -170,6 +170,16 @@ func (s *Service) routeSlackInputKind(
 		return true, nil
 	}
 	if reason, ignore := deterministicExternalLifecycleIgnore(input); ignore {
+		inspect, err := s.shouldInspectPendingExternalLifecycle(ctx, input)
+		if err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
+		}
+		if inspect {
+			if err := s.queueWatchedInput(ctx, input); err != nil {
+				return true, s.retrySlackInput(ctx, input, err)
+			}
+			return true, nil
+		}
 		if err := s.completeIgnoredLifecycleInput(ctx, input, reason); err != nil {
 			return true, s.retrySlackInput(ctx, input, err)
 		}

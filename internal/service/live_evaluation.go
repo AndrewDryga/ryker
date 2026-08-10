@@ -1026,10 +1026,14 @@ func evaluationStructuredCorrection(
 				state.RecentMessages = recent
 				episode := (&Service{cfg: cfg}).episodeForWatchedInput(input, state)
 				decisionpkg.NormalizeAppAlertCompletion(input, &decision)
+				lifecycleContinuationCorrection := terraformLifecycleContinuationCorrection(
+					input, state, decision,
+				)
 				decision = enforceExternalLifecycleCommunication(input, decision)
 				decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
 				decision, _ = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
 				for _, correction := range []string{
+					lifecycleContinuationCorrection,
 					decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, operationalCorrelationKey),
 					decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision),
 					externalLifecycleReplyLanguageCorrection(input, decision),

@@ -1797,6 +1797,9 @@ func (s *Service) stageTriageTerminal(
 			return true, episodeErr
 		}
 		decisionpkg.NormalizeAppAlertCompletion(input, &decision)
+		lifecycleContinuationCorrection := terraformLifecycleContinuationCorrection(
+			input, state, decision,
+		)
 		originalAction := decision.Action
 		originalPublicationUpdates := len(decision.PublicationUpdates)
 		decision = enforceExternalLifecycleCommunication(input, decision)
@@ -1815,17 +1818,19 @@ func (s *Service) stageTriageTerminal(
 			}
 			staged.result = marshaledResult
 		}
-		correction := ""
+		correction := lifecycleContinuationCorrection
 		// The default class; a rejected artifact overrides it below.
 		correctionKind := correctionIncomplete
-		needsScheduleOffer, scheduleErr := s.scheduleActivationNeedsOffer(
-			ctx, input, decision.ScheduleOffer,
-		)
-		if scheduleErr != nil {
-			return true, scheduleErr
-		}
-		if needsScheduleOffer {
-			correction = scheduleActivationOfferCorrection()
+		if correction == "" {
+			needsScheduleOffer, scheduleErr := s.scheduleActivationNeedsOffer(
+				ctx, input, decision.ScheduleOffer,
+			)
+			if scheduleErr != nil {
+				return true, scheduleErr
+			}
+			if needsScheduleOffer {
+				correction = scheduleActivationOfferCorrection()
+			}
 		}
 		if correction == "" {
 			correction = decisionpkg.WatchDecisionCorrection(input, state, decision, operationalCorrelationKey)

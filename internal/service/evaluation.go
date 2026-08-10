@@ -602,6 +602,7 @@ func evaluateCaseWithConfig(
 	var episode *core.WorkEpisode
 	var pendingApproval bool
 	var strictOperations bool
+	var lifecycleContinuationCorrection string
 	switch testCase.Kind {
 	case "watch":
 		decision, err := decisionpkg.ParseWatchDecision(testCase.Output, now)
@@ -627,6 +628,9 @@ func evaluateCaseWithConfig(
 			state.RecentMessages = recent
 			episode = (&Service{cfg: *cfg}).episodeForWatchedInput(input, state)
 			decisionpkg.NormalizeAppAlertCompletion(input, &decision)
+			lifecycleContinuationCorrection = terraformLifecycleContinuationCorrection(
+				input, state, decision,
+			)
 			decision = enforceExternalLifecycleCommunication(input, decision)
 			decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
 			decision = decisionpkg.EnforceAttentionPolicy(
@@ -699,6 +703,10 @@ func evaluateCaseWithConfig(
 	}
 	if testCase.RequireCompletion && completion == nil {
 		result.Detail = "completion assessment is missing"
+		return result
+	}
+	if lifecycleContinuationCorrection != "" {
+		result.Detail = "missing lifecycle continuation: " + lifecycleContinuationCorrection
 		return result
 	}
 	if episode != nil {

@@ -5,166 +5,65 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/lifecycle"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
 const workExternalMessageReconcile = "external_message_reconcile"
 
-var externalLifecycleSubjects = []string{
-	"run", "deployment", "job", "workflow", "build", "release", "plan", "apply",
-}
-
-var externalLifecyclePendingStates = []string{
-	"created", "planning", "planned", "pending", "waiting", "queued", "running", "applying",
-	"in progress", "needs confirmation", "cost estimating", "policy checking",
-	"policy checked", "confirmed",
-}
-
-type externalLifecyclePhase string
+type externalLifecyclePhase = lifecycle.Phase
 
 const (
-	externalLifecycleUnknown    externalLifecyclePhase = "unknown"
-	externalLifecycleCreated    externalLifecyclePhase = "created"
-	externalLifecyclePlanning   externalLifecyclePhase = "planning"
-	externalLifecycleReviewable externalLifecyclePhase = "reviewable"
-	externalLifecycleApplying   externalLifecyclePhase = "applying"
-	externalLifecycleSucceeded  externalLifecyclePhase = "succeeded"
-	externalLifecycleFailed     externalLifecyclePhase = "failed"
-	externalLifecycleStopped    externalLifecyclePhase = "stopped"
+	externalLifecycleUnknown    = lifecycle.Unknown
+	externalLifecycleCreated    = lifecycle.Created
+	externalLifecyclePlanning   = lifecycle.Planning
+	externalLifecycleReviewable = lifecycle.Reviewable
+	externalLifecycleApplying   = lifecycle.Applying
+	externalLifecycleSucceeded  = lifecycle.Succeeded
+	externalLifecycleFailed     = lifecycle.Failed
+	externalLifecycleStopped    = lifecycle.Stopped
 )
-
-var (
-	externalLifecycleLinkPattern = regexp.MustCompile(`<((?:https?://)[^>|]+)(?:\|[^>]*)?>`)
-	externalLifecycleIDPattern   = regexp.MustCompile(
-		`(?i)(?:^|[|>[:space:]])(run|deployment|job|workflow|build|release|plan|apply)[[:space:]:]+([a-z0-9][a-z0-9._:/-]{2,})`,
-	)
-)
-
-var externalLifecycleGenericIDs = map[string]struct{}{
-	"notification": {}, "planning": {}, "planned": {}, "pending": {}, "waiting": {},
-	"queued": {}, "running": {}, "applying": {}, "progress": {}, "confirmation": {},
-	"confirmed": {}, "succeeded": {}, "successful": {}, "applied": {}, "errored": {},
-	"error": {}, "failed": {}, "discarded": {}, "canceled": {}, "cancelled": {},
-	"completed": {},
-}
 
 func shouldReconcileExternalMessage(text string) bool {
-	for _, line := range strings.Split(strings.ToLower(text), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		subject := false
-		for _, candidate := range externalLifecycleSubjects {
-			if strings.HasPrefix(line, candidate+" ") || strings.HasPrefix(line, candidate+":") {
-				subject = true
-				break
-			}
-		}
-		if !subject && !strings.HasPrefix(line, "status:") && !strings.HasPrefix(line, "state:") {
-			continue
-		}
-		for _, state := range externalLifecyclePendingStates {
-			if strings.Contains(line, state) {
-				return true
-			}
-		}
-	}
-	return false
+	return lifecycle.ShouldReconcile(text)
 }
 
-// externalMessageLifecyclePhase classifies only explicit lifecycle status lines.
-// This keeps ordinary prose such as "the job is running slowly" out of the
-// deterministic Slack routing policy.
 func externalMessageLifecyclePhase(text string) externalLifecyclePhase {
-	phase := externalLifecycleUnknown
-	for _, line := range strings.Split(strings.ToLower(text), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || !externalLifecycleStatusLine(line) {
-			continue
-		}
-		switch {
-		case containsLifecycleState(line,
-			"errored", "failed", "failure", "apply failed", "run errored",
-		):
-			return externalLifecycleFailed
-		case containsLifecycleState(line,
-			"discarded", "cancelled", "canceled", "stopped",
-		):
-			return externalLifecycleStopped
-		case containsLifecycleState(line,
-			"applied", "succeeded", "successful", "completed", "finished",
-		):
-			phase = externalLifecycleSucceeded
-		case containsLifecycleState(line, "applying", "apply in progress"):
-			if phase != externalLifecycleSucceeded {
-				phase = externalLifecycleApplying
-			}
-		case containsLifecycleState(line,
-			"planned", "needs confirmation", "needs approval",
-		):
-			if phase == externalLifecycleUnknown || phase == externalLifecycleCreated ||
-				phase == externalLifecyclePlanning {
-				phase = externalLifecycleReviewable
-			}
-		case containsLifecycleState(line,
-			"planning", "cost estimating", "policy checking", "policy checked",
-		):
-			if phase == externalLifecycleUnknown || phase == externalLifecycleCreated {
-				phase = externalLifecyclePlanning
-			}
-		case containsLifecycleState(line,
-			"created", "pending", "waiting", "queued", "running", "in progress",
-		):
-			if phase == externalLifecycleUnknown {
-				phase = externalLifecycleCreated
-			}
-		}
-	}
-	return phase
-}
-
-func externalLifecycleStatusLine(line string) bool {
-	if strings.HasPrefix(line, "status:") || strings.HasPrefix(line, "state:") {
-		return true
-	}
-	for _, subject := range externalLifecycleSubjects {
-		if strings.HasPrefix(line, subject+" ") || strings.HasPrefix(line, subject+":") {
-			return true
-		}
-	}
-	return false
-}
-
-func containsLifecycleState(line string, states ...string) bool {
-	for _, state := range states {
-		if line == state || strings.Contains(line, " "+state) ||
-			strings.Contains(line, state+" ") || strings.Contains(line, state+" -") ||
-			strings.Contains(line, state+":") {
-			return true
-		}
-	}
-	return false
+	return lifecycle.Classify(text)
 }
 
 func enforceExternalLifecycleCommunication(
 	input core.SlackInput,
 	decision decisionpkg.WatchDecision,
 ) decisionpkg.WatchDecision {
+	if input.Kind == "recheck" && waitsForExternalKind(decision, "terraform_run") &&
+		(decision.Completion == nil || decision.Completion.Verdict == "" ||
+			decision.Completion.Verdict == "in_progress") {
+		return decisionpkg.SuppressWatchDecision(
+			decision,
+			"host kept an unchanged Terraform wait quiet",
+		)
+	}
 	if input.Kind != "bot_message" {
 		return decision
 	}
 	phase := externalMessageLifecyclePhase(input.Text)
 	switch phase {
 	case externalLifecycleCreated, externalLifecyclePlanning:
+		// Slack's Terraform integration can remain at Planning even after HCP has
+		// produced a saved plan. A provider-backed review or terminal result is
+		// useful; a paraphrase of the visible intermediate state is not.
+		if decision.Completion != nil && decision.Completion.Verdict != "" &&
+			decision.Completion.Verdict != "in_progress" {
+			return decision
+		}
 		decision.PublicationUpdates = nil
 		return decisionpkg.SuppressWatchDecision(
 			decision,
@@ -192,6 +91,33 @@ func enforceExternalLifecycleCommunication(
 		}
 	}
 	return decision
+}
+
+func waitsForExternalKind(decision decisionpkg.WatchDecision, kind string) bool {
+	return lifecycle.WaitsForKind(decision, kind)
+}
+
+// terraformLifecycleContinuationCorrection prevents a nonterminal Terraform
+// episode from ending merely because the current turn had nothing public to
+// say. Slack's Terraform app can stop at Run Planning, so the agent must leave
+// a durable exact-run wakeup until HCP exposes a reviewable plan or a terminal
+// result. Public narration is governed separately below.
+func terraformLifecycleContinuationCorrection(
+	input core.SlackInput,
+	state decisionpkg.WatchTurnState,
+	decision decisionpkg.WatchDecision,
+) string {
+	now := input.ReceivedAt.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return lifecycle.TerraformContinuationCorrection(lifecycle.TerraformContinuationInput{
+		InputKind: input.Kind,
+		Text:      input.Text,
+		Rules:     state.MatchedRules,
+		Decision:  decision,
+		Now:       now,
+	})
 }
 
 func externalLifecycleReplyLanguageCorrection(
@@ -244,24 +170,7 @@ func successfulExternalLifecycleReplyAddsValue(
 	decision decisionpkg.WatchDecision,
 	now time.Time,
 ) bool {
-	if decision.Action != "reply" ||
-		!decisionpkg.HasFreshOperationalEvidence(decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", now), now) {
-		return false
-	}
-	for _, item := range decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", now) {
-		layer := strings.ToLower(strings.TrimSpace(item.Layer))
-		status := strings.ToLower(strings.TrimSpace(item.Status))
-		if layer == "" || layer == "change" {
-			continue
-		}
-		switch status {
-		case "", "unknown", "unverified", "not_applicable":
-			continue
-		default:
-			return true
-		}
-	}
-	return false
+	return lifecycle.ReplyAddsFreshOperationalValue(decision, now)
 }
 
 // enforceExternalLifecycleEvidence binds facts already established by the
@@ -465,27 +374,35 @@ func deterministicExternalLifecycleIgnore(input core.SlackInput) (string, bool) 
 	}
 }
 
+// shouldInspectPendingExternalLifecycle keeps routine app progress cheap while
+// allowing an operator-confirmed lifecycle rule to turn an otherwise silent
+// Planning event into durable work. The rule grants read-only initiative only;
+// Coop and Emisar still enforce tool and mutation authority.
+func (s *Service) shouldInspectPendingExternalLifecycle(
+	ctx context.Context,
+	input core.SlackInput,
+) (bool, error) {
+	phase := externalMessageLifecyclePhase(input.Text)
+	if phase != externalLifecycleCreated && phase != externalLifecyclePlanning {
+		return false, nil
+	}
+	if externalLifecycleCorrelationKey(input.Text) == "" {
+		return false, nil
+	}
+	rules, err := s.matchingStandingRules(ctx, input)
+	if err != nil {
+		return false, err
+	}
+	for _, rule := range rules {
+		if lifecycle.HasTerraformRule([]core.StandingRule{rule}) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func externalLifecycleCorrelationKey(text string) string {
-	bestLink := ""
-	for _, match := range externalLifecycleLinkPattern.FindAllStringSubmatch(text, -1) {
-		if len(match) > 1 && len(match[1]) > len(bestLink) {
-			bestLink = strings.TrimSpace(match[1])
-		}
-	}
-	if bestLink != "" {
-		return "link:" + bestLink
-	}
-	for _, match := range externalLifecycleIDPattern.FindAllStringSubmatch(text, -1) {
-		if len(match) < 3 {
-			continue
-		}
-		identifier := strings.ToLower(strings.Trim(match[2], ".,;"))
-		if _, generic := externalLifecycleGenericIDs[identifier]; generic {
-			continue
-		}
-		return strings.ToLower(match[1]) + ":" + identifier
-	}
-	return ""
+	return lifecycle.CorrelationKey(text)
 }
 
 func (s *Service) scheduleExternalMessageReconciliation(

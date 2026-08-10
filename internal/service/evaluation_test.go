@@ -1082,6 +1082,34 @@ func TestEvaluationStructuredCorrectionUsesProductionAlertStateMachine(t *testin
 	}
 }
 
+func TestEvaluationStructuredCorrectionRequiresTerraformLifecycleContinuation(t *testing.T) {
+	cfg := serviceConfig(t)
+	testCase := EvaluationCase{
+		Name:       "terraform planning starts durable watch",
+		Kind:       "watch",
+		SenderType: "external_app",
+		Input: `Run notification for Dryga/emisar
+Run run-Q9nWxoGwkdkKQdu6
+Run Planning`,
+		StandingRules: []EvaluationStandingRule{{
+			ID:         "terraform-lifecycle",
+			Trigger:    "terraform_lifecycle",
+			Action:     "monitor_terraform_lifecycle",
+			Repository: "emisar",
+			SourceKind: "app",
+		}},
+	}
+	response := `{"action":"ignore","reason":"The run is still planning."}`
+	correction := evaluationStructuredCorrection(
+		cfg, testCase, response, time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC),
+	)
+	lowerCorrection := strings.ToLower(correction)
+	if !strings.Contains(lowerCorrection, "wait_external") ||
+		!strings.Contains(lowerCorrection, "run-q9nwxogwkdkkqdu6") {
+		t.Fatalf("correction = %q", correction)
+	}
+}
+
 func TestEpisodeReplayRequiresCompleteSanitizedFixtures(t *testing.T) {
 	cases := strings.NewReader(`{"name":"incomplete replay","kind":"watch","input":"assess rollout","recorded_events":[{"sequence":1,"kind":"episode.created","occurred_at":"2026-08-02T12:00:00Z","payload":{"objective":"assess rollout"}}]}`)
 	_, err := EvaluateLiveJSONL(

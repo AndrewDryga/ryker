@@ -76,3 +76,25 @@ func TestInventedOperationFieldsAreStillRejected(t *testing.T) {
 		t.Fatal("an invented operation field was accepted")
 	}
 }
+
+func TestSilentExternalWaitDoesNotReexpandCompletionIntoReply(t *testing.T) {
+	response := `{"action":"ignore","operations":[
+		{"id":"wait-run","type":"wait_external","external_wait":{
+			"id":"wake-run","kind":"terraform_run",
+			"event_matcher":{"run_id":"run-abc"},
+			"poll_after":"2026-08-10T12:01:00Z"}},
+		{"id":"complete","type":"complete_episode","completion":{
+			"message":"The run is still planning.",
+			"completion":{"status":"decision_ready","verdict":"in_progress","summary":"Still planning."}}}]}`
+	decision, err := decisionpkg.ParseWatchDecision(response, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != "ignore" || decision.Message != "" || decision.Completion != nil {
+		t.Fatalf("silent wait projected a reply: %+v", decision)
+	}
+	if len(decision.AppliedOperations) != 2 ||
+		decision.AppliedOperations[0].Type != "wait_external" {
+		t.Fatalf("silent wait operations = %+v", decision.AppliedOperations)
+	}
+}

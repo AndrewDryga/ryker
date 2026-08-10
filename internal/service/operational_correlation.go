@@ -26,6 +26,8 @@ var operationalCounterPattern = regexp.MustCompile(
 	`(?i)(?:\[[^\]]*(?:firing|resolved|critical|warning)[^\]]*\]|\b[0-9]+\s+alerts?\b|\b[0-9]+\s+of\s+[0-9]+\b)`,
 )
 
+var operationalLinkPattern = regexp.MustCompile(`<((?:https?://)[^>|]+)(?:\|[^>]*)?>`)
+
 func (s *Service) obviousHumanDialogue(input core.SlackInput, state decisionpkg.WatchTurnState) bool {
 	if input.Kind != "message" || state.ConversationFollowup ||
 		len(state.MatchedRules) > 0 || len(input.Attachments) > 0 {
@@ -45,7 +47,7 @@ func (s *Service) obviousHumanDialogue(input core.SlackInput, state decisionpkg.
 }
 
 func stableOperationalAlertLink(text string) string {
-	for _, match := range externalLifecycleLinkPattern.FindAllStringSubmatch(text, -1) {
+	for _, match := range operationalLinkPattern.FindAllStringSubmatch(text, -1) {
 		if len(match) < 2 {
 			continue
 		}

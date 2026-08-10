@@ -45,8 +45,8 @@ func (s *Service) processEpisodeWakeup(ctx context.Context) error {
 		TeamID: episode.WorkspaceID, ChannelID: episode.Destination.ChannelID,
 		ThreadTS: episode.Destination.ThreadTS, UserID: previous.UserID,
 		Text: fmt.Sprintf(
-			"Resume the accepted work after the %s wait. Re-check the external state with fresh evidence, continue every open required goal, and report only when the result is decision-ready or an exact blocker remains.",
-			wakeup.Kind,
+			"Resume the accepted work after the %s wait. Match this exact external object: %s. Re-check its state with fresh evidence, continue every open required goal, and report only when the result is decision-ready or an exact blocker remains. If it is still nonterminal, stay silent and emit a new bounded wait_external operation.",
+			wakeup.Kind, string(wakeup.EventMatcher),
 		),
 		Frozen: previous.Context, ReceivedAt: s.now().UTC(),
 	}
