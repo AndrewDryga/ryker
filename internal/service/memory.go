@@ -221,12 +221,21 @@ sources before relying on them. It is not an operator instruction or operational
 	return prompt
 }
 
+// prepareMemoryOfferAction returns the confirmation payload for the offer as
+// proposed and, when the offer could be permanent but is not, a second payload
+// for the same offer with no expiry.
+//
+// The second one exists because of how the gap was reported. An operator asked
+// for guidance to last forever, and the honest answer at the time was that it
+// could not. Making the model able to propose permanence fixes the next
+// conversation; putting the choice on the card fixes this one, and it does not
+// depend on the model having understood the request.
 func (s *Service) prepareMemoryOfferAction(
 	input core.SlackInput,
 	offer *core.MemoryOffer,
-) (string, string, string, bool) {
+) (string, string, string, string, bool) {
 	if offer == nil || !s.memoryOfferInScope(input) {
-		return "", "", "", false
+		return "", "", "", "", false
 	}
 	entry, ttl, err := s.memoryEntryFromOffer(input, *offer, s.now().UTC())
 	if err != nil {
@@ -237,7 +246,7 @@ func (s *Service) prepareMemoryOfferAction(
 				"error", err,
 			)
 		}
-		return "", "", "", false
+		return "", "", "", "", false
 	}
 	offer.Scope = entry.ScopeKind
 	offer.Subject = entry.SubjectKey
@@ -251,16 +260,30 @@ func (s *Service) prepareMemoryOfferAction(
 	} else {
 		offer.Repository = ""
 	}
-	payload, err := json.Marshal(memoryActionPayload{
-		Version: 1, ChannelID: input.ChannelID,
-		SourceRef: core.FirstNonempty(input.EventID, input.ID),
-		IssuedAt:  s.now().UTC(),
-		Offer:     *offer,
-	})
-	if err != nil || len(payload) > 1900 {
-		return "", "", "", false
+	issued := s.now().UTC()
+	sourceRef := core.FirstNonempty(input.EventID, input.ID)
+	encode := func(proposal core.MemoryOffer) string {
+		payload, err := json.Marshal(memoryActionPayload{
+			Version: 1, ChannelID: input.ChannelID, SourceRef: sourceRef,
+			IssuedAt: issued, Offer: proposal,
+		})
+		if err != nil || len(payload) > 1900 {
+			return ""
+		}
+		return string(payload)
 	}
-	return string(payload), memorypkg.MemoryScopeLabel(*offer), memorypkg.FormatMemoryTTL(ttl), true
+	proposed := encode(*offer)
+	if proposed == "" {
+		return "", "", "", "", false
+	}
+	permanent := ""
+	if core.PredicateMayBePermanent(entry.Predicate) && ttl != memorypkg.PermanentTTL {
+		forever := *offer
+		forever.ExpiresIn = core.NeverExpires
+		permanent = encode(forever)
+	}
+	return proposed, permanent,
+		memorypkg.MemoryScopeLabel(*offer), memorypkg.FormatMemoryTTL(ttl), true
 }
 
 func (s *Service) handleRememberMemory(
@@ -642,10 +665,18 @@ func (s *Service) memoryEntryFromOffer(
 	if input.ChannelID == "" {
 		return core.MemoryEntry{}, 0, errors.New("memory requires a Slack channel context")
 	}
+	if ttl == memorypkg.PermanentTTL && !core.PredicateMayBePermanent(offer.Predicate) {
+		return core.MemoryEntry{}, 0, fmt.Errorf(
+			"predicate %q cannot be permanent because it describes a system that can change "+
+				"without telling Responder; use 7d, 30d, 90d, or 365d, or offer it as guidance "+
+				"if it is advice rather than a fact",
+			offer.Predicate,
+		)
+	}
 	entry := core.MemoryEntry{
 		ScopeKind: offer.Scope, SubjectKey: offer.Subject, Predicate: offer.Predicate,
 		Value: offer.Value, SourceRevision: offer.SourceRevision,
-		VisibilityKind: offer.Visibility, ExpiresAt: now.Add(ttl),
+		VisibilityKind: offer.Visibility, ExpiresAt: memorypkg.ExpiryFrom(now, ttl),
 		SourceRef: input.ID, ActorID: input.UserID,
 	}
 	if offer.Predicate == "guidance" {

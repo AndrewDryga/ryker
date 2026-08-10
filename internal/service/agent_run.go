@@ -3120,12 +3120,12 @@ func (s *Service) finalizeIncidentAgentRun(
 					report.Coverage,
 					s.sanitizer,
 				)
-				if actionValue, scope, expires, ok := s.prepareMemoryOfferAction(
+				if actionValue, permanent, scope, expires, ok := s.prepareMemoryOfferAction(
 					conversationInput,
 					report.MemoryOffer,
 				); ok {
 					message = slackui.WithMemoryOffer(
-						message, *report.MemoryOffer, actionValue, scope, expires,
+						message, *report.MemoryOffer, actionValue, permanent, scope, expires,
 					)
 				}
 				if actionValue, preference, expires, ok := s.preparePreferenceOfferAction(

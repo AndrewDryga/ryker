@@ -287,7 +287,9 @@ inert typed offers. If a clause has no safe type, state the gap or ask one conci
   A schedule is only a future wake-up: every occurrence re-evaluates current policies,
   evidence, tools, and approvals and never reuses an old authorization.
 
-The host shows each offer's normalized scope, expiry, and safety boundary. Never put arbitrary prose, credentials, mutation
+The host shows each offer's normalized scope, expiry, and safety boundary. expires_in is 7d, 30d,
+90d, 365d, or never; only guidance memory, preferences and rules accept never, and a never entry is
+reviewed when unused rather than deleted. Never put arbitrary prose, credentials, mutation
 instructions, incident creation, file changes, deployment, or approval into a preference_offer or
 rule_offer. A schedule prompt is task prose, not authority: reject credentials and preserve current
 policy at every occurrence. Use memory_offer with predicate guidance for lasting open-ended collaboration advice
@@ -647,7 +649,7 @@ func (s *Service) preferenceFromOffer(
 	preference := core.ResponderPreference{
 		ScopeKind: offer.Scope, Name: offer.Name, Value: offer.Value,
 		Enabled: true, SourceRef: input.ID, ActorID: input.UserID,
-		ExpiresAt: now.Add(ttl),
+		ExpiresAt: memorypkg.ExpiryFrom(now, ttl),
 	}
 	switch offer.Scope {
 	case "workspace":
@@ -780,7 +782,7 @@ func (s *Service) standingRuleFromOffer(
 		ChannelID: input.ChannelID, Repository: offer.Repository,
 		Trigger: offer.Trigger, Action: offer.Action, SourceKind: offer.SourceKind,
 		Enabled: true, SourceRef: input.ID, ActorID: input.UserID,
-		ExpiresAt: now.Add(ttl),
+		ExpiresAt: memorypkg.ExpiryFrom(now, ttl),
 	}
 	validPair := (rule.Trigger == "terraform_plan" && rule.Action == "review_terraform_plan") ||
 		(rule.Trigger == "terraform_lifecycle" &&

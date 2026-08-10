@@ -781,7 +781,7 @@ func hostedWatchDecisionOffers(
 		result = append(result, "engineering_task")
 	}
 	if decision.MemoryOffer != nil {
-		if _, _, _, ok := evaluator.prepareMemoryOfferAction(
+		if _, _, _, _, ok := evaluator.prepareMemoryOfferAction(
 			input,
 			decision.MemoryOffer,
 		); ok {

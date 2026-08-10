@@ -980,6 +980,7 @@ func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
 		ConversationResponse("I can remember that mapping.", NewSanitizer(12000)),
 		offer,
 		`{"version":1}`,
+		"",
 		"channel",
 		"30 days",
 	)
@@ -1096,6 +1097,7 @@ func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
 		ConversationResponse("Got it. I can remember that.", NewSanitizer(12000)),
 		offer,
 		`{"version":1}`,
+		`{"version":1,"forever":true}`,
 		"workspace",
 		"90 days",
 	)
@@ -1109,8 +1111,15 @@ func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
 			t.Fatalf("guidance offer missing %q: %+v", expected, message)
 		}
 	}
-	if strings.Contains(content, "**") || len(message.Actions) != 1 ||
-		message.Actions[0].ID != ActionRememberMemory {
+	// Two buttons: the offer as proposed, and the same guidance with no expiry.
+	// The second one is the whole answer to "I don't want a deadline" — an
+	// operator who wants permanence should not have to talk the model into
+	// re-proposing it.
+	if strings.Contains(content, "**") || len(message.Actions) != 2 ||
+		message.Actions[0].ID != ActionRememberMemory ||
+		message.Actions[1].ID != ActionRememberMemory ||
+		message.Actions[1].Label != "Remember permanently" ||
+		message.Actions[1].Value != `{"version":1,"forever":true}` {
 		t.Fatalf("guidance offer formatting/actions = %+v", message)
 	}
 	entry := core.MemoryEntry{

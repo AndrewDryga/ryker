@@ -194,7 +194,7 @@ func OperationsHome(
 				entry.Predicate,
 				entry.Value,
 				entry.ScopeKind,
-				entry.ExpiresAt.UTC().Format("2006-01-02"),
+				expiryStamp(entry.ExpiresAt, "2006-01-02"),
 			)
 			message.Actions = append(message.Actions, Action{
 				ID:      ActionForgetMemory,
@@ -230,7 +230,7 @@ func OperationsHome(
 				preference.Value,
 				state,
 				scope,
-				preference.ExpiresAt.UTC().Format("2006-01-02"),
+				expiryStamp(preference.ExpiresAt, "2006-01-02"),
 			), preferenceActions(preference))
 		}
 	}
@@ -248,7 +248,7 @@ func OperationsHome(
 				state,
 				rule.ChannelID,
 				rule.TriggerCount,
-				rule.ExpiresAt.UTC().Format("2006-01-02"),
+				expiryStamp(rule.ExpiresAt, "2006-01-02"),
 			), ruleActions(rule))
 		}
 	}

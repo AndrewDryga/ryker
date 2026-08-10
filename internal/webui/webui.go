@@ -19,6 +19,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 //go:embed templates/*.html static/*
@@ -213,9 +215,15 @@ func NewShell(active, deployment string, content any) Shell {
 // formatting the zero value put "0001-01-01 00:00 UTC" in the Started column —
 // a timestamp that looks like a fact and is the absence of one. Same rule as
 // every other panel here: nothing invented where there is no data.
+// It refuses to print the permanent-expiry sentinel as a date for the same
+// reason: "9999-12-31 23:59 UTC" is not what a row that never expires means,
+// and the Expires column is where an operator looks to find out.
 func humanStamp(value time.Time) string {
-	if value.IsZero() {
+	switch {
+	case value.IsZero():
 		return "—"
+	case core.IsPermanentExpiry(value):
+		return core.NeverExpires
 	}
 	return value.UTC().Format("2006-01-02 15:04 UTC")
 }

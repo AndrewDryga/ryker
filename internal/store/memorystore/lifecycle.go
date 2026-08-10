@@ -290,8 +290,19 @@ func (r *Repository) RefreshMemoryReviewQueue(ctx context.Context, staleBefore t
 		return err
 	}
 	for _, entry := range entries {
-		if err := r.ensureMemoryReview(ctx, "stale", []core.MemoryEntry{entry},
-			"This memory has not been recalled or reviewed recently."); err != nil {
+		// This queue produced nothing on either deployment for its whole life,
+		// and the arithmetic says why: entries expired at thirty days and the
+		// staleness window was thirty days, so every candidate was deleted a
+		// moment before it could be asked about. Permanence is what gives it a
+		// job. A permanent entry is the only kind that can go unused long enough
+		// to be worth questioning, and questioning it is the entire reason it is
+		// allowed to outlive a clock — the operator gets asked, not overruled.
+		reason := "This memory has not been recalled or reviewed recently."
+		if core.IsPermanentExpiry(entry.ExpiresAt) {
+			reason = "This memory never expires and has not been used recently. " +
+				"It stays until you say otherwise; this is the check, not a deletion."
+		}
+		if err := r.ensureMemoryReview(ctx, "stale", []core.MemoryEntry{entry}, reason); err != nil {
 			return err
 		}
 	}

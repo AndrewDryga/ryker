@@ -11,32 +11,82 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
+// rememberPhrase reads the duration into the sentence a button and its
+// confirmation share. "for 30 days" is right and "for never" is not, and a
+// card that cannot say what it is offering is how this started.
+func rememberPhrase(expiresLabel string) string {
+	if expiresLabel == core.NeverExpires {
+		return "permanently"
+	}
+	return "for " + expiresLabel
+}
+
+// expiryTerm names an offer's lifetime. A duration stands on its own — "90
+// days" — but the bare word "never" does not, so permanence says what it is.
+func expiryTerm(expiresLabel string) string {
+	if expiresLabel == core.NeverExpires {
+		return "never expires"
+	}
+	return expiresLabel
+}
+
+// expiryPhrase is expiryTerm where the surrounding copy already said "Expires:".
+func expiryPhrase(expiresLabel string) string {
+	if expiresLabel == core.NeverExpires {
+		return expiryTerm(expiresLabel)
+	}
+	return "Expires: " + expiresLabel
+}
+
+// expiryStamp is the same answer for a saved row rather than an offer.
+func expiryStamp(expires time.Time, layout string) string {
+	if core.IsPermanentExpiry(expires) {
+		return core.NeverExpires
+	}
+	return expires.UTC().Format(layout)
+}
+
+const permanentGuidanceCaution = " It will not expire: Responder asks you to " +
+	"confirm it if it goes unused for a while, and never drops it on its own."
+
 func WithMemoryOffer(
 	message Message,
 	offer core.MemoryOffer,
 	actionValue string,
+	permanentValue string,
 	scopeLabel string,
 	expiresLabel string,
 ) Message {
 	if offer.Predicate == "guidance" {
+		caution := "Nothing is saved yet. This can steer future replies, but it cannot start work, prove operational state, or authorize any action."
+		if expiresLabel == core.NeverExpires {
+			caution += permanentGuidanceCaution
+		}
 		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*Proposed guidance*\n> %s\n\nApplies to: %s · Expires: %s",
+			"*Proposed guidance*\n> %s\n\nApplies to: %s · %s",
 			escapeSlackText(offer.Value),
 			guidanceOfferScopeLabel(offer, scopeLabel),
-			expiresLabel,
+			expiryPhrase(expiresLabel),
 		))
-		message.Context = append(
-			message.Context,
-			"Nothing is saved yet. This can steer future replies, but it cannot start work, prove operational state, or authorize any action.",
-		)
+		message.Context = append(message.Context, caution)
 		message.Actions = append(message.Actions, Action{
 			ID:    ActionRememberMemory,
 			Label: "Remember this",
 			Value: actionValue,
 			Style: "primary",
-			Confirm: "Remember this guidance for " + expiresLabel +
+			Confirm: "Remember this guidance " + rememberPhrase(expiresLabel) +
 				"? Your current request and Responder's safety policy will always take precedence.",
 		})
+		if permanentValue != "" {
+			message.Actions = append(message.Actions, Action{
+				ID:    ActionRememberMemory,
+				Label: "Remember permanently",
+				Value: permanentValue,
+				Confirm: "Remember this guidance permanently? It will never expire on its own." +
+					" Responder asks you to confirm it if it goes unused, and you can forget it" +
+					" at any time.",
+			})
+		}
 		return message
 	}
 	revision := ""
@@ -68,6 +118,10 @@ func WithMemoryOffer(
 	return message
 }
 
+// A fact-shaped memory never reaches the permanent branch above: the host
+// rejects the offer before a card exists, so the only expiry this card can
+// render is a duration.
+
 func WithPreferenceOffer(
 	message Message,
 	offer core.PreferenceOffer,
@@ -81,7 +135,7 @@ func WithPreferenceOffer(
 		title,
 		description,
 		preferenceScopeLabel(preference),
-		expiresLabel,
+		expiryTerm(expiresLabel),
 	))
 	message.Context = appendBehaviorOfferContext(message.Context)
 	label := "Remember this"
@@ -93,7 +147,7 @@ func WithPreferenceOffer(
 		Label:   label,
 		Value:   actionValue,
 		Style:   "primary",
-		Confirm: "Use this setting for " + expiresLabel + "?",
+		Confirm: "Use this setting " + rememberPhrase(expiresLabel) + "?",
 	})
 	return message
 }
@@ -108,7 +162,7 @@ func WithRuleOffer(
 	title := "Standing rule"
 	description := fmt.Sprintf("Watch matching messages and reply in their threads using `%s`.", offer.Repository)
 	label := "Enable standing rule"
-	confirmation := "Enable this read-only rule for " + expiresLabel + "?"
+	confirmation := "Enable this read-only rule " + rememberPhrase(expiresLabel) + "?"
 	switch {
 	case offer.Trigger == "terraform_lifecycle" && offer.Action == "monitor_terraform_lifecycle":
 		title = "Monitor Terraform runs"
@@ -138,7 +192,7 @@ func WithRuleOffer(
 		"*%s*\n%s\n_This channel · %s_",
 		title,
 		description,
-		expiresLabel,
+		expiryTerm(expiresLabel),
 	))
 	message.Context = appendBehaviorOfferContext(message.Context)
 	message.Actions = append(message.Actions, Action{
@@ -334,7 +388,7 @@ func PreferenceSavedMessage(
 			title,
 			description,
 			preferenceScopeLabel(preference),
-			preference.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+			expiryStamp(preference.ExpiresAt, "2006-01-02 15:04 UTC"),
 		)},
 		Context: []string{preferencePrecedenceText(preference) +
 			" It does not authorize incidents or changes."},
@@ -400,7 +454,7 @@ func PreferenceDirectoryMessage(
 			description,
 			state,
 			preferenceScopeLabel(preference),
-			preference.ExpiresAt.UTC().Format("2006-01-02"),
+			expiryStamp(preference.ExpiresAt, "2006-01-02"),
 		))
 		message.Actions = append(message.Actions, preferenceActions(preference)...)
 	}
@@ -445,7 +499,7 @@ func RuleSavedMessage(rule core.StandingRule, replaced bool) Message {
 			rule.Action,
 			rule.Repository,
 			rule.SourceKind,
-			rule.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+			expiryStamp(rule.ExpiresAt, "2006-01-02 15:04 UTC"),
 		)},
 		Context: []string{
 			"Matching messages now start a read-only investigation and receive a threaded reply, even when broad proactive triage is off. Slack event IDs and durable rule runs prevent duplicate execution.",
@@ -517,7 +571,7 @@ func RuleDirectoryMessage(rules []core.StandingRule) Message {
 			rule.Repository,
 			StandingRuleWorth(rule),
 			lastRun,
-			rule.ExpiresAt.UTC().Format("2006-01-02"),
+			expiryStamp(rule.ExpiresAt, "2006-01-02"),
 		))
 		message.Actions = append(message.Actions, ruleActions(rule)...)
 	}
@@ -652,7 +706,7 @@ func MemorySavedMessage(entry core.MemoryEntry, replaced bool) Message {
 				"> %s\n\nApplies to: %s · Expires: %s",
 				escapeSlackText(entry.Value),
 				guidanceEntryScopeLabel(entry),
-				entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+				expiryStamp(entry.ExpiresAt, "2006-01-02 15:04 UTC"),
 			)},
 			Context: []string{
 				"This steers future replies when relevant. Your current request and Responder's safety policy take precedence.",
@@ -680,7 +734,7 @@ func MemorySavedMessage(entry core.MemoryEntry, replaced bool) Message {
 			"*%s* `%s` `%s`\n\nScope: `%s:%s`\nExpires: %s",
 			entry.SubjectKey, entry.Predicate, entry.Value,
 			entry.ScopeKind, entry.ScopeKey,
-			entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+			expiryStamp(entry.ExpiresAt, "2006-01-02 15:04 UTC"),
 		)},
 		Context: []string{
 			"Responder treats this as an operator-confirmed hint. Fresh live evidence and current repository content take precedence.",
@@ -727,7 +781,7 @@ func MemoryDirectoryMessage(entries []core.MemoryEntry) Message {
 				escapeSlackText(strings.ReplaceAll(entry.SubjectKey, "_", " ")),
 				escapeSlackText(entry.Value),
 				guidanceEntryScopeLabel(entry),
-				entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+				expiryStamp(entry.ExpiresAt, "2006-01-02 15:04 UTC"),
 			))
 		} else {
 			message.Sections = append(message.Sections, fmt.Sprintf(
@@ -738,7 +792,7 @@ func MemoryDirectoryMessage(entries []core.MemoryEntry) Message {
 				entry.Value,
 				entry.ScopeKind,
 				entry.ScopeKey,
-				entry.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+				expiryStamp(entry.ExpiresAt, "2006-01-02 15:04 UTC"),
 			))
 		}
 		message.Actions = append(message.Actions, Action{

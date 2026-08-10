@@ -26,18 +26,18 @@ func TestMemoryOfferRequiresExplicitOperatorRequestAndStrictValue(t *testing.T) 
 		Scope: "channel", Subject: "old portal", Predicate: "alias_of",
 		Value: "service:portal", Visibility: "channel", ExpiresIn: "30d",
 	}
-	value, scope, expiry, ok := svc.prepareMemoryOfferAction(input, offer)
+	value, permanent, scope, expiry, ok := svc.prepareMemoryOfferAction(input, offer)
 	if !ok || !strings.Contains(value, `"version":1`) ||
-		scope != "channel" || expiry != "30 days" {
+		scope != "channel" || expiry != "30 days" || permanent != "" {
 		t.Fatalf("offer = ok=%t scope=%q expiry=%q value=%q", ok, scope, expiry, value)
 	}
 	input.Text = "The portal looks healthy."
-	if _, _, _, ok := svc.prepareMemoryOfferAction(input, offer); ok {
+	if _, _, _, _, ok := svc.prepareMemoryOfferAction(input, offer); ok {
 		t.Fatal("ambient statement produced a memory confirmation")
 	}
 	input.Text = "Remember this credential."
 	offer.Value = "xoxb-secret-value"
-	if _, _, _, ok := svc.prepareMemoryOfferAction(input, offer); ok {
+	if _, _, _, _, ok := svc.prepareMemoryOfferAction(input, offer); ok {
 		t.Fatal("credential-like value produced a memory confirmation")
 	}
 }
@@ -65,7 +65,7 @@ func TestGuidanceMemoryIsNormalizedAndAvailableAcrossChannels(t *testing.T) {
 		Visibility: "operator", ExpiresIn: "90d",
 		SourceRevision: "this-is-not-a-revision",
 	}
-	if _, scope, expiry, ok := svc.prepareMemoryOfferAction(input, offer); !ok ||
+	if _, _, scope, expiry, ok := svc.prepareMemoryOfferAction(input, offer); !ok ||
 		scope != "workspace" || expiry != "90 days" {
 		t.Fatalf("guidance offer = ok=%t scope=%q expiry=%q offer=%+v", ok, scope, expiry, offer)
 	}

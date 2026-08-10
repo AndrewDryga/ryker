@@ -151,7 +151,7 @@ func MemoryReviewMessage(item core.MemoryReviewItem, entries []core.MemoryEntry)
 			escapeSlackText(entry.Value),
 			guidanceEntryScopeLabel(entry),
 			lastUsed,
-			entry.ExpiresAt.UTC().Format("2006-01-02"),
+			expiryStamp(entry.ExpiresAt, "2006-01-02"),
 		))
 	}
 	if item.Kind == "duplicate" {

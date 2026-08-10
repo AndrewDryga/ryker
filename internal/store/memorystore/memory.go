@@ -155,6 +155,17 @@ func validateMemoryEntry(entry core.MemoryEntry) error {
 	default:
 		return fmt.Errorf("memory predicate %q is invalid", entry.Predicate)
 	}
+	// The last gate before the row exists, and the only one the dashboard's
+	// feedback-to-guidance path passes through. The reason names the way out,
+	// because a model that reads it has to be able to fix the offer.
+	if core.IsPermanentExpiry(entry.ExpiresAt) && !core.PredicateMayBePermanent(entry.Predicate) {
+		return fmt.Errorf(
+			"memory predicate %q cannot be permanent because it describes a system that can "+
+				"change without telling Responder; give it 7d, 30d, 90d, or 365d, or offer it "+
+				"as guidance if it is advice rather than a fact",
+			entry.Predicate,
+		)
+	}
 	switch entry.VisibilityKind {
 	case "workspace", "channel", "operator":
 	default:

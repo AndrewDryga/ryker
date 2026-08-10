@@ -455,6 +455,30 @@ type MemoryEntry struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// PredicateMayBePermanent reports whether a memory predicate is allowed to
+// never expire.
+//
+// Only guidance is. The expiry on everything else in this table exists because
+// a memory that describes a system outlives the system: an alias, a channel's
+// repository binding, an evidence route and an entity correction are all claims
+// about infrastructure, and infrastructure is renamed, moved and deleted
+// without telling Responder. A permanent one of those is a confident wrong
+// answer with no expiry date.
+//
+// Guidance is not a claim about anything. "Always tell me the version delta" is
+// a statement about how to talk, it is true of nobody's cluster, and there is
+// no rename that can falsify it. Only the operator can, and the operator can
+// say so. Deleting it after thirty days does not protect them from a stale
+// fact; it silently drops an instruction they gave on purpose.
+//
+// It lives in core rather than in the memory package because persistence has to
+// enforce it too — the feedback-to-guidance path in the dashboard writes
+// entries straight to the store — and the store cannot import memory without a
+// cycle.
+func PredicateMayBePermanent(predicate string) bool {
+	return predicate == "guidance"
+}
+
 // MemoryRollup is an automatically synthesized continuity summary. It is derived
 // from already bounded conversation summaries and is never operational evidence.
 type MemoryRollup struct {
