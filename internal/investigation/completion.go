@@ -183,6 +183,9 @@ func validateBlockedCompletion(completion *CompletionAssessment) error {
 	if completion.BlockerKind == "capability_unavailable" && len(completion.CapabilityGaps) == 0 {
 		return errors.New("capability_unavailable blocker requires capability_gaps")
 	}
+	if err := refuseMissingWorkflowAsBlocker(completion); err != nil {
+		return err
+	}
 	if completion.Recheck != nil {
 		if completion.BlockerKind != "source_unavailable" && completion.BlockerKind != "tool_failure" {
 			return errors.New("only a transient source or tool blocker can request a recheck")
@@ -719,4 +722,55 @@ func operationalHealthVerdictCorrection(
 		return "a healthy platform verdict requires fresh application or functional behavior evidence, not only healthy infrastructure inventory"
 	}
 	return ""
+}
+
+// missingWorkflowBlocker matches a blocker whose whole content is that a named
+// reusable workflow could not be found.
+//
+// Deliberately narrow. It looks for the shape of a lookup that missed — not
+// found, does not exist, unavailable — next to the word for the artifact, and
+// it only fires when *every* material gap reads that way. A blocker that also
+// names missing evidence keeps its block, because then the underlying material
+// really is unavailable and the contract says to block.
+var missingWorkflowBlocker = regexp.MustCompile(
+	`(?i)\b(runbook|playbook|workflow|saved query|dashboard)\b[^.]{0,80}?` +
+		`\b(not ?found|missing|unavailable|does not exist|no longer exists|could not be found)\b` +
+		`|\b(not ?found|missing|unavailable|does not exist|no longer exists|could not be found)\b` +
+		`[^.]{0,80}?\b(runbook|playbook|workflow|saved query|dashboard)\b`,
+)
+
+// refuseMissingWorkflowAsBlocker holds the model to the rule the contract
+// already states: an unavailable named runbook is a maintenance gap, not a
+// blocker, when the requested read-only outcome can still be established from
+// the underlying authorized tools.
+//
+// It is prose in contract.go and the model ignored it. Asked for a scheduled
+// platform health verdict, it looked up one published runbook, got
+// runbook_not_found from Emisar — correctly, there are no published runbooks at
+// all — and returned "blocked" with that as the only gap. The judge scored the
+// answer 3.33 and said it "fails the central request to reach a current verdict
+// after exhausting equivalent read-only evidence routes", which is the same
+// finding from the other direction.
+//
+// Refusing here sends the response back through the ordinary correction loop
+// carrying this sentence, which is the mechanism that already works for the
+// other contract rules. The correction budget bounds it: a turn that tries the
+// underlying tools and still cannot decide will block again, with attempts that
+// say so, and the second blocker stands.
+func refuseMissingWorkflowAsBlocker(completion *CompletionAssessment) error {
+	if len(completion.MaterialGaps) == 0 {
+		return nil
+	}
+	for _, gap := range completion.MaterialGaps {
+		if !missingWorkflowBlocker.MatchString(gap) {
+			return nil
+		}
+	}
+	return errors.New(
+		"an unavailable named runbook, saved query or dashboard is a reproducibility gap, " +
+			"not a blocker: search for a published read-only semantic replacement, and " +
+			"otherwise perform the equivalent read-only checks directly and finish the " +
+			"assessment. Block only when the underlying material evidence is itself " +
+			"unavailable, and say which evidence that is",
+	)
 }
