@@ -523,7 +523,7 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 	if page.Spent.Recorded() {
 		tokens = humanTokens(page.Spent.Total())
 	}
-	costMetric := EpisodeMetric{Label: "Episode cost", Value: "Not priced / " + tokens, Missing: true,
+	costMetric := EpisodeMetric{Label: "Episode cost / tokens", Value: "Not priced / " + tokens, Missing: true,
 		Detail: "Token usage exists, but no matching configured price was available."}
 	if cost.Priceable() {
 		costMetric.Value, costMetric.Missing = cost.Money()+" / "+tokens, false

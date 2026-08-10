@@ -662,6 +662,9 @@ func (r *Reader) SourceInput(ctx context.Context, episodeID string) (SourceInput
 	item.ChannelID = channel
 	item.Channel = r.channelName(ctx, channel)
 	item.Sender = r.userName(item.UserID)
+	if item.Sender != "" && item.Sender != item.UserID && !strings.HasPrefix(item.Sender, "@") {
+		item.Sender = "@" + item.Sender
+	}
 	item.Text = r.resolveSlackText(ctx, item.Text)
 	item.Attachments = prettyJSON(attachments)
 	item.Received, item.Updated = parseStamp(received), parseStamp(updated)

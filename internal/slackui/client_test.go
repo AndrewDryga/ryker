@@ -67,7 +67,7 @@ func TestListChannelsUsesCallingBotsMemberships(t *testing.T) {
 	}
 }
 
-func TestUserNamesPrefersSlackDisplayLabels(t *testing.T) {
+func TestUserNamesPrefersSlackFullNames(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/users.list" {
 			t.Fatalf("workspace identity request = %s, want /users.list", r.URL.Path)
@@ -96,7 +96,7 @@ func TestUserNamesPrefersSlackDisplayLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"UDISPLAY": "Display One",
+		"UDISPLAY": "Profile One",
 		"UPROFILE": "Profile Two",
 		"UREAL":    "Real Three",
 		"ULOGIN":   "login-four",

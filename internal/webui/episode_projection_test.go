@@ -127,7 +127,7 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	reader.SetSlackIdentities(map[string]string{"U0BL8MNPUSY": "Emisar", "U0BHTNFCW6S": "Andrew"})
+	reader.SetSlackIdentities(map[string]string{"U0BL8MNPUSY": "Emisar", "U0BHTNFCW6S": "Andrew Dryga"})
 
 	body := servePage(t, reader, "/episodes/episode-1")
 	for _, expected := range []string{
@@ -138,7 +138,7 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Message received",
 		"Slack message",
 		"@Emisar it would be better if plan summaries showed before and after values",
-		"Sender</small><strong>Andrew",
+		"Sender</small><strong>@Andrew Dryga",
 		"Thread</small><strong>1786344951.427829",
 		"Model selected",
 		"Provider</small><strong>claude",
@@ -161,6 +161,7 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"User request",
 		"tokens",
 		"Time to respond",
+		"Episode cost / tokens",
 		"47.9s",
 		"Started 2026-08-10 08:14 UTC",
 		"Time to react",

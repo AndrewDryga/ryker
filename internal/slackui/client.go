@@ -752,12 +752,12 @@ func (c *Client) UserNames(ctx context.Context) (map[string]string, error) {
 	}
 	names := make(map[string]string, len(users))
 	for _, user := range users {
-		name := strings.TrimSpace(user.Profile.DisplayName)
-		if name == "" {
-			name = strings.TrimSpace(user.Profile.RealName)
-		}
+		name := strings.TrimSpace(user.Profile.RealName)
 		if name == "" {
 			name = strings.TrimSpace(user.RealName)
+		}
+		if name == "" {
+			name = strings.TrimSpace(user.Profile.DisplayName)
 		}
 		if name == "" {
 			name = strings.TrimSpace(user.Name)
