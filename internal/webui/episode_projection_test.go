@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -65,6 +66,24 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 	  VALUES ('episode-1','run-1','focused_check','read_only',
 	          'Remember Terraform summary preferences',?,?,?,'completed','C1',
 	          '1786344951.427829','1786344951.427829','attempt-1')`, stamp, stamp, stamp)
+	exec(`INSERT INTO conversation_memory_changes
+	  (id, episode_id, source_input, channel_id, thread_ts, repository,
+	   before_json, after_json, changes_json, created_at)
+	  VALUES ('memory-change-1','episode-1','input-1','C1','1786344951.427829','emisar',
+	          '{}','{}',?,?)`, `[{
+	    "field":"knowledge:terraform_plan_change_summaries",
+	    "title":"Terraform plan change summaries",
+	    "kind":"constraint",
+	    "state":"updated",
+	    "before":"Show the changed container version.",
+	    "after":"Show material changes as before-and-after values, including old and new container versions."
+	  },{
+	    "field":"knowledge:terraform_resource_drift_reporting",
+	    "title":"Terraform resource drift reporting",
+	    "kind":"constraint",
+	    "state":"saved",
+	    "after":"Do not mention resource drift in Terraform plan summaries for this channel."
+	  }]`, stamp)
 	exec(`INSERT INTO episode_attempts
 	  (id, episode_id, agent_run_id, attempt_number, state, context_manifest_id,
 	   completed_at, created_at, updated_at)
@@ -109,8 +128,12 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 		"message 1786349687.887489",
 		`Side effects <span class="note">3</span>`,
 		"Terraform plan change summaries",
+		"Before",
+		"Show the changed container version.",
+		"After",
 		"Show material changes as before-and-after values",
 		"Terraform resource drift reporting",
+		"Saved value",
 		"Do not mention resource drift",
 		"terraform_plan → review_terraform_plan",
 		"rule-1",
@@ -121,5 +144,29 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 	}
 	if strings.Contains(body, "{Not recorded for this attempt") {
 		t.Errorf("episode header rendered the diagnostic struct instead of the recorded model: %s", body)
+	}
+	if strings.Count(body, "Terraform plan change summaries") != 1 {
+		t.Errorf("episode page duplicated inferred and confirmed memory effects: %s", body)
+	}
+}
+
+func TestResultSideEffectsOmitsEmptyMemoryFields(t *testing.T) {
+	parsed, err := decision.ParseWatchDecision(`{
+	  "action":"reply",
+	  "reason":"Saved one constraint.",
+	  "message":"Got it.",
+	  "memory":{"knowledge":[{
+	    "subject":"Terraform summaries",
+	    "kind":"constraint",
+	    "statement":"Show before and after values."
+	  }]}
+	}`, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	effects := resultSideEffects(parsed, "completed")
+	if len(effects) != 1 || effects[0].Title != "Terraform summaries" {
+		t.Fatalf("effects = %+v, want only the populated knowledge item", effects)
 	}
 }

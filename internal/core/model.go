@@ -1389,6 +1389,7 @@ type EmisarApproval struct {
 
 type EvaluationDecision struct {
 	ID               string
+	EpisodeID        string
 	ChannelID        string
 	SessionChannelID string
 	ThreadTS         string

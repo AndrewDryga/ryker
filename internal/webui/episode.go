@@ -90,6 +90,7 @@ type Completion struct {
 // approval is not an executed action.
 type SideEffect struct {
 	Kind, State, Title, Detail, ID string
+	Before, After                  string
 	At                             time.Time
 }
 
@@ -208,9 +209,10 @@ func resultSideEffects(parsed decision.WatchDecision, terminalState string) []Si
 		{"Channel purpose", memory.ChannelPurpose},
 		{"Situation summary", memory.SituationSummary},
 	} {
-		if strings.TrimSpace(item.detail) != "" {
-			add("conversation memory", state, item.title, item.detail)
+		if strings.TrimSpace(item.detail) == "" {
+			continue
 		}
+		add("conversation memory", state, item.title, item.detail)
 	}
 	for _, item := range memory.Knowledge {
 		detail := item.Statement
@@ -281,34 +283,47 @@ func (r *Reader) SideEffects(ctx context.Context, episodeID string) ([]SideEffec
 	    SELECT s.event_id FROM slack_inputs AS s
 	      JOIN agent_runs AS a ON a.source_id = s.id
 	      WHERE a.episode_id = ? AND s.event_id != ''
-	  ), effects(kind, state, title, detail, id, created_at) AS (
+	  ), effects(kind, state, title, detail, id, created_at, before_value, after_value) AS (
 	    SELECT 'preference', CASE WHEN enabled = 1 THEN 'saved' ELSE 'disabled' END,
-	           name, value || ' · ' || scope_kind || ':' || scope_key, id, created_at
+	           name, value || ' · ' || scope_kind || ':' || scope_key, id, created_at, '', ''
 	      FROM responder_preferences WHERE source_ref IN (SELECT ref FROM refs)
 	    UNION ALL
 	    SELECT 'standing rule', CASE WHEN enabled = 1 THEN 'saved' ELSE 'disabled' END,
 	           trigger_name || ' → ' || action_name,
-	           repository || ' · ' || source_kind, id, created_at
+	           repository || ' · ' || source_kind, id, created_at, '', ''
 	      FROM standing_rules WHERE source_ref IN (SELECT ref FROM refs)
 	    UNION ALL
 	    SELECT 'scheduled task', CASE WHEN enabled = 1 THEN 'saved' ELSE 'disabled' END,
-	           title, recurrence || ' · ' || COALESCE(next_run_at, start_at), id, created_at
+	           title, recurrence || ' · ' || COALESCE(next_run_at, start_at), id, created_at, '', ''
 	      FROM scheduled_tasks WHERE source_ref IN (SELECT ref FROM refs)
 	    UNION ALL
 	    SELECT 'durable memory', 'saved', subject_key,
-	           predicate || ' = ' || value_json, id, created_at
+	           predicate || ' = ' || value_json, id, created_at, '', ''
 	      FROM memory_entries WHERE source_ref IN (SELECT ref FROM refs)
 	    UNION ALL
 	    SELECT 'work episode', lifecycle_state, objective,
-	           mode || ' · ' || authority, id, created_at
+	           mode || ' · ' || authority, id, created_at, '', ''
 	      FROM work_episodes WHERE parent_episode_id = ?
+	    UNION ALL
+	    SELECT 'conversation memory', json_extract(entry.value, '$.state'),
+	           json_extract(entry.value, '$.title'),
+	           COALESCE(json_extract(entry.value, '$.kind'), ''),
+	           audit.id || ':' || entry.key, audit.created_at,
+	           COALESCE(json_extract(entry.value, '$.before'), ''),
+	           COALESCE(json_extract(entry.value, '$.after'), '')
+	      FROM conversation_memory_changes AS audit,
+	           json_each(audit.changes_json) AS entry
+	      WHERE audit.episode_id = ?
 	  )
-	  SELECT kind, state, title, detail, id, created_at FROM effects
+	  SELECT kind, state, title, detail, id, created_at, before_value, after_value FROM effects
 	  ORDER BY created_at, kind, id LIMIT 100`,
 		func(rows *sql.Rows) (SideEffect, error) {
 			var item SideEffect
 			var at string
-			err := rows.Scan(&item.Kind, &item.State, &item.Title, &item.Detail, &item.ID, &at)
+			err := rows.Scan(
+				&item.Kind, &item.State, &item.Title, &item.Detail, &item.ID, &at,
+				&item.Before, &item.After,
+			)
 			item.At = parseStamp(at)
 			if separator := strings.LastIndex(item.Detail, " = "); separator >= 0 {
 				var unquoted string
@@ -317,8 +332,29 @@ func (r *Reader) SideEffects(ctx context.Context, episodeID string) ([]SideEffec
 				}
 			}
 			return item, err
-		}, episodeID, episodeID, episodeID)
+		}, episodeID, episodeID, episodeID, episodeID)
 	return items, err
+}
+
+// mergeSideEffects prefers transaction-confirmed memory changes over the
+// memory snapshot inferred from the model result. Older episodes have no audit
+// row, so their result projection remains a useful best-effort fallback.
+func mergeSideEffects(inferred, confirmed []SideEffect) []SideEffect {
+	hasConfirmedMemory := false
+	for _, effect := range confirmed {
+		if effect.Kind == "conversation memory" {
+			hasConfirmedMemory = true
+			break
+		}
+	}
+	result := make([]SideEffect, 0, len(inferred)+len(confirmed))
+	for _, effect := range inferred {
+		if hasConfirmedMemory && effect.Kind == "conversation memory" {
+			continue
+		}
+		result = append(result, effect)
+	}
+	return append(result, confirmed...)
 }
 
 // attentionLine formats only the scores the model actually sent.

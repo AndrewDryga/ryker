@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/memorydiff"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -374,11 +375,11 @@ func (r *Repository) ApplyWatchDecision(
 	if decision.CreatedAt.IsZero() {
 		decision.CreatedAt = r.now().UTC()
 	}
-	memory, err := json.Marshal(state)
+	encodedMemory, err := json.Marshal(state)
 	if err != nil {
 		return false, err
 	}
-	if len(memory) > 64<<10 {
+	if len(encodedMemory) > 64<<10 {
 		return false, errors.New("channel memory exceeds 64 KiB")
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -405,6 +406,24 @@ func (r *Repository) ApplyWatchDecision(
 	if inserted == 0 {
 		return false, tx.Commit()
 	}
+	var before core.AgentMemory
+	if string(encodedMemory) != "{}" && decision.Repository != "" && decision.MessageTS != "" {
+		var beforeJSON []byte
+		err := tx.QueryRowContext(ctx, `
+			SELECT state_json FROM conversation_memories
+			WHERE channel_id = ? AND thread_ts = ?`,
+			decision.ChannelID, decision.ThreadTS,
+		).Scan(&beforeJSON)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return false, err
+		case len(beforeJSON) > 0:
+			if err := json.Unmarshal(beforeJSON, &before); err != nil {
+				return false, fmt.Errorf("decode prior conversation memory: %w", err)
+			}
+		}
+	}
 	// Both channel-memory writes carry the same empty-state guard the
 	// conversation upsert below has always had. Without it, every ignore
 	// decision — which marshals its memory as '{}' — erased the channel's
@@ -427,7 +446,7 @@ func (r *Repository) ApplyWatchDecision(
 			    state_json = CASE WHEN ? = '{}' THEN state_json ELSE ? END,
 			    updated_at = ?
 			WHERE channel_id = ?`,
-			sessionRevision, string(memory), string(memory), r.nowText(), sessionChannelID,
+			sessionRevision, string(encodedMemory), string(encodedMemory), r.nowText(), sessionChannelID,
 		)
 		if err := sqlutil.ExpectOne(update, err, "apply watch decision memory"); err != nil {
 			return false, err
@@ -438,7 +457,7 @@ func (r *Repository) ApplyWatchDecision(
 				SET state_json = CASE WHEN ? = '{}' THEN state_json ELSE ? END,
 				    updated_at = ?
 				WHERE channel_id = ?`,
-				string(memory), string(memory), r.nowText(), decision.ChannelID,
+				string(encodedMemory), string(encodedMemory), r.nowText(), decision.ChannelID,
 			)
 			if err := sqlutil.ExpectOne(update, err, "apply scheduled decision channel memory"); err != nil {
 				return false, err
@@ -459,7 +478,7 @@ func (r *Repository) ApplyWatchDecision(
 			SET state_json = CASE WHEN ? = '{}' THEN state_json ELSE ? END,
 			    updated_at = ?
 			WHERE channel_id = ?`,
-			string(memory), string(memory), r.nowText(), decision.ChannelID,
+			string(encodedMemory), string(encodedMemory), r.nowText(), decision.ChannelID,
 		)
 		if err := sqlutil.ExpectOne(update, err, "apply conversation decision memory"); err != nil {
 			return false, err
@@ -484,11 +503,35 @@ func (r *Repository) ApplyWatchDecision(
 			decision.ThreadTS,
 			decision.Repository,
 			decision.MessageTS,
-			string(memory),
+			string(encodedMemory),
 			r.nowText(),
 		)
 		if err != nil {
 			return false, err
+		}
+		changes := memorydiff.AgentMemory(before, state)
+		if string(encodedMemory) != "{}" && len(changes) > 0 {
+			changesJSON, err := json.Marshal(changes)
+			if err != nil {
+				return false, err
+			}
+			beforeJSON, err := json.Marshal(before)
+			if err != nil {
+				return false, err
+			}
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO conversation_memory_changes (
+				  id, episode_id, source_input, channel_id, thread_ts, repository,
+				  before_json, after_json, changes_json, created_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				decision.ID+":memory", decision.EpisodeID, decision.SourceInput,
+				decision.ChannelID, decision.ThreadTS, decision.Repository,
+				string(beforeJSON), string(encodedMemory), string(changesJSON),
+				decision.CreatedAt.UTC().Format(core.TimestampFormat),
+			)
+			if err != nil {
+				return false, err
+			}
 		}
 	}
 	return true, tx.Commit()

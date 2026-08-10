@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +67,81 @@ func TestConversationSessionAndRouteAreDurableAndLaneScoped(t *testing.T) {
 	if err != nil || storedRoute.PreviousThreadTS != "1700.1" ||
 		!storedRoute.Explicit {
 		t.Fatalf("conversation route = %+v, %v", storedRoute, err)
+	}
+}
+
+func TestConversationMemoryChangesAreAuditedOnceWithBeforeAndAfter(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Intelligence.BindChannelSession(
+		ctx, "COPS", "emisar", "session-COPS", 1, 1, time.Now().UTC(),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	apply := func(source, episode, message, goal string, knowledge []core.KnowledgeItem) bool {
+		t.Helper()
+		applied, applyErr := st.Intelligence.ApplyWatchDecision(
+			ctx,
+			core.EvaluationDecision{
+				EpisodeID: episode, ChannelID: "COPS", ThreadTS: "1700.100",
+				MessageTS: message, Repository: "emisar", SourceInput: source,
+				Mode: "live", Action: "reply",
+			},
+			"investigation",
+			2,
+			core.AgentMemory{Goal: goal, Knowledge: knowledge},
+		)
+		if applyErr != nil {
+			t.Fatal(applyErr)
+		}
+		return applied
+	}
+	if !apply("source-1", "episode-1", "1700.101", "Review plans", nil) {
+		t.Fatal("first decision was not applied")
+	}
+	if !apply("source-2", "episode-2", "1700.102", "Review and track plans", []core.KnowledgeItem{
+		{Subject: "Terraform summaries", Kind: "constraint", Statement: "Show before and after"},
+	}) {
+		t.Fatal("second decision was not applied")
+	}
+	// Delivery retries replay the same source input. The evaluation decision
+	// makes that a no-op, and the memory audit must be equally idempotent.
+	if apply("source-2", "episode-2", "1700.102", "Different retry value", nil) {
+		t.Fatal("duplicate decision was applied")
+	}
+
+	var beforeJSON, afterJSON, changesJSON string
+	if err := st.db.QueryRow(`
+		SELECT before_json, after_json, changes_json
+		FROM conversation_memory_changes WHERE episode_id = 'episode-2'`,
+	).Scan(&beforeJSON, &afterJSON, &changesJSON); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		`"goal":"Review plans"`,
+		`"goal":"Review and track plans"`,
+		`"state":"updated"`,
+		`"before":"Review plans"`,
+		`"after":"Review and track plans"`,
+		`"title":"Terraform summaries"`,
+		`"state":"saved"`,
+		`"after":"Show before and after · constraint"`,
+	} {
+		joined := beforeJSON + "\n" + afterJSON + "\n" + changesJSON
+		if !strings.Contains(joined, expected) {
+			t.Errorf("memory audit is missing %s: %s", expected, joined)
+		}
+	}
+	var count int
+	if err := st.db.QueryRow(`
+		SELECT COUNT(*) FROM conversation_memory_changes WHERE source_input = 'source-2'`,
+	).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("memory audit count = %d, %v", count, err)
 	}
 }
 

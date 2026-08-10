@@ -272,6 +272,8 @@ a.row:hover { background: var(--panel-2); text-decoration: none; }
 .pill.bad { color: var(--bad); } .pill.bad::before { background: var(--bad); }
 .pill.warn { color: var(--warn); } .pill.warn::before { background: var(--warn); }
 .pill.good { color: var(--good); } .pill.good::before { background: var(--good); }
+.memory-diff { margin-top: 8px; display: grid; gap: 3px; }
+.memory-value { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .rep, .att { font: 500 11px/1.6 var(--mono); color: var(--faint); }
 

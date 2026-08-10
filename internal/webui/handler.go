@@ -404,7 +404,7 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("delivery", err)
 	page.Effects, err = h.reader.SideEffects(ctx, id)
 	page.Errs.note("side effects", err)
-	page.Effects = append(page.Turn.Effects, page.Effects...)
+	page.Effects = mergeSideEffects(page.Turn.Effects, page.Effects)
 	page.Audit, err = h.reader.AuditForEpisode(ctx, id)
 	page.Errs.note("audit trail", err)
 	page.Spent, err = h.reader.EpisodeTokens(ctx, id)

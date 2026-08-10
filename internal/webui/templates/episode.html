@@ -79,9 +79,16 @@ watch can be compared between attempts but not read back.</p>
 <div class="rows">
   {{range .Effects}}
   <div class="row">
-    <div class="title"><span class="pill{{if eq .State "saved"}} good{{else if eq .State "waiting"}} warn{{end}}">{{.State}}</span> {{.Title}}</div>
+    <div class="title"><span class="pill{{if or (eq .State "saved") (eq .State "updated")}} good{{else if eq .State "removed"}} bad{{else if eq .State "waiting"}} warn{{end}}">{{.State}}</span> {{.Title}}</div>
     <div class="meta">{{.Kind}}{{if .ID}} · <span class="mono">{{.ID}}</span>{{end}}{{if not .At.IsZero}} · {{stamp .At}}{{end}}</div>
-    {{if .Detail}}<div>{{.Detail}}</div>{{end}}
+    {{if and .Before .After}}
+      <div class="memory-diff"><span class="meta">Before</span><div class="memory-value">{{.Before}}</div><span class="meta">After</span><div class="memory-value">{{.After}}</div></div>
+    {{else if .After}}
+      <div class="memory-diff"><span class="meta">Saved value</span><div class="memory-value">{{.After}}</div></div>
+    {{else if .Before}}
+      <div class="memory-diff"><span class="meta">Removed value</span><div class="memory-value">{{.Before}}</div></div>
+    {{else if .Detail}}<div>{{.Detail}}</div>{{end}}
+    {{if and .Detail (or .Before .After)}}<div class="meta">{{.Detail}}</div>{{end}}
   </div>
   {{end}}
 </div>

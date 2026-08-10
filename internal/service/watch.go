@@ -732,6 +732,7 @@ func (s *Service) applyWatchDecision(
 		mode = "shadow"
 	}
 	if _, err := s.store.Intelligence.ApplyWatchDecision(ctx, core.EvaluationDecision{
+		EpisodeID: episodeID,
 		ChannelID: input.ChannelID, SessionChannelID: state.SessionChannelID,
 		ThreadTS:  input.ThreadTS,
 		MessageTS: input.MessageTS, Repository: state.Repository,
