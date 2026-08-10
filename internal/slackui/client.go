@@ -743,6 +743,32 @@ func (c *Client) UserTimezone(ctx context.Context, userID string) (string, error
 	return user.TZ, nil
 }
 
+// UserNames returns the workspace's current human-readable labels. Responder
+// snapshots them for local diagnostics; dashboard requests never call Slack.
+func (c *Client) UserNames(ctx context.Context) (map[string]string, error) {
+	users, err := c.api.GetUsersContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(users))
+	for _, user := range users {
+		name := strings.TrimSpace(user.Profile.DisplayName)
+		if name == "" {
+			name = strings.TrimSpace(user.Profile.RealName)
+		}
+		if name == "" {
+			name = strings.TrimSpace(user.RealName)
+		}
+		if name == "" {
+			name = strings.TrimSpace(user.Name)
+		}
+		if user.ID != "" && name != "" {
+			names[user.ID] = name
+		}
+	}
+	return names, nil
+}
+
 func (c *Client) UserGroupMembers(
 	ctx context.Context,
 	userGroupID string,

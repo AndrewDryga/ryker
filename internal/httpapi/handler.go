@@ -29,11 +29,12 @@ import (
 )
 
 type Handler struct {
-	cfg     config.Config
-	store   *store.Store
-	service *service.Service
-	secrets map[string]string
-	log     *slog.Logger
+	cfg        config.Config
+	store      *store.Store
+	service    *service.Service
+	identities slackIdentityReader
+	secrets    map[string]string
+	log        *slog.Logger
 
 	accepted  atomic.Uint64
 	duplicate atomic.Uint64
@@ -43,6 +44,10 @@ type Handler struct {
 	status      serviceStatus
 	statusUntil time.Time
 	statusClock func() time.Time
+}
+
+type slackIdentityReader interface {
+	UserNames(context.Context) (map[string]string, error)
 }
 
 // statusTTL bounds how stale a health or metrics answer may be.
@@ -102,10 +107,23 @@ func New(
 	secrets map[string]string,
 	logger *slog.Logger,
 ) http.Handler {
+	return NewWithIdentities(cfg, st, svc, nil, secrets, logger)
+}
+
+func NewWithIdentities(
+	cfg config.Config,
+	st *store.Store,
+	svc *service.Service,
+	identities slackIdentityReader,
+	secrets map[string]string,
+	logger *slog.Logger,
+) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	handler := &Handler{cfg: cfg, store: st, service: svc, secrets: secrets, log: logger}
+	handler := &Handler{
+		cfg: cfg, store: st, service: svc, identities: identities, secrets: secrets, log: logger,
+	}
 	return securityHeaders(handler.mux())
 }
 
@@ -418,6 +436,15 @@ func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 	reader, err := webui.OpenReader(filepath.Join(h.cfg.StateDir, "responder.db"))
 	if err != nil {
 		return err
+	}
+	if h.identities != nil {
+		identityCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		labels, identityErr := h.identities.UserNames(identityCtx)
+		cancel()
+		reader.SetSlackIdentities(labels)
+		if identityErr != nil {
+			h.log.Warn("dashboard Slack identity snapshot failed", "error", identityErr)
+		}
 	}
 	// Read from the database rather than a constant, so the page reports the
 	// schema actually in use rather than the one this binary expects. Those

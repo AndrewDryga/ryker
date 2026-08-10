@@ -67,6 +67,50 @@ func TestListChannelsUsesCallingBotsMemberships(t *testing.T) {
 	}
 }
 
+func TestUserNamesPrefersSlackDisplayLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/users.list" {
+			t.Fatalf("workspace identity request = %s, want /users.list", r.URL.Path)
+		}
+		_, _ = fmt.Fprint(w, `{
+		  "ok":true,
+		  "members":[
+		    {"id":"UDISPLAY","name":"login-one","real_name":"Real One","profile":{"display_name":"Display One","real_name":"Profile One"}},
+		    {"id":"UPROFILE","name":"login-two","real_name":"Real Two","profile":{"display_name":"","real_name":"Profile Two"}},
+		    {"id":"UREAL","name":"login-three","real_name":"Real Three","profile":{}},
+		    {"id":"ULOGIN","name":"login-four","real_name":"","profile":{}},
+		    {"id":"UEMPTY","name":"","real_name":"","profile":{}}
+		  ],
+		  "response_metadata":{"next_cursor":""}
+		}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+
+	names, err := client.UserNames(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"UDISPLAY": "Display One",
+		"UPROFILE": "Profile Two",
+		"UREAL":    "Real Three",
+		"ULOGIN":   "login-four",
+	}
+	if len(names) != len(want) {
+		t.Fatalf("names = %#v, want %#v", names, want)
+	}
+	for id, label := range want {
+		if names[id] != label {
+			t.Errorf("names[%s] = %q, want %q", id, names[id], label)
+		}
+	}
+}
+
 func TestUploadFileUsesFileCompatibleBlocks(t *testing.T) {
 	var server *httptest.Server
 	var blocks string

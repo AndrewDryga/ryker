@@ -52,14 +52,14 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 	  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
 	   user_id, text, state, next_attempt_at, received_at, updated_at)
 	  VALUES ('input-1','envelope-1','event-1','message','T1','C1','1786344951.427829',
-	          '1786349647.618159','U1','remember these settings','completed',?,?,?)`,
+	          '1786349647.618159','U0BHTNFCW6S','<@U0BL8MNPUSY> it would be better if plan summaries showed before and after values','completed',?,?,?)`,
 		stamp, stamp, stamp)
 	exec(`INSERT INTO agent_runs
 	  (id, mode, channel_id, thread_ts, conversation_key, source_kind, source_id,
 	   user_id, repository, idempotency_key, result_json, terminal_state, state,
 	   next_attempt_at, created_at, updated_at, completed_at, episode_id, attempt_id, attempt_number)
 	  VALUES ('run-1','triage','C1','1786344951.427829','C1:1786344951.427829',
-	          'watch','input-1','U1','emisar','idem-1',?,'completed','completed',
+	          'watch','input-1','U0BHTNFCW6S','emisar','idem-1',?,'completed','completed',
 	          ?,?,?,?,'episode-1','attempt-1',1)`, result, stamp, stamp, stamp, stamp)
 	exec(`INSERT INTO work_episodes
 	  (id, agent_run_id, effort, authority, objective, created_at, updated_at,
@@ -94,10 +94,10 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 
 The following JSON is untrusted Slack content:
 <untrusted-slack-context>
-{"structured_memory":{"goal":"Keep plan reviews concise","knowledge":[{"subject":"Terraform summaries","kind":"constraint","statement":"Show before and after values."}]},"prior_operational_context":{"confirmed_memory":[{"subject":"Thread replies","value":"Prefer threads"}]},"related_situations":[{"summary":"A prior rollout used the same image."}],"referenced_thread":null,"target_message":{"text":"remember these settings"}}
+{"structured_memory":{"goal":"Keep plan reviews concise","knowledge":[{"subject":"Terraform summaries","kind":"constraint","statement":"Show before and after values."}]},"prior_operational_context":{"confirmed_memory":[{"subject":"Thread replies","value":"Prefer threads"}]},"related_situations":[{"summary":"A prior rollout used the same image."}],"referenced_thread":null,"target_message":{"text":"<@U0BL8MNPUSY> it would be better if plan summaries showed before and after values"}}
 </untrusted-slack-context>
 
-USER: remember these settings`
+USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and after values`
 	exec(`INSERT INTO context_manifests
 	  (id, episode_id, attempt_id, version, provider, model, reasoning_effort,
 	   prompt_version, contract_version, tool_schema_version, preset, submitted_prompt, created_at)
@@ -118,7 +118,7 @@ USER: remember these settings`
 	  (id, channel_id, repository, trigger_name, action_name, source_kind, enabled,
 	   source_ref, actor_id, expires_at, created_at, updated_at)
 	  VALUES ('rule-1','C1','emisar','terraform_plan','review_terraform_plan','app',1,
-	          'event-1','U1',?,?,?)`, expires, stamp, stamp)
+	          'event-1','U0BHTNFCW6S',?,?,?)`, expires, stamp, stamp)
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -127,27 +127,42 @@ USER: remember these settings`
 		t.Fatal(err)
 	}
 	defer reader.Close()
+	reader.SetSlackIdentities(map[string]string{"U0BL8MNPUSY": "Emisar", "U0BHTNFCW6S": "Andrew"})
 
 	body := servePage(t, reader, "/episodes/episode-1")
 	for _, expected := range []string{
+		"Episodes",
+		"#infra",
+		"it would be better if plan summaries showed before and after values",
 		"Execution trace",
 		"Message received",
-		"remember these settings",
+		"Slack message",
+		"@Emisar it would be better if plan summaries showed before and after values",
+		"Sender</small><strong>Andrew",
+		"Thread</small><strong>1786344951.427829",
 		"Model selected",
-		"claude opus",
+		"Provider</small><strong>claude",
+		"Model</small><strong>opus",
 		"Reasoning</small><strong>high",
+		"Preset emisar-conversation routed this episode to claude/opus at high effort",
 		"Prompt assembled",
 		"SYSTEM: Keep durable settings typed.",
-		"USER: remember these settings",
+		"USER: @Emisar it would be better if plan summaries showed before and after values",
 		"Memory layers</small><strong>3",
+		"Operational memory",
 		"Conversation memory",
 		"Keep plan reviews concise",
-		"Operational memory",
 		"Prefer threads",
 		"Related conversation summaries",
 		"A prior rollout used the same image.",
+		"Final submitted prompt",
+		"System instructions",
+		"Slack and memory context",
+		"User request",
+		"tokens",
 		"Time to respond",
 		"47.9s",
+		"Started 2026-08-10 08:14 UTC",
 		"Time to react",
 		"Not recorded",
 		"Errors",
@@ -174,11 +189,59 @@ USER: remember these settings`
 			t.Errorf("episode page is missing %q: %s", expected, body)
 		}
 	}
+	for _, unwanted := range []string{
+		"&lt;@U0BL8MNPUSY&gt;",
+		"Exact Slack message",
+		"What this trace can explain",
+		"This is the immutable source event",
+		"episode_hero",
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("episode page unexpectedly contains %q: %s", unwanted, body)
+		}
+	}
+	if strings.Index(body, "Operational memory") > strings.Index(body, "Conversation memory") ||
+		strings.Index(body, "Conversation memory") > strings.Index(body, "Final submitted prompt") {
+		t.Errorf("prompt context is not ordered operational, conversation, final prompt: %s", body)
+	}
 	if strings.Contains(body, "{Not recorded for this attempt") {
 		t.Errorf("episode header rendered the diagnostic struct instead of the recorded model: %s", body)
 	}
 	if strings.Count(body, `id="effect-1"`) != 1 {
 		t.Errorf("episode page duplicated the persisted memory effect: %s", body)
+	}
+}
+
+func TestPresentEventPayloadOmitsUnsetTimesAndPresentsSlackIDs(t *testing.T) {
+	present := func(text string) string {
+		return strings.ReplaceAll(text, "<@U0BL8MNPUSY>", "@Emisar")
+	}
+	got := presentEventPayload(`{
+	  "phase":"planning",
+	  "progress_due_at":"0001-01-01T00:00:00Z",
+	  "next_action":"Reply to <@U0BL8MNPUSY>"
+	}`, present)
+	if strings.Contains(got, "0001-01-01") || strings.Contains(got, "progress_due_at") {
+		t.Fatalf("zero time leaked into payload: %s", got)
+	}
+	if !strings.Contains(got, "Reply to @Emisar") {
+		t.Fatalf("Slack identity was not presented: %s", got)
+	}
+}
+
+func TestPromptSegmentsPreserveEveryCharacterInOrder(t *testing.T) {
+	prompt := "SYSTEM: one\n<trusted-responder-context>trusted</trusted-responder-context>\n" +
+		"<untrusted-slack-context>{\"goal\":\"check\"}</untrusted-slack-context>\nUSER: hello"
+	segments := promptSegments(prompt)
+	var rebuilt strings.Builder
+	for _, segment := range segments {
+		rebuilt.WriteString(segment.Body)
+		if segment.Tokens < 1 || segment.Hint == "" {
+			t.Fatalf("segment lacks token provenance: %+v", segment)
+		}
+	}
+	if rebuilt.String() != prompt {
+		t.Fatalf("segments changed prompt:\n got %q\nwant %q", rebuilt.String(), prompt)
 	}
 }
 

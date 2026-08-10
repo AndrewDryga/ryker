@@ -168,7 +168,7 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	server := &http.Server{
-		Handler:           httpapi.New(cfg, st, svc, secrets, logger),
+		Handler:           httpapi.NewWithIdentities(cfg, st, svc, slackClient, secrets, logger),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

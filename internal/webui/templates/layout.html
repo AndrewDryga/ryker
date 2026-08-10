@@ -18,19 +18,20 @@
     <li><a href="/{{.Slug}}" class="{{if eq .Slug $shell.Active}}on{{end}}">{{.Title}}{{with index $shell.Badges .Slug}}{{if .N}}<span class="badge{{if .Warn}} warn{{end}}">{{.N}}</span>{{end}}{{end}}</a></li>
     {{end}}
   </ul>
-  <p class="foot">Loopback only. No accounts, no network calls.</p>
+  <div class="foot">
+    <span class="foot-health"><i class="ready-dot{{if not .Ready}} down{{end}}"></i>{{if .Ready}}ready{{else}}not ready{{end}}</span>
+    <span>{{.Binary}}</span>
+    <span>schema {{.Schema}}</span>
+  </div>
 </nav>
 <main>
   <header>
     <div>
-      {{range .Crumbs}}<p class="crumb"><a href="{{.Href}}">{{.Label}}</a> /</p>{{end}}
-      <h1>{{if .TitleOverride}}{{.TitleOverride}}{{else}}{{.Title}}{{end}}</h1>
+      <div class="title-line">
+        {{range .Crumbs}}<span class="crumb"><a href="{{.Href}}">{{.Label}}</a><i>/</i></span>{{end}}
+        <h1>{{if .TitleOverride}}{{.TitleOverride}}{{else}}{{.Title}}{{end}}</h1>
+      </div>
       {{if not .TitleOverride}}<p class="ask">{{.Ask}}</p>{{end}}
-    </div>
-    <div class="status">
-      <span class="ready{{if not .Ready}} down{{end}}">{{if .Ready}}ready{{else}}not ready{{end}}</span>
-      <span>{{.Binary}}</span>
-      <span>schema {{.Schema}}</span>
     </div>
   </header>
   {{.Body}}

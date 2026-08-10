@@ -22,8 +22,20 @@ import (
 // here are presentation shapes that would otherwise grow internal/store, which
 // is already at its line budget.
 type Reader struct {
-	db       *sql.DB
-	channels sync.Map
+	db         *sql.DB
+	channels   sync.Map
+	identities sync.Map
+}
+
+func (r *Reader) SetSlackIdentities(labels map[string]string) {
+	if r == nil {
+		return
+	}
+	for id, label := range labels {
+		if id != "" && strings.TrimSpace(label) != "" {
+			r.identities.Store(id, strings.TrimSpace(label))
+		}
+	}
 }
 
 func OpenReader(path string) (*Reader, error) {
@@ -203,6 +215,8 @@ func (r *Reader) channelLookup(ctx context.Context, id string) (string, bool) {
 // nobody can read. Only ids with a known name are swapped: turning an unknown
 // id into "#C0TENANTX01" would dress a failed lookup as a resolved one.
 var slackChannelID = regexp.MustCompile(`\bC[A-Z0-9]{8,}\b`)
+var slackUserID = regexp.MustCompile(`\bU[A-Z0-9]{8,}\b`)
+var slackMention = regexp.MustCompile(`<@(U[A-Z0-9]{8,})>`)
 
 func (r *Reader) resolveChannels(ctx context.Context, text string) string {
 	if !r.live() || !strings.Contains(text, "C") {
@@ -213,6 +227,40 @@ func (r *Reader) resolveChannels(ctx context.Context, text string) string {
 			return "#" + name
 		}
 		return id
+	})
+}
+
+func (r *Reader) userName(id string) string {
+	if r == nil || id == "" {
+		return id
+	}
+	if value, ok := r.identities.Load(id); ok {
+		if name, _ := value.(string); name != "" {
+			return name
+		}
+	}
+	return id
+}
+
+func (r *Reader) resolveSlackText(ctx context.Context, text string) string {
+	text = r.resolveChannels(ctx, text)
+	text = slackMention.ReplaceAllStringFunc(text, func(mention string) string {
+		matches := slackMention.FindStringSubmatch(mention)
+		if len(matches) != 2 {
+			return mention
+		}
+		name := r.userName(matches[1])
+		if name == matches[1] {
+			return mention
+		}
+		return "@" + name
+	})
+	return slackUserID.ReplaceAllStringFunc(text, func(id string) string {
+		name := r.userName(id)
+		if name == id {
+			return id
+		}
+		return name
 	})
 }
 

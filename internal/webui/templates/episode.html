@@ -1,26 +1,6 @@
 {{define "episode"}}
 {{template "problems" .Errs}}
 
-<section class="episode-hero">
-  <div class="episode-identity">
-    <div class="episode-state" data-state="{{.State}}">
-      <span class="episode-state-dot"></span>
-      <span>{{.State}}</span>
-    </div>
-    <p class="episode-id mono">{{.ID}}</p>
-  </div>
-  <div class="episode-summary">
-    <p class="episode-context">{{.Channel}} <span>·</span> {{.Kind}} <span>·</span> started {{stamp .Created}}</p>
-    {{if .Status}}<p class="episode-status">{{.Status}}</p>{{end}}
-    {{if .Next}}<p class="episode-next"><span>Next</span>{{.Next}}</p>{{end}}
-  </div>
-  {{if and .CanAct .Resolvable}}
-  <div class="episode-actions">
-    {{template "confirm" confirm "Resolve as overtaken" "Close this episode because events have moved on. Its history and audit trail remain." "Resolve episode" "/actions/episodes/resolve" .ID}}
-  </div>
-  {{end}}
-</section>
-
 <section class="episode-metrics" aria-label="Episode metrics">
   {{range .Trace.Metrics}}
   <article class="episode-metric{{if .Tone}} tone-{{.Tone}}{{end}}{{if .Missing}} is-missing{{end}}">
@@ -30,6 +10,12 @@
   </article>
   {{end}}
 </section>
+
+{{if and .CanAct .Resolvable}}
+<div class="episode-action-strip">
+  {{template "confirm" confirm "Resolve as overtaken" "Close this episode because events have moved on. Its history and audit trail remain." "Resolve episode" "/actions/episodes/resolve" .ID}}
+</div>
+{{end}}
 
 <section class="trace-shell">
   <div class="trace-heading">
@@ -44,11 +30,6 @@
       {{end}}
     </div>
   </div>
-
-  <aside class="trace-boundary">
-    <strong>What this trace can explain</strong>
-    <span>It shows persisted inputs, prompt components, public results, host decisions, side effects, delivery, timing, and cost. It never fabricates private chain-of-thought or provider events that Coop did not return.</span>
-  </aside>
 
   {{if .Trace.Steps}}
   <div class="trace-list">
@@ -92,7 +73,18 @@
           {{range $step.Details}}
           <details class="trace-detail kind-{{.Kind}}" {{if .Open}}open{{end}}>
             <summary><span>{{.Label}}</span><span class="trace-disclosure">View full record</span></summary>
+            {{if .Segments}}
+            <div class="prompt-segments">
+              {{range .Segments}}
+              <section class="prompt-segment tone-{{.Tone}}" title="{{.Hint}}">
+                <div class="prompt-segment-meta"><span>{{.Source}}</span><span>~{{.Tokens}} tokens</span></div>
+                <pre>{{.Body}}</pre>
+              </section>
+              {{end}}
+            </div>
+            {{else}}
             <pre>{{.Body}}</pre>
+            {{end}}
           </details>
           {{end}}
         </div>

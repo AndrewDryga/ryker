@@ -140,11 +140,22 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
 .sidebar .foot {
   margin-top: auto;
   padding: 14px 20px 0;
-  font-size: 11.5px;
-  line-height: 1.5;
+  display: grid;
+  gap: 3px;
+  font: 11px/1.5 var(--mono);
   color: var(--faint);
   border-top: 1px solid var(--line-2);
 }
+
+.foot-health { display: flex; align-items: center; gap: 7px; color: var(--dim); }
+.ready-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 8px rgb(54 230 165 / .6);
+}
+.ready-dot.down { background: var(--bad); box-shadow: 0 0 8px rgb(251 113 133 / .6); }
 
 /* Header ------------------------------------------------------------------- */
 
@@ -159,39 +170,18 @@ header {
   border-bottom: 1px solid var(--line-2);
 }
 
-.crumb { margin: 0 0 4px !important; font-size: 12.5px; color: var(--faint); }
+.title-line { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.title-line h1 { min-width: 0; overflow-wrap: anywhere; }
+.crumb { display: inline-flex; align-items: baseline; gap: 7px; font-size: 12.5px; color: var(--faint); }
 .crumb a { color: var(--faint); }
 .crumb a:hover { color: var(--accent); }
+.crumb i { color: #52525b; font-style: normal; }
 
 h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: 0; line-height: 1.3; }
 
 /* Every page states the question it answers. A section that cannot say what
    it is for is usually one that should not exist. */
 .ask { margin: 3px 0 0; color: var(--dim); font-size: 13.5px; }
-
-/* The persistent answer to "what am I looking at, and is it alive" — health
-   lived only on Overview, and every other page was context-free. */
-.status {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  font: 12px/1 var(--mono);
-  color: var(--faint);
-  white-space: nowrap;
-  padding-top: 6px;
-}
-
-.status .ready { display: flex; align-items: center; gap: 6px; color: var(--dim); }
-.status .ready::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--good);
-  box-shadow: 0 0 8px rgb(54 230 165 / .6);
-}
-.status .ready.down::before { background: var(--bad); box-shadow: 0 0 8px rgb(251 113 133 / .6); }
 
 /* Vertical rhythm is one flow rule, not a margin per component. Blocks are
    12px apart, a new section breathes 32px above its heading and holds its
@@ -533,62 +523,6 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
    order, and why?". Full records stay native <details> disclosures so the page
    remains useful with JavaScript disabled. */
 
-.episode-hero {
-  display: grid;
-  grid-template-columns: minmax(150px, .7fr) minmax(360px, 2.2fr) auto;
-  gap: 22px;
-  align-items: start;
-  padding: 20px 0 22px;
-  margin: 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-
-.episode-identity { min-width: 0; }
-
-.episode-state {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--ink-2);
-  font: 600 12px/1.4 var(--mono);
-  text-transform: uppercase;
-}
-
-.episode-state-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--faint);
-  box-shadow: 0 0 0 4px rgb(113 113 122 / .09);
-}
-
-.episode-state[data-state="completed"] .episode-state-dot { background: var(--good); box-shadow: 0 0 0 4px rgb(54 230 165 / .09); }
-.episode-state[data-state="failed"] .episode-state-dot { background: var(--bad); box-shadow: 0 0 0 4px rgb(251 113 133 / .09); }
-.episode-state[data-state="blocked"] .episode-state-dot,
-.episode-state[data-state="waiting_operator"] .episode-state-dot,
-.episode-state[data-state="waiting_approval"] .episode-state-dot { background: var(--warn); box-shadow: 0 0 0 4px rgb(251 191 36 / .09); }
-
-.episode-id {
-  margin-top: 9px;
-  color: var(--faint);
-  overflow-wrap: anywhere;
-}
-
-.episode-summary { min-width: 0; }
-.episode-context { color: var(--faint); font: 12px/1.5 var(--mono); }
-.episode-context span { color: #52525b; padding: 0 5px; }
-.episode-status { margin-top: 7px; color: var(--ink); font-size: 17px; line-height: 1.45; max-width: 68ch; }
-.episode-next { display: flex; gap: 9px; margin-top: 10px; color: var(--ink-2); max-width: 76ch; }
-.episode-next > span {
-  color: var(--accent);
-  font: 600 10.5px/1.9 var(--mono);
-  text-transform: uppercase;
-  flex: none;
-}
-
-.episode-actions { align-self: center; }
-
 .episode-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -598,6 +532,9 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   border-radius: 8px;
   background: var(--line);
 }
+
+.episode-action-strip { display: flex; justify-content: flex-end; }
+.episode-action-strip .confirm { width: min(100%, 420px); margin: 0; }
 
 .episode-metric {
   min-height: 126px;
@@ -649,18 +586,6 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-summary { display: flex; justify-content: flex-end; gap: 18px; flex-wrap: wrap; }
 .trace-summary span { display: grid; gap: 1px; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
 .trace-summary strong { color: var(--ink-2); font: 600 15px/1.2 var(--mono); }
-
-.trace-boundary {
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: 16px;
-  margin: 14px 0 24px 48px;
-  padding: 10px 13px;
-  border-left: 2px solid #52525b;
-  color: var(--dim);
-  font-size: 12.5px;
-}
-.trace-boundary strong { color: var(--ink-2); font-weight: 600; }
 
 .trace-list { position: relative; padding-bottom: 20px; }
 .trace-list::before {
@@ -808,6 +733,43 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-detail.kind-error pre { color: var(--bad); }
 .trace-detail.kind-diff pre { color: #bbf7d0; }
 
+.prompt-segments {
+  display: grid;
+  gap: 1px;
+  padding: 1px 0;
+  border-top: 1px solid var(--line-2);
+  background: var(--line-2);
+}
+
+.prompt-segment {
+  min-width: 0;
+  border-left: 3px solid #52525b;
+  background: #0e0e11;
+}
+.prompt-segment.tone-system { border-left-color: #71717a; }
+.prompt-segment.tone-trusted { border-left-color: var(--good); }
+.prompt-segment.tone-memory { border-left-color: #60a5fa; }
+.prompt-segment.tone-user { border-left-color: var(--warn); }
+.prompt-segment-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 15px 0;
+  color: var(--faint);
+  font: 600 9.5px/1.4 var(--mono);
+  letter-spacing: .35px;
+  text-transform: uppercase;
+}
+.prompt-segment.tone-trusted .prompt-segment-meta span:first-child { color: var(--good); }
+.prompt-segment.tone-memory .prompt-segment-meta span:first-child { color: #93c5fd; }
+.prompt-segment.tone-user .prompt-segment-meta span:first-child { color: var(--warn); }
+.trace-detail .prompt-segment pre {
+  border-top: 0;
+  background: transparent;
+  max-height: none;
+  padding-top: 8px;
+}
+
 @media (max-width: 900px) {
   body { display: block; }
   .sidebar { position: static; width: auto; height: auto; padding: 10px 0; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -815,10 +777,8 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   .sidebar ul { display: flex; overflow-x: auto; }
   .sidebar a { padding: 6px 12px; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
   .sidebar a.on { border-bottom-color: var(--accent); }
-  .sidebar .foot { display: none; }
+  .sidebar .foot { margin: 8px 14px 0; padding: 8px 0 0; display: flex; gap: 12px; flex-wrap: wrap; }
   main { max-width: none; padding: 18px 20px 60px; }
-  .episode-hero { grid-template-columns: 150px minmax(0, 1fr); }
-  .episode-actions { grid-column: 1 / -1; }
   .episode-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .trace-heading { align-items: start; flex-direction: column; }
   .trace-summary { justify-content: flex-start; }
@@ -827,12 +787,8 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 @media (max-width: 620px) {
   main { padding: 14px 14px 48px; }
   main > header { display: block; }
-  main > header .status { margin-top: 10px; flex-wrap: wrap; white-space: normal; }
-  .episode-hero { grid-template-columns: 1fr; gap: 13px; padding-top: 15px; }
-  .episode-actions { grid-column: auto; }
   .episode-metrics { grid-template-columns: 1fr; }
   .episode-metric { min-height: 0; }
-  .trace-boundary { grid-template-columns: 1fr; gap: 4px; margin-left: 0; }
   .trace-list::before { left: 15px; }
   .trace-step { grid-template-columns: 30px minmax(0, 1fr); gap: 8px; }
   .trace-marker { padding-top: 16px; }
@@ -848,4 +804,5 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   .trace-detail > summary { padding: 8px 13px; }
   .trace-disclosure { display: none; }
   .trace-detail pre { padding: 12px 13px 15px; }
+  .prompt-segment-meta { align-items: flex-start; flex-direction: column; gap: 2px; padding: 8px 12px 0; }
 }

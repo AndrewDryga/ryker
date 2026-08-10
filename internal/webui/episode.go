@@ -633,9 +633,9 @@ func (r *Reader) Deliveries(ctx context.Context, episodeID string) ([]Delivery, 
 // cleaned for scanning, while this record preserves the exact message and its
 // attachment manifest.
 type SourceInput struct {
-	ID, Kind, UserID, Channel, ThreadTS, MessageTS string
-	Text, Attachments                              string
-	Received, Updated                              time.Time
+	ID, Kind, UserID, Sender, ChannelID, Channel, ThreadTS, MessageTS string
+	Text, Attachments                                                 string
+	Received, Updated                                                 time.Time
 }
 
 func (r *Reader) SourceInput(ctx context.Context, episodeID string) (SourceInput, error) {
@@ -659,7 +659,10 @@ func (r *Reader) SourceInput(ctx context.Context, episodeID string) (SourceInput
 	if err != nil {
 		return item, err
 	}
+	item.ChannelID = channel
 	item.Channel = r.channelName(ctx, channel)
+	item.Sender = r.userName(item.UserID)
+	item.Text = r.resolveSlackText(ctx, item.Text)
 	item.Attachments = prettyJSON(attachments)
 	item.Received, item.Updated = parseStamp(received), parseStamp(updated)
 	return item, nil

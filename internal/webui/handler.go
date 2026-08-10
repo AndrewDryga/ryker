@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -413,7 +414,8 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("audit trail", err)
 	page.Spent, err = h.reader.EpisodeTokens(ctx, id)
 	page.Errs.note("token usage", err)
-	page.Trace = buildEpisodeTrace(h.pricing, page)
+	present := func(text string) string { return h.reader.resolveSlackText(ctx, text) }
+	page.Trace = buildEpisodeTrace(h.pricing, page, present)
 	// Both of these gaps were invisible because the page hid them. The manifest
 	// has carried provider, model and reasoning_effort since it was created and
 	// nothing assigned them until recently, so gating the whole section on the
@@ -439,7 +441,25 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 			"the same way tokens do, so an attempt frozen before the timing columns landed — or " +
 			"a turn Coop reported no timestamps for — leaves nothing to divide. The attempt " +
 			"ledger above still gives each attempt's duration end to end."}
-	h.detail(w, r, "episodes", "episode", page.Title, page)
+	shell := h.shell(r, "episodes", page)
+	shell.TitleOverride = episodeDisplayTitle(page)
+	shell.Crumbs = []Crumb{{Href: "/episodes", Label: "Episodes"}}
+	if page.Source.ChannelID != "" {
+		shell.Crumbs = append(shell.Crumbs, Crumb{
+			Href: "/channels/" + url.PathEscape(page.Source.ChannelID), Label: page.Source.Channel,
+		})
+	}
+	h.render.Render(w, "episode", shell)
+}
+
+var leadingSlackAddressee = regexp.MustCompile(`^@\S+\s+`)
+
+func episodeDisplayTitle(page episodePage) string {
+	title := strings.TrimSpace(leadingSlackAddressee.ReplaceAllString(page.Source.Text, ""))
+	if title == "" {
+		title = page.Title
+	}
+	return truncate(cleanTitle(title), 90)
 }
 
 // unmeteredEpisode says why there is no token count, and the two reasons are

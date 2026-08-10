@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -27,6 +28,12 @@ type TraceStat struct {
 type TraceDetail struct {
 	Label, Body, Kind string
 	Open              bool
+	Segments          []PromptSegment
+}
+
+type PromptSegment struct {
+	Body, Source, Tone, Hint string
+	Tokens                   int
 }
 
 // TraceStep is one host-observable fact in the execution story. Why describes
@@ -46,7 +53,10 @@ type EpisodeTrace struct {
 	Steps   []TraceStep
 }
 
-func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
+func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(string) string) EpisodeTrace {
+	if present == nil {
+		present = func(value string) string { return value }
+	}
 	trace := EpisodeTrace{}
 	trace.Metrics = episodeMetrics(pricing, page)
 	steps := make([]TraceStep, 0, 12+len(page.Events)+len(page.Attempts)+
@@ -57,28 +67,24 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 	}
 
 	if page.Source.ID != "" {
-		details := []TraceDetail{{Label: "Exact Slack message", Body: page.Source.Text, Kind: "text", Open: true}}
+		details := []TraceDetail{{Label: "Slack message", Body: present(page.Source.Text), Kind: "text", Open: true}}
 		if strings.TrimSpace(page.Source.Attachments) != "" && page.Source.Attachments != "[]" {
 			details = append(details, TraceDetail{Label: "Attachment manifest", Body: page.Source.Attachments, Kind: "json"})
 		}
 		add(TraceStep{
 			ID: "source", Stage: "Input", Actor: "Slack", State: page.Source.Kind,
-			Title: "Message received", Summary: sourceSummary(page.Source), At: page.Source.Received,
-			Why:     "This is the immutable source event that caused Responder to consider work.",
-			Stats:   []TraceStat{{"Channel", page.Source.Channel}, {"Message", page.Source.MessageTS}, {"Sender", page.Source.UserID}},
+			Title: "Message received", At: page.Source.Received,
+			Stats: []TraceStat{{"Channel", page.Source.Channel}, {"Message", page.Source.MessageTS},
+				{"Thread", fallback(page.Source.ThreadTS, "top level")}, {"Sender", fallback(page.Source.Sender, page.Source.UserID)}},
 			Details: details,
 		})
 	}
 
 	if page.Manifest.Version > 0 {
-		model := strings.TrimSpace(page.Manifest.Provider + " " + page.Manifest.Model)
-		if model == "" {
-			model = "Target not recorded"
-		}
 		add(TraceStep{
 			ID: "model", Stage: "Routing", Actor: "Responder", State: "selected",
-			Title: "Model selected", Summary: model, At: page.Manifest.Created,
-			Why:   "Responder freezes the effective model target so cost, quality, and replay can be attributed to the model that actually answered.",
+			Title: "Model selected", At: page.Manifest.Created,
+			Why:   modelSelectionWhy(page.Manifest),
 			Stats: []TraceStat{{"Provider", fallback(page.Manifest.Provider, "not recorded")}, {"Model", fallback(page.Manifest.Model, "not recorded")}, {"Reasoning", fallback(page.Manifest.Effort, "not recorded")}, {"Preset", fallback(page.Manifest.Preset, "none")}},
 		})
 
@@ -87,23 +93,22 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 			prompt = page.Turn.Prompt
 		}
 		promptDetails := []TraceDetail{}
-		memoryComponents := 0
+		memoryLayers := 0
 		if prompt != "" {
-			promptDetails = append(promptDetails, TraceDetail{Label: "Submitted prompt", Body: prompt, Kind: "prompt"})
-			components := promptContextDetails(prompt)
-			memoryComponents = len(components)
+			components, layers := promptContextDetails(prompt, present)
+			memoryLayers = layers
 			promptDetails = append(promptDetails, components...)
 		} else {
 			promptDetails = append(promptDetails, TraceDetail{Label: "Submitted prompt", Body: "The prompt text was not retained for this attempt. Its digest remains available in the context references.", Kind: "missing", Open: true})
 			promptDetails = append(promptDetails, TraceDetail{Label: "Memory components", Body: "The individual memory layers cannot be recovered for this historical attempt because its submitted prompt was not retained.", Kind: "missing", Open: true})
 		}
 		for _, ref := range page.Manifest.Refs {
-			body := ref.What + "\nVisibility: " + ref.Visibility
+			body := present(ref.What) + "\nVisibility: " + present(ref.Visibility)
 			if ref.Digest != "" {
 				body += "\nDigest: " + ref.Digest
 			}
 			if ref.Omitted != "" {
-				body += "\nOmitted: " + ref.Omitted
+				body += "\nOmitted: " + present(ref.Omitted)
 			}
 			promptDetails = append(promptDetails, TraceDetail{
 				Label: fallback(contextLabel(ref.Kind), eventTitle(ref.Kind)),
@@ -111,13 +116,18 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 			})
 		}
 		if len(page.Manifest.Omissions) > 0 {
-			promptDetails = append(promptDetails, TraceDetail{Label: "Omitted context", Body: strings.Join(page.Manifest.Omissions, "\n"), Kind: "context"})
+			promptDetails = append(promptDetails, TraceDetail{Label: "Omitted context", Body: present(strings.Join(page.Manifest.Omissions, "\n")), Kind: "context"})
+		}
+		if prompt != "" {
+			promptDetails = append(promptDetails, TraceDetail{
+				Label: "Final submitted prompt", Body: present(prompt), Kind: "prompt",
+				Segments: promptSegments(present(prompt)),
+			})
 		}
 		add(TraceStep{
 			ID: "prompt", Stage: "Context", Actor: "Responder", State: "frozen",
 			Title: "Prompt assembled", Summary: fmt.Sprintf("Manifest v%d with %d context components", page.Manifest.Version, len(page.Manifest.Refs)), At: page.Manifest.Created,
-			Why:     "The frozen manifest makes the answer reproducible: it records the contract, policy, repository revision, memories, and artifacts that were eligible to influence this attempt.",
-			Stats:   []TraceStat{{"Prompt", fallback(page.Manifest.PromptVersion, "unversioned")}, {"Contract", fallback(page.Manifest.Contract, "none")}, {"Tool schema", fallback(page.Manifest.ToolSchema, "none")}, {"Context refs", fmt.Sprint(len(page.Manifest.Refs))}, {"Memory layers", fmt.Sprint(memoryComponents)}},
+			Stats:   []TraceStat{{"Prompt", fallback(page.Manifest.PromptVersion, "unversioned")}, {"Contract", fallback(page.Manifest.Contract, "none")}, {"Tool schema", fallback(page.Manifest.ToolSchema, "none")}, {"Context refs", fmt.Sprint(len(page.Manifest.Refs))}, {"Memory layers", fmt.Sprint(memoryLayers)}},
 			Details: promptDetails,
 		})
 	}
@@ -125,18 +135,18 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 	for index, event := range page.Events {
 		why := eventWhy(event.Kind)
 		details := []TraceDetail{}
-		if event.Payload != "" && event.Payload != "{}" {
-			details = append(details, TraceDetail{Label: "Recorded event payload", Body: event.Payload, Kind: "json"})
+		if payload := presentEventPayload(event.Payload, present); payload != "" && payload != "{}" {
+			details = append(details, TraceDetail{Label: "Recorded event payload", Body: payload, Kind: "json"})
 		}
 		add(TraceStep{
 			ID: fmt.Sprintf("event-%d", index+1), Stage: eventStage(event.Kind), Actor: event.Actor,
-			State: event.Kind, Title: eventTitle(event.Kind), Summary: event.Detail, Why: why, At: event.At,
+			State: event.Kind, Title: eventTitle(event.Kind), Summary: present(event.Detail), Why: why, At: event.At,
 			Stats: []TraceStat{{"Attempt", fmt.Sprint(event.Attempt)}, {"Repeats", repeatValue(event.Repeats)}}, Details: details,
 		})
 	}
 
 	for _, attempt := range page.Attempts {
-		detail := strings.TrimSpace(attempt.Error)
+		detail := strings.TrimSpace(present(attempt.Error))
 		if detail == "" {
 			detail = "No terminal error was recorded."
 		}
@@ -152,18 +162,18 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 	for index, rejection := range page.Turn.Rejections {
 		add(TraceStep{
 			ID: fmt.Sprintf("rejection-%d", index+1), Stage: "Validation", Actor: "Responder", State: "rejected",
-			Title: "Host rejected a model result", Summary: rejection.Outcome, Why: "The typed result contract refused output that could not be applied safely or consistently, and returned a correction to the same attempt.", At: rejection.At,
-			Details: []TraceDetail{{Label: "Correction sent to the model", Body: rejection.Detail, Kind: "text", Open: true}},
+			Title: "Host rejected a model result", Summary: present(rejection.Outcome), Why: "The typed result contract refused output that could not be applied safely or consistently, and returned a correction to the same attempt.", At: rejection.At,
+			Details: []TraceDetail{{Label: "Correction sent to the model", Body: present(rejection.Detail), Kind: "text", Open: true}},
 		})
 	}
 
 	if page.Turn.RunID != "" {
 		details := []TraceDetail{}
 		if page.Turn.Reason != "" {
-			details = append(details, TraceDetail{Label: "Host-visible decision rationale", Body: page.Turn.Reason, Kind: "text", Open: true})
+			details = append(details, TraceDetail{Label: "Host-visible decision rationale", Body: present(page.Turn.Reason), Kind: "text", Open: true})
 		}
 		if page.Turn.RawResult != "" {
-			details = append(details, TraceDetail{Label: "Raw model result received by Responder", Body: prettyJSON(page.Turn.RawResult), Kind: "json"})
+			details = append(details, TraceDetail{Label: "Raw model result received by Responder", Body: present(prettyJSON(page.Turn.RawResult)), Kind: "json"})
 		}
 		if len(page.Turn.Operations) > 0 {
 			operations := make([]string, 0, len(page.Turn.Operations))
@@ -179,7 +189,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 		details = append(details, TraceDetail{Label: "Provider transcript boundary", Body: "Coop records the submitted prompt, public model result, typed operations, artifacts, usage, and timings. It does not currently return the provider's private chain-of-thought or a granular transcript of every internal tool call, so this page does not invent either.", Kind: "missing"})
 		add(TraceStep{
 			ID: "result", Stage: "Result", Actor: "Model", State: page.Turn.State,
-			Title: "Model result received", Summary: modelSummary(page.Turn), Why: "Responder parses and validates the result before any reply or side effect can leave the host.", At: page.Turn.Updated,
+			Title: "Model result received", Summary: present(modelSummary(page.Turn)), Why: "Responder parses and validates the result before any reply or side effect can leave the host.", At: page.Turn.Updated,
 			Stats:   []TraceStat{{"Action", fallback(page.Turn.Action, "not recorded")}, {"Operations", fmt.Sprint(tallyTotal(page.Turn.Operations))}, {"Follow-ups", fmt.Sprint(len(page.Turn.Followups))}},
 			Details: details,
 		})
@@ -195,21 +205,21 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 			Title: "Evidence ledger updated", Summary: fmt.Sprintf("%d claims, %d evidence records, %d coverage assessments", len(page.Claims), len(page.Evidence), len(page.Coverage)),
 			Why: "Structured evidence lets the host distinguish a supported conclusion from a fluent answer and preserve contradictions for later follow-up.", At: page.Turn.Updated,
 			Stats:   []TraceStat{{"Claims", fmt.Sprint(len(page.Claims))}, {"Evidence", fmt.Sprint(len(page.Evidence))}, {"Coverage", fmt.Sprint(len(page.Coverage))}},
-			Details: ledgerDetails(page),
+			Details: ledgerDetails(page, present),
 		})
 	}
 
 	for index, effect := range page.Effects {
-		body := effect.Detail
+		body := present(effect.Detail)
 		if effect.Before != "" || effect.After != "" {
-			body = "Before:\n" + fallback(effect.Before, "(empty)") + "\n\nAfter:\n" + fallback(effect.After, "(empty)")
+			body = "Before:\n" + present(fallback(effect.Before, "(empty)")) + "\n\nAfter:\n" + present(fallback(effect.After, "(empty)"))
 			if effect.Detail != "" {
-				body += "\n\n" + effect.Detail
+				body += "\n\n" + present(effect.Detail)
 			}
 		}
 		add(TraceStep{
 			ID: fmt.Sprintf("effect-%d", index+1), Stage: "Side effect", Actor: "Responder", State: effect.State,
-			Title: effect.Title, Summary: effect.Kind, Why: sideEffectWhy(effect), At: effect.At,
+			Title: present(effect.Title), Summary: present(effect.Kind), Why: sideEffectWhy(effect), At: effect.At,
 			Stats:   []TraceStat{{"Type", effect.Kind}, {"ID", fallback(effect.ID, "none")}},
 			Details: []TraceDetail{{Label: "Recorded change", Body: fallback(body, "No additional value was recorded."), Kind: "diff", Open: effect.Before != "" || effect.After != ""}},
 		})
@@ -222,10 +232,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 		}
 		details := []TraceDetail{}
 		if delivery.Body != "" {
-			details = append(details, TraceDetail{Label: "Slack payload", Body: delivery.Body, Kind: "json"})
+			details = append(details, TraceDetail{Label: "Slack payload", Body: present(delivery.Body), Kind: "json"})
 		}
 		if delivery.Error != "" {
-			details = append(details, TraceDetail{Label: "Delivery error", Body: delivery.Error, Kind: "error", Open: true})
+			details = append(details, TraceDetail{Label: "Delivery error", Body: present(delivery.Error), Kind: "error", Open: true})
 		}
 		add(TraceStep{
 			ID: fmt.Sprintf("delivery-%d", index+1), Stage: "Delivery", Actor: "Slack outbox", State: delivery.State,
@@ -238,7 +248,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 	for index, audit := range page.Audit {
 		add(TraceStep{
 			ID: fmt.Sprintf("audit-%d", index+1), Stage: "Audit", Actor: audit.Whom, State: audit.Outcome,
-			Title: audit.Kind, Summary: audit.Detail, Why: "The audit ledger attributes a decision or mutation to an actor and preserves its outcome independently of Slack presentation.", At: audit.At,
+			Title: present(audit.Kind), Summary: present(audit.Detail), Why: "The audit ledger attributes a decision or mutation to an actor and preserves its outcome independently of Slack presentation.", At: audit.At,
 			Stats: []TraceStat{{"Actor", audit.Actor}, {"Object", fallback(audit.Object, "none")}, {"Repeats", repeatValue(audit.Repeats)}},
 		})
 	}
@@ -279,44 +289,193 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage) EpisodeTrace {
 // operator can answer "which memory influenced this turn?" without searching
 // a wall of instructions. It deliberately does not infer a layer when the
 // prompt predates retention or when a field is absent.
-func promptContextDetails(prompt string) []TraceDetail {
+func promptContextDetails(prompt string, present func(string) string) ([]TraceDetail, int) {
 	const open = "<untrusted-slack-context>\n"
 	const close = "\n</untrusted-slack-context>"
 	start := strings.LastIndex(prompt, open)
 	if start < 0 {
-		return nil
+		return nil, 0
 	}
 	start += len(open)
 	end := strings.Index(prompt[start:], close)
 	if end < 0 {
-		return nil
+		return nil, 0
 	}
 
 	var envelope map[string]json.RawMessage
 	if json.Unmarshal([]byte(prompt[start:start+end]), &envelope) != nil {
-		return nil
+		return nil, 0
 	}
 	layers := []struct {
 		key, label string
+		priority   []string
 	}{
-		{"structured_memory", "Conversation memory"},
-		{"prior_operational_context", "Operational memory"},
-		{"related_situations", "Related conversation summaries"},
-		{"referenced_thread", "Referenced thread memory"},
+		{"prior_operational_context", "Operational memory", []string{"current_incidents", "open_commitments", "pending_approvals", "confirmed_memory"}},
+		{"structured_memory", "Conversation memory", []string{"goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs"}},
+		{"related_situations", "Related conversation summaries", nil},
+		{"referenced_thread", "Referenced thread memory", nil},
 	}
-	details := make([]TraceDetail, 0, len(layers))
+	details := make([]TraceDetail, 0, 12)
+	layerCount := 0
 	for _, layer := range layers {
 		raw := envelope[layer.key]
 		if emptyJSON(raw) {
 			continue
 		}
+		layerCount++
+		details = append(details, memoryLayerDetails(raw, layer.label, layer.priority, present)...)
+	}
+	return details, layerCount
+}
+
+func memoryLayerDetails(raw json.RawMessage, label string, priority []string, present func(string) string) []TraceDetail {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || len(fields) == 0 {
+		return []TraceDetail{{Label: label, Body: present(prettyJSON(string(raw))), Kind: "json"}}
+	}
+	keys := make([]string, 0, len(fields))
+	seen := map[string]bool{}
+	for _, key := range priority {
+		if !emptyJSON(fields[key]) {
+			keys = append(keys, key)
+			seen[key] = true
+		}
+	}
+	rest := make([]string, 0, len(fields))
+	for key, value := range fields {
+		if !seen[key] && !emptyJSON(value) {
+			rest = append(rest, key)
+		}
+	}
+	sort.Strings(rest)
+	keys = append(keys, rest...)
+	details := make([]TraceDetail, 0, len(keys))
+	for _, key := range keys {
 		details = append(details, TraceDetail{
-			Label: layer.label,
-			Body:  prettyJSON(string(raw)),
-			Kind:  "json",
+			Label: label + " · " + eventTitle(key),
+			Body:  present(prettyJSON(string(fields[key]))), Kind: "json",
 		})
 	}
 	return details
+}
+
+func modelSelectionWhy(manifest ManifestRow) string {
+	target := strings.TrimSpace(manifest.Provider + "/" + manifest.Model)
+	if target == "/" {
+		target = "an unrecorded target"
+	}
+	effort := fallback(manifest.Effort, "an unrecorded reasoning effort")
+	if manifest.Preset != "" {
+		return fmt.Sprintf("Preset %s routed this episode to %s at %s effort. The manifest records the effective choice; it does not retain a scorecard of rejected model or effort alternatives.", manifest.Preset, target, effort)
+	}
+	return fmt.Sprintf("The effective routing policy selected %s at %s effort. No preset or alternative-candidate score was retained for this attempt.", target, effort)
+}
+
+type promptRange struct {
+	start, end int
+	source     string
+	tone       string
+}
+
+func promptSegments(prompt string) []PromptSegment {
+	ranges := []promptRange{}
+	for _, section := range []struct{ tag, source, tone string }{
+		{"trusted-responder-context", "Trusted Responder context", "trusted"},
+		{"untrusted-slack-context", "Slack and memory context", "memory"},
+	} {
+		open, close := "<"+section.tag+">", "</"+section.tag+">"
+		if start := strings.Index(prompt, open); start >= 0 {
+			if tail := strings.Index(prompt[start+len(open):], close); tail >= 0 {
+				ranges = append(ranges, promptRange{start, start + len(open) + tail + len(close), section.source, section.tone})
+			}
+		}
+	}
+	if start := strings.LastIndex(prompt, "\nUSER:"); start >= 0 {
+		ranges = append(ranges, promptRange{start + 1, len(prompt), "User request", "user"})
+	}
+	sort.Slice(ranges, func(i, j int) bool { return ranges[i].start < ranges[j].start })
+
+	segments := []PromptSegment{}
+	add := func(body, source, tone string) {
+		if body == "" {
+			return
+		}
+		tokens := max(1, (utf8.RuneCountInString(body)+3)/4)
+		segments = append(segments, PromptSegment{
+			Body: body, Source: source, Tone: tone, Tokens: tokens,
+			Hint: fmt.Sprintf("%s · about %s tokens", source, humanTokens(int64(tokens))),
+		})
+	}
+	cursor := 0
+	for _, section := range ranges {
+		if section.start < cursor {
+			continue
+		}
+		add(prompt[cursor:section.start], "System instructions", "system")
+		add(prompt[section.start:section.end], section.source, section.tone)
+		cursor = section.end
+	}
+	add(prompt[cursor:], "System instructions", "system")
+	if len(segments) == 0 {
+		add(prompt, "Submitted prompt", "system")
+	}
+	return segments
+}
+
+func presentEventPayload(payload string, present func(string) string) string {
+	if strings.TrimSpace(payload) == "" {
+		return ""
+	}
+	var value any
+	if json.Unmarshal([]byte(payload), &value) != nil {
+		return present(payload)
+	}
+	value = presentEventValue(stripZeroTimes(value), present)
+	encoded, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return present(payload)
+	}
+	return string(encoded)
+}
+
+func presentEventValue(value any, present func(string) string) any {
+	switch item := value.(type) {
+	case map[string]any:
+		for key, child := range item {
+			item[key] = presentEventValue(child, present)
+		}
+		return item
+	case []any:
+		for index := range item {
+			item[index] = presentEventValue(item[index], present)
+		}
+		return item
+	case string:
+		return present(item)
+	default:
+		return value
+	}
+}
+
+func stripZeroTimes(value any) any {
+	switch item := value.(type) {
+	case map[string]any:
+		for key, child := range item {
+			if text, ok := child.(string); ok && strings.HasPrefix(text, "0001-01-01T00:00:00") {
+				delete(item, key)
+				continue
+			}
+			item[key] = stripZeroTimes(child)
+		}
+		return item
+	case []any:
+		for index := range item {
+			item[index] = stripZeroTimes(item[index])
+		}
+		return item
+	default:
+		return value
+	}
 }
 
 func emptyJSON(raw json.RawMessage) bool {
@@ -328,6 +487,7 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 	respond := EpisodeMetric{Label: "Time to respond", Value: "Not recorded", Missing: true,
 		Detail: "No sent Slack reply is retained for this episode."}
 	if !page.Source.Received.IsZero() {
+		respond.Detail = "Started " + page.Source.Received.UTC().Format("2006-01-02 15:04 UTC")
 		var first time.Time
 		for _, delivery := range page.Delivered {
 			if delivery.State != "sent" || delivery.Operation == "status" || delivery.At.IsZero() {
@@ -339,7 +499,6 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 		}
 		if !first.IsZero() {
 			respond.Value, respond.Missing, respond.Tone = compactDuration(first.Sub(page.Source.Received)), false, "good"
-			respond.Detail = "From Slack receipt to the first sent public reply."
 		}
 	}
 
@@ -360,17 +519,21 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 	}
 
 	cost := episodeCost(pricing, page.Spent)
-	costMetric := EpisodeMetric{Label: "Episode cost", Value: "Not priced", Missing: true,
+	tokens := "not measured"
+	if page.Spent.Recorded() {
+		tokens = humanTokens(page.Spent.Total())
+	}
+	costMetric := EpisodeMetric{Label: "Episode cost", Value: "Not priced / " + tokens, Missing: true,
 		Detail: "Token usage exists, but no matching configured price was available."}
 	if cost.Priceable() {
-		costMetric.Value, costMetric.Missing = cost.Money(), false
+		costMetric.Value, costMetric.Missing = cost.Money()+" / "+tokens, false
 		costMetric.Detail = "Calculated from recorded tokens and the configured model price."
 		if cost.Partial() {
 			costMetric.Value += " partial"
 			costMetric.Tone = "warn"
 		}
 	} else if !page.Spent.Recorded() {
-		costMetric.Value = "Not measured"
+		costMetric.Value = "Not measured / " + tokens
 		costMetric.Detail = "The provider did not report token usage for this episode."
 	}
 
@@ -420,14 +583,6 @@ func episodeErrorCount(page episodePage) (int, string) {
 	}
 	count := failedAttempts + corrections + deliveries + parseFailures
 	return count, fmt.Sprintf("%d failed attempts · %d host corrections · %d delivery failures · %d unreadable results", failedAttempts, corrections, deliveries, parseFailures)
-}
-
-func sourceSummary(source SourceInput) string {
-	text := strings.Join(strings.Fields(source.Text), " ")
-	if text == "" {
-		return source.Kind + " event in " + source.Channel
-	}
-	return truncate(text, 180)
 }
 
 func modelSummary(turn Turn) string {
@@ -511,22 +666,10 @@ func usageTraceStep(page episodePage) TraceStep {
 }
 
 func eventWhy(kind string) string {
-	switch kind {
-	case "episode_created":
-		return "The episode kernel created the durable unit of work before execution began."
-	case "planning":
-		return "Responder classified the request and established the work boundary before calling the model."
-	case "context_extended":
+	if kind == "context_extended" {
 		return "Additional context was frozen so later results can be traced to the exact inputs they used."
-	case "working":
-		return "The episode entered active execution after its prerequisites were ready."
-	case "verifying":
-		return "The host checked the returned result and any required completion contract before publishing it."
-	case "completed":
-		return "The episode reached a terminal state after its result and side effects were accepted."
-	default:
-		return "This is a durable episode-kernel transition recorded for replay and diagnosis."
 	}
+	return ""
 }
 
 func attemptSummary(attempt Attempt) string {
@@ -560,29 +703,29 @@ func deliveryWhy(delivery Delivery) string {
 	return "The outbox sequences Slack writes, retries transient failures, and makes publication independent of model execution."
 }
 
-func ledgerDetails(page episodePage) []TraceDetail {
+func ledgerDetails(page episodePage, present func(string) string) []TraceDetail {
 	details := []TraceDetail{}
 	for _, claim := range page.Claims {
 		body := claim.Status + " · confidence " + fallback(claim.Confidence, "not recorded") +
 			fmt.Sprintf("\nSupporting evidence: %d · contradicting evidence: %d", claim.Supporting, claim.Contradicting)
 		if claim.Detail != "" {
-			body += "\n" + claim.Detail
+			body += "\n" + present(claim.Detail)
 		}
-		details = append(details, TraceDetail{Label: "Claim · " + claim.Claim, Body: body, Kind: "evidence"})
+		details = append(details, TraceDetail{Label: "Claim · " + present(claim.Claim), Body: body, Kind: "evidence"})
 	}
 	for _, evidence := range page.Evidence {
 		body := evidence.Observation + "\n" + evidence.Relation + " · " + evidence.Source
 		if evidence.Freshness != "" {
 			body += "\nFreshness: " + evidence.Freshness
 		}
-		details = append(details, TraceDetail{Label: "Evidence · " + evidence.Claim, Body: body, Kind: "evidence"})
+		details = append(details, TraceDetail{Label: "Evidence · " + present(evidence.Claim), Body: present(body), Kind: "evidence"})
 	}
 	for _, coverage := range page.Coverage {
 		body := coverage.Status + " · " + coverage.Source
 		if coverage.Detail != "" {
 			body += "\n" + coverage.Detail
 		}
-		details = append(details, TraceDetail{Label: "Coverage · " + coverage.Layer, Body: body, Kind: "evidence"})
+		details = append(details, TraceDetail{Label: "Coverage · " + present(coverage.Layer), Body: present(body), Kind: "evidence"})
 	}
 	return details
 }
