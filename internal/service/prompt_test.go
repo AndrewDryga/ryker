@@ -319,7 +319,19 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // carried it. Nothing replaced it in the prompt: the refusal that explains
 // where an operational request goes instead lives in the validator, where it
 // costs bytes only on the turn that needs it.
-const staticWatchPromptBytes = 48365
+//
+// Raised by 165 on 2026-08-10 for the expires_in vocabulary, because "never"
+// exists now and a value the model has never been told about is a value it
+// cannot offer. The prompt had never listed the durations at all — the model
+// learned them only by guessing one, being rejected, and reading the error —
+// and that worked while every legal answer was a number of days it could infer.
+// It stopped working the moment an operator said "I don't want a deadline, do
+// it forever": the honest reply was that permanence was unavailable, and it was
+// wrong about the product one commit later. Three of these bytes are the enum
+// and the rest are the two constraints a model cannot infer from it — which
+// offers accept never, and that a permanent entry is reviewed rather than kept
+// unexamined — because both are things it will be asked to explain out loud.
+const staticWatchPromptBytes = 48530
 
 // The static prompt must not grow without someone deciding it should.
 //

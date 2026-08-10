@@ -351,6 +351,18 @@ func (s *Service) scheduledTaskFromOffer(
 	if err != nil {
 		return core.ScheduledTask{}, err
 	}
+	// Guidance, preferences and rules are inert: they shape a reply to something
+	// the operator already asked for, and the worst a forgotten one does is
+	// phrase an answer the way it was told to. A schedule acts. It wakes up,
+	// spends a model budget and posts into a channel with nobody present, and
+	// the review queue that questions a permanent memory does not cover
+	// scheduled tasks. Something unattended that spends money keeps a date on it.
+	if ttl == memorypkg.PermanentTTL {
+		return core.ScheduledTask{}, errors.New(
+			"a scheduled task cannot be permanent because it runs unattended; " +
+				"use 7d, 30d, 90d, or 365d",
+		)
+	}
 	task := core.ScheduledTask{
 		TeamID: s.cfg.Slack.TeamID, ChannelID: input.ChannelID,
 		ThreadTS:        conversationalResponseThread(input),

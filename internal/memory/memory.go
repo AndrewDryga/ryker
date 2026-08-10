@@ -11,6 +11,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unicode"
@@ -34,9 +35,26 @@ func boundedStrings(values []string, limit int, fieldLimit int) []string {
 
 // TTL bounds. A memory with no expiry is a memory nobody revisits, and one that
 // never expires eventually describes a system that no longer exists.
+//
+// Both halves of that were written about facts, and both are true about facts.
+// Neither is true about guidance. "Always tell me the version delta" describes
+// no system, so it cannot come to describe a system that no longer exists, and
+// the operator who asked for it revisits it every time Responder obeys it. The
+// thirty-day clock was not protecting them from a stale fact — it was deleting
+// an instruction, on a schedule, without saying so.
+//
+// So permanence exists, and the pressure the expiry provided is kept rather
+// than dropped: a permanent entry that goes ReviewStaleAfter without being
+// recalled surfaces in the memory review queue, which asks the operator whether
+// it still holds. Questioned forever, deleted never. PermanentTTL is the
+// vocabulary for that; core.PermanentExpiry is the instant it resolves to.
 const (
 	DefaultTTL = 30 * 24 * time.Hour
 	MaxTTL     = 365 * 24 * time.Hour
+	// PermanentTTL is not a duration anyone waits out. It is the distinguished
+	// value ParseMemoryTTL returns for "never", which ExpiryFrom turns into
+	// core.PermanentExpiry rather than adding to the clock.
+	PermanentTTL = time.Duration(math.MaxInt64)
 )
 
 func MemoryEntryIDs(entries []core.MemoryEntry) []string {
@@ -104,6 +122,13 @@ func ParseMemoryTTL(value string) (time.Duration, error) {
 	if value == "" {
 		return DefaultTTL, nil
 	}
+	// "forever" and "permanent" are what an operator says and therefore what a
+	// model repeats back. Rejecting the request over which synonym it chose
+	// would reproduce the failure this whole change exists to fix.
+	switch value {
+	case core.NeverExpires, "forever", "permanent":
+		return PermanentTTL, nil
+	}
 	if strings.HasSuffix(value, "d") {
 		daysText := strings.TrimSuffix(value, "d")
 		switch daysText {
@@ -117,7 +142,20 @@ func ParseMemoryTTL(value string) (time.Duration, error) {
 			return MaxTTL, nil
 		}
 	}
-	return 0, errors.New("expires_in must be 7d, 30d, 90d, or 365d")
+	return 0, errors.New("expires_in must be 7d, 30d, 90d, 365d, or never")
+}
+
+// ExpiryFrom resolves a parsed TTL against the clock.
+//
+// Permanence is the reason this is a function rather than now.Add(ttl) at each
+// call site: a permanent row is stored at exactly core.PermanentExpiry, not at
+// "now plus something enormous", so that every surface can recognize it by
+// value instead of guessing from how far away it is.
+func ExpiryFrom(now time.Time, ttl time.Duration) time.Time {
+	if ttl == PermanentTTL {
+		return core.PermanentExpiry
+	}
+	return now.Add(ttl)
 }
 
 func MemoryScopeLabel(offer core.MemoryOffer) string {
@@ -128,10 +166,16 @@ func MemoryScopeLabel(offer core.MemoryOffer) string {
 }
 
 func FormatMemoryTTL(ttl time.Duration) string {
+	if ttl == PermanentTTL {
+		return core.NeverExpires
+	}
 	return fmt.Sprintf("%d days", int(ttl/(24*time.Hour)))
 }
 
 func MemoryTTLValue(ttl time.Duration) string {
+	if ttl == PermanentTTL {
+		return core.NeverExpires
+	}
 	return fmt.Sprintf("%dd", int(ttl/(24*time.Hour)))
 }
 

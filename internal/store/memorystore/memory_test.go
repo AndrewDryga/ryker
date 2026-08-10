@@ -2,6 +2,7 @@ package memorystore_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,5 +164,102 @@ func TestMemoryHomePrivacyRepositoryBindingAndOrphanPrune(t *testing.T) {
 	deleted, err := repo.DeleteChannelMemoryEntries(ctx, "COPS")
 	if err != nil || deleted != 1 {
 		t.Fatalf("channel memory delete = %d, %v", deleted, err)
+	}
+}
+
+// Guidance can be permanent; a fact cannot.
+//
+// The operator asked for a communication preference to be remembered "forever"
+// and was correctly told the control only offered thirty days. Guidance is
+// advice about how to answer and does not rot. A predicate like alias_of or
+// evidence_route describes a system that can change without telling Responder,
+// so a permanent one would quietly become a lie — the refusal names the way out
+// so a model reading it can fix its own offer.
+func TestOnlyGuidanceMayBeRememberedForever(t *testing.T) {
+	ctx := context.Background()
+	db := storetest.DB(t)
+	repo := memorystore.New(db, time.Now)
+
+	guidance := core.MemoryEntry{
+		ScopeKind: "channel", ScopeKey: "COPS",
+		SubjectKey: "terraform_image_change", Predicate: "guidance",
+		Value:     "State the before and after product versions, then summarize the material Git diff.",
+		SourceRef: "slack_1", ActorID: "UOPERATOR",
+		VisibilityKind: "channel", VisibilityID: "COPS",
+		ExpiresAt: core.PermanentExpiry,
+	}
+	saved, _, err := repo.UpsertMemoryEntry(ctx, guidance, 10, 5)
+	if err != nil {
+		t.Fatalf("permanent guidance was refused: %v", err)
+	}
+	if !core.IsPermanentExpiry(saved.ExpiresAt) {
+		t.Fatalf("the saved entry is not permanent: %s", saved.ExpiresAt)
+	}
+
+	fact := guidance
+	fact.SubjectKey, fact.Predicate = "old runner", "alias_of"
+	fact.Value = "emisar:runner/current"
+	if _, _, err := repo.UpsertMemoryEntry(ctx, fact, 10, 5); err == nil {
+		t.Fatal("a fact-shaped predicate was allowed to be permanent")
+	} else if !strings.Contains(err.Error(), "guidance") {
+		t.Errorf("the refusal does not name the way out: %v", err)
+	}
+}
+
+// A permanent entry outlives the sweep that deletes an expired one.
+//
+// Every expiry read in this schema is "expires_at > now" and every sweep is
+// "expires_at <= now", so the sentinel has to be later than any clock the
+// pruner will ever hold. This asserts both halves at once: the expired row is
+// gone and the permanent one is still there.
+func TestAPermanentMemorySurvivesTheSweepThatTakesAnExpiredOne(t *testing.T) {
+	ctx := context.Background()
+	db := storetest.DB(t)
+	repo := memorystore.New(db, time.Now)
+	now := time.Now().UTC()
+
+	permanent := core.MemoryEntry{
+		ScopeKind: "channel", ScopeKey: "COPS",
+		SubjectKey: "terraform_image_change", Predicate: "guidance",
+		Value:     "Always state the version delta.",
+		SourceRef: "slack_1", ActorID: "UOPERATOR",
+		VisibilityKind: "channel", VisibilityID: "COPS",
+		ExpiresAt: core.PermanentExpiry,
+	}
+	if _, _, err := repo.UpsertMemoryEntry(ctx, permanent, 10, 5); err != nil {
+		t.Fatal(err)
+	}
+	expiring := permanent
+	expiring.SubjectKey = "something_temporary"
+	expiring.ExpiresAt = now.Add(time.Hour)
+	if _, _, err := repo.UpsertMemoryEntry(ctx, expiring, 10, 5); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sweep with a clock past the hour-long entry. This is the pruner's exact
+	// statement from internal/store/lifecycle.go, so the sentinel is being held
+	// to the same comparison production uses.
+	if _, err := db.ExecContext(ctx,
+		`DELETE FROM memory_entries WHERE expires_at <= ?`,
+		now.Add(2*time.Hour).Format(core.TimestampFormat),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	var subjects []string
+	rows, err := db.QueryContext(ctx, `SELECT subject_key FROM memory_entries ORDER BY subject_key`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var subject string
+		if err := rows.Scan(&subject); err != nil {
+			t.Fatal(err)
+		}
+		subjects = append(subjects, subject)
+	}
+	if len(subjects) != 1 || subjects[0] != "terraform_image_change" {
+		t.Fatalf("the sweep did not leave exactly the permanent entry: %v", subjects)
 	}
 }

@@ -401,9 +401,9 @@ func (s *Service) applyReplyDecision(
 		input, finalReply, decision.Evidence, decision.Coverage,
 	)
 	outcome := "replied"
-	if actionValue, scope, expires, ok := s.prepareMemoryOfferAction(input, decision.MemoryOffer); ok {
+	if actionValue, permanent, scope, expires, ok := s.prepareMemoryOfferAction(input, decision.MemoryOffer); ok {
 		message = slackui.WithMemoryOffer(
-			message, *decision.MemoryOffer, actionValue, scope, expires,
+			message, *decision.MemoryOffer, actionValue, permanent, scope, expires,
 		)
 		outcome = "memory_offered"
 	}

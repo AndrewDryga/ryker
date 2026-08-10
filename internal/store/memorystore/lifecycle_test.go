@@ -3,6 +3,7 @@ package memorystore_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,5 +140,60 @@ func TestMemoryReplacementRecordsHashOnlySupersession(t *testing.T) {
 	}
 	if count != 1 || len(previous) != 64 || len(replacement) != 64 || previous == replacement {
 		t.Fatalf("supersession = count=%d previous=%q replacement=%q", count, previous, replacement)
+	}
+}
+
+// A permanent memory that stops being used gets questioned, not deleted.
+//
+// This is the whole argument for allowing permanence at all. The review queue
+// had produced zero rows on both deployments for its entire life, and the
+// arithmetic explains it: entries expired at thirty days and the staleness
+// window was thirty days, so every candidate was swept a moment before it could
+// be asked about. A permanent entry is the first kind that can go unused long
+// enough to be worth a question, and the question is what keeps "forever" from
+// meaning "unexamined".
+func TestAnUnusedPermanentMemoryIsQuestionedRatherThanDropped(t *testing.T) {
+	ctx := context.Background()
+	db := storetest.DB(t)
+	repo := memorystore.New(db, time.Now)
+	now := time.Now().UTC()
+
+	saved, _, err := repo.UpsertMemoryEntry(ctx, core.MemoryEntry{
+		ScopeKind: "channel", ScopeKey: "COPS",
+		SubjectKey: "terraform_image_change", Predicate: "guidance",
+		Value:     "State the before and after product versions, then the material Git diff.",
+		SourceRef: "slack_1", ActorID: "UOPERATOR",
+		VisibilityKind: "channel", VisibilityID: "COPS",
+		ExpiresAt: core.PermanentExpiry,
+	}, 10, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Nothing has recalled it since it was written. Ask as of a month later.
+	if err := repo.RefreshMemoryReviewQueue(ctx, now.Add(31*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	reviews, err := repo.ListPendingMemoryReviews(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 1 {
+		t.Fatalf("an unused permanent memory raised %d reviews, want 1", len(reviews))
+	}
+	if !strings.Contains(reviews[0].Reason, "never expires") ||
+		!strings.Contains(reviews[0].Reason, "not a deletion") {
+		t.Errorf("the review does not say it is a question rather than a removal: %q", reviews[0].Reason)
+	}
+
+	// And it is still there afterwards. Being questioned is not being removed.
+	var count int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM memory_entries WHERE id = ?`, saved.ID,
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatal("the permanent memory was removed by the review pass")
 	}
 }
