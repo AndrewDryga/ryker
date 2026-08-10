@@ -185,6 +185,8 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		ALTER TABLE configuration_sessions DROP COLUMN card_ts;
 		ALTER TABLE standing_rules DROP COLUMN acted_count;
 		ALTER TABLE standing_rules DROP COLUMN quiet_count;
+		ALTER TABLE standing_rules DROP COLUMN workflow_name;
+		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		DROP TABLE quality_findings;
 		DROP TABLE conversation_memory_changes;`); err != nil {
@@ -289,6 +291,8 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 	defer db.Close()
 	if _, err := db.Exec(`
 		UPDATE schema_version SET version = 54;
+		ALTER TABLE standing_rules DROP COLUMN workflow_name;
+		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		DROP TABLE conversation_memory_changes;
 		CREATE TABLE action_proposals (

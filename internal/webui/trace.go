@@ -250,7 +250,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		add(TraceStep{
 			ID: fmt.Sprintf("audit-%d", index+1), Stage: "Audit", Actor: audit.Whom, State: audit.Outcome,
 			Title: eventTitle(audit.Kind), Summary: summary, Why: auditTraceWhy(audit), At: audit.At,
-			Stats: stats,
+			Stats: stats, Details: auditTraceDetails(audit, present),
 		})
 	}
 
@@ -285,6 +285,31 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 }
 
 func auditTracePresentation(audit AuditRow, present func(string) string) (string, []TraceStat) {
+	if audit.Kind == "standing_rules.evaluated" {
+		var evaluation core.StandingRuleEvaluationAudit
+		if err := json.Unmarshal([]byte(audit.Detail), &evaluation); err == nil {
+			skipped := max(evaluation.Checked-evaluation.Matched, 0)
+			stats := []TraceStat{
+				{"Rules checked", fmt.Sprint(evaluation.Checked)},
+				{"Matched", fmt.Sprint(evaluation.Matched)},
+				{"Did not match", fmt.Sprint(skipped)},
+			}
+			if evaluation.Acknowledged != "" {
+				stats = append(stats, TraceStat{
+					"Acknowledgement", slackReactionDisplay(evaluation.Acknowledged),
+				})
+			}
+			summary := fmt.Sprintf("Checked %d active rules. ", evaluation.Checked)
+			if evaluation.Matched == 0 {
+				summary += "None matched, so the rules do not affect this message."
+			} else if evaluation.Matched == 1 {
+				summary += fmt.Sprintf("1 now guides this message; %d did not match.", skipped)
+			} else {
+				summary += fmt.Sprintf("%d now guide this message; %d did not match.", evaluation.Matched, skipped)
+			}
+			return summary, stats
+		}
+	}
 	stats := []TraceStat{{"Actor", audit.Actor}, {"Object", fallback(audit.Object, "none")}, {"Repeats", repeatValue(audit.Repeats)}}
 	summary := present(audit.Detail)
 	if audit.Outcome != "reacted" && audit.Outcome != "unreacted" {
@@ -301,6 +326,8 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 
 func auditTraceWhy(audit AuditRow) string {
 	switch audit.Kind {
+	case "standing_rules.evaluated":
+		return ""
 	case "standing_rule.acknowledged":
 		return "A confirmed channel rule matched this Slack message. Responder added a temporary acknowledgement before starting read-only evaluation."
 	case "standing_rule.acknowledgement_cleared":
@@ -308,6 +335,38 @@ func auditTraceWhy(audit AuditRow) string {
 	default:
 		return "The audit ledger attributes a decision or mutation to an actor and preserves its outcome independently of Slack presentation."
 	}
+}
+
+func auditTraceDetails(audit AuditRow, present func(string) string) []TraceDetail {
+	if audit.Kind != "standing_rules.evaluated" {
+		return nil
+	}
+	var evaluation core.StandingRuleEvaluationAudit
+	if err := json.Unmarshal([]byte(audit.Detail), &evaluation); err != nil {
+		return []TraceDetail{{
+			Label: "Rule evaluation record", Body: present(audit.Detail), Kind: "json",
+		}}
+	}
+	details := make([]TraceDetail, 0, len(evaluation.Rules))
+	for _, rule := range evaluation.Rules {
+		state := "Did not match"
+		now := "Effect now: None."
+		if rule.Matched {
+			state = "Matched"
+			now = "Effect now: This rule controls which checks run and when Slack gets a reply."
+		}
+		name := strings.TrimSpace(rule.Name)
+		if name == "" {
+			name = "Standing rule"
+		}
+		body := "Why: " + present(rule.Why) + "\n\nLooks for: " + present(rule.Trigger) +
+			"\n\nChecks: " + present(rule.Work) + "\n\nIn Slack: " +
+			present(rule.Delivery) + "\n\n" + now
+		details = append(details, TraceDetail{
+			Label: state + " - " + present(name), Body: body, Kind: "rule", Open: true,
+		})
+	}
+	return details
 }
 
 func slackReactionDisplay(name string) string {
@@ -665,6 +724,9 @@ func eventStage(kind string) string {
 }
 
 func eventTitle(kind string) string {
+	if kind == "standing_rules.evaluated" {
+		return "Standing rules checked"
+	}
 	title := strings.NewReplacer("_", " ", ".", " ").Replace(kind)
 	if title == "" {
 		return "Episode event"

@@ -543,10 +543,13 @@ type ResponderPreference struct {
 }
 
 type RuleOffer struct {
-	Scope      string `json:"scope"`
-	Repository string `json:"repository"`
-	Trigger    string `json:"trigger"`
-	Action     string `json:"action"`
+	Scope      string            `json:"scope"`
+	Repository string            `json:"repository"`
+	Workflow   *StandingWorkflow `json:"workflow,omitempty"`
+	// Trigger and Action accept old model responses and preserve compatibility
+	// with rules saved before workflow documents. New offers use Workflow.
+	Trigger    string `json:"trigger,omitempty"`
+	Action     string `json:"action,omitempty"`
 	SourceKind string `json:"source_kind,omitempty"`
 	ExpiresIn  string `json:"expires_in,omitempty"`
 }
@@ -582,6 +585,8 @@ type StandingRule struct {
 	Trigger      string
 	Action       string
 	SourceKind   string
+	WorkflowName string
+	Workflow     StandingWorkflow
 	Enabled      bool
 	SourceRef    string
 	ActorID      string

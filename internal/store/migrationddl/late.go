@@ -1,10 +1,8 @@
-package store
+// Package migrationddl holds append-only schema changes outside the store
+// orchestration package. Moving the SQL does not change migration ordering.
+package migrationddl
 
-// schemaV56 records the exact before/after delta of every conversation-memory
-// write. The agent result is only a proposal until ApplyWatchDecision commits;
-// this audit row is written in that same transaction so the episode dashboard
-// never labels a returned snapshot as saved when persistence did not happen.
-const schemaV56 = `
+const V56 = `
 CREATE TABLE conversation_memory_changes (
   id TEXT PRIMARY KEY, episode_id TEXT NOT NULL DEFAULT '',
   source_input TEXT NOT NULL UNIQUE, channel_id TEXT NOT NULL,
@@ -15,4 +13,9 @@ CREATE TABLE conversation_memory_changes (
 
 CREATE INDEX conversation_memory_changes_episode_idx
   ON conversation_memory_changes(episode_id, created_at);
+`
+
+const V58 = `
+ALTER TABLE standing_rules ADD COLUMN workflow_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE standing_rules ADD COLUMN workflow_json BLOB NOT NULL DEFAULT '';
 `

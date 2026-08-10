@@ -3,6 +3,7 @@ package behaviorstore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -271,6 +272,14 @@ func (r *Repository) UpsertStandingRule(
 	maxTotal int,
 	maxPerChannel int,
 ) (core.StandingRule, bool, error) {
+	workflow, trigger, action, err := core.NormalizeStandingWorkflow(
+		rule.Workflow, rule.Trigger, rule.Action,
+	)
+	if err != nil {
+		return core.StandingRule{}, false, err
+	}
+	rule.Workflow, rule.WorkflowName = workflow, workflow.Name
+	rule.Trigger, rule.Action = trigger, action
 	if err := validateStandingRule(rule); err != nil {
 		return core.StandingRule{}, false, err
 	}
@@ -337,20 +346,27 @@ func (r *Repository) UpsertStandingRule(
 	}
 	rule.Enabled = true
 	rule.UpdatedAt = now
+	workflowJSON, err := json.Marshal(rule.Workflow)
+	if err != nil {
+		return core.StandingRule{}, false, fmt.Errorf("encode standing workflow: %w", err)
+	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO standing_rules (
 		  id, channel_id, repository, trigger_name, action_name, source_kind,
-		  enabled, source_ref, actor_id, expires_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+		  workflow_name, workflow_json, enabled, source_ref, actor_id,
+		  expires_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
 		ON CONFLICT(channel_id, trigger_name, action_name, repository, source_kind)
 		DO UPDATE SET
+		  workflow_name = excluded.workflow_name,
+		  workflow_json = excluded.workflow_json,
 		  enabled = 1,
 		  source_ref = excluded.source_ref,
 		  actor_id = excluded.actor_id,
 		  expires_at = excluded.expires_at,
 		  updated_at = excluded.updated_at`,
 		rule.ID, rule.ChannelID, rule.Repository, rule.Trigger, rule.Action,
-		rule.SourceKind, rule.SourceRef, rule.ActorID,
+		rule.SourceKind, rule.WorkflowName, workflowJSON, rule.SourceRef, rule.ActorID,
 		rule.ExpiresAt.UTC().Format(core.TimestampFormat),
 		rule.CreatedAt.UTC().Format(core.TimestampFormat),
 		rule.UpdatedAt.UTC().Format(core.TimestampFormat),
@@ -365,15 +381,8 @@ func (r *Repository) UpsertStandingRule(
 }
 
 func validateStandingRule(rule core.StandingRule) error {
-	validPair := (rule.Trigger == "terraform_plan" && rule.Action == "review_terraform_plan") ||
-		(rule.Trigger == "terraform_lifecycle" &&
-			rule.Action == "monitor_terraform_lifecycle") ||
-		(rule.Trigger == "deployment" && rule.Action == "verify_deployment") ||
-		(rule.Trigger == "operational_alert" && rule.Action == "triage_alert")
-	if !validPair {
-		return fmt.Errorf(
-			"standing rule pair %q/%q is invalid", rule.Trigger, rule.Action,
-		)
+	if err := core.ValidateStandingWorkflow(rule.Workflow); err != nil {
+		return err
 	}
 	switch rule.SourceKind {
 	case "any", "human", "app":
@@ -388,7 +397,7 @@ func validateStandingRule(rule core.StandingRule) error {
 			return fmt.Errorf("standing rule %s is required", name)
 		}
 	}
-	if len(rule.ChannelID) > 64 || len(rule.Repository) > 63 ||
+	if len(rule.ChannelID) > 64 || len(rule.Repository) > 63 || len(rule.WorkflowName) > 80 ||
 		len(rule.SourceRef) > 200 || len(rule.ActorID) > 64 {
 		return errors.New("standing rule contains an oversized field")
 	}
@@ -680,6 +689,7 @@ func scanPreferences(rows *sql.Rows) ([]core.ResponderPreference, error) {
 // rule's present behaviour.
 const standingRuleSelect = `
 	SELECT id, channel_id, repository, trigger_name, action_name, source_kind,
+	  workflow_name, workflow_json,
 	  enabled, source_ref, actor_id, trigger_count, acted_count, quiet_count,
 	  last_triggered_at,
 	  (SELECT max(run.created_at) FROM standing_rule_runs run
@@ -693,9 +703,11 @@ func scanStandingRule(row sqlutil.RowScanner) (core.StandingRule, error) {
 	var enabled int
 	var lastTriggered, lastActed sql.NullString
 	var expiresAt, createdAt, updatedAt string
+	var workflowJSON []byte
 	err := row.Scan(
 		&rule.ID, &rule.ChannelID, &rule.Repository, &rule.Trigger, &rule.Action,
-		&rule.SourceKind, &enabled, &rule.SourceRef, &rule.ActorID,
+		&rule.SourceKind, &rule.WorkflowName, &workflowJSON,
+		&enabled, &rule.SourceRef, &rule.ActorID,
 		&rule.TriggerCount, &rule.ActedCount, &rule.QuietCount, &lastTriggered,
 		&lastActed, &expiresAt, &createdAt, &updatedAt,
 	)
@@ -705,6 +717,19 @@ func scanStandingRule(row sqlutil.RowScanner) (core.StandingRule, error) {
 	if err != nil {
 		return core.StandingRule{}, err
 	}
+	if len(workflowJSON) > 0 {
+		if err := json.Unmarshal(workflowJSON, &rule.Workflow); err != nil {
+			return core.StandingRule{}, fmt.Errorf("decode standing workflow %q: %w", rule.ID, err)
+		}
+	}
+	workflow, trigger, action, err := core.NormalizeStandingWorkflow(
+		rule.Workflow, rule.Trigger, rule.Action,
+	)
+	if err != nil {
+		return core.StandingRule{}, fmt.Errorf("normalize standing workflow %q: %w", rule.ID, err)
+	}
+	rule.Workflow, rule.WorkflowName = workflow, workflow.Name
+	rule.Trigger, rule.Action = trigger, action
 	rule.Enabled = enabled == 1
 	if lastTriggered.Valid {
 		rule.LastTriggered = sqlutil.ParseTime(lastTriggered.String)

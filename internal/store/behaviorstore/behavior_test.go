@@ -284,6 +284,13 @@ func TestTerraformLifecycleStandingRulePersists(t *testing.T) {
 		stored.Action != "monitor_terraform_lifecycle" {
 		t.Fatalf("stored terraform lifecycle rule = %+v, err=%v", stored, err)
 	}
+	if stored.WorkflowName != "Follow Terraform runs" ||
+		stored.Workflow.Trigger.Event != "terraform_run" ||
+		len(stored.Workflow.Steps) != 4 ||
+		stored.Workflow.Delivery.Location != "source_thread" ||
+		stored.Workflow.Delivery.Acknowledge != "eyes" {
+		t.Fatalf("stored terraform workflow = %+v", stored.Workflow)
+	}
 }
 
 func TestBehaviorCapacityAllowsReplacementButRejectsNewEntries(t *testing.T) {

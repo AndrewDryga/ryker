@@ -331,7 +331,7 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // and the rest are the two constraints a model cannot infer from it — which
 // offers accept never, and that a permanent entry is reviewed rather than kept
 // unexamined — because both are things it will be asked to explain out loud.
-const staticWatchPromptBytes = 48530
+const staticWatchPromptBytes = 48771
 
 // The static prompt must not grow without someone deciding it should.
 //

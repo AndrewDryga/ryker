@@ -159,45 +159,27 @@ func WithRuleOffer(
 	actionValue string,
 	expiresLabel string,
 ) Message {
-	title := "Standing rule"
-	description := fmt.Sprintf("Watch matching messages and reply in their threads using `%s`.", offer.Repository)
-	label := "Enable standing rule"
-	confirmation := "Enable this read-only rule " + rememberPhrase(expiresLabel) + "?"
-	switch {
-	case offer.Trigger == "terraform_lifecycle" && offer.Action == "monitor_terraform_lifecycle":
-		title = "Monitor Terraform runs"
-		description = "Summarize saved plans and red flags in each run's thread, ignore routine updates, verify health after an apply, and tag you if an apply fails."
-		label = "Monitor Terraform runs"
-	case offer.Trigger == "terraform_plan" && offer.Action == "review_terraform_plan":
-		title = "Review Terraform plans"
-		description = "Summarize each saved plan and its red flags in the run's thread."
-		label = "Review Terraform plans"
-	case offer.Trigger == "deployment" && offer.Action == "verify_deployment":
-		title = "Verify deployments"
-		description = "Check deployment health and reply in the deployment's thread when there is a useful result."
-		label = "Verify deployments"
-	case offer.Trigger == "operational_alert" && offer.Action == "triage_alert":
-		source := "alert messages"
-		switch offer.SourceKind {
-		case "app":
-			source = "app alerts"
-		case "human":
-			source = "alerts posted by teammates"
-		}
-		title = "Investigate alerts"
-		description = "For " + source + ", investigate with current evidence and reply in the alert's thread with impact, likely cause, and focused fixes. For critical alerts, suggest the safest immediate step."
-		label = "Enable alert triage"
+	workflow := standingRuleWorkflow(rule)
+	title := workflow.Name
+	if title == "" {
+		title = "Standing rule"
 	}
+	description := core.StandingWorkflowEffect(workflow)
+	if description == "." {
+		description = fmt.Sprintf("Watch matching messages and reply in their threads using `%s`.", offer.Repository)
+	}
+	confirmation := "Enable this read-only rule " + rememberPhrase(expiresLabel) + "?"
 	message.Sections = append(message.Sections, fmt.Sprintf(
-		"*%s*\n%s\n_This channel · %s_",
+		"*%s*\n%s\n\nRepository: `%s`\n_This channel · %s_",
 		title,
 		description,
+		rule.Repository,
 		expiryTerm(expiresLabel),
 	))
 	message.Context = appendBehaviorOfferContext(message.Context)
 	message.Actions = append(message.Actions, Action{
 		ID:      ActionRememberRule,
-		Label:   label,
+		Label:   "Enable rule",
 		Value:   actionValue,
 		Style:   "primary",
 		Confirm: confirmation,
@@ -486,23 +468,20 @@ func RuleSavedMessage(rule core.StandingRule, replaced bool) Message {
 	if replaced {
 		header = "Standing rule updated"
 	}
+	workflow := standingRuleWorkflow(rule)
 	return Message{
-		Text: fmt.Sprintf(
-			"%s: %s triggers %s in this channel.",
-			header, rule.Trigger, rule.Action,
-		),
+		Text:   fmt.Sprintf("%s: %s.", header, workflow.Name),
 		Header: header,
 		Sections: []string{fmt.Sprintf(
-			"`%s` -> `%s`\n\nRepository: `%s` · Source: `%s`\n"+
-				"Expires: %s",
-			rule.Trigger,
-			rule.Action,
+			"*%s*\n%s\n\nRepository: `%s` · Watches: %s\nExpires: %s",
+			workflow.Name,
+			core.StandingWorkflowEffect(workflow),
 			rule.Repository,
-			rule.SourceKind,
+			standingRuleSourceDescription(rule.SourceKind),
 			expiryStamp(rule.ExpiresAt, "2006-01-02 15:04 UTC"),
 		)},
 		Context: []string{
-			"Matching messages now start a read-only investigation and receive a threaded reply, even when broad proactive triage is off. Slack event IDs and durable rule runs prevent duplicate execution.",
+			"This rule is active now. It can start read-only work, but it cannot approve or make changes.",
 		},
 		Actions: ruleActions(rule),
 	}
@@ -513,18 +492,31 @@ func RuleStateMessage(rule core.StandingRule) Message {
 	if rule.Enabled {
 		state = "enabled"
 	}
+	workflow := standingRuleWorkflow(rule)
+	description := standingRuleEffect(rule)
 	return Message{
-		Text:   fmt.Sprintf("Standing rule %s is %s.", rule.Trigger, state),
+		Text:   fmt.Sprintf("%s is %s.", workflow.Name, state),
 		Header: "Standing rule " + state,
 		Sections: []string{fmt.Sprintf(
-			"`%s` -> `%s` is now *%s* in this channel.",
-			rule.Trigger, rule.Action, state,
+			"*%s* is now *%s*.\n%s",
+			workflow.Name, state, description,
 		)},
 		Context: []string{
 			"Disabled rules remain stored until expiry or deletion and do not admit or investigate matching messages.",
 		},
 		Actions: ruleActions(rule),
 	}
+}
+
+func standingRuleEffect(rule core.StandingRule) string {
+	workflow, _, _, err := core.NormalizeStandingWorkflow(
+		rule.Workflow, rule.Trigger, rule.Action,
+	)
+	if err == nil {
+		return core.StandingWorkflowEffect(workflow)
+	}
+	return "This legacy rule watches " + escapeSlackText(rule.Trigger) +
+		" and runs " + escapeSlackText(rule.Action) + "."
 }
 
 func RuleDeletedMessage() Message {
@@ -552,6 +544,7 @@ func RuleDirectoryMessage(rules []core.StandingRule) Message {
 		return message
 	}
 	for index, rule := range rules[:min(len(rules), 8)] {
+		workflow := standingRuleWorkflow(rule)
 		state := "disabled"
 		if rule.Enabled {
 			state = "enabled"
@@ -561,13 +554,13 @@ func RuleDirectoryMessage(rules []core.StandingRule) Message {
 			lastRun = rule.LastTriggered.UTC().Format("2006-01-02 15:04 UTC")
 		}
 		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*%d.* `%s` -> `%s`\n%s · source `%s` · repository `%s`\n"+
+			"*%d. %s*\n%s\n%s · watches %s · repository `%s`\n"+
 				"%s\nLast fired: %s · expires: %s",
 			index+1,
-			rule.Trigger,
-			rule.Action,
+			workflow.Name,
+			core.StandingWorkflowEffect(workflow),
 			state,
-			rule.SourceKind,
+			standingRuleSourceDescription(rule.SourceKind),
 			rule.Repository,
 			StandingRuleWorth(rule),
 			lastRun,
@@ -576,6 +569,27 @@ func RuleDirectoryMessage(rules []core.StandingRule) Message {
 		message.Actions = append(message.Actions, ruleActions(rule)...)
 	}
 	return message
+}
+
+func standingRuleWorkflow(rule core.StandingRule) core.StandingWorkflow {
+	workflow, _, _, err := core.NormalizeStandingWorkflow(
+		rule.Workflow, rule.Trigger, rule.Action,
+	)
+	if err == nil {
+		return workflow
+	}
+	return core.StandingWorkflow{Name: firstNonemptyUI(rule.WorkflowName, "Standing rule")}
+}
+
+func standingRuleSourceDescription(source string) string {
+	switch source {
+	case "app":
+		return "app messages"
+	case "human":
+		return "messages from people"
+	default:
+		return "messages from people and apps"
+	}
 }
 
 // StandingRuleWorth is the one line that answers "should I keep this rule".

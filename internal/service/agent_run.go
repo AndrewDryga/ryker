@@ -175,8 +175,10 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	if err != nil {
 		return fmt.Errorf("queue watched agent run: %w", err)
 	}
-	if state.PendingStatusSet && len(run.Context) > 0 &&
-		string(run.Context) != string(contextJSON) {
+	// QueueAgentRun is idempotent by Slack input. Persist facts captured before
+	// queueing even when this input already had a run, otherwise a retry can
+	// evaluate the same standing rules and add the acknowledgement twice.
+	if len(run.Context) > 0 && string(run.Context) != string(contextJSON) {
 		if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
 			return err
 		}
@@ -285,8 +287,10 @@ func (s *Service) captureWatchTurnState(
 		state.PublicationsCaptured = true
 	}
 	if !isPrivateSlackVerificationReplay(input) &&
-		!state.RuleAcknowledged && len(state.MatchedRules) > 0 {
-		state.RuleAcknowledged = s.acknowledgeMatchedRule(ctx, input, state.MatchedRules)
+		!state.RuleEvaluationCaptured && len(state.MatchedRules) > 0 {
+		state.RuleAcknowledgement = s.acknowledgeMatchedRule(ctx, input, state.MatchedRules)
+		state.RuleAcknowledged = state.RuleAcknowledgement != ""
+		state.RuleEvaluationCaptured = true
 	}
 	if input.Kind == "message" && !state.ConversationFollowup {
 		followup, err := s.isRecentWatchConversation(ctx, input)
@@ -2265,6 +2269,7 @@ func (s *Service) parkWatchRunPendingStatus(
 	state.PendingStatusSet = false
 	state.PendingStatusAt = 0
 	state.RuleAcknowledged = false
+	state.RuleAcknowledgement = ""
 	contextJSON, err := json.Marshal(state)
 	if err != nil {
 		return err

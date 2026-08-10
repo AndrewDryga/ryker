@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -248,7 +249,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 		strings.Join(offerPost.message.Sections, "\n") + "\n" +
 		strings.Join(offerPost.message.Context, "\n")
 	for _, expected := range []string{
-		"I can remember both", "Reply in threads", "Investigate alerts",
+		"I can remember both", "Reply in threads", "Investigate operational alerts",
 		"current evidence", "focused fixes", "critical alerts",
 		"safest immediate step", "read-only",
 	} {
@@ -1476,15 +1477,127 @@ func TestStandingRuleMatcherIsTypedAndSourceAware(t *testing.T) {
 		{"operational_alert", "Daily status is normal.", false},
 	}
 	for _, test := range cases {
-		if got := standingRuleTextMatches(test.trigger, test.text); got != test.want {
+		if got := standingrule.LegacyTextMatches(test.trigger, test.text); got != test.want {
 			t.Fatalf("%s match for %q = %t, want %t",
 				test.trigger, test.text, got, test.want)
 		}
 	}
-	if standingRuleSourceMatches("app", "message") ||
-		!standingRuleSourceMatches("app", "bot_message") ||
-		!standingRuleSourceMatches("human", "mention") {
+	if standingrule.SourceMatches("app", "message") ||
+		!standingrule.SourceMatches("app", "bot_message") ||
+		!standingrule.SourceMatches("human", "mention") {
 		t.Fatal("standing rule source matching is incorrect")
+	}
+}
+
+func TestStandingWorkflowMatcherExplainsMatchesAndSkips(t *testing.T) {
+	workflow, _, _, err := core.NormalizeStandingWorkflow(
+		core.StandingWorkflow{
+			Name: "Review approval-ready Terraform plans",
+			Trigger: core.StandingWorkflowTrigger{
+				Event: "terraform_run", States: []string{"planned"},
+			},
+			Steps: []string{"review_terraform_plan"},
+			Delivery: core.StandingWorkflowDelivery{
+				Location: "source_thread", ReplyWhen: []string{"approval_ready"},
+			},
+		},
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := core.StandingRule{
+		SourceKind: "app", Trigger: "terraform_plan", Action: "review_terraform_plan",
+		WorkflowName: workflow.Name, Workflow: workflow,
+	}
+
+	planned := core.SlackInput{
+		Kind: "bot_message", Text: "Run notification for acme/infra\nRun run-abc\nRun Planned",
+	}
+	matched, reason := standingrule.Match(rule, planned)
+	if !matched || !strings.Contains(reason, "app message") || !strings.Contains(reason, "planned") {
+		t.Fatalf("planned match = %t, %q", matched, reason)
+	}
+
+	applying := planned
+	applying.Text = "Run notification for acme/infra\nRun run-abc\nRun Applying"
+	matched, reason = standingrule.Match(rule, applying)
+	if matched || !strings.Contains(reason, "only handles planned") || !strings.Contains(reason, "applying") {
+		t.Fatalf("applying match = %t, %q", matched, reason)
+	}
+
+	human := planned
+	human.Kind = "mention"
+	matched, reason = standingrule.Match(rule, human)
+	if matched || !strings.Contains(reason, "watches app messages") || !strings.Contains(reason, "person") {
+		t.Fatalf("human match = %t, %q", matched, reason)
+	}
+
+	alert := planned
+	alert.Text = "FIRING: checkout error rate is high"
+	matched, reason = standingrule.Match(rule, alert)
+	if matched || !strings.Contains(reason, "Terraform run updates") {
+		t.Fatalf("alert match = %t, %q", matched, reason)
+	}
+}
+
+func TestStandingRuleEvaluationIsPersistedAcrossQueueRetries(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.NativeStatus = false
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
+		ChannelID: "CRULE", Repository: "repo",
+		Trigger: "terraform_lifecycle", Action: "monitor_terraform_lifecycle",
+		SourceKind: "app", Enabled: true, SourceRef: "test", ActorID: "UOPERATOR",
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel); err != nil {
+		t.Fatal(err)
+	}
+	input := core.SlackInput{
+		ID: "slack_rule_retry", EnvelopeID: "env_rule_retry", EventID: "event_rule_retry",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CRULE",
+		MessageTS: "1702.100", UserID: "BTERRAFORM", ReceivedAt: time.Now().UTC(),
+		Text: "Run notification for acme/infra\nRun run-abc\nRun Planned",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit rule input = %t, %v", created, err)
+	}
+	leased, err := st.LeaseSlackInput(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.queueWatchedInput(ctx, leased); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.reactions) != 1 || slackClient.reactions[0].name != "eyes" {
+		t.Fatalf("initial rule acknowledgement = %+v", slackClient.reactions)
+	}
+
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decisionpkg.DecodeWatchState(run.Context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.RuleEvaluationCaptured || state.RuleAcknowledgement != "eyes" {
+		t.Fatalf("persisted rule state = %+v", state)
+	}
+	if err := svc.captureWatchTurnState(ctx, input, &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.reactions) != 1 {
+		t.Fatalf("retry duplicated rule acknowledgement: %+v", slackClient.reactions)
 	}
 }
 

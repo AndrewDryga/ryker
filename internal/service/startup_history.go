@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -49,7 +50,7 @@ func (s *Service) catchUpSlackAppMessages(ctx context.Context) error {
 		}
 		appRules := false
 		for _, rule := range rules {
-			if standingRuleSourceMatches(rule.SourceKind, "bot_message") {
+			if standingrule.SourceMatches(rule.SourceKind, "bot_message") {
 				appRules = true
 				break
 			}
@@ -81,8 +82,7 @@ func (s *Service) catchUpSlackAppMessages(ctx context.Context) error {
 			if appRules && !proactive && !shadow {
 				matched := false
 				for _, rule := range rules {
-					if standingRuleSourceMatches(rule.SourceKind, input.Kind) &&
-						standingRuleTextMatches(rule.Trigger, input.Text) {
+					if ruleMatched, _ := standingrule.Match(rule, input); ruleMatched {
 						matched = true
 						break
 					}

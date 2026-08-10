@@ -3,11 +3,13 @@ package webui
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -248,6 +250,75 @@ func TestAuditTracePresentsSlackReactionAndStandingRuleMeaning(t *testing.T) {
 	}
 	if got := eventTitle(audit.Kind); got != "Standing rule acknowledged" {
 		t.Fatalf("audit title = %q", got)
+	}
+}
+
+func TestAuditTraceExplainsEveryMatchedAndSkippedStandingRule(t *testing.T) {
+	evaluation := core.StandingRuleEvaluationAudit{
+		Checked: 3, Matched: 1, Acknowledged: "eyes",
+		Rules: []core.StandingRuleEvaluation{
+			{
+				Name: "Review Terraform plans", Matched: true,
+				Why:      "Matched because this is an app message about a Terraform run that is planned.",
+				Trigger:  "App messages about Terraform runs when the state is planned.",
+				Work:     "Reviews the saved plan and checks the Terraform changes for red flags.",
+				Delivery: "Adds 👀 while it checks and replies in the source message's thread when there is a useful finding.",
+			},
+			{
+				Name:     "Investigate operational alerts",
+				Why:      "Skipped because this is a Terraform run update, not an operational alert.",
+				Trigger:  "App messages about operational alerts.",
+				Work:     "Investigates whether the alert is a real issue.",
+				Delivery: "Replies in the source message's thread for a confirmed issue.",
+			},
+			{
+				Name:     "Verify deployments",
+				Why:      "Skipped because this is a Terraform run update, not a deployment.",
+				Trigger:  "App messages about deployments.",
+				Work:     "Checks the deployed revision and service health.",
+				Delivery: "Replies in the source message's thread for a final result.",
+			},
+		},
+	}
+	detail, err := json.Marshal(evaluation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := AuditRow{
+		Kind: "standing_rules.evaluated", Outcome: "matched", Detail: string(detail),
+	}
+
+	summary, stats := auditTracePresentation(audit, func(text string) string { return text })
+	if summary != "Checked 3 active rules. 1 now guides this message; 2 did not match." {
+		t.Fatalf("evaluation summary = %q", summary)
+	}
+	if len(stats) != 4 || stats[0].Value != "3" || stats[1].Value != "1" ||
+		stats[2].Value != "2" || stats[3].Value != "👀" {
+		t.Fatalf("evaluation stats = %+v", stats)
+	}
+	details := auditTraceDetails(audit, func(text string) string { return text })
+	if len(details) != 3 || !details[0].Open ||
+		details[0].Label != "Matched - Review Terraform plans" ||
+		details[1].Label != "Did not match - Investigate operational alerts" {
+		t.Fatalf("evaluation details = %+v", details)
+	}
+	for _, want := range []string{
+		"Why: Matched because", "Looks for:", "Checks:", "In Slack:",
+		"This rule controls", "Effect now: None",
+	} {
+		var found bool
+		for _, detail := range details {
+			found = found || strings.Contains(detail.Body, want)
+		}
+		if !found {
+			t.Fatalf("evaluation details missing %q: %+v", want, details)
+		}
+	}
+	if auditTraceWhy(audit) != "" {
+		t.Fatalf("evaluation has generic explanation: %q", auditTraceWhy(audit))
+	}
+	if eventTitle(audit.Kind) != "Standing rules checked" {
+		t.Fatalf("evaluation title = %q", eventTitle(audit.Kind))
 	}
 }
 

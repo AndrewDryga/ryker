@@ -785,6 +785,7 @@ func (s *Service) applyWatchDecision(
 			return err
 		}
 		state.RuleAcknowledged = false
+		state.RuleAcknowledgement = ""
 	}
 	if shadow {
 		return s.finishShadowedWatchDecision(ctx, input, state, decision)
@@ -1719,13 +1720,17 @@ func (s *Service) clearWatchRuleAcknowledgement(
 	if !state.RuleAcknowledged || input.MessageTS == "" {
 		return nil
 	}
+	reaction := state.RuleAcknowledgement
+	if reaction == "" {
+		reaction = "eyes"
+	}
 	client, ok := unpacedSlack(s.slack).(interface {
 		Unreact(context.Context, string, string, string) error
 	})
 	if !ok {
 		return nil
 	}
-	if err := client.Unreact(ctx, input.ChannelID, input.MessageTS, "eyes"); err != nil {
+	if err := client.Unreact(ctx, input.ChannelID, input.MessageTS, reaction); err != nil {
 		s.audit(ctx, core.AuditEvent{
 			Kind: "standing_rule.acknowledgement_clear_failed", ActorID: "responder",
 			ObjectID: input.ID, Outcome: "failed", Detail: s.cleanStructuredField(err.Error(), 500),
@@ -1734,7 +1739,7 @@ func (s *Service) clearWatchRuleAcknowledgement(
 	}
 	s.audit(ctx, core.AuditEvent{
 		Kind: "standing_rule.acknowledgement_cleared", ActorID: "responder",
-		ObjectID: input.ID, Outcome: "unreacted", Detail: "eyes",
+		ObjectID: input.ID, Outcome: "unreacted", Detail: reaction,
 	})
 	return nil
 }
