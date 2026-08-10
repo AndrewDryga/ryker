@@ -540,29 +540,31 @@ func standingRuleTextMatches(trigger string, text string) bool {
 	}
 }
 
-func (s *Service) acknowledgeMatchedAlertRule(
+func (s *Service) acknowledgeMatchedRule(
 	ctx context.Context,
 	input core.SlackInput,
 	rules []core.StandingRule,
-) {
+) bool {
 	if input.MessageTS == "" {
-		return
+		return false
 	}
 	matched := false
 	for _, rule := range rules {
-		if rule.Trigger == "operational_alert" && rule.Action == "triage_alert" {
+		if (rule.Trigger == "operational_alert" && rule.Action == "triage_alert") ||
+			(rule.Trigger == "terraform_plan" && rule.Action == "review_terraform_plan") ||
+			(rule.Trigger == "terraform_lifecycle" && rule.Action == "monitor_terraform_lifecycle") {
 			matched = true
 			break
 		}
 	}
 	if !matched {
-		return
+		return false
 	}
 	client, ok := unpacedSlack(s.slack).(interface {
 		React(context.Context, string, string, string) error
 	})
 	if !ok {
-		return
+		return false
 	}
 	if err := client.React(ctx, input.ChannelID, input.MessageTS, "eyes"); err != nil {
 		if s.log != nil {
@@ -573,12 +575,13 @@ func (s *Service) acknowledgeMatchedAlertRule(
 				"error", err,
 			)
 		}
-		return
+		return false
 	}
 	s.audit(ctx, core.AuditEvent{
 		Kind: "standing_rule.acknowledged", ActorID: "responder", ObjectID: input.ID,
 		Outcome: "reacted", Detail: "eyes",
 	})
+	return true
 }
 
 func (s *Service) preparePreferenceOfferAction(

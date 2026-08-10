@@ -243,6 +243,60 @@ func TestDifferentAlertFamiliesInOneBurstUseOnlyNewestModelRun(t *testing.T) {
 	}
 }
 
+func TestDifferentExternalLifecycleRunsDoNotCoalesce(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT"}
+
+	now := time.Now().UTC()
+	inputs := []core.SlackInput{
+		{
+			ID: "terraform-applied", EnvelopeID: "env-terraform-applied",
+			EventID: "event-terraform-applied", Kind: "bot_message",
+			TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", MessageTS: "1700.301",
+			UserID: "BTERRAFORM", ReceivedAt: now,
+			Text: "Run notification for acme/infra\nRun run-first\nRun Applied",
+		},
+		{
+			ID: "terraform-errored", EnvelopeID: "env-terraform-errored",
+			EventID: "event-terraform-errored", Kind: "bot_message",
+			TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", MessageTS: "1700.302",
+			UserID: "BTERRAFORM", ReceivedAt: now.Add(time.Second),
+			Text: "Run notification for acme/infra\nRun run-second\nRun Errored",
+		},
+	}
+	for _, input := range inputs {
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit %s = %v, %v", input.ID, created, admitErr)
+		}
+		if err := svc.processSlackInput(ctx); err != nil {
+			t.Fatalf("queue %s: %v", input.ID, err)
+		}
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.GetAgentRunBySource(ctx, "watch", inputs[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.State == core.AgentRunSuperseded {
+		t.Fatalf("exact lifecycle run was coalesced by another run: %+v", first)
+	}
+	if len(coopClient.submitPrompts) != 1 {
+		t.Fatalf("first exact lifecycle run prompts = %d, want 1", len(coopClient.submitPrompts))
+	}
+}
+
 func TestRelatedAlertFamiliesShareRecentOperationalAncestry(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

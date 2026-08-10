@@ -124,6 +124,15 @@ func operationalCorrelationKey(input core.SlackInput) string {
 	return boundedCorrelationKey("alert:" + input.UserID + ":" + identity)
 }
 
+// broadOperationalBurstCoalescingAllowed reports whether a newer app message
+// may carry this input's work. Alert apps often emit several related symptoms
+// in one short burst, so broad coalescing is useful there. External lifecycle
+// events already have exact run identities; allowing another run to supersede
+// them can silently discard an Applied or Errored result.
+func broadOperationalBurstCoalescingAllowed(input core.SlackInput) bool {
+	return externalLifecycleCorrelationKey(input.Text) == ""
+}
+
 // Alert notifications commonly include both a stable alert URL and a dashboard
 // URL whose time-range query changes on every delivery. Prefer the stable alert
 // identity so repeats and recovery updates remain one operational stream.

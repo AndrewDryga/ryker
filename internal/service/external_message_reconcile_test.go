@@ -229,6 +229,52 @@ func TestExternalLifecycleFastPathSkipsCoopAndCompletesPrivateReplay(t *testing.
 	}
 }
 
+func TestExternalLifecyclePlanningRuleAddsTrackingReactionWithoutCoop(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
+		ChannelID: "CPLAN", Repository: "repo",
+		Trigger: "terraform_lifecycle", Action: "monitor_terraform_lifecycle",
+		SourceKind: "app", Enabled: true, SourceRef: "test", ActorID: "UOPERATOR",
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	input := core.SlackInput{
+		ID: "slack-planning", EnvelopeID: "env-planning", EventID: "event-planning",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CPLAN",
+		MessageTS: "1700.801", UserID: "BTERRAFORM", ReceivedAt: time.Now().UTC(),
+		Text: "Run notification for <https://app.terraform.io/app/acme/workspaces/infra|acme/infra>\n" +
+			"Run run-abc\nRun Planning",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit planning input = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.createKeys) != 0 || len(coopClient.submitKeys) != 0 {
+		t.Fatalf("planning lifecycle used Coop: creates=%+v submits=%+v",
+			coopClient.createKeys, coopClient.submitKeys)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("planning lifecycle posted narration: %+v", slackClient.posts)
+	}
+	if len(slackClient.reactions) != 1 || slackClient.reactions[0].name != "eyes" ||
+		slackClient.reactions[0].timestamp != input.MessageTS {
+		t.Fatalf("planning lifecycle reactions = %+v", slackClient.reactions)
+	}
+}
+
 func TestIncidentAcknowledgementFastPathSkipsCoopAndSlackOutput(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

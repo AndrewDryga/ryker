@@ -286,8 +286,7 @@ func (s *Service) captureWatchTurnState(
 	}
 	if !isPrivateSlackVerificationReplay(input) &&
 		!state.RuleAcknowledged && len(state.MatchedRules) > 0 {
-		s.acknowledgeMatchedAlertRule(ctx, input, state.MatchedRules)
-		state.RuleAcknowledged = true
+		state.RuleAcknowledged = s.acknowledgeMatchedRule(ctx, input, state.MatchedRules)
 	}
 	if input.Kind == "message" && !state.ConversationFollowup {
 		followup, err := s.isRecentWatchConversation(ctx, input)
@@ -385,6 +384,12 @@ func (s *Service) completeIgnoredLifecycleInput(
 			ctx, rule.ID, input.ID, input.EventID, "ignore",
 		); err != nil {
 			return err
+		}
+	}
+	if !isPrivateSlackVerificationReplay(input) {
+		phase := externalMessageLifecyclePhase(input.Text)
+		if phase == externalLifecycleCreated || phase == externalLifecyclePlanning {
+			s.acknowledgeMatchedRule(ctx, input, rules)
 		}
 	}
 	s.audit(ctx, core.AuditEvent{
@@ -1146,7 +1151,7 @@ func (s *Service) admitTriageRun(
 		if err != nil {
 			return true, s.retryAgentRun(ctx, run, err)
 		}
-		if !newer {
+		if !newer && broadOperationalBurstCoalescingAllowed(input) {
 			newer, err = s.store.HasNewerOperationalAgentRun(
 				ctx, run, operationalBurstWindow, true,
 			)
@@ -2760,7 +2765,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		if newerErr != nil {
 			return newerErr
 		}
-		if !newer {
+		if !newer && broadOperationalBurstCoalescingAllowed(input) {
 			newer, newerErr = s.store.HasNewerOperationalAgentRun(
 				ctx, run, operationalBurstWindow, false,
 			)
