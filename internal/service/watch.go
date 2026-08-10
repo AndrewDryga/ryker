@@ -803,7 +803,7 @@ func (s *Service) applyWatchDecision(
 			})
 			break
 		}
-		client, ok := s.slack.(interface {
+		client, ok := unpacedSlack(s.slack).(interface {
 			React(context.Context, string, string, string) error
 		})
 		if !ok {
@@ -1673,7 +1673,7 @@ func (s *Service) clearWatchRuleAcknowledgement(
 	if !state.RuleAcknowledged || input.MessageTS == "" {
 		return nil
 	}
-	client, ok := s.slack.(interface {
+	client, ok := unpacedSlack(s.slack).(interface {
 		Unreact(context.Context, string, string, string) error
 	})
 	if !ok {

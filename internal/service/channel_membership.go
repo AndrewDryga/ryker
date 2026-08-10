@@ -134,7 +134,7 @@ func (s *Service) recordJoinAttempt(ctx context.Context, channelID, outcome, det
 }
 
 func (s *Service) reconcileSlackChannelMemberships(ctx context.Context) error {
-	lister, ok := s.slack.(slackChannelLister)
+	lister, ok := unpacedSlack(s.slack).(slackChannelLister)
 	if !ok {
 		return store.ErrNotFound
 	}

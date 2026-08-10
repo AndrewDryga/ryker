@@ -314,7 +314,7 @@ func (s *Service) scheduledTaskFromOffer(
 		offer.CatchUp = "latest"
 	}
 	if offer.Timezone == "" {
-		if provider, ok := s.slack.(interface {
+		if provider, ok := unpacedSlack(s.slack).(interface {
 			UserTimezone(context.Context, string) (string, error)
 		}); ok {
 			zone, err := provider.UserTimezone(ctx, input.UserID)
