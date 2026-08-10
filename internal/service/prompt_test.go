@@ -309,6 +309,49 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // guidance. Each invention cost the whole response. The host accepts all three
 // as aliases now, but a fourth was always coming, and a payload the model has
 // never seen the shape of is the reason. These are the bytes that stop it.
+// A channel message the host had to shorten must say so in the prompt.
+//
+// watchContextTextLimit is 2,000 bytes and the cut used to be silent, so a
+// model reading the transcript could not tell a message the host shortened from
+// a message the person actually ended there. A real 2,559-byte instruction for
+// a whole-platform health review arrived ending "Decide healthy, degraded, or",
+// and two runs in three answered by asking the operator to resend the missing
+// word instead of doing the assessment.
+func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
+	svc := &Service{cfg: serviceConfig(t)}
+	instruction := strings.Repeat("preserve each metric's exact window. ", 70) +
+		"Decide healthy, degraded, or unhealthy."
+	if len(instruction) <= watchContextTextLimit {
+		t.Fatalf("the fixture is %d bytes and does not reach the %d bound",
+			len(instruction), watchContextTextLimit)
+	}
+	prompt, _ := svc.watchPrompt(
+		core.SlackInput{
+			ChannelID: "C123ABC", MessageTS: "1700.001", Kind: "message",
+			UserID: "U123ABC", Text: instruction,
+		},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, "", nil, watchPromptBudget(0),
+	)
+	if !strings.Contains(prompt, "the host cut the rest of this message to fit") {
+		t.Fatal("an oversized channel message was cut without saying so")
+	}
+
+	// A message that fits carries no marker, or every short message in the
+	// transcript would claim to have been cut.
+	fitting, _ := svc.watchPrompt(
+		core.SlackInput{
+			ChannelID: "C123ABC", MessageTS: "1700.002", Kind: "message",
+			UserID: "U123ABC", Text: "is checkout slow?",
+		},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, "", nil, watchPromptBudget(0),
+	)
+	if strings.Contains(fitting, "the host cut the rest of this message to fit") {
+		t.Fatal("a message that fitted was marked as cut")
+	}
+}
+
 const staticWatchPromptBytes = 48408
 
 // The static prompt must not grow without someone deciding it should.
