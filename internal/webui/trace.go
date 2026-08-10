@@ -246,10 +246,11 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 	}
 
 	for index, audit := range page.Audit {
+		summary, stats := auditTracePresentation(audit, present)
 		add(TraceStep{
 			ID: fmt.Sprintf("audit-%d", index+1), Stage: "Audit", Actor: audit.Whom, State: audit.Outcome,
-			Title: present(audit.Kind), Summary: present(audit.Detail), Why: "The audit ledger attributes a decision or mutation to an actor and preserves its outcome independently of Slack presentation.", At: audit.At,
-			Stats: []TraceStat{{"Actor", audit.Actor}, {"Object", fallback(audit.Object, "none")}, {"Repeats", repeatValue(audit.Repeats)}},
+			Title: eventTitle(audit.Kind), Summary: summary, Why: auditTraceWhy(audit), At: audit.At,
+			Stats: stats,
 		})
 	}
 
@@ -281,6 +282,50 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		{"Slack deliveries", fmt.Sprint(len(page.Delivered))},
 	}
 	return trace
+}
+
+func auditTracePresentation(audit AuditRow, present func(string) string) (string, []TraceStat) {
+	stats := []TraceStat{{"Actor", audit.Actor}, {"Object", fallback(audit.Object, "none")}, {"Repeats", repeatValue(audit.Repeats)}}
+	summary := present(audit.Detail)
+	if audit.Outcome != "reacted" && audit.Outcome != "unreacted" {
+		return summary, stats
+	}
+	name := strings.Trim(strings.TrimSpace(audit.Detail), ":")
+	if name == "" {
+		return summary, stats
+	}
+	display := slackReactionDisplay(name)
+	stats = append(stats, TraceStat{"Slack name", ":" + name + ":"})
+	return display, stats
+}
+
+func auditTraceWhy(audit AuditRow) string {
+	switch audit.Kind {
+	case "standing_rule.acknowledged":
+		return "A confirmed channel rule matched this Slack message. Responder added a temporary acknowledgement before starting read-only evaluation."
+	case "standing_rule.acknowledgement_cleared":
+		return "Responder removed the temporary acknowledgement after the matched rule finished or became quiet."
+	default:
+		return "The audit ledger attributes a decision or mutation to an actor and preserves its outcome independently of Slack presentation."
+	}
+}
+
+func slackReactionDisplay(name string) string {
+	if emoji, ok := map[string]string{
+		"eyes":             "👀",
+		"white_check_mark": "✅",
+		"heavy_check_mark": "✔️",
+		"thumbsup":         "👍",
+		"+1":               "👍",
+		"tada":             "🎉",
+		"warning":          "⚠️",
+		"bulb":             "💡",
+	}[name]; ok {
+		return emoji
+	}
+	// Custom workspace emoji do not have a universal Unicode representation.
+	// Keep their Slack spelling recognizable instead of presenting a bare API name.
+	return ":" + name + ":"
 }
 
 // promptContextDetails makes the memory envelope inspectable without storing a
@@ -620,7 +665,7 @@ func eventStage(kind string) string {
 }
 
 func eventTitle(kind string) string {
-	title := strings.ReplaceAll(kind, "_", " ")
+	title := strings.NewReplacer("_", " ", ".", " ").Replace(kind)
 	if title == "" {
 		return "Episode event"
 	}

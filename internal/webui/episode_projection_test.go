@@ -230,6 +230,27 @@ func TestPresentEventPayloadOmitsUnsetTimesAndPresentsSlackIDs(t *testing.T) {
 	}
 }
 
+func TestAuditTracePresentsSlackReactionAndStandingRuleMeaning(t *testing.T) {
+	audit := AuditRow{
+		Kind: "standing_rule.acknowledged", Outcome: "reacted", Actor: "responder",
+		Object: "slack_message_123", Detail: "eyes", Repeats: 1,
+	}
+	summary, stats := auditTracePresentation(audit, func(text string) string { return text })
+	if summary != "👀" {
+		t.Fatalf("reaction summary = %q, want eyes emoji", summary)
+	}
+	if got := stats[len(stats)-1]; got.Label != "Slack name" || got.Value != ":eyes:" {
+		t.Fatalf("reaction stat = %+v", got)
+	}
+	if got := auditTraceWhy(audit); !strings.Contains(got, "confirmed channel rule matched") ||
+		!strings.Contains(got, "read-only evaluation") {
+		t.Fatalf("standing-rule explanation = %q", got)
+	}
+	if got := eventTitle(audit.Kind); got != "Standing rule acknowledged" {
+		t.Fatalf("audit title = %q", got)
+	}
+}
+
 func TestPromptSegmentsPreserveEveryCharacterInOrder(t *testing.T) {
 	prompt := "SYSTEM: one\n<trusted-responder-context>trusted</trusted-responder-context>\n" +
 		"<untrusted-slack-context>{\"goal\":\"check\"}</untrusted-slack-context>\nUSER: hello"
