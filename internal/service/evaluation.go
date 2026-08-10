@@ -79,6 +79,18 @@ type EvaluationCase struct {
 	ForbidChangedPaths     []string                  `json:"forbid_changed_paths,omitempty"`
 	WantReviewPublishable  *bool                     `json:"want_review_publishable,omitempty"`
 	WantReviewGate         string                    `json:"want_review_gate,omitempty"`
+	// ReplyPlacement is where this reply actually landed — "thread", "channel",
+	// or "" when the fixture does not model delivery. WantReplyPlacement is
+	// where it belonged, and defaults to whatever the trigger asked for.
+	//
+	// Nothing in the corpus could express either until now, which is why the
+	// judge could not see the second thing the operator complained about: "it
+	// was posted in the channel itself and I can't even tell why". A trigger
+	// that says "reply in thread" is read straight off the input, but the
+	// message that drew that complaint was an alert notification, and an alert
+	// never says where its answer goes. Only the case can.
+	ReplyPlacement     string `json:"reply_placement,omitempty"`
+	WantReplyPlacement string `json:"want_reply_placement,omitempty"`
 }
 
 type EvaluationRecordedEvent struct {
@@ -252,6 +264,10 @@ func validateEvaluationCase(testCase EvaluationCase) error {
 	}
 	if testCase.MinQualityScore < 0 || testCase.MinQualityScore > 5 {
 		return errors.New("min_quality_score must be between 0 and 5")
+	}
+	if !decisionpkg.ValidReplyPlacement(testCase.ReplyPlacement) ||
+		!decisionpkg.ValidReplyPlacement(testCase.WantReplyPlacement) {
+		return errors.New("reply placement must be thread or channel")
 	}
 	switch testCase.WantCompletionStatus {
 	case "", "decision_ready", "blocked":

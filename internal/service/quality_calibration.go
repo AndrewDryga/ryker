@@ -12,6 +12,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -25,6 +26,13 @@ type QualityCalibrationCase struct {
 	MinMeanScore   float64             `json:"min_mean_score,omitempty"`
 	MaxMeanScore   float64             `json:"max_mean_score,omitempty"`
 	WantCritical   bool                `json:"want_critical_failure,omitempty"`
+	// Lane decides which rung of the word ladder this reply is measured
+	// against. Absent means the investigation lane, which is the wider bound,
+	// so an unlabelled case under-reports length rather than inventing it.
+	Lane string `json:"lane,omitempty"`
+	// Where the reply landed and where it belonged. See EvaluationCase.
+	ReplyPlacement     string `json:"reply_placement,omitempty"`
+	WantReplyPlacement string `json:"want_reply_placement,omitempty"`
 }
 
 func decodeQualityCalibrationCases(
@@ -59,6 +67,13 @@ func decodeQualityCalibrationCases(
 			item.MaxMeanScore < 0 || item.MaxMeanScore > 5 {
 			return nil, fmt.Errorf(
 				"quality calibration case %q score bounds must be between 0 and 5",
+				item.Name,
+			)
+		}
+		if !decisionpkg.ValidReplyPlacement(item.ReplyPlacement) ||
+			!decisionpkg.ValidReplyPlacement(item.WantReplyPlacement) {
+			return nil, fmt.Errorf(
+				"quality calibration case %q placement must be thread or channel",
 				item.Name,
 			)
 		}
@@ -112,11 +127,14 @@ func EvaluateQualityCalibrationJSONL(
 			continue
 		}
 		testCase := EvaluationCase{
-			Name:           item.Name,
-			Kind:           "watch",
-			Input:          item.Input,
-			Repository:     core.FirstNonempty(item.Repository, cfg.Slack.DefaultRepository),
-			RecentMessages: item.RecentMessages,
+			Name:               item.Name,
+			Kind:               "watch",
+			Lane:               item.Lane,
+			Input:              item.Input,
+			Repository:         core.FirstNonempty(item.Repository, cfg.Slack.DefaultRepository),
+			RecentMessages:     item.RecentMessages,
+			ReplyPlacement:     item.ReplyPlacement,
+			WantReplyPlacement: item.WantReplyPlacement,
 		}
 		if options.Progress != nil {
 			options.Progress(item.Name, "running")

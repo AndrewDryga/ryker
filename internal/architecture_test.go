@@ -183,7 +183,23 @@ var lineBudget = map[string]int{
 	// buys back rooms that were learning to tune Responder out, which costs more
 	// than any of the messages were worth. The extraction two entries up is still
 	// the only thing that brings this number down, and it is still next.
-	"service": 25260,
+	//
+	// Raised to 25320 on 2026-08-09 so the quality judge can see the two things
+	// the operator complained about. It could see neither. A reply was
+	// "extremely long and watery" and the rubric's only length criterion said
+	// "matches the requested depth", which is a taste; the reply "was posted in
+	// the channel itself and I can't even tell why", and the judge's material
+	// was a slackui.Message, which has no thread and no channel, so where a
+	// message went was not merely missed but unrepresentable.
+	//
+	// Thirty-nine lines, of which most are the prompt: the measurement itself
+	// lives in internal/decision beside the bound it reuses, and what stayed
+	// here is two fields on each corpus struct, their validation, and the rubric
+	// sentences that tell a judge how to read them. The prompt was not split
+	// across packages to save the budget — a rubric a reader has to assemble
+	// from two files is how a bound stops being checkable, which is the failure
+	// this whole change is about.
+	"service": 25320,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -244,7 +260,20 @@ var lineBudget = map[string]int{
 	// evaluation harness has to check the same bound the runtime enforces, and
 	// because a phrase list that only the runtime can see is how the
 	// conversation-location matcher went two months missing "answer in thread".
-	"decision": 2300,
+	//
+	// Raised from 2300 to 2450 on 2026-08-09 for ReplyJudgement, which is that
+	// last sentence coming true. The bound and the closing rule shipped here so
+	// the evaluation harness could reach them, and then the quality judge went
+	// on scoring length by eye anyway — it had no way to ask. The judgement
+	// packages the three facts a judge needs (words against bound, the closing
+	// phrase, thread against channel) out of functions that already existed, so
+	// the two bars are one bar by construction.
+	//
+	// The package was sitting at exactly 2300, which the note at the top of this
+	// map calls a tripwire rather than a ratchet: every addition fails whatever
+	// its merit, and the pressure to bump is highest when the change is right.
+	// 2450 is the fifty-two lines this needed plus room to be wrong once.
+	"decision": 2450,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	"investigation": 1800,
