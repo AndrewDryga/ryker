@@ -326,13 +326,29 @@ func unsupportedOperationalClaimCorrection(
 	return ""
 }
 
+// episodeContinuityPrompt hands a turn the claims its own work has already
+// established.
+//
+// It used to return early unless the episode had a parent, on the reading that
+// only a continuation needs continuity. That reading is wrong twice over. An
+// incident investigation accumulates evidence across its own attempts, and the
+// second attempt rediscovering what the first one proved is the exact waste
+// this block exists to prevent — the correlated-episode design says as much:
+// they share one claim ledger "instead of repeatedly rediscovering (and
+// contradicting) the same incident".
+//
+// And it made the block dead. Every one of the fourteen incident episodes on
+// the busy deployment is a root, so the parent test has never once been true;
+// thirteen of them sit on an incident that holds evidence they were not shown.
+// The query below was already right — it walks the episode chain recursively
+// and matches on the incident, so a root episode resolves to its own findings.
+// Only the gate in front of it was wrong.
+//
+// The empty case is still handled, one line down, by having nothing to say.
 func (s *Service) episodeContinuityPrompt(
 	ctx context.Context,
 	episode core.WorkEpisode,
 ) string {
-	if strings.TrimSpace(episode.ParentEpisodeID) == "" {
-		return ""
-	}
 	evidence, evidenceErr := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 30)
 	coverage, coverageErr := s.store.Intelligence.ListEpisodeCoverage(ctx, episode.ID, 20)
 	if evidenceErr != nil || coverageErr != nil || (len(evidence) == 0 && len(coverage) == 0) {

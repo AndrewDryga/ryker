@@ -545,10 +545,10 @@ func TestWatchedCorrectionExhaustionQueuesBlockedNotice(t *testing.T) {
 
 func TestWatchStructuredCorrectionBudgetIsIndependentFromRunFailures(t *testing.T) {
 	state := decisionpkg.WatchTurnState{}
-	first := consumeWatchStructuredCorrection(&state, 4)
-	second := consumeWatchStructuredCorrection(&state, 4)
-	third := consumeWatchStructuredCorrection(&state, 4)
-	fourth := consumeWatchStructuredCorrection(&state, 4)
+	first := consumeWatchStructuredCorrection(&state, 1, 4)
+	second := consumeWatchStructuredCorrection(&state, 1, 4)
+	third := consumeWatchStructuredCorrection(&state, 1, 4)
+	fourth := consumeWatchStructuredCorrection(&state, 1, 4)
 	if first || second || third || !fourth ||
 		state.StructuredCorrections != 4 {
 		t.Fatalf("watch correction state = %+v", state)

@@ -554,10 +554,10 @@ func TestMalformedDeepCompletionIsCorrectedAndRetried(t *testing.T) {
 // that it failed — it pauses the message and keeps the work queued.
 
 func TestStructuredCorrectionBudgetIsBounded(t *testing.T) {
-	if terminalStructuredCorrection(1, 20) ||
-		terminalStructuredCorrection(19, 20) ||
-		!terminalStructuredCorrection(20, 20) ||
-		!terminalStructuredCorrection(1, 1) {
+	if terminalStructuredCorrection(1, 1, 20) ||
+		terminalStructuredCorrection(19, 1, 20) ||
+		!terminalStructuredCorrection(20, 1, 20) ||
+		!terminalStructuredCorrection(1, 1, 1) {
 		t.Fatal("structured correction budget does not honor the configured run attempts")
 	}
 }

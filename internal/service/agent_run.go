@@ -1702,7 +1702,7 @@ func (s *Service) stageTriageTerminal(
 	if decisionErr != nil {
 		correction := "the structured Slack response is invalid: " + trimError(decisionErr)
 		if !consumeWatchStructuredCorrection(
-			&state, s.cfg.Limits.MaxAgentRunAttempts,
+			&state, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
 		) {
 			state.FailureDetail = correction
 			contextJSON, marshalErr := json.Marshal(state)
@@ -1860,7 +1860,7 @@ func (s *Service) stageTriageTerminal(
 		}
 		if correction != "" {
 			if !consumeWatchStructuredCorrection(
-				&state, s.cfg.Limits.MaxAgentRunAttempts,
+				&state, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
 			) {
 				state.FailureDetail = correction
 				contextJSON, marshalErr := json.Marshal(state)
@@ -1931,7 +1931,7 @@ func (s *Service) stageIncidentTerminal(
 	if reportErr != nil {
 		correction := "the structured agent report is invalid: " + trimError(reportErr)
 		if !terminalStructuredCorrection(
-			run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+			run.Failures+1, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
 		) {
 			if err := s.requeueWithCorrection(
 				ctx, run, correctionUnreadable, correction, cursor,
@@ -2015,7 +2015,7 @@ func (s *Service) stageIncidentTerminal(
 		}
 		if correction != "" {
 			if !terminalStructuredCorrection(
-				run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts,
+				run.Failures+1, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
 			) {
 				if err := s.requeueWithCorrection(
 					ctx, run, correctionKind, correction, cursor,
@@ -2250,7 +2250,7 @@ func (s *Service) retryMalformedIncidentReport(
 	}
 	assembled.StructuredCorrections++
 	if terminalStructuredCorrection(
-		assembled.StructuredCorrections, s.cfg.Limits.MaxAgentRunAttempts,
+		assembled.StructuredCorrections, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
 	) {
 		return false, nil
 	}
@@ -2272,13 +2272,31 @@ func (s *Service) retryMalformedIncidentReport(
 	return true, nil
 }
 
-func terminalStructuredCorrection(attempt, maximum int) bool {
-	return terminalAttempt(attempt, maximum)
+// terminalStructuredCorrection reports that this turn may not be corrected
+// again, against two budgets rather than one.
+//
+// Within a run, the attempt count stops a model that keeps failing the same
+// way. Across runs, the episode's attempt number stops the case the first
+// budget cannot see: a re-triggered alert opens a *new* run with a fresh count,
+// so an hourly trigger bought nineteen more corrections every hour. One episode
+// took twenty-one runs and a hundred and thirty corrections that way, over
+// twenty-one hours, burning 220 minutes of wall clock, and ended needing an
+// operator regardless — which it had needed since about the second hour.
+//
+// The same maximum bounds both because they measure the same patience from two
+// directions, and a second number to tune would be a second number to get
+// wrong. Only one episode in the recorded history has ever passed it.
+func terminalStructuredCorrection(attempt, episodeAttempt, maximum int) bool {
+	return terminalAttempt(attempt, maximum) ||
+		(maximum > 0 && episodeAttempt > maximum)
 }
 
-func consumeWatchStructuredCorrection(state *decisionpkg.WatchTurnState, maximum int) bool {
+func consumeWatchStructuredCorrection(
+	state *decisionpkg.WatchTurnState,
+	episodeAttempt, maximum int,
+) bool {
 	state.StructuredCorrections++
-	return terminalStructuredCorrection(state.StructuredCorrections, maximum)
+	return terminalStructuredCorrection(state.StructuredCorrections, episodeAttempt, maximum)
 }
 
 func blockedWatchContinuation(

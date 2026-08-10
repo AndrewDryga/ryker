@@ -609,3 +609,55 @@ func TestEpisodeClaimCorrectionRequiresTypedEvidenceAndCoverageBinding(t *testin
 		t.Fatalf("bound evidence rejected = %q", got)
 	}
 }
+
+// A root episode is shown the evidence its own work already produced.
+//
+// The continuity block used to return early unless the episode had a parent.
+// Every incident episode on the busy deployment is a root, so that test was
+// never true and the block never fired — while thirteen of the fourteen sat on
+// an incident whose evidence they were not shown. The second attempt at an
+// investigation rediscovered what the first had proved.
+func TestARootEpisodeSeesTheEvidenceItsOwnWorkProduced(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CINC",
+		ConversationKey: "channel:CINC",
+		SourceKind:      "watch", SourceID: "input_continuity",
+		Episode: &core.WorkEpisode{
+			Effort: core.EffortIncidentInvestigation, Authority: core.AuthorityReadOnly,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.ParentEpisodeID != "" {
+		t.Fatalf("this episode has a parent, so it does not test the gate: %q", episode.ParentEpisodeID)
+	}
+	if _, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{{
+		ChannelID: "CINC", SourceInput: "input_continuity",
+		ClaimID: "system.disk_pressure", Claim: "disk latency",
+		Observation: "p99 write latency is 40ms on va1-cass-3",
+		SourceType:  "metric", SourceName: "grafana", ObservedAt: time.Now().UTC(),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &Service{cfg: cfg, store: st}
+	prompt := svc.episodeContinuityPrompt(ctx, episode)
+	if prompt == "" {
+		t.Fatal("a root episode was shown none of the evidence its own work produced")
+	}
+	if !strings.Contains(prompt, "p99 write latency is 40ms on va1-cass-3") {
+		t.Fatalf("the evidence did not reach the turn: %s", prompt)
+	}
+}
