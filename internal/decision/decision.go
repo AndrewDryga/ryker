@@ -1272,7 +1272,11 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 				return ApplySilentWatchMemoryOperation(decision)
 			}
 			if operation.Type == "wait_external" {
-				return ApplySilentWatchWaitOperations(decision)
+				completion := watchOperationCompletion(decision.Operations)
+				if completion == nil || completion.Verdict == "in_progress" {
+					return ApplySilentWatchWaitOperations(decision)
+				}
+				break
 			}
 		}
 	}
@@ -1311,6 +1315,17 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 		return fmt.Errorf("%w: %w", ErrInvalidOperations, err)
 	}
 	decision.Message = AppendFeedbackFollowup(decision.Message, decision.AppliedOperations)
+	return nil
+}
+
+func watchOperationCompletion(
+	operations []investigation.ResultOperation,
+) *investigation.CompletionAssessment {
+	for _, operation := range operations {
+		if operation.Type == "complete_episode" && operation.Completion != nil {
+			return operation.Completion.Completion
+		}
+	}
 	return nil
 }
 

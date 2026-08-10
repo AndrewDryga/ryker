@@ -98,3 +98,31 @@ func TestSilentExternalWaitDoesNotReexpandCompletionIntoReply(t *testing.T) {
 		t.Fatalf("silent wait operations = %+v", decision.AppliedOperations)
 	}
 }
+
+func TestBlockedExternalWaitBecomesUsefulReply(t *testing.T) {
+	response := `{"action":"ignore","operations":[
+		{"id":"wait-run","type":"wait_external","external_wait":{
+			"id":"wake-run","kind":"terraform_run",
+			"event_matcher":{"run_id":"run-abc"},
+			"poll_after":"2026-08-10T12:01:00Z"}},
+		{"id":"complete","type":"complete_episode","completion":{
+			"message":"The plan is ready, but its complete drift list is unavailable.",
+			"completion":{"status":"blocked","summary":"Plan review is incomplete.",
+				"material_gaps":["Three drifted resources are omitted."],
+				"blocker_kind":"source_unavailable",
+				"attempts":["Read the exact saved plan."],
+				"next_action":"Expose the complete drift list."}}}]}]}`
+	decision, err := decisionpkg.ParseWatchDecision(response, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != "reply" ||
+		decision.Message != "The plan is ready, but its complete drift list is unavailable." ||
+		decision.Completion == nil || decision.Completion.Status != "blocked" {
+		t.Fatalf("blocked wait decision = %+v", decision)
+	}
+	if len(decision.AppliedOperations) != 2 ||
+		decision.AppliedOperations[0].Type != "wait_external" {
+		t.Fatalf("blocked wait operations = %+v", decision.AppliedOperations)
+	}
+}

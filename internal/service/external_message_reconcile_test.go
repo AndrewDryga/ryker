@@ -528,6 +528,20 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 	}, materialReview); decision.Action != "reply" {
 		t.Fatalf("provider-backed review discovered during planning was suppressed: %+v", decision)
 	}
+	blockedReview := base
+	blockedReview.Message = "The saved plan is ready, but the provider omitted part of its drift list."
+	blockedReview.Completion = &completionAssessment{
+		Status: "blocked", Summary: "The material plan review is incomplete.",
+		MaterialGaps: []string{"The complete drift list is unavailable."},
+		BlockerKind:  "source_unavailable",
+		Attempts:     []string{"Read the exact saved plan."},
+		NextAction:   "Expose the complete drift list.",
+	}
+	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+		Kind: "bot_message", Text: "Run run-abc\nRun Planning",
+	}, blockedReview); decision.Action != "reply" {
+		t.Fatalf("provider blocker discovered during planning was suppressed: %+v", decision)
+	}
 	quietWait := base
 	quietWait.AppliedOperations = []investigation.ResultOperation{{
 		ID: "wait-run", Type: "wait_external",

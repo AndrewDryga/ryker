@@ -60,8 +60,10 @@ func enforceExternalLifecycleCommunication(
 		// Slack's Terraform integration can remain at Planning even after HCP has
 		// produced a saved plan. A provider-backed review or terminal result is
 		// useful; a paraphrase of the visible intermediate state is not.
-		if decision.Completion != nil && decision.Completion.Verdict != "" &&
-			decision.Completion.Verdict != "in_progress" {
+		if decision.Completion != nil &&
+			(decision.Completion.Status == "blocked" ||
+				(decision.Completion.Verdict != "" &&
+					decision.Completion.Verdict != "in_progress")) {
 			return decision
 		}
 		decision.PublicationUpdates = nil
