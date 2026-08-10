@@ -214,14 +214,21 @@ func New(
 		// secrets still needs control-character stripping and size bounding.
 		sanitizer = slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes)
 	}
-	return &Service{
-		cfg: cfg, store: st, coop: coopClient, slack: slackClient, socket: socket,
+	svc := &Service{
+		cfg: cfg, store: st, coop: coopClient, socket: socket,
 		sanitizer: sanitizer, log: logger,
 		publisher:     publisher.New(cfg.GitHub),
 		channelWrites: localstate.NewChannelWriteSlots(localstate.SlackWriteInterval),
 		nativeStatus:  localstate.NewNativeStatusTracker(),
 		historyCache:  localstate.NewSlackHistoryCache(),
 	}
+	// The service holds a paced Slack client, so every write is visible to the
+	// pacer rather than only the queued ones. See localstate.PaceChannelWrites;
+	// the alternative was remembering to record at twenty scattered call sites.
+	// svc.now is a method value, so it follows a clock installed later by
+	// SetClock.
+	svc.slack = localstate.PaceChannelWrites(slackClient, svc.channelWrites, svc.now)
+	return svc
 }
 
 func (s *Service) Initialize(ctx context.Context) error {

@@ -558,7 +558,7 @@ func (s *Service) acknowledgeMatchedAlertRule(
 	if !matched {
 		return
 	}
-	client, ok := s.slack.(interface {
+	client, ok := unpacedSlack(s.slack).(interface {
 		React(context.Context, string, string, string) error
 	})
 	if !ok {

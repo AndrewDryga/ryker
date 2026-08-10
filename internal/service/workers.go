@@ -318,9 +318,11 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 	default:
 		err = fmt.Errorf("unsupported Slack delivery operation %q", item.Operation)
 	}
-	// Record the attempt, not just the success: a rate-limited or failed write
-	// consumed the channel's budget just as surely as a delivered one.
-	s.channelWrites.Record(item.ChannelID, s.now())
+	// The write recorded its own spend against the channel, delivered or not:
+	// the Slack client is paced. See localstate.PaceChannelWrites. Recording
+	// here as well would be harmless — the slot keeps the latest timestamp — but
+	// it would also record the two branches above that never reached Slack at
+	// all, cooling a channel for a body this process could not decode.
 	if err != nil {
 		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
 		uncertain := item.Operation == "post" || item.Operation == "file"

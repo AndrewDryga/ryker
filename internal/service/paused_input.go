@@ -32,7 +32,7 @@ func (s *Service) markInputPaused(ctx context.Context, input core.SlackInput) {
 	if input.ChannelID == "" || input.MessageTS == "" {
 		return
 	}
-	client, ok := s.slack.(interface {
+	client, ok := unpacedSlack(s.slack).(interface {
 		React(context.Context, string, string, string) error
 	})
 	if !ok {
@@ -59,7 +59,7 @@ func (s *Service) clearInputPaused(ctx context.Context, input core.SlackInput) {
 	if input.ChannelID == "" || input.MessageTS == "" {
 		return
 	}
-	client, ok := s.slack.(interface {
+	client, ok := unpacedSlack(s.slack).(interface {
 		Unreact(context.Context, string, string, string) error
 	})
 	if !ok {
