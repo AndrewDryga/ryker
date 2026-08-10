@@ -79,7 +79,7 @@ func TestChannelMembershipRunsConfirmedConversationalSetup(t *testing.T) {
 		session.Draft.InviteUsers[0] != "U123ABC" {
 		t.Fatalf("configuration draft = %+v", session)
 	}
-	confirmation := slack.posts[len(slack.posts)-1].message
+	confirmation := slack.updates[len(slack.updates)-1].message
 	if confirmation.Header != "Review channel behavior" ||
 		len(confirmation.Actions) != 3 ||
 		confirmation.Actions[0].ID != slackui.ActionSaveChannelConfig ||
@@ -92,7 +92,7 @@ func TestChannelMembershipRunsConfirmedConversationalSetup(t *testing.T) {
 		ID: "save-channel-config", EnvelopeID: "save-channel-config-env",
 		EventID: "save-channel-config-event", Kind: "action",
 		TeamID: cfg.Slack.TeamID, ChannelID: "CNEW",
-		ThreadTS: session.ThreadTS, MessageTS: slack.posts[len(slack.posts)-1].thread,
+		ThreadTS: session.ThreadTS, MessageTS: session.CardTS,
 		UserID: "U123ABC", ActionID: slackui.ActionSaveChannelConfig,
 		ActionValue: session.ID,
 	}
@@ -120,8 +120,14 @@ func TestChannelMembershipRunsConfirmedConversationalSetup(t *testing.T) {
 	if _, err := st.GetActiveConfigurationSession(ctx, "CNEW"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("saved setup still active: %v", err)
 	}
-	if slack.posts[len(slack.posts)-1].message.Header != "Channel behavior saved" {
-		t.Fatalf("saved receipt = %+v", slack.posts[len(slack.posts)-1])
+	// Four questions, a confirmation and a receipt, all on the one card the
+	// opening question posted.
+	if len(slack.posts) != 1 ||
+		slack.updates[len(slack.updates)-1].message.Header != "Channel behavior saved" {
+		t.Fatalf(
+			"saved receipt = posts %+v updates %+v",
+			slack.posts, slack.updates[len(slack.updates)-1],
+		)
 	}
 
 	slack.channels[0].Member = false
@@ -232,9 +238,12 @@ func TestChannelJoinCanUseProactiveDefaultsWithoutFullWizard(t *testing.T) {
 	); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("quick configuration remains active: %v", err)
 	}
-	if len(slackClient.posts) != 2 ||
-		slackClient.posts[1].message.Header != "Channel behavior saved" {
-		t.Fatalf("quick setup receipt = %+v", slackClient.posts)
+	if len(slackClient.posts) != 1 || len(slackClient.updates) != 1 ||
+		slackClient.updates[0].message.Header != "Channel behavior saved" {
+		t.Fatalf(
+			"quick setup receipt = posts %+v updates %+v",
+			slackClient.posts, slackClient.updates,
+		)
 	}
 }
 
@@ -380,9 +389,15 @@ func TestChannelSetupButtonsFollowOperatorBetweenChannelAndThread(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.Step != "alerts" ||
-		slack.posts[len(slack.posts)-1].thread != repositoryQuestionTS {
-		t.Fatalf("thread reply advance = %+v, post = %+v", session, slack.posts[len(slack.posts)-1])
+	// Answering in a thread under the card is not a move. The card is the first
+	// message of that thread, so the next question replaces it in place and the
+	// operator reads it directly above their own reply.
+	if session.Step != "alerts" || len(slack.posts) != 1 ||
+		slack.updates[len(slack.updates)-1].ts != repositoryQuestionTS {
+		t.Fatalf(
+			"thread reply advance = %+v, posts = %+v, updates = %+v",
+			session, slack.posts, slack.updates,
+		)
 	}
 
 	moveToChannel := core.SlackInput{
@@ -402,9 +417,15 @@ func TestChannelSetupButtonsFollowOperatorBetweenChannelAndThread(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.Step != "alerts" || slack.posts[len(slack.posts)-1].thread != "" ||
-		len(slack.posts[len(slack.posts)-1].message.Actions) != 3 {
-		t.Fatalf("move setup to channel = %+v, post = %+v", session, slack.posts[len(slack.posts)-1])
+	// The card is already in the channel, so asking to continue there moves
+	// nothing and costs no message.
+	if session.Step != "alerts" || len(slack.posts) != 1 ||
+		slack.updates[len(slack.updates)-1].ts != "1700.001" ||
+		len(slack.updates[len(slack.updates)-1].message.Actions) != 3 {
+		t.Fatalf(
+			"move setup to channel = %+v, posts = %+v, updates = %+v",
+			session, slack.posts, slack.updates,
+		)
 	}
 
 	alertChoice := core.SlackInput{
@@ -445,10 +466,17 @@ func TestChannelSetupButtonsFollowOperatorBetweenChannelAndThread(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.Step != "audience" ||
+	// Moving between the channel and a thread is the one thing an edit cannot
+	// do, so the setup posts a second card and the first one stops being a
+	// question that answers anything.
+	if session.Step != "audience" || len(slack.posts) != 2 ||
 		slack.posts[len(slack.posts)-1].thread != moveToThread.MessageTS ||
 		!slices.Contains(session.ThreadRoots, moveToThread.MessageTS) {
-		t.Fatalf("move setup to thread = %+v, post = %+v", session, slack.posts[len(slack.posts)-1])
+		t.Fatalf("move setup to thread = %+v, posts = %+v", session, slack.posts)
+	}
+	retired := slack.updates[len(slack.updates)-1]
+	if retired.ts != "1700.001" || len(retired.message.Actions) != 0 {
+		t.Fatalf("the card left in the channel still answers = %+v", retired)
 	}
 
 	audienceReply := core.SlackInput{
@@ -469,8 +497,9 @@ func TestChannelSetupButtonsFollowOperatorBetweenChannelAndThread(t *testing.T) 
 		t.Fatal(err)
 	}
 	if session.Step != "confirm" || session.Status != "confirming" ||
-		slack.posts[len(slack.posts)-1].thread != moveToThread.MessageTS {
-		t.Fatalf("thread confirmation = %+v, post = %+v", session, slack.posts[len(slack.posts)-1])
+		len(slack.posts) != 2 || session.CardTS != "1700.002" ||
+		slack.updates[len(slack.updates)-1].ts != session.CardTS {
+		t.Fatalf("thread confirmation = %+v, updates = %+v", session, slack.updates)
 	}
 }
 

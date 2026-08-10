@@ -210,10 +210,17 @@ type ChannelConfiguration struct {
 }
 
 type ConfigurationSession struct {
-	ID               string
-	TeamID           string
-	ChannelID        string
-	ThreadTS         string
+	ID        string
+	TeamID    string
+	ChannelID string
+	ThreadTS  string
+	// CardTS is the one message this session owns. Every question,
+	// confirmation, receipt and cancellation edits it, so a setup costs the
+	// channel one message rather than one per step. ResponseThreadTS is where
+	// that card lives — the empty string for the channel itself — and
+	// ThreadRoots is the wider set of conversations whose replies still count
+	// as answers, which stays larger than one whenever a setup has moved.
+	CardTS           string
 	ResponseThreadTS string
 	ThreadRoots      []string
 	Initiator        string

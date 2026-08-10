@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -38,20 +37,66 @@ func (s *Service) startChannelConfiguration(
 	if !channel.Member || channel.Archived {
 		return s.finishSlackInput(ctx, input)
 	}
-	if existing, err := s.store.GetActiveConfigurationSession(ctx, input.ChannelID); err == nil {
+	session, resumed, err := s.openConfigurationSession(ctx, input)
+	if err != nil {
+		return err
+	}
+	message := slackui.ChannelSetupQuestion(
+		channel.Name, session, s.setupRepositoryChoices(),
+	)
+	cardTS := ""
+	if resumed {
+		cardTS, _, err = s.placeConfigurationCard(ctx, session, "", message)
+	} else {
+		cardTS, err = s.postConfigurationMessage(
+			ctx, configurationCardDeliveryID(session.ID), input.ChannelID, "", message,
+		)
+	}
+	if err != nil {
+		return err
+	}
+	if err := s.store.BindConfigurationThread(ctx, session.ID, cardTS); err != nil {
+		return err
+	}
+	s.audit(ctx, core.AuditEvent{
+		Kind: "slack.configuration.started", ActorID: input.UserID,
+		ObjectID: session.ID, Outcome: "asking", Detail: input.ChannelID,
+	})
+	return s.finishSlackInput(ctx, input)
+}
+
+// openConfigurationSession returns the session this request should drive, and
+// whether it was already under way.
+//
+// Starting a setup replaces whatever is live in the channel, which is right when
+// an operator asks to reconfigure it and wrong when the previous attempt merely
+// failed to record the card it had already posted. A session holding no card was
+// never shown to anybody, so there is nothing to replace: it is an unfinished
+// start, and finishing it adopts the card that is already in the channel rather
+// than cancelling the session that owns it and posting a second one beside it.
+func (s *Service) openConfigurationSession(
+	ctx context.Context,
+	input core.SlackInput,
+) (core.ConfigurationSession, bool, error) {
+	existing, err := s.store.GetActiveConfigurationSession(ctx, input.ChannelID)
+	switch {
+	case err == nil && existing.CardTS == "" && existing.ThreadTS == "" &&
+		existing.ExpiresAt.After(s.now().UTC()):
+		return existing, true, nil
+	case err == nil:
 		if err := s.store.FinishConfigurationSession(
 			ctx, existing.ID, existing.Revision, "cancelled",
 		); err != nil && !errors.Is(err, store.ErrConflict) {
-			return err
+			return core.ConfigurationSession{}, false, err
 		}
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return err
+	case !errors.Is(err, store.ErrNotFound):
+		return core.ConfigurationSession{}, false, err
 	}
 	initiator := ""
 	if s.cfg.IsOperator(input.UserID) {
 		allowed, allowedErr := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
 		if allowedErr != nil {
-			return allowedErr
+			return core.ConfigurationSession{}, false, allowedErr
 		}
 		if allowed {
 			initiator = input.UserID
@@ -67,7 +112,7 @@ func (s *Service) startChannelConfiguration(
 		draft = confirmed
 		draft.ActorID = ""
 	} else if !errors.Is(confirmedErr, store.ErrNotFound) {
-		return confirmedErr
+		return core.ConfigurationSession{}, false, confirmedErr
 	}
 	session, err := s.store.CreateConfigurationSession(ctx, core.ConfigurationSession{
 		TeamID: input.TeamID, ChannelID: input.ChannelID, Initiator: initiator,
@@ -75,26 +120,7 @@ func (s *Service) startChannelConfiguration(
 		Draft:     draft,
 		ExpiresAt: s.now().UTC().Add(channelConfigurationLease),
 	})
-	if err != nil {
-		return err
-	}
-	message := slackui.ChannelSetupQuestion(
-		channel.Name, session, s.setupRepositoryChoices(),
-	)
-	threadTS, err := s.postConfigurationMessage(
-		ctx, "channel_setup_"+session.ID, input.ChannelID, "", message,
-	)
-	if err != nil {
-		return err
-	}
-	if err := s.store.BindConfigurationThread(ctx, session.ID, threadTS); err != nil {
-		return err
-	}
-	s.audit(ctx, core.AuditEvent{
-		Kind: "slack.configuration.started", ActorID: input.UserID,
-		ObjectID: session.ID, Outcome: "asking", Detail: input.ChannelID,
-	})
-	return s.finishSlackInput(ctx, input)
+	return session, false, err
 }
 
 func (s *Service) shouldAdmitConfigurationMessage(
@@ -167,9 +193,8 @@ func (s *Service) processConfigurationReply(
 		); err != nil {
 			return true, err
 		}
-		if _, err := s.postConfigurationMessage(
-			ctx, "channel_setup_cancelled_"+session.ID, session.ChannelID,
-			responseThreadTS, slackui.ChannelSetupCancelled(),
+		if err := s.closeConfigurationCard(
+			ctx, session, responseThreadTS, slackui.ChannelSetupCancelled(),
 		); err != nil {
 			return true, err
 		}
@@ -220,14 +245,8 @@ func (s *Service) processConfigurationReply(
 				message.Context...,
 			)
 		}
-		messageTS, postErr := s.postConfigurationMessage(
-			ctx, "channel_setup_retry_"+input.ID, session.ChannelID, responseThreadTS, message,
-		)
-		if postErr != nil {
-			return true, postErr
-		}
-		if err := s.store.RecordConfigurationMessage(
-			ctx, session.ID, messageTS, responseThreadTS,
+		if err := s.showConfigurationCard(
+			ctx, session, responseThreadTS, message,
 		); err != nil {
 			return true, err
 		}
@@ -261,16 +280,7 @@ func (s *Service) processConfigurationReply(
 			message.Context...,
 		)
 	}
-	messageTS, err := s.postConfigurationMessage(
-		ctx, "channel_setup_step_"+session.ID+"_"+strconv.Itoa(session.Revision),
-		session.ChannelID, responseThreadTS, message,
-	)
-	if err != nil {
-		return true, err
-	}
-	if err := s.store.RecordConfigurationMessage(
-		ctx, session.ID, messageTS, responseThreadTS,
-	); err != nil {
+	if err := s.showConfigurationCard(ctx, session, responseThreadTS, message); err != nil {
 		return true, err
 	}
 	return true, s.finishSlackInput(ctx, input)
@@ -546,9 +556,8 @@ func (s *Service) handleChannelConfigurationAction(
 		); err != nil {
 			return err
 		}
-		_, err = s.postConfigurationMessage(
-			ctx, "channel_setup_cancelled_"+session.ID, session.ChannelID,
-			responseThreadTS, slackui.ChannelSetupCancelled(),
+		err = s.closeConfigurationCard(
+			ctx, session, responseThreadTS, slackui.ChannelSetupCancelled(),
 		)
 	case slackui.ActionRestartChannelSetup:
 		session.Draft = core.ChannelConfiguration{
@@ -563,20 +572,12 @@ func (s *Service) handleChannelConfigurationAction(
 			if channelErr != nil {
 				return channelErr
 			}
-			messageTS, postErr := s.postConfigurationMessage(
-				ctx, "channel_setup_restart_"+session.ID+"_"+strconv.Itoa(session.Revision),
-				session.ChannelID, responseThreadTS,
+			err = s.showConfigurationCard(
+				ctx, session, responseThreadTS,
 				slackui.ChannelSetupQuestion(
 					channel.Name, session, s.setupRepositoryChoices(),
 				),
 			)
-			if postErr != nil {
-				err = postErr
-			} else {
-				err = s.store.RecordConfigurationMessage(
-					ctx, session.ID, messageTS, responseThreadTS,
-				)
-			}
 		}
 	case slackui.ActionSaveChannelConfig:
 		if session.Status != "confirming" || session.Step != "confirm" ||
@@ -600,9 +601,8 @@ func (s *Service) handleChannelConfigurationAction(
 		if channelErr != nil {
 			return channelErr
 		}
-		_, err = s.postConfigurationMessage(
-			ctx, "channel_setup_saved_"+session.ID, session.ChannelID,
-			responseThreadTS, slackui.ChannelSetupSaved(
+		err = s.closeConfigurationCard(
+			ctx, session, responseThreadTS, slackui.ChannelSetupSaved(
 				channel.Name, configuration, s.repositoryChoice(configuration.Repository),
 			),
 		)
@@ -664,10 +664,9 @@ func (s *Service) saveQuickChannelSetup(
 	if channelErr != nil {
 		return channelErr
 	}
-	if _, err := s.postConfigurationMessage(
+	if err := s.closeConfigurationCard(
 		ctx,
-		"channel_setup_quick_saved_"+session.ID,
-		session.ChannelID,
+		session,
 		responseThreadTS,
 		slackui.ChannelSetupSaved(
 			channel.Name, configuration, s.repositoryChoice(configuration.Repository),
@@ -722,20 +721,13 @@ func (s *Service) startCustomChannelSetup(
 	if channelErr != nil {
 		return channelErr
 	}
-	messageTS, postErr := s.postConfigurationMessage(
+	if err := s.showConfigurationCard(
 		ctx,
-		"channel_setup_customize_"+session.ID,
-		session.ChannelID,
+		session,
 		responseThreadTS,
 		slackui.ChannelSetupQuestion(
 			channel.Name, session, s.setupRepositoryChoices(),
 		),
-	)
-	if postErr != nil {
-		return postErr
-	}
-	if err := s.store.RecordConfigurationMessage(
-		ctx, session.ID, messageTS, responseThreadTS,
 	); err != nil {
 		return err
 	}
@@ -786,16 +778,7 @@ func (s *Service) answerChannelSetupQuestion(
 			channel.Name, session, s.setupRepositoryChoices(),
 		)
 	}
-	messageTS, postErr := s.postConfigurationMessage(
-		ctx, "channel_setup_choice_"+input.ID, session.ChannelID,
-		responseThreadTS, message,
-	)
-	if postErr != nil {
-		return postErr
-	}
-	if err := s.store.RecordConfigurationMessage(
-		ctx, session.ID, messageTS, responseThreadTS,
-	); err != nil {
+	if err := s.showConfigurationCard(ctx, session, responseThreadTS, message); err != nil {
 		return err
 	}
 	return s.finishSlackInput(ctx, input)
@@ -820,6 +803,113 @@ func (s *Service) postConfigurationMessage(
 		return recovered, nil
 	}
 	return "", err
+}
+
+// configurationCardDeliveryID names the one card a setup session owns.
+//
+// It is stable for the life of the session, and that is the whole point. When a
+// post succeeds and the write recording its timestamp does not, the card is
+// still in the channel carrying this name, so the next step finds it. The name
+// used to carry the step and the revision, which made every orphan unfindable
+// and left posting a second card as the only thing the code could do.
+func configurationCardDeliveryID(sessionID string) string {
+	return "channel_setup_card_" + sessionID
+}
+
+// configurationCardIsHere reports whether the session's card is already in the
+// conversation the operator is speaking in, so the next step can edit it.
+//
+// Replying in a thread rooted at the card is not a move. The card is the first
+// message of that thread, sitting directly above the reply, so editing it puts
+// the next question exactly where the operator is looking — which is why the
+// card's own timestamp counts as a location as much as the thread it lives in.
+func configurationCardIsHere(session core.ConfigurationSession, threadTS string) bool {
+	return session.CardTS != "" &&
+		(threadTS == session.ResponseThreadTS || threadTS == session.CardTS)
+}
+
+// placeConfigurationCard puts a setup message in front of the operator as the
+// one card the session owns, and reports whether that card's location is new
+// and so has to be written down.
+//
+// Editing is the normal path. Posting happens three ways and no others: the
+// opening card, a card the operator has walked away from, and a card whose
+// timestamp was lost between the post and the write that records it. The last
+// one searches for the orphan first, because a session with no recorded card is
+// not the same thing as a channel with no card in it.
+//
+// A recovery that finds nothing posts. That is the honest outcome: either the
+// post never landed, or it landed somewhere this search cannot see — the
+// operator moved conversations in the same breath, and Slack's history for the
+// conversation they are in now does not contain a message posted in the one they
+// left. The session then owns the new card and the orphan stays where it is,
+// carrying a superseded session's buttons that every staleness check refuses.
+func (s *Service) placeConfigurationCard(
+	ctx context.Context,
+	session core.ConfigurationSession,
+	threadTS string,
+	message slackui.Message,
+) (string, bool, error) {
+	if configurationCardIsHere(session, threadTS) {
+		return session.CardTS, false, s.slack.Update(
+			ctx, session.ChannelID, session.CardTS, s.sanitizeMessage(message),
+		)
+	}
+	deliveryID := configurationCardDeliveryID(session.ID)
+	if session.CardTS != "" {
+		// Following the operator costs a second message whatever we do. What it
+		// must not cost is a second set of live buttons, so the card being left
+		// behind loses its question before the new one exists.
+		if err := s.slack.Update(
+			ctx, session.ChannelID, session.CardTS,
+			s.sanitizeMessage(slackui.ChannelSetupMoved(threadTS != "")),
+		); err != nil {
+			return "", false, err
+		}
+	} else if recovered, err := s.slack.FindDeliveryMessage(
+		ctx, session.ChannelID, threadTS, deliveryID,
+	); err == nil && recovered != "" {
+		return recovered, true, s.slack.Update(
+			ctx, session.ChannelID, recovered, s.sanitizeMessage(message),
+		)
+	}
+	card, err := s.postConfigurationMessage(
+		ctx, deliveryID, session.ChannelID, threadTS, message,
+	)
+	if err != nil {
+		return "", false, err
+	}
+	return card, true, nil
+}
+
+// showConfigurationCard renders the next step of a live session onto its card.
+func (s *Service) showConfigurationCard(
+	ctx context.Context,
+	session core.ConfigurationSession,
+	threadTS string,
+	message slackui.Message,
+) error {
+	card, relocated, err := s.placeConfigurationCard(ctx, session, threadTS, message)
+	if err != nil || !relocated {
+		return err
+	}
+	return s.store.RecordConfigurationMessage(ctx, session.ID, card, threadTS)
+}
+
+// closeConfigurationCard ends the card as the record of what happened.
+//
+// Saved and cancelled cards carry no actions, so the question stops being
+// clickable the moment it stops being true. Nothing is written down: the session
+// is already terminal, RecordConfigurationMessage only writes to one that is
+// still asking or confirming, and no later step will read a location again.
+func (s *Service) closeConfigurationCard(
+	ctx context.Context,
+	session core.ConfigurationSession,
+	threadTS string,
+	message slackui.Message,
+) error {
+	_, _, err := s.placeConfigurationCard(ctx, session, threadTS, message)
+	return err
 }
 
 func (s *Service) repositoryKeys() []string {

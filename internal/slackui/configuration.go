@@ -257,6 +257,26 @@ func repositoryAccessSummary(repository RepositoryChoice) string {
 		"An engineering task can edit only the exact repository named on its confirmation card."
 }
 
+// ChannelSetupMoved replaces the card an operator left behind when they asked to
+// continue somewhere else.
+//
+// Slack cannot move a message between a channel and a thread, so following the
+// operator means a second card exists. This is what becomes of the first one: no
+// buttons, and a sentence saying where the setup went. Leaving the question
+// standing would give one session two live cards, which is how an operator ends
+// up answering question three on the card still showing question two.
+func ChannelSetupMoved(intoThread bool) Message {
+	place := "in the channel"
+	if intoThread {
+		place = "in a thread"
+	}
+	return Message{
+		Text:     "Emisar channel setup continues " + place,
+		Header:   "Channel setup moved",
+		Markdown: "The rest of this setup continues " + place + ".",
+	}
+}
+
 func ChannelSetupCancelled() Message {
 	return Message{
 		Text:     "Emisar channel setup cancelled",
