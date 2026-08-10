@@ -2017,7 +2017,7 @@ func (s *Store) MarkInitialTurnQueued(ctx context.Context, id string) error {
 }
 
 func (s *Store) AdmitSlackInput(ctx context.Context, input core.SlackInput) (bool, error) {
-	return admitSlackInput(ctx, s.db, input, s.nowText())
+	return admitSlackInput(ctx, s.db, input, "pending", 0, s.nowText())
 }
 
 func admitSlackInput(
@@ -2026,6 +2026,8 @@ func admitSlackInput(
 		ExecContext(context.Context, string, ...any) (sql.Result, error)
 	},
 	input core.SlackInput,
+	initialState string,
+	initialAttempts int,
 	now string,
 ) (bool, error) {
 	if input.ID == "" {
@@ -2046,9 +2048,9 @@ func admitSlackInput(
 	result, err := executor.ExecContext(ctx, `
 		INSERT OR IGNORE INTO slack_inputs
 		  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
-		   user_id, text, action_id, action_value, attachments_json, state, next_attempt_at,
+		   user_id, text, action_id, action_value, attachments_json, frozen_json, state, attempts, next_attempt_at,
 		   received_at, updated_at)
-		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 		WHERE ? = 0 OR NOT EXISTS (
 		  SELECT 1
 		  FROM slack_inputs AS existing
@@ -2063,7 +2065,8 @@ func admitSlackInput(
 		)`,
 		input.ID, input.EnvelopeID, input.EventID, input.Kind, input.TeamID, input.ChannelID,
 		input.ThreadTS, input.MessageTS, input.UserID, input.Text, input.ActionID,
-		input.ActionValue, attachments, now, received.UTC().Format(timestampFormat), now,
+		input.ActionValue, attachments, input.Frozen, initialState, initialAttempts,
+		now, received.UTC().Format(timestampFormat), now,
 		boolInt(deduplicateSlackMessageInput(input)), input.TeamID, input.ChannelID,
 		input.MessageTS, input.UserID, input.Text, attachments)
 	if err != nil {

@@ -611,13 +611,7 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 		); err != nil {
 			return err
 		}
-		state := decisionpkg.WatchTurnState{
-			Lane: "investigation", Repository: task.Repository,
-			RepositoryPinned: true,
-			SessionChannelID: "scheduled:" + task.ID,
-			ResponseThreadTS: deliveryThread, RouteCaptured: true,
-			RulesCaptured: true, ConversationFollowup: true,
-		}
+		state := scheduledTaskTurnState(task, occurrence, deliveryThread)
 		frozen, marshalErr := json.Marshal(state)
 		if marshalErr != nil {
 			return marshalErr
@@ -628,17 +622,27 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 			ChannelID: deliveryChannel, ThreadTS: deliveryThread, UserID: task.ActorID,
 			Text: task.Prompt, Frozen: frozen, ReceivedAt: occurrence.ScheduledFor,
 		}
-		admitted, admitErr := s.store.AdmitSyntheticSlackInput(ctx, input)
+		_, admitErr := s.store.AdmitSyntheticSlackInput(ctx, input)
 		if admitErr != nil {
 			return admitErr
 		}
-		if admitted {
-			if err := s.store.SetSlackInputFrozen(ctx, input.ID, frozen); err != nil {
-				return err
-			}
-		}
 	} else if err != nil {
 		return err
+	}
+	// Synthetic inputs used to become runnable before their frozen context was
+	// stored. Repair any row left by that ordering before the queue can observe
+	// it, and fail closed rather than silently falling back to channel state.
+	if len(input.Frozen) == 0 {
+		frozen, marshalErr := json.Marshal(scheduledTaskTurnState(
+			task, occurrence, input.ThreadTS,
+		))
+		if marshalErr != nil {
+			return marshalErr
+		}
+		input.Frozen, err = s.store.FreezeSlackInput(ctx, input.ID, frozen)
+		if err != nil {
+			return fmt.Errorf("freeze scheduled task input: %w", err)
+		}
 	}
 	if _, err := s.store.GetAgentRunBySource(ctx, "watch", input.ID); errors.Is(err, store.ErrNotFound) {
 		if err := s.queueWatchedInput(ctx, input); err != nil {
@@ -654,6 +658,23 @@ func (s *Service) ensureScheduledTaskExecution(ctx context.Context, task core.Sc
 	return s.store.Schedules.LinkScheduledTaskRun(
 		ctx, task.ID, occurrence.ScheduledFor, agentRun.ID, agentRun.EpisodeID,
 	)
+}
+
+func scheduledTaskTurnState(
+	task core.ScheduledTask,
+	occurrence core.ScheduledTaskRun,
+	deliveryThread string,
+) decisionpkg.WatchTurnState {
+	return decisionpkg.WatchTurnState{
+		Lane: "investigation", Repository: task.Repository,
+		RepositoryPinned: true,
+		// A schedule is durable, but its tool registry is not. Give every
+		// occurrence a fresh Coop session so connector changes and credentials
+		// are picked up on the next run without operator intervention.
+		SessionChannelID: "scheduled:" + occurrence.SourceInput,
+		ResponseThreadTS: deliveryThread, RouteCaptured: true,
+		RulesCaptured: true, ConversationFollowup: true,
+	}
 }
 
 func (s *Service) ensureScheduledRunAnchor(

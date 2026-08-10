@@ -310,7 +310,7 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 	var state decisionpkg.WatchTurnState
 	if err := json.Unmarshal(input.Frozen, &state); err != nil ||
 		!state.RepositoryPinned || state.Repository != task.Repository ||
-		state.SessionChannelID != "scheduled:"+task.ID ||
+		state.SessionChannelID != "scheduled:"+runs[0].SourceInput ||
 		state.ResponseThreadTS != "" {
 		t.Fatalf("scheduled state = %+v, err=%v", state, err)
 	}
@@ -324,6 +324,71 @@ func TestDueScheduleQueuesOneNormalAgentRun(t *testing.T) {
 	runs, err = st.Schedules.ListActiveScheduledTaskRuns(ctx, 10)
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("duplicate scheduled runs = %+v, err=%v", runs, err)
+	}
+}
+
+func TestScheduledExecutionRepairsLegacyInputWithoutFrozenState(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	task, err := st.Schedules.CreateScheduledTask(ctx, core.ScheduledTask{
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", DeliveryChannel: "CREPORT",
+		Repository: "repo", Title: "Production health", Prompt: "Check production health.",
+		Recurrence: "once", StartAt: now, NextRunAt: now, Timezone: "UTC",
+		CatchUp: "latest", ActorID: cfg.Slack.Operators[0], SourceRef: "EvLegacySchedule",
+		ExpiresAt: now.Add(24 * time.Hour),
+	}, cfg.Limits.MaxScheduledTasks, cfg.Limits.MaxSchedulesPerChannel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceInput := schedulepkg.ScheduledSourceInputID(task.ID, now)
+	occurrence, execute, err := st.Schedules.ClaimScheduledTaskRun(
+		ctx, task, now, time.Time{}, sourceInput, false, true, "",
+	)
+	if err != nil || !execute {
+		t.Fatalf("claim occurrence: execute=%v err=%v", execute, err)
+	}
+	created, err := st.AdmitSyntheticSlackInput(ctx, core.SlackInput{
+		ID: sourceInput, EnvelopeID: sourceInput, EventID: sourceInput,
+		Kind: "scheduled", TeamID: task.TeamID, ChannelID: task.DeliveryChannel,
+		UserID: task.ActorID, Text: task.Prompt, ReceivedAt: now,
+	})
+	if err != nil || !created {
+		t.Fatalf("admit legacy input: created=%v err=%v", created, err)
+	}
+
+	slack := &scheduleSlack{t: t, wantUser: task.ActorID, wantTeam: task.TeamID}
+	slack.channel = slackui.Channel{ID: "CREPORT", Name: "health-reports", Member: true}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.ensureScheduledTaskExecution(ctx, task, occurrence); err != nil {
+		t.Fatal(err)
+	}
+
+	input, err := st.GetSlackInput(ctx, sourceInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state decisionpkg.WatchTurnState
+	if err := json.Unmarshal(input.Frozen, &state); err != nil ||
+		state.Repository != task.Repository || !state.RepositoryPinned ||
+		state.SessionChannelID != "scheduled:"+sourceInput {
+		t.Fatalf("repaired scheduled state = %+v, err=%v", state, err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", sourceInput)
+	if err != nil || len(run.Context) == 0 {
+		t.Fatalf("scheduled run = %+v, err=%v", run, err)
+	}
+	var runState decisionpkg.WatchTurnState
+	if err := json.Unmarshal(run.Context, &runState); err != nil ||
+		runState.Repository != task.Repository || !runState.RepositoryPinned ||
+		runState.SessionChannelID != "scheduled:"+sourceInput {
+		t.Fatalf("scheduled run state = %+v, err=%v", runState, err)
 	}
 }
 

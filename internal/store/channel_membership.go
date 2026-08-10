@@ -70,7 +70,7 @@ func (s *Store) AdmitSlackChannelJoin(
 	}
 	created := false
 	if semanticDuplicate == 0 {
-		created, err = admitSlackInput(ctx, tx, input, s.nowText())
+		created, err = admitSlackInput(ctx, tx, input, "pending", 0, s.nowText())
 		if err != nil {
 			return false, err
 		}
