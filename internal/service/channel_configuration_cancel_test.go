@@ -54,9 +54,14 @@ func TestConfigurationSetupAcceptsFormattedCancelCommand(t *testing.T) {
 	if _, err := st.GetActiveConfigurationSession(ctx, "CNEW"); err != store.ErrNotFound {
 		t.Fatalf("active setup after cancellation = %v", err)
 	}
-	if len(slack.posts) != 1 ||
-		slack.posts[0].message.Header != "Channel setup cancelled" {
-		t.Fatalf("cancellation message = %+v", slack.posts)
+	// The card the operator cancelled becomes the record that they did, in place.
+	// A cancellation posted underneath it would be the second message this setup
+	// cost the channel, for an exchange that changed nothing.
+	if len(slack.posts) != 0 || len(slack.updates) != 1 ||
+		slack.updates[0].ts != "1700.1" ||
+		slack.updates[0].message.Header != "Channel setup cancelled" ||
+		len(slack.updates[0].message.Actions) != 0 {
+		t.Fatalf("cancellation = posts %+v updates %+v", slack.posts, slack.updates)
 	}
 }
 
@@ -119,11 +124,15 @@ func TestExpiredConfigurationReplyRenewsInPlaceAndAppliesAnswer(t *testing.T) {
 	if err != nil || old.Status != "expired" {
 		t.Fatalf("old setup = %+v, err=%v", old, err)
 	}
-	if len(slack.posts) != 1 || slack.posts[0].thread != "1700.1" ||
-		slack.posts[0].message.Header != "Configure Emisar for #infra-alerts" ||
-		len(slack.posts[0].message.Context) == 0 ||
-		!strings.Contains(slack.posts[0].message.Context[0], "renewed") {
-		t.Fatalf("renewed setup response = %+v", slack.posts)
+	// A renewed session inherits the card of the one it replaces, so the operator
+	// sees the next question appear on the message they were already answering
+	// rather than a fresh copy of the setup below it.
+	if len(slack.posts) != 0 || len(slack.updates) != 1 ||
+		slack.updates[0].ts != "1700.1" ||
+		slack.updates[0].message.Header != "Configure Emisar for #infra-alerts" ||
+		len(slack.updates[0].message.Context) == 0 ||
+		!strings.Contains(slack.updates[0].message.Context[0], "renewed") {
+		t.Fatalf("renewed setup response = posts %+v updates %+v", slack.posts, slack.updates)
 	}
 	if _, err := st.GetChannelConfiguration(ctx, "CNEW"); err != store.ErrNotFound {
 		t.Fatalf("renewal saved channel configuration: %v", err)
@@ -204,11 +213,19 @@ func TestExpiredConfigurationButtonRenewsAndAppliesChoice(t *testing.T) {
 			if err != nil || old.Status != "expired" {
 				t.Fatalf("old setup = %+v, err=%v", old, err)
 			}
-			if len(slack.ephemerals) != 0 || len(slack.posts) != 1 ||
-				slack.posts[0].message.Header != "Configure Emisar for #bugs" {
-				t.Fatalf("renewed button response = posts=%+v ephemerals=%+v", slack.posts, slack.ephemerals)
+			if len(slack.ephemerals) != 0 || len(slack.posts) != 0 ||
+				len(slack.updates) != 1 || slack.updates[0].ts != "1700.1" ||
+				slack.updates[0].message.Header != "Configure Emisar for #bugs" {
+				t.Fatalf(
+					"renewed button response = posts=%+v updates=%+v ephemerals=%+v",
+					slack.posts, slack.updates, slack.ephemerals,
+				)
 			}
 
+			// A second click on the same card cannot act. The card was edited in
+			// place, so the buttons this input carries belong to a question that is
+			// no longer on screen, and the staleness check is what makes that
+			// harmless rather than a repeated answer.
 			duplicate := action
 			duplicate.ID += "-duplicate"
 			duplicate.EnvelopeID += "-duplicate"
@@ -219,8 +236,12 @@ func TestExpiredConfigurationButtonRenewsAndAppliesChoice(t *testing.T) {
 			if err := svc.processSlackInput(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if len(slack.ephemerals) != 0 || len(slack.posts) != 1 {
-				t.Fatalf("duplicate stale action produced output: posts=%+v ephemerals=%+v", slack.posts, slack.ephemerals)
+			if len(slack.ephemerals) != 0 || len(slack.posts) != 0 ||
+				len(slack.updates) != 1 {
+				t.Fatalf(
+					"duplicate stale action produced output: posts=%+v updates=%+v ephemerals=%+v",
+					slack.posts, slack.updates, slack.ephemerals,
+				)
 			}
 		})
 	}
@@ -486,10 +507,11 @@ func TestPersistedExpiredConfigurationReplyRenewsOriginalConversation(t *testing
 		renewed.Draft.Participation != "proactive" {
 		t.Fatalf("renewed setup = %+v, expired = %+v", renewed, expired)
 	}
-	if len(slack.posts) != 1 || slack.posts[0].thread != "1700.1" ||
-		len(slack.posts[0].message.Context) == 0 ||
-		!strings.Contains(slack.posts[0].message.Context[0], "renewed") {
-		t.Fatalf("renewed setup response = %+v", slack.posts)
+	if len(slack.posts) != 0 || len(slack.updates) != 1 ||
+		slack.updates[0].ts != "1700.1" ||
+		len(slack.updates[0].message.Context) == 0 ||
+		!strings.Contains(slack.updates[0].message.Context[0], "renewed") {
+		t.Fatalf("renewed setup response = posts %+v updates %+v", slack.posts, slack.updates)
 	}
 }
 

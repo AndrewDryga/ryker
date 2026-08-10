@@ -51,10 +51,10 @@ func (s *Store) CreateConfigurationSession(
 	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO configuration_sessions (
-		  id, team_id, channel_id, thread_ts, response_thread_ts, thread_roots_json,
+		  id, team_id, channel_id, thread_ts, card_ts, response_thread_ts, thread_roots_json,
 		  initiator_id, step, status, draft_json, revision, expires_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		session.ID, session.TeamID, session.ChannelID, session.ThreadTS,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		session.ID, session.TeamID, session.ChannelID, session.ThreadTS, session.CardTS,
 		session.ResponseThreadTS, threadRoots, session.Initiator, session.Step,
 		session.Status, draft, session.Revision,
 		session.ExpiresAt.Format(timestampFormat), now.Format(timestampFormat),
@@ -71,7 +71,7 @@ func (s *Store) GetActiveConfigurationSession(
 	channelID string,
 ) (core.ConfigurationSession, error) {
 	return scanConfigurationSession(s.db.QueryRowContext(ctx, `
-		SELECT id, team_id, channel_id, thread_ts, response_thread_ts, thread_roots_json,
+		SELECT id, team_id, channel_id, thread_ts, card_ts, response_thread_ts, thread_roots_json,
 		  initiator_id, step, status, draft_json, revision, expires_at, created_at, updated_at
 		FROM configuration_sessions
 		WHERE channel_id = ? AND status IN ('asking', 'confirming')
@@ -85,7 +85,7 @@ func (s *Store) GetLatestConfigurationSession(
 	channelID string,
 ) (core.ConfigurationSession, error) {
 	return scanConfigurationSession(s.db.QueryRowContext(ctx, `
-		SELECT id, team_id, channel_id, thread_ts, response_thread_ts, thread_roots_json,
+		SELECT id, team_id, channel_id, thread_ts, card_ts, response_thread_ts, thread_roots_json,
 		  initiator_id, step, status, draft_json, revision, expires_at, created_at, updated_at
 		FROM configuration_sessions
 		WHERE channel_id = ?
@@ -99,13 +99,15 @@ func (s *Store) GetConfigurationSession(
 	id string,
 ) (core.ConfigurationSession, error) {
 	return scanConfigurationSession(s.db.QueryRowContext(ctx, `
-		SELECT id, team_id, channel_id, thread_ts, response_thread_ts, thread_roots_json,
+		SELECT id, team_id, channel_id, thread_ts, card_ts, response_thread_ts, thread_roots_json,
 		  initiator_id, step, status, draft_json, revision, expires_at, created_at, updated_at
 		FROM configuration_sessions WHERE id = ?`,
 		id,
 	))
 }
 
+// BindConfigurationThread records the opening card: the message the rest of the
+// setup edits, and the thread root that its replies may arrive under.
 func (s *Store) BindConfigurationThread(
 	ctx context.Context,
 	id string,
@@ -117,28 +119,43 @@ func (s *Store) BindConfigurationThread(
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE configuration_sessions
-		SET thread_ts = ?, response_thread_ts = '', thread_roots_json = ?,
+		SET thread_ts = ?, card_ts = ?, response_thread_ts = '', thread_roots_json = ?,
 		  revision = revision + 1, updated_at = ?
 		WHERE id = ? AND status IN ('asking', 'confirming') AND thread_ts = ''`,
-		threadTS, roots, s.nowText(), id,
+		threadTS, threadTS, roots, s.nowText(), id,
 	)
 	return sqlutil.ExpectOne(result, err, "bind configuration thread")
 }
 
+// RecordConfigurationMessage points the session at the card it just posted, and
+// keeps the set of conversations whose replies count as setup answers.
+//
+// Both facts come from the same post, and writing them in one statement is why
+// the card cannot be recorded without its thread root or the other way round.
+// They are still different questions. card_ts is the single message chat.update
+// may rewrite and response_thread_ts is where it sits, so both are replaced.
+// thread_roots_json accumulates: a setup that moved into a thread leaves an
+// operator reading the earlier question, and an answer typed under that one is
+// still an answer.
+//
+// Callers record only when the card is posted or adopted. An edit in place
+// changes neither pointer, and writing response_thread_ts on every reply would
+// make it the last answer's thread rather than the card's home — which would
+// read the next answer in the channel as a request to move.
 func (s *Store) RecordConfigurationMessage(
 	ctx context.Context,
 	id string,
-	messageTS string,
+	cardTS string,
 	responseThreadTS string,
 ) error {
-	if messageTS == "" || len(messageTS) > 64 || len(responseThreadTS) > 64 {
+	if cardTS == "" || len(cardTS) > 64 || len(responseThreadTS) > 64 {
 		return errors.New("invalid Slack configuration message location")
 	}
 	session, err := s.GetConfigurationSession(ctx, id)
 	if err != nil {
 		return err
 	}
-	root := messageTS
+	root := cardTS
 	if responseThreadTS != "" {
 		root = responseThreadTS
 	}
@@ -157,9 +174,9 @@ func (s *Store) RecordConfigurationMessage(
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE configuration_sessions
-		SET response_thread_ts = ?, thread_roots_json = ?, updated_at = ?
+		SET card_ts = ?, response_thread_ts = ?, thread_roots_json = ?, updated_at = ?
 		WHERE id = ? AND status IN ('asking', 'confirming')`,
-		responseThreadTS, data, s.nowText(), id,
+		cardTS, responseThreadTS, data, s.nowText(), id,
 	)
 	return sqlutil.ExpectOne(result, err, "record configuration message location")
 }
@@ -383,8 +400,9 @@ func scanConfigurationSession(row *sql.Row) (core.ConfigurationSession, error) {
 	var expires, created, updated string
 	err := row.Scan(
 		&session.ID, &session.TeamID, &session.ChannelID, &session.ThreadTS,
-		&session.ResponseThreadTS, &threadRoots, &session.Initiator, &session.Step,
-		&session.Status, &draft, &session.Revision, &expires, &created, &updated,
+		&session.CardTS, &session.ResponseThreadTS, &threadRoots, &session.Initiator,
+		&session.Step, &session.Status, &draft, &session.Revision, &expires,
+		&created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.ConfigurationSession{}, ErrNotFound
