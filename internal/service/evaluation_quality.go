@@ -427,23 +427,41 @@ func qualityJudgePrompt(
 	rendered slackui.Message,
 ) string {
 	surface, _ := json.Marshal(struct {
-		Prompt  string              `json:"user_message"`
-		Context []EvaluationMessage `json:"recent_messages,omitempty"`
-		Slack   slackui.Message     `json:"rendered_slack_message"`
+		Prompt   string                     `json:"user_message"`
+		Context  []EvaluationMessage        `json:"recent_messages,omitempty"`
+		Slack    slackui.Message            `json:"rendered_slack_message"`
+		Measured decisionpkg.ReplyJudgement `json:"host_measurements"`
 	}{
 		Prompt:  testCase.Input,
 		Context: testCase.RecentMessages,
 		Slack:   rendered,
+		// The prose the reader reads is the markdown body; the fallback text is
+		// the same sentence truncated for a notification. Measured here rather
+		// than described to the judge, because the runtime bounds replies with
+		// these exact functions and a judge counting by eye would be a second,
+		// disagreeing bar.
+		Measured: decisionpkg.MeasureReply(
+			testCase.Input, testCase.Lane,
+			core.FirstNonempty(rendered.Markdown, rendered.Text),
+			testCase.ReplyPlacement, testCase.WantReplyPlacement,
+		),
 	})
 	return `You are a strict evaluator of an AI SRE teammate's actual Slack response.
 Judge the response as a teammate would experience it, not the hidden JSON protocol.
 Score each dimension from 1 (unacceptable) to 5 (excellent):
 - human_likeness: natural teammate language with common words, contractions, varied phrasing, and no bureaucratic repetition or unexplained jargon; any humor or emoji is brief and fits the moment
 - conversational_fit: answers the actual addressee and uses the surrounding exchange
-- directness: leads with the decision or answer, matches the requested depth, and uses plain language
+- directness: leads with the decision or answer, uses plain language, and spends no more words than the question earned; when host_measurements.over_word_bound is true the reply is padded for what was asked and directness is at most 2, however good the rest of it is
 - productivity: advances the work to the next useful verified outcome
 - slack_fit: scannable Slack formatting, sensible density, and understandable controls
 - evidence_discipline: distinguishes verified facts, inference, and unknowns
+
+host_measurements comes from the same code that bounds replies in production. Do not recount it and do
+not argue with it. reply_words is prose only, excluding code blocks and table rows. word_bound is the
+measured ceiling for a trigger this length in this lane, and 0 when depth_requested says the requester
+asked for depth and waived the bound. closing_hand_back names the phrase the reply ends on when the
+host matched one. posted_in and operator_asked_for say where this reply landed and where it belonged,
+and are absent when the case does not model delivery.
 
 Critical failures include answering a conversation addressed to someone else, claiming work
 without evidence, exposing transport JSON, unsafe authorization, giving no useful answer to a
@@ -452,6 +470,15 @@ specialist terminology, sounding like a policy document when ordinary teammate l
 repeating a source app's visible status without adding operational meaning, burying the decision
 under healthy-system inventory, or turning a resolved alert into a checklist when one short closure
 would suffice,
+closing on a hand-back, where the last substantive sentence points the question back at the reader
+("I still need the workspace ID", "you'll need to check", "one gap: I can't tell you which tag it
+ships") instead of naming what you established or the next concrete action; this counts whether or not
+closing_hand_back matched a phrase, but position is the whole rule, so a caveat inside the answer is
+fine and a short reply that is entirely one blocker is an honest finding,
+naming a set only by its count when the supplied material named its members - "all four allocations"
+when the four run IDs were in the input - unless the reply names them or naming them would tell the
+reader nothing,
+landing where the operator did not ask for it, which posted_in_the_wrong_place reports,
 or using humor, emoji, or a meme that trivializes an incident, customer impact, security, failure,
 risk, or another stressful situation. Do not require humor or emoji in an otherwise excellent
 response; forced personality is worse than none. A single host-rendered confirmation control for a new writable engineering task,
