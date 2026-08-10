@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -474,5 +476,245 @@ func TestAMistypedSetupAnswerIsNotPostedToTheChannel(t *testing.T) {
 	if !refused {
 		t.Fatalf("the refusal reached nobody: posts=%+v ephemerals=%+v",
 			slackClient.posts[postsBefore:], slackClient.ephemerals)
+	}
+}
+
+// Being refused is between Responder and the person refused.
+//
+// Both denials name one Slack account and nothing else: this person is not a
+// configured operator, or this person is a guest. Nobody else in the incident
+// room can grant either, so nobody else can act on reading it. It was a channel
+// post, so a colleague who typed one sentence in an incident room was turned
+// away in public, once per message they sent, in front of everyone working the
+// incident.
+func TestANonOperatorIsRefusedPrivatelyNotInTheIncidentRoom(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident, created, err := st.CreateManualIncident(
+		ctx, cfg.Slack.DefaultRepository, "EvDenied", "Production issue",
+		"Investigate", cfg.Slack.Operators[0], "CORIGIN", "1700.1", 100,
+	)
+	if err != nil || !created {
+		t.Fatalf("create incident = %+v, %v, %v", incident, created, err)
+	}
+	if err := st.SetChannel(ctx, incident.ID, "CINCIDENT", "ems-production-issue"); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{channel: slackui.Channel{
+		ID: "CINCIDENT", Name: "ems-production-issue", Member: true,
+	}}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	bystander := core.SlackInput{
+		ID: "denied_message", EnvelopeID: "env_denied", EventID: "event_denied",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CINCIDENT",
+		MessageTS: "1700.500", ThreadTS: "1700.500", UserID: "UBYSTANDER",
+		Text: "is anyone looking at the checkout errors?", ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, bystander); err != nil || !admitted {
+		t.Fatalf("admit bystander = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	const refusal = "restricted to configured incident operators"
+	for _, post := range slackClient.posts {
+		if strings.Contains(post.message.Text, refusal) {
+			t.Fatalf("a refusal was posted to the incident room: %q", post.message.Text)
+		}
+	}
+	refused := false
+	for _, ephemeral := range slackClient.ephemerals {
+		if !strings.Contains(ephemeral.message.Text, refusal) {
+			continue
+		}
+		refused = true
+		if ephemeral.thread != "UBYSTANDER" {
+			t.Errorf("refusal went to %q, not the person refused", ephemeral.thread)
+		}
+		if ephemeral.channel != "CINCIDENT" {
+			t.Errorf("refusal landed in %q, not where they typed", ephemeral.channel)
+		}
+	}
+	if !refused {
+		t.Fatalf("the refusal reached nobody: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+	// The refusal stays findable whether or not Slack accepted the ephemeral.
+	trail := auditOutcomes(t, cfg, "slack.input", bystander.ID)
+	if len(trail) != 1 || !strings.HasPrefix(trail[0], "denied: ") {
+		t.Fatalf("the refusal left no audit trail: %+v", trail)
+	}
+}
+
+// Which spelling somebody used must not decide who watches them be refused.
+//
+// "/responder status" already answers privately, because Slack makes slash
+// replies private. The identical question typed as "@Emisar show settings"
+// takes the conversation-command path, and the identical refusal — your account
+// is not in slack.operators, go ask an administrator — was posted to the
+// channel, naming one person in front of the room, once per attempt.
+func TestANonOperatorAskingInChannelIsRefusedPrivately(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{channel: slackui.Channel{
+		ID: "COPS", Name: "backend-ops", Member: true,
+	}}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	asked := core.SlackInput{
+		ID: "ops_show_settings", EnvelopeID: "env_ops_show_settings",
+		EventID: "event_ops_show_settings", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", MessageTS: "1700.700",
+		UserID: "UBYSTANDER", Text: "<@U999BOT> show settings",
+		ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, asked); err != nil || !admitted {
+		t.Fatalf("admit question = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	const refusal = "not listed in `slack.operators`"
+	for _, post := range slackClient.posts {
+		if strings.Contains(renderedSlackMessage(post.message), refusal) {
+			t.Fatalf("a command refusal was posted to a shared channel: %q", post.message.Text)
+		}
+	}
+	refused := false
+	for _, ephemeral := range slackClient.ephemerals {
+		if !strings.Contains(renderedSlackMessage(ephemeral.message), refusal) {
+			continue
+		}
+		refused = true
+		if ephemeral.thread != "UBYSTANDER" || ephemeral.channel != "COPS" {
+			t.Errorf("refusal went to %q in %q", ephemeral.thread, ephemeral.channel)
+		}
+	}
+	if !refused {
+		t.Fatalf("the refusal reached nobody: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the refused question was not completed: %v", err)
+	}
+}
+
+// A request that Responder gave up on is news to the person who made it.
+//
+// "Responder could not complete that request after retrying", the raw error
+// Slack or Coop returned, and an invitation to run the command again: only the
+// person who pressed the button can do that. To everyone else it is a stack
+// trace addressed to nobody, arriving in their room after up to twelve silent
+// attempts they never knew about. It went to the whole thread.
+func TestAnAbandonedRequestTellsTheOperatorNotTheRoom(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "source_abandoned", "Abandoned control task",
+		"Make a temporary isolated change.", cfg.Slack.Operators[0],
+		"CTASK", "1700.100", cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_1", "review-task", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.changes = coop.Changes{
+		BaseCommit: "base", ForkHead: "proposed",
+		Committed: []coop.Change{{Path: "checkout.go", Status: "M"}},
+	}
+	// A refusal Coop will repeat forever, so the input gives up on the first
+	// attempt instead of the test having to burn all twelve.
+	coopClient.getSessionErr = &coop.APIError{
+		Status: http.StatusForbidden, Code: "forbidden",
+		Detail: "this token may not read that session",
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	press := core.SlackInput{
+		ID: "abandoned_review", EnvelopeID: "env_abandoned_review",
+		EventID: "event_abandoned_review", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: task.ChannelID,
+		MessageTS: task.RootTS, ThreadTS: task.ConversationThreadTS(),
+		UserID:   cfg.Slack.Operators[0],
+		ActionID: slackui.ActionReview, ActionValue: task.ID,
+		ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, press); err != nil || !admitted {
+		t.Fatalf("admit press = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	stored, err := st.GetSlackInput(ctx, press.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != "failed" {
+		t.Fatalf("state = %q, want failed; Coop's refusal is final", stored.State)
+	}
+	const abandoned = "could not complete that request after retrying"
+	for _, post := range slackClient.posts {
+		if strings.Contains(renderedSlackMessage(post.message), abandoned) {
+			t.Fatalf("a give-up notice was posted to the room: %q", post.message.Text)
+		}
+	}
+	told := false
+	for _, ephemeral := range slackClient.ephemerals {
+		if !strings.Contains(renderedSlackMessage(ephemeral.message), abandoned) {
+			continue
+		}
+		told = true
+		if ephemeral.thread != cfg.Slack.Operators[0] {
+			t.Errorf("give-up notice went to %q, not the operator who pressed", ephemeral.thread)
+		}
+		if !strings.Contains(renderedSlackMessage(ephemeral.message), "forbidden") {
+			t.Errorf("the reason was dropped: %q", ephemeral.message.Text)
+		}
+	}
+	if !told {
+		t.Fatalf("nobody was told the request was abandoned: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+	// Whether or not Slack accepts an ephemeral, giving up stays findable.
+	trail := auditOutcomes(t, cfg, "slack.input", press.ID)
+	if len(trail) != 1 || !strings.HasPrefix(trail[0], "abandoned: ") {
+		t.Fatalf("giving up left no audit trail: %+v", trail)
 	}
 }

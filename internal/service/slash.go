@@ -228,7 +228,7 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 			return err
 		}
 		if !allowed {
-			return s.finishSlashInput(
+			return s.refuseSlashInput(
 				ctx, input,
 				"Only active full members of this Slack workspace can submit feedback.",
 			)
@@ -236,7 +236,7 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 		return s.finishSlashFeedback(ctx, input, slashArgument(input.Text))
 	}
 	if !s.cfg.IsOperator(input.UserID) {
-		return s.finishSlashInput(
+		return s.refuseSlashInput(
 			ctx, input,
 			"*You cannot run Responder commands yet.*\n\n"+
 				"Your Slack account is not listed in `slack.operators`. An administrator must "+
@@ -250,7 +250,7 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 		return err
 	}
 	if !allowed {
-		return s.finishSlashInput(
+		return s.refuseSlashInput(
 			ctx, input,
 			"*This Slack account cannot run Responder commands.*\n\n"+
 				"Commands require an active, full member of Responder's configured workspace. "+
@@ -829,6 +829,36 @@ func (s *Service) runSlashIncidentControl(
 		input,
 		slashControlReceipt(command, slackui.ShortID(incident.ID)),
 	)
+}
+
+// refuseSlashInput turns a command down to the person who ran it.
+//
+// All three refusals below name one Slack account and nothing else: you are not
+// in `slack.operators`, this account is a guest or a bot, only full members may
+// leave feedback. Nobody else in the room can add anyone to that setting, so
+// nobody else can act on reading it.
+//
+// A real slash command already refuses privately, because Slack makes those
+// answers private and finishSlashMessage follows. The same refusal typed as
+// "@Emisar status" arrives as a conversation_command, and that branch posts to
+// the channel — so the identical sentence about the identical person became a
+// public callout depending only on which spelling they used, once per attempt.
+// The rule was already the private one; this makes it survive both spellings.
+func (s *Service) refuseSlashInput(
+	ctx context.Context,
+	input core.SlackInput,
+	text string,
+) error {
+	if input.Kind != "conversation_command" ||
+		input.ChannelID == "" || input.UserID == "" {
+		return s.finishSlashInput(ctx, input, text)
+	}
+	if err := s.slack.PostEphemeral(
+		ctx, input.ChannelID, input.UserID, s.sanitizeMessage(slackui.Notice(text)),
+	); err != nil {
+		return s.retrySlackInput(ctx, input, err)
+	}
+	return s.store.FinishSlackInput(ctx, input.ID)
 }
 
 func (s *Service) finishSlashInput(

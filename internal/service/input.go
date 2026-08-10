@@ -1800,25 +1800,7 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 			Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
 			Outcome: "abandoned", Detail: input.Kind + ": " + trimError(err),
 		})
-		if incident, incidentErr := s.store.FindIncidentForConversation(
-			ctx,
-			input.ChannelID,
-			slackReplyThread(input),
-		); incidentErr == nil {
-			_ = s.enqueue(
-				ctx,
-				"out_input_error_"+input.ID,
-				incident,
-				"notice",
-				incident.ConversationThreadTS(),
-				slackui.Notice(
-					"*Responder could not complete that request after retrying.*\n\n"+
-						"Reason: `"+trimError(err)+"`\n\nThe incident and isolated working copy "+
-						"are preserved. Check the pinned card for the current state, then retry "+
-						"the command or reply with a different next step.",
-				),
-			)
-		}
+		s.reportAbandonedInput(ctx, input, err)
 	}
 	return s.store.RetrySlackInputFailure(
 		ctx,
@@ -1826,6 +1808,62 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 		trimError(err),
 		s.queueDelay(attempt),
 		terminal,
+	)
+}
+
+// reportAbandonedInput tells whoever asked that their request will not happen.
+//
+// The message is "Responder could not complete that request after retrying",
+// the reason Slack gave, and an invitation to try the command again. Only the
+// person who typed the command can do that. To everyone else in the room it is
+// a stack trace addressed to nobody: it names no work, changes nothing they
+// can see, and arrives after twelve silent attempts they never knew about.
+//
+// So it goes to that person, ephemerally, where they interacted. It is not
+// dropped when there is nobody to address — an alert or a bot message has no
+// author, and the failure of work in an incident room is on-topic for the room
+// — so that case keeps the channel post it always had. Either way the audit
+// event above records the abandonment, which is the durable half.
+func (s *Service) reportAbandonedInput(
+	ctx context.Context,
+	input core.SlackInput,
+	cause error,
+) {
+	message := slackui.Notice(
+		"*Responder could not complete that request after retrying.*\n\n" +
+			"Reason: `" + trimError(cause) + "`\n\nThe incident and isolated working copy " +
+			"are preserved. Check the pinned card for the current state, then retry " +
+			"the command or reply with a different next step.",
+	)
+	if input.ChannelID != "" && input.UserID != "" {
+		if err := s.slack.PostEphemeral(
+			ctx, input.ChannelID, input.UserID, s.sanitizeMessage(message),
+		); err != nil {
+			s.log.Warn(
+				"tell an operator their Slack request was abandoned",
+				"input", input.ID,
+				"channel", input.ChannelID,
+				"user", input.UserID,
+				"error", trimError(err),
+			)
+		}
+		return
+	}
+	incident, incidentErr := s.store.FindIncidentForConversation(
+		ctx,
+		input.ChannelID,
+		slackReplyThread(input),
+	)
+	if incidentErr != nil {
+		return
+	}
+	_ = s.enqueue(
+		ctx,
+		"out_input_error_"+input.ID,
+		incident,
+		"notice",
+		incident.ConversationThreadTS(),
+		message,
 	)
 }
 
@@ -1874,15 +1912,39 @@ func (s *Service) finishSlackInput(ctx context.Context, input core.SlackInput) e
 	return nil
 }
 
+// denyInput tells the person who was refused, and only them.
+//
+// Both reasons name one Slack account and nothing else: this person is not a
+// configured operator, or this person is a guest the workspace does not let
+// steer Responder. Nobody else in the room can grant either, so nobody else
+// can act on reading it — which is the test, not whether it is an error.
+//
+// It was a channel post, so a colleague who typed one sentence in an incident
+// room was refused in public, once per message they sent, in front of everyone
+// working the incident. The refusal is between Responder and them.
+//
+// Ephemeral needs a channel and a user. A channelless interaction has neither
+// a place to put it nor, by then, anything to say that the App Home does not
+// already show, so the audit row below carries it instead — it is written
+// whether or not the message reaches Slack, and it is written in both shapes.
 func (s *Service) denyInput(ctx context.Context, input core.SlackInput, reason string) {
-	incident, err := s.store.FindIncidentForConversation(
+	incident, _ := s.store.FindIncidentForConversation(
 		ctx,
 		input.ChannelID,
 		slackReplyThread(input),
 	)
-	if err == nil {
-		_ = s.enqueue(ctx, "out_denied_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(), slackui.Notice(reason))
+	if input.ChannelID != "" && input.UserID != "" {
+		if err := s.slack.PostEphemeral(
+			ctx, input.ChannelID, input.UserID, s.sanitizeMessage(slackui.Notice(reason)),
+		); err != nil {
+			s.log.Warn(
+				"tell a refused Slack user why",
+				"input", input.ID,
+				"channel", input.ChannelID,
+				"user", input.UserID,
+				"error", trimError(err),
+			)
+		}
 	}
 	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "slack.input", ActorID: input.UserID,
