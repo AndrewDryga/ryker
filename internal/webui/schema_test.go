@@ -61,6 +61,7 @@ func TestEveryQueryRunsAgainstTheMigratedSchema(t *testing.T) {
 		"Manifest":            func() error { _, err := reader.Manifest(ctx, "ep"); return err },
 		"Attempts":            func() error { _, err := reader.Attempts(ctx, "ep"); return err },
 		"Deliveries":          func() error { _, err := reader.Deliveries(ctx, "ep"); return err },
+		"SideEffects":         func() error { _, err := reader.SideEffects(ctx, "ep"); return err },
 		"Failures":            func() error { _, err := reader.Failures(ctx); return err },
 		"FailureRuns":         func() error { _, err := reader.FailureRuns(ctx, "boom"); return err },
 		"RetainedWorkspaces":  func() error { _, _, err := reader.RetainedWorkspaces(ctx); return err },

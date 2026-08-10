@@ -340,22 +340,23 @@ func episodesURL(filter EpisodeFilter, offset int) template.URL {
 // until now was answered by running sqlite against a production database.
 type episodePage struct {
 	Item
-	Turn      Turn
-	Events    []Event
-	Claims    []ClaimRow
-	Evidence  []EvidenceRow
-	Coverage  []CoverageRow
-	Manifest  ManifestRow
-	Attempts  []Attempt
-	Delivered []Delivery
-	Audit     []AuditRow
-	Errs      problems
-	Answered  Unwired
-	Omitted   Unwired
-	Spent     EpisodeTokens
-	Unmetered Unwired
-	Latency   Unwired
-	CanAct    bool
+	Turn        Turn
+	Events      []Event
+	Claims      []ClaimRow
+	Evidence    []EvidenceRow
+	Coverage    []CoverageRow
+	Manifest    ManifestRow
+	Attempts    []Attempt
+	Delivered   []Delivery
+	Effects     []SideEffect
+	Audit       []AuditRow
+	Errs        problems
+	AnsweredGap Unwired
+	Omitted     Unwired
+	Spent       EpisodeTokens
+	Unmetered   Unwired
+	Latency     Unwired
+	CanAct      bool
 	// Resolvable gates the overtaken-by-events action to the states where a
 	// person is what the episode is waiting for. The kernel re-checks on the
 	// way through; this only decides whether a button is honest to offer.
@@ -401,6 +402,9 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("attempts", err)
 	page.Delivered, err = h.reader.Deliveries(ctx, id)
 	page.Errs.note("delivery", err)
+	page.Effects, err = h.reader.SideEffects(ctx, id)
+	page.Errs.note("side effects", err)
+	page.Effects = append(page.Turn.Effects, page.Effects...)
 	page.Audit, err = h.reader.AuditForEpisode(ctx, id)
 	page.Errs.note("audit trail", err)
 	page.Spent, err = h.reader.EpisodeTokens(ctx, id)
@@ -414,7 +418,7 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	// Each is scoped to this attempt, not to the product. Both columns are
 	// assigned now, so a page-wide "not recorded yet" would report a fixed gap as
 	// an open one and send someone to plumb what is already plumbed.
-	page.Answered = Unwired{Tag: "Not recorded for this attempt",
+	page.AnsweredGap = Unwired{Tag: "Not recorded for this attempt",
 		Needs: "Which provider and model answered, and at what reasoning effort. The manifest " +
 			"has always carried a column for each, and nothing assigned them until the session's " +
 			"effective target started being recorded — so an attempt frozen before that change " +

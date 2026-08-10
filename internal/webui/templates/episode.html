@@ -18,19 +18,38 @@
 </div>
 
 {{with .Turn}}
-<h2>The turn</h2>
+<h2>Response outcome</h2>
 {{if .RunID}}
 <div class="panel">
   <div class="meta"><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "completed"}} good{{end}}">{{if .State}}{{.State}}{{else}}no terminal state{{end}}</span>
     {{.Mode}}{{if .Attention}} · {{.Attention}}{{end}}</div>
   {{if .Action}}<p><strong>{{.Action}}.</strong> {{.Reason}}</p>{{end}}
   {{if .Message}}<p>{{.Message}}</p>{{end}}
+  {{range .Followups}}<p>{{.}}</p>{{end}}
+  {{if .Reaction}}<p class="meta">Reaction: <span class="mono">:{{.Reaction}}:</span></p>{{end}}
+  {{with .Completion}}
+  {{if .Status}}<div class="meta"><span class="pill{{if eq .Status "complete"}} good{{else if eq .Status "blocked"}} warn{{end}}">{{.Status}}</span>{{if .Verdict}} · {{.Verdict}}{{end}}</div>{{end}}
+  {{if .Summary}}<p>{{.Summary}}</p>{{end}}
+  {{if .Blocker}}<p class="todo"><span class="arr">→</span> {{.Blocker}}{{if .Next}} · Next: {{.Next}}{{end}}</p>{{end}}
+  {{if .Gaps}}<ul>{{range .Gaps}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  {{end}}
   {{if .Unreadable}}<p class="todo"><span class="arr">→</span> The host could not read this answer: {{.Unreadable}}</p>{{end}}
   {{if .Error}}<p class="todo"><span class="arr">→</span> {{.Error}}</p>{{end}}
   {{if .Operations}}<div class="meta">
     {{range .Operations}}<span class="pill">{{.Name}} ×{{.Count}}</span> {{end}}
   </div>{{end}}
 </div>
+{{if $.Delivered}}
+<div class="rows">
+  {{range $.Delivered}}
+  <div class="row">
+    <div class="title"><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "sent"}} good{{end}}">{{.State}}</span> Slack {{.Operation}}</div>
+    <div class="meta">{{.Channel}}{{if .ThreadTS}} · thread {{.ThreadTS}}{{end}}{{if .MessageTS}} · message {{.MessageTS}}{{end}}{{if .Retries}} · {{.Retries}} retries{{end}}</div>
+    {{if .Error}}<div class="meta">{{.Error}}</div>{{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
 {{if .Prose}}<pre class="dump">{{.Prose}}</pre>{{end}}
 {{if .Prompt}}
 <h2>The prompt</h2>
@@ -54,6 +73,19 @@ watch can be compared between attempts but not read back.</p>
 {{end}}
 {{else}}<p class="empty">No agent run is on record for this episode.</p>{{end}}
 {{end}}
+
+<h2>Side effects <span class="note">{{len .Effects}}</span></h2>
+{{if .Effects}}
+<div class="rows">
+  {{range .Effects}}
+  <div class="row">
+    <div class="title"><span class="pill{{if eq .State "saved"}} good{{else if eq .State "waiting"}} warn{{end}}">{{.State}}</span> {{.Title}}</div>
+    <div class="meta">{{.Kind}}{{if .ID}} · <span class="mono">{{.ID}}</span>{{end}}{{if not .At.IsZero}} · {{stamp .At}}{{end}}</div>
+    {{if .Detail}}<div>{{.Detail}}</div>{{end}}
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">No memory, preference, standing rule, schedule, approval, publication, visual, or child work was created or proposed.</p>{{end}}
 
 <h2>Timeline <span class="note">{{len .Events}} events</span></h2>
 {{if .Events}}
@@ -141,7 +173,7 @@ from "nobody looked", so an answer with none behind it rests on the model alone.
 {{end}}
 {{end}}
 {{if .Manifest.Version}}
-{{if not .Manifest.Model}}{{template "unwired" .Answered}}{{end}}
+{{if not .Manifest.Model}}{{template "unwired" .AnsweredGap}}{{end}}
 {{if not .Manifest.Omissions}}{{template "unwired" .Omitted}}{{end}}
 {{end}}
 
@@ -158,20 +190,6 @@ from "nobody looked", so an answer with none behind it rests on the model alone.
   {{end}}
 </table>
 {{else}}<p class="empty">No attempt record. Episodes created before the attempt ledger have none.</p>{{end}}
-
-<h2>Slack delivery <span class="note">{{len .Delivered}}</span></h2>
-{{if .Delivered}}
-<table>
-  <tr><th>Kind</th><th>Operation</th><th>State</th><th>Channel</th><th>Status line</th><th class="num">Tries</th><th>When</th></tr>
-  {{range .Delivered}}
-  <tr><td>{{.Kind}}</td><td>{{.Operation}}</td>
-      <td><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "sent"}} good{{end}}">{{.State}}</span></td>
-      <td>{{.Channel}}</td><td>{{truncate 90 .Status}}</td>
-      <td class="mono num">{{.Attempts}}</td><td class="note">{{since .At}}</td></tr>
-  {{end}}
-</table>
-{{else}}<p class="empty">Nothing queued is still on record. A delivery is deleted once it has been
-sent and passed the operational retention window, so an older episode keeps none.</p>{{end}}
 
 <h2>Audit trail <span class="note">{{len .Audit}}</span></h2>
 {{if .Audit}}

@@ -67,10 +67,30 @@ type Turn struct {
 	RunID, Mode, State, Error string
 	Prompt, PromptDigest      string
 	Action, Reason, Message   string
+	Reaction                  string
+	Followups                 []string
 	Attention                 string
+	Completion                Completion
+	Effects                   []SideEffect
 	Operations                []Tally
 	Prose, Unreadable         string
 	Rejections                []Rejection
+}
+
+// Completion is the decision-ready boundary the model reported. Keeping it
+// beside the public response makes a blocked investigation visibly different
+// from a conversational reply that simply did not need an assessment.
+type Completion struct {
+	Status, Verdict, Summary, Blocker, Next string
+	Gaps                                    []string
+}
+
+// SideEffect is durable or proposed state produced by an episode. The state is
+// deliberately explicit: an offered rule is not a saved rule, and a requested
+// approval is not an executed action.
+type SideEffect struct {
+	Kind, State, Title, Detail, ID string
+	At                             time.Time
 }
 
 type Tally struct {
@@ -149,12 +169,148 @@ func (t *Turn) readResult(result string) {
 		return
 	}
 	t.Action, t.Reason, t.Message = parsed.Action, parsed.Reason, parsed.Message
+	t.Reaction, t.Followups = parsed.Reaction, parsed.FollowupMessages
 	t.Attention = attentionLine(parsed.Attention)
+	if parsed.Completion != nil {
+		t.Completion = Completion{
+			Status: parsed.Completion.Status, Verdict: parsed.Completion.Verdict,
+			Summary: parsed.Completion.Summary, Blocker: parsed.Completion.Blocker,
+			Next: parsed.Completion.NextAction, Gaps: parsed.Completion.MaterialGaps,
+		}
+	}
+	t.Effects = resultSideEffects(parsed, t.State)
 	counts := map[string]int{}
 	for _, operation := range parsed.Operations {
 		counts[operation.Type]++
 	}
 	t.Operations = tally(counts)
+}
+
+func resultSideEffects(parsed decision.WatchDecision, terminalState string) []SideEffect {
+	state := "reported"
+	if terminalState == "completed" {
+		state = "saved"
+	}
+	effects := []SideEffect{}
+	add := func(kind, effectState, title, detail string) {
+		if strings.TrimSpace(title) == "" && strings.TrimSpace(detail) == "" {
+			return
+		}
+		effects = append(effects, SideEffect{
+			Kind: kind, State: effectState, Title: title, Detail: detail,
+		})
+	}
+	memory := parsed.Memory
+	add("conversation memory", state, "Goal", memory.Goal)
+	add("conversation memory", state, "Channel purpose", memory.ChannelPurpose)
+	add("conversation memory", state, "Situation summary", memory.SituationSummary)
+	for _, item := range memory.Knowledge {
+		detail := item.Statement
+		if item.Kind != "" {
+			detail += " · " + item.Kind
+		}
+		add("conversation memory", state, item.Subject, detail)
+	}
+	for _, group := range []struct {
+		title string
+		items []string
+	}{
+		{"Active topics", memory.ActiveTopics}, {"Open loops", memory.OpenLoops},
+		{"Topology", memory.Topology}, {"Decisions", memory.Decisions},
+		{"Unresolved questions", memory.UnresolvedQuestions},
+	} {
+		if len(group.items) > 0 {
+			add("conversation memory", state, group.title, strings.Join(group.items, " · "))
+		}
+	}
+	if offer := parsed.MemoryOffer; offer != nil {
+		add("durable memory", "offered", offer.Subject,
+			offer.Predicate+" = "+offer.Value+offerExpiry(offer.ExpiresIn))
+	}
+	if offer := parsed.PreferenceOffer; offer != nil {
+		add("preference", "offered", offer.Name,
+			offer.Value+" · "+offer.Scope+offerExpiry(offer.ExpiresIn))
+	}
+	if offer := parsed.RuleOffer; offer != nil {
+		add("standing rule", "offered", offer.Trigger+" → "+offer.Action,
+			offer.Repository+offerExpiry(offer.ExpiresIn))
+	}
+	if offer := parsed.ScheduleOffer; offer != nil {
+		add("scheduled task", "offered", offer.Title,
+			offer.Recurrence+" · "+offer.StartAt+offerExpiry(offer.ExpiresIn))
+	}
+	if parsed.TaskTitle != "" {
+		add("engineering task", "offered", parsed.TaskTitle, parsed.TaskRepository)
+	}
+	if approval := parsed.PendingApproval; approval != nil {
+		add("Emisar approval", "waiting", approval.ActionID, approval.RunID)
+	}
+	for _, visual := range parsed.Visuals {
+		add("visual", "attached", visual.Title, visual.AltText)
+	}
+	for _, update := range parsed.PublicationUpdates {
+		add("publication", update.State, update.Kind, update.Summary)
+	}
+	return effects
+}
+
+func offerExpiry(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return " · expires in " + value
+}
+
+// SideEffects returns confirmed durable state attributable to this episode's
+// source Slack event. Confirmation buttons are separate Slack inputs, so the
+// episode cannot find their records by its own run id; the source event is the
+// stable join key carried through every offer payload.
+func (r *Reader) SideEffects(ctx context.Context, episodeID string) ([]SideEffect, error) {
+	items, err := collect(ctx, r, `
+	  WITH refs(ref) AS (
+	    SELECT source_id FROM agent_runs WHERE episode_id = ?
+	    UNION
+	    SELECT s.event_id FROM slack_inputs AS s
+	      JOIN agent_runs AS a ON a.source_id = s.id
+	      WHERE a.episode_id = ? AND s.event_id != ''
+	  ), effects(kind, state, title, detail, id, created_at) AS (
+	    SELECT 'preference', CASE WHEN enabled = 1 THEN 'saved' ELSE 'disabled' END,
+	           name, value || ' · ' || scope_kind || ':' || scope_key, id, created_at
+	      FROM responder_preferences WHERE source_ref IN (SELECT ref FROM refs)
+	    UNION ALL
+	    SELECT 'standing rule', CASE WHEN enabled = 1 THEN 'saved' ELSE 'disabled' END,
+	           trigger_name || ' → ' || action_name,
+	           repository || ' · ' || source_kind, id, created_at
+	      FROM standing_rules WHERE source_ref IN (SELECT ref FROM refs)
+	    UNION ALL
+	    SELECT 'scheduled task', CASE WHEN enabled = 1 THEN 'saved' ELSE 'disabled' END,
+	           title, recurrence || ' · ' || COALESCE(next_run_at, start_at), id, created_at
+	      FROM scheduled_tasks WHERE source_ref IN (SELECT ref FROM refs)
+	    UNION ALL
+	    SELECT 'durable memory', 'saved', subject_key,
+	           predicate || ' = ' || value_json, id, created_at
+	      FROM memory_entries WHERE source_ref IN (SELECT ref FROM refs)
+	    UNION ALL
+	    SELECT 'work episode', lifecycle_state, objective,
+	           mode || ' · ' || authority, id, created_at
+	      FROM work_episodes WHERE parent_episode_id = ?
+	  )
+	  SELECT kind, state, title, detail, id, created_at FROM effects
+	  ORDER BY created_at, kind, id LIMIT 100`,
+		func(rows *sql.Rows) (SideEffect, error) {
+			var item SideEffect
+			var at string
+			err := rows.Scan(&item.Kind, &item.State, &item.Title, &item.Detail, &item.ID, &at)
+			item.At = parseStamp(at)
+			if separator := strings.LastIndex(item.Detail, " = "); separator >= 0 {
+				var unquoted string
+				if json.Unmarshal([]byte(item.Detail[separator+3:]), &unquoted) == nil {
+					item.Detail = item.Detail[:separator+3] + unquoted
+				}
+			}
+			return item, err
+		}, episodeID, episodeID, episodeID)
+	return items, err
 }
 
 // attentionLine formats only the scores the model actually sent.
@@ -394,21 +550,22 @@ func (r *Reader) Attempts(ctx context.Context, episodeID string) ([]Attempt, err
 // days newer than the oldest episode. An empty section here means pruned or
 // never queued, not failed.
 type Delivery struct {
-	Kind, Operation, State, Channel, Status, Error string
-	Attempts                                       int
-	At                                             time.Time
+	Kind, Operation, State, Channel, ThreadTS, MessageTS, Status, Error string
+	Retries                                                             int
+	At                                                                  time.Time
 }
 
 func (r *Reader) Deliveries(ctx context.Context, episodeID string) ([]Delivery, error) {
 	return collect(ctx, r, `
-	  SELECT kind, operation, state, channel_id, COALESCE(status_text,''),
+	  SELECT kind, operation, state, channel_id, COALESCE(thread_ts,''),
+	         COALESCE(message_ts,''), COALESCE(status_text,''),
 	         COALESCE(last_error,''), failure_count, updated_at
 	  FROM slack_deliveries WHERE episode_id = ? ORDER BY created_at LIMIT 40`,
 		func(rows *sql.Rows) (Delivery, error) {
 			var item Delivery
 			var channel, at string
 			err := rows.Scan(&item.Kind, &item.Operation, &item.State, &channel,
-				&item.Status, &item.Error, &item.Attempts, &at)
+				&item.ThreadTS, &item.MessageTS, &item.Status, &item.Error, &item.Retries, &at)
 			item.Channel, item.At = r.channelName(ctx, channel), parseStamp(at)
 			return item, err
 		}, episodeID)
