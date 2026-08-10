@@ -666,16 +666,28 @@ Closing work closes its Coop session and records a cleanup intent. After
 agent runs, classifier decisions, and rotated channel intelligence after its Coop cleanup
 completes. On the same horizon it empties the assembled prompt context out of runs that are over,
 which is the largest single payload Responder stores; the run row itself stays, so the episode and
-its attempt history remain readable. A run a wakeup can still resume from, or that the control
-plane can still retry, keeps its context.
+its attempt history remain readable. A run a wakeup can still resume from, that the control
+plane can still retry, or whose answer somebody reacted positively to, keeps its context — a praised
+reply is only an example of the target behaviour while the question and context that produced it are
+still beside it.
 
 `retention.closed_work` bounds closed incidents and their detailed evidence after Coop
 cleanup completes. `retention.episode_history` bounds a finished episode's own record — its event
 stream, progress, attempts, context manifests, claim assessments and goals — and defaults to thirty
 days, far longer than the operational horizon, because that record is the account of what the agent
-did and the source the replay-fixture corpus is built from. `retention.audit_data` bounds the smaller
-audit and cleanup ledger. The classes are ordered: operational data expires first, then closed work,
-then episode history, then audit.
+did and the source the replay-fixture corpus is built from. It also bounds `standing_rule_runs`,
+which is the account of what one standing rule fire produced and the only evidence a rule ever
+generates about itself; on the operational horizon that evidence was gone within a day, so a rule
+that fired forty-one times had nothing to show for any of them. `retention.audit_data` bounds the
+smaller audit and cleanup ledger. The classes are ordered: operational data expires first, then
+closed work, then episode history, then audit.
+
+Expiring a rule run never erases what it proved. `standing_rules` carries `trigger_count` beside
+`acted_count` and `quiet_count`, written in the same transaction as the run, so the Configuration
+page and `/responder rules` can say how many fires produced something and how many produced nothing
+long after the individual rows are gone. The two tallies count only fires recorded since the tally
+existed and deliberately do not add up to `trigger_count` on an older rule; the surfaces state the
+recorded total rather than dividing by the fire count.
 
 No horizon deletes an episode that a pending or approved correction, open feedback, a live wakeup, a
 non-terminal child, an unfinished run, or an open incident still depends on — including the

@@ -55,13 +55,20 @@ it does not turn the setting off.</p>
 {{if .Rules}}
 <h2>Standing rules here <span class="note">{{len .Rules}}</span></h2>
 <table>
-  <tr><th>When</th><th>Do</th><th class="num">Runs</th><th>Expires</th><th>State</th></tr>
+  <tr><th>When</th><th>Do</th><th class="num">Fired</th><th class="num">Acted</th>
+      <th>Last acted</th><th>Expires</th><th>State</th></tr>
   {{range .Rules}}
   <tr><td class="mono">{{.Trigger}}</td><td class="mono">{{.Action}}</td>
-      <td class="mono num">{{.Runs}}</td><td class="note">{{stamp .Expires}}</td>
-      <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
+      <td class="mono num">{{.Runs}}</td>
+      <td class="mono num">{{if .Recorded}}{{.Acted}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="note">{{if not .LastActed.IsZero}}{{since .LastActed}}{{else if .Idle}}never{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="note">{{stamp .Expires}}</td>
+      <td><span class="pill{{if .Idle}} bad{{else if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
   {{end}}
 </table>
+<p class="note">Acted counts the fires that put something in this channel. A rule that fires
+and never acts is costing a model turn per matching message; <a href="/configuration">Configuration</a>
+shows the same figures for every rule.</p>
 {{end}}
 
 {{if .Schedules}}

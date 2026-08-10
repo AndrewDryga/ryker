@@ -524,4 +524,168 @@ func TestPruneEmptiesOnlySpentAgentRunContext(t *testing.T) {
 			t.Fatalf("retry after pruning: %v", err)
 		}
 	})
+
+	// Praise is collected so a corpus of the target behaviour can be built, and
+	// an answer with no question in front of it is not an example of anything.
+	// Both links are exercised: a model-recorded sentiment names the run, a
+	// Slack reaction only knows the episode the delivery came from.
+	for _, praise := range []struct {
+		name  string
+		byRun bool
+	}{{"a reaction names only the episode", false}, {"a recorded sentiment names the run", true}} {
+		t.Run("praise keeps the context that made the answer good: "+praise.name, func(t *testing.T) {
+			st, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			run, episode := finishKernelEpisode(t, st, "message-1", core.EpisodeCompleted, 48*time.Hour)
+			setContext(t, st, run.ID)
+			item := FeedbackItem{
+				ID: "fb_praise", WorkspaceID: "T1", ChannelID: "C1", UserID: "U1",
+				Source: "positive_reaction", Category: "other", Sentiment: "positive",
+				Summary: "User reacted positively to a Responder message",
+				Status:  "noted", EpisodeID: episode.ID,
+			}
+			if praise.byRun {
+				item.EpisodeID, item.AgentRunID = "", run.ID
+			}
+			if _, err := st.RecordFeedback(ctx, item); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC()
+			result, err := st.Prune(
+				ctx, now.Add(-24*time.Hour), now.Add(-90*24*time.Hour),
+				now.Add(-7*24*time.Hour), now.Add(-30*24*time.Hour), now.Add(-30*24*time.Hour),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.AgentRunContexts != 0 || contextLength(t, st, run.ID) == 0 {
+				t.Fatal("emptied the input half of an answer somebody said was right")
+			}
+			// The pin is deliberately narrow: praise buys the example the rest of
+			// the episode's own lifetime, not immortality. Feedback rows are never
+			// pruned, so a 'noted' row that held its episode open would keep it
+			// forever for a consumer that does not exist yet.
+			if pruned := pruneAll(t, st, now.Add(-time.Hour)); pruned.Episodes != 1 {
+				t.Fatalf("praised episodes expired on their own horizon = %d, want 1", pruned.Episodes)
+			}
+		})
+	}
+
+	// A complaint is not praise, and a feedback row that resolved to neither run
+	// nor episode must not match every run that also has neither.
+	t.Run("an unrelated feedback row protects nothing", func(t *testing.T) {
+		st, err := Open(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		run, episode := finishKernelEpisode(t, st, "message-1", core.EpisodeCompleted, 48*time.Hour)
+		setContext(t, st, run.ID)
+		for _, item := range []FeedbackItem{
+			{
+				ID: "fb_negative", WorkspaceID: "T1", ChannelID: "C1", UserID: "U1",
+				Source: "negative_reaction", Category: "other", Sentiment: "negative",
+				Summary: "not right", EpisodeID: episode.ID,
+			},
+			{
+				ID: "fb_unlinked", WorkspaceID: "T1", ChannelID: "C1", UserID: "U1",
+				Source: "positive_reaction", Category: "other", Sentiment: "positive",
+				Summary: "liked something", Status: "noted",
+			},
+		} {
+			if _, err := st.RecordFeedback(ctx, item); err != nil {
+				t.Fatal(err)
+			}
+		}
+		now := time.Now().UTC()
+		result, err := st.Prune(
+			ctx, now.Add(-24*time.Hour), now.Add(-90*24*time.Hour),
+			now.Add(-7*24*time.Hour), now.Add(-30*24*time.Hour), now.Add(-30*24*time.Hour),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.AgentRunContexts != 1 || contextLength(t, st, run.ID) != 0 {
+			t.Fatalf(
+				"a complaint and an unlinked praise kept %d bytes of spent context",
+				contextLength(t, st, run.ID),
+			)
+		}
+	})
+}
+
+// Standing rule runs are the only evidence a rule ever produces about itself,
+// and they were expiring on the twenty-four hour clock that message bodies use.
+// That is why tenant's rule reports 41 fires and zero surviving rows, and why no
+// operator could tell a working rule from one that fires constantly and answers
+// nothing.
+func TestStandingRuleRunsExpireOnTheEpisodeHistoryHorizon(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	rule, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
+		ChannelID: "COPS", Repository: "repo",
+		Trigger: "terraform_plan", Action: "review_terraform_plan",
+		SourceKind: "app", SourceRef: "slack_rule", ActorID: "UOPERATOR",
+		ExpiresAt: time.Now().UTC().Add(365 * 24 * time.Hour),
+	}, 20, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for input, age := range map[string]time.Duration{
+		"plan_recent": time.Hour,
+		"plan_week":   7 * 24 * time.Hour,
+		"plan_year":   365 * 24 * time.Hour,
+	} {
+		if _, err := st.Behavior.RecordStandingRuleRun(
+			ctx, rule.ID, input, "Ev_"+input, "reply",
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.db.Exec(
+			`UPDATE standing_rule_runs SET created_at = ? WHERE source_input = ?`,
+			now.Add(-age).Format(timestampFormat), input,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := st.Prune(
+		ctx, now.Add(-24*time.Hour), now.Add(-90*24*time.Hour),
+		now.Add(-7*24*time.Hour), now.Add(-30*24*time.Hour), now.Add(-30*24*time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the year-old run goes. Under the old horizon the week-old one went
+	// too, and so did every fire from the day before yesterday.
+	if result.StandingRuleRuns != 1 {
+		t.Fatalf("expired rule runs = %d, want only the one past the episode horizon", result.StandingRuleRuns)
+	}
+	var remaining int
+	if err := st.db.QueryRow(
+		`SELECT count(*) FROM standing_rule_runs WHERE rule_id = ?`, rule.ID,
+	).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 2 {
+		t.Fatalf("surviving rule runs = %d, want the hour-old and the week-old", remaining)
+	}
+	// Whatever the sweep took, the rule still knows what its fires produced.
+	stored, err := st.Behavior.GetStandingRule(ctx, rule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.TriggerCount != 3 || stored.ActedCount != 3 {
+		t.Fatalf(
+			"after the sweep fired=%d acted=%d, want 3/3",
+			stored.TriggerCount, stored.ActedCount,
+		)
+	}
 }

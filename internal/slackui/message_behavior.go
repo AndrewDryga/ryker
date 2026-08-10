@@ -508,20 +508,59 @@ func RuleDirectoryMessage(rules []core.StandingRule) Message {
 		}
 		message.Sections = append(message.Sections, fmt.Sprintf(
 			"*%d.* `%s` -> `%s`\n%s · source `%s` · repository `%s`\n"+
-				"Runs: %d · last: %s · expires: %s",
+				"%s\nLast fired: %s · expires: %s",
 			index+1,
 			rule.Trigger,
 			rule.Action,
 			state,
 			rule.SourceKind,
 			rule.Repository,
-			rule.TriggerCount,
+			StandingRuleWorth(rule),
 			lastRun,
 			rule.ExpiresAt.UTC().Format("2006-01-02"),
 		))
 		message.Actions = append(message.Actions, ruleActions(rule)...)
 	}
 	return message
+}
+
+// StandingRuleWorth is the one line that answers "should I keep this rule".
+//
+// A fire count on its own cannot: emisar's Terraform rule had fired 64 times and
+// every recorded outcome of it was 'ignore', which reads identically to a rule
+// doing useful work all week. So the sentence leads with what the fires
+// produced, and says plainly when it produced nothing.
+//
+// The recorded total is stated separately from the fire count whenever they
+// differ, because they mean different things and collapsing them would be a
+// claim rather than a report. Fires from before Responder started recording
+// outcomes are fires nobody observed; describing them as quiet would invent the
+// observation, and leaving them out of the denominator without saying so would
+// hide that most of the rule's history is unaccounted for.
+func StandingRuleWorth(rule core.StandingRule) string {
+	recorded := rule.ActedCount + rule.QuietCount
+	if recorded == 0 {
+		return fmt.Sprintf(
+			"Fired %d times · no outcome recorded yet, so there is nothing to judge it on",
+			rule.TriggerCount,
+		)
+	}
+	worth := fmt.Sprintf(
+		"Fired %d times · acted %d, did nothing %d",
+		rule.TriggerCount, rule.ActedCount, rule.QuietCount,
+	)
+	if recorded < rule.TriggerCount {
+		worth += fmt.Sprintf(" of the %d fires with a recorded outcome", recorded)
+	}
+	switch {
+	case !rule.LastActed.IsZero():
+		worth += " · last acted " + rule.LastActed.UTC().Format("2006-01-02 15:04 UTC")
+	case rule.ActedCount > 0:
+		worth += " · nothing acted on recently"
+	default:
+		worth += " · it has never done anything"
+	}
+	return worth
 }
 
 func preferenceScopeLabel(preference core.ResponderPreference) string {

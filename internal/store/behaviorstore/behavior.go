@@ -508,9 +508,16 @@ func (r *Repository) RecordStandingRuleRun(
 		return false, err
 	}
 	if rows == 1 {
+		// The tally moves in the same transaction as the row it counts, so the
+		// two can never disagree: the run is the evidence, the counter is what
+		// remains of it after retention, and a counter written anywhere else
+		// would be a second opinion about the same fire. INSERT OR IGNORE above
+		// means a redelivered Slack event adds neither.
 		result, err = tx.ExecContext(ctx, `
 			UPDATE standing_rules
 			SET trigger_count = trigger_count + 1,
+			    `+standingRuleTallyColumn(outcome)+` = `+
+			standingRuleTallyColumn(outcome)+` + 1,
 			    last_triggered_at = ?,
 			    updated_at = ?
 			WHERE id = ?`,
@@ -524,6 +531,22 @@ func (r *Repository) RecordStandingRuleRun(
 		return false, err
 	}
 	return rows == 1, nil
+}
+
+// standingRuleTallyColumn picks which durable counter a fire belongs in.
+//
+// Returns a column name rather than a boolean because the caller splices it
+// into SQL, and it can only ever be one of two literals written here — the
+// outcome itself never reaches the statement. The split matches the one
+// migration 53 backfilled with, and both spellings of it have to stay in step:
+// 'ignore' is the rule matching a message and deciding it was not worth
+// answering, 'shadowed' is a channel being watched before Responder may speak
+// in it. Everything else put something in front of a person.
+func standingRuleTallyColumn(outcome string) string {
+	if outcome == "ignore" || outcome == "shadowed" {
+		return "quiet_count"
+	}
+	return "acted_count"
 }
 
 func (r *Repository) DeleteChannelBehavior(
@@ -644,21 +667,37 @@ func scanPreferences(rows *sql.Rows) ([]core.ResponderPreference, error) {
 	return result, rows.Err()
 }
 
+// standingRuleSelect reads a rule together with the two things that say whether
+// it is worth keeping: the durable tallies, and when it last actually did
+// something.
+//
+// The tallies are columns because they have to outlive every sweep — a rule that
+// has been running for a year would otherwise be described by whatever fortnight
+// of runs happens to be on disk. Recency is the opposite: it is read live from
+// standing_rule_runs on purpose, because "it has not acted inside the retained
+// window" is the answer an operator can act on, and a stored timestamp from
+// before that window would look like evidence while proving nothing about the
+// rule's present behaviour.
 const standingRuleSelect = `
 	SELECT id, channel_id, repository, trigger_name, action_name, source_kind,
-	  enabled, source_ref, actor_id, trigger_count, last_triggered_at,
+	  enabled, source_ref, actor_id, trigger_count, acted_count, quiet_count,
+	  last_triggered_at,
+	  (SELECT max(run.created_at) FROM standing_rule_runs run
+	   WHERE run.rule_id = standing_rules.id
+	     AND run.outcome NOT IN ('ignore', 'shadowed')),
 	  expires_at, created_at, updated_at
 	FROM standing_rules`
 
 func scanStandingRule(row sqlutil.RowScanner) (core.StandingRule, error) {
 	var rule core.StandingRule
 	var enabled int
-	var lastTriggered sql.NullString
+	var lastTriggered, lastActed sql.NullString
 	var expiresAt, createdAt, updatedAt string
 	err := row.Scan(
 		&rule.ID, &rule.ChannelID, &rule.Repository, &rule.Trigger, &rule.Action,
 		&rule.SourceKind, &enabled, &rule.SourceRef, &rule.ActorID,
-		&rule.TriggerCount, &lastTriggered, &expiresAt, &createdAt, &updatedAt,
+		&rule.TriggerCount, &rule.ActedCount, &rule.QuietCount, &lastTriggered,
+		&lastActed, &expiresAt, &createdAt, &updatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.StandingRule{}, core.ErrNotFound
@@ -669,6 +708,9 @@ func scanStandingRule(row sqlutil.RowScanner) (core.StandingRule, error) {
 	rule.Enabled = enabled == 1
 	if lastTriggered.Valid {
 		rule.LastTriggered = sqlutil.ParseTime(lastTriggered.String)
+	}
+	if lastActed.Valid {
+		rule.LastActed = sqlutil.ParseTime(lastActed.String)
 	}
 	rule.ExpiresAt = sqlutil.ParseTime(expiresAt)
 	rule.CreatedAt = sqlutil.ParseTime(createdAt)

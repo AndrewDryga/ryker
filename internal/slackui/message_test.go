@@ -1277,7 +1277,7 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 		ID: "rule_1", ChannelID: "COPS", Repository: "repo",
 		Trigger: "terraform_plan", Action: "review_terraform_plan",
 		SourceKind: "app", Enabled: true, TriggerCount: 2,
-		ExpiresAt: now,
+		ActedCount: 1, QuietCount: 1, ExpiresAt: now,
 	}
 	ruleOffer := core.RuleOffer{
 		Scope: "channel", Repository: rule.Repository,
@@ -1318,9 +1318,67 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 		ruleDirectory.Actions[0].ID != ActionToggleRule ||
 		ruleDirectory.Actions[1].ID != ActionEditRule ||
 		ruleDirectory.Actions[2].ID != ActionDeleteRule ||
-		!strings.Contains(ruleDirectory.Sections[0], "Runs: 2") ||
+		!strings.Contains(ruleDirectory.Sections[0], "Fired 2 times") ||
+		!strings.Contains(ruleDirectory.Sections[0], "acted 1, did nothing 1") ||
 		strings.Contains(ruleSurface, "**") {
 		t.Fatalf("rule directory = %+v", ruleDirectory)
+	}
+}
+
+// A rule's directory entry has to answer "should I keep this", and the fire
+// count alone never could: emisar's Terraform rule had fired 64 times and every
+// outcome anyone kept was 'ignore', which reads exactly like a rule earning its
+// keep. The three shapes below are the three honest answers, and the one that
+// matters most is the middle one — fires, no actions, say so.
+func TestStandingRuleWorthSeparatesFiresFromWhatTheyProduced(t *testing.T) {
+	acted := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
+	for _, testCase := range []struct {
+		name     string
+		rule     core.StandingRule
+		contains []string
+		absent   []string
+	}{
+		{
+			name: "nothing recorded yet cannot be judged",
+			rule: core.StandingRule{TriggerCount: 41},
+			contains: []string{
+				"Fired 41 times", "no outcome recorded yet",
+			},
+			absent: []string{"acted"},
+		},
+		{
+			name: "fires that produced nothing say so",
+			rule: core.StandingRule{TriggerCount: 64, QuietCount: 12},
+			contains: []string{
+				"Fired 64 times", "acted 0, did nothing 12",
+				"of the 12 fires with a recorded outcome",
+				"it has never done anything",
+			},
+		},
+		{
+			name: "a working rule reports when it last worked",
+			rule: core.StandingRule{
+				TriggerCount: 10, ActedCount: 7, QuietCount: 3, LastActed: acted,
+			},
+			contains: []string{"Fired 10 times", "acted 7, did nothing 3", "last acted 2026-08-08"},
+			// Ten fires, ten recorded: nothing is unaccounted for, so the
+			// caveat must not appear and imply that something is.
+			absent: []string{"with a recorded outcome"},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			worth := StandingRuleWorth(testCase.rule)
+			for _, expected := range testCase.contains {
+				if !strings.Contains(worth, expected) {
+					t.Fatalf("worth %q lacks %q", worth, expected)
+				}
+			}
+			for _, unwanted := range testCase.absent {
+				if strings.Contains(worth, unwanted) {
+					t.Fatalf("worth %q should not claim %q", worth, unwanted)
+				}
+			}
+		})
 	}
 }
 

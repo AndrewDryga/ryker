@@ -413,7 +413,7 @@ flowchart TB
 | Work commitments | `commitments` projected from `agent_runs` | Host when it accepts model-backed work | Show what Emisar owes, current progress, and the next operator action | Execution state, not prompt memory or evidence |
 | Preferences | `responder_preferences` | Configured operator click | Typed investigation depth or response detail | Closed catalog; precedence and expiry are host-owned |
 | Standing rules | `standing_rules` | Configured operator click | Typed channel subscription such as Terraform-plan review | Host matches trigger deterministically; read-only |
-| Rule executions | `standing_rule_runs` | Host | Prevent the same rule/source event from running twice | Idempotency record, later pruned |
+| Rule executions | `standing_rule_runs` | Host | Prevent the same rule/source event from running twice, and record what each fire produced so a rule can be judged | Idempotency record kept on the episode-history horizon; the acted and quiet tallies on `standing_rules` outlive it |
 | Incident intelligence | Incident, signals, agent runs, evidence, coverage, explicit events, proposals, Emisar approvals, publication | Webhook, host, agent, operators | Coordinate one incident or engineering task and derive its remediation timeline and postmortem | Bound to that work occurrence; source rows remain canonical |
 
 ### Evidence precedence

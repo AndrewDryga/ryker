@@ -535,6 +535,26 @@ const expirableEpisodes = `
 	      AND i.status != 'closed'
 	  )`
 
+// praisedRun is true when somebody said this turn's answer was right.
+//
+// Both links are checked because praise arrives by two routes that know
+// different things. A model-recorded sentiment carries the run and episode it
+// came from; a Slack reaction only knows the message it was placed on, and the
+// episode is recovered from the delivery that posted it — so a reaction has an
+// episode and no run. Each side is guarded against the empty string, or a
+// feedback row that resolved to neither would match every run that also has
+// neither, which on a database of channel replies is most of them.
+//
+// Correlated on agent_runs by name rather than an alias: it is spliced into an
+// UPDATE, which SQLite does not let you alias.
+const praisedRun = `
+	SELECT 1 FROM feedback_items b
+	WHERE b.sentiment = 'positive' AND b.status = 'noted'
+	  AND (
+	    (b.agent_run_id != '' AND b.agent_run_id = agent_runs.id)
+	    OR (b.episode_id != '' AND b.episode_id = agent_runs.episode_id)
+	  )`
+
 // incidentHoldsPinnedEpisode is the same refusal reached from the other side.
 //
 // Closing an incident eventually deletes its agent runs, and work_episodes
@@ -643,6 +663,21 @@ func (s *Store) Prune(
 	// architecture-next §29 draws exactly this line — message bodies expire
 	// before the episode events do.
 	//
+	// The exception is a turn somebody praised. Positive reactions are captured
+	// as noted feedback so a corpus of the target behaviour can be assembled from
+	// them, and the answer alone is not an example of anything: what makes a good
+	// reply good is the question it answered and the context it was given, which
+	// is precisely this blob. Emptying it at twenty-four hours left the praised
+	// half of that pair and threw away the other, so the one kind of turn the
+	// system was collecting on purpose was the one it could least reconstruct.
+	//
+	// Praise buys the example the rest of the episode's own lifetime and not a
+	// day more. It deliberately does not join pinnedEpisode below: a pin is for
+	// something a person still has to decide, feedback rows are never pruned, and
+	// a terminal 'noted' row that pinned its episode would keep it forever for a
+	// consumer that has not been built. What this guarantees is narrower and
+	// true — for as long as a praised episode exists, it is a complete example.
+	//
 	// Two things can still read it back, and both are excluded rather than
 	// hoped about. A wakeup resumes a non-terminal episode by copying the
 	// previous run's context into the new attempt's frozen input. And an
@@ -656,6 +691,7 @@ func (s *Store) Prune(
 		WHERE state IN `+terminalAgentRunStates+`
 		  AND updated_at < ?
 		  AND length(context_json) > 0
+		  AND NOT EXISTS (`+praisedRun+`)
 		  AND NOT EXISTS (
 		    SELECT 1 FROM work_episodes e
 		    WHERE (e.id = agent_runs.episode_id OR e.agent_run_id = agent_runs.id)
@@ -689,8 +725,30 @@ func (s *Store) Prune(
 		DELETE FROM memory_rollups WHERE expires_at <= ?`, s.nowText()); err != nil {
 		return result, err
 	}
+	// Rule runs expire on the episode-history clock, not the operational one.
+	//
+	// They were on the twenty-four-hour horizon, which is where message bodies
+	// and queue rows belong, and it made standing rules unjudgeable: tenant's rule
+	// reported 41 fires with not one surviving row to say what any of them did.
+	// A run row is not the transport of a fire, it is the account of one — the
+	// same distinction episode_history was created to draw — and it is the only
+	// evidence a rule ever produces about itself. Thirty days is long enough to
+	// watch a rule through a few weeks of the traffic it subscribes to and decide
+	// whether to keep it, which is the question nothing could answer before.
+	//
+	// The row is tiny — a rule ID, the input that matched, the Slack event, one
+	// outcome word and a timestamp — so the whole of emisar's busiest fortnight
+	// is 64 of them. Keeping them longer also widens the duplicate-execution
+	// guard, since PRIMARY KEY(rule_id, source_input) is what stops one Slack
+	// message triggering a rule twice; that is strictly safer than the window it
+	// replaces.
+	//
+	// Deleting one still cannot erase what it proved. The tallies on
+	// standing_rules are written in the same transaction as the insert, so what
+	// survives this sweep is the detail, and the count survives forever.
 	if result.StandingRuleRuns, err = deleteCount(`
-		DELETE FROM standing_rule_runs WHERE created_at < ?`, operational); err != nil {
+		DELETE FROM standing_rule_runs WHERE created_at < ?`,
+		episodeHistoryBefore.UTC().Format(timestampFormat)); err != nil {
 		return result, err
 	}
 	if result.Preferences, err = deleteCount(`

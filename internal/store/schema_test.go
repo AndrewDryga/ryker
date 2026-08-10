@@ -201,6 +201,107 @@ func TestTerraformLifecycleMigrationPreservesRulesAndRunHistory(t *testing.T) {
 	}
 }
 
+// Migration 53 starts the outcome tally from the only evidence that exists.
+//
+// The evidence is thin by construction — that is the bug it is answering. Rule
+// runs expired after twenty-four hours, so tenant's rule reaches this migration
+// with 41 fires and nothing to show for them and emisar's with 64 fires and two
+// rows. The counters must therefore start at what survived rather than at the
+// fire count, and the difference between them has to stay visible: presenting
+// "0 acted of 41" would be inventing 41 observations nobody kept.
+func TestOutcomeTallyMigrationCountsOnlyTheRunsThatSurvived(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(connectionPragmas); err != nil {
+		t.Fatal(err)
+	}
+	if err := applySchemaStep(db, baselineSchema, 0, baselineSchemaVersion); err != nil {
+		t.Fatal(err)
+	}
+	for version := baselineSchemaVersion + 1; version <= 52; version++ {
+		if err := applySchemaStep(db, migrations[version], version-1, version); err != nil {
+			t.Fatalf("apply migration %d: %v", version, err)
+		}
+	}
+	// Two rules in the shape the deployed databases are actually in: one whose
+	// evidence the old horizon already destroyed, one with a few rows left.
+	if _, err := db.Exec(`
+		INSERT INTO standing_rules (
+		  id, channel_id, repository, trigger_name, action_name, source_kind,
+		  enabled, source_ref, actor_id, trigger_count, last_triggered_at,
+		  expires_at, created_at, updated_at
+		) VALUES
+		  ('rule_swept', 'COPS', 'repo', 'operational_alert', 'triage_alert',
+		   'app', 1, 'slack_rule', 'UOPERATOR', 41, '2026-08-07T22:46:35.383391000Z',
+		   '2027-08-01T00:00:00.000000000Z', '2026-08-01T00:00:00.000000000Z',
+		   '2026-08-07T22:46:35.383391000Z'),
+		  ('rule_partial', 'COPS', 'repo', 'terraform_plan', 'review_terraform_plan',
+		   'app', 1, 'slack_rule', 'UOPERATOR', 64, '2026-08-10T02:27:27.594948000Z',
+		   '2026-08-28T00:00:00.000000000Z', '2026-07-29T00:00:00.000000000Z',
+		   '2026-08-10T02:27:27.594948000Z');
+		INSERT INTO standing_rule_runs (rule_id, source_input, event_id, outcome, created_at)
+		VALUES
+		  ('rule_partial', 'plan_1', 'Ev1', 'ignore',   '2026-08-10T02:00:00.000000000Z'),
+		  ('rule_partial', 'plan_2', 'Ev2', 'ignore',   '2026-08-10T02:10:00.000000000Z'),
+		  ('rule_partial', 'plan_3', 'Ev3', 'shadowed', '2026-08-10T02:20:00.000000000Z'),
+		  ('rule_partial', 'plan_4', 'Ev4', 'reply',    '2026-08-10T02:27:27.594948000Z');`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	openAt(t, stateDir)
+	verify, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer verify.Close()
+	for _, want := range []struct {
+		id                               string
+		fired, acted, quiet, unaccounted int
+	}{
+		{"rule_swept", 41, 0, 0, 41},
+		{"rule_partial", 64, 1, 3, 60},
+	} {
+		var fired, acted, quiet int
+		if err := verify.QueryRow(
+			`SELECT trigger_count, acted_count, quiet_count FROM standing_rules WHERE id = ?`,
+			want.id,
+		).Scan(&fired, &acted, &quiet); err != nil {
+			t.Fatal(err)
+		}
+		if fired != want.fired || acted != want.acted || quiet != want.quiet {
+			t.Fatalf(
+				"%s fired=%d acted=%d quiet=%d, want %d/%d/%d",
+				want.id, fired, acted, quiet, want.fired, want.acted, want.quiet,
+			)
+		}
+		if fired-(acted+quiet) != want.unaccounted {
+			t.Fatalf(
+				"%s claims %d observed fires; %d of its %d fires predate the tally and must stay unclaimed",
+				want.id, acted+quiet, want.unaccounted, fired,
+			)
+		}
+	}
+	// The rows the tally was read from are untouched: the migration counts, it
+	// does not consume.
+	var runs int
+	if err := verify.QueryRow(`SELECT count(*) FROM standing_rule_runs`).Scan(&runs); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 4 {
+		t.Fatalf("rule runs after the migration = %d, want 4", runs)
+	}
+}
+
 // Migration 40 removes the unused effect ledger, and it must do so without
 // disturbing rows in the tables that survive.
 func TestMigrationRemovesUnusedEffectLedgerAndPreservesRows(t *testing.T) {

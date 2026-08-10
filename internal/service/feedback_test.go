@@ -86,9 +86,22 @@ func TestPositiveReactionIsRecordedWithoutAskingForADecision(t *testing.T) {
 	}}
 	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
 	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "C123ABC", ThreadTS: "100.000",
+		ConversationKey: "thread:C123ABC:100.000", SourceKind: "watch",
+		SourceID: "message-1", Prompt: "Is the workspace safe to unlock?",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue the run that produced the praised reply: %+v %v", run, err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID: "praised-reply", Kind: "reply", ChannelID: "C123ABC",
 		ThreadTS: "100.000", Body: []byte(`{"text":"Yes."}`),
+		EpisodeID: episode.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +136,13 @@ func TestPositiveReactionIsRecordedWithoutAskingForADecision(t *testing.T) {
 	if stored.Sentiment != "positive" || stored.Source != "positive_reaction" ||
 		stored.Status != "noted" || stored.Details != "Slack reaction: :+1:" {
 		t.Fatalf("stored = %#v", stored)
+	}
+	// A reaction knows only the message it was placed on, so the episode comes
+	// from the delivery that posted it. Without that join praise is a floating
+	// "someone liked something": the dashboard cannot link to the answer, and
+	// retention cannot tell which run's assembled context is worth keeping.
+	if stored.EpisodeID != episode.ID {
+		t.Fatalf("praise did not carry the episode it praised: %#v", stored)
 	}
 }
 
