@@ -1,6 +1,8 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -350,5 +352,120 @@ func TestStaticWatchPromptSizeIsPinned(t *testing.T) {
 			"instructions leave only %d bytes for conversation and evidence",
 			room,
 		)
+	}
+}
+
+// A replayed episode must not push the contract it is graded against out of
+// the turn.
+//
+// This is the measurement that explained the promoted corpus. Assembled whole,
+// the three fixtures came to 69,930, 84,129 and 122,885 bytes against a 65,536
+// cap. Coop elides the middle of anything oversized, and the middle of those
+// prompts is the tail of the watch instructions, the entire investigation
+// contract, and up to half the recorded evidence — so every reported failure to
+// honour the completion contract was reported against a turn the contract had
+// been cut out of. The pass rates ran in the same order as the overflow: the
+// 4 KB case passed two runs in three, the 19 KB and 57 KB cases passed none.
+//
+// The corpus is real and it grows by promotion, so this is a standing bound
+// rather than a one-off measurement.
+func TestReplayedEpisodesFitBesideTheirContract(t *testing.T) {
+	paths, err := filepath.Glob(
+		filepath.Join("..", "..", "testdata", "eval", "episode-replay", "*.jsonl"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths = append(paths, filepath.Join("..", "..", "testdata", "eval", "regressions.jsonl"))
+	cfg := serviceConfig(t)
+	measured := 0
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		cases, err := decodeEvaluationCases(strings.NewReader(string(data)))
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		for _, testCase := range cases {
+			base, err := liveEvaluationPrompt(cfg, testCase, cfg.Slack.DefaultRepository, "fit")
+			if err != nil {
+				t.Fatalf("%s / %s: %v", filepath.Base(path), testCase.Name, err)
+			}
+			prompt, err := deterministicEpisodeReplayPrompt(base, testCase)
+			if err != nil {
+				t.Fatalf("%s / %s: %v", filepath.Base(path), testCase.Name, err)
+			}
+			measured++
+			if len(prompt) > coop.MaxPromptBytes {
+				t.Errorf(
+					"the replay prompt for %q is %d bytes, %d over the %d cap; "+
+						"the transport will elide its middle, which is where the contract lives",
+					testCase.Name, len(prompt), len(prompt)-coop.MaxPromptBytes, coop.MaxPromptBytes,
+				)
+			}
+			// The contract is the thing a replay grades against, so it has to
+			// survive whole however large the recording beside it is.
+			for _, required := range []string{
+				"<host-investigation-contract>",
+				"</host-investigation-contract>",
+				"<host-deterministic-episode-replay>",
+			} {
+				if !strings.Contains(prompt, required) {
+					t.Errorf("the replay prompt for %q lost %s", testCase.Name, required)
+				}
+			}
+		}
+	}
+	if measured == 0 {
+		t.Fatal("no episode-replay fixture was measured; this bound is checking nothing")
+	}
+	t.Logf("%d replay fixtures fit beside their contract", measured)
+}
+
+// A channel message the host had to shorten must say so in the prompt.
+//
+// watchContextTextLimit is 2,000 bytes and the cut used to be silent, so a
+// model reading the transcript could not tell a message the host shortened from
+// a message the person actually ended there. A real 2,559-byte instruction for
+// a whole-platform health review arrived ending "Decide healthy, degraded, or",
+// and two runs in three answered by asking the operator to resend the missing
+// word instead of doing the assessment.
+func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
+	svc := &Service{cfg: serviceConfig(t)}
+	instruction := strings.Repeat("preserve each metric's exact window. ", 70) +
+		"Decide healthy, degraded, or unhealthy."
+	if len(instruction) <= watchContextTextLimit {
+		t.Fatalf("the fixture is %d bytes and does not reach the %d bound",
+			len(instruction), watchContextTextLimit)
+	}
+	prompt, _ := svc.watchPrompt(
+		core.SlackInput{
+			ChannelID: "C123ABC", MessageTS: "1700.001", Kind: "message",
+			UserID: "U123ABC", Text: instruction,
+		},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, "", nil, watchPromptBudget(0),
+	)
+	if !strings.Contains(prompt, "the host cut the rest of this message to fit") {
+		t.Fatal("an oversized channel message was cut without saying so")
+	}
+
+	// A message that fits carries no marker, or every short message in the
+	// transcript would claim to have been cut.
+	fitting, _ := svc.watchPrompt(
+		core.SlackInput{
+			ChannelID: "C123ABC", MessageTS: "1700.002", Kind: "message",
+			UserID: "U123ABC", Text: "is checkout slow?",
+		},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, "", nil, watchPromptBudget(0),
+	)
+	if strings.Contains(fitting, "the host cut the rest of this message to fit") {
+		t.Fatal("a message that fitted was marked as cut")
 	}
 }

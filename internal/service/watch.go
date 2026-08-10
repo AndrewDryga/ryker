@@ -1728,7 +1728,10 @@ func watchPromptMessage(
 	}
 	mentionsResponder := botUserID != "" &&
 		strings.Contains(input.Text, "<@"+botUserID+">")
-	text := truncateWatchText(boundedOperatorText(input.Text), watchContextTextLimit)
+	// Marked, not silent: a model cannot tell a message the host shortened from
+	// a message the person actually ended mid-sentence, and it answers the
+	// second one by asking them to finish it.
+	text := core.TruncateForPrompt(boundedOperatorText(input.Text), watchContextTextLimit)
 	if botUserID != "" {
 		text = strings.TrimSpace(strings.ReplaceAll(text, "<@"+botUserID+">", ""))
 	}

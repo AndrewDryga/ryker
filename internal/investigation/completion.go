@@ -648,7 +648,11 @@ func ClaimCorrection(
 		}
 	}
 	if strict && len(contract.Claims) > 0 && !typed {
-		return "the completed episode has no typed evidence bound to a required claim; emit record_evidence with an exact required claim_id before completing"
+		// The exact ids, not the word "exact". The host knows them, the model
+		// has to find them in a serialized contract, and three corrections that
+		// only repeated the rule never once produced the string.
+		return "the completed episode has no typed evidence bound to a required claim; emit record_evidence with claim_id " +
+			strings.Join(contract.RequiredClaimIDs(), ", ") + " before completing"
 	}
 	if !typed {
 		return ""
@@ -659,7 +663,8 @@ func ClaimCorrection(
 		}
 		matched := false
 		for _, item := range coverage {
-			if item.Layer == requirement.Layer && slices.Contains(item.ClaimIDs, requirement.ID) {
+			if item.Layer == requirement.Layer &&
+				contract.claimIDsAnswer(item.ClaimIDs, requirement.ID) {
 				matched = true
 				break
 			}
@@ -673,12 +678,8 @@ func ClaimCorrection(
 }
 
 func claimRequired(contract InvestigationContract, claimID string) bool {
-	for _, requirement := range contract.Claims {
-		if requirement.Required && requirement.ID == strings.TrimSpace(claimID) {
-			return true
-		}
-	}
-	return false
+	_, ok := contract.ResolveClaimID(claimID)
+	return ok
 }
 
 func operationalHealthVerdictCorrection(
