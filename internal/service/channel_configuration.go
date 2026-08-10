@@ -177,19 +177,43 @@ func (s *Service) processConfigurationReply(
 	}
 	next, status, answerErr := s.applyConfigurationAnswer(ctx, &session, input.UserID, text)
 	if answerErr != nil {
-		var message slackui.Message
-		if decisionpkg.RequestedConversationLocation(text) != decisionpkg.ConversationLocationFollow {
-			channel, channelErr := s.slack.GetChannel(ctx, session.ChannelID)
-			if channelErr != nil {
-				return true, channelErr
-			}
-			message = slackui.ChannelSetupQuestion(channel.Name, session, s.setupRepositoryChoices())
-		} else {
-			message = slackui.Notice(
+		// An operator who asked to move the conversation gets the question
+		// again, where they asked for it. Everyone else mistyped an answer, and
+		// that is between Responder and them.
+		//
+		// It used to be a channel post. So one person fumbling a setup answer
+		// put "I could not map that answer to a safe typed setting" in front of
+		// everyone in the room, repeated once per attempt — a message with
+		// exactly one useful reader and an audience of dozens. Nobody else can
+		// act on it, and a channel that learns Responder posts its errors there
+		// is a channel that starts tuning Responder out.
+		//
+		// Ephemeral needs no bookkeeping: it has no timestamp to thread under,
+		// and the operator answers beneath the question that is already
+		// recorded as a thread root.
+		if decisionpkg.RequestedConversationLocation(text) == decisionpkg.ConversationLocationFollow {
+			message := slackui.Notice(
 				"**I could not map that answer to a safe typed setting.**\n\n" +
 					answerErr.Error() + "\n\nNothing was saved. Reply again, or say `cancel setup`.",
 			)
+			if renewed {
+				message.Context = append(
+					[]string{"The previous setup expired, so I renewed it. Nothing is saved yet."},
+					message.Context...,
+				)
+			}
+			if err := s.slack.PostEphemeral(
+				ctx, session.ChannelID, input.UserID, s.sanitizeMessage(message),
+			); err != nil {
+				return true, err
+			}
+			return true, s.finishSlackInput(ctx, input)
 		}
+		channel, channelErr := s.slack.GetChannel(ctx, session.ChannelID)
+		if channelErr != nil {
+			return true, channelErr
+		}
+		message := slackui.ChannelSetupQuestion(channel.Name, session, s.setupRepositoryChoices())
 		if renewed {
 			message.Context = append(
 				[]string{"The previous setup expired, so I renewed it. Nothing is saved yet."},

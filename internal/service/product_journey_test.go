@@ -390,3 +390,89 @@ func TestProductJourneyTextControlsExplainHelpAndAutomaticCapacity(t *testing.T)
 		t.Fatalf("automatic capacity explanation = %s", capacity)
 	}
 }
+
+// A mistyped setup answer is between Responder and the person who typed it.
+//
+// The refusal used to be a channel post, so one operator fumbling an answer put
+// "I could not map that answer to a safe typed setting" in front of the whole
+// room, once per attempt. It has exactly one useful reader, nobody else can act
+// on it, and a channel that learns Responder posts its errors there is a
+// channel that starts tuning Responder out.
+func TestAMistypedSetupAnswerIsNotPostedToTheChannel(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{channel: slackui.Channel{
+		ID: "CTEST", Name: "test", Member: true,
+	}}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	joined := core.SlackInput{
+		ID: "setup_joined", EnvelopeID: "env_setup_joined",
+		EventID: "event_setup_joined", Kind: "channel_joined",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CTEST",
+		ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, joined); err != nil || !admitted {
+		t.Fatalf("admit joined = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	session, err := st.GetActiveConfigurationSession(ctx, "CTEST")
+	if err != nil {
+		t.Fatal(err)
+	}
+	customize := core.SlackInput{
+		ID: "setup_customize", EnvelopeID: "env_setup_customize",
+		EventID: "event_setup_customize", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CTEST", MessageTS: "1700.001",
+		UserID: cfg.Slack.Operators[0], ActionID: slackui.ActionSetupCustomize,
+		ActionValue: session.ID, ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, customize); err != nil || !admitted {
+		t.Fatalf("admit customize = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	postsBefore := len(slackClient.posts)
+	answer := core.SlackInput{
+		ID: "setup_gibberish", EnvelopeID: "env_setup_gibberish",
+		EventID: "event_setup_gibberish", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CTEST", MessageTS: "1700.900",
+		ThreadTS: "1700.001", UserID: cfg.Slack.Operators[0],
+		Text:       "invite marketing and also probably legal maybe",
+		ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, answer); err != nil || !admitted {
+		t.Fatalf("admit answer = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, post := range slackClient.posts[postsBefore:] {
+		if strings.Contains(post.message.Text, "could not map that answer") {
+			t.Fatalf("a setup refusal was posted to the channel: %q", post.message.Text)
+		}
+	}
+	refused := false
+	for _, ephemeral := range slackClient.ephemerals {
+		if strings.Contains(ephemeral.message.Text, "could not map that answer") {
+			refused = true
+			if ephemeral.thread != cfg.Slack.Operators[0] {
+				t.Errorf("refusal went to %q, not the operator who typed it", ephemeral.thread)
+			}
+		}
+	}
+	if !refused {
+		t.Fatalf("the refusal reached nobody: posts=%+v ephemerals=%+v",
+			slackClient.posts[postsBefore:], slackClient.ephemerals)
+	}
+}
