@@ -253,8 +253,14 @@ var lineBudget = map[string]int{
 	// migration is the one thing not to do here.
 	//
 	// Lowered to 11390 on 2026-08-09 for RetireActionProposals and the proposal
-	// prune, which maintained rows for a feature the config validator forbids.
-	"store":      11390,
+	// prune, which maintained rows for a feature the config validator forbids,
+	// then set to 11400 when migration 54 dropped that feature's two tables.
+	// The migration file and the dropped-table line in the migration check cost
+	// 16 of the 33 lines the deletion returned; 11390 would have left 25 lines
+	// of margin, which the note at the top of this map calls a tripwire rather
+	// than a ratchet. The package still ends 17 lines smaller and its budget 20
+	// lower than either was before.
+	"store":      11400,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

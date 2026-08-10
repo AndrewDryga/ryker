@@ -202,3 +202,125 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		t.Fatalf("the report does not tell an operator what was deleted: %s", effect.Describe())
 	}
 }
+
+// A table that goes away is named even when it took no rows with it, and a
+// table that goes away holding rows still fails.
+//
+// Migration 54 is the first migration here to drop a table since the baseline
+// was collapsed, and it drops two empty ones. Empty means no rows are lost and
+// the check passes — correctly — but "no rows lost across 121 tables" is not a
+// description of a deploy that removed two of them. The count is printed
+// beside the name so the safe case and the dangerous one read the same way,
+// and neither depends on the reader having found the migration's comment.
+func TestCheckMigrationNamesADroppedTableAndStillRefusesOneWithRows(t *testing.T) {
+	dir := t.TempDir()
+	st := openAt(t, dir)
+	st.Close()
+
+	// The copy is a current database, where migration 54 has already run. Wind
+	// it back to the shape a version-53 host holds so the real migration is the
+	// thing being measured.
+	empty := copyStateDir(t, dir)
+	windBackAndRecreateProposalTables(t, empty)
+	effect, err := CheckMigration(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !effect.Safe() {
+		t.Fatalf("dropping two empty tables was reported unsafe: %s", effect.Describe())
+	}
+	if len(effect.Dropped) != 2 ||
+		effect.Dropped[0] != "action_proposals" || effect.Dropped[1] != "proposal_approvals" {
+		t.Fatalf("dropped tables = %+v", effect.Dropped)
+	}
+	if !strings.Contains(effect.Describe(), "action_proposals dropped, holding 0 rows") {
+		t.Fatalf("the report does not name the dropped table: %s", effect.Describe())
+	}
+
+	// The same drop against a database that has a proposal in it must be
+	// refused. A declaration cannot excuse this and none is offered.
+	occupied := copyStateDir(t, dir)
+	windBackAndRecreateProposalTables(t, occupied)
+	seeded, err := sql.Open("sqlite", filepath.Join(occupied, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seeded.Exec(`
+		INSERT INTO action_proposals (
+		  id, action_name, title, summary, target, blast_radius, rollback,
+		  verification, authority, risk, status, required_approvals,
+		  expires_at, created_at, updated_at
+		) VALUES ('act_1', 'restart', 'Restart it', 'because', 'alloc-1', 'one alloc',
+		  'restore', 'probe', 'emisar', 'medium', 'pending', 1,
+		  '2099-01-01T00:00:00.000000000Z', '2026-01-01T00:00:00.000000000Z',
+		  '2026-01-01T00:00:00.000000000Z')`); err != nil {
+		t.Fatal(err)
+	}
+	seeded.Close()
+
+	effect, err = CheckMigration(occupied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.Safe() {
+		t.Fatalf("a table was taken away with a row in it: %s", effect.Describe())
+	}
+	if effect.Lost["action_proposals"] != 1 {
+		t.Fatalf("the lost row was not named: %s", effect.Describe())
+	}
+	if deletionIsIntended(0, currentSchemaVersion, "action_proposals") {
+		t.Fatal("dropping a table must never be covered by a declared deletion")
+	}
+}
+
+// windBackAndRecreateProposalTables puts a current database back in the shape a
+// version-53 host holds: the two proposal tables present and the version to
+// match, so Open runs migration 54 for real.
+func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`
+		UPDATE schema_version SET version = 53;
+		CREATE TABLE action_proposals (
+		  id TEXT PRIMARY KEY,
+		  incident_id TEXT NOT NULL DEFAULT '',
+		  channel_id TEXT NOT NULL DEFAULT '',
+		  source_input TEXT NOT NULL DEFAULT '',
+		  action_name TEXT NOT NULL,
+		  title TEXT NOT NULL,
+		  summary TEXT NOT NULL,
+		  target TEXT NOT NULL,
+		  parameters_json TEXT NOT NULL DEFAULT '{}',
+		  blast_radius TEXT NOT NULL,
+		  rollback TEXT NOT NULL,
+		  verification TEXT NOT NULL,
+		  authority TEXT NOT NULL,
+		  risk TEXT NOT NULL,
+		  status TEXT NOT NULL,
+		  required_approvals INTEGER NOT NULL,
+		  requested_by TEXT NOT NULL DEFAULT '',
+		  execution_turn TEXT NOT NULL DEFAULT '',
+		  result TEXT NOT NULL DEFAULT '',
+		  expires_at TEXT NOT NULL,
+		  created_at TEXT NOT NULL,
+		  updated_at TEXT NOT NULL
+		);
+		CREATE INDEX proposals_incident_idx
+		  ON action_proposals(incident_id, status, created_at);
+		CREATE UNIQUE INDEX proposals_source_once_idx
+		  ON action_proposals(source_input, action_name, target) WHERE source_input != '';
+		CREATE TABLE proposal_approvals (
+		  proposal_id TEXT NOT NULL,
+		  actor_id TEXT NOT NULL,
+		  decision TEXT NOT NULL,
+		  created_at TEXT NOT NULL,
+		  PRIMARY KEY(proposal_id, actor_id),
+		  FOREIGN KEY(proposal_id) REFERENCES action_proposals(id)
+		);`); err != nil {
+		t.Fatal(err)
+	}
+}

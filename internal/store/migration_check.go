@@ -27,6 +27,15 @@ type MigrationEffect struct {
 	// how many it deleted from the database it is about to be deployed to,
 	// which is the number nobody has until the check prints it.
 	Removed map[string]int
+	// Dropped is every table that is not there afterwards, empty or not.
+	//
+	// An empty table going away costs no rows, so it never reaches Lost and,
+	// until this field existed, it reached nothing at all: the report said "no
+	// rows lost across 121 tables" and the operator had no way to see that two
+	// of the 123 they started with were gone. Same reasoning as Removed — the
+	// deploy's effect belongs in the output, not only in the migration's
+	// comment.
+	Dropped []string
 	// Dangling counts references left pointing at nothing.
 	Dangling int
 }
@@ -92,6 +101,11 @@ func (e MigrationEffect) Describe() string {
 		report += fmt.Sprintf(
 			"\n  %s removed %d rows on purpose (%d -> %d)",
 			table, e.Removed[table], e.Before[table], e.After[table],
+		)
+	}
+	for _, table := range e.Dropped {
+		report += fmt.Sprintf(
+			"\n  %s dropped, holding %d rows", table, e.Before[table],
 		)
 	}
 	return report
@@ -217,6 +231,7 @@ func CheckMigration(copiedStateDir string) (MigrationEffect, error) {
 			// reported rather than ignored. A declared deletion never covers
 			// this: permission to delete rows from a table is not permission to
 			// take the table away.
+			effect.Dropped = append(effect.Dropped, table)
 			if count > 0 {
 				effect.Lost[table] = count
 			}
@@ -231,5 +246,6 @@ func CheckMigration(copiedStateDir string) (MigrationEffect, error) {
 		}
 		effect.Lost[table] = count - remaining
 	}
+	sort.Strings(effect.Dropped)
 	return effect, nil
 }
