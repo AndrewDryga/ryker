@@ -439,7 +439,7 @@ Slack exposes only one static usage hint for a slash command, so the manifest ke
 short and moves detailed guidance into this interactive response. The same command also exposes
 `timeline`, `evidence`, `handoff`, `postmortem`, `update`, `changes`, `review`, `publish`, `stop`, and
 `close` in an incident room. The remediation timeline is derived from the alert, agent runs,
-evidence, approvals, governed actions, and draft-PR publication state instead of copying those
+evidence, Emisar approvals, and draft-PR publication state instead of copying those
 facts into a second incident system. Closing posts the same evidence-grounded post-incident draft
 that `/responder postmortem` can regenerate from the durable record. Responder automatically
 allocates more Coop session capacity as authorized requests arrive. `/responder turn-limit` shows

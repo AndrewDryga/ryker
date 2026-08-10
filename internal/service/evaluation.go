@@ -59,7 +59,6 @@ type EvaluationCase struct {
 	WantCompletionStatus   string                    `json:"want_completion_status,omitempty"`
 	WantCompletionVerdict  string                    `json:"want_completion_verdict,omitempty"`
 	WantPendingApproval    *bool                     `json:"want_pending_approval,omitempty"`
-	WantProposals          *int                      `json:"want_proposals,omitempty"`
 	MinEvidence            int                       `json:"min_evidence,omitempty"`
 	MaxEvidence            *int                      `json:"max_evidence,omitempty"`
 	MinFreshEvidence       int                       `json:"min_fresh_evidence,omitempty"`
@@ -344,7 +343,6 @@ type evaluationObservation struct {
 	assessment        *decisionpkg.AlertAssessment
 	attention         decisionpkg.AttentionAssessment
 	memory            core.AgentMemory
-	proposals         int
 	replyMessageCount int
 	pendingApproval   bool
 	now               time.Time
@@ -575,9 +573,6 @@ func evaluationExpectationMismatch(
 			*testCase.WantPendingApproval,
 		)
 	}
-	if testCase.WantProposals != nil && observed.proposals != *testCase.WantProposals {
-		return fmt.Sprintf("proposals = %d, want %d", observed.proposals, *testCase.WantProposals)
-	}
 	return ""
 }
 
@@ -606,7 +601,6 @@ func evaluateCaseWithConfig(
 	var completion *completionAssessment
 	var episode *core.WorkEpisode
 	var pendingApproval bool
-	var proposals int
 	var strictOperations bool
 	switch testCase.Kind {
 	case "watch":
@@ -682,7 +676,6 @@ func evaluateCaseWithConfig(
 		coverage = report.Coverage
 		completion = report.Completion
 		pendingApproval = report.PendingApproval != nil
-		proposals = len(report.Proposals)
 		strictOperations = len(report.AppliedOperations) > 0
 		if cfg != nil {
 			mode := core.AgentRunIncident
@@ -744,7 +737,7 @@ func evaluateCaseWithConfig(
 		action: action, message: message, reason: reason, reaction: reaction,
 		offer: offer, offers: offers, evidence: evidence, coverage: coverage,
 		completion: completion, assessment: assessment, attention: attention,
-		memory: memory, proposals: proposals,
+		memory:            memory,
 		replyMessageCount: replyMessageCount, pendingApproval: pendingApproval,
 		now: now,
 	}); detail != "" {

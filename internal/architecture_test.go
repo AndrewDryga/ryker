@@ -199,7 +199,19 @@ var lineBudget = map[string]int{
 	// across packages to save the budget — a rubric a reader has to assemble
 	// from two files is how a bound stops being checkable, which is the failure
 	// this whole change is about.
-	"service": 25320,
+	//
+	// Lowered to 25100 on 2026-08-09 when the action-proposal machinery came
+	// out: the Slack approve and reject handler, the proposal preparation and
+	// catalog prompt, and the lifecycle sweep that force-failed rows a disabled
+	// feature could not create. 295 lines, none of them reachable — the config
+	// validator has refused a non-empty actions map for several releases.
+	//
+	// Not all 295 are taken back. This entry was sitting 44 lines under its cap,
+	// which the note above calls a tripwire rather than a ratchet, and a
+	// deletion is the right moment to fix that: the budget comes down by 220 and
+	// the margin goes up to 119. Locking in the whole win would leave the next
+	// legitimate change failing on the merits of this one.
+	"service": 25100,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -239,7 +251,10 @@ var lineBudget = map[string]int{
 	// changes are migrations and deletions against live data, and the paragraph
 	// above says why moving the migration machinery in the same breath as a
 	// migration is the one thing not to do here.
-	"store":      11420,
+	//
+	// Lowered to 11390 on 2026-08-09 for RetireActionProposals and the proposal
+	// prune, which maintained rows for a feature the config validator forbids.
+	"store":      11390,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
@@ -273,7 +288,10 @@ var lineBudget = map[string]int{
 	// map calls a tripwire rather than a ratchet: every addition fails whatever
 	// its merit, and the pressure to bump is highest when the change is right.
 	// 2450 is the fifty-two lines this needed plus room to be wrong once.
-	"decision": 2450,
+	//
+	// Lowered to 2440 on 2026-08-09 when the proposals target came out of the
+	// result-operation fold.
+	"decision": 2440,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	"investigation": 1800,

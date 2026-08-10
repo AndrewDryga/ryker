@@ -1016,10 +1016,10 @@ func (s *Service) watchReplyMessage(
 	if input.Kind == "bot_message" {
 		// Evidence remains in the ledger. App-alert replies should read like a teammate's
 		// update, not expose Responder's internal bookkeeping count in the channel.
-		return slackui.EvidenceResponse(text, nil, nil, nil, s.sanitizer)
+		return slackui.EvidenceResponse(text, nil, nil, s.sanitizer)
 	}
 	return slackui.ConciseEvidenceResponse(
-		text, evidence, coverage, nil, s.sanitizer,
+		text, evidence, coverage, s.sanitizer,
 	)
 }
 

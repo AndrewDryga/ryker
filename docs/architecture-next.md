@@ -573,7 +573,6 @@ later transport can stream the same protocol without changing episode semantics:
 - `offer_rule`
 - `offer_schedule`
 - `record_alert_assessment`
-- `propose_action`
 - `complete_episode`
 
 Responder validates each operation immediately. Invalid operations receive a structured correction

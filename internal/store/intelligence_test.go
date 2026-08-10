@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -479,95 +478,5 @@ func TestScheduledDecisionAdvancesItsPinnedSessionWithoutReplacingChannelSession
 	if scheduled.SessionID != "ses_schedule" || scheduled.SessionRevision != 8 ||
 		scheduled.TurnCount != 1 || scheduled.State.SituationSummary != state.SituationSummary {
 		t.Fatalf("scheduled session memory = %+v", scheduled)
-	}
-}
-
-func TestActionProposalRequiresDistinctApprovers(t *testing.T) {
-	ctx := context.Background()
-	st, err := Open(filepath.Join(t.TempDir(), "state"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
-	created, err := st.Intelligence.CreateActionProposals(ctx, []core.ActionProposal{{
-		IncidentID: "inc_1", ChannelID: "COPS", SourceInput: "turn_1",
-		ActionName: "restart_allocation", Title: "Restart failed allocation",
-		Summary: "The allocation is terminal and its replacement is absent.",
-		Target:  "alloc-123", Parameters: map[string]string{"allocation": "alloc-123"},
-		BlastRadius: "One allocation", Rollback: "Restore the prior allocation version",
-		Verification: "Replacement allocation is healthy",
-		Authority:    "emisar", Risk: "medium", Required: 2,
-		ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
-	}})
-	if err != nil || len(created) != 1 {
-		t.Fatalf("create proposal = %+v, %v", created, err)
-	}
-	proposal, err := st.Intelligence.DecideActionProposal(
-		ctx, created[0].ID, "U1", "approve", time.Now().UTC(),
-	)
-	if err != nil || proposal.Status != "pending" || proposal.ApprovalCount != 1 {
-		t.Fatalf("first approval = %+v, %v", proposal, err)
-	}
-	proposal, err = st.Intelligence.DecideActionProposal(
-		ctx, created[0].ID, "U1", "approve", time.Now().UTC(),
-	)
-	if err != nil || proposal.Status != "pending" || proposal.ApprovalCount != 1 {
-		t.Fatalf("duplicate approval = %+v, %v", proposal, err)
-	}
-	proposal, err = st.Intelligence.DecideActionProposal(
-		ctx, created[0].ID, "U2", "approve", time.Now().UTC(),
-	)
-	if err != nil || proposal.Status != "approved" || proposal.ApprovalCount != 2 {
-		t.Fatalf("second approval = %+v, %v", proposal, err)
-	}
-	if err := st.Intelligence.MarkProposalExecution(
-		ctx, proposal.ID, "executing", "turn_2", "",
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Intelligence.MarkProposalExecution(
-		ctx, proposal.ID, "finished", "turn_2", "verified",
-	); err != nil {
-		t.Fatal(err)
-	}
-	proposal, err = st.Intelligence.GetActionProposal(ctx, proposal.ID)
-	if err != nil || proposal.Status != "finished" ||
-		proposal.ExecutionTurn != "turn_2" || proposal.Result != "verified" {
-		t.Fatalf("finished proposal = %+v, %v", proposal, err)
-	}
-}
-
-func TestRetireActionProposalsStopsLegacyExecutableState(t *testing.T) {
-	ctx := context.Background()
-	st, err := Open(filepath.Join(t.TempDir(), "state"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	created, err := st.Intelligence.CreateActionProposals(ctx, []core.ActionProposal{{
-		IncidentID: "inc_legacy", ChannelID: "COPS", SourceInput: "turn_legacy",
-		ActionName: "restart_allocation", Title: "Restart failed allocation",
-		Target: "alloc-123", BlastRadius: "One allocation",
-		Rollback:     "Restore the prior allocation version",
-		Verification: "Replacement allocation is healthy",
-		Authority:    "emisar", Risk: "medium", Required: 1,
-		ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
-	}})
-	if err != nil || len(created) != 1 {
-		t.Fatalf("create legacy proposal = %+v, %v", created, err)
-	}
-	retired, err := st.RetireActionProposals(ctx, time.Now().UTC())
-	if err != nil || retired != 1 {
-		t.Fatalf("retire proposals = %d, %v", retired, err)
-	}
-	proposal, err := st.Intelligence.GetActionProposal(ctx, created[0].ID)
-	if err != nil || proposal.Status != "failed" ||
-		!strings.Contains(proposal.Result, "disabled") {
-		t.Fatalf("retired proposal = %+v, %v", proposal, err)
-	}
-	if retired, err := st.RetireActionProposals(ctx, time.Now().UTC()); err != nil ||
-		retired != 0 {
-		t.Fatalf("repeated retirement = %d, %v", retired, err)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"sort"
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -240,20 +239,6 @@ func (s *Service) persistAgentReport(
 			return decisionpkg.AgentReport{}, episodeErr
 		}
 	}
-	if incident.ID != "" {
-		proposals, err := s.prepareActionProposals(
-			report.Proposals, incident, sourceInput, requestedBy,
-		)
-		if err != nil {
-			return decisionpkg.AgentReport{}, err
-		}
-		report.Proposals, err = s.store.Intelligence.CreateActionProposals(ctx, proposals)
-		if err != nil {
-			return decisionpkg.AgentReport{}, err
-		}
-	} else {
-		report.Proposals = nil
-	}
 	if report.PendingApproval != nil {
 		approval, _, err := s.store.RecordEmisarApproval(ctx, *report.PendingApproval)
 		if err != nil {
@@ -270,63 +255,6 @@ func (s *Service) persistAgentReport(
 		})
 	}
 	return report, nil
-}
-
-func (s *Service) prepareActionProposals(
-	items []core.ActionProposal,
-	incident core.Incident,
-	sourceInput string,
-	requestedBy string,
-) ([]core.ActionProposal, error) {
-	result := make([]core.ActionProposal, 0, min(len(items), 10))
-	for _, item := range items[:min(len(items), 10)] {
-		policy, ok := s.cfg.Actions[item.ActionName]
-		if !ok {
-			s.log.Warn(
-				"drop unconfigured agent action proposal",
-				"incident", incident.ID,
-				"action", item.ActionName,
-			)
-			continue
-		}
-		if item.Authority != "" && item.Authority != policy.Authority {
-			return nil, fmt.Errorf(
-				"proposal %q authority %q does not match configured authority %q",
-				item.ActionName, item.Authority, policy.Authority,
-			)
-		}
-		item.IncidentID = incident.ID
-		item.ChannelID = incident.ChannelID
-		item.SourceInput = sourceInput
-		item.RequestedBy = requestedBy
-		item.Authority = policy.Authority
-		item.Risk = policy.Risk
-		item.Required = 1
-		if policy.Approval == "two_person" {
-			item.Required = 2
-		}
-		item.ExpiresAt = s.now().UTC().Add(policy.ExpiresAfter.Duration)
-		item.Title = decisionpkg.BoundedField(item.Title, 200)
-		item.Summary = decisionpkg.BoundedField(item.Summary, 1000)
-		item.Target = decisionpkg.BoundedField(item.Target, 300)
-		item.BlastRadius = decisionpkg.BoundedField(item.BlastRadius, 1000)
-		item.Rollback = decisionpkg.BoundedField(item.Rollback, 1000)
-		item.Verification = decisionpkg.BoundedField(item.Verification, 1000)
-		item.Parameters = decisionpkg.BoundedMetadata(item.Parameters)
-		item.Title = s.cleanStructuredField(item.Title, 200)
-		item.Summary = s.cleanStructuredField(item.Summary, 1000)
-		item.Target = s.cleanStructuredField(item.Target, 300)
-		item.BlastRadius = s.cleanStructuredField(item.BlastRadius, 1000)
-		item.Rollback = s.cleanStructuredField(item.Rollback, 1000)
-		item.Verification = s.cleanStructuredField(item.Verification, 1000)
-		item.Parameters = s.cleanStructuredMetadata(item.Parameters)
-		if item.Title == "" || item.Summary == "" || item.Target == "" ||
-			item.BlastRadius == "" || item.Rollback == "" || item.Verification == "" {
-			continue
-		}
-		result = append(result, item)
-	}
-	return result, nil
 }
 
 func (s *Service) prepareEmisarApproval(
@@ -446,35 +374,4 @@ exact Coop output directory; never inline bytes, base64, data URLs, or local pat
 ` + offerContractPolicy + `
 
 ` + behaviorOfferPolicy
-}
-
-func (s *Service) structuredResponsePolicy() string {
-	var catalog strings.Builder
-	catalog.WriteString("\n\nConfigured action proposal catalog:\n")
-	if len(s.cfg.Actions) == 0 {
-		catalog.WriteString("- No actions are configured. Return an empty proposals array.")
-		return structuredResponseInstructions() + catalog.String()
-	}
-	names := make([]string, 0, len(s.cfg.Actions))
-	for name := range s.cfg.Actions {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		action := s.cfg.Actions[name]
-		fmt.Fprintf(
-			&catalog,
-			"- `%s`: %s Authority: %s. Risk: %s. Approval: %s.\n",
-			name,
-			strings.TrimSpace(action.Description),
-			action.Authority,
-			action.Risk,
-			action.Approval,
-		)
-	}
-	catalog.WriteString(
-		"Proposals are inert suggestions. Responder validates them against this exact catalog, " +
-			"and Emisar remains authoritative for policy and approval.",
-	)
-	return structuredResponseInstructions() + catalog.String()
 }

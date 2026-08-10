@@ -1325,8 +1325,7 @@ func TestIncidentCompoundReportPostsOrderedMessagesBeforeFinalEvidenceCard(t *te
 			],
 			"evidence":[{"claim":"hosts respond","observation":"two host checks passed","source_type":"emisar","source_name":"host check"}],
 			"coverage":[{"layer":"host","status":"healthy","source":"host check","detail":"both nodes responded"}],
-			"memory":{},
-			"proposals":[]
+			"memory":{}
 		}`),
 		"",
 		0,

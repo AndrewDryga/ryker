@@ -393,9 +393,8 @@ func TestEvaluationAcceptsAnyAllowedNaturalReaction(t *testing.T) {
 	}
 }
 
-func TestEvaluationChecksGovernedApprovalAndProposalCounts(t *testing.T) {
+func TestEvaluationChecksGovernedApprovalCounts(t *testing.T) {
 	wantApproval := true
-	wantProposals := 0
 	result := evaluateCase(EvaluationCase{
 		Name: "pending approval",
 		Kind: "incident",
@@ -411,13 +410,11 @@ func TestEvaluationChecksGovernedApprovalAndProposalCounts(t *testing.T) {
 		    "status":"pending_approval",
 		    "approval_url":"https://emisar.dev/app/acme/approvals/apr_123",
 		    "expires_at":"2026-07-29T00:00:00Z"
-		  },
-		  "proposals":[]
+		  }
 		}`,
 		WantMessageContains:   []string{"waiting", "has not run"},
 		ForbidMessageContains: []string{"restart completed"},
 		WantPendingApproval:   &wantApproval,
-		WantProposals:         &wantProposals,
 	})
 	if !result.Passed {
 		t.Fatalf("approval contract = %+v", result)

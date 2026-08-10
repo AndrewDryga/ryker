@@ -240,7 +240,6 @@ func renderEvaluationMessage(
 				finalReply,
 				decision.Evidence,
 				decision.Coverage,
-				nil,
 				sanitizer,
 			)
 			if decision.IncidentTitle != "" {
@@ -311,7 +310,6 @@ func renderEvaluationMessage(
 			decisionpkg.ReplySequence(report.Message, report.FollowupMessages)[len(report.FollowupMessages)],
 			report.Evidence,
 			report.Coverage,
-			report.Proposals,
 			sanitizer,
 		)
 		if report.PendingApproval != nil {

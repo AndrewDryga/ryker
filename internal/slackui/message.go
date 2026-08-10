@@ -39,8 +39,6 @@ const (
 	ActionOpenWorkThread     = "responder_open_work_thread"
 	ActionStartTask          = "responder_start_engineering_task"
 	ActionReviewPullRequest  = "responder_review_pull_request"
-	ActionApproveProposal    = "responder_approve_proposal"
-	ActionRejectProposal     = "responder_reject_proposal"
 	ActionOpenApproval       = "responder_open_emisar_approval"
 	ActionRememberMemory     = "responder_remember_memory"
 	ActionForgetMemory       = "responder_forget_memory"
@@ -485,33 +483,14 @@ func EvidenceResponse(
 	text string,
 	evidence []core.Evidence,
 	coverage []core.Coverage,
-	proposals []core.ActionProposal,
 	sanitizer *Sanitizer,
 ) Message {
-	proposals = proposals[:min(len(proposals), 4)]
 	message := ConversationResponse(text, sanitizer)
 	message.Markdown = truncateMarkdown(
-		message.Markdown+evidenceMarkdown(evidence, coverage, proposals),
+		message.Markdown+evidenceMarkdown(evidence, coverage),
 		12000,
 	)
-	message.Text = truncateUTF8(message.Text+evidenceFallback(evidence, coverage, proposals), 4000)
-	for _, proposal := range proposals {
-		message.Actions = append(message.Actions,
-			Action{
-				ID: ActionApproveProposal, Label: "Approve: " + truncateUTF8(proposal.Title, 48),
-				Value: proposal.ID, Style: "primary",
-				Confirm: fmt.Sprintf(
-					"Approve %s for %s? Required approvals: %d. Emisar policy remains authoritative.",
-					proposal.ActionName, proposal.Target, proposal.Required,
-				),
-			},
-			Action{
-				ID: ActionRejectProposal, Label: "Reject: " + truncateUTF8(proposal.Title, 48),
-				Value: proposal.ID, Style: "danger",
-				Confirm: "Reject this proposed action? No operational action will run.",
-			},
-		)
-	}
+	message.Text = truncateUTF8(message.Text+evidenceFallback(evidence, coverage), 4000)
 	return message
 }
 
@@ -519,10 +498,9 @@ func ConciseEvidenceResponse(
 	text string,
 	evidence []core.Evidence,
 	coverage []core.Coverage,
-	proposals []core.ActionProposal,
 	sanitizer *Sanitizer,
 ) Message {
-	message := EvidenceResponse(text, nil, nil, proposals, sanitizer)
+	message := EvidenceResponse(text, nil, nil, sanitizer)
 	if summary := evidenceRecordSummary(evidence, coverage); summary != "" {
 		message.Context = append(message.Context, summary)
 	}
@@ -591,7 +569,6 @@ func countLabel(count int, singular string, plural ...string) string {
 func evidenceMarkdown(
 	evidence []core.Evidence,
 	coverage []core.Coverage,
-	proposals []core.ActionProposal,
 ) string {
 	var output strings.Builder
 	if len(coverage) > 0 {
@@ -628,32 +605,12 @@ func evidenceMarkdown(
 			)
 		}
 	}
-	for _, proposal := range proposals[:min(len(proposals), 4)] {
-		fmt.Fprintf(
-			&output,
-			"\n\n## Proposed action: %s\n\n"+
-				"**Target:** `%s`  \n**Risk:** %s  \n**Approval:** %d operator%s  \n"+
-				"**Why:** %s  \n**Blast radius:** %s  \n**Rollback:** %s  \n"+
-				"**Verification:** %s\n\nNo action runs until the configured approval is complete; "+
-				"Emisar still applies its own policy and approval controls.",
-			proposal.Title,
-			strings.ReplaceAll(proposal.Target, "`", "'"),
-			proposal.Risk,
-			proposal.Required,
-			map[bool]string{true: "s", false: ""}[proposal.Required != 1],
-			proposal.Summary,
-			proposal.BlastRadius,
-			proposal.Rollback,
-			proposal.Verification,
-		)
-	}
 	return output.String()
 }
 
 func evidenceFallback(
 	evidence []core.Evidence,
 	coverage []core.Coverage,
-	proposals []core.ActionProposal,
 ) string {
 	var parts []string
 	if len(coverage) > 0 {
@@ -661,9 +618,6 @@ func evidenceFallback(
 	}
 	if len(evidence) > 0 {
 		parts = append(parts, fmt.Sprintf("%d evidence sources recorded", len(evidence)))
-	}
-	if len(proposals) > 0 {
-		parts = append(parts, fmt.Sprintf("%d operator-controlled actions proposed", len(proposals)))
 	}
 	if len(parts) == 0 {
 		return ""
@@ -734,7 +688,6 @@ func EvidenceDirectoryMessage(
 		),
 		evidence,
 		coverage,
-		nil,
 		NewSanitizer(30000),
 	)
 	message.Context = append(

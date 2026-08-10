@@ -66,9 +66,26 @@ type Config struct {
 	Repositories   map[string]Repository    `yaml:"repositories"`
 	RepositorySets map[string]RepositorySet `yaml:"repository_sets"`
 	Webhooks       map[string]Webhook       `yaml:"webhooks"`
-	Actions        map[string]ActionPolicy  `yaml:"actions"`
-	Limits         Limits                   `yaml:"limits"`
-	Pricing        Pricing                  `yaml:"pricing"`
+	// Actions is accepted and refused. Nothing reads its contents.
+	//
+	// The action catalog described operational work a model could propose and a
+	// Slack operator could approve. That path was disabled before it was ever
+	// configured — Validate has refused a non-empty map for several releases —
+	// and everything behind the refusal has now been deleted, so there is no
+	// longer any code that could read a policy out of this map.
+	//
+	// The key stays for the reason native_status does: the decoder runs with
+	// KnownFields(true), so removing the field would stop a deployment whose
+	// YAML still says `actions: {}` from loading at all, and the shipped example
+	// config says exactly that. Accepting the key and refusing a non-empty value
+	// tells an operator the truth; refusing to start tells them nothing.
+	//
+	// The value is untyped because there is no longer a shape to validate
+	// against. A policy struct here would describe a contract the host cannot
+	// honor, which is how a deleted feature grows back.
+	Actions map[string]any `yaml:"actions"`
+	Limits  Limits         `yaml:"limits"`
+	Pricing Pricing        `yaml:"pricing"`
 }
 
 // Pricing is what the configured providers charge, so recorded token counts can
@@ -332,14 +349,6 @@ type Webhook struct {
 	Mapping           GenericMapping `yaml:"mapping"`
 }
 
-type ActionPolicy struct {
-	Description  string   `yaml:"description"`
-	Authority    string   `yaml:"authority"`
-	Risk         string   `yaml:"risk"`
-	Approval     string   `yaml:"approval"`
-	ExpiresAfter Duration `yaml:"expires_after"`
-}
-
 type GenericMapping struct {
 	EventID     string `yaml:"event_id"`
 	IncidentID  string `yaml:"incident_id"`
@@ -562,12 +571,6 @@ func Load(path string) (Config, error) {
 			route.GroupByLabels = []string{"cluster", "namespace", "service"}
 		}
 		cfg.Webhooks[name] = route
-	}
-	for name, action := range cfg.Actions {
-		if action.ExpiresAfter.Duration == 0 {
-			action.ExpiresAfter.Duration = 15 * time.Minute
-		}
-		cfg.Actions[name] = action
 	}
 	for name, repository := range cfg.Repositories {
 		if repository.GitHubBaseBranch == "" {
@@ -800,32 +803,14 @@ func (c Config) validateWebhooksAndActions() error {
 			return fmt.Errorf("webhook %q: %w", name, err)
 		}
 	}
+	// Forty lines of name, description, authority, risk, approval and expiry
+	// checks used to follow this refusal, looping over a map that has to be
+	// empty to reach them. They validated a catalog no build could act on.
 	if len(c.Actions) != 0 {
 		return errors.New(
 			"actions are not supported in this release; remove the actions map until " +
 				"Slack approvals can be bound to a host-validated target and parameter schema",
 		)
-	}
-	for name, action := range c.Actions {
-		if !namePattern.MatchString(name) {
-			return fmt.Errorf("action name %q is invalid", name)
-		}
-		if strings.TrimSpace(action.Description) == "" {
-			return fmt.Errorf("action %q description is required", name)
-		}
-		if action.Authority != "emisar" {
-			return fmt.Errorf("action %q authority must be emisar", name)
-		}
-		if action.Risk != "low" && action.Risk != "medium" && action.Risk != "high" {
-			return fmt.Errorf("action %q risk must be low, medium, or high", name)
-		}
-		if action.Approval != "operator" && action.Approval != "two_person" {
-			return fmt.Errorf("action %q approval must be operator or two_person", name)
-		}
-		if action.ExpiresAfter.Duration < time.Minute ||
-			action.ExpiresAfter.Duration > 24*time.Hour {
-			return fmt.Errorf("action %q expires_after must be between 1m and 24h", name)
-		}
 	}
 	return nil
 }
