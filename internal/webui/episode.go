@@ -201,9 +201,17 @@ func resultSideEffects(parsed decision.WatchDecision, terminalState string) []Si
 		})
 	}
 	memory := parsed.Memory
-	add("conversation memory", state, "Goal", memory.Goal)
-	add("conversation memory", state, "Channel purpose", memory.ChannelPurpose)
-	add("conversation memory", state, "Situation summary", memory.SituationSummary)
+	for _, item := range []struct {
+		title, detail string
+	}{
+		{"Goal", memory.Goal},
+		{"Channel purpose", memory.ChannelPurpose},
+		{"Situation summary", memory.SituationSummary},
+	} {
+		if strings.TrimSpace(item.detail) != "" {
+			add("conversation memory", state, item.title, item.detail)
+		}
+	}
 	for _, item := range memory.Knowledge {
 		detail := item.Statement
 		if item.Kind != "" {

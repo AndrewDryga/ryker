@@ -107,7 +107,7 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 		"Got it. Plan summaries will show material changes as before → after",
 		"Slack post",
 		"message 1786349687.887489",
-		"Side effects",
+		`Side effects <span class="note">3</span>`,
 		"Terraform plan change summaries",
 		"Show material changes as before-and-after values",
 		"Terraform resource drift reporting",
