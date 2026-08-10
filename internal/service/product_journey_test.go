@@ -476,3 +476,78 @@ func TestAMistypedSetupAnswerIsNotPostedToTheChannel(t *testing.T) {
 			slackClient.posts[postsBefore:], slackClient.ephemerals)
 	}
 }
+
+// Being refused is between Responder and the person refused.
+//
+// Both denials name one Slack account and nothing else: this person is not a
+// configured operator, or this person is a guest. Nobody else in the incident
+// room can grant either, so nobody else can act on reading it. It was a channel
+// post, so a colleague who typed one sentence in an incident room was turned
+// away in public, once per message they sent, in front of everyone working the
+// incident.
+func TestANonOperatorIsRefusedPrivatelyNotInTheIncidentRoom(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident, created, err := st.CreateManualIncident(
+		ctx, cfg.Slack.DefaultRepository, "EvDenied", "Production issue",
+		"Investigate", cfg.Slack.Operators[0], "CORIGIN", "1700.1", 100,
+	)
+	if err != nil || !created {
+		t.Fatalf("create incident = %+v, %v, %v", incident, created, err)
+	}
+	if err := st.SetChannel(ctx, incident.ID, "CINCIDENT", "ems-production-issue"); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{channel: slackui.Channel{
+		ID: "CINCIDENT", Name: "ems-production-issue", Member: true,
+	}}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	bystander := core.SlackInput{
+		ID: "denied_message", EnvelopeID: "env_denied", EventID: "event_denied",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CINCIDENT",
+		MessageTS: "1700.500", ThreadTS: "1700.500", UserID: "UBYSTANDER",
+		Text: "is anyone looking at the checkout errors?", ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, bystander); err != nil || !admitted {
+		t.Fatalf("admit bystander = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	const refusal = "restricted to configured incident operators"
+	for _, post := range slackClient.posts {
+		if strings.Contains(post.message.Text, refusal) {
+			t.Fatalf("a refusal was posted to the incident room: %q", post.message.Text)
+		}
+	}
+	refused := false
+	for _, ephemeral := range slackClient.ephemerals {
+		if !strings.Contains(ephemeral.message.Text, refusal) {
+			continue
+		}
+		refused = true
+		if ephemeral.thread != "UBYSTANDER" {
+			t.Errorf("refusal went to %q, not the person refused", ephemeral.thread)
+		}
+		if ephemeral.channel != "CINCIDENT" {
+			t.Errorf("refusal landed in %q, not where they typed", ephemeral.channel)
+		}
+	}
+	if !refused {
+		t.Fatalf("the refusal reached nobody: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+	// The refusal stays findable whether or not Slack accepted the ephemeral.
+	trail := auditOutcomes(t, cfg, "slack.input", bystander.ID)
+	if len(trail) != 1 || !strings.HasPrefix(trail[0], "denied: ") {
+		t.Fatalf("the refusal left no audit trail: %+v", trail)
+	}
+}
