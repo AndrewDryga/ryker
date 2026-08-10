@@ -380,12 +380,20 @@ func (s *Service) discardRetainedWork(
 		)
 	}
 	// A session Coop has already discarded, or has forgotten entirely, still
-	// leaves a cleanup row behind — and this used to post "no further action
-	// was needed" and leave that row blocked. Nothing was needed of Coop; the
-	// row itself was the remaining work. So the operator pressed a button, was
-	// told it was fine, and watched the workspace stay on the page forever.
-	// Closing the row out is the action, and it is the same one the
-	// record-less path takes for the same state.
+	// leaves a cleanup row behind. Nothing is needed of Coop; the row itself is
+	// the remaining work, and closing it out is the action.
+	//
+	// It says nothing in Slack, because there is nothing to say. Both sentences
+	// it used to post — "already discarded, no further action was needed" and
+	// "already gone, the cleanup record has been closed" — announce that
+	// nothing happened, in a room full of people who did not ask. Six of them
+	// went out in two minutes when the workspaces were cleared from the
+	// dashboard, which is the whole case against them: an operator working on
+	// one surface generated a burst of notifications on another, and not one
+	// carried news.
+	//
+	// The audit row is the record. It always was; the post was decoration on
+	// top of it.
 	closeOut := func(detail string) error {
 		if err := s.store.SetCleanupState(
 			ctx, incident.CoopSessionID, "done", "", "", s.now().UTC(),
@@ -397,12 +405,7 @@ func (s *Service) discardRetainedWork(
 			ActorID: input.UserID, ObjectID: incident.CoopSessionID,
 			Outcome: "succeeded", Detail: detail,
 		})
-		return s.enqueue(
-			ctx, "out_discard_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(),
-			slackui.Notice("*Retained work is already gone.* The cleanup record was the last "+
-				"reference to it and has been closed."),
-		)
+		return nil
 	}
 	session, err := s.coop.GetSession(ctx, incident.CoopSessionID)
 	var apiErr *coop.APIError
