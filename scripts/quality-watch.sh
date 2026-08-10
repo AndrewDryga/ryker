@@ -5,10 +5,17 @@ usage() {
   cat <<'EOF'
 Usage: quality-watch.sh [--once|--watch] [--from-now]
 
-Review newly completed Responder turns with Codex and, for high-confidence
-product defects, prepare a fix in an isolated worktree. The wrapper validates,
-commits, integrates, and deploys (scripts/self-deploy.sh) only after the
-full repository gate passes.
+Review newly completed Responder turns, and record every defect that survives an
+adversarial second reading into the quality_findings table the dashboard's
+Findings page reads.
+
+Attempting the fix is opt-in and off by default. Over the first week the finding
+half worked and the fixing half did not: 220 batches reviewed, 84 proposed
+defects, 23 of them killed by the challenger, and of the 59 that reached the
+fixer, 48 died in `make check` against 81 distinct broken tests, 10 of the
+remaining 11 were rejected by the final reviewer, and the single approved patch
+failed to install. Zero landed. Set RESPONDER_QUALITY_FIX=on to attempt one
+anyway; the default is to hand the finding to a person.
 
 Required environment:
   RESPONDER_QUALITY_STATE_DIR       Responder state directory containing responder.db
@@ -20,11 +27,12 @@ Optional environment:
   RESPONDER_QUALITY_CLAUDE          claude executable (defaults to PATH lookup)
   RESPONDER_QUALITY_ASSESSORS       Assessor ladder, first that answers wins (default: "codex claude")
   RESPONDER_QUALITY_ASSESSOR_RETRIES  Retries before a batch is skipped unassessed (default: 5)
+  RESPONDER_QUALITY_FIX             Attempt an autonomous fix: on or off (default: off)
   RESPONDER_QUALITY_INTERVAL        Watch interval in seconds (default: 300)
   RESPONDER_QUALITY_BATCH_SIZE      Completed turns per review, 1-10 (default: 5)
   RESPONDER_QUALITY_MODEL           Explicit Codex model override
   RESPONDER_QUALITY_REASONING       Codex reasoning effort (default: high)
-  RESPONDER_QUALITY_RETENTION_DAYS  Review artifact retention (default: 30)
+  RESPONDER_QUALITY_RETENTION_DAYS  Findings, reviews, quarantine and cache retention (default: 30)
 
 The watcher never calls Slack and never sources Responder secret files. The test
 channel is recorded in every review as a hard boundary for any later manual probe.
@@ -60,6 +68,11 @@ claude_bin=${RESPONDER_QUALITY_CLAUDE:-claude}
 # One dead account used to stop the watchdog entirely. Tried in order; the first
 # rung that answers wins.
 assessors=${RESPONDER_QUALITY_ASSESSORS:-"codex claude"}
+# Whether a confirmed finding is also handed to a fixer. Off by default, on the
+# measurement in the usage text above: the fixer landed nothing in 59 attempts
+# and cost a workspace-write model call and a full race-detector gate each time.
+# The finding is the product; the patch is the experiment.
+fix_mode=${RESPONDER_QUALITY_FIX:-off}
 interval=${RESPONDER_QUALITY_INTERVAL:-300}
 batch_size=${RESPONDER_QUALITY_BATCH_SIZE:-5}
 model=${RESPONDER_QUALITY_MODEL:-}
@@ -95,6 +108,13 @@ if ((batch_size < 1 || batch_size > 10)); then
   printf 'quality-watch: RESPONDER_QUALITY_BATCH_SIZE must be an integer from 1 to 10\n' >&2
   exit 2
 fi
+case "$fix_mode" in
+  on|off) ;;
+  *)
+    printf 'quality-watch: RESPONDER_QUALITY_FIX must be on or off\n' >&2
+    exit 2
+    ;;
+esac
 case "$reasoning" in
   minimal|low|medium|high|xhigh) ;;
   *)
@@ -171,12 +191,13 @@ worktree_dir="$watch_dir/worktrees"
 quarantine_dir="$watch_dir/quarantine"
 log_file="$watch_dir/quality-watch.log"
 
+go_cache_dir="$watch_dir/go-cache"
+
 umask 077
 mkdir -p "$review_dir" "$worktree_dir" "$quarantine_dir"
 chmod 700 "$watch_dir" "$review_dir" "$worktree_dir" "$quarantine_dir"
 touch "$log_file"
 chmod 600 "$log_file"
-find "$review_dir" -type f -mtime "+$retention_days" -delete
 
 log() {
   printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" | tee -a "$log_file"
@@ -184,6 +205,125 @@ log() {
 
 sql_quote() {
   printf '%s' "$1" | sed "s/'/''/g"
+}
+
+# Fixed-width UTC, the format internal/store writes and compares as text.
+# Nine fractional digits or SQLite's ordering of these strings stops matching
+# chronological order, which is the bug migration 46 exists to have fixed.
+finding_now_sql="strftime('%Y-%m-%dT%H:%M:%f','now') || '000000Z'"
+
+# sqlite3 creates the file it is pointed at. Every findings statement below goes
+# through this first, because the alternative is a watcher that conjures an
+# empty responder.db into a state directory the service has not created yet —
+# and the service would then adopt it as a fresh install rather than notice.
+# The startup sweep runs before anything has looked for the database, so this is
+# reachable on an ordinary boot, not only in theory.
+findings_available() { [[ -f "$database" ]]; }
+
+# record_finding is the only durable output this watcher has.
+#
+# Before it existed, a defect that survived both readings left a quarantined
+# worktree nobody opens and one line in a rotating log, and a rejected one left
+# nothing at all. Both verdicts are written: the rejections are the evidence
+# that the adversarial reviewer is doing anything, and 23 of the first 83
+# proposed defects died there.
+#
+# The row is assembled by jq and handed to SQLite as a single JSON document, so
+# exactly one value crosses into SQL and exactly one value has to be escaped.
+# Building sixteen quoted literals out of model-authored prose is how a summary
+# containing an apostrophe becomes a syntax error at best.
+#
+# A failure here is logged and swallowed. This is a reviewer, and it must not
+# take itself off the air because the database it reports into is busy or
+# predates the table.
+record_finding() { # batch_id verdict assessment challenger batch
+  local batch_id=$1 verdict=$2 assessment=$3 challenger=$4 batch=$5 payload
+  findings_available || return 0
+  payload=$(jq -c -n \
+    --arg id "$batch_id" \
+    --arg verdict "$verdict" \
+    --arg artifacts "$review_dir/$batch_id" \
+    --slurpfile review "$assessment" \
+    --slurpfile against "$challenger" \
+    --slurpfile episodes "$batch" \
+    '{
+      id: $id,
+      verdict: $verdict,
+      artifacts: $artifacts,
+      run_id: ($episodes[0][-1].run_id // ""),
+      episode_ids: [$episodes[0][] | .run_id // empty],
+      channel_id: ($episodes[0][0].channel_id // ""),
+      severity: ($review[0].severity // ""),
+      summary: ($review[0].summary // ""),
+      expected_behavior: ($review[0].expected_behavior // ""),
+      evidence: ($review[0].evidence // []),
+      code_evidence: ($review[0].code_evidence // []),
+      suspected_components: ($review[0].suspected_components // []),
+      regression_test: ($review[0].regression_test // ""),
+      challenger_summary: ($against[0].summary // ""),
+      challenger_evidence: ($against[0].code_evidence // [])
+    }' 2>/dev/null) || {
+    log "could not assemble the finding for $batch_id; details: $assessment"
+    return 0
+  }
+  if ! sqlite3 "$database" "
+PRAGMA busy_timeout = 10000;
+INSERT OR REPLACE INTO quality_findings (
+  id, run_id, episode_ids, channel_id, verdict, disposition, severity, summary,
+  expected_behavior, evidence, code_evidence, suspected_components,
+  regression_test, challenger_summary, challenger_evidence, artifacts, created_at
+)
+SELECT
+  json_extract(f, '\$.id'),
+  json_extract(f, '\$.run_id'),
+  json_extract(f, '\$.episode_ids'),
+  json_extract(f, '\$.channel_id'),
+  json_extract(f, '\$.verdict'),
+  'recorded',
+  json_extract(f, '\$.severity'),
+  json_extract(f, '\$.summary'),
+  json_extract(f, '\$.expected_behavior'),
+  json_extract(f, '\$.evidence'),
+  json_extract(f, '\$.code_evidence'),
+  json_extract(f, '\$.suspected_components'),
+  json_extract(f, '\$.regression_test'),
+  json_extract(f, '\$.challenger_summary'),
+  json_extract(f, '\$.challenger_evidence'),
+  json_extract(f, '\$.artifacts'),
+  $finding_now_sql
+FROM (SELECT '$(sql_quote "$payload")' AS f);" >/dev/null 2>&1; then
+    log "recorded no finding for $batch_id; the findings table did not accept it"
+    return 0
+  fi
+  return 0
+}
+
+# What became of the fix attempt, when an operator turned one on. The worktree
+# directory is named after the batch, so a quarantine already knows which
+# finding it belongs to and nothing has to be threaded through.
+set_finding_disposition() { # id disposition
+  findings_available || return 0
+  sqlite3 "$database" "
+PRAGMA busy_timeout = 10000;
+UPDATE quality_findings SET disposition = '$(sql_quote "$2")'
+WHERE id = '$(sql_quote "$1")';" >/dev/null 2>&1 || true
+}
+
+expire_findings() {
+  local output dropped
+  findings_available || return 0
+  output=$(sqlite3 "$database" "
+PRAGMA busy_timeout = 10000;
+DELETE FROM quality_findings
+WHERE created_at < strftime('%Y-%m-%dT%H:%M:%f','now','-$retention_days days') || '000000Z';
+SELECT changes();" 2>/dev/null) || return 0
+  # Setting busy_timeout returns the timeout as a row of its own, so the count
+  # is the last line and not the whole output. Reading the whole thing made this
+  # never report: "10000\n3" is not a number, so the sweep expired three
+  # findings and said nothing.
+  dropped=${output##*$'\n'}
+  [[ "$dropped" =~ ^[0-9]+$ ]] || return 0
+  ((dropped == 0)) || log "expired $dropped recorded finding(s) older than $retention_days days"
 }
 
 write_cursor() {
@@ -217,6 +357,7 @@ quarantine_worktree() {
   marker="$quarantine_dir/$(basename "$path").meta"
   printf '%s\n%s\n%s\n' "$path" "$branch" "$reason" >"$marker"
   chmod 600 "$marker"
+  set_finding_disposition "$(basename "$path")" quarantined
   log "$reason; worktree quarantined at $path"
 }
 
@@ -231,15 +372,69 @@ quarantine_orphaned_worktrees() {
 }
 
 prune_quarantined_worktrees() {
-  local marker path branch
+  local marker path branch reason dropped=0
   while IFS= read -r -d '' marker; do
     path=$(sed -n '1p' "$marker" 2>/dev/null || true)
     branch=$(sed -n '2p' "$marker" 2>/dev/null || true)
+    reason=$(sed -n '3p' "$marker" 2>/dev/null || true)
     cleanup_worktree "$path" "$branch"
+    # `git worktree remove` refuses a path Git no longer recognises — a checkout
+    # already pruned, or one whose administrative files were lost. The directory
+    # then outlives its marker, quarantine_orphaned_worktrees re-adopts it on the
+    # next start, and it is handed a fresh horizon: a worktree scheduled for
+    # expiry that can never expire. Scoped to the directory this watcher owns,
+    # because the path is read from a file rather than computed here.
+    case "$path" in
+      "$worktree_dir"/?*) rm -rf "$path" ;;
+    esac
     rm -f "$marker"
-    log "removed expired quarantined quality-fix worktree $path"
+    dropped=$((dropped + 1))
+    # Named individually, with the reason it was held. This is an operator's
+    # evidence being destroyed, and "cleaned up 43 worktrees" is not a record of
+    # what was in them.
+    log "expired quarantined quality-fix worktree $path (held because: ${reason:-unrecorded})"
   done < <(find "$quarantine_dir" -type f -name '*.meta' \
     -mtime "+$retention_days" -print0)
+  ((dropped == 0)) || log "dropped $dropped quarantined worktree(s) older than $retention_days days"
+}
+
+# sweep_retention is the whole expiry policy, and it runs on every pass.
+#
+# It used to be three statements before the `while` loop. The watcher is a
+# KeepAlive launch agent whose loop never exits, so those statements ran once
+# per process start — eight times in eight days — and a horizon that only
+# applies when the process restarts is not a horizon. Nothing had reached 30
+# days yet, so nothing had been dropped yet, and the policy looked like it was
+# working while being unreachable.
+#
+# Every branch says what it removed. Silence and deletion must not be the same
+# event, because the thing being deleted is the only record of a defect.
+sweep_retention() {
+  local expired size
+
+  expired=$(find "$review_dir" -type f -mtime "+$retention_days" | wc -l | tr -d ' ')
+  if ((expired > 0)); then
+    size=$(du -sh "$review_dir" 2>/dev/null | cut -f1 | tr -d ' ')
+    find "$review_dir" -type f -mtime "+$retention_days" -delete
+    log "dropped $expired review artifact(s) older than $retention_days days (from $size)"
+  fi
+
+  prune_quarantined_worktrees
+
+  # The Go build cache exists only because the fixer runs `make check` in a
+  # worktree. It reached 5.6 GB in a week — fifteen times the quarantined
+  # worktrees everyone was counting — and had no expiry at all because nobody
+  # had thought of it as an artifact. With the fixer off by default it is dead
+  # weight, so it goes the same way as everything else here: when nothing has
+  # touched it inside the window, it is not a cache, it is a leak.
+  if [[ -d "$go_cache_dir" ]] &&
+    ! find "$go_cache_dir" -type f -newermt "-$retention_days days" -print -quit 2>/dev/null | grep -q .; then
+    size=$(du -sh "$go_cache_dir" 2>/dev/null | cut -f1 | tr -d ' ')
+    rm -rf "$go_cache_dir"
+    log "dropped the fixer's Go build cache (${size:-unknown}); nothing has used it in $retention_days days"
+  fi
+
+  expire_findings
 }
 
 acquire_lock() {
@@ -602,7 +797,24 @@ LIMIT $batch_size;"
   rm -f "$challenger_prompt"
   chmod 600 "$challenger_path" "$challenger_log"
   if [[ $(jq -r '.needs_fix and .confidence == "high" and (.code_evidence | length > 0)' "$challenger_path") != true ]]; then
-    log "reviewed $count terminal episode(s); adversarial review rejected the proposed defect"
+    record_finding "$batch_id" rejected "$assessment_path" "$challenger_path" "$batch_path"
+    log "reviewed $count terminal episode(s); adversarial review rejected the proposed defect; recorded as a rejected finding"
+    advance_from_batch "$batch_path"
+    return 0
+  fi
+  record_finding "$batch_id" confirmed "$assessment_path" "$challenger_path" "$batch_path"
+
+  # This is where the watcher stops unless an operator asked for more.
+  #
+  # Everything above is the half that works. Everything below is the half that,
+  # measured over 59 attempts, landed nothing: 48 patches failed the full gate
+  # against 81 distinct broken tests — a spread, not one blocker, so there is no
+  # single thing to fix — 10 of the 11 survivors were rejected by the final
+  # reviewer, and the one that passed everything failed to install. Running it
+  # by default spent a workspace-write model call, a race-detector gate, and a
+  # 6 MB worktree per confirmed defect to produce a quarantine directory.
+  if [[ "$fix_mode" != on ]]; then
+    log "reviewed $count terminal episode(s); recorded a challenged defect as $batch_id; no fix attempted (RESPONDER_QUALITY_FIX=off)"
     advance_from_batch "$batch_path"
     return 0
   fi
@@ -650,6 +862,7 @@ LIMIT $batch_size;"
   rm -f "$fixer_prompt"
   chmod 600 "$fixer_log" "$fixer_report"
   if [[ -z $(git -C "$worktree" status --porcelain) ]]; then
+    set_finding_disposition "$batch_id" declined
     log "reviewed $count terminal episode(s); fixer confirmed no code change was justified"
     cleanup_worktree "$worktree" "$branch"
     advance_from_batch "$batch_path"
@@ -751,10 +964,12 @@ LIMIT $batch_size;"
   # loss, meaning drift, and real-model behaviour are all checked before anything moves, and a
   # health regression rolls it back. It is slower. It is unattended; that is the trade.
   if ! (cd "$repository" && scripts/self-deploy.sh) >>"$fixer_log" 2>&1; then
+    set_finding_disposition "$batch_id" integrated_not_deployed
     log "integrated $fix_commit, but it did not survive the deployment proof; inspect $fixer_log"
     advance_from_batch "$batch_path"
     return 0
   fi
+  set_finding_disposition "$batch_id" integrated
   log "integrated, deployed, and restarted validated fix $fix_commit for $batch_id"
   advance_from_batch "$batch_path"
 }
@@ -764,15 +979,16 @@ if ! acquire_lock; then
 fi
 trap release_lock EXIT INT TERM
 quarantine_orphaned_worktrees
-prune_quarantined_worktrees
+sweep_retention
 
 if [[ "$mode" == once ]]; then
   review_once
   exit $?
 fi
 
-log "watching completed Responder turns every ${interval}s; Slack writes are disabled; test boundary is $test_channel"
+log "watching completed Responder turns every ${interval}s; recording findings; fix attempts are $fix_mode; test boundary is $test_channel"
 while true; do
   review_once || true
+  sweep_retention
   sleep "$interval"
 done

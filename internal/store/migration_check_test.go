@@ -177,13 +177,15 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 	// The copy is a current database with its version number wound back, so
 	// every column the migrations above 50 added is already present and their
 	// ADD COLUMN would fail on its own earlier success. The columns migrations
-	// 52 and 53 add go with the version, so the copy is the shape a version-50
-	// host holds.
+	// 52 and 53 add go with the version, and so does the table migration 54
+	// creates, or its CREATE TABLE fails on its own earlier success — so the
+	// copy is the shape a version-50 host holds.
 	if _, err := target.Exec(`
 		UPDATE schema_version SET version = 50;
 		ALTER TABLE configuration_sessions DROP COLUMN card_ts;
 		ALTER TABLE standing_rules DROP COLUMN acted_count;
-		ALTER TABLE standing_rules DROP COLUMN quiet_count;`); err != nil {
+		ALTER TABLE standing_rules DROP COLUMN quiet_count;
+		DROP TABLE quality_findings;`); err != nil {
 		t.Fatal(err)
 	}
 	target.Close()

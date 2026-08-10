@@ -26,8 +26,8 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	handler.Register(mux)
 
 	for _, path := range []string{
-		"/", "/episodes", "/failures", "/workspaces", "/decisions", "/audit", "/memory",
-		"/configuration", "/usage",
+		"/", "/episodes", "/failures", "/workspaces", "/decisions", "/findings",
+		"/audit", "/memory", "/configuration", "/usage",
 	} {
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))

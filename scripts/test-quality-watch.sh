@@ -118,6 +118,29 @@ CREATE TABLE slack_deliveries (
 );
 SQL
 
+# quality_findings is created from Responder's own migration text, not retyped.
+#
+# The other tables here are hand-written stand-ins the watcher only reads, so a
+# drift between them and production costs a wrong-looking test. This one the
+# watcher writes, and a column list that disagrees with the shipped schema would
+# make the insert fail in production while passing here — which is precisely the
+# class of "the check ran and reported nothing" failure this whole file exists
+# to prevent. Extracting the real DDL means the test inserts into the real
+# shape.
+# Found by content rather than by migration number, because the number is
+# whichever one was free when this landed and renumbering is a rebase away.
+findings_schema=$(grep -l 'CREATE TABLE quality_findings' \
+  "$repository"/internal/store/schema_v*.go | head -1)
+awk '/^const schemaV[0-9]+ = `$/{copy=1; next} copy&&/^`$/{exit} copy' \
+  "$findings_schema" >"$temporary/findings.sql" 2>/dev/null
+if ! grep -q 'CREATE TABLE quality_findings' "$temporary/findings.sql"; then
+  printf 'quality-watch test: no migration creates quality_findings, so the watcher has nowhere to record\n' >&2
+  exit 1
+fi
+sqlite3 "$state_dir/responder.db" <"$temporary/findings.sql"
+
+findings() { sqlite3 "$state_dir/responder.db" "$1"; }
+
 run_watch() {
   QUALITY_WATCH_TEST_CAPTURE="$capture" \
   QUALITY_WATCH_TEST_COUNT="$count_file" \
@@ -126,6 +149,8 @@ run_watch() {
   RESPONDER_QUALITY_TEST_CHANNEL=C0TENANTX01 \
   RESPONDER_QUALITY_REPOSITORY="$repository" \
   RESPONDER_QUALITY_CODEX="$fake_codex" \
+  RESPONDER_QUALITY_FIX="${FIX_MODE:-off}" \
+  RESPONDER_QUALITY_RETENTION_DAYS="${RETENTION_DAYS:-30}" \
     "$repository/scripts/quality-watch.sh" "${@:2}"
 }
 
@@ -191,6 +216,13 @@ if find "$state_dir/quality-watch/worktrees" -mindepth 1 -print -quit | grep -q 
   printf 'quality-watch test: adversarial rejection created a worktree\n' >&2
   exit 1
 fi
+# A rejected finding is still a finding. The challenger overturned 23 of the
+# first 83 proposals, and dropping those on the floor hides the only evidence
+# that the second reader is doing anything.
+if [[ $(findings "SELECT COUNT(*) FROM quality_findings WHERE verdict = 'rejected'") != 1 ]]; then
+  printf 'quality-watch test: the challenger overturned a defect and nothing recorded it\n' >&2
+  exit 1
+fi
 
 rm -f "$count_file"
 sqlite3 "$state_dir/responder.db" <<'SQL'
@@ -240,6 +272,62 @@ grep -Fq 'Responder could not complete this check.' "$capture"
 grep -Fq '"reply_delivery_state": "sent"' "$capture"
 grep -Fq '"failure_count": 20' "$capture"
 
+# The default path, and the whole point of the change: a defect that survives
+# both readings is recorded and handed to a person, and no fixer runs.
+#
+# Two models answer the batch — assessor and challenger — and nothing else. The
+# third call is the fixer, so the call count is what proves the expensive half
+# did not run; an absent worktree alone would also be true if the fixer had run
+# and made no change.
+rm -f "$count_file"
+sqlite3 "$state_dir/responder.db" <<'SQL'
+INSERT INTO slack_inputs (
+  id, kind, channel_id, thread_ts, user_id, message_ts, text, state,
+  failure_count, last_error, received_at, updated_at
+) VALUES (
+  'slack_recorded', 'mention', 'C0TENANTX01', '', 'U123', '2999.0105',
+  'check the unrecorded failure', 'done', 0, '',
+  '2999-01-01T00:00:10.400Z', '2999-01-01T00:00:10.500Z'
+);
+INSERT INTO agent_runs VALUES (
+  'run_recorded', 'triage', 'completed', 'failed', 'C0TENANTX01', '',
+  'watch', 'slack_recorded', 'tenant-platform', 'reproducible failure',
+  '2999-01-01T00:00:10.400Z', '2999-01-01T00:00:10.450Z',
+  '2999-01-01T00:00:10.500Z', '2999-01-01T00:00:10.500Z', '', 1
+);
+SQL
+run_watch confirmed --once
+if [[ $(<"$count_file") != 2 ]]; then
+  printf 'quality-watch test: the fixer ran with RESPONDER_QUALITY_FIX=off\n' >&2
+  exit 1
+fi
+if find "$state_dir/quality-watch/worktrees" -mindepth 1 -print -quit | grep -q .; then
+  printf 'quality-watch test: the default path created a worktree\n' >&2
+  exit 1
+fi
+grep -Fq 'no fix attempted (RESPONDER_QUALITY_FIX=off)' \
+  "$state_dir/quality-watch/quality-watch.log" || {
+  printf 'quality-watch test: the loop did not say the fixer was off\n' >&2
+  exit 1
+}
+recorded=$(findings "SELECT verdict || '|' || disposition || '|' || run_id ||
+  '|' || channel_id || '|' || severity || '|' || summary || '|' ||
+  json_array_length(code_evidence)
+  FROM quality_findings WHERE run_id = 'run_recorded'")
+if [[ "$recorded" != 'confirmed|recorded|run_recorded|C0TENANTX01|high|proposed defect|1' ]]; then
+  printf 'quality-watch test: the confirmed finding did not reach the table intact: %s\n' \
+    "$recorded" >&2
+  exit 1
+fi
+# The row has to point back at the episode it came from, or the page shows a
+# defect nobody can trace to a turn.
+if [[ $(findings "SELECT json_extract(episode_ids, '\$[0]')
+  FROM quality_findings WHERE run_id = 'run_recorded'") != run_recorded ]]; then
+  printf 'quality-watch test: the finding lost the episode it came from\n' >&2
+  exit 1
+fi
+
+# Opt in, and the fixer path still works exactly as it did.
 rm -f "$count_file"
 mkdir -p "$state_dir/quality-watch/worktrees/old-failure"
 sqlite3 "$state_dir/responder.db" <<'SQL'
@@ -258,7 +346,7 @@ INSERT INTO agent_runs VALUES (
   '2999-01-01T00:00:13.000Z', '2999-01-01T00:00:13.000Z', '', 1
 );
 SQL
-run_watch confirmed --once
+FIX_MODE=on run_watch confirmed --once
 if [[ $(<"$count_file") != 3 ]]; then
   printf 'quality-watch test: quarantined worktree blocked a later fixer\n' >&2
   exit 1
@@ -269,6 +357,13 @@ if [[ ! -f "$state_dir/quality-watch/quarantine/old-failure.meta" ]]; then
 fi
 grep -Fq 'fixer confirmed no code change was justified' \
   "$state_dir/quality-watch/quality-watch.log"
+# What the fixer did with the finding is written back onto it, or the page shows
+# a defect as merely "recorded" while a worktree for it sits in quarantine.
+if [[ $(findings "SELECT disposition FROM quality_findings
+  WHERE run_id = 'run_five'") != declined ]]; then
+  printf 'quality-watch test: the fix attempt did not report back to its finding\n' >&2
+  exit 1
+fi
 
 # The bug this file exists to prevent a second time: when the assessor could not
 # run at all, the watcher advanced its cursor and logged "no high-confidence
@@ -372,5 +467,69 @@ for bare in internal/service/agent_run.go docs/testing.md; do
     exit 1
   fi
 done
+
+# Retention runs on every pass and names what it destroyed.
+#
+# It used to run only before the watch loop, and the watch loop never exits, so
+# on a KeepAlive launch agent the horizon applied eight times in eight days —
+# which is to say it did not apply. 366 MB of quarantined worktrees, 71 MB of
+# reviews and a 5.6 GB build cache accumulated under a policy that read as if it
+# were working. Everything here is aged past a one-day horizon and must come
+# back named, because a deletion nobody is told about is indistinguishable from
+# a loss.
+old=$(date -u -v-3d '+%Y%m%d%H%M' 2>/dev/null || date -u -d '3 days ago' '+%Y%m%d%H%M')
+touch -t "$old" "$state_dir/quality-watch/reviews/"*.episodes.json
+mkdir -p "$state_dir/quality-watch/worktrees/expired-fix"
+printf '%s\n%s\n%s\n' \
+  "$state_dir/quality-watch/worktrees/expired-fix" 'quality-watch/expired' \
+  'full gate failed for expired-fix' \
+  >"$state_dir/quality-watch/quarantine/expired-fix.meta"
+touch -t "$old" "$state_dir/quality-watch/quarantine/expired-fix.meta"
+mkdir -p "$state_dir/quality-watch/go-cache/aa"
+touch -t "$old" "$state_dir/quality-watch/go-cache/aa/cached"
+sqlite3 "$state_dir/responder.db" \
+  "UPDATE quality_findings SET created_at = '2000-01-01T00:00:00.000000000Z';"
+
+RETENTION_DAYS=1 run_watch clean --once
+watch_log="$state_dir/quality-watch/quality-watch.log"
+for expected in \
+  'review artifact(s) older than 1 days' \
+  'expired quarantined quality-fix worktree' \
+  'held because: full gate failed for expired-fix' \
+  "dropped the fixer's Go build cache" \
+  'recorded finding(s) older than 1 days'; do
+  grep -Fq "$expected" "$watch_log" || {
+    printf 'quality-watch test: retention did not report %s\n' "$expected" >&2
+    exit 1
+  }
+done
+if [[ -f "$state_dir/quality-watch/quarantine/expired-fix.meta" ]]; then
+  printf 'quality-watch test: an expired quarantine marker survived its horizon\n' >&2
+  exit 1
+fi
+if [[ -d "$state_dir/quality-watch/go-cache" ]]; then
+  printf 'quality-watch test: the stale build cache survived its horizon\n' >&2
+  exit 1
+fi
+# Expiring it has to actually remove the tree. A directory that outlives its
+# marker is re-adopted as an orphan on the next start and given a fresh
+# horizon — an expiry that renews what it was supposed to end.
+if [[ -d "$state_dir/quality-watch/worktrees/expired-fix" ]]; then
+  printf 'quality-watch test: an expired worktree was unmarked but left on disk\n' >&2
+  exit 1
+fi
+if [[ $(findings 'SELECT COUNT(*) FROM quality_findings') != 0 ]]; then
+  printf 'quality-watch test: expired findings were kept\n' >&2
+  exit 1
+fi
+# And a finding inside the window is not touched by the same sweep.
+sqlite3 "$state_dir/responder.db" "
+INSERT INTO quality_findings (id, verdict, created_at)
+VALUES ('fresh', 'confirmed', strftime('%Y-%m-%dT%H:%M:%f','now') || '000000Z');"
+RETENTION_DAYS=1 run_watch clean --once
+if [[ $(findings 'SELECT COUNT(*) FROM quality_findings') != 1 ]]; then
+  printf 'quality-watch test: retention took a finding that was still inside its horizon\n' >&2
+  exit 1
+fi
 
 printf 'quality-watch test: ok\n'

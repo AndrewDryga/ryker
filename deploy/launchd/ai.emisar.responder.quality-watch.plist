@@ -46,6 +46,18 @@
     <string>__STATE_DIR__</string>
     <key>RESPONDER_QUALITY_TEST_CHANNEL</key>
     <string>__TEST_CHANNEL__</string>
+    <!--
+      Off, and exported anyway so the setting is visible where the job is read
+      rather than only in the script's defaults. The watcher's finding half
+      works and its fixing half does not: across 59 attempts, 48 patches failed
+      the full gate against 81 distinct broken tests, 10 of the 11 survivors
+      were rejected by the final reviewer, and the one that passed everything
+      failed to install. Turning this on costs a workspace-write model call and
+      a race-detector gate per confirmed defect. The findings go to the
+      dashboard either way.
+    -->
+    <key>RESPONDER_QUALITY_FIX</key>
+    <string>off</string>
     <key>RESPONDER_QUALITY_INTERVAL</key>
     <string>300</string>
     <key>RESPONDER_QUALITY_BATCH_SIZE</key>

@@ -43,6 +43,7 @@ func TestEveryQueryRunsAgainstTheMigratedSchema(t *testing.T) {
 	window := chosenWindow(UsageWindows("30d", time.Now().UTC()))
 	checks := map[string]func() error{
 		"Blocked":             func() error { _, err := reader.Blocked(ctx, 5); return err },
+		"Findings":            func() error { _, err := reader.Findings(ctx, 0); return err },
 		"Channel":             func() error { _, _, err := reader.Channel(ctx, "C1"); return err },
 		"KnownChannels":       func() error { _, err := reader.KnownChannels(ctx); return err },
 		"Schedules":           func() error { _, err := reader.Schedules(ctx); return err },
@@ -127,6 +128,7 @@ func TestEveryCounterRunsAgainstTheMigratedSchema(t *testing.T) {
 		{countTerminalRuns, nil}, {countCorrections, []any{"unreadable"}},
 		{countAudited, nil}, {countAuditKind, []any{"slack.watch"}},
 		{countFeedbackSentiment, []any{"positive"}},
+		{countFindings, nil}, {countConfirmedFindings, nil},
 	} {
 		var count int
 		err := reader.db.QueryRowContext(context.Background(), counted.query, counted.args...).Scan(&count)
@@ -148,8 +150,8 @@ func TestEveryPageRendersAgainstTheMigratedSchema(t *testing.T) {
 	mux := http.NewServeMux()
 	handler.Register(mux)
 	for _, path := range []string{
-		"/", "/episodes", "/failures", "/workspaces", "/decisions", "/audit", "/memory",
-		"/configuration", "/usage",
+		"/", "/episodes", "/failures", "/workspaces", "/decisions", "/findings",
+		"/audit", "/memory", "/configuration", "/usage",
 	} {
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -448,6 +450,23 @@ func TestReadersScanTheColumnsTheySelect(t *testing.T) {
 	if entries[0].Rewrites != 1 || entries[0].LastRewrite != "operator replacement" {
 		t.Errorf("memory history was not read back: %+v", entries[0])
 	}
+
+	findings, err := reader.Findings(ctx, 0)
+	if err != nil {
+		t.Fatalf("Findings: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("Findings returned %d rows, want 1", len(findings))
+	}
+	// The JSON columns are the part a Scan cannot prove on its own: they arrive
+	// as text and are only a list once something decodes them, so a finding
+	// whose evidence silently became empty would still scan cleanly.
+	if !findings[0].Confirmed() || findings[0].Severity != "high" {
+		t.Errorf("the challenger's verdict was not read back: %+v", findings[0])
+	}
+	if len(findings[0].Code) != 1 || len(findings[0].EpisodeIDs) != 1 {
+		t.Errorf("the finding lost the evidence that makes it actionable: %+v", findings[0])
+	}
 }
 
 // seededReader is migratedReader with one row in the tables the decisions page
@@ -498,6 +517,22 @@ func seededReader(t *testing.T) *Reader {
 		    (id, entry_id, previous_value_hash, replacement_value_hash, reason, created_at)
 		  VALUES (?, 'mem_1', 'hash0', 'hash1', 'operator replacement', ?)`,
 			[]any{"memsup_1", now}},
+		// Seventeen columns, written the way the quality watcher writes them:
+		// arrays as JSON text, because that is what a shell script producing
+		// them with jq can store and what the page renders whole.
+		{`INSERT INTO quality_findings
+		    (id, run_id, episode_ids, channel_id, verdict, disposition, severity,
+		     summary, expected_behavior, evidence, code_evidence,
+		     suspected_components, regression_test, challenger_summary,
+		     challenger_evidence, artifacts, created_at)
+		  VALUES (?, 'run_1', '["run_1"]', 'C1', 'confirmed', 'recorded', 'high',
+		          'the watch reply claimed a deploy it never verified',
+		          'it should say what it checked', '["reply_body said verified"]',
+		          '["internal/service/watch.go: replyFromRun"]',
+		          '["internal/service"]', 'a watch turn with no evidence must not claim one',
+		          'the delivered body does assert it', '["internal/service/watch.go:220"]',
+		          '/state/quality-watch/reviews/batch_1', ?)`,
+			[]any{"batch_1", now}},
 	} {
 		if _, err := db.Exec(statement.query, statement.args...); err != nil {
 			t.Fatalf("seed: %v", err)
