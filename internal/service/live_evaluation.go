@@ -1107,11 +1107,11 @@ fixture observation, rather than at wall-clock time.
 			// One tool result is the floor. Below it there is no fixture left to
 			// replay, and a case that cannot carry a single observation beside
 			// its own contract has to fail loudly rather than quietly measure
-			// nothing.
+			// nothing. It is a defect in the corpus, not a provider refusal, so
+			// it counts as a failure rather than as an unevaluated case.
 			return "", fmt.Errorf(
-				"episode replay case %q needs %d bytes of prompt before any recorded evidence, over the %d cap: re-record it smaller",
-				testCase.Name, len(prompt)-len(recording), coop.MaxPromptBytes,
-			)
+				"%w: episode replay case %q needs %d bytes of prompt before any recorded evidence, over the %d cap: re-record it smaller",
+				errEvaluationCaseInvalid, testCase.Name, len(prompt)-len(recording), coop.MaxPromptBytes)
 		}
 	}
 }
