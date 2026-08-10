@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -67,8 +68,12 @@ func timestampColumns(t *testing.T, db *sql.DB) []string {
 func TestMigrationCoversEveryTimestampColumn(t *testing.T) {
 	dir := t.TempDir()
 	st := openAt(t, dir)
+	born := tablesCreatedAfterV46(t)
 	for _, column := range timestampColumns(t, st.db) {
 		table, name, _ := strings.Cut(column, ".")
+		if born[table] {
+			continue
+		}
 		needle := fmt.Sprintf("UPDATE %s SET %s =", table, name)
 		if !strings.Contains(schemaV46, needle) {
 			t.Errorf(
@@ -78,6 +83,41 @@ func TestMigrationCoversEveryTimestampColumn(t *testing.T) {
 			)
 		}
 	}
+}
+
+// tablesCreatedAfterV46 is every table a later migration brings into existence.
+//
+// Such a table is exempt from the check above, and the exemption is not a
+// loosening. Migration 46 rewrote values that were already stored in the old
+// variable-width format; a table that does not exist when 46 runs has no such
+// values and never will, because everything written to it afterwards goes
+// through timestampFormat. Naming it in timestampColumnsAtV46 would not fix a
+// value, it would break the upgrade: the generated statement is one
+// UPDATE per column, and a host coming from 45 would run
+// "UPDATE quality_findings ..." eight migrations before that table is created
+// and fail there. Migration 54 was the first to add a table after 46 and found
+// this out.
+//
+// Read from the migration statements rather than listed by hand, for the same
+// reason the column list is checked against the live schema instead of trusted:
+// a hand-written exemption list is one nobody updates. Transient rebuild tables
+// like work_episodes_rebuilt land in here too and cost nothing — they are
+// renamed away before the schema this walks exists.
+func tablesCreatedAfterV46(t *testing.T) map[string]bool {
+	t.Helper()
+	pattern := regexp.MustCompile(
+		`(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([A-Za-z_][A-Za-z0-9_]*)"?`,
+	)
+	created := map[string]bool{}
+	for version, statement := range migrations {
+		if version <= 46 {
+			continue
+		}
+		for _, match := range pattern.FindAllStringSubmatch(statement, -1) {
+			created[match[1]] = true
+		}
+	}
+	return created
 }
 
 // The invariant the migration exists to establish: for stored timestamps, text

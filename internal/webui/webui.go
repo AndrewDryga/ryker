@@ -40,6 +40,7 @@ var pages = []Page{
 	{"failures", "Failures", "What is broken, and can I retry it?"},
 	{"workspaces", "Workspaces", "What is still held, and why?"},
 	{"decisions", "Decisions", "What did it choose, and was it right?"},
+	{"findings", "Findings", "What is wrong with Responder itself?"},
 	{"audit", "Audit", "Who did what, and what came of it?"},
 	{"memory", "Memory", "What does it believe, and where did that come from?"},
 	{"configuration", "Configuration", "How is it set up?"},

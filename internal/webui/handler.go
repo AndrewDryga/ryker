@@ -75,6 +75,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /workspaces", h.workspaces)
 	mux.HandleFunc("GET /conversations/{channel}/{thread}", h.conversation)
 	mux.HandleFunc("GET /decisions", h.decisions)
+	mux.HandleFunc("GET /findings", h.findings)
 	mux.HandleFunc("GET /audit", h.audit)
 	mux.HandleFunc("GET /audit/{kind}", h.auditKind)
 	mux.HandleFunc("GET /memory", h.memory)
@@ -155,7 +156,7 @@ func (h *Handler) shell(r *http.Request, slug string, content any) Shell {
 	shell := NewShell(slug, h.deployment, content)
 	shell.Binary, shell.Schema, shell.Ready = h.binary, h.schema, h.ready()
 	ctx := r.Context()
-	// Three tiny counts per render, against a local SQLite. The alternative —
+	// A few tiny counts per render, against a local SQLite. The alternative —
 	// badges only on the pages that computed them — made the numbers appear
 	// and vanish as you navigated, which reads as the counts changing.
 	shell.Badges = map[string]Badge{
@@ -164,6 +165,11 @@ func (h *Handler) shell(r *http.Request, slug string, content any) Shell {
 		"failures":   {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`)},
 		"workspaces": {N: h.reader.Count(ctx, countRetained), Warn: true},
 		"decisions":  {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM fixture_candidates WHERE status = 'pending'`), Warn: true},
+		// Confirmed only, and not a warning. There is no action to take on a
+		// finding from this page, so a red badge would be a to-do nobody can
+		// discharge; the number is here because a page nobody opens is the
+		// state this whole change exists to leave behind.
+		"findings": {N: h.reader.Count(ctx, countConfirmedFindings)},
 	}
 	return shell
 }

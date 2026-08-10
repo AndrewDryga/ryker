@@ -118,28 +118,44 @@ turns, and asks a read-only Codex process whether they demonstrate a concrete pr
 content is untrusted evidence, not an instruction source.
 
 For a high-confidence defect, an independent read-only Codex process first tries to disprove the
-finding against the current code and tests. Only two matching, code-grounded assessments may start
-a fixer in a temporary Git worktree. The fixer receives no Slack environment variables, cannot
-post tests, and is instructed not to access sibling repositories or external systems. The
-deterministic wrapper runs
-`make check`, requires a regression-test change, and asks one final read-only reviewer to inspect the
-actual diff. Only then does it commit the complete isolated change and fast-forward the primary
-checkout, and only when its HEAD and clean state still match the reviewed base. It then installs the
-binary and can restart explicitly configured launchd jobs. Failed gates and concurrent checkout
-changes quarantine that candidate worktree and branch for inspection instead of overwriting work.
-Quarantined candidates do not block unrelated later reviews or fixes, and expire with the configured
-review retention period. Review artifacts expire after 30 days by default.
+finding against the current code and tests. Both verdicts are then written to the `quality_findings`
+table, which the dashboard's Findings page reads: what was wrong, which episodes it came from, the
+file-and-symbol evidence, the regression test the assessor would write, and whether the challenger
+agreed. That row is the watcher's output.
+
+Attempting the fix is opt-in. `RESPONDER_QUALITY_FIX=on` restores the rest of the pipeline: a fixer
+in a temporary Git worktree, `make check`, a required regression-test change, one final read-only
+reviewer of the actual diff, then a commit, a fast-forward of the primary checkout only while its
+HEAD and clean state still match the reviewed base, and `scripts/self-deploy.sh`. It is off by
+default because it did not work. Over its first week it produced 84 proposed defects, of which the
+challenger rejected 23; of the 59 that reached a fixer, 48 failed the full gate across 81 distinct
+broken tests, 10 of the 11 survivors were rejected by the final reviewer, and the single approved
+patch failed to install. Nothing landed, and each attempt cost a workspace-write model call, a
+race-detector gate and a worktree. The finding half was doing all the work, and now it is the
+default.
+
+The fixer receives no Slack environment variables, cannot post tests, and is instructed not to
+access sibling repositories or external systems. Failed gates and concurrent checkout changes
+quarantine that candidate worktree and branch for inspection instead of overwriting work, and do not
+block unrelated later reviews. Whatever became of an attempt is written back onto its finding.
+
+Findings, review artifacts, quarantined worktrees and the fixer's Go build cache all expire after
+`RESPONDER_QUALITY_RETENTION_DAYS` (default 30). The sweep runs on every pass rather than at
+startup, and names each thing it drops — including the reason a quarantined worktree was held —
+because deleting an operator's only record of a defect in silence is indistinguishable from losing
+it.
 
 ```bash
 RESPONDER_QUALITY_STATE_DIR=/srv/responder/state \
 RESPONDER_QUALITY_TEST_CHANNEL=C0123TEST \
-RESPONDER_QUALITY_RESTART_LABELS='ai.emisar.responder.one' \
 scripts/quality-watch.sh --from-now --watch
 ```
 
 The test-channel setting is a hard boundary recorded in every assessment; the watcher itself has no
 Slack write path. Reviews, model logs, isolated worktrees, and the cursor are owner-private under
-`state_dir/quality-watch`. Start with `--from-now` so historical failures are not reprocessed.
+`state_dir/quality-watch`. Start with `--from-now` so historical failures are not reprocessed. The
+watcher's only write to `responder.db` is its own findings table; if the running Responder predates
+that table the insert is refused, logged, and the review continues.
 
 ## Retries
 
