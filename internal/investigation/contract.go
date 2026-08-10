@@ -425,6 +425,9 @@ the attempts list, and the answer you need is the next action.
 
 A blocker is an external boundary, not unfinished work. Exhaust available read-only routes before
 returning one, then name the exact source, access, operator input, authority, or tool failure required.
+Every blocked completion carries summary, material_gaps, blocker_kind, attempts and next_action
+together. A status and a summary alone is not a blocker: it is a result nobody can act on, and the host
+rejects the whole response rather than post it.
 An unavailable named runbook, saved query, dashboard, or other reusable workflow is not itself a blocker
 when the requested read-only outcome can still be established from authorized underlying tools. Search
 for a published semantic replacement, inspect its exact scope, and use it when it is read-only and covers

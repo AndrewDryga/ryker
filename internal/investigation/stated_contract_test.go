@@ -64,6 +64,22 @@ func TestContractStatesTheOperatorInputExit(t *testing.T) {
 	if !validCompletionBlockerKind("operator_input_required") {
 		t.Error("the contract points at a blocker kind the validator refuses")
 	}
+	// Four real turns returned a status and a summary and nothing else, so the
+	// five fields the validator demands together are stated where the host
+	// states its rules, not only inside the longest example line in the prompt.
+	for _, field := range []string{
+		"summary, material_gaps, blocker_kind, attempts and next_action",
+		"A status and a summary alone is not a blocker",
+	} {
+		if !strings.Contains(prompt, field) {
+			t.Errorf("the contract prompt lacks %q", field)
+		}
+	}
+	if err := ValidateCompletion(&CompletionAssessment{
+		Status: "blocked", Summary: "publication is blocked",
+	}); err == nil {
+		t.Error("a two-field blocked completion was accepted")
+	}
 	// And the status it forbids has to stay forbidden.
 	if err := ValidateCompletion(&CompletionAssessment{
 		Status: "needs_input", Summary: "the request is truncated",
