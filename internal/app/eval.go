@@ -496,20 +496,36 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 			fmt.Fprintf(stdout, "GATE: %s\n", failure)
 		}
 	}
-	if summary.Failed > 0 {
+	return evaluationExit(summary, *options.minCasePassRate)
+}
+
+// evaluationExit turns a finished run into a process exit.
+//
+// A failed sample only fails the run when no gate is judging the samples.
+// Repeat-scoring exists because the same fixture gives a materially different
+// response run to run: the regression corpus replays each case three times and
+// asks for two thirds. This check used to run before that gate and fail on any
+// single bad sample, so a corpus judged 8 of 9 with every case above its bar
+// still exited non-zero — which makes the repeats pure cost and no signal.
+// With no per-case bar configured there is nothing else judging, so one
+// failure is still a failure and this stays the answer. The test is the bar
+// itself and not Gate.Evaluated, which is true whenever gates were applied at
+// all — including a plain contract replay that configures no thresholds.
+//
+// An unevaluated case is always non-zero. An unproven fixture must not pass
+// because a provider was busy; only the sentence changes, and the sentence is
+// the difference between "go read three fixtures" and "run it again later".
+func evaluationExit(summary service.EvaluationSummary, minCasePassRate float64) error {
+	if summary.Failed > 0 && minCasePassRate <= 0 {
 		return fmt.Errorf("%d evaluation cases failed", summary.Failed)
 	}
-	// Still a nonzero exit: an unproven fixture must not pass because a
-	// provider was busy. Only the sentence changes, and the sentence is the
-	// whole point — it is the difference between "go read four fixtures" and
-	// "wait for the rate limit and run it again".
 	if summary.Unevaluated > 0 {
 		return fmt.Errorf(
 			"%d of %d evaluation cases were never evaluated: the provider refused the turn",
 			summary.Unevaluated, summary.Total,
 		)
 	}
-	if !summary.Gate.Passed {
+	if summary.Gate.Evaluated && !summary.Gate.Passed {
 		return errors.New("evaluation gate failed")
 	}
 	return nil

@@ -266,8 +266,15 @@ promote-corrections:
 race:
 	go test -race ./...
 
+# gofmt walks the filesystem, not the module, so it descends into
+# .claude/worktrees — the scratch checkouts parallel agents work in. Those are
+# copies of this same repository holding somebody else's uncommitted work, and
+# the gate reported one of them as this tree being unformatted. Worse, the
+# obvious fix is to run gofmt -w, which edits a file out from under whoever is
+# writing it. `go list` asks the module instead, so the gate only ever sees the
+# tree it is gating.
 lint:
-	test -z "$$(gofmt -l .)"
+	test -z "$$(gofmt -l $$(go list -f '{{.Dir}}' ./...))"
 	go vet ./...
 	shellcheck scripts/*.sh
 
