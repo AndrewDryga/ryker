@@ -272,6 +272,10 @@ const (
 	countCorrections  = `SELECT COUNT(*) FROM fixture_candidates WHERE correction_class = ?`
 	countAudited      = `SELECT COUNT(*) FROM audit_events`
 	countAuditKind    = `SELECT COUNT(*) FROM audit_events WHERE kind = ?`
+	// Counted over the whole table rather than the fifty rows the page lists,
+	// because the point of the pair is the ratio and a ratio taken from a page
+	// of the newest items is a ratio of whatever happened this week.
+	countFeedbackSentiment = `SELECT COUNT(*) FROM feedback_items WHERE sentiment = ?`
 )
 
 func (r *Reader) Count(ctx context.Context, query string, args ...any) int {
@@ -1216,19 +1220,40 @@ func (r *Reader) Preferences(ctx context.Context) ([]Preference, error) {
 	return items, rows.Err()
 }
 
+// StandingRule carries what the rule cost and what it produced, because a fire
+// count on its own cannot say whether a rule is worth keeping. Runs is every
+// fire ever; Acted and Quiet are the fires whose outcome was recorded, and they
+// do not add up to Runs on any rule that predates migration 53.
 type StandingRule struct {
 	Trigger, Action, Channel string
 	Enabled                  bool
-	Runs                     int
+	Runs, Acted, Quiet       int
+	LastActed                time.Time
 	Expires                  time.Time
 }
+
+// Recorded is the denominator the page may honestly divide by.
+func (s StandingRule) Recorded() int { return s.Acted + s.Quiet }
+
+// Idle reports a rule that has fired and, so far as anything was recorded,
+// produced nothing at all. This is the row worth an operator's attention: it is
+// costing a model turn per matching message and returning silence.
+func (s StandingRule) Idle() bool { return s.Recorded() > 0 && s.Acted == 0 }
 
 func (r *Reader) StandingRules(ctx context.Context) ([]StandingRule, error) {
 	if !r.live() {
 		return nil, nil
 	}
+	// Recency comes from the runs rather than a stored column, so an empty value
+	// means "not inside the retained window" — see standingRuleSelect in
+	// behaviorstore, which reads it the same way for Slack.
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT trigger_name, action_name, channel_id, enabled, trigger_count, expires_at
+	  SELECT trigger_name, action_name, channel_id, enabled, trigger_count,
+	         acted_count, quiet_count,
+	         COALESCE((SELECT max(run.created_at) FROM standing_rule_runs run
+	                   WHERE run.rule_id = standing_rules.id
+	                     AND run.outcome NOT IN ('ignore', 'shadowed')), ''),
+	         expires_at
 	  FROM standing_rules ORDER BY updated_at DESC LIMIT 50`)
 	if err != nil {
 		return nil, err
@@ -1237,12 +1262,13 @@ func (r *Reader) StandingRules(ctx context.Context) ([]StandingRule, error) {
 	items := []StandingRule{}
 	for rows.Next() {
 		var item StandingRule
-		var channel, expires string
+		var channel, acted, expires string
 		if err := rows.Scan(&item.Trigger, &item.Action, &channel, &item.Enabled,
-			&item.Runs, &expires); err != nil {
+			&item.Runs, &item.Acted, &item.Quiet, &acted, &expires); err != nil {
 			return nil, err
 		}
 		item.Channel = r.channelName(ctx, channel)
+		item.LastActed = parseStamp(acted)
 		item.Expires = parseStamp(expires)
 		items = append(items, item)
 	}

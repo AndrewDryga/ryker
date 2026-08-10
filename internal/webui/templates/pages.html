@@ -197,6 +197,31 @@ latest attempt can be queued to run again from there; a superseded one says so i
 {{else}}<p class="empty">Nobody has told Responder it got something wrong. This records
 a person saying so, which is distinct from the host's own checks rejecting an answer below.</p>{{end}}
 
+<h2>What Responder got right <span class="note">{{len .Praise}}</span></h2>
+{{if .Reacted}}
+<p class="note">{{.Praised}} of {{.Reacted}} graded reactions were praise ({{.PraisedPercent}}%).
+A thumbs-up records the one thing complaints never can: an answer worth copying. Each row
+below links to the episode that produced it, and a praised episode keeps the context it was
+given instead of having it emptied a day later, so it stays a complete example for as long
+as the episode itself is retained.</p>
+{{end}}
+{{if .Praise}}
+<div class="rows">
+  {{range .Praise}}
+  <div class="row">
+    <div class="title">{{truncate 200 .Summary}}</div>
+    <div class="meta">
+      <span class="pill good">{{.Sentiment}}</span>
+      {{.Category}} · {{.Channel}} · {{since .Created}}{{if .Status}} · {{.Status}}{{end}}
+    </div>
+    {{if .EpisodeID}}<div class="meta"><a href="/episodes/{{.EpisodeID}}">the answer they liked →</a></div>{{end}}
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">Nobody has reacted positively to a Responder message yet. A thumbs-up,
+tada, heart or fire on one of its replies is recorded here as an example of the target
+behaviour; it is noted rather than queued, so it never asks anyone for a decision.</p>{{end}}
+
 <h2>Corrections waiting to become tests</h2>
 {{if .Corrections}}
 <div class="rows">
@@ -353,13 +378,24 @@ recurring work; it appears here with its cadence and run history.</p>{{end}}
 <h2>Standing rules <span class="note">{{len .Rules}}</span></h2>
 {{if .Rules}}
 <table>
-  <tr><th>When</th><th>Do</th><th>Where</th><th class="num">Runs</th><th>Expires</th><th>State</th></tr>
+  <tr><th>When</th><th>Do</th><th>Where</th><th class="num">Fired</th><th class="num">Acted</th>
+      <th class="num">Did nothing</th><th>Last acted</th><th>Expires</th><th>State</th></tr>
   {{range .Rules}}
   <tr><td class="mono">{{.Trigger}}</td><td class="mono">{{.Action}}</td><td>{{.Channel}}</td>
-      <td class="mono num">{{.Runs}}</td><td class="note">{{stamp .Expires}}</td>
-      <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
+      <td class="mono num">{{.Runs}}</td>
+      <td class="mono num">{{if .Recorded}}{{.Acted}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="mono num">{{if .Recorded}}{{.Quiet}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="note">{{if not .LastActed.IsZero}}{{since .LastActed}}{{else if .Idle}}never{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="note">{{stamp .Expires}}</td>
+      <td><span class="pill{{if .Idle}} bad{{else if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
   {{end}}
 </table>
+<p class="note">Fired counts every match. Acted and Did nothing count only the fires whose
+outcome was recorded, so on a rule older than the outcome tally they add up to less than
+Fired — the rest are matches nobody kept a result for. A rule with fires and no actions is
+spending a model turn per matching message and returning silence. Last acted is read from
+the retained runs, so a rule that acted longer ago than the episode-history horizon reads
+as never rather than claiming a date it can no longer prove.</p>
 {{else}}<p class="empty">No standing rules.</p>{{end}}
 {{end}}
 

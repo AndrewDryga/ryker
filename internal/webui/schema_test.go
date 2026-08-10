@@ -126,6 +126,7 @@ func TestEveryCounterRunsAgainstTheMigratedSchema(t *testing.T) {
 		{countRetained, nil}, {countCleanupDone, nil}, {countEpisodes, nil},
 		{countTerminalRuns, nil}, {countCorrections, []any{"unreadable"}},
 		{countAudited, nil}, {countAuditKind, []any{"slack.watch"}},
+		{countFeedbackSentiment, []any{"positive"}},
 	} {
 		var count int
 		err := reader.db.QueryRowContext(context.Background(), counted.query, counted.args...).Scan(&count)
@@ -302,6 +303,102 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 	}
 	if strings.Contains(body, "Next just now") {
 		t.Errorf("future schedule is presented as current: %s", body)
+	}
+}
+
+// The two pages that read what nothing read before.
+//
+// Configuration listed a standing rule's fire count and nothing else, which is
+// the number that cannot answer "should I keep this": emisar's Terraform rule
+// shows 64 fires and every outcome anyone kept was 'ignore'. Decisions listed
+// praise in among the complaints under a heading about being told Responder got
+// something wrong, so the one signal saying an answer was worth copying was
+// invisible in the list that contained it.
+func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing.T) {
+	dir := t.TempDir()
+	live, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "responder.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	later := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339Nano)
+	if _, err := db.Exec(`
+		INSERT INTO standing_rules (
+		  id, channel_id, repository, trigger_name, action_name, source_kind,
+		  enabled, source_ref, actor_id, trigger_count, acted_count, quiet_count,
+		  last_triggered_at, expires_at, created_at, updated_at
+		) VALUES ('rule_idle', 'C1', 'repo', 'terraform_plan',
+		  'review_terraform_plan', 'app', 1, 'slack_rule', 'U1', 64, 0, 12,
+		  ?, ?, ?, ?);
+		INSERT INTO feedback_items
+		  (id, workspace_id, channel_id, user_id, source, category, sentiment,
+		   summary, context_json, episode_id, status, created_at, updated_at)
+		VALUES
+		  ('fb_good', 'T1', 'C1', 'U1', 'positive_reaction', 'other', 'positive',
+		   'User reacted positively to a Responder message', ?, 'ep_praised',
+		   'noted', ?, ?),
+		  ('fb_bad', 'T1', 'C1', 'U1', 'model_sentiment', 'correctness', 'negative',
+		   'that was the wrong repository', ?, '', 'open', ?, ?);`,
+		now, later, now, now, []byte("{}"), now, now, []byte("{}"), now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	handler, err := NewHandler(reader, "test", "53", "responder-abc", nil, nil, config.Pricing{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	render := func(path string) string {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		return recorder.Body.String()
+	}
+
+	configuration := render("/configuration")
+	for _, expected := range []string{
+		"Fired", "Acted", "Did nothing", ">64<", ">12<",
+		// A rule with fires and no actions is the row worth acting on, so it
+		// carries the same warning pill a failure does rather than the green
+		// one that says "enabled" and stops there.
+		`<span class="pill bad">enabled</span>`,
+	} {
+		if !strings.Contains(configuration, expected) {
+			t.Errorf("configuration does not show %q: %s", expected, configuration)
+		}
+	}
+
+	decisions := render("/decisions")
+	for _, expected := range []string{
+		"What Responder got right",
+		"1 of 2 graded reactions were praise (50%)",
+		"the answer they liked",
+		"/episodes/ep_praised",
+		// And the complaint stays in the complaints list.
+		"that was the wrong repository",
+	} {
+		if !strings.Contains(decisions, expected) {
+			t.Errorf("decisions does not show %q: %s", expected, decisions)
+		}
+	}
+	if strings.Contains(decisions, "Nobody has reacted positively") {
+		t.Errorf("recorded praise is still reported as absent: %s", decisions)
 	}
 }
 

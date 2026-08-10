@@ -73,9 +73,16 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 	if !graded {
 		return nil
 	}
-	if _, err := s.store.GetSentSlackMessageDelivery(
+	// The delivery was already read to prove this is a Responder message and then
+	// thrown away, which cost the one join that makes a reaction usable. It knows
+	// the episode that posted the message, so praise stops being a floating
+	// "someone liked something" and becomes "this answer, to this question, was
+	// right" — which is what the dashboard links to and what keeps the assembled
+	// context of a praised turn from being emptied on the operational sweep.
+	delivery, err := s.store.GetSentSlackMessageDelivery(
 		ctx, input.ChannelID, input.ActionValue,
-	); errors.Is(err, store.ErrNotFound) {
+	)
+	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	} else if err != nil {
 		return err
@@ -97,7 +104,7 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 		ThreadTS: input.ThreadTS, MessageTS: input.MessageTS,
 		TargetMessageTS: input.ActionValue, UserID: input.UserID,
 		Source: sentiment + "_reaction", Category: "other", Sentiment: sentiment,
-		Summary: summary, Status: status,
+		Summary: summary, Status: status, EpisodeID: delivery.EpisodeID,
 		Details: "Slack reaction: :" + name + ":",
 		Context: contextMessages, SourceRef: exactSlackMessageLink(input, input.ActionValue),
 	}

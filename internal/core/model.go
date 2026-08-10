@@ -552,16 +552,27 @@ func (offer *RuleOffer) UnmarshalJSON(data []byte) error {
 }
 
 type StandingRule struct {
-	ID            string
-	ChannelID     string
-	Repository    string
-	Trigger       string
-	Action        string
-	SourceKind    string
-	Enabled       bool
-	SourceRef     string
-	ActorID       string
-	TriggerCount  int
+	ID           string
+	ChannelID    string
+	Repository   string
+	Trigger      string
+	Action       string
+	SourceKind   string
+	Enabled      bool
+	SourceRef    string
+	ActorID      string
+	TriggerCount int
+	// ActedCount and QuietCount split the fires by what they produced, and they
+	// are durable: a fire count alone cannot tell a rule that works from one that
+	// matches constantly and answers nothing. They sum to the number of fires
+	// whose outcome was recorded, which is not TriggerCount — everything that
+	// fired before migration 53 is uncounted, and a surface presenting the two as
+	// a ratio would be claiming observations nobody kept.
+	ActedCount int
+	QuietCount int
+	// LastActed is read from the retained runs rather than stored, so an empty
+	// value means "not inside the retention window" rather than "never".
+	LastActed     time.Time
 	LastTriggered time.Time
 	ExpiresAt     time.Time
 	CreatedAt     time.Time

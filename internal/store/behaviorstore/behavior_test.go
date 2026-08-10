@@ -112,6 +112,82 @@ func TestResponseLocationPreferenceIsTypedAndRejectsRepositoryScope(t *testing.T
 	}
 }
 
+// A rule has to be judgeable from its own row.
+//
+// trigger_count alone never was: emisar's Terraform rule reads 64 fires, and the
+// only outcomes anyone kept were 'ignore'. The tally has to survive the runs
+// being swept — that is the whole point of putting it on the rule — and it has
+// to keep the two kinds of fire apart, because "matched and answered" and
+// "matched and said nothing" are the entire question.
+func TestStandingRuleTallyOutlivesTheRunsItCounts(t *testing.T) {
+	ctx := context.Background()
+	db := storetest.DB(t)
+	repo := behaviorstore.New(db, time.Now)
+	rule, _, err := repo.UpsertStandingRule(
+		ctx,
+		core.StandingRule{
+			ChannelID: "COPS", Repository: "repo",
+			Trigger: "terraform_plan", Action: "review_terraform_plan",
+			SourceKind: "app", SourceRef: "slack_rule", ActorID: "UOPERATOR",
+			ExpiresAt: time.Now().UTC().Add(30 * 24 * time.Hour),
+		},
+		20, 10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for input, outcome := range map[string]string{
+		"plan_1": "reply", "plan_2": "incident", "plan_3": "ignore",
+		"plan_4": "ignore", "plan_5": "shadowed",
+	} {
+		if _, err := repo.RecordStandingRuleRun(
+			ctx, rule.ID, input, "Ev_"+input, outcome,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A redelivered Slack event is one fire, so it moves neither counter.
+	if recorded, err := repo.RecordStandingRuleRun(
+		ctx, rule.ID, "plan_1", "Ev_plan_1", "reply",
+	); err != nil || recorded {
+		t.Fatalf("redelivery recorded = %t, %v", recorded, err)
+	}
+	stored, err := repo.GetStandingRule(ctx, rule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.TriggerCount != 5 || stored.ActedCount != 2 || stored.QuietCount != 3 {
+		t.Fatalf(
+			"fired=%d acted=%d quiet=%d, want 5/2/3",
+			stored.TriggerCount, stored.ActedCount, stored.QuietCount,
+		)
+	}
+	if stored.LastActed.IsZero() {
+		t.Fatal("a rule that acted twice reports no recent action")
+	}
+
+	// Retention sweeps the evidence. The count is what is left, and losing it
+	// here is exactly the failure this table was unable to survive before.
+	if _, err := db.Exec(`DELETE FROM standing_rule_runs WHERE rule_id = ?`, rule.ID); err != nil {
+		t.Fatal(err)
+	}
+	swept, err := repo.GetStandingRule(ctx, rule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swept.TriggerCount != 5 || swept.ActedCount != 2 || swept.QuietCount != 3 {
+		t.Fatalf(
+			"after the sweep fired=%d acted=%d quiet=%d, want the tally intact",
+			swept.TriggerCount, swept.ActedCount, swept.QuietCount,
+		)
+	}
+	// Recency is deliberately not durable: with no retained run to point at, the
+	// honest answer is "not inside the window", not a date nothing can support.
+	if !swept.LastActed.IsZero() {
+		t.Fatalf("last acted = %s, want empty once the evidence expired", swept.LastActed)
+	}
+}
+
 func TestStandingRulesDeduplicateRunsAndCleanUpWithChannel(t *testing.T) {
 	ctx := context.Background()
 	db := storetest.DB(t)

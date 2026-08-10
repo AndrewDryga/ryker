@@ -660,15 +660,40 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 		count := h.reader.Count(ctx, countCorrections, class)
 		rates = append(rates, rate{class, count, total, percent(count, total)})
 	}
-	feedback, err := h.reader.Feedback(ctx)
+	items, err := h.reader.Feedback(ctx)
 	failed.note("feedback", err)
+	// Praise is separated from the complaints rather than mixed in with them.
+	//
+	// Positive reactions have been captured for a while and read by nothing: they
+	// landed in the same list, under a heading about being told Responder got
+	// something wrong, with no way to tell how many there were relative to the
+	// complaints. Two lists and one ratio is the difference between a table that
+	// accumulates and a page that says whether people are happy — and the praised
+	// rows are the ones that link to an episode worth copying, which is the whole
+	// reason "this answer was right" was worth collecting.
+	var feedback, praise []Feedback
+	for _, item := range items {
+		if item.Sentiment == "positive" {
+			praise = append(praise, item)
+			continue
+		}
+		feedback = append(feedback, item)
+	}
+	praised := h.reader.Count(ctx, countFeedbackSentiment, "positive")
+	complained := h.reader.Count(ctx, countFeedbackSentiment, "negative")
 	h.page(w, r, "decisions", "decisions", struct {
-		Rates       []rate
-		Corrections []Correction
-		Feedback    []Feedback
-		Errs        problems
-		CanAct      bool
-	}{rates, corrections, feedback, failed, h.CanAct()})
+		Rates            []rate
+		Corrections      []Correction
+		Feedback, Praise []Feedback
+		Praised, Reacted int
+		PraisedPercent   int
+		Errs             problems
+		CanAct           bool
+	}{
+		rates, corrections, feedback, praise,
+		praised, praised + complained, percent(praised, praised+complained),
+		failed, h.CanAct(),
+	})
 }
 
 func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
