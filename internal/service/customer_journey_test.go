@@ -614,14 +614,22 @@ func TestCustomerJourneyIncidentCannotPublishDraftPR(t *testing.T) {
 	if publisherClient.publishCalls != 0 {
 		t.Fatalf("incident invoked publisher %d times", publisherClient.publishCalls)
 	}
-	if len(slackClient.posts) != 1 {
-		t.Fatalf("incident publication notice = %+v", slackClient.posts)
+	// The refusal answers the operator who pressed Publish. Nobody else in the
+	// room asked to publish, and nobody else can act on being told this
+	// incident is read-only.
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("incident publication refusal was posted to the room = %+v", slackClient.posts)
 	}
-	rendered := slackClient.posts[0].message.Text + "\n" +
-		strings.Join(slackClient.posts[0].message.Sections, "\n")
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("incident publication notice = %+v", slackClient.ephemerals)
+	}
+	rendered := renderedSlackMessage(slackClient.ephemerals[0].message)
 	if !strings.Contains(rendered, "available for engineering tasks only") ||
 		!strings.Contains(rendered, "remain read-only") {
-		t.Fatalf("incident publication notice = %+v", slackClient.posts[0].message)
+		t.Fatalf("incident publication notice = %+v", slackClient.ephemerals[0].message)
+	}
+	if slackClient.ephemerals[0].thread != cfg.Slack.Operators[0] {
+		t.Fatalf("refusal went to %q, not the operator who pressed", slackClient.ephemerals[0].thread)
 	}
 }
 

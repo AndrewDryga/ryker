@@ -369,15 +369,10 @@ func (s *Service) discardRetainedWork(
 	incident core.Incident,
 ) error {
 	if incident.Status != core.IncidentClosed || !incident.IsEngineeringTask() {
-		return s.enqueue(
-			ctx, "out_discard_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(),
-			slackui.Notice(
-				"*Retained work was not discarded.* This control is available only for a "+
-					"closed engineering task. Close the task first so no agent turn can race "+
-					"with destructive cleanup.",
-			),
-		)
+		return s.refuseControl(ctx, input, incident,
+			"*Retained work was not discarded.* This control is available only for a "+
+				"closed engineering task. Close the task first so no agent turn can race "+
+				"with destructive cleanup.")
 	}
 	// A session Coop has already discarded, or has forgotten entirely, still
 	// leaves a cleanup row behind. Nothing is needed of Coop; the row itself is
@@ -419,14 +414,9 @@ func (s *Service) discardRetainedWork(
 		return closeOut("Coop had already discarded this session; only the cleanup record was still open.")
 	}
 	if session.State != "closed" || session.ActiveTurnID != "" || session.QueuedTurnCount != 0 {
-		return s.enqueue(
-			ctx, "out_discard_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(),
-			slackui.Notice(
-				"*Retained work was not discarded because the Coop session is not closed and "+
-					"idle.* No files or commits were deleted.",
-			),
-		)
+		return s.refuseControl(ctx, input, incident,
+			"*Retained work was not discarded because the Coop session is not closed and "+
+				"idle.* No files or commits were deleted.")
 	}
 	plan, _, err := s.coop.PlanDiscard(
 		ctx, "responder:discard-plan:"+input.ID,
@@ -436,15 +426,10 @@ func (s *Service) discardRetainedWork(
 		return err
 	}
 	if plan.Plan.Workspace.Dirty {
-		return s.enqueue(
-			ctx, "out_discard_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(),
-			slackui.Notice(
-				"*Retained work was not discarded because the workspace has uncommitted "+
-					"changes.* Automatic and operator cleanup never deletes dirty work. Inspect "+
-					"the fork directly and decide how to preserve those files.",
-			),
-		)
+		return s.refuseControl(ctx, input, incident,
+			"*Retained work was not discarded because the workspace has uncommitted "+
+				"changes.* Automatic and operator cleanup never deletes dirty work. Inspect "+
+				"the fork directly and decide how to preserve those files.")
 	}
 	if plan.Plan.Workspace.Unmerged {
 		plan, _, err = s.coop.PlanDiscard(

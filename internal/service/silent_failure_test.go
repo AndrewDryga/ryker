@@ -364,7 +364,8 @@ func TestConfiguredChannelTheBotCannotSeeIsReportedNotSwallowed(t *testing.T) {
 
 // auditOutcomes reads back what the service recorded about one object, so a
 // test can check the trail an operator would actually read rather than only the
-// log line beside it.
+// log line beside it. An empty objectID matches every object of that kind,
+// which is how a caller checks work whose id the service generated.
 func auditOutcomes(t *testing.T, cfg config.Config, kind, objectID string) []string {
 	t.Helper()
 	db, err := sql.Open("sqlite", filepath.Join(cfg.StateDir, "responder.db"))
@@ -374,8 +375,8 @@ func auditOutcomes(t *testing.T, cfg config.Config, kind, objectID string) []str
 	defer db.Close()
 	rows, err := db.Query(
 		`SELECT outcome, detail FROM audit_events
-		 WHERE kind = ? AND object_id = ? ORDER BY created_at, id`,
-		kind, objectID,
+		 WHERE kind = ? AND (? = '' OR object_id = ?) ORDER BY created_at, id`,
+		kind, objectID, objectID,
 	)
 	if err != nil {
 		t.Fatal(err)

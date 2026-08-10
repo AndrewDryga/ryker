@@ -822,6 +822,12 @@ func (s *Service) runSlashIncidentControl(
 		"close":   slackui.ActionResolve,
 	}[command]
 	if err := s.handleControl(ctx, input, incident, control); err != nil {
+		// A refused control already answered this operator, and the receipt
+		// below would contradict it: "this command will cancel the active agent
+		// turn" reads as confirmation of work that was just declined.
+		if errors.Is(err, errControlRefused) {
+			return s.finishSlackInput(ctx, input)
+		}
 		return err
 	}
 	return s.finishSlashInput(

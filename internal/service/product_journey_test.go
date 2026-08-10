@@ -386,7 +386,18 @@ func TestProductJourneyTextControlsExplainHelpAndAutomaticCapacity(t *testing.T)
 			t.Fatalf("help does not explain %q: %s", expected, help)
 		}
 	}
-	capacity := renderedSlackMessage(run("extend", "!respond extend"))
+	// "!respond help" is a question asked in the open and keeps its channel
+	// answer. "!respond extend" allocates nothing — the explanation belongs to
+	// the one person who typed a control that no longer does anything.
+	posted := len(slackClient.posts)
+	run("extend", "!respond extend")
+	if len(slackClient.posts) != posted {
+		t.Fatalf("the capacity explanation was posted to the room = %+v", slackClient.posts[posted:])
+	}
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("automatic capacity explanation = %+v", slackClient.ephemerals)
+	}
+	capacity := renderedSlackMessage(slackClient.ephemerals[0].message)
 	if !strings.Contains(capacity, "Manual turn allocation is no longer required") ||
 		!strings.Contains(capacity, "/responder turn-limit") {
 		t.Fatalf("automatic capacity explanation = %s", capacity)
@@ -716,5 +727,186 @@ func TestAnAbandonedRequestTellsTheOperatorNotTheRoom(t *testing.T) {
 	trail := auditOutcomes(t, cfg, "slack.input", press.ID)
 	if len(trail) != 1 || !strings.HasPrefix(trail[0], "abandoned: ") {
 		t.Fatalf("giving up left no audit trail: %+v", trail)
+	}
+}
+
+// A control that changed nothing answers the person who pressed it.
+//
+// "Nothing was stopped. No agent turn is currently running." went to the whole
+// incident room. It has exactly one reader — the operator who pressed Stop and
+// is waiting to hear whether it worked — and it reports a no-op, so everyone
+// else was told that a button somebody else pressed did nothing.
+func TestAControlThatStoppedNothingTellsThePresserNotTheRoom(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	press := core.SlackInput{
+		ID: "stop_idle", EnvelopeID: "env_stop_idle", EventID: "event_stop_idle",
+		Kind: "action", TeamID: cfg.Slack.TeamID, ChannelID: incident.ChannelID,
+		MessageTS: incident.RootTS, ThreadTS: incident.ConversationThreadTS(),
+		UserID:   cfg.Slack.Operators[0],
+		ActionID: slackui.ActionStop, ActionValue: incident.ID,
+		ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, press); err != nil || !admitted {
+		t.Fatalf("admit stop = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	const refusal = "Nothing was stopped"
+	for _, post := range slackClient.posts {
+		if strings.Contains(renderedSlackMessage(post.message), refusal) {
+			t.Fatalf("a no-op control notice was posted to the room: %q", post.message.Text)
+		}
+	}
+	told := false
+	for _, ephemeral := range slackClient.ephemerals {
+		if !strings.Contains(renderedSlackMessage(ephemeral.message), refusal) {
+			continue
+		}
+		told = true
+		if ephemeral.thread != cfg.Slack.Operators[0] {
+			t.Errorf("the answer went to %q, not the operator who pressed", ephemeral.thread)
+		}
+		if ephemeral.channel != incident.ChannelID {
+			t.Errorf("the answer landed in %q, not where they pressed", ephemeral.channel)
+		}
+	}
+	if !told {
+		t.Fatalf("the operator was told nothing: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+	// A refused control stays findable whether or not Slack took the ephemeral.
+	trail := auditOutcomes(t, cfg, "slack.control", press.ID)
+	if len(trail) != 1 || !strings.HasPrefix(trail[0], "refused: ") {
+		t.Fatalf("the refusal left no audit trail: %+v", trail)
+	}
+}
+
+// Refusing a command and then reporting it as submitted is two answers, and
+// the second one is wrong.
+//
+// "/responder stop" appends a receipt to whatever the control did: "this
+// command will cancel the active agent turn". Run against an idle incident it
+// arrived directly beneath "Nothing was stopped", describing work that had just
+// been declined.
+func TestARefusedSlashControlIsNotAlsoReportedAsSubmitted(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	typed := core.SlackInput{
+		ID: "slash_stop_idle", EnvelopeID: "env_slash_stop_idle",
+		EventID: "event_slash_stop_idle", Kind: "slash",
+		TeamID: cfg.Slack.TeamID, ChannelID: incident.ChannelID,
+		UserID: cfg.Slack.Operators[0], Text: "stop",
+		ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, typed); err != nil || !admitted {
+		t.Fatalf("admit slash stop = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	refused := false
+	sent := append(append([]slackPost{}, slackClient.posts...), slackClient.ephemerals...)
+	for _, message := range sent {
+		rendered := renderedSlackMessage(message.message)
+		if strings.Contains(rendered, "Request submitted for incident") {
+			t.Fatalf("a refused control was reported as submitted: %q", rendered)
+		}
+		if strings.Contains(rendered, "Nothing was stopped") {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Fatalf("the operator was told nothing: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+}
+
+// A dashboard control that cannot happen must refuse to the dashboard.
+//
+// These handlers answered a refusal by enqueuing a Slack notice and returning
+// nil, so clearing workspaces from the control plane did two wrong things at
+// once: the browser reported success for a discard that never ran, and an
+// incident room nobody was looking at was told why. Six of those went out in
+// two minutes.
+//
+// Nothing in Slack; an error on the page the operator is already looking at.
+func TestADashboardRefusalReachesTheDashboardAndNotTheRoom(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "source_dirty_discard", "Dirty discard task",
+		"Make a temporary isolated change.", cfg.Slack.Operators[0],
+		"CTASK", "1700.100", cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_1", "retained-task", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CloseIncident(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.session.State = "closed"
+	// Uncommitted work: nothing deletes it, so the discard stops here.
+	coopClient.discardPlan.OperationID = "op_discard_plan"
+	coopClient.discardPlan.Plan.Workspace.Dirty = true
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	err = svc.ControlPlaneAct(ctx, "discard", task.ID, "control-plane@localhost")
+	if err == nil {
+		t.Fatal("the dashboard was told a refused discard had succeeded")
+	}
+	if !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("the dashboard was given no reason: %v", err)
+	}
+	if coopClient.discardCalls != 0 {
+		t.Fatalf("a dirty workspace was discarded %d times", coopClient.discardCalls)
+	}
+	if len(slackClient.posts) != 0 || len(slackClient.ephemerals) != 0 {
+		t.Fatalf("a dashboard action spoke in Slack: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+	// Nobody in Slack asked, so the audit row is the whole record.
+	trail := auditOutcomes(t, cfg, "slack.control", "")
+	if len(trail) != 1 || !strings.HasPrefix(trail[0], "refused: ") {
+		t.Fatalf("the refusal left no audit trail: %+v", trail)
 	}
 }

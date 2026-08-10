@@ -28,6 +28,12 @@ import (
 // the rule. The synthetic input carries the dashboard actor so the audit
 // trail says where the action came from, and a fresh id so the outcome
 // notices it enqueues are delivered rather than deduplicated away.
+//
+// It also names its own origin, because these handlers used to answer a
+// refusal by enqueuing a Slack notice and returning nil — so the dashboard
+// said the action succeeded while the room was told it had not happened. A
+// control that refuses here now refuses to here: the error lands on the
+// refusal page the operator is already looking at.
 func (s *Service) ControlPlaneAct(ctx context.Context, action, incidentID, actor string) error {
 	incident, err := s.store.GetIncident(ctx, incidentID)
 	if err != nil {
@@ -37,7 +43,7 @@ func (s *Service) ControlPlaneAct(ctx context.Context, action, incidentID, actor
 	if err != nil {
 		return err
 	}
-	input := core.SlackInput{ID: inputID, UserID: actor}
+	input := core.SlackInput{ID: inputID, UserID: actor, Kind: controlPlaneInput}
 	closed := incident.Status == core.IncidentClosed
 	switch action {
 	case "publish":
