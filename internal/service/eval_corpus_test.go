@@ -342,9 +342,15 @@ func TestMemoryCorpusAssertsRecallBehaviour(t *testing.T) {
 // acknowledged-gap list — a coverage decision, not a cleanup. They are named
 // here so that the choice stays visible instead of dissolving into the file.
 func TestNoNewCorpusFixtureAsksATruncatedQuestion(t *testing.T) {
+	// Both were replayed against a real model on 2026-08-10 and both passed, so
+	// the truncated input is not stopping them from proving what they claim.
+	// That is the whole argument for keeping them: the alternative was dropping
+	// two capabilities into the acknowledged-gap list, which is a coverage
+	// decision that would have slowed the lifecycle cutover on the assumption
+	// they were worthless. They are not.
 	unrepairable := map[string]string{
-		"progress-updates":             "episode d01ca30b; its slack_inputs row is pruned",
-		"thread-and-channel-switching": "episode 3d6fb54e; its slack_inputs row is pruned",
+		"progress-updates":             "episode d01ca30b; slack_inputs row pruned; replay passes 2026-08-10",
+		"thread-and-channel-switching": "episode 3d6fb54e; slack_inputs row pruned; replay passes 2026-08-10",
 	}
 	seen := map[string]bool{}
 	for _, path := range evaluationCorpora(t) {
