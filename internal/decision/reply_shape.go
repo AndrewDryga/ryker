@@ -72,10 +72,14 @@ func ReplyShapeCorrection(trigger, lane, action, message string) string {
 			words, len(strings.Fields(trigger)), budget,
 		)
 	}
-	if words <= handBackFloor {
-		return ""
+	// A scope disclaimer is refused at any length; everything else on the list
+	// keeps the floor, because at that length a caveat is usually the second
+	// half of a two-sentence finding rather than a trailing gap.
+	phrase := scopeDisclaimerClosing(message)
+	if phrase == "" && words > handBackFloor {
+		phrase = HandBackClosing(message)
 	}
-	if phrase := HandBackClosing(message); phrase != "" {
+	if phrase != "" {
 		return "the reply closes on `" + phrase + "`, which hands the question back instead of " +
 			"answering it. Rewrite the ending so the last sentence is what you established or the " +
 			"next concrete action. If a blocker changes what the reader should do, name it in one " +
@@ -226,6 +230,43 @@ var handBackClosings = []string{
 	"you will need to check", "you would need to check", "someone should check",
 }
 
+// scopeDisclaimerClosings are hand-backs that carry nothing at all, so the
+// length floor does not apply to them.
+//
+// The floor exists because a short caveat is usually the second half of a
+// two-sentence finding: the three good replies that raised it from 40 to 60 end
+// on remaining work, a decision not to act, and the next governed step. Each
+// gives the reader something.
+//
+// These give nothing. An operator read two Terraform replies closing on
+// "application behavior and customer impact weren't tested by this check" and
+// "a public website request wasn't tested" and asked the question this encodes:
+// "why say it if it wasn't tested? either it should be tested or not
+// mentioned." A closing that names an untested thing with no reason it could
+// not be tested and no action to test it is a gap handed over as an answer, at
+// any length — the two above are 27 and 35 words, comfortably under the floor
+// the actionable caveats needed.
+//
+// Position is still the whole rule. Naming what was out of scope mid-message is
+// fine; ending on it is not.
+var scopeDisclaimerClosings = []string{
+	"wasnt tested", "was not tested", "werent tested", "were not tested",
+	"isnt tested", "is not tested", "arent tested", "are not tested",
+	"untested by this", "not covered by this check",
+}
+
+// scopeDisclaimerClosing returns the bare scope disclaimer a reply ends on, or
+// "". Separate from HandBackClosing because only these bypass the length floor.
+func scopeDisclaimerClosing(message string) string {
+	closing := replyClosing(message)
+	for _, phrase := range scopeDisclaimerClosings {
+		if strings.Contains(closing, phrase) {
+			return phrase
+		}
+	}
+	return ""
+}
+
 // HandBackClosing returns the hand-back phrase a reply ends on, or "".
 //
 // Matched only in the close, because position is the whole rule: "I can't
@@ -233,7 +274,7 @@ var handBackClosings = []string{
 // good sentence in the middle of an answer and a bad one as its last word.
 func HandBackClosing(message string) string {
 	closing := replyClosing(message)
-	for _, phrase := range handBackClosings {
+	for _, phrase := range append(append([]string{}, handBackClosings...), scopeDisclaimerClosings...) {
 		if strings.Contains(closing, phrase) {
 			return phrase
 		}
