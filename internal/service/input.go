@@ -427,23 +427,24 @@ func (s *Service) handleUnboundConversation(
 			return true, s.createManualIncident(ctx, input)
 		}
 		if behaviorRequest && incidentSelfInviteBehaviorRequest(input.Text) {
-			if err := s.postInputNotice(
+			// One operator asked to be invited to incident rooms and already is.
+			// Nothing was saved and nothing was created, so this is an answer to
+			// them rather than an announcement: a channel post here told a room
+			// full of people about one person's settings, and told them that
+			// nothing had changed.
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.behavior", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "already_configured", Detail: "configured operators are invited to incident rooms",
+			})
+			return true, s.finishSlashInput(
 				ctx,
-				"incident_invite_policy_"+input.ID,
 				input,
 				"*You’re already included in every incident room.*\n\n"+
 					"Your Slack account is a configured operator. Emisar invites every configured "+
 					"operator, plus the users in `slack.invite_users`, whenever it creates an "+
 					"incident channel.\n\nNo preference was needed or saved. Incident membership "+
 					"is an access setting, not agent memory. No incident was created.",
-			); err != nil {
-				return true, s.retrySlackInput(ctx, input, err)
-			}
-			s.audit(ctx, core.AuditEvent{
-				Kind: "slack.behavior", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "already_configured", Detail: "configured operators are invited to incident rooms",
-			})
-			return true, s.finishSlackInput(ctx, input)
+			)
 		}
 		if err := s.queueWatchedInput(ctx, input); err != nil {
 			return true, s.retrySlackInput(ctx, input, err)
@@ -526,15 +527,17 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		decisionpkg.LocationOnlyRequest(s.stripBotMention(input.Text)) {
 		location := decisionpkg.RequestedConversationLocation(s.stripBotMention(input.Text))
 		if incident.IsThreadScoped() && location == decisionpkg.ConversationLocationChannel {
-			err = s.enqueue(
-				ctx, "conversation_location_"+input.ID, incident, "notice",
-				incident.ConversationThreadTS(), slackui.Notice(
-					"**This engineering task remains in its source thread.** Its authorization, "+
-						"working copy, and review controls are bound to that thread so unrelated "+
-						"channel messages cannot enter the task. Continue here, or start a separate "+
-						"channel conversation with Emisar.",
-				),
-			)
+			// One person asked to move a thread-bound task into the channel and
+			// cannot: the task's authorization is bound to the thread. Nobody
+			// else in the room asked, and nobody else can grant it.
+			err = s.refuseControl(ctx, input, incident,
+				"**This engineering task remains in its source thread.** Its authorization, "+
+					"working copy, and review controls are bound to that thread so unrelated "+
+					"channel messages cannot enter the task. Continue here, or start a separate "+
+					"channel conversation with Emisar.")
+			if errors.Is(err, errControlRefused) {
+				err = nil
+			}
 		} else {
 			var responseThreadTS string
 			responseThreadTS, _, err = s.resolveConversationRoute(ctx, input)
@@ -634,7 +637,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			}
 		}
 	}
-	if err != nil {
+	if err != nil && !errors.Is(err, errControlRefused) {
 		return s.retrySlackInput(ctx, input, err)
 	}
 	return s.finishSlackInput(ctx, input)
@@ -1275,11 +1278,9 @@ func (s *Service) repairReview(
 		return errors.New("review repair is only available for engineering tasks")
 	}
 	if incident.ActiveTurnID != "" {
-		return s.enqueue(ctx, "out_repair_review_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(), slackui.Notice(
-				"I’m already working in this task. I’ll keep the readiness failure in context; "+
-					"wait for this run to finish, then retry the draft PR.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"I’m already working in this task. I’ll keep the readiness failure in context; "+
+				"wait for this run to finish, then retry the draft PR.")
 	}
 	request := "The latest draft-PR readiness review failed. Inspect the current task diff and " +
 		"repository gate, identify the exact failing check and every tracked file validation changed, " +
@@ -1304,12 +1305,10 @@ func (s *Service) showChanges(
 ) error {
 	threadTS := incident.ConversationThreadTS()
 	if incident.CoopSessionID == "" {
-		return s.enqueue(ctx, "out_changes_"+input.ID, incident, "notice",
-			threadTS, slackui.Notice(
-				"*Code changes are not available yet.* Emisar is still preparing the "+
-					"isolated working copy. Wait for the task to show *Waiting for input* "+
-					"or *Investigating*, then try again.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*Code changes are not available yet.* Emisar is still preparing the "+
+				"isolated working copy. Wait for the task to show *Waiting for input* "+
+				"or *Investigating*, then try again.")
 	}
 
 	requestedOffset := int64(0)
@@ -1475,47 +1474,39 @@ func (s *Service) explainAutomaticCapacity(
 	if err != nil {
 		return err
 	}
-	return s.enqueue(ctx, "out_extend_"+input.ID, incident, "notice",
-		incident.ConversationThreadTS(),
-		slackui.Notice(fmt.Sprintf(
-			"*Manual turn allocation is no longer required.* Responder automatically adds "+
-				"session capacity when authorized work arrives, up to this channel's safety "+
-				"ceiling of %d accepted requests. Tool calls and investigation steps inside a "+
-				"request are not counted separately. Use `/responder turn-limit` to inspect or "+
-				"change the ceiling.",
-			limit,
-		)))
+	return s.refuseControl(ctx, input, incident, fmt.Sprintf(
+		"*Manual turn allocation is no longer required.* Responder automatically adds "+
+			"session capacity when authorized work arrives, up to this channel's safety "+
+			"ceiling of %d accepted requests. Tool calls and investigation steps inside a "+
+			"request are not counted separately. Use `/responder turn-limit` to inspect or "+
+			"change the ceiling.",
+		limit,
+	))
 }
 
 func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident core.Incident) error {
 	if incident.CoopSessionID == "" {
-		return s.enqueue(ctx, "out_review_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(), slackui.Notice(
-				"*Fix review is not available yet.* Responder is still preparing the isolated "+
-					"working copy. Wait for the pinned card to show *Waiting for input*, then "+
-					"run the review again.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*Fix review is not available yet.* Responder is still preparing the isolated "+
+				"working copy. Wait for the pinned card to show *Waiting for input*, then "+
+				"run the review again.")
 	}
 	if incident.ActiveTurnID != "" {
-		return s.enqueue(ctx, "out_review_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(), slackui.Notice(
-				"*Fix review did not start because an agent turn is still running.* Wait for "+
-					"that run to finish, or use *Stop current run*, then request review again. "+
-					"The review is read-only and never merges or deploys.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*Fix review did not start because an agent turn is still running.* Wait for "+
+				"that run to finish, or use *Stop current run*, then request review again. "+
+				"The review is read-only and never merges or deploys.")
 	}
 	changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
 	if err != nil {
 		return err
 	}
 	if !coopChangesPresent(changes) {
-		return s.enqueue(ctx, "out_review_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(), slackui.Notice(
-				"*There is no proposed code change to review.* Fix readiness checks compare "+
-					"the isolated change with the current repository, test whether it can be "+
-					"rebased, and run configured validation and policy gates. This incident's "+
-					"working copy has no changed files, so no review was started.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*There is no proposed code change to review.* Fix readiness checks compare "+
+				"the isolated change with the current repository, test whether it can be "+
+				"rebased, and run configured validation and policy gates. This incident's "+
+				"working copy has no changed files, so no review was started.")
 	}
 	s.setNativeStatus(ctx, incident, "is reviewing the proposed fix...")
 	action, err := s.freezeAction(ctx, input, incident, false)
@@ -1542,12 +1533,10 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 
 func (s *Service) stopTurn(ctx context.Context, input core.SlackInput, incident core.Incident) error {
 	if incident.ActiveTurnID == "" {
-		return s.enqueue(ctx, "out_stop_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(), slackui.Notice(
-				"*Nothing was stopped.* No agent turn is currently running. Responder is "+
-					"waiting for input; reply with the next request, ask for an update, or close "+
-					"the incident.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*Nothing was stopped.* No agent turn is currently running. Responder is "+
+				"waiting for input; reply with the next request, ask for an update, or close "+
+				"the incident.")
 	}
 	action, err := s.freezeAction(ctx, input, incident, true)
 	if err != nil {
@@ -1577,12 +1566,10 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 		noun = "engineering task"
 	}
 	if incident.ActiveTurnID != "" {
-		return s.enqueue(ctx, "out_close_"+input.ID, incident, "notice",
-			incident.ConversationThreadTS(), slackui.Notice(
-				"*The "+noun+" was not closed because an agent turn is still running.* Use "+
-					"*Stop current run* and wait for it to stop, then close it again. "+
-					"No work or evidence was discarded.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*The "+noun+" was not closed because an agent turn is still running.* Use "+
+				"*Stop current run* and wait for it to stop, then close it again. "+
+				"No work or evidence was discarded.")
 	}
 	if incident.CoopSessionID != "" {
 		action, err := s.freezeAction(ctx, input, incident, false)
@@ -1927,6 +1914,84 @@ func (s *Service) finishSlackInput(ctx context.Context, input core.SlackInput) e
 // a place to put it nor, by then, anything to say that the App Home does not
 // already show, so the audit row below carries it instead — it is written
 // whether or not the message reaches Slack, and it is written in both shapes.
+// controlPlaneInput is the Kind the local dashboard's synthetic input carries.
+//
+// The web control plane runs the identical handlers the Slack buttons call, so
+// those handlers have to be able to tell the two entrances apart. They cannot
+// do it by looking for an empty ChannelID: an App Home click has no channel
+// either, and answering the dashboard the way an App Home click is answered
+// would repaint a Slack surface for somebody who is looking at a browser.
+//
+// Naming the origin is the honest version. The dashboard is the only caller
+// that sets it, and it is set where the input is built rather than inferred
+// three functions later from what happens to be missing.
+const controlPlaneInput = "control_plane"
+
+// errControlRefused says the control answered its own requester and there is
+// nothing further to send.
+//
+// Without it, "/responder stop" on an idle incident told the operator both
+// "Nothing was stopped" and "Request submitted for incident abc — this command
+// will cancel the active agent turn", because the slash path appends a receipt
+// to whatever handleControl did. The second sentence describes work that was
+// just declined. Refusing and then reporting the refusal as submitted is the
+// exact failure this sweep exists to remove, so the receipt is skipped instead.
+var errControlRefused = errors.New("the control was refused and its requester told")
+
+// refuseControl tells whoever asked that their control did nothing, and tells
+// nobody else.
+//
+// Every sentence these carry is about one request: this task is not closed yet,
+// there is nothing to publish, no agent turn is running, the workspace has
+// uncommitted changes. They were channel posts, so a button press that changed
+// nothing put an explanation in front of a room that did not press it — and
+// when the press came from the dashboard, six of them arrived in two minutes
+// while the operator who caused them was looking at a different screen.
+//
+// Where the answer goes follows who asked:
+//
+//   - Slack: ephemeral, in the channel they pressed in. They are waiting on an
+//     answer and they are the only person who can act on it.
+//   - The dashboard: an error, which the control plane renders on its own
+//     refusal page. This is the half that was actually broken — these handlers
+//     returned nil after enqueuing a refusal, so the dashboard reported "done"
+//     for work it had just been told could not happen.
+//   - Neither: the audit row below, which is written on every path anyway.
+//
+// A refusal Slack rejects is logged and audited rather than retried. The
+// ordinary input retry would re-run the whole control, and publishing is one of
+// these: re-reviewing and re-pushing a branch because an ephemeral did not
+// render is a worse failure than the one it would be papering over.
+func (s *Service) refuseControl(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+	text string,
+) error {
+	s.audit(ctx, core.AuditEvent{
+		IncidentID: incident.ID, Kind: "slack.control", ActorID: input.UserID,
+		ObjectID: input.ID, Outcome: "refused", Detail: text,
+	})
+	if input.Kind == controlPlaneInput {
+		return errors.New(strings.ReplaceAll(text, "*", ""))
+	}
+	if input.ChannelID == "" || input.UserID == "" {
+		return errControlRefused
+	}
+	if err := s.slack.PostEphemeral(
+		ctx, input.ChannelID, input.UserID, s.sanitizeMessage(slackui.Notice(text)),
+	); err != nil {
+		s.log.Warn(
+			"tell an operator their control changed nothing",
+			"input", input.ID,
+			"channel", input.ChannelID,
+			"user", input.UserID,
+			"error", trimError(err),
+		)
+	}
+	return errControlRefused
+}
+
 func (s *Service) denyInput(ctx context.Context, input core.SlackInput, reason string) {
 	incident, _ := s.store.FindIncidentForConversation(
 		ctx,

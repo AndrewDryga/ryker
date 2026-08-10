@@ -264,21 +264,21 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 	switch fields[0] {
 	case "status", "settings", "config":
 		if len(fields) != 1 {
-			return s.finishSlashInput(ctx, input, slashUsage("status"))
+			return s.refuseSlashInput(ctx, input, slashUsage("status"))
 		}
 		return s.finishSlashStatus(ctx, input)
 	case "incidents":
 		return s.finishSlashIncidents(ctx, input, fields[1:])
 	case "work", "commitments":
 		if len(fields) != 1 {
-			return s.finishSlashInput(ctx, input, slashUsage("work"))
+			return s.refuseSlashInput(ctx, input, slashUsage("work"))
 		}
 		return s.finishSlashCommitments(ctx, input)
 	case "feedback":
 		return s.finishSlashFeedback(ctx, input, slashArgument(input.Text))
 	case "memory":
 		if len(fields) > 2 || (len(fields) == 2 && fields[1] != "review") {
-			return s.finishSlashInput(ctx, input, slashUsage("memory"))
+			return s.refuseSlashInput(ctx, input, slashUsage("memory"))
 		}
 		if len(fields) == 2 {
 			return s.finishMemoryReview(ctx, input)
@@ -286,17 +286,17 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 		return s.finishSlashMemory(ctx, input)
 	case "preferences", "preference":
 		if len(fields) != 1 {
-			return s.finishSlashInput(ctx, input, slashUsage("preferences"))
+			return s.refuseSlashInput(ctx, input, slashUsage("preferences"))
 		}
 		return s.finishSlashPreferences(ctx, input)
 	case "rules", "rule":
 		if len(fields) != 1 {
-			return s.finishSlashInput(ctx, input, slashUsage("rules"))
+			return s.refuseSlashInput(ctx, input, slashUsage("rules"))
 		}
 		return s.finishSlashRules(ctx, input)
 	case "schedules", "schedule", "reminders":
 		if len(fields) != 1 {
-			return s.finishSlashInput(ctx, input, slashUsage("schedules"))
+			return s.refuseSlashInput(ctx, input, slashUsage("schedules"))
 		}
 		return s.finishSlashSchedules(ctx, input)
 	case "proactive", "watch":
@@ -307,16 +307,16 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 		return s.configureTurnLimit(ctx, input, fields[1:])
 	case "timeline", "evidence", "handoff", "postmortem":
 		if len(fields) != 1 {
-			return s.finishSlashInput(ctx, input, slashUsage(fields[0]))
+			return s.refuseSlashInput(ctx, input, slashUsage(fields[0]))
 		}
 		return s.finishIncidentIntelligence(ctx, input, fields[0])
 	case "update", "changes", "review", "publish", "stop", "extend", "close":
 		if len(fields) != 1 {
-			return s.finishSlashInput(ctx, input, slashUsage(fields[0]))
+			return s.refuseSlashInput(ctx, input, slashUsage(fields[0]))
 		}
 		return s.runSlashIncidentControl(ctx, input, fields[0])
 	default:
-		return s.finishSlashInput(
+		return s.refuseSlashInput(
 			ctx, input,
 			fmt.Sprintf("Unknown `/responder` subcommand `%s`.\n\n%s", fields[0], slashHelp()),
 		)
@@ -432,7 +432,7 @@ func (s *Service) finishIncidentIntelligence(
 ) error {
 	incident, err := s.store.FindLatestIncidentByChannel(ctx, input.ChannelID)
 	if errors.Is(err, store.ErrNotFound) {
-		return s.finishSlashInput(
+		return s.refuseSlashInput(
 			ctx, input,
 			"*There is no incident attached to this channel.* `timeline`, `evidence`, "+
 				"`handoff`, and `postmortem` read the durable record for the latest incident room. Use "+
@@ -499,10 +499,10 @@ func (s *Service) configureShadow(
 		channelID = ""
 		value = args[1]
 	default:
-		return s.finishSlashInput(ctx, input, slashUsage("shadow"))
+		return s.refuseSlashInput(ctx, input, slashUsage("shadow"))
 	}
 	if value != "on" && value != "off" && value != "inherit" {
-		return s.finishSlashInput(ctx, input, slashUsage("shadow"))
+		return s.refuseSlashInput(ctx, input, slashUsage("shadow"))
 	}
 	if value == "inherit" {
 		if err := s.store.DeleteSlackSetting(
@@ -560,12 +560,12 @@ func (s *Service) configureTurnLimit(
 		channelID = ""
 		value = args[1]
 	default:
-		return s.finishSlashInput(ctx, input, slashUsage("turn-limit"))
+		return s.refuseSlashInput(ctx, input, slashUsage("turn-limit"))
 	}
 	if value != "inherit" {
 		limit, err := parseTurnLimit(value)
 		if err != nil {
-			return s.finishSlashInput(ctx, input, slashUsage("turn-limit"))
+			return s.refuseSlashInput(ctx, input, slashUsage("turn-limit"))
 		}
 		value = strconv.Itoa(limit)
 	}
@@ -637,10 +637,10 @@ func (s *Service) configureProactive(
 		channelID = ""
 		value = args[1]
 	default:
-		return s.finishSlashInput(ctx, input, slashUsage("proactive"))
+		return s.refuseSlashInput(ctx, input, slashUsage("proactive"))
 	}
 	if value != "on" && value != "off" && value != "inherit" {
-		return s.finishSlashInput(ctx, input, slashUsage("proactive"))
+		return s.refuseSlashInput(ctx, input, slashUsage("proactive"))
 	}
 	if scope == "channel" && value == "on" {
 		channel, err := s.slack.GetChannel(ctx, input.ChannelID)
@@ -648,7 +648,7 @@ func (s *Service) configureProactive(
 			return err
 		}
 		if !channel.Member {
-			return s.finishSlashInput(
+			return s.refuseSlashInput(
 				ctx, input,
 				"*Responder cannot listen to this channel yet.*\n\n"+
 					"Invite `@Emisar` to this channel so Slack will deliver its messages, "+
@@ -688,7 +688,7 @@ func (s *Service) finishSlashIncidents(
 ) error {
 	openOnly, page, ok := parseIncidentListArgs(args)
 	if !ok {
-		return s.finishSlashInput(ctx, input, slashUsage("incidents"))
+		return s.refuseSlashInput(ctx, input, slashUsage("incidents"))
 	}
 	incidents, total, err := s.store.ListIncidentPage(
 		ctx,
@@ -800,7 +800,7 @@ func (s *Service) runSlashIncidentControl(
 ) error {
 	incident, err := s.store.FindIncidentByChannel(ctx, input.ChannelID)
 	if errors.Is(err, store.ErrNotFound) {
-		return s.finishSlashInput(
+		return s.refuseSlashInput(
 			ctx, input,
 			"*There is no incident to control in this channel.*\n\n"+
 				"`update`, `changes`, `review`, `publish`, `stop`, and `close` operate on the "+
@@ -822,6 +822,12 @@ func (s *Service) runSlashIncidentControl(
 		"close":   slackui.ActionResolve,
 	}[command]
 	if err := s.handleControl(ctx, input, incident, control); err != nil {
+		// A refused control already answered this operator, and the receipt
+		// below would contradict it: "this command will cancel the active agent
+		// turn" reads as confirmation of work that was just declined.
+		if errors.Is(err, errControlRefused) {
+			return s.finishSlackInput(ctx, input)
+		}
 		return err
 	}
 	return s.finishSlashInput(
@@ -833,10 +839,10 @@ func (s *Service) runSlashIncidentControl(
 
 // refuseSlashInput turns a command down to the person who ran it.
 //
-// All three refusals below name one Slack account and nothing else: you are not
-// in `slack.operators`, this account is a guest or a bot, only full members may
-// leave feedback. Nobody else in the room can add anyone to that setting, so
-// nobody else can act on reading it.
+// The permission refusals it was written for name one Slack account and nothing
+// else: you are not in `slack.operators`, this account is a guest or a bot, only
+// full members may leave feedback. Nobody else in the room can add anyone to
+// that setting, so nobody else can act on reading it.
 //
 // A real slash command already refuses privately, because Slack makes those
 // answers private and finishSlashMessage follows. The same refusal typed as
@@ -844,6 +850,14 @@ func (s *Service) runSlashIncidentControl(
 // the channel — so the identical sentence about the identical person became a
 // public callout depending only on which spelling they used, once per attempt.
 // The rule was already the private one; this makes it survive both spellings.
+//
+// Every other refusal on this path now comes through here too: mistyped usage,
+// an unknown subcommand, no incident attached to this channel, a channel the
+// bot has not been invited to. The line is whether the message carries the
+// thing that was asked for. An answer does — status, help, the incident
+// directory, a timeline — and stays public, because it was asked in the open.
+// A refusal carries only "no", addressed to one person, and typing
+// "@Emisar frobnicate" should not put a usage message in front of a room.
 func (s *Service) refuseSlashInput(
 	ctx context.Context,
 	input core.SlackInput,

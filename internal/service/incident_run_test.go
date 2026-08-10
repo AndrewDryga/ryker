@@ -342,10 +342,15 @@ func TestDurableSelfInviteRequestDoesNotCreateIncident(t *testing.T) {
 	}
 	drainSlackDeliveries(t, ctx, svc)
 
-	if len(slackClient.posts) != 1 ||
-		!strings.Contains(slackClient.posts[0].message.Text, "already included") ||
-		!strings.Contains(slackClient.posts[0].message.Text, "No incident was created") {
-		t.Fatalf("self-invite response = %+v", slackClient.posts)
+	// Nothing was saved and nothing was created, so the room hears nothing. The
+	// one operator who asked hears that they are already covered.
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("a no-op answer was posted to the room = %+v", slackClient.posts)
+	}
+	if len(slackClient.ephemerals) != 1 ||
+		!strings.Contains(slackClient.ephemerals[0].message.Text, "already included") ||
+		!strings.Contains(slackClient.ephemerals[0].message.Text, "No incident was created") {
+		t.Fatalf("self-invite response = %+v", slackClient.ephemerals)
 	}
 	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
 		t.Fatalf("self-invite request created incident = %+v, %v", incidents, err)
@@ -1101,10 +1106,18 @@ func TestClosedIncidentControlsResolveByIDAndHideWithoutChanges(t *testing.T) {
 	) {
 		t.Fatalf("closed changes response = %+v", got)
 	}
+	// "There is nothing to review" answers the operator who pressed Review. The
+	// room is not told that a button did nothing.
+	posted := len(slackClient.posts)
 	runAction("closed-review", slackui.ActionReview)
-	if got := slackClient.posts[len(slackClient.posts)-1].message; !strings.Contains(
-		got.Text+"\n"+strings.Join(got.Sections, "\n"),
-		"no proposed code change",
+	if len(slackClient.posts) != posted {
+		t.Fatalf("a review refusal was posted to the room = %+v", slackClient.posts[posted:])
+	}
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("closed review response = %+v", slackClient.ephemerals)
+	}
+	if got := slackClient.ephemerals[0].message; !strings.Contains(
+		renderedSlackMessage(got), "no proposed code change",
 	) {
 		t.Fatalf("closed review response = %+v", got)
 	}

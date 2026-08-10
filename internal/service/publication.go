@@ -26,47 +26,37 @@ func (s *Service) publishDraftPR(
 ) error {
 	threadTS := incident.ConversationThreadTS()
 	if !incident.IsEngineeringTask() {
-		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "notice", threadTS,
-			slackui.Notice(
-				"*Draft PR publication is available for engineering tasks only.* "+
-					"Incident investigations remain read-only unless an operator starts an "+
-					"explicit writable task.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*Draft PR publication is available for engineering tasks only.* "+
+				"Incident investigations remain read-only unless an operator starts an "+
+				"explicit writable task.")
 	}
 	if s.publisher == nil || !s.publisher.Enabled() {
-		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "notice", threadTS,
-			slackui.Notice(
-				"*Draft PR publication is not configured.* Enable the `github` publisher and "+
-					"bind this repository to an absolute checkout, GitHub `owner/name`, and "+
-					"base branch. GitHub credentials stay in Responder and are never exposed "+
-					"to the agent.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*Draft PR publication is not configured.* Enable the `github` publisher and "+
+				"bind this repository to an absolute checkout, GitHub `owner/name`, and "+
+				"base branch. GitHub credentials stay in Responder and are never exposed "+
+				"to the agent.")
 	}
 	if incident.ActiveTurnID != "" {
-		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "notice", threadTS,
-			slackui.Notice(
-				"*The draft PR was not published because the agent is still changing the "+
-					"task fork.* Wait for this run to finish or stop it, then publish the "+
-					"stable reviewed tree.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*The draft PR was not published because the agent is still changing the "+
+				"task fork.* Wait for this run to finish or stop it, then publish the "+
+				"stable reviewed tree.")
 	}
 	if incident.CoopSessionID == "" {
-		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "notice", threadTS,
-			slackui.Notice(
-				"*The draft PR is not available yet.* Responder has not finished preparing "+
-					"the isolated task session.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*The draft PR is not available yet.* Responder has not finished preparing "+
+				"the isolated task session.")
 	}
 	changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
 	if err != nil {
 		return err
 	}
 	if !coopChangesPresent(changes) {
-		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "notice", threadTS,
-			slackui.Notice(
-				"*There is nothing to publish.* The isolated task has no code changes. "+
-					"Ask the agent to implement the requested change before creating a draft PR.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*There is nothing to publish.* The isolated task has no code changes. "+
+				"Ask the agent to implement the requested change before creating a draft PR.")
 	}
 
 	repository, ok := s.cfg.RepositoryContext(incident.Repository)
@@ -95,12 +85,10 @@ func (s *Service) publishDraftPR(
 	review, err = s.completeReviewPatch(ctx, review)
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
-		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "notice", threadTS,
-			slackui.Notice(
-				"*Draft PR publication stopped because the complete reviewed patch could "+
-					"not be verified.* "+trimError(err)+"\n\nThe isolated task and review "+
-					"remain available. No branch was pushed and no pull request was created.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*Draft PR publication stopped because the complete reviewed patch could "+
+				"not be verified.* "+trimError(err)+"\n\nThe isolated task and review "+
+				"remain available. No branch was pushed and no pull request was created.")
 	}
 
 	existing, err := s.store.GetPublication(ctx, incident.ID)
@@ -158,13 +146,11 @@ func (s *Service) publishDraftPR(
 			ActorID: input.UserID, ObjectID: record.HeadBranch,
 			Outcome: "failed", Detail: record.LastError,
 		})
-		return s.enqueue(ctx, "out_publish_"+input.ID, incident, "notice", threadTS,
-			slackui.Notice(
-				"*Draft PR publication stopped safely.* "+record.LastError+
-					"\n\nResponder did not merge or deploy anything. The Coop fork and "+
-					"reviewed publication record were retained so an operator can correct "+
-					"the issue and retry.",
-			))
+		return s.refuseControl(ctx, input, incident,
+			"*Draft PR publication stopped safely.* "+record.LastError+
+				"\n\nResponder did not merge or deploy anything. The Coop fork and "+
+				"reviewed publication record were retained so an operator can correct "+
+				"the issue and retry.")
 	}
 	record.State = "published"
 	record.LastError = ""
