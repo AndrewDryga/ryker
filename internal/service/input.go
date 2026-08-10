@@ -1800,25 +1800,7 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 			Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
 			Outcome: "abandoned", Detail: input.Kind + ": " + trimError(err),
 		})
-		if incident, incidentErr := s.store.FindIncidentForConversation(
-			ctx,
-			input.ChannelID,
-			slackReplyThread(input),
-		); incidentErr == nil {
-			_ = s.enqueue(
-				ctx,
-				"out_input_error_"+input.ID,
-				incident,
-				"notice",
-				incident.ConversationThreadTS(),
-				slackui.Notice(
-					"*Responder could not complete that request after retrying.*\n\n"+
-						"Reason: `"+trimError(err)+"`\n\nThe incident and isolated working copy "+
-						"are preserved. Check the pinned card for the current state, then retry "+
-						"the command or reply with a different next step.",
-				),
-			)
-		}
+		s.reportAbandonedInput(ctx, input, err)
 	}
 	return s.store.RetrySlackInputFailure(
 		ctx,
@@ -1826,6 +1808,62 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 		trimError(err),
 		s.queueDelay(attempt),
 		terminal,
+	)
+}
+
+// reportAbandonedInput tells whoever asked that their request will not happen.
+//
+// The message is "Responder could not complete that request after retrying",
+// the reason Slack gave, and an invitation to try the command again. Only the
+// person who typed the command can do that. To everyone else in the room it is
+// a stack trace addressed to nobody: it names no work, changes nothing they
+// can see, and arrives after twelve silent attempts they never knew about.
+//
+// So it goes to that person, ephemerally, where they interacted. It is not
+// dropped when there is nobody to address — an alert or a bot message has no
+// author, and the failure of work in an incident room is on-topic for the room
+// — so that case keeps the channel post it always had. Either way the audit
+// event above records the abandonment, which is the durable half.
+func (s *Service) reportAbandonedInput(
+	ctx context.Context,
+	input core.SlackInput,
+	cause error,
+) {
+	message := slackui.Notice(
+		"*Responder could not complete that request after retrying.*\n\n" +
+			"Reason: `" + trimError(cause) + "`\n\nThe incident and isolated working copy " +
+			"are preserved. Check the pinned card for the current state, then retry " +
+			"the command or reply with a different next step.",
+	)
+	if input.ChannelID != "" && input.UserID != "" {
+		if err := s.slack.PostEphemeral(
+			ctx, input.ChannelID, input.UserID, s.sanitizeMessage(message),
+		); err != nil {
+			s.log.Warn(
+				"tell an operator their Slack request was abandoned",
+				"input", input.ID,
+				"channel", input.ChannelID,
+				"user", input.UserID,
+				"error", trimError(err),
+			)
+		}
+		return
+	}
+	incident, incidentErr := s.store.FindIncidentForConversation(
+		ctx,
+		input.ChannelID,
+		slackReplyThread(input),
+	)
+	if incidentErr != nil {
+		return
+	}
+	_ = s.enqueue(
+		ctx,
+		"out_input_error_"+input.ID,
+		incident,
+		"notice",
+		incident.ConversationThreadTS(),
+		message,
 	)
 }
 
