@@ -168,9 +168,22 @@ func Compile(episode core.WorkEpisode) InvestigationContract {
 			AllowedStatuses: []string{"decision_ready", "blocked"},
 			ConclusionKind:  conclusionKind,
 		},
+		// The prompt tells the model to emit only the operations this list
+		// names, so anything missing from it is forbidden by the contract
+		// however well the host supports it.
+		//
+		// record_coverage was missing while the same prompt required a coverage
+		// item for every required claim, which is a contract that forbids what
+		// it mandates. request_operator_input was missing too, and it is the
+		// host's only way to ask a question: the episode lifecycle has a
+		// waiting_for_operator state that nothing listed here can reach. A
+		// model that genuinely needed the operator to finish a sentence had no
+		// listed exit, so it invented completion.status "needs_input" and lost
+		// the response.
 		ResultOperations: []string{
-			"record_evidence", "report_progress", "request_approval",
-			"offer_task", "complete_episode",
+			"record_evidence", "record_coverage", "report_progress",
+			"request_approval", "request_operator_input", "offer_task",
+			"complete_episode",
 		},
 	}
 	switch conclusionKind {
@@ -376,8 +389,9 @@ func (contract InvestigationContract) Prompt() string {
 	result := `<host-investigation-contract>
 ` + string(data) + `
 This contract controls effort, never permission. Investigate each required claim with the strongest
-available repository and live evidence. Keep evidence atomic and bind it to claim_id, dimensions,
-source time, freshness, confidence, and whether it supports or contradicts the claim. Reconcile
+available repository and live evidence. Keep evidence atomic and bind it to claim_id, a dimensions
+object carrying a key for every dimension that required claim lists, source time, freshness,
+confidence, and whether it supports or contradicts the claim. Reconcile
 contradictions instead of silently choosing a source. Repository state proves declared intent; only
 fresh operational evidence proves current behavior.
 
@@ -402,6 +416,12 @@ missing authorization are not operational degradation. Describe them with the co
 	result += `
 Keep the final Slack synthesis decision-first and concise. Emit only the result operations listed by the
 contract. The host validates each operation and completion against this contract.
+
+completion.status is decision_ready or blocked and nothing else. Needing the operator to decide,
+choose, or supply missing text is a blocked completion, not a third status: emit request_operator_input
+carrying the exact question, then complete with blocker_kind operator_input_required and all five
+blocked fields. Every one of them is answerable for a question — what was already read or attempted is
+the attempts list, and the answer you need is the next action.
 
 A blocker is an external boundary, not unfinished work. Exhaust available read-only routes before
 returning one, then name the exact source, access, operator input, authority, or tool failure required.
