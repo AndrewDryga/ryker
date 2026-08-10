@@ -33,7 +33,10 @@ var bracedPayloadPattern = regexp.MustCompile(`([a-z_]+)\{([a-z_]+)(?:: ([a-z_,]
 func TestPromptBracedPayloadKeysExist(t *testing.T) {
 	keys := resultOperationJSONKeys()
 	matches := bracedPayloadPattern.FindAllStringSubmatch(ResultOperationsPrompt(), -1)
-	if len(matches) < 7 {
+	// Six since propose_action{proposal} left the list. The floor only proves
+	// the pattern still matches the prompt's notation at all; if it stops
+	// matching, every check below passes over an empty set.
+	if len(matches) < 6 {
 		t.Fatalf("prompt names only %d braced payload keys", len(matches))
 	}
 	for _, match := range matches {

@@ -343,6 +343,73 @@ func TestMigrationRemovesUnusedEffectLedgerAndPreservesRows(t *testing.T) {
 	}
 }
 
+// Migration 54 removes the action-proposal tables, which no configuration could
+// ever fill, and must leave everything around them untouched.
+//
+// The incident is the part that matters. action_proposals hangs off no parent
+// and nothing cascades from it, but proposal_approvals holds a foreign key into
+// it, so dropping them in the wrong order with foreign keys enforced is exactly
+// the mistake this repository has already paid for once at a larger scale.
+func TestMigrationRemovesActionProposalTablesAndKeepsTheIncident(t *testing.T) {
+	dir := writeV39Database(t)
+	db, err := sql.Open("sqlite", filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO incidents (id, route, repository, correlation_key, title, status, workflow, created_at, updated_at)
+		VALUES ('inc_keep', 'manual', 'repo', 'k', 'Keep me', 'active', 'idle',
+		  '2026-01-01T00:00:00.000000000Z', '2026-01-01T00:00:00.000000000Z')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	openAt(t, dir)
+
+	schema := dumpSchema(t, filepath.Join(dir, "responder.db"))
+	for _, gone := range []string{"action_proposals", "proposal_approvals"} {
+		if strings.Contains(schema, gone) {
+			t.Fatalf("migration 55 left %s behind", gone)
+		}
+	}
+	verify, err := sql.Open("sqlite", filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer verify.Close()
+	var title string
+	if err := verify.QueryRow(
+		`SELECT title FROM incidents WHERE id = 'inc_keep'`,
+	).Scan(&title); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Keep me" {
+		t.Fatalf("incident title after migration = %q", title)
+	}
+	var dangling int
+	rows, err := verify.Query(`PRAGMA foreign_key_check`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		dangling++
+	}
+	rows.Close()
+	if dangling != 0 {
+		t.Fatalf("dropping the proposal tables left %d dangling references", dangling)
+	}
+	// Repeating it must be a no-op, and it must also run on a database that
+	// never had the tables — which is every database created after this ships.
+	for range 2 {
+		if _, err := verify.Exec(schemaV55); err != nil {
+			t.Fatalf("migration 55 is not repeatable: %v", err)
+		}
+	}
+}
+
 // Upgrading a real database still takes a verified private backup first.
 func TestMigrationCreatesVerifiedPrivateBackup(t *testing.T) {
 	dir := writeV39Database(t)

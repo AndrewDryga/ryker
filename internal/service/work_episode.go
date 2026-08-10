@@ -46,7 +46,7 @@ func (s *Service) episodeForIncident(
 			"run the strongest available focused validation",
 			"report the exact diff, validation, and remaining gaps",
 		}
-	} else if sourceKind == "proposal" || strings.HasPrefix(sourceKind, "emisar_approval:") {
+	} else if strings.HasPrefix(sourceKind, "emisar_approval:") {
 		episode.Authority = core.AuthorityGovernedOperation
 		episode.Activity = core.ActivityOperating
 	}

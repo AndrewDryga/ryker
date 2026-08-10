@@ -305,21 +305,6 @@ func (s *Store) ScheduleExpiredChannelMemoryCleanup(
 	return channelCount + conversationCount, err
 }
 
-func (s *Store) RetireActionProposals(ctx context.Context, now time.Time) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE action_proposals
-		SET status = 'failed',
-		    result = 'Operational actions are disabled in this Responder release.',
-		    updated_at = ?
-		WHERE status IN ('pending', 'approved', 'queued', 'running')`,
-		now.UTC().Format(timestampFormat),
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 func (s *Store) ResponderSessionKnown(ctx context.Context, sessionID string) (bool, error) {
 	if sessionID == "" {
 		return false, errors.New("session ID is required")
@@ -841,19 +826,6 @@ func (s *Store) Prune(
 		return result, deleteErr
 	}
 	result.ChannelIntelligence += count
-	if _, err = deleteCount(`
-		DELETE FROM proposal_approvals WHERE proposal_id IN (
-		  SELECT id FROM action_proposals
-		  WHERE status IN ('rejected', 'expired', 'finished', 'failed') AND updated_at < ?
-		)`, closed); err != nil {
-		return result, err
-	}
-	if result.ActionProposals, err = deleteCount(`
-		DELETE FROM action_proposals
-		WHERE status IN ('rejected', 'expired', 'finished', 'failed') AND updated_at < ?`,
-		closed); err != nil {
-		return result, err
-	}
 	eligible := `
 		SELECT i.id FROM incidents i
 		LEFT JOIN coop_cleanup c ON c.session_id = i.coop_session_id
@@ -862,9 +834,6 @@ func (s *Store) Prune(
 		  AND NOT ` + incidentHoldsPinnedEpisode
 	for _, query := range []string{
 		`DELETE FROM emisar_approvals WHERE incident_id IN (` + eligible + `)`,
-		`DELETE FROM proposal_approvals WHERE proposal_id IN
-		  (SELECT id FROM action_proposals WHERE incident_id IN (` + eligible + `))`,
-		`DELETE FROM action_proposals WHERE incident_id IN (` + eligible + `)`,
 		`DELETE FROM timeline_events WHERE incident_id IN (` + eligible + `)`,
 		`DELETE FROM evidence WHERE incident_id IN (` + eligible + `)`,
 		`DELETE FROM coverage WHERE incident_id IN (` + eligible + `)`,

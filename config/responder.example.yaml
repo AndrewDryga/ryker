@@ -240,21 +240,14 @@ limits:
   work_lease: 3m
   worker_stall_after: 2m
 
-# Operational actions an authorized operator may request in Slack. Emisar remains the authority for
-# the exact action, its policy revision, approvers, execution, and audit — this map only declares
-# which actions Responder will carry a request for, and how it describes them to an operator.
-# Model-proposed, inferred, and autonomous mutation stays disabled regardless of what is listed.
+# Accepted and refused. This key must be empty, and nothing reads it.
+#
+# It once declared a catalog of operational actions the model could propose and a Slack operator
+# could approve. Responder refused a non-empty map for several releases before the machinery behind
+# the refusal was deleted, so there is now no code that could act on an entry here. The key remains
+# only so a configuration that still writes `actions: {}` keeps loading; a listed action is an error
+# that names itself. Emisar remains the only path to a governed operation.
 actions: {}
-  # restart_service:
-  #   description: Restart a single service instance that is failing its health check.
-  #   # Who may request it: operator (a configured Slack operator) or automation.
-  #   authority: operator
-  #   # low | medium | high — shown on the confirmation card so the blast radius is explicit.
-  #   risk: medium
-  #   # required | none. Required approvals are held and resolved by Emisar, never in Slack.
-  #   approval: required
-  #   # How long a pending request stays valid before an operator must ask again.
-  #   expires_after: 30m
 
 # What the configured providers charge, so the token counts recorded per attempt can be
 # reported as money. Empty by default and empty is a valid answer: an unpriced model reports

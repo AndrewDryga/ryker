@@ -182,15 +182,6 @@ func TestLoadRemediationRecordAssemblesCanonicalIncidentState(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Intelligence.CreateActionProposals(ctx, []core.ActionProposal{{
-		ID: "proposal_1", IncidentID: incident.ID, ChannelID: "CINCIDENT",
-		ActionName: "service.restart", Title: "Restart one replica", Target: "api-1",
-		BlastRadius: "one replica", Rollback: "restart old process",
-		Verification: "probe API", Authority: "operator", Required: 1,
-		ExpiresAt: now.Add(time.Hour),
-	}}); err != nil {
-		t.Fatal(err)
-	}
 	if err := st.SavePublication(ctx, core.Publication{
 		IncidentID: incident.ID, Repository: "owner/repo", BaseBranch: "main",
 		ParentHead: "parent", CandidateTree: "tree", State: "publishing",
@@ -210,7 +201,7 @@ func TestLoadRemediationRecordAssemblesCanonicalIncidentState(t *testing.T) {
 	}
 	if len(record.Signals) != 1 || len(record.AgentRuns) != 1 ||
 		len(record.Evidence) != 1 || len(record.Events) != 1 ||
-		len(record.Proposals) != 1 || len(record.Approvals) != 1 ||
+		len(record.Approvals) != 1 ||
 		record.Publication.State != "publishing" {
 		t.Fatalf("record = %+v", record)
 	}

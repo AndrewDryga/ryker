@@ -34,9 +34,6 @@ func (s *Store) LoadRemediationRecord(
 	if record.Events, err = s.Intelligence.ListTimeline(ctx, incidentID, "", 500); err != nil {
 		return core.RemediationRecord{}, err
 	}
-	if record.Proposals, err = s.Intelligence.ListActionProposalsForIncident(ctx, incidentID); err != nil {
-		return core.RemediationRecord{}, err
-	}
 	if record.Approvals, err = s.ListEmisarApprovalsForIncident(ctx, incidentID); err != nil {
 		return core.RemediationRecord{}, err
 	}

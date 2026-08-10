@@ -476,7 +476,7 @@ risk, and uncertain operational states remain straightforward. Humor never appea
 memory, titles, controls, approval text, timelines, or technical identifiers, and never targets a
 person or their mistake.
 `/responder timeline` presents the chronological remediation record: alerts, agent runs, operator
-and lifecycle events, governed action proposals, Emisar approvals and terminal run results, and
+and lifecycle events, Emisar approvals and terminal run results, and
 draft-PR publication. It derives these entries from their canonical rows rather than copying them.
 `/responder evidence` shows the latest source ledger and material unknowns.
 `/responder handoff` prepares an evidence-backed shift summary. Closing also posts a post-incident

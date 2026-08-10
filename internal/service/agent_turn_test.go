@@ -984,8 +984,7 @@ func TestOperatorRequestedEmisarApprovalReachesIncidentThread(t *testing.T) {
 	    "status":"pending_approval",
 	    "approval_url":"https://emisar.dev/app/acme/approvals/apr_123",
 	    "expires_at":%q
-	  },
-	  "proposals":[]
+	  }
 	}`, expires.Format(time.RFC3339)))
 	incident, err = st.GetIncident(ctx, incident.ID)
 	if err != nil {

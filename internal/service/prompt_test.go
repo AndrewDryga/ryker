@@ -311,7 +311,15 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // guidance. Each invention cost the whole response. The host accepts all three
 // as aliases now, but a fourth was always coming, and a payload the model has
 // never seen the shape of is the reason. These are the bytes that stop it.
-const staticWatchPromptBytes = 48408
+//
+// Lowered by 43 on 2026-08-09 when propose_action left the operation list. The
+// host had no code left to act on a proposal — it dropped every one the model
+// emitted — so the operation was 26 bytes of instruction per turn asking for
+// output that went nowhere, plus the words in the surrounding sentence that
+// carried it. Nothing replaced it in the prompt: the refusal that explains
+// where an operational request goes instead lives in the validator, where it
+// costs bytes only on the turn that needs it.
+const staticWatchPromptBytes = 48365
 
 // The static prompt must not grow without someone deciding it should.
 //

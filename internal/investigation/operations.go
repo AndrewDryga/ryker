@@ -164,7 +164,6 @@ type CompleteEpisode struct {
 	ScheduleOffer    *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
 	AlertAssessment  *AlertAssessment       `json:"alert_assessment,omitempty"`
 	Completion       *CompletionAssessment  `json:"completion,omitempty"`
-	Proposals        []core.ActionProposal  `json:"proposals,omitempty"`
 }
 
 type ResultOperation struct {
@@ -187,8 +186,20 @@ type ResultOperation struct {
 	RuleOffer       *core.RuleOffer         `json:"rule_offer,omitempty"`
 	ScheduleOffer   *core.ScheduleOffer     `json:"schedule_offer,omitempty"`
 	AlertAssessment *AlertAssessment        `json:"alert_assessment,omitempty"`
-	Proposal        *core.ActionProposal    `json:"proposal,omitempty"`
-	Completion      *CompleteEpisode        `json:"completion,omitempty"`
+	// Proposal is the payload of propose_action, which no longer exists.
+	//
+	// The operation is out of the prompt and the host has nothing left to do
+	// with a proposal, so the honest answer to one is a refusal. This field is
+	// what makes the refusal readable. Without it the strict decoder rejects
+	// the whole response with `unknown field "proposal"`, and that text is what
+	// the correction turn hands back to the model — an invitation to guess at
+	// another field name rather than to stop proposing actions.
+	//
+	// Raw because nothing reads it. It exists to be counted as the operation's
+	// one payload so validation reaches the refusal below instead of failing
+	// first on "requires exactly one typed payload".
+	Proposal   json.RawMessage  `json:"proposal,omitempty"`
+	Completion *CompleteEpisode `json:"completion,omitempty"`
 }
 
 // resultOperationPayloadAliases maps the payload names this prompt's own
@@ -197,7 +208,7 @@ type ResultOperation struct {
 // The list told the model that offer_preference, offer_rule and offer_schedule
 // "carry the same named typed payload that their operation name describes",
 // and every other operation in it really does: record_evidence carries
-// evidence, report_progress carries progress, propose_action carries proposal.
+// evidence, report_progress carries progress, attach_visual carries visual.
 // Read that way offer_preference carries "preference", so a model obeyed the
 // instruction and the host rejected the entire response over the field name.
 // The list now states each key, and these three stay accepted anyway because
@@ -243,7 +254,7 @@ var resultOperationPayloads = []func(ResultOperation) bool{
 	func(o ResultOperation) bool { return o.RuleOffer != nil },
 	func(o ResultOperation) bool { return o.ScheduleOffer != nil },
 	func(o ResultOperation) bool { return o.AlertAssessment != nil },
-	func(o ResultOperation) bool { return o.Proposal != nil },
+	func(o ResultOperation) bool { return len(o.Proposal) > 0 },
 	func(o ResultOperation) bool { return o.Completion != nil },
 }
 
@@ -304,7 +315,23 @@ var resultOperationValidators = map[string]func(ResultOperation) error{
 	"offer_rule":              requirePayload("a rule offer", func(o ResultOperation) bool { return o.RuleOffer != nil }),
 	"offer_schedule":          requirePayload("a schedule offer", func(o ResultOperation) bool { return o.ScheduleOffer != nil }),
 	"record_alert_assessment": requirePayload("an alert assessment", func(o ResultOperation) bool { return o.AlertAssessment != nil }),
-	"propose_action":          requirePayload("an action proposal", func(o ResultOperation) bool { return o.Proposal != nil }),
+	// propose_action is refused rather than absent. The operation is gone from
+	// ResultOperationsPrompt, so a model working from the current contract will
+	// not emit one; a model working from anything older would otherwise get a
+	// decoder complaint about a field name.
+	//
+	// The guidance lives here rather than in the prompt on purpose. Telling
+	// every turn not to do something it has no reason to do costs context on
+	// every turn; saying it in the refusal costs nothing until it is needed,
+	// and lands in the correction the model actually reads.
+	"propose_action": func(o ResultOperation) error {
+		return fmt.Errorf(
+			"result operation %q proposes an operational action, which this host no longer "+
+				"carries; request the action through Emisar and report the pending run with "+
+				"request_approval, or state the recommendation in the completion message",
+			o.ID,
+		)
+	},
 	"complete_episode": requirePayload("a completion message", func(o ResultOperation) bool {
 		return o.Completion != nil && strings.TrimSpace(o.Completion.Message) != ""
 	}),
@@ -386,12 +413,12 @@ accepted operations in the episode event stream.
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
 - record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current operator impact","cause_status":"identified|bounded when required","cause":"bounded cause when required","immediate_action":"what to do now","verification":"observable success condition","long_term_solution":"durable fix when required"}}
-- attach_visual{visual}, update_memory{memory}, propose_action{proposal}: one payload under the braced key. The offers name their fields: offer_memory{memory_offer: scope,subject,predicate,value,visibility}, offer_preference{preference_offer: scope,name,value}, offer_rule{rule_offer: scope,repository,trigger,action}, offer_schedule{schedule_offer: title,prompt,repository,recurrence,start_at}.
+- attach_visual{visual}, update_memory{memory}: one payload under the braced key. The offers name their fields: offer_memory{memory_offer: scope,subject,predicate,value,visibility}, offer_preference{preference_offer: scope,name,value}, offer_rule{rule_offer: scope,repository,trigger,action}, offer_schedule{schedule_offer: title,prompt,repository,recurrence,start_at}.
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
 - complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure|capability_unavailable","attempts":["route already attempted"],"next_action":"exact action that unblocks it","capability_gaps":[{"capability":"GitHub Actions run and job inspection","status":"not_installed|not_trusted|not_advertised|incompatible|not_found","pack_id":"github-cli when an evidence source identifies it; omit for not_found","pack_ref":"optional observed immutable ref","evidence_refs":["source_id or source_name from a record_evidence operation"],"recommendation":"one concise operator-facing installation, trust, deployment, or compatibility step"}],"recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}
 
 Use record_evidence once per atomic claim and record_coverage once per assessed claim group. Put
-each memory update, visual, durable behavior offer, alert assessment, and action proposal in its own
+each memory update, visual, durable behavior offer, and alert assessment in its own
 operation so one rejected item does not discard other accepted work. Use request_approval only for
 an exact pending Emisar run. Use offer_task
 only for an inert engineering or incident transition. Outside an existing engineering task, whenever

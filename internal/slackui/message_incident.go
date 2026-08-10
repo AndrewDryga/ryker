@@ -139,10 +139,9 @@ func IncidentEvidenceResponse(
 	text string,
 	evidence []core.Evidence,
 	coverage []core.Coverage,
-	proposals []core.ActionProposal,
 	sanitizer *Sanitizer,
 ) Message {
-	message := ConciseEvidenceResponse(text, evidence, coverage, proposals, sanitizer)
+	message := ConciseEvidenceResponse(text, evidence, coverage, sanitizer)
 	message.Header = "Investigation update"
 	message.Text = truncateUTF8("Investigation update: "+message.Text, 4000)
 	message.Context = append(
@@ -185,7 +184,7 @@ func TimelineMessage(record core.RemediationRecord) Message {
 		),
 		Markdown: truncateMarkdown(body.String(), 12000),
 		Context: []string{
-			"Built from the alert, agent runs, evidence, approvals, governed actions, and publication state. The latest events are shown oldest first.",
+			"Built from the alert, agent runs, evidence, Emisar approvals, and publication state. The latest events are shown oldest first.",
 		},
 	}
 }
@@ -225,7 +224,7 @@ func HandoffMessage(
 	message := EvidenceResponse(
 		body.String(), record.Evidence[:min(len(record.Evidence), 6)],
 		record.Coverage[:min(len(record.Coverage), 12)],
-		nil, NewSanitizer(30000),
+		NewSanitizer(30000),
 	)
 	message.Context = append(
 		message.Context,
@@ -268,8 +267,7 @@ func PostmortemDraft(record core.RemediationRecord) Message {
 		}
 	}
 	body.WriteString("\n\n### Remediation and approvals\n")
-	if len(record.Approvals) == 0 && len(record.Proposals) == 0 &&
-		record.Publication.IncidentID == "" {
+	if len(record.Approvals) == 0 && record.Publication.IncidentID == "" {
 		body.WriteString("\nNo governed operation or code publication was recorded.")
 	}
 	for _, approval := range record.Approvals {
@@ -282,14 +280,6 @@ func PostmortemDraft(record core.RemediationRecord) Message {
 		if link := sourceLink(firstNonemptyUI(approval.RunURL, approval.ApprovalURL)); link != "" {
 			fmt.Fprintf(&body, " - %s", link)
 		}
-	}
-	for _, proposal := range record.Proposals {
-		fmt.Fprintf(
-			&body, "\n- **%s:** %s for `%s`",
-			escapeSlackText(proposal.Title),
-			escapeSlackText(strings.ReplaceAll(proposal.Status, "_", " ")),
-			safeInlineCode(proposal.Target),
-		)
 	}
 	if record.Publication.IncidentID != "" {
 		publication := record.Publication
@@ -332,7 +322,7 @@ func PostmortemDraft(record core.RemediationRecord) Message {
 	}
 	body.WriteString("\n- [ ] Assign remaining corrective actions and owners\n")
 	message := EvidenceResponse(
-		body.String(), nil, record.Coverage[:min(len(record.Coverage), 12)], nil,
+		body.String(), nil, record.Coverage[:min(len(record.Coverage), 12)],
 		NewSanitizer(30000),
 	)
 	message.Context = append(

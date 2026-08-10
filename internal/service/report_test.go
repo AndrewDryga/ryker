@@ -32,8 +32,7 @@ func TestAgentReportStrictSchemaAndLegacyCompatibility(t *testing.T) {
 	    "status":"pending_approval",
 	    "approval_url":"https://emisar.dev/app/acme/approvals/apr_123",
 	    "expires_at":"2026-07-29T00:00:00Z"
-	  },
-	  "proposals":[]
+	  }
 	}`)
 	if err != nil || !structured || report.Message != "Current state is degraded." ||
 		report.PendingApproval == nil || report.PendingApproval.RequestID != "apr_123" {
@@ -149,7 +148,7 @@ func TestAgentReportExtractsFinalEnvelopeAfterCoopProgress(t *testing.T) {
 		`{"message":"**Audit complete:** no repository change was needed.",` +
 		`"evidence":[{"claim":"Packs match","observation":"Nine declared packs are live",` +
 		`"source_type":"emisar","source_name":"list_packs"}],` +
-		`"coverage":[{"layer":"runtime","status":"healthy"}],"memory":{},"proposals":[]}`
+		`"coverage":[{"layer":"runtime","status":"healthy"}],"memory":{}}`
 	report, structured, err := decisionpkg.ParseAgentReport(output)
 	if err != nil || !structured {
 		t.Fatalf("progress-prefixed report = %+v, %v, %v", report, structured, err)
@@ -165,7 +164,7 @@ func TestAgentReportAcceptsEmptyOptionalObservationTimestamps(t *testing.T) {
 		`"evidence":[{"claim":"Topology is declared","observation":"One region",` +
 		`"source_type":"repository","source_name":"infra/main.tf","observed_at":""}],` +
 		`"coverage":[{"layer":"application","status":"unknown","observed_at":""}],` +
-		`"memory":{},"proposals":[]}`
+		`"memory":{}}`
 	report, structured, err := decisionpkg.ParseAgentReport(output)
 	if err != nil || !structured || len(report.Evidence) != 1 ||
 		len(report.Coverage) != 1 || !report.Evidence[0].ObservedAt.IsZero() ||
@@ -258,13 +257,11 @@ func TestStructuredEvidenceAndCoverageEnumsAreHostValidated(t *testing.T) {
 	}
 }
 
-func TestStructuredResponsePolicyOwnsFormattingAndActionCatalog(t *testing.T) {
-	service := &Service{}
-	policy := service.structuredResponsePolicy()
+func TestStructuredResponseInstructionsOwnFormattingAndApprovalRouting(t *testing.T) {
+	policy := structuredResponseInstructions()
 	for _, required := range []string{
 		"Return exactly one JSON object",
 		"Slack-supported standard Markdown",
-		"No actions are configured",
 		"Never invent a source",
 		"approval.url",
 		"Do not place the approval URL in message",
@@ -272,6 +269,15 @@ func TestStructuredResponsePolicyOwnsFormattingAndActionCatalog(t *testing.T) {
 	} {
 		if !strings.Contains(policy, required) {
 			t.Fatalf("policy lacks %q:\n%s", required, policy)
+		}
+	}
+	// The action-proposal catalog used to be appended here, and said "No
+	// actions are configured. Return an empty proposals array." on both
+	// deployments, every turn. Proposing an action is not an operation any
+	// more, and the instructions say where the request goes instead.
+	for _, forbidden := range []string{"propose_action", "proposals array"} {
+		if strings.Contains(policy, forbidden) {
+			t.Fatalf("policy still advertises %q:\n%s", forbidden, policy)
 		}
 	}
 }

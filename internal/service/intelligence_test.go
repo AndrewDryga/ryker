@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -350,87 +349,6 @@ func TestConversationSessionSearchesPastHistoricalCollisionWindow(t *testing.T) 
 			"historical collision recovery = session=%+v generation=%d keys=%d",
 			session, generation, len(coopClient.createKeys),
 		)
-	}
-}
-
-func TestTwoPersonActionApprovalQueuesOnlyConfiguredProposal(t *testing.T) {
-	ctx := context.Background()
-	cfg := serviceConfig(t)
-	cfg.Slack.Operators = []string{"U123ABC", "U456DEF"}
-	cfg.Actions = map[string]config.ActionPolicy{
-		"restart_allocation": {
-			Description: "Restart one failed scheduler allocation.",
-			Authority:   "emisar", Risk: "medium", Approval: "two_person",
-			ExpiresAfter: config.Duration{Duration: 15 * time.Minute},
-		},
-	}
-	st, err := store.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	incident := createBoundIncident(t, ctx, st)
-	if err := st.SetCoopSession(
-		ctx, incident.ID, "ses_1", "incident-api", 1,
-	); err != nil {
-		t.Fatal(err)
-	}
-	proposals, err := st.Intelligence.CreateActionProposals(ctx, []core.ActionProposal{{
-		IncidentID: incident.ID, ChannelID: incident.ChannelID, SourceInput: "turn_1",
-		ActionName: "restart_allocation", Title: "Restart failed allocation",
-		Summary: "The allocation is terminal and no replacement exists.",
-		Target:  "alloc-123", Parameters: map[string]string{"allocation": "alloc-123"},
-		BlastRadius: "One allocation", Rollback: "Restore the prior allocation version",
-		Verification: "Replacement allocation reaches healthy",
-		Authority:    "emisar", Risk: "medium", Required: 2,
-		ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
-	}})
-	if err != nil || len(proposals) != 1 {
-		t.Fatalf("proposal = %+v, %v", proposals, err)
-	}
-	slackClient := &fakeSlack{}
-	svc := New(
-		cfg, st, newFakeCoop(), slackClient, nil,
-		slackui.NewSanitizer(12000), nil,
-	)
-	approve := func(id, user string) {
-		t.Helper()
-		input := core.SlackInput{
-			ID: id, EnvelopeID: "env-" + id, EventID: "event-" + id,
-			Kind: "action", TeamID: cfg.Slack.TeamID, ChannelID: incident.ChannelID,
-			UserID: user, ActionID: slackui.ActionApproveProposal,
-			ActionValue: proposals[0].ID,
-		}
-		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
-			t.Fatalf("admit %s = %v, %v", id, created, err)
-		}
-		if err := svc.processSlackInput(ctx); err != nil {
-			t.Fatalf("process %s: %v", id, err)
-		}
-	}
-	approve("approval-1", "U123ABC")
-	if len(slackClient.ephemerals) != 1 ||
-		!strings.Contains(slackClient.ephemerals[0].message.Text, "1 of 2") {
-		t.Fatalf("first approval receipt = %+v", slackClient.ephemerals)
-	}
-	if _, err := st.GetAgentRunBySource(
-		ctx, "proposal", proposals[0].ID,
-	); err != store.ErrNotFound {
-		t.Fatalf("proposal ran after one approval: %v", err)
-	}
-	approve("approval-2", "U456DEF")
-	submission, err := st.GetAgentRunBySource(
-		ctx, "proposal", proposals[0].ID,
-	)
-	if err != nil ||
-		!strings.Contains(submission.Prompt, `configured action "restart_allocation"`) ||
-		!strings.Contains(submission.Prompt, `target "alloc-123"`) ||
-		!strings.Contains(submission.Prompt, "Emisar authorization") {
-		t.Fatalf("queued governed action = %+v, %v", submission, err)
-	}
-	proposal, err := st.Intelligence.GetActionProposal(ctx, proposals[0].ID)
-	if err != nil || proposal.Status != "executing" {
-		t.Fatalf("proposal state = %+v, %v", proposal, err)
 	}
 }
 

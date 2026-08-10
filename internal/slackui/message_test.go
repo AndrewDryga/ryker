@@ -524,7 +524,7 @@ func TestScheduleAndEngineeringTaskOffersComposeWithoutOverwriting(t *testing.T)
 func TestIncidentAndSuggestedFixOffersCompose(t *testing.T) {
 	message := ConciseEvidenceResponse(
 		"The API is degraded and the decoder failure is bounded.",
-		nil, nil, nil, NewSanitizer(12000),
+		nil, nil, NewSanitizer(12000),
 	)
 	message = WithIncidentOffer(message, "slack-source-diagnosis")
 	message = WithSuggestedEngineeringTaskOffer(
@@ -631,7 +631,7 @@ func TestHelpExplainsControlEffectsAndSafety(t *testing.T) {
 	}
 }
 
-func TestEvidenceResponseRendersCoverageCitationsAndGovernedActions(t *testing.T) {
+func TestEvidenceResponseRendersCoverageAndCitations(t *testing.T) {
 	observed := time.Date(2026, 7, 27, 20, 0, 0, 0, time.UTC)
 	message := EvidenceResponse(
 		"**Assessment:** one scheduler allocation is unhealthy.",
@@ -645,13 +645,6 @@ func TestEvidenceResponseRendersCoverageCitationsAndGovernedActions(t *testing.T
 		[]core.Coverage{{
 			Layer: "scheduler", Status: "unhealthy", Source: "emisar status",
 		}},
-		[]core.ActionProposal{{
-			ID: "act_1", ActionName: "restart_allocation",
-			Title: "Restart failed allocation", Target: "alloc-123",
-			Summary: "No healthy replacement exists.", Risk: "medium", Required: 2,
-			BlastRadius: "One allocation", Rollback: "Restore the prior version",
-			Verification: "Replacement reaches healthy",
-		}},
 		NewSanitizer(30000),
 	)
 	for _, required := range []string{
@@ -660,8 +653,6 @@ func TestEvidenceResponseRendersCoverageCitationsAndGovernedActions(t *testing.T
 		"## Evidence",
 		"Allocation is terminal",
 		"https://emisar.dev/operations/op-1",
-		"## Proposed action: Restart failed allocation",
-		"No action runs until",
 	} {
 		if !strings.Contains(message.Markdown, required) {
 			t.Fatalf("evidence response lacks %q: %s", required, message.Markdown)
@@ -670,16 +661,17 @@ func TestEvidenceResponseRendersCoverageCitationsAndGovernedActions(t *testing.T
 	if strings.Contains(message.Markdown, "token=secret") {
 		t.Fatalf("evidence URL leaked query: %s", message.Markdown)
 	}
-	if len(message.Actions) != 2 ||
-		message.Actions[0].ID != ActionApproveProposal ||
-		message.Actions[0].Value != "act_1" ||
-		!strings.Contains(message.Actions[0].Confirm, "Required approvals: 2") ||
-		message.Actions[1].ID != ActionRejectProposal ||
-		!strings.Contains(message.Actions[1].Confirm, "No operational action") {
-		t.Fatalf("proposal controls = %+v", message.Actions)
+	// An evidence reply carries no controls of its own. It offered Slack
+	// approval buttons for a proposed operational action until that path was
+	// deleted; Emisar owns approval, and its card adds its own link.
+	if len(message.Actions) != 0 {
+		t.Fatalf("evidence response controls = %+v", message.Actions)
 	}
+	// One Markdown block carrying the whole ledger, and no action block: the
+	// three blocks this used to produce were the ledger plus the approve and
+	// reject controls.
 	blocks := message.Blocks()
-	if len(blocks) < 3 {
+	if len(blocks) != 1 {
 		t.Fatalf("evidence response Block Kit = %+v", blocks)
 	}
 }
@@ -690,7 +682,6 @@ func TestEmisarApprovalCardLinksToAuthoritativeConsole(t *testing.T) {
 			"Emisar paused the requested restart for policy approval.",
 			nil,
 			nil,
-			[]core.ActionProposal{{ID: "legacy", Title: "Legacy approval"}},
 			NewSanitizer(30000),
 		),
 		core.EmisarApproval{
@@ -748,7 +739,7 @@ func TestEmisarApprovalCardLinksToAuthoritativeConsole(t *testing.T) {
 func TestEmisarApprovalCardSupportsCurrentConversationWithoutIncident(t *testing.T) {
 	message := WithEmisarApproval(
 		ConciseEvidenceResponse(
-			"Emisar paused the requested change for approval.", nil, nil, nil,
+			"Emisar paused the requested change for approval.", nil, nil,
 			NewSanitizer(30000),
 		),
 		core.EmisarApproval{
@@ -796,7 +787,6 @@ func TestConciseEvidenceResponseKeepsLedgerOutOfRoutineSlackReply(t *testing.T) 
 			SourceType: "emisar", SourceName: "list_packs",
 		}},
 		[]core.Coverage{{Layer: "runtime", Status: "healthy"}},
-		nil,
 		NewSanitizer(12000),
 	)
 	if strings.Contains(message.Markdown, "## Evidence") ||
@@ -814,7 +804,6 @@ func TestBlockedAssessmentExplainsWhatStoppedAndHowToContinue(t *testing.T) {
 	message := WithBlockedAssessment(
 		ConciseEvidenceResponse(
 			"Core infrastructure is available, but customer impact is not verified.",
-			nil,
 			nil,
 			nil,
 			NewSanitizer(12000),
@@ -845,7 +834,6 @@ func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
 		"Summary",
 		[]core.Evidence{{Claim: "one"}, {Claim: "two"}},
 		[]core.Coverage{{Layer: "host"}, {Layer: "runtime"}, {Layer: "application"}},
-		nil,
 		NewSanitizer(12000),
 	)
 	if len(message.Context) != 1 ||

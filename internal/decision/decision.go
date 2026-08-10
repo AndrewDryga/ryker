@@ -747,7 +747,6 @@ type AgentReport struct {
 	RuleOffer         *core.RuleOffer                     `json:"rule_offer,omitempty"`
 	ScheduleOffer     *core.ScheduleOffer                 `json:"schedule_offer,omitempty"`
 	PendingApproval   *core.EmisarApproval                `json:"pending_approval,omitempty"`
-	Proposals         []core.ActionProposal               `json:"proposals,omitempty"`
 	Completion        *investigation.CompletionAssessment `json:"completion,omitempty"`
 	Operations        []investigation.ResultOperation     `json:"operations,omitempty"`
 	AppliedOperations []investigation.ResultOperation     `json:"-"`
@@ -1251,14 +1250,13 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 	report.RuleOffer = nil
 	report.ScheduleOffer = nil
 	report.PendingApproval = nil
-	report.Proposals = nil
 	report.Completion = nil
 	err := FoldResultOperations(report.Operations, OperationTargets{
 		message: &report.Message, followups: &report.FollowupMessages, visuals: &report.Visuals,
 		evidence: &report.Evidence, coverage: &report.Coverage, memory: &report.Memory,
 		memoryOffer: &report.MemoryOffer, preferenceOffer: &report.PreferenceOffer,
 		ruleOffer: &report.RuleOffer, scheduleOffer: &report.ScheduleOffer,
-		approval: &report.PendingApproval, proposals: &report.Proposals,
+		approval:   &report.PendingApproval,
 		completion: &report.Completion,
 	}, &report.AppliedOperations)
 	if err != nil {
@@ -1375,7 +1373,6 @@ type OperationTargets struct {
 	approval        **core.EmisarApproval
 	alert           **AlertAssessment
 	completion      **investigation.CompletionAssessment
-	proposals       *[]core.ActionProposal
 	incidentTitle   *string
 	taskTitle       *string
 	taskRepository  *string
@@ -1469,11 +1466,6 @@ func FoldResultOperations(
 				return fmt.Errorf("result operation %q duplicates or cannot record an alert assessment", operation.ID)
 			}
 			*target.alert = operation.AlertAssessment
-		case "propose_action":
-			if target.proposals == nil {
-				return fmt.Errorf("result operation %q cannot propose an action", operation.ID)
-			}
-			*target.proposals = append(*target.proposals, *operation.Proposal)
 		case "complete_episode":
 			if completed {
 				return fmt.Errorf("result operation %q duplicates complete_episode", operation.ID)
@@ -1505,9 +1497,6 @@ func FoldResultOperations(
 				}
 			}
 			*target.completion = value.Completion
-			if target.proposals != nil {
-				*target.proposals = append(*target.proposals, value.Proposals...)
-			}
 		}
 		*applied = append(*applied, operation)
 	}

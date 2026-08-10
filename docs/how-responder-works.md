@@ -677,7 +677,6 @@ flowchart TB
   Incident --> Deliveries[("slack_deliveries")]
   SlackInput --> Deliveries
   Incident --> Timeline[("timeline_events")]
-  Incident --> Proposals[("action_proposals")]
   Incident --> Approvals[("emisar_approvals")]
   Incident --> Publication[("publications")]
   Publication --> PublicationFollowup[("publication_followups")]
@@ -687,7 +686,6 @@ flowchart TB
   AgentRuns --> Remediation
   Evidence --> Remediation
   Timeline --> Remediation
-  Proposals --> Remediation
   Approvals --> Remediation
   Publication --> Remediation
   PublicationEvents --> Timeline

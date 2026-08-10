@@ -12,7 +12,7 @@ import (
 func RemediationTimeline(record RemediationRecord) []TimelineEvent {
 	incident := record.Incident
 	events := make([]TimelineEvent, 0, 2+len(record.Events)+len(record.Signals)*2+
-		len(record.AgentRuns)+len(record.Proposals)*2+len(record.Approvals)*2+2)
+		len(record.AgentRuns)+len(record.Approvals)*2+2)
 	appendEvent := func(event TimelineEvent) {
 		if event.CreatedAt.IsZero() || strings.TrimSpace(event.Title) == "" {
 			return
@@ -95,24 +95,6 @@ func RemediationTimeline(record RemediationRecord) []TimelineEvent {
 		})
 	}
 
-	for _, proposal := range record.Proposals {
-		appendEvent(TimelineEvent{
-			ID: "proposal:" + proposal.ID + ":created", Kind: "action.proposed",
-			ActorID: proposal.RequestedBy, Title: "Action proposed: " + proposal.Title,
-			Detail:    proposal.ActionName + " for " + proposal.Target,
-			CreatedAt: proposal.CreatedAt,
-		})
-		if proposal.Status != "" && proposal.Status != "pending" {
-			appendEvent(TimelineEvent{
-				ID:   "proposal:" + proposal.ID + ":" + proposal.Status,
-				Kind: "action." + proposal.Status,
-				Title: "Action " + strings.ReplaceAll(proposal.Status, "_", " ") +
-					": " + proposal.Title,
-				Detail: proposal.Result, CreatedAt: proposal.UpdatedAt,
-			})
-		}
-	}
-
 	for _, approval := range record.Approvals {
 		appendEvent(TimelineEvent{
 			ID: "emisar-run:" + approval.RunID + ":approval", Kind: "emisar.approval.required",
@@ -185,9 +167,17 @@ func RemediationTimeline(record RemediationRecord) []TimelineEvent {
 	return events
 }
 
+// projectedTimelineKind names stored events the projection re-derives from the
+// canonical records, so they are not rendered twice.
+//
+// action.approve and action.reject were here for the Slack action-proposal
+// decisions, which the proposal projection above re-derived as action.<status>.
+// Both the writer and the projection are gone, and neither deployed database
+// holds an event of either kind, so suppressing them now would only hide a row
+// nothing else would render.
 func projectedTimelineKind(kind string) bool {
 	return strings.HasPrefix(kind, "emisar.approval.") ||
-		kind == "agent.failure" || kind == "action.approve" || kind == "action.reject" ||
+		kind == "agent.failure" ||
 		kind == "incident.closed" || kind == "engineering_task.closed"
 }
 

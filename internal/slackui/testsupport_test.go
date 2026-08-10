@@ -39,7 +39,7 @@ func EvidenceResponseWithIncidentOffer(
 	sourceInputID string,
 	sanitizer *Sanitizer,
 ) Message {
-	message := ConciseEvidenceResponse(text, evidence, coverage, nil, sanitizer)
+	message := ConciseEvidenceResponse(text, evidence, coverage, sanitizer)
 	message.Context = nil
 	return WithIncidentOffer(message, sourceInputID)
 }
@@ -52,7 +52,7 @@ func EvidenceResponseWithTaskOffer(
 	repositoryLabel string,
 	sanitizer *Sanitizer,
 ) Message {
-	message := ConciseEvidenceResponse(text, evidence, coverage, nil, sanitizer)
+	message := ConciseEvidenceResponse(text, evidence, coverage, sanitizer)
 	return WithEngineeringTaskOffer(message, "", sourceInputID, repositoryLabel)
 }
 

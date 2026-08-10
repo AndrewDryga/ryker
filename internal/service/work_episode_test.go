@@ -168,7 +168,9 @@ func TestIncidentEpisodeSeparatesEngineeringAndOperationalAuthority(t *testing.T
 		readOnly.Authority != core.AuthorityReadOnly || len(readOnly.RequiredCoverage) == 0 {
 		t.Fatalf("read-only incident episode = %+v", readOnly)
 	}
-	governed := svc.episodeForIncident(incident, core.AgentRunIncident, "proposal", "Apply exact remediation")
+	governed := svc.episodeForIncident(
+		incident, core.AgentRunIncident, "emisar_approval:apr_1", "Apply exact remediation",
+	)
 	if governed.Effort != core.EffortIncidentInvestigation || governed.Authority != core.AuthorityGovernedOperation {
 		t.Fatalf("governed incident episode = %+v", governed)
 	}

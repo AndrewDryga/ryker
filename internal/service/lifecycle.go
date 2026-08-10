@@ -51,11 +51,6 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 		ctx.Err() == nil {
 		s.log.Warn("backfill closed Coop cleanup failed", "error", err)
 	}
-	if retired, err := s.store.RetireActionProposals(ctx, now); err != nil && ctx.Err() == nil {
-		s.log.Warn("retire disabled action proposals failed", "error", err)
-	} else if retired > 0 {
-		s.log.Info("retired disabled action proposals", "records", retired)
-	}
 	// Lapsing a correction is an event, so it is said out loud.
 	//
 	// ExpireFixtureCandidates had exactly one caller and it was its own test,
@@ -147,7 +142,6 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"standing_rule_runs", result.StandingRuleRuns,
 			"scheduled_tasks", result.ScheduledTasks,
 			"scheduled_task_runs", result.ScheduledTaskRuns,
-			"action_proposals", result.ActionProposals,
 			"emisar_approvals", result.EmisarApprovals,
 			"configuration_sessions", result.ConfigurationSessions,
 			"closed_work", result.ClosedIncidents,
@@ -170,7 +164,7 @@ func pruneResultWorthLogging(result core.PruneResult) bool {
 	// could log nothing.
 	return result.MemoryEntries+result.MemoryRollups+result.MemoryReviews+
 		result.MemorySupersessions+result.Preferences+result.StandingRules+
-		result.ScheduledTasks+result.ActionProposals+result.ClosedIncidents+
+		result.ScheduledTasks+result.ClosedIncidents+
 		result.Episodes+result.AgentRunContexts > 0
 }
 

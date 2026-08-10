@@ -650,7 +650,7 @@ func (s *Service) prepareIncidentAgentRun(
 			ctx, run, incident, err, permanentSlackAttachmentError(err),
 		)
 	}
-	submissionPrompt := prompt + "\n\n" + s.structuredResponsePolicy() +
+	submissionPrompt := prompt + "\n\n" + structuredResponseInstructions() +
 		agentRunContinuationPrompt(run)
 	artifacts, err = s.augmentAgentRunArtifacts(
 		ctx,
@@ -2908,24 +2908,6 @@ func (s *Service) reportTurnFailure(
 	return message
 }
 
-// recordProposalExecution closes out the proposal this run was executing. The
-// error is deliberately ignored: the run itself already succeeded or failed,
-// and refusing to finalize it because a bookkeeping write failed would leave
-// the operator with no answer at all.
-func (s *Service) recordProposalExecution(
-	ctx context.Context,
-	run core.AgentRun,
-	state string,
-	detail string,
-) {
-	proposalState := "failed"
-	if state == "completed" {
-		proposalState = "finished"
-	}
-	result := s.sanitizeText(core.FirstNonempty(string(run.Result), detail))
-	_ = s.store.Intelligence.MarkProposalExecution(ctx, run.SourceID, proposalState, run.CoopTurnID, result)
-}
-
 // withEngineeringTaskChanges marks an engineering task's published diff stale
 // when this turn actually changed the working tree, and says so in the message.
 //
@@ -3091,7 +3073,6 @@ func (s *Service) finalizeIncidentAgentRun(
 					report.Message,
 					report.Evidence,
 					report.Coverage,
-					report.Proposals,
 					s.sanitizer,
 				)
 				if actionValue, scope, expires, ok := s.prepareMemoryOfferAction(
@@ -3164,7 +3145,6 @@ func (s *Service) finalizeIncidentAgentRun(
 					report.Message,
 					report.Evidence,
 					report.Coverage,
-					report.Proposals,
 					s.sanitizer,
 				)
 			}
@@ -3202,9 +3182,6 @@ func (s *Service) finalizeIncidentAgentRun(
 	}
 	if incident.IsEngineeringTask() {
 		message = s.withEngineeringTaskChanges(ctx, run, incident, state, message)
-	}
-	if run.SourceKind == "proposal" {
-		s.recordProposalExecution(ctx, run, state, detail)
 	}
 	baseDeliveryID := "out_run_" + run.ID
 	if len(reportReplyParts) > 1 {
@@ -3278,8 +3255,7 @@ func (s *Service) finalizeIncidentAgentRun(
 func agentReportCanActivateSchedule(report decisionpkg.AgentReport) bool {
 	return report.ScheduleOffer != nil && report.MemoryOffer == nil &&
 		report.PreferenceOffer == nil && report.RuleOffer == nil &&
-		report.PendingApproval == nil && len(report.Proposals) == 0 &&
-		len(report.Visuals) == 0
+		report.PendingApproval == nil && len(report.Visuals) == 0
 }
 
 type taskChangesFingerprint struct {

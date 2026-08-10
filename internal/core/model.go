@@ -1357,35 +1357,8 @@ type RemediationRecord struct {
 	Evidence    []Evidence
 	Coverage    []Coverage
 	Events      []TimelineEvent
-	Proposals   []ActionProposal
 	Approvals   []EmisarApproval
 	Publication Publication
-}
-
-type ActionProposal struct {
-	ID            string            `json:"id,omitempty"`
-	IncidentID    string            `json:"incident_id,omitempty"`
-	ChannelID     string            `json:"channel_id,omitempty"`
-	SourceInput   string            `json:"source_input,omitempty"`
-	ActionName    string            `json:"action_name"`
-	Title         string            `json:"title"`
-	Summary       string            `json:"summary"`
-	Target        string            `json:"target"`
-	Parameters    map[string]string `json:"parameters,omitempty"`
-	BlastRadius   string            `json:"blast_radius"`
-	Rollback      string            `json:"rollback"`
-	Verification  string            `json:"verification"`
-	Authority     string            `json:"authority"`
-	Risk          string            `json:"risk"`
-	Status        string            `json:"status,omitempty"`
-	Required      int               `json:"required_approvals,omitempty"`
-	ApprovalCount int               `json:"approval_count,omitempty"`
-	RequestedBy   string            `json:"requested_by,omitempty"`
-	ExecutionTurn string            `json:"execution_turn,omitempty"`
-	Result        string            `json:"result,omitempty"`
-	ExpiresAt     time.Time         `json:"expires_at,omitempty"`
-	CreatedAt     time.Time         `json:"created_at,omitempty"`
-	UpdatedAt     time.Time         `json:"updated_at,omitempty"`
 }
 
 type EmisarApproval struct {
@@ -1545,7 +1518,6 @@ type PruneResult struct {
 	StandingRuleRuns      int64
 	ScheduledTasks        int64
 	ScheduledTaskRuns     int64
-	ActionProposals       int64
 	EmisarApprovals       int64
 	ConfigurationSessions int64
 	ClosedIncidents       int64
@@ -1566,7 +1538,7 @@ func (r PruneResult) Total() int64 {
 	return r.SlackInputs + r.WebhookEvents + r.SlackDeliveries + r.AgentRuns +
 		r.EvaluationDecisions + r.ChannelIntelligence + r.ConversationMemories +
 		r.MemoryEntries + r.MemoryRollups + r.MemoryReviews + r.MemorySupersessions +
-		r.ActionProposals + r.Preferences + r.StandingRules +
+		r.Preferences + r.StandingRules +
 		r.StandingRuleRuns + r.ScheduledTasks + r.ScheduledTaskRuns +
 		r.EmisarApprovals + r.ConfigurationSessions +
 		r.ClosedIncidents + r.Episodes + r.AuditEvents

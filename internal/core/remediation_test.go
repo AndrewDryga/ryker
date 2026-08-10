@@ -37,10 +37,6 @@ func TestRemediationTimelineProjectsCanonicalLifecycleOnce(t *testing.T) {
 			RunURL:      "https://emisar.example/runs/emisar_run_1",
 			CreatedAt:   at(12), TerminalAt: at(20),
 		}},
-		Proposals: []ActionProposal{{
-			ID: "proposal_1", Title: "Restart one replica", ActionName: "service.restart",
-			Target: "replica-1", Status: "approved", CreatedAt: at(11), UpdatedAt: at(13),
-		}},
 		Publication: Publication{
 			IncidentID: "inc_1", Repository: "infra", HeadBranch: "responder/fix",
 			State: "published", PRNumber: 42, PRURL: "https://github.example/pull/42",

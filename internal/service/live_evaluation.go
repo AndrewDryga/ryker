@@ -1238,7 +1238,7 @@ func liveEvaluationPrompt(
 			mode = core.AgentRunEngineeringTask
 		}
 		episode := evaluator.episodeForIncident(incident, mode, "evaluation", testCase.Input)
-		return prompt + "\n\n" + evaluator.structuredResponsePolicy() +
+		return prompt + "\n\n" + structuredResponseInstructions() +
 			"\n\n" + workEpisodePrompt(*episode), nil
 	default:
 		return "", errors.New("live case kind must be watch, incident, or task")

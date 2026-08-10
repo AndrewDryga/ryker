@@ -32,13 +32,11 @@ func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
 		"Run `"+safeInlineCode(approval.RunID)+"` is waiting. Approval happens only in Emisar; "+
 			"opening the link does not execute it.",
 	)
-	actions := message.Actions[:0]
-	for _, action := range message.Actions {
-		if action.ID != ActionApproveProposal && action.ID != ActionRejectProposal {
-			actions = append(actions, action)
-		}
-	}
-	message.Actions = append(actions, Action{
+	// The proposal approve and reject buttons used to be filtered out here so an
+	// Emisar approval card could not also offer a Slack approval for the same
+	// work. Nothing composes those buttons any more, so there is nothing to
+	// filter and the card simply appends its own control.
+	message.Actions = append(message.Actions, Action{
 		ID:    ActionOpenApproval,
 		Label: "Review approval in Emisar",
 		Value: approval.RequestID,
