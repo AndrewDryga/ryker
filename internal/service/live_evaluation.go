@@ -78,6 +78,46 @@ func checkRecordingMode(cases []EvaluationCase, episodeReplay bool) error {
 	return nil
 }
 
+// checkCorpusRepositories refuses a corpus this deployment cannot run, before
+// it spends anything finding out.
+//
+// A case naming a repository needs the configuration that has it, and the two
+// deployments configure different ones. eval-health names tenant-infra, which
+// only the tenant deployment configures, so running it against emisar failed
+// every case one model call at a time — and reported the reason as a provider
+// refusal, which is the last place anyone would look for a missing config key.
+// The corpus had never run anywhere.
+//
+// eval-episode-replay already solved this by taking a DEPLOYMENT and picking
+// the matching corpus, and its comment describes exactly this failure. The
+// check belongs here rather than in one Makefile target, so a corpus cannot
+// acquire the problem later by adding a repository to a case.
+func checkCorpusRepositories(cases []EvaluationCase, cfg config.Config) error {
+	missing := map[string][]string{}
+	for _, testCase := range cases {
+		key := strings.TrimSpace(testCase.Repository)
+		if key == "" {
+			continue
+		}
+		if _, ok := cfg.RepositoryContext(key); !ok {
+			missing[key] = append(missing[key], testCase.Name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(missing))
+	for key := range missing {
+		names = append(names, fmt.Sprintf("%s (%d case(s))", key, len(missing[key])))
+	}
+	slices.Sort(names)
+	return fmt.Errorf(
+		"this corpus names repositories the configured deployment does not have: %s. "+
+			"Run it against the deployment that owns them",
+		strings.Join(names, ", "),
+	)
+}
+
 func EvaluateLiveJSONL(
 	ctx context.Context,
 	reader io.Reader,
@@ -101,6 +141,9 @@ func EvaluateLiveJSONL(
 		)
 	}
 	if err := checkRecordingMode(cases, options.EpisodeReplay); err != nil {
+		return EvaluationSummary{}, err
+	}
+	if err := checkCorpusRepositories(cases, cfg); err != nil {
 		return EvaluationSummary{}, err
 	}
 	runID, err := core.NewID("eval")
@@ -826,7 +869,10 @@ func runLiveEvaluationCase(
 	}
 	repository, ok := cfg.RepositoryContext(repositoryKey)
 	if !ok {
-		return "", "", 0, WorkspaceAssessment{}, 0, fmt.Errorf("repository %q is not configured", repositoryKey)
+		return "", "", 0, WorkspaceAssessment{}, 0, fmt.Errorf(
+			"%w: repository %q is not configured; this corpus needs the deployment that owns it",
+			errEvaluationCaseInvalid, repositoryKey,
+		)
 	}
 	policy := repository.CoopPolicy
 	if testCase.Lane == "conversation" {
@@ -838,13 +884,17 @@ func runLiveEvaluationCase(
 			strings.TrimSpace(taskPolicy),
 		)
 		if policy == "" {
-			return "", "", 0, WorkspaceAssessment{}, 0, errors.New(
-				"task evaluation requires an explicit disposable coop_policy",
+			return "", "", 0, WorkspaceAssessment{}, 0, fmt.Errorf(
+				"%w: task evaluation requires an explicit disposable coop_policy",
+				errEvaluationCaseInvalid,
 			)
 		}
 	}
 	if strings.TrimSpace(policy) == "" {
-		return "", "", 0, WorkspaceAssessment{}, 0, fmt.Errorf("repository %q has no Coop policy", repositoryKey)
+		return "", "", 0, WorkspaceAssessment{}, 0, fmt.Errorf(
+			"%w: repository %q has no Coop policy",
+			errEvaluationCaseInvalid, repositoryKey,
+		)
 	}
 	session, _, err := client.CreateSession(
 		ctx,

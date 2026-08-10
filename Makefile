@@ -71,9 +71,16 @@ eval: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/live.jsonl \
 		$(call history,live)
 
+# Health verdicts are tenant-shaped: every case names tenant-infra, and only the
+# tenant deployment configures it. Running this against emisar failed every case
+# one model call at a time, reporting a missing config key as a provider
+# refusal — so the corpus had never run anywhere. DEPLOYMENT is declared for the
+# same reason eval-episode-replay declares it, and the eval command refuses the
+# corpus up front rather than discovering it per case.
+eval-health: DEPLOYMENT = tenant
 eval-health: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/health-verdict.jsonl --judge \
-		$(call history,health)
+		$(call history,health-$(DEPLOYMENT))
 
 eval-quality: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" \
@@ -109,6 +116,11 @@ eval-evidence: | $(EVAL_HISTORY)
 		--min-overall-pass-rate 1 --min-case-pass-rate 1 --min-mean-quality 4 \
 		$(call history,evidence)
 
+# Every case names the responder repository, which neither live deployment
+# configures today, so this needs a config that does. Declared rather than
+# discovered: the eval command now refuses a corpus whose repositories are
+# absent before it spends a model call on finding out.
+eval-productivity: DEPLOYMENT = responder
 eval-productivity: | $(EVAL_HISTORY)
 	@test -n "$(TASK_EVAL_POLICY)" || { echo "TASK_EVAL_POLICY must name a disposable writable Coop policy"; exit 2; }
 	go run ./cmd/responder eval --config "$(CONFIG)" \

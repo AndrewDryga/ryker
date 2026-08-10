@@ -6,6 +6,7 @@ import (
 	gopath "path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -395,4 +396,102 @@ func TestNoNewCorpusFixtureAsksATruncatedQuestion(t *testing.T) {
 			)
 		}
 	}
+}
+
+// A corpus naming a repository must be run by a deployment-aware target.
+//
+// The two deployments configure different repositories, so a case naming one
+// needs the config that has it. eval-health names tenant-infra, which only the
+// tenant deployment configures, and its Makefile target takes no DEPLOYMENT — so
+// against emisar every case failed with "repository is not configured", one
+// model call at a time, reported as a provider refusal. The corpus had never
+// run anywhere, and nothing said so.
+//
+// eval-episode-replay already solved this by parameterising on DEPLOYMENT and
+// picking the matching corpus. This is the rule that says every corpus with the
+// same need is treated the same way.
+func TestACorpusNamingARepositoryIsRunPerDeployment(t *testing.T) {
+	root := filepath.Join("..", "..")
+	makefile, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, parameterized := evaluatedCorpusInputs(t, string(makefile))
+	checked := 0
+	for _, path := range evaluationCorpora(t) {
+		switch filepath.Base(path) {
+		case "scenarios.jsonl", "quality-calibration.jsonl":
+			continue
+		// golden.jsonl is replayed with --replay, which calls no model and
+		// opens no session, so it never resolves a repository against a
+		// config. The field is inert there and carrying it is not a defect.
+		case "golden.jsonl":
+			continue
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cases, err := decodeEvaluationCases(file)
+		file.Close()
+		if err != nil {
+			t.Fatalf("%s: decode: %v", path, err)
+		}
+		named := map[string]bool{}
+		for _, testCase := range cases {
+			if repository := strings.TrimSpace(testCase.Repository); repository != "" {
+				named[repository] = true
+			}
+		}
+		if len(named) == 0 {
+			continue
+		}
+		checked++
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			t.Fatal(relErr)
+		}
+		// Either the corpus lives in a per-deployment directory the target
+		// globs, or its target names the deployment it needs. Both say the
+		// same thing out loud: this corpus does not run just anywhere.
+		dir := gopath.Dir(filepath.ToSlash(rel))
+		declared := targetDeclaresDeployment(string(makefile), filepath.ToSlash(rel))
+		if !declared && (dir == "testdata/eval" || !parameterized[dir]) {
+			repositories := make([]string, 0, len(named))
+			for repository := range named {
+				repositories = append(repositories, repository)
+			}
+			sort.Strings(repositories)
+			t.Errorf(
+				"%s names %v but its target takes no DEPLOYMENT, so it can only run "+
+					"against whichever deployment happens to configure them. Either move it "+
+					"beside the per-deployment corpora or drop the repository from its cases.",
+				rel, repositories,
+			)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no corpus named a repository; this test is checking nothing")
+	}
+}
+
+// targetDeclaresDeployment reports whether the Makefile target that runs this
+// corpus sets DEPLOYMENT for itself, which is how a target says which
+// deployment's configuration its cases need.
+func targetDeclaresDeployment(makefile, corpus string) bool {
+	for _, line := range strings.Split(makefile, "\n") {
+		if !strings.Contains(line, corpus) {
+			continue
+		}
+		// Walk back to the target this recipe belongs to and look for a
+		// target-scoped DEPLOYMENT assignment above it.
+		before := makefile[:strings.Index(makefile, line)]
+		for _, earlier := range strings.Split(before, "\n") {
+			if strings.Contains(earlier, ": DEPLOYMENT =") ||
+				strings.Contains(earlier, "DEPLOYMENT ?=") {
+				return true
+			}
+		}
+	}
+	return false
 }
