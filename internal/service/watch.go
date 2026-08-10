@@ -731,23 +731,34 @@ func (s *Service) applyWatchDecision(
 	if err != nil {
 		return err
 	}
-	// A mention is a message, and shadow says "without posting".
+	// Shadow applies to every kind that reaches this path. The exemption is
+	// named; the coverage is not.
 	//
-	// Shadow used to cover only message and bot_message, so a channel an
-	// operator had set to observe-only still answered anyone who typed its
-	// name — including the operator writing "do not reply to any of the
-	// messages in this channel, you are here only to observe events", which
-	// drew a reply. The setting's own description is "evaluate messages and
-	// retain audit evidence without posting"; a direct mention is not an
-	// exception to that, it is the loudest case of it.
+	// It was an allowlist of message and bot_message, and both holes in it were
+	// found the same way — by an operator watching a channel he had set to
+	// observe-only keep talking. A mention went through, so "do not reply to
+	// any of the messages in this channel, you are here only to observe events"
+	// drew a reply. Then a recheck went through: the bot_message that started
+	// the investigation was correctly silenced at 19:45, its recheck fired at
+	// 20:13, and the blocked notice posted into the channel he had just asked
+	// twice for quiet in.
 	//
-	// It does not go silently dead. finishShadowedWatchDecision answers a
-	// mention ephemerally, so the person who asked learns the channel is
-	// observe-only and everyone else sees nothing — the same rule the rest of
-	// this surface follows.
+	// An allowlist of kinds is a promise that nobody will add a kind, and this
+	// codebase adds them: recheck, scheduled and the episode wakeups are all
+	// synthetic inputs invented after that list was written, and each one
+	// silently escaped a setting whose whole description is "without posting".
+	// Inverting it makes the description true by construction — a kind added
+	// tomorrow is silent here unless somebody deliberately exempts it.
+	//
+	// The one exemption is an approval continuation: a human decision already
+	// in flight, whose outcome would otherwise strand the person who approved
+	// it. They are not a bystander being protected from noise.
+	//
+	// Nothing goes silently dead. finishShadowedWatchDecision answers a mention
+	// ephemerally, so whoever said the name learns the channel is observe-only
+	// and everyone else sees nothing.
 	shadow := false
-	if !state.ApprovalContinuation &&
-		(input.Kind == "message" || input.Kind == "bot_message" || input.Kind == "mention") {
+	if !state.ApprovalContinuation {
 		shadow, err = s.shadowEnabled(ctx, input.ChannelID)
 		if err != nil {
 			return err

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -1504,6 +1505,30 @@ func TestAShadowChannelAnswersAMentionPrivatelyAndPostsNothing(t *testing.T) {
 			slackClient.ephemerals[0].message.Text)
 	}
 
+	// A recheck stays fully silent too. This is the kind that escaped the
+	// allowlist after the mention did: the bot_message that started the
+	// investigation was silenced correctly, its recheck fired half an hour
+	// later, and the blocked notice posted into the channel anyway.
+	slackClient.posts, slackClient.ephemerals = nil, nil
+	recheck := mention
+	recheck.ID, recheck.Kind, recheck.UserID = "slack_shadow_recheck", "recheck", "U123ABC"
+	recheck.EnvelopeID, recheck.EventID = "env_shadow_recheck", "ev_shadow_recheck"
+	if admitted, err := st.AdmitSlackInput(ctx, recheck); err != nil || !admitted {
+		t.Fatalf("admit recheck = %t, %v", admitted, err)
+	}
+	if _, err := st.LeaseSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.finishShadowedWatchDecision(
+		ctx, recheck, decisionpkg.WatchTurnState{}, decisionpkg.WatchDecision{Action: "reply"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.posts) != 0 || len(slackClient.ephemerals) != 0 {
+		t.Fatalf("a shadowed recheck was answered: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+
 	// A bot alert in the same channel stays fully silent: nobody asked, so
 	// there is nobody to answer.
 	slackClient.posts, slackClient.ephemerals = nil, nil
@@ -1524,5 +1549,45 @@ func TestAShadowChannelAnswersAMentionPrivatelyAndPostsNothing(t *testing.T) {
 	if len(slackClient.posts) != 0 || len(slackClient.ephemerals) != 0 {
 		t.Fatalf("a shadowed alert was answered: posts=%+v ephemerals=%+v",
 			slackClient.posts, slackClient.ephemerals)
+	}
+}
+
+// The shadow gate names its exemption, never a list of kinds it covers.
+//
+// It was an allowlist — message and bot_message — and both holes were found in
+// production by the same operator on the same day. A mention escaped it, so
+// "do not reply to any of the messages in this channel" drew a reply. A recheck
+// escaped it, so the investigation that had been correctly silenced posted its
+// blocked notice half an hour later anyway. recheck, scheduled and the episode
+// wakeups are all synthetic kinds invented after that list was written, which
+// is the whole problem with writing one.
+//
+// A behavioural test cannot catch the next kind, because the next kind does not
+// exist yet. Reading the gate can: if it ever grows a Kind comparison again,
+// some kind is being let through, and that is the bug both times.
+func TestTheShadowGateIsNotAnAllowlistOfInputKinds(t *testing.T) {
+	source, err := os.ReadFile("watch.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const marker = "shadow, err = s.shadowEnabled(ctx, input.ChannelID)"
+	index := strings.Index(string(source), marker)
+	if index < 0 {
+		t.Fatal("the shadow gate has moved; this guard is reading nothing")
+	}
+	// The condition sits immediately above the call.
+	head := string(source[:index])
+	start := strings.LastIndex(head, "shadow := false")
+	if start < 0 {
+		t.Fatal("could not find the start of the shadow gate")
+	}
+	gate := head[start:]
+	if strings.Contains(gate, "input.Kind") {
+		t.Errorf(
+			"the shadow gate compares input.Kind again:\n%s\n"+
+				"Shadow means \"without posting\". Name what is exempt, not what is covered, "+
+				"or the next synthetic kind posts into a channel that asked for silence.",
+			strings.TrimSpace(gate),
+		)
 	}
 }
