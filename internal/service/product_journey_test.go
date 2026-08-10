@@ -730,6 +730,68 @@ func TestAnAbandonedRequestTellsTheOperatorNotTheRoom(t *testing.T) {
 	}
 }
 
+// A refusal carries only "no", and "no" has one reader.
+//
+// "@Emisar stop" in a channel with no incident answered the whole channel:
+// five sentences about which commands operate on an attached incident and how
+// to create one, once per attempt. The same question as "/responder stop" was
+// already private, because Slack makes slash replies private — so the spelling
+// decided who watched, which is the defect a previous change fixed for
+// permission refusals and left in place for every other refusal on this path.
+//
+// The line is whether the message carries the thing that was asked for. Status,
+// help and the incident directory do, and stay public. This does not.
+func TestAControlWithNoIncidentToActOnAnswersOnlyTheAsker(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{channel: slackui.Channel{
+		ID: "COPS", Name: "backend-ops", Member: true,
+	}}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	asked := core.SlackInput{
+		ID: "ops_stop_nothing", EnvelopeID: "env_ops_stop_nothing",
+		EventID: "event_ops_stop_nothing", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", MessageTS: "1700.800",
+		UserID: cfg.Slack.Operators[0], Text: "<@U999BOT> stop",
+		ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, asked); err != nil || !admitted {
+		t.Fatalf("admit question = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	const refusal = "no incident to control in this channel"
+	for _, post := range slackClient.posts {
+		if strings.Contains(renderedSlackMessage(post.message), refusal) {
+			t.Fatalf("a control refusal was posted to a shared channel: %q", post.message.Text)
+		}
+	}
+	refused := false
+	for _, ephemeral := range slackClient.ephemerals {
+		if !strings.Contains(renderedSlackMessage(ephemeral.message), refusal) {
+			continue
+		}
+		refused = true
+		if ephemeral.thread != cfg.Slack.Operators[0] || ephemeral.channel != "COPS" {
+			t.Errorf("refusal went to %q in %q", ephemeral.thread, ephemeral.channel)
+		}
+	}
+	if !refused {
+		t.Fatalf("the refusal reached nobody: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
+	}
+}
+
 // A control that changed nothing answers the person who pressed it.
 //
 // "Nothing was stopped. No agent turn is currently running." went to the whole
