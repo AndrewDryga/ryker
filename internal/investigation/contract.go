@@ -289,6 +289,85 @@ func (contract InvestigationContract) RequiredLayers() []string {
 	return result
 }
 
+func (contract InvestigationContract) RequiredClaimIDs() []string {
+	result := make([]string, 0, len(contract.Claims))
+	for _, claim := range contract.Claims {
+		if claim.Required {
+			result = append(result, claim.ID)
+		}
+	}
+	return result
+}
+
+// ResolveClaimID maps a model-authored claim id onto the exact required claim
+// it can only be naming, and refuses everything else.
+//
+// Compile builds exactly one required claim per required coverage layer, so
+// within a single contract a required claim owns its layer name and its own
+// dotted namespace outright. "task", "task.completion" and "task.current_state"
+// can only be about task.requested_outcome, because that is the only required
+// claim in scope carrying that layer or that prefix. Binding them to it does
+// not let evidence answer a question it was never scoped to, which is what the
+// exact-id rule protects: there is no second question in scope for it to be
+// answering.
+//
+// This is not politeness. Three consecutive real regression runs each invented
+// a different spelling in that one namespace and lost an otherwise complete,
+// correct investigation to it — a validated runbook draft with the right
+// source, the right observation and the right coverage layer, discarded over
+// the word after the dot. The rejection cost a whole correction turn and, three
+// corrections later, the model still had not guessed the exact string out of a
+// serialized contract.
+//
+// Ambiguity is still refused, and so is a namespace the contract does not
+// require: the guarantee is that the contract leaves no room for doubt, not
+// that near-misses are forgiven.
+func (contract InvestigationContract) ResolveClaimID(candidate string) (string, bool) {
+	candidate = strings.ToLower(strings.TrimSpace(candidate))
+	if candidate == "" {
+		return "", false
+	}
+	for _, requirement := range contract.Claims {
+		if requirement.Required && strings.ToLower(requirement.ID) == candidate {
+			return requirement.ID, true
+		}
+	}
+	matched := ""
+	for _, requirement := range contract.Claims {
+		if !requirement.Required {
+			continue
+		}
+		if claimNamespace(candidate) != strings.ToLower(requirement.Layer) &&
+			claimNamespace(candidate) != claimNamespace(strings.ToLower(requirement.ID)) {
+			continue
+		}
+		if matched != "" && matched != requirement.ID {
+			return "", false
+		}
+		matched = requirement.ID
+	}
+	return matched, matched != ""
+}
+
+// claimIDsAnswer reports whether any of these model-authored claim ids resolves
+// to the required claim. Coverage carries a list, and one entry naming the
+// claim unambiguously is what the host needs to know the layer was answered.
+func (contract InvestigationContract) claimIDsAnswer(ids []string, requirementID string) bool {
+	for _, id := range ids {
+		if resolved, ok := contract.ResolveClaimID(id); ok && resolved == requirementID {
+			return true
+		}
+	}
+	return false
+}
+
+func claimNamespace(value string) string {
+	if index := strings.IndexByte(value, '.'); index >= 0 {
+		return value[:index]
+	}
+	return value
+}
+
 func (contract InvestigationContract) Prompt() string {
 	data, err := json.Marshal(contract)
 	if err != nil {

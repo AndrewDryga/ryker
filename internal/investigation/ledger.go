@@ -61,7 +61,9 @@ func BuildLedger(contract InvestigationContract, evidence []core.Evidence, cover
 			view.State = ClaimNotApplicable
 		}
 		for _, item := range evidence {
-			if item.ClaimID != requirement.ID && !contains(coverageItem.ClaimIDs, item.ClaimID) {
+			resolved, resolvable := contract.ResolveClaimID(item.ClaimID)
+			if (!resolvable || resolved != requirement.ID) &&
+				!contains(coverageItem.ClaimIDs, item.ClaimID) {
 				continue
 			}
 			stale := observationTime(item.ObservedAt, item.CreatedAt).Before(
@@ -174,7 +176,12 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 					if detail != "" {
 						detail += "; "
 					}
-					detail += "missing dimensions: " + strings.Join(view.MissingDimensions, ", ")
+					// Named as keys of the evidence payload, because "missing
+					// dimensions: artifact, revision" was read three corrections
+					// running as a remark about scope rather than as the two
+					// object keys the host is waiting for.
+					detail += "no evidence carries the dimensions keys: " +
+						strings.Join(view.MissingDimensions, ", ")
 				}
 				missing = append(missing, requirement.ID+" ("+detail+")")
 			} else if !view.Resolved {
