@@ -163,7 +163,7 @@ header {
 .crumb a { color: var(--faint); }
 .crumb a:hover { color: var(--accent); }
 
-h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.01em; line-height: 1.3; }
+h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: 0; line-height: 1.3; }
 
 /* Every page states the question it answers. A section that cannot say what
    it is for is usually one that should not exist. */
@@ -525,3 +525,327 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .unwired p { margin: 0; }
 
 .note { color: var(--dim); font-size: 13px; max-width: 92ch; }
+
+/* Episode execution trace -------------------------------------------------------
+
+   An episode is not a collection of reports. It is one execution story. The
+   summary answers "how did it go?" and the rail answers "what happened, in
+   order, and why?". Full records stay native <details> disclosures so the page
+   remains useful with JavaScript disabled. */
+
+.episode-hero {
+  display: grid;
+  grid-template-columns: minmax(150px, .7fr) minmax(360px, 2.2fr) auto;
+  gap: 22px;
+  align-items: start;
+  padding: 20px 0 22px;
+  margin: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.episode-identity { min-width: 0; }
+
+.episode-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font: 600 12px/1.4 var(--mono);
+  text-transform: uppercase;
+}
+
+.episode-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+  box-shadow: 0 0 0 4px rgb(113 113 122 / .09);
+}
+
+.episode-state[data-state="completed"] .episode-state-dot { background: var(--good); box-shadow: 0 0 0 4px rgb(54 230 165 / .09); }
+.episode-state[data-state="failed"] .episode-state-dot { background: var(--bad); box-shadow: 0 0 0 4px rgb(251 113 133 / .09); }
+.episode-state[data-state="blocked"] .episode-state-dot,
+.episode-state[data-state="waiting_operator"] .episode-state-dot,
+.episode-state[data-state="waiting_approval"] .episode-state-dot { background: var(--warn); box-shadow: 0 0 0 4px rgb(251 191 36 / .09); }
+
+.episode-id {
+  margin-top: 9px;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+
+.episode-summary { min-width: 0; }
+.episode-context { color: var(--faint); font: 12px/1.5 var(--mono); }
+.episode-context span { color: #52525b; padding: 0 5px; }
+.episode-status { margin-top: 7px; color: var(--ink); font-size: 17px; line-height: 1.45; max-width: 68ch; }
+.episode-next { display: flex; gap: 9px; margin-top: 10px; color: var(--ink-2); max-width: 76ch; }
+.episode-next > span {
+  color: var(--accent);
+  font: 600 10.5px/1.9 var(--mono);
+  text-transform: uppercase;
+  flex: none;
+}
+
+.episode-actions { align-self: center; }
+
+.episode-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+
+.episode-metric {
+  min-height: 126px;
+  padding: 15px 17px;
+  background: var(--panel);
+  border-top: 2px solid transparent;
+}
+
+.episode-metric.tone-good { border-top-color: var(--good); }
+.episode-metric.tone-warn { border-top-color: var(--warn); }
+.episode-metric.tone-bad { border-top-color: var(--bad); }
+.episode-metric.is-missing { border-top-color: #52525b; }
+.episode-metric-label { color: var(--faint); font-size: 11px; font-weight: 650; text-transform: uppercase; }
+.episode-metric-value {
+  margin-top: 4px;
+  color: var(--ink);
+  font: 650 24px/1.3 var(--mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.episode-metric.tone-good .episode-metric-value { color: var(--good); }
+.episode-metric.tone-warn .episode-metric-value { color: var(--warn); }
+.episode-metric.tone-bad .episode-metric-value { color: var(--bad); }
+.episode-metric.is-missing .episode-metric-value { color: var(--dim); font-size: 19px; }
+.episode-metric-detail { margin-top: 6px; color: var(--dim); font-size: 12px; line-height: 1.45; max-width: 34ch; }
+
+.trace-shell { margin-top: 34px; }
+
+.trace-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 28px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.trace-heading h2 {
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1.3;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.trace-eyebrow { color: var(--accent); font: 600 10.5px/1.5 var(--mono); text-transform: uppercase; }
+.trace-lede { margin-top: 4px; color: var(--dim); max-width: 68ch; }
+
+.trace-summary { display: flex; justify-content: flex-end; gap: 18px; flex-wrap: wrap; }
+.trace-summary span { display: grid; gap: 1px; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+.trace-summary strong { color: var(--ink-2); font: 600 15px/1.2 var(--mono); }
+
+.trace-boundary {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+  margin: 14px 0 24px 48px;
+  padding: 10px 13px;
+  border-left: 2px solid #52525b;
+  color: var(--dim);
+  font-size: 12.5px;
+}
+.trace-boundary strong { color: var(--ink-2); font-weight: 600; }
+
+.trace-list { position: relative; padding-bottom: 20px; }
+.trace-list::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  bottom: 22px;
+  left: 21px;
+  width: 1px;
+  background: var(--line);
+}
+
+.trace-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 43px minmax(0, 1fr);
+  gap: 14px;
+  padding: 0 0 15px;
+}
+
+.trace-marker {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 17px;
+}
+.trace-marker span {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 23px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--faint);
+  font: 600 10px/1 var(--mono);
+}
+
+.trace-step[data-stage="Input"] .trace-marker span,
+.trace-step[data-stage="Context"] .trace-marker span { border-color: rgb(96 165 250 / .45); color: #93c5fd; }
+.trace-step[data-stage="Result"] .trace-marker span,
+.trace-step[data-stage="Delivery"] .trace-marker span,
+.trace-step[data-state="completed"] .trace-marker span,
+.trace-step[data-state="sent"] .trace-marker span { border-color: rgb(54 230 165 / .45); color: var(--good); }
+.trace-step[data-stage="Validation"] .trace-marker span,
+.trace-step[data-state="blocked"] .trace-marker span { border-color: rgb(251 191 36 / .5); color: var(--warn); }
+.trace-step[data-state="failed"] .trace-marker span,
+.trace-step[data-state="rejected"] .trace-marker span { border-color: rgb(251 113 133 / .5); color: var(--bad); }
+
+.trace-step-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.trace-step-card > h3,
+.trace-step-card > .trace-step-summary,
+.trace-step-card > .trace-why,
+.trace-step-card > .trace-step-stats { margin-left: 18px; margin-right: 18px; }
+
+.trace-step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0;
+  padding: 11px 18px 9px;
+  border-bottom: 1px solid var(--line-2);
+}
+
+.trace-step-kicker { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.trace-stage { color: var(--accent); font: 650 10.5px/1.4 var(--mono); text-transform: uppercase; }
+.trace-actor, .trace-step-state { color: var(--faint); font: 11px/1.4 var(--mono); }
+.trace-step-state::before { content: "·"; margin-right: 8px; color: #52525b; }
+
+.trace-time { display: flex; align-items: center; justify-content: flex-end; gap: 9px; color: var(--faint); font: 10.5px/1.4 var(--mono); white-space: nowrap; }
+.trace-time strong { color: var(--ink-2); font-weight: 600; }
+.trace-time span + span::before { content: "·"; margin-right: 9px; color: #52525b; }
+
+.trace-step-card h3 { margin-top: 15px; color: var(--ink); font-size: 16px; line-height: 1.35; }
+.trace-step-summary { margin-top: 5px; color: var(--ink-2); font-size: 14px; line-height: 1.55; max-width: 92ch; overflow-wrap: anywhere; }
+
+.trace-why {
+  display: grid;
+  grid-template-columns: 35px minmax(0, 1fr);
+  gap: 9px;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-left: 2px solid #3f3f46;
+  background: #161619;
+}
+.trace-why > span { color: var(--accent); font: 650 10px/1.7 var(--mono); text-transform: uppercase; }
+.trace-why p { color: var(--dim); font-size: 12.5px; line-height: 1.55; }
+
+.trace-step-stats {
+  display: flex;
+  gap: 20px;
+  margin-top: 13px;
+  padding-bottom: 14px;
+  overflow-x: auto;
+}
+.trace-step-stats span { display: grid; gap: 1px; min-width: 84px; }
+.trace-step-stats small { color: var(--faint); font-size: 9.5px; text-transform: uppercase; }
+.trace-step-stats strong { color: var(--ink-2); font: 500 11.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+
+.trace-details { border-top: 1px solid var(--line-2); }
+.trace-detail { border-bottom: 1px solid var(--line-2); }
+.trace-detail:last-child { border-bottom: 0; }
+.trace-detail > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 39px;
+  padding: 8px 18px;
+  color: var(--ink-2);
+  cursor: pointer;
+  list-style: none;
+  font-size: 12.5px;
+}
+.trace-detail > summary::-webkit-details-marker { display: none; }
+.trace-detail > summary:hover { background: var(--panel-2); }
+.trace-detail[open] > summary { background: #161619; color: var(--ink); }
+.trace-disclosure { color: var(--faint); font: 10px/1 var(--mono); text-transform: uppercase; white-space: nowrap; }
+.trace-detail[open] .trace-disclosure::before { content: "Hide · "; }
+.trace-detail:not([open]) .trace-disclosure::before { content: "Open · "; }
+.trace-detail pre {
+  margin: 0;
+  padding: 14px 18px 17px;
+  overflow: auto;
+  border-top: 1px solid var(--line-2);
+  background: #0e0e11;
+  color: var(--ink-2);
+  font: 11.5px/1.65 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 680px;
+}
+.trace-detail.kind-prompt pre { color: #e4e4e7; max-height: 820px; }
+.trace-detail.kind-missing pre { color: var(--warn); }
+.trace-detail.kind-error pre { color: var(--bad); }
+.trace-detail.kind-diff pre { color: #bbf7d0; }
+
+@media (max-width: 900px) {
+  body { display: block; }
+  .sidebar { position: static; width: auto; height: auto; padding: 10px 0; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar .brand { padding: 2px 14px 9px; }
+  .sidebar ul { display: flex; overflow-x: auto; }
+  .sidebar a { padding: 6px 12px; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .sidebar a.on { border-bottom-color: var(--accent); }
+  .sidebar .foot { display: none; }
+  main { max-width: none; padding: 18px 20px 60px; }
+  .episode-hero { grid-template-columns: 150px minmax(0, 1fr); }
+  .episode-actions { grid-column: 1 / -1; }
+  .episode-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trace-heading { align-items: start; flex-direction: column; }
+  .trace-summary { justify-content: flex-start; }
+}
+
+@media (max-width: 620px) {
+  main { padding: 14px 14px 48px; }
+  main > header { display: block; }
+  main > header .status { margin-top: 10px; flex-wrap: wrap; white-space: normal; }
+  .episode-hero { grid-template-columns: 1fr; gap: 13px; padding-top: 15px; }
+  .episode-actions { grid-column: auto; }
+  .episode-metrics { grid-template-columns: 1fr; }
+  .episode-metric { min-height: 0; }
+  .trace-boundary { grid-template-columns: 1fr; gap: 4px; margin-left: 0; }
+  .trace-list::before { left: 15px; }
+  .trace-step { grid-template-columns: 30px minmax(0, 1fr); gap: 8px; }
+  .trace-marker { padding-top: 16px; }
+  .trace-marker span { width: 26px; font-size: 9px; }
+  .trace-step-header { align-items: start; flex-direction: column; padding: 10px 13px 8px; }
+  .trace-time { justify-content: flex-start; flex-wrap: wrap; white-space: normal; }
+  .trace-step-card > h3,
+  .trace-step-card > .trace-step-summary,
+  .trace-step-card > .trace-why,
+  .trace-step-card > .trace-step-stats { margin-left: 13px; margin-right: 13px; }
+  .trace-why { grid-template-columns: 1fr; gap: 2px; }
+  .trace-step-stats { gap: 14px; }
+  .trace-detail > summary { padding: 8px 13px; }
+  .trace-disclosure { display: none; }
+  .trace-detail pre { padding: 12px 13px 15px; }
+}

@@ -70,6 +70,7 @@ func (s *Service) ensureAttemptContextManifest(
 		Provider:        provider,
 		Model:           model,
 		ReasoningEffort: effort,
+		SubmittedPrompt: prompt,
 		Omissions:       core.ContextOmissionReasons(omissions),
 		References: []core.ContextReference{
 			contextReference("source_input", run.SourceKind+":"+run.SourceID, nil, "eligible", map[string]string{

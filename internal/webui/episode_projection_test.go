@@ -29,6 +29,7 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	stamp := time.Date(2026, 8, 10, 8, 14, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	delivered := time.Date(2026, 8, 10, 8, 14, 47, 900_000_000, time.UTC).Format(time.RFC3339Nano)
 	expires := time.Date(2026, 9, 9, 8, 14, 0, 0, time.UTC).Format(time.RFC3339Nano)
 	result := `{
 	  "action":"reply",
@@ -91,17 +92,17 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 		stamp, stamp, stamp)
 	exec(`INSERT INTO context_manifests
 	  (id, episode_id, attempt_id, version, provider, model, reasoning_effort,
-	   prompt_version, contract_version, tool_schema_version, preset, created_at)
+	   prompt_version, contract_version, tool_schema_version, preset, submitted_prompt, created_at)
 	  VALUES ('manifest-1','episode-1','attempt-1',1,'claude','opus','high',
 	          'responder-prompt-v2','investigation-contract-v1','result-operations-v2',
-	          'emisar-conversation',?)`, stamp)
+	          'emisar-conversation','SYSTEM: Keep durable settings typed.\n\nUSER: remember these settings',?)`, stamp)
 	exec(`INSERT INTO slack_deliveries
 	  (id, operation, kind, channel_id, thread_ts, message_ts, body_json, state,
 	   failure_count, next_attempt_at, created_at, updated_at, episode_id)
 	  VALUES ('delivery-1','post','reply','C1','1786344951.427829','1786349687.887489',
 	          ?, 'sent',0,?,?,?,'episode-1')`,
 		`{"text":"Got it. Plan summaries will show material changes as before → after."}`,
-		stamp, stamp, stamp)
+		stamp, stamp, delivered)
 	// A confirmed rule belongs to a later confirmation input, but carries the
 	// original event id as source_ref. That is how it remains attributable to
 	// the episode that proposed it.
@@ -121,19 +122,35 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 
 	body := servePage(t, reader, "/episodes/episode-1")
 	for _, expected := range []string{
-		`answered by <span class="who">opus/high</span>`,
-		"Response outcome",
+		"Execution trace",
+		"Message received",
+		"remember these settings",
+		"Model selected",
+		"claude opus",
+		"Reasoning</small><strong>high",
+		"Prompt assembled",
+		"SYSTEM: Keep durable settings typed.",
+		"USER: remember these settings",
+		"Time to respond",
+		"47.9s",
+		"Time to react",
+		"Not recorded",
+		"Errors",
+		"Model result received",
+		"Host-visible decision rationale",
+		"The operator set two presentation preferences.",
+		"Raw model result received by Responder",
+		"Provider transcript boundary",
 		"Got it. Plan summaries will show material changes as before → after",
 		"Slack post",
-		"message 1786349687.887489",
-		`Side effects <span class="note">3</span>`,
+		"1786349687.887489",
+		"<strong>3</strong>Side effects",
 		"Terraform plan change summaries",
-		"Before",
+		"Before:",
 		"Show the changed container version.",
-		"After",
+		"After:",
 		"Show material changes as before-and-after values",
 		"Terraform resource drift reporting",
-		"Saved value",
 		"Do not mention resource drift",
 		"terraform_plan → review_terraform_plan",
 		"rule-1",
@@ -145,8 +162,8 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 	if strings.Contains(body, "{Not recorded for this attempt") {
 		t.Errorf("episode header rendered the diagnostic struct instead of the recorded model: %s", body)
 	}
-	if strings.Count(body, "Terraform plan change summaries") != 1 {
-		t.Errorf("episode page duplicated inferred and confirmed memory effects: %s", body)
+	if strings.Count(body, `id="effect-1"`) != 1 {
+		t.Errorf("episode page duplicated the persisted memory effect: %s", body)
 	}
 }
 

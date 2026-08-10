@@ -1032,6 +1032,7 @@ type ContextManifest struct {
 	Provider          string
 	Model             string
 	ReasoningEffort   string
+	SubmittedPrompt   string
 	Omissions         []string
 	CreatedAt         time.Time
 	References        []ContextReference

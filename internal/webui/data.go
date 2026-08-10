@@ -309,6 +309,7 @@ type Event struct {
 	Kind    string
 	Actor   string
 	Detail  string
+	Payload string
 	At      time.Time
 	Elapsed string
 	Attempt int
@@ -341,6 +342,7 @@ func (r *Reader) Events(ctx context.Context, episodeID string) ([]Event, error) 
 		}
 		event.At = parseStamp(at)
 		event.Detail = summarizePayload(event.Kind, payload)
+		event.Payload = prettyJSON(payload)
 		// Where the time went. Six minutes between two rows is the interesting
 		// part of a timeline and was invisible when every row showed only a
 		// wall-clock stamp.
@@ -359,6 +361,22 @@ func (r *Reader) Events(ctx context.Context, episodeID string) ([]Event, error) 
 		events = append(events, event)
 	}
 	return collapseEvents(events), rows.Err()
+}
+
+func prettyJSON(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	var decoded any
+	if json.Unmarshal([]byte(trimmed), &decoded) != nil {
+		return trimmed
+	}
+	formatted, err := json.MarshalIndent(decoded, "", "  ")
+	if err != nil {
+		return trimmed
+	}
+	return string(formatted)
 }
 
 // summarizePayload says what an event actually was.

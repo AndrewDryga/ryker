@@ -636,17 +636,12 @@ func (s *Store) Prune(
 		operational); err != nil {
 		return result, err
 	}
-	// What is left is the assembled prompt input on runs that are over: 9.7 MB
-	// of the 11.9 MB agent_runs occupies on the deployed database, averaging
-	// 23.6 KB a row. Emptying the blob rather than deleting the row is the whole
-	// point — the row is the episode's transport record and its attempt history
-	// hangs off it, so deleting it would take the account of the work with it,
-	// while the assembled context is the one part that is genuinely spent.
+	// What is left is the large assembled prompt on finished runs. Empty the blob
+	// rather than the row: the row and its attempt history are the durable account
+	// of the work, while the assembled input is genuinely spent.
 	//
-	// It expires on the operational horizon because that is what it is: channel
-	// memory, recent messages and matched rules, gathered to run one turn.
-	// architecture-next §29 draws exactly this line — message bodies expire
-	// before the episode events do.
+	// It expires on the operational horizon: message bodies expire before the
+	// durable episode events that describe how they were used.
 	//
 	// The exception is a turn somebody praised. Positive reactions are captured
 	// as noted feedback so a corpus of the target behaviour can be assembled from
@@ -656,12 +651,9 @@ func (s *Store) Prune(
 	// half of that pair and threw away the other, so the one kind of turn the
 	// system was collecting on purpose was the one it could least reconstruct.
 	//
-	// Praise buys the example the rest of the episode's own lifetime and not a
-	// day more. It deliberately does not join pinnedEpisode below: a pin is for
-	// something a person still has to decide, feedback rows are never pruned, and
-	// a terminal 'noted' row that pinned its episode would keep it forever for a
-	// consumer that has not been built. What this guarantees is narrower and
-	// true — for as long as a praised episode exists, it is a complete example.
+	// Praise buys the example the rest of the episode's lifetime. It does not pin
+	// the episode forever; it only keeps the example complete while the episode
+	// itself exists.
 	//
 	// Two things can still read it back, and both are excluded rather than
 	// hoped about. A wakeup resumes a non-terminal episode by copying the
@@ -672,25 +664,25 @@ func (s *Store) Prune(
 	// episode has not completed on another one. A run neither of those can
 	// reach is a run whose context nothing will ever read again.
 	if result.AgentRunContexts, err = deleteCount(`
-		UPDATE agent_runs SET context_json = X''
-		WHERE state IN `+terminalAgentRunStates+`
-		  AND updated_at < ?
-		  AND length(context_json) > 0
-		  AND NOT EXISTS (`+praisedRun+`)
+		UPDATE agent_runs SET context_json = X'' WHERE state IN `+terminalAgentRunStates+`
+		  AND updated_at < ? AND length(context_json) > 0 AND NOT EXISTS (`+praisedRun+`)
 		  AND NOT EXISTS (
-		    SELECT 1 FROM work_episodes e
-		    WHERE (e.id = agent_runs.episode_id OR e.agent_run_id = agent_runs.id)
+		    SELECT 1 FROM work_episodes e WHERE (e.id = agent_runs.episode_id OR e.agent_run_id = agent_runs.id)
 		      AND (
 		        e.lifecycle_state NOT IN `+terminalEpisodeStates+`
-		        OR (
-		          agent_runs.state = 'failed'
-		          AND agent_runs.attempt_id = e.latest_attempt_id
-		          AND e.lifecycle_state != 'completed'
-		        )
+		        OR (agent_runs.state = 'failed' AND agent_runs.attempt_id = e.latest_attempt_id
+		          AND e.lifecycle_state != 'completed')
 		      )
 		  )`,
 		operational); err != nil {
 		return result, fmt.Errorf("empty spent agent run context: %w", err)
+	}
+	// Prompt text follows agent context retention; its digest remains for audit.
+	if _, err := tx.ExecContext(ctx, `UPDATE context_manifests SET submitted_prompt = ''
+		WHERE submitted_prompt != '' AND created_at < ? AND EXISTS (SELECT 1 FROM agent_runs r
+		WHERE r.attempt_id = context_manifests.attempt_id AND r.state IN `+terminalAgentRunStates+`
+		AND length(r.context_json) = 0)`, operational); err != nil {
+		return result, fmt.Errorf("empty spent submitted prompt: %w", err)
 	}
 	if result.EvaluationDecisions, err = deleteCount(`
 		DELETE FROM evaluation_decisions WHERE created_at < ?`, operational); err != nil {

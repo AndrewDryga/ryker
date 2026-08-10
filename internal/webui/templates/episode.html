@@ -1,260 +1,108 @@
 {{define "episode"}}
 {{template "problems" .Errs}}
-<div class="panel">
-  <div class="meta">
-    <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
-    {{.Channel}} · {{.Kind}} · started {{stamp .Created}}{{with .Answered}} · answered by <span class="who">{{.}}</span>{{end}}
+
+<section class="episode-hero">
+  <div class="episode-identity">
+    <div class="episode-state" data-state="{{.State}}">
+      <span class="episode-state-dot"></span>
+      <span>{{.State}}</span>
+    </div>
+    <p class="episode-id mono">{{.ID}}</p>
   </div>
-  {{if .Status}}<p class="note">{{.Status}}</p>{{end}}
-  {{if .Next}}<p class="todo"><span class="arr">→</span> {{.Next}}</p>{{end}}
+  <div class="episode-summary">
+    <p class="episode-context">{{.Channel}} <span>·</span> {{.Kind}} <span>·</span> started {{stamp .Created}}</p>
+    {{if .Status}}<p class="episode-status">{{.Status}}</p>{{end}}
+    {{if .Next}}<p class="episode-next"><span>Next</span>{{.Next}}</p>{{end}}
+  </div>
   {{if and .CanAct .Resolvable}}
-  <div class="acts">
-    {{template "confirm" confirm "Resolve as overtaken" "The episode closes as cancelled — overtaken by events. Nothing is deleted: the lifecycle event and the audit row record who decided." "Yes, resolve it" "/actions/episodes/resolve" .ID}}
-  </div>
-  <p class="note">For work parked on a person, an approval, or an external event whose moment has
-  passed. The transition goes through the episode kernel, so an episode that has moved on since
-  this page loaded refuses it.</p>
-  {{end}}
-</div>
-
-{{with .Turn}}
-<h2>Response outcome</h2>
-{{if .RunID}}
-<div class="panel">
-  <div class="meta"><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "completed"}} good{{end}}">{{if .State}}{{.State}}{{else}}no terminal state{{end}}</span>
-    {{.Mode}}{{if .Attention}} · {{.Attention}}{{end}}</div>
-  {{if .Action}}<p><strong>{{.Action}}.</strong> {{.Reason}}</p>{{end}}
-  {{if .Message}}<p>{{.Message}}</p>{{end}}
-  {{range .Followups}}<p>{{.}}</p>{{end}}
-  {{if .Reaction}}<p class="meta">Reaction: <span class="mono">:{{.Reaction}}:</span></p>{{end}}
-  {{with .Completion}}
-  {{if .Status}}<div class="meta"><span class="pill{{if eq .Status "complete"}} good{{else if eq .Status "blocked"}} warn{{end}}">{{.Status}}</span>{{if .Verdict}} · {{.Verdict}}{{end}}</div>{{end}}
-  {{if .Summary}}<p>{{.Summary}}</p>{{end}}
-  {{if .Blocker}}<p class="todo"><span class="arr">→</span> {{.Blocker}}{{if .Next}} · Next: {{.Next}}{{end}}</p>{{end}}
-  {{if .Gaps}}<ul>{{range .Gaps}}<li>{{.}}</li>{{end}}</ul>{{end}}
-  {{end}}
-  {{if .Unreadable}}<p class="todo"><span class="arr">→</span> The host could not read this answer: {{.Unreadable}}</p>{{end}}
-  {{if .Error}}<p class="todo"><span class="arr">→</span> {{.Error}}</p>{{end}}
-  {{if .Operations}}<div class="meta">
-    {{range .Operations}}<span class="pill">{{.Name}} ×{{.Count}}</span> {{end}}
-  </div>{{end}}
-</div>
-{{if $.Delivered}}
-<div class="rows">
-  {{range $.Delivered}}
-  <div class="row">
-    <div class="title"><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "sent"}} good{{end}}">{{.State}}</span> Slack {{.Operation}}</div>
-    <div class="meta">{{.Channel}}{{if .ThreadTS}} · thread {{.ThreadTS}}{{end}}{{if .MessageTS}} · message {{.MessageTS}}{{end}}{{if .Retries}} · {{.Retries}} retries{{end}}</div>
-    {{if .Error}}<div class="meta">{{.Error}}</div>{{end}}
+  <div class="episode-actions">
+    {{template "confirm" confirm "Resolve as overtaken" "Close this episode because events have moved on. Its history and audit trail remain." "Resolve episode" "/actions/episodes/resolve" .ID}}
   </div>
   {{end}}
-</div>
-{{end}}
-{{if .Prose}}<pre class="dump">{{.Prose}}</pre>{{end}}
-{{if .Prompt}}
-<h2>The prompt</h2>
-<pre class="dump">{{.Prompt}}</pre>
-{{else if .PromptDigest}}
-<p class="note">The prompt is recorded as sha256 <span class="mono">{{truncate 16 .PromptDigest}}</span>
-and the text is not retained. Only the engineering-task path keeps it, so the compiled prompt for a
-watch can be compared between attempts but not read back.</p>
-{{end}}
-{{if .Rejections}}
-<h2>Answers the host refused</h2>
-<div class="rows">
-  {{range .Rejections}}
-  <div class="row">
-    <div class="title"><span class="pill bad">{{.Outcome}}</span></div>
-    <div class="meta">{{.Detail}}</div>
-    <div class="meta">{{stamp .At}}</div>
+</section>
+
+<section class="episode-metrics" aria-label="Episode metrics">
+  {{range .Trace.Metrics}}
+  <article class="episode-metric{{if .Tone}} tone-{{.Tone}}{{end}}{{if .Missing}} is-missing{{end}}">
+    <p class="episode-metric-label">{{.Label}}</p>
+    <p class="episode-metric-value">{{.Value}}</p>
+    <p class="episode-metric-detail">{{.Detail}}</p>
+  </article>
+  {{end}}
+</section>
+
+<section class="trace-shell">
+  <div class="trace-heading">
+    <div>
+      <p class="trace-eyebrow">Durable execution record</p>
+      <h2>Execution trace</h2>
+      <p class="trace-lede">One ordered account of what Responder received, selected, submitted, validated, changed, and delivered.</p>
+    </div>
+    <div class="trace-summary" aria-label="Trace summary">
+      {{range .Trace.Stats}}
+      <span><strong>{{.Value}}</strong>{{.Label}}</span>
+      {{end}}
+    </div>
   </div>
-  {{end}}
-</div>
-{{end}}
-{{else}}<p class="empty">No agent run is on record for this episode.</p>{{end}}
-{{end}}
 
-<h2>Side effects <span class="note">{{len .Effects}}</span></h2>
-{{if .Effects}}
-<div class="rows">
-  {{range .Effects}}
-  <div class="row">
-    <div class="title"><span class="pill{{if or (eq .State "saved") (eq .State "updated")}} good{{else if eq .State "removed"}} bad{{else if eq .State "waiting"}} warn{{end}}">{{.State}}</span> {{.Title}}</div>
-    <div class="meta">{{.Kind}}{{if .ID}} · <span class="mono">{{.ID}}</span>{{end}}{{if not .At.IsZero}} · {{stamp .At}}{{end}}</div>
-    {{if and .Before .After}}
-      <div class="memory-diff"><span class="meta">Before</span><div class="memory-value">{{.Before}}</div><span class="meta">After</span><div class="memory-value">{{.After}}</div></div>
-    {{else if .After}}
-      <div class="memory-diff"><span class="meta">Saved value</span><div class="memory-value">{{.After}}</div></div>
-    {{else if .Before}}
-      <div class="memory-diff"><span class="meta">Removed value</span><div class="memory-value">{{.Before}}</div></div>
-    {{else if .Detail}}<div>{{.Detail}}</div>{{end}}
-    {{if and .Detail (or .Before .After)}}<div class="meta">{{.Detail}}</div>{{end}}
+  <aside class="trace-boundary">
+    <strong>What this trace can explain</strong>
+    <span>It shows persisted inputs, prompt components, public results, host decisions, side effects, delivery, timing, and cost. It never fabricates private chain-of-thought or provider events that Coop did not return.</span>
+  </aside>
+
+  {{if .Trace.Steps}}
+  <div class="trace-list">
+    {{range $index, $step := .Trace.Steps}}
+    <article class="trace-step" id="{{$step.ID}}" data-stage="{{$step.Stage}}" data-state="{{$step.State}}">
+      <div class="trace-marker" aria-hidden="true"><span>{{printf "%02d" (add1 $index)}}</span></div>
+      <div class="trace-step-card">
+        <header class="trace-step-header">
+          <div class="trace-step-kicker">
+            <span class="trace-stage">{{$step.Stage}}</span>
+            <span class="trace-actor">{{$step.Actor}}</span>
+            {{if $step.State}}<span class="trace-step-state">{{$step.State}}</span>{{end}}
+          </div>
+          <div class="trace-time">
+            {{if $step.Relative}}<strong>{{$step.Relative}}</strong>{{end}}
+            {{if not $step.At.IsZero}}<span>{{stamp $step.At}}</span>{{end}}
+            {{if $step.Duration}}<span>{{$step.Duration}}</span>{{end}}
+          </div>
+        </header>
+
+        <h3>{{$step.Title}}</h3>
+        {{if $step.Summary}}<p class="trace-step-summary">{{$step.Summary}}</p>{{end}}
+
+        {{if $step.Why}}
+        <div class="trace-why">
+          <span>Why</span>
+          <p>{{$step.Why}}</p>
+        </div>
+        {{end}}
+
+        {{if $step.Stats}}
+        <div class="trace-step-stats">
+          {{range $step.Stats}}
+          <span><small>{{.Label}}</small><strong>{{.Value}}</strong></span>
+          {{end}}
+        </div>
+        {{end}}
+
+        {{if $step.Details}}
+        <div class="trace-details">
+          {{range $step.Details}}
+          <details class="trace-detail kind-{{.Kind}}" {{if .Open}}open{{end}}>
+            <summary><span>{{.Label}}</span><span class="trace-disclosure">View full record</span></summary>
+            <pre>{{.Body}}</pre>
+          </details>
+          {{end}}
+        </div>
+        {{end}}
+      </div>
+    </article>
+    {{end}}
   </div>
+  {{else}}
+  <p class="empty">No durable trace steps were recorded for this episode.</p>
   {{end}}
-</div>
-{{else}}<p class="empty">No memory, preference, standing rule, schedule, approval, publication, visual, or child work was created or proposed.</p>{{end}}
-
-<h2>Timeline <span class="note">{{len .Events}} events</span></h2>
-{{if .Events}}
-<div class="timeline">
-  {{range .Events}}
-  <div class="ev a-{{.Actor}}{{if eq .Kind "episode_reopened"}} reopen{{end}}">
-    {{if .Detail}}<div class="what">{{truncate 300 .Detail}}</div>{{end}}
-    <div class="when"><span class="k">{{.Kind}}</span>{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}} · {{stamp .At}} · {{.Actor}}{{if .Elapsed}} · <span class="gap">{{.Elapsed}}</span>{{end}}{{if gt .Attempt 1}} · <span class="att">attempt {{.Attempt}}</span>{{end}}</div>
-  </div>
-  {{end}}
-</div>
-{{else}}<p class="empty">No events recorded for this episode.</p>{{end}}
-
-<h2>Claims <span class="note">{{len .Claims}}</span></h2>
-{{if .Claims}}
-<table>
-  <tr><th>Claim</th><th>Verdict</th><th class="num">For</th><th class="num">Against</th><th>What settled it</th></tr>
-  {{range .Claims}}
-  <tr><td class="mono">{{.Claim}}</td>
-      <td><span class="pill{{if eq .Status "supported"}} good{{else if eq .Status "contradicted"}} bad{{else if eq .Status "mixed"}} warn{{end}}">{{.Status}}</span>{{if .Confidence}} <span class="note">{{.Confidence}}</span>{{end}}</td>
-      <td class="mono num">{{.Supporting}}</td><td class="mono num">{{.Contradicting}}</td>
-      <td>{{truncate 320 .Detail}}</td></tr>
-  {{end}}
-</table>
-{{else}}<p class="empty">No claim was assessed. A conversational reply settles nothing and records
-nothing here; an investigation that reached a verdict would.</p>{{end}}
-
-<h2>Evidence <span class="note">{{len .Evidence}}</span></h2>
-{{if .Evidence}}
-<table>
-  <tr><th>Claim</th><th>Observation</th><th>Relation</th><th>Source</th><th>Freshness</th><th>Confidence</th></tr>
-  {{range .Evidence}}
-  <tr><td>{{if .ClaimID}}<span class="mono">{{.ClaimID}}</span><br>{{end}}{{truncate 90 .Claim}}</td>
-      <td>{{truncate 240 .Observation}}</td>
-      <td><span class="pill{{if eq .Relation "contradicts"}} bad{{end}}">{{.Relation}}</span></td>
-      <td class="mono">{{.Source}}</td><td class="note">{{truncate 60 .Freshness}}</td>
-      <td>{{.Confidence}}</td></tr>
-  {{end}}
-</table>
-{{else}}<p class="empty">No evidence was recorded.</p>{{end}}
-
-<h2>Coverage <span class="note">{{len .Coverage}} layers</span></h2>
-{{if .Coverage}}
-<table>
-  <tr><th>Layer</th><th>Status</th><th>Source</th><th>Detail</th><th>Observed</th></tr>
-  {{range .Coverage}}
-  <tr><td>{{.Layer}}</td>
-      <td><span class="pill{{if eq .Status "healthy"}} good{{else if eq .Status "unhealthy"}} bad{{else if eq .Status "degraded"}} warn{{end}}">{{.Status}}</span></td>
-      <td class="note">{{truncate 60 .Source}}</td><td>{{truncate 320 .Detail}}</td>
-      <td class="note">{{since .Observed}}</td></tr>
-  {{end}}
-</table>
-{{else}}<p class="empty">No layer was assessed. Coverage is what separates "checked and healthy"
-from "nobody looked", so an answer with none behind it rests on the model alone.</p>{{end}}
-
-<h2>What was in the prompt</h2>
-{{with .Manifest}}
-{{if .Version}}
-<table>
-  <tr><th>Prompt</th><th>Contract</th><th>Tools</th><th>Policy</th><th>Manifest</th><th>Frozen</th></tr>
-  <tr><td class="mono">{{.PromptVersion}}</td><td class="mono">{{.Contract}}</td>
-      <td class="mono">{{.ToolSchema}}</td><td class="mono">{{.Preset}}</td>
-      <td class="mono">v{{.Version}}</td><td class="note">{{stamp .Created}}</td></tr>
-</table>
-{{end}}
-<table>
-  <tr><th>Provider</th><th>Model</th><th>Reasoning effort</th></tr>
-  <tr><td>{{if .Provider}}{{.Provider}}{{else}}<span class="note">not recorded</span>{{end}}</td>
-      <td class="mono">{{if .Model}}{{.Model}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td>{{if .Effort}}{{.Effort}}{{else}}<span class="note">—</span>{{end}}</td></tr>
-</table>
-{{if .Refs}}
-<table>
-  <tr><th>Kind</th><th>What</th><th>Visibility</th><th>Digest</th></tr>
-  {{range .Refs}}
-  <tr><td class="mono">{{.Kind}}</td>
-      <td>{{.What}}{{if .Omitted}} <span class="note">— left out: {{.Omitted}}</span>{{end}}</td>
-      <td class="note">{{.Visibility}}</td><td class="mono">{{.Digest}}</td></tr>
-  {{end}}
-</table>
-{{else}}<p class="empty">No context manifest was frozen for this episode.</p>{{end}}
-{{if .Omissions}}
-<h2>Left out</h2>
-<div class="rows">{{range .Omissions}}<div class="row">{{.}}</div>{{end}}</div>
-{{end}}
-{{end}}
-{{if .Manifest.Version}}
-{{if not .Manifest.Model}}{{template "unwired" .AnsweredGap}}{{end}}
-{{if not .Manifest.Omissions}}{{template "unwired" .Omitted}}{{end}}
-{{end}}
-
-<h2>Attempts <span class="note">{{len .Attempts}}</span></h2>
-{{if .Attempts}}
-<table>
-  <tr><th class="num">#</th><th>State</th><th>Failure class</th><th>Started</th><th>Ended</th><th>Error</th></tr>
-  {{range .Attempts}}
-  <tr><td class="mono num">{{.Number}}</td>
-      <td><span class="pill{{if eq .State "failed"}} bad{{else if eq .State "succeeded"}} good{{end}}">{{.State}}</span></td>
-      <td>{{if .Failure}}{{.Failure}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="note">{{stamp .Started}}</td><td class="note">{{stamp .Completed}}</td>
-      <td>{{truncate 160 .Error}}</td></tr>
-  {{end}}
-</table>
-{{else}}<p class="empty">No attempt record. Episodes created before the attempt ledger have none.</p>{{end}}
-
-<h2>Audit trail <span class="note">{{len .Audit}}</span></h2>
-{{if .Audit}}
-<table>
-  <tr><th>What</th><th>Outcome</th><th>Actor</th><th>Detail</th><th>When</th></tr>
-  {{range .Audit}}
-  <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td>
-      <td>{{.Outcome}}{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}}</td>
-      <td class="note">{{.Whom}}</td><td>{{truncate 200 .Detail}}</td>
-      <td class="note">{{since .At}}</td></tr>
-  {{end}}
-</table>
-{{else}}<p class="empty">Nothing was audited against this episode.</p>{{end}}
-
-<h2>What this episode spent</h2>
-{{with .Spent}}
-{{if .Recorded}}
-<table>
-  <tr><th>Manifest</th><th>Provider</th><th>Model</th><th>Effort</th><th class="num">Fresh in</th>
-      <th class="num">Cached in</th><th class="num">Out</th><th class="num">Reasoning</th><th class="num">Total</th>
-      <th class="num">Wall clock</th></tr>
-  {{range .Rows}}
-  <tr><td class="mono">v{{.Version}}</td>
-      <td>{{if .Provider}}{{.Provider}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="mono">{{if .Model}}{{.Model}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td>{{if .Effort}}{{.Effort}}{{else}}<span class="note">—</span>{{end}}</td>
-      {{if .Measured}}
-      <td class="mono num">{{tokens .Input}}</td><td class="mono num">{{tokens .Cached}}</td>
-      <td class="mono num">{{tokens .Output}}</td><td class="mono num">{{tokens .Reasoning}}</td>
-      <td class="mono num" title="{{exact .Total}} tokens">{{tokens .Total}}</td>
-      {{else}}<td class="note" colspan="5">not measured</td>{{end}}
-      <td class="mono num">{{if .Clock.Recorded}}<span title="{{.Clock.Split}} · {{.Clock.TimedTurns}} timed turns">{{.Clock.Total}}</span>{{else}}<span class="note">not timed</span>{{end}}</td></tr>
-  {{end}}
-  <tr><td class="note" colspan="4">{{.Measured}} of {{.Manifests}} measured</td>
-      <td class="mono num">{{tokens .Input}}</td><td class="mono num">{{tokens .Cached}}</td>
-      <td class="mono num">{{tokens .Output}}</td><td class="mono num">{{tokens .Reasoning}}</td>
-      <td class="mono num" title="{{exact .Total}} tokens"><strong>{{tokens .Total}}</strong></td>
-      <td class="mono num">{{if .Clock.Recorded}}<strong>{{.Clock.Total}}</strong>{{end}}</td></tr>
-</table>
-<p class="note">One row per manifest, because an attempt that had its context extended froze a
-second one and the tokens are split across both. {{.CacheLabel}} of the input the model read came
-from cache. The four counts are added rather than overlapped: Coop reports cached input apart from
-fresh input and reasoning apart from output.</p>
-{{else}}{{template "unwired" $.Unmetered}}{{end}}
-{{end}}
-
-<h2>Where the time went</h2>
-{{with .Spent.Clock}}
-{{if .Recorded}}
-<div class="grid">
-  <div class="panel metric"><div class="n">{{.Total}}</div><div class="k">wall clock, {{.TimedTurns}} timed {{if eq .TimedTurns 1}}turn{{else}}turns{{end}}</div></div>
-  <div class="panel metric"><div class="n">{{.Queued}}</div><div class="k">queued — Coop holding the turn</div></div>
-  <div class="panel metric"><div class="n">{{.Provider}}</div><div class="k">provider working</div></div>
-  <div class="panel metric"><div class="n">{{.Host}}</div><div class="k">host noticing it finished</div></div>
-</div>
-<p class="note">Summed over the turns Coop timed for this episode's attempts. Queued is a busy
-session or an exhausted ladder, provider is the model working, and host is Responder's own polling
-gap. A turn that failed while still queued carries no span and is not in these totals.</p>
-{{else}}{{template "unwired" $.Latency}}{{end}}
-{{end}}
+</section>
 {{end}}

@@ -341,6 +341,8 @@ func episodesURL(filter EpisodeFilter, offset int) template.URL {
 type episodePage struct {
 	Item
 	Turn        Turn
+	Source      SourceInput
+	Trace       EpisodeTrace
 	Events      []Event
 	Claims      []ClaimRow
 	Evidence    []EvidenceRow
@@ -388,6 +390,8 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page := episodePage{Item: item, CanAct: h.CanAct(), Resolvable: resolvableState(item.State)}
 	page.Events, err = h.reader.Events(ctx, id)
 	page.Errs.note("timeline", err)
+	page.Source, err = h.reader.SourceInput(ctx, id)
+	page.Errs.note("source input", err)
 	page.Turn, err = h.reader.Turn(ctx, id)
 	page.Errs.note("the turn", err)
 	page.Claims, err = h.reader.Claims(ctx, id)
@@ -409,6 +413,7 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("audit trail", err)
 	page.Spent, err = h.reader.EpisodeTokens(ctx, id)
 	page.Errs.note("token usage", err)
+	page.Trace = buildEpisodeTrace(h.pricing, page)
 	// Both of these gaps were invisible because the page hid them. The manifest
 	// has carried provider, model and reasoning_effort since it was created and
 	// nothing assigned them until recently, so gating the whole section on the

@@ -177,7 +177,7 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 	// The copy is a current database with its version number wound back, so
 	// every column the migrations above 50 added is already present and their
 	// ADD COLUMN would fail on its own earlier success. The columns migrations
-	// 52 and 53 add go with the version, and so do the tables migrations 54-56
+	// 52, 53, and 57 add go with the version, and so do the tables migrations 54-56
 	// create, or their CREATE TABLE fails on its own earlier success — so the
 	// copy is the shape a version-50 host holds.
 	if _, err := target.Exec(`
@@ -185,6 +185,7 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		ALTER TABLE configuration_sessions DROP COLUMN card_ts;
 		ALTER TABLE standing_rules DROP COLUMN acted_count;
 		ALTER TABLE standing_rules DROP COLUMN quiet_count;
+		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		DROP TABLE quality_findings;
 		DROP TABLE conversation_memory_changes;`); err != nil {
 		t.Fatal(err)
@@ -288,6 +289,7 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 	defer db.Close()
 	if _, err := db.Exec(`
 		UPDATE schema_version SET version = 54;
+		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		DROP TABLE conversation_memory_changes;
 		CREATE TABLE action_proposals (
 		  id TEXT PRIMARY KEY,

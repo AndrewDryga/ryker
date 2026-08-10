@@ -164,6 +164,7 @@ func TestContextManifestRequiresMonotonicLineage(t *testing.T) {
 	first, err := st.CreateContextManifest(ctx, core.ContextManifest{
 		EpisodeID: episode.ID, AttemptID: attempt.ID,
 		PromptVersion: "p1", ContractVersion: "c1", ToolSchemaVersion: "t1",
+		SubmittedPrompt: "SYSTEM: bounded test prompt\n\nUSER: verify the rollout",
 		References: []core.ContextReference{{
 			Kind: "slack_message", SourceRef: "slack:COPS:1.0", ContentDigest: "sha256:a",
 			Visibility: "channel",
@@ -171,6 +172,13 @@ func TestContextManifestRequiresMonotonicLineage(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	loaded, err := st.GetContextManifest(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.SubmittedPrompt != first.SubmittedPrompt {
+		t.Fatalf("submitted prompt = %q, want %q", loaded.SubmittedPrompt, first.SubmittedPrompt)
 	}
 	_, err = st.CreateContextManifest(ctx, core.ContextManifest{
 		EpisodeID: episode.ID, AttemptID: attempt.ID, ParentManifestID: first.ID,

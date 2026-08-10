@@ -556,12 +556,12 @@ func (s *Store) CreateContextManifest(
 		INSERT INTO context_manifests (
 		  id, episode_id, attempt_id, parent_manifest_id, version,
 		  prompt_version, contract_version, tool_schema_version, preset,
-		  provider, model, reasoning_effort, omissions_json, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  provider, model, reasoning_effort, submitted_prompt, omissions_json, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		manifest.ID, manifest.EpisodeID, manifest.AttemptID, manifest.ParentManifestID,
 		manifest.Version, manifest.PromptVersion, manifest.ContractVersion,
 		manifest.ToolSchemaVersion, manifest.Preset, manifest.Provider, manifest.Model,
-		manifest.ReasoningEffort, omissions, manifest.CreatedAt.Format(timestampFormat),
+		manifest.ReasoningEffort, manifest.SubmittedPrompt, omissions, manifest.CreatedAt.Format(timestampFormat),
 	); err != nil {
 		return core.ContextManifest{}, err
 	}
@@ -679,7 +679,7 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, episode_id, attempt_id, parent_manifest_id, version,
 		       prompt_version, contract_version, tool_schema_version, preset,
-		       provider, model, reasoning_effort, omissions_json, created_at,
+		       provider, model, reasoning_effort, submitted_prompt, omissions_json, created_at,
 		       usage_input_tokens, usage_cached_input_tokens,
 		       usage_output_tokens, usage_reasoning_tokens,
 		       usage_timed_turns, usage_queued_ms, usage_provider_ms, usage_host_ms
@@ -687,7 +687,7 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 		&item.ID, &item.EpisodeID, &item.AttemptID, &item.ParentManifestID,
 		&item.Version, &item.PromptVersion, &item.ContractVersion,
 		&item.ToolSchemaVersion, &item.Preset, &item.Provider, &item.Model,
-		&item.ReasoningEffort, &omissionsJSON, &created,
+		&item.ReasoningEffort, &item.SubmittedPrompt, &omissionsJSON, &created,
 		&item.Usage.InputTokens, &item.Usage.CachedInputTokens,
 		&item.Usage.OutputTokens, &item.Usage.ReasoningTokens,
 		&item.Latency.Turns, &queuedMS, &providerMS, &hostMS,

@@ -391,8 +391,22 @@ func TestPruneEmptiesOnlySpentAgentRunContext(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer st.Close()
-		run, _ := finishKernelEpisode(t, st, "message-1", core.EpisodeCompleted, 48*time.Hour)
+		run, episode := finishKernelEpisode(t, st, "message-1", core.EpisodeCompleted, 48*time.Hour)
 		setContext(t, st, run.ID)
+		manifest, err := st.CreateContextManifest(ctx, core.ContextManifest{
+			EpisodeID: episode.ID, AttemptID: run.AttemptID,
+			PromptVersion: "p1", ContractVersion: "c1", ToolSchemaVersion: "t1",
+			SubmittedPrompt: "SYSTEM: retained only while the operational trace is live",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		aged := time.Now().UTC().Add(-48 * time.Hour).Format(timestampFormat)
+		if _, err := st.db.Exec(
+			`UPDATE context_manifests SET created_at = ? WHERE id = ?`, aged, manifest.ID,
+		); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := st.db.Exec(
 			`UPDATE agent_runs SET result_json = ? WHERE id = ?`, `{"action":"reply"}`, run.ID,
 		); err != nil {
@@ -418,6 +432,13 @@ func TestPruneEmptiesOnlySpentAgentRunContext(t *testing.T) {
 		}
 		if string(stored.Result) != `{"action":"reply"}` {
 			t.Fatalf("result = %q, want the record of what happened kept", stored.Result)
+		}
+		storedManifest, err := st.GetContextManifest(ctx, manifest.ID)
+		if err != nil {
+			t.Fatalf("the manifest was deleted rather than redacted: %v", err)
+		}
+		if storedManifest.SubmittedPrompt != "" {
+			t.Fatalf("submitted prompt = %q, want redacted with spent context", storedManifest.SubmittedPrompt)
 		}
 		// Idempotent: a second pass finds nothing left to empty.
 		second, err := st.Prune(

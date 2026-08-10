@@ -66,6 +66,8 @@ const episodeSources = `SELECT id FROM agent_runs WHERE episode_id = ?
 type Turn struct {
 	RunID, Mode, State, Error string
 	Prompt, PromptDigest      string
+	RawResult                 string
+	Created, Updated          time.Time
 	Action, Reason, Message   string
 	Reaction                  string
 	Followups                 []string
@@ -113,20 +115,23 @@ func (r *Reader) Turn(ctx context.Context, episodeID string) (Turn, error) {
 	if !r.live() {
 		return turn, nil
 	}
-	var result string
+	var created, updated string
 	err := r.db.QueryRowContext(ctx, `
 	  SELECT id, mode, COALESCE(terminal_state,''), COALESCE(last_error,''),
-	         COALESCE(prompt,''), COALESCE(CAST(result_json AS TEXT),'')
+	         COALESCE(prompt,''), COALESCE(CAST(result_json AS TEXT),''),
+	         created_at, updated_at
 	  FROM agent_runs WHERE episode_id = ?
 	  ORDER BY attempt_number DESC, created_at DESC LIMIT 1`, episodeID).
-		Scan(&turn.RunID, &turn.Mode, &turn.State, &turn.Error, &turn.Prompt, &result)
+		Scan(&turn.RunID, &turn.Mode, &turn.State, &turn.Error, &turn.Prompt,
+			&turn.RawResult, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return turn, nil
 	}
 	if err != nil {
 		return turn, err
 	}
-	turn.readResult(result)
+	turn.Created, turn.Updated = parseStamp(created), parseStamp(updated)
+	turn.readResult(turn.RawResult)
 	turn.Reason, turn.Message = r.resolveChannels(ctx, turn.Reason), r.resolveChannels(ctx, turn.Message)
 	_ = r.db.QueryRowContext(ctx, `
 	  SELECT f.content_digest FROM context_manifest_refs AS f
@@ -468,6 +473,7 @@ type ContextRef struct {
 type ManifestRow struct {
 	Provider, Model, Effort, PromptVersion string
 	Contract, ToolSchema, Preset           string
+	SubmittedPrompt                        string
 	Version                                int
 	Created                                time.Time
 	Refs                                   []ContextRef
@@ -483,12 +489,14 @@ func (r *Reader) Manifest(ctx context.Context, episodeID string) (ManifestRow, e
 	err := r.db.QueryRowContext(ctx, `
 	  SELECT id, COALESCE(provider,''), COALESCE(model,''), COALESCE(reasoning_effort,''),
 	         COALESCE(prompt_version,''), COALESCE(contract_version,''),
-	         COALESCE(tool_schema_version,''), COALESCE(preset,''), version,
+	         COALESCE(tool_schema_version,''), COALESCE(preset,''),
+	         COALESCE(submitted_prompt,''), version,
 	         COALESCE(omissions_json,'[]'), created_at
 	  FROM context_manifests WHERE episode_id = ?
 	  ORDER BY version DESC LIMIT 1`, episodeID).
 		Scan(&id, &row.Provider, &row.Model, &row.Effort, &row.PromptVersion,
-			&row.Contract, &row.ToolSchema, &row.Preset, &row.Version, &omissions, &created)
+			&row.Contract, &row.ToolSchema, &row.Preset, &row.SubmittedPrompt,
+			&row.Version, &omissions, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return row, nil
 	}
@@ -595,22 +603,64 @@ func (r *Reader) Attempts(ctx context.Context, episodeID string) ([]Attempt, err
 // never queued, not failed.
 type Delivery struct {
 	Kind, Operation, State, Channel, ThreadTS, MessageTS, Status, Error string
+	Body                                                                string
 	Retries                                                             int
-	At                                                                  time.Time
+	Created, At                                                         time.Time
 }
 
 func (r *Reader) Deliveries(ctx context.Context, episodeID string) ([]Delivery, error) {
 	return collect(ctx, r, `
 	  SELECT kind, operation, state, channel_id, COALESCE(thread_ts,''),
 	         COALESCE(message_ts,''), COALESCE(status_text,''),
-	         COALESCE(last_error,''), failure_count, updated_at
+	         COALESCE(CAST(body_json AS TEXT),''), COALESCE(last_error,''),
+	         failure_count, created_at, updated_at
 	  FROM slack_deliveries WHERE episode_id = ? ORDER BY created_at LIMIT 40`,
 		func(rows *sql.Rows) (Delivery, error) {
 			var item Delivery
-			var channel, at string
+			var channel, created, at string
 			err := rows.Scan(&item.Kind, &item.Operation, &item.State, &channel,
-				&item.ThreadTS, &item.MessageTS, &item.Status, &item.Error, &item.Retries, &at)
-			item.Channel, item.At = r.channelName(ctx, channel), parseStamp(at)
+				&item.ThreadTS, &item.MessageTS, &item.Status, &item.Body, &item.Error,
+				&item.Retries, &created, &at)
+			item.Channel, item.Created, item.At = r.channelName(ctx, channel),
+				parseStamp(created), parseStamp(at)
+			item.Body = prettyJSON(item.Body)
 			return item, err
 		}, episodeID)
+}
+
+// SourceInput is the Slack event that started an episode. It is deliberately
+// read through the run rather than guessed from the episode title: titles are
+// cleaned for scanning, while this record preserves the exact message and its
+// attachment manifest.
+type SourceInput struct {
+	ID, Kind, UserID, Channel, ThreadTS, MessageTS string
+	Text, Attachments                              string
+	Received, Updated                              time.Time
+}
+
+func (r *Reader) SourceInput(ctx context.Context, episodeID string) (SourceInput, error) {
+	var item SourceInput
+	if !r.live() {
+		return item, nil
+	}
+	var channel, attachments, received, updated string
+	err := r.db.QueryRowContext(ctx, `
+	  SELECT s.id, s.kind, s.user_id, s.channel_id, s.thread_ts, s.message_ts,
+	         s.text, COALESCE(CAST(s.attachments_json AS TEXT),'[]'),
+	         s.received_at, s.updated_at
+	  FROM agent_runs AS a JOIN slack_inputs AS s ON s.id = a.source_id
+	  WHERE a.episode_id = ?
+	  ORDER BY a.attempt_number, a.created_at LIMIT 1`, episodeID).
+		Scan(&item.ID, &item.Kind, &item.UserID, &channel, &item.ThreadTS,
+			&item.MessageTS, &item.Text, &attachments, &received, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return item, nil
+	}
+	if err != nil {
+		return item, err
+	}
+	item.Channel = r.channelName(ctx, channel)
+	item.Attachments = prettyJSON(attachments)
+	item.Received, item.Updated = parseStamp(received), parseStamp(updated)
+	return item, nil
 }

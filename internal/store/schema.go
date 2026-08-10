@@ -1,6 +1,6 @@
 package store
 
-const currentSchemaVersion = 56
+const currentSchemaVersion = 57
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1301,4 +1301,5 @@ var migrations = map[int]string{
 	54: schemaV54,
 	55: schemaV55,
 	56: schemaV56,
+	57: `ALTER TABLE context_manifests ADD COLUMN submitted_prompt TEXT NOT NULL DEFAULT '';`,
 }
