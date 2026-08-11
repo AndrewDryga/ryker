@@ -234,6 +234,118 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 	}
 }
 
+func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) {
+	dir := t.TempDir()
+	live, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Date(2026, 8, 10, 20, 13, 50, 0, time.UTC)
+	t1 := t0.Add(5 * time.Minute)
+	t2 := t1.Add(5 * time.Minute)
+	stamp := func(value time.Time) string { return value.Format(time.RFC3339Nano) }
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.ExecContext(context.Background(), query, args...); err != nil {
+			t.Fatalf("seed: %v\n%s", err, query)
+		}
+	}
+	exec(`INSERT INTO slack_channel_memberships (channel_id, channel_name, observed_at)
+	      VALUES ('C1','infra',?)`, stamp(t0))
+	exec(`INSERT INTO slack_inputs
+	  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
+	   user_id, text, state, next_attempt_at, received_at, updated_at)
+	  VALUES ('root-input','root-envelope','root-event','bot_message','T1','C1','',
+	          '1786392830.431989','UTERRAFORM','Terraform run failed','completed',?,?,?)`,
+		stamp(t0), stamp(t0), stamp(t0))
+	for _, input := range []struct {
+		id, envelope, text string
+		at                 time.Time
+	}{
+		{"primary-trigger", "primary-envelope", "Resume after the Terraform run reached a terminal state", t1},
+		{"later-recheck", "later-envelope", "Retry the same Terraform follow-up", t2},
+	} {
+		exec(`INSERT INTO slack_inputs
+		  (id, envelope_id, kind, team_id, channel_id, thread_ts, message_ts,
+		   user_id, text, state, next_attempt_at, received_at, updated_at)
+		  VALUES (?,?,'recheck','T1','C1','1786392830.431989','',
+		          '','', 'completed',?,?,?)`, input.id, input.envelope,
+			stamp(input.at), stamp(input.at), stamp(input.at))
+		// Keep the exact synthetic instruction distinct so the assertion proves
+		// which trigger the reader selected.
+		exec(`UPDATE slack_inputs SET text = ? WHERE id = ?`, input.text, input.id)
+	}
+	exec(`INSERT INTO agent_runs
+	  (id, mode, channel_id, thread_ts, conversation_key, source_kind, source_id,
+	   user_id, repository, idempotency_key, terminal_state, state, attempt_number,
+	   next_attempt_at, created_at, updated_at, completed_at, episode_id)
+	  VALUES ('primary-run','triage','C1','1786392830.431989','C1:1786392830.431989',
+	          'recheck','primary-trigger','','emisar','primary-idem','completed','completed',2,
+	          ?,?,?,?,'follow-up-episode')`, stamp(t1), stamp(t1), stamp(t1), stamp(t1))
+	exec(`INSERT INTO agent_runs
+	  (id, mode, channel_id, thread_ts, conversation_key, source_kind, source_id,
+	   user_id, repository, idempotency_key, terminal_state, state, attempt_number,
+	   next_attempt_at, created_at, updated_at, completed_at, episode_id)
+	  VALUES ('later-run','triage','C1','1786392830.431989','C1:1786392830.431989',
+	          'recheck','later-recheck','','emisar','later-idem','completed','completed',1,
+	          ?,?,?,?,'follow-up-episode')`, stamp(t2), stamp(t2), stamp(t2), stamp(t2))
+	exec(`INSERT INTO work_episodes
+	  (id, agent_run_id, effort, authority, objective, created_at, updated_at,
+	   completed_at, lifecycle_state, channel_id, thread_ts, anchor_ts)
+	  VALUES ('follow-up-episode','primary-run','focused_check','read_only',
+	          'Resume Terraform follow-up',?,?,?,'completed','C1',
+	          '1786392830.431989','episode_wakeup_terraform-terminal')`,
+		stamp(t1), stamp(t1), stamp(t1))
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := OpenReader(filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	source, err := reader.SourceInput(context.Background(), "follow-up-episode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trigger, err := reader.TriggerInput(context.Background(), "follow-up-episode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source.ID != "root-input" || source.Text != "Terraform run failed" {
+		t.Fatalf("source = %+v, want original Slack message", source)
+	}
+	if trigger.ID != "primary-trigger" || !strings.Contains(trigger.Text, "terminal state") {
+		t.Fatalf("trigger = %+v, want primary episode wake-up", trigger)
+	}
+
+	page := episodePage{
+		Item:    Item{Created: t1},
+		Source:  source,
+		Trigger: trigger,
+		Turn: Turn{Rejections: []Rejection{{
+			Outcome: "invalid result", Detail: "return a corrected result", At: t1.Add(time.Second),
+		}}},
+	}
+	trace := buildEpisodeTrace(config.Pricing{}, page, nil)
+	if len(trace.Steps) < 3 {
+		t.Fatalf("trace steps = %+v", trace.Steps)
+	}
+	for index, want := range []string{"source", "trigger", "rejection-1"} {
+		if trace.Steps[index].ID != want {
+			t.Fatalf("trace step %d = %q, want %q; trace = %+v", index, trace.Steps[index].ID, want, trace.Steps)
+		}
+	}
+}
+
 func TestPresentEventPayloadOmitsUnsetTimesAndPresentsSlackIDs(t *testing.T) {
 	present := func(text string) string {
 		return strings.ReplaceAll(text, "<@U0BL8MNPUSY>", "@Emisar")

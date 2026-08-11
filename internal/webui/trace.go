@@ -92,6 +92,20 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			Details: details,
 		})
 	}
+	if page.Trigger.ID != "" && page.Trigger.ID != page.Source.ID {
+		details := []TraceDetail{{
+			Label: "Resume instruction", Body: present(page.Trigger.Text), Kind: "text", Open: true,
+		}}
+		add(TraceStep{
+			ID: "trigger", Stage: "Trigger", Actor: "Responder", State: page.Trigger.Kind,
+			Title: "Automatic follow-up started", At: page.Trigger.Received,
+			Summary: "A matching external event resumed the work linked to this Slack thread.",
+			Why:     "Responder was waiting for this event. It resumed the existing work automatically instead of requiring another Slack message.",
+			Stats: []TraceStat{{"Channel", page.Trigger.Channel},
+				{"Thread", fallback(page.Trigger.ThreadTS, "top level")}, {"Trigger", page.Trigger.Kind}},
+			Details: details,
+		})
+	}
 
 	if page.Manifest.Version > 0 {
 		add(TraceStep{

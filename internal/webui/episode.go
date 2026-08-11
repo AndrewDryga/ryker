@@ -638,26 +638,75 @@ type SourceInput struct {
 	Received, Updated                                                 time.Time
 }
 
-func (r *Reader) SourceInput(ctx context.Context, episodeID string) (SourceInput, error) {
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// TriggerInput is the exact durable input assigned to the episode's primary
+// run. Follow-up episodes often use a synthetic recheck input, while
+// SourceInput resolves the Slack message that originally anchored that work.
+func (r *Reader) TriggerInput(ctx context.Context, episodeID string) (SourceInput, error) {
 	var item SourceInput
 	if !r.live() {
 		return item, nil
 	}
-	var channel, attachments, received, updated string
-	err := r.db.QueryRowContext(ctx, `
+	err := r.scanSourceInput(ctx, r.db.QueryRowContext(ctx, `
 	  SELECT s.id, s.kind, s.user_id, s.channel_id, s.thread_ts, s.message_ts,
 	         s.text, COALESCE(CAST(s.attachments_json AS TEXT),'[]'),
 	         s.received_at, s.updated_at
-	  FROM agent_runs AS a JOIN slack_inputs AS s ON s.id = a.source_id
-	  WHERE a.episode_id = ?
-	  ORDER BY a.attempt_number, a.created_at LIMIT 1`, episodeID).
-		Scan(&item.ID, &item.Kind, &item.UserID, &channel, &item.ThreadTS,
-			&item.MessageTS, &item.Text, &attachments, &received, &updated)
+	  FROM work_episodes AS e
+	  JOIN agent_runs AS a ON a.id = e.agent_run_id
+	  JOIN slack_inputs AS s ON s.id = a.source_id
+	  WHERE e.id = ?`, episodeID), &item)
 	if errors.Is(err, sql.ErrNoRows) {
-		return item, nil
+		// Older episode rows did not always retain agent_run_id. Use the first
+		// chronological run rather than attempt_number: retries may restart at
+		// one and otherwise displace the event that actually opened the episode.
+		err = r.scanSourceInput(ctx, r.db.QueryRowContext(ctx, `
+		  SELECT s.id, s.kind, s.user_id, s.channel_id, s.thread_ts, s.message_ts,
+		         s.text, COALESCE(CAST(s.attachments_json AS TEXT),'[]'),
+		         s.received_at, s.updated_at
+		  FROM agent_runs AS a JOIN slack_inputs AS s ON s.id = a.source_id
+		  WHERE a.episode_id = ?
+		  ORDER BY a.created_at LIMIT 1`, episodeID), &item)
 	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return SourceInput{}, nil
+	}
+	return item, err
+}
+
+func (r *Reader) SourceInput(ctx context.Context, episodeID string) (SourceInput, error) {
+	trigger, err := r.TriggerInput(ctx, episodeID)
+	if err != nil || trigger.ID == "" || trigger.MessageTS != "" || trigger.ThreadTS == "" {
+		return trigger, err
+	}
+
+	// Synthetic wake-ups have no Slack message timestamp. Their thread_ts is
+	// the durable link back to the root Slack message that caused Responder to
+	// wait for the external event in the first place.
+	var root SourceInput
+	err = r.scanSourceInput(ctx, r.db.QueryRowContext(ctx, `
+	  SELECT s.id, s.kind, s.user_id, s.channel_id, s.thread_ts, s.message_ts,
+	         s.text, COALESCE(CAST(s.attachments_json AS TEXT),'[]'),
+	         s.received_at, s.updated_at
+	  FROM work_episodes AS e
+	  JOIN slack_inputs AS s
+	    ON s.channel_id = e.channel_id AND s.message_ts = e.thread_ts
+	  WHERE e.id = ?
+	  ORDER BY s.received_at LIMIT 1`, episodeID), &root)
+	if errors.Is(err, sql.ErrNoRows) {
+		return trigger, nil
+	}
+	return root, err
+}
+
+func (r *Reader) scanSourceInput(ctx context.Context, row rowScanner, item *SourceInput) error {
+	var channel, attachments, received, updated string
+	err := row.Scan(&item.ID, &item.Kind, &item.UserID, &channel, &item.ThreadTS,
+		&item.MessageTS, &item.Text, &attachments, &received, &updated)
 	if err != nil {
-		return item, err
+		return err
 	}
 	item.ChannelID = channel
 	item.Channel = r.channelName(ctx, channel)
@@ -668,5 +717,5 @@ func (r *Reader) SourceInput(ctx context.Context, episodeID string) (SourceInput
 	item.Text = r.resolveSlackText(ctx, item.Text)
 	item.Attachments = prettyJSON(attachments)
 	item.Received, item.Updated = parseStamp(received), parseStamp(updated)
-	return item, nil
+	return nil
 }

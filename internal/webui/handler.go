@@ -343,6 +343,7 @@ type episodePage struct {
 	Item
 	Turn        Turn
 	Source      SourceInput
+	Trigger     SourceInput
 	Trace       EpisodeTrace
 	Events      []Event
 	Claims      []ClaimRow
@@ -393,6 +394,8 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("timeline", err)
 	page.Source, err = h.reader.SourceInput(ctx, id)
 	page.Errs.note("source input", err)
+	page.Trigger, err = h.reader.TriggerInput(ctx, id)
+	page.Errs.note("episode trigger", err)
 	page.Turn, err = h.reader.Turn(ctx, id)
 	page.Errs.note("the turn", err)
 	page.Claims, err = h.reader.Claims(ctx, id)
