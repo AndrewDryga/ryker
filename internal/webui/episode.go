@@ -65,6 +65,7 @@ const episodeSources = `SELECT id FROM agent_runs WHERE episode_id = ?
 // when the text is not, rather than leaving the section looking empty.
 type Turn struct {
 	RunID, Mode, State, Error string
+	AttemptNumber             int
 	Prompt, PromptDigest      string
 	RawResult                 string
 	Created, Updated          time.Time
@@ -110,47 +111,79 @@ type Rejection struct {
 	At                     time.Time
 }
 
+// EpisodeArtifact is durable work around a model turn that is not represented
+// by the episode event stream itself: the accepted commitment, a scheduled
+// execution, a goal, a classifier decision, publication lifecycle, or a
+// production quality finding. Keeping these records in one presentation type
+// lets the trace order them with model calls and Slack deliveries without
+// teaching the template every storage schema.
+type EpisodeArtifact struct {
+	ID, Kind, State, Title, Summary, Detail, DetailKind string
+	At                                                  time.Time
+	Stats                                               []ArtifactStat
+}
+
+type ArtifactStat struct {
+	Label, Value string
+}
+
 func (r *Reader) Turn(ctx context.Context, episodeID string) (Turn, error) {
-	var turn Turn
-	if !r.live() {
-		return turn, nil
+	turns, err := r.Turns(ctx, episodeID)
+	if err != nil || len(turns) == 0 {
+		return Turn{}, err
 	}
-	var created, updated string
-	err := r.db.QueryRowContext(ctx, `
-	  SELECT id, mode, COALESCE(terminal_state,''), COALESCE(last_error,''),
-	         COALESCE(prompt,''), COALESCE(CAST(result_json AS TEXT),''),
-	         created_at, updated_at
-	  FROM agent_runs WHERE episode_id = ?
-	  ORDER BY attempt_number DESC, created_at DESC LIMIT 1`, episodeID).
-		Scan(&turn.RunID, &turn.Mode, &turn.State, &turn.Error, &turn.Prompt,
-			&turn.RawResult, &created, &updated)
-	if errors.Is(err, sql.ErrNoRows) {
-		return turn, nil
-	}
+	return turns[len(turns)-1], nil
+}
+
+// Turns returns every model exchange owned by the episode in execution order.
+// An episode may release its worker, wake later, and create another agent run;
+// showing only the latest run hid the earlier answer and made rejections appear
+// before any visible model call.
+func (r *Reader) Turns(ctx context.Context, episodeID string) ([]Turn, error) {
+	turns, err := collect(ctx, r, `
+	  SELECT DISTINCT a.id, a.mode, COALESCE(a.terminal_state,''),
+	         COALESCE(a.last_error,''), COALESCE(a.attempt_number,0),
+	         COALESCE(a.prompt,''), COALESCE(CAST(a.result_json AS TEXT),''),
+	         a.created_at, a.updated_at
+	  FROM agent_runs AS a
+	  LEFT JOIN episode_attempts AS t ON t.agent_run_id = a.id
+	  WHERE a.episode_id = ? OR t.episode_id = ?
+	  ORDER BY a.created_at, a.attempt_number, a.id`, func(rows *sql.Rows) (Turn, error) {
+		var item Turn
+		var created, updated string
+		err := rows.Scan(&item.RunID, &item.Mode, &item.State, &item.Error,
+			&item.AttemptNumber, &item.Prompt, &item.RawResult, &created, &updated)
+		item.Created, item.Updated = parseStamp(created), parseStamp(updated)
+		return item, err
+	}, episodeID, episodeID)
 	if err != nil {
-		return turn, err
+		return nil, err
 	}
-	turn.Created, turn.Updated = parseStamp(created), parseStamp(updated)
-	turn.readResult(turn.RawResult)
-	turn.Reason, turn.Message = r.resolveChannels(ctx, turn.Reason), r.resolveChannels(ctx, turn.Message)
-	_ = r.db.QueryRowContext(ctx, `
-	  SELECT f.content_digest FROM context_manifest_refs AS f
-	  JOIN context_manifests AS m ON m.id = f.manifest_id
-	  WHERE f.kind = 'compiled_prompt'
-	    AND f.source_ref = 'agent-run:' || ? || ':prompt'
-	  ORDER BY m.created_at DESC LIMIT 1`, turn.RunID).Scan(&turn.PromptDigest)
-	turn.Rejections, err = collect(ctx, r, `
-	  SELECT outcome, detail, created_at FROM audit_events
-	  WHERE kind = 'result.correction' AND object_id = ?
-	  ORDER BY created_at LIMIT 20`,
-		func(rows *sql.Rows) (Rejection, error) {
+	for index := range turns {
+		turn := &turns[index]
+		turn.readResult(turn.RawResult)
+		turn.Reason, turn.Message = r.resolveChannels(ctx, turn.Reason), r.resolveChannels(ctx, turn.Message)
+		_ = r.db.QueryRowContext(ctx, `
+		  SELECT f.content_digest FROM context_manifest_refs AS f
+		  JOIN context_manifests AS m ON m.id = f.manifest_id
+		  WHERE f.kind = 'compiled_prompt'
+		    AND f.source_ref = 'agent-run:' || ? || ':prompt'
+		  ORDER BY m.created_at DESC LIMIT 1`, turn.RunID).Scan(&turn.PromptDigest)
+		turn.Rejections, err = collect(ctx, r, `
+		  SELECT outcome, detail, created_at FROM audit_events
+		  WHERE kind = 'result.correction' AND object_id = ?
+		  ORDER BY created_at`, func(rows *sql.Rows) (Rejection, error) {
 			var item Rejection
 			var at string
 			err := rows.Scan(&item.Outcome, &item.Detail, &at)
-			item.At = parseStamp(at)
+			item.RunID, item.At = turn.RunID, parseStamp(at)
 			return item, err
 		}, turn.RunID)
-	return turn, err
+		if err != nil {
+			return nil, err
+		}
+	}
+	return turns, nil
 }
 
 // readResult reads the answer with the host's own parser.
@@ -321,7 +354,7 @@ func (r *Reader) SideEffects(ctx context.Context, episodeID string) ([]SideEffec
 	      WHERE audit.episode_id = ?
 	  )
 	  SELECT kind, state, title, detail, id, created_at, before_value, after_value FROM effects
-	  ORDER BY created_at, kind, id LIMIT 100`,
+	  ORDER BY created_at, kind, id`,
 		func(rows *sql.Rows) (SideEffect, error) {
 			var item SideEffect
 			var at string
@@ -414,7 +447,7 @@ func (r *Reader) Claims(ctx context.Context, episodeID string) ([]ClaimRow, erro
 	return collect(ctx, r, `
 	  SELECT claim_id, status, COALESCE(confidence,''), COALESCE(detail,''),
 	         COALESCE(evidence_ids_json,'[]'), COALESCE(contradiction_ids_json,'[]')
-	  FROM claim_assessments WHERE episode_id = ? ORDER BY claim_id LIMIT 100`,
+	  FROM claim_assessments WHERE episode_id = ? ORDER BY claim_id`,
 		func(rows *sql.Rows) (ClaimRow, error) {
 			var item ClaimRow
 			var supporting, contradicting string
@@ -448,7 +481,7 @@ func (r *Reader) Coverage(ctx context.Context, episodeID string) ([]CoverageRow,
 	return collect(ctx, r, `
 	  SELECT layer, status, COALESCE(source,''), COALESCE(detail,''), COALESCE(observed_at,'')
 	  FROM coverage WHERE source_input IN (`+episodeSources+`)
-	  ORDER BY layer LIMIT 40`,
+	  ORDER BY layer`,
 		func(rows *sql.Rows) (CoverageRow, error) {
 			var item CoverageRow
 			var observed string
@@ -510,7 +543,7 @@ func (r *Reader) Manifests(ctx context.Context, episodeID string) ([]ManifestRow
 	  JOIN episode_attempts AS t ON t.id = m.attempt_id
 	  JOIN agent_runs AS a ON a.id = t.agent_run_id
 	  WHERE m.episode_id = ? OR a.episode_id = ?
-	  ORDER BY m.created_at, m.id LIMIT 100`, func(rows *sql.Rows) (ManifestRow, error) {
+	  ORDER BY m.created_at, m.id`, func(rows *sql.Rows) (ManifestRow, error) {
 		var row ManifestRow
 		var omissions, created string
 		err := rows.Scan(&row.ID, &row.RunID, &row.AttemptID, &row.AttemptNumber,
@@ -538,7 +571,7 @@ func (r *Reader) manifestRefs(ctx context.Context, manifestID string) ([]Context
 	  SELECT kind, source_ref, COALESCE(source_revision,''), visibility,
 	         COALESCE(content_digest,''), COALESCE(omitted_reason,''),
 	         COALESCE(metadata_json,'')
-	  FROM context_manifest_refs WHERE manifest_id = ? ORDER BY ordinal LIMIT 200`,
+	  FROM context_manifest_refs WHERE manifest_id = ? ORDER BY ordinal`,
 		func(rows *sql.Rows) (ContextRef, error) {
 			var item ContextRef
 			var ref, revision, metadata string
@@ -609,7 +642,7 @@ func (r *Reader) Attempts(ctx context.Context, episodeID string) ([]Attempt, err
 	         COALESCE(a.last_error,''), COALESCE(t.started_at,''), COALESCE(t.completed_at,'')
 	  FROM episode_attempts AS t LEFT JOIN agent_runs AS a ON a.id = t.agent_run_id
 	  WHERE t.episode_id = ? OR a.episode_id = ?
-	  ORDER BY COALESCE(t.started_at, t.created_at), t.attempt_number LIMIT 50`,
+	  ORDER BY COALESCE(t.started_at, t.created_at), t.attempt_number`,
 		func(rows *sql.Rows) (Attempt, error) {
 			var item Attempt
 			var started, completed string
@@ -630,13 +663,353 @@ func (r *Reader) Rejections(ctx context.Context, episodeID string) ([]Rejection,
 	  FROM audit_events AS e
 	  JOIN agent_runs AS a ON a.id = e.object_id
 	  WHERE e.kind = 'result.correction' AND a.episode_id = ?
-	  ORDER BY e.created_at LIMIT 200`, func(rows *sql.Rows) (Rejection, error) {
+	  ORDER BY e.created_at`, func(rows *sql.Rows) (Rejection, error) {
 		var item Rejection
 		var at string
 		err := rows.Scan(&item.RunID, &item.Outcome, &item.Detail, &at)
 		item.At = parseStamp(at)
 		return item, err
 	}, episodeID)
+}
+
+// Artifacts returns every durable record that changes or explains the episode
+// but is not already part of its kernel event stream. The query boundaries are
+// deliberately small and typed: one broken optional projection should make the
+// page name that projection as unavailable, never erase the rest of the trace.
+func (r *Reader) Artifacts(ctx context.Context, episodeID string) ([]EpisodeArtifact, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	items := []EpisodeArtifact{}
+	var projectionErrors []error
+	appendItems := func(name string, more []EpisodeArtifact, err error) {
+		items = append(items, more...)
+		if err != nil {
+			projectionErrors = append(projectionErrors, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+	appendCollected := func(name, query string, scan func(*sql.Rows) (EpisodeArtifact, error), args ...any) {
+		more, err := collect(ctx, r, query, scan, args...)
+		appendItems(name, more, err)
+	}
+
+	appendCollected("commitments", `
+	  SELECT c.episode_id, c.title, w.created_at
+	  FROM commitments AS c JOIN work_episodes AS w ON w.id = c.episode_id
+	  WHERE c.episode_id = ?`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var at string
+		err := rows.Scan(&item.ID, &item.Title, &at)
+		item.Kind, item.State, item.At = "commitment", "accepted", parseStamp(at)
+		item.Summary = "Responder accepted responsibility for this work."
+		item.Stats = []ArtifactStat{{"Episode", item.ID}}
+		return item, err
+	}, episodeID)
+
+	appendCollected("progress", `
+	  SELECT id, sequence, phase, summary, created_at
+	  FROM work_episode_progress WHERE episode_id = ? ORDER BY sequence`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var sequence int
+		var at string
+		err := rows.Scan(&item.ID, &sequence, &item.State, &item.Summary, &at)
+		item.Kind, item.Title, item.At = "progress", "Progress update", parseStamp(at)
+		item.Stats = []ArtifactStat{{"Record", item.ID}, {"Sequence", fmt.Sprint(sequence)}, {"Phase", item.State}}
+		return item, err
+	}, episodeID)
+
+	appendCollected("goals", `
+	  SELECT id, kind, requested_outcome, completion_contract,
+	         authority_requirement, required, state, blocker,
+	         parent_goal_id, prerequisite_goal_ids_json,
+	         writable_repository, read_only_repositories_json,
+	         created_at, updated_at
+	  FROM episode_goals WHERE episode_id = ? ORDER BY created_at, id`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var goalKind, contract, authority, blocker, parent, prerequisites, writable, readOnly string
+		var required int
+		var created, updated string
+		err := rows.Scan(&item.ID, &goalKind, &item.Title, &contract, &authority,
+			&required, &item.State, &blocker, &parent, &prerequisites, &writable,
+			&readOnly, &created, &updated)
+		item.Kind, item.At = "goal", parseStamp(created)
+		item.Summary = contract
+		item.DetailKind = "text"
+		item.Detail = strings.TrimSpace(strings.Join(nonempty(
+			labelLine("Blocker", blocker), labelLine("Parent goal", parent),
+			labelLine("Prerequisites", prettyJSON(prerequisites)),
+			labelLine("Writable repository", writable),
+			labelLine("Read-only repositories", prettyJSON(readOnly)),
+			labelLine("Last updated", updated)), "\n"))
+		item.Stats = []ArtifactStat{{"Goal", item.ID}, {"Goal type", goalKind}, {"Authority", authority}, {"Required", yesNo(required != 0)}}
+		return item, err
+	}, episodeID)
+
+	appendCollected("scheduled runs", `
+	  SELECT r.task_id, t.title, t.recurrence, t.timezone, r.scheduled_for,
+	         r.source_input, r.agent_run_id, r.outcome, r.last_error, COALESCE(r.started_at,''),
+	         COALESCE(r.completed_at,''), r.created_at
+	  FROM scheduled_task_runs AS r
+	  JOIN scheduled_tasks AS t ON t.id = r.task_id
+	  WHERE r.episode_id = ? ORDER BY r.created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var taskID, recurrence, timezone, scheduledFor, sourceInput, agentRun, lastError, started, completed, created string
+		err := rows.Scan(&taskID, &item.Title, &recurrence, &timezone, &scheduledFor,
+			&sourceInput, &agentRun, &item.State, &lastError, &started, &completed, &created)
+		item.ID = taskID + "@" + scheduledFor
+		item.Kind, item.At = "scheduled_run", parseStamp(created)
+		item.Summary = scheduleRunSummary(item.State, scheduledFor, timezone)
+		item.Detail, item.DetailKind = lastError, "error"
+		item.Stats = []ArtifactStat{{"Task", taskID}, {"Source input", fallback(sourceInput, "not recorded")},
+			{"Agent run", fallback(agentRun, "not started")}, {"Recurrence", recurrence}, {"Scheduled for", scheduledFor},
+			{"Started", fallback(started, "not started")}, {"Completed", fallback(completed, "not completed")}}
+		return item, err
+	}, episodeID)
+
+	appendCollected("evaluation decisions", `
+	  SELECT id, channel_id, source_input, mode, action, reason, evidence_count, coverage_count, created_at
+	  FROM evaluation_decisions
+	  WHERE source_input IN (`+episodeSources+`)
+	  ORDER BY created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var channel, sourceInput, mode string
+		var evidenceCount, coverageCount int
+		var at string
+		err := rows.Scan(&item.ID, &channel, &sourceInput, &mode, &item.State, &item.Summary,
+			&evidenceCount, &coverageCount, &at)
+		item.Kind, item.Title, item.At = "evaluation", "Evaluation decision", parseStamp(at)
+		item.Stats = []ArtifactStat{{"Decision", item.ID}, {"Channel", r.channelName(ctx, channel)},
+			{"Source input", sourceInput}, {"Mode", mode}, {"Action", item.State},
+			{"Evidence", fmt.Sprint(evidenceCount)}, {"Coverage", fmt.Sprint(coverageCount)}}
+		return item, err
+	}, episodeID, episodeID)
+
+	appendCollected("standing rule runs", `
+	  SELECT rr.rule_id, rr.source_input, sr.trigger_name, sr.action_name, rr.outcome, rr.event_id,
+	         rr.created_at
+	  FROM standing_rule_runs AS rr
+	  JOIN standing_rules AS sr ON sr.id = rr.rule_id
+	  WHERE rr.source_input IN (`+episodeSources+`)
+	  ORDER BY rr.created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var ruleID, sourceInput, trigger, action, eventID, at string
+		err := rows.Scan(&ruleID, &sourceInput, &trigger, &action, &item.State, &eventID, &at)
+		item.ID = ruleID + "@" + sourceInput
+		item.Kind, item.Title, item.At = "standing_rule_run", "Standing rule ran", parseStamp(at)
+		item.Summary = "When " + trigger + " matched, Responder ran " + action + "."
+		item.Stats = []ArtifactStat{{"Rule", ruleID}, {"Source input", sourceInput},
+			{"Event", eventID}, {"Outcome", item.State}}
+		return item, err
+	}, episodeID, episodeID)
+
+	appendCollected("standing assignment actions", `
+	  SELECT aa.id, aa.assignment_id, sa.signal_pattern, sa.change_class,
+	         sa.repository, aa.correlation_key, aa.outcome, aa.created_at
+	  FROM standing_assignment_actions AS aa
+	  JOIN standing_assignments AS sa ON sa.id = aa.assignment_id
+	  WHERE aa.episode_id = ?
+	  ORDER BY aa.created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var assignmentID, signal, changeClass, repository, correlation, at string
+		err := rows.Scan(&item.ID, &assignmentID, &signal, &changeClass, &repository,
+			&correlation, &item.State, &at)
+		item.Kind, item.Title, item.At = "standing_assignment_action", "Standing assignment ran", parseStamp(at)
+		item.Summary = "Matched " + signal + " and recorded " + strings.ReplaceAll(changeClass, "_", " ") + " work."
+		item.Stats = []ArtifactStat{{"Assignment", assignmentID}, {"Correlation", correlation},
+			{"Signal", signal}, {"Change class", changeClass}, {"Repository", repository}, {"Outcome", item.State}}
+		return item, err
+	}, episodeID)
+
+	appendCollected("feedback", `
+	  SELECT id, category, sentiment, summary, details, user_id, source, status,
+	         channel_id, message_ts, target_message_ts, created_at
+	  FROM feedback_items WHERE episode_id = ?
+	  ORDER BY created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var category, sentiment, userID, source, channel, messageTS, targetTS, at string
+		err := rows.Scan(&item.ID, &category, &sentiment, &item.Summary, &item.Detail,
+			&userID, &source, &item.State, &channel, &messageTS, &targetTS, &at)
+		item.Kind, item.Title, item.At, item.DetailKind = "feedback", "Operator feedback", parseStamp(at), "text"
+		from := r.userName(userID)
+		if from != "" && from != userID {
+			from = "@" + from
+		}
+		item.Stats = []ArtifactStat{{"Feedback", item.ID}, {"From", fallback(from, userID)},
+			{"Category", category}, {"Sentiment", sentiment}, {"Source", source},
+			{"Channel", fallback(r.channelName(ctx, channel), channel)}, {"Message", messageTS},
+			{"About message", fallback(targetTS, "not recorded")}}
+		return item, err
+	}, episodeID)
+
+	appendCollected("replay candidates", `
+	  SELECT id, run_id, capability, correction_class, correction, status,
+	         reviewed_by, created_at, expires_at
+	  FROM fixture_candidates WHERE episode_id = ?
+	  ORDER BY created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var runID, capability, correctionClass, reviewedBy, at, expires string
+		err := rows.Scan(&item.ID, &runID, &capability, &correctionClass, &item.Detail,
+			&item.State, &reviewedBy, &at, &expires)
+		item.Kind, item.Title, item.At, item.DetailKind = "replay_candidate", "Replay case proposed", parseStamp(at), "text"
+		item.Summary = "A correction from this episode was saved for regression review."
+		item.Stats = []ArtifactStat{{"Candidate", item.ID}, {"Run", runID},
+			{"Capability", fallback(capability, "general")}, {"Correction class", correctionClass},
+			{"Reviewed by", fallback(reviewedBy, "not reviewed")}, {"Expires", expires}}
+		return item, err
+	}, episodeID)
+
+	incidentIDs, err := r.episodeIncidentIDs(ctx, episodeID)
+	if err != nil {
+		projectionErrors = append(projectionErrors, fmt.Errorf("incidents: %w", err))
+	}
+	for _, incidentID := range incidentIDs {
+		more, err := r.incidentArtifacts(ctx, incidentID)
+		appendItems("incident "+incidentID, more, err)
+	}
+
+	appendCollected("quality findings", `
+	  SELECT id, run_id, channel_id, verdict, disposition, severity, summary, expected_behavior,
+	         evidence, code_evidence, regression_test, challenger_summary,
+	         suspected_components, challenger_evidence, artifacts, created_at
+	  FROM quality_findings
+	  WHERE EXISTS (SELECT 1 FROM json_each(quality_findings.episode_ids) WHERE value = ?)
+	  ORDER BY created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var runID, channel, disposition, severity, expected, evidence, codeEvidence, regression, challenger, suspected, challengerEvidence, artifacts, at string
+		err := rows.Scan(&item.ID, &runID, &channel, &item.State, &disposition, &severity, &item.Summary,
+			&expected, &evidence, &codeEvidence, &regression, &challenger, &suspected, &challengerEvidence, &artifacts, &at)
+		item.Kind, item.Title, item.At = "quality_finding", "Production quality review", parseStamp(at)
+		item.DetailKind = "text"
+		item.Detail = strings.Join(nonempty(labelLine("Expected behavior", expected),
+			labelLine("Evidence", prettyJSON(evidence)), labelLine("Code evidence", prettyJSON(codeEvidence)),
+			labelLine("Suspected components", prettyJSON(suspected)),
+			labelLine("Regression test", regression), labelLine("Adversarial review", challenger),
+			labelLine("Adversarial evidence", prettyJSON(challengerEvidence)),
+			labelLine("Artifacts", artifacts)), "\n\n")
+		item.Stats = []ArtifactStat{{"Finding", item.ID}, {"Run", fallback(runID, "not recorded")},
+			{"Channel", fallback(r.channelName(ctx, channel), "not recorded")},
+			{"Verdict", item.State}, {"Severity", fallback(severity, "not rated")},
+			{"Disposition", fallback(disposition, "not recorded")}}
+		return item, err
+	}, episodeID)
+
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].At.Equal(items[j].At) {
+			return items[i].Kind < items[j].Kind
+		}
+		return items[i].At.Before(items[j].At)
+	})
+	return items, errors.Join(projectionErrors...)
+}
+
+func (r *Reader) episodeIncidentIDs(ctx context.Context, episodeID string) ([]string, error) {
+	return collect(ctx, r, `
+	  SELECT DISTINCT incident_id FROM agent_runs
+	  WHERE episode_id = ? AND incident_id != ''
+	  UNION
+	  SELECT DISTINCT a.incident_id FROM audit_events AS a
+	  JOIN agent_runs AS r ON r.id = a.object_id OR r.source_id = a.object_id
+	  WHERE r.episode_id = ? AND a.incident_id != ''`, func(rows *sql.Rows) (string, error) {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return "", err
+		}
+		return id, nil
+	}, episodeID, episodeID)
+}
+
+func (r *Reader) incidentArtifacts(ctx context.Context, incidentID string) ([]EpisodeArtifact, error) {
+	items := []EpisodeArtifact{}
+	projectionErrors := []error{}
+	appendItems := func(name string, more []EpisodeArtifact, err error) {
+		items = append(items, more...)
+		if err != nil {
+			projectionErrors = append(projectionErrors, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+	timeline, err := collect(ctx, r, `
+	  SELECT id, kind, title, detail, actor_id, created_at
+	  FROM timeline_events WHERE incident_id = ? ORDER BY created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var actor, at, timelineKind string
+		err := rows.Scan(&item.ID, &timelineKind, &item.Title, &item.Detail, &actor, &at)
+		item.Kind, item.State, item.At, item.DetailKind = "incident_timeline", timelineKind, parseStamp(at), "text"
+		item.Stats = []ArtifactStat{{"Record", item.ID}, {"Incident", incidentID}, {"Actor", fallback(actor, "system")}}
+		return item, err
+	}, incidentID)
+	appendItems("timeline", timeline, err)
+	lifecycle, err := collect(ctx, r, `
+	  SELECT id, kind, state, summary, source_channel_id, source_message_ts, created_at
+	  FROM publication_lifecycle_events WHERE incident_id = ? ORDER BY created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var channel, messageTS, at string
+		err := rows.Scan(&item.ID, &item.Kind, &item.State, &item.Summary, &channel, &messageTS, &at)
+		item.Kind, item.Title, item.At = "publication_lifecycle", "Publication update", parseStamp(at)
+		item.Stats = []ArtifactStat{{"Record", item.ID}, {"Incident", incidentID}, {"Event", item.State},
+			{"Source channel", fallback(channel, "not recorded")}, {"Source message", fallback(messageTS, "not recorded")}}
+		return item, err
+	}, incidentID)
+	appendItems("publication lifecycle", lifecycle, err)
+	publication, err := collect(ctx, r, `
+	  SELECT incident_id, repository, base_branch, head_branch, parent_head,
+	         candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
+	         last_error, created_at, updated_at, COALESCE(published_at,'')
+	  FROM publications WHERE incident_id = ?`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var repository, base, head, parent, tree, commit, remote, url, lastError, created, updated, published string
+		var prNumber int
+		err := rows.Scan(&item.ID, &repository, &base, &head, &parent, &tree, &commit,
+			&remote, &prNumber, &url, &item.State, &lastError, &created, &updated, &published)
+		item.Kind, item.Title, item.At = "publication", "Repository publication", parseStamp(created)
+		item.Summary = publicationSummary(item.State, prNumber, url)
+		item.Detail, item.DetailKind = lastError, "error"
+		item.Stats = []ArtifactStat{{"Incident", item.ID}, {"Repository", repository}, {"Base", base}, {"Branch", head},
+			{"Parent", parent}, {"Candidate tree", tree}, {"Commit", fallback(commit, "not committed")},
+			{"Remote", fallback(remote, "not pushed")}, {"Pull request", fallback(url, "not created")},
+			{"Published", fallback(published, "not published")}, {"Updated", updated}}
+		return item, err
+	}, incidentID)
+	appendItems("publication", publication, err)
+	return items, errors.Join(projectionErrors...)
+}
+
+func nonempty(values ...string) []string {
+	kept := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			kept = append(kept, value)
+		}
+	}
+	return kept
+}
+
+func labelLine(label, value string) string {
+	if strings.TrimSpace(value) == "" || value == "[]" || value == "{}" {
+		return ""
+	}
+	return label + ": " + value
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func scheduleRunSummary(outcome, scheduledFor, timezone string) string {
+	return fmt.Sprintf("Scheduled for %s (%s); outcome: %s.", scheduledFor, fallback(timezone, "UTC"), outcome)
+}
+
+func publicationSummary(state string, prNumber int, url string) string {
+	if prNumber > 0 {
+		summary := fmt.Sprintf("Draft PR #%d is %s.", prNumber, state)
+		if strings.TrimSpace(url) != "" {
+			summary += " " + url
+		}
+		return summary
+	}
+	return "Publication is " + state + "."
 }
 
 // Delivery is a Slack post the episode queued.
@@ -658,7 +1031,7 @@ func (r *Reader) Deliveries(ctx context.Context, episodeID string) ([]Delivery, 
 	         COALESCE(message_ts,''), COALESCE(status_text,''),
 	         COALESCE(CAST(body_json AS TEXT),''), COALESCE(last_error,''),
 	         failure_count, created_at, updated_at
-	  FROM slack_deliveries WHERE episode_id = ? ORDER BY created_at LIMIT 40`,
+	  FROM slack_deliveries WHERE episode_id = ? ORDER BY created_at`,
 		func(rows *sql.Rows) (Delivery, error) {
 			var item Delivery
 			var channel, created, at string
@@ -692,12 +1065,52 @@ type Wakeup struct {
 }
 
 func (r *Reader) WakeupForTrigger(ctx context.Context, triggerID string) (Wakeup, error) {
-	var item Wakeup
-	if !r.live() {
-		return item, nil
-	}
 	id := strings.TrimPrefix(triggerID, "episode_wakeup_")
 	if id == "" || id == triggerID {
+		return Wakeup{}, nil
+	}
+	return r.wakeup(ctx, id)
+}
+
+// Wakeups returns the complete subscription history visible from this episode.
+// Direct wake-ups explain work the episode scheduled. A synthetic trigger may
+// also point back to the wake-up stored by the parent episode, so include that
+// record without duplicating it.
+func (r *Reader) Wakeups(ctx context.Context, episodeID, triggerID string) ([]Wakeup, error) {
+	items, err := collect(ctx, r, `
+	  SELECT id, episode_id, kind, state,
+	         COALESCE(CAST(event_matcher_json AS TEXT),'{}'),
+	         COALESCE(CAST(last_observation_json AS TEXT),'{}'),
+	         COALESCE(due_at,''), COALESCE(poll_after,''), COALESCE(deadline,''),
+	         created_at, updated_at, COALESCE(resolved_at,'')
+	  FROM episode_wakeups WHERE episode_id = ? ORDER BY created_at, id`, scanWakeup, episodeID)
+	if err != nil {
+		return nil, err
+	}
+	isWakeupTrigger := strings.HasPrefix(triggerID, "episode_wakeup_")
+	triggerID = strings.TrimPrefix(triggerID, "episode_wakeup_")
+	if isWakeupTrigger && triggerID != "" {
+		seen := false
+		for _, item := range items {
+			seen = seen || item.ID == triggerID
+		}
+		if !seen {
+			item, wakeErr := r.wakeup(ctx, triggerID)
+			if wakeErr != nil {
+				return nil, wakeErr
+			}
+			if item.ID != "" {
+				items = append(items, item)
+			}
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Created.Before(items[j].Created) })
+	return items, nil
+}
+
+func (r *Reader) wakeup(ctx context.Context, id string) (Wakeup, error) {
+	var item Wakeup
+	if !r.live() {
 		return item, nil
 	}
 	var due, pollAfter, deadline, created, updated, resolved string
@@ -722,6 +1135,18 @@ func (r *Reader) WakeupForTrigger(ctx context.Context, triggerID string) (Wakeup
 	item.Due, item.PollAfter, item.Deadline = parseStamp(due), parseStamp(pollAfter), parseStamp(deadline)
 	item.Created, item.Updated, item.Resolved = parseStamp(created), parseStamp(updated), parseStamp(resolved)
 	return item, nil
+}
+
+func scanWakeup(rows *sql.Rows) (Wakeup, error) {
+	var item Wakeup
+	var due, pollAfter, deadline, created, updated, resolved string
+	err := rows.Scan(&item.ID, &item.EpisodeID, &item.Kind, &item.State,
+		&item.Matcher, &item.Observation, &due, &pollAfter, &deadline,
+		&created, &updated, &resolved)
+	item.Matcher, item.Observation = prettyJSON(item.Matcher), prettyJSON(item.Observation)
+	item.Due, item.PollAfter, item.Deadline = parseStamp(due), parseStamp(pollAfter), parseStamp(deadline)
+	item.Created, item.Updated, item.Resolved = parseStamp(created), parseStamp(updated), parseStamp(resolved)
+	return item, err
 }
 
 type rowScanner interface {

@@ -554,7 +554,7 @@ func (r *Reader) EpisodeTokens(ctx context.Context, episodeID string) (EpisodeTo
 	         usage_input_tokens, usage_cached_input_tokens,
 	         usage_output_tokens, usage_reasoning_tokens,
 	         usage_timed_turns, usage_queued_ms, usage_provider_ms, usage_host_ms
-	  FROM context_manifests WHERE episode_id = ? ORDER BY version LIMIT 50`,
+	  FROM context_manifests WHERE episode_id = ? ORDER BY version`,
 		func(rows *sql.Rows) (AttemptTokens, error) {
 			var item AttemptTokens
 			var frozen string

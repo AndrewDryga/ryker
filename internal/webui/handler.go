@@ -342,9 +342,11 @@ func episodesURL(filter EpisodeFilter, offset int) template.URL {
 type episodePage struct {
 	Item
 	Turn        Turn
+	Turns       []Turn
 	Source      SourceInput
 	Trigger     SourceInput
 	Wakeup      Wakeup
+	Wakeups     []Wakeup
 	Trace       EpisodeTrace
 	Events      []Event
 	Claims      []ClaimRow
@@ -354,6 +356,7 @@ type episodePage struct {
 	Manifests   []ManifestRow
 	Attempts    []Attempt
 	Rejections  []Rejection
+	Artifacts   []EpisodeArtifact
 	Delivered   []Delivery
 	Effects     []SideEffect
 	Audit       []AuditRow
@@ -399,10 +402,16 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("source input", err)
 	page.Trigger, err = h.reader.TriggerInput(ctx, id)
 	page.Errs.note("episode trigger", err)
-	page.Wakeup, err = h.reader.WakeupForTrigger(ctx, page.Trigger.ID)
-	page.Errs.note("scheduled wake-up", err)
-	page.Turn, err = h.reader.Turn(ctx, id)
-	page.Errs.note("the turn", err)
+	page.Wakeups, err = h.reader.Wakeups(ctx, id, page.Trigger.ID)
+	page.Errs.note("scheduled wake-ups", err)
+	if len(page.Wakeups) > 0 {
+		page.Wakeup = page.Wakeups[len(page.Wakeups)-1]
+	}
+	page.Turns, err = h.reader.Turns(ctx, id)
+	page.Errs.note("model turns", err)
+	if len(page.Turns) > 0 {
+		page.Turn = page.Turns[len(page.Turns)-1]
+	}
 	page.Claims, err = h.reader.Claims(ctx, id)
 	page.Errs.note("claims", err)
 	page.Evidence, err = h.reader.Evidence(ctx, id)
@@ -418,11 +427,13 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("attempts", err)
 	page.Rejections, err = h.reader.Rejections(ctx, id)
 	page.Errs.note("host corrections", err)
+	page.Artifacts, err = h.reader.Artifacts(ctx, id)
+	page.Errs.note("durable episode records", err)
 	page.Delivered, err = h.reader.Deliveries(ctx, id)
 	page.Errs.note("delivery", err)
-	page.Effects, err = h.reader.SideEffects(ctx, id)
+	confirmedEffects, err := h.reader.SideEffects(ctx, id)
 	page.Errs.note("side effects", err)
-	page.Effects = mergeSideEffects(page.Turn.Effects, page.Effects)
+	page.Effects = episodeSideEffects(page.Turns, confirmedEffects)
 	page.Audit, err = h.reader.AuditForEpisode(ctx, id)
 	page.Errs.note("audit trail", err)
 	page.Spent, err = h.reader.EpisodeTokens(ctx, id)
@@ -463,6 +474,19 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	h.render.Render(w, "episode", shell)
+}
+
+func episodeSideEffects(turns []Turn, confirmed []SideEffect) []SideEffect {
+	inferred := make([]SideEffect, 0)
+	for _, turn := range turns {
+		for _, effect := range turn.Effects {
+			if effect.At.IsZero() {
+				effect.At = turn.Updated
+			}
+			inferred = append(inferred, effect)
+		}
+	}
+	return mergeSideEffects(inferred, confirmed)
 }
 
 var leadingSlackAddressee = regexp.MustCompile(`^@\S+\s+`)

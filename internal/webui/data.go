@@ -363,6 +363,10 @@ type Event struct {
 	Attempt int
 	Repeats int
 	Span    string
+	// Occurrences preserves every durable timestamp when consecutive duplicate
+	// rows are folded for readability. A folded row is presentation, not data
+	// loss: operators can still inspect exactly when each repeat happened.
+	Occurrences []time.Time
 }
 
 // Events renders the episode's own history. 11,679 of these exist and none is
@@ -375,7 +379,7 @@ func (r *Reader) Events(ctx context.Context, episodeID string) ([]Event, error) 
 	rows, err := r.db.QueryContext(ctx, `
 	  SELECT kind, actor, payload_json, created_at
 	  FROM work_episode_events WHERE episode_id = ?
-	  ORDER BY sequence ASC LIMIT 400`, episodeID)
+	  ORDER BY sequence ASC`, episodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -389,6 +393,7 @@ func (r *Reader) Events(ctx context.Context, episodeID string) ([]Event, error) 
 			return nil, err
 		}
 		event.At = parseStamp(at)
+		event.Occurrences = []time.Time{event.At}
 		event.Detail = summarizePayload(event.Kind, payload)
 		event.Payload = prettyJSON(payload)
 		// Where the time went. Six minutes between two rows is the interesting
@@ -511,6 +516,7 @@ func collapseEvents(events []Event) []Event {
 		last := len(folded) - 1
 		if last >= 0 && folded[last].Kind == event.Kind && folded[last].Detail == event.Detail {
 			folded[last].Repeats++
+			folded[last].Occurrences = append(folded[last].Occurrences, event.Occurrences...)
 			if span := event.At.Sub(folded[last].At); span >= time.Second {
 				folded[last].Span = span.Round(time.Second).String()
 			}
@@ -542,7 +548,7 @@ func (r *Reader) Evidence(ctx context.Context, episodeID string) ([]EvidenceRow,
 	         COALESCE(relation,''), COALESCE(source_name,''), COALESCE(freshness,''),
 	         COALESCE(confidence,'')
 	  FROM evidence WHERE source_input IN (`+episodeSources+`)
-	  ORDER BY created_at LIMIT 100`,
+	  ORDER BY created_at`,
 		func(rows *sql.Rows) (EvidenceRow, error) {
 			var item EvidenceRow
 			err := rows.Scan(&item.ClaimID, &item.Claim, &item.Observation, &item.Relation,

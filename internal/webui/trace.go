@@ -73,7 +73,8 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 	trace := EpisodeTrace{}
 	trace.Metrics = episodeMetrics(pricing, page)
 	steps := make([]TraceStep, 0, 12+len(page.Events)+len(page.Attempts)+
-		len(page.Effects)+len(page.Delivered)+len(page.Audit))
+		len(page.Effects)+len(page.Delivered)+len(page.Audit)+len(page.Turns)+
+		len(page.Artifacts)+2*len(page.Wakeups))
 	add := func(step TraceStep) {
 		step.order = len(steps)
 		steps = append(steps, step)
@@ -91,31 +92,60 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				{"Thread", fallback(page.Source.ThreadTS, "top level")}, {"Sender", fallback(page.Source.Sender, page.Source.UserID)}},
 			Details: details,
 		})
+	} else {
+		add(TraceStep{
+			ID: "source-missing", Stage: "Input", Actor: "Responder", State: "not recorded",
+			Title: "Starting input unavailable", At: page.Created,
+			Summary: "This historical episode does not retain the Slack or scheduled input that started it.",
+			Why:     "The timeline marks the missing record instead of presenting a later event as the beginning of the work.",
+		})
 	}
-	if page.Wakeup.ID != "" {
-		details := []TraceDetail{{
-			Label: "Exact event matcher", Body: page.Wakeup.Matcher, Kind: "json",
-		}}
-		if page.Wakeup.Observation != "" && page.Wakeup.Observation != "{}" {
-			details = append(details, TraceDetail{
-				Label: "Event that satisfied the wait", Body: page.Wakeup.Observation, Kind: "json",
-			})
+	wakeups := page.Wakeups
+	if len(wakeups) == 0 && page.Wakeup.ID != "" {
+		wakeups = []Wakeup{page.Wakeup}
+	}
+	for wakeupIndex, wakeup := range wakeups {
+		scheduledID, resolvedID := "wakeup-scheduled", "wakeup-resolved"
+		if len(wakeups) > 1 {
+			scheduledID = fmt.Sprintf("wakeup-%d-scheduled", wakeupIndex+1)
+			resolvedID = fmt.Sprintf("wakeup-%d-resolved", wakeupIndex+1)
 		}
-		stats := []TraceStat{{"Type", page.Wakeup.Kind}, {"State", page.Wakeup.State}}
-		if !page.Wakeup.Deadline.IsZero() {
-			stats = append(stats, TraceStat{"Deadline", page.Wakeup.Deadline.Format(time.RFC3339)})
+		details := []TraceDetail{{
+			Label: "Exact event matcher", Body: wakeup.Matcher, Kind: "json",
+		}}
+		stats := []TraceStat{{"Type", wakeup.Kind}, {"Wake-up", wakeup.ID}}
+		if !wakeup.Due.IsZero() {
+			stats = append(stats, TraceStat{"Due", wakeup.Due.Format(time.RFC3339)})
+		}
+		if !wakeup.Deadline.IsZero() {
+			stats = append(stats, TraceStat{"Deadline", wakeup.Deadline.Format(time.RFC3339)})
 		}
 		add(TraceStep{
-			ID: "wakeup-scheduled", Stage: "Wait", Actor: "Responder", State: page.Wakeup.State,
-			Title: "Wake-up scheduled", At: page.Wakeup.Created,
-			Summary: wakeupSummary(page.Wakeup),
+			ID: scheduledID, Stage: "Wait", Actor: "Responder", State: "scheduled",
+			Title: "Wake-up scheduled", At: wakeup.Created,
+			Summary: wakeupSummary(wakeup),
 			Why:     "The external work was not finished, so Responder saved what to watch and released the worker. This durable wake-up could resume the same work after the matching event arrived.",
 			Stats:   stats, Details: details,
 		})
+		if !wakeup.Resolved.IsZero() {
+			resolvedDetails := []TraceDetail{}
+			if wakeup.Observation != "" && wakeup.Observation != "{}" {
+				resolvedDetails = append(resolvedDetails, TraceDetail{
+					Label: "Event that satisfied the wait", Body: wakeup.Observation, Kind: "json", Open: true,
+				})
+			}
+			add(TraceStep{
+				ID: resolvedID, Stage: "Wait", Actor: "Responder", State: wakeup.State,
+				Title: "Wake-up resolved", At: wakeup.Resolved,
+				Summary: "The awaited condition was observed; the episode could continue.",
+				Stats:   []TraceStat{{"Type", wakeup.Kind}, {"Wake-up", wakeup.ID}, {"Final state", wakeup.State}},
+				Details: resolvedDetails,
+			})
+		}
 	}
 	if page.Trigger.ID != "" && page.Trigger.ID != page.Source.ID {
 		title := "Automatic follow-up started"
-		if page.Wakeup.ID != "" {
+		if len(wakeups) > 0 {
 			title = "Wake-up delivered"
 		}
 		details := []TraceDetail{{
@@ -150,8 +180,12 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		})
 
 		prompt := manifest.SubmittedPrompt
-		if prompt == "" && manifest.RunID == page.Turn.RunID {
-			prompt = page.Turn.Prompt
+		if prompt == "" {
+			if turn, ok := turnByRun(page.Turns, manifest.RunID); ok {
+				prompt = turn.Prompt
+			} else if manifest.RunID == page.Turn.RunID {
+				prompt = page.Turn.Prompt
+			}
 		}
 		promptDetails := []TraceDetail{}
 		memoryLayers := 0
@@ -214,10 +248,35 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if payload := presentEventPayload(event.Payload, present); payload != "" && payload != "{}" {
 			details = append(details, TraceDetail{Label: "Recorded event payload", Body: payload, Kind: "json"})
 		}
+		if occurrences := occurrenceDetail(event.Occurrences); occurrences != nil {
+			details = append(details, *occurrences)
+		}
 		add(TraceStep{
 			ID: fmt.Sprintf("event-%d", index+1), Stage: eventStage(event.Kind), Actor: event.Actor,
 			State: event.Kind, Title: eventTitle(event.Kind), Summary: present(event.Detail), Why: why, At: event.At,
 			Stats: []TraceStat{{"Attempt", fmt.Sprint(event.Attempt)}, {"Repeats", repeatValue(event.Repeats)}}, Details: details,
+		})
+	}
+
+	for index, artifact := range page.Artifacts {
+		details := []TraceDetail{}
+		if strings.TrimSpace(artifact.Detail) != "" {
+			details = append(details, TraceDetail{
+				Label: artifactDetailLabel(artifact.Kind), Body: present(artifact.Detail),
+				Kind: fallback(artifact.DetailKind, "text"), Open: false,
+			})
+		}
+		stats := make([]TraceStat, 0, len(artifact.Stats))
+		for _, stat := range artifact.Stats {
+			if strings.TrimSpace(stat.Value) != "" {
+				stats = append(stats, TraceStat{stat.Label, present(stat.Value)})
+			}
+		}
+		add(TraceStep{
+			ID:    fmt.Sprintf("record-%s-%d", artifact.Kind, index+1),
+			Stage: artifactStage(artifact.Kind), Actor: artifactActor(artifact.Kind),
+			State: fallback(artifact.State, "recorded"), Title: present(artifact.Title), Summary: present(artifact.Summary),
+			Why: artifactWhy(artifact.Kind), At: artifact.At, Stats: stats, Details: details,
 		})
 	}
 
@@ -244,17 +303,21 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		})
 	}
 
-	if page.Turn.RunID != "" {
+	turns := page.Turns
+	if len(turns) == 0 && page.Turn.RunID != "" {
+		turns = []Turn{page.Turn}
+	}
+	for turnIndex, turn := range turns {
 		details := []TraceDetail{}
-		if page.Turn.Reason != "" {
-			details = append(details, TraceDetail{Label: "Host-visible decision rationale", Body: present(page.Turn.Reason), Kind: "text", Open: true})
+		if turn.Reason != "" {
+			details = append(details, TraceDetail{Label: "Host-visible decision rationale", Body: present(turn.Reason), Kind: "text", Open: true})
 		}
-		if page.Turn.RawResult != "" {
-			details = append(details, TraceDetail{Label: "Raw model result received by Responder", Body: present(prettyJSON(page.Turn.RawResult)), Kind: "json"})
+		if turn.RawResult != "" {
+			details = append(details, TraceDetail{Label: "Raw model result received by Responder", Body: present(prettyJSON(turn.RawResult)), Kind: "json"})
 		}
-		if len(page.Turn.Operations) > 0 {
-			operations := make([]string, 0, len(page.Turn.Operations))
-			for _, operation := range page.Turn.Operations {
+		if len(turn.Operations) > 0 {
+			operations := make([]string, 0, len(turn.Operations))
+			for _, operation := range turn.Operations {
 				operations = append(operations, fmt.Sprintf("%s x%d", operation.Name, operation.Count))
 			}
 			details = append(details, TraceDetail{
@@ -264,10 +327,14 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			})
 		}
 		details = append(details, TraceDetail{Label: "Provider transcript boundary", Body: "Coop records the submitted prompt, public model result, typed operations, artifacts, usage, and timings. It does not currently return the provider's private chain-of-thought or a granular transcript of every internal tool call, so this page does not invent either.", Kind: "missing"})
+		resultID := "result"
+		if len(turns) > 1 {
+			resultID = fmt.Sprintf("result-%d", turnIndex+1)
+		}
 		add(TraceStep{
-			ID: "result", Stage: "Result", Actor: "Model", State: page.Turn.State,
-			Title: "Model result received", Summary: present(modelSummary(page.Turn)), Why: "Responder parses and validates the result before any reply or side effect can leave the host.", At: page.Turn.Updated,
-			Stats:   []TraceStat{{"Action", fallback(page.Turn.Action, "not recorded")}, {"Operations", fmt.Sprint(tallyTotal(page.Turn.Operations))}, {"Follow-ups", fmt.Sprint(len(page.Turn.Followups))}},
+			ID: resultID, Stage: "Result", Actor: "Model", State: turn.State,
+			Title: "Model result received", Summary: present(modelSummary(turn)), Why: "Responder parses and validates the result before any reply or side effect can leave the host.", At: turn.Updated,
+			Stats:   []TraceStat{{"Run", turn.RunID}, {"Attempt", fmt.Sprint(turn.AttemptNumber)}, {"Action", fallback(turn.Action, "not recorded")}, {"Operations", fmt.Sprint(tallyTotal(turn.Operations))}, {"Follow-ups", fmt.Sprint(len(turn.Followups))}},
 			Details: details,
 		})
 	}
@@ -334,10 +401,14 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if audit.Kind == "standing_rules.evaluated" || audit.Kind == "standing_rule.acknowledged" {
 			stage, actor, state = "", "", ""
 		}
+		details := auditTraceDetails(audit, present)
+		if occurrences := occurrenceDetail(audit.Occurrences); occurrences != nil {
+			details = append(details, *occurrences)
+		}
 		add(TraceStep{
 			ID: fmt.Sprintf("audit-%d", index+1), Stage: stage, Actor: actor, State: state,
 			Title: eventTitle(audit.Kind), Summary: summary, Why: auditTraceWhy(audit), At: audit.At,
-			Stats: stats, Details: auditTraceDetails(audit, present),
+			Stats: stats, Details: details,
 		})
 	}
 
@@ -363,6 +434,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 	trace.Stats = []TraceStat{
 		{"Timeline steps", fmt.Sprint(len(steps))},
 		{"Attempts", fmt.Sprint(len(page.Attempts))},
+		{"Model turns", fmt.Sprint(len(turns))},
+		{"Wake-ups", fmt.Sprint(len(wakeups))},
+		{"Durable records", fmt.Sprint(len(page.Artifacts))},
 		{"Context components", fmt.Sprint(len(page.Manifest.Refs))},
 		{"Evidence records", fmt.Sprint(len(page.Evidence))},
 		{"Side effects", fmt.Sprint(len(page.Effects))},
@@ -1334,9 +1408,27 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 				first = delivery.At
 			}
 		}
+		// Standing workflows acknowledge work with a temporary reaction before
+		// an episode-owned Slack status exists. That is still the operator's
+		// first visible processing indicator, and the audit record is durable.
+		for _, audit := range page.Audit {
+			if audit.At.IsZero() || (audit.Kind != "standing_rule.acknowledged" &&
+				audit.Kind != "standing_rules.evaluated") {
+				continue
+			}
+			if audit.Kind == "standing_rules.evaluated" {
+				var evaluation core.StandingRuleEvaluationAudit
+				if json.Unmarshal([]byte(audit.Detail), &evaluation) != nil || evaluation.Acknowledged == "" {
+					continue
+				}
+			}
+			if first.IsZero() || audit.At.Before(first) {
+				first = audit.At
+			}
+		}
 		if !first.IsZero() {
 			react.Value, react.Missing, react.Tone = compactDuration(first.Sub(page.Source.Received)), false, "good"
-			react.Detail = "From Slack receipt to the first linked processing indicator."
+			react.Detail = "From Slack receipt to the first linked status or working reaction."
 		}
 	}
 
@@ -1406,8 +1498,14 @@ func episodeErrorCount(page episodePage) (int, string) {
 			deliveries++
 		}
 	}
-	if page.Turn.Unreadable != "" {
-		parseFailures = 1
+	turns := page.Turns
+	if len(turns) == 0 && (page.Turn.RunID != "" || page.Turn.Unreadable != "") {
+		turns = []Turn{page.Turn}
+	}
+	for _, turn := range turns {
+		if turn.Unreadable != "" {
+			parseFailures++
+		}
 	}
 	count := failedAttempts + corrections + deliveries + parseFailures
 	return count, fmt.Sprintf("%d failed attempts · %d host corrections · %d delivery failures · %d unreadable results", failedAttempts, corrections, deliveries, parseFailures)
@@ -1460,6 +1558,15 @@ func modelSummary(turn Turn) string {
 	return fallback(turn.Error, "The result carried no public message.")
 }
 
+func turnByRun(turns []Turn, runID string) (Turn, bool) {
+	for _, turn := range turns {
+		if turn.RunID == runID {
+			return turn, true
+		}
+	}
+	return Turn{}, false
+}
+
 func contextLabel(kind string) string {
 	return map[string]string{
 		"source_input": "Source message", "compiled_prompt": "Prompt replay fingerprint",
@@ -1492,6 +1599,122 @@ func eventTitle(kind string) string {
 	runes := []rune(title)
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
+}
+
+func artifactStage(kind string) string {
+	switch kind {
+	case "commitment", "goal":
+		return "Plan"
+	case "scheduled_run":
+		return "Schedule"
+	case "evaluation", "standing_rule_run", "standing_assignment_action":
+		return "Decision"
+	case "feedback", "replay_candidate":
+		return "Review"
+	case "incident_timeline":
+		return "Incident"
+	case "publication_lifecycle", "publication":
+		return "Publication"
+	case "quality_finding":
+		return "Review"
+	default:
+		return "Execution"
+	}
+}
+
+func artifactActor(kind string) string {
+	switch kind {
+	case "scheduled_run":
+		return "Scheduler"
+	case "quality_finding":
+		return "Quality watcher"
+	case "feedback":
+		return "Operator"
+	case "replay_candidate":
+		return "Regression corpus"
+	default:
+		return "Responder"
+	}
+}
+
+func artifactDetailLabel(kind string) string {
+	switch kind {
+	case "goal":
+		return "Goal details"
+	case "scheduled_run":
+		return "Schedule failure"
+	case "evaluation":
+		return "Decision details"
+	case "standing_rule_run":
+		return "Rule result"
+	case "standing_assignment_action":
+		return "Assignment result"
+	case "feedback":
+		return "Feedback details"
+	case "replay_candidate":
+		return "Saved correction"
+	case "incident_timeline":
+		return "Incident event"
+	case "publication_lifecycle":
+		return "Publication event"
+	case "publication":
+		return "Publication error"
+	case "quality_finding":
+		return "Review evidence"
+	default:
+		return "Full record"
+	}
+}
+
+func artifactWhy(kind string) string {
+	switch kind {
+	case "commitment":
+		return "Responder recorded the outcome it accepted responsibility for, so unfinished work cannot disappear when a model turn ends."
+	case "goal":
+		return "This required outcome is tracked independently from any one model turn and can block completion until it is satisfied."
+	case "scheduled_run":
+		return "This is the persisted occurrence of a scheduled task, including when it was due and how it ended."
+	case "progress":
+		return "Responder saved this progress update so the episode can resume from the same point after a restart or follow-up."
+	case "evaluation":
+		return "This is the persisted decision about whether the source event needed a reply, investigation, or no action."
+	case "standing_rule_run":
+		return "A confirmed standing rule matched this source event and recorded the action it started."
+	case "standing_assignment_action":
+		return "A confirmed autonomous assignment matched this source event and recorded the bounded work it started."
+	case "feedback":
+		return "An operator linked this feedback to the episode so the product issue and its conversation context are not lost."
+	case "replay_candidate":
+		return "A host correction from this episode was retained for human review before it can become a regression test."
+	case "incident_timeline":
+		return "This event was added to the incident history linked to the episode."
+	case "publication_lifecycle":
+		return "This external publication event advanced the linked branch or pull-request workflow."
+	case "publication":
+		return "This is the durable branch and pull-request state linked to the episode."
+	case "quality_finding":
+		return "A later production review checked this episode and retained its verdict and supporting evidence."
+	default:
+		return ""
+	}
+}
+
+func occurrenceDetail(times []time.Time) *TraceDetail {
+	if len(times) <= 1 {
+		return nil
+	}
+	lines := make([]string, 0, len(times))
+	for index, at := range times {
+		value := "time not recorded"
+		if !at.IsZero() {
+			value = at.UTC().Format("2006-01-02 15:04:05.000 UTC")
+		}
+		lines = append(lines, fmt.Sprintf("%d. %s", index+1, value))
+	}
+	return &TraceDetail{
+		Label: "All occurrences", Body: strings.Join(lines, "\n"), Kind: "text",
+		Open: false, ShowCount: true, Count: len(times),
+	}
 }
 
 func usageTraceStep(page episodePage) TraceStep {

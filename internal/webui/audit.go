@@ -22,6 +22,7 @@ type AuditRow struct {
 	At                         time.Time
 	Repeats                    int
 	Span                       string
+	Occurrences                []time.Time
 }
 
 // AuditGroup counts one kind of action, because 976 rows are not 976 different
@@ -48,6 +49,7 @@ func (r *Reader) scanAudit(ctx context.Context, query string, args ...any) ([]Au
 		err := rows.Scan(&item.Kind, &item.Outcome, &item.Actor, &item.Object,
 			&item.Detail, &item.EpisodeID, &item.IncidentID, &at)
 		item.At, item.Whom = parseStamp(at), whom(item.Actor)
+		item.Occurrences = []time.Time{item.At}
 		item.Detail = r.resolveChannels(ctx, item.Detail)
 		return item, err
 	}, args...)
@@ -69,6 +71,7 @@ func foldAudit(rows []AuditRow) []AuditRow {
 		if last >= 0 && folded[last].Kind == row.Kind && folded[last].Outcome == row.Outcome &&
 			folded[last].Actor == row.Actor && folded[last].Detail == row.Detail {
 			folded[last].Repeats++
+			folded[last].Occurrences = append(folded[last].Occurrences, row.Occurrences...)
 			// Absolute, because these lists are read newest-first on the audit
 			// pages and oldest-first on an episode, and a span is a duration
 			// either way.
@@ -188,7 +191,7 @@ func (r *Reader) CountAuditOfKind(ctx context.Context, filter AuditFilter) (int,
 func (r *Reader) AuditForEpisode(ctx context.Context, episodeID string) ([]AuditRow, error) {
 	return r.scanAudit(ctx, auditSelect+`
 	  WHERE a.object_id IN (`+episodeSources+`)
-	  ORDER BY a.created_at LIMIT 60`, episodeID, episodeID)
+	  ORDER BY a.created_at`, episodeID, episodeID)
 }
 
 func (r *Reader) AuditForIncident(ctx context.Context, incidentID string) ([]AuditRow, error) {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -376,6 +378,13 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 	if wakeup.ID != "terraform-terminal" || !strings.Contains(wakeup.Matcher, "run-CRHCeYKxfPSNpEUw") {
 		t.Fatalf("wakeup = %+v, want exact persisted Terraform subscription", wakeup)
 	}
+	wakeups, err := reader.Wakeups(context.Background(), "follow-up-episode", trigger.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wakeups) != 1 || wakeups[0].ID != "terraform-terminal" {
+		t.Fatalf("wakeups = %+v, want linked Terraform subscription", wakeups)
+	}
 	manifests, err := reader.Manifests(context.Background(), "follow-up-episode")
 	if err != nil {
 		t.Fatal(err)
@@ -394,6 +403,7 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 
 	page := episodePage{
 		Item: Item{Created: t1}, Source: source, Trigger: trigger, Wakeup: wakeup,
+		Wakeups:  wakeups,
 		Manifest: manifests[0], Manifests: manifests, Attempts: attempts, Rejections: rejections,
 	}
 	trace := buildEpisodeTrace(config.Pricing{}, page, nil)
@@ -405,7 +415,7 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 		positions[step.ID] = index
 	}
 	for _, want := range []string{
-		"source", "wakeup-scheduled", "trigger", "model", "prompt", "rejection-1", "attempt-1",
+		"source", "wakeup-scheduled", "wakeup-resolved", "trigger", "model", "prompt", "rejection-1", "attempt-1",
 	} {
 		if _, ok := positions[want]; !ok {
 			t.Fatalf("trace is missing %q: %+v", want, trace.Steps)
@@ -413,7 +423,8 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 	}
 	for before, after := range map[string]string{
 		"source":           "wakeup-scheduled",
-		"wakeup-scheduled": "trigger",
+		"wakeup-scheduled": "wakeup-resolved",
+		"wakeup-resolved":  "trigger",
 		"trigger":          "model",
 		"model":            "prompt",
 		"prompt":           "rejection-1",
@@ -424,8 +435,9 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 		}
 	}
 	if trace.Steps[1].Title != "Wake-up scheduled" ||
-		trace.Steps[2].Title != "Wake-up delivered" {
-		t.Fatalf("wake-up lifecycle is not explicit: %+v", trace.Steps[:3])
+		trace.Steps[2].Title != "Wake-up resolved" ||
+		trace.Steps[3].Title != "Wake-up delivered" {
+		t.Fatalf("wake-up lifecycle is not explicit: %+v", trace.Steps[:4])
 	}
 }
 
@@ -472,6 +484,21 @@ func TestAuditTracePresentsSlackReactionAndStandingRuleMeaning(t *testing.T) {
 		details[0].Label != "Matched rule - details not recorded" ||
 		!strings.Contains(details[0].Body, "did not save the rule name") {
 		t.Fatalf("legacy evaluation details = %+v", details)
+	}
+}
+
+func TestEpisodeMetricsUseStandingRuleReactionAsTimeToReact(t *testing.T) {
+	received := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	metrics := episodeMetrics(config.Pricing{}, episodePage{
+		Source: SourceInput{Received: received},
+		Audit: []AuditRow{{
+			Kind: "standing_rule.acknowledged", Detail: "eyes",
+			At: received.Add(850 * time.Millisecond),
+		}},
+	})
+	if len(metrics) < 2 || metrics[1].Label != "Time to react" ||
+		metrics[1].Value != "850ms" || metrics[1].Missing {
+		t.Fatalf("time to react = %+v", metrics)
 	}
 }
 
@@ -732,4 +759,559 @@ func TestResultSideEffectsOmitsEmptyMemoryFields(t *testing.T) {
 	if len(effects) != 1 || effects[0].Title != "Terraform summaries" {
 		t.Fatalf("effects = %+v, want only the populated knowledge item", effects)
 	}
+}
+
+func TestEpisodeTimelineDoesNotTruncateEpisodeOwnedRecords(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	for index := 0; index < 425; index++ {
+		fixture.exec(`INSERT INTO work_episode_events
+		  (id, episode_id, sequence, kind, actor, idempotency_key, payload_json, created_at)
+		  VALUES (?, 'episode-1', ?, ?, 'responder', ?, ?, ?)`,
+			fmt.Sprintf("event-%03d", index), index+1, fmt.Sprintf("event.%03d", index),
+			fmt.Sprintf("event-idem-%03d", index), fmt.Sprintf(`{"index":%d}`, index), fixture.stamp)
+	}
+	for index := 0; index < 125; index++ {
+		fixture.exec(`INSERT INTO evidence
+		  (id, channel_id, source_input, claim, observation, source_type, source_name,
+		   target, created_at)
+		  VALUES (?, 'C1', 'input-1', ?, ?, 'tool', ?, ?, ?)`,
+			fmt.Sprintf("evidence-%03d", index), fmt.Sprintf("claim %03d", index),
+			fmt.Sprintf("observation %03d", index), fmt.Sprintf("source %03d", index),
+			fmt.Sprintf("target %03d", index), fixture.stamp)
+	}
+	for index := 0; index < 75; index++ {
+		fixture.exec(`INSERT INTO audit_events
+		  (id, kind, actor_id, object_id, outcome, detail, created_at)
+		  VALUES (?, 'episode.test', 'responder', 'run-1', 'recorded', ?, ?)`,
+			fmt.Sprintf("audit-%03d", index), fmt.Sprintf("audit detail %03d", index), fixture.stamp)
+	}
+	fixture.exec(`INSERT INTO agent_runs
+	  (id, mode, channel_id, thread_ts, conversation_key, source_kind, source_id,
+	   user_id, repository, idempotency_key, result_json, terminal_state, state,
+	   next_attempt_at, created_at, updated_at, completed_at, episode_id, attempt_id, attempt_number)
+	  VALUES ('run-2','triage','C1','1786000000.000001','C1:1786000000.000001',
+	          'recheck','input-2','U1','emisar','idem-2',?,'completed','completed',
+	          ?,?,?,?,'episode-1','attempt-2',2)`, fixture.result, fixture.stamp,
+		fixture.stamp, fixture.stamp, fixture.stamp)
+	for index := 0; index < 3; index++ {
+		fixture.exec(`INSERT INTO episode_wakeups
+		  (id, episode_id, kind, event_matcher_json, state, last_observation_json,
+		   created_at, updated_at)
+		  VALUES (?, 'episode-1', 'terraform_run', ?, 'pending', '{}', ?, ?)`,
+			fmt.Sprintf("wakeup-%d", index), fmt.Sprintf(`{"run_id":"run-%d"}`, index),
+			fixture.stamp, fixture.stamp)
+	}
+
+	reader := fixture.reader()
+	defer reader.Close()
+	ctx := context.Background()
+	assertLength := func(name string, got any, length, want int) {
+		t.Helper()
+		if length != want {
+			t.Fatalf("%s length = %d, want %d: %#v", name, length, want, got)
+		}
+	}
+	events, err := reader.Events(ctx, "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLength("events", events, len(events), 425)
+	evidence, err := reader.Evidence(ctx, "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLength("evidence", evidence, len(evidence), 125)
+	audit, err := reader.AuditForEpisode(ctx, "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLength("audit", audit, len(audit), 75)
+	turns, err := reader.Turns(ctx, "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLength("turns", turns, len(turns), 2)
+	wakeups, err := reader.Wakeups(ctx, "episode-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLength("wakeups", wakeups, len(wakeups), 3)
+}
+
+func TestEpisodeTimelinePreservesEveryFoldedOccurrence(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	for index, second := range []int{1, 7, 19} {
+		at := time.Date(2026, 8, 11, 12, 0, second, 0, time.UTC).Format(time.RFC3339Nano)
+		fixture.exec(`INSERT INTO work_episode_events
+		  (id, episode_id, sequence, kind, actor, idempotency_key, payload_json, created_at)
+		  VALUES (?, 'episode-1', ?, 'waiting', 'responder', ?, '{"status":"Waiting"}', ?)`,
+			fmt.Sprintf("repeat-%d", index), index+1, fmt.Sprintf("repeat-idem-%d", index), at)
+	}
+	for index, second := range []int{2, 8, 20} {
+		at := time.Date(2026, 8, 11, 12, 1, second, 0, time.UTC).Format(time.RFC3339Nano)
+		fixture.exec(`INSERT INTO audit_events
+		  (id, kind, actor_id, object_id, outcome, detail, created_at)
+		  VALUES (?, 'episode.test', 'responder', 'run-1', 'recorded', 'same audit', ?)`,
+			fmt.Sprintf("repeat-audit-%d", index), at)
+	}
+
+	reader := fixture.reader()
+	defer reader.Close()
+	events, err := reader.Events(context.Background(), "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit, err := reader.AuditForEpisode(context.Background(), "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || len(events[0].Occurrences) != 3 {
+		t.Fatalf("folded events = %+v, want one event with three occurrences", events)
+	}
+	if len(audit) != 1 || len(audit[0].Occurrences) != 3 {
+		t.Fatalf("folded audit = %+v, want one row with three occurrences", audit)
+	}
+	trace := buildEpisodeTrace(config.Pricing{}, episodePage{Events: events, Audit: audit}, nil)
+	occurrenceDetails := 0
+	for _, step := range trace.Steps {
+		for _, detail := range step.Details {
+			if detail.Label != "All occurrences" {
+				continue
+			}
+			occurrenceDetails++
+			if detail.Count != 3 || detail.Open || !strings.Contains(detail.Body, "2026-08-11 12:") {
+				t.Fatalf("occurrence detail = %+v", detail)
+			}
+		}
+	}
+	if occurrenceDetails != 2 {
+		t.Fatalf("occurrence detail count = %d, want 2", occurrenceDetails)
+	}
+}
+
+func TestEpisodeArtifactsCoverEveryDurableLifecycle(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	fixture.exec(`INSERT INTO commitments (episode_id, title)
+	  VALUES ('episode-1', 'Own the rollout review')`)
+	fixture.exec(`INSERT INTO work_episode_progress
+	  (id, episode_id, sequence, phase, summary, created_at)
+	  VALUES ('progress-1','episode-1',1,'investigating','Checking the rollout',?)`, fixture.stamp)
+	fixture.exec(`INSERT INTO episode_goals
+	  (id, episode_id, kind, requested_outcome, completion_contract,
+	   authority_requirement, state, created_at, updated_at)
+	  VALUES ('goal-1','episode-1','verification','Verify production health',
+	          'Report a decision with fresh evidence','read_only','completed',?,?)`, fixture.stamp, fixture.stamp)
+	fixture.exec(`INSERT INTO scheduled_tasks
+	  (id, team_id, channel_id, repository, title, prompt, recurrence, start_at,
+	   actor_id, source_ref, expires_at, created_at, updated_at)
+	  VALUES ('task-1','T1','C1','emisar','Daily health review','Check production health',
+	          'once',?,'U1','slack:C1:1786000000.000001',?,?,?)`,
+		fixture.stamp, fixture.expires, fixture.stamp, fixture.stamp)
+	fixture.exec(`INSERT INTO scheduled_task_runs
+	  (task_id, scheduled_for, source_input, agent_run_id, outcome, started_at,
+	   completed_at, created_at, updated_at, episode_id)
+	  VALUES ('task-1',?,'input-1','run-1','completed',?,?,?,?, 'episode-1')`,
+		fixture.stamp, fixture.stamp, fixture.stamp, fixture.stamp, fixture.stamp)
+	fixture.exec(`INSERT INTO evaluation_decisions
+	  (id, channel_id, source_input, mode, action, reason, evidence_count,
+	   coverage_count, created_at)
+	  VALUES ('evaluation-1','C1','input-1','proactive','reply',
+	          'The alert needs investigation',3,2,?)`, fixture.stamp)
+	fixture.exec(`INSERT INTO standing_rules
+	  (id, channel_id, repository, trigger_name, action_name, source_kind,
+	   source_ref, actor_id, expires_at, created_at, updated_at)
+	  VALUES ('rule-1','C1','emisar','terraform_plan','review_terraform_plan','app',
+	          'slack:C1:rule','U1',?,?,?)`, fixture.expires, fixture.stamp, fixture.stamp)
+	fixture.exec(`INSERT INTO standing_rule_runs
+	  (rule_id, source_input, event_id, outcome, created_at)
+	  VALUES ('rule-1','input-1','event-1','completed',?)`, fixture.stamp)
+	fixture.exec(`INSERT INTO standing_assignments
+	  (id, channel_id, signal_pattern, repository, path_globs_json, change_class,
+	   daily_budget, actor_id, enabled, confirmed_at, expires_at, created_at, updated_at)
+	  VALUES ('assignment-1','C1','dependency update','emisar','["portal/**"]',
+	          'dependency_upgrade',2,'U1',1,?,?,?,?)`,
+		fixture.stamp, fixture.expires, fixture.stamp, fixture.stamp)
+	fixture.exec(`INSERT INTO standing_assignment_actions
+	  (id, assignment_id, correlation_key, episode_id, outcome, created_at)
+	  VALUES ('assignment-action-1','assignment-1','dependency:one','episode-1','prepared',?)`, fixture.stamp)
+	fixture.exec(`INSERT INTO feedback_items
+	  (id, workspace_id, channel_id, thread_ts, message_ts, target_message_ts,
+	   user_id, source, category, sentiment, summary, details, context_json,
+	   episode_id, agent_run_id, source_ref, status, created_at, updated_at)
+	  VALUES ('feedback-1','T1','C1','1786000000.000001','1786000001.000001',
+	          '1786000000.000001','U1','message','correction','negative',
+	          'The reply missed the rollout','Use exact deployment evidence','{}',
+	          'episode-1','run-1','slack:C1:1786000001.000001','open',?,?)`, fixture.stamp, fixture.stamp)
+	fixture.exec(`INSERT INTO fixture_candidates
+	  (id, episode_id, run_id, capability, correction_class, correction, status,
+	   reviewed_by, created_at, expires_at, updated_at)
+	  VALUES ('candidate-1','episode-1','run-1','triage','unsupported_claim',
+	          'Do not claim recovery from alert state alone','pending','',?,?,?)`,
+		fixture.stamp, fixture.expires, fixture.stamp)
+	fixture.exec(`INSERT INTO incidents
+	  (id, route, repository, correlation_key, title, status, workflow, created_at, updated_at)
+	  VALUES ('incident-1','slack','emisar','correlation-1','Production rollout','active',
+	          'investigate',?,?)`, fixture.stamp, fixture.stamp)
+	fixture.exec(`UPDATE agent_runs SET incident_id = 'incident-1' WHERE id = 'run-1'`)
+	fixture.exec(`INSERT INTO timeline_events
+	  (id, incident_id, channel_id, kind, actor_id, title, detail, created_at)
+	  VALUES ('timeline-1','incident-1','C1','investigation','responder',
+	          'Rollout inspected','The new allocation is healthy',?)`, fixture.stamp)
+	fixture.exec(`INSERT INTO publications
+	  (incident_id, repository, base_branch, head_branch, parent_head, candidate_tree,
+	   commit_sha, remote_sha, pr_number, pr_url, state, created_at, updated_at, published_at)
+	  VALUES ('incident-1','emisar','main','responder/fix','parent','tree','commit','remote',
+	          42,'https://github.com/example/emisar/pull/42','published',?,?,?)`,
+		fixture.stamp, fixture.stamp, fixture.stamp)
+	fixture.exec(`INSERT INTO publication_lifecycle_events
+	  (id, incident_id, kind, state, summary, source_channel_id, source_message_ts, created_at)
+	  VALUES ('publication-event-1','incident-1','checks','passed',
+	          'All checks passed','C1','1786000000.000001',?)`, fixture.stamp)
+	fixture.exec(`INSERT INTO quality_findings
+	  (id, run_id, episode_ids, channel_id, verdict, disposition, severity, summary,
+	   expected_behavior, evidence, code_evidence, suspected_components,
+	   regression_test, challenger_summary, challenger_evidence, artifacts, created_at)
+	  VALUES ('finding-1','run-1','["episode-1"]','C1','confirmed','integrated','high',
+	          'The reply was incomplete','Show the complete lifecycle','["slack"]',
+	          '["reader"]','["internal/webui"]','TestEpisodeArtifactsCoverEveryDurableLifecycle',
+	          'The finding survived review','["fixture"]','quality/finding-1',?)`, fixture.stamp)
+
+	reader := fixture.reader()
+	defer reader.Close()
+	artifacts, err := reader.Artifacts(context.Background(), "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantKinds := map[string]int{
+		"commitment": 1, "progress": 1, "goal": 1, "scheduled_run": 1,
+		"evaluation": 1, "standing_rule_run": 1, "standing_assignment_action": 1,
+		"feedback": 1, "replay_candidate": 1, "incident_timeline": 1,
+		"publication_lifecycle": 1, "publication": 1, "quality_finding": 1,
+	}
+	gotKinds := make(map[string]int, len(wantKinds))
+	for _, artifact := range artifacts {
+		gotKinds[artifact.Kind]++
+		if artifact.ID == "" || artifact.Title == "" || artifact.State == "" {
+			t.Fatalf("artifact has an incomplete identity: %+v", artifact)
+		}
+	}
+	if len(gotKinds) != len(wantKinds) {
+		t.Fatalf("artifact kinds = %v, want %v", gotKinds, wantKinds)
+	}
+	for kind, want := range wantKinds {
+		if got := gotKinds[kind]; got != want {
+			t.Fatalf("artifact kind %q count = %d, want %d; all kinds = %v", kind, got, want, gotKinds)
+		}
+	}
+	trace := buildEpisodeTrace(config.Pricing{}, episodePage{Artifacts: artifacts}, nil)
+	var durable string
+	for _, stat := range trace.Stats {
+		if stat.Label == "Durable records" {
+			durable = stat.Value
+		}
+	}
+	if durable != "13" {
+		t.Fatalf("durable record count = %q, want 13", durable)
+	}
+	artifactSteps := 0
+	for _, step := range trace.Steps {
+		if !strings.HasPrefix(step.ID, "record-") {
+			continue
+		}
+		artifactSteps++
+		for _, detail := range step.Details {
+			if detail.Open {
+				t.Fatalf("large artifact detail is open by default: %+v", step)
+			}
+		}
+	}
+	if artifactSteps != 13 {
+		t.Fatalf("artifact trace steps = %d, want 13", artifactSteps)
+	}
+}
+
+func TestEpisodeArtifactsKeepPublicationWhenIncidentTimelineIsUnavailable(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	fixture.exec(`INSERT INTO incidents
+	  (id, route, repository, correlation_key, title, status, workflow, created_at, updated_at)
+	  VALUES ('incident-1','slack','emisar','correlation-1','Production rollout','active',
+	          'investigate',?,?)`, fixture.stamp, fixture.stamp)
+	fixture.exec(`UPDATE agent_runs SET incident_id = 'incident-1' WHERE id = 'run-1'`)
+	fixture.exec(`INSERT INTO publications
+	  (incident_id, repository, base_branch, head_branch, parent_head, candidate_tree,
+	   commit_sha, remote_sha, pr_number, pr_url, state, created_at, updated_at, published_at)
+	  VALUES ('incident-1','emisar','main','responder/fix','parent','tree','commit','remote',
+	          42,'https://github.com/example/emisar/pull/42','published',?,?,?)`,
+		fixture.stamp, fixture.stamp, fixture.stamp)
+	fixture.closeAndDrop("timeline_events")
+
+	reader, err := OpenReader(fixture.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	artifacts, err := reader.Artifacts(context.Background(), "episode-1")
+	if err == nil || !strings.Contains(err.Error(), "timeline") {
+		t.Fatalf("projection error = %v, want timeline failure", err)
+	}
+	for _, artifact := range artifacts {
+		if artifact.Kind == "publication" && artifact.ID == "incident-1" {
+			return
+		}
+	}
+	t.Fatalf("partial artifacts = %+v, projection error = %v, want publication retained", artifacts, err)
+}
+
+func TestEpisodeArtifactsReturnPartialResultsWhenOptionalProjectionIsMissing(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	fixture.exec(`INSERT INTO commitments (episode_id, title)
+	  VALUES ('episode-1', 'Keep the usable trace')`)
+	if err := fixture.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", fixture.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DROP TABLE quality_findings`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fixture.db = nil
+
+	reader, err := OpenReader(fixture.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	artifacts, err := reader.Artifacts(context.Background(), "episode-1")
+	if err == nil || !strings.Contains(err.Error(), "quality findings") {
+		t.Fatalf("projection error = %v, want the unavailable projection named", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Kind != "commitment" {
+		t.Fatalf("partial artifacts = %+v, want the usable commitment", artifacts)
+	}
+}
+
+func TestEpisodeSideEffectsPreserveTurnChronologyAndPreferConfirmedMemory(t *testing.T) {
+	t1 := time.Date(2026, 8, 10, 8, 0, 0, 0, time.UTC)
+	t2 := t1.Add(time.Minute)
+	t3 := t2.Add(time.Minute)
+	turns := []Turn{
+		{Updated: t1, Effects: []SideEffect{
+			{Kind: "standing rule", State: "offered", Title: "Review plans"},
+			{Kind: "conversation memory", State: "saved", Title: "Goal", Detail: "Old goal"},
+		}},
+		{Updated: t2, Effects: []SideEffect{
+			{Kind: "scheduled task", State: "offered", Title: "Daily review"},
+		}},
+	}
+	confirmed := []SideEffect{
+		{Kind: "conversation memory", State: "saved", Title: "Goal", Detail: "Current goal", At: t3},
+	}
+
+	effects := episodeSideEffects(turns, confirmed)
+	if len(effects) != 3 {
+		t.Fatalf("effects = %+v, want two inferred offers and one confirmed memory change", effects)
+	}
+	if effects[0].Title != "Review plans" || !effects[0].At.Equal(t1) {
+		t.Fatalf("first effect = %+v, want first turn timestamp", effects[0])
+	}
+	if effects[1].Title != "Daily review" || !effects[1].At.Equal(t2) {
+		t.Fatalf("second effect = %+v, want second turn timestamp", effects[1])
+	}
+	if effects[2].Detail != "Current goal" || !effects[2].At.Equal(t3) {
+		t.Fatalf("confirmed effect = %+v", effects[2])
+	}
+}
+
+func TestEpisodeTimelineStartsWithExplicitMissingInput(t *testing.T) {
+	created := time.Date(2026, 8, 10, 8, 0, 0, 0, time.UTC)
+	trace := buildEpisodeTrace(config.Pricing{}, episodePage{
+		Item: Item{Created: created},
+		Rejections: []Rejection{{
+			RunID: "run-1", Outcome: "corrected", Detail: "The result did not match the contract.",
+			At: created.Add(time.Second),
+		}},
+	}, nil)
+
+	if len(trace.Steps) < 2 {
+		t.Fatalf("trace steps = %+v", trace.Steps)
+	}
+	if trace.Steps[0].ID != "source-missing" || trace.Steps[0].Title != "Starting input unavailable" {
+		t.Fatalf("first step = %+v", trace.Steps[0])
+	}
+	if trace.Steps[1].ID != "rejection-1" {
+		t.Fatalf("second step = %+v, want host rejection after explicit input gap", trace.Steps[1])
+	}
+}
+
+func TestEpisodeProjectionInventoryCoversEveryEpisodeLinkedTable(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	defer fixture.db.Close()
+
+	// Each entry names the reader surface responsible for rendering records from
+	// that table. Keeping the inventory next to the projection tests makes a new
+	// episode-owned table fail loudly until the timeline has an intentional home.
+	projected := map[string]string{
+		"agent_runs":                  "model turns",
+		"claim_assessments":           "claim ledger",
+		"commitments":                 "durable records",
+		"context_manifests":           "prompt manifests",
+		"conversation_memory_changes": "memory changes",
+		"episode_attempts":            "attempts and corrections",
+		"episode_goals":               "durable records",
+		"episode_wakeups":             "automatic follow-ups",
+		"feedback_items":              "durable records",
+		"fixture_candidates":          "durable records",
+		"quality_findings":            "durable records",
+		"scheduled_task_runs":         "durable records",
+		"slack_deliveries":            "Slack deliveries",
+		"standing_assignment_actions": "durable records",
+		"work_episode_events":         "episode event stream",
+		"work_episode_progress":       "durable records",
+	}
+
+	rows, err := fixture.db.Query(`
+	  SELECT DISTINCT m.name
+	  FROM sqlite_master AS m
+	  JOIN pragma_table_info(m.name) AS p
+	  WHERE m.type = 'table' AND p.name IN ('episode_id', 'episode_ids')
+	  ORDER BY m.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	actual := map[string]bool{}
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			t.Fatal(err)
+		}
+		actual[table] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	var missingSurface, staleInventory []string
+	for table := range actual {
+		if projected[table] == "" {
+			missingSurface = append(missingSurface, table)
+		}
+	}
+	for table := range projected {
+		if !actual[table] {
+			staleInventory = append(staleInventory, table)
+		}
+	}
+	sort.Strings(missingSurface)
+	sort.Strings(staleInventory)
+	if len(missingSurface) > 0 || len(staleInventory) > 0 {
+		t.Fatalf("episode projection inventory drifted; missing surfaces=%v stale entries=%v", missingSurface, staleInventory)
+	}
+}
+
+type episodeProjectionFixture struct {
+	t              *testing.T
+	db             *sql.DB
+	path           string
+	stamp, expires string
+	result         string
+}
+
+func (f *episodeProjectionFixture) closeAndDrop(table string) {
+	f.t.Helper()
+	if err := f.db.Close(); err != nil {
+		f.t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", f.path)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if _, err := db.Exec(`DROP TABLE ` + table); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		f.t.Fatal(err)
+	}
+	f.db = nil
+}
+
+func newEpisodeProjectionFixture(t *testing.T) *episodeProjectionFixture {
+	t.Helper()
+	dir := t.TempDir()
+	live, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "responder.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	fixture := &episodeProjectionFixture{
+		t: t, db: db, path: path, stamp: stamp,
+		expires: time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano),
+		result:  `{"action":"reply","message":"Done.","reason":"The work is complete."}`,
+	}
+	fixture.exec(`INSERT INTO slack_channel_memberships (channel_id, channel_name, observed_at)
+	  VALUES ('C1','infra',?)`, stamp)
+	fixture.exec(`INSERT INTO slack_inputs
+	  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
+	   user_id, text, state, next_attempt_at, received_at, updated_at)
+	  VALUES ('input-1','envelope-1','event-1','message','T1','C1','1786000000.000001',
+	          '1786000000.000001','U1','Check the rollout','completed',?,?,?)`,
+		stamp, stamp, stamp)
+	fixture.exec(`INSERT INTO slack_inputs
+	  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
+	   user_id, text, state, next_attempt_at, received_at, updated_at)
+	  VALUES ('input-2','envelope-2','event-2','recheck','T1','C1','1786000000.000001',
+	          '','U1','Continue the rollout check','completed',?,?,?)`, stamp, stamp, stamp)
+	fixture.exec(`INSERT INTO agent_runs
+	  (id, mode, channel_id, thread_ts, conversation_key, source_kind, source_id,
+	   user_id, repository, idempotency_key, result_json, terminal_state, state,
+	   next_attempt_at, created_at, updated_at, completed_at, episode_id, attempt_id, attempt_number)
+	  VALUES ('run-1','triage','C1','1786000000.000001','C1:1786000000.000001',
+	          'watch','input-1','U1','emisar','idem-1',?,'completed','completed',
+	          ?,?,?,?,'episode-1','attempt-1',1)`, fixture.result, stamp, stamp, stamp, stamp)
+	fixture.exec(`INSERT INTO work_episodes
+	  (id, agent_run_id, effort, authority, objective, phase, status, next_action,
+	   created_at, updated_at, completed_at, lifecycle_state, channel_id, thread_ts,
+	   anchor_ts, latest_attempt_id)
+	  VALUES ('episode-1','run-1','focused_check','read_only','Check the rollout',
+	          'complete','Completed','None',?,?,?,'completed','C1','1786000000.000001',
+	          '1786000000.000001','attempt-1')`, stamp, stamp, stamp)
+	return fixture
+}
+
+func (f *episodeProjectionFixture) exec(query string, args ...any) {
+	f.t.Helper()
+	if f.db == nil {
+		f.t.Fatal("fixture database is closed")
+	}
+	if _, err := f.db.ExecContext(context.Background(), query, args...); err != nil {
+		f.t.Fatalf("seed: %v\n%s", err, query)
+	}
+}
+
+func (f *episodeProjectionFixture) reader() *Reader {
+	f.t.Helper()
+	if f.db != nil {
+		if err := f.db.Close(); err != nil {
+			f.t.Fatal(err)
+		}
+		f.db = nil
+	}
+	reader, err := OpenReader(f.path)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return reader
 }
