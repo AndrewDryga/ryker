@@ -32,11 +32,21 @@ type TraceDetail struct {
 	Open, ShowCount           bool
 	Count, GroupCount         int
 	Segments                  []PromptSegment
+	Table                     *TraceTable
 }
 
 type PromptSegment struct {
 	Body, Source, Tone, Hint string
 	Tokens                   int
+}
+
+type TraceTable struct {
+	Headers []string
+	Rows    []TraceTableRow
+}
+
+type TraceTableRow struct {
+	Cells []string
 }
 
 // TraceStep is one host-observable fact in the execution story. Why describes
@@ -1101,8 +1111,8 @@ func promptFieldPresentation(key string) (string, string) {
 }
 
 func contextReferenceDetails(refs []ContextRef, present func(string) string) []TraceDetail {
-	runtime := make([]TraceDetail, 0, len(refs))
-	replay := make([]string, 0, 2)
+	runtime := make([]TraceTableRow, 0, len(refs))
+	replay := make([]TraceTableRow, 0, 2)
 	for _, ref := range refs {
 		switch ref.Kind {
 		case "source_input":
@@ -1110,35 +1120,44 @@ func contextReferenceDetails(refs []ContextRef, present func(string) string) []T
 			// as a colored model-visible prompt component. Do not show it again.
 			continue
 		case "compiled_prompt", "assembled_context":
-			name := "Prompt"
+			name, use := "Final prompt", "Confirms an exact prompt replay"
 			if ref.Kind == "assembled_context" {
-				name = "Assembled context"
+				name, use = "Selected context", "Confirms the same context was selected"
 			}
-			line := name + " fingerprint: " + fallback(ref.Digest, "not recorded")
+			fingerprint := fallback(ref.Digest, "not recorded")
 			if ref.Omitted != "" {
-				line += "\nNot included: " + present(ref.Omitted)
+				use += "; omitted: " + present(ref.Omitted)
 			}
-			replay = append(replay, line)
+			replay = append(replay, TraceTableRow{Cells: []string{name, fingerprint, use}})
 			continue
 		default:
 			if ref.Visibility != "omitted" {
-				runtime = append(runtime, contextReferenceDetail(ref, present))
+				runtime = append(runtime, contextReferenceTableRow(ref, present))
 			}
 		}
 	}
-	details := markDetailGroup(runtime,
-		"Runtime access",
-		"These inputs were available to, or enforced around, the model session without being pasted into the submitted prompt.",
-	)
+	details := make([]TraceDetail, 0, 2)
+	if len(runtime) > 0 {
+		details = append(details, TraceDetail{
+			Label: "Repositories and session controls", Kind: "context",
+			Status: "Runtime access", Tone: "runtime", ShowCount: true, Count: len(runtime),
+			Group: "Runtime access", GroupCount: len(runtime),
+			Table: &TraceTable{
+				Headers: []string{"Type", "Name", "Revision", "How it was used"},
+				Rows:    runtime,
+			},
+		})
+	}
 	if len(replay) > 0 {
 		details = append(details, TraceDetail{
-			Label: "Replay metadata",
-			Body: "These fingerprints let Responder verify that a replay uses the same prompt and assembled context. " +
-				"They were not extra text shown to the model.\n\n" + strings.Join(replay, "\n"),
-			Kind: "context", Status: "Host only", Description: "Fingerprints used for attribution and exact replay; not model input.", Tone: "structure", Open: true,
-			Group:       "Host-only replay data",
-			GroupDetail: "Responder keeps this bookkeeping for attribution and exact replay. The model never sees it.",
-			GroupCount:  1,
+			Label: "Integrity fingerprints", Kind: "context",
+			Status: "Not model input", Tone: "structure", ShowCount: true, Count: len(replay),
+			Description: "Responder stores these hashes so a replay can prove it used the same inputs. The model never sees them.",
+			Group:       "Replay verification", GroupCount: len(replay),
+			Table: &TraceTable{
+				Headers: []string{"Input", "Fingerprint", "Purpose"},
+				Rows:    replay,
+			},
 		})
 	}
 	return details
@@ -1154,55 +1173,26 @@ func markDetailGroup(details []TraceDetail, label, description string) []TraceDe
 	return details
 }
 
-func contextReferenceDetail(ref ContextRef, present func(string) string) TraceDetail {
-	label := fallback(contextLabel(ref.Kind), eventTitle(ref.Kind))
-	purpose := map[string]string{
-		"source_input":      "The Slack message that started this work was included as the request.",
-		"compiled_prompt":   "A fingerprint of the exact compiled prompt. It supports replay; it does not add another prompt section.",
-		"assembled_context": "A fingerprint of the assembled Slack and memory context. The readable components are listed above.",
-		"repository":        "The repository snapshot available to the model for code context.",
-		"execution_policy":  "The Coop policy that controls available tools and whether files may be changed.",
-		"artifact":          "A file or attachment made available to the model.",
+func contextReferenceTableRow(ref ContextRef, present func(string) string) TraceTableRow {
+	kind := fallback(contextLabel(ref.Kind), eventTitle(ref.Kind))
+	name, revision := present(ref.What), "-"
+	if ref.Kind == "repository" {
+		if repository, commit, ok := strings.Cut(name, " @ "); ok {
+			name, revision = repository, commit
+		}
+	}
+	if ref.Kind == "artifact" && ref.Digest != "" {
+		revision = ref.Digest
+	}
+	role := map[string]string{
+		"repository":       "Code available to inspect through Coop",
+		"execution_policy": "Controls tools and whether files can change",
+		"artifact":         "File available to inspect through Coop",
 	}[ref.Kind]
-	if purpose == "" {
-		purpose = "A recorded source used to reproduce this episode."
+	if role == "" {
+		role = "Available through the model session"
 	}
-	source := present(ref.What)
-	switch ref.Kind {
-	case "compiled_prompt":
-		source = "The exact prompt submitted for this model attempt."
-	case "assembled_context":
-		source = "The Slack, memory, and repository context assembled for this model attempt."
-	}
-	body := purpose + "\n\nSource\n" + source
-	if ref.Omitted != "" {
-		body += "\n\nNot included\n" + present(ref.Omitted)
-	}
-	if ref.Digest != "" {
-		body += "\n\nReplay fingerprint\n" + ref.Digest
-	}
-	body += "\n\nAccess\n" + contextVisibility(ref.Visibility)
-	status, tone := "Runtime only", "runtime"
-	if ref.Kind == "execution_policy" {
-		status, tone = "Host enforced", "policy"
-	}
-	return TraceDetail{
-		Label: label, Body: body, Kind: "context", Status: status,
-		Description: purpose, Tone: tone, Open: true, ShowCount: true, Count: 1,
-	}
-}
-
-func contextVisibility(value string) string {
-	switch value {
-	case "eligible":
-		return "Available through the model session without being pasted into the submitted prompt."
-	case "private":
-		return "Enforced by the runtime or retained by Responder; not pasted into the submitted prompt."
-	case "omitted":
-		return "Not included in the model context."
-	default:
-		return fallback(value, "Not recorded.")
-	}
+	return TraceTableRow{Cells: []string{kind, name, revision, role}}
 }
 
 func presentEventPayload(payload string, present func(string) string) string {

@@ -79,7 +79,6 @@
               <strong>{{.Group}}</strong>
               {{if .GroupCount}}<small>{{.GroupCount}} {{if eq .GroupCount 1}}item{{else}}items{{end}}</small>{{end}}
             </div>
-            <span>{{.GroupDetail}}</span>
           </section>
           {{end}}
           <details class="trace-detail kind-{{.Kind}} tone-{{.Tone}}" {{if .Open}}open{{end}}>
@@ -91,7 +90,14 @@
               <span class="trace-disclosure">Full content</span>
             </summary>
             {{if .Description}}<p class="trace-detail-description"><strong>Selection</strong><span>{{.Description}}</span></p>{{end}}
-            {{if .Segments}}
+            {{if .Table}}
+            <div class="trace-table-wrap">
+              <table class="trace-table">
+                <thead><tr>{{range .Table.Headers}}<th>{{.}}</th>{{end}}</tr></thead>
+                <tbody>{{range .Table.Rows}}<tr>{{range .Cells}}<td>{{.}}</td>{{end}}</tr>{{end}}</tbody>
+              </table>
+            </div>
+            {{else if .Segments}}
             <div class="prompt-segments">
               {{range .Segments}}
               <section class="prompt-segment tone-{{.Tone}}" title="{{.Hint}}">

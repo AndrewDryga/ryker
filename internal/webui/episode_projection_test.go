@@ -156,7 +156,6 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Preset emisar-conversation routed this episode to claude/opus at high effort",
 		"Prompt assembled",
 		"Slack conversation",
-		"The triggering message and nearby conversation selected for this turn",
 		"Sent to model",
 		"Not sent",
 		"SYSTEM: Keep durable settings typed.",
@@ -489,18 +488,24 @@ func TestContextReferenceDetailsSeparateReplayMetadataFromInputs(t *testing.T) {
 		{Kind: "repository", What: "emisar @ deadbeef", Visibility: "eligible"},
 		{Kind: "execution_policy", What: "emisar-conversation", Visibility: "private"},
 	}, func(value string) string { return value })
-	if len(details) != 3 {
-		t.Fatalf("context details = %+v, want repository, policy, and replay metadata", details)
+	if len(details) != 2 {
+		t.Fatalf("context details = %+v, want one runtime table and one replay table", details)
 	}
 	joined := ""
 	for _, detail := range details {
-		joined += detail.Group + "\n" + detail.GroupDetail + "\n" + detail.Label + "\n" + detail.Body + "\n"
+		joined += detail.Group + "\n" + detail.Label + "\n" + detail.Description + "\n"
+		if detail.Table != nil {
+			joined += strings.Join(detail.Table.Headers, "\n") + "\n"
+			for _, row := range detail.Table.Rows {
+				joined += strings.Join(row.Cells, "\n") + "\n"
+			}
+		}
 	}
 	for _, want := range []string{
-		"Runtime access", "available to, or enforced around, the model session",
-		"Repository snapshot", "Execution policy",
-		"Host-only replay data", "The model never sees it", "Replay metadata",
-		"Prompt fingerprint: abc123", "Assembled context fingerprint: def456",
+		"Runtime access", "Repositories and session controls", "Repository snapshot", "emisar", "deadbeef",
+		"Execution policy", "Controls tools and whether files can change",
+		"Replay verification", "The model never sees them", "Integrity fingerprints",
+		"Final prompt", "abc123", "Selected context", "def456",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("context details missing %q:\n%s", want, joined)
