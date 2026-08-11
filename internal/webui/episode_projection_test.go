@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -388,6 +389,32 @@ func TestPromptSegmentsPreserveEveryCharacterInOrder(t *testing.T) {
 	}
 }
 
+func TestPromptTextSectionsStartCollapsed(t *testing.T) {
+	page := episodePage{Manifest: ManifestRow{
+		Version: 1,
+		SubmittedPrompt: `SYSTEM: inspect the request
+<untrusted-slack-context>{"target_message":{"text":"check this"}}</untrusted-slack-context>
+USER: check this`,
+	}}
+
+	trace := buildEpisodeTrace(config.Pricing{}, page, nil)
+	for _, step := range trace.Steps {
+		if step.ID != "prompt" {
+			continue
+		}
+		if len(step.Details) == 0 {
+			t.Fatal("prompt step has no text sections")
+		}
+		for _, detail := range step.Details {
+			if detail.Open {
+				t.Fatalf("prompt text section starts expanded: %q", detail.Label)
+			}
+		}
+		return
+	}
+	t.Fatal("trace has no prompt step")
+}
+
 func TestPromptContextDetailsExplainSlackAndOperationalMemory(t *testing.T) {
 	prompt := `SYSTEM
 <untrusted-slack-context>
@@ -414,7 +441,7 @@ USER: check this`
 		joined += detail.Group + "\n" + detail.GroupDetail + "\n" + detail.Status + "\n" + detail.Label + "\n" + detail.Description + "\n" + detail.Body + "\n"
 		counts[detail.Label] = detail.Count
 		if !detail.Open {
-			t.Fatalf("human-readable prompt source is collapsed: %+v", detail)
+			t.Fatalf("human-readable prompt source is collapsed before trace presentation: %+v", detail)
 		}
 		if !detail.ShowCount {
 			t.Fatalf("prompt source has no entry count: %+v", detail)

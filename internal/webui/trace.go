@@ -137,6 +137,11 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				GroupCount: 1, Segments: segments,
 			})
 		}
+		// Prompt sources can be large. Keep the inventory, counts, and selection
+		// rationale scannable while leaving full bodies one click away.
+		for index := range promptDetails {
+			promptDetails[index].Open = false
+		}
 		add(TraceStep{
 			ID: "prompt", Stage: "Context", Actor: "Responder", State: "frozen",
 			Title: "Prompt assembled", Summary: fmt.Sprintf("Manifest v%d with %d context components", page.Manifest.Version, len(page.Manifest.Refs)), At: page.Manifest.Created,
