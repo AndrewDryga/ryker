@@ -154,8 +154,10 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Reasoning</small><strong>high",
 		"Preset emisar-conversation routed this episode to claude/opus at high effort",
 		"Prompt assembled",
-		"Text sent to the model",
-		"These components were included in the submitted prompt",
+		"Slack conversation",
+		"The triggering message and nearby conversation selected for this turn",
+		"Sent to model",
+		"Not sent",
 		"SYSTEM: Keep durable settings typed.",
 		"USER: @Emisar it would be better if plan summaries showed before and after values",
 		"Memory layers</small><strong>3",
@@ -168,7 +170,9 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Prefer threads",
 		"Related conversation summaries (1)",
 		"A prior rollout used the same image.",
+		"Workspace and prompt controls",
 		"Final submitted prompt",
+		"Exact model input",
 		"System instructions",
 		"Operational memory",
 		"Conversation memory",
@@ -217,9 +221,10 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 			t.Errorf("episode page unexpectedly contains %q: %s", unwanted, body)
 		}
 	}
-	if strings.Index(body, "Operational memory") > strings.Index(body, "Conversation memory") ||
+	if strings.Index(body, "Slack conversation") > strings.Index(body, "Operational memory") ||
+		strings.Index(body, "Operational memory") > strings.Index(body, "Conversation memory") ||
 		strings.Index(body, "Conversation memory") > strings.Index(body, "Final submitted prompt") {
-		t.Errorf("prompt context is not ordered operational, conversation, final prompt: %s", body)
+		t.Errorf("prompt context is not ordered conversation, memory, final prompt: %s", body)
 	}
 	if strings.Contains(body, "{Not recorded for this attempt") {
 		t.Errorf("episode header rendered the diagnostic struct instead of the recorded model: %s", body)
@@ -406,15 +411,24 @@ USER: check this`
 	joined := ""
 	counts := make(map[string]int, len(details))
 	for _, detail := range details {
-		joined += detail.Group + "\n" + detail.GroupDetail + "\n" + detail.Label + "\n" + detail.Body + "\n"
+		joined += detail.Group + "\n" + detail.GroupDetail + "\n" + detail.Status + "\n" + detail.Label + "\n" + detail.Description + "\n" + detail.Body + "\n"
 		counts[detail.Label] = detail.Count
+		if !detail.Open {
+			t.Fatalf("human-readable prompt source is collapsed: %+v", detail)
+		}
+		if !detail.ShowCount {
+			t.Fatalf("prompt source has no entry count: %+v", detail)
+		}
 	}
 	for _, want := range []string{
 		"Operational memory · Recent same channel evidence",
 		"The rollout finished", "Observed: All checks passed", "Source: GitHub checks",
 		"Conversation memory · Goal", "Verify the rollout", "Conversation memory · Constraints",
 		"Source Slack message", "@Andrew Dryga\ncheck this", "Recent Slack messages",
-		"@Trevin Miller\ndeploy finished", "Slack channel\n#infra", "Repository selection\nemisar",
+		"@Trevin Miller\ndeploy finished", "Slack channel", "#infra", "Repository selection", "emisar",
+		"A bounded chronological window around the triggering message",
+		"The 10 newest evidence records from this channel",
+		"Not sent", "This request did not resolve to a separate referenced thread",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("readable prompt context missing %q:\n%s", want, joined)

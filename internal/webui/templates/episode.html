@@ -75,12 +75,22 @@
           {{range $step.Details}}
           {{if .Group}}
           <section class="trace-detail-group">
-            <strong>{{.Group}}</strong>
+            <div>
+              <strong>{{.Group}}</strong>
+              {{if .GroupCount}}<small>{{.GroupCount}} {{if eq .GroupCount 1}}item{{else}}items{{end}}</small>{{end}}
+            </div>
             <span>{{.GroupDetail}}</span>
           </section>
           {{end}}
-          <details class="trace-detail kind-{{.Kind}}" {{if .Open}}open{{end}}>
-            <summary><span>{{.Label}}{{if gt .Count 0}} ({{.Count}}){{end}}</span><span class="trace-disclosure">View full record</span></summary>
+          <details class="trace-detail kind-{{.Kind}} tone-{{.Tone}}" {{if .Open}}open{{end}}>
+            <summary>
+              <span class="trace-detail-title">
+                {{if .Status}}<em>{{.Status}}</em>{{end}}
+                <span>{{.Label}}{{if .ShowCount}} ({{.Count}}){{end}}</span>
+              </span>
+              <span class="trace-disclosure">Full content</span>
+            </summary>
+            {{if .Description}}<p class="trace-detail-description"><strong>Selection</strong><span>{{.Description}}</span></p>{{end}}
             {{if .Segments}}
             <div class="prompt-segments">
               {{range .Segments}}

@@ -26,11 +26,12 @@ type TraceStat struct {
 }
 
 type TraceDetail struct {
-	Label, Body, Kind  string
-	Group, GroupDetail string
-	Open               bool
-	Count              int
-	Segments           []PromptSegment
+	Label, Body, Kind         string
+	Group, GroupDetail        string
+	Status, Description, Tone string
+	Open, ShowCount           bool
+	Count, GroupCount         int
+	Segments                  []PromptSegment
 }
 
 type PromptSegment struct {
@@ -101,13 +102,13 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			memoryLayers = layers
 			promptDetails = append(promptDetails, components...)
 		} else {
-			promptDetails = append(promptDetails, TraceDetail{Label: "Submitted prompt", Body: "The prompt text was not retained for this attempt. Its digest remains available in the context references.", Kind: "missing", Open: true})
-			promptDetails = append(promptDetails, TraceDetail{Label: "Memory components", Body: "The individual memory layers cannot be recovered for this historical attempt because its submitted prompt was not retained.", Kind: "missing", Open: true})
-		}
-		if prompt != "" {
 			promptDetails = append(promptDetails, TraceDetail{
-				Label: "Final submitted prompt", Body: present(prompt), Kind: "prompt",
-				Segments: promptSegments(present(prompt)),
+				Label: "Submitted prompt", Body: "The prompt text was not retained for this attempt. Its digest remains available in the context references.",
+				Kind: "missing", Status: "Not retained", Tone: "missing", Open: true,
+			})
+			promptDetails = append(promptDetails, TraceDetail{
+				Label: "Memory components", Body: "The individual memory layers cannot be recovered for this historical attempt because its submitted prompt was not retained.",
+				Kind: "missing", Status: "Not retained", Tone: "missing", Open: true,
 			})
 		}
 		if prompt == "" {
@@ -115,17 +116,25 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				"Prompt record unavailable",
 				"This historical attempt retained prompt metadata, but not the exact text sent to the model.",
 			)
-		} else {
-			promptDetails = markDetailGroup(promptDetails,
-				"Text sent to the model",
-				"These components were included in the submitted prompt. The final row shows their exact assembled form.",
-			)
 		}
 		promptDetails = append(promptDetails, contextReferenceDetails(page.Manifest.Refs, present)...)
 		if len(page.Manifest.Omissions) > 0 {
 			promptDetails = append(promptDetails, TraceDetail{
-				Label: "Omitted context", Body: present(strings.Join(page.Manifest.Omissions, "\n")), Kind: "missing",
-				Group: "Not sent to the model", GroupDetail: "Responder assembled these inputs but omitted them before submission.",
+				Label: "Manifest omissions", Body: present(strings.Join(page.Manifest.Omissions, "\n")), Kind: "missing",
+				Status: "Not sent", Tone: "missing", Open: true, ShowCount: true, Count: len(page.Manifest.Omissions),
+				Description: "These sources were assembled or considered, then left out before the model call.",
+				Group:       "Not sent to the model", GroupDetail: "Responder assembled these inputs but omitted them before submission.",
+				GroupCount: 1,
+			})
+		}
+		if prompt != "" {
+			segments := promptSegments(present(prompt))
+			promptDetails = append(promptDetails, TraceDetail{
+				Label: "Final submitted prompt", Body: present(prompt), Kind: "prompt",
+				Status: "Exact model input", Tone: "prompt", Open: true,
+				Description: "The complete prompt after selection and size trimming. Every section is color-coded by its source; hover a section header for its token estimate.",
+				Group:       "Exact model input", GroupDetail: "This is the final text Coop submitted to the model, shown after every source and runtime control that informed it.",
+				GroupCount: 1, Segments: segments,
 			})
 		}
 		add(TraceStep{
@@ -436,44 +445,77 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 	if json.Unmarshal([]byte(prompt[start:start+end]), &envelope) != nil {
 		return nil, 0
 	}
-	layers := []struct {
-		key, label string
-		priority   []string
-	}{
-		{"prior_operational_context", "Operational memory", []string{"current_incidents", "open_commitments", "pending_approvals", "confirmed_memory"}},
-		{"structured_memory", "Conversation memory", []string{"goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs"}},
-		{"conversation_situation", "Conversation memory", []string{"goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs"}},
-		{"related_situations", "Related conversation summaries", nil},
-	}
-	details := make([]TraceDetail, 0, len(envelope)+8)
+	details := make([]TraceDetail, 0, len(envelope)+12)
 	layerCount := 0
 	seen := map[string]bool{}
-	for _, layer := range layers {
-		raw := envelope[layer.key]
-		if emptyJSON(raw) {
+
+	// Slack conversation. Alias sets represent schema evolution; only the value
+	// selected by the compiler is shown, never duplicate spellings of it.
+	slack := []TraceDetail{}
+	for _, aliases := range [][]string{
+		{"target_message", "source_message"},
+		{"recent_messages_around_target", "recent_messages", "recent_channel_messages"},
+		{"referenced_thread"}, {"attachments"}, {"channel_context"}, {"channel_id"},
+	} {
+		key, raw := firstPromptField(envelope, aliases...)
+		for _, alias := range aliases {
+			seen[alias] = true
+		}
+		if key == "" {
+			key = aliases[0]
+			slack = append(slack, missingPromptFieldDetail(key))
 			continue
 		}
-		seen[layer.key] = true
-		layerCount++
-		details = append(details, memoryLayerDetails(raw, layer.label, layer.priority, present)...)
+		slack = append(slack, promptFieldDetail(key, raw, present))
+	}
+	details = append(details, markDetailGroup(slack,
+		"Slack conversation",
+		"The triggering message and nearby conversation selected for this turn. Included rows show their complete submitted content.",
+	)...)
+
+	// Memory. Each root is selected independently and expanded into the actual
+	// values sent to the model so the page never hides memory behind a digest.
+	for _, layer := range []struct {
+		keys, priority            []string
+		label, group, groupDetail string
+	}{
+		{[]string{"prior_operational_context"}, []string{"current_incidents", "open_commitments", "pending_approvals", "operator_confirmed_memory", "confirmed_memory", "automatically_synthesized_continuity", "recent_same_channel_evidence", "responder_preferences"}, "Operational memory", "Operational memory", "Current commitments, confirmed guidance, preferences, and recent evidence selected for this work."},
+		{[]string{"structured_memory", "conversation_situation"}, []string{"goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs"}, "Conversation memory", "Conversation memory", "A compact summary of the exact thread when available, otherwise the channel's continuity summary."},
+		{[]string{"related_situations"}, nil, "Related conversation summaries", "Related conversations", "Up to six relevant summaries selected from the workspace's recent conversation memory."},
+	} {
+		key, raw := firstPromptField(envelope, layer.keys...)
+		for _, alias := range layer.keys {
+			seen[alias] = true
+		}
+		var rows []TraceDetail
+		if key == "" {
+			rows = []TraceDetail{missingMemoryDetail(layer.label, layer.keys[0])}
+		} else {
+			layerCount++
+			rows = memoryLayerDetails(raw, key, layer.label, layer.priority, present)
+		}
+		details = append(details, markDetailGroup(rows, layer.group, layer.groupDetail)...)
 	}
 
-	// Keep model-visible context in a stable human order. This is deliberately
-	// independent of the JSON field order used by the prompt compiler.
-	order := []string{
-		"target_message", "source_message", "referenced_thread",
-		"recent_messages_around_target", "recent_messages", "recent_channel_messages",
-		"channel_context", "channel_id", "attachments", "repository",
-		"context_omitted", "initial_task_changes_fingerprint",
-		"structured_corrections", "reply_shape_corrections", "captured_at",
-	}
-	for _, key := range order {
-		if seen[key] || emptyJSON(envelope[key]) {
+	workspace := []TraceDetail{}
+	for _, key := range []string{
+		"repository", "initial_task_changes_fingerprint", "structured_corrections",
+		"reply_shape_corrections", "context_omitted", "captured_at",
+	} {
+		seen[key] = true
+		if emptyJSON(envelope[key]) {
+			if key == "context_omitted" {
+				workspace = append(workspace, missingPromptFieldDetail(key))
+			}
 			continue
 		}
-		seen[key] = true
-		details = append(details, promptFieldDetail(key, envelope[key], present))
+		workspace = append(workspace, promptFieldDetail(key, envelope[key], present))
 	}
+	details = append(details, markDetailGroup(workspace,
+		"Workspace and prompt controls",
+		"Repository selection, retry corrections, and any content removed to fit the model input.",
+	)...)
+
 	rest := make([]string, 0, len(envelope))
 	for key, raw := range envelope {
 		if !seen[key] && !emptyJSON(raw) {
@@ -482,19 +524,85 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 	}
 	sort.Strings(rest)
 	for _, key := range rest {
-		details = append(details, promptFieldDetail(key, envelope[key], present))
+		detail := promptFieldDetail(key, envelope[key], present)
+		if len(rest) > 0 && key == rest[0] {
+			detail.Group = "Other submitted context"
+			detail.GroupDetail = "Additional typed context retained by this prompt version."
+			detail.GroupCount = len(rest)
+		}
+		details = append(details, detail)
 	}
 	return details, layerCount
 }
 
-func promptFieldDetail(key string, raw json.RawMessage, present func(string) string) TraceDetail {
-	label, _ := promptFieldPresentation(key)
-	return TraceDetail{
-		Label: label,
-		Body:  promptFieldBody(key, raw, present),
-		Kind:  "context",
-		Count: contextEntryCount(raw),
+func firstPromptField(envelope map[string]json.RawMessage, keys ...string) (string, json.RawMessage) {
+	for _, key := range keys {
+		if !emptyJSON(envelope[key]) {
+			return key, envelope[key]
+		}
 	}
+	return "", nil
+}
+
+func missingPromptFieldDetail(key string) TraceDetail {
+	label, tone := promptFieldPresentation(key)
+	return TraceDetail{
+		Label: label, Body: "No content selected.", Kind: "missing",
+		Status: "Not sent", Description: promptSelectionDescription(key, false), Tone: tone,
+		Open: true, ShowCount: true,
+	}
+}
+
+func missingMemoryDetail(label, key string) TraceDetail {
+	return TraceDetail{
+		Label: label, Body: "No content selected.", Kind: "missing",
+		Status: "Not sent", Description: promptSelectionDescription(key, false), Tone: promptTone(key),
+		Open: true, ShowCount: true,
+	}
+}
+
+func promptFieldDetail(key string, raw json.RawMessage, present func(string) string) TraceDetail {
+	label, tone := promptFieldPresentation(key)
+	return TraceDetail{
+		Label: label, Body: promptFieldBody(key, raw, present), Kind: "context",
+		Status: "Sent to model", Description: promptSelectionDescription(key, true), Tone: tone,
+		Open: true, ShowCount: true, Count: contextEntryCount(raw),
+	}
+}
+
+func promptTone(key string) string {
+	_, tone := promptFieldPresentation(key)
+	return tone
+}
+
+func promptSelectionDescription(key string, included bool) string {
+	selected, absent := "Included in the exact model input.", "No eligible content was selected for this turn."
+	if value, ok := map[string][2]string{
+		"target_message":                {"The exact Slack message that started this episode.", "The source message was not retained in this historical prompt."},
+		"source_message":                {"The exact Slack message that started this episode.", "The source message was not retained in this historical prompt."},
+		"recent_messages_around_target": {"A bounded chronological window around the triggering message, not simply the latest channel messages.", "No additional nearby Slack messages were admitted into this prompt."},
+		"recent_messages":               {"A bounded chronological window around the triggering message, not simply the latest channel messages.", "No additional nearby Slack messages were admitted into this prompt."},
+		"recent_channel_messages":       {"A bounded chronological window around the triggering message, not simply the latest channel messages.", "No additional nearby Slack messages were admitted into this prompt."},
+		"referenced_thread":             {"The referenced or anchored thread, included when the request points to another conversation.", "This request did not resolve to a separate referenced thread."},
+		"attachments":                   {"Slack files and attachment metadata admitted for this request.", "No Slack attachments were admitted for this request."},
+		"channel_context":               {"Channel metadata used to understand where the conversation is happening.", "No additional channel metadata was needed."},
+		"channel_id":                    {"The Slack channel that scopes conversation and channel memory.", "The prompt did not retain a channel identifier."},
+		"prior_operational_context":     {"Operational state selected by recency, scope, provenance, and relevance.", "No current operational memory was relevant to this turn."},
+		"structured_memory":             {"The exact thread summary when available; otherwise the compact channel summary.", "No compact conversation summary was available for this turn."},
+		"conversation_situation":        {"The exact thread summary when available; otherwise the compact channel summary.", "No compact conversation summary was available for this turn."},
+		"related_situations":            {"At most 6 relevance-ranked summaries selected from up to 40 recent candidates.", "None of the recent conversation summaries were relevant enough to include."},
+		"repository":                    {"The repository or repository set chosen for this channel and request.", "No repository was selected for this turn."},
+		"context_omitted":               {"Context removed by deterministic size trimming before submission.", "Nothing was removed from the assembled prompt for size."},
+	}[key]; ok {
+		if included {
+			return value[0]
+		}
+		return value[1]
+	}
+	if included {
+		return selected
+	}
+	return absent
 }
 
 // contextEntryCount reports how many semantic values from an assembled
@@ -666,12 +774,13 @@ func humanValue(value any, present func(string) string, depth int) string {
 	}
 }
 
-func memoryLayerDetails(raw json.RawMessage, label string, priority []string, present func(string) string) []TraceDetail {
+func memoryLayerDetails(raw json.RawMessage, rootKey, label string, priority []string, present func(string) string) []TraceDetail {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || len(fields) == 0 {
 		return []TraceDetail{{
-			Label: label, Body: present(prettyJSON(string(raw))), Kind: "json",
-			Count: contextEntryCount(raw),
+			Label: label, Body: humanJSON(raw, present, 0), Kind: "context",
+			Status: "Sent to model", Description: promptSelectionDescription(rootKey, true), Tone: promptTone(rootKey),
+			Open: true, ShowCount: true, Count: contextEntryCount(raw),
 		}}
 	}
 	keys := make([]string, 0, len(fields))
@@ -698,10 +807,28 @@ func memoryLayerDetails(raw json.RawMessage, label string, priority []string, pr
 		}
 		details = append(details, TraceDetail{
 			Label: label + " · " + eventTitle(key),
-			Body:  body, Kind: "context", Count: contextEntryCount(fields[key]),
+			Body:  body, Kind: "context",
+			Status: "Sent to model", Description: memorySelectionDescription(rootKey, key), Tone: promptTone(rootKey),
+			Open: true, ShowCount: true, Count: contextEntryCount(fields[key]),
 		})
 	}
 	return details
+}
+
+func memorySelectionDescription(rootKey, key string) string {
+	switch key {
+	case "operator_confirmed_memory", "confirmed_memory":
+		return "Up to 10 enabled operator-confirmed memories selected from the 100 newest candidates by scope and relevance."
+	case "automatically_synthesized_continuity", "dreamed_memory":
+		return "Up to 4 compact continuity notes selected from the 20 newest candidates by conversation overlap."
+	case "recent_same_channel_evidence":
+		return "The 10 newest evidence records from this channel, excluding evidence created by the current input."
+	case "responder_preferences":
+		return "Effective preferences after workspace, channel, and operator precedence was resolved."
+	case "goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs":
+		return "Part of the compact thread or channel continuity summary selected for this conversation."
+	}
+	return promptSelectionDescription(rootKey, true)
 }
 
 func evidenceMemoryBody(raw json.RawMessage, present func(string) string) string {
@@ -1003,8 +1130,10 @@ func contextReferenceDetails(refs []ContextRef, present func(string) string) []T
 			Label: "Replay metadata",
 			Body: "These fingerprints let Responder verify that a replay uses the same prompt and assembled context. " +
 				"They were not extra text shown to the model.\n\n" + strings.Join(replay, "\n"),
-			Kind: "context", Group: "Host-only replay data",
+			Kind: "context", Status: "Host only", Description: "Fingerprints used for attribution and exact replay; not model input.", Tone: "structure", Open: true,
+			Group:       "Host-only replay data",
 			GroupDetail: "Responder keeps this bookkeeping for attribution and exact replay. The model never sees it.",
+			GroupCount:  1,
 		})
 	}
 	return details
@@ -1016,6 +1145,7 @@ func markDetailGroup(details []TraceDetail, label, description string) []TraceDe
 	}
 	details[0].Group = label
 	details[0].GroupDetail = description
+	details[0].GroupCount = len(details)
 	return details
 }
 
@@ -1047,7 +1177,14 @@ func contextReferenceDetail(ref ContextRef, present func(string) string) TraceDe
 		body += "\n\nReplay fingerprint\n" + ref.Digest
 	}
 	body += "\n\nAccess\n" + contextVisibility(ref.Visibility)
-	return TraceDetail{Label: label, Body: body, Kind: "context"}
+	status, tone := "Runtime only", "runtime"
+	if ref.Kind == "execution_policy" {
+		status, tone = "Host enforced", "policy"
+	}
+	return TraceDetail{
+		Label: label, Body: body, Kind: "context", Status: status,
+		Description: purpose, Tone: tone, Open: true, ShowCount: true, Count: 1,
+	}
 }
 
 func contextVisibility(value string) string {
