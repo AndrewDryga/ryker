@@ -106,8 +106,8 @@ type Tally struct {
 // difference between "it said nothing" and "it said something the contract
 // could not read".
 type Rejection struct {
-	Outcome, Detail string
-	At              time.Time
+	RunID, Outcome, Detail string
+	At                     time.Time
 }
 
 func (r *Reader) Turn(ctx context.Context, episodeID string) (Turn, error) {
@@ -136,9 +136,9 @@ func (r *Reader) Turn(ctx context.Context, episodeID string) (Turn, error) {
 	_ = r.db.QueryRowContext(ctx, `
 	  SELECT f.content_digest FROM context_manifest_refs AS f
 	  JOIN context_manifests AS m ON m.id = f.manifest_id
-	  WHERE m.episode_id = ? AND f.kind = 'compiled_prompt'
+	  WHERE f.kind = 'compiled_prompt'
 	    AND f.source_ref = 'agent-run:' || ? || ':prompt'
-	  ORDER BY m.version DESC LIMIT 1`, episodeID, turn.RunID).Scan(&turn.PromptDigest)
+	  ORDER BY m.created_at DESC LIMIT 1`, turn.RunID).Scan(&turn.PromptDigest)
 	turn.Rejections, err = collect(ctx, r, `
 	  SELECT outcome, detail, created_at FROM audit_events
 	  WHERE kind = 'result.correction' AND object_id = ?
@@ -471,42 +471,66 @@ type ContextRef struct {
 
 // ManifestRow is the frozen context envelope for the episode's latest attempt.
 type ManifestRow struct {
+	ID, RunID, AttemptID                   string
 	Provider, Model, Effort, PromptVersion string
 	Contract, ToolSchema, Preset           string
 	SubmittedPrompt                        string
-	Version                                int
+	Version, AttemptNumber                 int
 	Created                                time.Time
 	Refs                                   []ContextRef
 	Omissions                              []string
 }
 
 func (r *Reader) Manifest(ctx context.Context, episodeID string) (ManifestRow, error) {
-	var row ManifestRow
-	if !r.live() {
-		return row, nil
+	rows, err := r.Manifests(ctx, episodeID)
+	if err != nil || len(rows) == 0 {
+		return ManifestRow{}, err
 	}
-	var id, omissions, created string
-	err := r.db.QueryRowContext(ctx, `
-	  SELECT id, COALESCE(provider,''), COALESCE(model,''), COALESCE(reasoning_effort,''),
-	         COALESCE(prompt_version,''), COALESCE(contract_version,''),
-	         COALESCE(tool_schema_version,''), COALESCE(preset,''),
-	         COALESCE(submitted_prompt,''), version,
-	         COALESCE(omissions_json,'[]'), created_at
-	  FROM context_manifests WHERE episode_id = ?
-	  ORDER BY version DESC LIMIT 1`, episodeID).
-		Scan(&id, &row.Provider, &row.Model, &row.Effort, &row.PromptVersion,
+	return rows[len(rows)-1], nil
+}
+
+// Manifests follows the immutable agent-run identity as well as episode_id.
+// Recovery can attach an already-started run to a follow-up episode after its
+// attempt and context manifest were frozen. Looking only at the manifest's
+// original episode hides the model call while run-scoped audit corrections
+// remain visible, which makes the trace appear to reject a result before any
+// model ran.
+func (r *Reader) Manifests(ctx context.Context, episodeID string) ([]ManifestRow, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := collect(ctx, r, `
+	  SELECT DISTINCT m.id, a.id, m.attempt_id, t.attempt_number,
+	         COALESCE(m.provider,''), COALESCE(m.model,''), COALESCE(m.reasoning_effort,''),
+	         COALESCE(m.prompt_version,''), COALESCE(m.contract_version,''),
+	         COALESCE(m.tool_schema_version,''), COALESCE(m.preset,''),
+	         COALESCE(m.submitted_prompt,''), m.version,
+	         COALESCE(m.omissions_json,'[]'), m.created_at
+	  FROM context_manifests AS m
+	  JOIN episode_attempts AS t ON t.id = m.attempt_id
+	  JOIN agent_runs AS a ON a.id = t.agent_run_id
+	  WHERE m.episode_id = ? OR a.episode_id = ?
+	  ORDER BY m.created_at, m.id LIMIT 100`, func(rows *sql.Rows) (ManifestRow, error) {
+		var row ManifestRow
+		var omissions, created string
+		err := rows.Scan(&row.ID, &row.RunID, &row.AttemptID, &row.AttemptNumber,
+			&row.Provider, &row.Model, &row.Effort, &row.PromptVersion,
 			&row.Contract, &row.ToolSchema, &row.Preset, &row.SubmittedPrompt,
 			&row.Version, &omissions, &created)
-	if errors.Is(err, sql.ErrNoRows) {
-		return row, nil
-	}
-	if err != nil {
+		row.Created = parseStamp(created)
+		_ = json.Unmarshal([]byte(omissions), &row.Omissions)
 		return row, err
+	}, episodeID, episodeID)
+	if err != nil {
+		return nil, err
 	}
-	row.Created = parseStamp(created)
-	_ = json.Unmarshal([]byte(omissions), &row.Omissions)
-	row.Refs, err = r.manifestRefs(ctx, id)
-	return row, err
+	for index := range rows {
+		rows[index].Refs, err = r.manifestRefs(ctx, rows[index].ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return rows, nil
 }
 
 func (r *Reader) manifestRefs(ctx context.Context, manifestID string) ([]ContextRef, error) {
@@ -584,7 +608,8 @@ func (r *Reader) Attempts(ctx context.Context, episodeID string) ([]Attempt, err
 	  SELECT t.attempt_number, t.state, COALESCE(t.failure_class,''), t.agent_run_id,
 	         COALESCE(a.last_error,''), COALESCE(t.started_at,''), COALESCE(t.completed_at,'')
 	  FROM episode_attempts AS t LEFT JOIN agent_runs AS a ON a.id = t.agent_run_id
-	  WHERE t.episode_id = ? ORDER BY t.attempt_number LIMIT 50`,
+	  WHERE t.episode_id = ? OR a.episode_id = ?
+	  ORDER BY COALESCE(t.started_at, t.created_at), t.attempt_number LIMIT 50`,
 		func(rows *sql.Rows) (Attempt, error) {
 			var item Attempt
 			var started, completed string
@@ -592,7 +617,26 @@ func (r *Reader) Attempts(ctx context.Context, episodeID string) ([]Attempt, err
 				&item.Error, &started, &completed)
 			item.Started, item.Completed = parseStamp(started), parseStamp(completed)
 			return item, err
-		}, episodeID)
+		}, episodeID, episodeID)
+}
+
+// Rejections returns every host correction attached to a run currently owned
+// by the episode. Unlike Turn.Rejections, this is intentionally not limited to
+// the latest run: the whole point of the timeline is to explain earlier failed
+// model results too.
+func (r *Reader) Rejections(ctx context.Context, episodeID string) ([]Rejection, error) {
+	return collect(ctx, r, `
+	  SELECT e.object_id, e.outcome, e.detail, e.created_at
+	  FROM audit_events AS e
+	  JOIN agent_runs AS a ON a.id = e.object_id
+	  WHERE e.kind = 'result.correction' AND a.episode_id = ?
+	  ORDER BY e.created_at LIMIT 200`, func(rows *sql.Rows) (Rejection, error) {
+		var item Rejection
+		var at string
+		err := rows.Scan(&item.RunID, &item.Outcome, &item.Detail, &at)
+		item.At = parseStamp(at)
+		return item, err
+	}, episodeID)
 }
 
 // Delivery is a Slack post the episode queued.
@@ -636,6 +680,48 @@ type SourceInput struct {
 	ID, Kind, UserID, Sender, ChannelID, Channel, ThreadTS, MessageTS string
 	Text, Attachments                                                 string
 	Received, Updated                                                 time.Time
+}
+
+// Wakeup is the durable subscription that let Responder release a worker and
+// resume after an external object changed. It is read by trigger ID instead of
+// episode ID because recovered follow-up episodes can be created after the
+// subscription was stored on the episode that originally began the work.
+type Wakeup struct {
+	ID, EpisodeID, Kind, State, Matcher, Observation     string
+	Due, PollAfter, Deadline, Created, Updated, Resolved time.Time
+}
+
+func (r *Reader) WakeupForTrigger(ctx context.Context, triggerID string) (Wakeup, error) {
+	var item Wakeup
+	if !r.live() {
+		return item, nil
+	}
+	id := strings.TrimPrefix(triggerID, "episode_wakeup_")
+	if id == "" || id == triggerID {
+		return item, nil
+	}
+	var due, pollAfter, deadline, created, updated, resolved string
+	err := r.db.QueryRowContext(ctx, `
+	  SELECT id, episode_id, kind, state,
+	         COALESCE(CAST(event_matcher_json AS TEXT),'{}'),
+	         COALESCE(CAST(last_observation_json AS TEXT),'{}'),
+	         COALESCE(due_at,''), COALESCE(poll_after,''), COALESCE(deadline,''),
+	         created_at, updated_at, COALESCE(resolved_at,'')
+	  FROM episode_wakeups WHERE id = ?`, id).Scan(
+		&item.ID, &item.EpisodeID, &item.Kind, &item.State,
+		&item.Matcher, &item.Observation, &due, &pollAfter, &deadline,
+		&created, &updated, &resolved,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Wakeup{}, nil
+	}
+	if err != nil {
+		return Wakeup{}, err
+	}
+	item.Matcher, item.Observation = prettyJSON(item.Matcher), prettyJSON(item.Observation)
+	item.Due, item.PollAfter, item.Deadline = parseStamp(due), parseStamp(pollAfter), parseStamp(deadline)
+	item.Created, item.Updated, item.Resolved = parseStamp(created), parseStamp(updated), parseStamp(resolved)
+	return item, nil
 }
 
 type rowScanner interface {

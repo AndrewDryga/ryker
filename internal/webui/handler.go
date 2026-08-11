@@ -344,13 +344,16 @@ type episodePage struct {
 	Turn        Turn
 	Source      SourceInput
 	Trigger     SourceInput
+	Wakeup      Wakeup
 	Trace       EpisodeTrace
 	Events      []Event
 	Claims      []ClaimRow
 	Evidence    []EvidenceRow
 	Coverage    []CoverageRow
 	Manifest    ManifestRow
+	Manifests   []ManifestRow
 	Attempts    []Attempt
+	Rejections  []Rejection
 	Delivered   []Delivery
 	Effects     []SideEffect
 	Audit       []AuditRow
@@ -396,6 +399,8 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("source input", err)
 	page.Trigger, err = h.reader.TriggerInput(ctx, id)
 	page.Errs.note("episode trigger", err)
+	page.Wakeup, err = h.reader.WakeupForTrigger(ctx, page.Trigger.ID)
+	page.Errs.note("scheduled wake-up", err)
 	page.Turn, err = h.reader.Turn(ctx, id)
 	page.Errs.note("the turn", err)
 	page.Claims, err = h.reader.Claims(ctx, id)
@@ -404,10 +409,15 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("evidence", err)
 	page.Coverage, err = h.reader.Coverage(ctx, id)
 	page.Errs.note("coverage", err)
-	page.Manifest, err = h.reader.Manifest(ctx, id)
-	page.Errs.note("context manifest", err)
+	page.Manifests, err = h.reader.Manifests(ctx, id)
+	page.Errs.note("context manifests", err)
+	if len(page.Manifests) > 0 {
+		page.Manifest = page.Manifests[len(page.Manifests)-1]
+	}
 	page.Attempts, err = h.reader.Attempts(ctx, id)
 	page.Errs.note("attempts", err)
+	page.Rejections, err = h.reader.Rejections(ctx, id)
+	page.Errs.note("host corrections", err)
 	page.Delivered, err = h.reader.Deliveries(ctx, id)
 	page.Errs.note("delivery", err)
 	page.Effects, err = h.reader.SideEffects(ctx, id)

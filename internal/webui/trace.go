@@ -92,13 +92,38 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			Details: details,
 		})
 	}
+	if page.Wakeup.ID != "" {
+		details := []TraceDetail{{
+			Label: "Exact event matcher", Body: page.Wakeup.Matcher, Kind: "json",
+		}}
+		if page.Wakeup.Observation != "" && page.Wakeup.Observation != "{}" {
+			details = append(details, TraceDetail{
+				Label: "Event that satisfied the wait", Body: page.Wakeup.Observation, Kind: "json",
+			})
+		}
+		stats := []TraceStat{{"Type", page.Wakeup.Kind}, {"State", page.Wakeup.State}}
+		if !page.Wakeup.Deadline.IsZero() {
+			stats = append(stats, TraceStat{"Deadline", page.Wakeup.Deadline.Format(time.RFC3339)})
+		}
+		add(TraceStep{
+			ID: "wakeup-scheduled", Stage: "Wait", Actor: "Responder", State: page.Wakeup.State,
+			Title: "Wake-up scheduled", At: page.Wakeup.Created,
+			Summary: wakeupSummary(page.Wakeup),
+			Why:     "The external work was not finished, so Responder saved what to watch and released the worker. This durable wake-up could resume the same work after the matching event arrived.",
+			Stats:   stats, Details: details,
+		})
+	}
 	if page.Trigger.ID != "" && page.Trigger.ID != page.Source.ID {
+		title := "Automatic follow-up started"
+		if page.Wakeup.ID != "" {
+			title = "Wake-up delivered"
+		}
 		details := []TraceDetail{{
 			Label: "Resume instruction", Body: present(page.Trigger.Text), Kind: "text", Open: true,
 		}}
 		add(TraceStep{
 			ID: "trigger", Stage: "Trigger", Actor: "Responder", State: page.Trigger.Kind,
-			Title: "Automatic follow-up started", At: page.Trigger.Received,
+			Title: title, At: page.Trigger.Received,
 			Summary: "A matching external event resumed the work linked to this Slack thread.",
 			Why:     "Responder was waiting for this event. It resumed the existing work automatically instead of requiring another Slack message.",
 			Stats: []TraceStat{{"Channel", page.Trigger.Channel},
@@ -107,16 +132,25 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		})
 	}
 
-	if page.Manifest.Version > 0 {
+	manifests := page.Manifests
+	if len(manifests) == 0 && page.Manifest.Version > 0 {
+		manifests = []ManifestRow{page.Manifest}
+	}
+	for manifestIndex, manifest := range manifests {
+		modelID, promptID := "model", "prompt"
+		if len(manifests) > 1 {
+			modelID = fmt.Sprintf("model-%d", manifestIndex+1)
+			promptID = fmt.Sprintf("prompt-%d", manifestIndex+1)
+		}
 		add(TraceStep{
-			ID: "model", Stage: "Routing", Actor: "Responder", State: "selected",
-			Title: "Model selected", At: page.Manifest.Created,
-			Why:   modelSelectionWhy(page.Manifest),
-			Stats: []TraceStat{{"Provider", fallback(page.Manifest.Provider, "not recorded")}, {"Model", fallback(page.Manifest.Model, "not recorded")}, {"Reasoning", fallback(page.Manifest.Effort, "not recorded")}, {"Preset", fallback(page.Manifest.Preset, "none")}},
+			ID: modelID, Stage: "Routing", Actor: "Responder", State: "selected",
+			Title: "Model selected", At: manifest.Created,
+			Why:   modelSelectionWhy(manifest),
+			Stats: []TraceStat{{"Provider", fallback(manifest.Provider, "not recorded")}, {"Model", fallback(manifest.Model, "not recorded")}, {"Reasoning", fallback(manifest.Effort, "not recorded")}, {"Preset", fallback(manifest.Preset, "none")}, {"Run", fallback(manifest.RunID, "not recorded")}},
 		})
 
-		prompt := page.Manifest.SubmittedPrompt
-		if prompt == "" {
+		prompt := manifest.SubmittedPrompt
+		if prompt == "" && manifest.RunID == page.Turn.RunID {
 			prompt = page.Turn.Prompt
 		}
 		promptDetails := []TraceDetail{}
@@ -141,11 +175,11 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				"This historical attempt retained prompt metadata, but not the exact text sent to the model.",
 			)
 		}
-		promptDetails = append(promptDetails, contextReferenceDetails(page.Manifest.Refs, present)...)
-		if len(page.Manifest.Omissions) > 0 {
+		promptDetails = append(promptDetails, contextReferenceDetails(manifest.Refs, present)...)
+		if len(manifest.Omissions) > 0 {
 			promptDetails = append(promptDetails, TraceDetail{
-				Label: "Manifest omissions", Body: present(strings.Join(page.Manifest.Omissions, "\n")), Kind: "missing",
-				Status: "Not sent", Tone: "missing", Open: true, ShowCount: true, Count: len(page.Manifest.Omissions),
+				Label: "Manifest omissions", Body: present(strings.Join(manifest.Omissions, "\n")), Kind: "missing",
+				Status: "Not sent", Tone: "missing", Open: true, ShowCount: true, Count: len(manifest.Omissions),
 				Description: "These sources were assembled or considered, then left out before the model call.",
 				Group:       "Not sent to the model", GroupDetail: "Responder assembled these inputs but omitted them before submission.",
 				GroupCount: 1,
@@ -167,9 +201,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			promptDetails[index].Open = false
 		}
 		add(TraceStep{
-			ID: "prompt", Stage: "Context", Actor: "Responder", State: "frozen",
-			Title: "Prompt assembled", Summary: fmt.Sprintf("Manifest v%d with %d context components", page.Manifest.Version, len(page.Manifest.Refs)), At: page.Manifest.Created,
-			Stats:   []TraceStat{{"Prompt", fallback(page.Manifest.PromptVersion, "unversioned")}, {"Contract", fallback(page.Manifest.Contract, "none")}, {"Tool schema", fallback(page.Manifest.ToolSchema, "none")}, {"Context refs", fmt.Sprint(len(page.Manifest.Refs))}, {"Memory layers", fmt.Sprint(memoryLayers)}},
+			ID: promptID, Stage: "Context", Actor: "Responder", State: "frozen",
+			Title: "Prompt assembled", Summary: fmt.Sprintf("Manifest v%d with %d context components", manifest.Version, len(manifest.Refs)), At: manifest.Created,
+			Stats:   []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Context refs", fmt.Sprint(len(manifest.Refs))}, {"Memory layers", fmt.Sprint(memoryLayers)}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
 			Details: promptDetails,
 		})
 	}
@@ -201,10 +235,11 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		})
 	}
 
-	for index, rejection := range page.Turn.Rejections {
+	for index, rejection := range page.Rejections {
 		add(TraceStep{
 			ID: fmt.Sprintf("rejection-%d", index+1), Stage: "Validation", Actor: "Responder", State: "rejected",
 			Title: "Host rejected a model result", Summary: present(rejection.Outcome), Why: "The typed result contract refused output that could not be applied safely or consistently, and returned a correction to the same attempt.", At: rejection.At,
+			Stats:   []TraceStat{{"Run", fallback(rejection.RunID, "not recorded")}},
 			Details: []TraceDetail{{Label: "Correction sent to the model", Body: present(rejection.Detail), Kind: "text", Open: true}},
 		})
 	}
@@ -1354,7 +1389,13 @@ func episodeCost(pricing config.Pricing, spent EpisodeTokens) UsageCost {
 }
 
 func episodeErrorCount(page episodePage) (int, string) {
-	failedAttempts, corrections, deliveries, parseFailures := 0, len(page.Turn.Rejections), 0, 0
+	corrections := len(page.Rejections)
+	if corrections == 0 {
+		// Keep hand-built and historical projections useful when only the
+		// latest-turn correction list is available.
+		corrections = len(page.Turn.Rejections)
+	}
+	failedAttempts, deliveries, parseFailures := 0, 0, 0
 	for _, attempt := range page.Attempts {
 		if attempt.State == "failed" || attempt.Failure != "" {
 			failedAttempts++
@@ -1370,6 +1411,40 @@ func episodeErrorCount(page episodePage) (int, string) {
 	}
 	count := failedAttempts + corrections + deliveries + parseFailures
 	return count, fmt.Sprintf("%d failed attempts · %d host corrections · %d delivery failures · %d unreadable results", failedAttempts, corrections, deliveries, parseFailures)
+}
+
+func wakeupSummary(wakeup Wakeup) string {
+	matcher := map[string]any{}
+	_ = json.Unmarshal([]byte(wakeup.Matcher), &matcher)
+	provider := strings.TrimSpace(fmt.Sprint(matcher["provider"]))
+	if provider == "<nil>" {
+		provider = ""
+	}
+	provider = map[string]string{
+		"hcp_terraform": "HCP Terraform",
+		"github":        "GitHub",
+		"emisar":        "Emisar",
+	}[provider]
+	if provider == "" {
+		provider = "external"
+	}
+	for _, field := range []string{"run_id", "request_id", "pull_request", "deployment_id"} {
+		value := strings.TrimSpace(fmt.Sprint(matcher[field]))
+		if value != "" && value != "<nil>" {
+			object := "object"
+			if field == "run_id" {
+				object = "run"
+			} else if field == "request_id" {
+				object = "request"
+			} else if field == "pull_request" {
+				object = "pull request"
+			} else if field == "deployment_id" {
+				object = "deployment"
+			}
+			return fmt.Sprintf("Wait for %s %s %s to change state.", provider, object, value)
+		}
+	}
+	return fmt.Sprintf("Wait for a matching %s event before continuing.", provider)
 }
 
 func modelSummary(turn Turn) string {

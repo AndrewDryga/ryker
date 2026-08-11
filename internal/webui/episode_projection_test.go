@@ -269,7 +269,7 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 		id, envelope, text string
 		at                 time.Time
 	}{
-		{"primary-trigger", "primary-envelope", "Resume after the Terraform run reached a terminal state", t1},
+		{"episode_wakeup_terraform-terminal", "primary-envelope", "Resume after the Terraform run reached a terminal state", t1},
 		{"later-recheck", "later-envelope", "Retry the same Terraform follow-up", t2},
 	} {
 		exec(`INSERT INTO slack_inputs
@@ -287,7 +287,7 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 	   user_id, repository, idempotency_key, terminal_state, state, attempt_number,
 	   next_attempt_at, created_at, updated_at, completed_at, episode_id)
 	  VALUES ('primary-run','triage','C1','1786392830.431989','C1:1786392830.431989',
-	          'recheck','primary-trigger','','emisar','primary-idem','completed','completed',2,
+	          'recheck','episode_wakeup_terraform-terminal','','emisar','primary-idem','completed','completed',2,
 	          ?,?,?,?,'follow-up-episode')`, stamp(t1), stamp(t1), stamp(t1), stamp(t1))
 	exec(`INSERT INTO agent_runs
 	  (id, mode, channel_id, thread_ts, conversation_key, source_kind, source_id,
@@ -303,6 +303,49 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 	          'Resume Terraform follow-up',?,?,?,'completed','C1',
 	          '1786392830.431989','episode_wakeup_terraform-terminal')`,
 		stamp(t1), stamp(t1), stamp(t1))
+	exec(`INSERT INTO agent_runs
+	  (id, mode, channel_id, thread_ts, conversation_key, source_kind, source_id,
+	   user_id, repository, idempotency_key, terminal_state, state, attempt_number,
+	   next_attempt_at, created_at, updated_at, completed_at, episode_id)
+	  VALUES ('original-run','triage','C1','1786392830.431989','C1:1786392830.431989',
+	          'watch','root-input','','emisar','original-idem','completed','completed',1,
+	          ?,?,?,?,'original-episode')`, stamp(t0), stamp(t0), stamp(t0), stamp(t0))
+	exec(`INSERT INTO work_episodes
+	  (id, agent_run_id, effort, authority, objective, created_at, updated_at,
+	   completed_at, lifecycle_state, channel_id, thread_ts, anchor_ts)
+	  VALUES ('original-episode','original-run','focused_check','read_only',
+	          'Watch Terraform until it finishes',?,?,?,'completed','C1',
+	          '1786392830.431989','1786392830.431989')`,
+		stamp(t0), stamp(t1), stamp(t1))
+	exec(`INSERT INTO episode_wakeups
+	  (id, episode_id, kind, event_matcher_json, state, last_observation_json,
+	   created_at, updated_at, resolved_at)
+	  VALUES ('terraform-terminal','original-episode','terraform_run',?,'resolved',?,?,?,?)`,
+		`{"provider":"hcp_terraform","run_id":"run-CRHCeYKxfPSNpEUw"}`,
+		`{"provider":"hcp_terraform","run_id":"run-CRHCeYKxfPSNpEUw","state":"applied"}`,
+		stamp(t1.Add(-time.Minute)), stamp(t1), stamp(t1))
+	// Recovery rebound the already-started run to the follow-up episode. Its
+	// immutable attempt and prompt manifest correctly retain the original
+	// episode identity. The trace must follow the run and show this call before
+	// displaying the correction that it produced.
+	exec(`INSERT INTO episode_attempts
+	  (id, episode_id, agent_run_id, attempt_number, state, context_manifest_id,
+	   started_at, completed_at, created_at, updated_at)
+	  VALUES ('primary-attempt','original-episode','primary-run',1,'succeeded','primary-manifest',?,?,?,?)`,
+		stamp(t1.Add(100*time.Millisecond)), stamp(t1.Add(2*time.Second)),
+		stamp(t1.Add(100*time.Millisecond)), stamp(t1.Add(2*time.Second)))
+	exec(`INSERT INTO context_manifests
+	  (id, episode_id, attempt_id, version, provider, model, reasoning_effort,
+	   prompt_version, contract_version, tool_schema_version, preset,
+	   submitted_prompt, created_at)
+	  VALUES ('primary-manifest','original-episode','primary-attempt',1,
+	          'codex','gpt-5.6-terra','low','prompt-v1','contract-v1','tools-v1',
+	          'emisar-conversation','SYSTEM: Continue the Terraform follow-up.',?)`,
+		stamp(t1.Add(100*time.Millisecond)))
+	exec(`INSERT INTO audit_events
+	  (id, kind, actor_id, object_id, outcome, detail, created_at)
+	  VALUES ('correction-1','result.correction','responder','primary-run',
+	          'invalid result','return a corrected result',?)`, stamp(t1.Add(time.Second)))
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -323,26 +366,66 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 	if source.ID != "root-input" || source.Text != "Terraform run failed" {
 		t.Fatalf("source = %+v, want original Slack message", source)
 	}
-	if trigger.ID != "primary-trigger" || !strings.Contains(trigger.Text, "terminal state") {
+	if trigger.ID != "episode_wakeup_terraform-terminal" || !strings.Contains(trigger.Text, "terminal state") {
 		t.Fatalf("trigger = %+v, want primary episode wake-up", trigger)
+	}
+	wakeup, err := reader.WakeupForTrigger(context.Background(), trigger.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wakeup.ID != "terraform-terminal" || !strings.Contains(wakeup.Matcher, "run-CRHCeYKxfPSNpEUw") {
+		t.Fatalf("wakeup = %+v, want exact persisted Terraform subscription", wakeup)
+	}
+	manifests, err := reader.Manifests(context.Background(), "follow-up-episode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifests) != 1 || manifests[0].RunID != "primary-run" {
+		t.Fatalf("manifests = %+v, want rebound primary run manifest", manifests)
+	}
+	attempts, err := reader.Attempts(context.Background(), "follow-up-episode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejections, err := reader.Rejections(context.Background(), "follow-up-episode")
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	page := episodePage{
-		Item:    Item{Created: t1},
-		Source:  source,
-		Trigger: trigger,
-		Turn: Turn{Rejections: []Rejection{{
-			Outcome: "invalid result", Detail: "return a corrected result", At: t1.Add(time.Second),
-		}}},
+		Item: Item{Created: t1}, Source: source, Trigger: trigger, Wakeup: wakeup,
+		Manifest: manifests[0], Manifests: manifests, Attempts: attempts, Rejections: rejections,
 	}
 	trace := buildEpisodeTrace(config.Pricing{}, page, nil)
-	if len(trace.Steps) < 3 {
+	if len(trace.Steps) < 7 {
 		t.Fatalf("trace steps = %+v", trace.Steps)
 	}
-	for index, want := range []string{"source", "trigger", "rejection-1"} {
-		if trace.Steps[index].ID != want {
-			t.Fatalf("trace step %d = %q, want %q; trace = %+v", index, trace.Steps[index].ID, want, trace.Steps)
+	positions := map[string]int{}
+	for index, step := range trace.Steps {
+		positions[step.ID] = index
+	}
+	for _, want := range []string{
+		"source", "wakeup-scheduled", "trigger", "model", "prompt", "rejection-1", "attempt-1",
+	} {
+		if _, ok := positions[want]; !ok {
+			t.Fatalf("trace is missing %q: %+v", want, trace.Steps)
 		}
+	}
+	for before, after := range map[string]string{
+		"source":           "wakeup-scheduled",
+		"wakeup-scheduled": "trigger",
+		"trigger":          "model",
+		"model":            "prompt",
+		"prompt":           "rejection-1",
+		"rejection-1":      "attempt-1",
+	} {
+		if positions[before] >= positions[after] {
+			t.Fatalf("%s must precede %s; trace = %+v", before, after, trace.Steps)
+		}
+	}
+	if trace.Steps[1].Title != "Wake-up scheduled" ||
+		trace.Steps[2].Title != "Wake-up delivered" {
+		t.Fatalf("wake-up lifecycle is not explicit: %+v", trace.Steps[:3])
 	}
 }
 
