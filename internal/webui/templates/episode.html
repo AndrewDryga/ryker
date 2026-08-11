@@ -38,11 +38,13 @@
       <div class="trace-marker" aria-hidden="true"><span>{{printf "%02d" (add1 $index)}}</span></div>
       <div class="trace-step-card">
         <header class="trace-step-header">
+          {{if or $step.Stage $step.Actor $step.State}}
           <div class="trace-step-kicker">
-            <span class="trace-stage">{{$step.Stage}}</span>
-            <span class="trace-actor">{{$step.Actor}}</span>
+            {{if $step.Stage}}<span class="trace-stage">{{$step.Stage}}</span>{{end}}
+            {{if $step.Actor}}<span class="trace-actor">{{$step.Actor}}</span>{{end}}
             {{if $step.State}}<span class="trace-step-state">{{$step.State}}</span>{{end}}
           </div>
+          {{end}}
           <div class="trace-time">
             {{if $step.Relative}}<strong>{{$step.Relative}}</strong>{{end}}
             {{if not $step.At.IsZero}}<span>{{stamp $step.At}}</span>{{end}}

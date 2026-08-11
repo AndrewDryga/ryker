@@ -102,19 +102,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			promptDetails = append(promptDetails, TraceDetail{Label: "Submitted prompt", Body: "The prompt text was not retained for this attempt. Its digest remains available in the context references.", Kind: "missing", Open: true})
 			promptDetails = append(promptDetails, TraceDetail{Label: "Memory components", Body: "The individual memory layers cannot be recovered for this historical attempt because its submitted prompt was not retained.", Kind: "missing", Open: true})
 		}
-		for _, ref := range page.Manifest.Refs {
-			body := present(ref.What) + "\nVisibility: " + present(ref.Visibility)
-			if ref.Digest != "" {
-				body += "\nDigest: " + ref.Digest
-			}
-			if ref.Omitted != "" {
-				body += "\nOmitted: " + present(ref.Omitted)
-			}
-			promptDetails = append(promptDetails, TraceDetail{
-				Label: fallback(contextLabel(ref.Kind), eventTitle(ref.Kind)),
-				Body:  body, Kind: "context",
-			})
-		}
+		promptDetails = append(promptDetails, contextReferenceDetails(page.Manifest.Refs, present)...)
 		if len(page.Manifest.Omissions) > 0 {
 			promptDetails = append(promptDetails, TraceDetail{Label: "Omitted context", Body: present(strings.Join(page.Manifest.Omissions, "\n")), Kind: "context"})
 		}
@@ -253,8 +241,12 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			continue
 		}
 		summary, stats := auditTracePresentation(audit, present)
+		stage, actor, state := "Audit", audit.Whom, audit.Outcome
+		if audit.Kind == "standing_rules.evaluated" || audit.Kind == "standing_rule.acknowledged" {
+			stage, actor, state = "", "", ""
+		}
 		add(TraceStep{
-			ID: fmt.Sprintf("audit-%d", index+1), Stage: "Audit", Actor: audit.Whom, State: audit.Outcome,
+			ID: fmt.Sprintf("audit-%d", index+1), Stage: stage, Actor: actor, State: state,
 			Title: eventTitle(audit.Kind), Summary: summary, Why: auditTraceWhy(audit), At: audit.At,
 			Stats: stats, Details: auditTraceDetails(audit, present),
 		})
@@ -305,27 +297,17 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 					"Working marker", slackReactionDisplay(evaluation.Acknowledged),
 				})
 			}
-			summary := fmt.Sprintf("%d of %d active rules matched. ", evaluation.Matched, evaluation.Checked)
-			if evaluation.Matched == 0 {
-				summary += "No standing rule changed what happens next."
-			} else if evaluation.Acknowledged != "" {
-				summary += slackReactionDisplay(evaluation.Acknowledged) +
-					" marks the message while the matching work runs."
-			} else {
-				summary += "The matching workflows now guide what happens next."
-			}
-			return summary, stats
+			return "", stats
 		}
 	}
 	if audit.Kind == "standing_rule.acknowledged" {
 		name := strings.Trim(strings.TrimSpace(audit.Detail), ":")
-		return "At least one rule matched. This older episode saved the working marker, " +
-				"but not the full rule list.", []TraceStat{
-				{"Active rules", "Not recorded"},
-				{"Matched", "At least 1"},
-				{"Skipped", "Not recorded"},
-				{"Working marker", slackReactionDisplay(name)},
-			}
+		return "", []TraceStat{
+			{"Active rules", "Not recorded"},
+			{"Matched", "At least 1"},
+			{"Skipped", "Not recorded"},
+			{"Working marker", slackReactionDisplay(name)},
+		}
 	}
 	stats := []TraceStat{{"Actor", audit.Actor}, {"Object", fallback(audit.Object, "none")}, {"Repeats", repeatValue(audit.Repeats)}}
 	summary := present(audit.Detail)
@@ -444,20 +426,194 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 	}{
 		{"prior_operational_context", "Operational memory", []string{"current_incidents", "open_commitments", "pending_approvals", "confirmed_memory"}},
 		{"structured_memory", "Conversation memory", []string{"goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs"}},
+		{"conversation_situation", "Conversation memory", []string{"goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs"}},
 		{"related_situations", "Related conversation summaries", nil},
-		{"referenced_thread", "Referenced thread memory", nil},
 	}
-	details := make([]TraceDetail, 0, 12)
+	details := make([]TraceDetail, 0, len(envelope)+8)
 	layerCount := 0
+	seen := map[string]bool{}
 	for _, layer := range layers {
 		raw := envelope[layer.key]
 		if emptyJSON(raw) {
 			continue
 		}
+		seen[layer.key] = true
 		layerCount++
 		details = append(details, memoryLayerDetails(raw, layer.label, layer.priority, present)...)
 	}
+
+	// Keep model-visible context in a stable human order. This is deliberately
+	// independent of the JSON field order used by the prompt compiler.
+	order := []string{
+		"target_message", "source_message", "referenced_thread",
+		"recent_messages_around_target", "recent_messages", "recent_channel_messages",
+		"channel_context", "channel_id", "attachments", "repository",
+		"context_omitted", "initial_task_changes_fingerprint",
+		"structured_corrections", "reply_shape_corrections", "captured_at",
+	}
+	for _, key := range order {
+		if seen[key] || emptyJSON(envelope[key]) {
+			continue
+		}
+		seen[key] = true
+		details = append(details, promptFieldDetail(key, envelope[key], present))
+	}
+	rest := make([]string, 0, len(envelope))
+	for key, raw := range envelope {
+		if !seen[key] && !emptyJSON(raw) {
+			rest = append(rest, key)
+		}
+	}
+	sort.Strings(rest)
+	for _, key := range rest {
+		details = append(details, promptFieldDetail(key, envelope[key], present))
+	}
 	return details, layerCount
+}
+
+func promptFieldDetail(key string, raw json.RawMessage, present func(string) string) TraceDetail {
+	label, _ := promptFieldPresentation(key)
+	return TraceDetail{
+		Label: label,
+		Body:  promptFieldBody(key, raw, present),
+		Kind:  "context",
+	}
+}
+
+func promptFieldBody(key string, raw json.RawMessage, present func(string) string) string {
+	switch key {
+	case "target_message", "source_message":
+		return slackPromptMessages(raw, present)
+	case "referenced_thread", "recent_messages_around_target", "recent_messages",
+		"recent_channel_messages", "channel_context":
+		return slackPromptMessages(raw, present)
+	case "channel_id":
+		var value string
+		if json.Unmarshal(raw, &value) == nil {
+			return present(value)
+		}
+	case "repository":
+		var value string
+		if json.Unmarshal(raw, &value) == nil {
+			return value
+		}
+	case "attachments":
+		return humanJSON(raw, present, 0)
+	}
+	return humanJSON(raw, present, 0)
+}
+
+func slackPromptMessages(raw json.RawMessage, present func(string) string) string {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return present(prettyJSON(string(raw)))
+	}
+	items := []any{value}
+	if list, ok := value.([]any); ok {
+		items = list
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		message, ok := item.(map[string]any)
+		if !ok {
+			parts = append(parts, humanValue(item, present, 0))
+			continue
+		}
+		sender := firstString(message, "sender_name", "sender", "sender_id", "user_id")
+		if sender != "" && !strings.HasPrefix(sender, "@") {
+			sender = present("<@" + sender + ">")
+		}
+		text := present(firstString(message, "text", "message"))
+		if sender == "" {
+			sender = "Unknown sender"
+		}
+		body := sender
+		if text != "" {
+			body += "\n" + text
+		}
+		metadata := []string{}
+		if ts := firstString(message, "message_ts", "ts"); ts != "" {
+			metadata = append(metadata, "Message "+ts)
+		}
+		if thread := firstString(message, "thread_ts"); thread != "" {
+			metadata = append(metadata, "Thread "+thread)
+		}
+		if link := firstString(message, "message_link", "permalink"); link != "" {
+			metadata = append(metadata, "Slack link "+link)
+		}
+		if len(metadata) > 0 {
+			body += "\n" + strings.Join(metadata, " · ")
+		}
+		parts = append(parts, body)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func firstString(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := values[key].(string); ok && strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func humanJSON(raw json.RawMessage, present func(string) string, depth int) string {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return present(prettyJSON(string(raw)))
+	}
+	return humanValue(value, present, depth)
+}
+
+func humanValue(value any, present func(string) string, depth int) string {
+	switch typed := value.(type) {
+	case nil:
+		return "Not set"
+	case string:
+		return present(typed)
+	case bool:
+		if typed {
+			return "Yes"
+		}
+		return "No"
+	case float64:
+		return fmt.Sprintf("%v", typed)
+	case []any:
+		lines := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text := humanValue(item, present, depth+1)
+			if strings.Contains(text, "\n") {
+				text = strings.ReplaceAll(text, "\n", "\n  ")
+			}
+			lines = append(lines, "• "+text)
+		}
+		return strings.Join(lines, "\n")
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			if key == "id" || strings.HasSuffix(key, "_id") {
+				continue
+			}
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		lines := make([]string, 0, len(keys))
+		for _, key := range keys {
+			text := humanValue(typed[key], present, depth+1)
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			if strings.Contains(text, "\n") {
+				text = "\n  " + strings.ReplaceAll(text, "\n", "\n  ")
+			}
+			lines = append(lines, eventTitle(key)+": "+text)
+		}
+		return strings.Join(lines, "\n")
+	default:
+		encoded, _ := json.MarshalIndent(typed, "", "  ")
+		return present(string(encoded))
+	}
 }
 
 func memoryLayerDetails(raw json.RawMessage, label string, priority []string, present func(string) string) []TraceDetail {
@@ -483,12 +639,49 @@ func memoryLayerDetails(raw json.RawMessage, label string, priority []string, pr
 	keys = append(keys, rest...)
 	details := make([]TraceDetail, 0, len(keys))
 	for _, key := range keys {
+		body := humanJSON(fields[key], present, 0)
+		if key == "recent_same_channel_evidence" {
+			body = evidenceMemoryBody(fields[key], present)
+		}
 		details = append(details, TraceDetail{
 			Label: label + " · " + eventTitle(key),
-			Body:  present(prettyJSON(string(fields[key]))), Kind: "json",
+			Body:  body, Kind: "context",
 		})
 	}
 	return details
+}
+
+func evidenceMemoryBody(raw json.RawMessage, present func(string) string) string {
+	var records []map[string]any
+	if json.Unmarshal(raw, &records) != nil {
+		return humanJSON(raw, present, 0)
+	}
+	items := make([]string, 0, len(records))
+	for _, record := range records {
+		claim := present(firstString(record, "claim"))
+		observation := present(firstString(record, "observation"))
+		if claim == "" && observation == "" {
+			continue
+		}
+		lines := []string{}
+		if claim != "" {
+			lines = append(lines, claim)
+		}
+		if observation != "" {
+			lines = append(lines, "Observed: "+observation)
+		}
+		if source := firstString(record, "source_name", "source_type"); source != "" {
+			lines = append(lines, "Source: "+present(source))
+		}
+		if at := firstString(record, "observed_at"); at != "" {
+			lines = append(lines, "Observed at: "+at)
+		}
+		if confidence := firstString(record, "confidence"); confidence != "" {
+			lines = append(lines, "Confidence: "+confidence)
+		}
+		items = append(items, strings.Join(lines, "\n"))
+	}
+	return strings.Join(items, "\n\n")
 }
 
 func modelSelectionWhy(manifest ManifestRow) string {
@@ -509,17 +702,27 @@ type promptRange struct {
 	tone       string
 }
 
+type jsonFieldRange struct {
+	key        string
+	start, end int
+}
+
 func promptSegments(prompt string) []PromptSegment {
 	ranges := []promptRange{}
 	for _, section := range []struct{ tag, source, tone string }{
 		{"trusted-responder-context", "Trusted Responder context", "trusted"},
-		{"untrusted-slack-context", "Slack and memory context", "memory"},
 	} {
 		open, close := "<"+section.tag+">", "</"+section.tag+">"
 		if start := strings.Index(prompt, open); start >= 0 {
 			if tail := strings.Index(prompt[start+len(open):], close); tail >= 0 {
 				ranges = append(ranges, promptRange{start, start + len(open) + tail + len(close), section.source, section.tone})
 			}
+		}
+	}
+	if start := strings.Index(prompt, "<untrusted-slack-context>"); start >= 0 {
+		if tail := strings.Index(prompt[start:], "</untrusted-slack-context>"); tail >= 0 {
+			end := start + tail + len("</untrusted-slack-context>")
+			ranges = append(ranges, untrustedPromptRanges(prompt, start, end)...)
 		}
 	}
 	if start := strings.LastIndex(prompt, "\nUSER:"); start >= 0 {
@@ -552,6 +755,238 @@ func promptSegments(prompt string) []PromptSegment {
 		add(prompt, "Submitted prompt", "system")
 	}
 	return segments
+}
+
+func untrustedPromptRanges(prompt string, start, end int) []promptRange {
+	const open = "<untrusted-slack-context>"
+	const close = "</untrusted-slack-context>"
+	contentStart := start + len(open)
+	contentEnd := end - len(close)
+	raw := prompt[contentStart:contentEnd]
+	fields := topLevelJSONFields(raw)
+	if len(fields) == 0 {
+		return []promptRange{{start, end, "Slack context", "slack"}}
+	}
+	ranges := make([]promptRange, 0, len(fields))
+	for index, field := range fields {
+		fieldStart := contentStart + field.start
+		if index == 0 {
+			fieldStart = start
+		}
+		fieldEnd := end
+		if index+1 < len(fields) {
+			fieldEnd = contentStart + fields[index+1].start
+		}
+		source, tone := promptFieldPresentation(field.key)
+		ranges = append(ranges, promptRange{fieldStart, fieldEnd, source, tone})
+	}
+	return ranges
+}
+
+func topLevelJSONFields(raw string) []jsonFieldRange {
+	i := skipJSONSpace(raw, 0)
+	if i >= len(raw) || raw[i] != '{' {
+		return nil
+	}
+	i++
+	fields := []jsonFieldRange{}
+	for {
+		i = skipJSONSpace(raw, i)
+		if i < len(raw) && raw[i] == ',' {
+			i = skipJSONSpace(raw, i+1)
+		}
+		if i >= len(raw) || raw[i] == '}' {
+			return fields
+		}
+		start := i
+		keyEnd := scanJSONString(raw, i)
+		if keyEnd <= i {
+			return nil
+		}
+		var key string
+		if json.Unmarshal([]byte(raw[i:keyEnd]), &key) != nil {
+			return nil
+		}
+		i = skipJSONSpace(raw, keyEnd)
+		if i >= len(raw) || raw[i] != ':' {
+			return nil
+		}
+		i = skipJSONSpace(raw, i+1)
+		valueEnd := scanJSONValue(raw, i)
+		if valueEnd <= i {
+			return nil
+		}
+		fields = append(fields, jsonFieldRange{key: key, start: start, end: valueEnd})
+		i = valueEnd
+	}
+}
+
+func skipJSONSpace(raw string, i int) int {
+	for i < len(raw) && strings.ContainsRune(" \t\r\n", rune(raw[i])) {
+		i++
+	}
+	return i
+}
+
+func scanJSONString(raw string, i int) int {
+	if i >= len(raw) || raw[i] != '"' {
+		return -1
+	}
+	for i++; i < len(raw); i++ {
+		switch raw[i] {
+		case '\\':
+			i++
+		case '"':
+			return i + 1
+		}
+	}
+	return -1
+}
+
+func scanJSONValue(raw string, i int) int {
+	if i >= len(raw) {
+		return -1
+	}
+	if raw[i] == '"' {
+		return scanJSONString(raw, i)
+	}
+	if raw[i] != '{' && raw[i] != '[' {
+		for i < len(raw) && raw[i] != ',' && raw[i] != '}' && raw[i] != ']' {
+			i++
+		}
+		return skipJSONSpaceBackward(raw, i)
+	}
+	stack := []byte{raw[i]}
+	for i++; i < len(raw); i++ {
+		switch raw[i] {
+		case '"':
+			i = scanJSONString(raw, i) - 1
+			if i < 0 {
+				return -1
+			}
+		case '{', '[':
+			stack = append(stack, raw[i])
+		case '}', ']':
+			stack = stack[:len(stack)-1]
+			if len(stack) == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
+}
+
+func skipJSONSpaceBackward(raw string, i int) int {
+	for i > 0 && strings.ContainsRune(" \t\r\n", rune(raw[i-1])) {
+		i--
+	}
+	return i
+}
+
+func promptFieldPresentation(key string) (string, string) {
+	if value, ok := map[string][2]string{
+		"prior_operational_context":        {"Operational memory", "operational"},
+		"structured_memory":                {"Conversation memory", "conversation"},
+		"conversation_situation":           {"Conversation memory", "conversation"},
+		"related_situations":               {"Related conversation summaries", "related"},
+		"referenced_thread":                {"Referenced Slack thread", "slack"},
+		"target_message":                   {"Source Slack message", "slack"},
+		"source_message":                   {"Source Slack message", "slack"},
+		"recent_messages":                  {"Recent Slack messages", "slack"},
+		"recent_channel_messages":          {"Recent Slack messages", "slack"},
+		"recent_messages_around_target":    {"Recent Slack messages", "slack"},
+		"channel_context":                  {"Slack channel context", "slack"},
+		"channel_id":                       {"Slack channel", "slack"},
+		"attachments":                      {"Slack attachments", "slack"},
+		"repository":                       {"Repository selection", "trusted"},
+		"context_omitted":                  {"Context intentionally omitted", "structure"},
+		"initial_task_changes_fingerprint": {"Existing task changes", "structure"},
+		"structured_corrections":           {"Structured-result retry state", "structure"},
+		"reply_shape_corrections":          {"Reply-format retry state", "structure"},
+		"captured_at":                      {"Context capture time", "structure"},
+	}[key]; ok {
+		return value[0], value[1]
+	}
+	return eventTitle(key), "slack"
+}
+
+func contextReferenceDetails(refs []ContextRef, present func(string) string) []TraceDetail {
+	details := make([]TraceDetail, 0, len(refs))
+	replay := make([]string, 0, 2)
+	for _, ref := range refs {
+		switch ref.Kind {
+		case "source_input":
+			// The source message is already the first timeline step and appears
+			// as a colored model-visible prompt component. Do not show it again.
+			continue
+		case "compiled_prompt", "assembled_context":
+			name := "Prompt"
+			if ref.Kind == "assembled_context" {
+				name = "Assembled context"
+			}
+			line := name + " fingerprint: " + fallback(ref.Digest, "not recorded")
+			if ref.Omitted != "" {
+				line += "\nNot included: " + present(ref.Omitted)
+			}
+			replay = append(replay, line)
+			continue
+		default:
+			details = append(details, contextReferenceDetail(ref, present))
+		}
+	}
+	if len(replay) > 0 {
+		details = append(details, TraceDetail{
+			Label: "Replay metadata",
+			Body: "These fingerprints let Responder verify that a replay uses the same prompt and assembled context. " +
+				"They were not extra text shown to the model.\n\n" + strings.Join(replay, "\n"),
+			Kind: "context",
+		})
+	}
+	return details
+}
+
+func contextReferenceDetail(ref ContextRef, present func(string) string) TraceDetail {
+	label := fallback(contextLabel(ref.Kind), eventTitle(ref.Kind))
+	purpose := map[string]string{
+		"source_input":      "The Slack message that started this work was included as the request.",
+		"compiled_prompt":   "A fingerprint of the exact compiled prompt. It supports replay; it does not add another prompt section.",
+		"assembled_context": "A fingerprint of the assembled Slack and memory context. The readable components are listed above.",
+		"repository":        "The repository snapshot available to the model for code context.",
+		"execution_policy":  "The Coop policy that controls available tools and whether files may be changed.",
+		"artifact":          "A file or attachment made available to the model.",
+	}[ref.Kind]
+	if purpose == "" {
+		purpose = "A recorded source used to reproduce this episode."
+	}
+	source := present(ref.What)
+	switch ref.Kind {
+	case "compiled_prompt":
+		source = "The exact prompt submitted for this model attempt."
+	case "assembled_context":
+		source = "The Slack, memory, and repository context assembled for this model attempt."
+	}
+	body := purpose + "\n\nSource\n" + source
+	if ref.Omitted != "" {
+		body += "\n\nNot included\n" + present(ref.Omitted)
+	}
+	if ref.Digest != "" {
+		body += "\n\nReplay fingerprint\n" + ref.Digest
+	}
+	body += "\n\nAccess\n" + contextVisibility(ref.Visibility)
+	return TraceDetail{Label: label, Body: body, Kind: "context"}
+}
+
+func contextVisibility(value string) string {
+	switch value {
+	case "eligible":
+		return "Available to the model."
+	case "private":
+		return "Host-only replay metadata; not added as model-visible text."
+	case "omitted":
+		return "Not included in the model context."
+	default:
+		return fallback(value, "Not recorded.")
+	}
 }
 
 func presentEventPayload(payload string, present func(string) string) string {
@@ -635,7 +1070,7 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 	}
 
 	react := EpisodeMetric{Label: "Time to react", Value: "Not recorded", Missing: true,
-		Detail: "No persisted Slack processing indicator is linked to this episode."}
+		Detail: "No processing indicator linked to this episode was retained. Older episodes may have shown a Slack status before Responder recorded episode ownership."}
 	if !page.Source.Received.IsZero() {
 		var first time.Time
 		for _, delivery := range page.Delivered {
@@ -646,7 +1081,7 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 		}
 		if !first.IsZero() {
 			react.Value, react.Missing, react.Tone = compactDuration(first.Sub(page.Source.Received)), false, "good"
-			react.Detail = "From Slack receipt to the first persisted native status update."
+			react.Detail = "From Slack receipt to the first linked processing indicator."
 		}
 	}
 
@@ -732,8 +1167,8 @@ func modelSummary(turn Turn) string {
 
 func contextLabel(kind string) string {
 	return map[string]string{
-		"source_input": "Source message", "compiled_prompt": "Compiled prompt digest",
-		"assembled_context": "Assembled context", "repository": "Repository context",
+		"source_input": "Source message", "compiled_prompt": "Prompt replay fingerprint",
+		"assembled_context": "Context replay fingerprint", "repository": "Repository snapshot",
 		"execution_policy": "Execution policy", "artifact": "Attached artifact",
 	}[kind]
 }
@@ -753,7 +1188,7 @@ func eventStage(kind string) string {
 
 func eventTitle(kind string) string {
 	if kind == "standing_rules.evaluated" || kind == "standing_rule.acknowledged" {
-		return "Standing rules checked"
+		return "Standing rules"
 	}
 	title := strings.NewReplacer("_", " ", ".", " ").Replace(kind)
 	if title == "" {

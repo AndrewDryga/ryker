@@ -114,9 +114,15 @@ func (s *Store) EnqueueSlackDelivery(
 		if delivery.ExpectedDestinationRevision == 0 {
 			delivery.ExpectedDestinationRevision = episode.DestinationRevision
 		}
-		if delivery.ExpectedDestinationRevision != episode.DestinationRevision ||
-			delivery.ChannelID != episode.Destination.ChannelID ||
-			delivery.ThreadTS != episode.Destination.ThreadTS {
+		// A native status is a processing indicator on the source Slack
+		// conversation. It belongs to the episode trace, but it does not choose
+		// where the final answer is delivered. A request may deliberately move
+		// the answer from a thread back to the channel while the indicator stays
+		// on the message being processed.
+		if delivery.Operation != "status" &&
+			(delivery.ExpectedDestinationRevision != episode.DestinationRevision ||
+				delivery.ChannelID != episode.Destination.ChannelID ||
+				delivery.ThreadTS != episode.Destination.ThreadTS) {
 			return false, errors.New("Slack delivery destination does not match the current episode binding")
 		}
 	}
@@ -396,6 +402,7 @@ func (s *Store) LeaseSlackDelivery(
 		SET state = 'superseded', last_error = 'episode destination changed', updated_at = ?
 		WHERE delivery.state IN ('pending', 'retry')
 		  AND delivery.episode_id != ''
+		  AND delivery.operation != 'status'
 		  AND EXISTS (
 		    SELECT 1 FROM work_episodes AS episode
 		    WHERE episode.id = delivery.episode_id

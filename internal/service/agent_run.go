@@ -82,6 +82,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 				if err := s.enqueueNativeStatus(
 					ctx,
 					"",
+					"",
 					input.ChannelID,
 					slackReplyThread(input),
 					watchPendingStatus,
@@ -126,27 +127,6 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		state.ReferencedThreadTS = referencedThreadTS
 		state.RouteCaptured = true
 	}
-	if watchInputWantsPendingStatus(input, state) && s.cfg.Slack.NativeStatus {
-		if err := s.enqueueNativeStatus(
-			ctx,
-			"",
-			input.ChannelID,
-			slackReplyThread(input),
-			watchPendingStatus,
-			watchProgressSteps(),
-		); err != nil {
-			s.log.Warn(
-				"set queued watched Slack status",
-				"channel", input.ChannelID,
-				"thread", slackReplyThread(input),
-				"input", input.ID,
-				"error", err,
-			)
-		} else {
-			state.PendingStatusSet = true
-			state.PendingStatusAt = s.now().Unix()
-		}
-	}
 	readyAt, err := s.watchRunReadyAt(ctx, input)
 	if err != nil {
 		return err
@@ -160,7 +140,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	if err != nil {
 		return err
 	}
-	run, _, err := s.store.QueueAgentRun(ctx, core.AgentRun{
+	run, created, err := s.store.QueueAgentRun(ctx, core.AgentRun{
 		Mode:            core.AgentRunTriage,
 		ChannelID:       input.ChannelID,
 		ThreadTS:        state.ResponseThreadTS,
@@ -175,6 +155,15 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	})
 	if err != nil {
 		return fmt.Errorf("queue watched agent run: %w", err)
+	}
+	if created && watchInputWantsPendingStatus(input, state) && s.cfg.Slack.NativeStatus {
+		if err := s.ensureWatchRunPendingStatus(ctx, run, input, &state); err != nil {
+			s.log.Warn("set queued watched Slack status", "input", input.ID, "episode", run.EpisodeID, "error", err)
+		}
+		contextJSON, err = json.Marshal(state)
+		if err != nil {
+			return err
+		}
 	}
 	// QueueAgentRun is idempotent by Slack input. Persist facts captured before
 	// queueing even when this input already had a run, otherwise a retry can
@@ -2615,6 +2604,7 @@ func (s *Service) ensureWatchRunPendingStatus(
 	if err := s.enqueueNativeStatus(
 		ctx,
 		"",
+		run.EpisodeID,
 		input.ChannelID,
 		threadTS,
 		watchPendingStatus,
@@ -2771,6 +2761,7 @@ func (s *Service) stageTerminalFinalizationFailure(
 		return s.enqueueNativeStatus(
 			ctx,
 			"",
+			run.EpisodeID,
 			input.ChannelID,
 			slackReplyThread(input),
 			"",

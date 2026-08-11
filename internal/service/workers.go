@@ -921,6 +921,7 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 	if err := s.enqueueNativeStatus(
 		ctx,
 		incident.ID,
+		"",
 		incident.ChannelID,
 		incident.ConversationThreadTS(),
 		status,
@@ -935,6 +936,7 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 func (s *Service) enqueueNativeStatus(
 	ctx context.Context,
 	incidentID string,
+	episodeID string,
 	channelID string,
 	threadTS string,
 	status string,
@@ -953,7 +955,8 @@ func (s *Service) enqueueNativeStatus(
 		return err
 	}
 	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
-		ID: id, IncidentID: incidentID, Operation: "status", Kind: "status",
+		ID: id, IncidentID: incidentID, EpisodeID: episodeID,
+		Operation: "status", Kind: "status",
 		ChannelID: channelID, ThreadTS: threadTS, Status: status, Steps: steps,
 		CoalesceKey: "status:" + channelID + ":" + threadTS,
 		CardVersion: generation,

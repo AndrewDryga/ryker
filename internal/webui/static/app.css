@@ -749,6 +749,11 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .prompt-segment.tone-system { border-left-color: #71717a; }
 .prompt-segment.tone-trusted { border-left-color: var(--good); }
 .prompt-segment.tone-memory { border-left-color: #60a5fa; }
+.prompt-segment.tone-operational { border-left-color: #f472b6; }
+.prompt-segment.tone-conversation { border-left-color: #60a5fa; }
+.prompt-segment.tone-related { border-left-color: #c084fc; }
+.prompt-segment.tone-slack { border-left-color: #22d3ee; }
+.prompt-segment.tone-structure { border-left-color: #52525b; }
 .prompt-segment.tone-user { border-left-color: var(--warn); }
 .prompt-segment-meta {
   display: flex;
@@ -762,6 +767,11 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 }
 .prompt-segment.tone-trusted .prompt-segment-meta span:first-child { color: var(--good); }
 .prompt-segment.tone-memory .prompt-segment-meta span:first-child { color: #93c5fd; }
+.prompt-segment.tone-operational .prompt-segment-meta span:first-child { color: #f9a8d4; }
+.prompt-segment.tone-conversation .prompt-segment-meta span:first-child { color: #93c5fd; }
+.prompt-segment.tone-related .prompt-segment-meta span:first-child { color: #d8b4fe; }
+.prompt-segment.tone-slack .prompt-segment-meta span:first-child { color: #67e8f9; }
+.prompt-segment.tone-structure .prompt-segment-meta span:first-child { color: var(--faint); }
 .prompt-segment.tone-user .prompt-segment-meta span:first-child { color: var(--warn); }
 .trace-detail .prompt-segment pre {
   border-top: 0;

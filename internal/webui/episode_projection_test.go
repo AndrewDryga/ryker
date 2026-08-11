@@ -32,6 +32,7 @@ func TestEpisodePageShowsAnswerOutcomeAndSideEffects(t *testing.T) {
 	}
 	stamp := time.Date(2026, 8, 10, 8, 14, 0, 0, time.UTC).Format(time.RFC3339Nano)
 	delivered := time.Date(2026, 8, 10, 8, 14, 47, 900_000_000, time.UTC).Format(time.RFC3339Nano)
+	reacted := time.Date(2026, 8, 10, 8, 14, 1, 400_000_000, time.UTC).Format(time.RFC3339Nano)
 	expires := time.Date(2026, 9, 9, 8, 14, 0, 0, time.UTC).Format(time.RFC3339Nano)
 	result := `{
 	  "action":"reply",
@@ -113,6 +114,11 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 	          ?, 'sent',0,?,?,?,'episode-1')`,
 		`{"text":"Got it. Plan summaries will show material changes as before → after."}`,
 		stamp, stamp, delivered)
+	exec(`INSERT INTO slack_deliveries
+	  (id, operation, kind, channel_id, thread_ts, body_json, state,
+	   failure_count, next_attempt_at, created_at, updated_at, episode_id)
+	  VALUES ('status-1','status','status','C1','1786344951.427829','{}','sent',
+	          0,?,?,?, 'episode-1')`, stamp, stamp, reacted)
 	// A confirmed rule belongs to a later confirmation input, but carries the
 	// original event id as source_ref. That is how it remains attributable to
 	// the episode that proposed it.
@@ -159,7 +165,10 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"A prior rollout used the same image.",
 		"Final submitted prompt",
 		"System instructions",
-		"Slack and memory context",
+		"Operational memory",
+		"Conversation memory",
+		"Related conversation summaries",
+		"Source Slack message",
 		"User request",
 		"tokens",
 		"Time to respond",
@@ -167,7 +176,7 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"47.9s",
 		"Started 2026-08-10 08:14 UTC",
 		"Time to react",
-		"Not recorded",
+		"1.4s",
 		"Errors",
 		"Model result received",
 		"Host-visible decision rationale",
@@ -238,8 +247,7 @@ func TestAuditTracePresentsSlackReactionAndStandingRuleMeaning(t *testing.T) {
 		Object: "slack_message_123", Detail: "eyes", Repeats: 1,
 	}
 	summary, stats := auditTracePresentation(audit, func(text string) string { return text })
-	if !strings.Contains(summary, "At least one rule matched") ||
-		!strings.Contains(summary, "older episode") {
+	if summary != "" {
 		t.Fatalf("legacy evaluation summary = %q", summary)
 	}
 	if len(stats) != 4 || stats[0] != (TraceStat{"Active rules", "Not recorded"}) ||
@@ -251,7 +259,7 @@ func TestAuditTracePresentsSlackReactionAndStandingRuleMeaning(t *testing.T) {
 	if got := auditTraceWhy(audit); got != "" {
 		t.Fatalf("legacy evaluation has generic explanation = %q", got)
 	}
-	if got := eventTitle(audit.Kind); got != "Standing rules checked" {
+	if got := eventTitle(audit.Kind); got != "Standing rules" {
 		t.Fatalf("audit title = %q", got)
 	}
 	details := auditTraceDetails(audit, func(text string) string { return text })
@@ -298,7 +306,7 @@ func TestAuditTraceExplainsEveryMatchedAndSkippedStandingRule(t *testing.T) {
 	}
 
 	summary, stats := auditTracePresentation(audit, func(text string) string { return text })
-	if summary != "1 of 3 active rules matched. 👀 marks the message while the matching work runs." {
+	if summary != "" {
 		t.Fatalf("evaluation summary = %q", summary)
 	}
 	if len(stats) != 4 || stats[0].Value != "3" || stats[1].Value != "1" ||
@@ -327,24 +335,105 @@ func TestAuditTraceExplainsEveryMatchedAndSkippedStandingRule(t *testing.T) {
 	if auditTraceWhy(audit) != "" {
 		t.Fatalf("evaluation has generic explanation: %q", auditTraceWhy(audit))
 	}
-	if eventTitle(audit.Kind) != "Standing rules checked" {
+	if eventTitle(audit.Kind) != "Standing rules" {
 		t.Fatalf("evaluation title = %q", eventTitle(audit.Kind))
 	}
 }
 
 func TestPromptSegmentsPreserveEveryCharacterInOrder(t *testing.T) {
 	prompt := "SYSTEM: one\n<trusted-responder-context>trusted</trusted-responder-context>\n" +
-		"<untrusted-slack-context>{\"goal\":\"check\"}</untrusted-slack-context>\nUSER: hello"
+		"<untrusted-slack-context>{\"prior_operational_context\":{\"open_commitments\":[\"check rollout\"]}," +
+		"\"structured_memory\":{\"goal\":\"check\"},\"related_situations\":[{\"summary\":\"earlier alert\"}]," +
+		"\"target_message\":{\"text\":\"hello\"},\"repository\":\"emisar\"}</untrusted-slack-context>\nUSER: hello"
 	segments := promptSegments(prompt)
 	var rebuilt strings.Builder
+	sources := map[string]bool{}
 	for _, segment := range segments {
 		rebuilt.WriteString(segment.Body)
+		sources[segment.Source] = true
 		if segment.Tokens < 1 || segment.Hint == "" {
 			t.Fatalf("segment lacks token provenance: %+v", segment)
 		}
 	}
 	if rebuilt.String() != prompt {
 		t.Fatalf("segments changed prompt:\n got %q\nwant %q", rebuilt.String(), prompt)
+	}
+	for _, source := range []string{
+		"Operational memory", "Conversation memory", "Related conversation summaries",
+		"Source Slack message", "Repository selection",
+	} {
+		if !sources[source] {
+			t.Fatalf("prompt segments do not identify %q: %+v", source, segments)
+		}
+	}
+}
+
+func TestPromptContextDetailsExplainSlackAndOperationalMemory(t *testing.T) {
+	prompt := `SYSTEM
+<untrusted-slack-context>
+{
+  "channel_id":"C1",
+  "repository":"emisar",
+  "target_message":{"message_ts":"1786408526.961689","sender_id":"U1","text":"check this","mentions_responder":true},
+  "recent_messages":[{"message_ts":"1786408500.100","sender_id":"U2","text":"deploy finished"}],
+  "structured_memory":{"goal":"Verify the rollout","constraints":["Reply in threads"]},
+  "prior_operational_context":{"recent_same_channel_evidence":[{"id":"ev_secret","claim":"The rollout finished","observation":"All checks passed","source_type":"github","source_name":"GitHub checks","observed_at":"2026-08-10T08:00:00Z","confidence":"high"}]}
+}
+</untrusted-slack-context>
+USER: check this`
+	present := func(value string) string {
+		return strings.NewReplacer("<@U1>", "@Andrew Dryga", "<@U2>", "@Trevin Miller", "C1", "#infra").Replace(value)
+	}
+	details, layers := promptContextDetails(prompt, present)
+	if layers != 2 {
+		t.Fatalf("memory layers = %d, want 2", layers)
+	}
+	joined := ""
+	for _, detail := range details {
+		joined += detail.Label + "\n" + detail.Body + "\n"
+	}
+	for _, want := range []string{
+		"Operational memory · Recent same channel evidence",
+		"The rollout finished", "Observed: All checks passed", "Source: GitHub checks",
+		"Conversation memory · Goal", "Verify the rollout", "Source Slack message",
+		"@Andrew Dryga\ncheck this", "Recent Slack messages", "@Trevin Miller\ndeploy finished",
+		"Slack channel\n#infra", "Repository selection\nemisar",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("readable prompt context missing %q:\n%s", want, joined)
+		}
+	}
+	for _, unwanted := range []string{"ev_secret", "mentions_responder", `"sender_id"`} {
+		if strings.Contains(joined, unwanted) {
+			t.Fatalf("prompt context leaked storage field %q:\n%s", unwanted, joined)
+		}
+	}
+}
+
+func TestContextReferenceDetailsSeparateReplayMetadataFromInputs(t *testing.T) {
+	details := contextReferenceDetails([]ContextRef{
+		{Kind: "source_input", What: "watch in #infra", Visibility: "eligible"},
+		{Kind: "compiled_prompt", What: "attempt run_secret", Visibility: "private", Digest: "abc123"},
+		{Kind: "assembled_context", What: "attempt run_secret", Visibility: "private", Digest: "def456"},
+		{Kind: "repository", What: "emisar @ deadbeef", Visibility: "eligible"},
+		{Kind: "execution_policy", What: "emisar-conversation", Visibility: "private"},
+	}, func(value string) string { return value })
+	if len(details) != 3 {
+		t.Fatalf("context details = %+v, want repository, policy, and replay metadata", details)
+	}
+	joined := ""
+	for _, detail := range details {
+		joined += detail.Label + "\n" + detail.Body + "\n"
+	}
+	for _, want := range []string{"Repository snapshot", "Execution policy", "Replay metadata", "Prompt fingerprint: abc123", "Assembled context fingerprint: def456"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("context details missing %q:\n%s", want, joined)
+		}
+	}
+	for _, unwanted := range []string{"attempt run_secret", "Visibility:"} {
+		if strings.Contains(joined, unwanted) {
+			t.Fatalf("context details leaked %q:\n%s", unwanted, joined)
+		}
 	}
 }
 

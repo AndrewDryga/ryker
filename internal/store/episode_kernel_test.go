@@ -462,6 +462,38 @@ func TestSlackDeliveryIsBoundToEpisodeDestinationRevision(t *testing.T) {
 	}
 }
 
+func TestSlackProcessingStatusBelongsToEpisodeWithoutChangingReplyDestination(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	_, episode := queueKernelEpisode(t, st, "status-source-route")
+
+	current, err := st.ChangeEpisodeDestination(
+		ctx,
+		episode.ID,
+		core.BoundDestination{ChannelID: "COPS"},
+		"operator moved the answer back to the channel",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "delivery-status", EpisodeID: episode.ID, Operation: "status",
+		ChannelID: "COPS", ThreadTS: "2.0", Status: "Working",
+		ExpectedDestinationRevision: current.DestinationRevision,
+	})
+	if err != nil || !created {
+		t.Fatalf("enqueue source-thread status = %t, %v", created, err)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil || leased.ID != "delivery-status" || leased.EpisodeID != episode.ID {
+		t.Fatalf("lease source-thread status = %+v, %v", leased, err)
+	}
+}
+
 func TestEpisodeWakeupSurvivesLeaseAndResolvesWithFence(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

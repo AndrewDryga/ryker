@@ -1545,7 +1545,7 @@ func TestStandingWorkflowMatcherExplainsMatchesAndSkips(t *testing.T) {
 func TestStandingRuleEvaluationIsPersistedAcrossQueueRetries(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
-	cfg.Slack.NativeStatus = false
+	cfg.Slack.NativeStatus = true
 	st, err := store.Open(cfg.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -1585,6 +1585,13 @@ func TestStandingRuleEvaluationIsPersistedAcrossQueueRetries(t *testing.T) {
 	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	status, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Operation != "status" || status.EpisodeID != run.EpisodeID {
+		t.Fatalf("processing status = %+v, want episode %q", status, run.EpisodeID)
 	}
 	state, err := decisionpkg.DecodeWatchState(run.Context)
 	if err != nil {

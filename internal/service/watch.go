@@ -1693,6 +1693,7 @@ func (s *Service) clearWatchNativeStatus(
 	if err := s.enqueueNativeStatus(
 		ctx,
 		"",
+		"",
 		input.ChannelID,
 		threadTS,
 		"",
