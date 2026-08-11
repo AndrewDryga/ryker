@@ -26,9 +26,10 @@ type TraceStat struct {
 }
 
 type TraceDetail struct {
-	Label, Body, Kind string
-	Open              bool
-	Segments          []PromptSegment
+	Label, Body, Kind  string
+	Group, GroupDetail string
+	Open               bool
+	Segments           []PromptSegment
 }
 
 type PromptSegment struct {
@@ -102,14 +103,28 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			promptDetails = append(promptDetails, TraceDetail{Label: "Submitted prompt", Body: "The prompt text was not retained for this attempt. Its digest remains available in the context references.", Kind: "missing", Open: true})
 			promptDetails = append(promptDetails, TraceDetail{Label: "Memory components", Body: "The individual memory layers cannot be recovered for this historical attempt because its submitted prompt was not retained.", Kind: "missing", Open: true})
 		}
-		promptDetails = append(promptDetails, contextReferenceDetails(page.Manifest.Refs, present)...)
-		if len(page.Manifest.Omissions) > 0 {
-			promptDetails = append(promptDetails, TraceDetail{Label: "Omitted context", Body: present(strings.Join(page.Manifest.Omissions, "\n")), Kind: "context"})
-		}
 		if prompt != "" {
 			promptDetails = append(promptDetails, TraceDetail{
 				Label: "Final submitted prompt", Body: present(prompt), Kind: "prompt",
 				Segments: promptSegments(present(prompt)),
+			})
+		}
+		if prompt == "" {
+			promptDetails = markDetailGroup(promptDetails,
+				"Prompt record unavailable",
+				"This historical attempt retained prompt metadata, but not the exact text sent to the model.",
+			)
+		} else {
+			promptDetails = markDetailGroup(promptDetails,
+				"Text sent to the model",
+				"These components were included in the submitted prompt. The final row shows their exact assembled form.",
+			)
+		}
+		promptDetails = append(promptDetails, contextReferenceDetails(page.Manifest.Refs, present)...)
+		if len(page.Manifest.Omissions) > 0 {
+			promptDetails = append(promptDetails, TraceDetail{
+				Label: "Omitted context", Body: present(strings.Join(page.Manifest.Omissions, "\n")), Kind: "missing",
+				Group: "Not sent to the model", GroupDetail: "Responder assembled these inputs but omitted them before submission.",
 			})
 		}
 		add(TraceStep{
@@ -916,7 +931,7 @@ func promptFieldPresentation(key string) (string, string) {
 }
 
 func contextReferenceDetails(refs []ContextRef, present func(string) string) []TraceDetail {
-	details := make([]TraceDetail, 0, len(refs))
+	runtime := make([]TraceDetail, 0, len(refs))
 	replay := make([]string, 0, 2)
 	for _, ref := range refs {
 		switch ref.Kind {
@@ -936,17 +951,33 @@ func contextReferenceDetails(refs []ContextRef, present func(string) string) []T
 			replay = append(replay, line)
 			continue
 		default:
-			details = append(details, contextReferenceDetail(ref, present))
+			if ref.Visibility != "omitted" {
+				runtime = append(runtime, contextReferenceDetail(ref, present))
+			}
 		}
 	}
+	details := markDetailGroup(runtime,
+		"Runtime access",
+		"These inputs were available to, or enforced around, the model session without being pasted into the submitted prompt.",
+	)
 	if len(replay) > 0 {
 		details = append(details, TraceDetail{
 			Label: "Replay metadata",
 			Body: "These fingerprints let Responder verify that a replay uses the same prompt and assembled context. " +
 				"They were not extra text shown to the model.\n\n" + strings.Join(replay, "\n"),
-			Kind: "context",
+			Kind: "context", Group: "Host-only replay data",
+			GroupDetail: "Responder keeps this bookkeeping for attribution and exact replay. The model never sees it.",
 		})
 	}
+	return details
+}
+
+func markDetailGroup(details []TraceDetail, label, description string) []TraceDetail {
+	if len(details) == 0 {
+		return details
+	}
+	details[0].Group = label
+	details[0].GroupDetail = description
 	return details
 }
 
@@ -984,9 +1015,9 @@ func contextReferenceDetail(ref ContextRef, present func(string) string) TraceDe
 func contextVisibility(value string) string {
 	switch value {
 	case "eligible":
-		return "Available to the model."
+		return "Available through the model session without being pasted into the submitted prompt."
 	case "private":
-		return "Host-only replay metadata; not added as model-visible text."
+		return "Enforced by the runtime or retained by Responder; not pasted into the submitted prompt."
 	case "omitted":
 		return "Not included in the model context."
 	default:

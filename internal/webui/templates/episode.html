@@ -73,6 +73,12 @@
         {{if $step.Details}}
         <div class="trace-details">
           {{range $step.Details}}
+          {{if .Group}}
+          <section class="trace-detail-group">
+            <strong>{{.Group}}</strong>
+            <span>{{.GroupDetail}}</span>
+          </section>
+          {{end}}
           <details class="trace-detail kind-{{.Kind}}" {{if .Open}}open{{end}}>
             <summary><span>{{.Label}}</span><span class="trace-disclosure">View full record</span></summary>
             {{if .Segments}}

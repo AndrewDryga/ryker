@@ -154,6 +154,8 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Reasoning</small><strong>high",
 		"Preset emisar-conversation routed this episode to claude/opus at high effort",
 		"Prompt assembled",
+		"Text sent to the model",
+		"These components were included in the submitted prompt",
 		"SYSTEM: Keep durable settings typed.",
 		"USER: @Emisar it would be better if plan summaries showed before and after values",
 		"Memory layers</small><strong>3",
@@ -400,7 +402,7 @@ USER: check this`
 	}
 	joined := ""
 	for _, detail := range details {
-		joined += detail.Label + "\n" + detail.Body + "\n"
+		joined += detail.Group + "\n" + detail.GroupDetail + "\n" + detail.Label + "\n" + detail.Body + "\n"
 	}
 	for _, want := range []string{
 		"Operational memory · Recent same channel evidence",
@@ -433,9 +435,14 @@ func TestContextReferenceDetailsSeparateReplayMetadataFromInputs(t *testing.T) {
 	}
 	joined := ""
 	for _, detail := range details {
-		joined += detail.Label + "\n" + detail.Body + "\n"
+		joined += detail.Group + "\n" + detail.GroupDetail + "\n" + detail.Label + "\n" + detail.Body + "\n"
 	}
-	for _, want := range []string{"Repository snapshot", "Execution policy", "Replay metadata", "Prompt fingerprint: abc123", "Assembled context fingerprint: def456"} {
+	for _, want := range []string{
+		"Runtime access", "available to, or enforced around, the model session",
+		"Repository snapshot", "Execution policy",
+		"Host-only replay data", "The model never sees it", "Replay metadata",
+		"Prompt fingerprint: abc123", "Assembled context fingerprint: def456",
+	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("context details missing %q:\n%s", want, joined)
 		}
