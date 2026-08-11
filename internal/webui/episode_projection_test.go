@@ -342,15 +342,17 @@ func TestAuditTraceExplainsEveryMatchedAndSkippedStandingRule(t *testing.T) {
 
 func TestPromptSegmentsPreserveEveryCharacterInOrder(t *testing.T) {
 	prompt := "SYSTEM: one\n<trusted-responder-context>trusted</trusted-responder-context>\n" +
-		"<untrusted-slack-context>{\"prior_operational_context\":{\"open_commitments\":[\"check rollout\"]}," +
+		"<untrusted-slack-context>{\"channel_id\":\"C1\",\"prior_operational_context\":{\"open_commitments\":[\"check rollout\"]}," +
 		"\"structured_memory\":{\"goal\":\"check\"},\"related_situations\":[{\"summary\":\"earlier alert\"}]," +
 		"\"target_message\":{\"text\":\"hello\"},\"repository\":\"emisar\"}</untrusted-slack-context>\nUSER: hello"
 	segments := promptSegments(prompt)
 	var rebuilt strings.Builder
 	sources := map[string]bool{}
+	bodies := map[string]string{}
 	for _, segment := range segments {
 		rebuilt.WriteString(segment.Body)
 		sources[segment.Source] = true
+		bodies[segment.Source] += segment.Body
 		if segment.Tokens < 1 || segment.Hint == "" {
 			t.Fatalf("segment lacks token provenance: %+v", segment)
 		}
@@ -360,11 +362,19 @@ func TestPromptSegmentsPreserveEveryCharacterInOrder(t *testing.T) {
 	}
 	for _, source := range []string{
 		"Operational memory", "Conversation memory", "Related conversation summaries",
-		"Source Slack message", "Repository selection",
+		"Slack channel", "Source Slack message", "Repository selection", "Safety boundary",
 	} {
 		if !sources[source] {
 			t.Fatalf("prompt segments do not identify %q: %+v", source, segments)
 		}
+	}
+	if strings.Contains(bodies["Slack channel"], "<untrusted-slack-context>") ||
+		strings.Contains(bodies["Repository selection"], "</untrusted-slack-context>") {
+		t.Fatalf("trust wrapper was attributed to semantic prompt fields: %+v", segments)
+	}
+	if !strings.Contains(bodies["Safety boundary"], "<untrusted-slack-context>") ||
+		!strings.Contains(bodies["Safety boundary"], "</untrusted-slack-context>") {
+		t.Fatalf("trust wrapper was not identified as a safety boundary: %+v", segments)
 	}
 }
 

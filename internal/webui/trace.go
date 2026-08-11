@@ -767,19 +767,24 @@ func untrustedPromptRanges(prompt string, start, end int) []promptRange {
 	if len(fields) == 0 {
 		return []promptRange{{start, end, "Slack context", "slack"}}
 	}
-	ranges := make([]promptRange, 0, len(fields))
+	// Keep the host-owned trust wrapper separate from the model-visible fields
+	// inside it. Assigning the opening tag to the first field and the closing
+	// tag to the last field made the trace imply that safety markup came from
+	// Slack or memory, and made those fields' token counts inaccurate.
+	ranges := make([]promptRange, 0, len(fields)+2)
+	firstFieldStart := contentStart + fields[0].start
+	ranges = append(ranges, promptRange{start, firstFieldStart, "Safety boundary", "structure"})
 	for index, field := range fields {
 		fieldStart := contentStart + field.start
-		if index == 0 {
-			fieldStart = start
-		}
-		fieldEnd := end
+		fieldEnd := contentStart + field.end
 		if index+1 < len(fields) {
 			fieldEnd = contentStart + fields[index+1].start
 		}
 		source, tone := promptFieldPresentation(field.key)
 		ranges = append(ranges, promptRange{fieldStart, fieldEnd, source, tone})
 	}
+	lastFieldEnd := contentStart + fields[len(fields)-1].end
+	ranges = append(ranges, promptRange{lastFieldEnd, end, "Safety boundary", "structure"})
 	return ranges
 }
 
