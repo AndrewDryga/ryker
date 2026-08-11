@@ -93,8 +93,36 @@ func TestSilentExternalWaitDoesNotReexpandCompletionIntoReply(t *testing.T) {
 	if decision.Action != "ignore" || decision.Message != "" || decision.Completion != nil {
 		t.Fatalf("silent wait projected a reply: %+v", decision)
 	}
-	if len(decision.AppliedOperations) != 2 ||
+	if len(decision.AppliedOperations) != 1 ||
 		decision.AppliedOperations[0].Type != "wait_external" {
+		t.Fatalf("silent wait operations = %+v", decision.AppliedOperations)
+	}
+	if len(decision.Operations) != 1 || decision.Operations[0].Type != "wait_external" {
+		t.Fatalf("canonical silent wait operations = %+v", decision.Operations)
+	}
+}
+
+func TestSilentExternalWaitDoesNotRequireCompletion(t *testing.T) {
+	response := `{"action":"ignore","operations":[
+		{"id":"evidence-run","type":"record_evidence","evidence":{
+			"claim_id":"terraform.run_state","claim":"The run is nonterminal.",
+			"observation":"HCP Terraform reports planning.","relation":"supports",
+			"health_effect":"none","source_type":"monitoring","source_id":"run-abc",
+			"source_name":"HCP Terraform","observed_at":"2026-08-10T12:00:00Z",
+			"freshness":"live","confidence":"high"}},
+		{"id":"wait-run","type":"wait_external","external_wait":{
+			"id":"wake-run","kind":"terraform_run",
+			"event_matcher":{"run_id":"run-abc"},
+			"poll_after":"2026-08-10T12:01:00Z"}}]}`
+	decision, err := decisionpkg.ParseWatchDecision(response, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != "ignore" || decision.Message != "" || decision.Completion != nil {
+		t.Fatalf("silent wait projected a reply: %+v", decision)
+	}
+	if len(decision.AppliedOperations) != 2 ||
+		decision.AppliedOperations[1].Type != "wait_external" {
 		t.Fatalf("silent wait operations = %+v", decision.AppliedOperations)
 	}
 }

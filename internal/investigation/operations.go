@@ -420,15 +420,13 @@ accepted operations in the episode event stream.
 Use record_evidence once per atomic claim and record_coverage once per assessed claim group. Put
 each memory update, visual, durable behavior offer, and alert assessment in its own
 operation so one rejected item does not discard other accepted work. Use request_approval only for
-an exact pending Emisar run. Use offer_task
-only for an inert engineering or incident transition. Outside an existing engineering task, whenever
-the response recommends a concrete change to versioned repository files, emit an engineering offer_task
-in that same response instead of merely telling the operator to start a task. Include the resolved
-repository and a bounded task.prompt covering the intended edit and validation. Do not use an
-engineering task for an Emisar MCP/control-plane operation such as creating or publishing a runbook.
-report_progress is for a meaningful interim
-finding, not hidden reasoning or repetitive status. Exactly one complete_episode operation is
-required for a reply or completed task report. Every non-conversational contract with required_claims
+an exact pending Emisar run. Use offer_task only for inert engineering or incident transitions. Outside
+an engineering task, a concrete repository change recommendation MUST include an engineering offer_task
+with repository and a bounded edit-and-validation prompt; do not merely tell the operator to start one.
+Emisar MCP/control-plane operations such as runbook publication are not engineering tasks.
+report_progress is for meaningful findings, never hidden reasoning or status noise. Exactly one complete_episode operation is
+required for a reply or completed task report. A silent external wait uses ignore with
+wait_external and no completion. Every non-conversational contract with required_claims
 MUST emit at least one record_evidence operation bound to an exact required claim before complete_episode;
 describing sources only in the message, memory, or coverage is invalid. Every required coverage item
 MUST include its nonempty exact claim_ids entry from the contract. Evidence source_type must be
@@ -445,9 +443,9 @@ func WatchEnvelopePrompt() string {
 
 Every attention score is an integer from 0 through 3 inclusive. Never emit 4 or a larger value.
 
-The outer JSON is only the transport envelope; typed result operations carry the investigated result.
-Background learning is independent of the Slack action. For ignore, operations may be empty or contain
-exactly one update_memory operation so a settled human conversation can be learned without posting. For
+The outer JSON is only the transport envelope; typed operations carry the result.
+Background learning is independent of the Slack action. Ignore may have no operations, one update_memory,
+or evidence/coverage/goal operations plus wait_external without completion. For
 react, operations must be empty. For incident, use title and no operations. For reply, put all evidence,
 progress, approvals, inert task offers, any required update_memory, and the final response in operations;
 do not duplicate their legacy top-level fields. Recording a decision as evidence is not a substitute for

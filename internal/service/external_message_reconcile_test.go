@@ -252,17 +252,14 @@ func TestExternalLifecyclePlanningRuleStartsQuietDurableExactRunWatch(t *testing
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 
 	now := time.Now().UTC().Truncate(time.Second)
-	coopClient.completeOnSubmit = fmt.Sprintf(`{
-	  "action":"reply",
+	coopClient.completeOnSubmit = fmt.Sprintf(`Here is the structured result:
+	{
+	  "action":"ignore",
 	  "operations":[
 	    {"id":"wait-run-abc","type":"wait_external","external_wait":{
 	      "id":"wakeup-run-abc","kind":"terraform_run",
 	      "event_matcher":{"provider":"hcp_terraform","run_id":"run-abc","desired_state":"reviewable_or_terminal"},
 	      "poll_after":%q,"deadline":%q
-	    }},
-	    {"id":"complete-planning","type":"complete_episode","completion":{
-	      "message":"The exact run is still planning.",
-	      "completion":{"status":"decision_ready","verdict":"in_progress","summary":"The exact run is still planning."}
 	    }}
 	  ]
 	}`, now.Add(time.Minute).Format(time.RFC3339), now.Add(24*time.Hour).Format(time.RFC3339))
@@ -300,6 +297,14 @@ func TestExternalLifecyclePlanningRuleStartsQuietDurableExactRunWatch(t *testing
 	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.Contains(string(run.Result), "Here is the structured result") {
+		t.Fatalf("planning lifecycle persisted provider prose: %s", run.Result)
+	}
+	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), testDecodeClock)
+	if err != nil || decision.Action != "ignore" || decision.Completion != nil ||
+		len(decision.Operations) != 1 || decision.Operations[0].Type != "wait_external" {
+		t.Fatalf("canonical planning lifecycle result = %+v, %v; raw=%s", decision, err, run.Result)
 	}
 	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
 	if err != nil {

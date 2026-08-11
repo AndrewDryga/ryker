@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/resultwire"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -333,6 +335,35 @@ That is the complete result.`)
 	if err != nil || decision.Action != "reply" ||
 		decision.Message != "The run failed during apply." {
 		t.Fatalf("authoritative typed watch result = %+v, err=%v", decision, err)
+	}
+}
+
+func TestTypedAgentReportPersistsAsCanonicalOperations(t *testing.T) {
+	report, structured, err := decisionpkg.ParseAgentReport(`Progress that must not survive storage.
+{
+  "operations": [
+    {"id":"e1","type":"record_evidence","evidence":{"claim_id":"run.state","relation":"supports","claim":"the run completed","observation":"HCP Terraform reported applied","source_type":"monitoring","source_name":"HCP Terraform"}},
+    {"id":"c1","type":"complete_episode","completion":{"message":"The run applied successfully.","completion":{"status":"decision_ready","verdict":"succeeded","summary":"Apply succeeded"}}}
+  ]
+}`)
+	if err != nil || !structured {
+		t.Fatalf("parse report: structured=%t err=%v", structured, err)
+	}
+	canonical, err := resultwire.AgentReport(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(canonical, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(canonical), "Progress that must not survive storage") || envelope["message"] != nil {
+		t.Fatalf("canonical result retained transport or projected fields: %s", canonical)
+	}
+	reparsed, reparsedStructured, err := decisionpkg.ParseAgentReport(string(canonical))
+	if err != nil || !reparsedStructured || reparsed.Message != "The run applied successfully." ||
+		len(reparsed.Operations) != 2 || len(reparsed.AppliedOperations) != 2 {
+		t.Fatalf("reparsed report = %+v, structured=%t, err=%v; raw=%s", reparsed, reparsedStructured, err, canonical)
 	}
 }
 

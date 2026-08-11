@@ -1333,16 +1333,28 @@ func watchOperationCompletion(
 // its in-progress completion into a Slack reply. The host uses this after it
 // has determined that an external lifecycle update is not yet actionable.
 func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
+	operations := make([]investigation.ResultOperation, 0, len(decision.Operations))
+	waits := 0
 	for _, operation := range decision.Operations {
 		switch operation.Type {
 		case "record_evidence", "record_coverage", "plan_goal", "update_goal",
-			"wait_external", "complete_episode":
+			"wait_external":
+			if operation.Type == "wait_external" {
+				waits++
+			}
+			operations = append(operations, operation)
+		case "complete_episode":
+			// Accept and strip the old wait-plus-in-progress completion shape.
+			if operation.Completion == nil || operation.Completion.Completion == nil ||
+				operation.Completion.Completion.Verdict != "in_progress" {
+				return errors.New("silent external wait cannot complete the episode")
+			}
 		default:
-			return fmt.Errorf(
-				"ignore decision with wait_external cannot include %s",
-				operation.Type,
-			)
+			return fmt.Errorf("ignore decision with wait_external cannot include %s", operation.Type)
 		}
+	}
+	if waits == 0 {
+		return errors.New("silent external wait requires wait_external")
 	}
 	var (
 		message         string
@@ -1357,26 +1369,22 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 		scheduleOffer   *core.ScheduleOffer
 		approval        *core.EmisarApproval
 		alert           *AlertAssessment
-		completion      *investigation.CompletionAssessment
 		incidentTitle   string
 		taskTitle       string
 		taskRepository  string
 		taskPrompt      string
 		applied         []investigation.ResultOperation
 	)
-	if err := FoldResultOperations(decision.Operations, OperationTargets{
+	if err := foldResultOperations(operations, OperationTargets{
 		message: &message, followups: &followups, visuals: &visuals,
 		evidence: &evidence, coverage: &coverage, memory: &memory,
 		memoryOffer: &memoryOffer, preferenceOffer: &preferenceOffer,
 		ruleOffer: &ruleOffer, scheduleOffer: &scheduleOffer,
-		approval: &approval, alert: &alert, completion: &completion,
+		approval: &approval, alert: &alert,
 		incidentTitle: &incidentTitle, taskTitle: &taskTitle,
 		taskRepository: &taskRepository, taskPrompt: &taskPrompt,
-	}, &applied); err != nil {
+	}, &applied, false); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidOperations, err)
-	}
-	if completion == nil || completion.Verdict != "in_progress" {
-		return errors.New("silent external wait requires an in_progress completion")
 	}
 	decision.Message = ""
 	decision.FollowupMessages = nil
@@ -1395,6 +1403,7 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 	decision.TaskTitle = ""
 	decision.TaskRepository = ""
 	decision.TaskPrompt = ""
+	decision.Operations = operations
 	decision.AppliedOperations = applied
 	return nil
 }
@@ -1463,10 +1472,15 @@ type OperationTargets struct {
 	taskPrompt      *string
 }
 
-func FoldResultOperations(
+func FoldResultOperations(operations []investigation.ResultOperation, target OperationTargets, applied *[]investigation.ResultOperation) error {
+	return foldResultOperations(operations, target, applied, true)
+}
+
+func foldResultOperations(
 	operations []investigation.ResultOperation,
 	target OperationTargets,
 	applied *[]investigation.ResultOperation,
+	requireCompletion bool,
 ) error {
 	if len(operations) > MaxResultOperations {
 		return fmt.Errorf("result contains more than %d operations", MaxResultOperations)
@@ -1584,7 +1598,7 @@ func FoldResultOperations(
 		}
 		*applied = append(*applied, operation)
 	}
-	if !completed {
+	if requireCompletion && !completed {
 		return errors.New("typed result operations require exactly one complete_episode")
 	}
 	return nil

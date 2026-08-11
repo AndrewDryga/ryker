@@ -19,6 +19,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/mentioncontext"
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/recall"
+	"github.com/AndrewDryga/responder/internal/resultwire"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
@@ -1625,8 +1626,15 @@ type stagedTurn struct {
 	detail string
 }
 
-// stageTriageTerminal validates a completed triage turn and applies its watch
-// decision. A true first result means the turn is fully handled and the caller
+func (s *stagedTurn) setResult(result []byte, err error) error {
+	if err == nil {
+		s.result, s.detail = result, ""
+	}
+	return err
+}
+
+// stageTriageTerminal validates a completed triage turn and applies its watch decision.
+// A true first result means the turn is fully handled and the caller
 // should return the accompanying error, which may be nil.
 // correctionClass names why the host sent a result back to the model.
 //
@@ -1768,11 +1776,9 @@ func (s *Service) stageTriageTerminal(
 			return true, nil
 		}
 		decision = blockedWatchContinuation(run, input, state, correction, nil)
-		staged.result, decisionErr = decisionpkg.MarshalWatchDecisionResult(decision)
-		if decisionErr != nil {
+		if decisionErr = staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); decisionErr != nil {
 			return true, decisionErr
 		}
-		staged.detail = ""
 	} else {
 		if state.Lane == "conversation" && decision.Action == "escalate" {
 			if err := s.store.AdvanceConversationSessionEvents(
@@ -1819,11 +1825,9 @@ func (s *Service) stageTriageTerminal(
 		if lifecycleEvidenceAdjusted || decision.Action != originalAction ||
 			len(decision.PublicationUpdates) != originalPublicationUpdates ||
 			recoveryLinkAdjusted {
-			marshaledResult, marshalErr := decisionpkg.MarshalWatchDecisionResult(decision)
-			if marshalErr != nil {
-				return true, marshalErr
+			if err := staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); err != nil {
+				return true, err
 			}
-			staged.result = marshaledResult
 		}
 		correction := lifecycleContinuationCorrection
 		// The default class; a rejected artifact overrides it below.
@@ -1951,17 +1955,17 @@ func (s *Service) stageTriageTerminal(
 			default:
 				decision = blockedWatchContinuation(run, input, state, correction, &decision)
 			}
-			marshaledResult, marshalErr := decisionpkg.MarshalWatchDecisionResult(decision)
-			if marshalErr != nil {
-				return true, marshalErr
+			if err := staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); err != nil {
+				return true, err
 			}
-			staged.result = marshaledResult
-			staged.detail = ""
 		} else if err := s.recordResultOperationEvents(
 			ctx, run.ID, decision.AppliedOperations,
 		); err != nil {
 			return true, err
 		}
+	}
+	if err := staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); err != nil {
+		return true, err
 	}
 	return false, nil
 }
@@ -1993,11 +1997,9 @@ func (s *Service) stageIncidentTerminal(
 			return true, nil
 		}
 		report = blockedAgentContinuation(correction, nil)
-		staged.result, reportErr = json.Marshal(report)
-		if reportErr != nil {
+		if reportErr = staged.setResult(resultwire.AgentReport(report)); reportErr != nil {
 			return true, reportErr
 		}
-		staged.detail = ""
 	} else {
 		episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 		if episodeErr != nil {
@@ -2083,16 +2085,17 @@ func (s *Service) stageIncidentTerminal(
 			} else {
 				report = blockedAgentContinuation(correction, &report)
 			}
-			staged.result, reportErr = json.Marshal(report)
-			if reportErr != nil {
+			if reportErr = staged.setResult(resultwire.AgentReport(report)); reportErr != nil {
 				return true, reportErr
 			}
-			staged.detail = ""
 		} else if err := s.recordResultOperationEvents(
 			ctx, run.ID, report.AppliedOperations,
 		); err != nil {
 			return true, err
 		}
+	}
+	if err := staged.setResult(resultwire.AgentReport(report)); err != nil {
+		return true, err
 	}
 	return false, nil
 }
