@@ -496,6 +496,113 @@ func TestCustomerJourneyMentionOnlyOutsideIncidentPromptsWithoutCoop(t *testing.
 	}
 }
 
+func TestCustomerJourneyMentionOnlyUsesImmediatelyPrecedingQuestion(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	input := core.SlackInput{
+		ID: "slack-channel-mention-carry", EnvelopeID: "env-channel-mention-carry",
+		EventID: "EvChannelMentionCarry", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "C000CHANNEL",
+		MessageTS: "1700.401", UserID: cfg.Slack.Operators[0], Text: "<@U999BOT>",
+	}
+	coopClient := newFakeCoop()
+	slackClient := &fakeSlack{history: []slackui.HistoryMessage{
+		{Timestamp: "1700.400", UserID: input.UserID, Text: "How can you help?"},
+		{Timestamp: input.MessageTS, UserID: input.UserID, Text: input.Text},
+	}}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit mention-only input = %v, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("mention-only carry posted a fallback = %+v", slackClient.posts)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ResolvedMentionRequest == nil ||
+		state.ResolvedMentionRequest.Text != "How can you help?" ||
+		state.ResolvedMentionRequest.MessageTS != "1700.400" {
+		t.Fatalf("resolved mention request = %+v", state.ResolvedMentionRequest)
+	}
+	stored, err := st.GetSlackInput(ctx, input.ID)
+	if err != nil || stored.MessageTS != input.MessageTS || stored.Text != input.Text {
+		t.Fatalf("mention response anchor changed = %+v, %v", stored, err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitPrompts) != 1 ||
+		!strings.Contains(coopClient.submitPrompts[0], "How can you help?") {
+		t.Fatalf("mention request did not reach Coop = %+v", coopClient.submitPrompts)
+	}
+}
+
+func TestCustomerJourneyMentionOnlyDoesNotReachPastAnotherPerson(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	input := core.SlackInput{
+		ID: "slack-channel-mention-interrupted", EnvelopeID: "env-channel-mention-interrupted",
+		EventID: "EvChannelMentionInterrupted", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "C000CHANNEL",
+		MessageTS: "1700.403", UserID: cfg.Slack.Operators[0], Text: "<@U999BOT>",
+	}
+	slackClient := &fakeSlack{history: []slackui.HistoryMessage{
+		{Timestamp: "1700.400", UserID: input.UserID, Text: "How can you help?"},
+		{Timestamp: "1700.402", UserID: "UOTHER", Text: "Let me answer that."},
+		{Timestamp: input.MessageTS, UserID: input.UserID, Text: input.Text},
+	}}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit mention-only input = %v, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	if len(slackClient.posts) != 1 ||
+		slackClient.posts[0].message.Text != "What should I check?" {
+		t.Fatalf("interrupted mention-only reply = %+v", slackClient.posts)
+	}
+	if _, err := st.GetAgentRunBySource(ctx, "watch", input.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("interrupted mention-only input created an agent run: %v", err)
+	}
+}
+
 func TestCustomerJourneyThreadFollowupUsesPreviousThreadScreenshot(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

@@ -16,6 +16,7 @@ import (
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
+	"github.com/AndrewDryga/responder/internal/mentioncontext"
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/recall"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
@@ -68,7 +69,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	if err != nil || resumed {
 		return err
 	}
-	if s.mentionOnlyNudge(input) {
+	if mentioncontext.IsBareMention(input, s.identity.BotUserID) {
 		nudged, err := s.store.NudgeLatestAgentRun(
 			ctx,
 			input.ChannelID,
@@ -103,6 +104,32 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 				Detail:  "mention-only follow-up resumed the active conversation work",
 			})
 			return s.finishInputIfOpen(ctx, input)
+		}
+		if input.ThreadTS == "" {
+			resolved, found, err := mentioncontext.Resolve(
+				ctx, input, s.identity.BotUserID, s.cfg.Slack.WatchContext, s.recentMessages,
+			)
+			if err != nil {
+				return fmt.Errorf("resolve the request before a bare mention: %w", err)
+			}
+			if !found {
+				if err := s.postInputMessageInSourceThread(
+					ctx,
+					"mention_prompt_"+input.ID,
+					input,
+					slackui.ConversationResponse("What should I check?", s.sanitizer),
+				); err != nil {
+					return err
+				}
+				return s.finishInputIfOpen(ctx, input)
+			}
+			state.ResolvedMentionRequest = &resolved
+			input = mentioncontext.Apply(input, state.ResolvedMentionRequest)
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "resolved_previous_message",
+				Detail:  "bare mention applied to the immediately preceding message " + resolved.MessageTS,
+			})
 		}
 	}
 	if err := s.captureWatchTurnState(ctx, input, &state); err != nil {
@@ -150,7 +177,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		UserID:          input.UserID,
 		Context:         contextJSON,
 		NextAttemptAt:   readyAt,
-		CommitmentTitle: commitmentTitleForInput(input),
+		CommitmentTitle: episodepkg.ObjectiveForSlackInput(input),
 		Episode:         episode,
 	})
 	if err != nil {
@@ -220,7 +247,7 @@ func (s *Service) resumeLegacyWatchedTurn(
 				CoopEventSequence: memory.CoopEventSequence,
 				Context:           contextJSON, State: core.AgentRunRunning,
 				StartedAt:       s.now().UTC(),
-				CommitmentTitle: commitmentTitleForInput(input),
+				CommitmentTitle: episodepkg.ObjectiveForSlackInput(input),
 				Episode:         s.episodeForWatchedInput(input, legacy),
 			})
 			if queueErr != nil {
@@ -422,7 +449,7 @@ func (s *Service) completeIgnoredLifecycleInput(
 		ConversationKey: watchConversationKey(input),
 		SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
 		State: core.AgentRunRunning, StartedAt: s.now().UTC(),
-		CommitmentTitle: commitmentTitleForInput(input),
+		CommitmentTitle: episodepkg.ObjectiveForSlackInput(input),
 		Episode:         s.episodeForWatchedInput(input, decisionpkg.WatchTurnState{}),
 	})
 	if err != nil {
@@ -442,28 +469,6 @@ func (s *Service) completeIgnoredLifecycleInput(
 	return s.finishSlackInput(ctx, input)
 }
 
-func commitmentTitleForInput(input core.SlackInput) string {
-	text := strings.TrimSpace(boundedOperatorText(input.Text))
-	if text == "" {
-		if len(input.Attachments) > 0 {
-			if len(input.Attachments) == 1 {
-				return "Inspect an attached file"
-			}
-			return fmt.Sprintf("Inspect %d attached files", len(input.Attachments))
-		}
-		switch input.Kind {
-		case "bot_message":
-			return "Review an app notification"
-		case "shortcut":
-			return "Investigate a selected Slack message"
-		default:
-			return "Answer a Slack request"
-		}
-	}
-	text = strings.Join(strings.Fields(text), " ")
-	return core.TruncateUTF8WithSuffix(text, 180, "...")
-}
-
 func watchInputWantsPendingStatus(
 	input core.SlackInput,
 	state decisionpkg.WatchTurnState,
@@ -472,12 +477,6 @@ func watchInputWantsPendingStatus(
 		input.Kind != "recheck" && slackReplyThread(input) != "" &&
 		(decisionpkg.WatchInputTargeted(input, state) ||
 			decisionpkg.RequestedConversationLocation(input.Text) != decisionpkg.ConversationLocationFollow)
-}
-
-func (s *Service) mentionOnlyNudge(input core.SlackInput) bool {
-	return input.Kind == "mention" && s.identity.BotUserID != "" &&
-		strings.TrimSpace(s.stripBotMention(input.Text)) == "" &&
-		len(input.Attachments) == 0
 }
 
 func watchConversationKey(input core.SlackInput) string {
@@ -875,6 +874,7 @@ func (s *Service) freezeTriageContext(
 			return err
 		}
 		state.RecentMessages = assembled.RecentMessages
+		state.RemoveResolvedMentionDuplicate()
 		state.Memory = assembled.Situation
 		state.RelatedSituations = assembled.RelatedSituations
 		state.ReferencedThread = assembled.ReferencedThread
@@ -943,6 +943,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			ctx, run, input, state, "invalid persisted triage context: "+trimError(err),
 		)
 	}
+	input = mentioncontext.Apply(input, state.ResolvedMentionRequest)
 	if decided, err := s.admitTriageRun(ctx, run, input, &state); decided {
 		return err
 	}
@@ -1744,6 +1745,7 @@ func (s *Service) stageTriageTerminal(
 	if stateErr != nil {
 		return true, stateErr
 	}
+	input = mentioncontext.Apply(input, state.ResolvedMentionRequest)
 	if decisionErr != nil {
 		correction := "the structured Slack response is invalid: " + trimError(decisionErr)
 		if !consumeWatchStructuredCorrection(
@@ -2797,6 +2799,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	if err != nil {
 		return err
 	}
+	input = mentioncontext.Apply(input, state.ResolvedMentionRequest)
 	state.SessionID = run.SessionID
 	state.Repository = run.Repository
 	state.Generation = run.SessionGeneration

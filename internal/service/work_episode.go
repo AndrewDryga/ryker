@@ -9,6 +9,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 )
@@ -80,7 +81,7 @@ func (s *Service) episodeForWatchedInput(
 		Effort:      core.EffortConversational,
 		Authority:   core.AuthorityReadOnly,
 		Activity:    requestEpisodeActivity(input.Text),
-		Objective:   commitmentTitleForInput(input),
+		Objective:   episodepkg.ObjectiveForSlackInput(input),
 		CompletionCriteria: []string{
 			"answer the current request directly",
 			"separate verified facts from uncertainty",

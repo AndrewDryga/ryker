@@ -63,6 +63,21 @@ type WatchTurnState struct {
 	RecheckOriginRunID     string                         `json:"recheck_origin_run_id,omitempty"`
 	RecheckKey             string                         `json:"recheck_key,omitempty"`
 	RecheckAttempt         int                            `json:"recheck_attempt,omitempty"`
+	ResolvedMentionRequest *core.SlackInput               `json:"resolved_mention_request,omitempty"`
+}
+
+func (state *WatchTurnState) RemoveResolvedMentionDuplicate() {
+	if state.ResolvedMentionRequest == nil {
+		return
+	}
+	filtered := state.RecentMessages[:0]
+	for _, message := range state.RecentMessages {
+		if !message.Target && message.MessageTS == state.ResolvedMentionRequest.MessageTS {
+			continue
+		}
+		filtered = append(filtered, message)
+	}
+	state.RecentMessages = filtered
 }
 
 type WatchContextMessage struct {

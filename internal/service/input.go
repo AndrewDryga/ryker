@@ -299,7 +299,7 @@ func (s *Service) handleConversationPrefix(
 	}
 	text := strings.TrimSpace(s.stripBotMention(input.Text))
 	if text == "" && len(input.Attachments) == 0 && input.ThreadTS == "" {
-		if input.Kind == "mention" || input.Kind == "direct" {
+		if input.Kind == "direct" {
 			if err := s.postInputMessageInSourceThread(
 				ctx,
 				"mention_prompt_"+input.ID,
@@ -312,7 +312,9 @@ func (s *Service) handleConversationPrefix(
 				return true, s.retrySlackInput(ctx, input, err)
 			}
 		}
-		return true, s.finishSlackInput(ctx, input)
+		if input.Kind != "mention" {
+			return true, s.finishSlackInput(ctx, input)
+		}
 	}
 	if input.Kind == "mention" || input.Kind == "direct" ||
 		(input.Kind == "message" && s.cfg.IsOperator(input.UserID)) {
