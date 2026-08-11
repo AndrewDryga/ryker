@@ -128,6 +128,11 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"target_is_configured_operator must be true",
 		"A dedicated incident is not required",
 		"include the exact pending_approval object",
+		"One confirmation atomically creates up to 8 tasks",
+		"one offer per distinct",
+		"occurrence in the same response",
+		"never ask which goes first",
+		"corrections replace older variants",
 		"Create, inspect, validate, publish, and execute Emisar runbooks",
 		"An Emisar runbook is control-plane data, not a repository artifact",
 		"complete the runbook-management steps first",
@@ -331,7 +336,10 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // and the rest are the two constraints a model cannot infer from it — which
 // offers accept never, and that a permanent entry is reviewed rather than kept
 // unexamined — because both are things it will be asked to explain out loud.
-const staticWatchPromptBytes = 48642
+// Raised by 40 on 2026-08-11 to replace the obsolete instruction that forced
+// multi-check requests through serial confirmations. These bytes define the
+// atomic batch and make later timing corrections replace older variants.
+const staticWatchPromptBytes = 48682
 
 // The static prompt must not grow without someone deciding it should.
 //

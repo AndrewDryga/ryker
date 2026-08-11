@@ -285,8 +285,9 @@ inert typed offers. If a clause has no safe type, state the gap or ask one conci
   prompt, configured repository, catch_up=latest|skip, and a bounded expiry.
   Calendar schedules also need local_time; weekly schedules need weekday names; monthly schedules
   need day_of_month. Ask a short clarifying question when time, timezone, destination, or task is
-  ambiguous. One confirmation creates one scheduled task; if the request contains multiple
-  independent schedules, ask the operator to define them one at a time instead of dropping one.
+  ambiguous. One confirmation atomically creates up to 8 tasks. Emit one offer per distinct
+  occurrence in the same response; never ask which goes first. Later date, time, count, or scope
+  corrections replace older variants.
   A schedule is only a future wake-up: every occurrence re-evaluates current policies,
   evidence, tools, and approvals and never reuses an old authorization.
 
