@@ -548,9 +548,9 @@ func (s *Service) processAgentRun(ctx context.Context) error {
 	case core.AgentRunIncident, core.AgentRunEngineeringTask:
 		return s.prepareIncidentAgentRun(ctx, run)
 	default:
-		return s.store.RetryAgentRun(
-			ctx, run.ID, "unsupported agent run mode "+string(run.Mode), s.now(), true,
-		)
+		_, err := s.store.RetryAgentRunIfOwned(ctx, run.ID,
+			"unsupported agent run mode "+string(run.Mode), s.now(), true)
+		return err
 	}
 }
 
@@ -833,16 +833,17 @@ func (s *Service) retryIncidentAgentRun(
 	if terminal {
 		next = s.now()
 	}
-	err := s.store.RetryAgentRun(
-		ctx, run.ID, trimError(cause), next, terminal,
-	)
-	if terminal && incident.ID != "" {
+	applied, err := s.store.RetryAgentRunIfOwned(ctx, run.ID, trimError(cause), next, terminal)
+	if err != nil {
+		return err
+	}
+	if applied && terminal && incident.ID != "" {
 		s.setIncidentError(
 			ctx, incident.ID, core.WorkflowParked, trimError(cause),
 		)
 		s.clearNativeStatus(ctx, incident)
 	}
-	return err
+	return nil
 }
 
 // freezeTriageContext captures the Slack context, continuity, and matched
@@ -1467,13 +1468,9 @@ func (s *Service) retryAgentRun(
 			return s.failPreparingTriageRun(ctx, run, input, state, trimError(cause))
 		}
 	}
-	return s.store.RetryAgentRun(
-		ctx,
-		run.ID,
-		trimError(cause),
-		s.queueDelay(run.Failures+1),
-		terminal,
-	)
+	_, err := s.store.RetryAgentRunIfOwned(ctx, run.ID, trimError(cause),
+		s.queueDelay(run.Failures+1), terminal)
+	return err
 }
 
 func (s *Service) failPreparingTriageRun(
@@ -1488,20 +1485,17 @@ func (s *Service) failPreparingTriageRun(
 	// stays queued so it still can be.
 	s.markInputPaused(ctx, input)
 	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
-		return s.store.RetryAgentRun(
-			ctx,
-			run.ID,
-			"clear terminal triage status: "+trimError(err),
-			s.queueDelay(run.Failures+1),
-			false,
-		)
+		_, retryErr := s.store.RetryAgentRunIfOwned(ctx, run.ID,
+			"clear terminal triage status: "+trimError(err), s.queueDelay(run.Failures+1), false)
+		return retryErr
 	}
 	_ = s.retireFailedWatchSession(ctx, input, state)
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
 		Outcome: "failed_paused", Detail: detail,
 	})
-	return s.store.RetryAgentRun(ctx, run.ID, detail, s.now(), true)
+	_, err := s.store.RetryAgentRunIfOwned(ctx, run.ID, detail, s.now(), true)
+	return err
 }
 
 func (s *Service) pollAgentRuns(ctx context.Context) {

@@ -726,6 +726,37 @@ func (s *Store) RetryAgentRun(
 	return tx.Commit()
 }
 
+// RetryAgentRunIfOwned keeps RetryAgentRun's compare-and-swap strict while
+// treating a verified ownership handoff as success. Correlated events may
+// supersede, cancel, or finish an older run while its worker is preparing a
+// retry. The stale worker no longer owns that lifecycle and must not rewrite it.
+func (s *Store) RetryAgentRunIfOwned(
+	ctx context.Context,
+	id string,
+	detail string,
+	next time.Time,
+	terminal bool,
+) (bool, error) {
+	err := s.RetryAgentRun(ctx, id, detail, next, terminal)
+	if err == nil {
+		return true, nil
+	}
+	if !errors.Is(err, ErrConflict) {
+		return false, err
+	}
+	current, currentErr := s.GetAgentRun(ctx, id)
+	if errors.Is(currentErr, ErrNotFound) {
+		return false, nil
+	}
+	if currentErr != nil {
+		return false, fmt.Errorf("inspect agent run after retry conflict: %w", currentErr)
+	}
+	if current.State != core.AgentRunPreparing && current.State != core.AgentRunFinalizing {
+		return false, nil
+	}
+	return false, err
+}
+
 func (s *Store) ListRunningAgentRuns(
 	ctx context.Context,
 	limit int,
