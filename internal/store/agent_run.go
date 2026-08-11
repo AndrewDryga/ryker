@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -288,11 +289,21 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		return core.AgentRun{}, err
 	}
 	defer tx.Rollback()
+	if err := lifecyclecheck.CancelQueuedUnderTerminalEpisodes(ctx, tx, s.nowText()); err != nil {
+		return core.AgentRun{}, err
+	}
 	run, err := scanAgentRun(tx.QueryRowContext(ctx, `
 		SELECT `+agentRunColumns+`
 		FROM agent_runs AS candidate
 		WHERE candidate.state = 'pending'
 		  AND julianday(candidate.next_attempt_at) <= julianday(?)
+		  AND EXISTS (
+		    SELECT 1 FROM work_episodes AS episode
+		    WHERE episode.id = candidate.episode_id
+		      AND episode.lifecycle_state NOT IN (
+		        'completed', 'failed', 'refused', 'cancelled', 'superseded'
+		      )
+		  )
 		  AND (
 		    candidate.incident_id IS NULL OR EXISTS (
 		      SELECT 1 FROM incidents AS incident
@@ -326,6 +337,11 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		  candidate.id
 		LIMIT 1`, s.nowText()))
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			if commitErr := tx.Commit(); commitErr != nil {
+				return core.AgentRun{}, commitErr
+			}
+		}
 		return core.AgentRun{}, err
 	}
 	result, err := tx.ExecContext(ctx, `
@@ -342,7 +358,7 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, run.ID, core.EpisodePlanning, "planning", "Planning the work",
 		"Establish the evidence plan", time.Time{},
-		fmt.Sprintf("agent-run:%s:leased:%d", run.ID, run.Failures+1),
+		episodeEventKey("agent-run-lease", run.ID, run.IdempotencyKey),
 	); err != nil {
 		return core.AgentRun{}, err
 	}

@@ -9,7 +9,44 @@ package lifecyclecheck
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
+
+// CancelQueuedUnderTerminalEpisodes reconciles transport rows with their
+// authoritative episode. Pending work cannot usefully run after the episode
+// has already ended, and otherwise gets retried on every worker restart.
+func CancelQueuedUnderTerminalEpisodes(ctx context.Context, tx *sql.Tx, now string) error {
+	terminalEpisode := `EXISTS (
+		SELECT 1 FROM work_episodes AS episode
+		WHERE episode.id = agent_runs.episode_id
+		  AND episode.lifecycle_state IN (
+		    'completed', 'failed', 'refused', 'cancelled', 'superseded'
+		  )
+	)`
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE episode_attempts
+		SET state = 'cancelled', failure_class = 'episode_terminal',
+		    lease_owner = '', lease_expires_at = NULL,
+		    fencing_token = fencing_token + 1,
+		    completed_at = COALESCE(completed_at, ?), updated_at = ?
+		WHERE agent_run_id IN (
+		  SELECT agent_runs.id FROM agent_runs
+		  WHERE agent_runs.state IN ('pending', 'preparing') AND `+terminalEpisode+`
+		)`, now, now); err != nil {
+		return fmt.Errorf("cancel stale episode attempt: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'cancelled', terminal_state = 'cancelled',
+		    last_error = 'episode already reached a terminal state',
+		    completed_at = COALESCE(completed_at, ?), updated_at = ?
+		WHERE state IN ('pending', 'preparing') AND `+terminalEpisode,
+		now, now,
+	); err != nil {
+		return fmt.Errorf("cancel stale agent run: %w", err)
+	}
+	return nil
+}
 
 // Report is what the two lifecycles disagree about.
 //

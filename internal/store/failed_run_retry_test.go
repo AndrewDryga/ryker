@@ -83,6 +83,30 @@ func TestRequeueFailedAgentRunReopensTheEpisode(t *testing.T) {
 	if leased.ID != run.ID {
 		t.Fatalf("leased %s, want the requeued run %s", leased.ID, run.ID)
 	}
+
+	// The same persisted run may be explicitly retried more than once. Each
+	// retry is a new execution generation even though it retains the original
+	// attempt identity for its context and audit history.
+	if err := st.RetryAgentRun(ctx, run.ID, "provider exploded again", time.Now().UTC(), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RequeueFailedAgentRun(ctx, run.ID, "operator retried again"); err != nil {
+		t.Fatal(err)
+	}
+	leased, err = st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leased.ID != run.ID {
+		t.Fatalf("leased %s on the second retry, want %s", leased.ID, run.ID)
+	}
+	afterSecondRetry, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterSecondRetry.State != core.EpisodePlanning {
+		t.Fatalf("episode state after the second retry = %s, want planning", afterSecondRetry.State)
+	}
 }
 
 // Only the latest attempt may be retried, and the refusal says why. Reviving an

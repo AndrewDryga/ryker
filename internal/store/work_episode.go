@@ -13,6 +13,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/store/attemptstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -238,7 +239,7 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 	if err != nil {
 		return err
 	}
-	if err := ensureEpisodeAttemptTx(ctx, tx, episode.ID, run, s.nowText()); err != nil {
+	if err := attemptstore.Ensure(ctx, tx, episode.ID, run, s.nowText()); err != nil {
 		return err
 	}
 	if created == 0 {
@@ -711,6 +712,12 @@ func (s *Store) setWorkEpisodePhaseTx(
 	); err != nil {
 		return err
 	}
+	// An older attempt may finish after a replacement has already been queued.
+	// Its own result remains durable, but it must not close the shared episode
+	// and strand the newer attempt beneath a terminal projection.
+	if episodepkg.Terminal(state) && latestRunID != runID {
+		return nil
+	}
 	if episodepkg.Terminal(currentState) && !episodepkg.Terminal(state) {
 		if latestRunID != runID {
 			return fmt.Errorf("terminal episode's latest attempt is %q, not %q", latestRunID, runID)
@@ -724,9 +731,23 @@ func (s *Store) setWorkEpisodePhaseTx(
 		}
 		if _, err := s.appendWorkEpisodeEventTx(ctx, tx, runID, core.WorkEpisodeEvent{
 			Kind: episodepkg.EventEpisodeReopened, Actor: "host",
-			IdempotencyKey: "agent-run:" + runID + ":reopened", Payload: reopened,
+			IdempotencyKey: idempotencyKey + ":reopened", Payload: reopened,
 		}); err != nil {
 			return err
+		}
+		var reopenedState core.WorkEpisodeState
+		if err := tx.QueryRowContext(ctx, `
+			SELECT lifecycle_state FROM work_episodes
+			WHERE id = (SELECT episode_id FROM agent_runs WHERE id = ?)`,
+			runID,
+		).Scan(&reopenedState); err != nil {
+			return err
+		}
+		if episodepkg.Terminal(reopenedState) {
+			return fmt.Errorf(
+				"episode reopen event %q was already consumed by an older run generation",
+				idempotencyKey,
+			)
 		}
 	}
 	payload, err := episodepkg.Encode(episodepkg.Transition{
