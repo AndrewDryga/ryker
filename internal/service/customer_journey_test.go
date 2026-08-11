@@ -130,6 +130,9 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGat
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := svc.processCard(ctx); err != nil {
+		t.Fatal(err)
+	}
 	drainSlackDeliveries(t, ctx, svc)
 
 	if publisherClient.publishCalls != 1 {
@@ -147,22 +150,22 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGat
 		publicationRecord.PRURL != publisherClient.result.PRURL {
 		t.Fatalf("durable publication = %+v, %v", publicationRecord, err)
 	}
-	if len(slackClient.posts) != 1 ||
-		slackClient.posts[0].channel != "COPS" ||
-		slackClient.posts[0].thread != "1700.300" {
-		t.Fatalf("publication Slack reply = %+v", slackClient.posts)
+	if len(slackClient.posts) != 0 || len(slackClient.updates) != 1 ||
+		slackClient.updates[0].channel != "COPS" ||
+		slackClient.updates[0].ts != task.RootTS {
+		t.Fatalf("publication task-card update = posts %+v, updates %+v", slackClient.posts, slackClient.updates)
 	}
-	rendered := slackClient.posts[0].message.Header + "\n" +
-		slackClient.posts[0].message.Text + "\n" +
-		strings.Join(slackClient.posts[0].message.Sections, "\n") + "\n" +
-		strings.Join(slackClient.posts[0].message.Context, "\n")
+	rendered := slackClient.updates[0].message.Header + "\n" +
+		slackClient.updates[0].message.Text + "\n" +
+		strings.Join(slackClient.updates[0].message.Sections, "\n") + "\n" +
+		strings.Join(slackClient.updates[0].message.Context, "\n")
 	if !strings.Contains(rendered, "Draft PR ready") ||
 		!strings.Contains(rendered, publisherClient.result.PRURL) ||
 		!strings.Contains(rendered, "Validation warning") ||
 		!strings.Contains(rendered, "GitHub checks") ||
 		strings.Contains(strings.ToLower(rendered), "has been merged") ||
 		strings.Contains(strings.ToLower(rendered), "deployed to") {
-		t.Fatalf("publication message = %+v", slackClient.posts[0].message)
+		t.Fatalf("publication message = %+v", slackClient.updates[0].message)
 	}
 	if len(slackClient.statuses) == 0 ||
 		slackClient.statuses[len(slackClient.statuses)-1].text != "" {

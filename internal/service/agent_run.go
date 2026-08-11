@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +23,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskcard"
 )
 
 func (s *Service) queueIncidentAgentRun(
@@ -639,7 +639,7 @@ func (s *Service) prepareIncidentAgentRun(
 				"error", changesErr,
 			)
 		} else {
-			assembled.InitialTaskChangesFingerprint = coopChangesFingerprint(changes)
+			assembled.InitialTaskChangesFingerprint = taskcard.ChangesFingerprint(changes)
 		}
 		contextChanged = true
 	}
@@ -2986,7 +2986,7 @@ func (s *Service) withEngineeringTaskChanges(
 		return message
 	}
 	assembled, _ := decodeAssembledAgentContext(run.Context)
-	if !engineeringTaskTurnCreatedChanges(assembled.InitialTaskChangesFingerprint, changes) {
+	if !taskcard.TurnCreatedChanges(assembled.InitialTaskChangesFingerprint, changes) {
 		return message
 	}
 	publication, publicationErr := s.markTaskPublicationStale(ctx, incident)
@@ -3233,11 +3233,20 @@ func (s *Service) finalizeIncidentAgentRun(
 	} else {
 		message = s.reportTurnFailure(ctx, run, incident, state, detail)
 	}
+	// A task result normally belongs on the durable task card. An explicit
+	// confirmation or approval keeps its own message because its controls must
+	// remain attached to the exact proposal the operator is accepting.
+	standaloneTaskResult := incident.IsEngineeringTask() &&
+		(pendingApproval != nil || len(message.Actions) > 0)
 	if incident.IsEngineeringTask() {
 		message = s.withEngineeringTaskChanges(ctx, run, incident, state, message)
 	}
 	baseDeliveryID := "out_run_" + run.ID
-	if len(reportReplyParts) > 1 {
+	if incident.IsEngineeringTask() && !standaloneTaskResult {
+		if err := s.updateEngineeringTaskCard(ctx, incident, message, reportReplyParts); err != nil {
+			return err
+		}
+	} else if len(reportReplyParts) > 1 {
 		for index, part := range reportReplyParts[:len(reportReplyParts)-1] {
 			if err := s.enqueueEpisode(
 				ctx,
@@ -3258,7 +3267,16 @@ func (s *Service) finalizeIncidentAgentRun(
 		replyCount-1,
 		replyCount,
 	)
-	if len(visuals) == 0 {
+	if incident.IsEngineeringTask() && !standaloneTaskResult {
+		if len(visuals) > 0 {
+			if err := s.enqueueGeneratedVisuals(
+				ctx, deliveryID, incident.ID, run.EpisodeID, incident.ChannelID, threadTS,
+				run.SessionID, run.CoopTurnID, visuals, nil,
+			); err != nil {
+				return err
+			}
+		}
+	} else if len(visuals) == 0 {
 		if err := s.enqueueEpisode(
 			ctx,
 			deliveryID,
@@ -3309,39 +3327,6 @@ func agentReportCanActivateSchedule(report decisionpkg.AgentReport) bool {
 	return report.ScheduleOffer != nil && report.MemoryOffer == nil &&
 		report.PreferenceOffer == nil && report.RuleOffer == nil &&
 		report.PendingApproval == nil && len(report.Visuals) == 0
-}
-
-type taskChangesFingerprint struct {
-	BaseCommit  string        `json:"base_commit"`
-	ForkHead    string        `json:"fork_head"`
-	ParentHead  string        `json:"parent_head"`
-	Committed   []coop.Change `json:"committed,omitempty"`
-	Staged      []coop.Change `json:"staged,omitempty"`
-	Unstaged    []coop.Change `json:"unstaged,omitempty"`
-	Untracked   []coop.Change `json:"untracked,omitempty"`
-	Conflicts   []coop.Change `json:"conflicts,omitempty"`
-	PatchDigest string        `json:"patch_digest,omitempty"`
-	PatchBytes  int64         `json:"patch_bytes"`
-}
-
-func coopChangesFingerprint(changes coop.Changes) string {
-	data, _ := json.Marshal(taskChangesFingerprint{
-		BaseCommit: changes.BaseCommit, ForkHead: changes.ForkHead,
-		ParentHead: changes.ParentHead, Committed: changes.Committed,
-		Staged: changes.Staged, Unstaged: changes.Unstaged,
-		Untracked: changes.Untracked, Conflicts: changes.Conflicts,
-		PatchDigest: changes.PatchDigest, PatchBytes: changes.PatchBytes,
-	})
-	return fmt.Sprintf("%x", sha256.Sum256(data))
-}
-
-func engineeringTaskTurnCreatedChanges(
-	initialFingerprint string,
-	changes coop.Changes,
-) bool {
-	return initialFingerprint != "" && initialFingerprint != "unavailable" &&
-		coopChangesPresent(changes) &&
-		initialFingerprint != coopChangesFingerprint(changes)
 }
 
 func (s *Service) finishTriageRunFailure(

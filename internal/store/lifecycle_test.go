@@ -72,6 +72,46 @@ func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
 	}
 }
 
+func TestEngineeringTaskAdoptsOfferAsRestartSafeWorkCard(t *testing.T) {
+	ctx := context.Background()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	incident, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-1", "Fix credential propagation", "Prepare a focused fix.",
+		"UOP", "COPS", "1700.100", 100,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", incident, created, err)
+	}
+	if err := st.TaskCards.AdoptOffer(ctx, incident.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.TaskCards.SetUpdate(ctx, incident.ID, "Draft PR #526 is ready."); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incident.ChannelID != "COPS" || incident.RootTS != "1700.101" ||
+		incident.Workflow != core.WorkflowProvisioningSession ||
+		incident.LatestUpdate != "Draft PR #526 is ready." {
+		t.Fatalf("restart-safe task card = %+v", incident)
+	}
+}
+
 func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

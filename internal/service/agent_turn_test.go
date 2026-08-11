@@ -15,6 +15,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskcard"
 )
 
 func TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation(t *testing.T) {
@@ -1020,7 +1021,7 @@ func TestEngineeringTaskDeliveryRequiresChangesFromCurrentTurn(t *testing.T) {
 		Committed:   []coop.Change{{Path: "infra.tf", Status: "M"}},
 		PatchDigest: "existing-diff", PatchBytes: 100,
 	}
-	if engineeringTaskTurnCreatedChanges(coopChangesFingerprint(before), before) {
+	if taskcard.TurnCreatedChanges(taskcard.ChangesFingerprint(before), before) {
 		t.Fatal("unchanged task work was attributed to the current turn")
 	}
 	after := before
@@ -1030,10 +1031,10 @@ func TestEngineeringTaskDeliveryRequiresChangesFromCurrentTurn(t *testing.T) {
 		coop.Change{Path: "followup.tf", Status: "M"},
 	)
 	after.PatchDigest = "new-diff"
-	if !engineeringTaskTurnCreatedChanges(coopChangesFingerprint(before), after) {
+	if !taskcard.TurnCreatedChanges(taskcard.ChangesFingerprint(before), after) {
 		t.Fatal("new task work was not attributed to the current turn")
 	}
-	if engineeringTaskTurnCreatedChanges("unavailable", after) {
+	if taskcard.TurnCreatedChanges("unavailable", after) {
 		t.Fatal("unknown initial state exposed stale task controls")
 	}
 }

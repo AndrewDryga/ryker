@@ -76,6 +76,12 @@ func engineeringTaskCard(
 			"*Requested change*\n"+truncateUTF8(escapeSlackText(signal.Summary), 1200),
 		)
 	}
+	if strings.TrimSpace(task.LatestUpdate) != "" {
+		message.Sections = append(
+			message.Sections,
+			"*Latest update*\n"+truncateUTF8(task.LatestUpdate, 3000),
+		)
+	}
 	switch {
 	case publication.Published():
 		message.Sections = append(message.Sections,

@@ -397,6 +397,12 @@ func (s *Service) applyReplyDecision(
 	s.clearInputPaused(ctx, input)
 
 	replyParts := decisionpkg.ReplySequence(decision.Message, decision.FollowupMessages)
+	// An engineering-task offer is the future durable task card. Keep every
+	// explanatory part on that one message so accepting the task does not leave
+	// a trail of adjacent setup messages behind.
+	if decision.TaskTitle != "" && len(replyParts) > 1 {
+		replyParts = []string{strings.Join(replyParts, "\n\n")}
+	}
 	finalReply := replyParts[len(replyParts)-1]
 	message := s.watchReplyMessage(
 		input, finalReply, decision.Evidence, decision.Coverage,
@@ -1192,21 +1198,23 @@ func (s *Service) createWatchedWork(
 		})
 		return s.finishInputIfOpen(ctx, trigger)
 	}
-	acknowledgement := "This needs investigation. I’m opening a dedicated incident room and isolated Coop fork."
-	if engineeringTask {
-		acknowledgement = "On it. I’ll make the change in an isolated working copy and report back here."
-	}
-	postAcknowledgement := s.postInputNotice
-	if engineeringTask {
-		postAcknowledgement = s.postInputNoticeInSourceThread
-	}
-	if err := postAcknowledgement(
-		ctx,
-		"watch_incident_"+source.ID,
-		source,
-		acknowledgement,
-	); err != nil {
-		return err
+	if engineeringTask && created {
+		if err := s.store.TaskCards.AdoptOffer(ctx, incident.ID, trigger.MessageTS); err != nil {
+			return err
+		}
+		incident, err = s.store.GetIncident(ctx, incident.ID)
+		if err != nil {
+			return err
+		}
+	} else if !engineeringTask {
+		if err := s.postInputNotice(
+			ctx,
+			"watch_incident_"+source.ID,
+			source,
+			"This needs investigation. I’m opening a dedicated incident room and isolated Coop fork.",
+		); err != nil {
+			return err
+		}
 	}
 	outcome := "incident_created"
 	auditKind := "slack.watch"

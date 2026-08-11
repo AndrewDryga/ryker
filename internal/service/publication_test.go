@@ -147,22 +147,6 @@ func TestPublicationReviewIgnoresOnlyPreExistingPolicyFindings(t *testing.T) {
 	}
 }
 
-func TestPublicationReviewDeliveryIDDeduplicatesOnlyIdenticalResults(t *testing.T) {
-	base := coop.Review{
-		CandidateTree: "candidate-tree", Rebase: "conflict", Gate: "none",
-		NotPublishableReasons: []string{"rebase_conflict"},
-	}
-	first := publicationReviewDeliveryID("inc_1", base)
-	if again := publicationReviewDeliveryID("inc_1", base); again != first {
-		t.Fatalf("identical review delivery IDs differ: %q != %q", first, again)
-	}
-	base.Rebase = "clean"
-	base.NotPublishableReasons = nil
-	if changed := publicationReviewDeliveryID("inc_1", base); changed == first {
-		t.Fatalf("changed review reused delivery ID %q", changed)
-	}
-}
-
 func TestPublicationReferenceMatchingIsExact(t *testing.T) {
 	context := core.PublicationContext{
 		PRNumber: 493, PRURL: "https://github.com/org/repo/pull/493",
@@ -251,6 +235,9 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	if err := st.BindThreadWork(ctx, incident.ID); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.SetRoot(ctx, incident.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
 	incident, err = st.GetIncident(ctx, incident.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -316,14 +303,18 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	drainSlackDeliveries(t, ctx, svc)
-	if len(slackClient.posts) != 1 {
-		t.Fatalf("publication update posts = %d, want 1", len(slackClient.posts))
+	if err := svc.processCard(ctx); err != nil {
+		t.Fatal(err)
 	}
-	post := slackClient.posts[0]
-	if post.channel != "CTASKS" || post.thread != "1700.100" ||
-		!strings.Contains(post.message.Text, "Production apply completed") {
-		t.Fatalf("publication update post = %+v", post)
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 0 || len(slackClient.updates) != 1 {
+		t.Fatalf("publication update delivery = posts %d, updates %d", len(slackClient.posts), len(slackClient.updates))
+	}
+	update := slackClient.updates[0]
+	rendered := update.message.Text + "\n" + strings.Join(update.message.Sections, "\n")
+	if update.channel != "CTASKS" || update.ts != incident.RootTS ||
+		!strings.Contains(rendered, "HCP reports the exact run as applied") {
+		t.Fatalf("publication update card = %+v", update)
 	}
 }
 

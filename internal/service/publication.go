@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -24,7 +23,6 @@ func (s *Service) publishDraftPR(
 	input core.SlackInput,
 	incident core.Incident,
 ) error {
-	threadTS := incident.ConversationThreadTS()
 	if !incident.IsEngineeringTask() {
 		return s.refuseControl(ctx, input, incident,
 			"*Draft PR publication is available for engineering tasks only.* "+
@@ -79,8 +77,12 @@ func (s *Service) publishDraftPR(
 	review := publicationReview(rawReview)
 	if !review.Publishable {
 		s.clearNativeStatus(ctx, incident)
-		return s.enqueue(ctx, publicationReviewDeliveryID(incident.ID, review), incident, "review", threadTS,
-			slackui.ReviewMessage(incident, reviewSummary(rawReview), false))
+		return s.updateEngineeringTaskCard(
+			ctx,
+			incident,
+			slackui.ReviewMessage(incident, reviewSummary(rawReview), false),
+			nil,
+		)
 	}
 	review, err = s.completeReviewPatch(ctx, review)
 	if err != nil {
@@ -179,8 +181,7 @@ func (s *Service) publishDraftPR(
 	if publicationGateIncomplete(review) {
 		message = slackui.WithIncompleteValidationWarning(message)
 	}
-	return s.enqueue(ctx, "out_publish_"+input.ID, incident, "publication", threadTS,
-		message)
+	return s.updateEngineeringTaskCard(ctx, incident, message, nil)
 }
 
 func (s *Service) markTaskPublicationStale(
@@ -216,19 +217,6 @@ func (s *Service) markTaskPublicationStale(
 		URL:        publication.PRURL,
 	})
 	return publication, nil
-}
-
-func publicationReviewDeliveryID(incidentID string, review coop.Review) string {
-	payload := strings.Join([]string{
-		review.CandidateTree,
-		review.Rebase,
-		review.Gate,
-		review.GateError,
-		strings.Join(review.NotPublishableReasons, ","),
-		strings.Join(review.PolicyFindings, ","),
-	}, "\x00")
-	digest := sha256.Sum256([]byte(payload))
-	return "out_publish_review_" + incidentID + "_" + hex.EncodeToString(digest[:8])
 }
 
 func (s *Service) completeReviewPatch(

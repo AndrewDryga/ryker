@@ -935,7 +935,8 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 			"action":"reply",
 			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},
 			"message":"I can audit and update infra/ in a dedicated isolated working copy.",
-		"task_title":"Audit infrastructure packs"
+			"followup_messages":["I will keep unrelated application settings unchanged."],
+			"task_title":"Audit infrastructure packs"
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -967,6 +968,12 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		slackClient.posts[0].message.Actions[0].ID != slackui.ActionStartTask ||
 		slackClient.posts[0].message.Actions[0].Value != source.ID {
 		t.Fatalf("engineering task offer = %+v", slackClient.posts)
+	}
+	offerText := slackClient.posts[0].message.Text + "\n" +
+		strings.Join(slackClient.posts[0].message.Sections, "\n")
+	if !strings.Contains(offerText, "audit and update infra/") ||
+		!strings.Contains(offerText, "unrelated application settings") {
+		t.Fatalf("multi-part engineering task offer was not consolidated = %+v", slackClient.posts[0].message)
 	}
 	run, err := st.GetAgentRunBySource(ctx, "watch", source.ID)
 	if err != nil {
@@ -1042,11 +1049,8 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		strings.Contains(directoryEntry, "alert firing") {
 		t.Fatalf("engineering task directory entry = %q", directoryEntry)
 	}
-	if len(slackClient.posts) != 2 ||
-		slackClient.posts[1].thread != source.MessageTS ||
-		slackClient.posts[1].message.Text !=
-			"On it. I’ll make the change in an isolated working copy and report back here." {
-		t.Fatalf("engineering task acknowledgement = %+v", slackClient.posts)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("engineering task added standalone acknowledgement = %+v", slackClient.posts)
 	}
 	signals, err := st.ListSignals(ctx, incidents[0].ID)
 	if err != nil || len(signals) != 1 ||
@@ -1054,15 +1058,13 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		signals[0].Summary != source.Text {
 		t.Fatalf("engineering task source = %+v, %v", signals, err)
 	}
-	if err := svc.processChannel(ctx); err != nil {
-		t.Fatal(err)
-	}
 	if slackClient.createChannelCalls != 0 {
 		t.Fatalf("thread task created %d Slack channels", slackClient.createChannelCalls)
 	}
-	if err := svc.processSlackDelivery(ctx, nil); err != nil {
+	if err := svc.processCard(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainSlackDeliveries(t, ctx, svc)
 	incidents, err = st.ListIncidents(ctx, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -1072,11 +1074,16 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		task.ConversationThreadTS() != source.MessageTS {
 		t.Fatalf("bound thread task = %+v", task)
 	}
-	taskCard := slackClient.posts[len(slackClient.posts)-1]
-	if taskCard.channel != source.ChannelID ||
-		taskCard.thread != source.MessageTS ||
+	if task.RootTS != "1700.001" {
+		t.Fatalf("task did not adopt offer message = %+v", task)
+	}
+	if len(slackClient.updates) == 0 {
+		t.Fatal("task offer was not updated into a durable task card")
+	}
+	taskCard := slackClient.updates[len(slackClient.updates)-1]
+	if taskCard.channel != source.ChannelID || taskCard.ts != task.RootTS ||
 		!strings.Contains(taskCard.message.Text, "Engineering task") {
-		t.Fatalf("thread task card = %+v", taskCard)
+		t.Fatalf("updated thread task card = %+v", taskCard)
 	}
 	if err := svc.processSession(ctx); err != nil {
 		t.Fatal(err)

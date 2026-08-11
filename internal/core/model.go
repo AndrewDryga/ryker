@@ -98,6 +98,7 @@ type Incident struct {
 	CardVersion           int64
 	CardRenderedVersion   int64
 	LastError             string
+	LatestUpdate          string
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	LastFiringAt          time.Time

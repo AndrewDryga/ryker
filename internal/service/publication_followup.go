@@ -110,17 +110,11 @@ func (s *Service) applyPublicationUpdates(
 			summary += "\n\nSource: <#" + input.ChannelID + ">"
 		}
 		if publicationUpdateNotifies(update) {
-			notificationKey := publicationpkg.LifecycleKey(
-				update.IncidentID, sourceKey, "terminal",
-			)
 			message := slackui.PublicationLifecycleMessage(
 				publication, incident.Title, update.Kind, update.State, summary,
 				core.PublicationLifecycleStatus{},
 			)
-			if err := s.enqueue(
-				ctx, "out_publication_signal_"+notificationKey, incident,
-				"publication_followup", incident.ConversationThreadTS(), message,
-			); err != nil {
+			if err := s.updateEngineeringTaskCard(ctx, incident, message, nil); err != nil {
 				return err
 			}
 		}
@@ -236,6 +230,9 @@ func (r serviceReporter) Enqueue(
 	kind, threadTS string,
 	message slackui.Message,
 ) error {
+	if incident.IsEngineeringTask() && kind == "publication_followup" {
+		return r.s.updateEngineeringTaskCard(ctx, incident, message, nil)
+	}
 	return r.s.enqueue(ctx, deliveryID, incident, kind, threadTS, message)
 }
 

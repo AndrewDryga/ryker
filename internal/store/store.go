@@ -19,6 +19,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
 	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/responder/internal/store/taskcardstore"
 	_ "modernc.org/sqlite"
 )
 
@@ -61,6 +62,8 @@ type Store struct {
 	// Behavior owns what an operator has taught Responder to do: preferences
 	// and standing rules.
 	Behavior *behaviorstore.Repository
+	// TaskCards owns the single mutable Slack surface for engineering work.
+	TaskCards *taskcardstore.Repository
 }
 
 type Metrics struct {
@@ -1047,6 +1050,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.Memory = memorystore.New(db, clock)
 	s.Intelligence = intelligencestore.New(db, clock)
 	s.Behavior = behaviorstore.New(db, clock)
+	s.TaskCards = taskcardstore.New(db, clock)
 }
 
 // SetClock replaces the store clock. It exists for tests.
@@ -1450,7 +1454,7 @@ const incidentColumns = `
 	id, route, repository, correlation_key, source_incident_id, title, severity,
 	status, workflow, signal_count, firing_count, channel_id, channel_name, root_ts,
 	coop_session_id, coop_fork_name, coop_revision, coop_event_sequence, active_turn_id,
-	initial_turn_queued, card_version, card_rendered_version, last_error,
+	initial_turn_queued, card_version, card_rendered_version, last_error, latest_update,
 	created_at, updated_at, last_firing_at, resolve_due_at, resolved_at, closed_at,
 	channel_state, channel_state_changed_at, channel_checked_at,
 	work_kind, work_scope, origin_channel_id, origin_thread_ts`
@@ -1467,7 +1471,8 @@ func scanIncident(row interface{ Scan(...any) error }) (core.Incident, error) {
 		&incident.ChannelName, &incident.RootTS, &incident.CoopSessionID, &incident.CoopForkName,
 		&incident.CoopRevision, &incident.CoopEventSequence,
 		&incident.ActiveTurnID, &initial, &incident.CardVersion,
-		&incident.CardRenderedVersion, &incident.LastError, &created, &updated, &firing, &due,
+		&incident.CardRenderedVersion, &incident.LastError, &incident.LatestUpdate,
+		&created, &updated, &firing, &due,
 		&resolved, &closed, &incident.ChannelState, &channelChanged, &channelChecked,
 		&incident.WorkKind, &incident.WorkScope, &incident.OriginChannelID,
 		&incident.OriginThreadTS,

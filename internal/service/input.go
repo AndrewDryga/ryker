@@ -898,20 +898,6 @@ func (s *Service) postInputNotice(
 	return s.postInputMessage(ctx, id, input, slackui.Notice(text))
 }
 
-func (s *Service) postInputNoticeInSourceThread(
-	ctx context.Context,
-	id string,
-	input core.SlackInput,
-	text string,
-) error {
-	return s.postInputMessageInSourceThread(
-		ctx,
-		id,
-		input,
-		slackui.Notice(text),
-	)
-}
-
 func (s *Service) postInputMessage(
 	ctx context.Context,
 	id string,
@@ -1371,9 +1357,12 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 		return err
 	}
 	review := publicationReview(rawReview)
-	err = s.enqueue(
-		ctx, "out_review_"+input.ID, incident, "review", incident.ConversationThreadTS(),
-		slackui.ReviewMessage(incident, reviewSummary(rawReview), review.Publishable))
+	err = s.updateEngineeringTaskCard(
+		ctx,
+		incident,
+		slackui.ReviewMessage(incident, reviewSummary(rawReview), review.Publishable),
+		nil,
+	)
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
 	}

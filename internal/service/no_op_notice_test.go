@@ -23,7 +23,6 @@ var channelPosters = map[string]bool{
 	"enqueueEpisode":                 true,
 	"enqueueMessageUpdate":           true,
 	"postInputNotice":                true,
-	"postInputNoticeInSourceThread":  true,
 	"postInputMessage":               true,
 	"postInputMessageInSourceThread": true,
 	"postInputMessageAt":             true,
