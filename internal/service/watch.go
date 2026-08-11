@@ -15,6 +15,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
+	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -446,31 +447,33 @@ func (s *Service) applyReplyDecision(
 		scheduleInput,
 		state.RecentMessages,
 	)
-	schedulePresent := decision.ScheduleOffer != nil
+	scheduleOffers := orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers)
+	schedulePresent := len(scheduleOffers) != 0
 	scheduleOffered := false
 	if schedulePresent {
-		if actionValue, task, when, ok := s.prepareScheduleOfferAction(
-			ctx, scheduleInput, decision.ScheduleOffer,
+		if actionValue, tasks, whens, ok := s.prepareScheduleOffersAction(
+			ctx, scheduleInput, scheduleOffers,
 		); ok {
 			if schedulepkg.ExplicitScheduleConfirmation(s.stripBotMention(input.Text)) &&
 				watchDecisionCanActivateSchedule(decision) {
-				var payload scheduleActionPayload
-				if err := decisionpkg.DecodeStrictJSON([]byte(actionValue), &payload); err != nil {
-					return err
-				}
-				acceptedTask, err := s.acceptScheduleProposal(ctx, input, payload.ProposalID)
+				proposalIDs, _, err := scheduleofferpkg.DecodeAction(actionValue)
 				if err != nil {
 					return err
 				}
-				task = acceptedTask
-				s.audit(ctx, core.AuditEvent{
-					Kind: "schedule.created", ActorID: input.UserID, ObjectID: task.ID,
-					Outcome: "enabled", Detail: task.Title,
-				})
-				message = slackui.ScheduleSavedMessage(task)
+				acceptedTasks, err := s.acceptScheduleProposals(ctx, input, proposalIDs)
+				if err != nil {
+					return err
+				}
+				for _, acceptedTask := range acceptedTasks {
+					s.audit(ctx, core.AuditEvent{
+						Kind: "schedule.created", ActorID: input.UserID, ObjectID: acceptedTask.ID,
+						Outcome: "enabled", Detail: acceptedTask.Title,
+					})
+				}
+				message = slackui.SchedulesSavedMessage(acceptedTasks)
 				outcome = "schedule_saved"
 			} else {
-				message = slackui.WithScheduleOffer(message, task, actionValue, when)
+				message = slackui.WithScheduleOffers(message, tasks, actionValue, whens)
 				outcome = "schedule_offered"
 				scheduleOffered = true
 			}
@@ -618,7 +621,7 @@ func (s *Service) applyReplyDecision(
 }
 
 func watchDecisionCanActivateSchedule(decision decisionpkg.WatchDecision) bool {
-	return decision.ScheduleOffer != nil && decision.MemoryOffer == nil &&
+	return len(orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers)) != 0 && decision.MemoryOffer == nil &&
 		decision.PreferenceOffer == nil && decision.RuleOffer == nil &&
 		decision.PendingApproval == nil && decision.IncidentTitle == "" &&
 		decision.TaskTitle == ""
@@ -679,10 +682,12 @@ func (s *Service) applyWatchDecision(
 				Preference: decision.PreferenceOffer,
 				Rule:       decision.RuleOffer,
 				Schedule:   decision.ScheduleOffer,
+				Schedules:  decision.ScheduleOffers,
 			},
 		)
 		decision.MemoryOffer, decision.PreferenceOffer = offers.Memory, offers.Preference
 		decision.RuleOffer, decision.ScheduleOffer = offers.Rule, offers.Schedule
+		decision.ScheduleOffers = offers.Schedules
 		if replaced {
 			decision.Message = acknowledgement
 			decision.FollowupMessages = nil
@@ -713,6 +718,7 @@ func (s *Service) applyWatchDecision(
 			PreferenceOffer:  decision.PreferenceOffer,
 			RuleOffer:        decision.RuleOffer,
 			ScheduleOffer:    decision.ScheduleOffer,
+			ScheduleOffers:   decision.ScheduleOffers,
 			PendingApproval:  decision.PendingApproval,
 		},
 		core.Incident{},
@@ -733,6 +739,7 @@ func (s *Service) applyWatchDecision(
 	decision.PreferenceOffer = report.PreferenceOffer
 	decision.RuleOffer = report.RuleOffer
 	decision.ScheduleOffer = report.ScheduleOffer
+	decision.ScheduleOffers = report.ScheduleOffers
 	decision.PendingApproval = report.PendingApproval
 	session, err := s.coop.GetSession(ctx, state.SessionID)
 	if err != nil {
@@ -2307,9 +2314,9 @@ workspace visibility only for an explicit team-wide request. Guidance can steer 
 cannot trigger work, authorize an incident or change, approve an action, count as evidence, or
 override the current request or host policy. Never propose memory for current health, secrets,
 credentials, approvals, or transient observations.
-Return at most one memory_offer, one preference_offer, one rule_offer, and one schedule_offer. A compound lasting
-request may include more than one kind; cover every independent clause or explain what cannot be
-represented safely. A reply may combine schedule_offer with task_title only when the operator separately asks for
+Offer at most one memory/preference/rule and 8 schedules. Cover every request; inherit shared
+details and apply the latest clarification to all. A compound lasting request may use several kinds;
+explain any unsafe or unrepresentable clause. A reply may combine schedule_offer with task_title only when the operator separately asks for
 recurring work and an explicit repository file or code change. Emisar runbook management is MCP tool work, not an
 engineering task. A reply may combine an exact pending_approval with schedule_offer when the schedule is independently
 valid and does not assume the pending operation has succeeded. Do not combine an engineering task

@@ -204,25 +204,58 @@ func WithScheduleOffer(
 	actionValue string,
 	when string,
 ) Message {
+	return WithScheduleOffers(message, []core.ScheduledTask{task}, actionValue, []string{when})
+}
+
+func WithScheduleOffers(
+	message Message,
+	tasks []core.ScheduledTask,
+	actionValue string,
+	whens []string,
+) Message {
+	if len(tasks) == 0 || len(tasks) != len(whens) {
+		return ScheduleOfferUnavailable(message)
+	}
 	message.Text = conditionalScheduleOfferLead(message.Text)
 	message.Markdown = conditionalScheduleOfferLead(message.Markdown)
-	destination := "<#" + firstNonemptyUI(task.DeliveryChannel, task.ChannelID) + ">"
-	if task.ThreadTS != "" &&
-		firstNonemptyUI(task.DeliveryChannel, task.ChannelID) == task.ChannelID {
-		destination = "this thread"
+	if len(tasks) == 1 {
+		task := tasks[0]
+		destination := "<#" + firstNonemptyUI(task.DeliveryChannel, task.ChannelID) + ">"
+		if task.ThreadTS != "" && firstNonemptyUI(task.DeliveryChannel, task.ChannelID) == task.ChannelID {
+			destination = "this thread"
+		}
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"*Proposed scheduled task: %s*\n%s\n\n*When:* %s\n*Where:* %s · *Repository:* `%s`",
+			escapeSlackText(task.Title), escapeSlackText(task.Prompt), whens[0],
+			destination, safeInlineCode(task.Repository),
+		))
+	} else {
+		var body strings.Builder
+		fmt.Fprintf(&body, "*%d follow-up checks*", len(tasks))
+		for index, task := range tasks {
+			fmt.Fprintf(&body, "\n%d. *%s* — %s\n   %s", index+1,
+				escapeSlackText(task.Title), whens[index], escapeSlackText(task.Prompt))
+		}
+		destination := "<#" + firstNonemptyUI(tasks[0].DeliveryChannel, tasks[0].ChannelID) + ">"
+		if tasks[0].ThreadTS != "" && firstNonemptyUI(tasks[0].DeliveryChannel, tasks[0].ChannelID) == tasks[0].ChannelID {
+			destination = "this thread"
+		}
+		fmt.Fprintf(&body, "\n\nBoth results will be posted in %s.", destination)
+		message.Sections = append(message.Sections, body.String())
 	}
-	message.Sections = append(message.Sections, fmt.Sprintf(
-		"*Proposed scheduled task: %s*\n%s\n\n*When:* %s\n*Where:* %s · *Repository:* `%s`",
-		escapeSlackText(task.Title), escapeSlackText(task.Prompt), when,
-		destination, safeInlineCode(task.Repository),
-	))
-	message.Context = append(message.Context,
-		"Nothing is scheduled yet. Each occurrence re-runs this request through current Coop, repository, tool, and Emisar policies. It cannot reuse an old approval, and overlapping occurrences are skipped.",
-	)
+	context := "Nothing is scheduled yet. Each occurrence re-runs this request through current Coop, repository, tool, and Emisar policies. It cannot reuse an old approval, and overlapping occurrences are skipped."
+	label := "Schedule this"
+	confirm := "Create this scheduled task? Future runs use the current policies and may still require operator approval."
+	if len(tasks) > 1 {
+		label = fmt.Sprintf("Schedule all %d", len(tasks))
+		confirm = fmt.Sprintf("Create all %d follow-up checks? Either all are saved or none are.", len(tasks))
+		context = "Nothing is scheduled yet. One confirmation saves every check shown above; if any one cannot be saved, none are. Each check uses current access and approval rules."
+	}
+	message.Context = append(message.Context, context)
 	message.Actions = append(message.Actions, Action{
-		ID: ActionRememberSchedule, Label: "Schedule this", Value: actionValue,
+		ID: ActionRememberSchedule, Label: label, Value: actionValue,
 		Style:   "primary",
-		Confirm: "Create this scheduled task? Future runs use the current policies and may still require operator approval.",
+		Confirm: confirm,
 	})
 	return message
 }
@@ -284,6 +317,33 @@ func scheduleDirectoryActions(task core.ScheduledTask, number int) []Action {
 }
 
 func ScheduleSavedMessage(task core.ScheduledTask) Message {
+	return SchedulesSavedMessage([]core.ScheduledTask{task})
+}
+
+func SchedulesSavedMessage(tasks []core.ScheduledTask) Message {
+	if len(tasks) == 0 {
+		return Message{Text: "No scheduled tasks were created.", Header: "Nothing scheduled"}
+	}
+	if len(tasks) > 1 {
+		sections := make([]string, 0, len(tasks)+1)
+		for index, task := range tasks {
+			destination := "<#" + firstNonemptyUI(task.DeliveryChannel, task.ChannelID) + ">"
+			if task.ThreadTS != "" && firstNonemptyUI(task.DeliveryChannel, task.ChannelID) == task.ChannelID {
+				destination = "this thread"
+			}
+			sections = append(sections, fmt.Sprintf("%d. *%s* — %s\n%s", index+1,
+				escapeSlackText(task.Title),
+				task.NextRunAt.In(timeLocation(task.Timezone)).Format("Mon, 02 Jan 2006 15:04 MST"),
+				destination))
+		}
+		return Message{
+			Text:     fmt.Sprintf("Scheduled %d follow-up checks.", len(tasks)),
+			Header:   fmt.Sprintf("%d follow-up checks scheduled", len(tasks)),
+			Sections: sections,
+			Context:  []string{"Manage or run them early with `/responder schedules`."},
+		}
+	}
+	task := tasks[0]
 	destination := "<#" + firstNonemptyUI(task.DeliveryChannel, task.ChannelID) + ">"
 	if task.ThreadTS != "" && firstNonemptyUI(task.DeliveryChannel, task.ChannelID) == task.ChannelID {
 		destination = "this thread"

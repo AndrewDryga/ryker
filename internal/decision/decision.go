@@ -38,6 +38,7 @@ const (
 	MaxFollowupMessages   = 5
 	MaxReplyPartBytes     = 12 << 10
 	MaxReplySequenceBytes = 48 << 10
+	MaxScheduleOffers     = 8
 )
 
 func (a AttentionAssessment) Score() int {
@@ -81,6 +82,7 @@ type WatchDecision struct {
 	PreferenceOffer    *core.PreferenceOffer               `json:"preference_offer,omitempty"`
 	RuleOffer          *core.RuleOffer                     `json:"rule_offer,omitempty"`
 	ScheduleOffer      *core.ScheduleOffer                 `json:"schedule_offer,omitempty"`
+	ScheduleOffers     []*core.ScheduleOffer               `json:"schedule_offers,omitempty"`
 	PendingApproval    *core.EmisarApproval                `json:"pending_approval,omitempty"`
 	AlertAssessment    *AlertAssessment                    `json:"alert_assessment,omitempty"`
 	Completion         *investigation.CompletionAssessment `json:"completion,omitempty"`
@@ -309,6 +311,7 @@ var WatchDecisionPayload = []struct {
 	{"preference_offer", func(d WatchDecision) bool { return d.PreferenceOffer != nil }},
 	{"rule_offer", func(d WatchDecision) bool { return d.RuleOffer != nil }},
 	{"schedule_offer", func(d WatchDecision) bool { return d.ScheduleOffer != nil }},
+	{"schedule_offers", func(d WatchDecision) bool { return len(d.ScheduleOffers) != 0 }},
 	{"pending_approval", func(d WatchDecision) bool { return d.PendingApproval != nil }},
 	{"alert_assessment", func(d WatchDecision) bool { return d.AlertAssessment != nil }},
 	{"completion", func(d WatchDecision) bool { return d.Completion != nil }},
@@ -339,7 +342,7 @@ var WatchActionPayload = map[string]struct {
 		"message": true, "followup_messages": true, "incident_title": true,
 		"task_title": true, "task_repository": true, "task_prompt": true,
 		"memory_offer": true, "preference_offer": true, "rule_offer": true,
-		"schedule_offer": true, "pending_approval": true, "alert_assessment": true,
+		"schedule_offer": true, "schedule_offers": true, "pending_approval": true, "alert_assessment": true,
 		"completion": true, "evidence": true, "coverage": true, "visuals": true,
 		"publication_updates": true,
 	}},
@@ -436,7 +439,7 @@ func ValidateReplyOfferExclusivity(d *WatchDecision) error {
 		d.MemoryOffer != nil,
 		d.PreferenceOffer != nil,
 		d.RuleOffer != nil,
-		d.ScheduleOffer != nil,
+		d.ScheduleOffer != nil || len(d.ScheduleOffers) != 0,
 	} {
 		if present {
 			offerCount++
@@ -742,6 +745,7 @@ type AgentReport struct {
 	PreferenceOffer   *core.PreferenceOffer               `json:"preference_offer,omitempty"`
 	RuleOffer         *core.RuleOffer                     `json:"rule_offer,omitempty"`
 	ScheduleOffer     *core.ScheduleOffer                 `json:"schedule_offer,omitempty"`
+	ScheduleOffers    []*core.ScheduleOffer               `json:"schedule_offers,omitempty"`
 	PendingApproval   *core.EmisarApproval                `json:"pending_approval,omitempty"`
 	Completion        *investigation.CompletionAssessment `json:"completion,omitempty"`
 	Operations        []investigation.ResultOperation     `json:"operations,omitempty"`
@@ -919,7 +923,7 @@ func DecodeAgentReport(message string) (AgentReport, error) {
 		report.MemoryOffer != nil,
 		report.PreferenceOffer != nil,
 		report.RuleOffer != nil,
-		report.ScheduleOffer != nil,
+		report.ScheduleOffer != nil || len(report.ScheduleOffers) != 0,
 	} {
 		if present {
 			offerCount++
@@ -1245,6 +1249,7 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 	report.PreferenceOffer = nil
 	report.RuleOffer = nil
 	report.ScheduleOffer = nil
+	report.ScheduleOffers = nil
 	report.PendingApproval = nil
 	report.Completion = nil
 	err := FoldResultOperations(report.Operations, OperationTargets{
@@ -1252,8 +1257,9 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 		evidence: &report.Evidence, coverage: &report.Coverage, memory: &report.Memory,
 		memoryOffer: &report.MemoryOffer, preferenceOffer: &report.PreferenceOffer,
 		ruleOffer: &report.RuleOffer, scheduleOffer: &report.ScheduleOffer,
-		approval:   &report.PendingApproval,
-		completion: &report.Completion,
+		scheduleOffers: &report.ScheduleOffers,
+		approval:       &report.PendingApproval,
+		completion:     &report.Completion,
 	}, &report.AppliedOperations)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidOperations, err)
@@ -1298,6 +1304,7 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 	decision.PreferenceOffer = nil
 	decision.RuleOffer = nil
 	decision.ScheduleOffer = nil
+	decision.ScheduleOffers = nil
 	decision.PendingApproval = nil
 	decision.AlertAssessment = nil
 	decision.Completion = nil
@@ -1306,7 +1313,8 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 		evidence: &decision.Evidence, coverage: &decision.Coverage, memory: &decision.Memory,
 		memoryOffer: &decision.MemoryOffer, preferenceOffer: &decision.PreferenceOffer,
 		ruleOffer: &decision.RuleOffer, scheduleOffer: &decision.ScheduleOffer,
-		approval: &decision.PendingApproval, alert: &decision.AlertAssessment,
+		scheduleOffers: &decision.ScheduleOffers,
+		approval:       &decision.PendingApproval, alert: &decision.AlertAssessment,
 		completion:    &decision.Completion,
 		incidentTitle: &decision.IncidentTitle, taskTitle: &decision.TaskTitle,
 		taskRepository: &decision.TaskRepository, taskPrompt: &decision.TaskPrompt,
@@ -1367,6 +1375,7 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 		preferenceOffer *core.PreferenceOffer
 		ruleOffer       *core.RuleOffer
 		scheduleOffer   *core.ScheduleOffer
+		scheduleOffers  []*core.ScheduleOffer
 		approval        *core.EmisarApproval
 		alert           *AlertAssessment
 		incidentTitle   string
@@ -1380,7 +1389,8 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 		evidence: &evidence, coverage: &coverage, memory: &memory,
 		memoryOffer: &memoryOffer, preferenceOffer: &preferenceOffer,
 		ruleOffer: &ruleOffer, scheduleOffer: &scheduleOffer,
-		approval: &approval, alert: &alert,
+		scheduleOffers: &scheduleOffers,
+		approval:       &approval, alert: &alert,
 		incidentTitle: &incidentTitle, taskTitle: &taskTitle,
 		taskRepository: &taskRepository, taskPrompt: &taskPrompt,
 	}, &applied, false); err != nil {
@@ -1396,6 +1406,7 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 	decision.PreferenceOffer = nil
 	decision.RuleOffer = nil
 	decision.ScheduleOffer = nil
+	decision.ScheduleOffers = nil
 	decision.PendingApproval = nil
 	decision.AlertAssessment = nil
 	decision.Completion = nil
@@ -1424,7 +1435,7 @@ func ApplySilentWatchMemoryOperation(decision *WatchDecision) error {
 		strings.TrimSpace(decision.TaskTitle) != "" || len(decision.Evidence) != 0 ||
 		len(decision.Coverage) != 0 || decision.MemoryOffer != nil ||
 		decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
-		decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
+		decision.ScheduleOffer != nil || len(decision.ScheduleOffers) != 0 || decision.PendingApproval != nil ||
 		decision.AlertAssessment != nil || decision.Completion != nil ||
 		len(decision.PublicationUpdates) != 0 {
 		return errors.New("silent memory update cannot include reply content or other result fields")
@@ -1463,6 +1474,7 @@ type OperationTargets struct {
 	preferenceOffer **core.PreferenceOffer
 	ruleOffer       **core.RuleOffer
 	scheduleOffer   **core.ScheduleOffer
+	scheduleOffers  *[]*core.ScheduleOffer
 	approval        **core.EmisarApproval
 	alert           **AlertAssessment
 	completion      **investigation.CompletionAssessment
@@ -1555,10 +1567,17 @@ func foldResultOperations(
 			}
 			*target.ruleOffer = operation.RuleOffer
 		case "offer_schedule":
-			if *target.scheduleOffer != nil {
+			if *target.scheduleOffer == nil {
+				*target.scheduleOffer = operation.ScheduleOffer
+				break
+			}
+			if target.scheduleOffers == nil {
 				return fmt.Errorf("result operation %q duplicates offer_schedule", operation.ID)
 			}
-			*target.scheduleOffer = operation.ScheduleOffer
+			if 1+len(*target.scheduleOffers) >= MaxScheduleOffers {
+				return fmt.Errorf("result contains more than %d schedule offers", MaxScheduleOffers)
+			}
+			*target.scheduleOffers = append(*target.scheduleOffers, operation.ScheduleOffer)
 		case "record_alert_assessment":
 			if target.alert == nil || *target.alert != nil {
 				return fmt.Errorf("result operation %q duplicates or cannot record an alert assessment", operation.ID)

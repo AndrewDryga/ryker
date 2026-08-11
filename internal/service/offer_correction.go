@@ -77,12 +77,20 @@ func (s *Service) rejectedOffers(
 			})
 		}
 	}
-	if offer := decision.ScheduleOffer; offer != nil && s.scheduleOfferInScope(input) {
-		if _, err := s.scheduledTaskFromOffer(ctx, input, *offer, now); err != nil {
-			rejected = append(rejected, offerCheck{
-				kind: "scheduled task", rejected: err,
-				clear: func() { decision.ScheduleOffer = nil },
-			})
+	if offers := orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 && s.scheduleOfferInScope(input) {
+		for _, offer := range offers {
+			if _, err := s.scheduledTaskFromOffer(ctx, input, *offer, now); err == nil {
+				continue
+			} else {
+				rejected = append(rejected, offerCheck{
+					kind: "scheduled task batch", rejected: err,
+					clear: func() {
+						decision.ScheduleOffer = nil
+						decision.ScheduleOffers = nil
+					},
+				})
+				break
+			}
 		}
 	}
 	return rejected

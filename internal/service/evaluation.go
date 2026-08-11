@@ -805,10 +805,15 @@ func hostedWatchDecisionOffers(
 			result = append(result, "rule")
 		}
 	}
-	if decision.ScheduleOffer != nil {
-		if _, _, ok := evaluator.normalizeScheduleOffer(
-			context.Background(), input, decision.ScheduleOffer,
-		); ok {
+	if offers := orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 {
+		valid := true
+		for _, offer := range offers {
+			if _, _, ok := evaluator.normalizeScheduleOffer(context.Background(), input, offer); !ok {
+				valid = false
+				break
+			}
+		}
+		if valid {
 			result = append(result, "schedule")
 		}
 	}
@@ -832,7 +837,7 @@ func watchDecisionOffers(decision decisionpkg.WatchDecision) []string {
 	if decision.RuleOffer != nil {
 		result = append(result, "rule")
 	}
-	if decision.ScheduleOffer != nil {
+	if len(orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers)) != 0 {
 		result = append(result, "schedule")
 	}
 	return result
@@ -849,7 +854,7 @@ func agentReportOffers(report decisionpkg.AgentReport) []string {
 	if report.RuleOffer != nil {
 		result = append(result, "rule")
 	}
-	if report.ScheduleOffer != nil {
+	if len(orderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers)) != 0 {
 		result = append(result, "schedule")
 	}
 	return result

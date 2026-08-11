@@ -124,6 +124,7 @@ func SuppressWatchDecision(decision WatchDecision, reason string) WatchDecision 
 	decision.PreferenceOffer = nil
 	decision.RuleOffer = nil
 	decision.ScheduleOffer = nil
+	decision.ScheduleOffers = nil
 	decision.PendingApproval = nil
 	decision.AlertAssessment = nil
 	decision.Completion = nil

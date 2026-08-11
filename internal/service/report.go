@@ -63,7 +63,8 @@ func (s *Service) persistAgentReport(
 			)
 		}
 	}
-	if report.MemoryOffer != nil || report.PreferenceOffer != nil || report.RuleOffer != nil || report.ScheduleOffer != nil {
+	if report.MemoryOffer != nil || report.PreferenceOffer != nil || report.RuleOffer != nil ||
+		report.ScheduleOffer != nil || len(report.ScheduleOffers) != 0 {
 		// Configuration requests are not operational findings. Keeping model-produced
 		// evidence here makes a confirmation card look as if its behavior was already saved.
 		report.Evidence = nil
@@ -183,18 +184,18 @@ func (s *Service) persistAgentReport(
 			report.RuleOffer.ExpiresIn, 20,
 		)
 	}
-	if report.ScheduleOffer != nil {
-		report.ScheduleOffer.Title = s.cleanStructuredField(report.ScheduleOffer.Title, 160)
-		report.ScheduleOffer.Prompt = s.cleanStructuredField(report.ScheduleOffer.Prompt, 1200)
-		report.ScheduleOffer.Repository = s.cleanStructuredField(report.ScheduleOffer.Repository, 63)
-		report.ScheduleOffer.DeliveryChannel = s.cleanStructuredField(report.ScheduleOffer.DeliveryChannel, 64)
-		report.ScheduleOffer.Recurrence = s.cleanStructuredField(report.ScheduleOffer.Recurrence, 20)
-		report.ScheduleOffer.StartAt = s.cleanStructuredField(report.ScheduleOffer.StartAt, 40)
-		report.ScheduleOffer.LocalTime = s.cleanStructuredField(report.ScheduleOffer.LocalTime, 5)
-		report.ScheduleOffer.Timezone = s.cleanStructuredField(report.ScheduleOffer.Timezone, 100)
-		report.ScheduleOffer.CatchUp = s.cleanStructuredField(report.ScheduleOffer.CatchUp, 10)
-		report.ScheduleOffer.ExpiresIn = s.cleanStructuredField(report.ScheduleOffer.ExpiresIn, 20)
-		if len(report.ScheduleOffer.Weekdays) > 7 {
+	for _, offer := range orderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers) {
+		offer.Title = s.cleanStructuredField(offer.Title, 160)
+		offer.Prompt = s.cleanStructuredField(offer.Prompt, 1200)
+		offer.Repository = s.cleanStructuredField(offer.Repository, 63)
+		offer.DeliveryChannel = s.cleanStructuredField(offer.DeliveryChannel, 64)
+		offer.Recurrence = s.cleanStructuredField(offer.Recurrence, 20)
+		offer.StartAt = s.cleanStructuredField(offer.StartAt, 40)
+		offer.LocalTime = s.cleanStructuredField(offer.LocalTime, 5)
+		offer.Timezone = s.cleanStructuredField(offer.Timezone, 100)
+		offer.CatchUp = s.cleanStructuredField(offer.CatchUp, 10)
+		offer.ExpiresIn = s.cleanStructuredField(offer.ExpiresIn, 20)
+		if len(offer.Weekdays) > 7 {
 			return decisionpkg.AgentReport{}, errors.New("schedule offer has too many weekdays")
 		}
 	}

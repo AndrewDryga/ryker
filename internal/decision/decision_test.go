@@ -6,6 +6,28 @@ import (
 	"time"
 )
 
+func TestParseWatchDecisionAcceptsSeveralScheduleOffers(t *testing.T) {
+	raw := `{
+		"action":"reply",
+		"operations":[
+			{"id":"schedule-tomorrow","type":"offer_schedule","schedule_offer":{"title":"Check Zot logs tomorrow","prompt":"Check Zot logs for the authentication failure fixed in this thread and report the result here.","repository":"tenant-infra","recurrence":"once","start_at":"2026-08-12T09:00:00-06:00","timezone":"America/Merida"}},
+			{"id":"schedule-three-days","type":"offer_schedule","schedule_offer":{"title":"Check Zot logs in three days","prompt":"Check Zot logs for the authentication failure fixed in this thread and report the result here.","repository":"tenant-infra","recurrence":"once","start_at":"2026-08-14T09:00:00-06:00","timezone":"America/Merida"}},
+			{"id":"complete","type":"complete_episode","completion":{"message":"I can schedule both checks together."}}
+		]
+	}`
+
+	parsed, err := ParseWatchDecision(raw, time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("parse two schedule offers: %v", err)
+	}
+	if parsed.ScheduleOffer == nil || len(parsed.ScheduleOffers) != 1 {
+		t.Fatalf("schedule offers were not preserved: primary=%+v additional=%+v", parsed.ScheduleOffer, parsed.ScheduleOffers)
+	}
+	if parsed.ScheduleOffer.Title != "Check Zot logs tomorrow" || parsed.ScheduleOffers[0].Title != "Check Zot logs in three days" {
+		t.Fatalf("schedule offers changed order: primary=%+v additional=%+v", parsed.ScheduleOffer, parsed.ScheduleOffers)
+	}
+}
+
 // A reply that is both fenced and schema-invalid must be reported for the
 // schema, not the fence.
 //

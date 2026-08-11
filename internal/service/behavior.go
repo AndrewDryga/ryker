@@ -384,7 +384,8 @@ func (s *Service) confirmPendingPreferenceReply(
 	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), s.now())
 	if err != nil || decision.PreferenceOffer == nil ||
 		decision.MemoryOffer != nil || decision.RuleOffer != nil ||
-		decision.ScheduleOffer != nil || decision.PendingApproval != nil ||
+		decision.ScheduleOffer != nil || len(decision.ScheduleOffers) != 0 ||
+		decision.PendingApproval != nil ||
 		decision.IncidentTitle != "" || decision.TaskTitle != "" {
 		return false, nil
 	}
@@ -1222,6 +1223,7 @@ type operatorOffers struct {
 	Preference *core.PreferenceOffer
 	Rule       *core.RuleOffer
 	Schedule   *core.ScheduleOffer
+	Schedules  []*core.ScheduleOffer
 }
 
 // normalizedOffers reports the corrected offers, a replacement message when the

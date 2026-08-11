@@ -13,6 +13,7 @@ import (
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 )
 
 type scheduleSlack struct {
@@ -61,6 +62,89 @@ func TestScheduleOfferRequiresOperatorIntentAndNormalizesTypedCalendar(t *testin
 	input.Text = "Run a deep production health report."
 	if _, _, _, ok := s.prepareScheduleOfferAction(context.Background(), input, offer); ok {
 		t.Fatal("schedule offer accepted without explicit scheduling intent")
+	}
+}
+
+func TestSeveralScheduleOffersBecomeOneAtomicConfirmation(t *testing.T) {
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	s := &Service{cfg: cfg, store: st, slack: &fakeSlack{channel: slackui.Channel{
+		ID: "COPS", Name: "operations", Member: true,
+	}}}
+	now := time.Now().UTC().Truncate(time.Second)
+	input := core.SlackInput{
+		ID: "slack_zot_followups", EventID: "EvZotFollowups", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", ThreadTS: "100.1", UserID: cfg.Slack.Operators[0],
+		Text: "Check tomorrow and in three days that Zot authentication failures are gone.",
+	}
+	offers := []*core.ScheduleOffer{
+		{Title: "Check Zot tomorrow", Prompt: "Check Zot logs for recurring authentication failures and report here.", Repository: "repo", Recurrence: "once", StartAt: now.Add(24 * time.Hour).Format(time.RFC3339), Timezone: "UTC", CatchUp: "latest", ExpiresIn: "7d"},
+		{Title: "Check Zot in three days", Prompt: "Check Zot logs for recurring authentication failures and report here.", Repository: "repo", Recurrence: "once", StartAt: now.Add(72 * time.Hour).Format(time.RFC3339), Timezone: "UTC", CatchUp: "latest", ExpiresIn: "7d"},
+	}
+	value, tasks, whens, ok := s.prepareScheduleOffersAction(context.Background(), input, offers)
+	if !ok || len(tasks) != 2 || len(whens) != 2 {
+		t.Fatalf("schedule batch = ok=%t tasks=%+v whens=%v", ok, tasks, whens)
+	}
+	var payload scheduleActionPayload
+	if err := decisionpkg.DecodeStrictJSON([]byte(value), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Version != 3 || len(payload.ProposalIDs) != 2 {
+		t.Fatalf("schedule batch payload = %+v", payload)
+	}
+	for index, id := range payload.ProposalIDs {
+		proposal, getErr := st.Schedules.Get(context.Background(), id)
+		if getErr != nil {
+			t.Fatalf("get proposal %d: %v", index, getErr)
+		}
+		if proposal.Task.ThreadTS != input.ThreadTS || proposal.Task.Prompt != offers[index].Prompt {
+			t.Fatalf("proposal %d = %+v", index, proposal)
+		}
+	}
+}
+
+func TestSeveralScheduleOffersCannotReplaceTheSameExistingSchedule(t *testing.T) {
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC().Truncate(time.Second)
+	_, err = st.Schedules.CreateScheduledTask(context.Background(), core.ScheduledTask{
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1", DeliveryChannel: "COPS",
+		Repository: "repo", Title: "Existing Zot check", Prompt: "Check Zot logs.",
+		Recurrence: "once", StartAt: now.Add(12 * time.Hour), NextRunAt: now.Add(12 * time.Hour),
+		Timezone: "UTC", CatchUp: "latest", ActorID: cfg.Slack.Operators[0], SourceRef: "existing-zot",
+		ExpiresAt: now.Add(7 * 24 * time.Hour),
+	}, cfg.Limits.MaxScheduledTasks, cfg.Limits.MaxSchedulesPerChannel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{cfg: cfg, store: st, slack: &fakeSlack{channel: slackui.Channel{
+		ID: "COPS", Name: "operations", Member: true,
+	}}}
+	input := core.SlackInput{
+		ID: "slack_zot_followups", EventID: "EvZotFollowups", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", ThreadTS: "100.1", UserID: cfg.Slack.Operators[0],
+		Text: "Check tomorrow and in three days that Zot authentication failures are gone.",
+	}
+	offers := []*core.ScheduleOffer{
+		{Title: "Check Zot tomorrow", Prompt: "Check Zot logs.", Repository: "repo", Recurrence: "once", StartAt: now.Add(24 * time.Hour).Format(time.RFC3339), Timezone: "UTC", CatchUp: "latest", ExpiresIn: "7d"},
+		{Title: "Check Zot in three days", Prompt: "Check Zot logs.", Repository: "repo", Recurrence: "once", StartAt: now.Add(72 * time.Hour).Format(time.RFC3339), Timezone: "UTC", CatchUp: "latest", ExpiresIn: "7d"},
+	}
+
+	if _, _, _, ok := s.prepareScheduleOffersAction(context.Background(), input, offers); ok {
+		t.Fatal("ambiguous batch replacing one schedule was accepted")
+	}
+	if _, err := st.Schedules.GetPendingForConversation(
+		context.Background(), cfg.Slack.TeamID, input.ChannelID, input.ThreadTS, input.UserID,
+	); !errors.Is(err, schedulestore.ErrNotFound) {
+		t.Fatalf("ambiguous batch left a pending proposal: %v", err)
 	}
 }
 

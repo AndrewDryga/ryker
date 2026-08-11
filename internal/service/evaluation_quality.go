@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -245,7 +246,7 @@ func renderEvaluationMessage(
 			if decision.IncidentTitle != "" {
 				message = slackui.WithIncidentOffer(message, "evaluation-source")
 			}
-			if decision.ScheduleOffer != nil {
+			if offers := orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 {
 				operatorID := "UEVALOPERATOR"
 				if len(cfg.Slack.Operators) > 0 {
 					operatorID = cfg.Slack.Operators[0]
@@ -255,10 +256,28 @@ func renderEvaluationMessage(
 					return slackui.Message{}, decision.Action, err
 				}
 				evaluator := &Service{cfg: cfg}
-				if task, when, ok := evaluator.normalizeScheduleOffer(
-					context.Background(), input, decision.ScheduleOffer,
-				); ok {
-					message = slackui.WithScheduleOffer(message, task, `{"version":2,"proposal_id":"evaluation"}`, when)
+				tasks := make([]core.ScheduledTask, 0, len(offers))
+				whens := make([]string, 0, len(offers))
+				valid := true
+				for _, offer := range offers {
+					task, when, ok := evaluator.normalizeScheduleOffer(context.Background(), input, offer)
+					if !ok {
+						valid = false
+						break
+					}
+					tasks = append(tasks, task)
+					whens = append(whens, when)
+				}
+				if valid {
+					proposalIDs := make([]string, len(tasks))
+					for index := range tasks {
+						proposalIDs[index] = fmt.Sprintf("evaluation-%d", index+1)
+					}
+					actionValue, err := scheduleofferpkg.EncodeAction(proposalIDs)
+					if err != nil {
+						return slackui.Message{}, decision.Action, err
+					}
+					message = slackui.WithScheduleOffers(message, tasks, actionValue, whens)
 				} else {
 					message = slackui.ScheduleOfferUnavailable(message)
 				}

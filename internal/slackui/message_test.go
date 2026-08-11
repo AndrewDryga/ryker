@@ -1087,6 +1087,27 @@ func TestScheduleOfferMakesFutureCommitmentConditional(t *testing.T) {
 	}
 }
 
+func TestSeveralScheduleOffersUseOneAtomicConfirmation(t *testing.T) {
+	now := time.Now().UTC().Add(24 * time.Hour)
+	tasks := []core.ScheduledTask{
+		{ChannelID: "COPS", ThreadTS: "100.1", Repository: "repo", Title: "Check Zot tomorrow", Prompt: "Check Zot logs for the fixed authentication error.", NextRunAt: now, Timezone: "UTC"},
+		{ChannelID: "COPS", ThreadTS: "100.1", Repository: "repo", Title: "Check Zot in three days", Prompt: "Check Zot logs for the fixed authentication error.", NextRunAt: now.Add(48 * time.Hour), Timezone: "UTC"},
+	}
+	message := WithScheduleOffers(
+		ConversationResponse("I can check both.", NewSanitizer(12000)), tasks,
+		`{"version":3,"proposal_ids":["one","two"]}`,
+		[]string{"Tomorrow at 15:00 CDT", "In three days at 15:00 CDT"},
+	)
+	content := message.Text + strings.Join(message.Sections, "\n") + strings.Join(message.Context, "\n")
+	if len(message.Actions) != 1 || message.Actions[0].Label != "Schedule all 2" ||
+		!strings.Contains(message.Actions[0].Confirm, "all 2") ||
+		!strings.Contains(content, "Check Zot tomorrow") ||
+		!strings.Contains(content, "Check Zot in three days") ||
+		!strings.Contains(content, "none are") {
+		t.Fatalf("schedule batch card = %+v", message)
+	}
+}
+
 func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
 	offer := core.MemoryOffer{
 		Scope: "workspace", Subject: "fix_explanation_style", Predicate: "guidance",

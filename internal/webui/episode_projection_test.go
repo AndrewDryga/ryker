@@ -761,6 +761,31 @@ func TestResultSideEffectsOmitsEmptyMemoryFields(t *testing.T) {
 	}
 }
 
+func TestResultSideEffectsShowsEveryScheduledTaskOffer(t *testing.T) {
+	parsed, err := decision.ParseWatchDecision(`{
+	  "action":"reply",
+	  "reason":"Two follow-up checks need confirmation.",
+	  "message":"I can schedule both checks together.",
+	  "operations":[
+	    {"id":"schedule-zot-tomorrow","type":"offer_schedule","schedule_offer":{"title":"Check Zot tomorrow","prompt":"Check Zot logs for the fixed authentication failure.","recurrence":"once","start_at":"2026-08-12T20:00:00Z","timezone":"America/Merida","expires_in":"7d"}},
+	    {"id":"schedule-zot-three-days","type":"offer_schedule","schedule_offer":{"title":"Check Zot in three days","prompt":"Check Zot logs for the fixed authentication failure.","recurrence":"once","start_at":"2026-08-14T20:00:00Z","timezone":"America/Merida","expires_in":"7d"}},
+	    {"id":"complete","type":"complete_episode","completion":{"message":"I can schedule both checks together."}}
+	  ]
+	}`, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	effects := resultSideEffects(parsed, "completed")
+	if len(effects) != 2 {
+		t.Fatalf("effects = %+v, want two scheduled task offers", effects)
+	}
+	if effects[0].Kind != "scheduled task" || effects[0].Title != "Check Zot tomorrow" ||
+		effects[1].Kind != "scheduled task" || effects[1].Title != "Check Zot in three days" {
+		t.Fatalf("effects = %+v, want both scheduled task offers in order", effects)
+	}
+}
+
 func TestEpisodeTimelineDoesNotTruncateEpisodeOwnedRecords(t *testing.T) {
 	fixture := newEpisodeProjectionFixture(t)
 	for index := 0; index < 425; index++ {

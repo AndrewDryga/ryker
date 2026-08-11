@@ -20,6 +20,19 @@ import (
 	"github.com/AndrewDryga/responder/internal/decision"
 )
 
+func Offers(primary *core.ScheduleOffer, additional []*core.ScheduleOffer) []*core.ScheduleOffer {
+	offers := make([]*core.ScheduleOffer, 0, 1+len(additional))
+	if primary != nil {
+		offers = append(offers, primary)
+	}
+	for _, offer := range additional {
+		if offer != nil {
+			offers = append(offers, offer)
+		}
+	}
+	return offers
+}
+
 var ScheduleIntentPattern = regexp.MustCompile(
 	`(?i)\b(?:remind|schedule)\b|` +
 		`\b(?:every|each)\s+(?:morning|afternoon|evening|night|day|weekday|week|month|` +

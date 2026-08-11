@@ -59,55 +59,91 @@ func (r *Repository) nowText() string {
 // Create keeps the full normalized task server-side before Slack renders an
 // inert confirmation control containing only the proposal ID.
 func (r *Repository) Create(ctx context.Context, proposal core.ScheduleProposal) (core.ScheduleProposal, error) {
-	if proposal.TeamID == "" || proposal.ChannelID == "" || proposal.ActorID == "" || proposal.SourceRef == "" {
-		return core.ScheduleProposal{}, errors.New("schedule proposal identity is incomplete")
-	}
-	if err := validateTask(proposal.Task); err != nil {
+	proposals, err := r.CreateMany(ctx, []core.ScheduleProposal{proposal})
+	if err != nil {
 		return core.ScheduleProposal{}, err
+	}
+	return proposals[0], nil
+}
+
+// CreateMany stores one confirmation batch atomically. Slack must never offer
+// to create a set of tasks when only part of that set can be confirmed.
+func (r *Repository) CreateMany(ctx context.Context, proposals []core.ScheduleProposal) ([]core.ScheduleProposal, error) {
+	if len(proposals) == 0 {
+		return nil, errors.New("schedule proposal batch is empty")
 	}
 	now := r.now()
-	if proposal.ExpiresAt.IsZero() {
-		proposal.ExpiresAt = now.Add(24 * time.Hour)
+	seenSources := make(map[string]struct{}, len(proposals))
+	prepared := make([]core.ScheduleProposal, len(proposals))
+	for index, proposal := range proposals {
+		if proposal.TeamID == "" || proposal.ChannelID == "" || proposal.ActorID == "" || proposal.SourceRef == "" {
+			return nil, errors.New("schedule proposal identity is incomplete")
+		}
+		if _, duplicate := seenSources[proposal.SourceRef]; duplicate {
+			return nil, fmt.Errorf("schedule proposal source %q is duplicated", proposal.SourceRef)
+		}
+		seenSources[proposal.SourceRef] = struct{}{}
+		if err := validateTask(proposal.Task); err != nil {
+			return nil, err
+		}
+		if proposal.ExpiresAt.IsZero() {
+			proposal.ExpiresAt = now.Add(24 * time.Hour)
+		}
+		if !proposal.ExpiresAt.After(now) {
+			return nil, errors.New("schedule proposal expiration must be in the future")
+		}
+		if proposal.ID == "" {
+			var err error
+			proposal.ID, err = core.NewID("schedule_proposal")
+			if err != nil {
+				return nil, err
+			}
+		}
+		proposal.Status = "pending"
+		proposal.CreatedAt = now
+		proposal.UpdatedAt = now
+		prepared[index] = proposal
 	}
-	if !proposal.ExpiresAt.After(now) {
-		return core.ScheduleProposal{}, errors.New("schedule proposal expiration must be in the future")
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
 	}
-	if proposal.ID == "" {
-		var err error
-		proposal.ID, err = core.NewID("schedule_proposal")
-		if err != nil {
-			return core.ScheduleProposal{}, err
+	defer tx.Rollback()
+	for index, proposal := range prepared {
+		taskJSON, marshalErr := json.Marshal(proposal.Task)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		result, execErr := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO schedule_proposals (
+			  id, team_id, channel_id, thread_ts, actor_id, source_ref, task_json,
+			  replace_task_id, status, accepted_task_id, expires_at, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?)`,
+			proposal.ID, proposal.TeamID, proposal.ChannelID, proposal.ThreadTS,
+			proposal.ActorID, proposal.SourceRef, taskJSON, proposal.ReplaceTaskID,
+			proposal.ExpiresAt.Format(timestampFormat), now.Format(timestampFormat), now.Format(timestampFormat),
+		)
+		if execErr != nil {
+			return nil, execErr
+		}
+		inserted, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return nil, rowsErr
+		}
+		if inserted == 0 {
+			existing, scanErr := scanProposal(tx.QueryRowContext(ctx, proposalSelect+`
+				WHERE team_id = ? AND channel_id = ? AND source_ref = ?`,
+				proposal.TeamID, proposal.ChannelID, proposal.SourceRef))
+			if scanErr != nil {
+				return nil, scanErr
+			}
+			prepared[index] = existing
 		}
 	}
-	proposal.Status = "pending"
-	proposal.CreatedAt = now
-	proposal.UpdatedAt = now
-	taskJSON, err := json.Marshal(proposal.Task)
-	if err != nil {
-		return core.ScheduleProposal{}, err
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
-	result, err := r.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO schedule_proposals (
-		  id, team_id, channel_id, thread_ts, actor_id, source_ref, task_json,
-		  replace_task_id, status, accepted_task_id, expires_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?)`,
-		proposal.ID, proposal.TeamID, proposal.ChannelID, proposal.ThreadTS,
-		proposal.ActorID, proposal.SourceRef, taskJSON, proposal.ReplaceTaskID,
-		proposal.ExpiresAt.Format(timestampFormat), now.Format(timestampFormat), now.Format(timestampFormat),
-	)
-	if err != nil {
-		return core.ScheduleProposal{}, err
-	}
-	inserted, err := result.RowsAffected()
-	if err != nil {
-		return core.ScheduleProposal{}, err
-	}
-	if inserted == 0 {
-		return scanProposal(r.db.QueryRowContext(ctx, proposalSelect+`
-			WHERE team_id = ? AND channel_id = ? AND source_ref = ?`,
-			proposal.TeamID, proposal.ChannelID, proposal.SourceRef))
-	}
-	return proposal, nil
+	return prepared, nil
 }
 
 func (r *Repository) Get(ctx context.Context, id string) (core.ScheduleProposal, error) {
@@ -138,14 +174,68 @@ func (r *Repository) Accept(
 	maxTotal int,
 	maxPerChannel int,
 ) (core.ScheduledTask, error) {
-	if maxTotal < 1 || maxPerChannel < 1 || maxPerChannel > maxTotal {
-		return core.ScheduledTask{}, errors.New("scheduled task limits are invalid")
-	}
-	tx, err := r.db.BeginTx(ctx, nil)
+	tasks, err := r.AcceptMany(ctx, []string{id}, teamID, channelID, actorID, maxTotal, maxPerChannel)
 	if err != nil {
 		return core.ScheduledTask{}, err
 	}
+	return tasks[0], nil
+}
+
+// AcceptMany activates a related set of schedule proposals in one transaction.
+// Either every requested schedule becomes durable, or none of them do.
+func (r *Repository) AcceptMany(
+	ctx context.Context,
+	ids []string,
+	teamID string,
+	channelID string,
+	actorID string,
+	maxTotal int,
+	maxPerChannel int,
+) ([]core.ScheduledTask, error) {
+	if maxTotal < 1 || maxPerChannel < 1 || maxPerChannel > maxTotal {
+		return nil, errors.New("scheduled task limits are invalid")
+	}
+	if len(ids) == 0 {
+		return nil, errors.New("schedule proposal batch is empty")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
 	defer tx.Rollback()
+	seen := make(map[string]struct{}, len(ids))
+	tasks := make([]core.ScheduledTask, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, errors.New("schedule proposal id is empty")
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return nil, fmt.Errorf("schedule proposal %q is duplicated", id)
+		}
+		seen[id] = struct{}{}
+		task, acceptErr := r.acceptOne(ctx, tx, id, teamID, channelID, actorID, maxTotal, maxPerChannel)
+		if acceptErr != nil {
+			return nil, acceptErr
+		}
+		tasks = append(tasks, task)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+func (r *Repository) acceptOne(
+	ctx context.Context,
+	tx *sql.Tx,
+	id string,
+	teamID string,
+	channelID string,
+	actorID string,
+	maxTotal int,
+	maxPerChannel int,
+) (core.ScheduledTask, error) {
 	proposal, err := scanProposal(tx.QueryRowContext(ctx, proposalSelect+` WHERE id = ?`, id))
 	if err != nil {
 		return core.ScheduledTask{}, err
@@ -155,11 +245,7 @@ func (r *Repository) Accept(
 	}
 	now := r.now()
 	if proposal.Status == "accepted" && proposal.AcceptedTaskID != "" {
-		task, getErr := scanTask(tx.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, proposal.AcceptedTaskID))
-		if getErr != nil {
-			return core.ScheduledTask{}, getErr
-		}
-		return task, tx.Commit()
+		return scanTask(tx.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, proposal.AcceptedTaskID))
 	}
 	if proposal.Status != "pending" || !proposal.ExpiresAt.After(now) {
 		return core.ScheduledTask{}, errors.New("schedule proposal is no longer pending")
@@ -194,9 +280,6 @@ func (r *Repository) Accept(
 		UPDATE schedule_proposals SET status = 'accepted', accepted_task_id = ?, updated_at = ?
 		WHERE id = ? AND status = 'pending'`, task.ID, now.Format(timestampFormat), id)
 	if err := sqlutil.ExpectOne(result, err, "accept schedule proposal"); err != nil {
-		return core.ScheduledTask{}, err
-	}
-	if err := tx.Commit(); err != nil {
 		return core.ScheduledTask{}, err
 	}
 	return task, nil

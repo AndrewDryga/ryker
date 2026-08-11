@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/decision"
 )
 
@@ -283,7 +284,7 @@ func resultSideEffects(parsed decision.WatchDecision, terminalState string) []Si
 		add("standing rule", "offered", offer.Trigger+" → "+offer.Action,
 			offer.Repository+offerExpiry(offer.ExpiresIn))
 	}
-	if offer := parsed.ScheduleOffer; offer != nil {
+	for _, offer := range appendScheduleOffers(parsed.ScheduleOffer, parsed.ScheduleOffers) {
 		add("scheduled task", "offered", offer.Title,
 			offer.Recurrence+" · "+offer.StartAt+offerExpiry(offer.ExpiresIn))
 	}
@@ -300,6 +301,19 @@ func resultSideEffects(parsed decision.WatchDecision, terminalState string) []Si
 		add("publication", update.State, update.Kind, update.Summary)
 	}
 	return effects
+}
+
+func appendScheduleOffers(primary *core.ScheduleOffer, additional []*core.ScheduleOffer) []*core.ScheduleOffer {
+	offers := make([]*core.ScheduleOffer, 0, 1+len(additional))
+	if primary != nil {
+		offers = append(offers, primary)
+	}
+	for _, offer := range additional {
+		if offer != nil {
+			offers = append(offers, offer)
+		}
+	}
+	return offers
 }
 
 func offerExpiry(value string) string {

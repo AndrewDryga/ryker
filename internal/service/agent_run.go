@@ -20,6 +20,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/resultwire"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
+	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -3080,10 +3081,12 @@ func (s *Service) finalizeIncidentAgentRun(
 						Preference: report.PreferenceOffer,
 						Rule:       report.RuleOffer,
 						Schedule:   report.ScheduleOffer,
+						Schedules:  report.ScheduleOffers,
 					},
 				)
 				report.MemoryOffer, report.PreferenceOffer = offers.Memory, offers.Preference
 				report.RuleOffer, report.ScheduleOffer = offers.Rule, offers.Schedule
+				report.ScheduleOffers = offers.Schedules
 				if replaced {
 					report.Message = acknowledgement
 					report.FollowupMessages = nil
@@ -3160,33 +3163,33 @@ func (s *Service) finalizeIncidentAgentRun(
 						expires,
 					)
 				}
-				if report.ScheduleOffer != nil {
-					if actionValue, task, when, ok := s.prepareScheduleOfferAction(
-						ctx, conversationInput, report.ScheduleOffer,
+				scheduleOffers := orderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers)
+				if len(scheduleOffers) != 0 {
+					if actionValue, tasks, whens, ok := s.prepareScheduleOffersAction(
+						ctx, conversationInput, scheduleOffers,
 					); ok {
 						if schedulepkg.ExplicitScheduleConfirmation(
 							s.stripBotMention(conversationInput.Text),
 						) && agentReportCanActivateSchedule(report) {
-							var payload scheduleActionPayload
-							if err := decisionpkg.DecodeStrictJSON(
-								[]byte(actionValue), &payload,
-							); err != nil {
+							proposalIDs, _, err := scheduleofferpkg.DecodeAction(actionValue)
+							if err != nil {
 								return err
 							}
-							acceptedTask, err := s.acceptScheduleProposal(
-								ctx, conversationInput, payload.ProposalID,
+							acceptedTasks, err := s.acceptScheduleProposals(
+								ctx, conversationInput, proposalIDs,
 							)
 							if err != nil {
 								return err
 							}
-							task = acceptedTask
-							s.audit(ctx, core.AuditEvent{
-								Kind: "schedule.created", ActorID: conversationInput.UserID,
-								ObjectID: task.ID, Outcome: "enabled", Detail: task.Title,
-							})
-							message = slackui.ScheduleSavedMessage(task)
+							for _, acceptedTask := range acceptedTasks {
+								s.audit(ctx, core.AuditEvent{
+									Kind: "schedule.created", ActorID: conversationInput.UserID,
+									ObjectID: acceptedTask.ID, Outcome: "enabled", Detail: acceptedTask.Title,
+								})
+							}
+							message = slackui.SchedulesSavedMessage(acceptedTasks)
 						} else {
-							message = slackui.WithScheduleOffer(message, task, actionValue, when)
+							message = slackui.WithScheduleOffers(message, tasks, actionValue, whens)
 						}
 					} else {
 						message = slackui.ScheduleOfferUnavailable(message)
@@ -3324,7 +3327,7 @@ func (s *Service) finalizeIncidentAgentRun(
 }
 
 func agentReportCanActivateSchedule(report decisionpkg.AgentReport) bool {
-	return report.ScheduleOffer != nil && report.MemoryOffer == nil &&
+	return len(orderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers)) != 0 && report.MemoryOffer == nil &&
 		report.PreferenceOffer == nil && report.RuleOffer == nil &&
 		report.PendingApproval == nil && len(report.Visuals) == 0
 }

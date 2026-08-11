@@ -85,3 +85,80 @@ func TestLosingTheAcceptRaceIsAMatchableConflict(t *testing.T) {
 		t.Fatalf("conflict is not matchable as store.ErrConflict: %v", err)
 	}
 }
+
+func TestAcceptManyCreatesEveryScheduleAtomically(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC()
+	ids := make([]string, 0, 2)
+	for index, delay := range []time.Duration{24 * time.Hour, 72 * time.Hour} {
+		proposal, createErr := st.Schedules.Create(ctx, core.ScheduleProposal{
+			TeamID: "T1", ChannelID: "C1", ThreadTS: "1700.1", ActorID: "U1",
+			SourceRef: "batch-" + string(rune('1'+index)),
+			Task: core.ScheduledTask{
+				TeamID: "T1", ChannelID: "C1", ThreadTS: "1700.1", ActorID: "U1",
+				SourceRef: "batch-" + string(rune('1'+index)), Title: "check Zot logs",
+				Prompt: "check Zot logs and report here", Repository: "repo", Recurrence: "once",
+				StartAt: now.Add(delay), NextRunAt: now.Add(delay), Timezone: "UTC", CatchUp: "latest",
+				ExpiresAt: now.Add(delay + 24*time.Hour),
+			},
+		})
+		if createErr != nil {
+			t.Fatalf("create proposal %d: %v", index, createErr)
+		}
+		ids = append(ids, proposal.ID)
+	}
+
+	tasks, err := st.Schedules.AcceptMany(ctx, ids, "T1", "C1", "U1", 10, 10)
+	if err != nil {
+		t.Fatalf("accept batch: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("accepted %d tasks, want 2", len(tasks))
+	}
+}
+
+func TestAcceptManyRollsBackTheWholeBatch(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC()
+	ids := make([]string, 0, 2)
+	for index, delay := range []time.Duration{24 * time.Hour, 72 * time.Hour} {
+		proposal, createErr := st.Schedules.Create(ctx, core.ScheduleProposal{
+			TeamID: "T1", ChannelID: "C1", ThreadTS: "1700.1", ActorID: "U1",
+			SourceRef: "rollback-" + string(rune('1'+index)),
+			Task: core.ScheduledTask{
+				TeamID: "T1", ChannelID: "C1", ThreadTS: "1700.1", ActorID: "U1",
+				SourceRef: "rollback-" + string(rune('1'+index)), Title: "check Zot logs",
+				Prompt: "check Zot logs and report here", Repository: "repo", Recurrence: "once",
+				StartAt: now.Add(delay), NextRunAt: now.Add(delay), Timezone: "UTC", CatchUp: "latest",
+				ExpiresAt: now.Add(delay + 24*time.Hour),
+			},
+		})
+		if createErr != nil {
+			t.Fatalf("create proposal %d: %v", index, createErr)
+		}
+		ids = append(ids, proposal.ID)
+	}
+
+	if _, err := st.Schedules.AcceptMany(ctx, ids, "T1", "C1", "U1", 1, 1); err == nil {
+		t.Fatal("batch exceeding capacity was accepted")
+	}
+	tasks, err := st.Schedules.ListScheduledTasksForChannel(ctx, "C1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("failed batch left %d active tasks", len(tasks))
+	}
+}
