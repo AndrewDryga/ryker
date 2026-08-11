@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -633,7 +634,7 @@ func evaluateCaseWithConfig(
 			)
 			decision = enforceExternalLifecycleCommunication(input, decision)
 			decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
-			decision = decisionpkg.EnforceAttentionPolicy(
+			decision = attentionpkg.Enforce(
 				input,
 				state,
 				decision,

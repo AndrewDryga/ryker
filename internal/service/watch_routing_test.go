@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -683,28 +684,28 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 			Addressee: "human", Urgency: 1, Confidence: 3, Novelty: 1, Ownership: 1,
 		},
 	}
-	filtered := decisionpkg.EnforceAttentionPolicy(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
+	filtered := attentionpkg.Enforce(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
 	if filtered.Action != "ignore" || filtered.Message != "" ||
 		!strings.Contains(filtered.Reason, "suppressed") {
 		t.Fatalf("filtered decision = %+v", filtered)
 	}
 
 	input.Kind = "mention"
-	filtered = decisionpkg.EnforceAttentionPolicy(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
+	filtered = attentionpkg.Enforce(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
 	if filtered.Action != "reply" || filtered.Message == "" {
 		t.Fatalf("explicit mention was suppressed: %+v", filtered)
 	}
 
 	input.Kind = "message"
 	decision.Attention = decisionpkg.AttentionAssessment{}
-	filtered = decisionpkg.EnforceAttentionPolicy(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
+	filtered = attentionpkg.Enforce(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
 	if filtered.Action != "ignore" {
 		t.Fatalf("ambient action without assessment = %q, want ignore", filtered.Action)
 	}
 
 	decision.Action = "react"
 	decision.Reaction = "eyes"
-	filtered = decisionpkg.EnforceAttentionPolicy(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
+	filtered = attentionpkg.Enforce(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
 	if filtered.Action != "ignore" || filtered.Reaction != "" {
 		t.Fatalf("reaction without assessment = %+v, want suppressed", filtered)
 	}
@@ -714,7 +715,7 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 	decision.Attention = decisionpkg.AttentionAssessment{
 		Addressee: "human", Urgency: 2, Confidence: 3, Novelty: 2, Ownership: 2,
 	}
-	filtered = decisionpkg.EnforceAttentionPolicy(
+	filtered = attentionpkg.Enforce(
 		input,
 		decisionpkg.WatchTurnState{ConversationFollowup: true},
 		decision,
@@ -723,6 +724,51 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 	)
 	if filtered.Action != "ignore" {
 		t.Fatalf("human-directed continuation was not suppressed: %+v", filtered)
+	}
+}
+
+func TestEvidenceBackedConversationReplyCorrectsHumanAddressee(t *testing.T) {
+	now := time.Date(2026, 8, 11, 19, 0, 0, 0, time.UTC)
+	input := core.SlackInput{
+		Kind:      "message",
+		ChannelID: "COPS",
+		Text:      "The build passed; static analysis failed in a different job.",
+	}
+	state := decisionpkg.WatchTurnState{ConversationFollowup: true}
+	decision := decisionpkg.WatchDecision{
+		Action:  "reply",
+		Message: "The build passed. The missing image points to publication or promotion instead.",
+		Attention: decisionpkg.AttentionAssessment{
+			Addressee: "human", Urgency: 1, Confidence: 3, Novelty: 3, Ownership: 2,
+		},
+		Evidence: []core.Evidence{{
+			Claim:       "the build job passed",
+			Observation: "CI reported the build job successful",
+			SourceType:  "ci",
+			SourceName:  "GitHub Actions",
+			ObservedAt:  now,
+		}},
+		Completion: &completionAssessment{
+			Status: "decision_ready", Summary: "The build passed; image publication remains suspect.",
+		},
+	}
+
+	correction := decisionpkg.WatchDecisionCorrectionAt(
+		input, state, decision, now, operationalCorrelationKey,
+	)
+	if correction == "" || !strings.Contains(correction, "attention.addressee=responder") {
+		t.Fatalf("correction = %q, want responder-addressee correction", correction)
+	}
+
+	decision.Attention.Addressee = "responder"
+	if correction := decisionpkg.WatchDecisionCorrectionAt(
+		input, state, decision, now, operationalCorrelationKey,
+	); correction != "" {
+		t.Fatalf("corrected decision was rejected: %s", correction)
+	}
+	filtered := attentionpkg.Enforce(input, state, decision, 7, 4)
+	if filtered.Action != "reply" || filtered.Message == "" {
+		t.Fatalf("corrected decision was suppressed: %+v", filtered)
 	}
 }
 

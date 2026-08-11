@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -328,7 +329,7 @@ func TestAttentionPolicyKeepsTypedAppAlertRecovery(t *testing.T) {
 			Impact:  "The overdue condition cleared.",
 		},
 	}
-	filtered := decisionpkg.EnforceAttentionPolicy(
+	filtered := attentionpkg.Enforce(
 		input,
 		decisionpkg.WatchTurnState{AlertPolicy: "reply_here"},
 		decision,

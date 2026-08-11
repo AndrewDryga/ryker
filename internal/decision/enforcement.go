@@ -109,60 +109,6 @@ type WatchContextAttachment struct {
 	Size      int64  `json:"size"`
 }
 
-func EnforceAttentionPolicy(
-	input core.SlackInput,
-	state WatchTurnState,
-	decision WatchDecision,
-	replyThreshold int,
-	reactionThreshold int,
-) WatchDecision {
-	// Once an app alert has been investigated into a typed assessment, its
-	// result is the reason the channel policy exists. In particular, recovery
-	// updates are naturally low urgency and must not disappear just because the
-	// generic ambient-conversation threshold is higher than their attention
-	// score. Non-actionable lifecycle noise is suppressed before this point.
-	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
-		decision.Action == "reply" && decision.AlertAssessment != nil &&
-		OperationalAlertEvent(input.Text) {
-		return decision
-	}
-	if !decision.Attention.Present() {
-		switch {
-		case decision.Action == "react":
-			return SuppressWatchDecision(
-				decision,
-				"host attention policy suppressed a reaction without an assessment",
-			)
-		case decision.Action == "reply" && !WatchInputTargeted(input, state):
-			return SuppressWatchDecision(
-				decision,
-				"host attention policy suppressed an ambient reply without an assessment",
-			)
-		default:
-			return decision
-		}
-	}
-	targeted := WatchInputTargeted(input, state)
-	explicitlyTargeted := WatchInputExplicitlyTargeted(input, state)
-	humanAddressee := decision.Attention.Addressee == "human"
-	insufficient := false
-	switch decision.Action {
-	case "reply":
-		insufficient = (!explicitlyTargeted && humanAddressee) ||
-			(!targeted && decision.Attention.Score() < replyThreshold)
-	case "react":
-		insufficient = humanAddressee ||
-			decision.Attention.Score() < reactionThreshold
-	}
-	if !insufficient {
-		return decision
-	}
-	return SuppressWatchDecision(
-		decision,
-		"host attention policy suppressed a low-value interruption",
-	)
-}
-
 func SuppressWatchDecision(decision WatchDecision, reason string) WatchDecision {
 	decision.Action = "ignore"
 	decision.Reaction = ""
@@ -248,16 +194,6 @@ func WatchDecisionCorrection(
 // blocked — "the alert recovered but I could not fully investigate" is
 // technically honest and practically useless, and it leaves the earlier failure
 // message open forever.
-
-// AlertAssessmentCorrection holds a matched operational alert to the standard
-// an operator needs: a verdict backed by a fresh observation, reconciled
-// against the repository that declares what should be running.
-//
-// The recovery case is the one worth reading twice. A resolved alert with fresh
-// evidence that the condition cleared must be reported as decision-ready, not
-// blocked — "the alert recovered but I could not fully investigate" is
-// technically honest and practically useless, and it leaves the earlier failure
-// message open forever.
 func AlertAssessmentCorrection(
 	input core.SlackInput,
 	state WatchTurnState,
@@ -331,6 +267,14 @@ func WatchDecisionCorrectionAt(
 	now time.Time,
 	correlate Correlator,
 ) string {
+	if decision.Action == "reply" && state.ConversationFollowup &&
+		decision.Attention.Addressee == "human" &&
+		decision.Completion != nil && decision.Completion.Status == "decision_ready" &&
+		len(decision.Evidence) > 0 {
+		return "the result contains a completed evidence-backed reply for the active conversation, " +
+			"but attention.addressee says human; return the same supported answer with " +
+			"attention.addressee=responder instead of misclassifying it as human-to-human chatter"
+	}
 	if input.Kind == "bot_message" && decision.Action == "ignore" &&
 		OperationalAlertResolvedEvent(input.Text) &&
 		HasPriorCorrelatedFiringAlert(input, state.RecentMessages, correlate) {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -684,7 +685,7 @@ func (s *Service) applyWatchDecision(
 		}
 	}
 	if !state.ApprovalContinuation {
-		decision = decisionpkg.EnforceAttentionPolicy(
+		decision = attentionpkg.Enforce(
 			input,
 			state,
 			decision,
