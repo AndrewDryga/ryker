@@ -80,7 +80,7 @@
           </section>
           {{end}}
           <details class="trace-detail kind-{{.Kind}}" {{if .Open}}open{{end}}>
-            <summary><span>{{.Label}}</span><span class="trace-disclosure">View full record</span></summary>
+            <summary><span>{{.Label}}{{if gt .Count 0}} ({{.Count}}){{end}}</span><span class="trace-disclosure">View full record</span></summary>
             {{if .Segments}}
             <div class="prompt-segments">
               {{range .Segments}}

@@ -160,10 +160,13 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"USER: @Emisar it would be better if plan summaries showed before and after values",
 		"Memory layers</small><strong>3",
 		"Operational memory",
+		"Operational memory · Confirmed memory (1)",
 		"Conversation memory",
+		"Conversation memory · Goal (1)",
+		"Conversation memory · Knowledge (1)",
 		"Keep plan reviews concise",
 		"Prefer threads",
-		"Related conversation summaries",
+		"Related conversation summaries (1)",
 		"A prior rollout used the same image.",
 		"Final submitted prompt",
 		"System instructions",
@@ -387,9 +390,9 @@ func TestPromptContextDetailsExplainSlackAndOperationalMemory(t *testing.T) {
   "channel_id":"C1",
   "repository":"emisar",
   "target_message":{"message_ts":"1786408526.961689","sender_id":"U1","text":"check this","mentions_responder":true},
-  "recent_messages":[{"message_ts":"1786408500.100","sender_id":"U2","text":"deploy finished"}],
-  "structured_memory":{"goal":"Verify the rollout","constraints":["Reply in threads"]},
-  "prior_operational_context":{"recent_same_channel_evidence":[{"id":"ev_secret","claim":"The rollout finished","observation":"All checks passed","source_type":"github","source_name":"GitHub checks","observed_at":"2026-08-10T08:00:00Z","confidence":"high"}]}
+  "recent_messages":[{"message_ts":"1786408500.100","sender_id":"U2","text":"deploy finished"},{"message_ts":"1786408510.100","sender_id":"U2","text":"health checks passed"}],
+  "structured_memory":{"goal":"Verify the rollout","constraints":["Reply in threads","Show before and after values"]},
+  "prior_operational_context":{"recent_same_channel_evidence":[{"id":"ev_secret","claim":"The rollout finished","observation":"All checks passed","source_type":"github","source_name":"GitHub checks","observed_at":"2026-08-10T08:00:00Z","confidence":"high"},{"id":"ev_health","claim":"The rollout is healthy","observation":"Readiness passed","source_type":"emisar","source_name":"Emisar","observed_at":"2026-08-10T08:01:00Z","confidence":"high"}]}
 }
 </untrusted-slack-context>
 USER: check this`
@@ -401,18 +404,33 @@ USER: check this`
 		t.Fatalf("memory layers = %d, want 2", layers)
 	}
 	joined := ""
+	counts := make(map[string]int, len(details))
 	for _, detail := range details {
 		joined += detail.Group + "\n" + detail.GroupDetail + "\n" + detail.Label + "\n" + detail.Body + "\n"
+		counts[detail.Label] = detail.Count
 	}
 	for _, want := range []string{
 		"Operational memory · Recent same channel evidence",
 		"The rollout finished", "Observed: All checks passed", "Source: GitHub checks",
-		"Conversation memory · Goal", "Verify the rollout", "Source Slack message",
-		"@Andrew Dryga\ncheck this", "Recent Slack messages", "@Trevin Miller\ndeploy finished",
-		"Slack channel\n#infra", "Repository selection\nemisar",
+		"Conversation memory · Goal", "Verify the rollout", "Conversation memory · Constraints",
+		"Source Slack message", "@Andrew Dryga\ncheck this", "Recent Slack messages",
+		"@Trevin Miller\ndeploy finished", "Slack channel\n#infra", "Repository selection\nemisar",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("readable prompt context missing %q:\n%s", want, joined)
+		}
+	}
+	for label, want := range map[string]int{
+		"Operational memory · Recent same channel evidence": 2,
+		"Conversation memory · Goal":                        1,
+		"Conversation memory · Constraints":                 2,
+		"Source Slack message":                              1,
+		"Recent Slack messages":                             2,
+		"Slack channel":                                     1,
+		"Repository selection":                              1,
+	} {
+		if got := counts[label]; got != want {
+			t.Fatalf("context count for %q = %d, want %d", label, got, want)
 		}
 	}
 	for _, unwanted := range []string{"ev_secret", "mentions_responder", `"sender_id"`} {

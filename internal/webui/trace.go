@@ -29,6 +29,7 @@ type TraceDetail struct {
 	Label, Body, Kind  string
 	Group, GroupDetail string
 	Open               bool
+	Count              int
 	Segments           []PromptSegment
 }
 
@@ -492,6 +493,40 @@ func promptFieldDetail(key string, raw json.RawMessage, present func(string) str
 		Label: label,
 		Body:  promptFieldBody(key, raw, present),
 		Kind:  "context",
+		Count: contextEntryCount(raw),
+	}
+}
+
+// contextEntryCount reports how many semantic values from an assembled
+// context component reached this exact prompt. A JSON object is one record;
+// its encoding fields are not separate memories or Slack messages. Lists keep
+// their item count so the episode page can distinguish one retained item from
+// a bounded transcript or evidence set without exposing storage details.
+func contextEntryCount(raw json.RawMessage) int {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		if strings.TrimSpace(string(raw)) == "" {
+			return 0
+		}
+		return 1
+	}
+	switch typed := value.(type) {
+	case nil:
+		return 0
+	case []any:
+		return len(typed)
+	case map[string]any:
+		if len(typed) == 0 {
+			return 0
+		}
+		return 1
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return 0
+		}
+		return 1
+	default:
+		return 1
 	}
 }
 
@@ -634,7 +669,10 @@ func humanValue(value any, present func(string) string, depth int) string {
 func memoryLayerDetails(raw json.RawMessage, label string, priority []string, present func(string) string) []TraceDetail {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || len(fields) == 0 {
-		return []TraceDetail{{Label: label, Body: present(prettyJSON(string(raw))), Kind: "json"}}
+		return []TraceDetail{{
+			Label: label, Body: present(prettyJSON(string(raw))), Kind: "json",
+			Count: contextEntryCount(raw),
+		}}
 	}
 	keys := make([]string, 0, len(fields))
 	seen := map[string]bool{}
@@ -660,7 +698,7 @@ func memoryLayerDetails(raw json.RawMessage, label string, priority []string, pr
 		}
 		details = append(details, TraceDetail{
 			Label: label + " · " + eventTitle(key),
-			Body:  body, Kind: "context",
+			Body:  body, Kind: "context", Count: contextEntryCount(fields[key]),
 		})
 	}
 	return details
