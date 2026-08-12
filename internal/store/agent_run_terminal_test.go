@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
@@ -138,5 +141,208 @@ func TestSupersededOlderAttemptDoesNotCloseNewerWork(t *testing.T) {
 	}
 	if leased.ID != second.ID {
 		t.Fatalf("leased %s, want replacement %s", leased.ID, second.ID)
+	}
+}
+
+func TestPublicPhaseUpdateFromOlderAttemptDoesNotCancelNewerAttempt(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	first, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "COPS", ConversationKey: "channel:COPS",
+		SourceKind: "watch", SourceID: "older-progress", State: core.AgentRunRunning,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(
+		ctx, first.ID, "completed", []byte(`{"action":"reply"}`), "", 1,
+	); err != nil {
+		t.Fatal(err)
+	}
+	second, created, err := st.QueueEpisodeAttempt(ctx, first.EpisodeID, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "COPS", ConversationKey: first.ConversationKey,
+		SourceKind: "watch", SourceID: "newer-terminal", Prompt: "Report terminal state",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue newer attempt: created=%t err=%v", created, err)
+	}
+	if _, err := st.BeginAgentRunFinalization(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The older in-progress result arrives after the terminal notification has
+	// already become the episode's latest attempt. This was the public phase
+	// path that bypassed the ownership guard and closed the shared episode.
+	if err := st.SetWorkEpisodePhase(
+		ctx, first.ID, core.EpisodeSuperseded, "finished",
+		"Superseded by a newer operational update", "", time.Time{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishAgentRun(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	episode, err := st.GetWorkEpisode(ctx, first.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State == core.EpisodeSuperseded || episode.State == core.EpisodeCompleted ||
+		episode.LatestAttemptID != second.AttemptID {
+		t.Fatalf("older attempt closed shared episode = %+v", episode)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leased.ID != second.ID {
+		t.Fatalf("leased %s, want newer terminal attempt %s", leased.ID, second.ID)
+	}
+}
+
+func TestQueueEpisodeAttemptAtomicallyPublishesLatestAttemptBeforeOlderTerminalPhase(t *testing.T) {
+	ctx := context.Background()
+	stateDir := t.TempDir()
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	first, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "COPS", ConversationKey: "channel:COPS",
+		SourceKind: "watch", SourceID: "atomic-older", State: core.AgentRunRunning,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(
+		ctx, first.ID, "completed", []byte(`{"action":"reply"}`), "", 1,
+	); err != nil {
+		t.Fatal(err)
+	}
+	inserted := make(chan struct{})
+	release := make(chan struct{})
+	st.testHookAfterAgentRunInsert = func() {
+		close(inserted)
+		<-release
+	}
+	queueDone := make(chan struct{})
+	var second core.AgentRun
+	var created bool
+	var queueErr error
+	go func() {
+		defer close(queueDone)
+		second, created, queueErr = st.QueueEpisodeAttempt(ctx, first.EpisodeID, core.AgentRun{
+			Mode: core.AgentRunTriage, ChannelID: "COPS", ConversationKey: first.ConversationKey,
+			SourceKind: "watch", SourceID: "atomic-newer", Prompt: "Report terminal state",
+		})
+	}()
+	<-inserted
+	probe, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	var visibleRuns int
+	if err := probe.QueryRowContext(ctx, `
+		SELECT count(*) FROM agent_runs WHERE source_id = 'atomic-newer'`,
+	).Scan(&visibleRuns); err != nil {
+		t.Fatal(err)
+	}
+	if visibleRuns != 0 {
+		t.Fatalf("half-admitted newer run became visible: %d", visibleRuns)
+	}
+
+	phaseDone := make(chan error, 1)
+	phaseStarted := make(chan struct{})
+	go func() {
+		close(phaseStarted)
+		phaseDone <- st.SetWorkEpisodePhase(
+			ctx, first.ID, core.EpisodeSuperseded, "finished",
+			"Superseded by a newer operational update", "", time.Time{},
+		)
+	}()
+	<-phaseStarted
+	select {
+	case err := <-phaseDone:
+		t.Fatalf("older terminal phase escaped admission transaction: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	<-queueDone
+	if queueErr != nil || !created {
+		t.Fatalf("queue newer attempt: run=%+v created=%t err=%v", second, created, queueErr)
+	}
+	if err := <-phaseDone; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BeginAgentRunFinalization(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishAgentRun(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	episode, err := st.GetWorkEpisode(ctx, first.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeRetrying || episode.LatestAttemptID != second.AttemptID {
+		t.Fatalf("atomic admission projection = %+v", episode)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil || leased.ID != second.ID {
+		t.Fatalf("leased newer attempt = %+v, %v", leased, err)
+	}
+}
+
+func TestQueueEpisodeAttemptRejectsSourceIdentityFromAnotherEpisode(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	_, first := queueKernelEpisode(t, st, "resume-target")
+	otherRun, other := queueKernelEpisode(t, st, "already-owned-source")
+	beforeFirst, err := st.GetWorkEpisode(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeOther, err := st.GetWorkEpisode(ctx, other.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, created, err := st.QueueEpisodeAttempt(ctx, first.ID, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "COPS", ConversationKey: "channel:COPS",
+		SourceKind: otherRun.SourceKind, SourceID: otherRun.SourceID,
+		Prompt: "Wrong episode",
+	}); !errors.Is(err, ErrConflict) || created {
+		t.Fatalf("cross-episode resume = created %t, err %v", created, err)
+	}
+	afterFirst, err := st.GetWorkEpisode(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterOther, err := st.GetWorkEpisode(ctx, other.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterFirst.State != beforeFirst.State ||
+		afterFirst.LatestAttemptID != beforeFirst.LatestAttemptID ||
+		afterFirst.EventSequence != beforeFirst.EventSequence ||
+		afterOther.State != beforeOther.State ||
+		afterOther.LatestAttemptID != beforeOther.LatestAttemptID ||
+		afterOther.EventSequence != beforeOther.EventSequence {
+		t.Fatalf("cross-episode conflict mutated episodes: first %+v -> %+v; other %+v -> %+v",
+			beforeFirst, afterFirst, beforeOther, afterOther)
 	}
 }

@@ -48,6 +48,9 @@ var (
 type Store struct {
 	db    *sql.DB
 	clock func() time.Time
+	// testHookAfterAgentRunInsert coordinates deterministic transaction-boundary
+	// tests. Production stores leave it nil.
+	testHookAfterAgentRunInsert func()
 	// Schedules owns scheduling end to end: the proposal, its acceptance, the
 	// resulting task, and its runs. It was two packages over the same three
 	// tables, which is one owner too many for their invariants.

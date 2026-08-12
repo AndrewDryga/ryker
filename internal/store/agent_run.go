@@ -26,6 +26,18 @@ func (s *Store) QueueAgentRun(
 	ctx context.Context,
 	run core.AgentRun,
 ) (core.AgentRun, bool, error) {
+	return s.queueAgentRun(ctx, run, "")
+}
+
+// queueAgentRun admits a transport run and its episode attempt in one write
+// transaction. resumeEpisodeID additionally serializes admission against the
+// episode lifecycle and projects the retrying state before the transaction is
+// visible, so an older attempt can never observe a half-admitted replacement.
+func (s *Store) queueAgentRun(
+	ctx context.Context,
+	run core.AgentRun,
+	resumeEpisodeID string,
+) (core.AgentRun, bool, error) {
 	if run.Mode == "" || run.SourceKind == "" || run.SourceID == "" {
 		return core.AgentRun{}, false, errors.New("agent run identity is incomplete")
 	}
@@ -79,7 +91,38 @@ func (s *Store) QueueAgentRun(
 	if run.IncidentID != "" {
 		incidentID = run.IncidentID
 	}
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.AgentRun{}, false, err
+	}
+	defer tx.Rollback()
+	if resumeEpisodeID != "" {
+		admitted, admitErr := tx.ExecContext(ctx, `
+			UPDATE work_episodes SET updated_at = updated_at
+			WHERE id = ? AND lifecycle_state NOT IN
+			  ('completed', 'failed', 'refused', 'cancelled', 'superseded')`, resumeEpisodeID)
+		if admitErr != nil {
+			return core.AgentRun{}, false, admitErr
+		}
+		rows, rowsErr := admitted.RowsAffected()
+		if rowsErr != nil {
+			return core.AgentRun{}, false, rowsErr
+		}
+		if rows != 1 {
+			var state core.WorkEpisodeState
+			if stateErr := tx.QueryRowContext(ctx,
+				`SELECT lifecycle_state FROM work_episodes WHERE id = ?`, resumeEpisodeID,
+			).Scan(&state); errors.Is(stateErr, sql.ErrNoRows) {
+				return core.AgentRun{}, false, ErrNotFound
+			} else if stateErr != nil {
+				return core.AgentRun{}, false, stateErr
+			}
+			return core.AgentRun{}, false, fmt.Errorf(
+				"cannot resume terminal episode %q in state %q", resumeEpisodeID, state,
+			)
+		}
+	}
+	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO agent_runs (
 		  id, episode_id, attempt_id, attempt_number,
 		  mode, incident_id, channel_id, thread_ts, conversation_key,
@@ -108,15 +151,17 @@ func (s *Store) QueueAgentRun(
 	if err != nil {
 		return core.AgentRun{}, false, err
 	}
-	cleanupInsertedRun := func() {
-		if rows == 1 {
-			_, _ = s.db.ExecContext(ctx, `DELETE FROM agent_runs WHERE id = ?`, run.ID)
-		}
+	if rows == 1 && s.testHookAfterAgentRunInsert != nil {
+		s.testHookAfterAgentRunInsert()
 	}
-	stored, err := s.GetAgentRunBySource(ctx, run.SourceKind, run.SourceID)
+	stored, err := getAgentRunBySourceTx(ctx, tx, run.SourceKind, run.SourceID)
 	if err != nil {
-		cleanupInsertedRun()
 		return core.AgentRun{}, false, err
+	}
+	if resumeEpisodeID != "" && stored.EpisodeID != resumeEpisodeID {
+		return core.AgentRun{}, false, fmt.Errorf(
+			"resume episode %q: source identity belongs to episode %q: %w",
+			resumeEpisodeID, stored.EpisodeID, ErrConflict)
 	}
 	stored.CommitmentTitle = run.CommitmentTitle
 	if rows == 1 {
@@ -129,23 +174,50 @@ func (s *Store) QueueAgentRun(
 		// away from its existing attempt.
 		stored.Episode = &core.WorkEpisode{ID: stored.EpisodeID}
 	}
-	if err := s.ensureWorkEpisode(ctx, stored); err != nil {
-		cleanupInsertedRun()
+	if err := s.ensureWorkEpisodeTx(ctx, tx, stored); err != nil {
 		return core.AgentRun{}, false, fmt.Errorf("ensure work episode: %w", err)
 	}
-	stored, err = s.GetAgentRunBySource(ctx, run.SourceKind, run.SourceID)
+	stored, err = getAgentRunBySourceTx(ctx, tx, run.SourceKind, run.SourceID)
 	if err != nil {
-		cleanupInsertedRun()
 		return core.AgentRun{}, false, err
+	}
+	if resumeEpisodeID != "" && rows == 1 {
+		if err := s.setWorkEpisodePhaseTx(
+			ctx, tx, stored.ID, core.EpisodeRetrying, "resuming", "Resuming work",
+			"Run the next attempt", time.Time{},
+			episodeEventKey(
+				"phase", resumeEpisodeID, string(core.EpisodeRetrying), "resuming",
+				"Resuming work", "Run the next attempt", time.Time{}.UTC().Format(time.RFC3339Nano),
+			),
+		); err != nil {
+			return core.AgentRun{}, false, err
+		}
 	}
 	// After the episode, not before: the commitment is keyed by episode, so the
 	// episode row has to exist for it to reference.
 	stored.CommitmentTitle = run.CommitmentTitle
-	if err := s.ensureCommitment(ctx, stored); err != nil {
-		cleanupInsertedRun()
+	if err := ensureCommitmentTx(ctx, tx, stored); err != nil {
 		return core.AgentRun{}, false, fmt.Errorf("ensure agent commitment: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return core.AgentRun{}, false, err
+	}
 	return stored, rows == 1, nil
+}
+
+func getAgentRunBySourceTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	kind string,
+	sourceID string,
+) (core.AgentRun, error) {
+	return scanAgentRun(tx.QueryRowContext(
+		ctx,
+		`SELECT `+agentRunColumns+`
+		 FROM agent_runs WHERE source_kind = ? AND source_id = ?`,
+		kind,
+		sourceID,
+	))
 }
 
 func nullableTime(value time.Time) any {

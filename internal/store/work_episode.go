@@ -195,7 +195,11 @@ func normalizedUniqueStrings(items []string, limit int) []string {
 	return result
 }
 
-func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error {
+func (s *Store) ensureWorkEpisodeTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	run core.AgentRun,
+) error {
 	episode, err := normalizeWorkEpisode(run)
 	if err != nil {
 		return err
@@ -208,11 +212,6 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO work_episodes (
 		  id, workspace_id, parent_episode_id, mode,
@@ -243,7 +242,7 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 		return err
 	}
 	if created == 0 {
-		return tx.Commit()
+		return nil
 	}
 	now := s.nowText()
 	if _, err := tx.ExecContext(ctx, `
@@ -269,7 +268,7 @@ func (s *Store) ensureWorkEpisode(ctx context.Context, run core.AgentRun) error 
 	); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, error) {
@@ -377,7 +376,21 @@ func (s *Store) SetWorkEpisodePhase(
 	if err != nil {
 		return err
 	}
-	_, err = s.AppendWorkEpisodeEvent(ctx, runID, core.WorkEpisodeEvent{
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if episodepkg.Terminal(state) {
+		_, latestRunID, ownershipErr := workEpisodeAttemptOwnershipTx(ctx, tx, runID)
+		if ownershipErr != nil {
+			return ownershipErr
+		}
+		if latestRunID != runID {
+			return nil
+		}
+	}
+	_, err = s.appendWorkEpisodeEventTx(ctx, tx, runID, core.WorkEpisodeEvent{
 		Kind: episodepkg.EventPhaseChanged, Actor: "host",
 		IdempotencyKey: episodeEventKey(
 			"phase", string(state), phase, status, nextAction,
@@ -385,7 +398,10 @@ func (s *Store) SetWorkEpisodePhase(
 		),
 		Payload: payload,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ResolveWaitingApprovalEpisodes closes the accepted work that reached an
@@ -700,16 +716,8 @@ func (s *Store) setWorkEpisodePhaseTx(
 	if !validWorkEpisodeState(state) {
 		return fmt.Errorf("unsupported work episode state %q", state)
 	}
-	var currentState core.WorkEpisodeState
-	var latestRunID string
-	if err := tx.QueryRowContext(ctx, `
-		SELECT episode.lifecycle_state, attempt.agent_run_id
-		FROM work_episodes AS episode
-		JOIN episode_attempts AS current ON current.agent_run_id = ?
-		JOIN episode_attempts AS attempt ON attempt.id = episode.latest_attempt_id
-		WHERE episode.id = current.episode_id`, runID).Scan(
-		&currentState, &latestRunID,
-	); err != nil {
+	currentState, latestRunID, err := workEpisodeAttemptOwnershipTx(ctx, tx, runID)
+	if err != nil {
 		return err
 	}
 	// An older attempt may finish after a replacement has already been queued.
@@ -763,6 +771,26 @@ func (s *Store) setWorkEpisodePhaseTx(
 		Payload:        payload,
 	})
 	return err
+}
+
+func workEpisodeAttemptOwnershipTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID string,
+) (core.WorkEpisodeState, string, error) {
+	var currentState core.WorkEpisodeState
+	var latestRunID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT episode.lifecycle_state, attempt.agent_run_id
+		FROM work_episodes AS episode
+		JOIN episode_attempts AS current ON current.agent_run_id = ?
+		JOIN episode_attempts AS attempt ON attempt.id = episode.latest_attempt_id
+		WHERE episode.id = current.episode_id`, runID).Scan(
+		&currentState, &latestRunID,
+	); err != nil {
+		return "", "", err
+	}
+	return currentState, latestRunID, nil
 }
 
 func eventProjectsProgress(kind string) bool {

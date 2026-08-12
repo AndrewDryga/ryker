@@ -34,17 +34,7 @@ func (s *Store) QueueEpisodeAttempt(
 	run.EpisodeID = episode.ID
 	run.AttemptID = ""
 	run.AttemptNumber = 0
-	queued, created, err := s.QueueAgentRun(ctx, run)
-	if err != nil || !created {
-		return queued, created, err
-	}
-	if err := s.SetEpisodePhase(
-		ctx, episode.ID, core.EpisodeRetrying, "resuming", "Resuming work",
-		"Run the next attempt", time.Time{},
-	); err != nil {
-		return core.AgentRun{}, false, err
-	}
-	return queued, true, nil
+	return s.queueAgentRun(ctx, run, episode.ID)
 }
 
 const episodeAttemptSelect = `

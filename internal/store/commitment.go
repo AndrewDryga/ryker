@@ -24,7 +24,7 @@ const commitmentProjectionColumns = `
 // unit of work, and a replacement attempt after a restart is the same promise.
 // While it was keyed by run, a commitment made by a replacement attempt joined
 // to nothing in the projection and silently disappeared from every view.
-func (s *Store) ensureCommitment(ctx context.Context, run core.AgentRun) error {
+func ensureCommitmentTx(ctx context.Context, tx *sql.Tx, run core.AgentRun) error {
 	if strings.TrimSpace(run.EpisodeID) == "" {
 		return nil
 	}
@@ -40,7 +40,7 @@ func (s *Store) ensureCommitment(ctx context.Context, run core.AgentRun) error {
 		}
 	}
 	title = core.TruncateUTF8(title, 240)
-	_, err := s.db.ExecContext(
+	_, err := tx.ExecContext(
 		ctx,
 		`INSERT OR IGNORE INTO commitments (episode_id, title) VALUES (?, ?)`,
 		run.EpisodeID,
