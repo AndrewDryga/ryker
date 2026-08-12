@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 // Reader is the dashboard's own read-only view of the database.
@@ -565,6 +567,7 @@ type FailureGroup struct {
 	Cause  string
 	Key    string
 	Count  int
+	Pct    int
 	Latest time.Time
 }
 
@@ -594,6 +597,13 @@ func (r *Reader) Failures(ctx context.Context) ([]FailureGroup, error) {
 		// newlines. The page looks the cause back up from it.
 		group.Key = fmt.Sprintf("%x", sha256.Sum256([]byte(group.Cause)))[:16]
 		groups = append(groups, group)
+	}
+	// Pct is each cause's weight against the biggest one, so the table can
+	// draw the comparison the eye would otherwise do over raw counts.
+	if len(groups) > 0 && groups[0].Count > 0 {
+		for index := range groups {
+			groups[index].Pct = groups[index].Count * 100 / groups[0].Count
+		}
 	}
 	return groups, rows.Err()
 }
@@ -1198,6 +1208,64 @@ func (r *Reader) EpisodeStates(ctx context.Context) ([]string, error) {
 			err := rows.Scan(&state)
 			return state, err
 		})
+}
+
+// StateCount is one lifecycle state and how many episodes are in it, for the
+// filter chips: a state the operator can only click into an empty page is a
+// control that looks live and is not, so the chip carries its own count.
+type StateCount struct {
+	State string
+	Count int
+}
+
+func (r *Reader) EpisodeStateCounts(ctx context.Context) ([]StateCount, error) {
+	return collect(ctx, r,
+		`SELECT lifecycle_state, COUNT(*) FROM work_episodes GROUP BY 1 ORDER BY 1`,
+		func(rows *sql.Rows) (StateCount, error) {
+			var item StateCount
+			err := rows.Scan(&item.State, &item.Count)
+			return item, err
+		})
+}
+
+// ActivityDay is one day of episode volume for the overview sparkline: how
+// much arrived, and how much of it ended failed. Days with no episodes are
+// filled in by the caller so a quiet day renders as a gap in the ground, not
+// a missing bar that shifts every other day sideways.
+type ActivityDay struct {
+	Day           time.Time
+	Total, Failed int
+}
+
+func (r *Reader) EpisodeActivity(ctx context.Context, now time.Time, days int) ([]ActivityDay, error) {
+	since := now.UTC().AddDate(0, 0, -(days - 1)).Truncate(24 * time.Hour)
+	counted, err := collect(ctx, r, `
+	  SELECT date(created_at), COUNT(*),
+	         SUM(CASE WHEN lifecycle_state = 'failed' THEN 1 ELSE 0 END)
+	  FROM work_episodes WHERE created_at >= ?
+	  GROUP BY date(created_at) ORDER BY 1`,
+		func(rows *sql.Rows) (ActivityDay, error) {
+			var item ActivityDay
+			var day string
+			err := rows.Scan(&day, &item.Total, &item.Failed)
+			item.Day, _ = time.Parse("2006-01-02", day)
+			return item, err
+		}, since.Format(core.TimestampFormat))
+	if err != nil {
+		return nil, err
+	}
+	byDay := make(map[string]ActivityDay, len(counted))
+	for _, day := range counted {
+		byDay[day.Day.Format("2006-01-02")] = day
+	}
+	filled := make([]ActivityDay, 0, days)
+	for index := 0; index < days; index++ {
+		day := since.AddDate(0, 0, index)
+		item := byDay[day.Format("2006-01-02")]
+		item.Day = day
+		filled = append(filled, item)
+	}
+	return filled, nil
 }
 
 // Schedule is one recurring task the operator has confirmed.

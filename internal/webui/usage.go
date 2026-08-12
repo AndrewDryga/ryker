@@ -273,8 +273,10 @@ type UsageGroup struct {
 	// Share of the window, filled in once the window total is known. It is the
 	// reason to read a breakdown at all: the row worth acting on is the big one,
 	// and a column of absolute counts makes the reader do that comparison.
-	Share string
-	Href  template.URL
+	// SharePct is the same figure as an integer for the proportional meter.
+	Share    string
+	SharePct int
+	Href     template.URL
 }
 
 func (g UsageGroup) Recorded() bool { return g.Measured > 0 }
@@ -294,6 +296,9 @@ type UsageTable struct {
 func shareOf(rows []UsageGroup, whole int64) []UsageGroup {
 	for index, row := range rows {
 		rows[index].Share = pctLabel(row.Total(), whole)
+		if whole > 0 {
+			rows[index].SharePct = int(row.Total() * 100 / whole)
+		}
 	}
 	return rows
 }

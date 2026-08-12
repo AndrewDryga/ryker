@@ -34,19 +34,40 @@ type Page struct {
 	Slug     string
 	Title    string
 	Question string
+	Group    string
 }
 
 var pages = []Page{
-	{"", "Overview", "What is happening right now?"},
-	{"episodes", "Episodes", "What did it do, and why?"},
-	{"failures", "Failures", "What is broken, and can I retry it?"},
-	{"workspaces", "Workspaces", "What is still held, and why?"},
-	{"decisions", "Decisions", "What did it choose, and was it right?"},
-	{"findings", "Findings", "What is wrong with Responder itself?"},
-	{"audit", "Audit", "Who did what, and what came of it?"},
-	{"memory", "Memory", "What does it believe, and where did that come from?"},
-	{"configuration", "Configuration", "How is it set up?"},
-	{"usage", "Usage", "What is it spending?"},
+	{"", "Overview", "What is happening right now?", "Operate"},
+	{"episodes", "Episodes", "What did it do, and why?", "Operate"},
+	{"failures", "Failures", "What is broken, and can I retry it?", "Operate"},
+	{"workspaces", "Workspaces", "What is still held, and why?", "Operate"},
+	{"decisions", "Decisions", "What did it choose, and was it right?", "Improve"},
+	{"findings", "Findings", "What is wrong with Responder itself?", "Improve"},
+	{"memory", "Memory", "What does it believe, and where did that come from?", "Improve"},
+	{"audit", "Audit", "Who did what, and what came of it?", "System"},
+	{"configuration", "Configuration", "How is it set up?", "System"},
+	{"usage", "Usage", "What is it spending?", "System"},
+}
+
+// NavGroup is one titled section of the sidebar. Ten flat entries read as a
+// list to memorize; three named sections read as a mental model — operate the
+// work, improve the behaviour, inspect the system.
+type NavGroup struct {
+	Name  string
+	Pages []Page
+}
+
+func navGroups() []NavGroup {
+	groups := []NavGroup{}
+	for _, page := range pages {
+		if len(groups) == 0 || groups[len(groups)-1].Name != page.Group {
+			groups = append(groups, NavGroup{Name: page.Group})
+		}
+		last := len(groups) - 1
+		groups[last].Pages = append(groups[last].Pages, page)
+	}
+	return groups
 }
 
 // Unwired marks a panel whose data does not exist.
@@ -96,12 +117,30 @@ func NewRenderer() (*Renderer, error) {
 		"tokens":  humanTokens,
 		"exact":   groupDigits,
 		"confirm": confirmStep,
+		"meter":   meterSVG,
 	}
 	parsed, err := template.New("webui").Funcs(funcs).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse control plane templates: %w", err)
 	}
 	return &Renderer{templates: parsed}, nil
+}
+
+// meterSVG is the proportional bar every table can put beside a share or a
+// count: sixty-four units wide, filled to the percentage. It is built from
+// clamped integers only, so returning pre-rendered HTML cannot carry input.
+// A non-zero value keeps a visible two-unit sliver — a real quantity must not
+// round away to nothing, in ink any more than in text.
+func meterSVG(pct int) template.HTML {
+	pct = min(max(pct, 0), 100)
+	width := pct * 64 / 100
+	if pct > 0 && width < 2 {
+		width = 2
+	}
+	return template.HTML(fmt.Sprintf(
+		`<svg class="meter" width="64" height="5" viewBox="0 0 64 5" aria-hidden="true">`+
+			`<rect class="meter-bg" width="64" height="5" rx="2.5"/>`+
+			`<rect class="meter-fg" width="%d" height="5" rx="2.5"/></svg>`, width))
 }
 
 // confirmStep feeds the "confirm" partial: a native <details> disclosure whose
@@ -143,6 +182,7 @@ func (r *Renderer) Render(w http.ResponseWriter, body string, shell Shell) {
 // Shell is the frame every page shares.
 type Shell struct {
 	Pages   []Page
+	Nav     []NavGroup
 	Active  string
 	Title   string
 	Ask     string
@@ -199,7 +239,7 @@ func (s Shell) HeadTitle() string {
 }
 
 func NewShell(active, deployment string, content any) Shell {
-	shell := Shell{Pages: pages, Active: active, Deploy: deployment, Content: content}
+	shell := Shell{Pages: pages, Nav: navGroups(), Active: active, Deploy: deployment, Content: content}
 	for _, page := range pages {
 		if page.Slug == active {
 			shell.Title = page.Title

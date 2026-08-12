@@ -53,6 +53,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* One ambient accent glow behind the top of the page. Depth, not decoration:
+   at two percent opacity it separates the chrome from the void without ever
+   reading as a colored element. */
+main {
+  background:
+    radial-gradient(520px 260px at 18% -60px, rgb(54 230 165 / .045), transparent 70%),
+    radial-gradient(700px 300px at 85% -120px, rgb(96 165 250 / .03), transparent 70%);
+}
+
 ::selection { background: rgb(54 230 165 / .25); }
 
 /* Links are the accent, quietly. Underline appears on hover so a table of
@@ -102,27 +111,50 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
   box-shadow: 0 0 12px rgb(54 230 165 / .5);
 }
 
-.brand .deploy { font: 400 12px/1 var(--mono); color: var(--faint); margin-left: auto; }
+.brand .deploy {
+  font: 500 11px/1.6 var(--mono);
+  color: var(--dim);
+  margin-left: auto;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+}
 
-.sidebar ul { list-style: none; margin: 0; padding: 0; }
+.sidebar ul { list-style: none; margin: 0 0 6px; padding: 0; }
+
+/* Three named sections instead of ten flat entries: operate the work,
+   improve the behaviour, inspect the system. */
+.nav-group {
+  padding: 10px 20px 4px;
+  font: 650 9.5px/1.4 var(--mono);
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: #52525b;
+}
 
 .sidebar a {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 20px 7px 18px;
+  gap: 9px;
+  padding: 6px 20px 6px 18px;
   color: var(--dim);
   border-left: 2px solid transparent;
   font-size: 13.5px;
+  transition: color .12s ease, background .12s ease;
 }
 
-.sidebar a:hover { color: var(--ink); text-decoration: none; }
+.nav-icon { width: 15px; height: 15px; flex: none; opacity: .75; }
+.nav-label { min-width: 0; }
+
+.sidebar a:hover { color: var(--ink); text-decoration: none; background: rgb(255 255 255 / .02); }
 
 .sidebar a.on {
   color: var(--ink);
   border-left-color: var(--accent);
   background: var(--accent-ghost);
 }
+.sidebar a.on .nav-icon { opacity: 1; color: var(--accent); }
 
 /* A count that would make someone open the page: amber for "needs you",
    plain for volume. Absent at zero — a zero badge is decoration. */
@@ -154,8 +186,18 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
   border-radius: 50%;
   background: var(--good);
   box-shadow: 0 0 8px rgb(54 230 165 / .6);
+  animation: breathe 3.2s ease-in-out infinite;
 }
-.ready-dot.down { background: var(--bad); box-shadow: 0 0 8px rgb(251 113 133 / .6); }
+.ready-dot.down { background: var(--bad); box-shadow: 0 0 8px rgb(251 113 133 / .6); animation: none; }
+
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 4px rgb(54 230 165 / .35); }
+  50% { box-shadow: 0 0 10px rgb(54 230 165 / .75); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
 
 /* Header ------------------------------------------------------------------- */
 
@@ -209,7 +251,7 @@ h2 .note { text-transform: none; letter-spacing: 0; font-weight: 400; margin-lef
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
 
 .panel {
-  background: var(--panel);
+  background: linear-gradient(180deg, #17171b, var(--panel) 55%);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px 16px;
@@ -228,8 +270,59 @@ h2 .note { text-transform: none; letter-spacing: 0; font-weight: 400; margin-lef
 .metric.bad .n { color: var(--bad); }
 .metric.warn .n { color: var(--warn); }
 .metric.good .n { color: var(--good); }
-a.metric { color: inherit; }
-a.metric:hover { text-decoration: none; border-color: var(--faint); background: var(--panel-2); }
+.metric-meter { margin-top: 8px; }
+a.metric { color: inherit; transition: border-color .12s ease, transform .12s ease; }
+a.metric:hover { text-decoration: none; border-color: var(--faint); background: var(--panel-2); transform: translateY(-1px); }
+
+/* Overview hero: is anything waiting, and what the last two weeks looked
+   like — one band, answered before the first heading. */
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 18px 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #17171b, var(--panel) 60%);
+  overflow: hidden;
+}
+
+.hero.calm { border-color: rgb(54 230 165 / .25); }
+.hero.busy { border-color: rgb(251 191 36 / .3); }
+
+.hero-line { display: flex; align-items: center; gap: 12px; }
+.hero-word { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: 0; text-transform: none; color: var(--ink); }
+.hero.busy .hero-word { color: var(--warn); }
+
+.hero-beacon {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--good);
+  box-shadow: 0 0 14px rgb(54 230 165 / .6);
+  animation: breathe 3.2s ease-in-out infinite;
+}
+.hero.busy .hero-beacon {
+  background: var(--warn);
+  box-shadow: 0 0 14px rgb(251 191 36 / .55);
+  animation: none;
+}
+
+.hero-stats { display: flex; gap: 26px; flex-wrap: wrap; margin-top: 10px; }
+.hero-stats > * { display: grid; gap: 0; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; }
+.hero-stats strong { color: var(--ink-2); font: 600 17px/1.3 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; }
+.hero-stats a:hover { text-decoration: none; color: var(--dim); }
+.hero-stats a:hover strong { color: var(--ink); }
+.hero-stats .warn strong { color: var(--warn); }
+.hero-stats .bad strong { color: var(--bad); }
+
+.hero-pulse { display: grid; gap: 5px; justify-items: end; flex: none; }
+.hero-pulse span { color: var(--faint); font: 500 10.5px/1.4 var(--mono); }
+.pulse-bar { fill: rgb(54 230 165 / .45); }
+.pulse-bar:hover { fill: var(--accent); }
+.pulse-failed { fill: var(--bad); opacity: .85; pointer-events: none; }
 
 /* Lists ---------------------------------------------------------------------- */
 
@@ -237,7 +330,8 @@ a.metric:hover { text-decoration: none; border-color: var(--faint); background: 
 
 .row { display: block; padding: 11px 16px; border-bottom: 1px solid var(--line-2); color: inherit; }
 .row:last-child { border-bottom: 0; }
-a.row:hover { background: var(--panel-2); text-decoration: none; }
+a.row { transition: background .1s ease; box-shadow: inset 2px 0 0 transparent; }
+a.row:hover { background: var(--panel-2); text-decoration: none; box-shadow: inset 2px 0 0 var(--accent-dim); }
 
 .row .title { font-weight: 500; line-height: 1.45; }
 .row .meta { color: var(--faint); font-size: 12.5px; margin-top: 3px; }
@@ -377,13 +471,46 @@ pre.dump {
   color: var(--accent);
 }
 
+/* State chips: the filter is the data — each state carries its own count. */
+.state-chips a { display: inline-flex; align-items: center; gap: 6px; }
+.chip-n { font: 600 10.5px/1.5 var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
+.state-chips a.on .chip-n { color: var(--accent-dim); }
+
+/* Proportional meters beside shares and counts, so the biggest row is
+   visible before the numbers are read. */
+.meter { display: inline-block; vertical-align: middle; }
+.meter-bg { fill: #26262b; }
+.meter-fg { fill: var(--accent-dim); }
+.meter-cell { width: 76px; }
+.share-cell span { display: inline-block; min-width: 34px; margin-right: 8px; }
+.metric.warn .meter-fg { fill: var(--warn); }
+.metric.bad .meter-fg { fill: var(--bad); }
+
 /* Trend ---------------------------------------------------------------------------- */
 
 .trend { display: block; }
-.trend .bar { fill: var(--accent-dim); opacity: .85; }
-.trend .bar:hover { fill: var(--accent); opacity: 1; }
+.trend .bar { fill: url(#trendfill); }
+.trend .bar:hover { fill: var(--accent); }
 .trend .gap { fill: var(--warn); opacity: .8; }
 .trend .axis { stroke: var(--line); stroke-width: 1; }
+
+/* Findings: the verdict is the card's edge, and the challenger speaks in a
+   quote rather than another metadata line. */
+.finding { box-shadow: inset 2px 0 0 #3f3f46; }
+.finding-confirmed { box-shadow: inset 2px 0 0 var(--bad); }
+.finding-rejected { box-shadow: inset 2px 0 0 #3f3f46; }
+blockquote.challenge {
+  margin: 8px 0 0;
+  padding: 7px 12px;
+  border-left: 2px solid #52525b;
+  border-radius: 0 6px 6px 0;
+  background: rgb(255 255 255 / .02);
+  color: var(--dim);
+  font-size: 12.5px;
+  font-style: italic;
+  max-width: 100ch;
+}
+blockquote.challenge::before { content: "challenger · "; font-style: normal; font: 650 9.5px/1.6 var(--mono); text-transform: uppercase; color: var(--faint); }
 
 /* Actions ---------------------------------------------------------------------------- */
 
@@ -625,6 +752,23 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .journey-stop.tone-warn strong { color: var(--warn); }
 .journey-stop.tone-bad { background: rgb(251 113 133 / .1); }
 .journey-stop.tone-bad strong { color: var(--bad); }
+
+/* The time bar: each chapter's share of the episode's wall clock, in the
+   same left-to-right order as the rail below it. */
+.timebar { display: grid; gap: 7px; }
+.timebar svg { display: block; border-radius: 5px; overflow: hidden; }
+.timebar-c0 { fill: #3b82f6; opacity: .75; }
+.timebar-c1 { fill: #14cf8d; opacity: .8; }
+.timebar-c2 { fill: #a78bfa; opacity: .75; }
+.timebar-c3 { fill: #22d3ee; opacity: .75; }
+.timebar rect:hover { opacity: 1; }
+.timebar-legend { display: flex; gap: 16px; flex-wrap: wrap; }
+.timebar-key { display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font: 500 11px/1.5 var(--mono); }
+.timebar-key::before { content: ""; width: 8px; height: 8px; border-radius: 2.5px; }
+.timebar-key.c0::before { background: #3b82f6; }
+.timebar-key.c1::before { background: #14cf8d; }
+.timebar-key.c2::before { background: #a78bfa; }
+.timebar-key.c3::before { background: #22d3ee; }
 
 /* Chapters cut the rail into acts a stranger can follow. */
 .trace-chapter { margin-top: 26px; }
@@ -971,14 +1115,29 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 
 @media (max-width: 900px) {
   body { display: block; }
-  .sidebar { position: static; width: auto; height: auto; padding: 10px 0; border-right: 0; border-bottom: 1px solid var(--line); }
-  .sidebar .brand { padding: 2px 14px 9px; }
-  .sidebar ul { display: flex; overflow-x: auto; }
-  .sidebar a { padding: 6px 12px; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .sidebar {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 8px 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .sidebar .brand { padding: 4px 8px; flex: 1 0 100%; }
+  .brand .deploy { margin-left: 8px; }
+  .nav-group { display: none; }
+  .sidebar ul { display: flex; flex-wrap: wrap; margin: 0; }
+  .sidebar a { padding: 5px 10px; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
   .sidebar a.on { border-bottom-color: var(--accent); }
-  .sidebar .foot { margin: 8px 14px 0; padding: 8px 0 0; display: flex; gap: 12px; flex-wrap: wrap; }
+  .nav-icon { display: none; }
+  .sidebar .foot { margin: 4px 8px 0; padding: 4px 0; display: flex; gap: 12px; flex-wrap: wrap; border-top: 0; flex: 1 0 100%; }
   main { max-width: none; padding: 18px 20px 60px; }
   .episode-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .hero-pulse { justify-items: start; }
   .trace-heading { align-items: start; flex-direction: column; }
   .trace-summary { justify-content: flex-start; }
 }

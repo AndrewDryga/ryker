@@ -89,12 +89,21 @@ type JourneyStop struct {
 	Label, Detail, Tone string
 }
 
+// TimeSegment is one chapter's slice of the episode's wall clock, in
+// integer thousandths of the full bar so the template stays arithmetic-free.
+type TimeSegment struct {
+	X, W  int
+	Class string
+	Title string
+}
+
 type EpisodeTrace struct {
 	Metrics  []EpisodeMetric
 	Journey  []JourneyStop
 	Stats    []TraceStat
 	Steps    []TraceStep
 	Chapters []TraceChapter
+	TimeBar  []TimeSegment
 }
 
 func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(string) string) EpisodeTrace {
@@ -553,6 +562,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 	trace.Steps = steps
 	trace.Chapters = traceChapters(steps)
 	trace.Journey = traceJourney(page, turns, wakeups)
+	trace.TimeBar = traceTimeBar(trace.Chapters)
 	for _, stat := range []struct {
 		count            int
 		singular, plural string
@@ -647,6 +657,68 @@ func traceChapters(steps []TraceStep) []TraceChapter {
 		}
 	}
 	return chapters
+}
+
+// traceTimeBar turns the chapters into one proportional strip of the
+// episode's wall clock. The rail says what happened in order; this says what
+// the order cost — usually that nearly all of it sat inside "The work".
+func traceTimeBar(chapters []TraceChapter) []TimeSegment {
+	type span struct {
+		index int
+		start time.Time
+	}
+	spans := []span{}
+	var last time.Time
+	for index, chapter := range chapters {
+		var first time.Time
+		for _, step := range chapter.Steps {
+			if step.At.IsZero() {
+				continue
+			}
+			if first.IsZero() {
+				first = step.At
+			}
+			if step.At.After(last) {
+				last = step.At
+			}
+		}
+		if !first.IsZero() {
+			spans = append(spans, span{index, first})
+		}
+	}
+	if len(spans) < 2 || last.IsZero() {
+		return nil
+	}
+	total := last.Sub(spans[0].start)
+	if total < 2*time.Second {
+		return nil
+	}
+	segments := make([]TimeSegment, 0, len(spans))
+	for position, current := range spans {
+		end := last
+		if position+1 < len(spans) {
+			end = spans[position+1].start
+		}
+		width := int(end.Sub(current.start) * 1000 / total)
+		segments = append(segments, TimeSegment{
+			W:     max(width, 5),
+			Class: fmt.Sprintf("c%d", current.index),
+			Title: chapters[current.index].Title + " · " + compactDuration(end.Sub(current.start)),
+		})
+	}
+	x, scale := 0, 0
+	for _, segment := range segments {
+		scale += segment.W
+	}
+	for index := range segments {
+		segments[index].W = segments[index].W * 1000 / scale
+		segments[index].X = x
+		x += segments[index].W
+	}
+	if len(segments) > 0 {
+		segments[len(segments)-1].W = 1000 - segments[len(segments)-1].X
+	}
+	return segments
 }
 
 // traceJourney is the one-line version of the whole episode: what arrived,

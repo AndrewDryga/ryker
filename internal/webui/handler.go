@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -211,6 +212,54 @@ func foldBlocked(items []Item) []blockedRow {
 	return rows
 }
 
+// heroPulse is the overview sparkline: one bar per day for two weeks, failed
+// episodes drawn as a rose cap on top of the day's bar. Widths and heights
+// are integer SVG units computed here so the template stays arithmetic-free.
+type heroPulse struct {
+	Days                  []pulseBar
+	Span, Episodes, Width int
+}
+
+type pulseBar struct {
+	X, Y, H, FY, FH int
+	Title           string
+}
+
+const pulseHeight = 34
+
+func buildPulse(days []ActivityDay) heroPulse {
+	pulse := heroPulse{Span: len(days), Width: len(days) * 10}
+	peak := 1
+	for _, day := range days {
+		pulse.Episodes += day.Total
+		peak = max(peak, day.Total)
+	}
+	for index, day := range days {
+		bar := pulseBar{X: index * 10, Y: pulseHeight - 2, H: 2,
+			Title: day.Day.Format("Jan 2") + " · no episodes"}
+		if day.Total > 0 {
+			bar.H = max(day.Total*(pulseHeight-4)/peak, 3)
+			bar.Y = pulseHeight - bar.H
+			bar.Title = fmt.Sprintf("%s · %d episode%s", day.Day.Format("Jan 2"),
+				day.Total, plural(day.Total))
+			if day.Failed > 0 {
+				bar.FH = max(day.Failed*bar.H/day.Total, 2)
+				bar.FY = bar.Y
+				bar.Title += fmt.Sprintf(", %d failed", day.Failed)
+			}
+		}
+		pulse.Days = append(pulse.Days, bar)
+	}
+	return pulse
+}
+
+func plural(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
+}
+
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	blocked, _ := h.reader.Blocked(ctx, 8)
@@ -220,9 +269,16 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	failed.note("queues", err)
 	schedules, err := h.reader.Schedules(ctx)
 	failed.note("scheduled tasks", err)
-	h.page(w, r, "", "overview", struct {
+	activity, err := h.reader.EpisodeActivity(ctx, time.Now().UTC(), 14)
+	failed.note("activity", err)
+	recent, err := h.reader.EpisodesMatching(ctx, EpisodeFilter{}, 6)
+	failed.note("recent episodes", err)
+	page := struct {
 		NeedsYou, Failed, InFlight, Retained int
 		Blocked                              []blockedRow
+		Recent                               []Item
+		Pulse                                heroPulse
+		Calm                                 bool
 		Lanes                                []Lane
 		Schedules                            []Schedule
 		Errs                                 problems
@@ -235,8 +291,12 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 		InFlight:   h.reader.Count(ctx, countInFlight),
 		Retained:   h.reader.Count(ctx, countRetained),
 		Blocked:    foldBlocked(blocked),
+		Recent:     recent,
+		Pulse:      buildPulse(activity),
 		Deployment: h.deployment, Binary: h.binary, Schema: h.schema, Ready: h.ready(),
-	})
+	}
+	page.Calm = page.NeedsYou == 0
+	h.page(w, r, "", "overview", page)
 }
 
 // episodePageSize keeps one page readable; the pager reaches the rest.
@@ -250,6 +310,34 @@ const episodePageSize = 50
 // Incident rooms are dropped while a filter is active: they are not filtered
 // by it, and an unfiltered table sitting above a filtered list reads as part
 // of the same answer.
+// stateChip is one state filter the operator can click: the state, how many
+// episodes are in it, and the list URL with every other filter term kept.
+type stateChip struct {
+	Label string
+	N     int
+	URL   template.URL
+	On    bool
+}
+
+func stateChips(filter EpisodeFilter, counts []StateCount) []stateChip {
+	total := 0
+	for _, count := range counts {
+		total += count.Count
+	}
+	all := filter
+	all.State = ""
+	chips := []stateChip{{Label: "all", N: total, URL: episodesURL(all, 0), On: filter.State == ""}}
+	for _, count := range counts {
+		chosen := filter
+		chosen.State = count.State
+		chips = append(chips, stateChip{
+			Label: count.State, N: count.Count,
+			URL: episodesURL(chosen, 0), On: filter.State == count.State,
+		})
+	}
+	return chips
+}
+
 func (h *Handler) episodes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var failed problems
@@ -258,7 +346,7 @@ func (h *Handler) episodes(w http.ResponseWriter, r *http.Request) {
 	failed.note("episodes", err)
 	total, err := h.reader.CountMatching(ctx, filter)
 	failed.note("episode count", err)
-	states, err := h.reader.EpisodeStates(ctx)
+	states, err := h.reader.EpisodeStateCounts(ctx)
 	failed.note("states", err)
 	rooms := []Room{}
 	if !filter.Active() {
@@ -271,11 +359,11 @@ func (h *Handler) episodes(w http.ResponseWriter, r *http.Request) {
 		Errs         problems
 		Filter       EpisodeFilter
 		Total        int
-		States       []string
+		States       []stateChip
 		From, To     int
 		Older, Newer template.URL
 	}{Episodes: episodes, Rooms: rooms, Errs: failed, Filter: filter,
-		Total: total, States: states}
+		Total: total, States: stateChips(filter, states)}
 	page.From, page.To = filter.Offset+1, filter.Offset+len(episodes)
 	if filter.Offset+episodePageSize < total {
 		page.Older = episodesURL(filter, filter.Offset+episodePageSize)

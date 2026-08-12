@@ -14,7 +14,7 @@ handed to a challenger whose job is to disprove it. Both verdicts are kept.</p>
 {{if .Findings}}
 <div class="rows">
   {{range .Findings}}
-  <div class="row">
+  <div class="row finding {{if .Confirmed}}finding-confirmed{{else}}finding-rejected{{end}}">
     <div class="title">{{truncate 240 .Summary}}</div>
     <div class="meta">
       <span class="pill{{if .Confirmed}} bad{{else}} good{{end}}">{{if .Confirmed}}confirmed{{else}}rejected{{end}}</span>
@@ -28,7 +28,7 @@ handed to a challenger whose job is to disprove it. Both verdicts are kept.</p>
     {{if .Evidence}}
     <div class="meta">From the turn: {{range $i, $e := .Evidence}}{{if $i}} · {{end}}{{truncate 200 $e}}{{end}}</div>
     {{end}}
-    {{with .Challenger}}<div class="meta">The challenger said: {{truncate 300 .}}</div>{{end}}
+    {{with .Challenger}}<blockquote class="challenge">{{truncate 300 .}}</blockquote>{{end}}
     {{with .Regression}}<div class="meta">Proposed regression test: {{truncate 300 .}}</div>{{end}}
     {{if .Components}}
     <div class="meta">Suspected: {{range $i, $p := .Components}}{{if $i}}, {{end}}<span class="mono">{{$p}}</span>{{end}}</div>

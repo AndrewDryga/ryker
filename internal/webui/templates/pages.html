@@ -1,10 +1,30 @@
 {{define "overview"}}
-<div class="grid">
-  <div class="panel metric{{if .NeedsYou}} warn{{end}}"><div class="n">{{.NeedsYou}}</div><div class="k">need a decision</div></div>
-  <a class="panel metric{{if .Failed}} bad{{end}}" href="/failures"><div class="n">{{.Failed}}</div><div class="k">failed work</div></a>
-  <div class="panel metric"><div class="n">{{.InFlight}}</div><div class="k">in flight</div></div>
-  <a class="panel metric{{if .Retained}} warn{{end}}" href="/workspaces"><div class="n">{{.Retained}}</div><div class="k">retained workspaces</div></a>
-</div>
+<section class="hero{{if .Calm}} calm{{else}} busy{{end}}">
+  <div class="hero-status">
+    <div class="hero-line">
+      <span class="hero-beacon" aria-hidden="true"></span>
+      {{if .Calm}}<h2 class="hero-word">All quiet</h2>{{else}}<h2 class="hero-word">{{.NeedsYou}} waiting on you</h2>{{end}}
+    </div>
+    <div class="hero-stats">
+      <span><strong>{{.InFlight}}</strong>in flight</span>
+      <span{{if .NeedsYou}} class="warn"{{end}}><strong>{{.NeedsYou}}</strong>need a decision</span>
+      <a href="/failures"{{if .Failed}} class="bad"{{end}}><strong>{{.Failed}}</strong>failed on record</a>
+      <a href="/workspaces"{{if .Retained}} class="warn"{{end}}><strong>{{.Retained}}</strong>retained workspaces</a>
+    </div>
+  </div>
+  {{with .Pulse}}
+  <div class="hero-pulse">
+    <svg viewBox="0 0 {{.Width}} 34" width="{{.Width}}" height="34" role="img" aria-label="Episodes per day">
+      <title>Episodes per day, last {{.Span}} days</title>
+      {{range .Days}}
+      <rect class="pulse-bar" x="{{.X}}" y="{{.Y}}" width="7" height="{{.H}}" rx="1.5"><title>{{.Title}}</title></rect>
+      {{if .FH}}<rect class="pulse-failed" x="{{.X}}" y="{{.FY}}" width="7" height="{{.FH}}" rx="1.5"><title>{{.Title}}</title></rect>{{end}}
+      {{end}}
+    </svg>
+    <span>{{.Episodes}} episodes · {{.Span}} days</span>
+  </div>
+  {{end}}
+</section>
 
 <h2>Needs a decision</h2>
 {{if .Blocked}}
@@ -18,6 +38,22 @@
   {{end}}
 </div>
 {{else}}<p class="empty">Nothing is waiting on you.</p>{{end}}
+
+<h2>Recent episodes</h2>
+{{if .Recent}}
+<div class="rows">
+  {{range .Recent}}
+  <a class="row" href="/episodes/{{.ID}}">
+    <div class="title">{{truncate 110 .Title}}</div>
+    <div class="meta">
+      <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
+      {{.Channel}} · {{since .Updated}}{{with .Answered}} · <span class="who">{{.}}</span>{{end}}
+    </div>
+  </a>
+  {{end}}
+</div>
+<p class="note"><a href="/episodes">every episode →</a></p>
+{{else}}<p class="empty">No episodes yet.</p>{{end}}
 
 <h2>Scheduled tasks <span class="note">{{len .Schedules}}</span></h2>
 {{if .Schedules}}
@@ -73,11 +109,7 @@ work still to do.</p>
 {{template "problems" .Errs}}
 <form method="get" action="/episodes" class="filter">
   <input type="text" name="q" value="{{.Filter.Query}}" placeholder="search titles and status lines">
-  <select name="state">
-    <option value="">any state</option>
-    {{$chosen := .Filter.State}}
-    {{range .States}}<option value="{{.}}"{{if eq . $chosen}} selected{{end}}>{{.}}</option>{{end}}
-  </select>
+  {{if .Filter.State}}<input type="hidden" name="state" value="{{.Filter.State}}">{{end}}
   {{if .Filter.Channel}}<input type="hidden" name="channel" value="{{.Filter.Channel}}">{{end}}
   {{if .Filter.Repository}}<input type="hidden" name="repository" value="{{.Filter.Repository}}">{{end}}
   {{if .Filter.Mode}}<input type="hidden" name="mode" value="{{.Filter.Mode}}">{{end}}
@@ -85,6 +117,11 @@ work still to do.</p>
   {{if .Filter.Model}}<input type="hidden" name="model" value="{{.Filter.Model}}">{{end}}
   <button>Search</button>
 </form>
+{{if .States}}
+<div class="tabs state-chips">
+  {{range .States}}<a href="{{.URL}}" class="{{if .On}}on{{end}}">{{.Label}}<span class="chip-n">{{.N}}</span></a>{{end}}
+</div>
+{{end}}
 {{if .Filter.Active}}
 <div class="tabs">
   <span class="on">{{.Filter.Describe}}</span>
@@ -149,9 +186,10 @@ from Slack or a webhook.</p>{{end}}
 behind it and retry them.</p>
 {{if .Err}}<p class="unwired"><span class="tag">Could not load</span>{{.Err}}</p>{{else if .Groups}}
 <table>
-  <tr><th>Cause</th><th class="num">Count</th><th>Most recent</th></tr>
+  <tr><th>Cause</th><th class="num">Count</th><th></th><th>Most recent</th></tr>
   {{range .Groups}}
   <tr><td><a href="/failures/{{.Key}}">{{truncate 110 .Cause}}</a></td><td class="mono num">{{.Count}}</td>
+      <td class="meter-cell">{{meter .Pct}}</td>
       <td class="note">{{since .Latest}}</td></tr>
   {{end}}
 </table>
@@ -164,6 +202,7 @@ behind it and retry them.</p>
   {{range .Rates}}
   <div class="panel metric{{if gt .Percent 20}} bad{{else if gt .Percent 5}} warn{{end}}">
     <div class="n">{{.Percent}}%</div><div class="k">{{.Label}} · {{.Count}} of {{.Total}}</div>
+    <div class="metric-meter">{{meter .Percent}}</div>
   </div>
   {{end}}
 </div>
@@ -417,6 +456,12 @@ measured ones — an unmeasured attempt is left out, not counted as free.</p>
 <svg class="trend" viewBox="0 0 {{.Width}} {{.Height}}" width="100%" height="{{.Height}}"
      preserveAspectRatio="none" role="img">
   <title>Tokens per day, {{.First}} to {{.Last}}. Peak {{.MaxLabel}}.</title>
+  <defs>
+    <linearGradient id="trendfill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#36e6a5" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#14cf8d" stop-opacity=".45"/>
+    </linearGradient>
+  </defs>
   <line class="axis" x1="0" y1="{{.Baseline}}" x2="{{.Width}}" y2="{{.Baseline}}"></line>
   {{range .Days}}
   <rect class="{{if .Missing}}gap{{else}}bar{{end}}" x="{{.X}}" y="{{.Y}}"
@@ -442,7 +487,7 @@ An amber mark on the baseline is a day whose attempts nobody measured — not a 
       <td class="mono num">{{.Attempts}}{{if and .Recorded (ne .Measured .Attempts)}}
         <span class="note">({{.Measured}} measured)</span>{{end}}</td>
       {{if .Recorded}}
-      <td class="mono num" title="{{exact .Total}} tokens">{{tokens .Total}}</td><td class="mono num">{{.Share}}</td>
+      <td class="mono num" title="{{exact .Total}} tokens">{{tokens .Total}}</td><td class="mono num share-cell"><span>{{.Share}}</span>{{meter .SharePct}}</td>
       <td class="mono num">{{tokens .Input}}</td><td class="mono num">{{tokens .Cached}}</td>
       <td class="mono num">{{tokens .Output}}</td><td class="mono num">{{tokens .Reasoning}}</td>
       <td class="mono num">{{.CacheLabel}}</td>
