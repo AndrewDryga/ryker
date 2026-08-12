@@ -183,6 +183,8 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		ALTER TABLE slack_deliveries DROP COLUMN source_input_id;
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_id;
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
+		ALTER TABLE context_manifests DROP COLUMN usage_cost_usd;
+		ALTER TABLE context_manifests DROP COLUMN usage_costed_turns;
 		DROP TABLE replay_cancellations;`); err != nil {
 		t.Fatal(err)
 	}

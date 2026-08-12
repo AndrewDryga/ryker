@@ -207,10 +207,12 @@ type Turn struct {
 // separate: every provider prices a cache read differently, and a total that
 // folded them together could not be turned back into a cost.
 type Usage struct {
-	InputTokens       int `json:"input_tokens,omitempty"`
-	CachedInputTokens int `json:"cached_input_tokens,omitempty"`
-	OutputTokens      int `json:"output_tokens,omitempty"`
-	ReasoningTokens   int `json:"reasoning_tokens,omitempty"`
+	InputTokens       int     `json:"input_tokens,omitempty"`
+	CachedInputTokens int     `json:"cached_input_tokens,omitempty"`
+	OutputTokens      int     `json:"output_tokens,omitempty"`
+	ReasoningTokens   int     `json:"reasoning_tokens,omitempty"`
+	CostUSD           float64 `json:"cost_usd,omitempty"`
+	CostRecorded      bool    `json:"cost_recorded,omitempty"`
 }
 
 // Recorded reports whether the provider gave us anything at all.
@@ -221,7 +223,14 @@ type Usage struct {
 // nobody measured the turn.
 func (u Usage) Recorded() bool {
 	return u.InputTokens > 0 || u.CachedInputTokens > 0 ||
-		u.OutputTokens > 0 || u.ReasoningTokens > 0
+		u.OutputTokens > 0 || u.ReasoningTokens > 0 || u.CostRecorded
+}
+
+func (u Usage) CostedTurns() int {
+	if u.CostRecorded {
+		return 1
+	}
+	return 0
 }
 
 type OutputArtifact struct {

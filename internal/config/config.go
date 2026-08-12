@@ -88,8 +88,8 @@ type Config struct {
 	Pricing Pricing        `yaml:"pricing"`
 }
 
-// Pricing is what the configured providers charge, so recorded token counts can
-// be reported as money.
+// Pricing is the fallback estimate for adapters that report tokens but no
+// provider cost.
 //
 // In configuration and not in code, deliberately. Provider prices change on the
 // provider's schedule, a rate compiled into a binary is only correct until the

@@ -272,11 +272,10 @@ Every row links into an episode list filtered to it. A breakdown that cannot be
 opened says which model costs the most and gives no route to a single turn of
 it.
 
-Cost and the wall-clock split render from what was measured and configured.
-Cost is priced only through `config.Pricing.Cost`, so an unpriced model says
-"not priced" rather than zero, a partial table's total is labelled a floor,
-and a deployment with no table says so once and points at
-`config/responder.example.yaml`. Wall clock reads the migration-49 columns and
+Cost prefers what the provider reported through Coop. A configured
+`config.Pricing.Cost` table supplies a separately labelled estimate only for
+model rows that reported tokens but no money; reported and estimated amounts
+are never added together. Wall clock reads the migration-49 columns and
 averages only over timed turns; a window with none says "nothing timed" rather
 than inventing an instant.
 
@@ -293,25 +292,10 @@ bar.
 
 ## Data gaps
 
-Everything above is present in the database today except one thing, and that one
-is in Coop.
-
-Token usage has somewhere to go and nothing to put there yet. Responder adds a
-finished turn's usage to the attempt's context manifest (migration 48,
-`usage_input_tokens` and its four siblings); cached input is stored apart from
-fresh input, and reasoning apart from output, because Coop reports them apart
-and every provider prices those parts differently.
-
-**The counts are still zero on every row, and the missing piece is in Coop, not
-here.** Coop's ACP path parses a usage object off the `session/prompt` result
-into a struct nothing reads and never sets `CompleteTurnRequest.Usage`, so
-`CompleteTurn` writes four zeros for every turn — and the key names it parses
-are wrong as well, since the adapters return ACP's `inputTokens`,
-`outputTokens`, `cachedReadTokens` and `thoughtTokens`. Until both are fixed the
-page has to say the tokens were not recorded, because they were not.
-`core.ContextUsage.Recorded()` is the distinction to render on: it separates "no
-provider measured this" from "the turn was free", and a zero drawn as the second
-when it is the first is a lie the reader has no way to catch.
+Usage is only as complete as the active adapter. Token counters and
+provider-reported USD cost are durable per turn when Coop receives them. An
+adapter may report tokens without money, or neither; those gaps remain explicit
+instead of being rendered as zero spend.
 
 ### The compiled prompt — kept as a digest, not as text
 
@@ -327,24 +311,20 @@ each, and records the size of none of them, so "how much of this turn was
 instructions" cannot be recovered from what is stored. It needs a byte count per
 reference at freeze time.
 
-### Cost — configured, and empty until it is
+### Cost — reported first, estimated only as a fallback
 
-Tokens are provider-native, so cost needs a per-model price table. It lives in
-`pricing` in the configuration file and not in the binary: prices change on the
-provider's schedule, and a stale compiled-in rate reports confident wrong money.
+Coop normalizes ACP's cumulative USD counter into a durable per-turn delta, and
+Responder totals those reported amounts without re-pricing them. This is the
+authoritative money figure when the adapter supplies one.
 
-`config.Pricing.Cost(provider, model, usage)` returns an amount and whether it is
-knowable. The bool is the point. An unpriced model reports **no cost, not a
-zero** — a zero in a spend report reads as "this was free", which is a claim
-about the world rather than a gap in setup, and it is a claim nobody would think
-to go and check. Usage nothing measured is unknowable for the same reason. Keys
-are `provider:model`, falling back to bare `provider`, matching the target
-grammar the manifest froze; rates are per million tokens, which is the unit
-every provider publishes, so the file can be checked against a pricing page
-without dividing anything.
+For adapters that report tokens but not money, `pricing` in the configuration
+file can provide a clearly labelled estimate. `config.Pricing.Cost(provider,
+model, usage)` returns an amount and whether it is knowable. An unpriced model
+reports **no estimate, not a zero**. Keys are `provider:model`, falling back to
+bare `provider`; rates are per million tokens.
 
-The default table is empty, and empty is a valid answer: a deployment nobody has
-told the prices reports no cost at all.
+The default table is empty and valid: provider-reported money still appears,
+while turns whose adapters report no money stay unpriced.
 
 ### Wall-clock — recorded per attempt, except the split inside the provider
 

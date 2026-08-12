@@ -458,13 +458,15 @@ An amber mark on the baseline is a day whose attempts nobody measured — not a 
 {{end}}
 
 <h2>Cost</h2>
-{{if .Cost.Priceable}}
+{{if or .Cost.Reported .Cost.EstimatedKnown}}
 <div class="grid">
-  <div class="panel metric good"><div class="n">{{.Cost.Money}}</div><div class="k">priced spend · {{.Window.Label}}</div></div>
+  {{if .Cost.Reported}}<div class="panel metric good"><div class="n">{{.Cost.ReportedMoney}}</div><div class="k">provider reported · {{.Window.Label}}</div></div>{{end}}
+  {{if .Cost.EstimatedKnown}}<div class="panel metric"><div class="n">{{.Cost.EstimatedMoney}}</div><div class="k">configured estimate · {{.Window.Label}}</div></div>{{end}}
 </div>
-<p class="note">Priced from the configured table, in {{.Cost.Currency}}, over
-{{.Cost.Priced}} of {{.Cost.Measured}} measured model rows.{{if .Cost.Partial}} Rows the table
-does not cover say “not priced” above, so this figure is a floor, not the bill.{{end}}</p>
+<p class="note">{{if .Cost.Reported}}The provider reported USD cost for {{.Cost.ReportedTurns}} turn(s).
+{{end}}{{if .Cost.EstimatedKnown}}The separate estimate uses configured token rates for
+{{.Cost.EstimatedRows}} model row(s) that reported tokens but no cost. Reported and estimated
+amounts are never added together.{{end}}</p>
 {{else}}{{template "unwired" .CostUnwired}}{{end}}
 
 <h2>Wall clock</h2>

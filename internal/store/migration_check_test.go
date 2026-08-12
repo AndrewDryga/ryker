@@ -82,7 +82,9 @@ func TestCheckMigrationCatchesAMigrationThatDestroysRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := target.Exec(
-		`DROP TABLE replay_cancellations; UPDATE schema_version SET version = ?`, currentSchemaVersion-1,
+		`ALTER TABLE context_manifests DROP COLUMN usage_cost_usd;
+		 ALTER TABLE context_manifests DROP COLUMN usage_costed_turns;
+		 UPDATE schema_version SET version = ?`, currentSchemaVersion-1,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +192,8 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		ALTER TABLE standing_rules DROP COLUMN workflow_name;
 		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
+		ALTER TABLE context_manifests DROP COLUMN usage_cost_usd;
+		ALTER TABLE context_manifests DROP COLUMN usage_costed_turns;
 		ALTER TABLE incidents DROP COLUMN latest_update;
 		ALTER TABLE incidents DROP COLUMN latest_update_run_id;
 		ALTER TABLE incidents DROP COLUMN latest_update_run_key;
@@ -310,6 +314,8 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 		ALTER TABLE standing_rules DROP COLUMN workflow_name;
 		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
+		ALTER TABLE context_manifests DROP COLUMN usage_cost_usd;
+		ALTER TABLE context_manifests DROP COLUMN usage_costed_turns;
 		ALTER TABLE incidents DROP COLUMN latest_update;
 		ALTER TABLE incidents DROP COLUMN latest_update_run_id;
 		ALTER TABLE incidents DROP COLUMN latest_update_run_key;

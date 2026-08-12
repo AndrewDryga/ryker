@@ -54,10 +54,10 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	}
 	// An unwired panel names what would fill it, so nobody has to guess whether
 	// the number is zero or the pipe is missing. This deployment was handed an
-	// empty price table, so the cost panel must say the table is missing and
-	// where its shape is documented — not render zero money, and not claim the
-	// page cannot price, which stopped being true when pricing was plumbed in.
-	if !strings.Contains(body, "No price table configured") ||
+	// empty price table, so the cost panel must distinguish the absent provider
+	// report from the missing fallback estimate and point at the documented
+	// shape — never render either absence as zero money.
+	if !strings.Contains(body, "No provider-reported cost or price table") ||
 		!strings.Contains(body, "config/responder.example.yaml") {
 		t.Error("the cost panel does not say the price table is missing or where the shape lives")
 	}

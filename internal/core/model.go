@@ -1109,8 +1109,8 @@ type ContextManifest struct {
 	Latency           ContextLatency
 }
 
-// ContextUsage is what one attempt spent, in tokens, totalled over every Coop
-// turn that attempt took.
+// ContextUsage is what one attempt spent, totalled over every Coop turn that
+// attempt took. CostUSD is provider-reported; token pricing remains an estimate.
 //
 // It is a total rather than a single turn's figure because one attempt can run
 // several turns: a result the host refuses is sent back as a correction, which
@@ -1119,12 +1119,15 @@ type ContextManifest struct {
 // is precisely backwards for anyone reading a usage page to find spend.
 //
 // Cached input is kept apart from the input total because Coop reports it
-// apart, and every provider prices a cache read differently.
+// apart, and every provider prices a cache read differently. CostedTurns keeps
+// an exact zero distinguishable from an adapter that reported no money.
 type ContextUsage struct {
 	InputTokens       int
 	CachedInputTokens int
 	OutputTokens      int
 	ReasoningTokens   int
+	CostUSD           float64
+	CostedTurns       int
 }
 
 // Recorded reports whether any provider ever measured this attempt.
@@ -1136,6 +1139,8 @@ func (u ContextUsage) Recorded() bool {
 	return u.InputTokens > 0 || u.CachedInputTokens > 0 ||
 		u.OutputTokens > 0 || u.ReasoningTokens > 0
 }
+
+func (u ContextUsage) CostRecorded() bool { return u.CostedTurns > 0 }
 
 // ContextLatency is how long an attempt waited, totalled over every Coop turn
 // it took and split by who was doing the waiting.

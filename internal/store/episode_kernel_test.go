@@ -229,11 +229,13 @@ func TestContextManifestUsageTotalsEveryTurnOfTheAttempt(t *testing.T) {
 	}
 	if err := st.RecordAttemptTurnCost(ctx, run.AttemptID, "turn_1", core.ContextUsage{
 		InputTokens: 100, CachedInputTokens: 10, OutputTokens: 20, ReasoningTokens: 5,
+		CostUSD: 0.25, CostedTurns: 1,
 	}, core.ContextLatency{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.RecordAttemptTurnCost(ctx, run.AttemptID, "turn_2", core.ContextUsage{
 		InputTokens: 200, CachedInputTokens: 20, OutputTokens: 40, ReasoningTokens: 7,
+		CostUSD: 0.40, CostedTurns: 1,
 	}, core.ContextLatency{}); err != nil {
 		t.Fatal(err)
 	}
@@ -243,6 +245,7 @@ func TestContextManifestUsageTotalsEveryTurnOfTheAttempt(t *testing.T) {
 	}
 	want := core.ContextUsage{
 		InputTokens: 300, CachedInputTokens: 30, OutputTokens: 60, ReasoningTokens: 12,
+		CostUSD: 0.65, CostedTurns: 2,
 	}
 	if loaded.Usage != want {
 		t.Fatalf("attempt usage = %+v, want %+v", loaded.Usage, want)
@@ -273,7 +276,7 @@ func TestContextManifestUsageIgnoresTheSameTurnTwice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	usage := core.ContextUsage{InputTokens: 100, OutputTokens: 20}
+	usage := core.ContextUsage{InputTokens: 100, OutputTokens: 20, CostUSD: 0.25, CostedTurns: 1}
 	for range 3 {
 		if err := st.RecordAttemptTurnCost(
 			ctx, run.AttemptID, "turn_1", usage, core.ContextLatency{},
@@ -334,6 +337,23 @@ func TestContextManifestUsageKeepsUnreportedTurnsUnrecorded(t *testing.T) {
 	}
 	if loaded.Usage.InputTokens != 5 {
 		t.Fatalf("measured turn after a silent one = %+v", loaded.Usage)
+	}
+}
+
+func TestContextManifestUsageRejectsInvalidProviderCost(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, usage := range []core.ContextUsage{
+		{CostUSD: -1, CostedTurns: 1},
+		{CostUSD: 1, CostedTurns: -1},
+	} {
+		if err := st.RecordAttemptTurnCost(ctx, "attempt", "turn", usage, core.ContextLatency{}); err == nil {
+			t.Fatalf("invalid provider cost was accepted: %+v", usage)
+		}
 	}
 }
 

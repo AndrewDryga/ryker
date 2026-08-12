@@ -22,6 +22,8 @@ type attempt struct {
 	provider, model, effort   string
 	frozen                    time.Time
 	spent                     Tokens
+	costUSD                   float64
+	costedTurns               int
 }
 
 // seedUsage writes attempts into a database the store itself migrated.
@@ -74,11 +76,11 @@ func seedUsage(t *testing.T, attempts ...attempt) *Reader {
 		exec(`INSERT INTO context_manifests
 		  (id, episode_id, attempt_id, version, provider, model, reasoning_effort, created_at,
 		   usage_input_tokens, usage_cached_input_tokens, usage_output_tokens,
-		   usage_reasoning_tokens, usage_last_turn_id)
-		  VALUES (?,?,?,1,?,?,?,?,?,?,?,?,?)`,
+		   usage_reasoning_tokens, usage_cost_usd, usage_costed_turns, usage_last_turn_id)
+		  VALUES (?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)`,
 			"man_"+item.id, episode, item.id, item.provider, item.model, item.effort, stamp,
 			item.spent.Input, item.spent.Cached, item.spent.Output, item.spent.Reasoning,
-			"turn_"+item.id)
+			item.costUSD, item.costedTurns, "turn_"+item.id)
 	}
 	if err := writable.Close(); err != nil {
 		t.Fatal(err)
@@ -338,15 +340,15 @@ func TestPricingNeverInventsOrHidesMoney(t *testing.T) {
 		{Provider: "claude", Model: "opus-4.5", Measured: 0},
 	}
 	rows, cost := priceUsage(pricing, rows)
-	if !cost.Configured || cost.Measured != 3 || cost.Priced != 2 {
+	if !cost.Configured || cost.MeasuredRows != 3 || cost.EstimatedRows != 2 {
 		t.Fatalf("cost accounting = %+v, want 2 of 3 measured rows priced", cost)
 	}
 	// 5.00 input + 0.50 cached + 2.50 output + 2.50 reasoning-at-output-rate,
 	// plus 1.00 for the provider-rate row.
-	if cost.Money() != "11.50 USD" {
-		t.Errorf("total = %q, want 11.50 USD", cost.Money())
+	if cost.EstimatedMoney() != "11.50 USD" {
+		t.Errorf("total = %q, want 11.50 USD", cost.EstimatedMoney())
 	}
-	if rows[0].Cost != "10.50 USD" || rows[1].Cost != "1.00 USD" {
+	if rows[0].Cost != "10.50 USD estimated" || rows[1].Cost != "1.00 USD estimated" {
 		t.Errorf("row costs = %q, %q", rows[0].Cost, rows[1].Cost)
 	}
 	if rows[2].Cost != "not priced" {
@@ -364,8 +366,47 @@ func TestPricingNeverInventsOrHidesMoney(t *testing.T) {
 	bare := []UsageGroup{{Provider: "claude", Model: "opus-4.5", Measured: 1,
 		Tokens: Tokens{Input: 10}}}
 	bare, cost = priceUsage(config.Pricing{}, bare)
-	if cost.Configured || cost.Priceable() || bare[0].Cost != "" {
+	if cost.Configured || cost.EstimatedKnown() || bare[0].Cost != "" {
 		t.Errorf("an empty table produced output: %+v, row %q", cost, bare[0].Cost)
+	}
+}
+
+func TestProviderReportedCostNeedsNoConfiguredPriceTable(t *testing.T) {
+	now := time.Now().UTC()
+	reader := seedUsage(t, attempt{
+		id: "reported", channel: "C1", repository: "r", mode: "triage",
+		provider: "claude", model: "opus-4.5", frozen: now.Add(-time.Hour),
+		spent: Tokens{Input: 1_000, Output: 100}, costUSD: 0.375, costedTurns: 1,
+	})
+	body := servePage(t, reader, "/usage?window=1d")
+	for _, want := range []string{"0.38 USD reported", "provider reported", "reported USD cost for 1 turn"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("usage page is missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "No provider-reported cost or price table") {
+		t.Errorf("reported money was replaced by setup guidance:\n%s", body)
+	}
+	episode := servePage(t, reader, "/episodes/ep_reported")
+	if !strings.Contains(episode, "0.38 USD") || !strings.Contains(episode, "provider reported 1 turn") {
+		t.Errorf("episode did not use reported money:\n%s", episode)
+	}
+}
+
+func TestReportedAndEstimatedCostStaySeparate(t *testing.T) {
+	pricing := config.Pricing{Currency: "USD", Models: map[string]config.ModelPrice{
+		"openai": {Input: 2},
+	}}
+	rows, cost := priceUsage(pricing, []UsageGroup{
+		{Provider: "claude", Model: "opus", CostUSD: 0.375, CostedTurns: 1},
+		{Provider: "openai", Model: "gpt", Measured: 1, Tokens: Tokens{Input: 500_000}},
+	})
+	if cost.ReportedMoney() != "0.38 USD" || cost.EstimatedMoney() != "1.00 USD" ||
+		cost.ReportedTurns != 1 || cost.EstimatedRows != 1 {
+		t.Fatalf("mixed cost provenance = %+v", cost)
+	}
+	if rows[0].Cost != "0.38 USD reported" || rows[1].Cost != "1.00 USD estimated" {
+		t.Fatalf("mixed row labels = %q / %q", rows[0].Cost, rows[1].Cost)
 	}
 }
 

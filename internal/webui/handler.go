@@ -784,7 +784,8 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	}{h.prompts, channels, schedules, preferences, rules})
 }
 
-// usagePage is what the machine spent, measured rather than estimated.
+// usagePage is what the machine spent: provider measurements first, with
+// configured token estimates shown separately when no money was reported.
 //
 // Every figure here is a SUM of counts a provider reported. Nothing is derived
 // from prompt bytes: a number worked out from the size of the text is a guess,
@@ -820,7 +821,7 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 	page.Tables = append(page.Tables, UsageTable{
 		Heading: "Tokens by provider and model", Column: "Provider and model",
 		Note:  "What actually answered each attempt, including fallbacks after rate limits.",
-		Money: page.Cost.Configured,
+		Money: page.Cost.Visible(),
 		Rows:  shareOf(byModel, page.Totals.Total()),
 	})
 	for _, table := range []struct {
@@ -859,11 +860,11 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 func costUnwired(cost UsageCost) Unwired {
 	switch {
 	case !cost.Configured:
-		return Unwired{Tag: "No price table configured",
-			Needs: "Cost is priced only from the pricing table in the configuration file, and " +
-				"this deployment has none. config/responder.example.yaml shows the shape: " +
-				"per-model rates per million tokens, with the currency named."}
-	case cost.Measured == 0:
+		return Unwired{Tag: "No provider-reported cost or price table",
+			Needs: "No turn in this window carried provider-reported USD cost, and this deployment " +
+				"has no configured token prices for an estimate. config/responder.example.yaml " +
+				"shows the fallback price-table shape."}
+	case cost.MeasuredRows == 0:
 		return Unwired{Tag: "Nothing measured to price",
 			Needs: "A price table is configured, but no attempt in this window reported token " +
 				"usage. The figure appears with the first measured attempt."}

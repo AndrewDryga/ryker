@@ -2011,15 +2011,21 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 		spend.Missing = false
 		spend.Detail = tokens + " tokens · " + page.Spent.CacheLabel() + " served from cache"
 		switch {
-		case cost.Priceable() && cost.Partial():
-			spend.Value, spend.Tone = cost.Money()+"+", "warn"
-			spend.Detail += " · some rows have no configured price"
-		case cost.Priceable():
-			spend.Value = cost.Money()
+		case cost.Reported():
+			spend.Value = cost.ReportedMoney()
+			spend.Detail += fmt.Sprintf(" · provider reported %d turn(s)", cost.ReportedTurns)
+			if cost.EstimatedKnown() {
+				spend.Detail += " · " + cost.EstimatedMoney() + " estimated for unreported rows"
+			}
+		case cost.EstimatedKnown():
+			spend.Value = cost.EstimatedMoney() + " est."
 		default:
 			spend.Value = tokens + " tok"
 			spend.Detail = "No price is configured for this model · " + page.Spent.CacheLabel() + " served from cache"
 		}
+	} else if cost.Reported() {
+		spend.Value, spend.Missing = cost.ReportedMoney(), false
+		spend.Detail = fmt.Sprintf("Provider reported %d turn(s); token counts were not reported.", cost.ReportedTurns)
 	}
 
 	errors, breakdown := episodeErrorCount(page)
@@ -2120,17 +2126,22 @@ func failureDetail(page episodePage) string {
 func episodeCost(pricing config.Pricing, spent EpisodeTokens) UsageCost {
 	cost := UsageCost{Currency: pricing.Currency, Configured: len(pricing.Models) > 0}
 	for _, row := range spent.Rows {
+		if row.CostedTurns > 0 {
+			cost.ReportedUSD += row.CostUSD
+			cost.ReportedTurns += row.CostedTurns
+			continue
+		}
 		if !row.Measured {
 			continue
 		}
-		cost.Measured++
+		cost.MeasuredRows++
 		amount, known := pricing.Cost(row.Provider, row.Model, core.ContextUsage{
 			InputTokens: int(row.Input), CachedInputTokens: int(row.Cached),
 			OutputTokens: int(row.Output), ReasoningTokens: int(row.Reasoning),
 		})
 		if known {
-			cost.Total += amount
-			cost.Priced++
+			cost.Estimated += amount
+			cost.EstimatedRows++
 		}
 	}
 	return cost

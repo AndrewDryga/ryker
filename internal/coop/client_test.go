@@ -459,7 +459,8 @@ func TestClientReadsTurnUsageAndTreatsSilenceAsUnrecorded(t *testing.T) {
 
 	body = `{"id":"turn_1","session_id":"ses_1","state":"completed","usage":{` +
 		`"input_tokens":1200,"cached_input_tokens":800,` +
-		`"output_tokens":300,"reasoning_tokens":64}}`
+		`"output_tokens":300,"reasoning_tokens":64,` +
+		`"cost_usd":0.375,"cost_recorded":true}}`
 	measured, err := client.GetTurn(context.Background(), "ses_1", "turn_1")
 	if err != nil {
 		t.Fatal(err)
@@ -467,6 +468,7 @@ func TestClientReadsTurnUsageAndTreatsSilenceAsUnrecorded(t *testing.T) {
 	want := Usage{
 		InputTokens: 1200, CachedInputTokens: 800,
 		OutputTokens: 300, ReasoningTokens: 64,
+		CostUSD: 0.375, CostRecorded: true,
 	}
 	if measured.Usage != want {
 		t.Fatalf("turn usage = %+v, want %+v", measured.Usage, want)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -604,7 +605,8 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 		       prompt_version, contract_version, tool_schema_version, preset,
 		       provider, model, reasoning_effort, submitted_prompt, omissions_json, created_at,
 		       usage_input_tokens, usage_cached_input_tokens,
-		       usage_output_tokens, usage_reasoning_tokens,
+		       usage_output_tokens, usage_reasoning_tokens, usage_cost_usd,
+		       usage_costed_turns,
 		       usage_timed_turns, usage_queued_ms, usage_provider_ms, usage_host_ms
 		FROM context_manifests WHERE id = ?`, manifestID).Scan(
 		&item.ID, &item.EpisodeID, &item.AttemptID, &item.ParentManifestID,
@@ -613,6 +615,7 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 		&item.ReasoningEffort, &item.SubmittedPrompt, &omissionsJSON, &created,
 		&item.Usage.InputTokens, &item.Usage.CachedInputTokens,
 		&item.Usage.OutputTokens, &item.Usage.ReasoningTokens,
+		&item.Usage.CostUSD, &item.Usage.CostedTurns,
 		&item.Latency.Turns, &queuedMS, &providerMS, &hostMS,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -704,7 +707,11 @@ func (s *Store) RecordAttemptTurnCost(
 	if attemptID == "" || turnID == "" {
 		return errors.New("attempt and coop turn are required to record what a turn cost")
 	}
-	if !usage.Recorded() && !latency.Recorded() {
+	if usage.CostUSD < 0 || math.IsNaN(usage.CostUSD) || math.IsInf(usage.CostUSD, 0) ||
+		usage.CostedTurns < 0 {
+		return errors.New("provider-reported cost is outside bounds")
+	}
+	if !usage.Recorded() && !usage.CostRecorded() && !latency.Recorded() {
 		return nil
 	}
 	_, err := s.db.ExecContext(ctx, `
@@ -713,6 +720,8 @@ func (s *Store) RecordAttemptTurnCost(
 		  usage_cached_input_tokens = usage_cached_input_tokens + ?,
 		  usage_output_tokens = usage_output_tokens + ?,
 		  usage_reasoning_tokens = usage_reasoning_tokens + ?,
+		  usage_cost_usd = usage_cost_usd + ?,
+		  usage_costed_turns = usage_costed_turns + ?,
 		  usage_timed_turns = usage_timed_turns + ?,
 		  usage_queued_ms = usage_queued_ms + ?,
 		  usage_provider_ms = usage_provider_ms + ?,
@@ -721,7 +730,8 @@ func (s *Store) RecordAttemptTurnCost(
 		WHERE id = (SELECT context_manifest_id FROM episode_attempts WHERE id = ?)
 		  AND usage_last_turn_id <> ?`,
 		usage.InputTokens, usage.CachedInputTokens, usage.OutputTokens,
-		usage.ReasoningTokens, latency.Turns, latency.Queued.Milliseconds(),
+		usage.ReasoningTokens, usage.CostUSD, usage.CostedTurns,
+		latency.Turns, latency.Queued.Milliseconds(),
 		latency.Provider.Milliseconds(), latency.Host.Milliseconds(),
 		turnID, attemptID, turnID)
 	return err

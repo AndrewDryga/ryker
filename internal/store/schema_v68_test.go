@@ -47,8 +47,8 @@ func TestSchemaV68PreservesOutboxAndAddsDurableReactions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if version := schemaVersionOf(t, stateDir); version != 68 {
-		t.Fatalf("schema version = %d, want 68", version)
+	if version := schemaVersionOf(t, stateDir); version != currentSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, currentSchemaVersion)
 	}
 	if delivery, err := st.GetSlackDelivery(context.Background(), "delivery_before_v68"); err != nil || delivery.State != "sent" {
 		t.Fatalf("preserved delivery = %+v, %v", delivery, err)

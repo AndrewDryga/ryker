@@ -108,7 +108,7 @@ func chosenWindow(windows []UsageWindow) UsageWindow {
 	return UsageWindow{Key: "all", Label: "everything on record"}
 }
 
-// usageColumns is the same nine figures everywhere: how many attempts are in
+// usageColumns is the same figures everywhere: how many attempts are in
 // the group, how many of them a provider actually measured, the four token
 // counts, and the three wall-clock spans with the count of timed turns.
 //
@@ -129,6 +129,7 @@ const usageColumns = `COUNT(*),
       OR m.usage_output_tokens > 0 OR m.usage_reasoning_tokens > 0),0),
   COALESCE(SUM(m.usage_input_tokens),0), COALESCE(SUM(m.usage_cached_input_tokens),0),
   COALESCE(SUM(m.usage_output_tokens),0), COALESCE(SUM(m.usage_reasoning_tokens),0),
+  COALESCE(SUM(m.usage_costed_turns),0), COALESCE(SUM(m.usage_cost_usd),0),
   COALESCE(SUM(m.usage_timed_turns),0), COALESCE(SUM(m.usage_queued_ms),0),
   COALESCE(SUM(m.usage_provider_ms),0), COALESCE(SUM(m.usage_host_ms),0)`
 
@@ -214,6 +215,8 @@ func humanMS(milliseconds int64) string {
 type UsageTotals struct {
 	Tokens
 	Attempts, Measured int
+	CostedTurns        int
+	CostUSD            float64
 	First, Last        time.Time
 	Clock              WallClock
 }
@@ -236,7 +239,8 @@ func (r *Reader) UsageTotals(ctx context.Context, window UsageWindow) (UsageTota
 	err := r.db.QueryRowContext(ctx, `SELECT `+usageColumns+`,
 	    MIN(m.created_at), MAX(m.created_at)`+usageFrom, window.since()).
 		Scan(&totals.Attempts, &totals.Measured, &totals.Input, &totals.Cached,
-			&totals.Output, &totals.Reasoning, &totals.Clock.TimedTurns,
+			&totals.Output, &totals.Reasoning, &totals.CostedTurns, &totals.CostUSD,
+			&totals.Clock.TimedTurns,
 			&totals.Clock.QueuedMS, &totals.Clock.ProviderMS, &totals.Clock.HostMS,
 			&first, &last)
 	if err != nil {
@@ -260,9 +264,11 @@ type UsageGroup struct {
 	Provider, Model    string
 	Attempts, Measured int
 	Tokens
-	Clock WallClock
-	// Cost is the display string for the money column, computed only through
-	// config.Pricing.Cost. Empty on tables that are not priced.
+	CostedTurns int
+	CostUSD     float64
+	Clock       WallClock
+	// Cost is provider-reported money when present, otherwise a configured
+	// estimate. The suffix keeps those evidence classes visible.
 	Cost string
 	// Share of the window, filled in once the window total is known. It is the
 	// reason to read a breakdown at all: the row worth acting on is the big one,
@@ -277,8 +283,8 @@ func (g UsageGroup) Recorded() bool { return g.Measured > 0 }
 // a single rendering, so a column added for one dimension appears for all four
 // rather than drifting apart per section. Money marks the one table that gets
 // a cost column — the model table, because cost is a property of which model
-// answered — and only when a price table exists at all, so the column is
-// never a row of dashes pretending to be a bill.
+// answered — and only when provider cost or a price table exists, so the
+// column is never a row of dashes pretending to be a bill.
 type UsageTable struct {
 	Heading, Column, Note string
 	Money                 bool
@@ -319,7 +325,8 @@ func (r *Reader) usageBy(
 			var item UsageGroup
 			var key, sub string
 			err := rows.Scan(&key, &sub, &item.Attempts, &item.Measured, &item.Input,
-				&item.Cached, &item.Output, &item.Reasoning, &item.Clock.TimedTurns,
+				&item.Cached, &item.Output, &item.Reasoning, &item.CostedTurns,
+				&item.CostUSD, &item.Clock.TimedTurns,
 				&item.Clock.QueuedMS, &item.Clock.ProviderMS, &item.Clock.HostMS)
 			item.Label, item.Sub = key, sub
 			// Either half is enough to filter on. An attempt whose provider went
@@ -531,6 +538,8 @@ func layOutTrend(measured []UsageDay, now time.Time) UsageTrend {
 type EpisodeTokens struct {
 	Tokens
 	Manifests, Measured int
+	CostedTurns         int
+	CostUSD             float64
 	Rows                []AttemptTokens
 	Clock               WallClock
 }
@@ -542,8 +551,10 @@ type AttemptTokens struct {
 	Provider, Model, Effort string
 	Frozen                  time.Time
 	Tokens
-	Measured bool
-	Clock    WallClock
+	Measured    bool
+	CostedTurns int
+	CostUSD     float64
+	Clock       WallClock
 }
 
 func (r *Reader) EpisodeTokens(ctx context.Context, episodeID string) (EpisodeTokens, error) {
@@ -552,7 +563,8 @@ func (r *Reader) EpisodeTokens(ctx context.Context, episodeID string) (EpisodeTo
 	  SELECT version, COALESCE(provider,''), COALESCE(model,''),
 	         COALESCE(reasoning_effort,''), created_at,
 	         usage_input_tokens, usage_cached_input_tokens,
-	         usage_output_tokens, usage_reasoning_tokens,
+	         usage_output_tokens, usage_reasoning_tokens, usage_costed_turns,
+	         usage_cost_usd,
 	         usage_timed_turns, usage_queued_ms, usage_provider_ms, usage_host_ms
 	  FROM context_manifests WHERE episode_id = ? ORDER BY version`,
 		func(rows *sql.Rows) (AttemptTokens, error) {
@@ -560,6 +572,7 @@ func (r *Reader) EpisodeTokens(ctx context.Context, episodeID string) (EpisodeTo
 			var frozen string
 			err := rows.Scan(&item.Version, &item.Provider, &item.Model, &item.Effort,
 				&frozen, &item.Input, &item.Cached, &item.Output, &item.Reasoning,
+				&item.CostedTurns, &item.CostUSD,
 				&item.Clock.TimedTurns, &item.Clock.QueuedMS, &item.Clock.ProviderMS,
 				&item.Clock.HostMS)
 			item.Frozen = parseStamp(frozen)
@@ -576,6 +589,8 @@ func (r *Reader) EpisodeTokens(ctx context.Context, episodeID string) (EpisodeTo
 		total.Cached += row.Cached
 		total.Output += row.Output
 		total.Reasoning += row.Reasoning
+		total.CostedTurns += row.CostedTurns
+		total.CostUSD += row.CostUSD
 		total.Clock.TimedTurns += row.Clock.TimedTurns
 		total.Clock.QueuedMS += row.Clock.QueuedMS
 		total.Clock.ProviderMS += row.Clock.ProviderMS
@@ -599,35 +614,37 @@ func episodeLink(values url.Values) template.URL {
 	return template.URL("/episodes?" + values.Encode()) //nolint:gosec // built here from escaped values
 }
 
-// UsageCost is what the window's measured tokens cost, priced only through
-// config.Pricing.Cost — never by arithmetic done here, because the bool that
-// method returns is the whole point: an unpriced model reports no cost, not a
-// zero, and a zero in a spend report reads as "this was free".
+// UsageCost keeps provider-reported money and configured token estimates apart.
+// They are different evidence and must never be silently added into one bill.
 type UsageCost struct {
-	Currency   string
-	Configured bool
-	Total      float64
-	// Priced and Measured keep the total honest: a sum over three of five
-	// measured rows is three fifths of a bill, and saying so is what stops it
-	// being read as the bill.
-	Priced, Measured int
+	Currency                     string
+	Configured                   bool
+	ReportedUSD, Estimated       float64
+	ReportedTurns, EstimatedRows int
+	MeasuredRows                 int
 }
 
-func (c UsageCost) Money() string   { return money(c.Total, c.Currency) }
-func (c UsageCost) Partial() bool   { return c.Priced < c.Measured }
-func (c UsageCost) Priceable() bool { return c.Configured && c.Priced > 0 }
+func (c UsageCost) Reported() bool         { return c.ReportedTurns > 0 }
+func (c UsageCost) EstimatedKnown() bool   { return c.EstimatedRows > 0 }
+func (c UsageCost) Visible() bool          { return c.Reported() || c.Configured }
+func (c UsageCost) ReportedMoney() string  { return money(c.ReportedUSD, "USD") }
+func (c UsageCost) EstimatedMoney() string { return money(c.Estimated, c.Currency) }
 
-// priceUsage fills the money column of the by-model rows and totals what was
-// knowable. Unmeasured rows are left unpriced — Pricing.Cost refuses them —
-// because pricing tokens nobody counted returns confident zero money for an
-// attempt that cost whatever it cost.
+// priceUsage fills the money column from provider reports first, then estimates
+// only rows with measured tokens and no reported money. The totals stay apart.
 func priceUsage(pricing config.Pricing, byModel []UsageGroup) ([]UsageGroup, UsageCost) {
 	cost := UsageCost{Currency: pricing.Currency, Configured: len(pricing.Models) > 0}
 	for index, row := range byModel {
+		if row.CostedTurns > 0 {
+			byModel[index].Cost = money(row.CostUSD, "USD") + " reported"
+			cost.ReportedUSD += row.CostUSD
+			cost.ReportedTurns += row.CostedTurns
+			continue
+		}
 		if !row.Recorded() {
 			continue
 		}
-		cost.Measured++
+		cost.MeasuredRows++
 		amount, known := pricing.Cost(row.Provider, row.Model, core.ContextUsage{
 			InputTokens:       int(row.Input),
 			CachedInputTokens: int(row.Cached),
@@ -640,9 +657,9 @@ func priceUsage(pricing config.Pricing, byModel []UsageGroup) ([]UsageGroup, Usa
 			}
 			continue
 		}
-		byModel[index].Cost = money(amount, pricing.Currency)
-		cost.Total += amount
-		cost.Priced++
+		byModel[index].Cost = money(amount, pricing.Currency) + " estimated"
+		cost.Estimated += amount
+		cost.EstimatedRows++
 	}
 	return byModel, cost
 }

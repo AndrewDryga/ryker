@@ -2129,8 +2129,8 @@ func (s *Service) stageIncidentTerminal(
 	return false, nil
 }
 
-// recordTurnCost keeps what a finished Coop turn cost — tokens and wall-clock
-// — on the attempt's context manifest.
+// recordTurnCost keeps what a finished Coop turn cost — provider-reported
+// money, tokens and wall-clock — on the attempt's context manifest.
 //
 // It returns nothing. Accounting is not worth failing a turn over: the answer
 // the operator is waiting for is already computed, and dropping it because a
@@ -2154,6 +2154,8 @@ func (s *Service) recordTurnCost(ctx context.Context, run core.AgentRun, turn co
 		CachedInputTokens: turn.Usage.CachedInputTokens,
 		OutputTokens:      turn.Usage.OutputTokens,
 		ReasoningTokens:   turn.Usage.ReasoningTokens,
+		CostUSD:           turn.Usage.CostUSD,
+		CostedTurns:       turn.Usage.CostedTurns(),
 	}, core.NewContextLatency(
 		turn.QueuedAt, turn.StartedAt, turn.FinishedAt, s.now(),
 	)); err != nil && s.log != nil {
