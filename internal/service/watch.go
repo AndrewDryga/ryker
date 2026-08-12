@@ -239,6 +239,13 @@ func (s *Service) ensureConversationSessionAtGeneration(
 	)
 	if err != nil {
 		memory.Generation = generation
+		if advanceFailedSessionGeneration(err) {
+			if generationErr := s.store.AdvanceConversationSessionGeneration(
+				ctx, channelID, repositoryKey, policy, generation,
+			); generationErr != nil {
+				return memory, coop.Session{}, errors.Join(err, generationErr)
+			}
+		}
 		return memory, coop.Session{}, err
 	}
 	started := s.now().UTC()

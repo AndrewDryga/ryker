@@ -369,6 +369,62 @@ func TestPrewarmConversationSessionsRotatesChangedPolicy(t *testing.T) {
 	}
 }
 
+func TestFailedConversationPrewarmAdvancesDurableGeneration(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CRECOVER"}
+	cfg.Coop.PrewarmSessions = 1
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.BindConversationSession(
+		ctx, "CRECOVER", "repo", "repo-conversation", "ses_old", 1, 5, time.Now(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DetachConversationSession(ctx, "CRECOVER", "ses_old"); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.createErrors = []error{&coop.APIError{
+		Status: 500, Code: "internal_error", Detail: "durable create failure",
+	}}
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+
+	svc.prewarmConversationSessions(ctx)
+	failed, err := st.GetConversationSession(ctx, "CRECOVER")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.SessionID != "" || failed.Generation != 6 {
+		t.Fatalf("failed generation was not advanced durably: %+v", failed)
+	}
+
+	svc.prewarmConversationSessions(ctx)
+	recovered, err := st.GetConversationSession(ctx, "CRECOVER")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.SessionID == "" || recovered.Generation != 6 {
+		t.Fatalf("recovered conversation session = %+v", recovered)
+	}
+	want := []string{
+		"responder:conversation-session:CRECOVER:5",
+		"responder:conversation-session:CRECOVER:6",
+	}
+	if !slices.Equal(coopClient.createKeys, want) {
+		t.Fatalf("conversation create keys = %v, want %v", coopClient.createKeys, want)
+	}
+}
+
 func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

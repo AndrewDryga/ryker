@@ -112,6 +112,35 @@ func (s *Store) BindConversationSession(
 	return sqlutil.ExpectOne(result, err, "bind conversation session outside cleanup ownership")
 }
 
+// AdvanceConversationSessionGeneration records that Coop durably rejected one
+// create request. A later attempt must use a new idempotency key, while an
+// ambiguous transport failure must keep replaying the old one.
+func (s *Store) AdvanceConversationSessionGeneration(
+	ctx context.Context,
+	channelID string,
+	repository string,
+	policy string,
+	failedGeneration int,
+) error {
+	if channelID == "" || repository == "" || policy == "" || failedGeneration < 1 {
+		return errors.New("conversation session generation identity is incomplete")
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO conversation_sessions (
+		  channel_id, repository, policy, generation, updated_at
+		) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(channel_id) DO UPDATE SET
+		  repository = excluded.repository,
+		  policy = excluded.policy,
+		  generation = excluded.generation,
+		  updated_at = excluded.updated_at
+		WHERE conversation_sessions.session_id = ''
+		  AND conversation_sessions.generation <= ?`,
+		channelID, repository, policy, failedGeneration+1, s.nowText(), failedGeneration,
+	)
+	return err
+}
+
 func (s *Store) AdvanceConversationSessionEvents(
 	ctx context.Context,
 	channelID string,
