@@ -1173,7 +1173,8 @@ func (s *Service) admitTriageRun(
 			return true, s.retryAgentRun(ctx, run, err)
 		}
 	}
-	if input.Kind == "message" && len(state.MatchedRules) == 0 &&
+	if input.Kind == "message" && !isPrivateSlackVerificationReplay(input) &&
+		len(state.MatchedRules) == 0 &&
 		!state.ApprovalContinuation {
 		alreadyClassified, err := s.store.HasNewerWatchDecision(
 			ctx, input.ChannelID, input.MessageTS,
@@ -1210,7 +1211,7 @@ func (s *Service) admitTriageRun(
 			)
 		}
 	}
-	if input.Kind == "bot_message" {
+	if input.Kind == "bot_message" && !isPrivateSlackVerificationReplay(input) {
 		newer, err := s.store.HasNewerPendingAgentRun(ctx, run)
 		if err != nil {
 			return true, s.retryAgentRun(ctx, run, err)
@@ -2829,7 +2830,8 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		}
 		return s.store.FinishAgentRun(ctx, run.ID)
 	}
-	if input.Kind == "bot_message" && strings.HasPrefix(run.ConversationKey, "operation:") {
+	if input.Kind == "bot_message" && !isPrivateSlackVerificationReplay(input) &&
+		strings.HasPrefix(run.ConversationKey, "operation:") {
 		newer, newerErr := s.store.HasNewerAgentRun(ctx, run)
 		if newerErr != nil {
 			return newerErr

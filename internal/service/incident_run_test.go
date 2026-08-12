@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack/slackevents"
@@ -92,6 +93,54 @@ func TestPrivateSlackReplayRunsWithoutPublicSideEffects(t *testing.T) {
 	channelMemory, err := st.Intelligence.GetChannelMemory(ctx, input.ChannelID)
 	if err != nil || len(channelMemory.State.Knowledge) != 0 {
 		t.Fatalf("private replay changed channel-wide memory = %+v, %v", channelMemory, err)
+	}
+}
+
+func TestPrivateSlackReplayBypassesStaleMessageCoalescing(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID:         "slack_replay_old_message",
+		EnvelopeID: "replay-private:slack_replay_old_message",
+		EventID:    "replay-private:slack_replay_old_message",
+		Kind:       "message", TeamID: cfg.Slack.TeamID, ChannelID: "CREPLAY",
+		MessageTS: "1700.100", UserID: "U123ABC", Text: "could you please help?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit private replay = %t, %v", created, err)
+	}
+	newer := core.SlackInput{
+		ID: "slack_newer_message", EnvelopeID: "env_newer_message",
+		EventID: "event_newer_message", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: input.ChannelID,
+		MessageTS: "1700.200", UserID: "U456DEF", Text: "newer channel message",
+	}
+	if created, err := st.AdmitSlackInput(ctx, newer); err != nil || !created {
+		t.Fatalf("admit newer message = %t, %v", created, err)
+	}
+	if err := st.Audit(ctx, core.AuditEvent{
+		Kind: "slack.watch", ObjectID: newer.ID, Outcome: "ignored",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	run := core.AgentRun{ID: "run_private_replay", SourceID: input.ID}
+	decided, err := svc.admitTriageRun(
+		ctx, run, input, &decisionpkg.WatchTurnState{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decided {
+		t.Fatal("private replay was superseded by newer channel activity")
 	}
 }
 
