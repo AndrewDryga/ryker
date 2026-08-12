@@ -221,6 +221,55 @@ func TestEngineeringTaskIsDistinctAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestEngineeringTaskPullRequestBindingSurvivesRestart(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "state")
+	st, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := core.PullRequestTarget{
+		Repository: "owner/repo", Number: 514,
+		URL:        "https://github.com/owner/repo/pull/514",
+		BaseBranch: "main", HeadBranch: "feature", HeadCommit: strings.Repeat("a", 40),
+	}
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "EvBoundTask", "Update PR", "summary", "U123ABC",
+		"COPS", "1700.3", 100, target,
+	)
+	if err != nil || !created || task.TaskPullRequest == nil || *task.TaskPullRequest != target {
+		t.Fatalf("bound engineering task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil || task.TaskPullRequest == nil || *task.TaskPullRequest != target {
+		t.Fatalf("reopened engineering task binding = %+v, %v", task, err)
+	}
+	moved := target
+	moved.HeadCommit = strings.Repeat("b", 40)
+	if _, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "EvBoundTask", "Update PR", "summary", "U123ABC",
+		"COPS", "1700.3", 100, moved,
+	); !errors.Is(err, ErrConflict) {
+		t.Fatalf("rebound engineering task = %v, want conflict", err)
+	}
+	invalid := target
+	invalid.HeadCommit = ""
+	if _, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "EvInvalidTask", "Update PR", "summary", "U123ABC",
+		"COPS", "1700.4", 100, invalid,
+	); err == nil {
+		t.Fatal("invalid pull request binding was stored")
+	}
+}
+
 func TestSlackInputsOnlySerializeActiveChannelWork(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

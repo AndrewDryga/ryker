@@ -170,7 +170,7 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGat
 		slackClient.updates[0].message.Text + "\n" +
 		strings.Join(slackClient.updates[0].message.Sections, "\n") + "\n" +
 		strings.Join(slackClient.updates[0].message.Context, "\n")
-	if !strings.Contains(rendered, "Draft PR ready") ||
+	if !strings.Contains(rendered, "PR ready") ||
 		!strings.Contains(rendered, publisherClient.result.PRURL) ||
 		!strings.Contains(rendered, "Validation warning") ||
 		!strings.Contains(rendered, "GitHub checks") ||
@@ -198,9 +198,16 @@ func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	target := core.PullRequestTarget{
+		Repository: "owner/repository", Number: 43,
+		URL:        "https://github.com/owner/repository/pull/43",
+		BaseBranch: "main", HeadBranch: "feature",
+		HeadCommit: strings.Repeat("a", 40),
+	}
 	task, _, err := st.CreateEngineeringTask(
 		ctx, "repo", "EvPublicationProgress", "Publish progress", "Publish this change.",
 		cfg.Slack.Operators[0], "COPS", "1700.400", cfg.Limits.MaxOpenIncidents,
+		target,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -221,34 +228,47 @@ func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
 
 	reviewStarted := make(chan struct{}, 1)
 	releaseReview := make(chan struct{})
+	getSessionStarted := make(chan struct{}, 1)
+	releaseGetSession := make(chan struct{})
 	changesStarted := make(chan struct{}, 1)
 	releaseChanges := make(chan struct{})
 	publishStarted := make(chan struct{}, 1)
 	releasePublish := make(chan struct{})
 	var releaseChangesOnce sync.Once
 	var releaseReviewOnce sync.Once
+	var releaseGetSessionOnce sync.Once
 	var releasePublishOnce sync.Once
 	t.Cleanup(func() {
 		releaseChangesOnce.Do(func() { close(releaseChanges) })
 		releaseReviewOnce.Do(func() { close(releaseReview) })
+		releaseGetSessionOnce.Do(func() { close(releaseGetSession) })
 		releasePublishOnce.Do(func() { close(releasePublish) })
 	})
 	baseCoop := newFakeCoop()
 	baseCoop.session.ID = "ses_progress"
 	baseCoop.session.ForkName = "task-progress"
 	baseCoop.session.Revision = 1
+	baseCoop.session.PullRequest = &coop.PullRequestBinding{
+		Number: target.Number, Ref: "refs/pull/43/head", HeadCommit: target.HeadCommit,
+	}
+	baseCoop.getSessionStarted = getSessionStarted
+	baseCoop.releaseGetSession = releaseGetSession
 	coopClient := &publicationCoop{
 		fakeCoop: baseCoop,
 		changes: coop.Changes{
 			ParentHead: "parent-head",
-			Unstaged:   []coop.Change{{Path: "service.go", Status: "modified"}},
-			Patch:      []byte("+progress\n"),
+			ForkTree:   "changed-tree", PullRequestTree: "admitted-tree",
+			Unstaged: []coop.Change{{Path: "service.go", Status: "modified"}},
+			Patch:    []byte("+progress\n"),
 		},
 		review: coop.Review{
 			SessionID: "ses_progress", SessionRevision: 1,
 			ParentHead: "parent-head", CandidateTree: "candidate-tree",
 			Rebase: "clean", Gate: "passed", Patch: []byte("+progress\n"),
 			Publishable: true,
+			PullRequest: &coop.PullRequestBinding{
+				Number: target.Number, Ref: "refs/pull/43/head", HeadCommit: target.HeadCommit,
+			},
 		},
 		reviewStarted:  reviewStarted,
 		releaseReview:  releaseReview,
@@ -319,15 +339,17 @@ func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
 		}
 	}
 
-	// Progress is durable before the first Coop read. Keep that read blocked and
-	// prove the card worker does not wait on the integration it is reporting.
-	waitFor("reviewing", changesStarted)
+	// Progress is durable before the first Coop read. Keep session validation
+	// blocked and prove the card worker does not wait on the integration it is reporting.
+	waitFor("session validation", getSessionStarted)
 	assertCard("reviewing", "reviewing changes")
+	releaseGetSessionOnce.Do(func() { close(releaseGetSession) })
+	waitFor("reviewing", changesStarted)
 	releaseChangesOnce.Do(func() { close(releaseChanges) })
 	waitFor("readiness review", reviewStarted)
 	releaseReviewOnce.Do(func() { close(releaseReview) })
 	waitFor("publishing", publishStarted)
-	assertCard("publishing", "Draft PR: publishing")
+	assertCard("publishing", "PR update: publishing")
 	releasePublishOnce.Do(func() { close(releasePublish) })
 	select {
 	case err := <-processed:
@@ -346,7 +368,7 @@ func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
 		t.Fatalf("published record = %+v, %v", publication, err)
 	}
 	final := slackClient.updates[len(slackClient.updates)-1].message
-	if !strings.Contains(strings.Join(final.Sections, "\n"), "Draft PR ready") {
+	if !strings.Contains(strings.Join(final.Sections, "\n"), "PR ready") {
 		t.Fatalf("final publication card = %+v", final)
 	}
 	for _, actionID := range []string{slackui.ActionViewPR, slackui.ActionCheckDelivery} {
@@ -1083,6 +1105,7 @@ type publicationCoop struct {
 	releaseChanges <-chan struct{}
 	review         coop.Review
 	reviewErr      error
+	reviewCalls    int
 	reviewStarted  chan<- struct{}
 	releaseReview  <-chan struct{}
 	artifact       coop.ReviewPatchArtifact
@@ -1111,6 +1134,7 @@ func (f *publicationCoop) Review(
 	_ string,
 	_ int64,
 ) (coop.Review, coop.Operation, error) {
+	f.reviewCalls++
 	if f.reviewStarted != nil {
 		select {
 		case f.reviewStarted <- struct{}{}:
@@ -1142,12 +1166,11 @@ func TestCompleteReviewPatchFetchesAndVerifiesArtifact(t *testing.T) {
 		fakeCoop: newFakeCoop(),
 		artifact: coop.ReviewPatchArtifact{Patch: full, Digest: digestText},
 	}
-	svc := &Service{coop: client}
-	review, err := svc.completeReviewPatch(context.Background(), coop.Review{
+	review, err := coop.CompleteReviewPatch(context.Background(), coop.Review{
 		OperationID: "op_large", PatchArtifactID: "op_large",
 		Patch: []byte("+large"), PatchTruncated: true,
 		PatchBytes: int64(len(full)), PatchDigest: digestText,
-	})
+	}, client)
 	if err != nil || review.PatchTruncated ||
 		!strings.EqualFold(review.PatchDigest, digestText) ||
 		len(review.Patch) != len(full) {
@@ -1155,11 +1178,11 @@ func TestCompleteReviewPatchFetchesAndVerifiesArtifact(t *testing.T) {
 			len(review.Patch), review.PatchTruncated, err)
 	}
 	client.artifact.Patch[0] = '-'
-	if _, err := svc.completeReviewPatch(context.Background(), coop.Review{
+	if _, err := coop.CompleteReviewPatch(context.Background(), coop.Review{
 		OperationID: "op_large", PatchArtifactID: "op_large",
 		Patch: []byte("+large"), PatchTruncated: true,
 		PatchBytes: int64(len(full)), PatchDigest: digestText,
-	}); err == nil || !strings.Contains(err.Error(), "digest") {
+	}, client); err == nil || !strings.Contains(err.Error(), "digest") {
 		t.Fatalf("tampered review patch error = %v", err)
 	}
 }
@@ -1171,6 +1194,7 @@ type recordingPublisher struct {
 	publishErr     error
 	publishStarted chan<- struct{}
 	releasePublish <-chan struct{}
+	afterPublish   func()
 }
 
 func (f *recordingPublisher) Enabled() bool {
@@ -1205,6 +1229,9 @@ func (f *recordingPublisher) Publish(
 			return publisher.Result{}, ctx.Err()
 		case <-f.releasePublish:
 		}
+	}
+	if f.afterPublish != nil {
+		f.afterPublish()
 	}
 	return f.result, f.publishErr
 }

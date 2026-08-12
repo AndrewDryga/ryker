@@ -383,9 +383,15 @@ func incidentActions(
 		Value: PublicationActionValue(incident.ID, publication.Generation), Style: "primary",
 		Confirm: "Run a fresh Coop readiness review, recreate the exact approved tree in an isolated checkout, push a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
 	}
-	if publication.Published() || publication.NeedsUpdate() {
-		publish.Label = "Update draft PR"
-		publish.Confirm = "Run a fresh Coop readiness review and update the existing Responder draft PR using lease-protected branch publication? This cannot merge or deploy."
+	if publication.HasPR() {
+		publish.Label = "Update PR"
+		if publication.State == core.PublicationFailed {
+			publish.Label = "Retry PR update"
+		}
+		publish.Confirm = fmt.Sprintf(
+			"Run a fresh Coop readiness review and update existing PR #%d using lease-protected branch publication? This cannot merge or deploy.",
+			publication.PRNumber,
+		)
 	} else if publication.State == core.PublicationFailed {
 		publish.Label = "Retry draft PR"
 	}
@@ -427,7 +433,11 @@ func incidentActions(
 		return actions
 	}
 	if incident.CoopSessionID == "" {
-		return []Action{closeIncident}
+		actions := make([]Action, 0, 2)
+		if publication.HasPR() {
+			actions = append(actions, viewPR)
+		}
+		return append(actions, closeIncident)
 	}
 	if incident.ActiveTurnID != "" {
 		actions := []Action{{
@@ -436,6 +446,9 @@ func incidentActions(
 		}}
 		if hasCodeChanges {
 			actions = append(actions, changes)
+		}
+		if publication.HasPR() {
+			actions = append(actions, viewPR)
 		}
 		return actions
 	}
@@ -450,6 +463,13 @@ func incidentActions(
 		return actions
 	}
 	if publication.State == core.PublicationFailed {
+		if publication.FailureCode == core.PublicationFailureSessionBinding {
+			actions := []Action{changes}
+			if publication.HasPR() {
+				actions = append(actions, viewPR)
+			}
+			return append(actions, closeIncident)
+		}
 		if codeChangesKnown && !hasCodeChanges {
 			actions := make([]Action, 0, 2)
 			if publication.HasPR() {
@@ -474,6 +494,9 @@ func incidentActions(
 		if hasCodeChanges {
 			actions = append(actions, changes)
 		}
+		if publication.HasPR() {
+			actions = append(actions, viewPR)
+		}
 		return actions
 	}
 	actions := make([]Action, 0, 4)
@@ -488,12 +511,12 @@ func incidentActions(
 		actions = append(actions, review)
 		if incident.IsEngineeringTask() {
 			actions = append(actions, publish)
-			if publication.HasPR() {
-				actions = append(actions, viewPR)
-				if publication.Published() {
-					actions = append(actions, checkDelivery)
-				}
-			}
+		}
+	}
+	if publication.HasPR() {
+		actions = append(actions, viewPR)
+		if publication.Published() {
+			actions = append(actions, checkDelivery)
 		}
 	}
 	return append(actions, closeIncident)

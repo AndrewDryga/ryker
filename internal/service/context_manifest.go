@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
 const (
@@ -81,10 +82,11 @@ func (s *Service) ensureAttemptContextManifest(
 			contextReference("assembled_context", "agent-run:"+run.ID+":context", run.Context, "private", nil),
 		},
 	}
-	if session.BaseCommit != "" || run.Repository != "" {
+	sourceRevision := taskpr.SessionHead(session)
+	if sourceRevision != "" || run.Repository != "" {
 		manifest.References = append(manifest.References, core.ContextReference{
 			Kind: "repository", SourceRef: "repository:" + run.Repository,
-			SourceRevision: session.BaseCommit, Visibility: "eligible",
+			SourceRevision: sourceRevision, Visibility: "eligible",
 		})
 	}
 	if session.PolicyDigest != "" {

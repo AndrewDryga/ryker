@@ -25,6 +25,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
 // NoConversationReply is the sentinel a model emits to say a human teammate
@@ -75,6 +76,7 @@ type WatchDecision struct {
 	TaskTitle          string                              `json:"task_title,omitempty"`
 	TaskRepository     string                              `json:"task_repository,omitempty"`
 	TaskPrompt         string                              `json:"task_prompt,omitempty"`
+	TaskPullRequest    string                              `json:"task_pull_request,omitempty"`
 	Evidence           []core.Evidence                     `json:"evidence,omitempty"`
 	Coverage           []core.Coverage                     `json:"coverage,omitempty"`
 	Memory             core.AgentMemory                    `json:"memory,omitempty"`
@@ -309,6 +311,7 @@ var WatchDecisionPayload = []struct {
 	{"task_title", func(d WatchDecision) bool { return d.TaskTitle != "" }},
 	{"task_repository", func(d WatchDecision) bool { return d.TaskRepository != "" }},
 	{"task_prompt", func(d WatchDecision) bool { return d.TaskPrompt != "" }},
+	{"task_pull_request", func(d WatchDecision) bool { return d.TaskPullRequest != "" }},
 	{"memory_offer", func(d WatchDecision) bool { return d.MemoryOffer != nil }},
 	{"preference_offer", func(d WatchDecision) bool { return d.PreferenceOffer != nil }},
 	{"rule_offer", func(d WatchDecision) bool { return d.RuleOffer != nil }},
@@ -343,7 +346,8 @@ var WatchActionPayload = map[string]struct {
 	"reply": {noun: "reply", allowed: map[string]bool{
 		"message": true, "followup_messages": true, "incident_title": true,
 		"task_title": true, "task_repository": true, "task_prompt": true,
-		"memory_offer": true, "preference_offer": true, "rule_offer": true,
+		"task_pull_request": true,
+		"memory_offer":      true, "preference_offer": true, "rule_offer": true,
 		"schedule_offer": true, "schedule_offers": true, "pending_approval": true, "alert_assessment": true,
 		"completion": true, "evidence": true, "coverage": true, "visuals": true,
 		"publication_updates": true,
@@ -400,6 +404,9 @@ func BoundReplyDecisionFields(d *WatchDecision) error {
 	}
 	if d.TaskPrompt != "" && d.TaskRepository == "" {
 		return errors.New("suggested engineering task requires task_repository")
+	}
+	if err := taskpr.ValidateOffer(d.TaskPullRequest, d.TaskTitle, d.TaskRepository); err != nil {
+		return err
 	}
 	return nil
 }

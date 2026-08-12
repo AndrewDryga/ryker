@@ -173,7 +173,8 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		UPDATE schema_version SET version = 59;
 		ALTER TABLE publications DROP COLUMN attempt_input_id;
 		ALTER TABLE publications DROP COLUMN failure_code;
-		ALTER TABLE publications DROP COLUMN generation;`); err != nil {
+		ALTER TABLE publications DROP COLUMN generation;
+		ALTER TABLE incidents DROP COLUMN task_pull_request_json;`); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {

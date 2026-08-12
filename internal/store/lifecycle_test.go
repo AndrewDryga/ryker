@@ -97,13 +97,13 @@ func TestPublicationReviewClaimIsExclusiveAndKeepsPRBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimed, err := st.Publications.BeginReview(
-		ctx, "claim-first", "", task.ID, "owner/repo", "main",
+		ctx, "claim-first", "", task.ID, "owner/repo", "main", nil,
 	)
 	if err != nil || claimed.State != "reviewing" {
 		t.Fatalf("first review claim = %+v, %v", claimed, err)
 	}
 	if _, err := st.Publications.BeginReview(
-		ctx, "claim-second", "", task.ID, "owner/repo", "main",
+		ctx, "claim-second", "", task.ID, "owner/repo", "main", nil,
 	); !errors.Is(err, publicationstore.ErrInProgress) {
 		t.Fatalf("concurrent review claim = %v, want in-progress conflict", err)
 	}
@@ -124,7 +124,7 @@ func TestPublicationReviewClaimIsExclusiveAndKeepsPRBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.Publications.BeginReview(
-		ctx, "claim-rebind", "", task.ID, "other/repo", "main",
+		ctx, "claim-rebind", "", task.ID, "other/repo", "main", nil,
 	); !errors.Is(err, publicationstore.ErrBindingChanged) {
 		t.Fatalf("changed repository claim = %v, want binding refusal", err)
 	}
@@ -132,6 +132,95 @@ func TestPublicationReviewClaimIsExclusiveAndKeepsPRBinding(t *testing.T) {
 	if err != nil || stored.Repository != "owner/repo" || stored.PRNumber != 42 ||
 		!stored.Published() {
 		t.Fatalf("publication after rejected rebind = %+v, %v", stored, err)
+	}
+}
+
+func TestPublicationReviewClaimSeedsExistingPullRequestLease(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "publication-existing-pr", "Update PR", "summary",
+		"UOP", "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := core.PullRequestTarget{
+		Repository: "owner/repo", Number: 514,
+		URL:        "https://github.com/owner/repo/pull/514",
+		BaseBranch: "main", HeadBranch: "feature", HeadCommit: strings.Repeat("a", 40),
+	}
+	claimed, err := st.Publications.BeginReview(
+		ctx, "claim-existing", "", task.ID, "owner/repo", "main", &target,
+	)
+	if err != nil || claimed.PRNumber != 514 || claimed.PRURL != target.URL ||
+		claimed.HeadBranch != target.HeadBranch || claimed.RemoteSHA != target.HeadCommit {
+		t.Fatalf("existing PR claim = %+v, %v", claimed, err)
+	}
+	claimed.State = core.PublicationFailed
+	claimed.LastError = "retry"
+	if err := st.SavePublication(ctx, claimed); err != nil {
+		t.Fatal(err)
+	}
+	reclaimed, err := st.Publications.BeginReview(
+		ctx, "claim-existing-again", "", task.ID, "owner/repo", "main", &target,
+	)
+	if err != nil || reclaimed.PRNumber != target.Number ||
+		reclaimed.RemoteSHA != target.HeadCommit {
+		t.Fatalf("existing PR reclaim = %+v, %v", reclaimed, err)
+	}
+	reclaimed.State = core.PublicationFailed
+	reclaimed.LastError = "retry"
+	if err := st.SavePublication(ctx, reclaimed); err != nil {
+		t.Fatal(err)
+	}
+	changed := target
+	changed.Number = 515
+	changed.URL = "https://github.com/owner/repo/pull/515"
+	if _, err := st.Publications.BeginReview(
+		ctx, "claim-other-pr", "", task.ID, "owner/repo", "main", &changed,
+	); !errors.Is(err, publicationstore.ErrBindingChanged) {
+		t.Fatalf("changed PR claim = %v, want binding refusal", err)
+	}
+}
+
+func TestPublicationReviewClaimPreservesPushedBranchWithoutPullRequestReceipt(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "publication-pushed-branch", "Create PR", "summary",
+		"UOP", "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := st.Publications.BeginReview(
+		ctx, "claim-pushed", "", task.ID, "owner/repo", "main", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed.State = core.PublicationFailed
+	claimed.HeadBranch = "responder/pushed"
+	claimed.RemoteSHA = strings.Repeat("b", 40)
+	claimed.LastError = "GitHub response was lost after the push"
+	if err := st.SavePublication(ctx, claimed); err != nil {
+		t.Fatal(err)
+	}
+	reclaimed, err := st.Publications.BeginReview(
+		ctx, "claim-pushed-again", "", task.ID, "owner/repo", "main", nil,
+	)
+	if err != nil || reclaimed.HeadBranch != claimed.HeadBranch ||
+		reclaimed.RemoteSHA != claimed.RemoteSHA || reclaimed.PRNumber != 0 {
+		t.Fatalf("reclaimed pushed branch = %+v, %v", reclaimed, err)
 	}
 }
 
@@ -165,7 +254,7 @@ func TestPublicationReviewClaimCoalescesQueuedDuplicateClick(t *testing.T) {
 		t.Fatalf("first publication click = %+v, %v", first, err)
 	}
 	if _, err := st.Publications.BeginReview(
-		ctx, first.ID, first.ID, task.ID, "owner/repo", "main",
+		ctx, first.ID, first.ID, task.ID, "owner/repo", "main", nil,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +299,7 @@ func TestPublicationLateDuplicateCoalescesAndOldAttemptCannotOverwriteNewerClaim
 		t.Fatalf("lease first publication = %+v, %v", leased, err)
 	}
 	claimed, err := st.Publications.BeginReview(
-		ctx, first.ID, first.ID, task.ID, "owner/repo", "main",
+		ctx, first.ID, first.ID, task.ID, "owner/repo", "main", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -233,7 +322,7 @@ func TestPublicationLateDuplicateCoalescesAndOldAttemptCannotOverwriteNewerClaim
 		t.Fatal(err)
 	}
 	if _, err := st.Publications.BeginReview(
-		ctx, "click-from-pre-success-card", "", task.ID, "owner/repo", "main", 0,
+		ctx, "click-from-pre-success-card", "", task.ID, "owner/repo", "main", nil, 0,
 	); !errors.Is(err, publicationstore.ErrCoalesced) {
 		t.Fatalf("pre-success button after terminal save = %v, want coalesced", err)
 	}
@@ -245,7 +334,7 @@ func TestPublicationLateDuplicateCoalescesAndOldAttemptCannotOverwriteNewerClaim
 		t.Fatalf("lease late publication = %+v, %v", leased, err)
 	}
 	if _, err := st.Publications.BeginReview(
-		ctx, second.ID, second.ID, task.ID, "owner/repo", "main",
+		ctx, second.ID, second.ID, task.ID, "owner/repo", "main", nil,
 	); !errors.Is(err, publicationstore.ErrCoalesced) {
 		t.Fatalf("late duplicate claim = %v, want coalesced", err)
 	}
@@ -259,7 +348,7 @@ func TestPublicationLateDuplicateCoalescesAndOldAttemptCannotOverwriteNewerClaim
 		t.Fatalf("lease fresh publication = %+v, %v", leased, err)
 	}
 	newClaim, err := st.Publications.BeginReview(
-		ctx, third.ID, third.ID, task.ID, "owner/repo", "main",
+		ctx, third.ID, third.ID, task.ID, "owner/repo", "main", nil,
 	)
 	if err != nil || newClaim.AttemptInputID != third.ID {
 		t.Fatalf("fresh publication claim = %+v, %v", newClaim, err)
@@ -298,7 +387,7 @@ func TestPublicationClaimAndIncidentCloseAreMutuallyExclusive(t *testing.T) {
 
 	publishing := create("close-after-publish")
 	if _, err := st.Publications.BeginReview(
-		ctx, "publish-owner", "", publishing.ID, "owner/repo", "main",
+		ctx, "publish-owner", "", publishing.ID, "owner/repo", "main", nil,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +403,7 @@ func TestPublicationClaimAndIncidentCloseAreMutuallyExclusive(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.Publications.BeginReview(
-		ctx, "late-publish", "", closing.ID, "owner/repo", "main",
+		ctx, "late-publish", "", closing.ID, "owner/repo", "main", nil,
 	); !errors.Is(err, publicationstore.ErrWorkUnavailable) {
 		t.Fatalf("publication during close = %v, want unavailable", err)
 	}
@@ -365,7 +454,7 @@ func TestRecoverInterruptedPublicationProgressUpdatesTaskCards(t *testing.T) {
 				t.Fatalf("lease publication input = %+v, %v", leased, leaseErr)
 			}
 			publication, err = st.Publications.BeginReview(
-				ctx, input.ID, input.ID, task.ID, "owner/repo", "main",
+				ctx, input.ID, input.ID, task.ID, "owner/repo", "main", nil,
 			)
 			if err != nil {
 				t.Fatal(err)

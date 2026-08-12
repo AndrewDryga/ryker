@@ -469,15 +469,38 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	)
 	if !slices.ContainsFunc(published.Actions, func(action Action) bool {
 		return action.ID == ActionViewPR && action.URL == "https://github.example/pull/42"
-	}) || !strings.Contains(strings.Join(published.Sections, "\n"), "Draft PR ready") {
+	}) || !strings.Contains(strings.Join(published.Sections, "\n"), "PR ready") {
 		t.Fatalf("published task lacks durable PR state: %+v", published)
+	}
+	for _, state := range []struct {
+		name     string
+		session  string
+		activeID string
+	}{
+		{name: "starting"},
+		{name: "active", session: "ses_1", activeID: "turn_1"},
+	} {
+		stateTask := task
+		stateTask.CoopSessionID = state.session
+		stateTask.ActiveTurnID = state.activeID
+		stateCard := IncidentCardWithPublication(
+			stateTask, "Emisar", nil, false, false, core.Publication{
+				State: core.PublicationPublished, PRNumber: 42,
+				PRURL: "https://github.example/pull/42",
+			},
+		)
+		if !slices.ContainsFunc(stateCard.Actions, func(action Action) bool {
+			return action.ID == ActionViewPR
+		}) {
+			t.Fatalf("%s existing-PR task lost Open PR: %+v", state.name, stateCard.Actions)
+		}
 	}
 	stalePublication := core.Publication{
 		State: "stale", PRNumber: 42, PRURL: "https://github.example/pull/42",
 	}
 	stale := IncidentCardWithPublication(task, "Emisar", nil, true, true, stalePublication)
 	if !slices.ContainsFunc(stale.Actions, func(action Action) bool {
-		return action.ID == ActionPublishPR && action.Label == "Update draft PR"
+		return action.ID == ActionPublishPR && action.Label == "Update PR"
 	}) || !slices.ContainsFunc(stale.Actions, func(action Action) bool {
 		return action.ID == ActionViewPR && action.URL == stalePublication.PRURL
 	}) || !strings.Contains(strings.Join(stale.Sections, "\n"), "needs an update") {
@@ -487,7 +510,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		ConversationResponse("Done.", NewSanitizer(12000)), task, true, stalePublication,
 	)
 	if !slices.ContainsFunc(delivery.Actions, func(action Action) bool {
-		return action.ID == ActionPublishPR && action.Label == "Update draft PR"
+		return action.ID == ActionPublishPR && action.Label == "Update PR"
 	}) || strings.Contains(strings.Join(delivery.Context, "\n"), "create a draft PR") {
 		t.Fatalf("stale task delivery offered a new PR: %+v", delivery)
 	}
@@ -528,6 +551,37 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 			t.Fatalf("%s card removed existing PR: %+v", progress.state, card.Actions)
 		}
 	}
+	existingProgress := IncidentCardWithPublication(
+		task, "Emisar", nil, false, false, core.Publication{
+			State: core.PublicationReviewing, PRNumber: 42,
+			PRURL: "https://github.example/pull/42",
+		},
+	)
+	if strings.Contains(existingProgress.Text, "Draft PR") ||
+		!strings.Contains(existingProgress.Text, "PR update readiness review") {
+		t.Fatalf("existing PR fallback copy = %q", existingProgress.Text)
+	}
+	for _, state := range []struct {
+		name     string
+		workflow core.WorkflowState
+	}{
+		{name: "queued", workflow: core.WorkflowInvestigating},
+		{name: "parked", workflow: core.WorkflowParked},
+	} {
+		stateTask := task
+		stateTask.Workflow = state.workflow
+		stateTask.ActiveTurnID = ""
+		card := IncidentCardWithPublication(
+			stateTask, "Emisar", nil, false, true, core.Publication{
+				PRNumber: 42, PRURL: "https://github.example/pull/42",
+			},
+		)
+		if !slices.ContainsFunc(card.Actions, func(action Action) bool {
+			return action.ID == ActionViewPR
+		}) {
+			t.Fatalf("%s no-change task lost Open PR: %+v", state.name, card.Actions)
+		}
+	}
 	failed := IncidentCardWithPublication(
 		task, "Emisar", nil, false, false, core.Publication{
 			State: "failed", LastError: "GitHub rejected the branch update",
@@ -535,8 +589,10 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		},
 	)
 	if !strings.Contains(strings.Join(failed.Sections, "\n"), "needs attention") ||
+		!strings.Contains(strings.Join(failed.Sections, "\n"), "Retry PR update") ||
 		!slices.ContainsFunc(failed.Actions, func(action Action) bool {
-			return action.ID == ActionPublishPR && action.Label == "Retry draft PR"
+			return action.ID == ActionPublishPR && action.Label == "Retry PR update" &&
+				strings.Contains(action.Confirm, "update existing PR #42")
 		}) || !slices.ContainsFunc(failed.Actions, func(action Action) bool {
 		return action.ID == ActionViewPR && action.URL == "https://github.example/pull/42"
 	}) {
@@ -616,7 +672,7 @@ func TestPublicationGateRecommendationIsAdvisory(t *testing.T) {
 		PRNumber: 42,
 		PRURL:    "https://github.example/owner/repository/pull/42",
 	}, false))
-	if message.Header != "Draft PR ready" ||
+	if message.Header != "PR ready" ||
 		!strings.Contains(strings.Join(message.Context, "\n"), "add `gate:`") ||
 		!slices.ContainsFunc(message.Actions, func(action Action) bool {
 			return action.ID == ActionCheckDelivery && action.Label == "Check delivery"
@@ -631,7 +687,7 @@ func TestIncompleteValidationWarningKeepsDraftPublicationActionable(t *testing.T
 		PRURL:    "https://github.example/owner/repository/pull/43",
 	}, false))
 	context := strings.Join(message.Context, "\n")
-	if message.Header != "Draft PR ready" ||
+	if message.Header != "PR ready" ||
 		!strings.Contains(context, "Validation warning") ||
 		!strings.Contains(context, "GitHub checks") ||
 		!slices.ContainsFunc(message.Actions, func(action Action) bool {

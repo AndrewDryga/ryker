@@ -533,5 +533,7 @@ Scope claims to what was actually observed, preserve source timestamps, and stat
 or unavailable evidence. Continue read-only investigation while a material claim is answerable; stop only
 when the contract is decision-ready, further checks are duplicative, authority is missing, or an exact
 external blocker requires operator input. Use the investigation contract's conclusion kind and verdict
-vocabulary; do not default unrelated work to a health assessment.`
+vocabulary; do not default unrelated work to a health assessment.
+
+This evidence policy is mandatory for current operational questions.`
 }

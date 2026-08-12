@@ -95,7 +95,7 @@ func (s *Service) startProactiveWork(
 	title := core.BoundedText("Recurring: "+completion.Summary, 200)
 	objective := proactiveObjective(assignment, completion)
 	if err := s.createWatchedEngineeringTask(
-		ctx, input, input, title, assignment.Repository, objective,
+		ctx, input, input, title, assignment.Repository, objective, nil,
 	); err != nil {
 		// The claim stays. Releasing it on failure would let the next
 		// occurrence try again immediately, and a task that fails to start

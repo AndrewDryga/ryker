@@ -727,6 +727,84 @@ func TestCleanupDiscardsCleanSessionWhoseBaseBranchAdvanced(t *testing.T) {
 	}
 }
 
+func TestCleanupDiscardsUntouchedExistingPullRequestSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.State = "closed"
+	coopClient.session.BaseCommit = "merge-base"
+	coopClient.session.PullRequest = &coop.PullRequestBinding{
+		Number: 514, Ref: "refs/pull/514/head", HeadCommit: "admitted-pr-head",
+	}
+	coopClient.discardPlan.OperationID = "op_pr_baseline"
+	coopClient.discardPlan.Plan.SessionID = coopClient.session.ID
+	coopClient.discardPlan.Plan.Revision = coopClient.session.Revision
+	coopClient.discardPlan.Plan.Workspace.Head = "admitted-pr-head"
+	coopClient.discardPlan.Plan.Workspace.Unmerged = true
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := st.ScheduleCleanup(
+		ctx, coopClient.session.ID, "", "cancelled PR task", false,
+		time.Now().Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processCleanup(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if coopClient.discardCalls != 1 || coopClient.session.State != "discarded" {
+		t.Fatalf("untouched PR session was not discarded: calls=%d state=%s",
+			coopClient.discardCalls, coopClient.session.State)
+	}
+	if !slices.Equal(coopClient.discardAccepts, []bool{false, true}) {
+		t.Fatalf("discard plan acceptance = %v", coopClient.discardAccepts)
+	}
+}
+
+func TestCleanupBlocksCommitCreatedBetweenDiscardPlans(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.State = "closed"
+	coopClient.session.BaseCommit = "baseline"
+	first := coop.DiscardPlan{OperationID: "op_first"}
+	first.Plan.SessionID = coopClient.session.ID
+	first.Plan.Revision = coopClient.session.Revision
+	first.Plan.Workspace = coop.DiscardWorkspace{Head: "baseline", Unmerged: true}
+	second := coop.DiscardPlan{OperationID: "op_second"}
+	second.Plan.SessionID = coopClient.session.ID
+	second.Plan.Revision = coopClient.session.Revision
+	second.Plan.Workspace = coop.DiscardWorkspace{Head: "new-commit", Unmerged: true}
+	coopClient.discardPlans = []coop.DiscardPlan{first, second}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := st.ScheduleCleanup(
+		ctx, coopClient.session.ID, "", "cancelled task", false,
+		time.Now().Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processCleanup(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if coopClient.discardCalls != 0 {
+		t.Fatal("workspace changed between plans but was discarded")
+	}
+	cleanup, err := st.GetCoopCleanup(ctx, coopClient.session.ID)
+	if err != nil || cleanup.State != "blocked" ||
+		!strings.Contains(cleanup.LastError, "changed while cleanup was being planned") {
+		t.Fatalf("cleanup after between-plan commit = %+v, %v", cleanup, err)
+	}
+}
+
 func TestOperationsHomeDoesNotExposeWorkToNonOperators(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -861,6 +939,7 @@ type fakeCoop struct {
 	createKeys         []string
 	createPolicies     []string
 	createTasks        []string
+	createSources      []coop.SessionSource
 	prepareKeys        []string
 	prepareSessions    []string
 	prepareErrors      []error
@@ -876,10 +955,13 @@ type fakeCoop struct {
 	completeQueue      []string
 	submitTurns        []coop.Turn
 	discardPlan        coop.DiscardPlan
+	discardPlans       []coop.DiscardPlan
 	discardCalls       int
 	discardAccepts     []bool
 	outputArtifacts    map[string]coop.OutputArtifact
 	getSessionErr      error
+	getSessionStarted  chan<- struct{}
+	releaseGetSession  <-chan struct{}
 	// completeUsage is what the provider reported for each completed turn.
 	// Zero by default, which is what an ACP adapter that reports nothing
 	// produces, so every existing test keeps describing an unmeasured turn.
@@ -900,10 +982,26 @@ func newFakeCoop() *fakeCoop {
 }
 
 func (f *fakeCoop) Ready(context.Context) error { return nil }
-func (f *fakeCoop) CreateSession(_ context.Context, key, policy, task string) (coop.Session, coop.Operation, error) {
+func (f *fakeCoop) CreateSession(
+	_ context.Context,
+	key, policy, task string,
+	sources ...coop.SessionSource,
+) (coop.Session, coop.Operation, error) {
 	f.createKeys = append(f.createKeys, key)
 	f.createPolicies = append(f.createPolicies, policy)
 	f.createTasks = append(f.createTasks, task)
+	if len(sources) > 0 {
+		f.createSources = append(f.createSources, sources[0])
+		if sources[0].PullRequestNumber > 0 {
+			f.session.PullRequest = &coop.PullRequestBinding{
+				Number:     sources[0].PullRequestNumber,
+				Ref:        fmt.Sprintf("refs/pull/%d/head", sources[0].PullRequestNumber),
+				HeadCommit: sources[0].HeadCommit,
+			}
+		}
+	} else {
+		f.createSources = append(f.createSources, coop.SessionSource{})
+	}
 	if len(f.createErrors) > 0 {
 		err := f.createErrors[0]
 		f.createErrors = f.createErrors[1:]
@@ -931,7 +1029,20 @@ func (f *fakeCoop) CreateSession(_ context.Context, key, policy, task string) (c
 func (f *fakeCoop) ListSessions(context.Context, int) ([]coop.Session, error) {
 	return append([]coop.Session(nil), f.listSessions...), nil
 }
-func (f *fakeCoop) GetSession(context.Context, string) (coop.Session, error) {
+func (f *fakeCoop) GetSession(ctx context.Context, _ string) (coop.Session, error) {
+	if f.getSessionStarted != nil {
+		select {
+		case f.getSessionStarted <- struct{}{}:
+		default:
+		}
+	}
+	if f.releaseGetSession != nil {
+		select {
+		case <-ctx.Done():
+			return coop.Session{}, ctx.Err()
+		case <-f.releaseGetSession:
+		}
+	}
 	if f.getSessionErr != nil {
 		return coop.Session{}, f.getSessionErr
 	}
@@ -1052,6 +1163,12 @@ func (f *fakeCoop) PlanDiscard(
 	_ context.Context, _ string, _ string, _ int64, _ bool, acceptUnmerged bool,
 ) (coop.DiscardPlan, coop.Operation, error) {
 	f.discardAccepts = append(f.discardAccepts, acceptUnmerged)
+	if len(f.discardPlans) != 0 {
+		plan := f.discardPlans[0]
+		f.discardPlans = f.discardPlans[1:]
+		plan.Plan.Workspace.AcceptedUnmerged = acceptUnmerged
+		return plan, coop.Operation{}, nil
+	}
 	if f.discardPlan.OperationID != "" {
 		plan := f.discardPlan
 		plan.Plan.Workspace.AcceptedUnmerged = acceptUnmerged

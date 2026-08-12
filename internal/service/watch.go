@@ -18,6 +18,7 @@ import (
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
 const watchContextTextLimit = 2000
@@ -529,31 +530,43 @@ func (s *Service) applyReplyDecision(
 			}
 			outcome = "engineering_task_repository_required"
 		} else {
-			if err := s.persistWatchTaskOffer(
+			offerErr := s.persistWatchTaskOffer(
 				ctx,
 				input.ID,
 				decision.TaskTitle,
 				repository,
 				decision.TaskPrompt,
-			); err != nil {
-				return err
-			}
-			repositoryLabel := s.repositoryLabel(repository)
-			if decision.TaskPrompt != "" {
-				message = slackui.WithSuggestedEngineeringTaskOffer(
-					message, decision.TaskTitle, input.ID, repositoryLabel,
+				decision.TaskPullRequest,
+			)
+			var permanent *taskpr.PermanentError
+			if offerErr != nil && errors.As(offerErr, &permanent) {
+				message.Sections = append(
+					message.Sections,
+					"*Engineering task unavailable*\n"+s.sanitizer.Text(permanent.Error()),
 				)
+				outcome = "engineering_task_pull_request_invalid"
+			} else if offerErr != nil {
+				return offerErr
 			} else {
-				message = slackui.WithEngineeringTaskOffer(
-					message, decision.TaskTitle, input.ID, repositoryLabel,
-				)
-			}
-			if scheduleOffered {
-				outcome = "schedule_and_engineering_task_offered"
-			} else if decision.IncidentTitle != "" {
-				outcome = "incident_and_engineering_task_offered"
-			} else {
-				outcome = "engineering_task_offered"
+				repositoryLabel := s.repositoryLabel(repository)
+				if decision.TaskPrompt != "" {
+					message = slackui.WithSuggestedEngineeringTaskOffer(
+						message, decision.TaskTitle, input.ID, repositoryLabel,
+						decision.TaskPullRequest,
+					)
+				} else {
+					message = slackui.WithEngineeringTaskOffer(
+						message, decision.TaskTitle, input.ID, repositoryLabel,
+						decision.TaskPullRequest,
+					)
+				}
+				if scheduleOffered {
+					outcome = "schedule_and_engineering_task_offered"
+				} else if decision.IncidentTitle != "" {
+					outcome = "incident_and_engineering_task_offered"
+				} else {
+					outcome = "engineering_task_offered"
+				}
 			}
 		}
 	}
@@ -940,7 +953,7 @@ func (s *Service) applyWatchDecision(
 func (s *Service) pullRequestReferenceForWatch(
 	input core.SlackInput,
 	state decisionpkg.WatchTurnState,
-) (pullRequestReference, bool) {
+) (taskpr.Reference, bool) {
 	var context strings.Builder
 	context.WriteString(input.Text)
 	for _, message := range state.RecentMessages {
@@ -953,7 +966,7 @@ func (s *Service) pullRequestReferenceForWatch(
 			context.WriteString(message.Text)
 		}
 	}
-	return s.configuredPullRequestReference(context.String())
+	return taskpr.ParseConfigured(context.String(), s.cfg.Repositories)
 }
 
 func (s *Service) conversationPrompt(
@@ -1133,6 +1146,7 @@ func (s *Service) createWatchedIncident(
 		repository,
 		"",
 		false,
+		nil,
 	)
 }
 
@@ -1143,8 +1157,11 @@ func (s *Service) createWatchedEngineeringTask(
 	title string,
 	repository string,
 	objective string,
+	pullRequest *core.PullRequestTarget,
 ) error {
-	return s.createWatchedWork(ctx, trigger, source, title, repository, objective, true)
+	return s.createWatchedWork(
+		ctx, trigger, source, title, repository, objective, true, pullRequest,
+	)
 }
 
 func (s *Service) createWatchedWork(
@@ -1155,6 +1172,7 @@ func (s *Service) createWatchedWork(
 	repository string,
 	objective string,
 	engineeringTask bool,
+	pullRequest *core.PullRequestTarget,
 ) error {
 	title = truncateWatchText(strings.TrimSpace(title), 200)
 	if title == "" {
@@ -1175,10 +1193,15 @@ func (s *Service) createWatchedWork(
 	if engineeringTask {
 		create = s.store.CreateEngineeringTask
 	}
+	targets := []core.PullRequestTarget(nil)
+	if pullRequest != nil {
+		targets = append(targets, *pullRequest)
+	}
 	incident, created, err := create(
 		ctx, repository, source.EventID, title, summary,
 		trigger.UserID, source.ChannelID, slackReplyThread(source),
 		s.cfg.Limits.MaxOpenIncidents,
+		targets...,
 	)
 	if err != nil {
 		if !errors.Is(err, store.ErrCapacity) {
@@ -1281,6 +1304,7 @@ func (s *Service) persistWatchTaskOffer(
 	title string,
 	repository string,
 	objective string,
+	pullRequest string,
 ) error {
 	run, err := s.store.GetAgentRunBySource(ctx, "watch", inputID)
 	if err != nil {
@@ -1294,11 +1318,23 @@ func (s *Service) persistWatchTaskOffer(
 	if state.OfferedTaskTitle == "" {
 		return errors.New("watch engineering task offer has no title")
 	}
-	if _, ok := s.cfg.RepositoryContext(repository); !ok {
+	configuredRepository, ok := s.cfg.RepositoryContext(repository)
+	if !ok {
 		return fmt.Errorf("watch engineering task offer names unknown repository %q", repository)
 	}
 	state.OfferedTaskRepository = repository
 	state.OfferedTaskPrompt = truncateWatchText(strings.TrimSpace(objective), 4000)
+	state.OfferedTaskPullRequest = nil
+	if strings.TrimSpace(pullRequest) != "" {
+		client, _ := s.publisher.(taskpr.Inspector)
+		target, err := taskpr.Resolve(
+			ctx, pullRequest, configuredRepository, s.cfg.Repositories, client,
+		)
+		if err != nil {
+			return err
+		}
+		state.OfferedTaskPullRequest = &target
+	}
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
@@ -1566,6 +1602,7 @@ func (s *Service) handleWatchTaskOfferAction(
 		state.OfferedTaskTitle,
 		state.OfferedTaskRepository,
 		state.OfferedTaskPrompt,
+		state.OfferedTaskPullRequest,
 	)
 }
 
@@ -2246,7 +2283,7 @@ Infer who is talking to whom before responding. A question mark alone does not m
 ` + behaviorOffers + `
 ` + offerContractPolicy + `
 
-This evidence policy is mandatory for current operational questions. Prefer the least invasive authoritative checks. Never modify repository files from this shared-channel triage session. Operational mutations are allowed only under the Emisar policy below: target_is_configured_operator must be true, the operator must directly request the exact change, and Emisar policy, approval, and audit remain authoritative. A dedicated incident is not required. Never claim that you verified something unless a tool result or the supplied channel context supports it. When an authorized human explicitly requests repository file or code changes, or follows up to accept or continue such a request already visible in recent_channel_messages, do not send them outside Slack or tell them to start another client session. Give a useful concise response and include task_title; Responder will offer a governed transition in the same Slack thread to a writable isolated Coop fork. For a task offer, set task_repository to an exact repository key from the host-provided catalog below. When more than one repository is plausible and the conversation does not identify one, ask which repository in message and omit task_title, task_repository, and task_prompt.
+Verify claims only from tools or supplied context. Shared-channel repo work is read-only. When an authorized human asks for repo changes, do not send them outside Slack. Return task_title and exact task_repository for a governed writable Coop offer. Set task_pull_request to the configured GitHub PR URL only when explicitly asked to update it; omit it for review follow-up fixes. If ownership is ambiguous, ask which repo and omit all task fields.
 
 When repository evidence establishes a concrete narrow fix, include the optional repository task in the same response even if the broader operational assessment remains blocked by that exact defect. Do not merely describe the patch and tell the operator to start work separately. Include task_title, the exact task_repository, and a self-contained task_prompt that states the verified cause, requested code change, focused validation, and post-fix verification. Do not claim a patch, commit, branch, or PR already exists. You may include incident_title independently when coordinated incident work would also be useful; incident coordination and code remediation are separate choices.
 
@@ -2274,7 +2311,7 @@ must request and confirm durable behavior; do not claim that a save control will
 ` + generatedVisualPolicy + `Choose exactly one action:
 - ignore: routine noise, informational chatter, successful or recovered notifications, duplicates, or messages where a human teammate would reasonably stay silent.
 - react: acknowledge useful information without interrupting the channel. Prefer this over reply when the sender explicitly asks for acknowledgement without a written response, or when a teammate would naturally use only an emoji. Choose one context-appropriate standard Slack emoji or a workspace custom emoji whose name is visible in the supplied Slack context. Return its Slack name without surrounding colons, for example ` + "`eyes`" + `, ` + "`white_check_mark`" + `, ` + "`thumbsup`" + `, ` + "`tada`" + `, ` + "`warning`" + `, or ` + "`bulb`" + `. Use ` + "`white_check_mark`" + ` for a completed handoff or explicitly completed task unless the context calls for a different reaction. Prefer familiar, unambiguous reactions; avoid playful or ambiguous choices for incidents and high-severity alerts. A reaction is social acknowledgement only: it must not claim verification, approval, remediation, or future work. Do not attach prose, evidence, offers, or coverage.
-- reply: answer a human's question concisely when channel context or a bounded read-only investigation provides enough evidence. State uncertainty and material gaps. If coordinated incident work may be useful, include incident_title. If the human explicitly asks Responder to change repository files or code, or continues that request in the visible conversation, include task_title. Whenever repository evidence establishes a concrete narrow fix, include task_title, task_repository, and task_prompt as an optional prepared-fix action, including when that fix removes the exact blocker preventing the broader assessment.
+- reply: answer a human's question concisely when channel context or a bounded read-only investigation provides enough evidence. State uncertainty and material gaps. If coordinated incident work may be useful, include incident_title. If the human explicitly asks Responder to change repository files or code, or continues that request in the visible conversation, include task_title. Whenever repository evidence establishes a concrete narrow fix, include task_title, task_repository, and task_prompt as an optional prepared-fix action, including when that fix removes the exact blocker preventing the broader assessment. Include task_pull_request only for an explicit request to update that exact existing PR.
 - incident: automatically open a dedicated incident only for a credible unresolved alert from an
   external_app that did not match a trusted standing rule, or when the target human message
   explicitly asks to open, create, start, or declare an incident. A matched standing rule must

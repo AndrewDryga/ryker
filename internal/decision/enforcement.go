@@ -53,6 +53,7 @@ type WatchTurnState struct {
 	OfferedTaskTitle       string                         `json:"offered_task_title,omitempty"`
 	OfferedTaskRepository  string                         `json:"offered_task_repository,omitempty"`
 	OfferedTaskPrompt      string                         `json:"offered_task_prompt,omitempty"`
+	OfferedTaskPullRequest *core.PullRequestTarget        `json:"offered_task_pull_request,omitempty"`
 	StructuredCorrections  int                            `json:"structured_corrections,omitempty"`
 	ReplyShapeCorrections  int                            `json:"reply_shape_corrections,omitempty"`
 	PendingStatusSet       bool                           `json:"pending_status_set,omitempty"`

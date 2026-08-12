@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
 const cleanupRetryLimit = 12
@@ -263,9 +264,10 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 			now,
 		)
 	}
+	cleanBaseline := taskpr.SessionHead(session)
 	if plan.Plan.Workspace.Unmerged {
-		cleanAtBase := !plan.Plan.Workspace.Dirty && session.BaseCommit != "" &&
-			plan.Plan.Workspace.Head == session.BaseCommit
+		cleanAtBase := !plan.Plan.Workspace.Dirty && cleanBaseline != "" &&
+			plan.Plan.Workspace.Head == cleanBaseline
 		if !item.AllowUnmerged && !cleanAtBase {
 			return s.store.SetCleanupState(
 				ctx, item.SessionID, "blocked", plan.OperationID,
@@ -296,6 +298,19 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 			return s.store.SetCleanupState(
 				ctx, item.SessionID, "blocked", plan.OperationID,
 				"published workspace changed while cleanup was being planned", now,
+			)
+		}
+		if item.AllowUnmerged {
+			if err := s.verifyPublishedCleanupTree(ctx, item, plan); err != nil {
+				return s.store.SetCleanupState(
+					ctx, item.SessionID, "blocked", plan.OperationID,
+					trimError(err), now,
+				)
+			}
+		} else if cleanBaseline == "" || plan.Plan.Workspace.Head != cleanBaseline {
+			return s.store.SetCleanupState(
+				ctx, item.SessionID, "blocked", plan.OperationID,
+				"workspace changed while cleanup was being planned", now,
 			)
 		}
 	}

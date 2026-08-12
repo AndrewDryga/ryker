@@ -264,7 +264,7 @@ func TestDraftPRInputFailureRecordsRetryingState(t *testing.T) {
 	}
 	first := admit("publication_retry", "action", slackui.ActionPublishPR, task.ID)
 	if _, err := st.Publications.BeginReview(
-		ctx, first.ID, first.ID, task.ID, "owner/repo", "main",
+		ctx, first.ID, first.ID, task.ID, "owner/repo", "main", nil,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestDraftPRSlashInputFailureRecordsTerminalState(t *testing.T) {
 	// A slash or text route does not initially carry the publication action ID.
 	// BeginReview binds it durably, and retrySlackInput reloads that binding.
 	if _, err := st.Publications.BeginReview(
-		ctx, leased.ID, leased.ID, task.ID, "owner/repo", "main",
+		ctx, leased.ID, leased.ID, task.ID, "owner/repo", "main", nil,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -436,6 +436,84 @@ func TestButtonPublicationRetryRetainsAttemptOwnership(t *testing.T) {
 	storedInput, err = st.GetSlackInput(ctx, input.ID)
 	if err != nil || storedInput.State != "done" {
 		t.Fatalf("completed publication input = %+v, %v", storedInput, err)
+	}
+}
+
+func TestPublicationPersistsRemoteReceiptAfterWorkerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.Path = t.TempDir()
+	repository.GitHubRepository = "owner/repo"
+	repository.GitHubBaseBranch = "main"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-cancelled-receipt", "Publish task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "session-receipt", "fork", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient := &publicationCoop{
+		fakeCoop: newFakeCoop(),
+		changes:  coop.Changes{Unstaged: []coop.Change{{Path: "service.go", Status: "modified"}}},
+		review: coop.Review{
+			SessionID: task.CoopSessionID, SessionRevision: 1,
+			ParentHead: "parent", CandidateTree: "tree", Rebase: "clean",
+			Gate: "passed", Patch: []byte("+change\n"), Publishable: true,
+		},
+	}
+	publisherClient := &recordingPublisher{
+		result: publisher.Result{
+			HeadBranch: "responder/receipt", CommitSHA: "commit",
+			RemoteSHA: "remote-after-push", PRNumber: 91,
+			PRURL: "https://github.com/owner/repo/pull/91",
+		},
+		afterPublish: cancel,
+	}
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.SetPublisher(publisherClient)
+	if err := svc.publishDraftPR(ctx, core.SlackInput{
+		ID: "publish-cancelled-receipt", Kind: controlPlaneInput,
+		ChannelID: "COPS", UserID: cfg.Slack.Operators[0],
+	}, task); err != nil {
+		t.Fatal(err)
+	}
+	record, err := st.GetPublication(context.Background(), task.ID)
+	if err != nil || !record.Published() || record.RemoteSHA != "remote-after-push" ||
+		record.PRNumber != 91 {
+		t.Fatalf("publication after cancellation = %+v, %v", record, err)
+	}
+	followup, followedPublication, err := st.NextPublicationFollowup(
+		context.Background(), time.Now().UTC().Add(24*time.Hour),
+	)
+	if err != nil || followup.IncidentID != task.ID ||
+		followedPublication.IncidentID != task.ID {
+		t.Fatalf(
+			"publication follow-up after cancellation = %+v, %+v, %v",
+			followup, followedPublication, err,
+		)
 	}
 }
 
@@ -652,7 +730,7 @@ func TestControlPlanePublicationFailureOnlyEndsItsOwnClaim(t *testing.T) {
 	}
 
 	if _, err := st.Publications.BeginReview(
-		ctx, "other-control-owner", "", task.ID, "owner/repo", "main",
+		ctx, "other-control-owner", "", task.ID, "owner/repo", "main", nil,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -683,7 +761,7 @@ func TestCloseRefusesWhileDraftPRWorkOwnsTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.Publications.BeginReview(
-		ctx, "publication-owner", "", task.ID, "owner/repo", "main",
+		ctx, "publication-owner", "", task.ID, "owner/repo", "main", nil,
 	); err != nil {
 		t.Fatal(err)
 	}

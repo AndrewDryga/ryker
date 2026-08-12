@@ -19,6 +19,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
 type frozenAction struct {
@@ -1350,7 +1351,18 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 	if err != nil {
 		return err
 	}
-	if !coopChangesPresent(changes) {
+	repository, ok := s.cfg.RepositoryContext(incident.Repository)
+	if !ok {
+		return fmt.Errorf("repository %q is not configured", incident.Repository)
+	}
+	client, _ := s.publisher.(taskpr.Inspector)
+	target, targeted, err := s.taskPullRequestResolver(client).ResolveBoundSession(
+		ctx, incident, repository, s.coop.GetSession,
+	)
+	if err != nil {
+		return err
+	}
+	if !taskpr.ChangesPresent(changes, taskpr.AdmittedHead(target, targeted)) {
 		return s.refuseControl(ctx, input, incident,
 			"*There is no proposed code change to review.* Fix readiness checks compare "+
 				"the isolated change with the current repository, test whether it can be "+
@@ -1367,6 +1379,10 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 		ctx, "responder:review:"+input.ID, action.SessionID, action.Revision,
 	)
 	if err != nil {
+		s.clearNativeStatus(ctx, incident)
+		return err
+	}
+	if err := taskpr.ValidateReview(rawReview, target, targeted); err != nil {
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
@@ -1733,6 +1749,10 @@ func (s *Service) slackInputFailureIsTerminal(
 	terminal := terminalAttempt(attempt, s.cfg.Limits.MaxSlackInputAttempts)
 	var apiErr *coop.APIError
 	if errors.As(err, &apiErr) && !apiErr.Retryable() {
+		terminal = true
+	}
+	var taskPullRequestErr *taskpr.PermanentError
+	if errors.As(err, &taskPullRequestErr) {
 		terminal = true
 	}
 	// Slack has already given its final answer for these. Retrying a missing

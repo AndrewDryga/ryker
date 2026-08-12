@@ -15,6 +15,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -136,7 +137,7 @@ func TestPrivatePullRequestDiscoveryUsesDurableRunContextAndAdvertisesArtifact(t
 	if len(artifacts) != 1 || artifacts[0].Name != "github-pr-514.md" {
 		t.Fatalf("artifacts = %+v", artifacts)
 	}
-	prompt := agentInputArtifactsPrompt(artifacts)
+	prompt := taskpr.ArtifactsPrompt(artifacts)
 	for _, want := range []string{
 		"github-pr-514.md", artifacts[0].SHA256,
 		"authenticated snapshot", "stale local branches",

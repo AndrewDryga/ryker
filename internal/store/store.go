@@ -15,10 +15,12 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
+	"github.com/AndrewDryga/responder/internal/store/incidentstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 	"github.com/AndrewDryga/responder/internal/store/schedulestore"
+	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 	"github.com/AndrewDryga/responder/internal/store/taskcardstore"
 	_ "modernc.org/sqlite"
@@ -70,6 +72,10 @@ type Store struct {
 	TaskCards *taskcardstore.Repository
 	// Publications owns atomic publication-attempt acquisition.
 	Publications *publicationstore.Repository
+	// Incidents owns durable task-source bindings and shared incident decoding.
+	Incidents *incidentstore.Repository
+	// SlackInputs owns source-message provenance lookups used after admission.
+	SlackInputs *slackinputstore.Repository
 }
 
 type Metrics struct {
@@ -1071,6 +1077,8 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.Behavior = behaviorstore.New(db, clock)
 	s.TaskCards = taskcardstore.New(db, clock)
 	s.Publications = publicationstore.New(db, clock)
+	s.Incidents = incidentstore.New(db, clock)
+	s.SlackInputs = slackinputstore.New(db)
 }
 
 // SetClock replaces the store clock. It exists for tests.
@@ -1470,57 +1478,12 @@ func severityRank(value string) int {
 	}
 }
 
-const incidentColumns = `
-	id, route, repository, correlation_key, source_incident_id, title, severity,
-	status, workflow, signal_count, firing_count, channel_id, channel_name, root_ts,
-	coop_session_id, coop_fork_name, coop_revision, coop_event_sequence, active_turn_id,
-	initial_turn_queued, card_version, card_rendered_version, last_error, latest_update,
-	created_at, updated_at, last_firing_at, resolve_due_at, resolved_at, closed_at,
-	channel_state, channel_state_changed_at, channel_checked_at,
-	work_kind, work_scope, origin_channel_id, origin_thread_ts`
-
-func scanIncident(row interface{ Scan(...any) error }) (core.Incident, error) {
-	var incident core.Incident
-	var initial int
-	var created, updated string
-	var firing, due, resolved, closed, channelChanged, channelChecked sql.NullString
-	err := row.Scan(
-		&incident.ID, &incident.Route, &incident.Repository, &incident.CorrelationKey,
-		&incident.SourceIncidentID, &incident.Title, &incident.Severity, &incident.Status,
-		&incident.Workflow, &incident.SignalCount, &incident.FiringCount, &incident.ChannelID,
-		&incident.ChannelName, &incident.RootTS, &incident.CoopSessionID, &incident.CoopForkName,
-		&incident.CoopRevision, &incident.CoopEventSequence,
-		&incident.ActiveTurnID, &initial, &incident.CardVersion,
-		&incident.CardRenderedVersion, &incident.LastError, &incident.LatestUpdate,
-		&created, &updated, &firing, &due,
-		&resolved, &closed, &incident.ChannelState, &channelChanged, &channelChecked,
-		&incident.WorkKind, &incident.WorkScope, &incident.OriginChannelID,
-		&incident.OriginThreadTS,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return core.Incident{}, ErrNotFound
-		}
-		return core.Incident{}, err
-	}
-	incident.InitialTurnQueued = initial != 0
-	incident.CreatedAt = sqlutil.ParseTime(created)
-	incident.UpdatedAt = sqlutil.ParseTime(updated)
-	incident.LastFiringAt = sqlutil.ScanTime(firing)
-	incident.ResolveDueAt = sqlutil.ScanTime(due)
-	incident.ResolvedAt = sqlutil.ScanTime(resolved)
-	incident.ClosedAt = sqlutil.ScanTime(closed)
-	incident.ChannelStateChangedAt = sqlutil.ScanTime(channelChanged)
-	incident.ChannelCheckedAt = sqlutil.ScanTime(channelChecked)
-	return incident, nil
-}
-
 func (s *Store) GetIncident(ctx context.Context, id string) (core.Incident, error) {
-	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+` FROM incidents WHERE id = ?`, id))
+	return incidentstore.Scan(s.db.QueryRowContext(ctx, `SELECT `+incidentstore.Columns+` FROM incidents WHERE id = ?`, id))
 }
 
 func (s *Store) FindIncidentByChannel(ctx context.Context, channelID string) (core.Incident, error) {
-	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
+	return incidentstore.Scan(s.db.QueryRowContext(ctx, `SELECT `+incidentstore.Columns+`
 		FROM incidents WHERE channel_id = ? AND work_scope = 'room' AND status != 'closed'
 		ORDER BY updated_at DESC LIMIT 1`, channelID))
 }
@@ -1529,7 +1492,7 @@ func (s *Store) FindLatestIncidentByChannel(
 	ctx context.Context,
 	channelID string,
 ) (core.Incident, error) {
-	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
+	return incidentstore.Scan(s.db.QueryRowContext(ctx, `SELECT `+incidentstore.Columns+`
 		FROM incidents WHERE channel_id = ? AND work_scope = 'room'
 		ORDER BY updated_at DESC LIMIT 1`, channelID))
 }
@@ -1549,7 +1512,7 @@ func (s *Store) FindIncidentForConversation(
 	channelID string,
 	threadTS string,
 ) (core.Incident, error) {
-	return scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
+	return incidentstore.Scan(s.db.QueryRowContext(ctx, `SELECT `+incidentstore.Columns+`
 		FROM incidents
 		WHERE status != 'closed' AND (
 		  (work_scope = 'room' AND channel_id = ?)
@@ -1563,7 +1526,7 @@ func (s *Store) ListIncidents(ctx context.Context, limit int) ([]core.Incident, 
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+incidentColumns+`
+	rows, err := s.db.QueryContext(ctx, `SELECT `+incidentstore.Columns+`
 		FROM incidents ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -1571,7 +1534,7 @@ func (s *Store) ListIncidents(ctx context.Context, limit int) ([]core.Incident, 
 	defer rows.Close()
 	var result []core.Incident
 	for rows.Next() {
-		incident, err := scanIncident(rows)
+		incident, err := incidentstore.Scan(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -1601,7 +1564,7 @@ func (s *Store) ListIncidentPage(
 	}
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT `+incidentColumns+` FROM incidents`+where+
+		`SELECT `+incidentstore.Columns+` FROM incidents`+where+
 			` ORDER BY created_at DESC LIMIT ? OFFSET ?`,
 		limit,
 		offset,
@@ -1612,7 +1575,7 @@ func (s *Store) ListIncidentPage(
 	defer rows.Close()
 	result := make([]core.Incident, 0, min(limit, total))
 	for rows.Next() {
-		incident, err := scanIncident(rows)
+		incident, err := incidentstore.Scan(rows)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -1684,7 +1647,7 @@ func (s *Store) listIncidentsWhere(ctx context.Context, where string, limit int)
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+incidentColumns+`
+	rows, err := s.db.QueryContext(ctx, `SELECT `+incidentstore.Columns+`
 		FROM incidents WHERE `+where+` ORDER BY created_at LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -1692,7 +1655,7 @@ func (s *Store) listIncidentsWhere(ctx context.Context, where string, limit int)
 	defer rows.Close()
 	var result []core.Incident
 	for rows.Next() {
-		item, err := scanIncident(rows)
+		item, err := incidentstore.Scan(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -1730,7 +1693,7 @@ func (s *Store) ListChannelReconciliationWork(
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+incidentColumns+`
+	rows, err := s.db.QueryContext(ctx, `SELECT `+incidentstore.Columns+`
 		FROM incidents
 		WHERE channel_id != '' AND status != 'closed'
 		  AND channel_state IN ('active', 'archived', 'unreachable')
@@ -1742,7 +1705,7 @@ func (s *Store) ListChannelReconciliationWork(
 	defer rows.Close()
 	var result []core.Incident
 	for rows.Next() {
-		incident, err := scanIncident(rows)
+		incident, err := incidentstore.Scan(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -1826,7 +1789,7 @@ func (s *Store) SetIncidentChannelState(
 		return nil, nil
 	}
 	rows, err := tx.QueryContext(
-		ctx, `SELECT `+incidentColumns+` FROM incidents WHERE channel_id = ? ORDER BY created_at`,
+		ctx, `SELECT `+incidentstore.Columns+` FROM incidents WHERE channel_id = ? ORDER BY created_at`,
 		channelID,
 	)
 	if err != nil {
@@ -1834,7 +1797,7 @@ func (s *Store) SetIncidentChannelState(
 	}
 	var incidents []core.Incident
 	for rows.Next() {
-		incident, scanErr := scanIncident(rows)
+		incident, scanErr := incidentstore.Scan(rows)
 		if scanErr != nil {
 			rows.Close()
 			return nil, scanErr
@@ -1880,10 +1843,11 @@ func (s *Store) CreateManualIncident(
 	repository, sourceID, title, summary, userID string,
 	originChannelID, originThreadTS string,
 	maxOpenIncidents int,
+	pullRequestTargets ...core.PullRequestTarget,
 ) (core.Incident, bool, error) {
 	return s.createManualWork(
 		ctx, repository, sourceID, title, summary, userID,
-		originChannelID, originThreadTS, maxOpenIncidents, false,
+		originChannelID, originThreadTS, maxOpenIncidents, false, pullRequestTargets...,
 	)
 }
 
@@ -1892,10 +1856,11 @@ func (s *Store) CreateEngineeringTask(
 	repository, sourceID, title, summary, userID string,
 	originChannelID, originThreadTS string,
 	maxOpenIncidents int,
+	pullRequestTargets ...core.PullRequestTarget,
 ) (core.Incident, bool, error) {
 	return s.createManualWork(
 		ctx, repository, sourceID, title, summary, userID,
-		originChannelID, originThreadTS, maxOpenIncidents, true,
+		originChannelID, originThreadTS, maxOpenIncidents, true, pullRequestTargets...,
 	)
 }
 
@@ -1905,6 +1870,7 @@ func (s *Store) createManualWork(
 	originChannelID, originThreadTS string,
 	maxOpenIncidents int,
 	engineeringTask bool,
+	pullRequestTargets ...core.PullRequestTarget,
 ) (core.Incident, bool, error) {
 	workKind := "incident"
 	workScope := "room"
@@ -1912,6 +1878,18 @@ func (s *Store) createManualWork(
 		sourceID = "task:" + sourceID
 		workKind = "engineering_task"
 		workScope = "thread"
+	}
+	if len(pullRequestTargets) > 1 || len(pullRequestTargets) == 1 &&
+		(!engineeringTask || !pullRequestTargets[0].Valid()) {
+		return core.Incident{}, false, errors.New("invalid engineering task pull request binding")
+	}
+	taskPullRequestJSON := ""
+	if len(pullRequestTargets) == 1 {
+		encoded, err := json.Marshal(pullRequestTargets[0])
+		if err != nil {
+			return core.Incident{}, false, err
+		}
+		taskPullRequestJSON = string(encoded)
 	}
 	id, err := core.NewID("inc")
 	if err != nil {
@@ -1928,11 +1906,12 @@ func (s *Store) createManualWork(
 		INSERT OR IGNORE INTO incidents
 		  (id, route, repository, correlation_key, source_incident_id, title, severity,
 		   status, workflow, signal_count, firing_count, work_kind, work_scope,
-		   origin_channel_id, origin_thread_ts, created_at, updated_at, last_firing_at)
+		   origin_channel_id, origin_thread_ts, task_pull_request_json,
+		   created_at, updated_at, last_firing_at)
 		VALUES (?, 'manual', ?, ?, ?, ?, '', 'active', 'provisioning_channel', 1, 1,
-		  ?, ?, ?, ?, ?, ?, ?)`,
+		  ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, repository, correlation, sourceID, title, workKind, workScope,
-		originChannelID, originThreadTS,
+		originChannelID, originThreadTS, taskPullRequestJSON,
 		now.Format(timestampFormat), now.Format(timestampFormat), now.Format(timestampFormat))
 	if err != nil {
 		return core.Incident{}, false, err
@@ -1969,8 +1948,12 @@ func (s *Store) createManualWork(
 	if err := tx.Rollback(); err != nil {
 		return core.Incident{}, false, err
 	}
-	incident, err := scanIncident(s.db.QueryRowContext(ctx, `SELECT `+incidentColumns+`
+	incident, err := incidentstore.Scan(s.db.QueryRowContext(ctx, `SELECT `+incidentstore.Columns+`
 		FROM incidents WHERE route = 'manual' AND correlation_key = ?`, correlation))
+	if err == nil && ((incident.TaskPullRequest == nil) != (len(pullRequestTargets) == 0) ||
+		incident.TaskPullRequest != nil && *incident.TaskPullRequest != pullRequestTargets[0]) {
+		return core.Incident{}, false, fmt.Errorf("engineering task pull request binding: %w", ErrConflict)
+	}
 	return incident, false, err
 }
 
@@ -2131,7 +2114,7 @@ func (s *Store) LeaseSlackInput(ctx context.Context) (core.SlackInput, error) {
 	}
 	defer tx.Rollback()
 	now := s.nowText()
-	input, err := scanSlackInput(tx.QueryRowContext(ctx, `
+	input, err := slackinputstore.Scan(tx.QueryRowContext(ctx, `
 			SELECT candidate.id, candidate.envelope_id, candidate.event_id, candidate.kind,
 			  candidate.team_id, candidate.channel_id, candidate.thread_ts, candidate.message_ts,
 			  candidate.user_id, candidate.text, candidate.action_id, candidate.action_value,
@@ -2223,7 +2206,7 @@ func (s *Store) RecoverStaleSlackInputs(
 }
 
 func (s *Store) GetSlackInput(ctx context.Context, id string) (core.SlackInput, error) {
-	return scanSlackInput(s.db.QueryRowContext(ctx, `
+	return slackinputstore.Scan(s.db.QueryRowContext(ctx, `
 		SELECT id, envelope_id, event_id, kind, team_id, channel_id, thread_ts,
 		  message_ts, user_id, text, action_id, action_value, attachments_json,
 		  frozen_json, state, attempts, failure_count, received_at
@@ -2238,7 +2221,7 @@ func (s *Store) GetSlackInputForMessage(
 	if channelID == "" || messageTS == "" {
 		return core.SlackInput{}, ErrNotFound
 	}
-	return scanSlackInput(s.db.QueryRowContext(ctx, `
+	return slackinputstore.Scan(s.db.QueryRowContext(ctx, `
 		SELECT id, envelope_id, event_id, kind, team_id, channel_id, thread_ts,
 		  message_ts, user_id, text, action_id, action_value, attachments_json,
 		  frozen_json, state, attempts, failure_count, received_at
@@ -2285,7 +2268,7 @@ func (s *Store) ListLatestSlackInputsByKind(
 	defer rows.Close()
 	result := make([]core.SlackInput, 0)
 	for rows.Next() {
-		input, scanErr := scanSlackInput(rows)
+		input, scanErr := slackinputstore.Scan(rows)
 		if scanErr != nil {
 			return nil, scanErr
 		}
@@ -2331,7 +2314,7 @@ func (s *Store) ListRecentWatchMessages(
 	defer rows.Close()
 	result := make([]core.SlackInput, 0, limit)
 	for rows.Next() {
-		input, err := scanSlackInput(rows)
+		input, err := slackinputstore.Scan(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -2439,31 +2422,6 @@ func (s *Store) HasRecentWatchReply(
 		sinceText,
 	).Scan(&exists)
 	return exists, err
-}
-
-func scanSlackInput(row interface{ Scan(...any) error }) (core.SlackInput, error) {
-	var input core.SlackInput
-	var received string
-	var attachments []byte
-	err := row.Scan(
-		&input.ID, &input.EnvelopeID, &input.EventID, &input.Kind, &input.TeamID,
-		&input.ChannelID, &input.ThreadTS, &input.MessageTS, &input.UserID, &input.Text,
-		&input.ActionID, &input.ActionValue, &attachments, &input.Frozen, &input.State, &input.Attempts,
-		&input.Failures, &received,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return core.SlackInput{}, ErrNotFound
-	}
-	if err != nil {
-		return core.SlackInput{}, err
-	}
-	if len(attachments) > 0 {
-		if err := json.Unmarshal(attachments, &input.Attachments); err != nil {
-			return core.SlackInput{}, fmt.Errorf("decode Slack input attachments: %w", err)
-		}
-	}
-	input.ReceivedAt = sqlutil.ParseTime(received)
-	return input, nil
 }
 
 func (s *Store) FinishSlackInput(ctx context.Context, id string) error {

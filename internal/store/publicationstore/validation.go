@@ -89,6 +89,8 @@ func (r *Repository) Save(ctx context.Context, item core.Publication) error {
 		  published_at = excluded.published_at
 		WHERE publications.attempt_input_id = excluded.attempt_input_id AND (
 		  publications.attempt_input_id = '' OR publications.state = excluded.state OR
+		  (excluded.failure_code = 'session_binding' AND
+		    publications.state NOT IN ('reviewing', 'publishing', 'retrying', 'published', 'stale')) OR
 		  (publications.state = 'reviewing' AND excluded.state IN ('publishing', 'retrying', 'failed')) OR
 		  (publications.state = 'publishing' AND excluded.state IN ('retrying', 'failed', 'published')) OR
 		  (publications.state = 'retrying' AND excluded.state IN ('reviewing', 'failed'))
@@ -323,8 +325,19 @@ func (r *Repository) BeginReview(
 	incidentID string,
 	repository string,
 	baseBranch string,
+	target *core.PullRequestTarget,
 	expectedGenerations ...int64,
 ) (core.Publication, error) {
+	var binding core.PullRequestTarget
+	if target != nil {
+		if !target.Valid() {
+			return core.Publication{}, errors.New("existing pull request target is incomplete")
+		}
+		if target.Repository != repository || target.BaseBranch != baseBranch {
+			return core.Publication{}, ErrBindingChanged
+		}
+		binding = *target
+	}
 	expectedGeneration := int64(-1)
 	if len(expectedGenerations) > 0 {
 		expectedGeneration = expectedGenerations[0]
@@ -332,6 +345,12 @@ func (r *Repository) BeginReview(
 	item := core.Publication{
 		IncidentID: incidentID, Repository: repository, BaseBranch: baseBranch,
 		State: core.PublicationReviewing, AttemptInputID: attemptInputID, Generation: 1,
+	}
+	if binding.Valid() {
+		item.HeadBranch = binding.HeadBranch
+		item.RemoteSHA = binding.HeadCommit
+		item.PRNumber = binding.Number
+		item.PRURL = binding.URL
 	}
 	if err := Validate(item); err != nil {
 		return core.Publication{}, err
@@ -358,7 +377,7 @@ func (r *Repository) BeginReview(
 		  incident_id, generation, repository, base_branch, head_branch, parent_head,
 		  candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
 		  failure_code, last_error, created_at, updated_at, attempt_input_id
-		) VALUES (?, 1, ?, ?, '', '', '', '', '', 0, '', 'reviewing', '', '', ?, ?, ?)
+		) VALUES (?, 1, ?, ?, ?, '', '', '', ?, ?, ?, 'reviewing', '', '', ?, ?, ?)
 		ON CONFLICT(incident_id) DO UPDATE SET
 		  generation = publications.generation + 1,
 		  repository = excluded.repository,
@@ -366,7 +385,7 @@ func (r *Repository) BeginReview(
 		  head_branch = CASE WHEN
 		    publications.repository = excluded.repository AND
 		    publications.base_branch = excluded.base_branch
-		    THEN publications.head_branch ELSE '' END,
+		    THEN publications.head_branch ELSE excluded.head_branch END,
 		  parent_head = CASE WHEN
 		    publications.repository = excluded.repository AND
 		    publications.base_branch = excluded.base_branch
@@ -382,15 +401,17 @@ func (r *Repository) BeginReview(
 		  remote_sha = CASE WHEN
 		    publications.repository = excluded.repository AND
 		    publications.base_branch = excluded.base_branch
-		    THEN publications.remote_sha ELSE '' END,
+		    THEN publications.remote_sha ELSE excluded.remote_sha END,
 		  pr_number = CASE WHEN
 		    publications.repository = excluded.repository AND
-		    publications.base_branch = excluded.base_branch
-		    THEN publications.pr_number ELSE 0 END,
+		    publications.base_branch = excluded.base_branch AND
+		    publications.pr_number > 0
+		    THEN publications.pr_number ELSE excluded.pr_number END,
 		  pr_url = CASE WHEN
 		    publications.repository = excluded.repository AND
-		    publications.base_branch = excluded.base_branch
-		    THEN publications.pr_url ELSE '' END,
+		    publications.base_branch = excluded.base_branch AND
+		    publications.pr_number > 0
+		    THEN publications.pr_url ELSE excluded.pr_url END,
 		  published_at = CASE WHEN
 		    publications.repository = excluded.repository AND
 		    publications.base_branch = excluded.base_branch
@@ -411,6 +432,12 @@ func (r *Repository) BeginReview(
 		      publications.base_branch = excluded.base_branch
 		    )
 		  ) AND (
+		    excluded.pr_number = 0 OR publications.pr_number = 0 OR (
+		      publications.pr_number = excluded.pr_number AND
+		      publications.pr_url = excluded.pr_url AND
+		      publications.head_branch = excluded.head_branch
+		    )
+		  ) AND (
 		    publications.attempt_input_id = excluded.attempt_input_id OR
 		    NOT EXISTS (
 		      SELECT 1 FROM slack_inputs AS input
@@ -418,7 +445,8 @@ func (r *Repository) BeginReview(
 		        julianday(input.received_at) <= julianday(publications.updated_at)
 		    )
 		  ) AND (? < 0 OR publications.generation = ?)`,
-		incidentID, repository, baseBranch, now, now, attemptInputID, slackInputID,
+		incidentID, repository, baseBranch, item.HeadBranch, item.RemoteSHA,
+		item.PRNumber, item.PRURL, now, now, attemptInputID, slackInputID,
 		expectedGeneration, expectedGeneration,
 	)
 	if err != nil {
@@ -454,6 +482,11 @@ func (r *Repository) BeginReview(
 					return core.Publication{}, commitErr
 				}
 			}
+			return core.Publication{}, ErrBindingChanged
+		}
+		if binding.Valid() && current.HasPR() &&
+			(current.PRNumber != binding.Number || current.PRURL != binding.URL ||
+				current.HeadBranch != binding.HeadBranch) {
 			return core.Publication{}, ErrBindingChanged
 		}
 		if expectedGeneration >= 0 && current.Generation != expectedGeneration {

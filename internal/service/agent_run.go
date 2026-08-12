@@ -26,6 +26,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskcard"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
 func (s *Service) queueIncidentAgentRun(
@@ -724,7 +725,7 @@ func (s *Service) prepareIncidentAgentRun(
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
-	submissionPrompt += agentInputArtifactsPrompt(artifacts)
+	submissionPrompt += taskpr.ArtifactsPrompt(artifacts)
 	// No omissions to declare: the incident path assembles its prompt without a
 	// budget pass, so nothing here decides to leave anything out. If the result
 	// is oversized the transport still cuts it, and the manifest records that.
@@ -1118,7 +1119,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	prompt += agentInputArtifactsPrompt(artifacts)
+	prompt += taskpr.ArtifactsPrompt(artifacts)
 	if _, err := s.ensureAttemptContextManifest(
 		ctx, run, session, prompt, artifacts, omissions,
 	); err != nil {

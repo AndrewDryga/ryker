@@ -20,12 +20,13 @@ import (
 	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 	"github.com/slack-go/slack/socketmode"
 )
 
 type CoopAPI interface {
 	Ready(context.Context) error
-	CreateSession(context.Context, string, string, string) (coop.Session, coop.Operation, error)
+	CreateSession(context.Context, string, string, string, ...coop.SessionSource) (coop.Session, coop.Operation, error)
 	GetSession(context.Context, string) (coop.Session, error)
 	PrepareSession(context.Context, string, string, int64) (coop.Session, error)
 	ListSessions(context.Context, int) ([]coop.Session, error)
@@ -54,8 +55,12 @@ type publicationStatusAPI interface {
 	PublicationStatus(context.Context, core.Publication) (core.PublicationLifecycleStatus, error)
 }
 
-type pullRequestContextAPI interface {
-	PullRequestContext(context.Context, string, int) (publisher.PullRequestContext, error)
+func (s *Service) taskPullRequestResolver(inspector taskpr.Inspector) taskpr.IncidentResolver {
+	return taskpr.IncidentResolver{
+		Repositories: s.cfg.Repositories, Inspector: inspector,
+		LoadSource: s.store.SlackInputs.GetByEventID,
+		LoadRun:    s.store.GetAgentRunBySource, Bind: s.store.Incidents.BindTaskPullRequest,
+	}
 }
 
 // treeResolverAPI asks the publisher to resolve a commit to its tree using the

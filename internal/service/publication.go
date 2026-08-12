@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -16,11 +14,8 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 )
-
-type coopReviewPatchReader interface {
-	ReviewPatch(context.Context, string) (coop.ReviewPatchArtifact, error)
-}
 
 func (s *Service) publishDraftPR(
 	ctx context.Context,
@@ -55,6 +50,11 @@ func (s *Service) publishDraftPR(
 	if !ok {
 		return fmt.Errorf("repository %q is not configured", incident.Repository)
 	}
+	client, _ := s.publisher.(taskpr.Inspector)
+	target, targeted, err := s.taskPullRequestResolver(client).Resolve(ctx, incident, repository)
+	if err != nil {
+		return err
+	}
 	claimInputID := input.ID
 	expectedGeneration := int64(-1)
 	if input.Kind == controlPlaneInput {
@@ -66,10 +66,14 @@ func (s *Service) publishDraftPR(
 			expectedGeneration = generation
 		}
 	}
+	var targetBinding *core.PullRequestTarget
+	if targeted {
+		targetBinding = &target
+	}
 	existing, err := s.store.Publications.BeginReview(
 		ctx, input.ID, claimInputID, incident.ID,
 		repository.GitHubRepository, repository.GitHubBaseBranch,
-		expectedGeneration,
+		targetBinding, expectedGeneration,
 	)
 	if errors.Is(err, publicationstore.ErrCoalesced) {
 		return nil
@@ -117,13 +121,30 @@ func (s *Service) publishDraftPR(
 	}
 	wasPublished := existing.HasPR()
 	progress := existing
+	if targeted {
+		session, sessionErr := s.coop.GetSession(ctx, incident.CoopSessionID)
+		if sessionErr != nil {
+			return sessionErr
+		}
+		if bindingErr := taskpr.ValidateSession(session, target); bindingErr != nil {
+			progress.State = core.PublicationFailed
+			progress.FailureCode = core.PublicationFailureSessionBinding
+			progress.LastError = safePublicationError(s, bindingErr)
+			persistCtx, cancel := publicationPersistenceContext(ctx)
+			defer cancel()
+			if saveErr := s.store.SavePublication(persistCtx, progress); saveErr != nil {
+				return errors.Join(bindingErr, saveErr)
+			}
+			return bindingErr
+		}
+	}
 	s.setNativeStatus(ctx, incident, "is reviewing and publishing the proposed change...")
 	changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	if !coopChangesPresent(changes) {
+	if !taskpr.ChangesPresent(changes, taskpr.AdmittedHead(target, targeted)) {
 		progress.State = core.PublicationFailed
 		progress.FailureCode = core.PublicationFailureNoChanges
 		progress.LastError = "The isolated task has no code changes to publish."
@@ -148,6 +169,10 @@ func (s *Service) publishDraftPR(
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
+	if err := taskpr.ValidateReview(rawReview, target, targeted); err != nil {
+		s.clearNativeStatus(ctx, incident)
+		return err
+	}
 	review := publicationreview.NormalizeReview(rawReview)
 	if !review.Publishable {
 		progress.State = core.PublicationFailed
@@ -164,7 +189,7 @@ func (s *Service) publishDraftPR(
 			nil,
 		)
 	}
-	review, err = s.completeReviewPatch(ctx, review)
+	review, err = coop.CompleteReviewPatch(ctx, review, s.coop)
 	if err != nil {
 		progress.State = core.PublicationFailed
 		detail := safePublicationError(s, err)
@@ -200,6 +225,8 @@ func (s *Service) publishDraftPR(
 		StateDir: s.cfg.StateDir, Incident: incident, Repository: repository,
 		Review: review, Existing: existing,
 	})
+	receiptCtx, cancelReceipt := publicationPersistenceContext(ctx)
+	defer cancelReceipt()
 	record := pending
 	if result.HeadBranch != "" {
 		record.HeadBranch = result.HeadBranch
@@ -219,7 +246,7 @@ func (s *Service) publishDraftPR(
 	if publishErr != nil {
 		record.State = core.PublicationFailed
 		record.LastError = safePublicationError(s, publishErr)
-		if saveErr := s.store.SavePublication(ctx, record); saveErr != nil {
+		if saveErr := s.store.SavePublication(receiptCtx, record); saveErr != nil {
 			s.clearNativeStatus(ctx, incident)
 			return errors.Join(publishErr, saveErr)
 		}
@@ -230,7 +257,7 @@ func (s *Service) publishDraftPR(
 			Outcome: "failed", Detail: record.LastError,
 		})
 		return s.refuseControl(ctx, input, incident,
-			"*Draft PR publication stopped safely.* "+record.LastError+
+			"*PR publication stopped safely.* "+record.LastError+
 				"\n\nResponder did not merge or deploy anything. The Coop fork and "+
 				"reviewed publication record were retained so an operator can correct "+
 				"the issue and retry.")
@@ -238,12 +265,12 @@ func (s *Service) publishDraftPR(
 	record.State = core.PublicationPublished
 	record.LastError = ""
 	record.PublishedAt = s.now().UTC()
-	if err := s.store.SavePublication(ctx, record); err != nil {
+	if err := s.store.SavePublication(receiptCtx, record); err != nil {
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
 	if err := s.store.ResetPublicationFollowup(
-		ctx, record.IncidentID,
+		receiptCtx, record.IncidentID,
 		s.now().UTC().Add(s.cfg.GitHub.FollowupInterval.Duration),
 	); err != nil {
 		s.log.Error(
@@ -356,43 +383,4 @@ func (s *Service) markTaskPublicationStale(
 		URL:        publication.PRURL,
 	})
 	return publication, nil
-}
-
-func (s *Service) completeReviewPatch(
-	ctx context.Context,
-	review coop.Review,
-) (coop.Review, error) {
-	if review.PatchBytes == 0 || review.PatchDigest == "" {
-		if review.PatchTruncated || len(review.Patch) == 0 {
-			return review, errors.New("Coop review did not bind a complete patch artifact")
-		}
-		return review, nil
-	}
-	if int64(len(review.Patch)) != review.PatchBytes || review.PatchTruncated {
-		reader, ok := s.coop.(coopReviewPatchReader)
-		if !ok {
-			return review, errors.New("Coop client cannot retrieve the complete review patch")
-		}
-		artifact, err := reader.ReviewPatch(ctx, review.PatchArtifactID)
-		if err != nil {
-			return review, err
-		}
-		if artifact.Digest != "" && artifact.Digest != review.PatchDigest {
-			return review, errors.New("Coop review patch ETag does not match the review dossier")
-		}
-		review.Patch = artifact.Patch
-	}
-	if int64(len(review.Patch)) != review.PatchBytes {
-		return review, fmt.Errorf(
-			"Coop review patch is %d bytes, expected %d",
-			len(review.Patch),
-			review.PatchBytes,
-		)
-	}
-	digest := sha256.Sum256(review.Patch)
-	if hex.EncodeToString(digest[:]) != review.PatchDigest {
-		return review, errors.New("Coop review patch digest does not match the review dossier")
-	}
-	review.PatchTruncated = false
-	return review, nil
 }

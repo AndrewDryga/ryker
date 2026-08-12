@@ -71,8 +71,10 @@ type PullRequestContext struct {
 	Author         string
 	BaseRef        string
 	BaseSHA        string
+	BaseRepository string
 	HeadRef        string
 	HeadSHA        string
+	HeadRepository string
 	ChangedFiles   int
 	Additions      int
 	Deletions      int
@@ -211,12 +213,18 @@ func (g *GitHub) PullRequestContext(
 			Login string `json:"login"`
 		} `json:"user"`
 		Base struct {
-			Ref string `json:"ref"`
-			SHA string `json:"sha"`
+			Ref  string `json:"ref"`
+			SHA  string `json:"sha"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"base"`
 		Head struct {
-			Ref string `json:"ref"`
-			SHA string `json:"sha"`
+			Ref  string `json:"ref"`
+			SHA  string `json:"sha"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"head"`
 	}
 	if err := g.api(ctx, token, http.MethodGet, path, nil, &pull); err != nil {
@@ -232,8 +240,8 @@ func (g *GitHub) PullRequestContext(
 		Repository: repository, Number: pull.Number, URL: pull.HTMLURL,
 		Title: pull.Title, Body: pull.Body, State: pull.State, Draft: pull.Draft,
 		Merged: pull.Merged, Author: pull.User.Login,
-		BaseRef: pull.Base.Ref, BaseSHA: pull.Base.SHA,
-		HeadRef: pull.Head.Ref, HeadSHA: pull.Head.SHA,
+		BaseRef: pull.Base.Ref, BaseSHA: pull.Base.SHA, BaseRepository: pull.Base.Repo.FullName,
+		HeadRef: pull.Head.Ref, HeadSHA: pull.Head.SHA, HeadRepository: pull.Head.Repo.FullName,
 		ChangedFiles: pull.ChangedFiles, Additions: pull.Additions,
 		Deletions: pull.Deletions, Diff: string(diff), DiffTruncated: truncated,
 	}
@@ -348,7 +356,6 @@ func (g *GitHub) Publish(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-
 	work, err := os.MkdirTemp(request.StateDir, "publication-*")
 	if err != nil {
 		return result, fmt.Errorf("create isolated publication checkout: %w", err)
@@ -404,6 +411,13 @@ func (g *GitHub) Publish(ctx context.Context, request Request) (Result, error) {
 		return result, err
 	}
 	result.CommitSHA = strings.TrimSpace(commit)
+	if request.Existing.PRNumber > 0 {
+		if _, err := g.existingPullRequest(
+			ctx, token, request, request.Existing.RemoteSHA, result.CommitSHA,
+		); err != nil {
+			return result, err
+		}
+	}
 
 	remoteURL := g.remoteURL(request.Repository.GitHubRepository)
 	remoteSHA, err := g.remoteRef(ctx, work, token, remoteURL, branch)
@@ -797,6 +811,9 @@ type pullRequest struct {
 		Ref string `json:"ref"`
 		SHA string `json:"sha"`
 	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
 }
 
 func (g *GitHub) ensureDraftPR(
@@ -805,27 +822,12 @@ func (g *GitHub) ensureDraftPR(
 	request Request,
 	result Result,
 ) (pullRequest, error) {
-	title := safeTitle(request.Incident.Title)
-	body := publicationBody(request, result)
 	if request.Existing.PRNumber > 0 {
-		var existing pullRequest
-		path := "/repos/" + request.Repository.GitHubRepository + "/pulls/" +
-			strconv.Itoa(request.Existing.PRNumber)
-		if err := g.api(ctx, token, http.MethodGet, path, nil, &existing); err != nil {
-			return pullRequest{}, err
-		}
-		if !existing.Draft || existing.Head.Ref != result.HeadBranch {
-			return pullRequest{}, errors.New("recorded pull request is no longer the expected draft")
-		}
-		var updated pullRequest
-		err := g.api(ctx, token, http.MethodPatch, path, map[string]any{
-			"title": title,
-			"body":  body,
-			"base":  request.Repository.GitHubBaseBranch,
-		}, &updated)
-		return updated, err
+		return g.existingPullRequest(ctx, token, request, result.RemoteSHA)
 	}
 
+	title := safeTitle(request.Incident.Title)
+	body := publicationBody(request, result)
 	var existing []pullRequest
 	owner, _, _ := strings.Cut(request.Repository.GitHubRepository, "/")
 	query := "?state=open&head=" + url.QueryEscape(owner+":"+result.HeadBranch)
@@ -856,6 +858,32 @@ func (g *GitHub) ensureDraftPR(
 			"draft": true,
 		}, &created)
 	return created, err
+}
+
+func (g *GitHub) existingPullRequest(
+	ctx context.Context,
+	token string,
+	request Request,
+	expectedHeads ...string,
+) (pullRequest, error) {
+	var existing pullRequest
+	path := "/repos/" + request.Repository.GitHubRepository + "/pulls/" +
+		strconv.Itoa(request.Existing.PRNumber)
+	if err := g.api(ctx, token, http.MethodGet, path, nil, &existing); err != nil {
+		return pullRequest{}, err
+	}
+	headMatches := false
+	for _, expected := range expectedHeads {
+		headMatches = headMatches || existing.Head.SHA == expected
+	}
+	if existing.Number != request.Existing.PRNumber || existing.HTMLURL == "" ||
+		existing.HTMLURL != request.Existing.PRURL || existing.State != "open" ||
+		existing.Merged || existing.Head.Ref != request.Existing.HeadBranch ||
+		!headMatches ||
+		existing.Base.Ref != request.Repository.GitHubBaseBranch {
+		return pullRequest{}, errors.New("recorded pull request is no longer the expected open branch, head, and base")
+	}
+	return existing, nil
 }
 
 func publicationBody(request Request, result Result) string {

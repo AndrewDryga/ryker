@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
 func (s *Service) processWebhook(ctx context.Context) error {
@@ -496,6 +497,19 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	if !ok {
 		return s.store.SetIncidentError(ctx, incident.ID, core.WorkflowBlocked, "repository binding was removed")
 	}
+	var sessionSources []coop.SessionSource
+	client, _ := s.publisher.(taskpr.Inspector)
+	resolver := s.taskPullRequestResolver(client)
+	if source, targetErr := resolver.SessionSource(ctx, incident, repository); targetErr != nil {
+		var permanent *taskpr.PermanentError
+		if errors.As(targetErr, &permanent) {
+			s.setIncidentError(ctx, incident.ID, core.WorkflowBlocked, trimError(targetErr))
+			return nil
+		}
+		return targetErr
+	} else if source.PullRequestNumber > 0 {
+		sessionSources = append(sessionSources, source)
+	}
 	if err := s.queueInitialTurn(ctx, incident); err != nil {
 		if errors.Is(err, errEvidenceTooLarge) {
 			s.setIncidentError(ctx, incident.ID, core.WorkflowBlocked, trimError(err))
@@ -509,6 +523,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	}
 	session, _, err := s.coop.CreateSession(
 		ctx, "responder:session:"+incident.ID, repository.CoopPolicy, sessionLabel,
+		sessionSources...,
 	)
 	if err != nil {
 		workflow := core.WorkflowHolding
@@ -620,6 +635,14 @@ func (s *Service) queueInitialTurnWithSource(
 	)
 	if err != nil {
 		return err
+	}
+	repository, configured := s.cfg.RepositoryContext(incident.Repository)
+	client, _ := s.publisher.(taskpr.Inspector)
+	resolver := s.taskPullRequestResolver(client)
+	if addition, targetErr := resolver.InitialPrompt(ctx, incident, repository); targetErr != nil {
+		return targetErr
+	} else if configured {
+		prompt += addition
 	}
 	if _, _, err := s.queueIncidentAgentRun(
 		ctx, incident, sourceKind, sourceID, userID, prompt,
@@ -808,6 +831,35 @@ func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (sla
 	if publicationErr != nil && !errors.Is(publicationErr, store.ErrNotFound) {
 		return slackui.Message{}, publicationErr
 	}
+	repository, _ := s.cfg.RepositoryContext(incident.Repository)
+	client, _ := s.publisher.(taskpr.Inspector)
+	missing := errors.Is(publicationErr, store.ErrNotFound)
+	storedPublication := publication
+	publication, changeBaseline, targetErr := s.taskPullRequestResolver(client).CardPublication(
+		ctx, incident, repository, publication, missing, s.coop.GetSession,
+	)
+	if targetErr != nil {
+		s.log.Warn(
+			"resolve engineering task pull request for card",
+			"incident", incident.ID, "error", trimError(targetErr),
+		)
+	}
+	if publication.FailureCode == core.PublicationFailureSessionBinding &&
+		!storedPublication.InProgress() && !storedPublication.Published() &&
+		storedPublication.State != core.PublicationStale {
+		if missing {
+			storedPublication = publication
+		} else {
+			storedPublication.State = core.PublicationFailed
+			storedPublication.FailureCode = core.PublicationFailureSessionBinding
+			storedPublication.LastError = publication.LastError
+		}
+		if saveErr := s.store.SavePublication(ctx, storedPublication); saveErr != nil {
+			return slackui.Message{}, saveErr
+		}
+	} else if storedPublication.InProgress() {
+		publication = storedPublication
+	}
 	if publication.FailureCode == core.PublicationFailureNoChanges {
 		codeChangesKnown = true
 	}
@@ -823,7 +875,7 @@ func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (sla
 				"error", changesErr,
 			)
 		} else {
-			hasCodeChanges = coopChangesPresent(changes)
+			hasCodeChanges = taskpr.ChangesPresent(changes, changeBaseline)
 			codeChangesKnown = true
 		}
 	}
@@ -1167,14 +1219,6 @@ func changesSummary(changes coop.Changes) string {
 		))
 	}
 	return strings.Join(lines, "\n")
-}
-
-func coopChangesPresent(changes coop.Changes) bool {
-	return len(changes.Committed) > 0 ||
-		len(changes.Staged) > 0 ||
-		len(changes.Unstaged) > 0 ||
-		len(changes.Untracked) > 0 ||
-		len(changes.Conflicts) > 0
 }
 
 func displayOr(value, fallback string) string {

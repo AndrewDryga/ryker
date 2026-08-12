@@ -3,6 +3,7 @@ package publisher
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,7 +18,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
-func TestPublishCreatesExactReviewedTreeAndDraftPR(t *testing.T) {
+func TestPublishRecoversAfterPullRequestCreationResponseIsLost(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "source")
 	mustGit(t, "", "init", "-q", "-b", "main", source)
 	mustWrite(t, filepath.Join(source, "README.md"), "before\n")
@@ -36,23 +37,27 @@ func TestPublishCreatesExactReviewedTreeAndDraftPR(t *testing.T) {
 	remote := filepath.Join(t.TempDir(), "remote.git")
 	mustGit(t, "", "init", "-q", "--bare", remote)
 	var created map[string]any
+	prCreated := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			t.Errorf("missing GitHub authorization")
 		}
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/pulls"):
-			_, _ = w.Write([]byte("[]"))
+			if prCreated {
+				_, _ = w.Write([]byte(`[{
+					"number":41,"html_url":"https://github.example/pull/41",
+					"draft":true,"head":{"ref":"responder/inc-1234567890abcdef"}
+				}]`))
+			} else {
+				_, _ = w.Write([]byte("[]"))
+			}
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/pulls"):
 			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
 				t.Error(err)
 			}
-			_, _ = w.Write([]byte(`{
-				"number": 41,
-				"html_url": "https://github.example/pull/41",
-				"draft": true,
-				"head": {"ref": "ignored"}
-			}`))
+			prCreated = true
+			http.Error(w, "response lost", http.StatusInternalServerError)
 		default:
 			http.NotFound(w, r)
 		}
@@ -70,7 +75,7 @@ func TestPublishCreatesExactReviewedTreeAndDraftPR(t *testing.T) {
 		ID: "inc_1234567890abcdef", Title: "Update runtime packs",
 		CoopSessionID: "remote_1", CreatedAt: time.Unix(1_700_000_000, 0).UTC(),
 	}
-	result, err := client.Publish(context.Background(), Request{
+	request := Request{
 		StateDir: t.TempDir(),
 		Incident: incident,
 		Repository: config.Repository{
@@ -80,9 +85,20 @@ func TestPublishCreatesExactReviewedTreeAndDraftPR(t *testing.T) {
 			OperationID: "op_review", ParentHead: parent, CandidateTree: tree,
 			Patch: []byte(patch), Publishable: true, Gate: "passed", Rebase: "clean",
 		},
-	})
+	}
+	partial, err := client.Publish(context.Background(), request)
+	if err == nil || partial.HeadBranch == "" || partial.RemoteSHA == "" ||
+		partial.RemoteSHA != partial.CommitSHA || partial.PRNumber != 0 {
+		t.Fatalf("partial publication = %+v, %v", partial, err)
+	}
+	request.Existing = core.Publication{
+		Repository: "owner/repository", BaseBranch: "main",
+		HeadBranch: partial.HeadBranch, RemoteSHA: partial.RemoteSHA,
+		State: core.PublicationFailed,
+	}
+	result, err := client.Publish(context.Background(), request)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("retry partial publication: %v", err)
 	}
 	if result.PRNumber != 41 || result.PRURL != "https://github.example/pull/41" {
 		t.Fatalf("unexpected publication result: %#v", result)
@@ -95,6 +111,87 @@ func TestPublishCreatesExactReviewedTreeAndDraftPR(t *testing.T) {
 	))
 	if remoteTree != tree {
 		t.Fatalf("published tree %s, want reviewed tree %s", remoteTree, tree)
+	}
+}
+
+func TestPublishUpdatesAuthenticatedExistingPullRequestWithLease(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source")
+	mustGit(t, "", "init", "-q", "-b", "main", source)
+	mustWrite(t, filepath.Join(source, "README.md"), "base\n")
+	mustGit(t, source, "add", "README.md")
+	mustGitEnv(t, source, []string{
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
+	}, "commit", "-q", "-m", "base")
+	parent := strings.TrimSpace(mustGit(t, source, "rev-parse", "HEAD"))
+	mustWrite(t, filepath.Join(source, "README.md"), "updated\n")
+	patch := mustGit(t, source, "diff", "--binary", "HEAD")
+	mustGit(t, source, "add", "README.md")
+	tree := strings.TrimSpace(mustGit(t, source, "write-tree"))
+	mustGit(t, source, "reset", "-q", "--hard", "HEAD")
+
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	mustGit(t, "", "init", "-q", "--bare", remote)
+	mustGit(t, source, "push", "-q", remote, "HEAD:refs/heads/existing-pr")
+	oldHead := strings.TrimSpace(mustGit(t, "", "--git-dir="+remote, "rev-parse", "existing-pr"))
+	const prURL = "https://github.example/owner/repository/pull/514"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/pulls/514") {
+			t.Errorf("unexpected GitHub mutation: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		head := strings.TrimSpace(mustGit(t, "", "--git-dir="+remote, "rev-parse", "existing-pr"))
+		_, _ = fmt.Fprintf(w, `{"number":514,"html_url":%q,"state":"open","draft":false,"merged":false,"head":{"ref":"existing-pr","sha":%q},"base":{"ref":"main"}}`, prURL, head)
+	}))
+	defer server.Close()
+	t.Setenv("TEST_GITHUB_TOKEN", "test-token")
+	client := New(config.GitHubConfig{
+		Enabled: true, APIURL: server.URL, TokenEnv: "TEST_GITHUB_TOKEN",
+		BranchPrefix: "responder", CommitName: "Responder",
+		CommitEmail: "responder@example.com",
+	})
+	client.remoteURL = func(string) string { return remote }
+	request := Request{
+		StateDir: t.TempDir(),
+		Incident: core.Incident{
+			ID: "inc_existing", Title: "Update existing PR",
+			CoopSessionID: "remote_1", CreatedAt: time.Unix(1_700_000_000, 0).UTC(),
+		},
+		Repository: config.Repository{
+			Path: source, GitHubRepository: "owner/repository", GitHubBaseBranch: "main",
+		},
+		Review: coop.Review{
+			OperationID: "op_review", ParentHead: parent, CandidateTree: tree,
+			Patch: []byte(patch), Publishable: true, Gate: "passed", Rebase: "clean",
+		},
+		Existing: core.Publication{
+			Repository: "owner/repository", BaseBranch: "main",
+			HeadBranch: "existing-pr", RemoteSHA: oldHead,
+			PRNumber: 514, PRURL: prURL,
+		},
+	}
+	result, err := client.Publish(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PRNumber != 514 || result.PRURL != prURL ||
+		result.HeadBranch != "existing-pr" || result.RemoteSHA != result.CommitSHA {
+		t.Fatalf("existing PR result = %+v", result)
+	}
+	remoteTree := strings.TrimSpace(mustGit(
+		t, "", "--git-dir="+remote, "rev-parse", "existing-pr^{tree}",
+	))
+	if remoteTree != tree {
+		t.Fatalf("updated tree = %s, want %s", remoteTree, tree)
+	}
+	replayed, err := client.Publish(context.Background(), request)
+	if err != nil {
+		t.Fatalf("retry after successful push: %v", err)
+	}
+	if replayed.CommitSHA != result.CommitSHA || replayed.RemoteSHA != result.RemoteSHA ||
+		replayed.PRNumber != result.PRNumber {
+		t.Fatalf("replayed result = %+v, want %+v", replayed, result)
 	}
 }
 
@@ -117,8 +214,8 @@ func TestPullRequestContextReadsPrivateDiffAndDiscussion(t *testing.T) {
 				"state":"open","draft":false,"merged":false,
 				"changed_files":3,"additions":41,"deletions":2,
 				"user":{"login":"trevin"},
-				"base":{"ref":"main","sha":"base-sha"},
-				"head":{"ref":"symbolicator","sha":"head-sha"}
+				"base":{"ref":"main","sha":"base-sha","repo":{"full_name":"tenantcorp/tenant-infra"}},
+				"head":{"ref":"symbolicator","sha":"head-sha","repo":{"full_name":"tenantcorp/tenant-infra"}}
 			}`))
 		case r.URL.Path == "/repos/"+repository+"/issues/514/comments":
 			_, _ = w.Write([]byte(`[{"body":"Needs GCP connectivity.","user":{"login":"andrew"}}]`))
@@ -142,6 +239,7 @@ func TestPullRequestContextReadsPrivateDiffAndDiscussion(t *testing.T) {
 	}
 	if got.Number != 514 || got.Title != "Deploy Sentry Symbolicator" ||
 		got.BaseRef != "main" || got.HeadRef != "symbolicator" ||
+		got.BaseRepository != repository || got.HeadRepository != repository ||
 		got.ChangedFiles != 3 || !strings.Contains(got.Diff, "+symbolicator = true") {
 		t.Fatalf("pull request context = %+v", got)
 	}

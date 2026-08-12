@@ -57,6 +57,43 @@ func TestClientUsesUnixSocketAndExactMutationHeaders(t *testing.T) {
 	}
 }
 
+func TestClientCreatesSessionFromExactPullRequestHead(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Policy      string `json:"policy"`
+			Task        string `json:"task"`
+			PullRequest struct {
+				Number     int    `json:"number"`
+				HeadCommit string `json:"head_commit"`
+			} `json:"pull_request"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body.PullRequest.Number != 514 || body.PullRequest.HeadCommit != strings.Repeat("a", 40) {
+			t.Errorf("pull request source = %+v", body.PullRequest)
+		}
+		_, _ = w.Write([]byte(`{"operation":{"id":"op_1"},"session":{"id":"ses_1"}}`))
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	client := New(socket, time.Second)
+	_, _, err = client.CreateSession(
+		context.Background(), "create-pr", "write", "engineering-task:1",
+		SessionSource{PullRequestNumber: 514, HeadCommit: strings.Repeat("a", 40)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
 	socket := shortSocket(t)
 	listener, err := net.Listen("unix", socket)

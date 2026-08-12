@@ -10,6 +10,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
 const maxPromptBytes = 60 << 10
@@ -103,8 +104,9 @@ Re-verify any material claim against fresh live evidence before relying on it.`
 // behavior offers — in five wordings that each carried a detail the others
 // lacked, so the model had to reconcile them to learn one rule. Stated once it
 // also covers fields added later, which the per-field wordings never did.
-const offerContractPolicy = `Every offer field — incident_title, task_title with task_repository and
-task_prompt, memory_offer, preference_offer, rule_offer, schedule_offer — is a proposal, not an act.
+const offerContractPolicy = `Every offer field — incident_title, task_title with task_repository,
+task_prompt, and optional task_pull_request, memory_offer, preference_offer, rule_offer,
+schedule_offer — is a proposal, not an act.
 Responder validates it and shows an operator confirmation button; nothing is created, saved,
 changed, or authorized until a configured operator clicks it. An offer is never an infrastructure
 mutation, never evidence, and never a claim that the work already exists.`
@@ -122,7 +124,7 @@ var evidenceSourcePolicy = investigation.SourcePolicy()
 const emisarGovernedActionPolicy = `Emisar is the only authority for operational actions.
 
 - Shared-channel triage, alerts, health questions, background work, inferred intent, and ambient conversation are read-only. Never initiate an operational mutation from them.
-- In any Slack conversation, you may submit an operational action only when target_is_configured_operator is true and that operator directly and explicitly asks for the exact operational change. A dedicated incident or task is not required. Do not broaden the target, arguments, or action. Ask a concise clarifying question when the target or desired change is ambiguous. Repository edits still require a separate engineering task.
+- target_is_configured_operator must be true and the operator directly and explicitly asks for the exact operational change. A dedicated incident or task is not required. A dedicated incident is not required. Do not broaden the target, arguments, or action. Ask a concise question when the target or change is ambiguous. Repository edits still require a separate engineering task.
 - Discover the exact Emisar action and immutable runner and pack references, refresh its contract, and follow every returned continuation exactly. Do not use shell, cloud CLIs, direct HTTP, or another tool to bypass Emisar policy, trust, signing, or approval.
 - Create, inspect, validate, publish, and execute Emisar runbooks through the available Emisar MCP runbook tools in the current Slack conversation. An Emisar runbook is control-plane data, not a repository artifact: never return task_title for runbook work unless the operator explicitly asks to change a version-controlled runbook file. Follow Emisar's own draft, validation, publication, policy, and approval boundaries.
 - For a compound request that creates reusable runbook automation and schedules it, complete the runbook-management steps first, then return schedule_offer for the independently confirmed recurrence. Pin the scheduled prompt to the exact immutable published runbook when one is available, but treat that runbook as the preferred reproducible route rather than the requested outcome: unless the operator explicitly requires that exact artifact, the scheduled prompt must permit a read-only semantic replacement or equivalent authorized checks when the pinned runbook later becomes unavailable. Do not claim either part exists without the corresponding Emisar result or host-rendered schedule confirmation, and do not replace the runbook action with an engineering task.
@@ -144,10 +146,11 @@ func repositorySetPrompt(bound coop.Session) string {
 	if len(bound.Companions) == 0 {
 		return ""
 	}
+	creationCommit := taskpr.SessionHead(bound)
 	lines := []string{
 		"Repository set for this Coop session:",
 		"- Primary working copy: the current working directory at creation commit `" +
-			bound.BaseCommit + "`. This is the only repository whose changes can be reviewed or published.",
+			creationCommit + "`. This is the only repository whose changes can be reviewed or published.",
 	}
 	for _, companion := range bound.Companions {
 		lines = append(lines, "- Read-only companion `"+companion.Name+"`: `"+

@@ -92,6 +92,7 @@ type Session struct {
 	Policy            string                `json:"policy"`
 	PolicyDigest      string                `json:"policy_digest"`
 	BaseCommit        string                `json:"base_commit"`
+	PullRequest       *PullRequestBinding   `json:"pull_request,omitempty"`
 	Companions        []CompanionRepository `json:"companions,omitempty"`
 	ForkName          string                `json:"fork_name"`
 	Revision          int64                 `json:"revision"`
@@ -107,6 +108,20 @@ type Session struct {
 	LastEventSequence int64                 `json:"last_event_sequence"`
 	CreatedAt         time.Time             `json:"created_at"`
 	UpdatedAt         time.Time             `json:"updated_at"`
+}
+
+type PullRequestBinding struct {
+	Number     int    `json:"number"`
+	Ref        string `json:"ref"`
+	HeadCommit string `json:"head_commit"`
+}
+
+// SessionSource pins an engineering session to an authenticated pull-request
+// head. Coop still owns the repository and remote through its policy; the
+// caller supplies only the PR number and exact immutable head it approved.
+type SessionSource struct {
+	PullRequestNumber int
+	HeadCommit        string
 }
 
 type CompanionRepository struct {
@@ -204,6 +219,8 @@ type ParentDivergence struct {
 type Changes struct {
 	BaseCommit       string           `json:"base_commit"`
 	ForkHead         string           `json:"fork_head"`
+	ForkTree         string           `json:"fork_tree"`
+	PullRequestTree  string           `json:"pull_request_tree,omitempty"`
 	ParentHead       string           `json:"parent_head"`
 	Committed        []Change         `json:"committed"`
 	Staged           []Change         `json:"staged"`
@@ -221,28 +238,29 @@ type Changes struct {
 }
 
 type Review struct {
-	OperationID           string   `json:"operation_id"`
-	SessionID             string   `json:"session_id"`
-	SessionRevision       int64    `json:"session_revision"`
-	PolicyDigest          string   `json:"policy_digest"`
-	CreationBase          string   `json:"creation_base"`
-	SourceHead            string   `json:"source_head"`
-	SourceTree            string   `json:"source_tree"`
-	ParentHead            string   `json:"parent_head"`
-	ParentTree            string   `json:"parent_tree"`
-	CandidateHead         string   `json:"candidate_head"`
-	CandidateTree         string   `json:"candidate_tree"`
-	Rebase                string   `json:"rebase"`
-	Gate                  string   `json:"gate"`
-	GateError             string   `json:"gate_error,omitempty"`
-	PolicyFindings        []string `json:"policy_findings,omitempty"`
-	Patch                 []byte   `json:"patch,omitempty"`
-	PatchTruncated        bool     `json:"patch_truncated"`
-	PatchArtifactID       string   `json:"patch_artifact_id,omitempty"`
-	PatchDigest           string   `json:"patch_digest,omitempty"`
-	PatchBytes            int64    `json:"patch_bytes"`
-	Publishable           bool     `json:"publishable"`
-	NotPublishableReasons []string `json:"not_publishable_reasons,omitempty"`
+	OperationID           string              `json:"operation_id"`
+	SessionID             string              `json:"session_id"`
+	SessionRevision       int64               `json:"session_revision"`
+	PolicyDigest          string              `json:"policy_digest"`
+	PullRequest           *PullRequestBinding `json:"pull_request,omitempty"`
+	CreationBase          string              `json:"creation_base"`
+	SourceHead            string              `json:"source_head"`
+	SourceTree            string              `json:"source_tree"`
+	ParentHead            string              `json:"parent_head"`
+	ParentTree            string              `json:"parent_tree"`
+	CandidateHead         string              `json:"candidate_head"`
+	CandidateTree         string              `json:"candidate_tree"`
+	Rebase                string              `json:"rebase"`
+	Gate                  string              `json:"gate"`
+	GateError             string              `json:"gate_error,omitempty"`
+	PolicyFindings        []string            `json:"policy_findings,omitempty"`
+	Patch                 []byte              `json:"patch,omitempty"`
+	PatchTruncated        bool                `json:"patch_truncated"`
+	PatchArtifactID       string              `json:"patch_artifact_id,omitempty"`
+	PatchDigest           string              `json:"patch_digest,omitempty"`
+	PatchBytes            int64               `json:"patch_bytes"`
+	Publishable           bool                `json:"publishable"`
+	NotPublishableReasons []string            `json:"not_publishable_reasons,omitempty"`
 }
 
 type ReviewPatchArtifact struct {
@@ -322,12 +340,25 @@ func (c *Client) Ready(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) CreateSession(ctx context.Context, key, policy, externalRef string) (Session, Operation, error) {
+func (c *Client) CreateSession(
+	ctx context.Context,
+	key, policy, externalRef string,
+	sources ...SessionSource,
+) (Session, Operation, error) {
 	var response sessionResponse
-	err := c.post(ctx, "/v1/sessions", key, map[string]any{
+	body := map[string]any{
 		"policy": policy,
 		"task":   externalRef,
-	}, &response)
+	}
+	if len(sources) > 1 {
+		return response.Session, response.Operation, errors.New("only one Coop session source is supported")
+	}
+	if len(sources) == 1 {
+		body["pull_request"] = map[string]any{
+			"number": sources[0].PullRequestNumber, "head_commit": sources[0].HeadCommit,
+		}
+	}
+	err := c.post(ctx, "/v1/sessions", key, body, &response)
 	return response.Session, response.Operation, err
 }
 

@@ -78,6 +78,7 @@ type Incident struct {
 	WorkScope             WorkScope
 	OriginChannelID       string
 	OriginThreadTS        string
+	TaskPullRequest       *PullRequestTarget
 	Title                 string
 	Severity              string
 	Status                IncidentStatus
@@ -1451,7 +1452,8 @@ const (
 	PublicationPublished  PublicationState = "published"
 	PublicationStale      PublicationState = "stale"
 
-	PublicationFailureNoChanges PublicationFailureCode = "no_changes"
+	PublicationFailureNoChanges      PublicationFailureCode = "no_changes"
+	PublicationFailureSessionBinding PublicationFailureCode = "session_binding"
 )
 
 type Publication struct {
@@ -1473,6 +1475,25 @@ type Publication struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	PublishedAt    time.Time
+}
+
+// PullRequestTarget is the authenticated, operator-approved source and
+// publication destination for an engineering task that edits an existing PR.
+// The exact head commit is the admitted workspace baseline and the first
+// force-with-lease value, so neither session creation nor publication can
+// silently cross a concurrent PR update.
+type PullRequestTarget struct {
+	Repository string `json:"repository"`
+	Number     int    `json:"number"`
+	URL        string `json:"url"`
+	BaseBranch string `json:"base_branch"`
+	HeadBranch string `json:"head_branch"`
+	HeadCommit string `json:"head_commit"`
+}
+
+func (p PullRequestTarget) Valid() bool {
+	return p.Repository != "" && p.Number > 0 && p.URL != "" &&
+		p.BaseBranch != "" && p.HeadBranch != "" && p.HeadCommit != ""
 }
 
 func (p Publication) Published() bool {
