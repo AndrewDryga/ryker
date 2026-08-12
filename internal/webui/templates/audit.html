@@ -36,8 +36,7 @@ it and what came of it.</p>
     .Total}} · rows {{.From}}–{{.To}}, newest first{{if ne .Raw (len .Events)}}, identical
     neighbours folded to {{len .Events}}{{end}}{{end}}</div></div>
 {{if .Events}}{{template "auditrows" .Events}}
-{{else}}<p class="empty">No event of this kind matches the filter. The count above ran the same
-query, so this is nothing matched rather than nothing loaded.</p>{{end}}
+{{else}}<p class="empty">No event of this kind matches the filter.</p>{{end}}
 {{if or .Newer .Older}}
 <div class="pager">
   {{if .Newer}}<a href="{{.Newer}}">← newer</a>{{end}}

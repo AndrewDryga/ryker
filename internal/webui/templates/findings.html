@@ -1,7 +1,6 @@
 {{define "findings"}}
-<p class="note">Every completed turn is reviewed out-of-process by an assessor, and every
-defect it proposes is then given to a second reviewer whose job is to disprove it. Both
-verdicts are kept: a run of rejections is the skeptic working, not a gap.</p>
+<p class="note">Every completed turn is reviewed by an assessor, and each proposed defect is
+handed to a challenger whose job is to disprove it. Both verdicts are kept.</p>
 
 {{template "problems" .Errs}}
 
@@ -42,8 +41,6 @@ verdicts are kept: a run of rejections is the skeptic working, not a gap.</p>
   {{end}}
 </div>
 {{template "pager" .}}
-{{else}}<p class="empty">No turn has been reviewed into a finding yet. The watcher records one
-every time its assessor proposes a defect, whether or not the challenger agrees, so an empty
-list means it has proposed none — not that nothing is being checked. Findings expire on the
-same horizon as the transcripts behind them.</p>{{end}}
+{{else}}<p class="empty">No findings yet. One is recorded every time the assessor proposes a
+defect, whether or not the challenger agrees.</p>{{end}}
 {{end}}

@@ -1,9 +1,8 @@
 {{define "workspaces"}}
 {{template "problems" .Errs}}
-<p class="note">A retained workspace is a Coop fork still on disk after its work ended. The janitor
-reclaims every fork it can prove safe to delete; each one it refuses lands here with the refusal,
-and stays until a person acts. {{.Reclaimed}} workspaces have already been reclaimed and are not
-shown.</p>
+<p class="note">A retained workspace is a Coop fork still on disk after its work ended. Cleanup
+deletes every fork it can prove safe; each refusal lands here with its reason until a person
+acts. {{.Reclaimed}} already reclaimed.</p>
 
 <h2>Waiting on you <span class="note">{{len .Held}}</span></h2>
 {{if .Held}}
@@ -32,14 +31,11 @@ shown.</p>
   {{end}}
 </div>
 {{if .CanAct}}
-<p class="note">Publish and discard run the identical service handlers the Slack buttons call — the
-Coop review, the verified discard plan, the audit record. Their outcome notice is posted to the
-room's Slack channel exactly as a button press would be, and the row here changes once cleanup
-records the result.</p>
+<p class="note">These buttons run the same service handlers as the Slack buttons, and the outcome
+notice is posted to the room's channel the same way.</p>
 {{end}}
-{{else}}<p class="empty">No workspace is waiting on you. One lands here when automatic cleanup
-refuses a fork for a stated reason — a dirty tree, unpublished commits, a Coop conflict — and it
-stays until an operator publishes it, discards it, or sends it back through the checks.</p>{{end}}
+{{else}}<p class="empty">No workspace is waiting on you. One lands here when cleanup refuses a
+fork — a dirty tree, unpublished commits, a Coop conflict.</p>{{end}}
 
 <h2>Queued for automatic cleanup <span class="note">{{len .Queued}}</span></h2>
 {{if .Queued}}
@@ -53,9 +49,7 @@ stays until an operator publishes it, discards it, or sends it back through the 
       <td class="note">{{stamp .Eligible}}</td><td class="note">{{stamp .NextAttempt}}</td></tr>
   {{end}}
 </table>
-<p class="note">The janitor still owns these: it retries on its own schedule until a check refuses,
-and only a refusal moves a row up into the operator's queue. Eligible is when the retention grace
-period ends.</p>
-{{else}}<p class="empty">Nothing is queued. A session enters the queue when its work closes or its
-Slack channel memory rotates, after the retention grace period.</p>{{end}}
+<p class="note">Automatic cleanup still owns these and retries on its own schedule; only a
+refusal moves a row up into your queue. Eligible is when the retention grace period ends.</p>
+{{else}}<p class="empty">Nothing is queued for cleanup.</p>{{end}}
 {{end}}

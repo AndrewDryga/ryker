@@ -2,7 +2,6 @@ package webui
 
 import (
 	"context"
-	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -341,32 +340,28 @@ func episodesURL(filter EpisodeFilter, offset int) template.URL {
 // until now was answered by running sqlite against a production database.
 type episodePage struct {
 	Item
-	Turn        Turn
-	Turns       []Turn
-	Source      SourceInput
-	Trigger     SourceInput
-	Wakeup      Wakeup
-	Wakeups     []Wakeup
-	Trace       EpisodeTrace
-	Events      []Event
-	Claims      []ClaimRow
-	Evidence    []EvidenceRow
-	Coverage    []CoverageRow
-	Manifest    ManifestRow
-	Manifests   []ManifestRow
-	Attempts    []Attempt
-	Rejections  []Rejection
-	Artifacts   []EpisodeArtifact
-	Delivered   []Delivery
-	Effects     []SideEffect
-	Audit       []AuditRow
-	Errs        problems
-	AnsweredGap Unwired
-	Omitted     Unwired
-	Spent       EpisodeTokens
-	Unmetered   Unwired
-	Latency     Unwired
-	CanAct      bool
+	Turn       Turn
+	Turns      []Turn
+	Source     SourceInput
+	Trigger    SourceInput
+	Wakeup     Wakeup
+	Wakeups    []Wakeup
+	Trace      EpisodeTrace
+	Events     []Event
+	Claims     []ClaimRow
+	Evidence   []EvidenceRow
+	Coverage   []CoverageRow
+	Manifest   ManifestRow
+	Manifests  []ManifestRow
+	Attempts   []Attempt
+	Rejections []Rejection
+	Artifacts  []EpisodeArtifact
+	Delivered  []Delivery
+	Effects    []SideEffect
+	Audit      []AuditRow
+	Errs       problems
+	Spent      EpisodeTokens
+	CanAct     bool
 	// Resolvable gates the overtaken-by-events action to the states where a
 	// person is what the episode is waiting for. The kernel re-checks on the
 	// way through; this only decides whether a button is honest to offer.
@@ -440,31 +435,6 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("token usage", err)
 	present := func(text string) string { return h.reader.resolveSlackText(ctx, text) }
 	page.Trace = buildEpisodeTrace(h.pricing, page, present)
-	// Both of these gaps were invisible because the page hid them. The manifest
-	// has carried provider, model and reasoning_effort since it was created and
-	// nothing assigned them until recently, so gating the whole section on the
-	// model name printed "No context manifest for this episode" over a manifest
-	// that was right there with six references in it.
-	//
-	// Each is scoped to this attempt, not to the product. Both columns are
-	// assigned now, so a page-wide "not recorded yet" would report a fixed gap as
-	// an open one and send someone to plumb what is already plumbed.
-	page.AnsweredGap = Unwired{Tag: "Not recorded for this attempt",
-		Needs: "Which provider and model answered, and at what reasoning effort. The manifest " +
-			"has always carried a column for each, and nothing assigned them until the session's " +
-			"effective target started being recorded — so an attempt frozen before that change " +
-			"reads blank and what ran cannot be recovered. Attempts frozen since carry all three."}
-	page.Omitted = Unwired{Tag: "Not recorded for this attempt",
-		Needs: "What was left out of this prompt and why. The manifest carries an omitted_reason " +
-			"per reference and an omissions list, and this one sets neither: every reference " +
-			"listed above is one that went in, and nothing says what was dropped to make room."}
-	page.Unmetered = unmeteredEpisode(page.Spent)
-	page.Latency = Unwired{Tag: "Not timed for this episode",
-		Needs: "Where this episode's wall clock went: queued in Coop, the provider working, and " +
-			"the host noticing the turn finished. Timing records against the attempt's manifest " +
-			"the same way tokens do, so an attempt frozen before the timing columns landed — or " +
-			"a turn Coop reported no timestamps for — leaves nothing to divide. The attempt " +
-			"ledger above still gives each attempt's duration end to end."}
 	shell := h.shell(r, "episodes", page)
 	shell.TitleOverride = episodeDisplayTitle(page)
 	shell.Crumbs = []Crumb{{Href: "/episodes", Label: "Episodes"}}
@@ -497,24 +467,6 @@ func episodeDisplayTitle(page episodePage) string {
 		title = page.Title
 	}
 	return truncate(cleanTitle(title), 90)
-}
-
-// unmeteredEpisode says why there is no token count, and the two reasons are
-// not the same. An episode with no manifest never froze one; an episode with
-// manifests and no counts ran before the accounting landed, or ran on an
-// adapter that reported nothing — ACP does not require one to.
-func unmeteredEpisode(spent EpisodeTokens) Unwired {
-	if spent.Manifests == 0 {
-		return Unwired{Needs: "What this episode spent, in tokens. Usage is recorded against " +
-			"the context manifest of the attempt that spent it, and no manifest was frozen for " +
-			"this episode, so there is nothing to read it from."}
-	}
-	return Unwired{Tag: "Not measured for this episode",
-		Needs: fmt.Sprintf("What this episode spent, in tokens. Usage is recorded against the "+
-			"attempt's context manifest and none of this episode's %d carries a count: an attempt "+
-			"that ran before the accounting landed has nothing to read back, and an adapter that "+
-			"reports no usage — which ACP permits — leaves the same blank rather than a zero.",
-			spent.Manifests)}
 }
 
 // incident opens the room a whole conversation of work happened in: the ask
@@ -810,11 +762,8 @@ func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
 		ChannelDetail: detail, CanAct: h.CanAct(), Errs: failed,
 		Setup: Unwired{
 			Tag: "Changed in Slack",
-			Needs: "Repository binding, alert policy and the participation mode itself. " +
-				"Those come from the channel setup conversation, which offers the repository " +
-				"catalogue and confirms each choice; reproducing its questions in a form here " +
-				"would be a second implementation of that flow rather than a view onto it. " +
-				"Run /responder setup in the channel.",
+			Needs: "The repository binding, alert policy, and participation mode are set in the " +
+				"channel setup conversation. Run /responder setup in the channel to change them.",
 		},
 	})
 }
@@ -841,15 +790,15 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 // and a guess in a spend report is worse than a blank, because it is indistinguishable
 // from a measurement once it is on the page.
 type usagePage struct {
-	Windows                []UsageWindow
-	Window                 UsageWindow
-	Totals                 UsageTotals
-	Trend                  UsageTrend
-	Tables                 []UsageTable
-	Cost                   UsageCost
-	Errs                   problems
-	Unmetered, Composition Unwired
-	CostUnwired, Latency   Unwired
+	Windows              []UsageWindow
+	Window               UsageWindow
+	Totals               UsageTotals
+	Trend                UsageTrend
+	Tables               []UsageTable
+	Cost                 UsageCost
+	Errs                 problems
+	Unmetered            Unwired
+	CostUnwired, Latency Unwired
 }
 
 func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
@@ -869,8 +818,7 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 	byModel, page.Cost = priceUsage(h.pricing, byModel)
 	page.Tables = append(page.Tables, UsageTable{
 		Heading: "Tokens by provider and model", Column: "Provider and model",
-		Note: "What answered the attempt, frozen on its manifest — so a turn that rotated to a " +
-			"fallback after a rate limit counts against what actually ran.",
+		Note:  "What actually answered each attempt, including fallbacks after rate limits.",
 		Money: page.Cost.Configured,
 		Rows:  shareOf(byModel, page.Totals.Total()),
 	})
@@ -883,8 +831,7 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 		{"Tokens by repository", "Repository",
 			"Which codebase the work was bound to.", h.reader.UsageByRepository},
 		{"Tokens by episode kind", "Kind",
-			"A triage turn reads a channel; an engineering task reads a repository and writes to " +
-				"it. They are not the same unit of spend.", h.reader.UsageByKind},
+			"Triage reads a channel; an engineering task reads and writes a repository.", h.reader.UsageByKind},
 	} {
 		rows, loadErr := table.load(ctx, page.Window)
 		page.Errs.note(strings.ToLower(table.heading), loadErr)
@@ -894,23 +841,13 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	page.Unmetered = Unwired{Tag: "Nothing measured in this window",
-		Needs: "No attempt in this window reported token usage. Accounting records against the " +
-			"attempt's context manifest, so an attempt that ran before it landed has nothing to " +
-			"read back, and an adapter that reports no usage — which ACP permits — leaves the " +
-			"same blank rather than a zero. The breakdowns below still say how many attempts " +
-			"each provider, channel, repository and kind covered, so the gap is visible where " +
-			"the spend will appear."}
-	page.Composition = Unwired{Needs: "How much of each turn was instructions, context, tool " +
-		"results and conversation. The manifest names every reference that went into the prompt " +
-		"and the digest of each, and carries no size for any of them, so the shares would have " +
-		"to be invented — it needs a byte count per reference at freeze time."}
+		Needs: "No attempt in this window reported token usage. The breakdowns below still " +
+			"count attempts per provider, channel, repository and kind, so the gap is visible " +
+			"where the spend will appear."}
 	page.CostUnwired = costUnwired(page.Cost)
 	page.Latency = Unwired{Tag: "Nothing timed in this window",
-		Needs: "How the wall clock divides: Coop queueing the turn, the provider working, and " +
-			"the host noticing it finished. Timing records against the attempt's manifest the " +
-			"same way tokens do, so an attempt frozen before the timing columns landed — or a " +
-			"turn Coop reported no timestamps for — leaves no timed turns to divide, and an " +
-			"average invented over them would be a guess wearing a measurement's clothes."}
+		Needs: "How the wall clock divides between Coop queueing, the provider working, and the " +
+			"host noticing the turn finished. No turn in this window carried timing."}
 	h.page(w, r, "usage", "usage", page)
 }
 
@@ -922,21 +859,17 @@ func costUnwired(cost UsageCost) Unwired {
 	switch {
 	case !cost.Configured:
 		return Unwired{Tag: "No price table configured",
-			Needs: "What the measured tokens above cost. Cost is priced only from the pricing " +
-				"table in the configuration file — prices change on the provider's schedule, and " +
-				"a rate compiled into the binary reports confident wrong money — and this " +
-				"deployment's configuration has none. config/responder.example.yaml shows the " +
-				"shape: per-model rates per million tokens, with the currency named."}
+			Needs: "Cost is priced only from the pricing table in the configuration file, and " +
+				"this deployment has none. config/responder.example.yaml shows the shape: " +
+				"per-model rates per million tokens, with the currency named."}
 	case cost.Measured == 0:
 		return Unwired{Tag: "Nothing measured to price",
 			Needs: "A price table is configured, but no attempt in this window reported token " +
-				"usage, and pricing tokens nobody counted would report money for a measurement " +
-				"that does not exist. The figure appears with the first measured attempt."}
+				"usage. The figure appears with the first measured attempt."}
 	default:
 		return Unwired{Tag: "The price table covers none of these models",
-			Needs: "A price table is configured and this window has measured spend, but no " +
-				"measured provider and model pair matches a table key. Keys are " +
-				"\"provider:model\" with bare \"provider\" as the fallback, exactly as the " +
-				"manifest froze them — the rows above show the pairs that ran."}
+			Needs: "No measured provider and model pair matches a table key. Keys are " +
+				"\"provider:model\" with bare \"provider\" as the fallback — the rows above " +
+				"show the pairs that ran."}
 	}
 }

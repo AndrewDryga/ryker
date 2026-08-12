@@ -11,6 +11,17 @@
   {{end}}
 </section>
 
+{{if .Trace.Journey}}
+<div class="journey" aria-label="Episode summary">
+  {{range .Trace.Journey}}
+  <div class="journey-stop{{if .Tone}} tone-{{.Tone}}{{end}}">
+    <strong>{{.Label}}</strong>
+    {{if .Detail}}<span>{{.Detail}}</span>{{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+
 {{if and .CanAct .Resolvable}}
 <div class="episode-action-strip">
   {{template "confirm" confirm "Resolve as overtaken" "Close this episode because events have moved on. Its history and audit trail remain." "Resolve episode" "/actions/episodes/resolve" .ID}}
@@ -20,9 +31,8 @@
 <section class="trace-shell">
   <div class="trace-heading">
     <div>
-      <p class="trace-eyebrow">Durable execution record</p>
       <h2>Execution trace</h2>
-      <p class="trace-lede">One ordered account of what Responder received, selected, submitted, validated, changed, and delivered.</p>
+      <p class="trace-lede">Everything Responder recorded while handling this, in order. Open any step for the exact data behind it.</p>
     </div>
     <div class="trace-summary" aria-label="Trace summary">
       {{range .Trace.Stats}}
@@ -31,94 +41,111 @@
     </div>
   </div>
 
-  {{if .Trace.Steps}}
-  <div class="trace-list">
-    {{range $index, $step := .Trace.Steps}}
-    <article class="trace-step" id="{{$step.ID}}" data-stage="{{$step.Stage}}" data-state="{{$step.State}}">
-      <div class="trace-marker" aria-hidden="true"><span>{{printf "%02d" (add1 $index)}}</span></div>
-      <div class="trace-step-card">
-        <header class="trace-step-header">
-          {{if or $step.Stage $step.Actor $step.State}}
-          <div class="trace-step-kicker">
-            {{if $step.Stage}}<span class="trace-stage">{{$step.Stage}}</span>{{end}}
-            {{if $step.Actor}}<span class="trace-actor">{{$step.Actor}}</span>{{end}}
-            {{if $step.State}}<span class="trace-step-state">{{$step.State}}</span>{{end}}
-          </div>
-          {{end}}
-          <div class="trace-time">
-            {{if $step.Relative}}<strong>{{$step.Relative}}</strong>{{end}}
-            {{if not $step.At.IsZero}}<span>{{stamp $step.At}}</span>{{end}}
-            {{if $step.Duration}}<span>{{$step.Duration}}</span>{{end}}
-          </div>
-        </header>
-
-        <h3>{{$step.Title}}</h3>
-        {{if $step.Summary}}<p class="trace-step-summary">{{$step.Summary}}</p>{{end}}
-
-        {{if $step.Why}}
-        <div class="trace-why">
-          <span>Why</span>
-          <p>{{$step.Why}}</p>
-        </div>
-        {{end}}
-
-        {{if $step.Stats}}
-        <div class="trace-step-stats">
-          {{range $step.Stats}}
-          <span><small>{{.Label}}</small><strong>{{.Value}}</strong></span>
-          {{end}}
-        </div>
-        {{end}}
-
-        {{if $step.Details}}
-        <div class="trace-details">
-          {{range $step.Details}}
-          {{if .Group}}
-          <section class="trace-detail-group">
-            <div>
-              <strong>{{.Group}}</strong>
-              {{if .GroupCount}}<small>{{.GroupCount}} {{if eq .GroupCount 1}}item{{else}}items{{end}}</small>{{end}}
+  {{if .Trace.Chapters}}
+  {{range .Trace.Chapters}}
+  <section class="trace-chapter">
+    <header class="trace-chapter-head">
+      <h3>{{.Title}}</h3>
+      <p>{{.Blurb}}</p>
+      {{if .Span}}<span class="trace-chapter-span">{{.Span}}</span>{{end}}
+    </header>
+    <div class="trace-list">
+      {{range .Steps}}
+      {{if .GapBefore}}<div class="trace-gap" aria-label="quiet stretch"><span>{{.GapBefore}}</span></div>{{end}}
+      <article class="trace-step" id="{{.ID}}" data-stage="{{.Stage}}" data-state="{{.State}}"{{if .Tone}} data-tone="{{.Tone}}"{{end}}>
+        <div class="trace-marker" aria-hidden="true"><i></i></div>
+        <div class="trace-step-card">
+          <header class="trace-step-header">
+            <h4>{{.Title}}</h4>
+            <div class="trace-step-side">
+              {{if .Actor}}<span class="trace-actor">{{.Actor}}</span>{{end}}
+              {{if .State}}<span class="trace-step-state">{{.State}}</span>{{end}}
+              <span class="trace-time">
+                {{if .Relative}}<strong>{{.Relative}}</strong>{{end}}
+                {{if .Duration}}<em>{{.Duration}}</em>{{end}}
+                {{if not .At.IsZero}}<span>{{stamp .At}}</span>{{end}}
+              </span>
             </div>
-          </section>
+          </header>
+
+          {{if .Summary}}<p class="trace-step-summary">{{.Summary}}</p>{{end}}
+
+          {{if .Why}}
+          <div class="trace-why">
+            <span>Why</span>
+            <p>{{.Why}}</p>
+          </div>
           {{end}}
-          <details class="trace-detail kind-{{.Kind}} tone-{{.Tone}}" {{if .Open}}open{{end}}>
-            <summary>
+
+          {{if .Stats}}
+          <div class="trace-step-stats">
+            {{range .Stats}}
+            <span><small>{{.Label}}</small><strong>{{.Value}}</strong></span>
+            {{end}}
+          </div>
+          {{end}}
+
+          {{if .Details}}
+          <div class="trace-details">
+            {{range .Details}}
+            {{if .Group}}
+            <section class="trace-detail-group">
+              <div>
+                <strong>{{.Group}}</strong>
+                {{if .GroupCount}}<small>{{.GroupCount}} {{if eq .GroupCount 1}}item{{else}}items{{end}}</small>{{end}}
+              </div>
+            </section>
+            {{end}}
+            {{if .Inert}}
+            <div class="trace-detail trace-detail-inert tone-{{.Tone}}">
               <span class="trace-detail-title">
                 {{if .Status}}<em>{{.Status}}</em>{{end}}
-                <span>{{.Label}}{{if .ShowCount}} ({{.Count}}){{end}}</span>
+                <span>{{.Label}}</span>
               </span>
-              <span class="trace-disclosure">Full content</span>
-            </summary>
-            {{if .Description}}<p class="trace-detail-description"><strong>Selection</strong><span>{{.Description}}</span></p>{{end}}
-            {{if .Table}}
-            <div class="trace-table-wrap">
-              <table class="trace-table">
-                <thead><tr>{{range .Table.Headers}}<th>{{.}}</th>{{end}}</tr></thead>
-                <tbody>{{range .Table.Rows}}<tr>{{range .Cells}}<td>{{.}}</td>{{end}}</tr>{{end}}</tbody>
-              </table>
-            </div>
-            {{else if .Segments}}
-            <div class="prompt-segments">
-              {{range .Segments}}
-              <section class="prompt-segment tone-{{.Tone}}" title="{{.Hint}}">
-                <div class="prompt-segment-meta"><span>{{.Source}}</span><span>~{{.Tokens}} tokens</span></div>
-                <pre>{{.Body}}</pre>
-              </section>
-              {{end}}
+              {{if .Description}}<span class="trace-inert-note">{{.Description}}</span>{{end}}
             </div>
             {{else}}
-            <pre>{{.Body}}</pre>
+            <details class="trace-detail kind-{{.Kind}} tone-{{.Tone}}" {{if .Open}}open{{end}}>
+              <summary>
+                <span class="trace-detail-title">
+                  {{if .Status}}<em>{{.Status}}</em>{{end}}
+                  <span>{{.Label}}{{if .ShowCount}} ({{.Count}}){{end}}</span>
+                </span>
+                <span class="trace-disclosure">Full content</span>
+              </summary>
+              {{if .Description}}<p class="trace-detail-description"><strong>Selection</strong><span>{{.Description}}</span></p>{{end}}
+              {{if .Table}}
+              <div class="trace-table-wrap">
+                <table class="trace-table">
+                  <thead><tr>{{range .Table.Headers}}<th>{{.}}</th>{{end}}</tr></thead>
+                  <tbody>{{range .Table.Rows}}<tr>{{range .Cells}}<td>{{.}}</td>{{end}}</tr>{{end}}</tbody>
+                </table>
+              </div>
+              {{else if .Segments}}
+              <div class="prompt-segments">
+                {{range .Segments}}
+                <section class="prompt-segment tone-{{.Tone}}" title="{{.Hint}}">
+                  <div class="prompt-segment-meta"><span>{{.Source}}</span><span>~{{.Tokens}} tokens</span></div>
+                  <pre>{{.Body}}</pre>
+                </section>
+                {{end}}
+              </div>
+              {{else}}
+              <pre>{{.Body}}</pre>
+              {{end}}
+            </details>
             {{end}}
-          </details>
+            {{end}}
+          </div>
           {{end}}
         </div>
-        {{end}}
-      </div>
-    </article>
-    {{end}}
-  </div>
+      </article>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
   {{else}}
-  <p class="empty">No durable trace steps were recorded for this episode.</p>
+  <p class="empty">No trace steps were recorded for this episode.</p>
   {{end}}
 </section>
 {{end}}

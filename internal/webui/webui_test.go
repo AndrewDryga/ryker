@@ -49,8 +49,8 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/usage", nil))
 	body := recorder.Body.String()
-	if !strings.Contains(body, "Not recorded yet") {
-		t.Error("the usage page does not mark its remaining panels unwired")
+	if !strings.Contains(body, "Nothing measured in this window") {
+		t.Error("the usage page does not mark its unmeasured window unwired")
 	}
 	// An unwired panel names what would fill it, so nobody has to guess whether
 	// the number is zero or the pipe is missing. This deployment was handed an

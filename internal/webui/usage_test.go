@@ -143,7 +143,7 @@ func TestUsageSeparatesWhatWasMeasuredFromWhatWasNot(t *testing.T) {
 	reader := seedUsage(t, twoAttempts(now)...)
 	body := servePage(t, reader, "/usage?window=7d")
 
-	if !strings.Contains(body, "1 of them reported token usage (50% measured)") {
+	if !strings.Contains(body, "1 reported token usage (50% measured)") {
 		t.Errorf("the page does not say how much of the window it has a measurement for:\n%s", body)
 	}
 	if !strings.Contains(body, "claude-opus-4-5") || !strings.Contains(body, "82k") {
@@ -167,7 +167,7 @@ func TestUsageSeparatesWhatWasMeasuredFromWhatWasNot(t *testing.T) {
 		t.Errorf("the episode does not show its own tokens:\n%s", episode)
 	}
 	unmeasured := servePage(t, reader, "/episodes/ep_a2")
-	if !strings.Contains(unmeasured, "Not measured for this episode") {
+	if !strings.Contains(unmeasured, "The provider reported no token usage.") {
 		t.Errorf("an unmeasured episode does not say so:\n%s", unmeasured)
 	}
 }

@@ -30,9 +30,13 @@ type TraceDetail struct {
 	Group, GroupDetail        string
 	Status, Description, Tone string
 	Open, ShowCount           bool
-	Count, GroupCount         int
-	Segments                  []PromptSegment
-	Table                     *TraceTable
+	// Inert renders as a plain line instead of a disclosure: a slot that held
+	// nothing has nothing to open, and a control that expands into "no content"
+	// teaches people to stop clicking.
+	Inert             bool
+	Count, GroupCount int
+	Segments          []PromptSegment
+	Table             *TraceTable
 }
 
 type PromptSegment struct {
@@ -55,15 +59,41 @@ type TraceStep struct {
 	ID, Stage, Actor, State, Title, Summary, Why string
 	At                                           time.Time
 	Relative, Duration                           string
-	Stats                                        []TraceStat
-	Details                                      []TraceDetail
-	order                                        int
+	// Tone colors the step marker: "" for routine, good for a success moment,
+	// warn for waiting or degraded, bad for a failure. GapBefore names a quiet
+	// stretch longer than a few seconds before this step, because "the model
+	// worked for three minutes" is where an episode's wall clock actually goes
+	// and a list of near-identical timestamps hides it.
+	Tone, GapBefore string
+	Stats           []TraceStat
+	Details         []TraceDetail
+	order           int
+	// band is the minimum chapter this step belongs to; -1 derives it from the
+	// stage. Chapters are assigned forward-only over the chronological list, so
+	// a wake-up scheduled mid-work stays with the work instead of teleporting
+	// the reader back to the beginning.
+	band int
+}
+
+// TraceChapter is one act of the episode: what came in, the work, the answer,
+// and what came of it. It exists so a person who has never read this codebase
+// can follow the trace as a story instead of a flat ledger.
+type TraceChapter struct {
+	Title, Blurb, Span string
+	Steps              []TraceStep
+}
+
+// JourneyStop is one hop in the one-line summary above the trace.
+type JourneyStop struct {
+	Label, Detail, Tone string
 }
 
 type EpisodeTrace struct {
-	Metrics []EpisodeMetric
-	Stats   []TraceStat
-	Steps   []TraceStep
+	Metrics  []EpisodeMetric
+	Journey  []JourneyStop
+	Stats    []TraceStat
+	Steps    []TraceStep
+	Chapters []TraceChapter
 }
 
 func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(string) string) EpisodeTrace {
@@ -80,14 +110,34 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		steps = append(steps, step)
 	}
 
+	// A phase change is stored twice: as a kernel event and as a durable
+	// progress record written in the same instant. One fact renders once.
+	phaseEvents := map[string][]time.Time{}
+	for _, event := range page.Events {
+		if event.Kind != "phase_changed" {
+			continue
+		}
+		if payload := decodePhasePayload(event.Payload); payload.Phase != "" {
+			phaseEvents[payload.Phase] = append(phaseEvents[payload.Phase], event.At)
+		}
+	}
+	commitmentAt, hasCommitment := time.Time{}, false
+	for _, artifact := range page.Artifacts {
+		if artifact.Kind == "commitment" {
+			commitmentAt, hasCommitment = artifact.At, true
+			break
+		}
+	}
+
 	if page.Source.ID != "" {
 		details := []TraceDetail{{Label: "Slack message", Body: present(page.Source.Text), Kind: "text", Open: true}}
-		if strings.TrimSpace(page.Source.Attachments) != "" && page.Source.Attachments != "[]" {
+		if strings.TrimSpace(page.Source.Attachments) != "" && page.Source.Attachments != "[]" &&
+			page.Source.Attachments != "null" {
 			details = append(details, TraceDetail{Label: "Attachment manifest", Body: page.Source.Attachments, Kind: "json"})
 		}
 		add(TraceStep{
-			ID: "source", Stage: "Input", Actor: "Slack", State: page.Source.Kind,
-			Title: "Message received", At: page.Source.Received,
+			ID: "source", Stage: "Input", Actor: "Slack", State: sourceKindLabel(page.Source),
+			Title: sourceTitle(page.Source), At: page.Source.Received,
 			Stats: []TraceStat{{"Channel", page.Source.Channel}, {"Message", page.Source.MessageTS},
 				{"Thread", fallback(page.Source.ThreadTS, "top level")}, {"Sender", fallback(page.Source.Sender, page.Source.UserID)}},
 			Details: details,
@@ -96,8 +146,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		add(TraceStep{
 			ID: "source-missing", Stage: "Input", Actor: "Responder", State: "not recorded",
 			Title: "Starting input unavailable", At: page.Created,
-			Summary: "This historical episode does not retain the Slack or scheduled input that started it.",
-			Why:     "The timeline marks the missing record instead of presenting a later event as the beginning of the work.",
+			Summary: "The message or event that started this episode was not retained.",
 		})
 	}
 	wakeups := page.Wakeups
@@ -124,7 +173,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			ID: scheduledID, Stage: "Wait", Actor: "Responder", State: "scheduled",
 			Title: "Wake-up scheduled", At: wakeup.Created,
 			Summary: wakeupSummary(wakeup),
-			Why:     "The external work was not finished, so Responder saved what to watch and released the worker. This durable wake-up could resume the same work after the matching event arrived.",
+			Why:     "Instead of holding a worker, Responder saved what to watch for and let go. The matching event resumes this exact episode.",
 			Stats:   stats, Details: details,
 		})
 		if !wakeup.Resolved.IsZero() {
@@ -135,9 +184,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				})
 			}
 			add(TraceStep{
-				ID: resolvedID, Stage: "Wait", Actor: "Responder", State: wakeup.State,
+				ID: resolvedID, Stage: "Wait", Actor: "Responder", State: wakeup.State, Tone: "good",
 				Title: "Wake-up resolved", At: wakeup.Resolved,
-				Summary: "The awaited condition was observed; the episode could continue.",
+				Summary: "The awaited event arrived; the episode could continue.",
 				Stats:   []TraceStat{{"Type", wakeup.Kind}, {"Wake-up", wakeup.ID}, {"Final state", wakeup.State}},
 				Details: resolvedDetails,
 			})
@@ -154,8 +203,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		add(TraceStep{
 			ID: "trigger", Stage: "Trigger", Actor: "Responder", State: page.Trigger.Kind,
 			Title: title, At: page.Trigger.Received,
-			Summary: "A matching external event resumed the work linked to this Slack thread.",
-			Why:     "Responder was waiting for this event. It resumed the existing work automatically instead of requiring another Slack message.",
+			Summary: "The awaited event arrived, so Responder resumed this work on its own — no new Slack message was needed.",
 			Stats: []TraceStat{{"Channel", page.Trigger.Channel},
 				{"Thread", fallback(page.Trigger.ThreadTS, "top level")}, {"Trigger", page.Trigger.Kind}},
 			Details: details,
@@ -195,18 +243,14 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			promptDetails = append(promptDetails, components...)
 		} else {
 			promptDetails = append(promptDetails, TraceDetail{
-				Label: "Submitted prompt", Body: "The prompt text was not retained for this attempt. Its digest remains available in the context references.",
-				Kind: "missing", Status: "Not retained", Tone: "missing", Open: true,
-			})
-			promptDetails = append(promptDetails, TraceDetail{
-				Label: "Memory components", Body: "The individual memory layers cannot be recovered for this historical attempt because its submitted prompt was not retained.",
+				Label: "Submitted prompt", Body: "The exact prompt text was not kept for this attempt. Its fingerprint is under Replay verification below.",
 				Kind: "missing", Status: "Not retained", Tone: "missing", Open: true,
 			})
 		}
 		if prompt == "" {
 			promptDetails = markDetailGroup(promptDetails,
-				"Prompt record unavailable",
-				"This historical attempt retained prompt metadata, but not the exact text sent to the model.",
+				"Prompt text unavailable",
+				"This attempt kept the prompt's metadata and fingerprint, but not its text.",
 			)
 		}
 		promptDetails = append(promptDetails, contextReferenceDetails(manifest.Refs, present)...)
@@ -235,15 +279,19 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			promptDetails[index].Open = false
 		}
 		add(TraceStep{
-			ID: promptID, Stage: "Context", Actor: "Responder", State: "frozen",
-			Title: "Prompt assembled", Summary: fmt.Sprintf("Manifest v%d with %d context components", manifest.Version, len(manifest.Refs)), At: manifest.Created,
+			ID: promptID, Stage: "Context", Actor: "Responder", State: "recorded",
+			Title: "Model briefed", Summary: promptStepSummary(manifest, memoryLayers), At: manifest.Created,
 			Stats:   []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Context refs", fmt.Sprint(len(manifest.Refs))}, {"Memory layers", fmt.Sprint(memoryLayers)}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
 			Details: promptDetails,
 		})
 	}
 
 	for index, event := range page.Events {
-		why := eventWhy(event.Kind)
+		if event.Kind == "episode_created" && hasCommitment {
+			// The commitment step already says Responder took the job; a second
+			// card at the same instant saying "episode created" is plumbing.
+			continue
+		}
 		details := []TraceDetail{}
 		if payload := presentEventPayload(event.Payload, present); payload != "" && payload != "{}" {
 			details = append(details, TraceDetail{Label: "Recorded event payload", Body: payload, Kind: "json"})
@@ -251,14 +299,32 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if occurrences := occurrenceDetail(event.Occurrences); occurrences != nil {
 			details = append(details, *occurrences)
 		}
-		add(TraceStep{
+		step := TraceStep{
 			ID: fmt.Sprintf("event-%d", index+1), Stage: eventStage(event.Kind), Actor: event.Actor,
-			State: event.Kind, Title: eventTitle(event.Kind), Summary: present(event.Detail), Why: why, At: event.At,
-			Stats: []TraceStat{{"Attempt", fmt.Sprint(event.Attempt)}, {"Repeats", repeatValue(event.Repeats)}}, Details: details,
-		})
+			State: event.Kind, Title: eventTitle(event.Kind), Summary: present(event.Detail),
+			Why: eventWhy(event.Kind), At: event.At, Details: details,
+		}
+		if event.Attempt > 1 {
+			step.Stats = append(step.Stats, TraceStat{"Attempt", fmt.Sprint(event.Attempt)})
+		}
+		if event.Repeats > 0 {
+			step.Stats = append(step.Stats, TraceStat{"Repeats", repeatValue(event.Repeats)})
+		}
+		if event.Kind == "phase_changed" {
+			if payload := decodePhasePayload(event.Payload); payload.Phase != "" {
+				step.State, step.Title = payload.Phase, phaseTitle(payload.Phase)
+				step.Summary = present(fallback(payload.NextAction, payload.Summary))
+			}
+		}
+		add(step)
 	}
 
 	for index, artifact := range page.Artifacts {
+		if artifact.Kind == "progress" && progressDuplicatesPhase(artifact, phaseEvents, commitmentAt, hasCommitment) {
+			// The kernel event for the same phase change renders the step; the
+			// progress record repeats it in the same instant.
+			continue
+		}
 		details := []TraceDetail{}
 		if strings.TrimSpace(artifact.Detail) != "" {
 			details = append(details, TraceDetail{
@@ -268,36 +334,52 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		}
 		stats := make([]TraceStat, 0, len(artifact.Stats))
 		for _, stat := range artifact.Stats {
-			if strings.TrimSpace(stat.Value) != "" {
+			if strings.TrimSpace(stat.Value) != "" && !droppedArtifactStat(artifact.Kind, stat.Label) {
 				stats = append(stats, TraceStat{stat.Label, present(stat.Value)})
 			}
 		}
-		add(TraceStep{
+		step := TraceStep{
 			ID:    fmt.Sprintf("record-%s-%d", artifact.Kind, index+1),
 			Stage: artifactStage(artifact.Kind), Actor: artifactActor(artifact.Kind),
 			State: fallback(artifact.State, "recorded"), Title: present(artifact.Title), Summary: present(artifact.Summary),
 			Why: artifactWhy(artifact.Kind), At: artifact.At, Stats: stats, Details: details,
-		})
+		}
+		switch artifact.Kind {
+		case "commitment":
+			step.Title, step.Summary = "Responder took the job", ""
+		case "progress":
+			step.Title = phaseTitle(artifact.State)
+			if strings.EqualFold(strings.TrimSpace(artifact.Summary), strings.TrimSpace(artifact.State)) {
+				step.Summary = ""
+			}
+		case "evaluation":
+			step.Title = decisionTitle(artifact.State)
+		}
+		add(step)
 	}
 
 	for _, attempt := range page.Attempts {
-		detail := strings.TrimSpace(present(attempt.Error))
-		if detail == "" {
-			detail = "No terminal error was recorded."
-		}
-		add(TraceStep{
+		step := TraceStep{
 			ID: fmt.Sprintf("attempt-%d", attempt.Number), Stage: "Execution", Actor: "Coop", State: attempt.State,
-			Title: fmt.Sprintf("Attempt %d %s", attempt.Number, attempt.State), Summary: attemptSummary(attempt), Why: attemptWhy(attempt), At: attempt.Completed,
+			Title: fmt.Sprintf("Attempt %d %s", attempt.Number, attempt.State), Summary: attemptSummary(attempt),
+			Why: attemptWhy(attempt), At: attempt.Completed, Tone: stateTone(attempt.State),
 			Duration: traceDuration(attempt.Started, attempt.Completed),
-			Stats:    []TraceStat{{"Run", attempt.RunID}, {"Failure class", fallback(attempt.Failure, "none")}},
-			Details:  []TraceDetail{{Label: "Terminal detail", Body: detail, Kind: "text"}},
-		})
+			Stats:    []TraceStat{{"Run", attempt.RunID}},
+		}
+		if attempt.Failure != "" {
+			step.Stats = append(step.Stats, TraceStat{"Failure class", attempt.Failure})
+		}
+		if detail := strings.TrimSpace(present(attempt.Error)); detail != "" {
+			step.Details = []TraceDetail{{Label: "Terminal detail", Body: detail, Kind: "text"}}
+		}
+		add(step)
 	}
 
 	for index, rejection := range page.Rejections {
 		add(TraceStep{
-			ID: fmt.Sprintf("rejection-%d", index+1), Stage: "Validation", Actor: "Responder", State: "rejected",
-			Title: "Host rejected a model result", Summary: present(rejection.Outcome), Why: "The typed result contract refused output that could not be applied safely or consistently, and returned a correction to the same attempt.", At: rejection.At,
+			ID: fmt.Sprintf("rejection-%d", index+1), Stage: "Validation", Actor: "Responder", State: "rejected", Tone: "bad",
+			Title: "Answer rejected", Summary: present(rejection.Outcome),
+			Why: "The result did not fit the required format, so Responder sent a correction back instead of acting on it.", At: rejection.At,
 			Stats:   []TraceStat{{"Run", fallback(rejection.RunID, "not recorded")}},
 			Details: []TraceDetail{{Label: "Correction sent to the model", Body: present(rejection.Detail), Kind: "text", Open: true}},
 		})
@@ -310,10 +392,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 	for turnIndex, turn := range turns {
 		details := []TraceDetail{}
 		if turn.Reason != "" {
-			details = append(details, TraceDetail{Label: "Host-visible decision rationale", Body: present(turn.Reason), Kind: "text", Open: true})
+			details = append(details, TraceDetail{Label: "Why the model chose this", Body: present(turn.Reason), Kind: "text", Open: true})
 		}
 		if turn.RawResult != "" {
-			details = append(details, TraceDetail{Label: "Raw model result received by Responder", Body: present(prettyJSON(turn.RawResult)), Kind: "json"})
+			details = append(details, TraceDetail{Label: "Raw model result", Body: present(prettyJSON(turn.RawResult)), Kind: "json"})
 		}
 		if len(turn.Operations) > 0 {
 			operations := make([]string, 0, len(turn.Operations))
@@ -326,14 +408,14 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				Kind:  "text",
 			})
 		}
-		details = append(details, TraceDetail{Label: "Provider transcript boundary", Body: "Coop records the submitted prompt, public model result, typed operations, artifacts, usage, and timings. It does not currently return the provider's private chain-of-thought or a granular transcript of every internal tool call, so this page does not invent either.", Kind: "missing"})
 		resultID := "result"
 		if len(turns) > 1 {
 			resultID = fmt.Sprintf("result-%d", turnIndex+1)
 		}
 		add(TraceStep{
-			ID: resultID, Stage: "Result", Actor: "Model", State: turn.State,
-			Title: "Model result received", Summary: present(modelSummary(turn)), Why: "Responder parses and validates the result before any reply or side effect can leave the host.", At: turn.Updated,
+			ID: resultID, Stage: "Result", Actor: "Model", State: turn.State, Tone: stateTone(turn.State),
+			Title: "Model result received", Summary: present(modelSummary(turn)),
+			Why: "Responder checks every result against its contract before anything reaches Slack.", At: turn.Updated,
 			Stats:   []TraceStat{{"Run", turn.RunID}, {"Attempt", fmt.Sprint(turn.AttemptNumber)}, {"Action", fallback(turn.Action, "not recorded")}, {"Operations", fmt.Sprint(tallyTotal(turn.Operations))}, {"Follow-ups", fmt.Sprint(len(turn.Followups))}},
 			Details: details,
 		})
@@ -346,9 +428,11 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 	if len(page.Claims)+len(page.Evidence)+len(page.Coverage) > 0 {
 		add(TraceStep{
 			ID: "ledger", Stage: "Evidence", Actor: "Responder", State: "recorded",
-			Title: "Evidence ledger updated", Summary: fmt.Sprintf("%d claims, %d evidence records, %d coverage assessments", len(page.Claims), len(page.Evidence), len(page.Coverage)),
-			Why: "Structured evidence lets the host distinguish a supported conclusion from a fluent answer and preserve contradictions for later follow-up.", At: page.Turn.Updated,
-			Stats:   []TraceStat{{"Claims", fmt.Sprint(len(page.Claims))}, {"Evidence", fmt.Sprint(len(page.Evidence))}, {"Coverage", fmt.Sprint(len(page.Coverage))}},
+			Title: "Evidence recorded", Summary: countList([]countPart{
+				{len(page.Claims), "claim", "claims"},
+				{len(page.Evidence), "evidence record", "evidence records"},
+				{len(page.Coverage), "coverage assessment", "coverage assessments"}}),
+			Why: "Claims and observations are stored separately so the conclusion can be re-checked later.", At: page.Turn.Updated,
 			Details: ledgerDetails(page, present),
 		})
 	}
@@ -361,10 +445,17 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				body += "\n\n" + present(effect.Detail)
 			}
 		}
+		summary := present(effect.Title)
+		if effect.Kind == "work episode" {
+			// A delegated episode's objective is prose that may carry raw Slack
+			// markup; identifiers like rule names must stay exact.
+			summary = cleanTitle(summary)
+		}
 		add(TraceStep{
 			ID: fmt.Sprintf("effect-%d", index+1), Stage: "Side effect", Actor: "Responder", State: effect.State,
-			Title: present(effect.Title), Summary: present(effect.Kind), Why: sideEffectWhy(effect), At: effect.At,
-			Stats:   []TraceStat{{"Type", effect.Kind}, {"ID", fallback(effect.ID, "none")}},
+			Tone:  stateTone(effect.State),
+			Title: effectTitle(effect), Summary: summary, Why: sideEffectWhy(effect), At: effect.At,
+			Stats:   []TraceStat{{"ID", fallback(effect.ID, "none")}},
 			Details: []TraceDetail{{Label: "Recorded change", Body: fallback(body, "No additional value was recorded."), Kind: "diff", Open: effect.Before != "" || effect.After != ""}},
 		})
 	}
@@ -372,7 +463,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 	for index, delivery := range page.Delivered {
 		summary := delivery.Channel
 		if delivery.ThreadTS != "" {
-			summary += " thread " + delivery.ThreadTS
+			summary += " · thread " + delivery.ThreadTS
 		}
 		details := []TraceDetail{}
 		if delivery.Body != "" {
@@ -381,19 +472,28 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if delivery.Error != "" {
 			details = append(details, TraceDetail{Label: "Delivery error", Body: present(delivery.Error), Kind: "error", Open: true})
 		}
-		add(TraceStep{
+		stats := []TraceStat{{"Message", fallback(delivery.MessageTS, "none")}, {"Kind", delivery.Kind}}
+		if delivery.Retries > 0 {
+			stats = append(stats, TraceStat{"Retries", fmt.Sprint(delivery.Retries)})
+		}
+		step := TraceStep{
 			ID: fmt.Sprintf("delivery-%d", index+1), Stage: "Delivery", Actor: "Slack outbox", State: delivery.State,
-			Title: "Slack " + delivery.Operation, Summary: summary, Why: deliveryWhy(delivery), At: delivery.At,
+			Tone:  stateTone(delivery.State),
+			Title: deliveryTitle(delivery), Summary: summary, Why: deliveryWhy(delivery), At: delivery.At,
 			Duration: traceDuration(delivery.Created, delivery.At),
-			Stats:    []TraceStat{{"Message", fallback(delivery.MessageTS, "none")}, {"Retries", fmt.Sprint(delivery.Retries)}, {"Kind", delivery.Kind}}, Details: details,
-		})
+			Stats:    stats, Details: details,
+		}
+		if delivery.Operation == "status" {
+			step.band = bandWork
+		}
+		add(step)
 	}
 
 	for index, audit := range page.Audit {
 		// Removing a temporary working marker is Slack plumbing, not another
-		// rule decision. The evaluation card already explains the marker and
-		// the workflow it belongs to.
-		if audit.Kind == "standing_rule.acknowledgement_cleared" {
+		// rule decision, and result corrections already render as their own
+		// rejection steps.
+		if audit.Kind == "standing_rule.acknowledgement_cleared" || audit.Kind == "result.correction" {
 			continue
 		}
 		summary, stats := auditTracePresentation(audit, present)
@@ -407,8 +507,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		}
 		add(TraceStep{
 			ID: fmt.Sprintf("audit-%d", index+1), Stage: stage, Actor: actor, State: state,
-			Title: eventTitle(audit.Kind), Summary: summary, Why: auditTraceWhy(audit), At: audit.At,
-			Stats: stats, Details: details,
+			Tone:  stateTone(audit.Outcome),
+			Title: auditTitle(audit.Kind), Summary: summary, Why: auditTraceWhy(audit), At: audit.At,
+			Stats: stats, Details: details, band: auditBand(audit.Kind),
 		})
 	}
 
@@ -421,28 +522,524 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		}
 		return steps[i].At.Before(steps[j].At)
 	})
+	steps = foldLoneAttempt(steps)
 	start := page.Source.Received
 	if start.IsZero() {
 		start = page.Created
 	}
+	previous := time.Time{}
 	for index := range steps {
 		if !steps[index].At.IsZero() && !start.IsZero() {
 			steps[index].Relative = "+" + compactDuration(steps[index].At.Sub(start))
 		}
+		if steps[index].Tone == "" {
+			steps[index].Tone = stateTone(steps[index].State)
+		}
+		// A quiet stretch is a fact worth a mark of its own: almost all of an
+		// episode's wall clock sits between two adjacent steps, usually around
+		// the model working.
+		if !previous.IsZero() && !steps[index].At.IsZero() {
+			if gap := steps[index].At.Sub(previous); gap >= 10*time.Second {
+				steps[index].GapBefore = compactDuration(gap)
+			}
+		}
+		if !steps[index].At.IsZero() {
+			previous = steps[index].At
+		}
 	}
 	trace.Steps = steps
-	trace.Stats = []TraceStat{
-		{"Timeline steps", fmt.Sprint(len(steps))},
-		{"Attempts", fmt.Sprint(len(page.Attempts))},
-		{"Model turns", fmt.Sprint(len(turns))},
-		{"Wake-ups", fmt.Sprint(len(wakeups))},
-		{"Durable records", fmt.Sprint(len(page.Artifacts))},
-		{"Context components", fmt.Sprint(len(page.Manifest.Refs))},
-		{"Evidence records", fmt.Sprint(len(page.Evidence))},
-		{"Side effects", fmt.Sprint(len(page.Effects))},
-		{"Slack deliveries", fmt.Sprint(len(page.Delivered))},
+	trace.Chapters = traceChapters(steps)
+	trace.Journey = traceJourney(page, turns, wakeups)
+	for _, stat := range []struct {
+		count            int
+		singular, plural string
+	}{
+		{len(page.Attempts), "Attempt", "Attempts"},
+		{len(turns), "Model turn", "Model turns"},
+		{len(wakeups), "Wake-up", "Wake-ups"},
+		{len(page.Manifest.Refs), "Context component", "Context components"},
+		{len(page.Evidence), "Evidence record", "Evidence records"},
+		{len(page.Effects), "Side effect", "Side effects"},
+		{len(page.Delivered), "Slack delivery", "Slack deliveries"},
+	} {
+		if stat.count == 0 {
+			continue
+		}
+		label := stat.plural
+		if stat.count == 1 {
+			label = stat.singular
+		}
+		trace.Stats = append(trace.Stats, TraceStat{label, fmt.Sprint(stat.count)})
 	}
 	return trace
+}
+
+// Chapters. Zero means "derive from the stage"; explicit bands exist for the
+// few steps whose stage alone places them wrong, like a status delivery that
+// is progress feedback rather than an outcome.
+const (
+	bandIn = iota + 1
+	bandWork
+	bandAnswer
+	bandOutcome
+)
+
+var chapterNames = [...]struct{ title, blurb string }{
+	{"What came in", "The message or event that started this."},
+	{"The work", "How Responder handled it: the model, its briefing, and checkpoints along the way."},
+	{"The answer", "What the model returned and what Responder decided to do."},
+	{"What came of it", "Replies, saved changes, and follow-ups."},
+}
+
+func stepBand(step TraceStep) int {
+	if step.band != 0 {
+		return step.band
+	}
+	switch step.Stage {
+	case "Input", "Trigger", "Wait", "Schedule":
+		return bandIn
+	case "Plan", "Routing", "Context", "Preparation", "Execution", "Validation", "":
+		return bandWork
+	case "Result", "Decision", "Evidence", "Measurement":
+		return bandAnswer
+	default:
+		return bandOutcome
+	}
+}
+
+// traceChapters cuts the chronological rail into acts. Assignment is
+// forward-only: each step lands in its own band or the story's current one,
+// whichever is later, so chapters stay contiguous in time and a late
+// acknowledgement cannot teleport the reader back to the beginning.
+func traceChapters(steps []TraceStep) []TraceChapter {
+	if len(steps) == 0 {
+		return nil
+	}
+	chapters := []TraceChapter{}
+	current := 0
+	for _, step := range steps {
+		band := stepBand(step)
+		if band < current {
+			band = current
+		}
+		if len(chapters) == 0 || band > current {
+			chapters = append(chapters, TraceChapter{
+				Title: chapterNames[band-1].title,
+				Blurb: chapterNames[band-1].blurb,
+			})
+			current = band
+		}
+		last := len(chapters) - 1
+		chapters[last].Steps = append(chapters[last].Steps, step)
+	}
+	for index := range chapters {
+		chapterSteps := chapters[index].Steps
+		first, last := chapterSteps[0].Relative, chapterSteps[len(chapterSteps)-1].Relative
+		if first == "" {
+			continue
+		}
+		chapters[index].Span = first
+		if last != first && last != "" {
+			chapters[index].Span = first + " → " + last
+		}
+	}
+	return chapters
+}
+
+// traceJourney is the one-line version of the whole episode: what arrived,
+// what worked on it, how long that took, and how it ended. It only states
+// what the durable records state.
+func traceJourney(page episodePage, turns []Turn, wakeups []Wakeup) []JourneyStop {
+	stops := []JourneyStop{}
+	if page.Source.ID != "" {
+		label := sourceTitle(page.Source)
+		detail := page.Source.Channel
+		if !page.Source.Received.IsZero() {
+			detail = strings.TrimPrefix(detail+" · "+page.Source.Received.UTC().Format("15:04 UTC"), " · ")
+		}
+		stops = append(stops, JourneyStop{Label: label, Detail: detail})
+	}
+	if page.Manifest.Version > 0 {
+		detail := strings.Trim(page.Manifest.Model+"/"+page.Manifest.Effort, "/")
+		stops = append(stops, JourneyStop{Label: "Model briefed", Detail: detail})
+	}
+	if worked := workedDuration(page, turns); worked > 0 {
+		detail := ""
+		if len(page.Attempts) > 1 {
+			detail = fmt.Sprintf("%d attempts", len(page.Attempts))
+		}
+		if len(wakeups) > 0 {
+			detail = strings.TrimPrefix(detail+" · slept between wake-ups", " · ")
+		}
+		stops = append(stops, JourneyStop{Label: "Worked " + compactDuration(worked), Detail: detail})
+	}
+	if outcome := journeyOutcome(page); outcome.Label != "" {
+		stops = append(stops, outcome)
+	}
+	if end := journeyEnd(page); end.Label != "" {
+		stops = append(stops, end)
+	}
+	if len(stops) < 2 {
+		return nil
+	}
+	return stops
+}
+
+func workedDuration(page episodePage, turns []Turn) time.Duration {
+	var start, end time.Time
+	for _, attempt := range page.Attempts {
+		if !attempt.Started.IsZero() && (start.IsZero() || attempt.Started.Before(start)) {
+			start = attempt.Started
+		}
+		if attempt.Completed.After(end) {
+			end = attempt.Completed
+		}
+	}
+	if start.IsZero() && page.Manifest.Version > 0 {
+		start = page.Manifest.Created
+	}
+	for _, turn := range turns {
+		if turn.Updated.After(end) {
+			end = turn.Updated
+		}
+	}
+	if start.IsZero() || end.IsZero() || end.Before(start) {
+		return 0
+	}
+	return end.Sub(start)
+}
+
+func firstReply(page episodePage) (Delivery, bool) {
+	var first Delivery
+	found := false
+	for _, delivery := range page.Delivered {
+		if delivery.State != "sent" || delivery.Operation == "status" || delivery.At.IsZero() {
+			continue
+		}
+		if !found || delivery.At.Before(first.At) {
+			first, found = delivery, true
+		}
+	}
+	return first, found
+}
+
+// latestDecision is the persisted evaluation of what the source event needed:
+// a reply, an investigation, or nothing.
+func latestDecision(page episodePage) (action, reason string) {
+	for _, artifact := range page.Artifacts {
+		if artifact.Kind == "evaluation" {
+			action, reason = artifact.State, artifact.Summary
+		}
+	}
+	return action, reason
+}
+
+func journeyOutcome(page episodePage) JourneyStop {
+	action, _ := latestDecision(page)
+	if reply, ok := firstReply(page); ok {
+		detail := ""
+		if !page.Source.Received.IsZero() {
+			detail = compactDuration(reply.At.Sub(page.Source.Received)) + " after the message"
+		}
+		return JourneyStop{Label: "Replied in " + fallback(reply.Channel, "Slack"), Detail: detail, Tone: "good"}
+	}
+	switch page.State {
+	case "failed":
+		return JourneyStop{Label: "Failed", Tone: "bad"}
+	case "blocked", "waiting_operator", "waiting_approval":
+		return JourneyStop{Label: "Waiting on you", Tone: "warn"}
+	case "waiting_external":
+		return JourneyStop{Label: "Waiting on an external event", Tone: "warn"}
+	}
+	if action == "ignore" {
+		return JourneyStop{Label: "Chose not to reply", Tone: "good"}
+	}
+	if action != "" {
+		return JourneyStop{Label: "Decided: " + strings.ReplaceAll(action, "_", " ")}
+	}
+	return JourneyStop{}
+}
+
+func journeyEnd(page episodePage) JourneyStop {
+	total := ""
+	if !page.Source.Received.IsZero() && !page.Updated.IsZero() && page.Updated.After(page.Source.Received) {
+		total = compactDuration(page.Updated.Sub(page.Source.Received))
+	}
+	tokens := ""
+	if page.Spent.Recorded() {
+		tokens = humanTokens(page.Spent.Total()) + " tokens"
+	}
+	detail := strings.TrimPrefix(strings.TrimSuffix(total+" · "+tokens, " · "), " · ")
+	switch page.State {
+	case "completed":
+		return JourneyStop{Label: "Done", Detail: detail, Tone: "good"}
+	case "failed", "blocked", "waiting_operator", "waiting_approval", "waiting_external":
+		return JourneyStop{}
+	case "cancelled":
+		return JourneyStop{Label: "Cancelled", Detail: detail}
+	case "superseded":
+		return JourneyStop{Label: "Superseded", Detail: detail}
+	default:
+		return JourneyStop{Label: "Still open", Detail: detail}
+	}
+}
+
+// foldLoneAttempt merges a single successful Coop attempt into the model
+// result it produced. "Attempt 1 succeeded · no terminal error" next to the
+// result it succeeded with is the same fact twice; failures and retries keep
+// their own steps because they are the story.
+func foldLoneAttempt(steps []TraceStep) []TraceStep {
+	attemptIndex, resultIndex, attempts := -1, -1, 0
+	for index, step := range steps {
+		if strings.HasPrefix(step.ID, "attempt-") {
+			attempts++
+			attemptIndex = index
+		}
+		if step.ID == "result" || strings.HasPrefix(step.ID, "result-") {
+			resultIndex = index
+		}
+	}
+	if attempts != 1 || resultIndex < 0 || attemptIndex < 0 ||
+		steps[attemptIndex].State != "succeeded" || len(steps[attemptIndex].Details) > 0 {
+		return steps
+	}
+	if steps[resultIndex].Duration == "" {
+		steps[resultIndex].Duration = steps[attemptIndex].Duration
+	}
+	return append(steps[:attemptIndex], steps[attemptIndex+1:]...)
+}
+
+type countPart struct {
+	count            int
+	singular, plural string
+}
+
+func countList(parts []countPart) string {
+	kept := []string{}
+	for _, part := range parts {
+		if part.count == 0 {
+			continue
+		}
+		label := part.plural
+		if part.count == 1 {
+			label = part.singular
+		}
+		kept = append(kept, fmt.Sprintf("%d %s", part.count, label))
+	}
+	return strings.Join(kept, " · ")
+}
+
+type phasePayload struct {
+	Phase      string `json:"phase"`
+	NextAction string `json:"next_action"`
+	Summary    string `json:"summary"`
+}
+
+func decodePhasePayload(payload string) phasePayload {
+	var decoded phasePayload
+	_ = json.Unmarshal([]byte(payload), &decoded)
+	return decoded
+}
+
+// phaseTitle names a work phase the way a person would say it.
+func phaseTitle(phase string) string {
+	if title, ok := map[string]string{
+		"accepted":      "Accepted the work",
+		"planning":      "Planning the work",
+		"investigating": "Investigating",
+		"executing":     "Executing",
+		"implementing":  "Implementing",
+		"verifying":     "Verifying",
+		"finalizing":    "Wrapping up",
+		"finished":      "Finished the work",
+		"waiting":       "Waiting",
+		"blocked":       "Blocked",
+	}[phase]; ok {
+		return title
+	}
+	return eventTitle(phase)
+}
+
+func progressDuplicatesPhase(artifact EpisodeArtifact, phaseEvents map[string][]time.Time, commitmentAt time.Time, hasCommitment bool) bool {
+	const window = 5 * time.Second
+	if hasCommitment && artifact.State == "accepted" &&
+		absDuration(artifact.At.Sub(commitmentAt)) <= window {
+		return true
+	}
+	for _, at := range phaseEvents[artifact.State] {
+		if absDuration(artifact.At.Sub(at)) <= window {
+			return true
+		}
+	}
+	return false
+}
+
+func absDuration(duration time.Duration) time.Duration {
+	if duration < 0 {
+		return -duration
+	}
+	return duration
+}
+
+// droppedArtifactStat hides identifiers that only restate storage plumbing.
+func droppedArtifactStat(kind, label string) bool {
+	if kind == "progress" && (label == "Record" || label == "Sequence" || label == "Phase") {
+		return true
+	}
+	return false
+}
+
+func sourceTitle(source SourceInput) string {
+	switch source.Kind {
+	case "bot_message":
+		return "App message received"
+	case "mention":
+		return "Responder was mentioned"
+	case "recheck":
+		return "Follow-up input received"
+	case "schedule", "scheduled":
+		return "Scheduled run started"
+	default:
+		if strings.HasPrefix(source.UserID, "B") {
+			return "App message received"
+		}
+		return "Message received"
+	}
+}
+
+func sourceKindLabel(source SourceInput) string {
+	return strings.ReplaceAll(source.Kind, "_", " ")
+}
+
+func promptStepSummary(manifest ManifestRow, memoryLayers int) string {
+	parts := countList([]countPart{
+		{len(manifest.Refs), "context component", "context components"},
+		{memoryLayers, "memory layer", "memory layers"},
+	})
+	if parts == "" {
+		return "The exact input for this attempt was recorded."
+	}
+	return parts + " — the exact input, kept as sent."
+}
+
+func decisionTitle(action string) string {
+	if title, ok := map[string]string{
+		"ignore":           "Decided: no reply needed",
+		"reply":            "Decided: reply",
+		"investigate":      "Decided: investigate",
+		"engineering_task": "Decided: open an engineering task",
+	}[action]; ok {
+		return title
+	}
+	if action == "" {
+		return "Decision recorded"
+	}
+	return "Decided: " + strings.ReplaceAll(action, "_", " ")
+}
+
+func stateTone(state string) string {
+	switch state {
+	case "failed", "rejected", "error", "unreadable", "discarded", "refused", "dead":
+		return "bad"
+	case "blocked", "waiting", "waiting_operator", "waiting_approval", "waiting_external",
+		"pending", "offered", "retrying", "cancelled", "superseded", "disabled", "not measured":
+		return "warn"
+	case "completed", "succeeded", "sent", "saved", "resolved", "finished", "confirmed",
+		"published", "approved", "applied":
+		return "good"
+	default:
+		return ""
+	}
+}
+
+func effectTitle(effect SideEffect) string {
+	noun := map[string]string{
+		"conversation memory": "Conversation memory",
+		"durable memory":      "Durable memory",
+		"preference":          "Preference",
+		"standing rule":       "Standing rule",
+		"scheduled task":      "Scheduled task",
+		"engineering task":    "Engineering task",
+		"Emisar approval":     "Emisar approval",
+		"visual":              "Visual",
+		"publication":         "Publication",
+		"work episode":        "Delegated work",
+	}[effect.Kind]
+	if noun == "" {
+		noun = eventTitle(effect.Kind)
+	}
+	verb := map[string]string{
+		"saved":     "saved",
+		"reported":  "noted",
+		"offered":   "offered",
+		"waiting":   "awaiting approval",
+		"attached":  "attached",
+		"disabled":  "disabled",
+		"completed": "completed",
+	}[effect.State]
+	if verb == "" {
+		verb = strings.ReplaceAll(effect.State, "_", " ")
+	}
+	return strings.TrimSpace(noun + " " + verb)
+}
+
+func deliveryTitle(delivery Delivery) string {
+	switch delivery.Operation {
+	case "post":
+		if delivery.ThreadTS != "" {
+			return "Replied in the thread"
+		}
+		return "Posted to Slack"
+	case "update":
+		return "Updated the Slack message"
+	case "status":
+		return "Working status shown in Slack"
+	case "delete":
+		return "Removed a Slack message"
+	default:
+		return "Slack " + delivery.Operation
+	}
+}
+
+// auditTitle names common audit kinds in plain words; anything unmapped falls
+// back to the generic title-casing.
+func auditTitle(kind string) string {
+	if title, ok := map[string]string{
+		"result.legacy_shape":          "Result used an older format",
+		"slack.watch":                  "Watch decision",
+		"slack.watch.engineering_task": "Engineering task offered",
+		"slack.reaction":               "Reaction",
+		"slack.replay":                 "Replay recorded",
+		"slack.paused":                 "Paused",
+		"memory.remember":              "Memory saved",
+		"preference.remember":          "Preference saved",
+		"rule.remember":                "Standing rule saved",
+		"schedule.created":             "Schedule created",
+		"emisar.approval.opened":       "Emisar approval opened",
+		"emisar.approval.pending":      "Emisar approval pending",
+		"emisar.approval.completed":    "Emisar approval completed",
+		"episode.resolve":              "Episode resolved by an operator",
+		"engineering_task.discard":     "Engineering task discarded",
+		"coop.session.created":         "Coop session created",
+		"coop.budget.auto_extend":      "Coop budget extended",
+		"fixture.review":               "Correction reviewed",
+		"agent.report":                 "Agent report",
+	}[kind]; ok {
+		return title
+	}
+	return eventTitle(kind)
+}
+
+func auditBand(kind string) int {
+	switch kind {
+	case "slack.watch", "slack.watch.engineering_task", "result.legacy_shape", "agent.report":
+		return bandAnswer
+	case "memory.remember", "preference.remember", "rule.remember", "schedule.created",
+		"episode.resolve", "fixture.review", "publication.draft_pr", "slack.reaction":
+		return bandOutcome
+	default:
+		return 0
+	}
 }
 
 func auditTracePresentation(audit AuditRow, present func(string) string) (string, []TraceStat) {
@@ -487,14 +1084,9 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 }
 
 func auditTraceWhy(audit AuditRow) string {
-	switch audit.Kind {
-	case "standing_rules.evaluated", "standing_rule.acknowledged":
-		return ""
-	case "standing_rule.acknowledgement_cleared":
-		return "Responder removed the temporary acknowledgement after the matched rule finished or became quiet."
-	default:
-		return "The audit ledger attributes a decision or mutation to an actor and preserves its outcome independently of Slack presentation."
-	}
+	// Audit rows carry their meaning in the title and outcome; a recurring
+	// paragraph about what an audit ledger is would drown them.
+	return ""
 }
 
 func auditTraceDetails(audit AuditRow, present func(string) string) []TraceDetail {
@@ -687,7 +1279,7 @@ func missingPromptFieldDetail(key string) TraceDetail {
 	return TraceDetail{
 		Label: label, Body: "No content selected.", Kind: "missing",
 		Status: "Not sent", Description: promptSelectionDescription(key, false), Tone: tone,
-		Open: true, ShowCount: true,
+		Inert: true,
 	}
 }
 
@@ -695,7 +1287,7 @@ func missingMemoryDetail(label, key string) TraceDetail {
 	return TraceDetail{
 		Label: label, Body: "No content selected.", Kind: "missing",
 		Status: "Not sent", Description: promptSelectionDescription(key, false), Tone: promptTone(key),
-		Open: true, ShowCount: true,
+		Inert: true,
 	}
 }
 
@@ -1009,9 +1601,9 @@ func modelSelectionWhy(manifest ManifestRow) string {
 	}
 	effort := fallback(manifest.Effort, "an unrecorded reasoning effort")
 	if manifest.Preset != "" {
-		return fmt.Sprintf("Preset %s routed this episode to %s at %s effort. The manifest records the effective choice; it does not retain a scorecard of rejected model or effort alternatives.", manifest.Preset, target, effort)
+		return fmt.Sprintf("Preset %s routed this episode to %s at %s effort.", manifest.Preset, target, effort)
 	}
-	return fmt.Sprintf("The effective routing policy selected %s at %s effort. No preset or alternative-candidate score was retained for this attempt.", target, effort)
+	return fmt.Sprintf("The routing policy selected %s at %s effort.", target, effort)
 }
 
 type promptRange struct {
@@ -1380,75 +1972,43 @@ func emptyJSON(raw json.RawMessage) bool {
 }
 
 func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
-	respond := EpisodeMetric{Label: "Time to respond", Value: "Not recorded", Missing: true,
-		Detail: "No sent Slack reply is retained for this episode."}
-	if !page.Source.Received.IsZero() {
-		respond.Detail = "Started " + page.Source.Received.UTC().Format("2006-01-02 15:04 UTC")
-		var first time.Time
-		for _, delivery := range page.Delivered {
-			if delivery.State != "sent" || delivery.Operation == "status" || delivery.At.IsZero() {
-				continue
-			}
-			if first.IsZero() || delivery.At.Before(first) {
-				first = delivery.At
-			}
-		}
-		if !first.IsZero() {
-			respond.Value, respond.Missing, respond.Tone = compactDuration(first.Sub(page.Source.Received)), false, "good"
-		}
-	}
+	outcome := episodeOutcome(page)
 
-	react := EpisodeMetric{Label: "Time to react", Value: "Not recorded", Missing: true,
-		Detail: "No processing indicator linked to this episode was retained. Older episodes may have shown a Slack status before Responder recorded episode ownership."}
+	// One card answers "how fast" — the reply for its value, the first visible
+	// acknowledgement (a status or a working reaction) in its detail.
+	respond := EpisodeMetric{Label: "Time to respond", Value: "—", Missing: true}
+	acknowledged := ""
 	if !page.Source.Received.IsZero() {
-		var first time.Time
-		for _, delivery := range page.Delivered {
-			if delivery.State == "sent" && delivery.Operation == "status" && !delivery.At.IsZero() &&
-				(first.IsZero() || delivery.At.Before(first)) {
-				first = delivery.At
-			}
+		if reacted := firstAcknowledgement(page); !reacted.IsZero() {
+			acknowledged = "Acknowledged in " + compactDuration(reacted.Sub(page.Source.Received)) + "."
 		}
-		// Standing workflows acknowledge work with a temporary reaction before
-		// an episode-owned Slack status exists. That is still the operator's
-		// first visible processing indicator, and the audit record is durable.
-		for _, audit := range page.Audit {
-			if audit.At.IsZero() || (audit.Kind != "standing_rule.acknowledged" &&
-				audit.Kind != "standing_rules.evaluated") {
-				continue
-			}
-			if audit.Kind == "standing_rules.evaluated" {
-				var evaluation core.StandingRuleEvaluationAudit
-				if json.Unmarshal([]byte(audit.Detail), &evaluation) != nil || evaluation.Acknowledged == "" {
-					continue
-				}
-			}
-			if first.IsZero() || audit.At.Before(first) {
-				first = audit.At
-			}
+		if reply, ok := firstReply(page); ok {
+			respond.Value, respond.Missing, respond.Tone = compactDuration(reply.At.Sub(page.Source.Received)), false, "good"
+			respond.Detail = strings.TrimSpace("From the message to the reply in " + fallback(reply.Channel, "Slack") + ". " + acknowledged)
+		} else {
+			respond.Detail = strings.TrimSpace("No Slack reply was sent. " + acknowledged)
 		}
-		if !first.IsZero() {
-			react.Value, react.Missing, react.Tone = compactDuration(first.Sub(page.Source.Received)), false, "good"
-			react.Detail = "From Slack receipt to the first linked status or working reaction."
-		}
+	} else {
+		respond.Detail = "The start time was not recorded."
 	}
 
 	cost := episodeCost(pricing, page.Spent)
-	tokens := "not measured"
+	spend := EpisodeMetric{Label: "Model spend", Value: "—", Missing: true,
+		Detail: "The provider reported no token usage."}
 	if page.Spent.Recorded() {
-		tokens = humanTokens(page.Spent.Total())
-	}
-	costMetric := EpisodeMetric{Label: "Episode cost / tokens", Value: "Not priced / " + tokens, Missing: true,
-		Detail: "Token usage exists, but no matching configured price was available."}
-	if cost.Priceable() {
-		costMetric.Value, costMetric.Missing = cost.Money()+" / "+tokens, false
-		costMetric.Detail = "Calculated from recorded tokens and the configured model price."
-		if cost.Partial() {
-			costMetric.Value += " partial"
-			costMetric.Tone = "warn"
+		tokens := humanTokens(page.Spent.Total())
+		spend.Missing = false
+		spend.Detail = tokens + " tokens · " + page.Spent.CacheLabel() + " served from cache"
+		switch {
+		case cost.Priceable() && cost.Partial():
+			spend.Value, spend.Tone = cost.Money()+"+", "warn"
+			spend.Detail += " · some rows have no configured price"
+		case cost.Priceable():
+			spend.Value = cost.Money()
+		default:
+			spend.Value = tokens + " tok"
+			spend.Detail = "No price is configured for this model · " + page.Spent.CacheLabel() + " served from cache"
 		}
-	} else if !page.Spent.Recorded() {
-		costMetric.Value = "Not measured / " + tokens
-		costMetric.Detail = "The provider did not report token usage for this episode."
 	}
 
 	errors, breakdown := episodeErrorCount(page)
@@ -1457,8 +2017,88 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 		errorMetric.Tone = "bad"
 	} else {
 		errorMetric.Tone = "good"
+		errorMetric.Detail = "No failed attempts, corrections, or delivery failures."
 	}
-	return []EpisodeMetric{respond, react, costMetric, errorMetric}
+	return []EpisodeMetric{outcome, respond, spend, errorMetric}
+}
+
+// firstAcknowledgement is the first visible sign Responder picked the work up:
+// a sent Slack status, or the working reaction a standing rule added.
+func firstAcknowledgement(page episodePage) time.Time {
+	var first time.Time
+	for _, delivery := range page.Delivered {
+		if delivery.State == "sent" && delivery.Operation == "status" && !delivery.At.IsZero() &&
+			(first.IsZero() || delivery.At.Before(first)) {
+			first = delivery.At
+		}
+	}
+	for _, audit := range page.Audit {
+		if audit.At.IsZero() || (audit.Kind != "standing_rule.acknowledged" &&
+			audit.Kind != "standing_rules.evaluated") {
+			continue
+		}
+		if audit.Kind == "standing_rules.evaluated" {
+			var evaluation core.StandingRuleEvaluationAudit
+			if json.Unmarshal([]byte(audit.Detail), &evaluation) != nil || evaluation.Acknowledged == "" {
+				continue
+			}
+		}
+		if first.IsZero() || audit.At.Before(first) {
+			first = audit.At
+		}
+	}
+	return first
+}
+
+// episodeOutcome is the first thing the page answers: how did this end, or
+// what is it waiting for right now.
+func episodeOutcome(page episodePage) EpisodeMetric {
+	metric := EpisodeMetric{Label: "Outcome"}
+	action, reason := latestDecision(page)
+	switch page.State {
+	case "failed":
+		metric.Value, metric.Tone = "Failed", "bad"
+		metric.Detail = failureDetail(page)
+	case "blocked", "waiting_operator", "waiting_approval":
+		metric.Value, metric.Tone = "Waiting on you", "warn"
+		metric.Detail = truncate(page.Next, 110)
+	case "waiting_external":
+		metric.Value, metric.Tone = "Waiting on an event", "warn"
+		metric.Detail = "Parked until the awaited external event arrives."
+	case "cancelled":
+		metric.Value, metric.Detail = "Cancelled", "Stopped before it finished."
+	case "superseded":
+		metric.Value, metric.Detail = "Superseded", "A newer episode took over this work."
+	case "completed":
+		metric.Tone = "good"
+		if reply, ok := firstReply(page); ok {
+			metric.Value = "Replied"
+			metric.Detail = "In " + fallback(reply.Channel, "Slack")
+			if !page.Source.Received.IsZero() {
+				metric.Detail += ", " + compactDuration(reply.At.Sub(page.Source.Received)) + " after the message"
+			}
+		} else if action == "ignore" {
+			metric.Value, metric.Detail = "No reply needed", truncate(reason, 110)
+		} else {
+			metric.Value, metric.Detail = "Completed", truncate(reason, 110)
+		}
+	default:
+		metric.Value = "In progress"
+		metric.Detail = truncate(fallback(page.Status, page.Next), 110)
+	}
+	return metric
+}
+
+func failureDetail(page episodePage) string {
+	for index := len(page.Attempts) - 1; index >= 0; index-- {
+		if page.Attempts[index].Failure != "" {
+			return truncate(page.Attempts[index].Failure, 110)
+		}
+		if page.Attempts[index].Error != "" {
+			return truncate(page.Attempts[index].Error, 110)
+		}
+	}
+	return "The last attempt did not finish."
 }
 
 func episodeCost(pricing config.Pricing, spent EpisodeTokens) UsageCost {
@@ -1589,8 +2229,16 @@ func eventStage(kind string) string {
 }
 
 func eventTitle(kind string) string {
-	if kind == "standing_rules.evaluated" || kind == "standing_rule.acknowledged" {
-		return "Standing rules"
+	if title, ok := map[string]string{
+		"standing_rules.evaluated":   "Standing rules",
+		"standing_rule.acknowledged": "Standing rules",
+		"episode_created":            "Episode created",
+		"phase_changed":              "Phase changed",
+		"context_extended":           "More context added",
+		"completed":                  "Episode completed",
+		"blocked":                    "Blocked",
+	}[kind]; ok {
+		return title
 	}
 	title := strings.NewReplacer("_", " ", ".", " ").Replace(kind)
 	if title == "" {
@@ -1669,31 +2317,19 @@ func artifactDetailLabel(kind string) string {
 func artifactWhy(kind string) string {
 	switch kind {
 	case "commitment":
-		return "Responder recorded the outcome it accepted responsibility for, so unfinished work cannot disappear when a model turn ends."
+		return "The job is recorded durably, so it survives restarts and cannot silently disappear when a model turn ends."
 	case "goal":
-		return "This required outcome is tracked independently from any one model turn and can block completion until it is satisfied."
-	case "scheduled_run":
-		return "This is the persisted occurrence of a scheduled task, including when it was due and how it ended."
-	case "progress":
-		return "Responder saved this progress update so the episode can resume from the same point after a restart or follow-up."
+		return "A required outcome that can block completion until it is satisfied."
 	case "evaluation":
-		return "This is the persisted decision about whether the source event needed a reply, investigation, or no action."
+		return "The recorded judgment of whether this needed a reply, an investigation, or nothing."
 	case "standing_rule_run":
-		return "A confirmed standing rule matched this source event and recorded the action it started."
+		return "A confirmed channel rule matched this event and started its work."
 	case "standing_assignment_action":
-		return "A confirmed autonomous assignment matched this source event and recorded the bounded work it started."
-	case "feedback":
-		return "An operator linked this feedback to the episode so the product issue and its conversation context are not lost."
+		return "A confirmed autonomous assignment matched this event and started its bounded work."
 	case "replay_candidate":
-		return "A host correction from this episode was retained for human review before it can become a regression test."
-	case "incident_timeline":
-		return "This event was added to the incident history linked to the episode."
-	case "publication_lifecycle":
-		return "This external publication event advanced the linked branch or pull-request workflow."
-	case "publication":
-		return "This is the durable branch and pull-request state linked to the episode."
+		return "Kept for human review; it can become a regression test."
 	case "quality_finding":
-		return "A later production review checked this episode and retained its verdict and supporting evidence."
+		return "A later production review checked this episode and kept its verdict."
 	default:
 		return ""
 	}
@@ -1724,38 +2360,35 @@ func usageTraceStep(page episodePage) TraceStep {
 	}
 	step := TraceStep{
 		ID: "usage", Stage: "Measurement", Actor: "Responder", State: "recorded", At: at,
-		Title: "Model usage and timing recorded",
-		Why:   "Provider usage and Coop timing are kept separate from wall-clock response time so cost and latency can be diagnosed without guessing.",
+		Title: "Usage measured",
 	}
 	if !page.Spent.Recorded() {
 		step.State = "not measured"
-		step.Summary = "Not measured for this episode"
-		step.Details = []TraceDetail{{Label: "Measurement boundary", Kind: "missing", Open: true,
-			Body: "The adapter reported no token counts. This is missing telemetry, not a zero-token turn."}}
+		step.Summary = "The provider reported no token counts — missing telemetry, not a free turn."
 		return step
 	}
-	step.Summary = humanTokens(page.Spent.Total()) + " tokens across " + fmt.Sprint(page.Spent.Measured) + " measured context manifest(s)"
-	step.Stats = []TraceStat{
-		{"Total tokens", humanTokens(page.Spent.Total())}, {"Cache hit", page.Spent.CacheLabel()},
-		{"Timed turns", fmt.Sprint(page.Spent.Clock.TimedTurns)}, {"Wall clock", page.Spent.Clock.Total()},
+	summary := humanTokens(page.Spent.Total()) + " tokens · " + page.Spent.CacheLabel() + " served from cache"
+	if page.Spent.Clock.Recorded() {
+		summary += " · " + page.Spent.Clock.Total() + " of model time"
 	}
+	step.Summary = summary
 	detail := fmt.Sprintf("Fresh input: %s\nCached input: %s\nOutput: %s\nReasoning: %s",
 		humanTokens(page.Spent.Input), humanTokens(page.Spent.Cached),
 		humanTokens(page.Spent.Output), humanTokens(page.Spent.Reasoning))
-	timing := "No turn timing was reported."
+	step.Details = []TraceDetail{{Label: "Token breakdown", Body: detail, Kind: "text"}}
 	if page.Spent.Clock.Recorded() {
-		timing = "Total: " + page.Spent.Clock.Total() + "\n" + page.Spent.Clock.Split()
-	}
-	step.Details = []TraceDetail{
-		{Label: "Token breakdown", Body: detail, Kind: "text", Open: true},
-		{Label: "Execution timing", Body: timing, Kind: "text", Open: true},
+		step.Details = append(step.Details, TraceDetail{
+			Label: "Where the time went",
+			Body:  "Total: " + page.Spent.Clock.Total() + "\n" + page.Spent.Clock.Split(),
+			Kind:  "text",
+		})
 	}
 	return step
 }
 
 func eventWhy(kind string) string {
 	if kind == "context_extended" {
-		return "Additional context was frozen so later results can be traced to the exact inputs they used."
+		return "The added context was recorded so the result can be traced to the exact inputs it used."
 	}
 	return ""
 }
@@ -1772,23 +2405,23 @@ func attemptSummary(attempt Attempt) string {
 
 func attemptWhy(attempt Attempt) string {
 	if attempt.Failure != "" || attempt.State == "failed" {
-		return "The attempt boundary preserves the failure and allows the episode to retry without losing its source event or evidence."
+		return "The failure is kept so a retry can start over from the same evidence."
 	}
-	return "Coop is the authenticated model and tool execution boundary for this attempt."
+	return ""
 }
 
 func sideEffectWhy(effect SideEffect) string {
 	if effect.State == "offered" || effect.State == "waiting" {
-		return "The model proposed this action, but Responder kept it separate from execution until its confirmation or approval boundary is satisfied."
+		return "Proposed by the model — nothing runs until it is confirmed."
 	}
-	return "This projection records durable state attributable to the episode, including the exact before and after values where available."
+	return ""
 }
 
 func deliveryWhy(delivery Delivery) string {
 	if delivery.Operation == "status" {
-		return "Native Slack status gives the operator immediate progress feedback without adding a durable message to the conversation."
+		return "A native status shows progress without adding a message to the conversation."
 	}
-	return "The outbox sequences Slack writes, retries transient failures, and makes publication independent of model execution."
+	return ""
 }
 
 func ledgerDetails(page episodePage, present func(string) string) []TraceDetail {

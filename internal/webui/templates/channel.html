@@ -34,10 +34,8 @@
       {{end}}</tr>
   {{end}}
 </table>
-<p class="note">A channel override wins over the channel's setup, which wins over the workspace
-override, which wins over the deployment's configuration — the order the slash command applies, so
-the same channel reads the same either way. Clearing an override restores whatever it was hiding;
-it does not turn the setting off.</p>
+<p class="note">Precedence: channel override → channel setup → workspace override → deployment
+configuration. Clearing an override restores whatever it was hiding.</p>
 {{template "unwired" .Setup}}
 
 {{if .Preferences}}
@@ -66,9 +64,8 @@ it does not turn the setting off.</p>
       <td><span class="pill{{if .Idle}} bad{{else if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
   {{end}}
 </table>
-<p class="note">Acted counts the fires that put something in this channel. A rule that fires
-and never acts is costing a model turn per matching message; <a href="/configuration">Configuration</a>
-shows the same figures for every rule.</p>
+<p class="note">A rule that fires and never acts costs a model turn per matching message;
+<a href="/configuration">Configuration</a> shows every rule.</p>
 {{end}}
 
 {{if .Schedules}}

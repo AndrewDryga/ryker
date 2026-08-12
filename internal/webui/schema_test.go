@@ -242,7 +242,7 @@ func TestLanesSeparatePollersFromActualWork(t *testing.T) {
 		t.Fatalf("overview = %d: %s", recorder.Code, recorder.Body.String())
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "not queued tasks") || strings.Contains(body, ">Pending<") {
+	if !strings.Contains(body, "not queued jobs") || strings.Contains(body, ">Pending<") {
 		t.Errorf("overview still presents pollers as pending tasks: %s", body)
 	}
 	if strings.Contains(body, ">never<") {

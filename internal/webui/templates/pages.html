@@ -36,15 +36,15 @@
   </div>
   {{end}}
 </div>
-<p class="note">Manage cadence, pause, run-now, and deletion from <a href="/configuration">Configuration</a>
+<p class="note">Manage schedules from <a href="/configuration">Configuration</a>
 or with <span class="mono">/responder schedules</span> in Slack.</p>
 {{else}}<p class="empty">No recurring or delayed tasks are configured.</p>{{end}}
 
 <h2>Scheduler</h2>
 {{template "problems" .Errs}}
 {{if .Lanes}}
-<p class="note">Pollers are permanent worker loops waiting for their next check, not queued tasks.
-Only the work columns below represent jobs Responder still needs to process.</p>
+<p class="note">Pollers are permanent worker loops, not queued jobs; only the work columns count
+work still to do.</p>
 <table>
   <tr><th>Lane</th><th>Status</th><th class="num">Pollers</th><th class="num">Ready</th><th class="num">Running</th><th class="num">Scheduled</th><th class="num">Retrying</th><th class="num">Failed</th><th>Next work</th><th>Last issue</th></tr>
   {{range .Lanes}}
@@ -91,18 +91,14 @@ Only the work columns below represent jobs Responder still needs to process.</p>
   <a href="/episodes">clear filter</a>
 </div>
 <h2>Episodes <span class="note">{{.Total}} match{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
-<p class="note">One episode can hold several attempts and an episode that never froze a manifest
-holds none, so this count is not the attempt count the Usage page breaks spend down by.</p>
 {{if .Episodes}}
 {{template "episoderows" .Episodes}}
-{{else}}<p class="empty">No episode matches this filter. The count above came from the same
-query, so an empty list here means nothing matched rather than nothing loaded.</p>{{end}}
+{{else}}<p class="empty">No episode matches this filter.</p>{{end}}
 {{template "pager" .}}
 {{else}}
 <h2>Incident rooms <span class="note">{{len .Rooms}}</span></h2>
 {{if .Rooms}}
-<p class="note">A room is a whole conversation of work; an episode below is one turn of it. These
-are where the pull requests come from.</p>
+<p class="note">A room is one whole conversation of work; each episode is one turn of it.</p>
 <table>
   <tr><th>Room</th><th>Status</th><th>Repository</th><th>Channel</th><th class="num">Episodes</th><th>Pull request</th><th>Last change</th></tr>
   {{range .Rooms}}
@@ -119,8 +115,8 @@ are where the pull requests come from.</p>
 <h2>Episodes <span class="note">{{.Total}} recorded{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
 {{if .Episodes}}
 {{template "episoderows" .Episodes}}
-{{else}}<p class="empty">No episode is on record yet. One appears the first time Responder accepts
-a piece of work from Slack or a webhook.</p>{{end}}
+{{else}}<p class="empty">No episodes yet. One appears the first time Responder accepts work
+from Slack or a webhook.</p>{{end}}
 {{template "pager" .}}
 {{end}}
 {{end}}
@@ -149,7 +145,8 @@ a piece of work from Slack or a webhook.</p>{{end}}
 {{end}}
 
 {{define "failures"}}
-<p class="note">{{.Total}} failed work items, grouped by cause.</p>
+<p class="note">{{.Total}} failed work items, grouped by cause. Open a cause to reach the runs
+behind it and retry them.</p>
 {{if .Err}}<p class="unwired"><span class="tag">Could not load</span>{{.Err}}</p>{{else if .Groups}}
 <table>
   <tr><th>Cause</th><th class="num">Count</th><th>Most recent</th></tr>
@@ -158,8 +155,6 @@ a piece of work from Slack or a webhook.</p>{{end}}
       <td class="note">{{since .Latest}}</td></tr>
   {{end}}
 </table>
-<p class="note">Open a cause to reach the runs behind it. A run that is still its episode's
-latest attempt can be queued to run again from there; a superseded one says so instead.</p>
 {{else}}<p class="empty">No failed work.</p>{{end}}
 {{end}}
 
@@ -187,23 +182,19 @@ latest attempt can be queued to run again from there; a superseded one says so i
     {{if .EpisodeID}}<div class="meta"><a href="/episodes/{{.EpisodeID}}">the episode that prompted it →</a></div>{{end}}
     {{if and $act .Open}}
     <div class="acts">
-      {{template "confirm" confirm "Convert to guidance" "The summary becomes workspace-scoped guidance the model reads, sourced to this feedback, and the item resolves as converted." "Yes, make it guidance" "/actions/feedback/convert" .ID}}
-      {{template "confirm" confirm "Dismiss" "The item resolves as read-and-not-acted-on. Dismissing is a real outcome — the alternative is a queue that only grows." "Yes, dismiss it" "/actions/feedback/dismiss" .ID}}
+      {{template "confirm" confirm "Convert to guidance" "The summary becomes workspace guidance the model reads, sourced to this feedback." "Yes, make it guidance" "/actions/feedback/convert" .ID}}
+      {{template "confirm" confirm "Dismiss" "The item resolves as read and not acted on." "Yes, dismiss it" "/actions/feedback/dismiss" .ID}}
     </div>
     {{end}}
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">Nobody has told Responder it got something wrong. This records
-a person saying so, which is distinct from the host's own checks rejecting an answer below.</p>{{end}}
+{{else}}<p class="empty">No one has told Responder it got something wrong yet.</p>{{end}}
 
 <h2>What Responder got right <span class="note">{{len .Praise}}</span></h2>
 {{if .Reacted}}
 <p class="note">{{.Praised}} of {{.Reacted}} graded reactions were praise ({{.PraisedPercent}}%).
-A thumbs-up records the one thing complaints never can: an answer worth copying. Each row
-below links to the episode that produced it, and a praised episode keeps the context it was
-given instead of having it emptied a day later, so it stays a complete example for as long
-as the episode itself is retained.</p>
+Each row links to the episode that earned it, kept whole as an example worth copying.</p>
 {{end}}
 {{if .Praise}}
 <div class="rows">
@@ -218,9 +209,8 @@ as the episode itself is retained.</p>
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">Nobody has reacted positively to a Responder message yet. A thumbs-up,
-tada, heart or fire on one of its replies is recorded here as an example of the target
-behaviour; it is noted rather than queued, so it never asks anyone for a decision.</p>{{end}}
+{{else}}<p class="empty">No positive reactions yet. A 👍, 🎉, ❤️ or 🔥 on a Responder reply
+lands here as an example of the target behaviour.</p>{{end}}
 
 <h2>Corrections waiting to become tests</h2>
 {{if .Corrections}}
@@ -243,8 +233,8 @@ behaviour; it is noted rather than queued, so it never asks anyone for a decisio
 {{end}}
 
 {{define "memory"}}
-<p class="note">Five stores, each with a different lifetime. Recall counts are shown
-because a memory nothing reads is a memory to prune, and that is invisible without them.</p>
+<p class="note">Five stores, each with a different lifetime. A memory nothing recalls is a
+memory to prune.</p>
 
 <h2>Operational memory <span class="note">{{len .Entries}}</span></h2>
 {{if .Entries}}
@@ -296,8 +286,8 @@ because a memory nothing reads is a memory to prune, and that is invisible witho
       <td class="note">{{stamp .From}} → {{stamp .To}}</td></tr>
   {{end}}
 </table>
-{{else}}<p class="empty">Nothing synthesized yet. A rollup is the lossy summary that
-survives when individual conversations age out.</p>{{end}}
+{{else}}<p class="empty">Nothing synthesized yet. A rollup is the summary that survives when
+individual conversations age out.</p>{{end}}
 
 <h2>Awaiting review <span class="note">{{len .Review}}</span></h2>
 {{if .Review}}
@@ -316,9 +306,7 @@ survives when individual conversations age out.</p>{{end}}
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">Nothing flagged as stale or duplicated. The consolidation pass files an
-item here when it finds operator-confirmed memory that has gone stale or duplicates another
-entry.</p>{{end}}
+{{else}}<p class="empty">Nothing flagged as stale or duplicated.</p>{{end}}
 {{end}}
 
 {{define "configuration"}}
@@ -343,8 +331,8 @@ entry.</p>{{end}}
       <td>{{if .Member}}<span class="pill good">yes</span>{{else}}<span class="pill">left</span>{{end}}</td></tr>
   {{end}}
 </table>
-<p class="note">Every channel Responder is in or has been set up for, not only the configured ones:
-a channel it sits in and has never been set up for is the one worth opening.</p>
+<p class="note">Every channel Responder is in or has been set up for. A channel it sits in
+without a setup is the one worth opening.</p>
 {{else}}<p class="empty">Responder is not in any channel. Invite it to one in Slack.</p>{{end}}
 
 <h2>Schedules <span class="note">{{len .Schedules}}</span></h2>
@@ -360,8 +348,7 @@ a channel it sits in and has never been set up for is the one worth opening.</p>
       <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
   {{end}}
 </table>
-{{else}}<p class="empty">No schedule is configured. An operator creates one in Slack by asking for
-recurring work; it appears here with its cadence and run history.</p>{{end}}
+{{else}}<p class="empty">No schedules. Ask Responder for recurring work in Slack to create one.</p>{{end}}
 
 <h2>Preferences <span class="note">{{len .Preferences}}</span></h2>
 {{if .Preferences}}
@@ -390,12 +377,8 @@ recurring work; it appears here with its cadence and run history.</p>{{end}}
       <td><span class="pill{{if .Idle}} bad{{else if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
   {{end}}
 </table>
-<p class="note">Fired counts every match. Acted and Did nothing count only the fires whose
-outcome was recorded, so on a rule older than the outcome tally they add up to less than
-Fired — the rest are matches nobody kept a result for. A rule with fires and no actions is
-spending a model turn per matching message and returning silence. Last acted is read from
-the retained runs, so a rule that acted longer ago than the episode-history horizon reads
-as never rather than claiming a date it can no longer prove.</p>
+<p class="note">A rule that fires and never acts is spending a model turn per matching message
+and returning silence — those are the rows to prune or sharpen.</p>
 {{else}}<p class="empty">No standing rules.</p>{{end}}
 {{end}}
 
@@ -407,11 +390,11 @@ as never rather than claiming a date it can no longer prove.</p>
 
 {{with .Totals}}
 {{if .Attempts}}
-<p class="note">{{.Attempts}} attempts were frozen between {{stamp .First}} and {{stamp .Last}},
-and {{.Measured}} of them reported token usage ({{.CoverageLabel}} measured). Everything below
-sums only the ones that did: an unmeasured attempt is left out rather than counted as free.</p>
+<p class="note">{{.Attempts}} attempts between {{stamp .First}} and {{stamp .Last}};
+{{.Measured}} reported token usage ({{.CoverageLabel}} measured). Sums below cover only the
+measured ones — an unmeasured attempt is left out, not counted as free.</p>
 {{else}}
-<p class="empty">No attempt was frozen in this window. Widen it to reach older work.</p>
+<p class="empty">No attempt ran in this window. Widen it to reach older work.</p>
 {{end}}
 
 {{if .Recorded}}
@@ -423,10 +406,6 @@ sums only the ones that did: an unmeasured attempt is left out rather than count
   <div class="panel metric"><div class="n">{{tokens .Reasoning}}</div><div class="k">reasoning</div></div>
   <div class="panel metric good"><div class="n">{{.CacheLabel}}</div><div class="k">input served from cache</div></div>
 </div>
-<p class="note">The four counts are added, not overlapped: Coop reports cached input apart from
-fresh input and reasoning apart from output, because every provider prices those parts
-differently. Cache hit rate is cached over all input read; output was never cacheable, so it is
-not in that denominator.</p>
 {{end}}
 {{end}}
 
@@ -444,9 +423,8 @@ not in that denominator.</p>
         width="{{.W}}" height="{{.H}}" rx="2"><title>{{.Title}}</title></rect>
   {{end}}
 </svg>
-<p class="note">One bar per day, {{.First}} to {{.Last}}; the tallest is {{.MaxLabel}} tokens. A
-flat mark on the baseline is a day that ran attempts nobody measured, which is a different fact
-from a quiet day and is drawn differently for that reason.</p>
+<p class="note">One bar per day, {{.First}} to {{.Last}}; the tallest is {{.MaxLabel}} tokens.
+An amber mark on the baseline is a day whose attempts nobody measured — not a quiet day.</p>
 {{end}}
 {{end}}
 
@@ -479,19 +457,14 @@ from a quiet day and is drawn differently for that reason.</p>
 {{else}}<p class="empty">No attempt in this window.</p>{{end}}
 {{end}}
 
-<h2>Prompt composition</h2>
-{{template "unwired" .Composition}}
-
 <h2>Cost</h2>
 {{if .Cost.Priceable}}
 <div class="grid">
   <div class="panel metric good"><div class="n">{{.Cost.Money}}</div><div class="k">priced spend · {{.Window.Label}}</div></div>
 </div>
-<p class="note">Priced only through the configured table, in {{.Cost.Currency}}, over
-{{.Cost.Priced}} of {{.Cost.Measured}} measured model rows.{{if .Cost.Partial}} The rows the table
-does not cover say “not priced” above rather than counting as free, so this figure is a floor,
-not the bill.{{end}} Unmeasured attempts are never priced: money over tokens nobody counted would
-be a measurement-shaped guess.</p>
+<p class="note">Priced from the configured table, in {{.Cost.Currency}}, over
+{{.Cost.Priced}} of {{.Cost.Measured}} measured model rows.{{if .Cost.Partial}} Rows the table
+does not cover say “not priced” above, so this figure is a floor, not the bill.{{end}}</p>
 {{else}}{{template "unwired" .CostUnwired}}{{end}}
 
 <h2>Wall clock</h2>
@@ -503,11 +476,9 @@ be a measurement-shaped guess.</p>
   <div class="panel metric"><div class="n">{{.Provider}}</div><div class="k">provider working</div></div>
   <div class="panel metric"><div class="n">{{.Host}}</div><div class="k">host noticing it finished</div></div>
 </div>
-<p class="note">{{exact .TimedTurns}} timed turns in this window, {{.Total}} of wall clock in all.
-Three spans because they fail independently and are fixed differently: queued is a busy session or
-an exhausted ladder, provider is the model working, and host is this repository's own polling gap
-— the one span it can fix alone. The per-row figures above average within each breakdown; a turn
-that failed while still queued carries no span and stays out of every divisor.</p>
+<p class="note">{{exact .TimedTurns}} timed turns, {{.Total}} of wall clock in all. Queued means
+a busy session or an exhausted ladder, provider is the model working, and host is Responder's own
+polling gap — the one span it can fix alone.</p>
 {{else}}{{template "unwired" $.Latency}}{{end}}
 {{end}}
 {{end}}

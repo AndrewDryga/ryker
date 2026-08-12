@@ -156,7 +156,7 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Model</small><strong>opus",
 		"Reasoning</small><strong>high",
 		"Preset emisar-conversation routed this episode to claude/opus at high effort",
-		"Prompt assembled",
+		"Model briefed",
 		"Slack conversation",
 		"Sent to model",
 		"Not sent",
@@ -182,20 +182,24 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Source Slack message",
 		"User request",
 		"tokens",
+		"Outcome",
+		"Replied",
 		"Time to respond",
-		"Episode cost / tokens",
+		"Model spend",
 		"47.9s",
-		"Started 2026-08-10 08:14 UTC",
-		"Time to react",
-		"1.4s",
+		"From the message to the reply in #infra.",
+		"Acknowledged in 1.4s.",
 		"Errors",
+		"What came in",
+		"The work",
+		"The answer",
+		"What came of it",
 		"Model result received",
-		"Host-visible decision rationale",
+		"Why the model chose this",
 		"The operator set two presentation preferences.",
-		"Raw model result received by Responder",
-		"Provider transcript boundary",
+		"Raw model result",
 		"Got it. Plan summaries will show material changes as before → after",
-		"Slack post",
+		"Replied in the thread",
 		"1786349687.887489",
 		"<strong>3</strong>Side effects",
 		"Terraform plan change summaries",
@@ -218,6 +222,10 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"What this trace can explain",
 		"This is the immutable source event",
 		"episode_hero",
+		"Provider transcript boundary",
+		"Time to react",
+		"Not recorded",
+		"terraformplan",
 	} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("episode page unexpectedly contains %q: %s", unwanted, body)
@@ -496,9 +504,9 @@ func TestEpisodeMetricsUseStandingRuleReactionAsTimeToReact(t *testing.T) {
 			At: received.Add(850 * time.Millisecond),
 		}},
 	})
-	if len(metrics) < 2 || metrics[1].Label != "Time to react" ||
-		metrics[1].Value != "850ms" || metrics[1].Missing {
-		t.Fatalf("time to react = %+v", metrics)
+	if len(metrics) < 2 || metrics[1].Label != "Time to respond" ||
+		!strings.Contains(metrics[1].Detail, "Acknowledged in 850ms") {
+		t.Fatalf("acknowledgement is not on the respond card = %+v", metrics)
 	}
 }
 
@@ -661,6 +669,10 @@ USER: check this`
 	for _, detail := range details {
 		joined += detail.Group + "\n" + detail.GroupDetail + "\n" + detail.Status + "\n" + detail.Label + "\n" + detail.Description + "\n" + detail.Body + "\n"
 		counts[detail.Label] = detail.Count
+		if detail.Inert {
+			// An empty slot renders as a plain line; there is nothing to open.
+			continue
+		}
 		if !detail.Open {
 			t.Fatalf("human-readable prompt source is collapsed before trace presentation: %+v", detail)
 		}
@@ -1029,15 +1041,6 @@ func TestEpisodeArtifactsCoverEveryDurableLifecycle(t *testing.T) {
 		}
 	}
 	trace := buildEpisodeTrace(config.Pricing{}, episodePage{Artifacts: artifacts}, nil)
-	var durable string
-	for _, stat := range trace.Stats {
-		if stat.Label == "Durable records" {
-			durable = stat.Value
-		}
-	}
-	if durable != "13" {
-		t.Fatalf("durable record count = %q, want 13", durable)
-	}
 	artifactSteps := 0
 	for _, step := range trace.Steps {
 		if !strings.HasPrefix(step.ID, "record-") {

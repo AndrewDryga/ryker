@@ -561,7 +561,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .episode-metric.is-missing .episode-metric-value { color: var(--dim); font-size: 19px; }
 .episode-metric-detail { margin-top: 6px; color: var(--dim); font-size: 12px; line-height: 1.45; max-width: 34ch; }
 
-.trace-shell { margin-top: 34px; }
+.trace-shell { margin-top: 30px; }
 
 .trace-heading {
   display: flex;
@@ -569,7 +569,6 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   align-items: end;
   gap: 28px;
   padding-bottom: 15px;
-  border-bottom: 1px solid var(--line);
 }
 
 .trace-heading h2 {
@@ -580,20 +579,84 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   letter-spacing: 0;
 }
 
-.trace-eyebrow { color: var(--accent); font: 600 10.5px/1.5 var(--mono); text-transform: uppercase; }
 .trace-lede { margin-top: 4px; color: var(--dim); max-width: 68ch; }
 
 .trace-summary { display: flex; justify-content: flex-end; gap: 18px; flex-wrap: wrap; }
 .trace-summary span { display: grid; gap: 1px; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
 .trace-summary strong { color: var(--ink-2); font: 600 15px/1.2 var(--mono); }
 
-.trace-list { position: relative; padding-bottom: 20px; }
+/* The journey strip is the whole episode in one glance: arrived, briefed,
+   worked, decided, done. Chips joined by arrows, tones only on outcomes. */
+.journey {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.journey-stop {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 10px;
+  border-radius: 7px;
+}
+
+.journey-stop strong { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.journey-stop span { color: var(--faint); font-size: 11px; white-space: nowrap; }
+.journey-stop + .journey-stop { position: relative; margin-left: 22px; }
+.journey-stop + .journey-stop::before {
+  content: "→";
+  position: absolute;
+  left: -18px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #52525b;
+  font-size: 13px;
+}
+.journey-stop.tone-good { background: rgb(54 230 165 / .08); }
+.journey-stop.tone-good strong { color: var(--good); }
+.journey-stop.tone-warn { background: rgb(251 191 36 / .08); }
+.journey-stop.tone-warn strong { color: var(--warn); }
+.journey-stop.tone-bad { background: rgb(251 113 133 / .1); }
+.journey-stop.tone-bad strong { color: var(--bad); }
+
+/* Chapters cut the rail into acts a stranger can follow. */
+.trace-chapter { margin-top: 26px; }
+.trace-chapter:first-of-type { margin-top: 4px; }
+
+.trace-chapter-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0 7px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+
+.trace-chapter-head h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.trace-chapter-head p { color: var(--faint); font-size: 12px; margin: 0; min-width: 0; }
+.trace-chapter-span { margin-left: auto; color: var(--faint); font: 500 11px/1.6 var(--mono); white-space: nowrap; }
+
+.trace-list { position: relative; }
 .trace-list::before {
   content: "";
   position: absolute;
-  top: 16px;
-  bottom: 22px;
-  left: 21px;
+  top: 6px;
+  bottom: 6px;
+  left: 8px;
   width: 1px;
   background: var(--line);
 }
@@ -601,9 +664,9 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-step {
   position: relative;
   display: grid;
-  grid-template-columns: 43px minmax(0, 1fr);
-  gap: 14px;
-  padding: 0 0 15px;
+  grid-template-columns: 17px minmax(0, 1fr);
+  gap: 13px;
+  padding: 0 0 12px;
 }
 
 .trace-marker {
@@ -612,30 +675,33 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 17px;
+  padding-top: 15px;
 }
-.trace-marker span {
-  display: grid;
-  place-items: center;
-  width: 31px;
-  height: 23px;
-  border: 1px solid #3f3f46;
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--faint);
-  font: 600 10px/1 var(--mono);
+.trace-marker i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #3f3f46;
+  border: 2px solid var(--bg);
+  box-sizing: content-box;
 }
+.trace-step[data-tone="good"] .trace-marker i { background: var(--accent-dim); }
+.trace-step[data-tone="warn"] .trace-marker i { background: var(--warn); }
+.trace-step[data-tone="bad"] .trace-marker i { background: var(--bad); }
 
-.trace-step[data-stage="Input"] .trace-marker span,
-.trace-step[data-stage="Context"] .trace-marker span { border-color: rgb(96 165 250 / .45); color: #93c5fd; }
-.trace-step[data-stage="Result"] .trace-marker span,
-.trace-step[data-stage="Delivery"] .trace-marker span,
-.trace-step[data-state="completed"] .trace-marker span,
-.trace-step[data-state="sent"] .trace-marker span { border-color: rgb(54 230 165 / .45); color: var(--good); }
-.trace-step[data-stage="Validation"] .trace-marker span,
-.trace-step[data-state="blocked"] .trace-marker span { border-color: rgb(251 191 36 / .5); color: var(--warn); }
-.trace-step[data-state="failed"] .trace-marker span,
-.trace-step[data-state="rejected"] .trace-marker span { border-color: rgb(251 113 133 / .5); color: var(--bad); }
+/* A quiet stretch gets its own mark on the rail: this is where the wall
+   clock of an episode actually goes. */
+.trace-gap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 14px 30px;
+  color: var(--faint);
+  font: 500 11px/1.4 var(--mono);
+}
+.trace-gap::before { content: "⋯"; position: absolute; left: 4.5px; color: #52525b; letter-spacing: 1px; writing-mode: vertical-rl; }
+.trace-gap span::after { content: " pass"; color: #52525b; font-family: var(--sans); }
 
 .trace-step-card {
   min-width: 0;
@@ -645,32 +711,41 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   background: var(--panel);
 }
 
-.trace-step-card > h3,
 .trace-step-card > .trace-step-summary,
 .trace-step-card > .trace-why,
-.trace-step-card > .trace-step-stats { margin-left: 18px; margin-right: 18px; }
+.trace-step-card > .trace-step-stats { margin-left: 16px; margin-right: 16px; }
 
 .trace-step-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 14px;
   margin: 0;
-  padding: 11px 18px 9px;
-  border-bottom: 1px solid var(--line-2);
+  padding: 10px 16px 0;
 }
 
-.trace-step-kicker { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
-.trace-stage { color: var(--accent); font: 650 10.5px/1.4 var(--mono); text-transform: uppercase; }
-.trace-actor, .trace-step-state { color: var(--faint); font: 11px/1.4 var(--mono); }
-.trace-step-state::before { content: "·"; margin-right: 8px; color: #52525b; }
+.trace-step-header h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 
-.trace-time { display: flex; align-items: center; justify-content: flex-end; gap: 9px; color: var(--faint); font: 10.5px/1.4 var(--mono); white-space: nowrap; }
+.trace-step-side { display: flex; align-items: baseline; gap: 9px; flex: none; }
+.trace-actor, .trace-step-state { color: var(--faint); font: 11px/1.4 var(--mono); white-space: nowrap; }
+.trace-step[data-tone="bad"] .trace-step-state { color: var(--bad); }
+.trace-step[data-tone="warn"] .trace-step-state { color: var(--warn); }
+
+.trace-time { display: flex; align-items: baseline; gap: 8px; color: var(--faint); font: 10.5px/1.4 var(--mono); white-space: nowrap; }
 .trace-time strong { color: var(--ink-2); font-weight: 600; }
-.trace-time span + span::before { content: "·"; margin-right: 9px; color: #52525b; }
+.trace-time em { font-style: normal; color: var(--dim); }
+.trace-time em::before { content: "for "; color: #52525b; }
 
-.trace-step-card h3 { margin-top: 15px; color: var(--ink); font-size: 16px; line-height: 1.35; }
-.trace-step-summary { margin-top: 5px; color: var(--ink-2); font-size: 14px; line-height: 1.55; max-width: 92ch; overflow-wrap: anywhere; }
+.trace-step-summary { margin-top: 6px; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; max-width: 92ch; overflow-wrap: anywhere; }
+.trace-step-card > :last-child:not(.trace-details) { padding-bottom: 12px; }
 
 .trace-why {
   display: grid;
@@ -748,6 +823,29 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-detail.tone-runtime .trace-detail-title em,
 .trace-detail.tone-policy .trace-detail-title em { color: #fdba74; border-color: #7c2d12; }
 .trace-detail.tone-prompt .trace-detail-title em { color: var(--accent); border-color: #166534; }
+/* A slot that held nothing renders as a quiet line, not a disclosure that
+   opens onto "no content". */
+.trace-detail-inert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 34px;
+  padding: 6px 18px;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.trace-detail-inert .trace-detail-title > span { color: var(--faint); }
+.trace-inert-note {
+  min-width: 0;
+  color: #52525b;
+  font-size: 11.5px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .trace-detail > summary::-webkit-details-marker { display: none; }
 .trace-detail > summary:hover { background: var(--panel-2); }
 .trace-detail[open] > summary { background: #161619; color: var(--ink); }
@@ -890,13 +988,16 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   main > header { display: block; }
   .episode-metrics { grid-template-columns: 1fr; }
   .episode-metric { min-height: 0; }
-  .trace-list::before { left: 15px; }
-  .trace-step { grid-template-columns: 30px minmax(0, 1fr); gap: 8px; }
-  .trace-marker { padding-top: 16px; }
-  .trace-marker span { width: 26px; font-size: 9px; }
-  .trace-step-header { align-items: start; flex-direction: column; padding: 10px 13px 8px; }
+  .journey { gap: 4px; }
+  .journey-stop + .journey-stop { margin-left: 20px; }
+  .trace-chapter-head { flex-wrap: wrap; row-gap: 2px; }
+  .trace-step { grid-template-columns: 14px minmax(0, 1fr); gap: 8px; }
+  .trace-list::before { left: 6.5px; }
+  .trace-gap { padding-left: 24px; }
+  .trace-gap::before { left: 3px; }
+  .trace-step-header { align-items: start; flex-direction: column; gap: 3px; padding: 10px 13px 0; }
+  .trace-step-side { flex-wrap: wrap; }
   .trace-time { justify-content: flex-start; flex-wrap: wrap; white-space: normal; }
-  .trace-step-card > h3,
   .trace-step-card > .trace-step-summary,
   .trace-step-card > .trace-why,
   .trace-step-card > .trace-step-stats { margin-left: 13px; margin-right: 13px; }
