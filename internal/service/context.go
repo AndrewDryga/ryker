@@ -17,14 +17,16 @@ import (
 )
 
 type agentContextRequest struct {
-	ChannelID          string
-	Repository         string
-	RepositoryPinned   bool
-	OperatorID         string
-	SourceInputID      string
-	TargetInput        *core.SlackInput
-	ReferencedThreadTS string
-	IncludeRecent      bool
+	ChannelID           string
+	Repository          string
+	RepositoryPinned    bool
+	OperatorID          string
+	SourceInputID       string
+	TargetInput         *core.SlackInput
+	ReferencedChannelID string
+	ReferencedThreadTS  string
+	ReferencedMessageTS string
+	IncludeRecent       bool
 }
 
 type assembledAgentContext struct {
@@ -184,13 +186,16 @@ func (s *Service) assembleAgentContext(
 			s.identity.BotUserID,
 		)
 	}
+	referencedChannelID := core.FirstNonempty(request.ReferencedChannelID, request.ChannelID)
 	if request.ReferencedThreadTS != "" &&
-		(request.TargetInput == nil ||
+		(request.TargetInput == nil || referencedChannelID != request.ChannelID ||
 			request.ReferencedThreadTS != request.TargetInput.ThreadTS) {
-		referenced := &decisionpkg.ReferencedThreadContext{ThreadTS: request.ReferencedThreadTS}
+		referenced := &decisionpkg.ReferencedThreadContext{
+			ThreadTS: request.ReferencedThreadTS,
+		}
 		conversation, conversationErr := s.store.Intelligence.GetConversationMemory(
 			ctx,
-			request.ChannelID,
+			referencedChannelID,
 			request.ReferencedThreadTS,
 		)
 		if conversationErr == nil {
@@ -204,20 +209,27 @@ func (s *Service) assembleAgentContext(
 		} else if !errors.Is(conversationErr, store.ErrNotFound) {
 			return assembledAgentContext{}, conversationErr
 		}
+		targetTS := request.ReferencedMessageTS
+		if targetTS == "" {
+			targetTS = referenced.LastMessageTS
+		}
 		history, historyErr := s.recentMessages(
 			ctx,
-			request.ChannelID,
+			referencedChannelID,
 			request.ReferencedThreadTS,
-			referenced.LastMessageTS,
+			targetTS,
 			"",
 			s.cfg.Slack.WatchContext,
 		)
 		if historyErr != nil {
-			return assembledAgentContext{}, historyErr
+			return assembledAgentContext{}, fmt.Errorf(
+				"read linked Slack thread %s/%s: %w",
+				referencedChannelID, request.ReferencedThreadTS, historyErr,
+			)
 		}
 		referenced.RecentMessages = historyWatchContext(
 			history,
-			request.ChannelID,
+			referencedChannelID,
 			s.identity.BotUserID,
 		)
 		result.ReferencedThread = referenced

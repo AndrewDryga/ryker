@@ -156,6 +156,12 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		state.ReferencedThreadTS = referencedThreadTS
 		state.RouteCaptured = true
 	}
+	if !state.ReferenceCaptured {
+		if err := s.captureSlackPermalinkReference(ctx, input, &state); err != nil {
+			return fmt.Errorf("capture linked Slack context: %w", err)
+		}
+		state.ReferenceCaptured = true
+	}
 	readyAt, err := s.watchRunReadyAt(ctx, input)
 	if err != nil {
 		return err
@@ -378,9 +384,20 @@ func (s *Service) correlateWatchEpisode(
 		ctx, conversationKey,
 	); previousErr == nil {
 		if operationalLifecycle {
-			// A lifecycle update is another attempt in the same unit of work, not a
-			// new episode. Reuse both the episode and its bound Slack destination.
-			episode.ID = previous.ID
+			// Updates share an active unit of work. Once that unit is terminal, the
+			// next alert is new accepted work linked to the prior investigation;
+			// attaching it to the old episode makes the lifecycle guard cancel it.
+			if episodepkg.Terminal(previous.State) {
+				episode.ParentEpisodeID = previous.ID
+				episode.Conversation = core.ConversationRef{
+					Platform: "slack", ChannelID: input.ChannelID,
+					ThreadTS: slackReplyThread(input), AnchorTS: input.ID,
+					Visibility: "channel",
+				}
+				episode.Destination = previous.Destination
+			} else {
+				episode.ID = previous.ID
+			}
 			if previous.Destination.ChannelID == input.ChannelID &&
 				previous.Destination.ThreadTS != "" {
 				state.ResponseThreadTS = previous.Destination.ThreadTS
@@ -868,9 +885,11 @@ func (s *Service) freezeTriageContext(
 				),
 				RepositoryPinned: state.RepositoryPinned,
 				OperatorID:       input.UserID, SourceInputID: input.ID,
-				TargetInput:        &input,
-				ReferencedThreadTS: state.ReferencedThreadTS,
-				IncludeRecent:      true,
+				TargetInput:         &input,
+				ReferencedChannelID: state.ReferencedChannelID,
+				ReferencedThreadTS:  state.ReferencedThreadTS,
+				ReferencedMessageTS: state.ReferencedMessageTS,
+				IncludeRecent:       true,
 			},
 		)
 		if err != nil {

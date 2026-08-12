@@ -35,7 +35,10 @@ type WatchTurnState struct {
 	RelatedSituations      []ConversationSituationContext `json:"related_situations,omitempty"`
 	ReferencedThread       *ReferencedThreadContext       `json:"referenced_thread,omitempty"`
 	ResponseThreadTS       string                         `json:"response_thread_ts,omitempty"`
+	ReferencedChannelID    string                         `json:"referenced_channel_id,omitempty"`
 	ReferencedThreadTS     string                         `json:"referenced_thread_ts,omitempty"`
+	ReferencedMessageTS    string                         `json:"referenced_message_ts,omitempty"`
+	ReferenceCaptured      bool                           `json:"reference_captured,omitempty"`
 	RouteCaptured          bool                           `json:"route_captured,omitempty"`
 	EscalationReason       string                         `json:"escalation_reason,omitempty"`
 	Prior                  OperationalMemoryContext       `json:"prior_operational_context,omitempty"`

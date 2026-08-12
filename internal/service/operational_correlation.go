@@ -1,32 +1,17 @@
 package service
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"html"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/operationalkey"
 )
 
 const operationalBurstWindow = 90 * time.Second
 
-var operationalLabelPattern = regexp.MustCompile(
-	`(?i)(?:^|[|[:space:]])(service|component|alert|alertname)[[:space:]]*:[[:space:]]*([a-z0-9][a-z0-9._:/-]{1,127})`,
-)
-
-var operationalPhasePattern = regexp.MustCompile(
-	`(?i)\b(firing|resolved|recovered|recovery|critical|warning|warn|ok|error|errored|failed|failure|applied|applying|planned|planning|needs confirmation)\b`,
-)
-
-var operationalCounterPattern = regexp.MustCompile(
-	`(?i)(?:\[[^\]]*(?:firing|resolved|critical|warning)[^\]]*\]|\b[0-9]+\s+alerts?\b|\b[0-9]+\s+of\s+[0-9]+\b)`,
-)
-
-var operationalLinkPattern = regexp.MustCompile(`<((?:https?://)[^>|]+)(?:\|[^>]*)?>`)
+var operationalCorrelationKey = operationalkey.Key
+var broadOperationalBurstCoalescingAllowed = operationalkey.BroadBurstCoalescingAllowed
 
 func (s *Service) obviousHumanDialogue(input core.SlackInput, state decisionpkg.WatchTurnState) bool {
 	if input.Kind != "message" || state.ConversationFollowup ||
@@ -45,96 +30,3 @@ func (s *Service) obviousHumanDialogue(input core.SlackInput, state decisionpkg.
 	}
 	return mentionedAnotherHuman
 }
-
-func stableOperationalAlertLink(text string) string {
-	for _, match := range operationalLinkPattern.FindAllStringSubmatch(text, -1) {
-		if len(match) < 2 {
-			continue
-		}
-		link := html.UnescapeString(strings.TrimSpace(match[1]))
-		lower := strings.ToLower(link)
-		if !strings.Contains(lower, "/alerting/") {
-			continue
-		}
-		if index := strings.IndexAny(link, "?#"); index >= 0 {
-			link = link[:index]
-		}
-		return link
-	}
-	return ""
-}
-
-func operationalAlertTitle(text string) string {
-	for _, raw := range strings.Split(text, "\n") {
-		line := strings.ToLower(strings.Join(strings.Fields(raw), " "))
-		if line == "" {
-			continue
-		}
-		line = operationalCounterPattern.ReplaceAllString(line, " ")
-		line = operationalPhasePattern.ReplaceAllString(line, " ")
-		line = strings.Trim(strings.Join(strings.Fields(line), " "), " -|:[]")
-		if line == "" || strings.HasPrefix(line, "run notification for ") ||
-			strings.HasPrefix(line, "added by ") {
-			continue
-		}
-		return core.TruncateUTF8(line, 160)
-	}
-	return ""
-}
-
-func boundedCorrelationKey(value string) string {
-	if len(value) <= 220 {
-		return value
-	}
-	sum := sha256.Sum256([]byte(value))
-	return core.TruncateUTF8(value, 180) + ":sha256:" + hex.EncodeToString(sum[:8])
-}
-
-// operationalCorrelationKey is deliberately source-agnostic. Exact external
-// lifecycle IDs win; alert apps fall back to stable alert/service/component
-// labels and a phase-free title. FIRING and RESOLVED updates therefore share a
-// stream without grouping unrelated alerts merely because they share a channel.
-func operationalCorrelationKey(input core.SlackInput) string {
-	if decisionpkg.OperationalAlertEvent(input.Text) {
-		if key := stableOperationalAlertLink(input.Text); key != "" {
-			return boundedCorrelationKey("alert-link:" + key)
-		}
-	}
-	if key := externalLifecycleCorrelationKey(input.Text); key != "" {
-		return boundedCorrelationKey("lifecycle:" + key)
-	}
-	if !decisionpkg.OperationalAlertEvent(input.Text) {
-		return ""
-	}
-	labels := make([]string, 0, 4)
-	for _, match := range operationalLabelPattern.FindAllStringSubmatch(input.Text, -1) {
-		if len(match) < 3 {
-			continue
-		}
-		labels = append(labels,
-			strings.ToLower(match[1])+":"+strings.ToLower(strings.Trim(match[2], ".,;")),
-		)
-	}
-	title := operationalAlertTitle(input.Text)
-	identity := strings.Join(labels, "|")
-	if title != "" {
-		identity += "|title:" + title
-	}
-	if identity == "" {
-		return ""
-	}
-	return boundedCorrelationKey("alert:" + input.UserID + ":" + identity)
-}
-
-// broadOperationalBurstCoalescingAllowed reports whether a newer app message
-// may carry this input's work. Alert apps often emit several related symptoms
-// in one short burst, so broad coalescing is useful there. External lifecycle
-// events already have exact run identities; allowing another run to supersede
-// them can silently discard an Applied or Errored result.
-func broadOperationalBurstCoalescingAllowed(input core.SlackInput) bool {
-	return externalLifecycleCorrelationKey(input.Text) == ""
-}
-
-// Alert notifications commonly include both a stable alert URL and a dashboard
-// URL whose time-range query changes on every delivery. Prefer the stable alert
-// identity so repeats and recovery updates remain one operational stream.

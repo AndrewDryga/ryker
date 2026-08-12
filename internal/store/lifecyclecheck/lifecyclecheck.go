@@ -45,6 +45,82 @@ func CancelQueuedUnderTerminalEpisodes(ctx context.Context, tx *sql.Tx, now stri
 	); err != nil {
 		return fmt.Errorf("cancel stale agent run: %w", err)
 	}
+	return queueTerminalStatusClears(ctx, tx, now)
+}
+
+type pendingStatusClear struct {
+	runID, episodeID, channelID, threadTS string
+}
+
+// queueTerminalStatusClears projects the transport cancellation onto Slack in
+// the same transaction. Leaving that projection to a later service callback
+// stranded "Checking live systems" forever whenever no useful run was left to
+// lease, which is precisely when the cleanup matters most.
+func queueTerminalStatusClears(ctx context.Context, tx *sql.Tx, now string) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT run.id, run.episode_id, input.channel_id,
+		  CASE
+		    WHEN json_extract(run.context_json, '$.approval_continuation') = 1
+		      THEN COALESCE(json_extract(run.context_json, '$.response_thread_ts'), '')
+		    ELSE COALESCE(NULLIF(input.thread_ts, ''), input.message_ts)
+		  END
+		FROM agent_runs AS run
+		JOIN slack_inputs AS input ON input.id = run.source_id
+		WHERE run.source_kind = 'watch'
+		  AND run.state = 'cancelled'
+		  AND run.last_error = 'episode already reached a terminal state'
+		  AND json_valid(run.context_json)
+		  AND json_extract(run.context_json, '$.pending_status_set') = 1`)
+	if err != nil {
+		return fmt.Errorf("list stale Slack statuses: %w", err)
+	}
+	var pending []pendingStatusClear
+	for rows.Next() {
+		var item pendingStatusClear
+		if err := rows.Scan(&item.runID, &item.episodeID, &item.channelID, &item.threadTS); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan stale Slack status: %w", err)
+		}
+		if item.channelID != "" && item.threadTS != "" {
+			pending = append(pending, item)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close stale Slack status rows: %w", err)
+	}
+	for _, item := range pending {
+		var generation int64
+		if err := tx.QueryRowContext(ctx, `
+			INSERT INTO slack_status_generations (channel_id, thread_ts, generation, updated_at)
+			VALUES (?, ?, 1, ?)
+			ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
+			  generation = slack_status_generations.generation + 1,
+			  updated_at = excluded.updated_at
+			RETURNING generation`, item.channelID, item.threadTS, now).Scan(&generation); err != nil {
+			return fmt.Errorf("advance cancelled Slack status: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO slack_deliveries (
+			  id, episode_id, operation, kind, channel_id, thread_ts,
+			  body_json, status_text, steps_json, coalesce_key, card_version,
+			  state, next_attempt_at, created_at, updated_at
+			) VALUES (?, ?, 'status', 'status', ?, ?, X'', '', '[]', ?, ?,
+			          'pending', ?, ?, ?)`,
+			"terminal_status_clear_"+item.runID, item.episodeID,
+			item.channelID, item.threadTS, "status:"+item.channelID+":"+item.threadTS,
+			generation, now, now, now,
+		); err != nil {
+			return fmt.Errorf("queue cancelled Slack status clear: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE agent_runs
+			SET context_json = json_set(
+			  context_json, '$.pending_status_set', json('false'), '$.pending_status_at', 0
+			), updated_at = ?
+			WHERE id = ?`, now, item.runID); err != nil {
+			return fmt.Errorf("mark cancelled Slack status clear queued: %w", err)
+		}
+	}
 	return nil
 }
 

@@ -59,6 +59,7 @@ func RetryAfter(err error) (time.Duration, bool) {
 
 type Identity struct {
 	TeamID       string
+	WorkspaceURL string
 	BotUserID    string
 	BotID        string
 	BotName      string
@@ -165,7 +166,7 @@ func (c *Client) Auth(ctx context.Context) (Identity, error) {
 		return Identity{}, err
 	}
 	return Identity{
-		TeamID: response.TeamID, BotUserID: response.UserID,
+		TeamID: response.TeamID, WorkspaceURL: response.URL, BotUserID: response.UserID,
 		BotID: response.BotID, BotName: response.User, EnterpriseID: response.EnterpriseID,
 		BotScopes: splitScopes(response.Header.Get("X-OAuth-Scopes")),
 	}, nil
