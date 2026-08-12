@@ -2,7 +2,7 @@ package store
 
 import "github.com/AndrewDryga/responder/internal/store/migrationddl"
 
-const currentSchemaVersion = 59
+const currentSchemaVersion = 60
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1306,4 +1306,12 @@ var migrations = map[int]string{
 	57: `ALTER TABLE context_manifests ADD COLUMN submitted_prompt TEXT NOT NULL DEFAULT '';`,
 	58: migrationddl.V58,
 	59: `ALTER TABLE incidents ADD COLUMN latest_update TEXT NOT NULL DEFAULT '';`,
+	60: `
+		ALTER TABLE publications ADD COLUMN attempt_input_id TEXT NOT NULL DEFAULT '';
+		ALTER TABLE publications ADD COLUMN failure_code TEXT NOT NULL DEFAULT '';
+		ALTER TABLE publications ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
+		UPDATE publications SET generation = 1;
+		UPDATE incidents SET card_version = card_version + 1
+		  WHERE id IN (SELECT incident_id FROM publications);
+	`,
 }

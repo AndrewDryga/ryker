@@ -455,7 +455,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		t.Fatalf("zero-change task does not explain delivery state: %+v", card)
 	}
 	changed := IncidentCardWithPublication(
-		task, "Emisar", nil, true, core.Publication{},
+		task, "Emisar", nil, true, true, core.Publication{},
 	)
 	if !slices.ContainsFunc(changed.Actions, func(action Action) bool {
 		return action.ID == ActionPublishPR && action.Label == "Create draft PR"
@@ -463,7 +463,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		t.Fatalf("changed task lacks publication action: %+v", changed.Actions)
 	}
 	published := IncidentCardWithPublication(
-		task, "Emisar", nil, true, core.Publication{
+		task, "Emisar", nil, true, true, core.Publication{
 			State: "published", PRNumber: 42, PRURL: "https://github.example/pull/42",
 		},
 	)
@@ -475,7 +475,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	stalePublication := core.Publication{
 		State: "stale", PRNumber: 42, PRURL: "https://github.example/pull/42",
 	}
-	stale := IncidentCardWithPublication(task, "Emisar", nil, true, stalePublication)
+	stale := IncidentCardWithPublication(task, "Emisar", nil, true, true, stalePublication)
 	if !slices.ContainsFunc(stale.Actions, func(action Action) bool {
 		return action.ID == ActionPublishPR && action.Label == "Update draft PR"
 	}) || !slices.ContainsFunc(stale.Actions, func(action Action) bool {
@@ -490,6 +490,69 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		return action.ID == ActionPublishPR && action.Label == "Update draft PR"
 	}) || strings.Contains(strings.Join(delivery.Context, "\n"), "create a draft PR") {
 		t.Fatalf("stale task delivery offered a new PR: %+v", delivery)
+	}
+	for _, progress := range []struct {
+		state string
+		text  string
+		prURL string
+	}{
+		{state: "reviewing", text: "reviewing changes"},
+		{state: "publishing", text: "publishing", prURL: "https://github.example/pull/42"},
+		{state: "retrying", text: "retry scheduled"},
+	} {
+		card := IncidentCardWithPublication(
+			task, "Emisar", nil, false, false, core.Publication{
+				State: core.PublicationState(progress.state), PRNumber: 42, PRURL: progress.prURL,
+				LastError: "temporary Coop error",
+			},
+		)
+		rendered := card.Text + "\n" + strings.Join(card.Sections, "\n")
+		if !strings.Contains(rendered, progress.text) {
+			t.Fatalf("%s card lacks progress: %+v", progress.state, card)
+		}
+		for _, action := range card.Actions {
+			if slices.Contains([]string{
+				ActionUpdate, ActionReview, ActionPublishPR, ActionResolve,
+			}, action.ID) {
+				t.Fatalf("%s card retained conflicting action %+v", progress.state, action)
+			}
+		}
+		if !slices.ContainsFunc(card.Actions, func(action Action) bool {
+			return action.ID == ActionChanges
+		}) {
+			t.Fatalf("%s card removed read-only diff: %+v", progress.state, card.Actions)
+		}
+		if progress.prURL != "" && !slices.ContainsFunc(card.Actions, func(action Action) bool {
+			return action.ID == ActionViewPR && action.URL == progress.prURL
+		}) {
+			t.Fatalf("%s card removed existing PR: %+v", progress.state, card.Actions)
+		}
+	}
+	failed := IncidentCardWithPublication(
+		task, "Emisar", nil, false, false, core.Publication{
+			State: "failed", LastError: "GitHub rejected the branch update",
+			PRNumber: 42, PRURL: "https://github.example/pull/42",
+		},
+	)
+	if !strings.Contains(strings.Join(failed.Sections, "\n"), "needs attention") ||
+		!slices.ContainsFunc(failed.Actions, func(action Action) bool {
+			return action.ID == ActionPublishPR && action.Label == "Retry draft PR"
+		}) || !slices.ContainsFunc(failed.Actions, func(action Action) bool {
+		return action.ID == ActionViewPR && action.URL == "https://github.example/pull/42"
+	}) {
+		t.Fatalf("failed task lacks recovery state: %+v", failed)
+	}
+	emptyFailure := IncidentCardWithPublication(
+		task, "Emisar", nil, false, true, core.Publication{
+			State:     core.PublicationFailed,
+			LastError: "The isolated task has no code changes to publish.",
+		},
+	)
+	if !strings.Contains(strings.Join(emptyFailure.Sections, "\n"), "Add or restore") ||
+		slices.ContainsFunc(emptyFailure.Actions, func(action Action) bool {
+			return action.ID == ActionPublishPR || action.ID == ActionChanges
+		}) {
+		t.Fatalf("confirmed empty publication offered impossible retry: %+v", emptyFailure)
 	}
 }
 
@@ -1173,16 +1236,11 @@ func TestFailedEngineeringReviewOffersSameTaskRecovery(t *testing.T) {
 		"*Readiness checks*\n• Repository gate: failed",
 		false,
 	)
-	if message.Header != "Not ready for review" || len(message.Actions) != 2 ||
-		message.Actions[0].ID != ActionPublishPR ||
-		message.Actions[0].Value != incident.ID ||
-		message.Actions[0].Label != "Retry draft PR" ||
-		message.Actions[1].ID != ActionRepairReview ||
-		message.Actions[1].Label != "Fix blocker" {
+	if message.Header != "Not ready for review" || len(message.Actions) != 0 {
 		t.Fatalf("failed review recovery = %+v", message)
 	}
 	if len(message.Context) != 1 ||
-		!strings.Contains(message.Context[0], "Retry") {
+		!strings.Contains(message.Context[0], "durable task card") {
 		t.Fatalf("failed review context = %+v", message.Context)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 )
 
 func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
@@ -26,14 +27,23 @@ func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
 	}
 	publication := core.Publication{
 		IncidentID: incidents[0].ID, Repository: "owner/repository", BaseBranch: "main",
-		ParentHead: "parent", CandidateTree: "tree", State: "publishing",
+		State: "reviewing",
 	}
 	if err := st.SavePublication(ctx, publication); err != nil {
-		t.Fatalf("save pre-side-effect publication: %v", err)
+		t.Fatalf("save readiness-review publication: %v", err)
 	}
 	stored, err := st.GetPublication(ctx, incidents[0].ID)
-	if err != nil || stored.HeadBranch != "" || stored.State != "publishing" {
+	if err != nil || stored.ParentHead != "" || stored.State != "reviewing" {
 		t.Fatalf("stored publication = %+v, %v", stored, err)
+	}
+	publication.State = "publishing"
+	if err := st.SavePublication(ctx, publication); err == nil {
+		t.Fatal("publishing record without a reviewed tree was accepted")
+	}
+	publication.ParentHead = "parent"
+	publication.CandidateTree = "tree"
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatalf("save pre-side-effect publication: %v", err)
 	}
 
 	publication.State = "published"
@@ -69,6 +79,394 @@ func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
 	)
 	if err != nil || changed {
 		t.Fatalf("repeated stale mark = %t, %v", changed, err)
+	}
+}
+
+func TestPublicationReviewClaimIsExclusiveAndKeepsPRBinding(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "publication-claim", "Publish task", "summary",
+		"UOP", "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := st.Publications.BeginReview(
+		ctx, "claim-first", "", task.ID, "owner/repo", "main",
+	)
+	if err != nil || claimed.State != "reviewing" {
+		t.Fatalf("first review claim = %+v, %v", claimed, err)
+	}
+	if _, err := st.Publications.BeginReview(
+		ctx, "claim-second", "", task.ID, "owner/repo", "main",
+	); !errors.Is(err, publicationstore.ErrInProgress) {
+		t.Fatalf("concurrent review claim = %v, want in-progress conflict", err)
+	}
+	claimed.ParentHead = "parent"
+	claimed.CandidateTree = "tree"
+	claimed.State = core.PublicationPublishing
+	if err := st.SavePublication(ctx, claimed); err != nil {
+		t.Fatal(err)
+	}
+	claimed.State = core.PublicationPublished
+	claimed.HeadBranch = "responder/task"
+	claimed.CommitSHA = "commit"
+	claimed.RemoteSHA = "commit"
+	claimed.PRNumber = 42
+	claimed.PRURL = "https://github.example/owner/repo/pull/42"
+	claimed.PublishedAt = time.Now().UTC()
+	if err := st.SavePublication(ctx, claimed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Publications.BeginReview(
+		ctx, "claim-rebind", "", task.ID, "other/repo", "main",
+	); !errors.Is(err, publicationstore.ErrBindingChanged) {
+		t.Fatalf("changed repository claim = %v, want binding refusal", err)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || stored.Repository != "owner/repo" || stored.PRNumber != 42 ||
+		!stored.Published() {
+		t.Fatalf("publication after rejected rebind = %+v, %v", stored, err)
+	}
+}
+
+func TestPublicationReviewClaimCoalescesQueuedDuplicateClick(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "publication-coalesce", "Publish task", "summary",
+		"UOP", "COPS", "1700.101", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, id := range []string{"slack-publish-first", "slack-publish-second"} {
+		input := core.SlackInput{
+			ID: id, EnvelopeID: "envelope-" + id, EventID: "event-" + id,
+			Kind: "action", TeamID: "T1", ChannelID: "COPS", UserID: "UOP",
+			ActionID: "responder_publish_pr", ActionValue: task.ID,
+			ReceivedAt: time.Now().UTC().Add(time.Duration(index) * time.Second),
+		}
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit duplicate publication click = %t, %v", created, admitErr)
+		}
+	}
+	first, err := st.LeaseSlackInput(ctx)
+	if err != nil || first.ID != "slack-publish-first" {
+		t.Fatalf("first publication click = %+v, %v", first, err)
+	}
+	if _, err := st.Publications.BeginReview(
+		ctx, first.ID, first.ID, task.ID, "owner/repo", "main",
+	); err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.GetSlackInput(ctx, "slack-publish-second")
+	if err != nil || second.State != "done" {
+		t.Fatalf("coalesced publication click = %+v, %v", second, err)
+	}
+	if _, err := st.LeaseSlackInput(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("duplicate publication click remained runnable: %v", err)
+	}
+}
+
+func TestPublicationLateDuplicateCoalescesAndOldAttemptCannotOverwriteNewerClaim(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "publication-late-coalesce", "Publish task", "summary",
+		"UOP", "COPS", "1700.102", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admit := func(id string, received time.Time) core.SlackInput {
+		t.Helper()
+		input := core.SlackInput{
+			ID: id, EnvelopeID: "envelope-" + id, EventID: "event-" + id,
+			Kind: "action", TeamID: "T1", ChannelID: "COPS", UserID: "UOP",
+			ActionID: "responder_publish_pr", ActionValue: task.ID, ReceivedAt: received,
+		}
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit publication input = %t, %v", created, admitErr)
+		}
+		return input
+	}
+	first := admit("slack-late-first", time.Now().Add(-2*time.Second))
+	leased, err := st.LeaseSlackInput(ctx)
+	if err != nil || leased.ID != first.ID {
+		t.Fatalf("lease first publication = %+v, %v", leased, err)
+	}
+	claimed, err := st.Publications.BeginReview(
+		ctx, first.ID, first.ID, task.ID, "owner/repo", "main",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := admit("slack-late-second", time.Now().Add(-time.Second))
+	claimed.ParentHead = "parent"
+	claimed.CandidateTree = "tree"
+	claimed.HeadBranch = "responder/task"
+	claimed.CommitSHA = "commit"
+	claimed.RemoteSHA = "commit"
+	claimed.PRNumber = 42
+	claimed.PRURL = "https://github.example/owner/repo/pull/42"
+	claimed.PublishedAt = time.Now().UTC()
+	claimed.State = core.PublicationPublishing
+	if err := st.SavePublication(ctx, claimed); err != nil {
+		t.Fatal(err)
+	}
+	claimed.State = core.PublicationPublished
+	if err := st.SavePublication(ctx, claimed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Publications.BeginReview(
+		ctx, "click-from-pre-success-card", "", task.ID, "owner/repo", "main", 0,
+	); !errors.Is(err, publicationstore.ErrCoalesced) {
+		t.Fatalf("pre-success button after terminal save = %v, want coalesced", err)
+	}
+	if err := st.FinishSlackInput(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	leased, err = st.LeaseSlackInput(ctx)
+	if err != nil || leased.ID != second.ID {
+		t.Fatalf("lease late publication = %+v, %v", leased, err)
+	}
+	if _, err := st.Publications.BeginReview(
+		ctx, second.ID, second.ID, task.ID, "owner/repo", "main",
+	); !errors.Is(err, publicationstore.ErrCoalesced) {
+		t.Fatalf("late duplicate claim = %v, want coalesced", err)
+	}
+	if err := st.FinishSlackInput(ctx, second.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	third := admit("slack-fresh-third", time.Now().Add(time.Minute))
+	leased, err = st.LeaseSlackInput(ctx)
+	if err != nil || leased.ID != third.ID {
+		t.Fatalf("lease fresh publication = %+v, %v", leased, err)
+	}
+	newClaim, err := st.Publications.BeginReview(
+		ctx, third.ID, third.ID, task.ID, "owner/repo", "main",
+	)
+	if err != nil || newClaim.AttemptInputID != third.ID {
+		t.Fatalf("fresh publication claim = %+v, %v", newClaim, err)
+	}
+	stale := claimed
+	stale.State = core.PublicationFailed
+	stale.LastError = "late failure from old worker"
+	if err := st.SavePublication(ctx, stale); !errors.Is(err, publicationstore.ErrAttemptLost) {
+		t.Fatalf("stale attempt write = %v, want ownership refusal", err)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || stored.State != core.PublicationReviewing ||
+		stored.AttemptInputID != third.ID {
+		t.Fatalf("publication after stale write = %+v, %v", stored, err)
+	}
+}
+
+func TestPublicationClaimAndIncidentCloseAreMutuallyExclusive(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	create := func(source string) core.Incident {
+		t.Helper()
+		task, _, createErr := st.CreateEngineeringTask(
+			ctx, "repo", source, "Publish task", "summary",
+			"UOP", "COPS", "1700."+source, 100,
+		)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		return task
+	}
+
+	publishing := create("close-after-publish")
+	if _, err := st.Publications.BeginReview(
+		ctx, "publish-owner", "", publishing.ID, "owner/repo", "main",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Publications.BeginClose(
+		ctx, publishing.ID,
+	); !errors.Is(err, publicationstore.ErrCloseConflict) {
+		t.Fatalf("close during publication = %v, want conflict", err)
+	}
+
+	closing := create("publish-after-close")
+	previous, err := st.Publications.BeginClose(ctx, closing.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Publications.BeginReview(
+		ctx, "late-publish", "", closing.ID, "owner/repo", "main",
+	); !errors.Is(err, publicationstore.ErrWorkUnavailable) {
+		t.Fatalf("publication during close = %v, want unavailable", err)
+	}
+	if err := st.Publications.RestoreClose(ctx, closing.ID, previous); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRecoverInterruptedPublicationProgressUpdatesTaskCards(t *testing.T) {
+	ctx := context.Background()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	st, err := Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type createdPublication struct {
+		task  core.Incident
+		input core.SlackInput
+	}
+	create := func(source, state string, withPR, boundInput bool) createdPublication {
+		t.Helper()
+		task, _, createErr := st.CreateEngineeringTask(
+			ctx, "repo", source, "Publish task", "summary", "UOP", "COPS",
+			"1700."+source, 100,
+		)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		if err := st.BindThreadWork(ctx, task.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetRoot(ctx, task.ID, "1800."+source); err != nil {
+			t.Fatal(err)
+		}
+		publication := core.Publication{IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main"}
+		var input core.SlackInput
+		if boundInput {
+			input = core.SlackInput{
+				ID: "slack-" + source, EnvelopeID: "envelope-" + source,
+				EventID: "event-" + source, Kind: "slash", TeamID: "T1", ChannelID: "COPS",
+				UserID: "UOP", Text: "publish", ReceivedAt: time.Now().UTC(),
+			}
+			if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+				t.Fatalf("admit publication input = %t, %v", created, admitErr)
+			}
+			leased, leaseErr := st.LeaseSlackInput(ctx)
+			if leaseErr != nil || leased.ID != input.ID {
+				t.Fatalf("lease publication input = %+v, %v", leased, leaseErr)
+			}
+			publication, err = st.Publications.BeginReview(
+				ctx, input.ID, input.ID, task.ID, "owner/repo", "main",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			publication.State = core.PublicationState(state)
+		}
+		if state == "publishing" || state == "published" {
+			publication.ParentHead = "parent"
+			publication.CandidateTree = "tree"
+		}
+		if withPR {
+			publication.HeadBranch = "responder/existing"
+			publication.CommitSHA = "commit"
+			publication.RemoteSHA = "commit"
+			publication.PRNumber = 42
+			publication.PRURL = "https://github.example/owner/repo/pull/42"
+			publication.PublishedAt = time.Now().UTC()
+		}
+		if publication.State != core.PublicationState(state) || withPR {
+			if state == "published" {
+				publication.State = core.PublicationPublishing
+				if err := st.SavePublication(ctx, publication); err != nil {
+					t.Fatal(err)
+				}
+			}
+			publication.State = core.PublicationState(state)
+			if err := st.SavePublication(ctx, publication); err != nil {
+				t.Fatal(err)
+			}
+		} else if !boundInput {
+			if err := st.SavePublication(ctx, publication); err != nil {
+				t.Fatal(err)
+			}
+		}
+		task, err = st.GetIncident(ctx, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.MarkCardRendered(ctx, task.ID, task.CardVersion); err != nil {
+			t.Fatal(err)
+		}
+		return createdPublication{task: task, input: input}
+	}
+	reviewing := create("reviewing", "reviewing", false, true)
+	publishing := create("publishing", "publishing", true, true)
+	failedBeforeFinish := create("failed", "failed", false, true)
+	publishedBeforeFinish := create("published", "published", true, true)
+	orphaned := create("orphaned", "publishing", true, false)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	recoveredReview, err := st.GetPublication(ctx, reviewing.task.ID)
+	if err != nil || recoveredReview.State != "retrying" ||
+		!strings.Contains(recoveredReview.LastError, "retry is scheduled") {
+		t.Fatalf("recovered readiness review = %+v, %v", recoveredReview, err)
+	}
+	recoveredPublish, err := st.GetPublication(ctx, publishing.task.ID)
+	if err != nil || recoveredPublish.State != "retrying" || !recoveredPublish.HasPR() ||
+		!strings.Contains(recoveredPublish.LastError, "retry is scheduled") {
+		t.Fatalf("recovered publication = %+v, %v", recoveredPublish, err)
+	}
+	recoveredFailure, err := st.GetPublication(ctx, failedBeforeFinish.task.ID)
+	if err != nil || recoveredFailure.State != "failed" {
+		t.Fatalf("recovered failure before input completion = %+v, %v", recoveredFailure, err)
+	}
+	recoveredOrphan, err := st.GetPublication(ctx, orphaned.task.ID)
+	if err != nil || recoveredOrphan.State != "failed" || !recoveredOrphan.HasPR() ||
+		!strings.Contains(recoveredOrphan.LastError, "retry it from the task card") {
+		t.Fatalf("recovered orphaned publication = %+v, %v", recoveredOrphan, err)
+	}
+	for _, item := range []createdPublication{reviewing, publishing} {
+		input, inputErr := st.GetSlackInput(ctx, item.input.ID)
+		if inputErr != nil || input.State != "retry" ||
+			input.ActionID != "responder_publish_pr" || input.ActionValue != item.task.ID {
+			t.Fatalf("recovered publication input = %+v, %v", input, inputErr)
+		}
+	}
+	failedInput, err := st.GetSlackInput(ctx, failedBeforeFinish.input.ID)
+	if err != nil || failedInput.State != "done" {
+		t.Fatalf("terminal publication input was replayed = %+v, %v", failedInput, err)
+	}
+	publishedInput, err := st.GetSlackInput(ctx, publishedBeforeFinish.input.ID)
+	if err != nil || publishedInput.State != "done" {
+		t.Fatalf("published input was replayed = %+v, %v", publishedInput, err)
+	}
+	if _, err := st.GetPublicationFollowup(ctx, publishedBeforeFinish.task.ID); err != nil {
+		t.Fatalf("published restart did not restore follow-up: %v", err)
+	}
+	dirty, err := st.ListDirtyCards(ctx, 10)
+	if err != nil || len(dirty) != 3 {
+		t.Fatalf("dirty recovered task cards = %+v, %v", dirty, err)
 	}
 }
 
@@ -244,6 +642,13 @@ func TestLoadRemediationRecordAssemblesCanonicalIncidentState(t *testing.T) {
 		len(record.Approvals) != 1 ||
 		record.Publication.State != "publishing" {
 		t.Fatalf("record = %+v", record)
+	}
+	// Closing is intentionally excluded while publication owns the task. End
+	// the fixture's synthetic publication attempt before exercising the
+	// unrelated canonical-record close behavior below.
+	record.Publication.State = core.PublicationFailed
+	if err := st.SavePublication(ctx, record.Publication); err != nil {
+		t.Fatal(err)
 	}
 	if err := st.CloseIncident(ctx, incident.ID); err != nil {
 		t.Fatal(err)

@@ -34,6 +34,7 @@ const (
 	WorkflowInvestigating       WorkflowState = "investigating"
 	WorkflowParked              WorkflowState = "parked"
 	WorkflowBlocked             WorkflowState = "blocked"
+	WorkflowClosing             WorkflowState = "closing"
 	WorkflowClosed              WorkflowState = "closed"
 )
 
@@ -1438,26 +1439,44 @@ type EvaluationDecision struct {
 	CreatedAt        time.Time
 }
 
+type PublicationState string
+
+type PublicationFailureCode string
+
+const (
+	PublicationReviewing  PublicationState = "reviewing"
+	PublicationPublishing PublicationState = "publishing"
+	PublicationRetrying   PublicationState = "retrying"
+	PublicationFailed     PublicationState = "failed"
+	PublicationPublished  PublicationState = "published"
+	PublicationStale      PublicationState = "stale"
+
+	PublicationFailureNoChanges PublicationFailureCode = "no_changes"
+)
+
 type Publication struct {
-	IncidentID    string
-	Repository    string
-	BaseBranch    string
-	HeadBranch    string
-	ParentHead    string
-	CandidateTree string
-	CommitSHA     string
-	RemoteSHA     string
-	PRNumber      int
-	PRURL         string
-	State         string
-	LastError     string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	PublishedAt   time.Time
+	IncidentID     string
+	AttemptInputID string
+	Generation     int64
+	Repository     string
+	BaseBranch     string
+	HeadBranch     string
+	ParentHead     string
+	CandidateTree  string
+	CommitSHA      string
+	RemoteSHA      string
+	PRNumber       int
+	PRURL          string
+	State          PublicationState
+	FailureCode    PublicationFailureCode
+	LastError      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	PublishedAt    time.Time
 }
 
 func (p Publication) Published() bool {
-	return p.State == "published" && p.PRNumber > 0 && p.PRURL != ""
+	return p.State == PublicationPublished && p.PRNumber > 0 && p.PRURL != ""
 }
 
 func (p Publication) HasPR() bool {
@@ -1465,7 +1484,16 @@ func (p Publication) HasPR() bool {
 }
 
 func (p Publication) NeedsUpdate() bool {
-	return p.State == "stale" && p.HasPR()
+	return p.State == PublicationStale && p.HasPR()
+}
+
+func (p Publication) InProgress() bool {
+	switch p.State {
+	case PublicationReviewing, PublicationPublishing, PublicationRetrying:
+		return true
+	default:
+		return false
+	}
 }
 
 type PublicationFollowup struct {

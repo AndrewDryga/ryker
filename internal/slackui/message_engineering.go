@@ -24,6 +24,7 @@ func engineeringTaskCard(
 	repositoryName string,
 	signals []core.Signal,
 	hasCodeChanges bool,
+	codeChangesKnown bool,
 	publication core.Publication,
 ) Message {
 	workflow := workflowStateLabel(task.Workflow)
@@ -33,6 +34,14 @@ func engineeringTaskCard(
 		} else {
 			workflow = "Creating working room"
 		}
+	}
+	switch publication.State {
+	case core.PublicationReviewing:
+		workflow = "Reviewing changes"
+	case core.PublicationPublishing:
+		workflow = "Publishing draft PR"
+	case core.PublicationRetrying:
+		workflow = "Retry scheduled"
 	}
 	state := "Open"
 	if task.Status == core.IncidentClosed {
@@ -45,6 +54,9 @@ func engineeringTaskCard(
 	)
 	if task.LastError != "" {
 		fallback += " Action needed: " + truncateUTF8(escapeSlackText(task.LastError), 500)
+	}
+	if progress := publicationFallback(publication); progress != "" {
+		fallback += " " + progress
 	}
 	message := Message{
 		Text:   truncateUTF8(fallback, 4000),
@@ -60,7 +72,7 @@ func engineeringTaskCard(
 			"Continue in this thread; replies here go to the same isolated task session.",
 			"Updated " + task.UpdatedAt.UTC().Format("2006-01-02 15:04 UTC"),
 		},
-		Actions: incidentActions(task, hasCodeChanges, publication),
+		Actions: incidentActions(task, hasCodeChanges, codeChangesKnown, publication),
 	}
 	if !task.CreatedAt.IsZero() {
 		message.Fields = append(message.Fields, Field{
@@ -83,6 +95,29 @@ func engineeringTaskCard(
 		)
 	}
 	switch {
+	case publication.State == core.PublicationReviewing:
+		detail := "*Draft PR: reviewing changes*\nResponder is running a fresh Coop readiness " +
+			"review against the current task tree. The card will update automatically."
+		if publication.HasPR() {
+			detail += " The existing draft PR remains available while this update is reviewed."
+		}
+		message.Sections = append(message.Sections, detail)
+	case publication.State == core.PublicationPublishing:
+		detail := "*Draft PR: publishing*\nThe readiness review passed. Responder is recreating " +
+			"the exact reviewed tree, pushing its managed branch, and creating or updating the draft PR."
+		if publication.HasPR() {
+			detail += " The existing draft PR remains available during the update."
+		}
+		message.Sections = append(message.Sections, detail)
+	case publication.State == core.PublicationRetrying:
+		detail := "*Draft PR: retry scheduled*\nThe last attempt hit a temporary error. " +
+			"Responder retained the task and will retry automatically."
+		if publication.LastError != "" {
+			detail += "\n\nLast error: " + truncateUTF8(
+				escapeSlackText(publication.LastError), 800,
+			)
+		}
+		message.Sections = append(message.Sections, detail)
 	case publication.Published():
 		message.Sections = append(message.Sections,
 			fmt.Sprintf(
@@ -99,12 +134,17 @@ func engineeringTaskCard(
 				publication.PRURL, publication.PRNumber,
 			),
 		)
-	case publication.State == "failed":
-		message.Sections = append(message.Sections,
-			"*Draft PR needs attention*\n"+truncateUTF8(
-				escapeSlackText(publication.LastError), 800,
-			)+"\n\nCorrect the configuration or remote branch issue, then use *Retry draft PR*.",
+	case publication.State == core.PublicationFailed:
+		detail := "*Draft PR needs attention*\n" + truncateUTF8(
+			escapeSlackText(publication.LastError), 800,
 		)
+		if codeChangesKnown && !hasCodeChanges {
+			detail += "\n\nAdd or restore the intended code changes before trying again."
+		} else {
+			detail += "\n\nCorrect the blocker, then use *Retry draft PR*. Responder will " +
+				"confirm that the task still has changes before it reviews or publishes anything."
+		}
+		message.Sections = append(message.Sections, detail)
 	case !hasCodeChanges && task.CoopSessionID != "" &&
 		task.Workflow != core.WorkflowInvestigating && task.ActiveTurnID == "":
 		message.Sections = append(message.Sections,
@@ -128,6 +168,21 @@ func engineeringTaskCard(
 		message.Sections = append(sections, message.Sections[1:]...)
 	}
 	return message
+}
+
+func publicationFallback(publication core.Publication) string {
+	switch publication.State {
+	case core.PublicationReviewing:
+		return "Draft PR readiness review is in progress."
+	case core.PublicationPublishing:
+		return "Draft PR publication is in progress."
+	case core.PublicationRetrying:
+		return "Draft PR publication is waiting for an automatic retry."
+	case core.PublicationFailed:
+		return "Draft PR publication needs attention."
+	default:
+		return ""
+	}
 }
 
 func MemoryReviewMessage(item core.MemoryReviewItem, entries []core.MemoryEntry) Message {
@@ -409,20 +464,9 @@ func ReviewMessage(incident core.Incident, summary string, publishable bool) Mes
 	}
 	if publishable && incident.IsEngineeringTask() {
 		message.Context = []string{"The reviewed tree is pinned. Creating a draft PR will not merge or deploy it."}
-		message.Actions = []Action{{
-			ID: ActionPublishPR, Label: "Create draft PR", Value: incident.ID, Style: "primary",
-			Confirm: "Run a fresh readiness review, publish the exact approved tree on a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
-		}}
 	} else if !publishable && incident.IsEngineeringTask() {
 		message.Context = []string{
-			"The isolated change is preserved. Retry after transient repository movement, or ask Emisar to fix a persistent blocker.",
-		}
-		message.Actions = []Action{
-			{
-				ID: ActionPublishPR, Label: "Retry draft PR", Value: incident.ID, Style: "primary",
-				Confirm: "Run a fresh readiness review and create a draft pull request if the exact reviewed tree is safe to publish? This cannot merge or deploy.",
-			},
-			{ID: ActionRepairReview, Label: "Fix blocker", Value: incident.ID},
+			"The isolated change is preserved. Use the controls on the durable task card after correcting the blocker.",
 		}
 	}
 	return message
@@ -446,7 +490,8 @@ func WithEngineeringTaskDelivery(
 	}
 	context := "Changes are preserved in the isolated task fork. View the diff, then create a draft PR for external review."
 	publish := Action{
-		ID: ActionPublishPR, Label: "Create draft PR", Value: incident.ID, Style: "primary",
+		ID: ActionPublishPR, Label: "Create draft PR",
+		Value: PublicationActionValue(incident.ID, publication.Generation), Style: "primary",
 		Confirm: "Run Coop's readiness review, publish the exact approved tree on a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
 	}
 	if publication.HasPR() {

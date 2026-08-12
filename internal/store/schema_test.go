@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 // dumpSchema returns every user-defined object in the database, ordered so two
@@ -134,6 +136,61 @@ func TestBaselineMatchesUpgradedDeployedDatabase(t *testing.T) {
 			"baseline and upgraded schemas differ\n--- fresh ---\n%s\n--- upgraded ---\n%s",
 			freshSchema, upgradedSchema,
 		)
+	}
+}
+
+func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
+	dir := t.TempDir()
+	st := openAt(t, dir)
+	ctx := context.Background()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "publication-v60", "Publish task", "summary",
+		"UOP", "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SavePublication(ctx, core.Publication{
+		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
+		State: core.PublicationFailed, LastError: "retry publication",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetChannel(ctx, task.ID, "COPS", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkCardRendered(ctx, task.ID, task.CardVersion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`
+		UPDATE schema_version SET version = 59;
+		ALTER TABLE publications DROP COLUMN attempt_input_id;
+		ALTER TABLE publications DROP COLUMN failure_code;
+		ALTER TABLE publications DROP COLUMN generation;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	publication, err := st.GetPublication(ctx, task.ID)
+	if err != nil || publication.Generation != 1 {
+		t.Fatalf("migrated publication = %+v, %v", publication, err)
+	}
+	dirty, err := st.ListDirtyCards(ctx, 10)
+	if err != nil || len(dirty) != 1 || dirty[0].ID != task.ID {
+		t.Fatalf("migrated publication card = %+v, %v", dirty, err)
 	}
 }
 

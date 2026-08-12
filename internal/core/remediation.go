@@ -141,7 +141,7 @@ func RemediationTimeline(record RemediationRecord) []TimelineEvent {
 				Detail: publication.LastError, URL: publication.PRURL,
 				CreatedAt: publication.UpdatedAt,
 			})
-		} else if publication.State == "failed" {
+		} else if publication.State == PublicationFailed {
 			appendEvent(TimelineEvent{
 				ID: "publication:" + incident.ID + ":failed", Kind: "publication.failed",
 				ActorID: "responder", Title: "Draft PR publication failed",

@@ -15,7 +15,7 @@ func IncidentCard(
 	hasCodeChanges bool,
 ) Message {
 	return IncidentCardWithPublication(
-		incident, repositoryName, signals, hasCodeChanges, core.Publication{},
+		incident, repositoryName, signals, hasCodeChanges, true, core.Publication{},
 	)
 }
 

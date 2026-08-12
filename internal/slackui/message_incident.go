@@ -12,11 +12,12 @@ func IncidentCardWithPublication(
 	repositoryName string,
 	signals []core.Signal,
 	hasCodeChanges bool,
+	codeChangesKnown bool,
 	publication core.Publication,
 ) Message {
 	if incident.IsEngineeringTask() {
 		return engineeringTaskCard(
-			incident, repositoryName, signals, hasCodeChanges, publication,
+			incident, repositoryName, signals, hasCodeChanges, codeChangesKnown, publication,
 		)
 	}
 	status := incidentStatusLabel(incident.Status)
@@ -50,7 +51,7 @@ func IncidentCardWithPublication(
 			"Reply in this thread to collaborate with Responder.",
 			"Updated " + incident.UpdatedAt.UTC().Format("2006-01-02 15:04 UTC"),
 		},
-		Actions: incidentActions(incident, hasCodeChanges, publication),
+		Actions: incidentActions(incident, hasCodeChanges, codeChangesKnown, publication),
 	}
 	if !incident.CreatedAt.IsZero() {
 		message.Fields = append(message.Fields, Field{
@@ -285,7 +286,7 @@ func PostmortemDraft(record core.RemediationRecord) Message {
 		publication := record.Publication
 		fmt.Fprintf(
 			&body, "\n- **Draft PR:** %s",
-			escapeSlackText(strings.ReplaceAll(publication.State, "_", " ")),
+			escapeSlackText(strings.ReplaceAll(string(publication.State), "_", " ")),
 		)
 		if link := sourceLink(publication.PRURL); link != "" {
 			fmt.Fprintf(&body, " - %s", link)
@@ -366,6 +367,7 @@ func EngineeringTaskHandoff(channelID string) Message {
 func incidentActions(
 	incident core.Incident,
 	hasCodeChanges bool,
+	codeChangesKnown bool,
 	publication core.Publication,
 ) []Action {
 	if incident.RootTS == "" {
@@ -377,13 +379,14 @@ func incidentActions(
 		Confirm: "Compare the isolated changes with the current repository state, check rebase and configured validation and policy gates, and report whether the fix is ready for external review. This does not merge, push, sign, or deploy.",
 	}
 	publish := Action{
-		ID: ActionPublishPR, Label: "Create draft PR", Value: incident.ID, Style: "primary",
+		ID: ActionPublishPR, Label: "Create draft PR",
+		Value: PublicationActionValue(incident.ID, publication.Generation), Style: "primary",
 		Confirm: "Run a fresh Coop readiness review, recreate the exact approved tree in an isolated checkout, push a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
 	}
 	if publication.Published() || publication.NeedsUpdate() {
 		publish.Label = "Update draft PR"
 		publish.Confirm = "Run a fresh Coop readiness review and update the existing Responder draft PR using lease-protected branch publication? This cannot merge or deploy."
-	} else if publication.State == "failed" {
+	} else if publication.State == core.PublicationFailed {
 		publish.Label = "Retry draft PR"
 	}
 	viewPR := Action{
@@ -404,20 +407,24 @@ func incidentActions(
 		}
 	}
 	if incident.Status == core.IncidentClosed {
+		actions := make([]Action, 0, 3)
 		if hasCodeChanges {
-			actions := []Action{changes}
-			if publication.Published() {
-				actions = append(actions, viewPR, checkDelivery)
-			} else if incident.IsEngineeringTask() {
-				actions = append(actions, Action{
-					ID: ActionDiscardWork, Label: "Discard retained work",
-					Value: incident.ID, Style: "danger",
-					Confirm: "Permanently delete this closed task's unpublished committed work and isolated Coop state? This cannot be undone. Dirty uncommitted work is never discarded.",
-				})
-			}
-			return actions
+			actions = append(actions, changes)
 		}
-		return nil
+		if publication.HasPR() {
+			actions = append(actions, viewPR)
+			if publication.Published() {
+				actions = append(actions, checkDelivery)
+			}
+		}
+		if hasCodeChanges && !publication.Published() && incident.IsEngineeringTask() {
+			actions = append(actions, Action{
+				ID: ActionDiscardWork, Label: "Discard retained work",
+				Value: incident.ID, Style: "danger",
+				Confirm: "Permanently delete this closed task's unpublished committed work and isolated Coop state? This cannot be undone. Dirty uncommitted work is never discarded.",
+			})
+		}
+		return actions
 	}
 	if incident.CoopSessionID == "" {
 		return []Action{closeIncident}
@@ -431,6 +438,36 @@ func incidentActions(
 			actions = append(actions, changes)
 		}
 		return actions
+	}
+	if publication.InProgress() {
+		actions := make([]Action, 0, 2)
+		if incident.CoopSessionID != "" {
+			actions = append(actions, changes)
+		}
+		if publication.HasPR() {
+			actions = append(actions, viewPR)
+		}
+		return actions
+	}
+	if publication.State == core.PublicationFailed {
+		if codeChangesKnown && !hasCodeChanges {
+			actions := make([]Action, 0, 2)
+			if publication.HasPR() {
+				actions = append(actions, viewPR)
+			}
+			return append(actions, closeIncident)
+		}
+		actions := []Action{changes, publish}
+		if publication.HasPR() {
+			actions = append(actions, viewPR)
+		}
+		return append(actions, closeIncident)
+	}
+	if publication.Published() && !hasCodeChanges {
+		return []Action{viewPR, checkDelivery, closeIncident}
+	}
+	if publication.NeedsUpdate() {
+		return []Action{changes, publish, viewPR, closeIncident}
 	}
 	if incident.Workflow == core.WorkflowInvestigating {
 		actions := make([]Action, 0, 1)
@@ -451,10 +488,11 @@ func incidentActions(
 		actions = append(actions, review)
 		if incident.IsEngineeringTask() {
 			actions = append(actions, publish)
-			if publication.Published() {
-				actions = append(actions, viewPR, checkDelivery)
-			} else if publication.NeedsUpdate() {
+			if publication.HasPR() {
 				actions = append(actions, viewPR)
+				if publication.Published() {
+					actions = append(actions, checkDelivery)
+				}
 			}
 		}
 	}

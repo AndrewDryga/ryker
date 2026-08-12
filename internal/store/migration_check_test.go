@@ -189,6 +189,9 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		ALTER TABLE incidents DROP COLUMN latest_update;
+		ALTER TABLE publications DROP COLUMN attempt_input_id;
+		ALTER TABLE publications DROP COLUMN failure_code;
+		ALTER TABLE publications DROP COLUMN generation;
 		DROP TABLE quality_findings;
 		DROP TABLE conversation_memory_changes;`); err != nil {
 		t.Fatal(err)
@@ -296,6 +299,9 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		ALTER TABLE incidents DROP COLUMN latest_update;
+		ALTER TABLE publications DROP COLUMN attempt_input_id;
+		ALTER TABLE publications DROP COLUMN failure_code;
+		ALTER TABLE publications DROP COLUMN generation;
 		DROP TABLE conversation_memory_changes;
 		CREATE TABLE action_proposals (
 		  id TEXT PRIMARY KEY,

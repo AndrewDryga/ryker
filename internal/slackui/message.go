@@ -773,6 +773,8 @@ func workflowStateLabel(workflow core.WorkflowState) string {
 		return "Waiting for input"
 	case core.WorkflowBlocked:
 		return "Needs operator action"
+	case core.WorkflowClosing:
+		return "Closing task"
 	case core.WorkflowClosed:
 		return "Closed"
 	default:
@@ -1055,4 +1057,28 @@ func BaseActionID(actionID string) string {
 		}
 	}
 	return actionID
+}
+
+const publicationActionValueSeparator = "~publication-"
+
+// PublicationActionValue binds a publication control to the durable
+// publication generation that rendered it. A later attempt increments that
+// generation, making every older button harmless even though Slack may still
+// deliver a click from its pre-update view of the message.
+func PublicationActionValue(incidentID string, generation int64) string {
+	return incidentID + publicationActionValueSeparator + strconv.FormatInt(generation, 10)
+}
+
+func DecodePublicationActionValue(value string) (string, int64, bool) {
+	index := strings.LastIndex(value, publicationActionValueSeparator)
+	if index <= 0 {
+		return value, 0, false
+	}
+	generation, err := strconv.ParseInt(
+		value[index+len(publicationActionValueSeparator):], 10, 64,
+	)
+	if err != nil || generation < 0 {
+		return "", 0, false
+	}
+	return value[:index], generation, true
 }

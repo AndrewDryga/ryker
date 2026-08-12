@@ -8,100 +8,20 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 func (s *Store) GetPublication(ctx context.Context, incidentID string) (core.Publication, error) {
-	var item core.Publication
-	var created, updated string
-	var published sql.NullString
-	err := s.db.QueryRowContext(ctx, `
-		SELECT incident_id, repository, base_branch, head_branch, parent_head,
-		  candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
-		  last_error, created_at, updated_at, published_at
-		FROM publications WHERE incident_id = ?`, incidentID).Scan(
-		&item.IncidentID, &item.Repository, &item.BaseBranch, &item.HeadBranch,
-		&item.ParentHead, &item.CandidateTree, &item.CommitSHA, &item.RemoteSHA,
-		&item.PRNumber, &item.PRURL, &item.State, &item.LastError, &created,
-		&updated, &published,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
+	item, err := s.Publications.Get(ctx, incidentID)
+	if errors.Is(err, publicationstore.ErrNotFound) {
 		return core.Publication{}, ErrNotFound
 	}
-	if err != nil {
-		return core.Publication{}, err
-	}
-	item.CreatedAt = sqlutil.ParseTime(created)
-	item.UpdatedAt = sqlutil.ParseTime(updated)
-	item.PublishedAt = sqlutil.ScanTime(published)
-	return item, nil
+	return item, err
 }
 
 func (s *Store) SavePublication(ctx context.Context, item core.Publication) error {
-	if item.IncidentID == "" || item.Repository == "" || item.BaseBranch == "" ||
-		item.ParentHead == "" || item.CandidateTree == "" {
-		return errors.New("publication identity, reviewed tree, and state are required")
-	}
-	switch item.State {
-	case "publishing", "failed":
-	case "published", "stale":
-		if item.HeadBranch == "" || item.CommitSHA == "" || item.RemoteSHA == "" ||
-			item.PRNumber < 1 || item.PRURL == "" || item.PublishedAt.IsZero() {
-			return errors.New("durable draft PR identity and proof are required")
-		}
-	default:
-		return fmt.Errorf("publication state %q is invalid", item.State)
-	}
-	now := s.now().UTC()
-	if item.CreatedAt.IsZero() {
-		item.CreatedAt = now
-	}
-	item.UpdatedAt = now
-	var published any
-	if !item.PublishedAt.IsZero() {
-		published = item.PublishedAt.UTC().Format(timestampFormat)
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO publications (
-		  incident_id, repository, base_branch, head_branch, parent_head,
-		  candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
-		  last_error, created_at, updated_at, published_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(incident_id) DO UPDATE SET
-		  repository = excluded.repository,
-		  base_branch = excluded.base_branch,
-		  head_branch = excluded.head_branch,
-		  parent_head = excluded.parent_head,
-		  candidate_tree = excluded.candidate_tree,
-		  commit_sha = excluded.commit_sha,
-		  remote_sha = excluded.remote_sha,
-		  pr_number = excluded.pr_number,
-		  pr_url = excluded.pr_url,
-		  state = excluded.state,
-		  last_error = excluded.last_error,
-		  updated_at = excluded.updated_at,
-		  published_at = excluded.published_at`,
-		item.IncidentID, item.Repository, item.BaseBranch, item.HeadBranch,
-		item.ParentHead, item.CandidateTree, item.CommitSHA, item.RemoteSHA,
-		item.PRNumber, item.PRURL, item.State, item.LastError,
-		item.CreatedAt.UTC().Format(timestampFormat), item.UpdatedAt.Format(timestampFormat),
-		published,
-	)
-	if err != nil {
-		return err
-	}
-	result, err := tx.ExecContext(ctx, `
-		UPDATE incidents SET updated_at = ?, card_version = card_version + 1
-		WHERE id = ?`, now.Format(timestampFormat), item.IncidentID)
-	if err := sqlutil.ExpectOne(result, err, "mark publication on incident"); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return s.Publications.Save(ctx, item)
 }
 
 func (s *Store) MarkPublicationStale(
@@ -109,39 +29,7 @@ func (s *Store) MarkPublicationStale(
 	incidentID string,
 	reason string,
 ) (bool, error) {
-	if incidentID == "" || reason == "" {
-		return false, errors.New("stale publication identity and reason are required")
-	}
-	now := s.nowText()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `
-		UPDATE publications
-		SET state = 'stale', last_error = ?, updated_at = ?
-		WHERE incident_id = ? AND state = 'published'`,
-		reason, now, incidentID,
-	)
-	if err != nil {
-		return false, err
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-	if changed == 0 {
-		return false, tx.Commit()
-	}
-	result, err = tx.ExecContext(ctx, `
-		UPDATE incidents
-		SET updated_at = ?, card_version = card_version + 1
-		WHERE id = ?`, now, incidentID)
-	if err := sqlutil.ExpectOne(result, err, "mark stale publication on incident"); err != nil {
-		return false, err
-	}
-	return true, tx.Commit()
+	return s.Publications.MarkStale(ctx, incidentID, reason)
 }
 
 func (s *Store) ScheduleCleanup(

@@ -422,6 +422,22 @@ Card buttons change with state rather than presenting actions that cannot succee
   files;
 - waiting for input: **Ask agent for update**, **Close incident**, and change controls only when
   Coop reports changed files;
+- reviewing or publishing a draft PR: the card activity names the current publication stage,
+  keeps **View diff** and any existing **Open PR** link, and hides review, publish, update, and
+  close controls until the attempt finishes. Rendering this progress does not wait for another
+  Coop change inspection;
+- automatic publication retry: the card shows the bounded last error and that retry ownership
+  belongs to Responder, preserves **View diff** and any existing **Open PR** link, and offers no
+  conflicting manual action;
+- recoverable terminal publication failure: **Retry draft PR**, **View diff**, any existing
+  **Open PR** link, and **Close task** remain available even when a fresh Coop change inspection
+  is temporarily unavailable. Retry confirms that changes still exist before reviewing or
+  publishing. A confirmed no-change failure omits the impossible retry and diff controls;
+- stale draft PR: **View diff**, **Update draft PR**, **Open PR**, and **Close task** render from
+  durable publication state without waiting for a fresh Coop inspection. Update rechecks the
+  current task tree before review or publication;
+- published draft PR: **Open PR** and **Check delivery** remain available independently of a
+  transient Coop inspection failure;
 - safety-ceiling blocked: **Close incident**, an action-needed explanation with the exact
   `/responder turn-limit` command, and change controls only when Coop reports changed files;
 - closed: read-only change controls only when the preserved working copy contains changed files;

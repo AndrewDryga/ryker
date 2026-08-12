@@ -15,8 +15,10 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 )
 
 type frozenAction struct {
@@ -63,6 +65,9 @@ func changesActionIncidentID(actionID string, value string) (string, bool) {
 	switch actionID {
 	case slackui.ActionChanges:
 		return value, value != ""
+	case slackui.ActionPublishPR:
+		incidentID, _, _ := slackui.DecodePublicationActionValue(value)
+		return incidentID, incidentID != ""
 	case slackui.ActionChangesPrevious,
 		slackui.ActionChangesNext,
 		slackui.ActionChangesRefresh:
@@ -488,7 +493,11 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	var incident core.Incident
 	var incidentErr error
 	if input.Kind == "action" {
-		incident, incidentErr = s.store.GetIncident(ctx, input.ActionValue)
+		incidentID := input.ActionValue
+		if input.ActionID == slackui.ActionPublishPR {
+			incidentID, _, _ = slackui.DecodePublicationActionValue(input.ActionValue)
+		}
+		incident, incidentErr = s.store.GetIncident(ctx, incidentID)
 	} else {
 		incident, incidentErr = s.store.FindIncidentForConversation(
 			ctx,
@@ -1361,11 +1370,11 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	review := publicationReview(rawReview)
+	review := publicationreview.NormalizeReview(rawReview)
 	err = s.updateEngineeringTaskCard(
 		ctx,
 		incident,
-		slackui.ReviewMessage(incident, reviewSummary(rawReview), review.Publishable),
+		slackui.ReviewMessage(incident, publicationreview.ReviewSummary(rawReview), review.Publishable),
 		nil,
 	)
 	if err != nil {
@@ -1414,6 +1423,25 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 				"*Stop current run* and wait for it to stop, then close it again. "+
 				"No work or evidence was discarded.")
 	}
+	previousWorkflow, err := s.store.Publications.BeginClose(ctx, incident.ID)
+	if errors.Is(err, publicationstore.ErrCloseConflict) {
+		return s.refuseControl(ctx, input, incident,
+			"*The "+noun+" was not closed because draft PR work is still active.* "+
+				"Wait for the task card to show success, retry, or terminal failure, then close it.")
+	}
+	if err != nil {
+		return err
+	}
+	closing := true
+	defer func() {
+		if closing {
+			if restoreErr := s.store.Publications.RestoreClose(
+				context.WithoutCancel(ctx), incident.ID, previousWorkflow,
+			); restoreErr != nil {
+				s.log.Error("restore failed incident close", "incident", incident.ID, "error", restoreErr)
+			}
+		}
+	}()
 	if incident.CoopSessionID != "" {
 		action, err := s.freezeAction(ctx, input, incident, false)
 		if err != nil {
@@ -1442,6 +1470,7 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 	if err := s.store.CloseIncident(ctx, incident.ID); err != nil {
 		return err
 	}
+	closing = false
 	auditKind := "incident.close"
 	timelineKind := "incident.closed"
 	timelineTitle := "Incident closed"
@@ -1560,6 +1589,14 @@ func (s *Service) incidentControlMatchesMessage(
 		input.MessageTS == "" {
 		return false, nil
 	}
+	if input.ActionID == slackui.ActionPublishPR {
+		matches, err := s.publicationControlGenerationMatches(
+			ctx, input.ID, input.ActionValue, incident.ID,
+		)
+		if err != nil || !matches {
+			return matches, err
+		}
+	}
 	if input.MessageTS == incident.RootTS {
 		return true, nil
 	}
@@ -1591,6 +1628,29 @@ func (s *Service) incidentControlMatchesMessage(
 	return false, nil
 }
 
+func (s *Service) publicationControlGenerationMatches(
+	ctx context.Context,
+	inputID string,
+	value string,
+	incidentID string,
+) (bool, error) {
+	actionIncidentID, generation, versioned := slackui.DecodePublicationActionValue(value)
+	if actionIncidentID != incidentID {
+		return false, nil
+	}
+	publication, err := s.store.GetPublication(ctx, incidentID)
+	if errors.Is(err, store.ErrNotFound) {
+		return !versioned || generation == 0, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !versioned {
+		return publication.AttemptInputID == inputID && publication.InProgress(), nil
+	}
+	return publication.Generation == generation, nil
+}
+
 // retrySlackInput records a failed attempt at a Slack input and decides whether
 // to try again.
 //
@@ -1605,6 +1665,71 @@ func (s *Service) incidentControlMatchesMessage(
 // product, so it is now logged every attempt and audited when it stops.
 func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, err error) error {
 	attempt := input.Failures + 1
+	terminal := s.slackInputFailureIsTerminal(input, err, attempt)
+	persistCtx, cancel := publicationPersistenceContext(ctx)
+	defer cancel()
+	if stored, loadErr := s.store.GetSlackInput(persistCtx, input.ID); loadErr == nil {
+		input.ActionID = stored.ActionID
+		input.ActionValue = stored.ActionValue
+	}
+	detail := trimError(err)
+	if slackui.BaseActionID(input.ActionID) == slackui.ActionPublishPR {
+		detail = safePublicationError(s, err)
+		state := core.PublicationRetrying
+		if terminal {
+			state = core.PublicationFailed
+		}
+		if transitionErr := s.recordPublicationAttemptFailure(
+			persistCtx, input.ActionValue, input.ID, state, err,
+		); transitionErr != nil {
+			s.log.Error(
+				"record draft PR attempt failure",
+				"input", input.ID,
+				"incident", input.ActionValue,
+				"state", state,
+				"error", trimError(transitionErr),
+			)
+		}
+	}
+	record := s.log.Warn
+	if terminal {
+		record = s.log.Error
+	}
+	record(
+		"Slack input attempt failed",
+		"input", input.ID,
+		"kind", input.Kind,
+		"channel", input.ChannelID,
+		"action", input.ActionID,
+		"user", input.UserID,
+		"attempt", attempt,
+		"gave_up", terminal,
+		"error", detail,
+	)
+	if updateErr := s.store.RetrySlackInputFailure(
+		persistCtx,
+		input.ID,
+		detail,
+		s.queueDelay(attempt),
+		terminal,
+	); updateErr != nil {
+		return updateErr
+	}
+	if terminal {
+		s.audit(persistCtx, core.AuditEvent{
+			Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: "abandoned", Detail: input.Kind + ": " + detail,
+		})
+		s.reportAbandonedInput(persistCtx, input, err)
+	}
+	return nil
+}
+
+func (s *Service) slackInputFailureIsTerminal(
+	input core.SlackInput,
+	err error,
+	attempt int,
+) bool {
 	terminal := terminalAttempt(attempt, s.cfg.Limits.MaxSlackInputAttempts)
 	var apiErr *coop.APIError
 	if errors.As(err, &apiErr) && !apiErr.Retryable() {
@@ -1622,35 +1747,7 @@ func (s *Service) retrySlackInput(ctx context.Context, input core.SlackInput, er
 	if surfaceRefreshInput(input.Kind) && terminalAttempt(attempt, surfaceRefreshAttempts) {
 		terminal = true
 	}
-	record := s.log.Warn
-	if terminal {
-		record = s.log.Error
-	}
-	record(
-		"Slack input attempt failed",
-		"input", input.ID,
-		"kind", input.Kind,
-		"channel", input.ChannelID,
-		"action", input.ActionID,
-		"user", input.UserID,
-		"attempt", attempt,
-		"gave_up", terminal,
-		"error", trimError(err),
-	)
-	if terminal {
-		s.audit(ctx, core.AuditEvent{
-			Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
-			Outcome: "abandoned", Detail: input.Kind + ": " + trimError(err),
-		})
-		s.reportAbandonedInput(ctx, input, err)
-	}
-	return s.store.RetrySlackInputFailure(
-		ctx,
-		input.ID,
-		trimError(err),
-		s.queueDelay(attempt),
-		terminal,
-	)
+	return terminal
 }
 
 // reportAbandonedInput tells whoever asked that their request will not happen.

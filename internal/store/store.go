@@ -17,6 +17,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
+	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 	"github.com/AndrewDryga/responder/internal/store/taskcardstore"
@@ -64,6 +65,8 @@ type Store struct {
 	Behavior *behaviorstore.Repository
 	// TaskCards owns the single mutable Slack surface for engineering work.
 	TaskCards *taskcardstore.Repository
+	// Publications owns atomic publication-attempt acquisition.
+	Publications *publicationstore.Repository
 }
 
 type Metrics struct {
@@ -582,8 +585,6 @@ func (s *Store) RecoverInterrupted(ctx context.Context) error {
 		    );
 		UPDATE webhook_events SET state = 'retry', next_attempt_at = updated_at
 		  WHERE state = 'processing';
-		UPDATE slack_inputs SET state = 'retry', next_attempt_at = updated_at
-		  WHERE state = 'processing';
 			UPDATE agent_runs SET state = 'pending', next_attempt_at = updated_at
 			  WHERE state = 'preparing';
 			UPDATE agent_runs SET state = 'applying', next_attempt_at = updated_at
@@ -593,12 +594,16 @@ func (s *Store) RecoverInterrupted(ctx context.Context) error {
 		      last_error = 'process stopped during Slack delivery',
 		      next_attempt_at = updated_at
 		  WHERE state = 'sending';
-		UPDATE publications SET state = 'failed',
-		  last_error = 'Responder stopped during draft PR publication',
-		  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-		  WHERE state = 'publishing';
 	`); err != nil {
 		return fmt.Errorf("recover interrupted work: %w", err)
+	}
+	if err := s.Publications.RecoverInterrupted(ctx); err != nil {
+		return fmt.Errorf("recover interrupted publication: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE slack_inputs SET state = 'retry', next_attempt_at = updated_at
+		WHERE state = 'processing'`); err != nil {
+		return fmt.Errorf("recover interrupted Slack inputs: %w", err)
 	}
 	if err := s.RecoverWorkLeases(ctx, s.now().UTC()); err != nil {
 		return fmt.Errorf("recover scheduled work: %w", err)
@@ -1051,6 +1056,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.Intelligence = intelligencestore.New(db, clock)
 	s.Behavior = behaviorstore.New(db, clock)
 	s.TaskCards = taskcardstore.New(db, clock)
+	s.Publications = publicationstore.New(db, clock)
 }
 
 // SetClock replaces the store clock. It exists for tests.
@@ -2010,7 +2016,11 @@ func (s *Store) CloseIncident(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET status = 'closed', workflow = 'closed', closed_at = ?,
 		  updated_at = ?, card_version = card_version + 1, active_turn_id = ''
-		WHERE id = ? AND status != 'closed'`, s.nowText(), s.nowText(), id)
+		WHERE id = ? AND status != 'closed' AND NOT EXISTS (
+		  SELECT 1 FROM publications
+		  WHERE incident_id = incidents.id
+		    AND state IN ('reviewing', 'publishing', 'retrying')
+		)`, s.nowText(), s.nowText(), id)
 	return sqlutil.ExpectOne(result, err, "close incident")
 }
 

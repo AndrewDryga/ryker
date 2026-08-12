@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,8 +131,18 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGat
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.processCard(ctx); err != nil {
-		t.Fatal(err)
+	terminalChanges := make(chan struct{})
+	coopClient.releaseChanges = terminalChanges
+	t.Cleanup(func() { close(terminalChanges) })
+	cardDone := make(chan error, 1)
+	go func() { cardDone <- svc.processCard(ctx) }()
+	select {
+	case err := <-cardDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("published card waited on terminal Coop change inspection")
 	}
 	drainSlackDeliveries(t, ctx, svc)
 
@@ -170,6 +181,180 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGat
 	if len(slackClient.statuses) == 0 ||
 		slackClient.statuses[len(slackClient.statuses)-1].text != "" {
 		t.Fatalf("publication pending status = %+v", slackClient.statuses)
+	}
+}
+
+func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.Path = t.TempDir()
+	repository.GitHubRepository = "owner/repository"
+	repository.GitHubBaseBranch = "main"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "EvPublicationProgress", "Publish progress", "Publish this change.",
+		cfg.Slack.Operators[0], "COPS", "1700.400", cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.401"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_progress", "task-progress", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reviewStarted := make(chan struct{}, 1)
+	releaseReview := make(chan struct{})
+	changesStarted := make(chan struct{}, 1)
+	releaseChanges := make(chan struct{})
+	publishStarted := make(chan struct{}, 1)
+	releasePublish := make(chan struct{})
+	var releaseChangesOnce sync.Once
+	var releaseReviewOnce sync.Once
+	var releasePublishOnce sync.Once
+	t.Cleanup(func() {
+		releaseChangesOnce.Do(func() { close(releaseChanges) })
+		releaseReviewOnce.Do(func() { close(releaseReview) })
+		releasePublishOnce.Do(func() { close(releasePublish) })
+	})
+	baseCoop := newFakeCoop()
+	baseCoop.session.ID = "ses_progress"
+	baseCoop.session.ForkName = "task-progress"
+	baseCoop.session.Revision = 1
+	coopClient := &publicationCoop{
+		fakeCoop: baseCoop,
+		changes: coop.Changes{
+			ParentHead: "parent-head",
+			Unstaged:   []coop.Change{{Path: "service.go", Status: "modified"}},
+			Patch:      []byte("+progress\n"),
+		},
+		review: coop.Review{
+			SessionID: "ses_progress", SessionRevision: 1,
+			ParentHead: "parent-head", CandidateTree: "candidate-tree",
+			Rebase: "clean", Gate: "passed", Patch: []byte("+progress\n"),
+			Publishable: true,
+		},
+		reviewStarted:  reviewStarted,
+		releaseReview:  releaseReview,
+		changesStarted: changesStarted,
+		releaseChanges: releaseChanges,
+	}
+	publisherClient := &recordingPublisher{
+		result: publisher.Result{
+			HeadBranch: "responder/publication-progress", CommitSHA: "commit-sha",
+			RemoteSHA: "commit-sha", PRNumber: 43,
+			PRURL: "https://github.example/owner/repository/pull/43",
+		},
+		publishStarted: publishStarted,
+		releasePublish: releasePublish,
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.SetPublisher(publisherClient)
+	input := core.SlackInput{
+		ID: "slack_publication_progress", EnvelopeID: "env_publication_progress",
+		EventID: "event_publication_progress", Kind: "action", TeamID: cfg.Slack.TeamID,
+		ChannelID: task.ChannelID, MessageTS: task.RootTS,
+		ThreadTS: task.ConversationThreadTS(), UserID: cfg.Slack.Operators[0],
+		ActionID: slackui.ActionPublishPR, ActionValue: task.ID,
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, input); err != nil || !admitted {
+		t.Fatalf("admit publish action = %t, %v", admitted, err)
+	}
+	processed := make(chan error, 1)
+	go func() { processed <- svc.processSlackInput(ctx) }()
+
+	waitFor := func(stage string, ready <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-ready:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for publication stage %s", stage)
+		}
+	}
+	assertCard := func(state, text string) {
+		t.Helper()
+		publication, err := st.GetPublication(ctx, task.ID)
+		if err != nil || publication.State != core.PublicationState(state) {
+			t.Fatalf("%s publication = %+v, %v", state, publication, err)
+		}
+		if err := svc.processCard(ctx); err != nil {
+			t.Fatal(err)
+		}
+		drainSlackDeliveries(t, ctx, svc)
+		card := slackClient.updates[len(slackClient.updates)-1].message
+		rendered := card.Text + "\n" + strings.Join(card.Sections, "\n")
+		if !strings.Contains(rendered, text) {
+			t.Fatalf("%s card lacks %q: %+v", state, text, card)
+		}
+		if strings.Contains(rendered, "Waiting for input") {
+			t.Fatalf("%s card contradicts its progress state: %+v", state, card)
+		}
+		for _, action := range card.Actions {
+			if slices.Contains([]string{
+				slackui.ActionUpdate, slackui.ActionReview,
+				slackui.ActionPublishPR, slackui.ActionResolve,
+			}, action.ID) {
+				t.Fatalf("%s card retained conflicting control %+v", state, action)
+			}
+		}
+	}
+
+	// Progress is durable before the first Coop read. Keep that read blocked and
+	// prove the card worker does not wait on the integration it is reporting.
+	waitFor("reviewing", changesStarted)
+	assertCard("reviewing", "reviewing changes")
+	releaseChangesOnce.Do(func() { close(releaseChanges) })
+	waitFor("readiness review", reviewStarted)
+	releaseReviewOnce.Do(func() { close(releaseReview) })
+	waitFor("publishing", publishStarted)
+	assertCard("publishing", "Draft PR: publishing")
+	releasePublishOnce.Do(func() { close(releasePublish) })
+	select {
+	case err := <-processed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for draft PR publication")
+	}
+	if err := svc.processCard(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	publication, err := st.GetPublication(ctx, task.ID)
+	if err != nil || !publication.Published() {
+		t.Fatalf("published record = %+v, %v", publication, err)
+	}
+	final := slackClient.updates[len(slackClient.updates)-1].message
+	if !strings.Contains(strings.Join(final.Sections, "\n"), "Draft PR ready") {
+		t.Fatalf("final publication card = %+v", final)
+	}
+	for _, actionID := range []string{slackui.ActionViewPR, slackui.ActionCheckDelivery} {
+		if !slices.ContainsFunc(final.Actions, func(action slackui.Action) bool {
+			return action.ID == actionID
+		}) {
+			t.Fatalf("published card lacks %s after skipped Coop inspection: %+v", actionID, final)
+		}
 	}
 }
 
@@ -892,22 +1077,54 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 
 type publicationCoop struct {
 	*fakeCoop
-	changes  coop.Changes
-	review   coop.Review
-	artifact coop.ReviewPatchArtifact
+	changes        coop.Changes
+	changesErr     error
+	changesStarted chan<- struct{}
+	releaseChanges <-chan struct{}
+	review         coop.Review
+	reviewErr      error
+	reviewStarted  chan<- struct{}
+	releaseReview  <-chan struct{}
+	artifact       coop.ReviewPatchArtifact
 }
 
-func (f *publicationCoop) Changes(context.Context, string) (coop.Changes, error) {
-	return f.changes, nil
+func (f *publicationCoop) Changes(ctx context.Context, _ string) (coop.Changes, error) {
+	if f.changesStarted != nil {
+		select {
+		case f.changesStarted <- struct{}{}:
+		default:
+		}
+	}
+	if f.releaseChanges != nil {
+		select {
+		case <-ctx.Done():
+			return coop.Changes{}, ctx.Err()
+		case <-f.releaseChanges:
+		}
+	}
+	return f.changes, f.changesErr
 }
 
 func (f *publicationCoop) Review(
-	context.Context,
-	string,
-	string,
-	int64,
+	ctx context.Context,
+	_ string,
+	_ string,
+	_ int64,
 ) (coop.Review, coop.Operation, error) {
-	return f.review, coop.Operation{}, nil
+	if f.reviewStarted != nil {
+		select {
+		case f.reviewStarted <- struct{}{}:
+		default:
+		}
+	}
+	if f.releaseReview != nil {
+		select {
+		case <-ctx.Done():
+			return coop.Review{}, coop.Operation{}, ctx.Err()
+		case <-f.releaseReview:
+		}
+	}
+	return f.review, coop.Operation{}, f.reviewErr
 }
 
 func (f *publicationCoop) ReviewPatch(
@@ -948,9 +1165,12 @@ func TestCompleteReviewPatchFetchesAndVerifiesArtifact(t *testing.T) {
 }
 
 type recordingPublisher struct {
-	request      publisher.Request
-	result       publisher.Result
-	publishCalls int
+	request        publisher.Request
+	result         publisher.Result
+	publishCalls   int
+	publishErr     error
+	publishStarted chan<- struct{}
+	releasePublish <-chan struct{}
 }
 
 func (f *recordingPublisher) Enabled() bool {
@@ -968,12 +1188,25 @@ func (f *recordingPublisher) HeadBranch(
 }
 
 func (f *recordingPublisher) Publish(
-	_ context.Context,
+	ctx context.Context,
 	request publisher.Request,
 ) (publisher.Result, error) {
 	f.publishCalls++
 	f.request = request
-	return f.result, nil
+	if f.publishStarted != nil {
+		select {
+		case f.publishStarted <- struct{}{}:
+		default:
+		}
+	}
+	if f.releasePublish != nil {
+		select {
+		case <-ctx.Done():
+			return publisher.Result{}, ctx.Err()
+		case <-f.releasePublish:
+		}
+	}
+	return f.result, f.publishErr
 }
 
 func (f *recordingPublisher) VerifyPublication(context.Context, core.Publication) error {

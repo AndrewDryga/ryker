@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,12 +13,14 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
+	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
 func TestReviewSummaryTreatsMissingGateAsRecommendation(t *testing.T) {
-	summary := reviewSummary(coop.Review{
+	summary := publicationreview.ReviewSummary(coop.Review{
 		Gate:   "none",
 		Rebase: "clean",
 		NotPublishableReasons: []string{
@@ -42,7 +45,7 @@ func TestReviewSummaryTreatsMissingGateAsRecommendation(t *testing.T) {
 }
 
 func TestPublicationReviewDoesNotHideRealBlockers(t *testing.T) {
-	review := publicationReview(coop.Review{
+	review := publicationreview.NormalizeReview(coop.Review{
 		Gate:      "none",
 		Rebase:    "conflict",
 		GateError: "",
@@ -56,7 +59,7 @@ func TestPublicationReviewDoesNotHideRealBlockers(t *testing.T) {
 		t.Fatalf("ungated review hid blocker = %+v", review)
 	}
 
-	review = publicationReview(coop.Review{
+	review = publicationreview.NormalizeReview(coop.Review{
 		Gate: "none", Rebase: "clean",
 		NotPublishableReasons: []string{"gate_not_configured"},
 		PolicyFindings:        []string{"generated file is not allowed"},
@@ -65,7 +68,7 @@ func TestPublicationReviewDoesNotHideRealBlockers(t *testing.T) {
 		t.Fatalf("ungated review ignored policy finding = %+v", review)
 	}
 
-	review = publicationReview(coop.Review{
+	review = publicationreview.NormalizeReview(coop.Review{
 		Gate: "failed", Rebase: "clean", GateError: "missing tflint",
 		NotPublishableReasons: []string{"gate_failed", "gate_modified_candidate"},
 	})
@@ -74,14 +77,14 @@ func TestPublicationReviewDoesNotHideRealBlockers(t *testing.T) {
 		t.Fatalf("gate environment failure blocked draft review = %+v", review)
 	}
 
-	review = publicationReview(coop.Review{
+	review = publicationreview.NormalizeReview(coop.Review{
 		Gate: "startup_error", Rebase: "clean", GateError: "tflint not installed",
 	})
 	if !review.Publishable || len(review.NotPublishableReasons) != 0 {
 		t.Fatalf("gate state without a reason code blocked draft review = %+v", review)
 	}
 
-	review = publicationReview(coop.Review{
+	review = publicationreview.NormalizeReview(coop.Review{
 		Gate: "failed", Rebase: "conflict", GateError: "missing tflint",
 		NotPublishableReasons: []string{"gate_failed", "rebase_conflict"},
 	})
@@ -101,7 +104,7 @@ func TestPublicationReviewIgnoresOnlyPreExistingPolicyFindings(t *testing.T) {
 		"+const mode = \"balanced\"\n" +
 		" const database = \"postgres://user:password@example.test/db\"\n" +
 		" const safe = true\n")
-	review := publicationReview(coop.Review{
+	review := publicationreview.NormalizeReview(coop.Review{
 		Gate: "failed", Rebase: "clean", Patch: patch,
 		PolicyFindings: []string{
 			"possible secret in tools/test.go:3 (password in a connection-string URL)",
@@ -112,7 +115,7 @@ func TestPublicationReviewIgnoresOnlyPreExistingPolicyFindings(t *testing.T) {
 		len(review.NotPublishableReasons) != 0 {
 		t.Fatalf("pre-existing policy finding blocked draft = %+v", review)
 	}
-	summary := reviewSummary(coop.Review{
+	summary := publicationreview.ReviewSummary(coop.Review{
 		Gate: "failed", Rebase: "clean", Patch: patch,
 		PolicyFindings: []string{
 			"possible secret in tools/test.go:3 (password in a connection-string URL)",
@@ -129,7 +132,7 @@ func TestPublicationReviewIgnoresOnlyPreExistingPolicyFindings(t *testing.T) {
 		"+const database = \"postgres://user:password@example.test/db\"",
 		1,
 	))
-	review = publicationReview(coop.Review{
+	review = publicationreview.NormalizeReview(coop.Review{
 		Gate: "passed", Rebase: "clean", Patch: patch,
 		PolicyFindings: []string{
 			"possible secret in tools/test.go:2 (password in a connection-string URL)",
@@ -141,7 +144,7 @@ func TestPublicationReviewIgnoresOnlyPreExistingPolicyFindings(t *testing.T) {
 		t.Fatalf("new policy finding did not block draft = %+v", review)
 	}
 
-	review = publicationReview(coop.Review{Gate: "passed", Rebase: "clean"})
+	review = publicationreview.NormalizeReview(coop.Review{Gate: "passed", Rebase: "clean"})
 	if review.Publishable {
 		t.Fatalf("normalization overrode an unexplained non-publishable review = %+v", review)
 	}
@@ -214,6 +217,558 @@ func TestChangedEngineeringTaskInvalidatesPublishedDraftPR(t *testing.T) {
 	stored, err := st.GetPublication(ctx, task.ID)
 	if err != nil || !stored.NeedsUpdate() || stored.Published() {
 		t.Fatalf("stored stale task publication = %+v, %v", stored, err)
+	}
+}
+
+func TestDraftPRInputFailureRecordsRetryingState(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-publication-retry", "Publish task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const secret = "super-secret-token"
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000, secret), nil,
+	)
+	admit := func(id, kind, actionID, actionValue string) core.SlackInput {
+		t.Helper()
+		input := core.SlackInput{
+			ID: id, EnvelopeID: "env_" + id, EventID: "event_" + id,
+			Kind: kind, TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+			MessageTS: "1700.101", UserID: cfg.Slack.Operators[0],
+			ActionID: actionID, ActionValue: actionValue,
+		}
+		admitted, admitErr := st.AdmitSlackInput(ctx, input)
+		if admitErr != nil || !admitted {
+			t.Fatalf("admit publication input = %t, %v", admitted, admitErr)
+		}
+		leased, leaseErr := st.LeaseSlackInput(ctx)
+		if leaseErr != nil {
+			t.Fatal(leaseErr)
+		}
+		return leased
+	}
+
+	temporary := &coop.APIError{
+		Status: 500, Code: "internal_error", Detail: secret + strings.Repeat("x", 1400),
+	}
+	first := admit("publication_retry", "action", slackui.ActionPublishPR, task.ID)
+	if _, err := st.Publications.BeginReview(
+		ctx, first.ID, first.ID, task.ID, "owner/repo", "main",
+	); err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := svc.retrySlackInput(cancelled, first, temporary); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || stored.State != "retrying" ||
+		!strings.Contains(stored.LastError, "internal_error") ||
+		strings.Contains(stored.LastError, secret) || len(stored.LastError) > 1000 {
+		t.Fatalf("retrying publication = %+v, %v", stored, err)
+	}
+
+}
+
+func TestDraftPRSlashInputFailureRecordsTerminalState(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-publication-terminal", "Publish task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const secret = "super-secret-token"
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000, secret), nil,
+	)
+	input := core.SlackInput{
+		ID: "publication_terminal", EnvelopeID: "env_publication_terminal",
+		EventID: "event_publication_terminal", Kind: "slash",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", MessageTS: "1700.101",
+		UserID: cfg.Slack.Operators[0], ActionID: "/responder",
+	}
+	admitted, err := st.AdmitSlackInput(ctx, input)
+	if err != nil || !admitted {
+		t.Fatalf("admit terminal publication input = %t, %v", admitted, err)
+	}
+	leased, err := st.LeaseSlackInput(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A slash or text route does not initially carry the publication action ID.
+	// BeginReview binds it durably, and retrySlackInput reloads that binding.
+	if _, err := st.Publications.BeginReview(
+		ctx, leased.ID, leased.ID, task.ID, "owner/repo", "main",
+	); err != nil {
+		t.Fatal(err)
+	}
+	leased.Failures = cfg.Limits.MaxSlackInputAttempts - 1
+	temporary := &coop.APIError{
+		Status: 500, Code: "internal_error", Detail: secret + strings.Repeat("x", 1400),
+	}
+	if err := svc.retrySlackInput(ctx, leased, temporary); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || stored.State != core.PublicationFailed ||
+		!strings.Contains(stored.LastError, "internal_error") ||
+		strings.Contains(stored.LastError, secret) || len(stored.LastError) > 1000 {
+		t.Fatalf("terminal publication = %+v, %v", stored, err)
+	}
+}
+
+func TestButtonPublicationRetryRetainsAttemptOwnership(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.Path = t.TempDir()
+	repository.GitHubRepository = "owner/repo"
+	repository.GitHubBaseBranch = "main"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	st.SetClock(func() time.Time { return now })
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-button-retry", "Publish task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "session-button-retry", "fork", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseCoop := newFakeCoop()
+	baseCoop.session.ID = task.CoopSessionID
+	baseCoop.session.Revision = 1
+	coopClient := &publicationCoop{
+		fakeCoop: baseCoop,
+		changesErr: &coop.APIError{
+			Status: 500, Code: "internal_error", Detail: "temporary review dependency",
+		},
+		changes: coop.Changes{
+			ParentHead: "parent", Patch: []byte("+retry\n"),
+			Unstaged: []coop.Change{{Path: "service.go", Status: "modified"}},
+		},
+		review: coop.Review{
+			SessionID: task.CoopSessionID, SessionRevision: 1,
+			ParentHead: "parent", CandidateTree: "tree", Rebase: "clean",
+			Gate: "passed", Patch: []byte("+retry\n"), Publishable: true,
+		},
+	}
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.SetClock(func() time.Time { return now })
+	svc.SetPublisher(&recordingPublisher{result: publisher.Result{
+		HeadBranch: "responder/button-retry", CommitSHA: "commit",
+		RemoteSHA: "commit", PRNumber: 43,
+		PRURL: "https://github.example/owner/repo/pull/43",
+	}})
+	input := core.SlackInput{
+		ID: "button-publication-retry", EnvelopeID: "env-button-publication-retry",
+		EventID: "event-button-publication-retry", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: task.ChannelID, MessageTS: task.RootTS,
+		UserID: cfg.Slack.Operators[0], ActionID: slackui.ActionPublishPR,
+		ActionValue: slackui.PublicationActionValue(task.ID, 0), ReceivedAt: now,
+	}
+	if admitted, err := st.AdmitSlackInput(ctx, input); err != nil || !admitted {
+		t.Fatalf("admit publication button = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	retrying, err := st.GetPublication(ctx, task.ID)
+	if err != nil || retrying.State != core.PublicationRetrying ||
+		retrying.AttemptInputID != input.ID {
+		t.Fatalf("retrying publication = %+v, %v", retrying, err)
+	}
+	storedInput, err := st.GetSlackInput(ctx, input.ID)
+	if err != nil || storedInput.State != "retry" || storedInput.ActionValue != task.ID {
+		t.Fatalf("bound retry input = %+v, %v", storedInput, err)
+	}
+
+	now = now.Add(3 * time.Second)
+	coopClient.changesErr = nil
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	published, err := st.GetPublication(ctx, task.ID)
+	if err != nil || !published.Published() || published.AttemptInputID != input.ID {
+		t.Fatalf("retried publication = %+v, %v", published, err)
+	}
+	storedInput, err = st.GetSlackInput(ctx, input.ID)
+	if err != nil || storedInput.State != "done" {
+		t.Fatalf("completed publication input = %+v, %v", storedInput, err)
+	}
+}
+
+func TestDraftPRRetryRefusalDoesNotLeaveProgressStuck(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-publication-refusal", "Publish task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SavePublication(ctx, core.Publication{
+		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
+		State: "retrying", LastError: "temporary Coop failure",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task.ActiveTurnID = "turn_now_running"
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.SetPublisher(&recordingPublisher{})
+	err = svc.publishDraftPR(ctx, core.SlackInput{
+		ID: "publication_retry_refusal", Kind: "action", ChannelID: "COPS",
+		UserID: cfg.Slack.Operators[0], ActionID: slackui.ActionPublishPR,
+		ActionValue: task.ID,
+	}, task)
+	if !errors.Is(err, errControlRefused) {
+		t.Fatalf("publish retry with active turn = %v, want refusal", err)
+	}
+	publication, err := st.GetPublication(ctx, task.ID)
+	if err != nil || publication.State != "failed" ||
+		!strings.Contains(publication.LastError, "agent is still changing") {
+		t.Fatalf("refused retry publication = %+v, %v", publication, err)
+	}
+}
+
+func TestTerminalPublicationCardsUseDurableStateWithoutCoop(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.Path = t.TempDir()
+	repository.GitHubRepository = "owner/repo"
+	repository.GitHubBaseBranch = "main"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	createTask := func(source, session string) core.Incident {
+		t.Helper()
+		task, _, createErr := st.CreateEngineeringTask(
+			ctx, "repo", source, "Publish task", "summary",
+			cfg.Slack.Operators[0], "COPS", "1700."+source, 100,
+		)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		if createErr = st.BindThreadWork(ctx, task.ID); createErr != nil {
+			t.Fatal(createErr)
+		}
+		if createErr = st.SetRoot(ctx, task.ID, "1800."+source); createErr != nil {
+			t.Fatal(createErr)
+		}
+		if createErr = st.SetCoopSession(ctx, task.ID, session, "fork-"+source, 1); createErr != nil {
+			t.Fatal(createErr)
+		}
+		task, createErr = st.GetIncident(ctx, task.ID)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		return task
+	}
+
+	empty := createTask("empty-terminal", "session-empty")
+	coopClient := &publicationCoop{fakeCoop: newFakeCoop()}
+	coopClient.session.ID = empty.CoopSessionID
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.SetPublisher(&recordingPublisher{})
+	err = svc.publishDraftPR(ctx, core.SlackInput{
+		ID: "empty-publication", Kind: controlPlaneInput, ChannelID: empty.ChannelID,
+		UserID: cfg.Slack.Operators[0], ActionID: slackui.ActionPublishPR,
+		ActionValue: empty.ID,
+	}, empty)
+	if err == nil || !strings.Contains(err.Error(), "nothing to publish") {
+		t.Fatalf("empty publication = %v, want no-change refusal", err)
+	}
+	stored, err := st.GetPublication(ctx, empty.ID)
+	if err != nil || stored.FailureCode != core.PublicationFailureNoChanges {
+		t.Fatalf("durable empty publication = %+v, %v", stored, err)
+	}
+
+	stale := createTask("stale-terminal", "session-stale")
+	publication := core.Publication{
+		IncidentID: stale.ID, Generation: 1, Repository: "owner/repo", BaseBranch: "main",
+		HeadBranch: "responder/stale", ParentHead: "parent", CandidateTree: "tree",
+		CommitSHA: "commit", RemoteSHA: "commit", PRNumber: 42,
+		PRURL: "https://github.example/owner/repo/pull/42",
+		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := st.MarkPublicationStale(ctx, stale.ID, "task changed"); err != nil || !changed {
+		t.Fatalf("mark stale = %t, %v", changed, err)
+	}
+
+	blockedChanges := make(chan struct{})
+	coopClient.releaseChanges = blockedChanges
+	t.Cleanup(func() { close(blockedChanges) })
+	assertImmediate := func(task core.Incident) slackui.Message {
+		t.Helper()
+		result := make(chan struct {
+			message slackui.Message
+			err     error
+		}, 1)
+		go func() {
+			message, cardErr := svc.incidentCard(ctx, task)
+			result <- struct {
+				message slackui.Message
+				err     error
+			}{message: message, err: cardErr}
+		}()
+		select {
+		case rendered := <-result:
+			if rendered.err != nil {
+				t.Fatal(rendered.err)
+			}
+			return rendered.message
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("%s terminal card waited for Coop", task.ID)
+			return slackui.Message{}
+		}
+	}
+	emptyCard := assertImmediate(empty)
+	if slices.ContainsFunc(emptyCard.Actions, func(action slackui.Action) bool {
+		return action.ID == slackui.ActionPublishPR || action.ID == slackui.ActionChanges
+	}) {
+		t.Fatalf("empty failure offered impossible controls: %+v", emptyCard.Actions)
+	}
+	staleCard := assertImmediate(stale)
+	for _, actionID := range []string{slackui.ActionChanges, slackui.ActionPublishPR, slackui.ActionViewPR} {
+		if !slices.ContainsFunc(staleCard.Actions, func(action slackui.Action) bool {
+			return action.ID == actionID
+		}) {
+			t.Fatalf("stale card lacks %s: %+v", actionID, staleCard.Actions)
+		}
+	}
+}
+
+func TestControlPlanePublicationFailureOnlyEndsItsOwnClaim(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.Path = t.TempDir()
+	repository.GitHubRepository = "owner/repo"
+	repository.GitHubBaseBranch = "main"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-control-publication", "Publish task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "session-control", "fork-control", 1); err != nil {
+		t.Fatal(err)
+	}
+	baseCoop := newFakeCoop()
+	baseCoop.session.ID = "session-control"
+	baseCoop.session.Revision = 1
+	coopClient := &publicationCoop{
+		fakeCoop:  baseCoop,
+		changes:   coop.Changes{Unstaged: []coop.Change{{Path: "main.go", Status: "modified"}}},
+		reviewErr: errors.New("Coop review stopped"),
+	}
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.SetPublisher(&recordingPublisher{})
+	if err := svc.ControlPlaneAct(
+		ctx, "publish", task.ID, "control-plane@localhost",
+	); err == nil {
+		t.Fatal("control-plane publication failure was hidden")
+	}
+	publication, err := st.GetPublication(ctx, task.ID)
+	if err != nil || publication.State != "failed" ||
+		!strings.Contains(publication.LastError, "Coop review stopped") {
+		t.Fatalf("failed control-plane publication = %+v, %v", publication, err)
+	}
+
+	if _, err := st.Publications.BeginReview(
+		ctx, "other-control-owner", "", task.ID, "owner/repo", "main",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ControlPlaneAct(
+		ctx, "publish", task.ID, "control-plane@localhost",
+	); err == nil || !strings.Contains(err.Error(), "already in progress") {
+		t.Fatalf("overlapping control-plane publication = %v", err)
+	}
+	publication, err = st.GetPublication(ctx, task.ID)
+	if err != nil || publication.State != "reviewing" {
+		t.Fatalf("overlap ended another publication claim = %+v, %v", publication, err)
+	}
+}
+
+func TestCloseRefusesWhileDraftPRWorkOwnsTask(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-close-publication", "Publish task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Publications.BeginReview(
+		ctx, "publication-owner", "", task.ID, "owner/repo", "main",
+	); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	err = svc.ControlPlaneAct(ctx, "close", task.ID, "control-plane@localhost")
+	if err == nil || !strings.Contains(err.Error(), "draft PR work is still active") {
+		t.Fatalf("close during publication = %v", err)
+	}
+	stored, err := st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status == core.IncidentClosed || stored.Workflow == core.WorkflowClosing {
+		t.Fatalf("close raced publication: %+v", stored)
+	}
+	publication, err := st.GetPublication(ctx, task.ID)
+	if err != nil || publication.State != core.PublicationReviewing {
+		t.Fatalf("publication after refused close = %+v, %v", publication, err)
+	}
+}
+
+func TestPublicationBindingDriftEndsAutomaticRetryWithoutCrossWiringPR(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.Path = t.TempDir()
+	repository.GitHubRepository = "new-owner/new-repo"
+	repository.GitHubBaseBranch = "release"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-binding-drift", "Publish task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "session-binding", "fork-binding", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication := core.Publication{
+		IncidentID: task.ID, Repository: "old-owner/old-repo", BaseBranch: "main",
+		HeadBranch: "responder/task", ParentHead: "parent", CandidateTree: "tree",
+		CommitSHA: "commit", RemoteSHA: "commit", PRNumber: 42,
+		PRURL: "https://github.example/old-owner/old-repo/pull/42",
+		State: "retrying", PublishedAt: time.Now().UTC(),
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.SetPublisher(&recordingPublisher{})
+	err = svc.publishDraftPR(ctx, core.SlackInput{
+		ID: "binding-drift", Kind: "action", ChannelID: "COPS",
+		UserID: cfg.Slack.Operators[0], ActionID: slackui.ActionPublishPR,
+		ActionValue: task.ID,
+	}, task)
+	if !errors.Is(err, errControlRefused) {
+		t.Fatalf("binding drift retry = %v, want refusal", err)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || stored.State != "failed" ||
+		stored.Repository != publication.Repository || stored.BaseBranch != publication.BaseBranch ||
+		stored.PRNumber != publication.PRNumber {
+		t.Fatalf("failed binding-drift retry = %+v, %v", stored, err)
 	}
 }
 
