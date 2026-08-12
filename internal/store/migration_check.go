@@ -53,8 +53,20 @@ type MigrationEffect struct {
 // emisar, all with the same payload, and removing them is the entire point of
 // the migration. Every other row in that table survives it, including one per
 // run to say the waiting happened.
+//
+// 61 collapses work-episode shells created by the wake-up replay defect. Their
+// append-only events, progress, manifests, attempts, and external references
+// move to the original episode. The shell itself and duplicate keyed
+// projections cannot coexist under that identity, so only those four tables
+// declare removals; migration-check still counts each one on production data.
 var intendedDeletions = map[int]map[string]bool{
 	51: {"work_episode_events": true},
+	61: {
+		"claim_assessments":  true,
+		"commitments":        true,
+		"fixture_candidates": true,
+		"work_episodes":      true,
+	},
 }
 
 // deletionIsIntended reports whether a migration between two versions declared

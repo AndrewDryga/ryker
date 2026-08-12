@@ -138,9 +138,11 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 	if deletionIsIntended(47, 50, "work_episode_events") {
 		t.Fatal("a version that declared nothing inherited the exemption")
 	}
-	for _, table := range []string{
-		"work_episodes", "episode_attempts", "agent_runs", "audit_events",
-	} {
+	if !deletionIsIntended(60, 61, "work_episodes") ||
+		deletionIsIntended(0, 60, "work_episodes") {
+		t.Fatal("duplicate episode deletion is not confined to migration 61")
+	}
+	for _, table := range []string{"episode_attempts", "agent_runs", "audit_events"} {
 		if deletionIsIntended(0, currentSchemaVersion, table) {
 			t.Fatalf("%s may lose rows in a migration without anyone noticing", table)
 		}

@@ -117,6 +117,13 @@ func TestRebuildMigrationFailsOnDanglingReferences(t *testing.T) {
 	if !strings.Contains(err.Error(), "dangling references") {
 		t.Fatalf("error does not name the problem: %v", err)
 	}
+	var storedVersion int
+	if err := st.db.QueryRow(`SELECT version FROM schema_version`).Scan(&storedVersion); err != nil {
+		t.Fatal(err)
+	}
+	if storedVersion != currentSchemaVersion {
+		t.Fatalf("failed rebuild committed schema version %d, want %d", storedVersion, currentSchemaVersion)
+	}
 }
 
 // Foreign keys must be back on afterwards, or every later write runs unchecked.

@@ -502,6 +502,15 @@ func applySchemaStep(db *sql.DB, statement string, from, to int) error {
 	if _, err := tx.Exec(statement); err != nil {
 		return fmt.Errorf("apply database migration %d: %w", to, err)
 	}
+	if tableRebuildMigrations[to] {
+		// Foreign keys are disabled around a rebuild, so validate the rebuilt
+		// shape before recording the version or committing. A post-commit check
+		// can report corruption but cannot roll it back; on the next startup the
+		// advanced version would otherwise skip the failed migration entirely.
+		if err := verifyForeignKeys(tx, to); err != nil {
+			return err
+		}
+	}
 	if from == 0 {
 		_, err = tx.Exec(`INSERT INTO schema_version(version) VALUES (?)`, to)
 	} else {
@@ -518,10 +527,8 @@ func applySchemaStep(db *sql.DB, statement string, from, to int) error {
 		return fmt.Errorf("commit database migration %d: %w", to, err)
 	}
 	if tableRebuildMigrations[to] {
-		// Foreign keys were off for the rebuild, so nothing checked them. This
-		// is where that debt is paid: a rebuild that dropped rows some child
-		// still points at must fail loudly here rather than leave a database
-		// that looks migrated and has dangling references.
+		// Defense in depth after commit; the pre-commit check above is the one
+		// that guarantees a failure leaves the old schema version intact.
 		return verifyForeignKeys(db, to)
 	}
 	return nil
@@ -533,10 +540,14 @@ func applySchemaStep(db *sql.DB, statement string, from, to int) error {
 // Opt-in per migration rather than always on: every other migration benefits
 // from the constraints being enforced while it runs, and a rebuild is rare
 // enough that turning them off should be a deliberate, listed decision.
-var tableRebuildMigrations = map[int]bool{47: true, 50: true}
+var tableRebuildMigrations = map[int]bool{47: true, 50: true, 61: true}
 
 // verifyForeignKeys fails if a migration left a reference pointing at nothing.
-func verifyForeignKeys(db *sql.DB, migration int) error {
+type foreignKeyQueryer interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+func verifyForeignKeys(db foreignKeyQueryer, migration int) error {
 	rows, err := db.Query(`PRAGMA foreign_key_check`)
 	if err != nil {
 		return fmt.Errorf("check foreign keys after migration %d: %w", migration, err)
@@ -559,7 +570,7 @@ func verifyForeignKeys(db *sql.DB, migration int) error {
 	if len(broken) > 0 {
 		return fmt.Errorf(
 			"database migration %d left %d dangling references (%s); "+
-				"the database has been left at the pre-migration version",
+				"the migration was rejected",
 			migration, len(broken), strings.Join(broken, ", "),
 		)
 	}

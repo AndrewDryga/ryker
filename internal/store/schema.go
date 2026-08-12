@@ -2,7 +2,7 @@ package store
 
 import "github.com/AndrewDryga/responder/internal/store/migrationddl"
 
-const currentSchemaVersion = 60
+const currentSchemaVersion = 61
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1314,4 +1314,5 @@ var migrations = map[int]string{
 		UPDATE incidents SET card_version = card_version + 1
 		  WHERE id IN (SELECT incident_id FROM publications);
 	`,
+	61: migrationddl.V61,
 }
