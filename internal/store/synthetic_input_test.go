@@ -34,4 +34,13 @@ func TestAdmitSyntheticSlackInputPersistsFrozenBeforeActivation(t *testing.T) {
 	if got.State != "processing" || string(got.Frozen) != string(want) {
 		t.Fatalf("synthetic input = state %q frozen %q", got.State, got.Frozen)
 	}
+	for range 2 {
+		if err := st.FinishSlackInput(context.Background(), input.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err = st.GetSlackInput(context.Background(), input.ID)
+	if err != nil || got.State != "done" {
+		t.Fatalf("finished synthetic input = state %q, err %v", got.State, err)
+	}
 }

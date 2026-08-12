@@ -119,7 +119,16 @@ func (s *Store) QueueAgentRun(
 		return core.AgentRun{}, false, err
 	}
 	stored.CommitmentTitle = run.CommitmentTitle
-	stored.Episode = run.Episode
+	if rows == 1 {
+		stored.Episode = run.Episode
+	} else {
+		// The durable source identity won. Preserve the episode already bound
+		// to that run even when a replay came through the generic input path
+		// without the richer Episode value. Re-normalizing an idempotent run
+		// from the replay used to synthesize a second episode and move the run
+		// away from its existing attempt.
+		stored.Episode = &core.WorkEpisode{ID: stored.EpisodeID}
+	}
 	if err := s.ensureWorkEpisode(ctx, stored); err != nil {
 		cleanupInsertedRun()
 		return core.AgentRun{}, false, fmt.Errorf("ensure work episode: %w", err)

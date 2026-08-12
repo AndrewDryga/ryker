@@ -53,6 +53,13 @@ func TestEpisodeWakeupQueuesFreshAttemptOnSameEpisode(t *testing.T) {
 		resumed.AttemptNumber != 2 {
 		t.Fatalf("resumed attempt = %+v; original = %+v", resumed, run)
 	}
+	input, err := st.GetSlackInput(ctx, "episode_wakeup_"+wakeup.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.State != "done" {
+		t.Fatalf("synthetic wake-up input state = %q, want done", input.State)
+	}
 	for _, expected := range []string{
 		`"provider":"github"`,
 		`"state":"terminal"`,

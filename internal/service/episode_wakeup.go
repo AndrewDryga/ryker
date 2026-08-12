@@ -90,6 +90,9 @@ func (s *Service) processEpisodeWakeup(ctx context.Context) error {
 	if err != nil {
 		return s.retryEpisodeWakeup(ctx, wakeup, err)
 	}
+	if err := s.store.FinishSlackInput(ctx, input.ID); err != nil {
+		return s.retryEpisodeWakeup(ctx, wakeup, err)
+	}
 	observation, _ := json.Marshal(map[string]string{
 		"outcome": "resume_queued", "agent_run_id": queued.ID,
 	})

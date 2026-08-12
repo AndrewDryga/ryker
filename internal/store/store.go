@@ -2455,7 +2455,7 @@ func scanSlackInput(row interface{ Scan(...any) error }) (core.SlackInput, error
 func (s *Store) FinishSlackInput(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE slack_inputs SET state = 'done', last_error = '', updated_at = ?
-		WHERE id = ? AND state = 'processing'`, s.nowText(), id)
+		WHERE id = ? AND state IN ('processing', 'done')`, s.nowText(), id)
 	return sqlutil.ExpectOne(result, err, "finish Slack input")
 }
 
