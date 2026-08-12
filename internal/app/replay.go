@@ -299,13 +299,6 @@ func cloneSlackReplay(source core.SlackInput, publish bool) (core.SlackInput, er
 	if err != nil {
 		return core.SlackInput{}, err
 	}
-	kind := source.Kind
-	if kind == "message" {
-		// A local replay is an explicit request to process this message. Treating
-		// an ambient message as targeted also prevents normal stale-message
-		// coalescing from hiding a verification run.
-		kind = "mention"
-	}
 	prefix := "replay-private:"
 	if publish {
 		prefix = "replay-public:"
@@ -314,7 +307,7 @@ func cloneSlackReplay(source core.SlackInput, publish bool) (core.SlackInput, er
 		ID:          id,
 		EnvelopeID:  prefix + id,
 		EventID:     prefix + id,
-		Kind:        kind,
+		Kind:        source.Kind,
 		TeamID:      source.TeamID,
 		ChannelID:   source.ChannelID,
 		ThreadTS:    source.ThreadTS,
@@ -363,7 +356,7 @@ func waitForSlackReplay(
 					displayOr(run.LastError, "no detail"),
 				)
 			case core.AgentRunCompleted:
-				action, err := replayAction(run.Result)
+				action, err := effectiveReplayAction(ctx, st, replayID, run.Result, publish)
 				if err != nil {
 					return slackReplayResult{}, fmt.Errorf("verify Slack replay result: %w", err)
 				}
@@ -454,6 +447,25 @@ func waitForSlackReplay(
 		case <-ticker.C:
 		}
 	}
+}
+
+func effectiveReplayAction(
+	ctx context.Context,
+	st *store.Store,
+	replayID string,
+	result []byte,
+	publish bool,
+) (string, error) {
+	if !publish {
+		decision, err := st.Intelligence.GetEvaluationDecision(ctx, replayID, "private_replay")
+		switch {
+		case err == nil:
+			return decision.Action, nil
+		case !errors.Is(err, store.ErrNotFound):
+			return "", err
+		}
+	}
+	return replayAction(result)
 }
 
 func replayModeName(publish bool) string {

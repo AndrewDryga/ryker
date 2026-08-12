@@ -537,6 +537,75 @@ func (r *Repository) ApplyWatchDecision(
 	return true, tx.Commit()
 }
 
+// RecordEvaluationDecision preserves a host-effective decision without applying
+// its memory or delivery side effects. Private Slack replays use this to expose
+// the same post-policy action production would take while remaining private.
+func (r *Repository) RecordEvaluationDecision(
+	ctx context.Context,
+	decision core.EvaluationDecision,
+) (bool, error) {
+	if decision.SourceInput == "" || decision.ChannelID == "" || decision.Mode == "" ||
+		decision.Action == "" {
+		return false, errors.New("watch decision identity is incomplete")
+	}
+	if decision.ID == "" {
+		var err error
+		decision.ID, err = core.NewID("eval")
+		if err != nil {
+			return false, err
+		}
+	}
+	if decision.CreatedAt.IsZero() {
+		decision.CreatedAt = r.now().UTC()
+	}
+	result, err := r.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO evaluation_decisions
+		  (id, channel_id, source_input, mode, action, reason, evidence_count,
+		   coverage_count, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		decision.ID, decision.ChannelID, decision.SourceInput, decision.Mode,
+		decision.Action, decision.Reason, decision.Evidence, decision.Coverage,
+		decision.CreatedAt.UTC().Format(core.TimestampFormat),
+	)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
+func (r *Repository) GetEvaluationDecision(
+	ctx context.Context,
+	sourceInput string,
+	mode string,
+) (core.EvaluationDecision, error) {
+	var decision core.EvaluationDecision
+	var createdAt string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, channel_id, source_input, mode, action, reason,
+		       evidence_count, coverage_count, created_at
+		FROM evaluation_decisions
+		WHERE source_input = ? AND mode = ?`, sourceInput, mode).Scan(
+		&decision.ID,
+		&decision.ChannelID,
+		&decision.SourceInput,
+		&decision.Mode,
+		&decision.Action,
+		&decision.Reason,
+		&decision.Evidence,
+		&decision.Coverage,
+		&createdAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.EvaluationDecision{}, core.ErrNotFound
+	}
+	if err != nil {
+		return core.EvaluationDecision{}, err
+	}
+	decision.CreatedAt = sqlutil.ParseTime(createdAt)
+	return decision, nil
+}
+
 func (r *Repository) RecordEvidence(ctx context.Context, evidence []core.Evidence) ([]core.Evidence, error) {
 	if len(evidence) > 50 {
 		return nil, errors.New("one response cannot record more than 50 evidence items")

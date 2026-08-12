@@ -556,3 +556,42 @@ func TestScheduledDecisionAdvancesItsPinnedSessionWithoutReplacingChannelSession
 		t.Fatalf("scheduled session memory = %+v", scheduled)
 	}
 }
+
+func TestEvaluationDecisionCanBeRecordedWithoutApplyingSideEffects(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	recorded, err := st.Intelligence.RecordEvaluationDecision(ctx, core.EvaluationDecision{
+		ChannelID:   "COPS",
+		SourceInput: "replay-source",
+		Mode:        "private_replay",
+		Action:      "ignore",
+		Reason:      "The reply would only restate visible context.",
+		Evidence:    2,
+		Coverage:    1,
+	})
+	if err != nil || !recorded {
+		t.Fatalf("record evaluation decision = %t, %v", recorded, err)
+	}
+
+	decision, err := st.Intelligence.GetEvaluationDecision(
+		ctx,
+		"replay-source",
+		"private_replay",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != "ignore" ||
+		decision.Reason != "The reply would only restate visible context." ||
+		decision.Evidence != 2 || decision.Coverage != 1 {
+		t.Fatalf("stored decision = %+v", decision)
+	}
+	if _, err := st.Intelligence.GetChannelMemory(ctx, "COPS"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("record-only decision changed channel memory: %v", err)
+	}
+}

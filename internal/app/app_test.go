@@ -480,7 +480,10 @@ func TestSlackReplayParsingAndPayloadFidelity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replay.ID == source.ID || replay.Kind != "mention" || replay.TeamID != source.TeamID ||
+	if replay.Kind != source.Kind {
+		t.Fatalf("replay kind = %q, want source kind %q", replay.Kind, source.Kind)
+	}
+	if replay.ID == source.ID || replay.Kind != source.Kind || replay.TeamID != source.TeamID ||
 		replay.ChannelID != source.ChannelID || replay.ThreadTS != source.ThreadTS ||
 		replay.MessageTS != source.MessageTS || replay.UserID != source.UserID ||
 		replay.Text != source.Text || len(replay.Attachments) != 1 ||
@@ -638,11 +641,17 @@ func TestWaitForSlackReplayRequiresCompletedRunAndSentReply(t *testing.T) {
 		!result.Published || !result.Deliveries[0].SlackUX.Passed {
 		t.Fatalf("replay verification = %+v", result)
 	}
-	private, err := waitForSlackReplay(waitCtx, st, "slack_original", input.ID, "reply", false)
+	if _, err := st.Intelligence.RecordEvaluationDecision(ctx, core.EvaluationDecision{
+		ChannelID: input.ChannelID, SourceInput: input.ID, Mode: "private_replay",
+		Action: "ignore", Reason: "host attention policy suppressed the reply",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	private, err := waitForSlackReplay(waitCtx, st, "slack_original", input.ID, "ignore", false)
 	if err != nil || private.Published || len(private.Deliveries) != 0 {
 		t.Fatalf("private replay verification = %+v, %v", private, err)
 	}
-	if _, err := waitForSlackReplay(waitCtx, st, "slack_original", input.ID, "ignore", false); err == nil || !strings.Contains(err.Error(), `action was "reply", want "ignore"`) {
+	if _, err := waitForSlackReplay(waitCtx, st, "slack_original", input.ID, "reply", false); err == nil || !strings.Contains(err.Error(), `action was "ignore", want "reply"`) {
 		t.Fatalf("mismatched replay expectation = %v", err)
 	}
 }

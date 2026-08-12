@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -750,19 +751,25 @@ func TestAttentionPolicySuppressesAmbientReplyInHumanDirectedThread(t *testing.T
 		ThreadTS:  "1786478872.467239",
 		Text:      "I don't have permission to create apps",
 	}
-	state := decisionpkg.WatchTurnState{RecentMessages: []decisionpkg.WatchContextMessage{
-		{
-			MessageTS:  "1786478872.467239",
-			SenderType: "human",
-			Text:       "<@U0TENANTUS2> do you have full permissions on Cloudflare?",
+	state := decisionpkg.WatchTurnState{
+		// The existing continuity heuristic may recognize a recent Responder
+		// session in the thread. The human-addressed root still wins unless the
+		// current message explicitly addresses Responder.
+		ConversationFollowup: true,
+		RecentMessages: []decisionpkg.WatchContextMessage{
+			{
+				MessageTS:  "1786478872.467239",
+				SenderType: "human",
+				Text:       "<@U0TENANTUS2> do you have full permissions on Cloudflare?",
+			},
+			{
+				MessageTS:  "1786479075.100000",
+				ThreadTS:   "1786478872.467239",
+				SenderType: "human",
+				Text:       "Could you please help? Repository is github.com/tenantcorp/tenantcorp.gg",
+			},
 		},
-		{
-			MessageTS:  "1786479075.100000",
-			ThreadTS:   "1786478872.467239",
-			SenderType: "human",
-			Text:       "Could you please help? Repository is github.com/tenantcorp/tenantcorp.gg",
-		},
-	}}
+	}
 	result := decisionpkg.WatchDecision{
 		Action: "reply",
 		Message: "The screenshot shows Astro, master, npm run build, and dist. " +
@@ -787,12 +794,37 @@ func TestAttentionPolicySuppressesAmbientReplyInHumanDirectedThread(t *testing.T
 	}
 
 	result.Action = "reply"
-	result.Message = "The live Cloudflare project uses different build settings."
+	result.Message = "I cannot inspect the project because repository access is unavailable."
 	result.Attention.Contribution = "new_evidence"
 	result.Attention.Material = true
+	result.Completion = &investigation.CompletionAssessment{
+		Status:      "blocked",
+		Summary:     "Repository access is unavailable.",
+		BlockerKind: "access_denied",
+		Blocker:     "The connected GitHub app cannot read the repository.",
+		NextAction:  "Grant repository access.",
+	}
+	filtered = attentionpkg.Enforce(input, state, result, 7, 4)
+	if filtered.Action != "ignore" {
+		t.Fatalf("blocked evidence interrupted a human-directed thread: %+v", filtered)
+	}
+
+	state.MatchedRules = []core.StandingRule{{
+		ID: "rule_review_repository_links", Enabled: true,
+	}}
+	filtered = attentionpkg.Enforce(input, state, result, 7, 4)
+	if filtered.Action != "ignore" {
+		t.Fatalf("standing rule bypassed human-thread usefulness policy: %+v", filtered)
+	}
+
+	result.Message = "The live Cloudflare project uses different build settings."
+	result.Completion = &investigation.CompletionAssessment{
+		Status:  "decision_ready",
+		Summary: "The live project settings differ from the screenshot.",
+	}
 	filtered = attentionpkg.Enforce(input, state, result, 7, 4)
 	if filtered.Action != "reply" {
-		t.Fatalf("material evidence in a human-directed thread was suppressed: %+v", filtered)
+		t.Fatalf("decision-ready evidence in a human-directed thread was suppressed: %+v", filtered)
 	}
 
 	input.Kind = "mention"

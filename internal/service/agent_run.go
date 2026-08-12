@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -2879,6 +2880,12 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		}
 	}
 	if isPrivateSlackVerificationReplay(input) {
+		decision = attentionpkg.EnforcePrivateReplay(input, state, decision,
+			s.cfg.Slack.ReplyAttention, s.cfg.Slack.ReactionAttention)
+		if _, err := s.store.Intelligence.RecordEvaluationDecision(ctx,
+			attentionpkg.PrivateReplayDecision(run.EpisodeID, input, decision)); err != nil {
+			return fmt.Errorf("record private replay decision: %w", err)
+		}
 		if err := s.persistPrivateReplayKnowledge(ctx, input, state, decision.Memory); err != nil {
 			return err
 		}
