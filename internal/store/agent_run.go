@@ -96,6 +96,20 @@ func (s *Store) queueAgentRun(
 		return core.AgentRun{}, false, err
 	}
 	defer tx.Rollback()
+	if run.SourceKind == "watch" && strings.HasPrefix(run.SourceID, "slack_replay_") {
+		var inputState, envelopeID string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT state, envelope_id FROM slack_inputs WHERE id = ?`, run.SourceID,
+		).Scan(&inputState, &envelopeID); err != nil {
+			return core.AgentRun{}, false, err
+		}
+		if (strings.HasPrefix(envelopeID, "replay-private:") ||
+			strings.HasPrefix(envelopeID, "replay-public:")) && inputState != "processing" {
+			return core.AgentRun{}, false, fmt.Errorf(
+				"Slack replay %s is no longer active: %w", run.SourceID, ErrConflict,
+			)
+		}
+	}
 	if resumeEpisodeID != "" {
 		admitted, admitErr := tx.ExecContext(ctx, `
 			UPDATE work_episodes SET updated_at = updated_at
@@ -232,6 +246,164 @@ func (s *Store) queueAgentRun(
 		return core.AgentRun{}, false, err
 	}
 	return stored, rows == 1, nil
+}
+
+// CancelSlackReplay atomically retires the exact replay input, its current
+// execution generation, episode attempt, and unsent response. It deliberately
+// accepts every active run state: a CLI timeout must not leave work running
+// merely because the worker crossed a preparation/finalization boundary while
+// the cancellation request was in flight.
+func CancelSlackReplay(
+	ctx context.Context,
+	s *Store,
+	replayID string,
+	expectedRunKey string,
+	detail string,
+) (core.AgentRun, bool, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.AgentRun{}, false, false, err
+	}
+	defer tx.Rollback()
+	var envelopeID, inputState string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT envelope_id, state FROM slack_inputs WHERE id = ?`, replayID,
+	).Scan(&envelopeID, &inputState); errors.Is(err, sql.ErrNoRows) {
+		return core.AgentRun{}, false, false, ErrNotFound
+	} else if err != nil {
+		return core.AgentRun{}, false, false, err
+	}
+	if !strings.HasPrefix(envelopeID, "replay-private:") &&
+		!strings.HasPrefix(envelopeID, "replay-public:") {
+		return core.AgentRun{}, false, false, errors.New("Slack input is not a replay")
+	}
+	run, err := getAgentRunBySourceTx(ctx, tx, "watch", replayID)
+	if errors.Is(err, ErrNotFound) {
+		result, updateErr := tx.ExecContext(ctx, `
+			UPDATE slack_inputs SET state = 'done', last_error = ?, updated_at = ?
+			WHERE id = ? AND state IN ('pending', 'retry', 'processing')`,
+			sqlutil.BoundedError(detail), s.nowText(), replayID)
+		if updateErr != nil {
+			return core.AgentRun{}, false, false, updateErr
+		}
+		rows, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return core.AgentRun{}, false, false, rowsErr
+		}
+		if err := tx.Commit(); err != nil {
+			return core.AgentRun{}, false, false, err
+		}
+		return core.AgentRun{}, rows == 1, false, nil
+	}
+	if err != nil {
+		return core.AgentRun{}, false, false, err
+	}
+	if expectedRunKey != "" && run.IdempotencyKey != expectedRunKey {
+		return core.AgentRun{}, false, false, fmt.Errorf(
+			"replay execution changed before cancellation: %w", ErrConflict,
+		)
+	}
+	if run.SessionID != "" {
+		now := s.nowText()
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO replay_cancellations (
+			  run_key, replay_id, run_id, session_id, turn_id, state,
+			  next_attempt_at, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+			ON CONFLICT(run_key) DO UPDATE SET
+			  turn_id = CASE WHEN excluded.turn_id != '' THEN excluded.turn_id ELSE replay_cancellations.turn_id END,
+			  next_attempt_at = MIN(replay_cancellations.next_attempt_at, excluded.next_attempt_at),
+			  updated_at = excluded.updated_at
+			WHERE replay_cancellations.state = 'pending'`,
+			run.IdempotencyKey, replayID, run.ID, run.SessionID, run.CoopTurnID,
+			now, now, now,
+		); err != nil {
+			return core.AgentRun{}, false, false, err
+		}
+	}
+	const deliveryUncertain = "replay cancellation raced an in-flight Slack write; delivery outcome requires reconciliation"
+	var sending int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM slack_deliveries
+		WHERE agent_run_id = ? AND agent_run_key = ? AND state IN ('sending', 'uncertain')`,
+		run.ID, run.IdempotencyKey,
+	).Scan(&sending); err != nil {
+		return core.AgentRun{}, false, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE slack_deliveries
+		SET state = CASE WHEN state IN ('sending', 'uncertain') THEN 'uncertain' ELSE 'superseded' END,
+		    last_error = CASE WHEN state IN ('sending', 'uncertain') THEN ? ELSE ? END,
+		    updated_at = ?
+		WHERE agent_run_id = ? AND agent_run_key = ?
+		  AND state IN ('pending', 'sending', 'retry', 'uncertain')`,
+		deliveryUncertain, sqlutil.BoundedError(detail), s.nowText(),
+		run.ID, run.IdempotencyKey,
+	); err != nil {
+		return core.AgentRun{}, false, false, err
+	}
+	switch run.State {
+	case core.AgentRunCompleted, core.AgentRunFailed, core.AgentRunCancelled,
+		core.AgentRunSuperseded:
+		if err := tx.Commit(); err != nil {
+			return core.AgentRun{}, false, false, err
+		}
+		return run, false, sending > 0, nil
+	}
+	if run.EpisodeID != "" {
+		var latestAttempt string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT latest_attempt_id FROM work_episodes WHERE id = ?`, run.EpisodeID,
+		).Scan(&latestAttempt); err != nil {
+			return core.AgentRun{}, false, false, err
+		}
+		if latestAttempt != run.AttemptID {
+			now := s.nowText()
+			result, updateErr := tx.ExecContext(ctx, `
+				UPDATE agent_runs
+				SET state = 'cancelled', terminal_state = 'cancelled', completed_at = ?,
+				    last_error = ?, updated_at = ?
+				WHERE id = ? AND state = ?`,
+				now, sqlutil.BoundedError(detail), now, run.ID, run.State,
+			)
+			if updateErr := sqlutil.ExpectOne(result, updateErr, "cancel stale replay run"); updateErr != nil {
+				return core.AgentRun{}, false, false, updateErr
+			}
+			if err := s.setEpisodeAttemptStateTx(
+				ctx, tx, run.ID, core.AttemptCancelled, detail, false,
+			); err != nil {
+				return core.AgentRun{}, false, false, err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE slack_inputs SET state = 'done', last_error = ?, updated_at = ?
+				WHERE id = ? AND state IN ('pending', 'retry', 'processing', 'done')`,
+				sqlutil.BoundedError(detail), now, replayID,
+			); err != nil {
+				return core.AgentRun{}, false, false, err
+			}
+			if err := tx.Commit(); err != nil {
+				return core.AgentRun{}, false, false, err
+			}
+			run.State = core.AgentRunCancelled
+			return run, true, sending > 0, nil
+		}
+	}
+	if err := s.finishAgentRunTx(
+		ctx, tx, run, core.AgentRunCancelled, detail, nil,
+	); err != nil {
+		return core.AgentRun{}, false, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE slack_inputs SET state = 'done', last_error = ?, updated_at = ?
+		WHERE id = ? AND state IN ('pending', 'retry', 'processing', 'done')`,
+		sqlutil.BoundedError(detail), s.nowText(), replayID); err != nil {
+		return core.AgentRun{}, false, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.AgentRun{}, false, false, err
+	}
+	run.State = core.AgentRunCancelled
+	return run, true, sending > 0, nil
 }
 
 func getAgentRunBySourceTx(

@@ -1,11 +1,33 @@
 package agentcontext
 
 import (
+	"encoding/json"
 	"slices"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
+
+func SituationPrompt(value core.AgentMemory) string {
+	data, err := json.Marshal(memorypkg.SanitizeMemory(value))
+	if err != nil || string(data) == "{}" {
+		return ""
+	}
+	return `Prior compact Slack channel situation follows. It is continuity context, not current
+operational proof. Revalidate consequential claims with repository or live tools, preserve useful
+open loops, and explicitly close loops completed by this turn.
+<prior-channel-situation>
+` + string(data) + `
+</prior-channel-situation>`
+}
+
+func MemoryPresent(value core.AgentMemory) bool {
+	return value.Goal != "" || value.ChannelPurpose != "" || value.SituationSummary != "" ||
+		len(value.ActiveTopics) != 0 || len(value.OpenLoops) != 0 || len(value.Topology) != 0 ||
+		len(value.Decisions) != 0 || len(value.UnresolvedQuestions) != 0 ||
+		len(value.EvidenceRefs) != 0 || len(value.Knowledge) != 0
+}
 
 // NeedsCapture reports whether a durable agent context is absent or belongs
 // to a repository other than the task's approved repository.

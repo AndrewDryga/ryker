@@ -17,3 +17,17 @@ func Duration(attempt int) time.Duration {
 func DependencyWait(waited time.Duration) time.Duration {
 	return min(max(waited/8, time.Second), 15*time.Second)
 }
+
+func At(now time.Time, attempt int, minimum time.Duration) time.Time {
+	return now.Add(max(Duration(attempt), minimum))
+}
+
+func Exhausted(attempt, maximum int) bool { return attempt >= maximum }
+
+func NextSessionGeneration(current, observed int, unusable bool) int {
+	next := max(current, observed)
+	if unusable && observed > 0 {
+		next = max(next, observed+1)
+	}
+	return next
+}

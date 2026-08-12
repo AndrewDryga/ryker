@@ -108,6 +108,10 @@ surface, a failed Slack delivery, or timeout. `--input slack_...` targets a dura
 `--message-ts 1785652207.489039` is useful when a permalink is unavailable. Use `--json` in
 automation. A published replay creates another visible Slack response and may repeat read-only
 tool calls; do not add `--publish` casually in an active production conversation.
+When `--timeout` expires, the CLI asks the running loopback service to atomically cancel the replay
+input, current run, episode attempt, and unsent output, then interrupts the exact in-process and
+Coop turn if one is active. If the loopback action is unavailable, a direct durable fallback still
+prevents another lease; the command reports that it could not confirm the in-flight interrupt.
 
 ## Local quality watcher
 

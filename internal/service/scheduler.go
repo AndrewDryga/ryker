@@ -32,6 +32,7 @@ const (
 	workPublicationTrack = "publication_followup"
 	workEpisodeRecheck   = "episode_recheck"
 	workLegacyPause      = "legacy_pause_cleanup"
+	workReplayCancel     = "replay_cancel"
 	schedulerSingletonID = "drain"
 )
 
@@ -88,6 +89,7 @@ func (s *Service) seedScheduledWork(ctx context.Context) error {
 		{Kind: workSlackDelivery, SubjectID: schedulerSingletonID, Lane: store.WorkLaneControl, Priority: 30},
 		{Kind: workSlackMembership, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 5},
 		{Kind: workLegacyPause, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 6},
+		{Kind: workReplayCancel, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 7},
 		{Kind: workWebhook, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 10},
 		{Kind: workAgentFinalize, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 20},
 		{Kind: workIncidentDiscover, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 25},
@@ -233,11 +235,8 @@ func (s *Service) handleScheduledWork(
 		}
 	default:
 		now := s.now().UTC()
-		next, retryAfter, rateLimited := scheduledRetryAt(
-			now,
-			item.Failures+1,
-			err,
-		)
+		retryAfter, rateLimited := slackui.RetryAfter(err)
+		next := retrydelay.At(now, item.Failures+1, retryAfter)
 		if retryErr := s.store.RetryWork(
 			ctx,
 			item,
@@ -270,19 +269,6 @@ func (s *Service) handleScheduledWork(
 	}
 }
 
-func scheduledRetryAt(
-	now time.Time,
-	attempt int,
-	err error,
-) (time.Time, time.Duration, bool) {
-	next := now.Add(retrydelay.Duration(attempt))
-	retryAfter, rateLimited := slackui.RetryAfter(err)
-	if rateLimited && now.Add(retryAfter).After(next) {
-		next = now.Add(retryAfter)
-	}
-	return next, retryAfter, rateLimited
-}
-
 func recurringScheduledWork(kind string) bool {
 	switch kind {
 	case workSlackInput,
@@ -298,7 +284,8 @@ func recurringScheduledWork(kind string) bool {
 		workScheduledTask,
 		workEpisodeWakeup,
 		workPublicationTrack,
-		workLegacyPause:
+		workLegacyPause,
+		workReplayCancel:
 		return true
 	default:
 		return false
@@ -358,6 +345,8 @@ func (s *Service) runScheduledWork(
 		return store.ErrNotFound
 	case workLegacyPause:
 		return s.processLegacyPauseCleanup(ctx)
+	case workReplayCancel:
+		return s.processReplayCancellation(ctx)
 	case workScheduledTask:
 		return s.processScheduledTasks(ctx)
 	case workEpisodeWakeup:

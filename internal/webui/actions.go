@@ -38,6 +38,7 @@ type Actions interface {
 	// passed, through the episode kernel's own cancel transition. Nothing is
 	// deleted: the event and the audit row are the record of who decided.
 	ResolveEpisodeOvertaken(ctx context.Context, episodeID, actor string) error
+	CancelSlackReplay(ctx context.Context, replayID, expectedRunKey, actor string) error
 	// ResolveIncident closes an open room through the same handler the Slack
 	// close control uses, cleanup scheduling and closing notice included.
 	ResolveIncident(ctx context.Context, incidentID, actor string) error
@@ -136,6 +137,13 @@ func (h *Handler) rerunCleanup(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) resolveEpisode(w http.ResponseWriter, r *http.Request) {
 	h.act(w, r, func(ctx context.Context, id string) error {
 		return h.actions.ResolveEpisodeOvertaken(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) cancelSlackReplay(w http.ResponseWriter, r *http.Request) {
+	expectedRunKey := strings.TrimSpace(r.FormValue("run_key"))
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.CancelSlackReplay(ctx, id, expectedRunKey, dashboardActor)
 	})
 }
 

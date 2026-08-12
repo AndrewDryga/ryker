@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
+	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
@@ -1804,7 +1805,7 @@ func (s *Service) slackInputFailureIsTerminal(
 	err error,
 	attempt int,
 ) bool {
-	terminal := terminalAttempt(attempt, s.cfg.Limits.MaxSlackInputAttempts)
+	terminal := retrydelay.Exhausted(attempt, s.cfg.Limits.MaxSlackInputAttempts)
 	var apiErr *coop.APIError
 	if errors.As(err, &apiErr) && !apiErr.Retryable() {
 		terminal = true
@@ -1822,7 +1823,7 @@ func (s *Service) slackInputFailureIsTerminal(
 	// A cosmetic surface repaint is worth a couple of attempts, not the full
 	// budget reserved for work an operator asked for. Nobody loses an answer
 	// when suggested prompts fail to refresh.
-	if surfaceRefreshInput(input.Kind) && terminalAttempt(attempt, surfaceRefreshAttempts) {
+	if surfaceRefreshInput(input.Kind) && retrydelay.Exhausted(attempt, surfaceRefreshAttempts) {
 		terminal = true
 	}
 	return terminal

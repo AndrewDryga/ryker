@@ -1,6 +1,11 @@
 package agentcontext
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/AndrewDryga/responder/internal/core"
+)
 
 func TestNeedsCaptureRejectsLegacyRepositoryMismatch(t *testing.T) {
 	if !NeedsCapture(true, "channel-default", "task-repository") {
@@ -11,5 +16,20 @@ func TestNeedsCaptureRejectsLegacyRepositoryMismatch(t *testing.T) {
 	}
 	if !NeedsCapture(false, "task-repository", "task-repository") {
 		t.Fatal("missing durable context was accepted")
+	}
+}
+
+func TestSituationPromptAndPresenceShareTheSanitizedMemoryContract(t *testing.T) {
+	memory := core.AgentMemory{Goal: "restore service"}
+	if !MemoryPresent(memory) {
+		t.Fatal("nonempty memory was not recognized")
+	}
+	prompt := SituationPrompt(memory)
+	if !strings.Contains(prompt, "restore service") ||
+		!strings.Contains(prompt, "<prior-channel-situation>") {
+		t.Fatalf("situation prompt = %q", prompt)
+	}
+	if MemoryPresent(core.AgentMemory{}) || SituationPrompt(core.AgentMemory{}) != "" {
+		t.Fatal("empty memory produced context")
 	}
 }

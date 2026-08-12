@@ -1088,6 +1088,18 @@ func (f *fakeCoop) GetSession(ctx context.Context, _ string) (coop.Session, erro
 	}
 	return f.session, nil
 }
+func (f *fakeCoop) OperationByKey(_ context.Context, key string) (coop.Operation, error) {
+	for index, submittedKey := range f.submitKeys {
+		if submittedKey == key {
+			turnID := fmt.Sprintf("coop_turn_%d", index+1)
+			return coop.Operation{
+				ID: "op_" + turnID, Method: "SubmitTurn", State: "succeeded",
+				ResourceType: "turn", ResourceID: turnID,
+			}, nil
+		}
+	}
+	return coop.Operation{}, errors.New("operation not found")
+}
 func (f *fakeCoop) PrepareSession(_ context.Context, key, sessionID string, expectedRevision int64) (coop.Session, error) {
 	f.prepareKeys = append(f.prepareKeys, key)
 	f.prepareSessions = append(f.prepareSessions, sessionID)

@@ -9,10 +9,40 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
 )
+
+type pendingCreateCoop struct {
+	*fakeCoop
+	remaining int
+	entered   chan<- struct{}
+	release   <-chan struct{}
+}
+
+func (f *pendingCreateCoop) CreateSession(
+	ctx context.Context,
+	key, policy, task string,
+	sources ...coop.SessionSource,
+) (coop.Session, coop.Operation, error) {
+	if f.remaining > 0 {
+		f.remaining--
+		if f.entered != nil {
+			f.entered <- struct{}{}
+		}
+		select {
+		case <-ctx.Done():
+			return coop.Session{}, coop.Operation{}, ctx.Err()
+		case <-f.release:
+		}
+		operation := coop.Operation{ID: "op_cold", Method: "CreateRemoteSession", State: "running"}
+		return coop.Session{}, operation, &coop.OperationPendingError{ID: operation.ID}
+	}
+	return f.fakeCoop.CreateSession(ctx, key, policy, task, sources...)
+}
 
 func TestReadyRequiresFreshSchedulerHeartbeatsAndDueWork(t *testing.T) {
 	ctx := context.Background()
@@ -68,6 +98,74 @@ func TestReadyRequiresFreshSchedulerHeartbeatsAndDueWork(t *testing.T) {
 	}
 }
 
+func TestScheduledColdSessionCreationYieldsAndEventuallyResumesWithoutRestart(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CCOLD"}
+	cfg.Limits.WorkerStallAfter.Duration = time.Second
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	entered, release := make(chan struct{}), make(chan struct{})
+	client := &pendingCreateCoop{
+		fakeCoop: newFakeCoop(), remaining: 2, entered: entered, release: release,
+	}
+	svc := New(cfg, st, client, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	clock := useTestClock(svc, st)
+	input := core.SlackInput{
+		ID: "cold-create", EnvelopeID: "cold-create-envelope", EventID: "cold-create-event",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: "CCOLD",
+		MessageTS: "1700.500", UserID: "U123ABC", Text: "<@U999BOT> investigate this",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnsureWork(ctx, store.WorkItem{
+		Kind: workAgentRun, SubjectID: "cold-create-drain", Lane: store.WorkLaneBackground,
+		ConversationKey: "", Priority: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	started := clock.Now()
+	for attempt := range 3 {
+		item, err := st.LeaseWork(ctx, store.WorkLaneBackground, time.Minute)
+		if err != nil {
+			t.Fatalf("lease attempt %d: %v", attempt, err)
+		}
+		done := make(chan struct{})
+		go func() {
+			svc.handleScheduledWork(ctx, item)
+			close(done)
+		}()
+		if attempt < 2 {
+			<-entered
+			release <- struct{}{}
+		}
+		<-done
+		run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if attempt < 2 {
+			if run.State != core.AgentRunPending || run.Failures != 0 {
+				t.Fatalf("yielded run attempt %d = %+v", attempt, run)
+			}
+			clock.Advance(cfg.Limits.WorkerStallAfter.Duration + time.Second)
+		} else if run.State != core.AgentRunRunning || run.CoopTurnID == "" {
+			t.Fatalf("resumed run = %+v", run)
+		}
+	}
+	if elapsed := clock.Now().Sub(started); elapsed <= cfg.Limits.WorkerStallAfter.Duration {
+		t.Fatalf("cold operation duration %s did not exceed worker stall %s", elapsed, cfg.Limits.WorkerStallAfter.Duration)
+	}
+}
+
 func TestScheduledWorkSeedsOneAgentDrainPerBackgroundWorker(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -116,17 +214,16 @@ func TestRequestNativeStatusIsStableAndScheduleSpecific(t *testing.T) {
 
 func TestScheduledRetryHonorsSlackRetryAfter(t *testing.T) {
 	now := time.Date(2026, time.July, 31, 12, 0, 0, 0, time.UTC)
-	next, delay, rateLimited := scheduledRetryAt(
-		now,
-		1,
-		fmt.Errorf("list Slack channels: %w", &slack.RateLimitedError{
-			RetryAfter: 30 * time.Second,
-		}),
-	)
+	err := fmt.Errorf("list Slack channels: %w", &slack.RateLimitedError{
+		RetryAfter: 30 * time.Second,
+	})
+	delay, rateLimited := slackui.RetryAfter(err)
+	next := retrydelay.At(now, 1, delay)
 	if !rateLimited || delay != 30*time.Second || !next.Equal(now.Add(30*time.Second)) {
 		t.Fatalf("scheduled retry = %s, %s, %t", next, delay, rateLimited)
 	}
-	next, delay, rateLimited = scheduledRetryAt(now, 1, errors.New("temporary failure"))
+	delay, rateLimited = slackui.RetryAfter(errors.New("temporary failure"))
+	next = retrydelay.At(now, 1, delay)
 	if rateLimited || delay != 0 || !next.Equal(now.Add(2*time.Second)) {
 		t.Fatalf("ordinary retry = %s, %s, %t", next, delay, rateLimited)
 	}

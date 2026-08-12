@@ -14,42 +14,18 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/localstate"
 	"github.com/AndrewDryga/responder/internal/publisher"
+	"github.com/AndrewDryga/responder/internal/replaycontrol"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/responder/internal/serviceport"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskpr"
-	"github.com/slack-go/slack/socketmode"
 )
 
-type CoopAPI interface {
-	Ready(context.Context) error
-	CreateSession(context.Context, string, string, string, ...coop.SessionSource) (coop.Session, coop.Operation, error)
-	GetSession(context.Context, string) (coop.Session, error)
-	PrepareSession(context.Context, string, string, int64) (coop.Session, error)
-	ListSessions(context.Context, int) ([]coop.Session, error)
-	SubmitTurn(context.Context, string, string, int64, string) (coop.Turn, coop.Operation, error)
-	SubmitTurnWithArtifacts(context.Context, string, string, int64, string, []coop.InputArtifact) (coop.Turn, coop.Operation, error)
-	GetTurn(context.Context, string, string) (coop.Turn, error)
-	GetOutputArtifact(context.Context, string, string, string) (coop.OutputArtifact, error)
-	Events(context.Context, string, int64, int) ([]coop.Event, error)
-	Changes(context.Context, string) (coop.Changes, error)
-	Review(context.Context, string, string, int64) (coop.Review, coop.Operation, error)
-	Cancel(context.Context, string, string, string, int64) (coop.Turn, coop.Operation, error)
-	Extend(context.Context, string, string, int64, int) (coop.Session, coop.Operation, error)
-	Close(context.Context, string, string, int64) (coop.Session, coop.Operation, error)
-	PlanDiscard(context.Context, string, string, int64, bool, bool) (coop.DiscardPlan, coop.Operation, error)
-	Discard(context.Context, string, string, string) (coop.Session, coop.Operation, error)
-}
-
-type PublicationAPI interface {
-	Enabled() bool
-	HeadBranch(core.Incident, core.Publication) (string, error)
-	Publish(context.Context, publisher.Request) (publisher.Result, error)
-	VerifyPublication(context.Context, core.Publication) error
-}
+type CoopAPI = serviceport.Coop
+type PublicationAPI = serviceport.Publication
 
 func (s *Service) taskPullRequestResolver(inspector taskpr.Inspector) taskpr.IncidentResolver {
 	return taskpr.IncidentResolver{
@@ -66,17 +42,8 @@ type treeResolverAPI interface {
 	ResolveTree(ctx context.Context, path, commit string) (string, error)
 }
 
-type EmisarAPI interface {
-	WaitForRun(context.Context, string) (emisar.RunState, error)
-}
-
-type Socket interface {
-	Events() <-chan socketmode.Event
-	Ack(socketmode.Request) error
-	Run(context.Context) error
-	Connected() bool
-	SetConnected(bool)
-}
+type EmisarAPI = serviceport.Emisar
+type Socket = serviceport.Socket
 
 func (s *Service) SetPublisher(value PublicationAPI) {
 	if value != nil {
@@ -119,6 +86,8 @@ type Service struct {
 	channelWrites *localstate.ChannelWriteSlots
 	nativeStatus  *localstate.NativeStatusTracker
 	historyCache  *localstate.SlackHistoryCache
+	runCancels    *localstate.RunCancellations
+	replayControl replaycontrol.Controller
 
 	// coverageGaps remembers the configured-but-unjoined channels last
 	// reported, so a standing gap is stated when it appears and when it
@@ -222,6 +191,7 @@ func New(
 		channelWrites: localstate.NewChannelWriteSlots(localstate.SlackWriteInterval),
 		nativeStatus:  localstate.NewNativeStatusTracker(),
 		historyCache:  localstate.NewSlackHistoryCache(),
+		runCancels:    localstate.NewRunCancellations(),
 	}
 	// The service holds a paced Slack client, so every write is visible to the
 	// pacer rather than only the queued ones. See localstate.PaceChannelWrites;
@@ -229,6 +199,14 @@ func New(
 	// svc.now is a method value, so it follows a clock installed later by
 	// SetClock.
 	svc.slack = localstate.PaceChannelWrites(slackClient, svc.channelWrites, svc.now)
+	svc.replayControl = replaycontrol.Controller{
+		CancelReplay: func(ctx context.Context, id, runKey, detail string) (core.AgentRun, bool, bool, error) {
+			return store.CancelSlackReplay(ctx, st, id, runKey, detail)
+		},
+		Audit: st.Audit, Coop: coopClient, Active: svc.runCancels,
+		Complete: st.ReplayCancellations.Complete, Retry: st.ReplayCancellations.Retry,
+		Log: logger,
+	}
 	return svc
 }
 
@@ -663,10 +641,6 @@ func (s *Service) reconcileIncidentChannel(ctx context.Context) error {
 }
 
 func (s *Service) queueDelay(attempt int) time.Time { return s.now().Add(retrydelay.Duration(attempt)) }
-
-func terminalAttempt(attempt, maximum int) bool {
-	return attempt >= maximum
-}
 
 func trimError(err error) string {
 	if err == nil {

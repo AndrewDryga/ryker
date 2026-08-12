@@ -21,3 +21,21 @@ func NeedsFailureReply(input core.SlackInput, state decisionpkg.WatchTurnState) 
 	}
 	return decisionpkg.WatchInputTargeted(input, state)
 }
+
+// Lane keeps bounded conversation work out of the deeper investigation
+// context unless the input is explicitly targeted and carries no operational
+// evidence or verification intent.
+func Lane(
+	input core.SlackInput,
+	state decisionpkg.WatchTurnState,
+	conversationEnabled bool,
+	verificationReplay bool,
+) string {
+	if conversationEnabled && !verificationReplay && len(input.Attachments) == 0 &&
+		len(state.MatchedRules) == 0 &&
+		(input.Kind == "message" || input.Kind == "mention" || input.Kind == "direct") &&
+		decisionpkg.WatchInputTargeted(input, state) {
+		return "conversation"
+	}
+	return "investigation"
+}

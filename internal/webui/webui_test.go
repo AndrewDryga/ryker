@@ -138,7 +138,7 @@ func TestNoWriteRoutesAreExposed(t *testing.T) {
 	for _, path := range []string{
 		"/actions/corrections/keep", "/actions/corrections/discard", "/actions/failures/retry",
 		"/actions/workspaces/publish", "/actions/workspaces/discard", "/actions/workspaces/rerun",
-		"/actions/episodes/resolve", "/actions/incidents/resolve",
+		"/actions/episodes/resolve", "/actions/replays/cancel", "/actions/incidents/resolve",
 		"/actions/memory/forget", "/actions/memory/keep", "/actions/memory/dismiss",
 		"/actions/feedback/dismiss", "/actions/feedback/convert",
 	} {
@@ -222,6 +222,9 @@ func (failingActions) DiscardWorkspace(context.Context, string, string) error {
 	return errors.New("store refused")
 }
 func (failingActions) ResolveEpisodeOvertaken(context.Context, string, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) CancelSlackReplay(context.Context, string, string, string) error {
 	return errors.New("store refused")
 }
 func (failingActions) ResolveIncident(context.Context, string, string) error {

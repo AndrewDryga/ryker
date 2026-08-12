@@ -9,6 +9,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskpr"
@@ -39,7 +40,7 @@ func (s *Service) processWebhook(ctx context.Context) error {
 			s.cfg.Limits.MaxOpenIncidents,
 		)
 		if applyErr != nil && len(incidents) == 0 {
-			terminal := terminalAttempt(event.Attempts, s.cfg.Limits.MaxWebhookAttempts)
+			terminal := retrydelay.Exhausted(event.Attempts, s.cfg.Limits.MaxWebhookAttempts)
 			return s.store.RetryWebhook(
 				ctx, event.ID, trimError(applyErr), s.queueDelay(event.Attempts), terminal,
 			)
@@ -84,7 +85,7 @@ func (s *Service) processWebhook(ctx context.Context) error {
 		}
 	}
 	if applyErr != nil {
-		terminal := terminalAttempt(event.Attempts, s.cfg.Limits.MaxWebhookAttempts)
+		terminal := retrydelay.Exhausted(event.Attempts, s.cfg.Limits.MaxWebhookAttempts)
 		return s.store.RetryWebhook(
 			ctx, event.ID, trimError(applyErr), s.queueDelay(event.Attempts), terminal,
 		)
@@ -346,7 +347,7 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 	// it would also record the two branches above that never reached Slack at
 	// all, cooling a channel for a body this process could not decode.
 	if err != nil {
-		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
+		terminal := retrydelay.Exhausted(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
 		uncertain := item.Operation == "post" || item.Operation == "file"
 		if item.Operation == "file" && permanentSlackFileDeliveryError(err) {
 			terminal = true
@@ -453,7 +454,7 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 			ctx, item.ID, timestamp, "uncertain",
 		)
 	case errors.Is(err, slackui.ErrNotFound):
-		terminal := terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
+		terminal := retrydelay.Exhausted(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
 		retryErr := s.store.RetryUncertainSlackDelivery(
 			ctx, item.ID, "Slack history confirmed the message was not posted",
 			s.queueDelay(item.Attempts), terminal,
@@ -478,7 +479,7 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 			item.ID,
 			trimError(err),
 			s.queueDelay(item.Attempts),
-			terminalAttempt(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts),
+			retrydelay.Exhausted(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts),
 		)
 	}
 }

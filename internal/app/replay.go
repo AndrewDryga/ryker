@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -151,6 +152,39 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 	started := time.Now()
 	result, err := waitForSlackReplay(ctx, st, source.ID, replay.ID, *expect, *publish)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			cancelCtx, cancelReplay := context.WithTimeout(context.Background(), 15*time.Second)
+			expectedRunKey := ""
+			if current, currentErr := st.GetAgentRunBySource(cancelCtx, "watch", replay.ID); currentErr == nil {
+				expectedRunKey = current.IdempotencyKey
+			} else if !errors.Is(currentErr, store.ErrNotFound) {
+				cancelReplay()
+				return fmt.Errorf("%w; identify timed-out replay generation: %v", err, currentErr)
+			}
+			cancelErr := requestSlackReplayCancellation(cancelCtx, cfg.Listen, replay.ID, expectedRunKey)
+			cancelReplay()
+			if cancelErr != nil {
+				// The loopback service owns the in-flight context, but the direct
+				// durable fallback still prevents another lease/retry if its HTTP
+				// surface is temporarily unavailable.
+				fallbackCtx, cancelFallback := context.WithTimeout(context.Background(), 5*time.Second)
+				_, _, deliveryUncertain, fallbackErr := store.CancelSlackReplay(
+					fallbackCtx, st, replay.ID, expectedRunKey,
+					"replay wait deadline expired; server work cancelled",
+				)
+				cancelFallback()
+				if deliveryUncertain {
+					fallbackErr = errors.Join(fallbackErr, errors.New(
+						"an in-flight Slack delivery requires reconciliation",
+					))
+				}
+				if fallbackErr != nil {
+					return fmt.Errorf("%w; cancel timed-out replay: %v; durable fallback: %v", err, cancelErr, fallbackErr)
+				}
+				return fmt.Errorf("%w; durable work was cancelled, but the in-flight interrupt could not be confirmed: %v", err, cancelErr)
+			}
+			return fmt.Errorf("%w; durable server work was cancelled", err)
+		}
 		return err
 	}
 	result.Duration = time.Since(started).Round(time.Millisecond)
@@ -179,6 +213,30 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 			delivery.MessageTS,
 			displayOr(replayUXState(delivery.SlackUX), "not-applicable"),
 		)
+	}
+	return nil
+}
+
+func requestSlackReplayCancellation(ctx context.Context, listen, replayID, expectedRunKey string) error {
+	endpoint := url.URL{Scheme: "http", Host: strings.TrimSpace(listen), Path: "/actions/replays/cancel"}
+	values := url.Values{"id": []string{replayID}, "run_key": []string{expectedRunKey}}
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, endpoint.String(), strings.NewReader(values.Encode()),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	response, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusSeeOther {
+		return fmt.Errorf("Responder cancellation returned HTTP %d", response.StatusCode)
 	}
 	return nil
 }

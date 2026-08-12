@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -502,6 +504,26 @@ func TestSlackReplayParsingAndPayloadFidelity(t *testing.T) {
 	if !strings.HasPrefix(published.EnvelopeID, "replay-public:") ||
 		published.EventID != published.EnvelopeID {
 		t.Fatalf("published replay identity = %+v", published)
+	}
+}
+
+func TestRequestSlackReplayCancellationUsesTheLoopbackAction(t *testing.T) {
+	var replayID, runKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		replayID = r.FormValue("id")
+		runKey = r.FormValue("run_key")
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}))
+	defer server.Close()
+	listen := strings.TrimPrefix(server.URL, "http://")
+	if err := requestSlackReplayCancellation(context.Background(), listen, "slack_replay_timeout", "run-key"); err != nil {
+		t.Fatal(err)
+	}
+	if replayID != "slack_replay_timeout" || runKey != "run-key" {
+		t.Fatalf("replay id/key = %q/%q", replayID, runKey)
 	}
 }
 

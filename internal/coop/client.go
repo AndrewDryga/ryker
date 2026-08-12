@@ -32,8 +32,10 @@ const (
 const promptElisionMarker = "\n\n<responder-context-elided>\nOlder bounded context was omitted to fit the Coop turn limit.\n</responder-context-elided>\n\n"
 
 type Client struct {
-	socket string
-	http   *http.Client
+	socket            string
+	http              *http.Client
+	asyncPollInterval time.Duration
+	asyncPollWindow   time.Duration
 
 	// truncated reports a prompt the transport had to elide. Elision is a
 	// backstop, not a strategy: it cuts the middle out, which can slice through
@@ -47,17 +49,31 @@ func (c *Client) SetTruncationObserver(observer func(originalBytes, cap int)) {
 	c.truncated = observer
 }
 
+// SetAsyncCreateHandoff keeps one scheduled worker from waiting until its
+// stall deadline for a cold session. The operation remains durable in Coop and
+// the same request key resumes polling it on the next lease.
+func (c *Client) SetAsyncCreateHandoff(workerStall time.Duration) {
+	if handoff := workerStall / 2; handoff > 0 && handoff < c.asyncPollWindow {
+		c.asyncPollWindow = handoff
+	}
+}
+
 type APIError struct {
-	Status int
-	Code   string
-	Detail string
+	Status      int
+	Code        string
+	Detail      string
+	OperationID string
 }
 
 func (e *APIError) Error() string {
-	if e.Detail == "" {
-		return fmt.Sprintf("Coop API %s (%d)", e.Code, e.Status)
+	operation := ""
+	if e.OperationID != "" {
+		operation = " operation=" + e.OperationID
 	}
-	return fmt.Sprintf("Coop API %s (%d): %s", e.Code, e.Status, e.Detail)
+	if e.Detail == "" {
+		return fmt.Sprintf("Coop API %s (%d)%s", e.Code, e.Status, operation)
+	}
+	return fmt.Sprintf("Coop API %s (%d)%s: %s", e.Code, e.Status, operation, e.Detail)
 }
 
 func (e *APIError) Retryable() bool {
@@ -72,6 +88,40 @@ type TransportError struct{ Err error }
 func (e *TransportError) Error() string { return "call Coop: " + e.Err.Error() }
 
 func (e *TransportError) Unwrap() error { return e.Err }
+
+// OperationPendingError hands a durable asynchronous operation back to the
+// scheduler before the worker lease expires. Retrying the same request key
+// resumes polling the same Coop operation.
+type OperationPendingError struct {
+	ID    string
+	Cause error
+}
+
+func (e *OperationPendingError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("Coop operation %s is still running: %v", e.ID, e.Cause)
+	}
+	return "Coop operation " + e.ID + " is still running"
+}
+
+func (e *OperationPendingError) Unwrap() error       { return e.Cause }
+func (e *OperationPendingError) OperationID() string { return e.ID }
+
+type operationError struct {
+	id  string
+	err error
+}
+
+func (e *operationError) Error() string       { return fmt.Sprintf("Coop operation %s: %v", e.id, e.err) }
+func (e *operationError) Unwrap() error       { return e.err }
+func (e *operationError) OperationID() string { return e.id }
+
+func correlateOperation(id string, err error) error {
+	if err == nil || id == "" {
+		return err
+	}
+	return &operationError{id: id, err: err}
+}
 
 type Operation struct {
 	ID           string    `json:"id"`
@@ -318,8 +368,8 @@ func New(socket string, timeout time.Duration) *Client {
 		},
 	}
 	return &Client{
-		socket: socket,
-		http:   &http.Client{Transport: transport, Timeout: timeout},
+		socket: socket, http: &http.Client{Transport: transport, Timeout: timeout},
+		asyncPollInterval: 250 * time.Millisecond, asyncPollWindow: 30 * time.Second,
 	}
 }
 
@@ -358,8 +408,54 @@ func (c *Client) CreateSession(
 			"number": sources[0].PullRequestNumber, "head_commit": sources[0].HeadCommit,
 		}
 	}
-	err := c.post(ctx, "/v1/sessions", key, body, &response)
-	return response.Session, response.Operation, err
+	err := c.postPreferAsync(ctx, "/v1/sessions", key, body, &response)
+	if err != nil || response.Session.ID != "" {
+		return response.Session, response.Operation, err
+	}
+	op := response.Operation
+	if op.ID == "" {
+		return Session{}, Operation{}, errors.New("Coop async session response has no operation id")
+	}
+	ticker := time.NewTicker(c.asyncPollInterval)
+	defer ticker.Stop()
+	deadline := time.NewTimer(c.asyncPollWindow)
+	defer deadline.Stop()
+	for {
+		switch op.State {
+		case "succeeded":
+			if op.ResourceType != "session" || op.ResourceID == "" {
+				return Session{}, op, correlateOperation(op.ID, errors.New("Coop create operation has no session resource"))
+			}
+			sess, getErr := c.GetSession(ctx, op.ResourceID)
+			return sess, op, correlateOperation(op.ID, getErr)
+		case "failed", "uncertain":
+			status := http.StatusConflict
+			if op.ErrorCode == "internal_error" {
+				status = http.StatusInternalServerError
+			}
+			return Session{}, op, &APIError{
+				Status: status, Code: op.ErrorCode, Detail: op.ErrorDetail, OperationID: op.ID,
+			}
+		case "reserved", "running":
+		default:
+			return Session{}, op, correlateOperation(op.ID,
+				fmt.Errorf("Coop create operation has unsupported state %q", op.State))
+		}
+		select {
+		case <-ctx.Done():
+			return Session{}, op, &OperationPendingError{ID: op.ID, Cause: ctx.Err()}
+		case <-deadline.C:
+			return Session{}, op, &OperationPendingError{ID: op.ID}
+		case <-ticker.C:
+		}
+		pollCtx, cancel := context.WithTimeout(ctx, min(5*time.Second, c.asyncPollWindow))
+		next, pollErr := c.Operation(pollCtx, op.ID)
+		cancel()
+		if pollErr != nil {
+			return Session{}, op, &OperationPendingError{ID: op.ID, Cause: pollErr}
+		}
+		op = next
+	}
 }
 
 func (c *Client) GetSession(ctx context.Context, id string) (Session, error) {
@@ -634,6 +730,18 @@ func (c *Client) Operation(ctx context.Context, id string) (Operation, error) {
 	return response, err
 }
 
+// OperationByKey recovers the durable outcome of a request whose HTTP response
+// may have been lost after Coop committed it. The response deliberately omits
+// the key; callers already possess the exact key they are querying.
+func (c *Client) OperationByKey(ctx context.Context, key string) (Operation, error) {
+	if strings.TrimSpace(key) == "" {
+		return Operation{}, errors.New("Coop operation idempotency key is required")
+	}
+	var response Operation
+	err := c.get(ctx, "/v1/operations", url.Values{"key": {key}}, &response)
+	return response, err
+}
+
 func (c *Client) get(ctx context.Context, path string, query url.Values, result any) error {
 	if len(query) > 0 {
 		path += "?" + query.Encode()
@@ -642,6 +750,21 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, result 
 }
 
 func (c *Client) post(ctx context.Context, path, key string, body any, result any) error {
+	return c.postWithHeaders(ctx, path, key, body, nil, result)
+}
+
+func (c *Client) postPreferAsync(ctx context.Context, path, key string, body any, result any) error {
+	return c.postWithHeaders(ctx, path, key, body, http.Header{"Prefer": {"respond-async"}}, result)
+}
+
+func (c *Client) postWithHeaders(
+	ctx context.Context,
+	path string,
+	key string,
+	body any,
+	headers http.Header,
+	result any,
+) error {
 	if strings.TrimSpace(key) == "" {
 		return errors.New("Coop idempotency key is required")
 	}
@@ -649,10 +772,22 @@ func (c *Client) post(ctx context.Context, path, key string, body any, result an
 	if err != nil {
 		return err
 	}
-	return c.do(ctx, http.MethodPost, path, key, data, result)
+	return c.doWithHeaders(ctx, http.MethodPost, path, key, data, headers, result)
 }
 
 func (c *Client) do(ctx context.Context, method, path, key string, body []byte, result any) error {
+	return c.doWithHeaders(ctx, method, path, key, body, nil, result)
+}
+
+func (c *Client) doWithHeaders(
+	ctx context.Context,
+	method string,
+	path string,
+	key string,
+	body []byte,
+	headers http.Header,
+	result any,
+) error {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -662,6 +797,11 @@ func (c *Client) do(ctx context.Context, method, path, key string, body []byte, 
 		return err
 	}
 	request.Header.Set("Accept", "application/json")
+	for name, values := range headers {
+		for _, value := range values {
+			request.Header.Add(name, value)
+		}
+	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Idempotency-Key", key)
@@ -681,14 +821,15 @@ func (c *Client) do(ctx context.Context, method, path, key string, body []byte, 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		var failure struct {
 			Error struct {
-				Code   string `json:"code"`
-				Detail string `json:"detail"`
+				Code        string `json:"code"`
+				Detail      string `json:"detail"`
+				OperationID string `json:"operation_id"`
 			} `json:"error"`
 		}
 		if err := json.Unmarshal(data, &failure); err != nil {
 			return &APIError{Status: response.StatusCode, Code: "invalid_error_response"}
 		}
-		return &APIError{Status: response.StatusCode, Code: failure.Error.Code, Detail: failure.Error.Detail}
+		return &APIError{Status: response.StatusCode, Code: failure.Error.Code, Detail: failure.Error.Detail, OperationID: failure.Error.OperationID}
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(result); err != nil {
@@ -704,6 +845,10 @@ func (c *Client) do(ctx context.Context, method, path, key string, body []byte, 
 func Retryable(err error) bool {
 	if err == nil {
 		return false
+	}
+	var pending *OperationPendingError
+	if errors.As(err, &pending) {
+		return true
 	}
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {

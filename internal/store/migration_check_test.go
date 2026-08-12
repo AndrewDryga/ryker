@@ -82,7 +82,7 @@ func TestCheckMigrationCatchesAMigrationThatDestroysRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := target.Exec(
-		`UPDATE schema_version SET version = ?`, currentSchemaVersion-1,
+		`DROP TABLE replay_cancellations; UPDATE schema_version SET version = ?`, currentSchemaVersion-1,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,8 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_id;
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
 		DROP TABLE quality_findings;
-		DROP TABLE conversation_memory_changes;`); err != nil {
+		DROP TABLE conversation_memory_changes;
+		DROP TABLE replay_cancellations;`); err != nil {
 		t.Fatal(err)
 	}
 	target.Close()
@@ -323,6 +324,7 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_id;
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
 		DROP TABLE conversation_memory_changes;
+		DROP TABLE replay_cancellations;
 		CREATE TABLE action_proposals (
 		  id TEXT PRIMARY KEY,
 		  incident_id TEXT NOT NULL DEFAULT '',

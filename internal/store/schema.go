@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 66
+const currentSchemaVersion = 67
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -333,4 +333,5 @@ var migrations = map[int]string{
 		), '')
 		WHERE agent_run_key = '';
 	`,
+	67: schemaV67,
 }

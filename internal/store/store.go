@@ -22,6 +22,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/publicationfollowupstore"
 	"github.com/AndrewDryga/responder/internal/store/publicationrecoverystore"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
+	"github.com/AndrewDryga/responder/internal/store/replaycancelstore"
 	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
@@ -87,6 +88,9 @@ type Store struct {
 	// PauseCleanup owns discovery of terminal messages carrying the legacy
 	// pause reaction. The scheduler owns its retry lifecycle.
 	PauseCleanup *pausecleanupstore.Repository
+	// ReplayCancellations retries Coop interruption after a local replay
+	// cancellation, including across process restart and lost submit responses.
+	ReplayCancellations *replaycancelstore.Repository
 }
 
 type Metrics struct {
@@ -1093,6 +1097,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.Incidents = incidentstore.New(db, clock)
 	s.SlackInputs = slackinputstore.New(db)
 	s.PauseCleanup = pausecleanupstore.New(db)
+	s.ReplayCancellations = replaycancelstore.New(db, clock)
 }
 
 // SetClock replaces the store clock. It exists for tests.

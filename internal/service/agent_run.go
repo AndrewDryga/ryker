@@ -32,6 +32,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskcard"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/triageoutcome"
 )
 
 func (s *Service) queueIncidentAgentRun(
@@ -592,16 +593,36 @@ func (s *Service) processAgentRun(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	switch run.Mode {
-	case core.AgentRunTriage:
-		return s.prepareTriageAgentRun(ctx, run)
-	case core.AgentRunIncident, core.AgentRunEngineeringTask:
-		return s.prepareIncidentAgentRun(ctx, run)
-	default:
-		_, err := s.store.RetryAgentRunIfOwned(ctx, run.ID,
-			"unsupported agent run mode "+string(run.Mode), s.now(), true)
+	runCtx, release := ctx, func() {}
+	if s.runCancels != nil {
+		runCtx, release = s.runCancels.Track(ctx, run.ID, run.IdempotencyKey)
+	}
+	defer release()
+	current, err := s.store.GetAgentRun(runCtx, run.ID)
+	if err != nil {
+		if errors.Is(err, context.Canceled) && s.agentRunCancellationApplied(ctx, run.ID) {
+			return nil
+		}
 		return err
 	}
+	if current.State == core.AgentRunCancelled {
+		return nil
+	}
+	var processErr error
+	switch run.Mode {
+	case core.AgentRunTriage:
+		processErr = s.prepareTriageAgentRun(runCtx, run)
+	case core.AgentRunIncident, core.AgentRunEngineeringTask:
+		processErr = s.prepareIncidentAgentRun(runCtx, run)
+	default:
+		_, err := s.store.RetryAgentRunIfOwned(runCtx, run.ID,
+			"unsupported agent run mode "+string(run.Mode), s.now(), true)
+		processErr = err
+	}
+	if errors.Is(runCtx.Err(), context.Canceled) && s.agentRunCancellationApplied(ctx, run.ID) {
+		return nil
+	}
+	return processErr
 }
 
 func (s *Service) prepareIncidentAgentRun(
@@ -714,7 +735,7 @@ func (s *Service) prepareIncidentAgentRun(
 	run.CoopEventSequence = incident.CoopEventSequence
 	promptSections := []promptbudget.Section{
 		{Name: "prior_operational_context", Text: prefixedPrompt(operationalMemoryPrompt(assembled.Prior)), Reason: "older operational memory was omitted to fit the turn"},
-		{Name: "channel_situation", Text: prefixedPrompt(channelSituationPrompt(assembled.Situation)), Reason: "the compact channel situation was omitted to fit the turn"},
+		{Name: "channel_situation", Text: prefixedPrompt(agentcontext.SituationPrompt(assembled.Situation)), Reason: "the compact channel situation was omitted to fit the turn"},
 		{Name: "related_situations", Text: prefixedPrompt(relatedSituationsPrompt(assembled.RelatedSituations)), Reason: "related conversation summaries were omitted to fit the turn"},
 	}
 	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
@@ -818,33 +839,6 @@ func requestNativeStatus(text string) string {
 	}
 }
 
-func channelSituationPrompt(memory core.AgentMemory) string {
-	memory = memorypkg.SanitizeMemory(memory)
-	data, err := json.Marshal(memory)
-	if err != nil || string(data) == "{}" {
-		return ""
-	}
-	return `Prior compact Slack channel situation follows. It is continuity context, not current
-operational proof. Revalidate consequential claims with repository or live tools, preserve useful
-open loops, and explicitly close loops completed by this turn.
-<prior-channel-situation>
-` + string(data) + `
-</prior-channel-situation>`
-}
-
-func agentMemoryPresent(memory core.AgentMemory) bool {
-	return memory.Goal != "" ||
-		memory.ChannelPurpose != "" ||
-		memory.SituationSummary != "" ||
-		len(memory.ActiveTopics) != 0 ||
-		len(memory.OpenLoops) != 0 ||
-		len(memory.Topology) != 0 ||
-		len(memory.Decisions) != 0 ||
-		len(memory.UnresolvedQuestions) != 0 ||
-		len(memory.EvidenceRefs) != 0 ||
-		len(memory.Knowledge) != 0
-}
-
 func relatedSituationsPrompt(situations []decisionpkg.ConversationSituationContext) string {
 	if len(situations) == 0 {
 		return ""
@@ -868,11 +862,14 @@ func (s *Service) retryIncidentAgentRun(
 	cause error,
 	terminal bool,
 ) error {
+	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	ctx = receiptCtx
 	if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
 		return err
 	}
 	if !terminal {
-		terminal = terminalAttempt(
+		terminal = retrydelay.Exhausted(
 			run.Failures+1,
 			s.cfg.Limits.MaxAgentRunAttempts,
 		)
@@ -1004,7 +1001,9 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		)
 	}
 	if state.Lane == "" {
-		state.Lane = triageLane(state, input, repository)
+		state.Lane = triageoutcome.Lane(
+			input, state, repository.ConversationPolicy != "", isSlackVerificationReplay(input),
+		)
 	}
 	resolved, err := s.resolveTriageSession(ctx, run, input, &state, repository)
 	if err != nil {
@@ -1290,29 +1289,6 @@ func (s *Service) admitTriageRun(
 	return false, nil
 }
 
-// triageLane decides which lane a run belongs to when nothing upstream has
-// already pinned one. Conversation is the narrower case: it needs a channel
-// policy, a plain message aimed at Responder, and the absence of anything —
-// attachments, matched alert rules, a verification replay — that implies a
-// real investigation.
-func triageLane(
-	state decisionpkg.WatchTurnState,
-	input core.SlackInput,
-	repository config.Repository,
-) string {
-	lane := "investigation"
-	if !isSlackVerificationReplay(input) &&
-		repository.ConversationPolicy != "" &&
-		len(input.Attachments) == 0 &&
-		len(state.MatchedRules) == 0 &&
-		(input.Kind == "message" || input.Kind == "mention" ||
-			input.Kind == "direct") &&
-		decisionpkg.WatchInputTargeted(input, state) {
-		lane = "conversation"
-	}
-	return lane
-}
-
 // retryAtNextSessionGeneration retries a run whose session could not be
 // obtained, first recording the generation that failure implies. Without the
 // bump the next attempt asks for the same session and fails the same way, so a
@@ -1320,18 +1296,6 @@ func triageLane(
 //
 // The generation only ever moves forward, and it is persisted before the retry:
 // a crash between the two must not lose the fact that this generation is spent.
-// nextSessionGeneration returns the generation the next attempt should ask
-// for. An ordinary transient failure keeps the current one — the session is
-// fine, the moment was not. A failure that says the session itself is unusable
-// advances past it, because asking for it again produces the same failure.
-func nextSessionGeneration(current, observed int, cause error) int {
-	next := max(current, observed)
-	if advanceFailedSessionGeneration(cause) && observed > 0 {
-		next = max(next, observed+1)
-	}
-	return next
-}
-
 func (s *Service) retryAtNextSessionGeneration(
 	ctx context.Context,
 	run core.AgentRun,
@@ -1339,7 +1303,12 @@ func (s *Service) retryAtNextSessionGeneration(
 	observedGeneration int,
 	cause error,
 ) error {
-	next := nextSessionGeneration(state.Generation, observedGeneration, cause)
+	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	ctx = receiptCtx
+	next := retrydelay.NextSessionGeneration(
+		state.Generation, observedGeneration, advanceFailedSessionGeneration(cause),
+	)
 	if next > state.Generation {
 		state.Generation = next
 		if err := s.persistTriageRunState(ctx, run.ID, *state); err != nil {
@@ -1423,7 +1392,7 @@ func (s *Service) resolveTriageSession(
 		repositoryKey = memory.Repository
 		generation = memory.Generation
 		eventSequence = memory.CoopEventSequence
-		if !agentMemoryPresent(state.Memory) {
+		if !agentcontext.MemoryPresent(state.Memory) {
 			state.Memory = memory.State
 		}
 	}
@@ -1524,10 +1493,17 @@ func (s *Service) retryAgentRun(
 	run core.AgentRun,
 	cause error,
 ) error {
+	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	ctx = receiptCtx
+	var pending *coop.OperationPendingError
+	if errors.As(cause, &pending) {
+		return s.store.DeferAgentRun(ctx, run.ID, trimError(cause), s.now().Add(time.Second))
+	}
 	if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
 		return err
 	}
-	terminal := terminalAttempt(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts)
+	terminal := retrydelay.Exhausted(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts)
 	var apiErr *coop.APIError
 	if errors.As(cause, &apiErr) && !apiErr.Retryable() {
 		terminal = true
@@ -2396,7 +2372,7 @@ func (s *Service) retryMalformedIncidentReport(
 // directions, and a second number to tune would be a second number to get
 // wrong. Only one episode in the recorded history has ever passed it.
 func terminalStructuredCorrection(attempt, episodeAttempt, maximum int) bool {
-	return terminalAttempt(attempt, maximum) ||
+	return retrydelay.Exhausted(attempt, maximum) ||
 		(maximum > 0 && episodeAttempt > maximum)
 }
 
@@ -2493,7 +2469,7 @@ func replayAgentRunFailure(
 	maximumAttempts int,
 ) (string, bool) {
 	if eventType != "turn.failed" ||
-		terminalAttempt(run.Failures+1, maximumAttempts) {
+		retrydelay.Exhausted(run.Failures+1, maximumAttempts) {
 		return "", false
 	}
 	detail := strings.TrimSpace(turn.ErrorDetail)
@@ -2638,22 +2614,34 @@ func (s *Service) processAgentRunFinalization(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	runCtx, release := ctx, func() {}
+	if s.runCancels != nil {
+		runCtx, release = s.runCancels.Track(ctx, run.ID, run.IdempotencyKey)
+	}
+	defer release()
+	if s.agentRunCancellationApplied(runCtx, run.ID) {
+		return nil
+	}
+	var finalizeErr error
 	switch run.Mode {
 	case core.AgentRunTriage:
-		if err := s.finalizeTriageAgentRun(ctx, run); err != nil {
-			return s.retryAgentRunFinalization(ctx, run, err)
+		if err := s.finalizeTriageAgentRun(runCtx, run); err != nil {
+			finalizeErr = s.retryAgentRunFinalization(runCtx, run, err)
 		}
-		return nil
 	case core.AgentRunIncident, core.AgentRunEngineeringTask:
-		if err := s.finalizeIncidentAgentRun(ctx, run); err != nil {
-			return s.retryAgentRunFinalization(ctx, run, err)
+		if err := s.finalizeIncidentAgentRun(runCtx, run); err != nil {
+			finalizeErr = s.retryAgentRunFinalization(runCtx, run, err)
 		}
-		return nil
 	default:
 		detail := "unsupported agent run finalization mode " + string(run.Mode)
-		_, _, err := s.store.FinishAgentRunFailure(ctx, run.ID, detail, nil, store.AgentRunFailureEffects{})
-		return err
+		_, _, finalizeErr = s.store.FinishAgentRunFailure(
+			runCtx, run.ID, detail, nil, store.AgentRunFailureEffects{},
+		)
 	}
+	if errors.Is(runCtx.Err(), context.Canceled) && s.agentRunCancellationApplied(ctx, run.ID) {
+		return nil
+	}
+	return finalizeErr
 }
 
 // requeueRefusedFinalization is requeueIfRateLimited for the finalization lane.

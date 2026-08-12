@@ -31,3 +31,19 @@ func TestDependencyWaitHoldsFloorAndCeiling(t *testing.T) {
 		}
 	}
 }
+
+func TestRetryPoliciesAreMonotonicAndBounded(t *testing.T) {
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	if got := At(now, 1, 30*time.Second); !got.Equal(now.Add(30 * time.Second)) {
+		t.Fatalf("minimum retry = %s", got)
+	}
+	if !Exhausted(3, 3) || Exhausted(2, 3) {
+		t.Fatal("exhaustion boundary changed")
+	}
+	if got := NextSessionGeneration(3, 3, true); got != 4 {
+		t.Fatalf("unusable generation = %d", got)
+	}
+	if got := NextSessionGeneration(7, 2, true); got != 7 {
+		t.Fatalf("generation moved backwards to %d", got)
+	}
+}

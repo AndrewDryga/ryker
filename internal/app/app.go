@@ -130,6 +130,7 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		logger.Info("adopted feedback from the standalone database", "items", adopted)
 	}
 	coopClient := coop.New(cfg.Coop.Socket, cfg.Coop.RequestTimeout.Duration)
+	coopClient.SetAsyncCreateHandoff(cfg.Limits.WorkerStallAfter.Duration)
 	supervisor, err := startManagedCoop(cfg, stderr, logger, coopClient)
 	if err != nil {
 		return err

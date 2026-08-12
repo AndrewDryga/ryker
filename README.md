@@ -488,6 +488,10 @@ Add `--publish` only when another real response in the original Slack conversati
 published replay additionally requires confirmed delivery and deterministic UX validation of the
 exact persisted message payload. Use `--expect react`, `ignore`, `incident`, or `any` only when
 that outcome is intentional.
+If the command reaches `--timeout`, it cancels the replay's durable local run rather than merely
+stopping its wait. It also interrupts the exact active Coop turn; if that remote interruption or an
+in-flight Slack write cannot be confirmed immediately, the command reports the uncertainty and
+durable recovery keeps retrying it. The cancellation is idempotent and recorded in the audit log.
 
 State is one owner-private SQLite database in `state_dir`. Slack inputs, webhook events, outgoing
 Slack deliveries, agent runs, incident mappings, channel lifecycle, structured evidence, coverage,

@@ -277,6 +277,10 @@ func (a *dashboardActions) ResolveEpisodeOvertaken(ctx context.Context, episodeI
 	})
 }
 
+func (a *dashboardActions) CancelSlackReplay(ctx context.Context, replayID, expectedRunKey, actor string) error {
+	return service.CancelSlackReplay(ctx, a.service, replayID, expectedRunKey, actor)
+}
+
 // ResolveIncident closes an open room through the same service handler the
 // Slack close control calls: cleanup scheduling, audit, timeline and the
 // closing notice included.

@@ -34,6 +34,9 @@ func TestClientUsesUnixSocketAndExactMutationHeaders(t *testing.T) {
 		if got := r.Header.Get("Content-Type"); got != "application/json" {
 			t.Errorf("content type = %q", got)
 		}
+		if got := r.Header.Get("Prefer"); got != "respond-async" {
+			t.Errorf("prefer = %q", got)
+		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
@@ -54,6 +57,178 @@ func TestClientUsesUnixSocketAndExactMutationHeaders(t *testing.T) {
 	}
 	if session.ID != "ses_1" || operation.ID != "op_1" {
 		t.Fatalf("response = %+v %+v", session, operation)
+	}
+}
+
+func TestClientPollsAsynchronousSessionCreationBeyondPerRequestTimeout(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	var polls int
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/sessions":
+			if r.Method != http.MethodPost || r.Header.Get("Prefer") != "respond-async" {
+				t.Errorf("create request = %s Prefer=%q", r.Method, r.Header.Get("Prefer"))
+			}
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"operation":{"id":"op_async","method":"CreateRemoteSession","state":"running"}}`))
+		case "/v1/operations/op_async":
+			polls++
+			_, _ = w.Write([]byte(`{"id":"op_async","method":"CreateRemoteSession","state":"succeeded","resource_type":"session","resource_id":"ses_async"}`))
+		case "/v1/sessions/ses_async":
+			_, _ = w.Write([]byte(`{"id":"ses_async","external_ref":"cold","revision":1,"state":"open","activity":"parked"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	started := time.Now()
+	created, operation, err := New(socket, 50*time.Millisecond).CreateSession(
+		context.Background(), "async", "observe", "cold",
+	)
+	if err != nil || created.ID != "ses_async" || operation.ID != "op_async" || polls != 1 {
+		t.Fatalf("async session=%+v operation=%+v polls=%d err=%v", created, operation, polls, err)
+	}
+	if elapsed := time.Since(started); elapsed < 200*time.Millisecond {
+		t.Fatalf("async poll returned too quickly to prove per-request timeout behavior: %s", elapsed)
+	}
+}
+
+func TestClientHandsLongSessionCreationBackWithDurableOperation(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/sessions":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"operation":{"id":"op_long","method":"CreateRemoteSession","state":"running"}}`))
+		case "/v1/operations/op_long":
+			_, _ = w.Write([]byte(`{"id":"op_long","method":"CreateRemoteSession","state":"running"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	client := New(socket, time.Second)
+	client.asyncPollInterval = 5 * time.Millisecond
+	client.asyncPollWindow = 20 * time.Millisecond
+	started := time.Now()
+	_, operation, err := client.CreateSession(context.Background(), "long", "observe", "cold")
+	var pending *OperationPendingError
+	if !errors.As(err, &pending) || pending.ID != "op_long" || operation.ID != "op_long" {
+		t.Fatalf("operation=%+v pending=%+v err=%v", operation, pending, err)
+	}
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("durable handoff took %s", elapsed)
+	}
+	if !Retryable(err) {
+		t.Fatalf("pending operation was not retryable: %v", err)
+	}
+}
+
+func TestClientCorrelatesAsyncCreateDeadlineWithOperation(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/sessions":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"operation":{"id":"op_deadline","method":"CreateRemoteSession","state":"running"}}`))
+		case "/v1/operations/op_deadline":
+			_, _ = w.Write([]byte(`{"id":"op_deadline","method":"CreateRemoteSession","state":"running"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	client := New(socket, time.Second)
+	client.asyncPollInterval = 5 * time.Millisecond
+	client.asyncPollWindow = time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, _, err = client.CreateSession(ctx, "deadline", "observe", "cold")
+	var correlated interface{ OperationID() string }
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &correlated) ||
+		correlated.OperationID() != "op_deadline" {
+		t.Fatalf("correlated deadline = %T %v", err, err)
+	}
+}
+
+func TestClientCorrelatesAsyncCreatePollTransportFailure(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/sessions" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"operation":{"id":"op_transport","method":"CreateRemoteSession","state":"running"}}`))
+			return
+		}
+		conn, _, hijackErr := w.(http.Hijacker).Hijack()
+		if hijackErr != nil {
+			t.Error(hijackErr)
+			return
+		}
+		_ = conn.Close()
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	client := New(socket, time.Second)
+	client.asyncPollInterval = 5 * time.Millisecond
+	_, _, err = client.CreateSession(context.Background(), "transport", "observe", "cold")
+	var correlated interface{ OperationID() string }
+	var transport *TransportError
+	if !errors.As(err, &correlated) || correlated.OperationID() != "op_transport" ||
+		!errors.As(err, &transport) {
+		t.Fatalf("correlated transport failure = %T %v", err, err)
+	}
+}
+
+func TestClientRecoversOperationByExactIdempotencyKey(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/operations" ||
+			r.URL.Query().Get("key") != "responder:run/with spaces" {
+			t.Fatalf("request = %s %s query=%q", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"id":"op_1","method":"SubmitTurn","state":"succeeded","resource_type":"turn","resource_id":"turn_1"}`))
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+	op, err := New(socket, time.Second).OperationByKey(context.Background(), "responder:run/with spaces")
+	if err != nil || op.ResourceID != "turn_1" || op.ResourceType != "turn" {
+		t.Fatalf("operation = %+v, %v", op, err)
 	}
 }
 
@@ -310,14 +485,15 @@ func TestClientReturnsTypedErrorsAndBoundsResponses(t *testing.T) {
 	defer listener.Close()
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)
-		_, _ = w.Write([]byte(`{"error":{"code":"revision_conflict","detail":"stale"}}`))
+		_, _ = w.Write([]byte(`{"error":{"code":"revision_conflict","detail":"stale","operation_id":"op_failed"}}`))
 	})}
 	go server.Serve(listener)
 	defer server.Shutdown(context.Background())
 	client := New(socket, time.Second)
 	_, err = client.GetSession(context.Background(), "ses_1")
 	apiErr, ok := err.(*APIError)
-	if !ok || apiErr.Code != "revision_conflict" || apiErr.Retryable() {
+	if !ok || apiErr.Code != "revision_conflict" || apiErr.OperationID != "op_failed" ||
+		!strings.Contains(apiErr.Error(), "operation=op_failed") || apiErr.Retryable() {
 		t.Fatalf("error = %#v", err)
 	}
 }

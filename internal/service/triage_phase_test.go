@@ -8,6 +8,8 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/responder/internal/triageoutcome"
 )
 
 // Lane selection used to be five conditions buried in the middle of a
@@ -18,7 +20,7 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 	repository := config.Repository{ConversationPolicy: "repo-conversation"}
 	mention := core.SlackInput{Kind: "mention"}
 
-	if lane := triageLane(decisionpkg.WatchTurnState{}, mention, repository); lane != "conversation" {
+	if lane := triageoutcome.Lane(mention, decisionpkg.WatchTurnState{}, true, false); lane != "conversation" {
 		t.Fatalf("a plain mention with a conversation policy = %q", lane)
 	}
 
@@ -68,7 +70,11 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			if lane := triageLane(testCase.state, testCase.input, testCase.repository); lane != "investigation" {
+			if lane := triageoutcome.Lane(
+				testCase.input, testCase.state,
+				testCase.repository.ConversationPolicy != "",
+				isSlackVerificationReplay(testCase.input),
+			); lane != "investigation" {
 				t.Fatalf("lane = %q, want investigation", lane)
 			}
 		})
@@ -77,7 +83,9 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 	// A channel message counts as targeted once it is a follow-up in an
 	// ongoing conversation, which is the case the untargeted test above turns on.
 	followup := decisionpkg.WatchTurnState{ConversationFollowup: true}
-	if lane := triageLane(followup, core.SlackInput{Kind: "message"}, repository); lane != "conversation" {
+	if lane := triageoutcome.Lane(
+		core.SlackInput{Kind: "message"}, followup, true, false,
+	); lane != "conversation" {
 		t.Fatalf("a conversation follow-up = %q, want conversation", lane)
 	}
 }
@@ -129,8 +137,9 @@ func TestRetryAtNextSessionGenerationOnlyMovesForward(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			next := nextSessionGeneration(
-				testCase.state.Generation, testCase.observed, testCase.cause,
+			next := retrydelay.NextSessionGeneration(
+				testCase.state.Generation, testCase.observed,
+				advanceFailedSessionGeneration(testCase.cause),
 			)
 			if next != testCase.wantAfter {
 				t.Fatalf("generation = %d, want %d", next, testCase.wantAfter)
