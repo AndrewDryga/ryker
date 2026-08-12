@@ -325,21 +325,15 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 
 	for index, event := range page.Events {
 		if event.Kind == "episode_created" && hasCommitment {
-			// The commitment step already says Responder took the job; a second
-			// card at the same instant saying "episode created" is plumbing.
+			// The commitment step already renders "Episode created"; a second
+			// card at the same instant is plumbing.
 			continue
 		}
-		details := []TraceDetail{}
-		if payload := presentEventPayload(event.Payload, present); payload != "" && payload != "{}" {
-			details = append(details, TraceDetail{Label: "Recorded event payload", Body: payload, Kind: "json"})
-		}
-		if occurrences := occurrenceDetail(event.Occurrences); occurrences != nil {
-			details = append(details, *occurrences)
-		}
+		includePayload := true
 		step := TraceStep{
 			ID: fmt.Sprintf("event-%d", index+1), Stage: eventStage(event.Kind), Actor: event.Actor, Icon: eventIcon(event.Kind),
 			State: event.Kind, Title: eventTitle(event.Kind), Summary: present(event.Detail),
-			Why: eventWhy(event.Kind), At: event.At, Details: details,
+			Why: eventWhy(event.Kind), At: event.At,
 		}
 		if event.Attempt > 1 {
 			step.Stats = append(step.Stats, TraceStat{"Attempt", fmt.Sprint(event.Attempt)})
@@ -350,8 +344,20 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if event.Kind == "phase_changed" {
 			if payload := decodePhasePayload(event.Payload); payload.Phase != "" {
 				step.State, step.Title = payload.Phase, phaseTitle(payload.Phase)
-				step.Summary = present(fallback(payload.NextAction, payload.Summary))
+				step.Summary = phaseSummary(payload, present)
+				// The card already says everything a routine phase payload
+				// holds; a JSON block restating the title in four spellings
+				// is noise. Payloads with more than the routine keys stay.
+				includePayload = !routinePhasePayload(event.Payload)
 			}
+		}
+		if includePayload {
+			if payload := presentEventPayload(event.Payload, present); payload != "" && payload != "{}" {
+				step.Details = append(step.Details, TraceDetail{Label: "Recorded event payload", Body: payload, Kind: "json"})
+			}
+		}
+		if occurrences := occurrenceDetail(event.Occurrences); occurrences != nil {
+			step.Details = append(step.Details, *occurrences)
 		}
 		add(step)
 	}
@@ -383,7 +389,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		}
 		switch artifact.Kind {
 		case "commitment":
-			step.Title, step.Summary = "Responder took the job", ""
+			step.Title, step.Summary, step.Why = "Episode created", "", ""
 		case "progress":
 			step.Title = phaseTitle(artifact.State)
 			if strings.EqualFold(strings.TrimSpace(artifact.Summary), strings.TrimSpace(artifact.State)) {
@@ -964,6 +970,36 @@ func decodePhasePayload(payload string) phasePayload {
 	return decoded
 }
 
+// phaseSummary says what the phase record means in one plain line: what
+// Responder planned to do next, when the record says so.
+func phaseSummary(payload phasePayload, present func(string) string) string {
+	if next := strings.TrimSpace(payload.NextAction); next != "" {
+		return "Next: " + present(next)
+	}
+	return present(payload.Summary)
+}
+
+// routinePhasePayload reports whether a phase payload holds only the fields
+// the card itself already presents — the phase in a few spellings and the
+// next action.
+func routinePhasePayload(payload string) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal([]byte(payload), &fields) != nil {
+		return false
+	}
+	routine := map[string]bool{
+		"phase": true, "state": true, "status": true,
+		"next_action": true, "summary": true,
+		"progress_due_at": true, "due_at": true,
+	}
+	for key := range fields {
+		if !routine[key] {
+			return false
+		}
+	}
+	return true
+}
+
 // phaseTitle names a work phase the way a person would say it.
 func phaseTitle(phase string) string {
 	if title, ok := map[string]string{
@@ -1007,6 +1043,10 @@ func absDuration(duration time.Duration) time.Duration {
 // droppedArtifactStat hides identifiers that only restate storage plumbing.
 func droppedArtifactStat(kind, label string) bool {
 	if kind == "progress" && (label == "Record" || label == "Sequence" || label == "Phase") {
+		return true
+	}
+	// The commitment's episode id is this page's own id.
+	if kind == "commitment" && label == "Episode" {
 		return true
 	}
 	return false
@@ -2651,8 +2691,6 @@ func artifactDetailLabel(kind string) string {
 
 func artifactWhy(kind string) string {
 	switch kind {
-	case "commitment":
-		return "The job is recorded durably, so it survives restarts and cannot silently disappear when a model turn ends."
 	case "goal":
 		return "A required outcome that can block completion until it is satisfied."
 	case "evaluation":

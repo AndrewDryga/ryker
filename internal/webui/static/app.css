@@ -709,7 +709,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-lede { margin-top: 4px; color: var(--dim); max-width: 68ch; }
 
 .trace-summary { display: flex; justify-content: flex-end; gap: 18px; flex-wrap: wrap; }
-.trace-summary span { display: grid; gap: 1px; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+.trace-summary span { display: grid; gap: 1px; justify-items: center; text-align: center; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
 .trace-summary strong { color: var(--ink-2); font: 600 15px/1.2 var(--mono); }
 
 /* The journey strip is the whole episode in one glance: arrived, briefed,
@@ -881,7 +881,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   justify-content: space-between;
   gap: 14px;
   margin: 0;
-  padding: 10px 16px 0;
+  padding: 10px 16px 9px;
 }
 
 .trace-step-header h4 {
@@ -928,13 +928,13 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-time em { font-style: normal; color: var(--dim); }
 .trace-time em::before { content: "for "; color: #52525b; }
 
-.trace-step-summary { margin-top: 6px; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; max-width: 92ch; overflow-wrap: anywhere; }
+.trace-step-summary { margin-top: 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; max-width: 92ch; overflow-wrap: anywhere; }
 .trace-step-card > :last-child:not(.trace-details) { padding-bottom: 12px; }
 
 /* In-card micro-visualizations: the briefing's token composition, a turn's
    fresh/cached/output split. The strip answers the proportional question the
    numbers beneath it make exact. */
-.trace-step-card > .stepbar { margin: 11px 16px 0; }
+.trace-step-card > .stepbar { margin: 6px 16px 0; }
 .stepbar svg { display: block; border-radius: 4px; overflow: hidden; }
 .stepbar-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; margin-top: 6px; }
 .sb-key { display: inline-flex; align-items: baseline; gap: 5px; color: var(--dim); font-size: 11px; }
@@ -955,7 +955,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   display: flex;
   align-items: baseline;
   gap: 9px;
-  margin-top: 10px;
+  margin-top: 7px;
   padding: 1px 0 1px 10px;
   border-left: 2px solid rgb(54 230 165 / .3);
 }
@@ -965,7 +965,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-step-stats {
   display: flex;
   gap: 20px;
-  margin-top: 13px;
+  margin-top: 9px;
   padding-bottom: 14px;
   overflow-x: auto;
 }

@@ -486,6 +486,22 @@ func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
 	}
 }
 
+// A phase card says what happens next in words; its JSON payload renders only
+// when it holds something the card does not already present.
+func TestPhaseCardsSpeakPlainlyAndDropRoutinePayloads(t *testing.T) {
+	payload := `{"phase":"planning","state":"planning","status":"Planning the work","next_action":"Establish the evidence plan"}`
+	if !routinePhasePayload(payload) {
+		t.Fatal("a payload holding only the presented fields must be routine")
+	}
+	if routinePhasePayload(`{"phase":"planning","worker_id":"w-4"}`) {
+		t.Fatal("a payload with extra fields must keep its JSON detail")
+	}
+	summary := phaseSummary(decodePhasePayload(payload), func(text string) string { return text })
+	if summary != "Next: Establish the evidence plan" {
+		t.Fatalf("phase summary = %q", summary)
+	}
+}
+
 // A chip beside a title must mean something: routine success states render
 // nothing, trouble and audit outcomes render.
 func TestStepChipsOnlySurfaceInformativeStates(t *testing.T) {

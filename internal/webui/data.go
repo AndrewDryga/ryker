@@ -185,7 +185,14 @@ func (r *Reader) channelName(ctx context.Context, id string) string {
 	if name, known := r.channelLookup(ctx, id); known {
 		return "#" + name
 	}
-	return "#" + id
+	// A D-prefixed id is a direct message: there is no channel name to find,
+	// and "#D0TENANTX02" reads as a channel that failed to resolve rather than
+	// as what it is. Other unknown ids stay bare — a "#" would dress a failed
+	// lookup as a resolved one.
+	if strings.HasPrefix(id, "D") {
+		return "direct message"
+	}
+	return id
 }
 
 // channelLookup answers from a cache the earlier version only claimed to have.
