@@ -4,7 +4,7 @@ This guide follows one message from admission through Slack delivery and explain
 memory, authority, retries, and cleanup live. It describes the current single-host implementation,
 not a future multi-tenant design.
 
-Conversational responses follow the operator's current Slack location. Top-level conversation stays
+Conversational responses follow the teammate's current Slack location. Top-level conversation stays
 in the channel, thread conversation stays in that thread, and explicit requests to move are
 host-parsed before model execution. Multi-step configuration sessions persist every message root
 they own so moving between channel and thread does not lose state or admit unrelated replies.
@@ -77,7 +77,7 @@ Authority is deliberately split:
 | Boundary | Owner | Responder cannot bypass it |
 | --- | --- | --- |
 | Slack identity, event admission, conversation routing, durable queues | Responder | Slack membership and configured operator checks |
-| Repository allowlist, fork, agent target, box, revision, turn budget | Coop | Coop policy and revision conflicts |
+| Repository allowlist, fork, agent target, projected capabilities, box, revision, turn budget | Coop | Contributor policies omit shared MCP and environment secrets; Coop policy and revision conflicts remain authoritative |
 | Live infrastructure identity, action schemas, policy, approval, execution, audit | Emisar | Emisar authorization and approval decisions |
 | Draft branch publication | Responder publisher | Exact Coop-reviewed tree, lease-protected branch, draft PR only |
 | Merge, signing, deployment | External human-controlled workflow | No Responder operation exists for these actions |
@@ -209,8 +209,9 @@ Important routing behavior:
   provide a useful result. Later lifecycle updates are evaluated fresh. Terraform findings still
   require the exact plan or a read-only lookup of that run; commit history is context, not a
   substitute.
-- Human senders must be active full workspace members. Incident steering and confirmations require
-  a configured operator.
+- Human senders must be active full workspace members. Members may confirm channel-bound
+  contributor tasks. Incident steering, operator-capability tasks, publication, destructive task
+  controls, channel configuration, and governed operations require a configured operator.
 - Responder ignores its own posts, foreign-workspace events, unsupported subtypes, guests, and
   Slack Connect users that do not satisfy the membership boundary.
 
@@ -338,7 +339,7 @@ For shared-channel work, accepted decisions are:
 | `reply` | Post a bounded rich response where a human is speaking; keep app alerts and standing rules in the source thread |
 | Reply plus incident offer | Show **Open incident room**; create nothing until confirmed |
 | Reply plus engineering-task offer | Show **Start task**; create no writable fork until confirmed |
-| Reply plus incident and prepared-fix offers | Show **Open incident room** and **Prepare code fix** independently; carry the confirmed fix objective into a thread task only after operator confirmation |
+| Reply plus incident and prepared-fix offers | Show **Open incident room** and **Prepare code fix** independently; incident creation requires an operator, while any active full member may confirm the thread task |
 | Reply plus memory/preference/rule offer | Show a typed confirmation; save nothing until confirmed |
 | Automatic incident | Allowed for a credible unresolved monitoring-app alert, not an ordinary human health question |
 
@@ -514,7 +515,7 @@ flowchart TD
   Investigate --> CloseIncident["Close incident"]
 
   Mode -- "Explicit repository change request" --> TaskOffer["Engineering-task offer"]
-  TaskOffer --> Confirm{"Operator confirms?"}
+  TaskOffer --> Confirm{"Active full member confirms?"}
   Confirm -- No --> NoTask["No writable session"]
   Confirm -- Yes --> ThreadTask["Thread-scoped task record<br/>in the source Slack thread"]
   ThreadTask --> TaskSession["Isolated Coop fork<br/>engineering policy"]
@@ -530,7 +531,9 @@ flowchart TD
 
 An engineering task uses the same durable work model as incident work but stays attached to the
 source thread. Dedicated rooms are reserved for incidents. A shared-channel triage session cannot
-edit files; the operator confirmation creates the separate writable task session.
+edit files; an active full workspace member's confirmation creates the separate writable task
+session. Active full members may collaborate there without shared MCP or environment credentials;
+a configured operator must publish a reviewed draft PR or use destructive task controls.
 
 ## 6. Emisar tools and approval handoff
 

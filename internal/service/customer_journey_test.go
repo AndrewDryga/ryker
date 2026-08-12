@@ -41,7 +41,7 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGat
 		"EvPublishTask",
 		"Update runtime packs",
 		"Add the repository-required runtime pack.",
-		cfg.Slack.Operators[0],
+		"UCONTRIBUTOR",
 		"COPS",
 		"1700.300",
 		cfg.Limits.MaxOpenIncidents,
@@ -121,12 +121,31 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGat
 		ChannelID:   task.ChannelID,
 		MessageTS:   task.RootTS,
 		ThreadTS:    task.ConversationThreadTS(),
-		UserID:      cfg.Slack.Operators[0],
+		UserID:      "UCONTRIBUTOR",
 		ActionID:    slackui.ActionPublishPR,
 		ActionValue: task.ID,
 	}
 	if admitted, err := st.AdmitSlackInput(ctx, input); err != nil || !admitted {
 		t.Fatalf("admit publish action = %t, %v", admitted, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if publisherClient.publishCalls != 0 || len(slackClient.ephemerals) != 1 ||
+		!strings.Contains(renderedSlackMessage(slackClient.ephemerals[0].message), "configured operator must publish") {
+		t.Fatalf("member publication boundary = calls %d, notices %+v", publisherClient.publishCalls, slackClient.ephemerals)
+	}
+	if err := svc.publishDraftPR(ctx, core.SlackInput{
+		ID: "direct_member_publish", Kind: "action", UserID: "UCONTRIBUTOR",
+	}, task); err == nil || publisherClient.publishCalls != 0 {
+		t.Fatalf("direct member publication = err %v, calls %d", err, publisherClient.publishCalls)
+	}
+	input.ID = "slack_publish_task_operator"
+	input.EnvelopeID = "env_publish_task_operator"
+	input.EventID = "EvPublishTaskOperatorAction"
+	input.UserID = cfg.Slack.Operators[0]
+	if admitted, err := st.AdmitSlackInput(ctx, input); err != nil || !admitted {
+		t.Fatalf("admit operator publish action = %t, %v", admitted, err)
 	}
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)

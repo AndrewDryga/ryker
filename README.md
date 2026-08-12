@@ -3,10 +3,11 @@
 [![CI](https://github.com/AndrewDryga/responder/actions/workflows/ci.yml/badge.svg)](https://github.com/AndrewDryga/responder/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/AndrewDryga/responder?sort=semver)](https://github.com/AndrewDryga/responder/releases/latest)
 
-Responder turns authenticated alerts into focused Slack incident rooms backed by isolated
-[Coop](https://github.com/AndrewDryga/coop) sessions and Emisar MCP access.
+Responder is a Slack-native engineering and operations teammate backed by isolated
+[Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. It can answer,
+investigate, change code, and prepare reviewed work without turning every request into an incident.
 
-It is a single-host incident controller for pragmatic on-call teams:
+It runs on one trusted host and:
 
 - accepts bounded Grafana or mapped JSON webhooks;
 - triages human and monitoring-app messages in configured Slack alert feeds, answering human
@@ -17,7 +18,10 @@ It is a single-host incident controller for pragmatic on-call teams:
   from agent prose;
 - creates one Slack channel and one pinned investigation card per incident occurrence;
 - creates one Coop session and isolated fork under a predeclared repository policy;
-- forwards only operator messages, concise agent responses, and review evidence;
+- lets active full workspace members collaborate on contributor tasks for the repository assigned
+  to their channel, without projecting shared MCP tools or environment secrets;
+- keeps operator-capability tasks, incident steering, publication, destructive controls, and
+  governed operational actions restricted to configured operators;
 - parks between turns, resumes the same agent conversation, and survives process restarts;
 - tracks every accepted investigation or engineering promise as durable work, and exposes it in
   App Home and through `/responder work`;
@@ -31,9 +35,10 @@ It is a single-host incident controller for pragmatic on-call teams:
   incident action to Emisar's policy and approval workflow.
 
 Responder does not merge, deploy, sign commits, or grant infrastructure authority. Coop owns the
-fork and agent boundary. When explicitly configured, Responder can reproduce Coop's exact approved
-tree, push only a lease-protected Responder branch, and create or update a draft GitHub pull
-request. Emisar owns infrastructure policy, approval, execution, and audit.
+fork and agent boundary. A contributor can prepare and review code in an isolated fork; a configured
+operator must authorize Responder to reproduce the exact approved tree, push a lease-protected
+Responder branch, and create or update a draft GitHub pull request. Emisar owns infrastructure
+policy, approval, execution, and audit.
 
 See [How Responder works](docs/how-responder-works.md) for end-to-end diagrams covering Slack
 message routing, Coop turns, memory, evidence, standing rules, incidents, approvals, retries, and
@@ -258,14 +263,16 @@ without requiring an incident room. Emisar still owns target validation, policy,
 execution, and audit. A pending decision appears in the same conversation as a **Review approval in
 Emisar** link. Responder watches that exact run in the background, updates the existing card as it
 progresses, and automatically posts the terminal result plus read-only verification in the same
-conversation. Waiting consumes no model turn and survives a Responder restart. When an operator
-explicitly asks Responder to change repository files, the reply can
-include a concise **Start task** button instead of sending the
-operator to another client. Confirmation keeps the task in that Slack thread and creates an isolated
+conversation. Waiting consumes no model turn and survives a Responder restart. When an active full
+workspace member explicitly asks Responder to change repository files, the reply can include a
+concise **Start task** button instead of sending the teammate to another client. Confirmation by
+any active full workspace member keeps the task in that Slack thread and creates an isolated
 writable Coop fork, where Responder can inspect, edit, test, and commit under the configured
 repository policy. Later replies in the same thread continue the same session without an
 `@mention`; unrelated channel messages remain in read-only triage. It does not create an incident,
-and it does not merge, push, deploy, sign, or mutate infrastructure.
+and it does not merge, deploy, sign, or mutate infrastructure. Any active full workspace member can
+collaborate in the task thread and inspect or review its changes. A configured operator must press
+the publication control before Responder can push the verified tree and create or update a draft PR.
 
 Inviting `@Emisar` to a new channel first offers safe one-click defaults: mentions only or
 proactive participation, the deployment repository, in-place app-alert replies, and no additional
@@ -452,11 +459,13 @@ For example, `channel_prefix: sre` produces names beginning with `sre-`. Changin
 not rename existing Slack channels.
 
 Only configured operator user IDs who are full members of the configured workspace can steer an
-incident agent or approve an incident offer. Watched-channel messages can produce only a
+incident agent, approve an incident offer, save durable behavior, schedule work, or request an
+operational mutation. Any active full workspace member can start and collaborate on an engineering
+task for the repository assigned to that channel. A configured operator must publish its reviewed
+tree as a draft PR, stop or close the task, or discard retained work. Watched-channel messages can produce only a
 host-validated ignore, reply, incident offer, or permitted incident decision; they cannot invoke
-incident controls or invent a repository or policy. Engineering-task offers bind to an exact
-configured repository; when several are plausible, Responder asks the operator instead of silently
-using the default.
+incident controls or invent a repository or policy. Member engineering-task offers expose only the
+channel's configured repository; changing that boundary is an operator-owned channel setting.
 Infrastructure access remains constrained by the selected Coop and Emisar policies. Slack guests
 and external Slack Connect identities are denied. See
 [`docs/slack-ux.md`](docs/slack-ux.md) for the complete interaction contract.

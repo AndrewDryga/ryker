@@ -60,7 +60,7 @@ func (s *Service) handlePullRequestReviewAction(
 		ThreadTS:  core.FirstNonempty(input.ThreadTS, conversationalResponseThread(source)),
 		MessageTS: source.MessageTS, UserID: input.UserID,
 		Text: fmt.Sprintf(
-			"Review %s deeply. Inspect the exact authenticated PR description, diff, and discussion. Identify correctness, security, operational, rollout, and testing risks; call out concrete file-level findings first. Then explain whether it is ready and how to collaborate on any missing work. If a concrete code change is warranted, offer a writable engineering task for this repository so the operator can prepare a focused follow-up. Do not modify the repository or publish GitHub comments during this review.",
+			"Review %s deeply. Inspect the exact authenticated PR description, diff, and discussion. Identify correctness, security, operational, rollout, and testing risks; call out concrete file-level findings first. Then explain whether it is ready and how to collaborate on any missing work. If a concrete code change is warranted, offer a writable engineering task for this repository so a workspace teammate can prepare a focused follow-up. Do not modify the repository or publish GitHub comments during this review.",
 			reference.URL,
 		),
 		ReceivedAt: s.now().UTC(),

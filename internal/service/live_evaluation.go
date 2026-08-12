@@ -1283,7 +1283,9 @@ func liveEvaluationPrompt(
 			Summary:        boundedOperatorText(testCase.Input),
 			ReceivedAt:     time.Now().UTC(),
 		}
-		prompt, err := initialPrompt("", incident, []core.Signal{signal}, "")
+		prompt, err := initialPrompt(
+			"", incident, []core.Signal{signal}, "", testCase.Kind == "task",
+		)
 		if err != nil {
 			return "", err
 		}

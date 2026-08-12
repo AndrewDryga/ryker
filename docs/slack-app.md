@@ -120,11 +120,13 @@ situations, and the commitments Emisar owes the team. `/responder work` exposes 
 commitments. These surfaces do not weaken operator authorization or incident-creation rules.
 
 An explicit repository-change request can return a concise **Start task** confirmation.
-Approval by a configured full-member operator starts an engineering task in the source Slack thread
-and creates an isolated writable Coop fork; the rest of the shared channel remains read-only. The
-task path can edit, test, and commit repository files under Coop policy, but cannot merge, push,
-deploy, sign, or mutate infrastructure. Replies in that thread continue the same task without an
-`@mention`.
+Confirmation by any active full workspace member starts an engineering task in the source Slack
+thread and creates an isolated writable Coop fork; the rest of the shared channel remains read-only.
+Active full members can collaborate there, edit, test, and commit repository files under Coop
+contributor policy and review the changes. The contributor session omits shared operational MCP and
+environment credentials. A configured operator must publish a draft PR, stop or close the task, or
+discard retained work. The task cannot merge, deploy, sign, or mutate infrastructure. Replies in
+that thread continue the same task without an `@mention`.
 
 The public and private channel archive, unarchive, and deletion subscriptions keep incident-room
 lifecycle state durable. Responder blocks an open incident when its room is archived or deleted,

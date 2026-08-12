@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskaccess"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
@@ -541,6 +542,18 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	if !ok {
 		return s.store.SetIncidentError(ctx, incident.ID, core.WorkflowBlocked, "repository binding was removed")
 	}
+	sessionPolicy, contributorTask, err := taskaccess.SessionPolicy(
+		ctx, s.cfg, s.store, incident, repository,
+	)
+	if err != nil {
+		return err
+	}
+	if contributorTask && sessionPolicy == "" {
+		return s.store.SetIncidentError(
+			ctx, incident.ID, core.WorkflowBlocked,
+			"repository contributor policy is not configured",
+		)
+	}
 	var sessionSources []coop.SessionSource
 	client, _ := s.publisher.(taskpr.Inspector)
 	resolver := s.taskPullRequestResolver(client)
@@ -566,7 +579,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 		sessionLabel = "engineering-task:" + incident.ID
 	}
 	session, _, err := s.coop.CreateSession(
-		ctx, "responder:session:"+incident.ID, repository.CoopPolicy, sessionLabel,
+		ctx, "responder:session:"+incident.ID, sessionPolicy, sessionLabel,
 		sessionSources...,
 	)
 	if err != nil {
@@ -588,7 +601,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	incident.CoopRevision = session.Revision
 	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: "coop.session.created", ObjectID: session.ID,
-		Outcome: "succeeded", Detail: repository.CoopPolicy,
+		Outcome: "succeeded", Detail: sessionPolicy,
 	})
 	timelineTitle := "Isolated investigation started"
 	if incident.IsEngineeringTask() {
@@ -599,7 +612,7 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 		IncidentID: incident.ID, ChannelID: incident.ChannelID,
 		Kind: "coop.session.created", ActorID: "responder",
 		Title:  timelineTitle,
-		Detail: "Coop session " + session.ID + " using policy " + repository.CoopPolicy,
+		Detail: "Coop session " + session.ID + " using policy " + sessionPolicy,
 	})
 	return nil
 }
@@ -667,6 +680,12 @@ func (s *Service) queueInitialTurnWithSource(
 	sourceID string,
 	userID string,
 ) error {
+	contributorTask, err := taskaccess.InitialContributor(
+		ctx, s.cfg, s.store, incident, userID,
+	)
+	if err != nil {
+		return err
+	}
 	signals, err := s.store.ListSignals(ctx, incident.ID)
 	if err != nil {
 		return err
@@ -676,6 +695,7 @@ func (s *Service) queueInitialTurnWithSource(
 		incident,
 		signals,
 		"",
+		contributorTask,
 	)
 	if err != nil {
 		return err

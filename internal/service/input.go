@@ -20,7 +20,9 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
+	"github.com/AndrewDryga/responder/internal/taskaccess"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/taskprompt"
 )
 
 type frozenAction struct {
@@ -525,7 +527,9 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	if errors.Is(incidentErr, store.ErrNotFound) && input.Kind != "mention" {
 		return s.finishSlackInput(ctx, input)
 	}
-	if !s.cfg.IsOperator(input.UserID) {
+	// Engineering tasks are ordinary teammate collaboration. Incident rooms
+	// still carry operational context and therefore retain the operator gate.
+	if !incident.IsEngineeringTask() && !s.cfg.IsOperator(input.UserID) {
 		s.denyInput(ctx, input, "This action is restricted to configured incident operators.")
 		return s.finishSlackInput(ctx, input)
 	}
@@ -534,7 +538,11 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.retrySlackInput(ctx, input, err)
 	}
 	if !allowed {
-		s.denyInput(ctx, input, "Slack guests, bots, and external workspace members cannot steer Responder.")
+		message := "Slack guests, bots, and external workspace members cannot steer Responder."
+		if incident.IsEngineeringTask() {
+			message = "Only active full members of this Slack workspace can collaborate on engineering tasks."
+		}
+		s.denyInput(ctx, input, message)
 		return s.finishSlackInput(ctx, input)
 	}
 
@@ -543,6 +551,22 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	}
 	if incidentErr != nil {
 		return s.retrySlackInput(ctx, input, incidentErr)
+	}
+	contributorTask, canSteer := false, true
+	if incident.IsEngineeringTask() {
+		contributorTask, canSteer, err = taskaccess.CanSteer(
+			ctx, s.cfg, s.store, incident, input.UserID,
+		)
+		if err != nil {
+			return s.retrySlackInput(ctx, input, err)
+		}
+		if !canSteer {
+			s.denyInput(
+				ctx, input,
+				"This engineering task was started with configured-operator capabilities. Only configured operators can steer it.",
+			)
+			return s.finishSlackInput(ctx, input)
+		}
 	}
 	if input.Kind != "action" &&
 		decisionpkg.LocationOnlyRequest(s.stripBotMention(input.Text)) {
@@ -583,6 +607,14 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.finishSlackInput(ctx, input)
 	}
 	if input.Kind == "action" {
+		if contributorTask && !s.cfg.IsOperator(input.UserID) &&
+			!taskaccess.MemberControlAllowed(input.ActionID) {
+			s.denyInput(
+				ctx, input,
+				"Workspace members can collaborate on the code and review it here, but a configured operator must publish, stop, close, or discard task work.",
+			)
+			return s.finishSlackInput(ctx, input)
+		}
 		current, currentErr := s.incidentControlMatchesMessage(
 			ctx,
 			input,
@@ -629,13 +661,23 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		if input.Kind == "mention" || hasMention {
 			text = s.stripBotMention(text)
 		}
-		if command, ok := exactCommand(text); ok {
-			err = s.handleControl(ctx, input, incident, command)
+		if command, ok := taskaccess.Command(text); ok {
+			if contributorTask && !s.cfg.IsOperator(input.UserID) &&
+				!taskaccess.MemberControlAllowed(command) {
+				s.denyInput(
+					ctx, input,
+					"Workspace members can collaborate on the code and review it here, but a configured operator must publish, stop, close, or discard task work.",
+				)
+			} else {
+				err = s.handleControl(ctx, input, incident, command)
+			}
 		} else {
 			if text == "" {
 				text = "Please inspect the attached file."
 			}
-			prompt := conversationPrompt(input.UserID, text, direct)
+			prompt := taskprompt.ForConversation(
+				input.UserID, text, direct, incident.IsEngineeringTask(), contributorTask,
+			)
 			_, _, err = s.queueIncidentAgentRun(
 				ctx, incident, "slack", input.ID, input.UserID, prompt,
 			)
@@ -648,11 +690,17 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				)
 			}
 			if err == nil {
+				kind := "operator.message"
+				title := "Operator requested investigation"
+				if incident.IsEngineeringTask() {
+					kind = "teammate.message"
+					title = "Teammate requested engineering work"
+				}
 				s.recordTimeline(ctx, core.TimelineEvent{
 					ID:         "tl_input_" + input.ID,
 					IncidentID: incident.ID, ChannelID: incident.ChannelID,
-					Kind: "operator.message", ActorID: input.UserID,
-					Title:  "Operator requested investigation",
+					Kind: kind, ActorID: input.UserID,
+					Title:  title,
 					Detail: decisionpkg.BoundedField(text, 2000), CreatedAt: input.ReceivedAt,
 				})
 			}
@@ -1073,31 +1121,6 @@ func conversationLocationName(location decisionpkg.ConversationLocation) string 
 	}
 }
 
-func exactCommand(text string) (string, bool) {
-	switch strings.TrimSpace(strings.ToLower(text)) {
-	case "!respond status":
-		return "status", true
-	case "!respond update":
-		return slackui.ActionUpdate, true
-	case "!respond changes":
-		return slackui.ActionChanges, true
-	case "!respond review":
-		return slackui.ActionReview, true
-	case "!respond publish":
-		return slackui.ActionPublishPR, true
-	case "!respond stop":
-		return slackui.ActionStop, true
-	case "!respond extend":
-		return slackui.ActionExtend, true
-	case "!respond close":
-		return slackui.ActionResolve, true
-	case "!respond help":
-		return slackui.ActionHelp, true
-	default:
-		return "", false
-	}
-}
-
 func (s *Service) handleControl(
 	ctx context.Context,
 	input core.SlackInput,
@@ -1114,8 +1137,14 @@ func (s *Service) handleControl(
 			threadTS, slackui.HelpMessage(incident))
 	case slackui.ActionUpdate:
 		request := "Give a concise incident update: verified facts, current hypothesis, code changes, blockers, and next action."
+		prompt := operatorPrompt(input.UserID, request)
 		if incident.IsEngineeringTask() {
 			request = "Give a concise engineering task update: completed work, verification, code changes, blockers, and next action."
+			var err error
+			prompt, err = taskaccess.Prompt(ctx, s.cfg, s.store, incident, input.UserID, request)
+			if err != nil {
+				return err
+			}
 		}
 		_, _, err := s.queueIncidentAgentRun(
 			ctx,
@@ -1123,10 +1152,14 @@ func (s *Service) handleControl(
 			"control",
 			input.ID,
 			input.UserID,
-			operatorPrompt(input.UserID, request),
+			prompt,
 		)
 		if err == nil {
-			s.setNativeStatus(ctx, incident, "is preparing an incident update...")
+			status := "is preparing an incident update..."
+			if incident.IsEngineeringTask() {
+				status = "is preparing an engineering task update..."
+			}
+			s.setNativeStatus(ctx, incident, status)
 		}
 		return err
 	case slackui.ActionChanges,
@@ -1176,9 +1209,13 @@ func (s *Service) repairReview(
 		"failure is only a missing tool or broken execution environment, report the exact command, " +
 		"error, and required environment fix instead of changing product code to hide it. Do not push, " +
 		"merge, deploy, or mutate infrastructure."
-	_, _, err := s.queueIncidentAgentRun(
+	prompt, err := taskaccess.Prompt(ctx, s.cfg, s.store, incident, input.UserID, request)
+	if err != nil {
+		return err
+	}
+	_, _, err = s.queueIncidentAgentRun(
 		ctx, incident, "control", input.ID, input.UserID,
-		operatorPrompt(input.UserID, request),
+		prompt,
 	)
 	if err == nil {
 		s.setNativeStatus(ctx, incident, "is diagnosing the failed readiness checks...")
@@ -1471,11 +1508,15 @@ func (s *Service) stopTurn(ctx context.Context, input core.SlackInput, incident 
 		IncidentID: incident.ID, Kind: "coop.turn.cancel", ActorID: input.UserID,
 		ObjectID: action.TurnID, Outcome: "requested",
 	})
+	audience := "an operator"
+	if incident.IsEngineeringTask() {
+		audience = "a workspace teammate"
+	}
 	return s.enqueue(ctx, "out_stop_"+input.ID, incident, "notice",
 		incident.ConversationThreadTS(), slackui.Notice(
 			"*Stop requested for the active agent turn.* Responder will stop starting new work "+
 				"for that turn. The isolated working copy, collected evidence, and queued "+
-				"incident context are preserved so an operator can inspect or continue later.",
+				"context are preserved so "+audience+" can inspect or continue later.",
 		))
 }
 
@@ -1541,10 +1582,12 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 	auditKind := "incident.close"
 	timelineKind := "incident.closed"
 	timelineTitle := "Incident closed"
+	retainedAudience := "operator action"
 	if incident.IsEngineeringTask() {
 		auditKind = "engineering_task.close"
 		timelineKind = "engineering_task.closed"
 		timelineTitle = "Engineering task closed"
+		retainedAudience = "teammate action"
 	}
 	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: auditKind, ActorID: input.UserID,
@@ -1557,7 +1600,7 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 		Title: timelineTitle,
 		Detail: "The Coop session was closed. Responder will reclaim zero-change or " +
 			"published workspace state after the configured grace period; unpublished " +
-			"changes are retained for operator action.",
+			"changes are retained for " + retainedAudience + ".",
 	})
 	closeMessage := "*Incident closed.* Responder will not start more investigation turns for this " +
 		"incident. Zero-change workspace state is reclaimed after the retention grace period; " +

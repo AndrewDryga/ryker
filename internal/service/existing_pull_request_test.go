@@ -478,7 +478,7 @@ func TestMergedPullRequestRemainsAuthoritativeAcrossFollowupAndStaleControls(t *
 		{name: "publish", run: func() error {
 			return svc.publishDraftPR(ctx, core.SlackInput{
 				ID: "stale-publish", Kind: controlPlaneInput, ActionID: slackui.ActionPublishPR,
-				ActionValue: task.ID,
+				ActionValue: task.ID, UserID: cfg.Slack.Operators[0],
 			}, task)
 		}},
 		{name: "review", run: func() error {

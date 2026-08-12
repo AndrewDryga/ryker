@@ -30,6 +30,9 @@ func engineeringTaskCard(
 	lifecycle core.PublicationLifecycleEvent,
 ) Message {
 	workflow := workflowStateLabel(task.Workflow)
+	if task.Workflow == core.WorkflowBlocked {
+		workflow = "Needs teammate action"
+	}
 	if task.Workflow == core.WorkflowProvisioningChannel {
 		if task.IsThreadScoped() {
 			workflow = "Starting task"
@@ -597,7 +600,7 @@ func WithEngineeringTaskDelivery(
 	}
 	context := "Changes are preserved in the isolated task fork. View the diff, then create a draft PR for external review."
 	publish := Action{
-		ID: ActionPublishPR, Label: "Create draft PR",
+		ID: ActionPublishPR, Label: "Create draft PR (operator)",
 		Value: PublicationActionValue(incident.ID, publication.Generation), Style: "primary",
 		Confirm: "Run Coop's readiness review, publish the exact approved tree on a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
 	}

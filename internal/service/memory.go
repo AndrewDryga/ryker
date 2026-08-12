@@ -172,6 +172,9 @@ func (s *Service) effectiveRepository(
 	} else if !errors.Is(configurationErr, store.ErrNotFound) {
 		return "", configurationErr
 	}
+	if operatorID == "" || !s.cfg.IsOperator(operatorID) {
+		return fallback, nil
+	}
 	entry, err := s.store.Memory.GetChannelRepositoryBinding(
 		ctx, s.cfg.Slack.TeamID, channelID, operatorID,
 	)

@@ -43,7 +43,7 @@ Responder also persists the rendered card UI revision. A changed revision marks 
 existing card dirty once during startup, so upgraded controls appear without waiting for unrelated
 incident activity; failed Slack updates remain queued for retry.
 
-Configured operators can converse anywhere in the incident channel without an `@mention`.
+Configured operators can converse anywhere in an incident channel without an `@mention`.
 Responder admits ordinary top-level messages and thread replies, keeps them in the same Coop
 conversation, and follows the operator's current location: a channel message gets a channel
 response and a thread reply gets a reply in that thread. An operator may say `switch to a thread`
@@ -51,7 +51,8 @@ or `back to the channel`; Emisar acknowledges the move at the new location befor
 Mentions and replies to the pinned card are explicitly direct; for ambient room conversation, the
 agent may stay silent when a human teammate would have nothing useful to add. Thread-scoped
 engineering tasks are the deliberate exception: their authorization and working copy remain bound
-to the source thread. Each accepted operator message is one ordered Coop request. Responder
+to the source thread. Active full members may collaborate in a contributor task; operator-capability
+tasks remain operator-only. Each accepted teammate or operator message is one ordered Coop request. Responder
 allocates session capacity automatically; tool calls and investigation steps inside the request
 are not counted separately.
 
@@ -85,13 +86,15 @@ The **Investigate message** shortcut runs the same ordered read-only triage agai
 selected message and replies in its thread. Direct messages and shortcuts do not create incidents
 merely because they identify a problem; they can offer the same explicit incident button.
 
-An explicit repository-change request can produce a **Start task** button. Until a
-configured full-member operator confirms it, no writable session or fork is created. Confirmation
-posts a durable task card in the same Slack thread and creates an isolated Coop working copy. The
-initial task turn may edit, validate, and commit repository files under Coop policy, but cannot
-merge, push, deploy, sign, or mutate infrastructure. Ordinary replies in the source thread continue
-the same task session without an `@mention`; unrelated channel messages never enter it. Slash
-commands cannot identify a thread, so task controls live on the task card.
+An explicit repository-change request can produce a **Start task** button. Until an
+active full workspace member confirms it, no writable session or fork is created. Confirmation posts
+a durable task card in the same Slack thread and creates an isolated Coop working copy. Active full
+members may collaborate there, edit, validate, and commit repository files under the contributor
+policy, then inspect and review the changes. Shared operational MCP and environment credentials are
+not projected. A configured operator must publish, stop, close, or discard task work. Nobody can
+merge, deploy, sign, or mutate infrastructure through the contributor task. Ordinary replies in the
+source thread continue the same task session without an `@mention`; unrelated channel messages never
+enter it. Slash commands cannot identify a thread, so task controls live on the task card.
 
 ## Explicit summons
 
@@ -291,7 +294,7 @@ accepts only one validated decision:
   bounded read-only investigation provides enough evidence;
 - attach an `Open incident room` confirmation when a human-reported problem may benefit from
   coordinated investigation, without creating anything yet;
-- attach a `Start task` confirmation when an operator explicitly requests repository
+- attach a `Start task` confirmation when a human teammate explicitly requests repository
   changes, without weakening the shared channel's read-only boundary;
 - attach a `Prepare code fix` confirmation when a decision-ready confirmed or likely issue has a
   narrow repository-backed remediation; this can appear beside `Open incident room`, carries the
@@ -323,10 +326,12 @@ does not start an agent turn or produce a reply by itself. Removed reactions are
 historical context and are not treated as current agreement. No emoji reaction can authorize an
 incident, approval, repository change, deployment, or infrastructure mutation.
 
-Engineering-task offers follow the same authorization, source-message binding, restart durability,
-and idempotency rules. Their source threads use task-specific cards and lifecycle copy rather than
-presenting repository work as an alert incident. Dedicated Slack rooms remain reserved for incident
-coordination.
+Engineering-task offers use active full workspace membership rather than incident-operator
+authorization. They retain the same source-message binding, restart durability, and idempotency
+rules. Their source threads use task-specific cards and lifecycle copy rather than presenting
+repository work as an alert incident. Dedicated Slack rooms remain reserved for incident
+coordination. A member offer is restricted to the repository assigned to its Slack channel and uses
+that repository's contributor policy; only operators may publish or use destructive task controls.
 
 An approved or permitted incident decision retains the original Slack message as evidence,
 acknowledges the source thread, and enters the same channel, root-card, isolated-fork, and
@@ -415,7 +420,9 @@ shows the same bounded controls for current behavior entries.
 
 ## Controls
 
-Card buttons change with state rather than presenting actions that cannot succeed:
+Card buttons change with state rather than presenting actions that cannot succeed. Publication,
+stop, close, and discard buttons may remain visible to make the operator handoff obvious, but the
+host rejects them for nonoperators before any repository or session mutation:
 
 - provisioning or holding: **Close incident**;
 - active turn: **Stop current run**, and **View diff** only when Coop reports changed
@@ -528,7 +535,8 @@ is an operator turn, not a cancellation.
 
 ## Authorization
 
-Workspace membership is not authorization. Responder requires both:
+Workspace membership alone does not grant operational authority. Incident steering, incident-offer
+approval, durable behavior, schedules, and operational mutations require both:
 
 - the Slack user ID is listed in `slack.operators`;
 - Slack reports a current full member in `slack.team_id`.
@@ -546,6 +554,14 @@ operators become Coop conversation turns.
 
 The same operator and active full-member checks protect every `/responder` command. Slash command
 text is parsed by the host as an exact command; it is never sent to the model.
+
+Engineering tasks deliberately use a different boundary. Any active full member of the configured
+workspace may confirm a channel-repository-bound task offer, collaborate in its source thread, and
+use its non-destructive task controls. A configured operator must publish, stop, close, or discard
+work. Guests, bots, restricted users,
+strangers, and external Slack Connect members remain denied. Task authority never grants incident
+control, durable behavior changes, scheduling, infrastructure mutation, merge, deployment, or
+signing authority.
 
 Buttons are also bound to the incident ID, channel, and root message timestamp. Stale or copied
 controls are rejected.

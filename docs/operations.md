@@ -304,12 +304,12 @@ external-app alerts may create directly. Incident creation is keyed to the origi
 button retries and repeated clicks cannot create duplicate incidents.
 
 The shared triage session also cannot edit repository files. For an explicit repository-change
-request, the agent returns a durable engineering-task offer instead of telling the operator to
-start another client session. A configured full-member operator must confirm **Start engineering
-task**. The resulting room uses an isolated writable Coop fork and task-specific Slack copy; file
-edits, tests, and commits are permitted by the dedicated prompt and remain bounded by the
-repository's Coop policy. Merge, push, signing, deployment, and infrastructure mutation remain
-forbidden.
+request, the agent returns a durable engineering-task offer instead of telling the teammate to
+start another client session. Any active full workspace member may confirm **Start engineering
+task**. The resulting source thread uses an isolated writable Coop fork and task-specific Slack
+copy; active full members may collaborate, edit, test, commit, and review under the repository's
+contributor policy. A configured operator must publish a draft PR, stop or close the task, or discard
+retained work. Merge, signing, deployment, and infrastructure mutation remain forbidden.
 
 ### Repository sets
 
@@ -322,6 +322,7 @@ repositories:
   infrastructure:
     display_name: Infrastructure
     coop_policy: infrastructure-observe
+    contributor_policy: infrastructure-contributor
     conversation_policy: infrastructure-conversation
     path: /srv/repos/infrastructure
 repository_sets:
@@ -329,14 +330,18 @@ repository_sets:
     display_name: Platform
     primary: infrastructure
     coop_policy: platform-observe
+    contributor_policy: platform-contributor
     conversation_policy: platform-conversation
 ```
 
 `conversation_policy` is optional. When configured, direct conversational messages use that bounded
 Coop policy and its authenticated provider account. The policy can expose the same read-only
 repository and MCP tools as the investigation policy; the model decides which evidence it needs.
-Requests that require a writable isolated fork still use the separately confirmed engineering-task
-path. Omitting `conversation_policy` preserves the single investigation-lane behavior.
+`contributor_policy` is the writable, member-safe task policy. Configure its Coop session policy
+with `project_env: false` and `project_mcp: false`; repository files remain writable, while shared
+operational credentials and MCP tools are absent. Requests that require a writable isolated fork
+use the separately confirmed engineering-task path. Omitting `conversation_policy` preserves the
+single investigation-lane behavior.
 
 The Coop session policy controls the provider, model, reasoning effort, and authenticated account:
 
@@ -346,6 +351,10 @@ policies:
     target: codex:gpt-5.6-sol/xhigh@oncall
   platform-conversation:
     target: codex:gpt-5.6-terra/low@oncall
+  platform-contributor:
+    target: codex:gpt-5.6-sol/high@oncall
+    project_env: false
+    project_mcp: false
 ```
 
 The target syntax is `agent:model/effort@account`. Responder does not silently override it. A
@@ -548,6 +557,12 @@ available.
 waiting for a session. New occurrences that would exceed it are rejected transactionally before
 channel creation and remain visible as failed webhook or Slack work. Closing an incident releases
 one slot. Set this above `max_active_incidents`.
+
+Member-started tasks are additionally bounded by
+`limits.max_open_engineering_tasks_per_member` and
+`limits.engineering_task_creation_cooldown`. `limits.reserved_operator_open_slots` keeps part of the
+global open-work capacity unavailable to member task creation, so contributor load cannot crowd out
+incident and operator work.
 
 Responder automatically adds Coop capacity when an authorized request reaches an exhausted session.
 `coop.extend_turns` is the internal allocation chunk; it is not an operator-facing estimate.

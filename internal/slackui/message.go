@@ -820,16 +820,34 @@ func workflowStateDescription(incident core.Incident) string {
 		}
 		return "Slack is creating and preparing the dedicated incident room."
 	case core.WorkflowProvisioningSession:
+		if incident.IsEngineeringTask() {
+			return "Responder is creating an isolated Coop session and writable task copy. Engineering work has not started yet."
+		}
 		return "Responder is creating an isolated Coop session and working copy. Investigation has not started yet."
 	case core.WorkflowHolding:
+		if incident.IsEngineeringTask() {
+			return "The engineering task is queued because the configured active-agent capacity is currently full."
+		}
 		return "The incident is queued because the configured active-agent capacity is currently full."
 	case core.WorkflowInvestigating:
+		if incident.IsEngineeringTask() {
+			return "An agent turn is running or waiting to run against the isolated engineering task."
+		}
 		return "An agent turn is running or waiting to run against the isolated incident context."
 	case core.WorkflowParked:
+		if incident.IsEngineeringTask() {
+			return "No agent turn is running. The engineering task remains open and Responder is waiting for teammate input."
+		}
 		return "No agent turn is running. The incident remains open and Responder is waiting for operator input."
 	case core.WorkflowBlocked:
+		if incident.IsEngineeringTask() {
+			return "Responder cannot continue until a workspace teammate addresses the blocker shown on the task card."
+		}
 		return "Responder cannot continue until an operator addresses the blocker shown on the pinned card."
 	case core.WorkflowClosed:
+		if incident.IsEngineeringTask() {
+			return "The engineering task session is closed. Unpublished changes remain preserved for operator action."
+		}
 		return "The incident session is closed. Its isolated working copy remains preserved."
 	default:
 		return "Responder reported a state it cannot yet describe. Check the pinned card and service logs before taking action."
@@ -927,7 +945,7 @@ func HelpMessage(incident core.Incident) Message {
 		conversation = "*Conversation*\nKeep replying in this Slack thread. Every authorized reply continues " +
 			"the same isolated engineering session; an `@mention` is not required."
 		controls = "*Lifecycle controls*\nUse the task card in this thread to stop the active turn, inspect " +
-			"changes, check fix readiness, publish a draft PR, or close the task. Slack slash commands do not carry thread " +
+			"changes, or check fix readiness. A configured operator must publish a draft PR, stop, close, or discard work. Slack slash commands do not carry thread " +
 			"context, so they cannot select this task from the channel composer."
 		channelBehavior = "*Thread scope*\nOnly this source thread is attached to the writable task. Other " +
 			"messages in the shared channel continue through its normal read-only triage settings."
@@ -941,7 +959,7 @@ func HelpMessage(incident core.Incident) Message {
 				"evidence-based summary.\n`/responder changes` shows the isolated working " +
 				"copy's diff.\n`/responder review` compares a proposed change with the current " +
 				"repository and runs rebase, validation, and policy checks.\n`/responder publish` " +
-				"creates or updates a draft PR from the exact reviewed tree for a channel-scoped task.",
+				"asks a configured operator to create or update a draft PR from the exact reviewed tree for a channel-scoped task.",
 			controls,
 			"*Automatic capacity*\nResponder allocates turns automatically when authorized work " +
 				"arrives. `/responder turn-limit` explains the current channel's lifetime " +

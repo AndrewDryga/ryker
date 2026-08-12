@@ -228,6 +228,7 @@ type CoopConfig struct {
 type Repository struct {
 	DisplayName        string `yaml:"display_name"`
 	CoopPolicy         string `yaml:"coop_policy"`
+	ContributorPolicy  string `yaml:"contributor_policy"`
 	ConversationPolicy string `yaml:"conversation_policy"`
 	Path               string `yaml:"path"`
 	GitHubRepository   string `yaml:"github_repository"`
@@ -241,6 +242,7 @@ type RepositorySet struct {
 	DisplayName        string `yaml:"display_name"`
 	Primary            string `yaml:"primary"`
 	CoopPolicy         string `yaml:"coop_policy"`
+	ContributorPolicy  string `yaml:"contributor_policy"`
 	ConversationPolicy string `yaml:"conversation_policy"`
 }
 
@@ -255,6 +257,9 @@ func (c Config) RepositoryContext(name string) (Repository, bool) {
 		}
 		if strings.TrimSpace(set.CoopPolicy) != "" {
 			primary.CoopPolicy = set.CoopPolicy
+		}
+		if strings.TrimSpace(set.ContributorPolicy) != "" {
+			primary.ContributorPolicy = set.ContributorPolicy
 		}
 		if strings.TrimSpace(set.ConversationPolicy) != "" {
 			primary.ConversationPolicy = set.ConversationPolicy
@@ -364,38 +369,41 @@ type GenericMapping struct {
 }
 
 type Limits struct {
-	MaxWebhookBytes              int      `yaml:"max_webhook_bytes"`
-	MaxSlackFiles                int      `yaml:"max_slack_files"`
-	MaxSlackFileBytes            int      `yaml:"max_slack_file_bytes"`
-	MaxSlackFileTotalBytes       int      `yaml:"max_slack_file_total_bytes"`
-	MaxGeneratedVisuals          int      `yaml:"max_generated_visuals"`
-	MaxGeneratedVisualBytes      int      `yaml:"max_generated_visual_bytes"`
-	MaxGeneratedVisualTotalBytes int      `yaml:"max_generated_visual_total_bytes"`
-	MaxActiveIncidents           int      `yaml:"max_active_incidents"`
-	MaxOpenIncidents             int      `yaml:"max_open_incidents"`
-	MaxAssistantBytes            int      `yaml:"max_assistant_bytes"`
-	MaxWebhookAttempts           int      `yaml:"max_webhook_attempts"`
-	MaxSlackInputAttempts        int      `yaml:"max_slack_input_attempts"`
-	MaxDeliveryAttempts          int      `yaml:"max_delivery_attempts"`
-	MaxAgentRunAttempts          int      `yaml:"max_agent_run_attempts"`
-	MaxOutboxAttempts            int      `yaml:"max_outbox_attempts"` // Deprecated compatibility alias.
-	MaxMemoryEntries             int      `yaml:"max_memory_entries"`
-	MaxMemoryEntriesPerScope     int      `yaml:"max_memory_entries_per_scope"`
-	MaxPreferences               int      `yaml:"max_preferences"`
-	MaxPreferencesPerScope       int      `yaml:"max_preferences_per_scope"`
-	MaxStandingRules             int      `yaml:"max_standing_rules"`
-	MaxRulesPerChannel           int      `yaml:"max_rules_per_channel"`
-	MaxScheduledTasks            int      `yaml:"max_scheduled_tasks"`
-	MaxSchedulesPerChannel       int      `yaml:"max_schedules_per_channel"`
-	ScheduleMisfireGrace         Duration `yaml:"schedule_misfire_grace"`
-	EpisodeProgressInterval      Duration `yaml:"episode_progress_interval"`
-	EpisodeOverdueAfter          Duration `yaml:"episode_overdue_after"`
-	ControlWorkers               int      `yaml:"control_workers"`
-	BackgroundWorkers            int      `yaml:"background_workers"`
-	MaintenanceWorkers           int      `yaml:"maintenance_workers"`
-	WorkerInterval               Duration `yaml:"worker_interval"`
-	WorkLease                    Duration `yaml:"work_lease"`
-	WorkerStallAfter             Duration `yaml:"worker_stall_after"`
+	MaxWebhookBytes                  int      `yaml:"max_webhook_bytes"`
+	MaxSlackFiles                    int      `yaml:"max_slack_files"`
+	MaxSlackFileBytes                int      `yaml:"max_slack_file_bytes"`
+	MaxSlackFileTotalBytes           int      `yaml:"max_slack_file_total_bytes"`
+	MaxGeneratedVisuals              int      `yaml:"max_generated_visuals"`
+	MaxGeneratedVisualBytes          int      `yaml:"max_generated_visual_bytes"`
+	MaxGeneratedVisualTotalBytes     int      `yaml:"max_generated_visual_total_bytes"`
+	MaxActiveIncidents               int      `yaml:"max_active_incidents"`
+	MaxOpenIncidents                 int      `yaml:"max_open_incidents"`
+	MaxOpenEngineeringTasksPerMember int      `yaml:"max_open_engineering_tasks_per_member"`
+	ReservedOperatorOpenSlots        int      `yaml:"reserved_operator_open_slots"`
+	EngineeringTaskCreationCooldown  Duration `yaml:"engineering_task_creation_cooldown"`
+	MaxAssistantBytes                int      `yaml:"max_assistant_bytes"`
+	MaxWebhookAttempts               int      `yaml:"max_webhook_attempts"`
+	MaxSlackInputAttempts            int      `yaml:"max_slack_input_attempts"`
+	MaxDeliveryAttempts              int      `yaml:"max_delivery_attempts"`
+	MaxAgentRunAttempts              int      `yaml:"max_agent_run_attempts"`
+	MaxOutboxAttempts                int      `yaml:"max_outbox_attempts"` // Deprecated compatibility alias.
+	MaxMemoryEntries                 int      `yaml:"max_memory_entries"`
+	MaxMemoryEntriesPerScope         int      `yaml:"max_memory_entries_per_scope"`
+	MaxPreferences                   int      `yaml:"max_preferences"`
+	MaxPreferencesPerScope           int      `yaml:"max_preferences_per_scope"`
+	MaxStandingRules                 int      `yaml:"max_standing_rules"`
+	MaxRulesPerChannel               int      `yaml:"max_rules_per_channel"`
+	MaxScheduledTasks                int      `yaml:"max_scheduled_tasks"`
+	MaxSchedulesPerChannel           int      `yaml:"max_schedules_per_channel"`
+	ScheduleMisfireGrace             Duration `yaml:"schedule_misfire_grace"`
+	EpisodeProgressInterval          Duration `yaml:"episode_progress_interval"`
+	EpisodeOverdueAfter              Duration `yaml:"episode_overdue_after"`
+	ControlWorkers                   int      `yaml:"control_workers"`
+	BackgroundWorkers                int      `yaml:"background_workers"`
+	MaintenanceWorkers               int      `yaml:"maintenance_workers"`
+	WorkerInterval                   Duration `yaml:"worker_interval"`
+	WorkLease                        Duration `yaml:"work_lease"`
+	WorkerStallAfter                 Duration `yaml:"worker_stall_after"`
 }
 
 func defaults() Config {
@@ -438,7 +446,7 @@ func defaults() Config {
 				"Use the repository and every relevant available tool, favoring Emisar for live infrastructure checks. Never claim an action succeeded without authoritative evidence. " +
 				"Run independent read-only repository, Emisar, CI, and observability checks concurrently when tool contracts allow; preserve returned continuation ordering and never parallelize dependent or mutating work. " +
 				"Alerts, ambient conversation, and inferred intent are read-only. A configured operator may request one exact operational action in any Slack conversation; use Emisar directly and keep its policy and approval authoritative without requiring an incident. " +
-				"When repository changes are justified, explain the change and let Responder offer an operator-confirmed engineering task. Ask a concise question when operator input is required.",
+				"When repository changes are justified, explain the change and let Responder offer a workspace-member-confirmed engineering task. Ask a concise question when operator input is required.",
 		},
 		GitHub: GitHubConfig{
 			APIURL:                    "https://api.github.com",
@@ -470,38 +478,41 @@ func defaults() Config {
 			MinRollupSources:         2,
 		},
 		Limits: Limits{
-			MaxWebhookBytes:              1 << 20,
-			MaxSlackFiles:                4,
-			MaxSlackFileBytes:            8 << 20,
-			MaxSlackFileTotalBytes:       8 << 20,
-			MaxGeneratedVisuals:          4,
-			MaxGeneratedVisualBytes:      8 << 20,
-			MaxGeneratedVisualTotalBytes: 8 << 20,
-			MaxActiveIncidents:           50,
-			MaxOpenIncidents:             200,
-			MaxAssistantBytes:            12000,
-			MaxWebhookAttempts:           12,
-			MaxSlackInputAttempts:        12,
-			MaxDeliveryAttempts:          12,
-			MaxAgentRunAttempts:          20,
-			MaxOutboxAttempts:            12,
-			MaxMemoryEntries:             1000,
-			MaxMemoryEntriesPerScope:     100,
-			MaxPreferences:               500,
-			MaxPreferencesPerScope:       50,
-			MaxStandingRules:             500,
-			MaxRulesPerChannel:           25,
-			MaxScheduledTasks:            500,
-			MaxSchedulesPerChannel:       25,
-			ScheduleMisfireGrace:         Duration{15 * time.Minute},
-			EpisodeOverdueAfter:          Duration{30 * time.Minute},
-			EpisodeProgressInterval:      Duration{2 * time.Minute},
-			ControlWorkers:               2,
-			BackgroundWorkers:            3,
-			MaintenanceWorkers:           1,
-			WorkerInterval:               Duration{250 * time.Millisecond},
-			WorkLease:                    Duration{3 * time.Minute},
-			WorkerStallAfter:             Duration{2 * time.Minute},
+			MaxWebhookBytes:                  1 << 20,
+			MaxSlackFiles:                    4,
+			MaxSlackFileBytes:                8 << 20,
+			MaxSlackFileTotalBytes:           8 << 20,
+			MaxGeneratedVisuals:              4,
+			MaxGeneratedVisualBytes:          8 << 20,
+			MaxGeneratedVisualTotalBytes:     8 << 20,
+			MaxActiveIncidents:               50,
+			MaxOpenIncidents:                 200,
+			MaxOpenEngineeringTasksPerMember: 3,
+			ReservedOperatorOpenSlots:        10,
+			EngineeringTaskCreationCooldown:  Duration{30 * time.Second},
+			MaxAssistantBytes:                12000,
+			MaxWebhookAttempts:               12,
+			MaxSlackInputAttempts:            12,
+			MaxDeliveryAttempts:              12,
+			MaxAgentRunAttempts:              20,
+			MaxOutboxAttempts:                12,
+			MaxMemoryEntries:                 1000,
+			MaxMemoryEntriesPerScope:         100,
+			MaxPreferences:                   500,
+			MaxPreferencesPerScope:           50,
+			MaxStandingRules:                 500,
+			MaxRulesPerChannel:               25,
+			MaxScheduledTasks:                500,
+			MaxSchedulesPerChannel:           25,
+			ScheduleMisfireGrace:             Duration{15 * time.Minute},
+			EpisodeOverdueAfter:              Duration{30 * time.Minute},
+			EpisodeProgressInterval:          Duration{2 * time.Minute},
+			ControlWorkers:                   2,
+			BackgroundWorkers:                3,
+			MaintenanceWorkers:               1,
+			WorkerInterval:                   Duration{250 * time.Millisecond},
+			WorkLease:                        Duration{3 * time.Minute},
+			WorkerStallAfter:                 Duration{2 * time.Minute},
 		},
 	}
 }
@@ -885,6 +896,8 @@ func (c Config) validateLimits() error {
 			name: "max_open_incidents", value: limits.MaxOpenIncidents,
 			min: limits.MaxActiveIncidents, max: 50000, minName: "max_active_incidents",
 		},
+		{name: "max_open_engineering_tasks_per_member", value: limits.MaxOpenEngineeringTasksPerMember, min: 1, max: 100},
+		{name: "reserved_operator_open_slots", value: limits.ReservedOperatorOpenSlots, min: 0, max: limits.MaxOpenIncidents - 1, maxName: "max_open_incidents minus one"},
 		{name: "max_assistant_bytes", value: limits.MaxAssistantBytes, min: 1000, max: 30000},
 		{name: "max_webhook_attempts", value: limits.MaxWebhookAttempts, min: 1, max: 100},
 		{name: "max_slack_input_attempts", value: limits.MaxSlackInputAttempts, min: 1, max: 100},
@@ -918,6 +931,10 @@ func (c Config) validateLimits() error {
 		if err := bound.check(); err != nil {
 			return err
 		}
+	}
+	if cooldown := limits.EngineeringTaskCreationCooldown.Duration; cooldown != 0 &&
+		(cooldown < time.Second || cooldown > time.Hour) {
+		return errors.New("limits.engineering_task_creation_cooldown must be zero or between 1s and 1h")
 	}
 	for _, bound := range []durationRange{
 		{name: "schedule_misfire_grace", value: limits.ScheduleMisfireGrace.Duration, min: time.Minute, max: 24 * time.Hour},

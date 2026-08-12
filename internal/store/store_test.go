@@ -221,6 +221,48 @@ func TestEngineeringTaskIsDistinctAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestMemberEngineeringTaskAdmissionIsAttributedRateLimitedAndQuotaBound(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	st.SetClock(func() time.Time { return now })
+	create := func(source, user string) (core.Incident, bool, error) {
+		return st.CreateMemberEngineeringTask(
+			ctx, "repo", source, "Member task", "summary", user,
+			"COPS", "1700."+source, 100, 2, 30*time.Second,
+		)
+	}
+	first, created, err := create("member-1", "UMEMBER")
+	if err != nil || !created {
+		t.Fatalf("first member task = %+v, created=%t, err=%v", first, created, err)
+	}
+	creator, err := st.EngineeringTaskCreator(ctx, first.ID)
+	if err != nil || creator != "UMEMBER" {
+		t.Fatalf("task creator = %q, err=%v", creator, err)
+	}
+	if duplicate, created, err := create("member-1", "UMEMBER"); err != nil || created || duplicate.ID != first.ID {
+		t.Fatalf("idempotent member task = %+v, created=%t, err=%v", duplicate, created, err)
+	}
+	if _, _, err := create("member-2", "UMEMBER"); !errors.Is(err, ErrMemberTaskRateLimit) {
+		t.Fatalf("member cooldown = %v, want rate limit", err)
+	}
+	now = now.Add(31 * time.Second)
+	if _, created, err := create("member-2", "UMEMBER"); err != nil || !created {
+		t.Fatalf("second member task = created=%t, err=%v", created, err)
+	}
+	now = now.Add(31 * time.Second)
+	if _, _, err := create("member-3", "UMEMBER"); !errors.Is(err, ErrMemberTaskCapacity) {
+		t.Fatalf("member quota = %v, want capacity", err)
+	}
+	if _, created, err := create("other-1", "UOTHER"); err != nil || !created {
+		t.Fatalf("other member task = created=%t, err=%v", created, err)
+	}
+}
+
 func TestEngineeringTaskPullRequestBindingSurvivesRestart(t *testing.T) {
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "state")

@@ -9,7 +9,7 @@ and release gates planned for the next implementation phase, see
 
 ## Boundaries
 
-Responder is the incident and conversation layer above Coop:
+Responder is the Slack teammate and durable coordination layer above Coop:
 
 ```text
 Grafana or generic webhook
@@ -286,7 +286,7 @@ prompt, model, and schema changes fail CI when they break accepted decision cont
 Explicit repository-change requests use a separate engineering-task handoff. The shared-channel
 session remains read-only and can only return an inert task title. An authorized Slack confirmation
 binds that exact source thread to a task-identified durable work record and isolated Coop fork. The
-task card, progress, agent replies, controls, and later operator messages all remain in that thread;
+task card, progress, agent replies, controls, and later teammate messages all remain in that thread;
 conversation lookup requires both channel and thread so unrelated messages cannot enter the writable
 session. Incident workflows still create dedicated rooms. Task identity is carried through cards,
 prompts, directory entries, and close behavior so repository work is not presented as an alert

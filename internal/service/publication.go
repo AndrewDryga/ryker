@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
+	"github.com/AndrewDryga/responder/internal/taskaccess"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
@@ -22,11 +23,10 @@ func (s *Service) publishDraftPR(
 	input core.SlackInput,
 	incident core.Incident,
 ) (returnErr error) {
-	if !incident.IsEngineeringTask() {
-		return s.refusePublicationControl(ctx, input, incident,
-			"*Draft PR publication is available for engineering tasks only.* "+
-				"Incident investigations remain read-only unless an operator starts an "+
-				"explicit writable task.")
+	if refusal := taskaccess.PublicationRefusal(
+		s.cfg, incident, input.UserID, input.Kind == controlPlaneInput,
+	); refusal != "" {
+		return s.refusePublicationControl(ctx, input, incident, refusal)
 	}
 	if _, terminal, err := s.terminalPublicationFollowup(ctx, incident.ID); err != nil {
 		return err

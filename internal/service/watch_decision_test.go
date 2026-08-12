@@ -471,7 +471,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 				!strings.Contains(coopClient.submitPrompts[0], "other available MCP servers and tools") ||
 				!strings.Contains(coopClient.submitPrompts[0], "runner identities and connection state") ||
 				!strings.Contains(coopClient.submitPrompts[0], "not by itself permission") ||
-				!strings.Contains(coopClient.submitPrompts[0], "operator confirmation button") {
+				!strings.Contains(coopClient.submitPrompts[0], "Active full workspace members may confirm") {
 				t.Fatalf("watch Coop calls = keys=%v prompts=%v",
 					coopClient.createKeys, coopClient.submitPrompts)
 			}
@@ -926,9 +926,16 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CWATCH", Participation: "proactive", Repository: cfg.Slack.DefaultRepository,
+		AlertPolicy: "reply", ActorID: cfg.Slack.Operators[0],
+	}); err != nil {
+		t.Fatal(err)
+	}
 	slackClient := &fakeSlack{
 		dedupePosts: true,
 		files:       map[string][]byte{screenshotURL: testPNG},
+		deniedUsers: map[string]bool{"UGUEST": true},
 	}
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
@@ -1004,13 +1011,13 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 			t.Fatalf("process %s: %v", id, err)
 		}
 	}
-	click("engineering-task-unauthorized", "UOTHER")
+	click("engineering-task-guest", "UGUEST")
 	if len(slackClient.ephemerals) != 1 ||
-		!strings.Contains(slackClient.ephemerals[0].message.Text, "Only a configured operator") {
-		t.Fatalf("unauthorized engineering task response = %+v", slackClient.ephemerals)
+		!strings.Contains(slackClient.ephemerals[0].message.Text, "Only active full members") {
+		t.Fatalf("ineligible engineering task response = %+v", slackClient.ephemerals)
 	}
 	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
-		t.Fatalf("unauthorized click created task = %+v, %v", incidents, err)
+		t.Fatalf("ineligible click created task = %+v, %v", incidents, err)
 	}
 	stale := core.SlackInput{
 		ID: "engineering-task-stale", EnvelopeID: "env-engineering-task-stale",
@@ -1032,7 +1039,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
 		t.Fatalf("stale click created task = %+v, %v", incidents, err)
 	}
-	click("engineering-task-authorized", "U123ABC")
+	click("engineering-task-member", "UOTHER")
 	drainSlackDeliveries(t, ctx, svc)
 	incidents, err := st.ListIncidents(ctx, 10)
 	if err != nil || len(incidents) != 1 || !incidents[0].IsEngineeringTask() {
@@ -1088,6 +1095,10 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	if err := svc.processSession(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if len(coopClient.createPolicies) == 0 ||
+		coopClient.createPolicies[len(coopClient.createPolicies)-1] != "repo-contributor" {
+		t.Fatalf("member task Coop policy = %v", coopClient.createPolicies)
+	}
 	for count := 0; count < 4; count++ {
 		err := svc.processSlackDelivery(ctx, nil)
 		if errors.Is(err, store.ErrNotFound) {
@@ -1113,9 +1124,10 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		t.Fatalf("engineering task lost source attachment = %+v", taskArtifacts)
 	}
 	for _, required := range []string{
-		"Complete this operator-approved engineering task",
-		"File edits, tests, and commits are allowed",
-		"Do not merge, push, deploy, sign, or mutate infrastructure",
+		"Complete this workspace-member-confirmed engineering task",
+		"Repository code and repository-owned configuration changes are allowed",
+		"does not provide shared operational MCP tools or environment secrets",
+		"Do not apply configuration, merge, push, deploy, sign, mutate live systems",
 	} {
 		if !strings.Contains(taskPrompt, required) {
 			t.Fatalf("dedicated task prompt lacks %q:\n%s", required, taskPrompt)
@@ -1126,7 +1138,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		ID: "task-thread-followup", EnvelopeID: "env-task-thread-followup",
 		EventID: "event-task-thread-followup", Kind: "message", TeamID: cfg.Slack.TeamID,
 		ChannelID: source.ChannelID, ThreadTS: source.MessageTS, MessageTS: "1700.902",
-		UserID: "U123ABC", Text: "Also update the operations documentation.",
+		UserID: "UCOLLEAGUE", Text: "Also update the operations documentation.",
 	}
 	if created, err := st.AdmitSlackInput(ctx, followup); err != nil || !created {
 		t.Fatalf("admit task follow-up = %v, %v", created, err)
@@ -1137,6 +1149,32 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	queued, err := st.GetAgentRunBySource(ctx, "slack", followup.ID)
 	if err != nil || queued.IncidentID != task.ID {
 		t.Fatalf("thread follow-up routing = %+v, %v", queued, err)
+	}
+	if !strings.Contains(queued.Prompt, "active full workspace members") ||
+		!strings.Contains(queued.Prompt, "authoritative for repository code") ||
+		!strings.Contains(queued.Prompt, "Format every user-visible answer") ||
+		strings.Contains(queued.Prompt, "allowlisted incident operator") {
+		t.Fatalf("task teammate prompt = %q", queued.Prompt)
+	}
+
+	guestFollowup := core.SlackInput{
+		ID: "task-thread-guest", EnvelopeID: "env-task-thread-guest",
+		EventID: "event-task-thread-guest", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: source.ChannelID, ThreadTS: source.MessageTS, MessageTS: "1700.9025",
+		UserID: "UGUEST", Text: "Push this through without review.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, guestFollowup); err != nil || !created {
+		t.Fatalf("admit guest task follow-up = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if queued, err := st.GetAgentRunBySource(ctx, "slack", guestFollowup.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("ineligible guest entered task session = %+v, %v", queued, err)
+	}
+	if len(slackClient.ephemerals) == 0 ||
+		!strings.Contains(slackClient.ephemerals[len(slackClient.ephemerals)-1].message.Text, "Only active full members") {
+		t.Fatalf("guest task follow-up refusal = %+v", slackClient.ephemerals)
 	}
 
 	unrelated := core.SlackInput{

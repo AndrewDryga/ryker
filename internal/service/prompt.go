@@ -22,8 +22,8 @@ var (
 
 func CoopInstructions(configured string) string     { return agentprompt.CoopInstructions(configured) }
 func repositorySetPrompt(bound coop.Session) string { return agentprompt.RepositorySet(bound) }
-func initialPrompt(instructions string, incident core.Incident, signals []core.Signal, prior string) (string, error) {
-	return agentprompt.Initial(instructions, incident, signals, prior)
+func initialPrompt(instructions string, incident core.Incident, signals []core.Signal, prior string, contributorTask bool) (string, error) {
+	return agentprompt.Initial(instructions, incident, signals, prior, contributorTask)
 }
 func signalPrompt(signals []core.Signal) (string, error) { return agentprompt.Signal(signals) }
 func operatorPrompt(userID, message string) string       { return agentprompt.Operator(userID, message) }

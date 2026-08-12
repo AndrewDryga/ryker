@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskaccess"
 )
 
 func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *testing.T) {
@@ -79,6 +80,124 @@ func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *
 	}
 	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
 		t.Fatalf("ambiguous task started work: %+v, %v", incidents, err)
+	}
+}
+
+func TestMemberTaskRepositoryCatalogIsBoundToTheChannelRepository(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Repositories["backend"] = config.Repository{
+		DisplayName:       "Sensitive backend",
+		CoopPolicy:        "backend-operator",
+		ContributorPolicy: "backend-contributor",
+	}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CPUBLIC", Participation: "mentions", Repository: "repo",
+		AlertPolicy: "reply", ActorID: cfg.Slack.Operators[0],
+	}); err != nil {
+		t.Fatal(err)
+	}
+	input := core.SlackInput{
+		TeamID: cfg.Slack.TeamID, ChannelID: "CPUBLIC", UserID: "UMEMBER",
+	}
+	resolved, err := taskaccess.ResolveOfferRepository(ctx, cfg, st, input, "")
+	if err != nil || resolved != "repo" {
+		t.Fatalf("member default task repository = %q, err=%v", resolved, err)
+	}
+	if _, err := taskaccess.ResolveOfferRepository(ctx, cfg, st, input, "backend"); err == nil ||
+		!strings.Contains(err.Error(), "not authorized for this channel") {
+		t.Fatalf("cross-repository member offer = %v", err)
+	}
+	catalog := taskaccess.Repositories(cfg, false, resolved)
+	if len(catalog) != 1 || catalog[0].Key != "repo" ||
+		strings.Contains(string(mustJSON(t, catalog)), "backend") {
+		t.Fatalf("member task repository catalog = %+v", catalog)
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestMemberCannotSteerOperatorCapabilityTask(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "operator-task", "Operator task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.600", cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.601"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_operator", "operator-task", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	member := core.SlackInput{
+		ID: "member-operator-task", EnvelopeID: "env-member-operator-task",
+		EventID: "event-member-operator-task", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: task.ChannelID, ThreadTS: task.ConversationThreadTS(), MessageTS: "1700.602",
+		UserID: "UMEMBER", Text: "Run the deployment now.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, member); err != nil || !created {
+		t.Fatalf("admit member follow-up = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetAgentRunBySource(ctx, "slack", member.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("member entered operator task = %v", err)
+	}
+	if len(slackClient.ephemerals) != 1 ||
+		!strings.Contains(renderedSlackMessage(slackClient.ephemerals[0].message), "configured-operator capabilities") {
+		t.Fatalf("operator task member refusal = %+v", slackClient.ephemerals)
+	}
+
+	operator := member
+	operator.ID = "operator-operator-task"
+	operator.EnvelopeID = "env-operator-operator-task"
+	operator.EventID = "event-operator-operator-task"
+	operator.MessageTS = "1700.603"
+	operator.UserID = cfg.Slack.Operators[0]
+	operator.Text = "Inspect the code and report readiness."
+	if created, err := st.AdmitSlackInput(ctx, operator); err != nil || !created {
+		t.Fatalf("admit operator follow-up = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "slack", operator.ID)
+	if err != nil || !strings.Contains(run.Prompt, "configured operators") ||
+		!strings.Contains(run.Prompt, "one exact governed action") ||
+		strings.Contains(run.Prompt, "contributor session") {
+		t.Fatalf("operator task prompt = %q, err=%v", run.Prompt, err)
 	}
 }
 

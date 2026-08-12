@@ -1343,6 +1343,7 @@ type fakeSlack struct {
 	downloads          []string
 	uploads            []slackFileUpload
 	uploadErr          error
+	deniedUsers        map[string]bool
 }
 
 type fakeSocket struct {
@@ -1477,8 +1478,8 @@ func (f *fakeSlack) JoinChannel(_ context.Context, channelID string) error {
 	f.joined = append(f.joined, channelID)
 	return f.joinErr
 }
-func (f *fakeSlack) UserAllowed(context.Context, string, string) (bool, error) {
-	return true, nil
+func (f *fakeSlack) UserAllowed(_ context.Context, userID, _ string) (bool, error) {
+	return !f.deniedUsers[userID], nil
 }
 func (f *fakeSlack) UserGroupMembers(context.Context, string, string) ([]string, error) {
 	return []string{"UOPERATOR"}, nil
@@ -1573,10 +1574,13 @@ slack:
   invite_users: [U123ABC]
   watch_settle_delay: 0s
 coop: {}
+limits:
+  engineering_task_creation_cooldown: 0s
 repositories:
   repo:
     display_name: Repository
     coop_policy: repo-observe
+    contributor_policy: repo-contributor
 webhooks:
   grafana:
     kind: grafana

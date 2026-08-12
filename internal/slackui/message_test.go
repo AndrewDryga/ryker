@@ -454,12 +454,21 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	if !strings.Contains(content, "nothing to inspect, review, or publish") {
 		t.Fatalf("zero-change task does not explain delivery state: %+v", card)
 	}
+	task.Workflow = core.WorkflowBlocked
+	blocked := IncidentCard(task, "Emisar", nil, false)
+	blockedContent := blocked.Header + "\n" + blocked.Text + "\n" + blocked.Markdown + "\n" +
+		strings.Join(blocked.Sections, "\n") + "\n" + strings.Join(blocked.Context, "\n")
+	if !strings.Contains(blockedContent, "Needs teammate action") ||
+		strings.Contains(blockedContent, "Needs operator action") {
+		t.Fatalf("blocked engineering task uses incident authority copy: %+v", blocked)
+	}
+	task.Workflow = core.WorkflowParked
 	changed := IncidentCardWithPublication(
 		task, "Emisar", nil, true, true, core.Publication{},
 		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
 	if !slices.ContainsFunc(changed.Actions, func(action Action) bool {
-		return action.ID == ActionPublishPR && action.Label == "Create draft PR"
+		return action.ID == ActionPublishPR && action.Label == "Create draft PR (operator)"
 	}) {
 		t.Fatalf("changed task lacks publication action: %+v", changed.Actions)
 	}

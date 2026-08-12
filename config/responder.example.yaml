@@ -86,7 +86,7 @@ coop:
     request one exact operational action in any Slack conversation; submit it through Emisar
     directly without requiring an incident. Emisar policy and approval remain authoritative.
     When repository changes are justified,
-    explain the change and let Responder offer an operator-confirmed engineering task.
+    explain the change and let Responder offer a workspace-member-confirmed engineering task.
     Ask a concise question when operator input is required.
 
 github:
@@ -137,6 +137,8 @@ repositories:
   infrastructure:
     display_name: Infrastructure
     coop_policy: infrastructure-observe
+    # Writable teammate tasks use a Coop policy with project_env/project_mcp disabled.
+    contributor_policy: infrastructure-contributor
     # Optional bounded lane for conversational answers. Its model should be fast but capable
     # enough to route uncertain or tool-backed work to coop_policy.
     conversation_policy: infrastructure-conversation
@@ -146,6 +148,7 @@ repositories:
   backend:
     display_name: Backend
     coop_policy: backend-observe
+    contributor_policy: backend-contributor
     conversation_policy: backend-conversation
     path: /srv/repositories/backend
     github_repository: example/backend
@@ -157,6 +160,7 @@ repository_sets:
     display_name: Platform
     primary: infrastructure
     coop_policy: platform-observe
+    contributor_policy: platform-contributor
     conversation_policy: platform-conversation
 
 # Responder does not turn model proposals or Slack clicks into operational approval. A configured
@@ -208,6 +212,10 @@ limits:
   max_generated_visual_total_bytes: 8388608
   max_active_incidents: 50
   max_open_incidents: 200
+  # A member cannot consume the capacity reserved for incidents and operator work.
+  max_open_engineering_tasks_per_member: 3
+  reserved_operator_open_slots: 10
+  engineering_task_creation_cooldown: 30s
   max_assistant_bytes: 12000
   max_webhook_attempts: 12
   max_slack_input_attempts: 12

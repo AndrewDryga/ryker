@@ -385,7 +385,7 @@ func incidentActions(
 		Confirm: "Compare the isolated changes with the current repository state, check rebase and configured validation and policy gates, and report whether the fix is ready for external review. This does not merge, push, sign, or deploy.",
 	}
 	publish := Action{
-		ID: ActionPublishPR, Label: "Create draft PR",
+		ID: ActionPublishPR, Label: "Create draft PR (operator)",
 		Value: PublicationActionValue(incident.ID, publication.Generation), Style: "primary",
 		Confirm: "Run a fresh Coop readiness review, recreate the exact approved tree in an isolated checkout, push a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
 	}
@@ -560,6 +560,9 @@ func IncidentStatusMessage(incident core.Incident) Message {
 		noun = "Engineering task"
 		stateLabel = "Task state"
 		next = "Reply normally in this thread to give Responder its next request."
+		if incident.Workflow == core.WorkflowBlocked {
+			activity = "Needs teammate action"
+		}
 		if incident.Workflow == core.WorkflowProvisioningChannel {
 			if incident.IsThreadScoped() {
 				activity = "Starting task"
@@ -575,6 +578,9 @@ func IncidentStatusMessage(incident core.Incident) Message {
 		next = "Responder will start when capacity is available. Close another work item if this is urgent."
 	case core.WorkflowInvestigating:
 		next = "An agent turn is running or queued. Wait for its update, or use `/responder stop` to cancel it."
+		if incident.IsEngineeringTask() {
+			next = "An agent turn is running or queued. Wait for its update; a configured operator can use *Stop* on the current task card."
+		}
 	case core.WorkflowBlocked:
 		next = "Read *Action needed* on the work card, resolve that blocker, then reply to continue."
 	case core.WorkflowClosed:

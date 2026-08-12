@@ -16,6 +16,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/responder/internal/taskaccess"
 )
 
 type EvaluationCase struct {
@@ -776,7 +777,9 @@ func hostedWatchDecisionOffers(
 		return []string{"incident"}
 	}
 	if decision.TaskTitle != "" {
-		if _, err := evaluator.resolveTaskOfferRepository(decision.TaskRepository); err != nil {
+		if _, err := taskaccess.ResolveOfferRepository(
+			context.Background(), evaluator.cfg, evaluator.store, input, decision.TaskRepository,
+		); err != nil {
 			return nil
 		}
 		result = append(result, "engineering_task")

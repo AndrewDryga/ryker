@@ -46,9 +46,11 @@ const migrationBackupRetention = 3
 var (
 	// Aliases of the shared sentinels so existing callers keep working; the
 	// definitions live in core because sub-repositories cannot import store.
-	ErrNotFound = core.ErrNotFound
-	ErrConflict = core.ErrConflict
-	ErrCapacity = errors.New("incident capacity reached")
+	ErrNotFound            = core.ErrNotFound
+	ErrConflict            = core.ErrConflict
+	ErrCapacity            = errors.New("incident capacity reached")
+	ErrMemberTaskCapacity  = errors.New("member engineering task capacity reached")
+	ErrMemberTaskRateLimit = errors.New("member engineering task creation rate reached")
 )
 
 type Store struct {
@@ -1866,7 +1868,7 @@ func (s *Store) CreateManualIncident(
 ) (core.Incident, bool, error) {
 	return s.createManualWork(
 		ctx, repository, sourceID, title, summary, userID,
-		originChannelID, originThreadTS, maxOpenIncidents, false, pullRequestTargets...,
+		originChannelID, originThreadTS, maxOpenIncidents, 0, 0, false, pullRequestTargets...,
 	)
 }
 
@@ -1879,7 +1881,23 @@ func (s *Store) CreateEngineeringTask(
 ) (core.Incident, bool, error) {
 	return s.createManualWork(
 		ctx, repository, sourceID, title, summary, userID,
-		originChannelID, originThreadTS, maxOpenIncidents, true, pullRequestTargets...,
+		originChannelID, originThreadTS, maxOpenIncidents, 0, 0, true, pullRequestTargets...,
+	)
+}
+
+func (s *Store) CreateMemberEngineeringTask(
+	ctx context.Context,
+	repository, sourceID, title, summary, userID string,
+	originChannelID, originThreadTS string,
+	maxOpenIncidents, maxOpenTasksForMember int,
+	creationCooldown time.Duration,
+	pullRequestTargets ...core.PullRequestTarget,
+) (core.Incident, bool, error) {
+	return s.createManualWork(
+		ctx, repository, sourceID, title, summary, userID,
+		originChannelID, originThreadTS, maxOpenIncidents, maxOpenTasksForMember,
+		creationCooldown,
+		true, pullRequestTargets...,
 	)
 }
 
@@ -1887,7 +1905,8 @@ func (s *Store) createManualWork(
 	ctx context.Context,
 	repository, sourceID, title, summary, userID string,
 	originChannelID, originThreadTS string,
-	maxOpenIncidents int,
+	maxOpenIncidents, maxOpenTasksForMember int,
+	creationCooldown time.Duration,
 	engineeringTask bool,
 	pullRequestTargets ...core.PullRequestTarget,
 ) (core.Incident, bool, error) {
@@ -1943,6 +1962,49 @@ func (s *Store) createManualWork(
 		if err := enforceOpenIncidentCapacity(ctx, tx, maxOpenIncidents); err != nil {
 			return core.Incident{}, false, err
 		}
+		if engineeringTask && maxOpenTasksForMember > 0 {
+			if creationCooldown > 0 {
+				var recent int
+				if err := tx.QueryRowContext(ctx, `
+					SELECT count(DISTINCT incidents.id)
+					FROM incidents
+					JOIN signals ON signals.incident_id = incidents.id
+					WHERE incidents.work_kind = 'engineering_task'
+					  AND json_extract(signals.labels_json, '$.slack_user') = ?
+					  AND incidents.created_at > ?`,
+					userID,
+					now.Add(-creationCooldown).Format(timestampFormat),
+				).Scan(&recent); err != nil {
+					return core.Incident{}, false, err
+				}
+				if recent > 0 {
+					return core.Incident{}, false, fmt.Errorf(
+						"member engineering task cooldown %s has not elapsed: %w",
+						creationCooldown,
+						ErrMemberTaskRateLimit,
+					)
+				}
+			}
+			var count int
+			if err := tx.QueryRowContext(ctx, `
+				SELECT count(DISTINCT incidents.id)
+				FROM incidents
+				JOIN signals ON signals.incident_id = incidents.id
+				WHERE incidents.status != 'closed'
+				  AND incidents.work_kind = 'engineering_task'
+				  AND json_extract(signals.labels_json, '$.slack_user') = ?`,
+				userID,
+			).Scan(&count); err != nil {
+				return core.Incident{}, false, err
+			}
+			if count >= maxOpenTasksForMember {
+				return core.Incident{}, false, fmt.Errorf(
+					"member open engineering task limit %d reached: %w",
+					maxOpenTasksForMember,
+					ErrMemberTaskCapacity,
+				)
+			}
+		}
 		labels, _ := json.Marshal(map[string]string{
 			"slack_user":           userID,
 			"slack_origin_channel": originChannelID,
@@ -1974,6 +2036,20 @@ func (s *Store) createManualWork(
 		return core.Incident{}, false, fmt.Errorf("engineering task pull request binding: %w", ErrConflict)
 	}
 	return incident, false, err
+}
+
+func (s *Store) EngineeringTaskCreator(ctx context.Context, incidentID string) (string, error) {
+	var userID string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(json_extract(labels_json, '$.slack_user'), '')
+		FROM signals
+		WHERE incident_id = ? AND route = 'manual'
+		ORDER BY received_at, source_id
+		LIMIT 1`, incidentID).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && strings.TrimSpace(userID) == "" {
+		return "", ErrNotFound
+	}
+	return userID, err
 }
 
 func (s *Store) SetCoopSession(ctx context.Context, id, sessionID, forkName string, revision int64) error {

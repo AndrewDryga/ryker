@@ -263,16 +263,17 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 		Repository: "emisar", Title: "Audit infrastructure packs",
 		Status: core.IncidentActive,
 	}
-	prompt, err := initialPrompt("Use evidence.", task, nil, "")
+	prompt, err := initialPrompt("Use evidence.", task, nil, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, required := range []string{
 		`"kind":"engineering_task"`,
-		"Complete this operator-approved engineering task",
+		"Complete this workspace-member-confirmed engineering task",
 		"make the smallest justified repository changes",
-		"File edits, tests, and commits are allowed",
-		"Do not merge, push, deploy, sign, or mutate infrastructure",
+		"Repository code and repository-owned configuration changes are allowed",
+		"does not provide shared operational MCP tools or environment secrets",
+		"Do not apply configuration, merge, push, deploy, sign, mutate live systems",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("engineering prompt lacks %q:\n%s", required, prompt)
@@ -345,7 +346,7 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // preserve binary-unit conversions instead of turning 305,282 MiB into the
 // materially wrong "about 305 GiB". The host also validates that explicit
 // MiB/GiB conversions agree before a reply can leave the process.
-const staticWatchPromptBytes = 48557
+const staticWatchPromptBytes = 48556
 
 // The static prompt must not grow without someone deciding it should.
 //

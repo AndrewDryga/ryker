@@ -627,10 +627,10 @@ func yesNo(value bool) string {
 }
 
 func printHelp(output io.Writer) {
-	fmt.Fprintln(output, `Responder turns authenticated alert webhooks into isolated Coop investigations and focused Slack incident channels.
+	fmt.Fprintln(output, `Responder is a Slack-native engineering and operations teammate backed by isolated Coop sessions and governed Emisar access.
 
 Usage:
-  responder serve          Run webhook, Slack, and Coop reconciliation
+  responder serve          Run Slack, webhook, and Coop reconciliation
   responder doctor         Verify local state, Coop, Slack, and the Emisar MCP tool catalog
   responder bootstrap-coop Write private Coop MCP, environment, and instruction files
   responder status         List durable incidents

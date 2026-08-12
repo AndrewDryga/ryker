@@ -71,6 +71,9 @@ webhooks:
 		cfg.Limits.MaxGeneratedVisuals != 4 ||
 		cfg.Limits.MaxGeneratedVisualBytes != 8<<20 ||
 		cfg.Limits.MaxGeneratedVisualTotalBytes != 8<<20 ||
+		cfg.Limits.MaxOpenEngineeringTasksPerMember != 3 ||
+		cfg.Limits.ReservedOperatorOpenSlots != 10 ||
+		cfg.Limits.EngineeringTaskCreationCooldown.Duration != 30*time.Second ||
 		cfg.Limits.MaxMemoryEntries != 1000 ||
 		cfg.Limits.MaxMemoryEntriesPerScope != 100 ||
 		cfg.Limits.MaxPreferences != 500 ||
@@ -123,6 +126,7 @@ repository_sets:
     display_name: Emisar Platform
     primary: emisar
     coop_policy: platform-observe
+    contributor_policy: platform-contributor
     conversation_policy: platform-conversation
 webhooks:
   grafana:
@@ -144,6 +148,7 @@ webhooks:
 	}
 	if resolved.DisplayName != "Emisar Platform" ||
 		resolved.CoopPolicy != "platform-observe" ||
+		resolved.ContributorPolicy != "platform-contributor" ||
 		resolved.ConversationPolicy != "platform-conversation" ||
 		resolved.Path != "/srv/repos/emisar" {
 		t.Fatalf("resolved repository set = %+v", resolved)

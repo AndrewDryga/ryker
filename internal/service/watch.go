@@ -18,6 +18,7 @@ import (
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskaccess"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
@@ -29,11 +30,6 @@ var explicitIncidentRequestPattern = regexp.MustCompile(
 	`(?i)\b(?:open|create|start|declare)\s+(?:(?:an?|the)\s+)?incident\b|` +
 		`\b(?:make|mark|treat|turn)\s+(?:this|that|it)\s+(?:as|into)\s+an?\s+incident\b`,
 )
-
-type watchPromptRepository struct {
-	Key         string `json:"key"`
-	DisplayName string `json:"display_name"`
-}
 
 func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
 	ctx context.Context,
@@ -523,15 +519,21 @@ func (s *Service) applyReplyDecision(
 		}
 	}
 	if decision.TaskTitle != "" {
-		repository, err := s.resolveTaskOfferRepository(decision.TaskRepository)
+		repository, err := taskaccess.ResolveOfferRepository(
+			ctx, s.cfg, s.store, input, decision.TaskRepository,
+		)
 		if err != nil {
-			question := taskRepositoryQuestion("", s.repositoryChoices())
+			question := taskaccess.RepositoryQuestion("", taskaccess.Choices(
+				s.cfg, s.cfg.IsOperator(input.UserID), s.cfg.Slack.DefaultRepository,
+			))
 			if schedulePresent {
 				message.Sections = append(message.Sections, question)
 			} else {
 				message = s.watchReplyMessage(
 					input,
-					taskRepositoryQuestion(finalReply, s.repositoryChoices()),
+					taskaccess.RepositoryQuestion(finalReply, taskaccess.Choices(
+						s.cfg, s.cfg.IsOperator(input.UserID), s.cfg.Slack.DefaultRepository,
+					)),
 					decision.Evidence,
 					decision.Coverage,
 				)
@@ -556,7 +558,7 @@ func (s *Service) applyReplyDecision(
 			} else if offerErr != nil {
 				return offerErr
 			} else {
-				repositoryLabel := s.repositoryLabel(repository)
+				repositoryLabel := taskaccess.Label(s.cfg, repository)
 				if decision.TaskPrompt != "" {
 					message = slackui.WithSuggestedEngineeringTaskOffer(
 						message, decision.TaskTitle, input.ID, repositoryLabel,
@@ -1189,35 +1191,40 @@ func (s *Service) createWatchedWork(
 	pullRequest *core.PullRequestTarget,
 ) error {
 	title = truncateWatchText(strings.TrimSpace(title), 200)
-	if title == "" {
-		return errors.New("watched work item has no title")
-	}
-	if source.EventID == "" {
-		return errors.New("watched work item source has no Slack event ID")
-	}
 	repository = strings.TrimSpace(repository)
-	if _, ok := s.cfg.RepositoryContext(repository); !ok {
-		return fmt.Errorf("watched work item names unknown repository %q", repository)
+	if err := taskaccess.ValidateSource(s.cfg, title, source.EventID, repository); err != nil {
+		return err
 	}
 	summary := boundedOperatorText(s.stripBotMention(source.Text))
 	if engineeringTask && strings.TrimSpace(objective) != "" {
 		summary = boundedOperatorText(objective)
 	}
-	create := s.store.CreateManualIncident
-	if engineeringTask {
-		create = s.store.CreateEngineeringTask
-	}
 	targets := []core.PullRequestTarget(nil)
 	if pullRequest != nil {
 		targets = append(targets, *pullRequest)
 	}
-	incident, created, err := create(
-		ctx, repository, source.EventID, title, summary,
-		trigger.UserID, source.ChannelID, slackReplyThread(source),
-		s.cfg.Limits.MaxOpenIncidents,
-		targets...,
-	)
+	var incident core.Incident
+	var created bool
+	var err error
+	if engineeringTask {
+		incident, created, err = taskaccess.Create(
+			ctx, s.cfg, s.store, repository, source.EventID, title, summary,
+			trigger.UserID, source.ChannelID, slackReplyThread(source), targets...,
+		)
+	} else {
+		incident, created, err = s.store.CreateManualIncident(
+			ctx, repository, source.EventID, title, summary,
+			trigger.UserID, source.ChannelID, slackReplyThread(source),
+			s.cfg.Limits.MaxOpenIncidents,
+			targets...,
+		)
+	}
 	if err != nil {
+		if failure, ok := taskaccess.MemberCreationFailure(err); ok {
+			return s.finishWatchTaskOffer(
+				ctx, trigger, failure.Outcome, trimError(err), failure.Message,
+			)
+		}
 		if !errors.Is(err, store.ErrCapacity) {
 			return err
 		}
@@ -1362,68 +1369,6 @@ func explicitIncidentRequest(text string) bool {
 		!explicitBehaviorRequest(text)
 }
 
-func (s *Service) resolveTaskOfferRepository(requested string) (string, error) {
-	requested = strings.TrimSpace(requested)
-	if requested != "" {
-		if _, ok := s.cfg.RepositoryContext(requested); ok {
-			return requested, nil
-		}
-		return "", fmt.Errorf("unknown task repository %q", requested)
-	}
-	keys := s.cfg.RepositoryContextKeys()
-	if len(keys) == 1 {
-		return keys[0], nil
-	}
-	return "", errors.New("task repository is ambiguous")
-}
-
-func (s *Service) promptRepositories() []watchPromptRepository {
-	names := s.cfg.RepositoryContextKeys()
-	repositories := make([]watchPromptRepository, 0, len(names))
-	for _, name := range names {
-		repository, _ := s.cfg.RepositoryContext(name)
-		displayName := strings.TrimSpace(repository.DisplayName)
-		if displayName == "" {
-			displayName = name
-		}
-		repositories = append(repositories, watchPromptRepository{
-			Key:         name,
-			DisplayName: displayName,
-		})
-	}
-	return repositories
-}
-
-func (s *Service) repositoryChoices() []string {
-	repositories := s.promptRepositories()
-	choices := make([]string, 0, len(repositories))
-	for _, repository := range repositories {
-		choices = append(choices, s.repositoryLabel(repository.Key))
-	}
-	return choices
-}
-
-func (s *Service) repositoryLabel(name string) string {
-	repository, ok := s.cfg.RepositoryContext(name)
-	if !ok {
-		return "`" + name + "`"
-	}
-	displayName := strings.TrimSpace(repository.DisplayName)
-	if displayName == "" || displayName == name {
-		return "`" + name + "`"
-	}
-	return displayName + " (`" + name + "`)"
-}
-
-func taskRepositoryQuestion(message string, repositories []string) string {
-	message = strings.TrimSpace(message)
-	if message != "" {
-		message += "\n\n"
-	}
-	return message + "Which configured repository should I use for this engineering task: " +
-		strings.Join(repositories, ", ") + "? No writable task has been started."
-}
-
 func (s *Service) handleWatchIncidentOfferAction(
 	ctx context.Context,
 	input core.SlackInput,
@@ -1517,16 +1462,9 @@ func (s *Service) handleWatchTaskOfferAction(
 	ctx context.Context,
 	input core.SlackInput,
 ) error {
-	if !s.cfg.IsOperator(input.UserID) {
-		return s.finishWatchTaskOffer(
-			ctx,
-			input,
-			"denied",
-			"actor is not a configured operator",
-			"*Responder did not start an engineering task.* Only a configured operator can "+
-				"approve a thread-scoped writable isolated fork. No action was taken.",
-		)
-	}
+	// Repository contribution is a workspace-member capability, not incident
+	// or infrastructure authority. The task remains bound to this channel's
+	// contributor-enabled repository and its restricted Coop policy.
 	allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
 	if err != nil {
 		return err
@@ -1537,8 +1475,8 @@ func (s *Service) handleWatchTaskOfferAction(
 			input,
 			"denied",
 			"actor is not an active full workspace member",
-			"*Responder did not start an engineering task.* Slack guests, bots, and external "+
-				"workspace members cannot approve writable repository work. No action was taken.",
+			"*Responder did not start an engineering task.* Only active full members of this "+
+				"Slack workspace can start writable repository work. No action was taken.",
 		)
 	}
 	source, err := s.store.GetSlackInput(ctx, input.ActionValue)
@@ -1608,6 +1546,18 @@ func (s *Service) handleWatchTaskOfferAction(
 			"*This engineering task offer has no valid repository binding.* Ask Responder to "+
 				"prepare the task again. No task session or working copy was created.",
 		)
+	}
+	if !s.cfg.IsOperator(input.UserID) {
+		if err := taskaccess.ValidateMemberStart(
+			ctx, s.cfg, s.store, source.ChannelID, state.OfferedTaskRepository,
+		); err != nil {
+			return s.finishWatchTaskOffer(
+				ctx, input, "denied", trimError(err),
+				"*Responder did not start this engineering task.* Workspace members may start work only "+
+					"for a contributor-enabled repository assigned to this channel. Ask an operator to update "+
+					"the channel configuration, then prepare a new task offer. No session or working copy was created.",
+			)
+		}
 	}
 	return s.createWatchedEngineeringTask(
 		ctx,
@@ -2111,12 +2061,14 @@ context for comparison only; they must not cause action=ignore or replace the re
 	}
 	repositoryCatalog, _ := json.Marshal(struct {
 		Default          string                  `json:"default"`
-		Repositories     []watchPromptRepository `json:"repositories"`
+		Repositories     []taskaccess.Repository `json:"repositories"`
 		TargetIsOperator bool                    `json:"target_is_configured_operator"`
 		CurrentTimeUTC   string                  `json:"current_time_utc"`
 	}{
-		Default:          activeRepository,
-		Repositories:     s.promptRepositories(),
+		Default: activeRepository,
+		Repositories: taskaccess.Repositories(
+			s.cfg, s.cfg.IsOperator(input.UserID), activeRepository,
+		),
 		TargetIsOperator: s.cfg.IsOperator(input.UserID),
 		CurrentTimeUTC:   s.now().UTC().Format(time.RFC3339),
 	})
@@ -2249,7 +2201,7 @@ Infer who is talking to whom before responding. A question mark alone does not m
 
 Verify claims only from tools or supplied context. Shared-channel repo work is read-only. When an authorized human asks for repo changes, do not send them outside Slack. Return task_title and exact task_repository for a governed writable Coop offer. Set task_pull_request to the configured GitHub PR URL only when explicitly asked to update it; omit it for review follow-up fixes. If ownership is ambiguous, ask which repo and omit all task fields.
 
-When repository evidence establishes a concrete narrow fix, include the optional repository task in the same response even if the broader operational assessment remains blocked by that exact defect. Do not merely describe the patch and tell the operator to start work separately. Include task_title, the exact task_repository, and a self-contained task_prompt that states the verified cause, requested code change, focused validation, and post-fix verification. Do not claim a patch, commit, branch, or PR already exists. You may include incident_title independently when coordinated incident work would also be useful; incident coordination and code remediation are separate choices.
+When repository evidence establishes a concrete narrow fix, include the optional repository task in the same response even if the broader operational assessment remains blocked by that exact defect. Do not merely describe the patch and tell the teammate to start work separately. Include task_title, the exact task_repository, and a self-contained task_prompt that states the verified cause, requested code change, focused validation, and post-fix verification. Do not claim a patch, commit, branch, or PR already exists. You may include incident_title independently when coordinated incident work would also be useful; incident coordination and code remediation are separate choices.
 
 Before finalizing a confirmed or likely application or dependency issue, or an exact tool-compatibility blocker, inspect the most likely configured source repository when it is accessible. Do not stop at the operational symptom when a bounded source inspection can establish the owning code and a narrow fix. If it does, include the prepared-fix fields above. If ownership remains ambiguous or the source is unavailable, state that gap and omit task_prompt rather than guessing.
 
