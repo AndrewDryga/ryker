@@ -214,3 +214,36 @@ func TestOrphanReconciliationSchedulesOnlyResponderManagedSessions(t *testing.T)
 		}
 	}
 }
+
+func TestOrphanReconciliationClosesDiscardedCleanupProjection(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	coopClient := newFakeCoop()
+	coopClient.listSessions = []coop.Session{{
+		ID: "ses_discarded", State: "discarded", UpdatedAt: now,
+	}}
+	if err := st.ScheduleCleanup(
+		ctx, "ses_discarded", "", "old dirty workspace", false, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCleanupState(
+		ctx, "ses_discarded", "blocked", "op_old", "workspace was dirty", now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.reconcileOrphanedResponderSessions(ctx, now.Add(-time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	cleanup, err := st.GetCoopCleanup(ctx, "ses_discarded")
+	if err != nil || cleanup.State != "done" || cleanup.LastError != "" {
+		t.Fatalf("discarded cleanup projection = %+v, %v", cleanup, err)
+	}
+}

@@ -663,6 +663,44 @@ func TestCleanupDiscardsOnlyCleanOwnedSession(t *testing.T) {
 	}
 }
 
+func TestCleanupRetryUsesFreshPlanOperationAfterWorkspaceChanges(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.State = "closed"
+	coopClient.discardPlanErrors = []error{
+		&coop.APIError{Status: 500, Code: "internal_error"},
+		nil,
+	}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	now := time.Now().UTC()
+	if err := st.ScheduleCleanup(
+		ctx, coopClient.session.ID, "", "rotated watch state", false,
+		now.Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processCleanup(ctx, now); err == nil {
+		t.Fatal("first transient plan failure was not returned")
+	}
+	if err := svc.processCleanup(ctx, now.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.discardPlanKeys) != 2 ||
+		coopClient.discardPlanKeys[0] == coopClient.discardPlanKeys[1] {
+		t.Fatalf("cleanup plan operation keys = %v", coopClient.discardPlanKeys)
+	}
+	if coopClient.discardCalls != 1 || coopClient.session.State != "discarded" {
+		t.Fatalf("cleaned session was not reclaimed: calls=%d state=%s",
+			coopClient.discardCalls, coopClient.session.State)
+	}
+}
+
 func TestCleanupRetainsDirtySession(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -956,6 +994,8 @@ type fakeCoop struct {
 	submitTurns        []coop.Turn
 	discardPlan        coop.DiscardPlan
 	discardPlans       []coop.DiscardPlan
+	discardPlanKeys    []string
+	discardPlanErrors  []error
 	discardCalls       int
 	discardAccepts     []bool
 	outputArtifacts    map[string]coop.OutputArtifact
@@ -1160,9 +1200,17 @@ func (f *fakeCoop) Close(context.Context, string, string, int64) (coop.Session, 
 	return f.session, coop.Operation{}, nil
 }
 func (f *fakeCoop) PlanDiscard(
-	_ context.Context, _ string, _ string, _ int64, _ bool, acceptUnmerged bool,
+	_ context.Context, key string, _ string, _ int64, _ bool, acceptUnmerged bool,
 ) (coop.DiscardPlan, coop.Operation, error) {
+	f.discardPlanKeys = append(f.discardPlanKeys, key)
 	f.discardAccepts = append(f.discardAccepts, acceptUnmerged)
+	if len(f.discardPlanErrors) != 0 {
+		err := f.discardPlanErrors[0]
+		f.discardPlanErrors = f.discardPlanErrors[1:]
+		if err != nil {
+			return coop.DiscardPlan{}, coop.Operation{}, err
+		}
+	}
 	if len(f.discardPlans) != 0 {
 		plan := f.discardPlans[0]
 		f.discardPlans = f.discardPlans[1:]

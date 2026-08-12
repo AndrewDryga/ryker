@@ -179,7 +179,29 @@ func (s *Service) reconcileOrphanedResponderSessions(
 		return err
 	}
 	for _, session := range sessions {
-		if session.State == "discarded" || session.UpdatedAt.After(staleBefore) ||
+		if session.State == "discarded" {
+			cleanup, err := s.store.GetCoopCleanup(ctx, session.ID)
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if cleanup.State != "done" {
+				if err := s.store.SetCleanupState(
+					ctx, session.ID, "done", cleanup.PlanOperationID, "", eligibleAt,
+				); err != nil {
+					return err
+				}
+				s.log.Info(
+					"reconciled discarded Coop session cleanup",
+					"session_id", session.ID,
+					"prior_state", cleanup.State,
+				)
+			}
+			continue
+		}
+		if session.UpdatedAt.After(staleBefore) ||
 			!isResponderManagedSession(session) {
 			continue
 		}
@@ -248,7 +270,10 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 	}
 	plan, _, err := s.coop.PlanDiscard(
 		ctx,
-		"responder:gc-plan:"+item.SessionID+":"+fmt.Sprint(session.Revision),
+		fmt.Sprintf(
+			"responder:gc-plan:%s:%d:%d",
+			item.SessionID, session.Revision, item.Attempts,
+		),
 		item.SessionID,
 		session.Revision,
 		false,
@@ -284,8 +309,10 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 			}
 		}
 		plan, _, err = s.coop.PlanDiscard(
-			ctx, "responder:gc-plan-accept-unmerged:"+item.SessionID+":"+
-				fmt.Sprint(session.Revision),
+			ctx, fmt.Sprintf(
+				"responder:gc-plan-accept-unmerged:%s:%d:%d",
+				item.SessionID, session.Revision, item.Attempts,
+			),
 			item.SessionID,
 			session.Revision,
 			false,
