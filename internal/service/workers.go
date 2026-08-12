@@ -844,7 +844,12 @@ func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (sla
 			"incident", incident.ID, "error", trimError(targetErr),
 		)
 	}
+	bindingFailureChanged := missing ||
+		storedPublication.State != core.PublicationFailed ||
+		storedPublication.FailureCode != core.PublicationFailureSessionBinding ||
+		storedPublication.LastError != publication.LastError
 	if publication.FailureCode == core.PublicationFailureSessionBinding &&
+		bindingFailureChanged &&
 		!storedPublication.InProgress() && !storedPublication.Published() &&
 		storedPublication.State != core.PublicationStale {
 		if missing {

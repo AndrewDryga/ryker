@@ -240,6 +240,20 @@ func TestLegacySessionCannotOfferOrRunExistingPullRequestUpdate(t *testing.T) {
 		publication.FailureCode != core.PublicationFailureSessionBinding {
 		t.Fatalf("persisted legacy-session failure = %+v, %v", publication, err)
 	}
+	versioned, err := st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.incidentCard(ctx, versioned); err != nil {
+		t.Fatal(err)
+	}
+	converged, err := st.GetIncident(ctx, task.ID)
+	if err != nil || converged.CardVersion != versioned.CardVersion {
+		t.Fatalf(
+			"stable binding-failure render changed card version %d -> %d: %v",
+			versioned.CardVersion, converged.CardVersion, err,
+		)
+	}
 	err = svc.publishDraftPR(ctx, core.SlackInput{
 		ID: "publish-legacy-session", Kind: controlPlaneInput, ChannelID: "COPS",
 		UserID: cfg.Slack.Operators[0], ActionID: slackui.ActionPublishPR,
