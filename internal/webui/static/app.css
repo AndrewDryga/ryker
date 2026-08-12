@@ -801,7 +801,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   position: absolute;
   top: 6px;
   bottom: 6px;
-  left: 8px;
+  left: 12px;
   width: 1px;
   background: var(--line);
 }
@@ -809,30 +809,45 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-step {
   position: relative;
   display: grid;
-  grid-template-columns: 17px minmax(0, 1fr);
+  grid-template-columns: 25px minmax(0, 1fr);
   gap: 13px;
   padding: 0 0 12px;
 }
 
+/* The rail marker carries the step's glyph — the vocabulary of actions.
+   After one episode a reader knows the shapes: bubble for input, crossing
+   arrows for routing, a page for the briefing, a spark for the model's
+   answer, a plane for delivery. */
 .trace-marker {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 15px;
+  padding-top: 12px;
 }
-.trace-marker i {
-  width: 9px;
-  height: 9px;
+.trace-marker .ring {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
   border-radius: 50%;
-  background: #3f3f46;
-  border: 2px solid var(--bg);
-  box-sizing: content-box;
+  border: 1px solid #33333a;
+  background: linear-gradient(180deg, #1b1b20, #131316);
+  color: var(--faint);
+  box-shadow: 0 0 0 3px var(--bg);
 }
-.trace-step[data-tone="good"] .trace-marker i { background: var(--accent-dim); }
-.trace-step[data-tone="warn"] .trace-marker i { background: var(--warn); }
-.trace-step[data-tone="bad"] .trace-marker i { background: var(--bad); }
+.trace-marker .ring svg { width: 12px; height: 12px; }
+.trace-step[data-tone="good"] .ring { border-color: rgb(54 230 165 / .45); color: var(--good); }
+.trace-step[data-tone="warn"] .ring { border-color: rgb(251 191 36 / .5); color: var(--warn); }
+.trace-step[data-tone="bad"] .ring { border-color: rgb(251 113 133 / .5); color: var(--bad); }
+
+/* Deep links glow: an operator pasting #prompt into a thread lands on a
+   card that identifies itself. */
+.trace-step:target .trace-step-card {
+  border-color: rgb(54 230 165 / .45);
+  box-shadow: 0 0 0 1px rgb(54 230 165 / .18), 0 0 26px rgb(54 230 165 / .07);
+}
 
 /* A quiet stretch gets its own mark on the rail: this is where the wall
    clock of an episode actually goes. */
@@ -841,11 +856,11 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 2px 0 14px 30px;
+  padding: 2px 0 14px 38px;
   color: var(--faint);
   font: 500 11px/1.4 var(--mono);
 }
-.trace-gap::before { content: "⋯"; position: absolute; left: 4.5px; color: #52525b; letter-spacing: 1px; writing-mode: vertical-rl; }
+.trace-gap::before { content: "⋯"; position: absolute; left: 8.5px; color: #52525b; letter-spacing: 1px; writing-mode: vertical-rl; }
 .trace-gap span::after { content: " pass"; color: #52525b; font-family: var(--sans); }
 
 .trace-step-card {
@@ -871,6 +886,10 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 
 .trace-step-header h4 {
   margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
   color: var(--ink);
   font-size: 14.5px;
   font-weight: 600;
@@ -879,10 +898,30 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   overflow-wrap: anywhere;
 }
 
+/* The chip prints only states worth ink — a failure, a wait, an audit
+   outcome — so when one appears it means something. */
+.trace-chip {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--dim);
+  background: rgb(255 255 255 / .02);
+  font: 500 10.5px/1.6 var(--mono);
+  white-space: nowrap;
+}
+.trace-step[data-tone="warn"] .trace-chip { color: var(--warn); border-color: rgb(251 191 36 / .35); }
+.trace-step[data-tone="bad"] .trace-chip { color: var(--bad); border-color: rgb(251 113 133 / .35); }
+
 .trace-step-side { display: flex; align-items: baseline; gap: 9px; flex: none; }
-.trace-actor, .trace-step-state { color: var(--faint); font: 11px/1.4 var(--mono); white-space: nowrap; }
-.trace-step[data-tone="bad"] .trace-step-state { color: var(--bad); }
-.trace-step[data-tone="warn"] .trace-step-state { color: var(--warn); }
+
+/* Who acted, only when it is not Responder itself — and each outside actor
+   keeps one hue, so "purple did this" becomes muscle memory for the model. */
+.trace-actor { color: var(--faint); font: 550 10.5px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+.trace-actor[data-actor="Model"] { color: #c4b5fd; }
+.trace-actor[data-actor="Coop"] { color: #67e8f9; }
+.trace-actor[data-actor="Slack"], .trace-actor[data-actor="Slack outbox"] { color: #7dd3fc; }
+.trace-actor[data-actor="Operator"], .trace-actor[data-actor="person"] { color: var(--warn); }
 
 .trace-time { display: flex; align-items: baseline; gap: 8px; color: var(--faint); font: 10.5px/1.4 var(--mono); white-space: nowrap; }
 .trace-time strong { color: var(--ink-2); font-weight: 600; }
@@ -892,17 +931,36 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-step-summary { margin-top: 6px; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; max-width: 92ch; overflow-wrap: anywhere; }
 .trace-step-card > :last-child:not(.trace-details) { padding-bottom: 12px; }
 
+/* In-card micro-visualizations: the briefing's token composition, a turn's
+   fresh/cached/output split. The strip answers the proportional question the
+   numbers beneath it make exact. */
+.trace-step-card > .stepbar { margin: 11px 16px 0; }
+.stepbar svg { display: block; border-radius: 4px; overflow: hidden; }
+.stepbar-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; margin-top: 6px; }
+.sb-key { display: inline-flex; align-items: baseline; gap: 5px; color: var(--dim); font-size: 11px; }
+.sb-key::before { content: ""; width: 7px; height: 7px; border-radius: 2px; align-self: center; }
+.sb-key em { font-style: normal; color: var(--faint); font: 500 10.5px/1.4 var(--mono); }
+.stepbar-note { margin-left: auto; color: #52525b; font-size: 10.5px; }
+.sb-sys { fill: #52525b; }        .sb-key.sys::before { background: #52525b; }
+.sb-mem { fill: #60a5fa; }        .sb-key.mem::before { background: #60a5fa; }
+.sb-slack { fill: #22d3ee; }      .sb-key.slack::before { background: #22d3ee; }
+.sb-user { fill: #fbbf24; }       .sb-key.user::before { background: #fbbf24; }
+.sb-cache { fill: #14cf8d; }      .sb-key.cache::before { background: #14cf8d; }
+.sb-in { fill: #60a5fa; }         .sb-key.in::before { background: #60a5fa; }
+.sb-out { fill: #a78bfa; }        .sb-key.out::before { background: #a78bfa; }
+.sb-think { fill: #22d3ee; }      .sb-key.think::before { background: #22d3ee; }
+.stepbar rect:hover { opacity: .85; }
+
 .trace-why {
-  display: grid;
-  grid-template-columns: 35px minmax(0, 1fr);
+  display: flex;
+  align-items: baseline;
   gap: 9px;
-  margin-top: 12px;
-  padding: 9px 11px;
-  border-left: 2px solid #3f3f46;
-  background: #161619;
+  margin-top: 10px;
+  padding: 1px 0 1px 10px;
+  border-left: 2px solid rgb(54 230 165 / .3);
 }
-.trace-why > span { color: var(--accent); font: 650 10px/1.7 var(--mono); text-transform: uppercase; }
-.trace-why p { color: var(--dim); font-size: 12.5px; line-height: 1.55; }
+.trace-why > span { flex: none; color: var(--accent-dim); font: 650 9.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .4px; }
+.trace-why p { color: var(--dim); font-size: 12.5px; line-height: 1.55; max-width: 92ch; }
 
 .trace-step-stats {
   display: flex;
@@ -994,9 +1052,16 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-detail > summary::-webkit-details-marker { display: none; }
 .trace-detail > summary:hover { background: var(--panel-2); }
 .trace-detail[open] > summary { background: #161619; color: var(--ink); }
-.trace-disclosure { color: var(--faint); font: 10px/1 var(--mono); text-transform: uppercase; white-space: nowrap; }
-.trace-detail[open] .trace-disclosure::before { content: "Hide · "; }
-.trace-detail:not([open]) .trace-disclosure::before { content: "Open · "; }
+.trace-detail > summary::after {
+  content: "▾";
+  flex: none;
+  color: #52525b;
+  font-size: 11px;
+  transform: rotate(-90deg);
+  transition: transform .15s ease, color .15s ease;
+}
+.trace-detail[open] > summary::after { transform: rotate(0); color: var(--dim); }
+.trace-detail > summary:hover::after { color: var(--accent-dim); }
 .trace-detail-description {
   margin: 0;
   padding: 9px 18px 10px;
@@ -1151,22 +1216,24 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   .journey { gap: 4px; }
   .journey-stop + .journey-stop { margin-left: 20px; }
   .trace-chapter-head { flex-wrap: wrap; row-gap: 2px; }
-  .trace-step { grid-template-columns: 14px minmax(0, 1fr); gap: 8px; }
-  .trace-list::before { left: 6.5px; }
-  .trace-gap { padding-left: 24px; }
-  .trace-gap::before { left: 3px; }
+  .trace-step { grid-template-columns: 21px minmax(0, 1fr); gap: 8px; }
+  .trace-list::before { left: 10px; }
+  .trace-marker .ring { width: 20px; height: 20px; }
+  .trace-marker .ring svg { width: 10.5px; height: 10.5px; }
+  .trace-gap { padding-left: 30px; }
+  .trace-gap::before { left: 6.5px; }
   .trace-step-header { align-items: start; flex-direction: column; gap: 3px; padding: 10px 13px 0; }
   .trace-step-side { flex-wrap: wrap; }
   .trace-time { justify-content: flex-start; flex-wrap: wrap; white-space: normal; }
   .trace-step-card > .trace-step-summary,
   .trace-step-card > .trace-why,
   .trace-step-card > .trace-step-stats { margin-left: 13px; margin-right: 13px; }
-  .trace-why { grid-template-columns: 1fr; gap: 2px; }
+  .trace-step-card > .stepbar { margin-left: 13px; margin-right: 13px; }
+  .stepbar-note { margin-left: 0; flex-basis: 100%; }
   .trace-step-stats { gap: 14px; }
   .trace-detail > summary { padding: 8px 13px; }
   .trace-detail-group { padding: 11px 13px; }
   .trace-detail-description { grid-template-columns: 1fr; gap: 2px; padding-left: 13px; padding-right: 13px; }
-  .trace-disclosure { display: none; }
   .trace-detail pre { padding: 12px 13px 15px; }
   .prompt-segment-meta { align-items: flex-start; flex-direction: column; gap: 2px; padding: 8px 12px 0; }
 }

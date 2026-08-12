@@ -67,13 +67,12 @@
       {{range .Steps}}
       {{if .GapBefore}}<div class="trace-gap" aria-label="quiet stretch"><span>{{.GapBefore}}</span></div>{{end}}
       <article class="trace-step" id="{{.ID}}" data-stage="{{.Stage}}" data-state="{{.State}}"{{if .Tone}} data-tone="{{.Tone}}"{{end}}>
-        <div class="trace-marker" aria-hidden="true"><i></i></div>
+        <div class="trace-marker" aria-hidden="true"><span class="ring">{{template "stepicon" .Icon}}</span></div>
         <div class="trace-step-card">
           <header class="trace-step-header">
-            <h4>{{if .Href}}<a href="{{.Href}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</h4>
+            <h4>{{if .Href}}<a href="{{.Href}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}{{if .Chip}}<span class="trace-chip">{{.Chip}}</span>{{end}}</h4>
             <div class="trace-step-side">
-              {{if .Actor}}<span class="trace-actor">{{.Actor}}</span>{{end}}
-              {{if .State}}<span class="trace-step-state">{{.State}}</span>{{end}}
+              {{if and .Actor (ne .Actor "Responder") (ne .Actor "host")}}<span class="trace-actor" data-actor="{{.Actor}}">{{.Actor}}</span>{{end}}
               <span class="trace-time">
                 {{if .Relative}}<strong>{{.Relative}}</strong>{{end}}
                 {{if .Duration}}<em>{{.Duration}}</em>{{end}}
@@ -83,6 +82,18 @@
           </header>
 
           {{if .Summary}}<p class="trace-step-summary">{{.Summary}}</p>{{end}}
+
+          {{with .Bar}}
+          <div class="stepbar">
+            <svg viewBox="0 0 1000 8" width="100%" height="8" preserveAspectRatio="none" aria-hidden="true">
+              {{range .Slices}}<rect class="sb-{{.Class}}" x="{{.X}}" width="{{.W}}" height="8"><title>{{.Label}} · {{.Value}}</title></rect>{{end}}
+            </svg>
+            <div class="stepbar-legend">
+              {{range .Slices}}<span class="sb-key {{.Class}}">{{.Label}} <em>{{.Value}}</em></span>{{end}}
+              {{if .Note}}<span class="stepbar-note">{{.Note}}</span>{{end}}
+            </div>
+          </div>
+          {{end}}
 
           {{if .Why}}
           <div class="trace-why">
@@ -126,7 +137,6 @@
                   {{if .Status}}<em>{{.Status}}</em>{{end}}
                   <span>{{.Label}}{{if .ShowCount}} ({{.Count}}){{end}}</span>
                 </span>
-                <span class="trace-disclosure">Full content</span>
               </summary>
               {{if .Description}}<p class="trace-detail-description"><strong>Selection</strong><span>{{.Description}}</span></p>{{end}}
               {{if .Table}}
@@ -164,3 +174,27 @@
   {{end}}
 </section>
 {{end}}
+
+{{define "stepicon"}}<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{{- if eq . "message"}}<path d="M3 3.5h10a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H8.5L5 14v-2.5H3A1.5 1.5 0 0 1 1.5 10V5A1.5 1.5 0 0 1 3 3.5Z"/>
+{{- else if eq . "clock"}}<circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.4 1.6"/>
+{{- else if eq . "flag"}}<path d="M3.5 14.5V2"/><path d="M3.5 2.8h9l-2 3 2 3h-9"/>
+{{- else if eq . "milestone"}}<path d="M8 2.5 13.5 8 8 13.5 2.5 8Z"/>
+{{- else if eq . "route"}}<path d="M2 11.5h3.5c3.5 0 1.5-7 5-7H14"/><path d="M11.8 2.3 14 4.5l-2.2 2.2"/><path d="M2 4.5h2.6"/>
+{{- else if eq . "doc"}}<path d="M4 1.8h5.5L12.5 5v9.2H4Z"/><path d="M6.2 8.2h3.6M6.2 10.8h3.6"/>
+{{- else if eq . "docplus"}}<path d="M4 1.8h5.5L12.5 5v9.2H4Z"/><path d="M8.2 7.2v4M6.2 9.2h4"/>
+{{- else if eq . "bolt"}}<path d="M8.8 1.5 3.5 9h3.2l-.8 5.5L11.5 7H8.2Z"/>
+{{- else if eq . "x"}}<circle cx="8" cy="8" r="6"/><path d="M5.9 5.9l4.2 4.2M10.1 5.9l-4.2 4.2"/>
+{{- else if eq . "sparkle"}}<path d="M8 1.5 9.6 6.4 14.5 8 9.6 9.6 8 14.5 6.4 9.6 1.5 8 6.4 6.4Z"/>
+{{- else if eq . "branch"}}<circle cx="4" cy="4" r="1.7"/><circle cx="4" cy="12" r="1.7"/><circle cx="12" cy="4" r="1.7"/><path d="M4 5.7v4.6M12 5.7c0 3.2-8 1.6-8 4.6"/>
+{{- else if eq . "eye"}}<path d="M1.5 8C3 4.9 5.3 3.3 8 3.3S13 4.9 14.5 8C13 11.1 10.7 12.7 8 12.7S3 11.1 1.5 8Z"/><circle cx="8" cy="8" r="2"/>
+{{- else if eq . "gauge"}}<path d="M2.7 12.3a6.2 6.2 0 1 1 10.6 0"/><path d="M8 8.6l2.8-2.8"/>
+{{- else if eq . "db"}}<ellipse cx="8" cy="3.9" rx="5.5" ry="2.1"/><path d="M2.5 3.9v8.2c0 1.2 2.5 2.1 5.5 2.1s5.5-.9 5.5-2.1V3.9M2.5 8c0 1.2 2.5 2.1 5.5 2.1S13.5 9.2 13.5 8"/>
+{{- else if eq . "bookmark"}}<path d="M4.5 2h7v12L8 11.2 4.5 14Z"/>
+{{- else if eq . "plane"}}<path d="M14.5 1.5 1.5 7.2l4.8 1.7 1.7 5.1 2.3-4.3Z"/><path d="M14.5 1.5 6.3 8.9"/>
+{{- else if eq . "shield"}}<path d="M8 1.8 13.5 4v4.1c0 3.4-2.3 5.7-5.5 6.9-3.2-1.2-5.5-3.5-5.5-6.9V4Z"/>
+{{- else if eq . "info"}}<circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.4"/><circle cx="8" cy="5" r=".3" fill="currentColor"/>
+{{- else if eq . "target"}}<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.2"/>
+{{- else if eq . "search"}}<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/>
+{{- else}}<circle cx="8" cy="8" r="2.4"/>
+{{- end}}</svg>{{end}}

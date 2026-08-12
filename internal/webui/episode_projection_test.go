@@ -449,6 +449,64 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 	}
 }
 
+// The briefing bar answers "what filled the model's attention" — families
+// must group every segment tone, keep real slivers visible, and lay out to
+// exactly the whole strip.
+func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
+	bar := promptCompositionBar([]PromptSegment{
+		{Tone: "system", Tokens: 700},
+		{Tone: "structure", Tokens: 20},
+		{Tone: "operational", Tokens: 90},
+		{Tone: "conversation", Tokens: 90},
+		{Tone: "slack", Tokens: 80},
+		{Tone: "user", Tokens: 3},
+	})
+	if bar == nil || len(bar.Slices) != 4 {
+		t.Fatalf("composition = %+v, want four families", bar)
+	}
+	if bar.Slices[0].Label != "Instructions" || bar.Slices[1].Label != "Memory" ||
+		bar.Slices[2].Label != "Slack" || bar.Slices[3].Label != "Request" {
+		t.Fatalf("family order = %+v", bar.Slices)
+	}
+	covered := 0
+	for _, slice := range bar.Slices {
+		if slice.X != covered {
+			t.Fatalf("slice %q starts at %d, want %d", slice.Label, slice.X, covered)
+		}
+		if slice.W < 8 {
+			t.Fatalf("slice %q rounded away to %d units", slice.Label, slice.W)
+		}
+		covered += slice.W
+	}
+	if covered != 1000 {
+		t.Fatalf("bar covers %d of 1000 units", covered)
+	}
+	if !strings.Contains(bar.Note, "estimated") {
+		t.Fatalf("note does not say the tokens are estimates: %q", bar.Note)
+	}
+}
+
+// A chip beside a title must mean something: routine success states render
+// nothing, trouble and audit outcomes render.
+func TestStepChipsOnlySurfaceInformativeStates(t *testing.T) {
+	for _, testCase := range []struct {
+		step TraceStep
+		want string
+	}{
+		{TraceStep{ID: "prompt", State: "recorded"}, ""},
+		{TraceStep{ID: "event-2", State: "planning"}, ""},
+		{TraceStep{ID: "result", State: "completed", Tone: "good"}, ""},
+		{TraceStep{ID: "attempt-1", State: "failed", Tone: "bad"}, "failed"},
+		{TraceStep{ID: "record-1", State: "waiting_operator", Tone: "warn"}, "waiting operator"},
+		{TraceStep{ID: "audit-3", State: "ignored"}, "ignored"},
+	} {
+		if got := stepChip(testCase.step); got != testCase.want {
+			t.Fatalf("chip for %s state %q = %q, want %q",
+				testCase.step.ID, testCase.step.State, got, testCase.want)
+		}
+	}
+}
+
 func TestPresentEventPayloadOmitsUnsetTimesAndPresentsSlackIDs(t *testing.T) {
 	present := func(text string) string {
 		return strings.ReplaceAll(text, "<@U0BL8MNPUSY>", "@Emisar")

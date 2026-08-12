@@ -66,14 +66,38 @@ type TraceStep struct {
 	// worked for three minutes" is where an episode's wall clock actually goes
 	// and a list of near-identical timestamps hides it.
 	Tone, GapBefore string
-	Stats           []TraceStat
-	Details         []TraceDetail
-	order           int
+	// Icon names the glyph drawn on the rail marker, so a reader learns the
+	// vocabulary of actions — message, route, briefing, bolt, sparkle, plane —
+	// and can scan a trace by shape before reading a word.
+	Icon string
+	// Chip is the state worth printing beside the title. Most stored states
+	// restate the title ("Planning the work · planning") and render nothing;
+	// a chip appears only when it says something the title does not — a
+	// failure, a wait, or an audit outcome.
+	Chip string
+	// Bar is this kind's micro-visualization — the briefing's token
+	// composition, a turn's fresh/cached/output split — or nil.
+	Bar     *StepBar
+	Stats   []TraceStat
+	Details []TraceDetail
+	order   int
 	// band is the minimum chapter this step belongs to; -1 derives it from the
 	// stage. Chapters are assigned forward-only over the chronological list, so
 	// a wake-up scheduled mid-work stays with the work instead of teleporting
 	// the reader back to the beginning.
 	band int
+}
+
+// StepBar is one proportional strip inside a card, sized in integer
+// thousandths so the template stays arithmetic-free.
+type StepBar struct {
+	Slices []BarSlice
+	Note   string
+}
+
+type BarSlice struct {
+	Label, Value, Class string
+	X, W                int
 }
 
 // TraceChapter is one act of the episode: what came in, the work, the answer,
@@ -146,7 +170,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			details = append(details, TraceDetail{Label: "Attachment manifest", Body: page.Source.Attachments, Kind: "json"})
 		}
 		add(TraceStep{
-			ID: "source", Stage: "Input", Actor: "Slack", State: sourceKindLabel(page.Source),
+			ID: "source", Stage: "Input", Actor: "Slack", State: sourceKindLabel(page.Source), Icon: "message",
 			Title: sourceTitle(page.Source), At: page.Source.Received,
 			Stats: []TraceStat{{"Channel", page.Source.Channel}, {"Message", page.Source.MessageTS},
 				{"Thread", fallback(page.Source.ThreadTS, "top level")}, {"Sender", fallback(page.Source.Sender, page.Source.UserID)}},
@@ -154,7 +178,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		})
 	} else {
 		add(TraceStep{
-			ID: "source-missing", Stage: "Input", Actor: "Responder", State: "not recorded",
+			ID: "source-missing", Stage: "Input", Actor: "Responder", State: "not recorded", Icon: "info",
 			Title: "Starting input unavailable", At: page.Created,
 			Summary: "The message or event that started this episode was not retained.",
 		})
@@ -180,7 +204,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			stats = append(stats, TraceStat{"Deadline", wakeup.Deadline.Format(time.RFC3339)})
 		}
 		add(TraceStep{
-			ID: scheduledID, Stage: "Wait", Actor: "Responder", State: "scheduled",
+			ID: scheduledID, Stage: "Wait", Actor: "Responder", State: "scheduled", Icon: "clock",
 			Title: "Wake-up scheduled", At: wakeup.Created,
 			Summary: wakeupSummary(wakeup),
 			Why:     "Instead of holding a worker, Responder saved what to watch for and let go. The matching event resumes this exact episode.",
@@ -194,7 +218,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				})
 			}
 			add(TraceStep{
-				ID: resolvedID, Stage: "Wait", Actor: "Responder", State: wakeup.State, Tone: "good",
+				ID: resolvedID, Stage: "Wait", Actor: "Responder", State: wakeup.State, Tone: "good", Icon: "clock",
 				Title: "Wake-up resolved", At: wakeup.Resolved,
 				Summary: "The awaited event arrived; the episode could continue.",
 				Stats:   []TraceStat{{"Type", wakeup.Kind}, {"Wake-up", wakeup.ID}, {"Final state", wakeup.State}},
@@ -211,7 +235,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			Label: "Resume instruction", Body: present(page.Trigger.Text), Kind: "text", Open: true,
 		}}
 		add(TraceStep{
-			ID: "trigger", Stage: "Trigger", Actor: "Responder", State: page.Trigger.Kind,
+			ID: "trigger", Stage: "Trigger", Actor: "Responder", State: page.Trigger.Kind, Icon: "clock",
 			Title: title, At: page.Trigger.Received,
 			Summary: "The awaited event arrived, so Responder resumed this work on its own — no new Slack message was needed.",
 			Stats: []TraceStat{{"Channel", page.Trigger.Channel},
@@ -231,7 +255,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			promptID = fmt.Sprintf("prompt-%d", manifestIndex+1)
 		}
 		add(TraceStep{
-			ID: modelID, Stage: "Routing", Actor: "Responder", State: "selected",
+			ID: modelID, Stage: "Routing", Actor: "Responder", State: "selected", Icon: "route",
 			Title: "Model selected", At: manifest.Created,
 			Why:   modelSelectionWhy(manifest),
 			Stats: []TraceStat{{"Provider", fallback(manifest.Provider, "not recorded")}, {"Model", fallback(manifest.Model, "not recorded")}, {"Reasoning", fallback(manifest.Effort, "not recorded")}, {"Preset", fallback(manifest.Preset, "none")}, {"Run", fallback(manifest.RunID, "not recorded")}},
@@ -273,8 +297,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				GroupCount: 1,
 			})
 		}
+		var composition *StepBar
 		if prompt != "" {
 			segments := promptSegments(present(prompt))
+			composition = promptCompositionBar(segments)
 			promptDetails = append(promptDetails, TraceDetail{
 				Label: "Final submitted prompt", Body: present(prompt), Kind: "prompt",
 				Status: "Exact model input", Tone: "prompt", Open: true,
@@ -289,8 +315,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			promptDetails[index].Open = false
 		}
 		add(TraceStep{
-			ID: promptID, Stage: "Context", Actor: "Responder", State: "recorded",
+			ID: promptID, Stage: "Context", Actor: "Responder", State: "recorded", Icon: "doc",
 			Title: "Model briefed", Summary: promptStepSummary(manifest, memoryLayers), At: manifest.Created,
+			Bar:     composition,
 			Stats:   []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Context refs", fmt.Sprint(len(manifest.Refs))}, {"Memory layers", fmt.Sprint(memoryLayers)}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
 			Details: promptDetails,
 		})
@@ -310,7 +337,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			details = append(details, *occurrences)
 		}
 		step := TraceStep{
-			ID: fmt.Sprintf("event-%d", index+1), Stage: eventStage(event.Kind), Actor: event.Actor,
+			ID: fmt.Sprintf("event-%d", index+1), Stage: eventStage(event.Kind), Actor: event.Actor, Icon: eventIcon(event.Kind),
 			State: event.Kind, Title: eventTitle(event.Kind), Summary: present(event.Detail),
 			Why: eventWhy(event.Kind), At: event.At, Details: details,
 		}
@@ -350,7 +377,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		}
 		step := TraceStep{
 			ID:    fmt.Sprintf("record-%s-%d", artifact.Kind, index+1),
-			Stage: artifactStage(artifact.Kind), Actor: artifactActor(artifact.Kind),
+			Stage: artifactStage(artifact.Kind), Actor: artifactActor(artifact.Kind), Icon: artifactIcon(artifact.Kind),
 			State: fallback(artifact.State, "recorded"), Title: present(artifact.Title), Summary: present(artifact.Summary),
 			Why: artifactWhy(artifact.Kind), At: artifact.At, Stats: stats, Details: details,
 		}
@@ -370,7 +397,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 
 	for _, attempt := range page.Attempts {
 		step := TraceStep{
-			ID: fmt.Sprintf("attempt-%d", attempt.Number), Stage: "Execution", Actor: "Coop", State: attempt.State,
+			ID: fmt.Sprintf("attempt-%d", attempt.Number), Stage: "Execution", Actor: "Coop", State: attempt.State, Icon: "bolt",
 			Title: fmt.Sprintf("Attempt %d %s", attempt.Number, attempt.State), Summary: attemptSummary(attempt),
 			Why: attemptWhy(attempt), At: attempt.Completed, Tone: stateTone(attempt.State),
 			Duration: traceDuration(attempt.Started, attempt.Completed),
@@ -387,7 +414,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 
 	for index, rejection := range page.Rejections {
 		add(TraceStep{
-			ID: fmt.Sprintf("rejection-%d", index+1), Stage: "Validation", Actor: "Responder", State: "rejected", Tone: "bad",
+			ID: fmt.Sprintf("rejection-%d", index+1), Stage: "Validation", Actor: "Responder", State: "rejected", Tone: "bad", Icon: "x",
 			Title: "Answer rejected", Summary: present(rejection.Outcome),
 			Why: "The result did not fit the required format, so Responder sent a correction back instead of acting on it.", At: rejection.At,
 			Stats:   []TraceStat{{"Run", fallback(rejection.RunID, "not recorded")}},
@@ -423,7 +450,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			resultID = fmt.Sprintf("result-%d", turnIndex+1)
 		}
 		add(TraceStep{
-			ID: resultID, Stage: "Result", Actor: "Model", State: turn.State, Tone: stateTone(turn.State),
+			ID: resultID, Stage: "Result", Actor: "Model", State: turn.State, Tone: stateTone(turn.State), Icon: "sparkle",
 			Title: "Model result received", Summary: present(modelSummary(turn)),
 			Why: "Responder checks every result against its contract before anything reaches Slack.", At: turn.Updated,
 			Stats:   []TraceStat{{"Run", turn.RunID}, {"Attempt", fmt.Sprint(turn.AttemptNumber)}, {"Action", fallback(turn.Action, "not recorded")}, {"Operations", fmt.Sprint(tallyTotal(turn.Operations))}, {"Follow-ups", fmt.Sprint(len(turn.Followups))}},
@@ -437,7 +464,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 
 	if len(page.Claims)+len(page.Evidence)+len(page.Coverage) > 0 {
 		add(TraceStep{
-			ID: "ledger", Stage: "Evidence", Actor: "Responder", State: "recorded",
+			ID: "ledger", Stage: "Evidence", Actor: "Responder", State: "recorded", Icon: "db",
 			Title: "Evidence recorded", Summary: countList([]countPart{
 				{len(page.Claims), "claim", "claims"},
 				{len(page.Evidence), "evidence record", "evidence records"},
@@ -464,7 +491,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			href = "/episodes/" + url.PathEscape(effect.ID)
 		}
 		add(TraceStep{
-			ID: fmt.Sprintf("effect-%d", index+1), Stage: "Side effect", Actor: "Responder", State: effect.State,
+			ID: fmt.Sprintf("effect-%d", index+1), Stage: "Side effect", Actor: "Responder", State: effect.State, Icon: "bookmark",
 			Tone:  stateTone(effect.State),
 			Title: effectTitle(effect), Summary: summary, Why: sideEffectWhy(effect), Href: href, At: effect.At,
 			Stats:   []TraceStat{{"ID", fallback(effect.ID, "none")}},
@@ -489,7 +516,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			stats = append(stats, TraceStat{"Retries", fmt.Sprint(delivery.Retries)})
 		}
 		step := TraceStep{
-			ID: fmt.Sprintf("delivery-%d", index+1), Stage: "Delivery", Actor: "Slack outbox", State: delivery.State,
+			ID: fmt.Sprintf("delivery-%d", index+1), Stage: "Delivery", Actor: "Slack outbox", State: delivery.State, Icon: "plane",
 			Tone:  stateTone(delivery.State),
 			Title: deliveryTitle(delivery), Summary: summary, Why: deliveryWhy(delivery), At: delivery.At,
 			Duration: traceDuration(delivery.Created, delivery.At),
@@ -518,7 +545,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			details = append(details, *occurrences)
 		}
 		add(TraceStep{
-			ID: fmt.Sprintf("audit-%d", index+1), Stage: stage, Actor: actor, State: state,
+			ID: fmt.Sprintf("audit-%d", index+1), Stage: stage, Actor: actor, State: state, Icon: auditIcon(audit.Kind),
 			Tone:  stateTone(audit.Outcome),
 			Title: auditTitle(audit.Kind), Summary: summary, Why: auditTraceWhy(audit), At: audit.At,
 			Stats: stats, Details: details, band: auditBand(audit.Kind),
@@ -547,6 +574,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if steps[index].Tone == "" {
 			steps[index].Tone = stateTone(steps[index].State)
 		}
+		if steps[index].Icon == "" {
+			steps[index].Icon = "dot"
+		}
+		steps[index].Chip = stepChip(steps[index])
 		// A quiet stretch is a fact worth a mark of its own: almost all of an
 		// episode's wall clock sits between two adjacent steps, usually around
 		// the model working.
@@ -1137,6 +1168,169 @@ func auditBand(kind string) int {
 	default:
 		return 0
 	}
+}
+
+// stepChip decides whether a state deserves ink beside the title. Routine
+// success states restate the title; trouble and audit outcomes do not.
+func stepChip(step TraceStep) string {
+	if step.State == "" {
+		return ""
+	}
+	if step.Tone == "warn" || step.Tone == "bad" || strings.HasPrefix(step.ID, "audit-") {
+		return strings.ReplaceAll(step.State, "_", " ")
+	}
+	return ""
+}
+
+func eventIcon(kind string) string {
+	switch kind {
+	case "phase_changed":
+		return "milestone"
+	case "episode_created", "completed":
+		return "flag"
+	case "context_extended":
+		return "docplus"
+	default:
+		return "dot"
+	}
+}
+
+func artifactIcon(kind string) string {
+	if icon, ok := map[string]string{
+		"commitment":                 "flag",
+		"progress":                   "milestone",
+		"goal":                       "target",
+		"scheduled_run":              "clock",
+		"evaluation":                 "branch",
+		"standing_rule_run":          "shield",
+		"standing_assignment_action": "shield",
+		"feedback":                   "message",
+		"replay_candidate":           "bookmark",
+		"incident_timeline":          "flag",
+		"publication_lifecycle":      "branch",
+		"publication":                "branch",
+		"quality_finding":            "search",
+	}[kind]; ok {
+		return icon
+	}
+	return "dot"
+}
+
+func auditIcon(kind string) string {
+	switch {
+	case kind == "standing_rules.evaluated" || kind == "standing_rule.acknowledged":
+		return "shield"
+	case strings.HasPrefix(kind, "slack.watch"):
+		return "eye"
+	case kind == "result.legacy_shape":
+		return "info"
+	case strings.HasSuffix(kind, ".remember") || kind == "schedule.created":
+		return "bookmark"
+	case strings.HasPrefix(kind, "emisar.approval"):
+		return "shield"
+	case kind == "slack.reaction":
+		return "message"
+	default:
+		return "shield"
+	}
+}
+
+// promptCompositionBar reduces the exact submitted prompt to the question an
+// operator actually asks of it: how much of the model's attention went to
+// instructions, memory, the Slack conversation, and the request itself.
+func promptCompositionBar(segments []PromptSegment) *StepBar {
+	if len(segments) == 0 {
+		return nil
+	}
+	families := []struct {
+		label, class string
+		tokens       int
+	}{
+		{label: "Instructions", class: "sys"},
+		{label: "Memory", class: "mem"},
+		{label: "Slack", class: "slack"},
+		{label: "Request", class: "user"},
+	}
+	familyOf := map[string]int{
+		"system": 0, "trusted": 0, "structure": 0,
+		"memory": 1, "operational": 1, "conversation": 1, "related": 1,
+		"slack": 2,
+		"user":  3,
+	}
+	total := 0
+	for _, segment := range segments {
+		index, known := familyOf[segment.Tone]
+		if !known {
+			index = 0
+		}
+		families[index].tokens += segment.Tokens
+		total += segment.Tokens
+	}
+	if total == 0 {
+		return nil
+	}
+	bar := &StepBar{Note: "~" + humanTokens(int64(total)) + " tokens, estimated from text length"}
+	for _, family := range families {
+		if family.tokens == 0 {
+			continue
+		}
+		bar.Slices = append(bar.Slices, BarSlice{
+			Label: family.label, Class: family.class,
+			Value: "~" + humanTokens(int64(family.tokens)),
+			W:     max(family.tokens*1000/total, 8),
+		})
+	}
+	return layoutBar(bar)
+}
+
+// usageBar draws what a turn's tokens were made of. Cached input dominating
+// the strip is the picture of a cheap turn; fresh input dominating is the
+// picture of an expensive one.
+func usageBar(spent EpisodeTokens) *StepBar {
+	total := spent.Total()
+	if total <= 0 {
+		return nil
+	}
+	bar := &StepBar{Note: spent.CacheLabel() + " of input served from cache"}
+	for _, part := range []struct {
+		label, class string
+		tokens       int64
+	}{
+		{"Cached input", "cache", spent.Cached},
+		{"Fresh input", "in", spent.Input},
+		{"Output", "out", spent.Output},
+		{"Reasoning", "think", spent.Reasoning},
+	} {
+		if part.tokens <= 0 {
+			continue
+		}
+		bar.Slices = append(bar.Slices, BarSlice{
+			Label: part.label, Class: part.class,
+			Value: humanTokens(part.tokens),
+			W:     max(int(part.tokens*1000/total), 8),
+		})
+	}
+	return layoutBar(bar)
+}
+
+// layoutBar normalizes slice widths to exactly one thousand units and lays
+// them end to end.
+func layoutBar(bar *StepBar) *StepBar {
+	if bar == nil || len(bar.Slices) == 0 {
+		return nil
+	}
+	scale := 0
+	for _, slice := range bar.Slices {
+		scale += slice.W
+	}
+	x := 0
+	for index := range bar.Slices {
+		bar.Slices[index].W = bar.Slices[index].W * 1000 / scale
+		bar.Slices[index].X = x
+		x += bar.Slices[index].W
+	}
+	bar.Slices[len(bar.Slices)-1].W = 1000 - bar.Slices[len(bar.Slices)-1].X
+	return bar
 }
 
 func auditTracePresentation(audit AuditRow, present func(string) string) (string, []TraceStat) {
@@ -2500,7 +2694,7 @@ func usageTraceStep(page episodePage) TraceStep {
 		at = page.Manifest.Created
 	}
 	step := TraceStep{
-		ID: "usage", Stage: "Measurement", Actor: "Responder", State: "recorded", At: at,
+		ID: "usage", Stage: "Measurement", Actor: "Responder", State: "recorded", Icon: "gauge", At: at,
 		Title: "Usage measured",
 	}
 	if !page.Spent.Recorded() {
@@ -2508,21 +2702,18 @@ func usageTraceStep(page episodePage) TraceStep {
 		step.Summary = "The provider reported no token counts — missing telemetry, not a free turn."
 		return step
 	}
-	summary := humanTokens(page.Spent.Total()) + " tokens · " + page.Spent.CacheLabel() + " served from cache"
+	summary := humanTokens(page.Spent.Total()) + " tokens"
 	if page.Spent.Clock.Recorded() {
 		summary += " · " + page.Spent.Clock.Total() + " of model time"
 	}
 	step.Summary = summary
-	detail := fmt.Sprintf("Fresh input: %s\nCached input: %s\nOutput: %s\nReasoning: %s",
-		humanTokens(page.Spent.Input), humanTokens(page.Spent.Cached),
-		humanTokens(page.Spent.Output), humanTokens(page.Spent.Reasoning))
-	step.Details = []TraceDetail{{Label: "Token breakdown", Body: detail, Kind: "text"}}
+	step.Bar = usageBar(page.Spent)
 	if page.Spent.Clock.Recorded() {
-		step.Details = append(step.Details, TraceDetail{
+		step.Details = []TraceDetail{{
 			Label: "Where the time went",
 			Body:  "Total: " + page.Spent.Clock.Total() + "\n" + page.Spent.Clock.Split(),
 			Kind:  "text",
-		})
+		}}
 	}
 	return step
 }
