@@ -3366,7 +3366,7 @@ func (s *Service) finishTriageRunFailureIfOwned(
 		return false, err
 	}
 	effects := store.AgentRunFailureEffects{}
-	if s.cfg.Slack.NativeStatus {
+	if s.cfg.Slack.NativeStatus && !isPrivateSlackVerificationReplay(input) {
 		effects.StatusChannelID = input.ChannelID
 		effects.StatusThreadTS = watchRunStatusThread(input, state)
 	}

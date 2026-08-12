@@ -57,7 +57,8 @@ func (s *Store) EnqueueSlackDelivery(
 		delivery.Operation = "post"
 	}
 	if delivery.Operation != "post" && delivery.Operation != "update" &&
-		delivery.Operation != "status" && delivery.Operation != "file" {
+		delivery.Operation != "status" && delivery.Operation != "file" &&
+		delivery.Operation != "reaction" {
 		return false, fmt.Errorf(
 			"unsupported Slack delivery operation %q",
 			delivery.Operation,
@@ -75,6 +76,11 @@ func (s *Store) EnqueueSlackDelivery(
 	}
 	if delivery.Operation == "status" && delivery.ThreadTS == "" {
 		return false, errors.New("Slack status delivery thread is required")
+	}
+	if delivery.Operation == "reaction" &&
+		(delivery.MessageTS == "" || delivery.Status == "" ||
+			(delivery.Kind != "failure_marker_add" && delivery.Kind != "failure_marker_remove")) {
+		return false, errors.New("Slack reaction delivery target, reaction, and action are required")
 	}
 	if delivery.Body == nil {
 		delivery.Body = []byte{}
@@ -120,7 +126,7 @@ func (s *Store) EnqueueSlackDelivery(
 		// where the final answer is delivered. A request may deliberately move
 		// the answer from a thread back to the channel while the indicator stays
 		// on the message being processed.
-		if delivery.Operation != "status" &&
+		if delivery.Operation != "status" && delivery.Operation != "reaction" &&
 			(delivery.ExpectedDestinationRevision != episode.DestinationRevision ||
 				delivery.ChannelID != episode.Destination.ChannelID ||
 				delivery.ThreadTS != episode.Destination.ThreadTS) {
@@ -229,7 +235,8 @@ func (s *Store) insertTerminalSlackDeliveryTx(
 	now string,
 ) error {
 	if delivery.ID == "" || delivery.ChannelID == "" ||
-		(delivery.Operation != "status" && len(delivery.Body) == 0) {
+		(delivery.Operation != "status" && delivery.Operation != "reaction" && len(delivery.Body) == 0) ||
+		(delivery.Operation == "reaction" && (delivery.MessageTS == "" || delivery.Status == "")) {
 		return errors.New("terminal Slack delivery identity, destination, and body are required")
 	}
 	if delivery.Operation == "" {
@@ -251,7 +258,7 @@ func (s *Store) insertTerminalSlackDeliveryTx(
 			&delivery.ExpectedEpisodeRevision); err != nil {
 			return err
 		}
-		if channelID != "" {
+		if channelID != "" && delivery.Operation != "reaction" {
 			delivery.ChannelID, delivery.ThreadTS = channelID, threadTS
 		}
 	}
@@ -275,12 +282,12 @@ func (s *Store) insertTerminalSlackDeliveryTx(
 		  status_text, steps_json, coalesce_key, card_version,
 		  sequence_key, sequence_index, response_root,
 		  state, next_attempt_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '[]', ?, ?,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?,
 		          ?, ?, ?, 'pending', ?, ?, ?)`,
 		delivery.ID, incidentID, delivery.EpisodeID,
 		delivery.AgentRunID, delivery.AgentRunKey, delivery.SourceInputID, delivery.ExpectedEpisodeRevision,
 		delivery.ExpectedDestinationRevision, delivery.Operation, delivery.Kind,
-		delivery.ChannelID, delivery.ThreadTS, delivery.MessageTS, delivery.Body,
+		delivery.ChannelID, delivery.ThreadTS, delivery.MessageTS, delivery.Body, delivery.Status,
 		delivery.CoalesceKey, delivery.CardVersion,
 		sequenceKey, sequenceIndex, boolInt(delivery.ResponseRoot), now, now, now,
 	)
@@ -536,10 +543,24 @@ func (s *Store) LeaseSlackDelivery(
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE slack_deliveries AS delivery
+		SET state = 'superseded', last_error = 'newer reaction intent', updated_at = ?
+		WHERE delivery.state IN ('pending', 'retry')
+		  AND delivery.operation = 'reaction' AND delivery.coalesce_key != ''
+		  AND EXISTS (
+		    SELECT 1 FROM slack_deliveries AS newer
+		    WHERE newer.coalesce_key = delivery.coalesce_key
+		      AND newer.operation = 'reaction'
+		      AND (newer.created_at > delivery.created_at OR
+		           (newer.created_at = delivery.created_at AND newer.rowid > delivery.rowid))
+		  )`, now); err != nil {
+		return core.SlackDelivery{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE slack_deliveries AS delivery
 		SET state = 'superseded', last_error = 'episode destination changed', updated_at = ?
 		WHERE delivery.state IN ('pending', 'retry')
 		  AND delivery.episode_id != ''
-		  AND delivery.operation != 'status'
+		  AND delivery.operation NOT IN ('status', 'reaction')
 		  AND EXISTS (
 		    SELECT 1 FROM work_episodes AS episode
 		    WHERE episode.id = delivery.episode_id
@@ -556,8 +577,8 @@ func (s *Store) LeaseSlackDelivery(
 	skip := ""
 	arguments := []any{now}
 	if len(coolingChannels) > 0 {
-		skip = "  AND candidate.channel_id NOT IN (" +
-			strings.TrimSuffix(strings.Repeat("?,", len(coolingChannels)), ",") + ")\n"
+		skip = "  AND (candidate.operation = 'reaction' OR candidate.channel_id NOT IN (" +
+			strings.TrimSuffix(strings.Repeat("?,", len(coolingChannels)), ",") + "))\n"
 		for _, channelID := range coolingChannels {
 			arguments = append(arguments, channelID)
 		}
@@ -568,6 +589,13 @@ func (s *Store) LeaseSlackDelivery(
 		WHERE candidate.state IN ('pending', 'retry')
 		  AND julianday(candidate.next_attempt_at) <= julianday(?)
 `+skip+`		  AND (
+		    candidate.operation != 'reaction' OR candidate.coalesce_key = '' OR NOT EXISTS (
+		      SELECT 1 FROM slack_deliveries AS active_reaction
+		      WHERE active_reaction.coalesce_key = candidate.coalesce_key
+		        AND active_reaction.id != candidate.id AND active_reaction.state = 'sending'
+		    )
+		  )
+		  AND (
 		    candidate.sequence_key = '' OR NOT EXISTS (
 		      SELECT 1
 		      FROM slack_deliveries AS predecessor
@@ -577,7 +605,7 @@ func (s *Store) LeaseSlackDelivery(
 		    )
 		  )
 		ORDER BY
-		  CASE candidate.operation WHEN 'status' THEN 0 WHEN 'update' THEN 1 ELSE 2 END,
+		  CASE candidate.operation WHEN 'status' THEN 0 WHEN 'reaction' THEN 1 WHEN 'update' THEN 2 ELSE 3 END,
 		  candidate.created_at,
 		  candidate.id
 		LIMIT 1`, arguments...))
@@ -777,14 +805,46 @@ func (s *Store) RetrySlackDelivery(
 	} else if terminal {
 		state = "failed"
 	}
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var operation, coalesceKey, created string
+	var rowID int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT operation, coalesce_key, created_at, rowid
+		FROM slack_deliveries WHERE id = ? AND state = 'sending'`, id,
+	).Scan(&operation, &coalesceKey, &created, &rowID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("retry Slack delivery: %w", ErrConflict)
+		}
+		return err
+	}
+	if operation == "reaction" && coalesceKey != "" {
+		var newer bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+			SELECT 1 FROM slack_deliveries
+			WHERE coalesce_key = ? AND operation = 'reaction' AND id != ?
+			  AND (created_at > ? OR (created_at = ? AND rowid > ?))
+		)`, coalesceKey, id, created, created, rowID).Scan(&newer); err != nil {
+			return err
+		}
+		if newer {
+			state, detail = "superseded", "newer reaction intent"
+		}
+	}
+	result, err := tx.ExecContext(ctx, `
 		UPDATE slack_deliveries
 		SET state = ?, failure_count = failure_count + 1,
 		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'sending'`,
 		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
 		s.nowText(), id)
-	return sqlutil.ExpectOne(result, err, "retry Slack delivery")
+	if err := sqlutil.ExpectOne(result, err, "retry Slack delivery"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) SupersedeLeasedSlackDelivery(ctx context.Context, id, detail string) error {

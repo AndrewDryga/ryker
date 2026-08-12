@@ -3,6 +3,7 @@ package webui
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -56,9 +57,9 @@ type TraceTableRow struct {
 // TraceStep is one host-observable fact in the execution story. Why describes
 // the product reason for the step, never private model chain-of-thought.
 type TraceStep struct {
-	ID, Stage, Actor, State, Title, Summary, Why string
-	At                                           time.Time
-	Relative, Duration                           string
+	ID, Stage, Actor, State, Title, Summary, Why, Href string
+	At                                                 time.Time
+	Relative, Duration                                 string
 	// Tone colors the step marker: "" for routine, good for a success moment,
 	// warn for waiting or degraded, bad for a failure. GapBefore names a quiet
 	// stretch longer than a few seconds before this step, because "the model
@@ -446,15 +447,17 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			}
 		}
 		summary := present(effect.Title)
+		href := ""
 		if effect.Kind == "work episode" {
 			// A delegated episode's objective is prose that may carry raw Slack
 			// markup; identifiers like rule names must stay exact.
 			summary = cleanTitle(summary)
+			href = "/episodes/" + url.PathEscape(effect.ID)
 		}
 		add(TraceStep{
 			ID: fmt.Sprintf("effect-%d", index+1), Stage: "Side effect", Actor: "Responder", State: effect.State,
 			Tone:  stateTone(effect.State),
-			Title: effectTitle(effect), Summary: summary, Why: sideEffectWhy(effect), At: effect.At,
+			Title: effectTitle(effect), Summary: summary, Why: sideEffectWhy(effect), Href: href, At: effect.At,
 			Stats:   []TraceStat{{"ID", fallback(effect.ID, "none")}},
 			Details: []TraceDetail{{Label: "Recorded change", Body: fallback(body, "No additional value was recorded."), Kind: "diff", Open: effect.Before != "" || effect.After != ""}},
 		})
@@ -994,6 +997,11 @@ func deliveryTitle(delivery Delivery) string {
 		return "Updated the Slack message"
 	case "status":
 		return "Working status shown in Slack"
+	case "reaction":
+		if delivery.Kind == "failure_marker_remove" {
+			return "Cleared the processing-failure marker"
+		}
+		return "Marked the message after processing failed"
 	case "delete":
 		return "Removed a Slack message"
 	default:
@@ -1985,6 +1993,9 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 		if reply, ok := firstReply(page); ok {
 			respond.Value, respond.Missing, respond.Tone = compactDuration(reply.At.Sub(page.Source.Received)), false, "good"
 			respond.Detail = strings.TrimSpace("From the message to the reply in " + fallback(reply.Channel, "Slack") + ". " + acknowledged)
+		} else if successor, ok := firstRespondingSuccessor(page); ok {
+			respond.Value, respond.Missing, respond.Tone = compactDuration(successor.ResponseAt.Sub(page.Source.Received)), false, "good"
+			respond.Detail = strings.TrimSpace("A successor episode replied in Slack. " + acknowledged)
 		} else {
 			respond.Detail = strings.TrimSpace("No Slack reply was sent. " + acknowledged)
 		}
@@ -2068,7 +2079,12 @@ func episodeOutcome(page episodePage) EpisodeMetric {
 	case "cancelled":
 		metric.Value, metric.Detail = "Cancelled", "Stopped before it finished."
 	case "superseded":
-		metric.Value, metric.Detail = "Superseded", "A newer episode took over this work."
+		metric.Value = "Superseded"
+		if successor, ok := firstRespondingSuccessor(page); ok {
+			metric.Detail = "A newer episode replied: " + truncate(successor.Title, 80)
+		} else {
+			metric.Detail = "A newer episode took over this work."
+		}
 	case "completed":
 		metric.Tone = "good"
 		if reply, ok := firstReply(page); ok {
@@ -2127,10 +2143,22 @@ func episodeErrorCount(page episodePage) (int, string) {
 		// latest-turn correction list is available.
 		corrections = len(page.Turn.Rejections)
 	}
-	failedAttempts, deliveries, parseFailures := 0, 0, 0
+	processingFailures, failedAttempts, unaccountedAttempts, deliveries, parseFailures := 0, 0, 0, 0, 0
+	failuresByRun := make(map[string]int, len(page.Turns)+1)
+	for _, turn := range page.Turns {
+		processingFailures += turn.Failures
+		failuresByRun[turn.RunID] += turn.Failures
+	}
+	if len(page.Turns) == 0 && page.Turn.RunID != "" {
+		processingFailures += page.Turn.Failures
+		failuresByRun[page.Turn.RunID] += page.Turn.Failures
+	}
 	for _, attempt := range page.Attempts {
 		if attempt.State == "failed" || attempt.Failure != "" {
 			failedAttempts++
+			if failuresByRun[attempt.RunID] == 0 {
+				unaccountedAttempts++
+			}
 		}
 	}
 	for _, delivery := range page.Delivered {
@@ -2147,8 +2175,21 @@ func episodeErrorCount(page episodePage) (int, string) {
 			parseFailures++
 		}
 	}
-	count := failedAttempts + corrections + deliveries + parseFailures
-	return count, fmt.Sprintf("%d failed attempts · %d host corrections · %d delivery failures · %d unreadable results", failedAttempts, corrections, deliveries, parseFailures)
+	count := processingFailures + unaccountedAttempts + corrections + deliveries + parseFailures
+	return count, fmt.Sprintf("%d processing failures · %d failed attempts · %d host corrections · %d delivery failures · %d unreadable results", processingFailures, failedAttempts, corrections, deliveries, parseFailures)
+}
+
+func firstRespondingSuccessor(page episodePage) (SideEffect, bool) {
+	var first SideEffect
+	for _, effect := range page.Effects {
+		if effect.Kind != "work episode" || !effect.Responded || effect.ResponseAt.IsZero() {
+			continue
+		}
+		if first.ResponseAt.IsZero() || effect.ResponseAt.Before(first.ResponseAt) {
+			first = effect
+		}
+	}
+	return first, !first.ResponseAt.IsZero()
 }
 
 func wakeupSummary(wakeup Wakeup) string {
@@ -2420,6 +2461,9 @@ func sideEffectWhy(effect SideEffect) string {
 func deliveryWhy(delivery Delivery) string {
 	if delivery.Operation == "status" {
 		return "A native status shows progress without adding a message to the conversation."
+	}
+	if delivery.Operation == "reaction" {
+		return "A single reaction reports Responder health without adding another message to the conversation."
 	}
 	return ""
 }

@@ -564,7 +564,7 @@ func applySchemaStep(db *sql.DB, statement string, from, to int) error {
 // Opt-in per migration rather than always on: every other migration benefits
 // from the constraints being enforced while it runs, and a rebuild is rare
 // enough that turning them off should be a deliberate, listed decision.
-var tableRebuildMigrations = map[int]bool{47: true, 50: true, 61: true}
+var tableRebuildMigrations = map[int]bool{47: true, 50: true, 61: true, 68: true}
 
 // verifyForeignKeys fails if a migration left a reference pointing at nothing.
 type foreignKeyQueryer interface {

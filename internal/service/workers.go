@@ -326,6 +326,24 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 			item.Status,
 			item.Steps,
 		)
+	case "reaction":
+		timestamp = item.MessageTS
+		client, ok := unpacedSlack(s.slack).(interface {
+			React(context.Context, string, string, string) error
+			Unreact(context.Context, string, string, string) error
+		})
+		if !ok {
+			err = errors.New("Slack client does not support reactions")
+			break
+		}
+		switch item.Kind {
+		case "failure_marker_add":
+			err = client.React(ctx, item.ChannelID, item.MessageTS, item.Status)
+		case "failure_marker_remove":
+			err = client.Unreact(ctx, item.ChannelID, item.MessageTS, item.Status)
+		default:
+			err = fmt.Errorf("unsupported Slack reaction action %q", item.Kind)
+		}
 	case "file":
 		file, decodeErr := decodeSlackFileDelivery(item.Body)
 		if decodeErr != nil {

@@ -92,6 +92,162 @@ func TestFinishAgentRunFailureCommitsLifecycleAndOutboxAtomically(t *testing.T) 
 	}
 }
 
+func TestTerminalProcessingFailureMarksSourceAndRetryQueuesRemoval(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "input_failure_marker", EnvelopeID: "env_failure_marker",
+		Kind: "mention", TeamID: "T1", ChannelID: "COPS", MessageTS: "1700.200",
+		UserID: "U1", Text: "investigate", ReceivedAt: time.Now().UTC(),
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, err)
+	}
+	run, _ := queueKernelEpisode(t, st, input.ID)
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	state, applied, err := st.FinishAgentRunFailure(
+		ctx, run.ID, "Coop returned HTTP 500", nil, AgentRunFailureEffects{},
+	)
+	if err != nil || !applied || state != core.AgentRunFailed {
+		t.Fatalf("finish failure = %s, %t, %v", state, applied, err)
+	}
+	adds, err := st.ListSlackDeliveriesByPrefix(ctx, "delivery_failure_marker_add_")
+	if err != nil || len(adds) != 1 {
+		t.Fatalf("failure marker adds = %+v, %v", adds, err)
+	}
+	add := adds[0]
+	if add.Operation != "reaction" || add.Kind != "failure_marker_add" ||
+		add.ChannelID != input.ChannelID || add.MessageTS != input.MessageTS ||
+		add.Status != "warning" || add.SourceInputID != input.ID ||
+		add.AgentRunID != run.ID || add.AgentRunKey != run.IdempotencyKey {
+		t.Fatalf("failure marker = %+v", add)
+	}
+
+	if err := st.RequeueFailedAgentRun(ctx, run.ID, "operator retried"); err != nil {
+		t.Fatal(err)
+	}
+	add, err = st.GetSlackDelivery(ctx, add.ID)
+	if err != nil || add.State != "superseded" {
+		t.Fatalf("obsolete add = %+v, %v", add, err)
+	}
+	removes, err := st.ListSlackDeliveriesByPrefix(ctx, "delivery_failure_marker_remove_")
+	if err != nil || len(removes) != 1 {
+		t.Fatalf("failure marker removals = %+v, %v", removes, err)
+	}
+	remove := removes[0]
+	if remove.Operation != "reaction" || remove.Kind != "failure_marker_remove" ||
+		remove.Status != "warning" || remove.SourceInputID != "" ||
+		remove.AgentRunKey == run.IdempotencyKey {
+		t.Fatalf("failure marker removal = %+v", remove)
+	}
+}
+
+func TestTerminalPreparationFailureMarksItsSlackSource(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "input_prepare_failure_marker", EnvelopeID: "env_prepare_failure_marker",
+		Kind: "message", TeamID: "T1", ChannelID: "COPS", MessageTS: "1700.201",
+		UserID: "U1", Text: "investigate", ReceivedAt: time.Now().UTC(),
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, err)
+	}
+	run, _ := queueKernelEpisode(t, st, input.ID)
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RetryAgentRun(ctx, run.ID, "internal operation failure", time.Now().UTC(), true); err != nil {
+		t.Fatal(err)
+	}
+	markers, err := st.ListSlackDeliveriesByPrefix(ctx, "delivery_failure_marker_add_")
+	if err != nil || len(markers) != 1 || markers[0].MessageTS != input.MessageTS {
+		t.Fatalf("preparation failure markers = %+v, %v", markers, err)
+	}
+}
+
+func TestStalePreparationFailureDoesNotMarkSourceOwnedByNewAttempt(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "input_stale_failure_marker", EnvelopeID: "env_stale_failure_marker",
+		Kind: "message", TeamID: "T1", ChannelID: "COPS", MessageTS: "1700.202",
+		UserID: "U1", Text: "investigate", ReceivedAt: time.Now().UTC(),
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, err)
+	}
+	older, episode := queueKernelEpisode(t, st, input.ID)
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE agent_runs SET state = 'running' WHERE id = ?`, older.ID); err != nil {
+		t.Fatal(err)
+	}
+	newer, created, err := st.QueueEpisodeAttempt(ctx, episode.ID, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+		ConversationKey: older.ConversationKey, SourceKind: "recheck",
+		SourceID: "newer_attempt", Prompt: "check again",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue successor = %+v, %t, %v", newer, created, err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE agent_runs SET state = 'preparing' WHERE id = ?`, older.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RetryAgentRun(ctx, older.ID, "stale HTTP 500", time.Now().UTC(), true); err != nil {
+		t.Fatal(err)
+	}
+	if markers, err := st.ListSlackDeliveriesByPrefix(ctx, "delivery_failure_marker_add_"); err != nil || len(markers) != 0 {
+		t.Fatalf("stale failure markers = %+v, %v", markers, err)
+	}
+	current, err := st.GetWorkEpisode(ctx, episode.ID)
+	if err != nil || current.LatestAttemptID != newer.AttemptID || current.State == core.EpisodeFailed {
+		t.Fatalf("successor episode = %+v, %v", current, err)
+	}
+}
+
+func TestPrivateReplayFailureDoesNotMarkPublicSlackMessage(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "input_private_failure", EnvelopeID: "replay-private:input_private_failure",
+		Kind: "message", TeamID: "T1", ChannelID: "COPS", MessageTS: "1700.203",
+		UserID: "U1", Text: "verify privately", ReceivedAt: time.Now().UTC(),
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, err)
+	}
+	run, _ := queueKernelEpisode(t, st, input.ID)
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RetryAgentRun(ctx, run.ID, "internal error", time.Now().UTC(), true); err != nil {
+		t.Fatal(err)
+	}
+	if markers, err := st.ListSlackDeliveriesByPrefix(ctx, "delivery_failure_marker_add_"); err != nil || len(markers) != 0 {
+		t.Fatalf("private replay markers = %+v, %v", markers, err)
+	}
+}
+
 func TestFinishAgentRunFailureCannotNotifyForOlderAttempt(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())
@@ -328,6 +484,13 @@ func TestFinishAgentRunFailurePreservesAlreadyStagedSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	if created, err := st.AdmitSlackInput(ctx, core.SlackInput{
+		ID: "success-source", EnvelopeID: "env-success-source", Kind: "message",
+		TeamID: "T1", ChannelID: "COPS", MessageTS: "1700.300",
+		UserID: "U1", Text: "question", ReceivedAt: time.Now().UTC(),
+	}); err != nil || !created {
+		t.Fatalf("admit source = %t, %v", created, err)
+	}
 	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
 		Mode: core.AgentRunTriage, ChannelID: "COPS", ConversationKey: "thread:COPS:success",
 		SourceKind: "watch", SourceID: "success-source", State: core.AgentRunRunning,
@@ -369,6 +532,36 @@ func TestFinishAgentRunFailurePreservesAlreadyStagedSuccess(t *testing.T) {
 	stored, err := st.GetAgentRun(ctx, run.ID)
 	if err != nil || stored.State != core.AgentRunCompleted {
 		t.Fatalf("stored success = %+v, %v", stored, err)
+	}
+	if markers, err := st.ListSlackDeliveriesByPrefix(ctx, "delivery_failure_marker_add_"); err != nil || len(markers) != 0 {
+		t.Fatalf("preserved success was marked failed: %+v, %v", markers, err)
+	}
+}
+
+func TestRetryableProcessingFailureDoesNotMarkSource(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "input_retryable_marker", EnvelopeID: "env_retryable_marker",
+		Kind: "message", TeamID: "T1", ChannelID: "COPS", MessageTS: "1700.301",
+		UserID: "U1", Text: "question", ReceivedAt: time.Now().UTC(),
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit source = %t, %v", created, err)
+	}
+	run, _ := queueKernelEpisode(t, st, input.ID)
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RetryAgentRun(ctx, run.ID, "temporary HTTP 500", time.Now().UTC(), false); err != nil {
+		t.Fatal(err)
+	}
+	if markers, err := st.ListSlackDeliveriesByPrefix(ctx, "delivery_failure_marker_add_"); err != nil || len(markers) != 0 {
+		t.Fatalf("retryable failure markers = %+v, %v", markers, err)
 	}
 }
 

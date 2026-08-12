@@ -66,7 +66,7 @@ const episodeSources = `SELECT id FROM agent_runs WHERE episode_id = ?
 // when the text is not, rather than leaving the section looking empty.
 type Turn struct {
 	RunID, Mode, State, Error string
-	AttemptNumber             int
+	AttemptNumber, Failures   int
 	Prompt, PromptDigest      string
 	RawResult                 string
 	Created, Updated          time.Time
@@ -95,7 +95,8 @@ type Completion struct {
 type SideEffect struct {
 	Kind, State, Title, Detail, ID string
 	Before, After                  string
-	At                             time.Time
+	At, ResponseAt                 time.Time
+	Responded                      bool
 }
 
 type Tally struct {
@@ -144,6 +145,7 @@ func (r *Reader) Turns(ctx context.Context, episodeID string) ([]Turn, error) {
 	turns, err := collect(ctx, r, `
 	  SELECT DISTINCT a.id, a.mode, COALESCE(a.terminal_state,''),
 	         COALESCE(a.last_error,''), COALESCE(a.attempt_number,0),
+	         COALESCE(a.failure_count,0),
 	         COALESCE(a.prompt,''), COALESCE(CAST(a.result_json AS TEXT),''),
 	         a.created_at, a.updated_at
 	  FROM agent_runs AS a
@@ -153,7 +155,7 @@ func (r *Reader) Turns(ctx context.Context, episodeID string) ([]Turn, error) {
 		var item Turn
 		var created, updated string
 		err := rows.Scan(&item.RunID, &item.Mode, &item.State, &item.Error,
-			&item.AttemptNumber, &item.Prompt, &item.RawResult, &created, &updated)
+			&item.AttemptNumber, &item.Failures, &item.Prompt, &item.RawResult, &created, &updated)
 		item.Created, item.Updated = parseStamp(created), parseStamp(updated)
 		return item, err
 	}, episodeID, episodeID)
@@ -329,54 +331,72 @@ func offerExpiry(value string) string {
 // stable join key carried through every offer payload.
 func (r *Reader) SideEffects(ctx context.Context, episodeID string) ([]SideEffect, error) {
 	items, err := collect(ctx, r, `
-	  WITH refs(ref) AS (
+	  WITH RECURSIVE descendants(id, path) AS (
+	    SELECT id, ',' || ? || ',' || id || ',' FROM work_episodes WHERE parent_episode_id = ?
+	    UNION ALL
+	    SELECT child.id, descendants.path || child.id || ','
+	      FROM work_episodes AS child JOIN descendants ON child.parent_episode_id = descendants.id
+	      WHERE instr(descendants.path, ',' || child.id || ',') = 0
+	  ), refs(ref) AS (
 	    SELECT source_id FROM agent_runs WHERE episode_id = ?
 	    UNION
 	    SELECT s.event_id FROM slack_inputs AS s
 	      JOIN agent_runs AS a ON a.source_id = s.id
 	      WHERE a.episode_id = ? AND s.event_id != ''
-	  ), effects(kind, state, title, detail, id, created_at, before_value, after_value) AS (
+	  ), effects(kind, state, title, detail, id, created_at, before_value, after_value, responded, response_at) AS (
 	    SELECT 'preference', CASE WHEN enabled = 1 THEN 'saved' ELSE 'disabled' END,
-	           name, value || ' · ' || scope_kind || ':' || scope_key, id, created_at, '', ''
+	           name, value || ' · ' || scope_kind || ':' || scope_key, id, created_at, '', '', 0, ''
 	      FROM responder_preferences WHERE source_ref IN (SELECT ref FROM refs)
 	    UNION ALL
 	    SELECT 'standing rule', CASE WHEN enabled = 1 THEN 'saved' ELSE 'disabled' END,
 	           trigger_name || ' → ' || action_name,
-	           repository || ' · ' || source_kind, id, created_at, '', ''
+	           repository || ' · ' || source_kind, id, created_at, '', '', 0, ''
 	      FROM standing_rules WHERE source_ref IN (SELECT ref FROM refs)
 	    UNION ALL
 	    SELECT 'scheduled task', CASE WHEN enabled = 1 THEN 'saved' ELSE 'disabled' END,
-	           title, recurrence || ' · ' || COALESCE(next_run_at, start_at), id, created_at, '', ''
+	           title, recurrence || ' · ' || COALESCE(next_run_at, start_at), id, created_at, '', '', 0, ''
 	      FROM scheduled_tasks WHERE source_ref IN (SELECT ref FROM refs)
 	    UNION ALL
 	    SELECT 'durable memory', 'saved', subject_key,
-	           predicate || ' = ' || value_json, id, created_at, '', ''
+	           predicate || ' = ' || value_json, id, created_at, '', '', 0, ''
 	      FROM memory_entries WHERE source_ref IN (SELECT ref FROM refs)
 	    UNION ALL
-	    SELECT 'work episode', lifecycle_state, objective,
-	           mode || ' · ' || authority, id, created_at, '', ''
-	      FROM work_episodes WHERE parent_episode_id = ?
+	    SELECT 'work episode', child.lifecycle_state, child.objective,
+	           child.mode || ' · ' || child.authority, child.id,
+	           COALESCE(child.completed_at, child.updated_at, child.created_at), '', '',
+	           EXISTS (
+	             SELECT 1 FROM slack_deliveries AS delivery
+	             WHERE delivery.episode_id = child.id AND delivery.state = 'sent'
+	               AND delivery.response_root = 1 AND delivery.operation IN ('post','file')
+	           ),
+	           COALESCE((
+	             SELECT MIN(delivery.updated_at) FROM slack_deliveries AS delivery
+	             WHERE delivery.episode_id = child.id AND delivery.state = 'sent'
+	               AND delivery.response_root = 1 AND delivery.operation IN ('post','file')
+	           ), '')
+	      FROM work_episodes AS child WHERE child.id IN (SELECT id FROM descendants)
 	    UNION ALL
 	    SELECT 'conversation memory', json_extract(entry.value, '$.state'),
 	           json_extract(entry.value, '$.title'),
 	           COALESCE(json_extract(entry.value, '$.kind'), ''),
 	           audit.id || ':' || entry.key, audit.created_at,
 	           COALESCE(json_extract(entry.value, '$.before'), ''),
-	           COALESCE(json_extract(entry.value, '$.after'), '')
+	           COALESCE(json_extract(entry.value, '$.after'), ''), 0, ''
 	      FROM conversation_memory_changes AS audit,
 	           json_each(audit.changes_json) AS entry
 	      WHERE audit.episode_id = ?
 	  )
-	  SELECT kind, state, title, detail, id, created_at, before_value, after_value FROM effects
+	  SELECT kind, state, title, detail, id, created_at, before_value, after_value,
+	         responded, response_at FROM effects
 	  ORDER BY created_at, kind, id`,
 		func(rows *sql.Rows) (SideEffect, error) {
 			var item SideEffect
-			var at string
+			var at, responseAt string
 			err := rows.Scan(
 				&item.Kind, &item.State, &item.Title, &item.Detail, &item.ID, &at,
-				&item.Before, &item.After,
+				&item.Before, &item.After, &item.Responded, &responseAt,
 			)
-			item.At = parseStamp(at)
+			item.At, item.ResponseAt = parseStamp(at), parseStamp(responseAt)
 			if separator := strings.LastIndex(item.Detail, " = "); separator >= 0 {
 				var unquoted string
 				if json.Unmarshal([]byte(item.Detail[separator+3:]), &unquoted) == nil {
@@ -384,7 +404,7 @@ func (r *Reader) SideEffects(ctx context.Context, episodeID string) ([]SideEffec
 				}
 			}
 			return item, err
-		}, episodeID, episodeID, episodeID, episodeID)
+		}, episodeID, episodeID, episodeID, episodeID, episodeID)
 	return items, err
 }
 

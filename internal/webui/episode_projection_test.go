@@ -510,6 +510,46 @@ func TestEpisodeMetricsUseStandingRuleReactionAsTimeToReact(t *testing.T) {
 	}
 }
 
+func TestSupersededEpisodeShowsRetriesAndSuccessorReply(t *testing.T) {
+	received := time.Date(2026, 8, 12, 18, 58, 27, 0, time.UTC)
+	replied := received.Add(time.Hour + 19*time.Minute + 35*time.Second)
+	completed := replied.Add(-2 * time.Second)
+	page := episodePage{
+		Item:   Item{State: "superseded"},
+		Source: SourceInput{Received: received},
+		Turns:  []Turn{{RunID: "run-original", Failures: 19}},
+		Effects: []SideEffect{{
+			Kind: "work episode", State: "completed", ID: "episode-successor",
+			Title: "No theories?", At: completed, Responded: true, ResponseAt: replied,
+		}},
+	}
+	metrics := episodeMetrics(config.Pricing{}, page)
+	if metrics[0].Value != "Superseded" ||
+		!strings.Contains(metrics[0].Detail, "A newer episode replied: No theories?") {
+		t.Fatalf("outcome = %+v", metrics[0])
+	}
+	if metrics[1].Missing || metrics[1].Value != "1h 19m" ||
+		!strings.Contains(metrics[1].Detail, "A successor episode replied in Slack") {
+		t.Fatalf("response = %+v", metrics[1])
+	}
+	if metrics[3].Value != "19" ||
+		!strings.Contains(metrics[3].Detail, "19 processing failures") {
+		t.Fatalf("errors = %+v", metrics[3])
+	}
+	trace := buildEpisodeTrace(config.Pricing{}, page, nil)
+	var successor TraceStep
+	for _, step := range trace.Steps {
+		if step.Href != "" {
+			successor = step
+			break
+		}
+	}
+	if successor.Href != "/episodes/episode-successor" ||
+		!successor.At.Equal(completed) {
+		t.Fatalf("successor trace = %+v", successor)
+	}
+}
+
 func TestAuditTraceExplainsEveryMatchedAndSkippedStandingRule(t *testing.T) {
 	evaluation := core.StandingRuleEvaluationAudit{
 		Checked: 3, Matched: 1, Acknowledged: "eyes",
@@ -1152,6 +1192,92 @@ func TestEpisodeSideEffectsPreserveTurnChronologyAndPreferConfirmedMemory(t *tes
 	}
 	if effects[2].Detail != "Current goal" || !effects[2].At.Equal(t3) {
 		t.Fatalf("confirmed effect = %+v", effects[2])
+	}
+}
+
+func TestSuccessorSideEffectUsesCompletionAndReplyTimes(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	created := time.Date(2026, 8, 11, 12, 5, 0, 0, time.UTC)
+	completed := created.Add(10 * time.Minute)
+	replied := completed.Add(2 * time.Second)
+	stamp := func(value time.Time) string { return value.Format(time.RFC3339Nano) }
+	fixture.exec(`INSERT INTO agent_runs
+	  (id, mode, channel_id, thread_ts, conversation_key, source_kind, source_id,
+	   user_id, repository, idempotency_key, terminal_state, state,
+	   next_attempt_at, created_at, updated_at, completed_at, episode_id)
+	  VALUES ('run-child','triage','C1','1786000000.000001','C1:1786000000.000001',
+	          'recheck','child-source','U1','emisar','idem-child','completed','completed',
+	          ?,?,?,?,'episode-child')`, stamp(created), stamp(created), stamp(completed), stamp(completed))
+	fixture.exec(`INSERT INTO work_episodes
+	  (id, agent_run_id, effort, authority, objective, phase, status, next_action,
+	   created_at, updated_at, completed_at, lifecycle_state, parent_episode_id,
+	   channel_id, thread_ts, anchor_ts)
+	  VALUES ('episode-child','run-child','focused_check','read_only','No theories?',
+	          'finished','Completed','',?,?,?,'completed','episode-1','C1',
+	          '1786000000.000001','1786000000.000001')`, stamp(created), stamp(completed), stamp(completed))
+	fixture.exec(`INSERT INTO slack_deliveries
+	  (id, operation, kind, channel_id, thread_ts, message_ts, body_json, state,
+	   next_attempt_at, created_at, updated_at, episode_id, response_root)
+	  VALUES ('child-reply','post','notice','C1','1786000000.000001','1786000602.000001',
+	          '{}','sent',?,?,?,'episode-child',1)`, stamp(created), stamp(completed), stamp(replied))
+	reader := fixture.reader()
+	defer reader.Close()
+	effects, err := reader.SideEffects(context.Background(), "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(effects) != 1 || effects[0].ID != "episode-child" ||
+		!effects[0].At.Equal(completed) || !effects[0].Responded ||
+		!effects[0].ResponseAt.Equal(replied) {
+		t.Fatalf("successor effect = %+v", effects)
+	}
+}
+
+func TestSuccessorReplyFollowsTheWholeEpisodeChain(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	stamp := func(second int) string {
+		return time.Date(2026, 8, 11, 12, 0, second, 0, time.UTC).Format(time.RFC3339Nano)
+	}
+	for _, episode := range []struct {
+		id, parent, run string
+		second          int
+	}{
+		{"episode-child", "episode-1", "run-child", 10},
+		{"episode-grandchild", "episode-child", "run-grandchild", 20},
+	} {
+		fixture.exec(`INSERT INTO agent_runs
+		  (id, mode, channel_id, conversation_key, source_kind, source_id, user_id,
+		   idempotency_key, terminal_state, state, next_attempt_at, created_at,
+		   updated_at, completed_at, episode_id)
+		  VALUES (?, 'triage', 'C1', ?, 'recheck', ?, 'U1', ?, 'completed',
+		          'completed', ?, ?, ?, ?, ?)`, episode.run, episode.id,
+			episode.id+"-source", episode.id+"-key", stamp(episode.second),
+			stamp(episode.second), stamp(episode.second), stamp(episode.second), episode.id)
+		fixture.exec(`INSERT INTO work_episodes
+		  (id, agent_run_id, effort, authority, objective, phase, status, next_action,
+		   created_at, updated_at, completed_at, lifecycle_state, parent_episode_id)
+		  VALUES (?, ?, 'focused_check', 'read_only', ?, 'finished', 'Completed', '',
+		          ?, ?, ?, 'completed', ?)`, episode.id, episode.run, episode.id,
+			stamp(episode.second), stamp(episode.second), stamp(episode.second), episode.parent)
+	}
+	fixture.exec(`INSERT INTO slack_deliveries
+	  (id, operation, kind, channel_id, message_ts, body_json, state,
+	   next_attempt_at, created_at, updated_at, episode_id, response_root)
+	  VALUES ('grandchild-reply','post','notice','C1','1700.1','{}','sent',
+	          ?,?,?,'episode-grandchild',1)`, stamp(20), stamp(20), stamp(21))
+	reader := fixture.reader()
+	defer reader.Close()
+	effects, err := reader.SideEffects(context.Background(), "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := episodePage{Item: Item{State: "superseded"}, Source: SourceInput{
+		Received: time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC),
+	}, Effects: effects}
+	metrics := episodeMetrics(config.Pricing{}, page)
+	if len(effects) != 2 || effects[0].Responded || !effects[1].Responded ||
+		metrics[1].Missing || metrics[1].Value != "21.0s" {
+		t.Fatalf("chain effects=%+v response=%+v", effects, metrics[1])
 	}
 }
 

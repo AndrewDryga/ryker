@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -1074,6 +1076,27 @@ func (s *Store) RetryAgentRun(
 	); err != nil {
 		return err
 	}
+	if terminal {
+		run, err := scanAgentRun(tx.QueryRowContext(ctx, `
+			SELECT `+agentRunColumns+` FROM agent_runs WHERE id = ?`, id))
+		if err != nil {
+			return err
+		}
+		var ownsEpisode bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT latest_attempt_id = ? FROM work_episodes WHERE id = ?`,
+			run.AttemptID, run.EpisodeID,
+		).Scan(&ownsEpisode); err != nil {
+			return err
+		}
+		if ownsEpisode {
+			if err := s.setFailureMarkerTx(
+				ctx, tx, run, "failure_marker_add", true, s.nowText(),
+			); err != nil {
+				return err
+			}
+		}
+	}
 	return tx.Commit()
 }
 
@@ -1324,10 +1347,11 @@ func (s *Store) RequeueFailedAgentRun(ctx context.Context, id, detail string) er
 		return err
 	}
 	defer tx.Rollback()
-	var state, attemptID, episodeID string
+	var state, attemptID, episodeID, sourceID, incidentID string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT state, attempt_id, episode_id FROM agent_runs WHERE id = ?`, id,
-	).Scan(&state, &attemptID, &episodeID); err != nil {
+		SELECT state, attempt_id, episode_id, source_id, COALESCE(incident_id, '')
+		FROM agent_runs WHERE id = ?`, id,
+	).Scan(&state, &attemptID, &episodeID, &sourceID, &incidentID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("requeue failed agent run: %w", ErrNotFound)
 		}
@@ -1357,6 +1381,7 @@ func (s *Store) RequeueFailedAgentRun(ctx context.Context, id, detail string) er
 		return errors.New("the episode completed on a later attempt; there is nothing left to retry")
 	}
 	now := s.nowText()
+	newRunKey := fmt.Sprintf("responder:run:%s:%s", id, recoveryID)
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', idempotency_key = ?,
@@ -1364,7 +1389,7 @@ func (s *Store) RequeueFailedAgentRun(ctx context.Context, id, detail string) er
 		    result_json = X'', terminal_state = '', last_error = ?,
 		    next_attempt_at = ?, completed_at = NULL, updated_at = ?
 		WHERE id = ? AND state = 'failed'`,
-		fmt.Sprintf("responder:run:%s:%s", id, recoveryID),
+		newRunKey,
 		sqlutil.BoundedError(detail),
 		now, now, id,
 	)
@@ -1381,6 +1406,12 @@ func (s *Store) RequeueFailedAgentRun(ctx context.Context, id, detail string) er
 		"Retry the work from preserved context", time.Time{},
 		fmt.Sprintf("agent-run:%s:%s", id, recoveryID),
 	); err != nil {
+		return err
+	}
+	if err := s.setFailureMarkerTx(ctx, tx, core.AgentRun{
+		ID: id, EpisodeID: episodeID, IncidentID: incidentID,
+		SourceID: sourceID, IdempotencyKey: newRunKey,
+	}, "failure_marker_remove", false, now); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -1662,11 +1693,65 @@ func (s *Store) FinishAgentRunFailure(
 		if err := s.applyAgentRunFailureEffectsTx(ctx, tx, run, effects); err != nil {
 			return "", false, err
 		}
+		if err := s.setFailureMarkerTx(ctx, tx, run, "failure_marker_add", true, s.nowText()); err != nil {
+			return "", false, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return "", false, err
 	}
 	return finalState, true, nil
+}
+
+const responderFailureReaction = "warning"
+
+func failureMarkerDeliveryID(action string, run core.AgentRun) string {
+	digest := sha256.Sum256([]byte(run.IdempotencyKey))
+	return "delivery_" + action + "_" + run.ID + "_" + hex.EncodeToString(digest[:8])
+}
+
+// setFailureMarkerTx records the desired low-noise health marker beside the
+// terminal lifecycle change that caused it. The coalesce key makes the newest
+// add/remove intent authoritative across fast retry/fail cycles; a currently
+// sending predecessor remains serialized by LeaseSlackDelivery.
+func (s *Store) setFailureMarkerTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	run core.AgentRun,
+	action string,
+	bindSource bool,
+	now string,
+) error {
+	var channelID, messageTS, envelopeID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT channel_id, message_ts, envelope_id FROM slack_inputs
+		WHERE id = ? AND channel_id != '' AND message_ts != ''`, run.SourceID,
+	).Scan(&channelID, &messageTS, &envelopeID); errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if strings.HasPrefix(envelopeID, "replay-private:") {
+		return nil
+	}
+	coalesceKey := "reaction:" + channelID + ":" + messageTS + ":" + responderFailureReaction
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE slack_deliveries
+		SET state = 'superseded', last_error = 'newer reaction intent', updated_at = ?
+		WHERE coalesce_key = ? AND state IN ('pending', 'retry')`, now, coalesceKey); err != nil {
+		return err
+	}
+	sourceInputID := ""
+	if bindSource {
+		sourceInputID = run.SourceID
+	}
+	return s.insertTerminalSlackDeliveryTx(ctx, tx, core.SlackDelivery{
+		ID: failureMarkerDeliveryID(action, run), IncidentID: run.IncidentID,
+		EpisodeID: run.EpisodeID, AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey,
+		SourceInputID: sourceInputID, Operation: "reaction", Kind: action,
+		ChannelID: channelID, MessageTS: messageTS, Status: responderFailureReaction,
+		CoalesceKey: coalesceKey,
+	}, now)
 }
 
 // AgentRunFailureEffects are shared bindings that must retire in the same

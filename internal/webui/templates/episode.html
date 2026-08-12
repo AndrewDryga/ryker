@@ -56,7 +56,7 @@
         <div class="trace-marker" aria-hidden="true"><i></i></div>
         <div class="trace-step-card">
           <header class="trace-step-header">
-            <h4>{{.Title}}</h4>
+            <h4>{{if .Href}}<a href="{{.Href}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</h4>
             <div class="trace-step-side">
               {{if .Actor}}<span class="trace-actor">{{.Actor}}</span>{{end}}
               {{if .State}}<span class="trace-step-state">{{.State}}</span>{{end}}
@@ -79,8 +79,9 @@
 
           {{if .Stats}}
           <div class="trace-step-stats">
+            {{$stepHref := .Href}}
             {{range .Stats}}
-            <span><small>{{.Label}}</small><strong>{{.Value}}</strong></span>
+            <span><small>{{.Label}}</small><strong>{{if and $stepHref (eq .Label "ID")}}<a href="{{$stepHref}}">{{.Value}}</a>{{else}}{{.Value}}{{end}}</strong></span>
             {{end}}
           </div>
           {{end}}

@@ -21,6 +21,116 @@ import (
 	"github.com/slack-go/slack/socketmode"
 )
 
+func TestDurableFailureMarkerAddsAndRemovesOneWarningReaction(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	for _, delivery := range []core.SlackDelivery{
+		{ID: "marker_add", Operation: "reaction", Kind: "failure_marker_add", ChannelID: "C1", MessageTS: "1700.1", Status: "warning"},
+		{ID: "marker_remove", Operation: "reaction", Kind: "failure_marker_remove", ChannelID: "C1", MessageTS: "1700.1", Status: "warning"},
+	} {
+		if created, err := st.EnqueueSlackDelivery(ctx, delivery); err != nil || !created {
+			t.Fatalf("enqueue %s = %t, %v", delivery.ID, created, err)
+		}
+		if err := svc.processSlackDelivery(ctx, []string{"C1"}); err != nil {
+			t.Fatalf("process %s: %v", delivery.ID, err)
+		}
+	}
+	if len(slackClient.reactions) != 1 || slackClient.reactions[0].name != "warning" ||
+		slackClient.reactions[0].timestamp != "1700.1" {
+		t.Fatalf("added reactions = %+v", slackClient.reactions)
+	}
+	if len(slackClient.removedReactions) != 1 || slackClient.removedReactions[0].name != "warning" ||
+		slackClient.removedReactions[0].timestamp != "1700.1" {
+		t.Fatalf("removed reactions = %+v", slackClient.removedReactions)
+	}
+}
+
+func TestFailureMarkerIntentWaitsForAnInFlightPredecessor(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const coalesceKey = "reaction:C1:1700.2:warning"
+	for _, delivery := range []core.SlackDelivery{
+		{ID: "marker_inflight_add", Operation: "reaction", Kind: "failure_marker_add", ChannelID: "C1", MessageTS: "1700.2", Status: "warning", CoalesceKey: coalesceKey},
+		{ID: "marker_waiting_remove", Operation: "reaction", Kind: "failure_marker_remove", ChannelID: "C1", MessageTS: "1700.2", Status: "warning", CoalesceKey: coalesceKey},
+	} {
+		if created, err := st.EnqueueSlackDelivery(ctx, delivery); err != nil || !created {
+			t.Fatalf("enqueue %s = %t, %v", delivery.ID, created, err)
+		}
+		if delivery.Kind == "failure_marker_add" {
+			leased, err := st.LeaseSlackDelivery(ctx, nil)
+			if err != nil || leased.ID != delivery.ID {
+				t.Fatalf("lease add = %+v, %v", leased, err)
+			}
+		}
+	}
+	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("remove passed its in-flight predecessor: %v", err)
+	}
+	if err := st.FinishSlackDelivery(ctx, "marker_inflight_add", "1700.2", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil || leased.ID != "marker_waiting_remove" {
+		t.Fatalf("lease removal after add receipt = %+v, %v", leased, err)
+	}
+}
+
+func TestFailedInFlightReactionCannotOverrideNewerIntent(t *testing.T) {
+	for _, tc := range []struct {
+		name, olderKind, newerKind string
+	}{
+		{"failed add cannot override remove", "failure_marker_add", "failure_marker_remove"},
+		{"failed remove cannot override add", "failure_marker_remove", "failure_marker_add"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			cfg := serviceConfig(t)
+			st, err := store.Open(cfg.StateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			const coalesceKey = "reaction:C1:1700.3:warning"
+			for _, delivery := range []core.SlackDelivery{
+				{ID: "older", Operation: "reaction", Kind: tc.olderKind, ChannelID: "C1", MessageTS: "1700.3", Status: "warning", CoalesceKey: coalesceKey},
+				{ID: "newer", Operation: "reaction", Kind: tc.newerKind, ChannelID: "C1", MessageTS: "1700.3", Status: "warning", CoalesceKey: coalesceKey},
+			} {
+				if created, err := st.EnqueueSlackDelivery(ctx, delivery); err != nil || !created {
+					t.Fatalf("enqueue %s = %t, %v", delivery.ID, created, err)
+				}
+				if delivery.ID == "older" {
+					if _, err := st.LeaseSlackDelivery(ctx, nil); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if err := st.RetrySlackDelivery(ctx, "older", "Slack 500", time.Now(), false, false); err != nil {
+				t.Fatal(err)
+			}
+			older, err := st.GetSlackDelivery(ctx, "older")
+			if err != nil || older.State != "superseded" {
+				t.Fatalf("older reaction = %+v, %v", older, err)
+			}
+			leased, err := st.LeaseSlackDelivery(ctx, nil)
+			if err != nil || leased.ID != "newer" {
+				t.Fatalf("newer reaction = %+v, %v", leased, err)
+			}
+		})
+	}
+}
+
 func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

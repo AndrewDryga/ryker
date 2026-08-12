@@ -98,6 +98,57 @@ func TestPrivateSlackReplayRunsWithoutPublicSideEffects(t *testing.T) {
 	}
 }
 
+func TestPrivateSlackReplayTerminalFailureHasNoPublicSideEffects(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.NativeStatus = true
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack_replay_private_failure", EnvelopeID: "replay-private:slack_replay_private_failure",
+		EventID: "replay-private:slack_replay_private_failure", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CREPLAY", MessageTS: "1700.300",
+		UserID: "U123ABC", Text: "verify privately",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit private replay = %t, %v", created, err)
+	}
+	if _, err := st.LeaseSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+		ConversationKey: "channel:" + input.ChannelID, SourceKind: "watch", SourceID: input.ID,
+		UserID: input.UserID, Context: []byte(`{}`),
+	})
+	if err != nil || !created {
+		t.Fatalf("queue private replay = %+v, %t, %v", run, created, err)
+	}
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.finishTriageRunFailure(
+		ctx, run, input, decisionpkg.WatchTurnState{}, "internal operation failure",
+	); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 0 || len(slackClient.updates) != 0 ||
+		len(slackClient.statuses) != 0 || len(slackClient.reactions) != 0 ||
+		len(slackClient.removedReactions) != 0 {
+		t.Fatalf("failed private replay produced public Slack side effects: %+v", slackClient)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || stored.State != core.AgentRunFailed {
+		t.Fatalf("private replay failure = %+v, %v", stored, err)
+	}
+}
+
 func TestPrivateSlackReplayBypassesStaleMessageCoalescing(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
