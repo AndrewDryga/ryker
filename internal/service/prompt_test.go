@@ -339,7 +339,9 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // Raised by 40 on 2026-08-11 to replace the obsolete instruction that forced
 // multi-check requests through serial confirmations. These bytes define the
 // atomic batch and make later timing corrections replace older variants.
-const staticWatchPromptBytes = 48682
+// Raised by 321 on 2026-08-11 for the typed ambient-contribution contract. It
+// lets the host reject confident but unhelpful restatements deterministically.
+const staticWatchPromptBytes = 49003
 
 // The static prompt must not grow without someone deciding it should.
 //

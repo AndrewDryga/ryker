@@ -490,7 +490,7 @@ func TestLiveConversationEvaluationPreparesSessionBeforeMeasuredTurn(t *testing.
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
-	  "attention":{"addressee":"responder","confidence":3,"ownership":2},
+	  "attention":{"addressee":"responder","confidence":3,"ownership":2,"contribution":"decision","material":true},
 	  "reason":"ordinary arithmetic",
 	  "message":"8",
 	  "evidence":[],
@@ -885,8 +885,8 @@ func TestStatefulScenarioUsesPriorConversationAcrossChannelsAndRestart(t *testin
 	cfg := serviceConfig(t)
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"direct question","message":"Cloud SQL latency remains unverified.","memory":{"goal":"finish health review","open_loops":["verify Cloud SQL latency"]}}`,
-		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"reason":"follow-up","message":"It prevents an end-to-end health verdict.","memory":{"goal":"finish health review","open_loops":["verify Cloud SQL latency"]}}`,
+		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"reason":"direct question","message":"Cloud SQL latency remains unverified.","memory":{"goal":"finish health review","open_loops":["verify Cloud SQL latency"]}}`,
+		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"reason":"follow-up","message":"It prevents an end-to-end health verdict.","memory":{"goal":"finish health review","open_loops":["verify Cloud SQL latency"]}}`,
 	}
 	corpus := strings.NewReader(`{"name":"cross channel","repository":"repo","seeds":[{"channel":"CINFRA","repository":"repo","memory":{"goal":"finish health review","open_loops":["verify Cloud SQL latency"]}}],"steps":[{"name":"ask elsewhere","channel":"CALERTS","input":"What remains?","mentions_responder":true,"expect":{"want_action":"reply","want_message_contains":["Cloud SQL"]}},{"name":"restart followup","channel":"CALERTS","restart_before":true,"input":"Why does that matter?","mentions_responder":true,"expect":{"want_action":"reply","want_message_contains":["health verdict"]}}]}`)
 	summary, err := EvaluateLiveScenariosJSONL(

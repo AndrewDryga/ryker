@@ -34,7 +34,7 @@ func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 			"action":"reply",
-			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},
+			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 			"message":"I can make that repository change.",
 		"task_title":"Update deployment packs"
 	}`
@@ -369,7 +369,7 @@ func TestWatchedTurnResumesFromDurableState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},"message":"Yes, the deploy recovered."}`)
+	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"message":"Yes, the deploy recovered."}`)
 	st, err = store.Open(cfg.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -532,7 +532,7 @@ func TestWatchedRunRepairsStaleRotatedEventCursor(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},"message":"The Terraform plan is safe to apply."}`)
+	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"message":"The Terraform plan is safe to apply."}`)
 	coopClient.session.LastEventSequence = 1
 	svc.pollAgentRuns(ctx)
 	if err := svc.processAgentRunFinalization(ctx); err != nil {
@@ -609,7 +609,7 @@ func TestParseWatchDecisionAcceptsEmptyOptionalObservationTimestamps(t *testing.
 	decision, err := decisionpkg.ParseWatchDecision(`{
 		"action":"reply",
 		"message":"The live layer is healthy; the declared layer has no source timestamp.",
-		"attention":{"addressee":"responder","confidence":3,"ownership":3},
+		"attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},
 		"evidence":[
 			{
 				"claim":"Topology is declared",
@@ -724,6 +724,83 @@ func TestAttentionPolicySuppressesLowValueAmbientInterruptions(t *testing.T) {
 	)
 	if filtered.Action != "ignore" {
 		t.Fatalf("human-directed continuation was not suppressed: %+v", filtered)
+	}
+
+	decision.Attention = decisionpkg.AttentionAssessment{
+		Addressee: "channel", Urgency: 1, Confidence: 3, Novelty: 2, Ownership: 2,
+		Contribution: "none", Material: false,
+	}
+	filtered = attentionpkg.Enforce(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
+	if filtered.Action != "ignore" {
+		t.Fatalf("high-scoring ambient restatement was not suppressed: %+v", filtered)
+	}
+
+	decision.Attention.Contribution = "new_evidence"
+	decision.Attention.Material = true
+	filtered = attentionpkg.Enforce(input, decisionpkg.WatchTurnState{}, decision, 7, 4)
+	if filtered.Action != "reply" {
+		t.Fatalf("material ambient contribution was suppressed: %+v", filtered)
+	}
+}
+
+func TestAttentionPolicySuppressesAmbientReplyInHumanDirectedThread(t *testing.T) {
+	input := core.SlackInput{
+		Kind:      "message",
+		ChannelID: "CASKDEVOPS",
+		ThreadTS:  "1786478872.467239",
+		Text:      "I don't have permission to create apps",
+	}
+	state := decisionpkg.WatchTurnState{RecentMessages: []decisionpkg.WatchContextMessage{
+		{
+			MessageTS:  "1786478872.467239",
+			SenderType: "human",
+			Text:       "<@U0TENANTUS2> do you have full permissions on Cloudflare?",
+		},
+		{
+			MessageTS:  "1786479075.100000",
+			ThreadTS:   "1786478872.467239",
+			SenderType: "human",
+			Text:       "Could you please help? Repository is github.com/tenantcorp/tenantcorp.gg",
+		},
+	}}
+	result := decisionpkg.WatchDecision{
+		Action: "reply",
+		Message: "The screenshot shows Astro, master, npm run build, and dist. " +
+			"Repository access and Cloudflare permissions are the blockers.",
+		Attention: decisionpkg.AttentionAssessment{
+			Addressee: "channel", Urgency: 1, Confidence: 3, Novelty: 2, Ownership: 2,
+			Contribution: "none", Material: false,
+		},
+	}
+
+	filtered := attentionpkg.Enforce(input, state, result, 7, 4)
+	if filtered.Action != "ignore" || filtered.Message != "" {
+		t.Fatalf("human-directed thread reply was not suppressed: %+v", filtered)
+	}
+
+	result.Action = "react"
+	result.Message = ""
+	result.Reaction = "eyes"
+	filtered = attentionpkg.Enforce(input, state, result, 7, 4)
+	if filtered.Action != "ignore" || filtered.Reaction != "" {
+		t.Fatalf("human-directed thread reaction was not suppressed: %+v", filtered)
+	}
+
+	result.Action = "reply"
+	result.Message = "The live Cloudflare project uses different build settings."
+	result.Attention.Contribution = "new_evidence"
+	result.Attention.Material = true
+	filtered = attentionpkg.Enforce(input, state, result, 7, 4)
+	if filtered.Action != "reply" {
+		t.Fatalf("material evidence in a human-directed thread was suppressed: %+v", filtered)
+	}
+
+	input.Kind = "mention"
+	result.Attention.Contribution = "none"
+	result.Attention.Material = false
+	filtered = attentionpkg.Enforce(input, state, result, 7, 4)
+	if filtered.Action != "reply" {
+		t.Fatalf("explicit mention in human-directed thread was suppressed: %+v", filtered)
 	}
 }
 

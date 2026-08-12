@@ -47,7 +47,7 @@ func (a AttentionAssessment) Score() int {
 
 func (a AttentionAssessment) Present() bool {
 	return a.Addressee != "" || a.Urgency != 0 || a.Confidence != 0 ||
-		a.Novelty != 0 || a.Ownership != 0
+		a.Novelty != 0 || a.Ownership != 0 || a.Contribution != "" || a.Material
 }
 
 func EpisodeContainsAny(value string, terms ...string) bool {
@@ -127,11 +127,13 @@ type PublicationUpdate struct {
 type AlertAssessment = investigation.AlertAssessment
 
 type AttentionAssessment struct {
-	Addressee  string `json:"addressee,omitempty"`
-	Urgency    int    `json:"urgency,omitempty"`
-	Confidence int    `json:"confidence,omitempty"`
-	Novelty    int    `json:"novelty,omitempty"`
-	Ownership  int    `json:"ownership,omitempty"`
+	Addressee    string `json:"addressee,omitempty"`
+	Urgency      int    `json:"urgency,omitempty"`
+	Confidence   int    `json:"confidence,omitempty"`
+	Novelty      int    `json:"novelty,omitempty"`
+	Ownership    int    `json:"ownership,omitempty"`
+	Contribution string `json:"contribution,omitempty"`
+	Material     bool   `json:"material,omitempty"`
 }
 
 func OperationalAlertEvent(text string) bool {
@@ -715,6 +717,14 @@ func ValidateAttentionAssessment(value AttentionAssessment) error {
 		if score < 0 || score > 3 {
 			return fmt.Errorf("attention %s must be between 0 and 3", name)
 		}
+	}
+	switch value.Contribution {
+	case "", "none", "material_correction", "new_evidence", "decision", "completed_action", "necessary_question":
+	default:
+		return fmt.Errorf("unsupported attention contribution %q", value.Contribution)
+	}
+	if value.Material && (value.Contribution == "" || value.Contribution == "none") {
+		return errors.New("material attention requires a concrete contribution")
 	}
 	return nil
 }

@@ -299,7 +299,7 @@ func TestTypedResultOperationsFoldIntoAgentAndWatchResults(t *testing.T) {
 
 	decision, err := decisionpkg.ParseWatchDecision(`{
   "action":"reply",
-  "attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":1,"ownership":3},
+  "attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":1,"ownership":3,"contribution":"decision","material":true},
   "reason":"direct request",
   "operations":[
     {"id":"c1","type":"complete_episode","completion":{"message":"The check passed.","completion":{"status":"decision_ready","summary":"Passed"}}}

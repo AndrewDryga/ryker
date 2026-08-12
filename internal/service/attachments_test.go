@@ -178,7 +178,7 @@ func TestSlackAttachmentReachesQueuedCoopTurn(t *testing.T) {
 	slackClient := &fakeSlack{files: map[string][]byte{privateURL: testPNG}}
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{"action":"reply","attention":{"addressee":"direct",` +
-		`"urgency":1,"confidence":3,"novelty":2,"ownership":2},` +
+		`"urgency":1,"confidence":3,"novelty":2,"ownership":2,"contribution":"decision","material":true},` +
 		`"message":"The screenshot shows a failed deployment."}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,

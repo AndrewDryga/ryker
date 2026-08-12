@@ -478,7 +478,7 @@ func TestMalformedDeepCompletionIsCorrectedAndRetried(t *testing.T) {
 	coopClient.completeQueue = []string{
 		`{
 		  "action":"reply",
-		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3},
+		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
 		  "message":"Application impact still needs investigation.",
 		  "coverage":[
 		    {"layer":"change","status":"healthy","detail":"revision is current"},
@@ -493,7 +493,7 @@ func TestMalformedDeepCompletionIsCorrectedAndRetried(t *testing.T) {
 		}`,
 		`{
 		  "action":"reply",
-		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3},
+		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
 		  "message":"Core infrastructure responds, but customer impact cannot be verified with the configured sources.",
 		  "coverage":[
 		    {"layer":"change","status":"healthy","detail":"revision is current"},
@@ -577,7 +577,7 @@ func TestToolFailureBlockerOffersBoundedRepositoryFix(t *testing.T) {
 	const taskPrompt = "Replace jq gsub and test usage in the hcp-terraform pack with regex-free core jq operations, preserve cleanup and plan-version validation, add regression coverage for jq without Oniguruma, then run the focused pack tests."
 	coopClient.completeOnSubmit = `{
 		"action":"reply",
-		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 		"operations":[
 			{"id":"evidence-source","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"The HCP Terraform pack depends on optional jq regex support.","observation":"The shared filter uses gsub and plan-version validation uses test; both fail on jq builds without Oniguruma.","relation":"supports","health_effect":"none","source_type":"repository","source_id":"repo:hcp-terraform","source_name":"packs/hcp-terraform scripts","observed_at":"2026-08-04T12:00:00Z","freshness":"current checkout","confidence":"high","dimensions":{"repository":"repo","revision":"current"}}},
 			{"id":"offer-fix","type":"offer_task","task":{"kind":"engineering","title":"Make the HCP Terraform pack portable across jq builds","repository":"repo","prompt":` + fmt.Sprintf("%q", taskPrompt) + `}},

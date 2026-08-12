@@ -439,9 +439,11 @@ pending, include the exact pending_approval object returned by Emisar as the req
 
 func WatchEnvelopePrompt() string {
 	return `The final watch response uses this outer envelope:
-{"action":"ignore|react|reply|incident|escalate","reaction":"eyes for react only","title":"incident title for incident only","attention":{"addressee":"responder|channel|human|unclear","urgency":0,"confidence":0,"novelty":0,"ownership":0},"reason":"concise classification reason","publication_updates":[],"operations":[]}
+{"action":"ignore|react|reply|incident|escalate","reaction":"eyes for react only","title":"incident title for incident only","attention":{"addressee":"responder|channel|human|unclear","urgency":0,"confidence":0,"novelty":0,"ownership":0,"contribution":"none|material_correction|new_evidence|decision|completed_action|necessary_question","material":false},"reason":"concise classification reason","publication_updates":[],"operations":[]}
 
-Every attention score is an integer from 0 through 3 inclusive. Never emit 4 or a larger value.
+Every attention score is an integer from 0 through 3 inclusive. For ambient messages, name the
+contribution and set material=true only when speaking changes understanding, a decision, or the next
+action. Restatements, known blockers, generic advice, and unavailable access are none/false and ignore.
 
 The outer JSON is only the transport envelope; typed operations carry the result.
 Background learning is independent of the Slack action. Ignore may have no operations, one update_memory,

@@ -28,6 +28,32 @@ func TestParseWatchDecisionAcceptsSeveralScheduleOffers(t *testing.T) {
 	}
 }
 
+func TestValidateAttentionAssessmentRequiresConcreteMaterialContribution(t *testing.T) {
+	valid := AttentionAssessment{
+		Addressee: "channel", Urgency: 1, Confidence: 3, Novelty: 2, Ownership: 2,
+		Contribution: "new_evidence", Material: true,
+	}
+	if err := ValidateAttentionAssessment(valid); err != nil {
+		t.Fatalf("valid attention assessment: %v", err)
+	}
+
+	for name, assessment := range map[string]AttentionAssessment{
+		"material without contribution": {
+			Addressee: "channel", Contribution: "none", Material: true,
+		},
+		"unknown contribution": {
+			Addressee: "channel", Contribution: "summary", Material: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateAttentionAssessment(assessment); err == nil {
+				t.Fatalf("assessment was accepted: %+v", assessment)
+			}
+		})
+	}
+
+}
+
 // A reply that is both fenced and schema-invalid must be reported for the
 // schema, not the fence.
 //

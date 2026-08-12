@@ -151,6 +151,7 @@ func StandingRuleIncidentAsReply(decision WatchDecision, offerIncident bool) Wat
 	if !decision.Attention.Present() {
 		decision.Attention = AttentionAssessment{
 			Addressee: "channel", Urgency: 3, Confidence: 3, Novelty: 3, Ownership: 2,
+			Contribution: "decision", Material: true,
 		}
 	}
 	if offerIncident {

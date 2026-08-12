@@ -272,7 +272,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 		{
 			name: "reply", kind: "message",
 			decision: `{"action":"reply","attention":{"addressee":"channel",` +
-				`"urgency":1,"confidence":3,"novelty":2,"ownership":2},` +
+				`"urgency":1,"confidence":3,"novelty":2,"ownership":2,"contribution":"decision","material":true},` +
 				`"message":"The deploy recovered; no action is needed."}`,
 			wantState: "done", wantPosts: 1,
 		},
@@ -280,7 +280,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			name: "operator governed action awaits Emisar approval", kind: "message",
 			text: "Enable origin certificate verification for this pull zone.",
 			decision: `{"action":"reply","attention":{"addressee":"responder",` +
-				`"urgency":2,"confidence":3,"novelty":2,"ownership":3},` +
+				`"urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},` +
 				`"message":"Emisar accepted the exact request and paused it for approval.",` +
 				`"pending_approval":{"request_id":"apr_watch_1","run_id":"run_watch_1",` +
 				`"operation_id":"op_watch_1","action_id":"bunny.pull_zone.update",` +
@@ -299,7 +299,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			name: "configured app alert offers incident", kind: "bot_message",
 			alertPolicy: "offer",
 			decision: `{"action":"reply","attention":{"addressee":"channel",` +
-				`"urgency":3,"confidence":3,"novelty":3,"ownership":3},` +
+				`"urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},` +
 				`"message":"Checkout errors are elevated and need investigation.",` +
 				`"incident_title":"Checkout error rate is elevated"}`,
 			wantState: "done", wantPosts: 1, wantOffer: true,
@@ -308,7 +308,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			name: "configured app alert replies in place", kind: "bot_message",
 			alertPolicy: "reply",
 			decision: `{"action":"reply","attention":{"addressee":"channel",` +
-				`"urgency":3,"confidence":3,"novelty":3,"ownership":3},` +
+				`"urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},` +
 				`"message":"Checkout errors are elevated and need investigation."}`,
 			wantState: "done", wantPosts: 1,
 		},
@@ -316,7 +316,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			name: "reply incident offer obeys automatic app policy", kind: "bot_message",
 			alertPolicy: "automatic",
 			decision: `{"action":"reply","attention":{"addressee":"channel",` +
-				`"urgency":3,"confidence":3,"novelty":3,"ownership":3},` +
+				`"urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},` +
 				`"message":"The alert is credible.",` +
 				`"incident_title":"Checkout error rate is elevated"}`,
 			wantState: "done", wantPosts: 1, wantIncidents: 1,
@@ -569,7 +569,7 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
-	  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},
+	  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 	  "message":"Two production runners are disconnected.",
 	  "incident_title":"Two production runners disconnected",
 	  "coverage":[
@@ -697,7 +697,7 @@ func TestWatchedScheduleAndRunbookRequestUsesEmisarAndOffersSchedule(t *testing.
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 		"action":"reply",
-		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":3,"ownership":3},
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
 		"reason":"the operator requested an Emisar runbook and recurring execution",
 		"message":"I created and published the reusable Emisar runbook deep-infrastructure-health@1. Confirm the daily schedule below.",
 		"schedule_offer":{
@@ -791,13 +791,13 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{`{
 		"action":"reply",
-		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 		"reason":"the operator explicitly activated the established daily report",
 		"message":"Activated. The daily report will run at 09:00.",
 		"completion":{"status":"decision_ready","verdict":"completed","summary":"The daily report is active."}
 	}`, `{
 		"action":"reply",
-		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 		"reason":"the operator explicitly activated the established daily report",
 		"message":"The daily report is ready.",
 		"schedule_offer":{
@@ -867,7 +867,7 @@ func TestWatchedCompoundRequestPostsOrderedMessagesInOneThread(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 		"action":"reply",
-		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":3,"ownership":3},
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
 		"reason":"the operator requested three independent read-only outcomes",
 		"message":"**CI:** all required checks passed for the current revision.",
 		"followup_messages":[
@@ -933,7 +933,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 			"action":"reply",
-			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},
+			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 			"message":"I can audit and update infra/ in a dedicated isolated working copy.",
 			"followup_messages":["I will keep unrelated application settings unchanged."],
 			"task_title":"Audit infrastructure packs"
@@ -1170,7 +1170,7 @@ func TestWatchedEngineeringOfferConditionsPrimaryReplyOnConfirmation(t *testing.
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 		"action":"reply",
-		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3},
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 		"message":"Yes — I’ll prepare a PR to require a sustained latency condition before this warning fires. I’ll also review the device wording.",
 		"task_title":"Reduce Cassandra disk-latency alert noise",
 		"task_repository":"repo"
@@ -1233,7 +1233,7 @@ func TestDecisionReadyDiagnosisOffersIncidentAndPreparedFix(t *testing.T) {
 	const taskPrompt = "Update the LoL rank decoder to treat unknown upstream rank values as unranked, add focused regression tests for WOOD and SALT, and verify the exact production error signature is absent after deployment."
 	coopClient.completeOnSubmit = `{
 		"action":"reply",
-		"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3},
+		"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
 		"message":"LoL requests are failing because the rank decoder rejects new upstream values.",
 		"incident_title":"Coordinate LoL request degradation",
 		"task_title":"Make LoL rank decoding forward-compatible",

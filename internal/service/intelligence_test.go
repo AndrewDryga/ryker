@@ -31,7 +31,7 @@ func TestWatchedStructuredReportPersistsEvidenceCoverageAndMemory(t *testing.T) 
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 		  "action":"reply",
-		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3},
+		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 		  "reason":"The operator asked Responder for a health assessment.",
 	  "message":"**Current assessment:** declared capacity is two instances; scheduler state remains unknown.",
 	  "evidence":[{

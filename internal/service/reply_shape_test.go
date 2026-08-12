@@ -38,6 +38,7 @@ func TestOverlongReplyIsCorrectedOnceAndThenPosted(t *testing.T) {
 			"action": "reply",
 			"attention": map[string]any{
 				"addressee": "responder", "confidence": 3, "novelty": 2, "ownership": 3,
+				"contribution": "decision", "material": true,
 			},
 			"reason":  "answering the greeting",
 			"message": message,

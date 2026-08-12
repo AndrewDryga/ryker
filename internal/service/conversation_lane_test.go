@@ -195,7 +195,7 @@ func TestConversationReplyReturnsToPreviouslyExitedThread(t *testing.T) {
 	defer st.Close()
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1},"reason":"direct request","message":"hi","memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1,"contribution":"decision","material":true},"reason":"direct request","message":"hi","memory":{}}`,
 	}
 	slack := &fakeSlack{}
 	svc := New(
@@ -382,7 +382,7 @@ func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 	defer st.Close()
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1},"reason":"ordinary arithmetic","message":"8","memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1,"contribution":"decision","material":true},"reason":"ordinary arithmetic","message":"8","memory":{}}`,
 	}
 	slack := &fakeSlack{}
 	svc := New(
@@ -476,7 +476,7 @@ func TestConversationLaneEscalatesOperationalWorkWithoutRetryPenalty(t *testing.
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
 		`{"action":"escalate","attention":{"addressee":"responder","confidence":3,"ownership":2},"reason":"requires current CI evidence","memory":{}}`,
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"verified current state","message":"CI is green.","evidence":[],"coverage":[],"memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"verified current state","message":"CI is green.","evidence":[],"coverage":[],"memory":{}}`,
 	}
 	slack := &fakeSlack{}
 	svc := New(
@@ -545,10 +545,10 @@ func TestEscalatedDeepWorkReceivesStructuredCorrection(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
 		`{"action":"escalate","attention":{"addressee":"responder","confidence":3,"ownership":2},"reason":"requires current production evidence","memory":{}}`,
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3},"reason":"checked production","message":"Production is healthy.","evidence":[],"coverage":[],"memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"checked production","message":"Production is healthy.","evidence":[],"coverage":[],"memory":{}}`,
 		`{
 		  "action":"reply",
-		  "attention":{"addressee":"responder","confidence":3,"ownership":3},
+		  "attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},
 		  "reason":"completed every required check",
 		  "message":"Production is healthy across the requested scope.",
 		  "coverage":[

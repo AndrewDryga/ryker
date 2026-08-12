@@ -191,7 +191,7 @@ func TestLocationWorkIgnoreIsRetriedAndAnswered(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
 		`{"action":"ignore","attention":{"addressee":"responder","confidence":3,"ownership":1},"reason":"duplicate"}`,
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"novelty":2,"ownership":3},"reason":"current arithmetic request","message":"8"}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"reason":"current arithmetic request","message":"8"}`,
 	}
 	svc := New(
 		cfg,
