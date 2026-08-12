@@ -519,18 +519,31 @@ for target validation, policy, approval, execution, and audit; Slack only links 
 approval returned by Emisar. Responder monitors and reports that exact run but cannot approve it,
 substitute another run, or repeat the mutation during terminal verification.
 
-Use the fast deterministic development gate while iterating:
+Use the smallest mechanical check while editing. With no arguments it formats changed Go files,
+runs their owning package tests, and checks changed shell scripts:
+
+```bash
+make focus
+make focus FOCUS_PACKAGE=./internal/service FOCUS_TEST='^TestName$'
+```
+
+Use the parallel fast deterministic gate for a completed edit batch:
 
 ```bash
 make dev-check
 ```
 
-Run the full CI and release gate once before shipping concurrency, persistence, security, or
-shared-contract changes:
+After committing, prove and build the exact commit once. The proof and binary are content-bound
+and reused by later deployment commands for up to 24 hours:
 
 ```bash
-make check
+make candidate
+make canary
+make promote
 ```
+
+`make check` remains the uncached full CI and release gate. CI runs it independently on a clean
+runner; a local candidate cache can never satisfy CI.
 
 `make customer-check` is the faster deterministic product-behavior gate: it runs the Go customer
 journeys and replays the checked-in redacted JSONL response corpus through strict production

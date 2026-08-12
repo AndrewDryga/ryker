@@ -24,6 +24,16 @@
 # close it. Nothing here should be read as a claim that it does.
 set -euo pipefail
 
+mode=all
+case "${1:-}" in
+  --canary) mode=canary; shift ;;
+  --promote) mode=promote; shift ;;
+esac
+if [[ $# -gt 0 ]]; then
+  echo "self-deploy: unknown argument $1 (use --canary or --promote)" >&2
+  exit 2
+fi
+
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 agents=${RESPONDER_LAUNCH_AGENTS:-$HOME/Library/LaunchAgents}
 libexec=${RESPONDER_LIBEXEC:-$HOME/.local/libexec/responder}
@@ -64,29 +74,42 @@ failure_count() {
       grep -c '^agent_run' ) || echo 0
 }
 
-labels=()
+all_labels=()
 for label in $rollout_order; do
   [[ -e "$agents/$label.plist" ]] || continue
   grep -q "libexec/responder/responder-" "$agents/$label.plist" || continue
-  labels+=("$label")
+  all_labels+=("$label")
 done
-[[ ${#labels[@]} -eq 0 ]] && die "no launch agent pins a Responder binary"
+[[ ${#all_labels[@]} -eq 0 ]] && die "no launch agent pins a Responder binary"
 
-say "proving $sha across ${#labels[@]} deployment(s)"
+labels=("${all_labels[@]}")
+if [[ $mode == canary ]]; then
+  labels=("${all_labels[0]}")
+elif [[ $mode == promote ]]; then
+  [[ $(current_sha "${all_labels[0]}") == "$sha" ]] ||
+    die "${all_labels[0]} is not running $sha; canary it first"
+  labels=("${all_labels[@]:1}")
+  if [[ ${#labels[@]} -eq 0 ]]; then
+    say "no deployment remains after the canary"
+    exit 0
+  fi
+fi
+
+say "$mode rollout: proving $sha across ${#labels[@]} deployment(s)"
 
 # ---- 1. the full repository gate -------------------------------------------
-say "gate: make check"
-make check >/tmp/self-deploy-check.log 2>&1 || die "the gate failed; see /tmp/self-deploy-check.log"
-say "gate: green"
+say "candidate: exact-commit gate and artifact"
+scripts/candidate-check.sh >/tmp/self-deploy-check.log 2>&1 ||
+  die "candidate proof failed; see /tmp/self-deploy-check.log"
+say "candidate: proven"
 
 # The candidate binary is built once, here, and every later step uses it. Proof
 # has to be about the artifact that will actually run: `go run` from inside a
 # deployment directory also picks up that directory's go.work and fails for
 # reasons that have nothing to do with this build.
-scripts/deploy.sh --stage >/dev/null || die "staging failed"
 candidate="$libexec/responder-$sha"
 [[ -x $candidate ]] || die "staging did not produce $candidate"
-say "staged responder-$sha"
+say "using responder-$sha"
 
 # ---- 2 and 3. proof against every deployment's real state ------------------
 for label in "${labels[@]}"; do

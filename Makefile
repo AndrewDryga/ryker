@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend model-release-check eval-replay customer-check dev-check quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -9,6 +9,10 @@ CONFIG ?= .responder/responder.yaml
 LIVE_CHANNEL ?=
 EVAL_REPEAT ?= 3
 TASK_EVAL_POLICY ?=
+FOCUS_PACKAGE ?=
+FOCUS_TEST ?=
+DEV_CHECK_JOBS ?= 4
+CHECK_JOBS ?= 4
 
 # Where a model evaluation leaves its result, and where make eval-trend reads
 # them back.
@@ -187,8 +191,31 @@ eval-replay:
 
 customer-check: test product-e2e eval-replay
 
-# Fast deterministic feedback for normal development. CI and releases use check.
-dev-check: tidy-check lint test eval-replay build
+# The edit loop. With no arguments it formats changed Go files and runs only
+# their owning package tests; set FOCUS_PACKAGE and FOCUS_TEST for one exact
+# test. This is intentionally mechanical and incomplete. Candidate proof is
+# where the whole committed tree is judged.
+focus:
+	RESPONDER_FOCUS_PACKAGE="$(FOCUS_PACKAGE)" RESPONDER_FOCUS_TEST="$(FOCUS_TEST)" scripts/focus-check.sh
+
+dev-workflow-check:
+	scripts/test-dev-workflow.sh
+
+# Fast deterministic feedback for a completed edit batch. Independent checks
+# run concurrently; CI and candidate promotion still use the complete gate.
+dev-check:
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) tidy-check lint test eval-replay build dev-workflow-check
+
+# Release mechanics have explicit names so a developer never has to remember
+# which script proves, stages, canaries, or promotes an exact commit.
+candidate:
+	scripts/candidate-check.sh
+
+canary:
+	scripts/self-deploy.sh --canary
+
+promote:
+	scripts/self-deploy.sh --promote
 
 # promote-corrections turns reviewed corrections into regression cases and
 # proves the result still passes the gate.
@@ -276,7 +303,7 @@ promote-corrections:
 		exit 1 )
 
 race:
-	go test -race ./...
+	scripts/race-shards.sh
 
 # gofmt walks the filesystem, not the module, so it descends into
 # .claude/worktrees — the scratch checkouts parallel agents work in. Those are
@@ -302,7 +329,10 @@ staticcheck:
 vulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 
-check: tidy-check lint quality-watch-check eval-trend-check actionlint staticcheck test eval-replay race build vulncheck
+# The strict gate remains complete, but independent phases no longer wait for
+# one another. The race target performs its own balanced test sharding.
+check:
+	+$(MAKE) --no-print-directory -j$(CHECK_JOBS) tidy-check lint quality-watch-check eval-trend-check dev-workflow-check actionlint staticcheck test eval-replay race build vulncheck
 
 # Signing is CI-only because keyless Sigstore needs GitHub's OIDC identity.
 snapshot:

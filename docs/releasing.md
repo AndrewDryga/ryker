@@ -10,6 +10,18 @@ push is reversible without rewriting a published release.
 
 Local release checks require the Go version from `go.mod`, ShellCheck, and GoReleaser v2.16.0.
 
+For dogfood deployment, commit first, then use the same exact artifact through the rollout:
+
+```bash
+make candidate  # full proof and exact-commit binary, once
+make canary     # first configured launch agent
+make promote    # remaining launch agents
+```
+
+Candidate proofs include the commit, binary checksum, Go version, and platform. They expire after
+24 hours by default and cannot be reused when any of those values changes. CI still runs the full
+gate independently on a clean runner.
+
 ## Repository setup
 
 Before the first release:

@@ -47,10 +47,14 @@ version=$(git describe --tags --always 2>/dev/null || echo "$sha")
 binary="$libexec/responder-$sha"
 
 mkdir -p "$libexec"
-go build -trimpath \
-  -ldflags "-s -w -X github.com/AndrewDryga/responder/internal/version.Version=$version" \
-  -o "$binary" ./cmd/responder
-echo "deploy: built $binary ($version)"
+if [[ -x $binary ]] && scripts/candidate-check.sh --verify-only >/dev/null 2>&1; then
+  echo "deploy: reusing proven $binary ($version)"
+else
+  go build -trimpath \
+    -ldflags "-s -w -X github.com/AndrewDryga/responder/internal/version.Version=$version" \
+    -o "$binary" ./cmd/responder
+  echo "deploy: built $binary ($version)"
+fi
 
 if [[ $stage -eq 1 ]]; then
   staged=0

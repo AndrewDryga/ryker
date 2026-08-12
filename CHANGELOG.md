@@ -2,6 +2,11 @@
 
 ## 0.1.0
 
+- **Fast development and exact candidate proof.** `make focus` formats changed Go files and runs
+  only their owning package tests, while the deterministic batch and full gates parallelize
+  independent checks and shard the large service race suite. A committed binary is now proven once
+  against its commit, checksum, toolchain, and platform, then reused for canary, promotion, normal
+  deployment, and unattended rollout without weakening the independent clean-runner CI gate.
 - **Cross-provider model failover.** Session policies may name an ordered target ladder
   (`target: [claude:opus/max@oncall, codex:gpt-5.6-sol/xhigh@oncall]`). Coop rotates a rate-limited
   session onto the next free rung mid-turn and re-delivers the same work; `responder doctor`

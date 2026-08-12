@@ -323,10 +323,12 @@ path does not evaluate model behavior and is named accordingly.
 
 ## Development gate
 
-Use a focused package or named test while editing:
+Use the mechanical focused loop while editing. It derives owning Go packages from the current
+diff, formats changed Go files, checks changed shell scripts, and runs only those package tests:
 
 ```bash
-go test ./internal/service -run '^TestName$' -count=1
+make focus
+make focus FOCUS_PACKAGE=./internal/service FOCUS_TEST='^TestName$'
 ```
 
 Before committing, run the fast deterministic repository gate:
@@ -335,10 +337,16 @@ Before committing, run the fast deterministic repository gate:
 make dev-check
 ```
 
-`make dev-check` runs module tidiness, formatting, vet, shell checks, the Go test suite,
-the checked-in contract replay, and a production build. It deliberately leaves the
+`make dev-check` runs independent module, formatting, vet, shell, Go-test, contract-replay, and
+build checks concurrently. It deliberately leaves the
 whole-tree race detector, Staticcheck, actionlint, vulnerability scan, and quality-watch
 suite to the full gate. Running bare `make` is equivalent to `make dev-check`.
+
+After committing a releasable batch, run `make candidate`. It runs the full gate once, builds the
+exact commit's binary, and writes a proof containing the commit, binary checksum, Go version, and
+platform. `make canary` rotates the first configured Responder deployment to that exact artifact;
+`make promote` rotates the rest only after confirming the canary is still running it. Neither
+command can reuse a proof for a different commit or binary.
 
 ## Release gate
 
@@ -347,8 +355,10 @@ make check
 make release-check
 ```
 
-`make check` runs formatting and static analysis, unit and integration tests, the contract replay,
-the race detector, a production build, and vulnerability analysis. `make release-check` also builds
+`make check` runs independent checks concurrently and shards the large `internal/service` race
+suite across `RACE_SHARDS` workers. It still covers formatting and static analysis, unit and
+integration tests, the contract replay, the whole-tree race detector, a production build, and
+vulnerability analysis. `make release-check` also builds
 and inspects release archives. A real-model eval is credentialed, costly, and nondeterministic, so
 it is an explicit pre-release/model-change gate rather than part of ordinary offline CI.
 

@@ -124,9 +124,10 @@ file-and-symbol evidence, the regression test the assessor would write, and whet
 agreed. That row is the watcher's output.
 
 Attempting the fix is opt-in. `RESPONDER_QUALITY_FIX=on` restores the rest of the pipeline: a fixer
-in a temporary Git worktree, `make check`, a required regression-test change, one final read-only
-reviewer of the actual diff, then a commit, a fast-forward of the primary checkout only while its
-HEAD and clean state still match the reviewed base, and `scripts/self-deploy.sh`. It is off by
+in a temporary Git worktree, the parallel fast gate, a required regression-test change, one final
+read-only reviewer of the actual diff, then a commit, one cached exact-commit full candidate proof,
+a fast-forward of the primary checkout only while its HEAD and clean state still match the reviewed
+base, and `scripts/self-deploy.sh`, which reuses that proof and artifact. It is off by
 default because it did not work. Over its first week it produced 84 proposed defects, of which the
 challenger rejected 23; of the 59 that reached a fixer, 48 failed the full gate across 81 distinct
 broken tests, 10 of the 11 survivors were rejected by the final reviewer, and the single approved
