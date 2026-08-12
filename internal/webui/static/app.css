@@ -769,6 +769,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .timebar-key.c1::before { background: #14cf8d; }
 .timebar-key.c2::before { background: #a78bfa; }
 .timebar-key.c3::before { background: #22d3ee; }
+.timebar-key.tail::before { background: #3f3f46; }
 
 /* Chapters cut the rail into acts a stranger can follow. */
 .trace-chapter { margin-top: 26px; }

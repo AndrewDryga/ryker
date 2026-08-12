@@ -689,11 +689,27 @@ func traceTimeBar(chapters []TraceChapter) []TimeSegment {
 	if len(spans) < 2 || last.IsZero() {
 		return nil
 	}
+	// The bar measures the execution: arrival to answer. Aftermath records
+	// often land hours later — a quality review, a delegated task finishing —
+	// and drawn to scale they would compress the real fifty seconds into
+	// slivers. A dominant final chapter becomes a legend note instead.
+	tail := ""
+	if final := spans[len(spans)-1]; chapters[final.index].Title == chapterNames[bandOutcome-1].title {
+		body := final.start.Sub(spans[0].start)
+		if trailing := last.Sub(final.start); trailing > 2*body {
+			tail = "follow-up records over " + compactDuration(trailing) + " more"
+			last = final.start
+			spans = spans[:len(spans)-1]
+		}
+	}
+	if len(spans) < 2 {
+		return nil
+	}
 	total := last.Sub(spans[0].start)
 	if total < 2*time.Second {
 		return nil
 	}
-	segments := make([]TimeSegment, 0, len(spans))
+	segments := make([]TimeSegment, 0, len(spans)+1)
 	for position, current := range spans {
 		end := last
 		if position+1 < len(spans) {
@@ -715,8 +731,9 @@ func traceTimeBar(chapters []TraceChapter) []TimeSegment {
 		segments[index].X = x
 		x += segments[index].W
 	}
-	if len(segments) > 0 {
-		segments[len(segments)-1].W = 1000 - segments[len(segments)-1].X
+	segments[len(segments)-1].W = 1000 - segments[len(segments)-1].X
+	if tail != "" {
+		segments = append(segments, TimeSegment{Class: "tail", Title: tail})
 	}
 	return segments
 }
