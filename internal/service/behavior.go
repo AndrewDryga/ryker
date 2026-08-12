@@ -1178,6 +1178,7 @@ func (s *Service) postBehaviorReceipt(
 	ctx context.Context,
 	input core.SlackInput,
 	message slackui.Message,
+	update ...bool,
 ) error {
 	if input.ChannelID == "" {
 		if err := s.publishOperationsHome(ctx, input.UserID); err != nil {
@@ -1185,11 +1186,13 @@ func (s *Service) postBehaviorReceipt(
 		}
 		return s.finishSlackInput(ctx, input)
 	}
-	if err := s.postInputMessage(
-		ctx,
-		"behavior_receipt_"+input.ID,
-		input,
-		message,
+	messageTS := []string(nil)
+	if len(update) > 0 && update[0] {
+		messageTS = []string{input.MessageTS}
+	}
+	if err := s.postInputMessageDelivery(
+		ctx, "behavior_receipt_"+input.ID, "notice", input.ChannelID,
+		conversationalResponseThread(input), message, messageTS...,
 	); err != nil {
 		return err
 	}

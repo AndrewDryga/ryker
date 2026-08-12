@@ -107,6 +107,155 @@ func TestSeveralScheduleOffersBecomeOneAtomicConfirmation(t *testing.T) {
 	}
 }
 
+func TestScheduleConfirmationUpdatesProposalCardInPlace(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	source := core.SlackInput{
+		ID: "slack_zot_schedule_source", EventID: "EvZotScheduleSource",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1",
+		UserID: cfg.Slack.Operators[0],
+		Text:   "Check tomorrow that Zot authentication failures are gone.",
+	}
+	slackClient := &fakeSlack{dedupePosts: true}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	actionValue, _, _, ok := svc.prepareScheduleOfferAction(ctx, source, &core.ScheduleOffer{
+		Title:      "Verify Zot authentication tomorrow",
+		Prompt:     "Check Zot logs for recurring authentication failures and report here.",
+		Repository: "repo", Recurrence: "once",
+		StartAt:  now.Add(24 * time.Hour).Format(time.RFC3339),
+		Timezone: "UTC", CatchUp: "latest", ExpiresIn: "7d",
+	})
+	if !ok {
+		t.Fatal("schedule proposal was not prepared")
+	}
+
+	action := core.SlackInput{
+		ID: "slack_zot_schedule_confirm", EnvelopeID: "env_zot_schedule_confirm",
+		EventID: "EvZotScheduleConfirm", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: source.ChannelID, ThreadTS: source.ThreadTS,
+		MessageTS: "1700.777", UserID: source.UserID,
+		ActionID: slackui.ActionRememberSchedule, ActionValue: actionValue,
+		ReceivedAt: now,
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, action); admitErr != nil || !admitted {
+		t.Fatalf("admit schedule confirmation = %t, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	delivery, err := st.GetSlackDelivery(ctx, "behavior_receipt_"+action.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delivery.Operation != "update" || delivery.ChannelID != action.ChannelID ||
+		delivery.MessageTS != action.MessageTS {
+		t.Fatalf("schedule receipt delivery = %+v", delivery)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("schedule confirmation posted a second message: %+v", slackClient.posts)
+	}
+	if len(slackClient.updates) != 1 {
+		t.Fatalf("schedule confirmation updates = %+v", slackClient.updates)
+	}
+	update := slackClient.updates[0]
+	if update.channel != action.ChannelID || update.ts != action.MessageTS ||
+		update.message.Header != "Scheduled task created" {
+		t.Fatalf("schedule proposal update = %+v", update)
+	}
+	for _, control := range update.message.Actions {
+		if control.ID == slackui.ActionRememberSchedule {
+			t.Fatalf("confirmed schedule kept proposal action: %+v", update.message.Actions)
+		}
+	}
+	if len(update.message.Actions) == 0 || update.message.Actions[0].ID != slackui.ActionToggleSchedule {
+		t.Fatalf("confirmed schedule controls = %+v", update.message.Actions)
+	}
+	tasks, err := st.Schedules.ListScheduledTasksForChannel(ctx, action.ChannelID, 10)
+	if err != nil || len(tasks) != 1 || tasks[0].Title != "Verify Zot authentication tomorrow" {
+		t.Fatalf("saved schedules = %+v, err=%v", tasks, err)
+	}
+}
+
+func TestBatchScheduleConfirmationUpdatesProposalCardInPlace(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	source := core.SlackInput{
+		ID: "slack_zot_batch_source", EventID: "EvZotBatchSource",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "100.1",
+		UserID: cfg.Slack.Operators[0],
+		Text:   "Check tomorrow and in three days that Zot authentication failures are gone.",
+	}
+	slackClient := &fakeSlack{dedupePosts: true}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	actionValue, _, _, ok := svc.prepareScheduleOffersAction(ctx, source, []*core.ScheduleOffer{
+		{
+			Title: "Verify Zot authentication tomorrow", Prompt: "Check Zot logs and report here.",
+			Repository: "repo", Recurrence: "once", StartAt: now.Add(24 * time.Hour).Format(time.RFC3339),
+			Timezone: "UTC", CatchUp: "latest", ExpiresIn: "7d",
+		},
+		{
+			Title: "Verify Zot authentication in three days", Prompt: "Check Zot logs and report here.",
+			Repository: "repo", Recurrence: "once", StartAt: now.Add(72 * time.Hour).Format(time.RFC3339),
+			Timezone: "UTC", CatchUp: "latest", ExpiresIn: "7d",
+		},
+	})
+	if !ok {
+		t.Fatal("schedule batch was not prepared")
+	}
+
+	action := core.SlackInput{
+		ID: "slack_zot_batch_confirm", EnvelopeID: "env_zot_batch_confirm",
+		EventID: "EvZotBatchConfirm", Kind: "action",
+		TeamID: cfg.Slack.TeamID, ChannelID: source.ChannelID, ThreadTS: source.ThreadTS,
+		MessageTS: "1700.888", UserID: source.UserID,
+		ActionID: slackui.ActionRememberSchedule, ActionValue: actionValue,
+		ReceivedAt: now,
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, action); admitErr != nil || !admitted {
+		t.Fatalf("admit schedule confirmation = %t, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("batch confirmation posted a second message: %+v", slackClient.posts)
+	}
+	if len(slackClient.updates) != 1 {
+		t.Fatalf("batch confirmation updates = %+v", slackClient.updates)
+	}
+	update := slackClient.updates[0]
+	if update.channel != action.ChannelID || update.ts != action.MessageTS ||
+		update.message.Header != "2 follow-up checks scheduled" {
+		t.Fatalf("batch proposal update = %+v", update)
+	}
+	for _, control := range update.message.Actions {
+		if control.ID == slackui.ActionRememberSchedule {
+			t.Fatalf("confirmed batch kept proposal action: %+v", update.message.Actions)
+		}
+	}
+	tasks, err := st.Schedules.ListScheduledTasksForChannel(ctx, action.ChannelID, 10)
+	if err != nil || len(tasks) != 2 {
+		t.Fatalf("saved schedules = %+v, err=%v", tasks, err)
+	}
+}
+
 func TestSeveralScheduleOffersCannotReplaceTheSameExistingSchedule(t *testing.T) {
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)

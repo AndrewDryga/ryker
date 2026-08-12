@@ -100,6 +100,10 @@ func (s *Service) prepareScheduleOffersAction(
 		if len(offers) > 1 {
 			sourceRef = fmt.Sprintf("%s:schedule:%d", baseSource, index+1)
 		}
+		// Each task in a confirmed batch needs its own durable identity. The
+		// proposal already uses this indexed source reference; carry it into the
+		// task so the atomic insert cannot collide on the channel/source key.
+		task.SourceRef = sourceRef
 		proposals = append(proposals, core.ScheduleProposal{
 			TeamID: s.cfg.Slack.TeamID, ChannelID: input.ChannelID,
 			ThreadTS: conversationalResponseThread(input), ActorID: input.UserID,
@@ -362,12 +366,12 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 	if len(input.Frozen) != 0 {
 		var tasks []core.ScheduledTask
 		if err := json.Unmarshal(input.Frozen, &tasks); err == nil && len(tasks) > 0 {
-			return s.postBehaviorReceipt(ctx, input, slackui.SchedulesSavedMessage(tasks))
+			return s.postBehaviorReceipt(ctx, input, slackui.SchedulesSavedMessage(tasks), true)
 		}
 		if version == 2 {
 			var task core.ScheduledTask
 			if err := json.Unmarshal(input.Frozen, &task); err == nil {
-				return s.postBehaviorReceipt(ctx, input, slackui.ScheduleSavedMessage(task))
+				return s.postBehaviorReceipt(ctx, input, slackui.ScheduleSavedMessage(task), true)
 			}
 		}
 	}
@@ -392,7 +396,7 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 	for _, task := range tasks {
 		s.audit(ctx, core.AuditEvent{Kind: "schedule.created", ActorID: input.UserID, ObjectID: task.ID, Outcome: "enabled", Detail: task.Title})
 	}
-	return s.postBehaviorReceipt(ctx, input, slackui.SchedulesSavedMessage(tasks))
+	return s.postBehaviorReceipt(ctx, input, slackui.SchedulesSavedMessage(tasks), true)
 }
 
 func (s *Service) acceptScheduleProposal(ctx context.Context, input core.SlackInput, proposalID string) (core.ScheduledTask, error) {

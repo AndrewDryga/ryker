@@ -996,15 +996,20 @@ func (s *Service) postInputMessageDelivery(
 	channelID string,
 	threadTS string,
 	message slackui.Message,
+	messageTS ...string,
 ) error {
 	message = s.sanitizeMessage(message)
 	body, err := slackui.Encode(message)
 	if err != nil {
 		return err
 	}
+	operation, targetTS := "post", ""
+	if len(messageTS) > 0 {
+		operation, targetTS = "update", messageTS[0]
+	}
 	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
-		ID: id, Operation: "post", Kind: kind,
-		ChannelID: channelID, ThreadTS: threadTS, Body: body,
+		ID: id, Operation: operation, Kind: kind,
+		ChannelID: channelID, ThreadTS: threadTS, MessageTS: targetTS, Body: body,
 	})
 	return err
 }
