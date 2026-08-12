@@ -397,6 +397,90 @@ func TestWatchedTurnResumesFromDurableState(t *testing.T) {
 	}
 }
 
+func TestOperatorAnswerResumesWaitingEpisode(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
+		"operations":[
+			{"id":"ask-environment","type":"request_operator_input","operator_input":{"question":"Which environment should I inspect?","choices":["Production","Staging"]}},
+			{"id":"complete-question","type":"complete_episode","completion":{"message":"Which environment should I inspect?","completion":{"status":"blocked","summary":"The target environment is required.","material_gaps":["target environment"],"blocker_kind":"operator_input_required","attempts":["Checked the request for an environment name."],"next_action":"Name the environment to inspect."}}}
+		]
+	}`
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	question := core.SlackInput{
+		ID: "slack-question", EnvelopeID: "env-question", EventID: "EvQuestion",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+		MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "<@U999BOT> Which environment should I inspect?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, question); err != nil || !created {
+		t.Fatalf("admit question = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.GetAgentRunBySource(ctx, "watch", question.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	before, err := st.GetWorkEpisodeByRun(ctx, first.ID)
+	if err != nil || before.State != core.EpisodeWaitingOperator ||
+		before.Destination.ThreadTS == "" {
+		t.Fatalf("waiting episode = %+v, %v", before, err)
+	}
+	// An unrelated, newer channel conversation must not hide the episode whose
+	// exact thread is waiting for this answer.
+	unrelated, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CWATCH", ThreadTS: "1800.100",
+		ConversationKey: "channel:CWATCH", SourceKind: "watch",
+		SourceID: "unrelated-newer-thread", UserID: "U456DEF",
+		CreatedAt: time.Now().UTC().Add(time.Minute), Context: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unrelated.EpisodeID == first.EpisodeID {
+		t.Fatalf("unrelated run reused waiting episode: %+v", unrelated)
+	}
+
+	answer := core.SlackInput{
+		ID: "slack-answer", EnvelopeID: "env-answer", EventID: "EvAnswer",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+		ThreadTS: before.Destination.ThreadTS, MessageTS: "1700.200", UserID: "U123ABC",
+		Text: "Production.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, answer); err != nil || !created {
+		t.Fatalf("admit answer = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := st.GetAgentRunBySource(ctx, "watch", answer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.EpisodeID != first.EpisodeID || resumed.AttemptNumber != 2 {
+		t.Fatalf("answer started new work instead of attempt 2: first=%+v answer=%+v", first, resumed)
+	}
+	after, err := st.GetWorkEpisodeByRun(ctx, resumed.ID)
+	if err != nil || after.State != core.EpisodeRetrying || after.ParentEpisodeID != "" {
+		t.Fatalf("resumed episode = %+v, %v", after, err)
+	}
+}
+
 func TestLongWatchedRunDoesNotConsumeInputRetriesOrBlockLaterContext(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

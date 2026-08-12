@@ -172,7 +172,8 @@ func Divergences(ctx context.Context, db *sql.DB) (Report, error) {
 			  AND e.lifecycle_state IN ('completed','failed','refused','cancelled')`},
 		{&report.ExecutingWithoutRun, `
 			SELECT e.id FROM work_episodes e
-			WHERE e.lifecycle_state IN ('planning','working','verifying','retrying')
+			WHERE e.lifecycle_state IN (
+			  'accepted','acknowledged','planning','working','verifying','retrying')
 			  AND NOT EXISTS (
 			    SELECT 1 FROM agent_runs r WHERE r.episode_id = e.id
 			      AND r.state NOT IN ('completed','failed','cancelled','superseded'))`},

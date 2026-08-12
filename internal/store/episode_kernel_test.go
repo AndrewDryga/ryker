@@ -440,6 +440,9 @@ func TestSlackDeliveryIsBoundToEpisodeDestinationRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if current.Conversation.ChannelID != "COPS" || current.Conversation.ThreadTS != "2.0" {
+		t.Fatalf("blank source route was not repaired with the first bound destination: %+v", current)
+	}
 	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stale delivery remained leaseable: %v", err)
 	}
@@ -459,6 +462,106 @@ func TestSlackDeliveryIsBoundToEpisodeDestinationRevision(t *testing.T) {
 	leased, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil || leased.ID != "delivery-current" {
 		t.Fatalf("lease current delivery = %+v, %v", leased, err)
+	}
+}
+
+func TestChangingDestinationPreservesExistingConversationIdentity(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	_, episode := queueKernelEpisode(t, st, "destination-source")
+
+	current, err := st.ChangeEpisodeDestination(
+		ctx,
+		episode.ID,
+		core.BoundDestination{ChannelID: "CDEST", ThreadTS: "2.0"},
+		"operator moved the answer",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Conversation != episode.Conversation {
+		t.Fatalf("destination move rewrote source identity: before=%+v after=%+v",
+			episode.Conversation, current.Conversation)
+	}
+}
+
+func TestFinalSlackPostPartCreatesDurableEpisodeThread(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	_, episode := queueKernelEpisode(t, st, "multipart-thread")
+	for index, id := range []string{
+		"opaque_delivery_001",
+		"opaque_delivery_999",
+	} {
+		created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+			ID: id, EpisodeID: episode.ID, Operation: "post", Kind: "notice",
+			ChannelID: "COPS", Body: []byte(`{"text":"part"}`),
+			ExpectedDestinationRevision: episode.DestinationRevision,
+			ResponseRoot:                index == 1,
+		})
+		if err != nil || !created {
+			t.Fatalf("enqueue %s = %t, %v", id, created, err)
+		}
+	}
+	first, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, first.ID, "1700.101", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	current, err := st.GetWorkEpisode(ctx, episode.ID)
+	if err != nil || current.Destination.ThreadTS != "" {
+		t.Fatalf("intermediate part rebound episode = %+v, %v", current, err)
+	}
+	last, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, last.ID, "1700.199", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	current, err = st.GetWorkEpisode(ctx, episode.ID)
+	if err != nil || current.Destination.ThreadTS != "1700.199" ||
+		current.Conversation.ThreadTS != "1700.199" {
+		t.Fatalf("final part did not establish durable reply thread = %+v, %v", current, err)
+	}
+}
+
+func TestVisualResponseRootCreatesDurableEpisodeThread(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	_, episode := queueKernelEpisode(t, st, "visual-thread")
+	created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "opaque_visual", EpisodeID: episode.ID, Operation: "file",
+		Kind: "generated_visual", ChannelID: "COPS", Body: []byte(`{"file":"chart"}`),
+		ExpectedDestinationRevision: episode.DestinationRevision, ResponseRoot: true,
+	})
+	if err != nil || !created {
+		t.Fatalf("enqueue visual = %t, %v", created, err)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, leased.ID, "1700.299", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	current, err := st.GetWorkEpisode(ctx, episode.ID)
+	if err != nil || current.Destination.ThreadTS != "1700.299" {
+		t.Fatalf("visual response did not establish durable thread = %+v, %v", current, err)
 	}
 }
 

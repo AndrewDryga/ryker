@@ -174,6 +174,7 @@ func TestWatchSessionRotatesAndCarriesDurableMemory(t *testing.T) {
 	}
 	defer st.Close()
 	coopClient := newFakeCoop()
+	coopClient.openAfterCreateKey = "responder:watch-session:CWATCH:2"
 	svc := New(
 		cfg, st, coopClient, &fakeSlack{}, nil,
 		slackui.NewSanitizer(12000), nil,

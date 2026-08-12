@@ -252,9 +252,11 @@ func TestStructuredEvidenceAndCoverageEnumsAreHostValidated(t *testing.T) {
 	}
 	coverage := decisionpkg.SanitizeCoverage([]core.Coverage{
 		{Layer: "scheduler", Status: "healthy"},
+		{Layer: "application", Status: "covered", Detail: "The route was checked."},
 		{Layer: "everything", Status: "perfect"},
 	}, "", "C1", "slack_1", testDecodeClock)
-	if len(coverage) != 1 || coverage[0].Layer != "scheduler" {
+	if len(coverage) != 2 || coverage[0].Layer != "scheduler" ||
+		coverage[1].Layer != "application" || coverage[1].Status != "unknown" {
 		t.Fatalf("coverage = %+v", coverage)
 	}
 }

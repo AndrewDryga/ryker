@@ -11,14 +11,15 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 const slackDeliveryColumns = `
-	id, COALESCE(incident_id, ''), episode_id, expected_episode_revision,
+	id, COALESCE(incident_id, ''), episode_id, agent_run_id, agent_run_key, source_input_id, expected_episode_revision,
 	expected_destination_revision, operation, kind, channel_id, thread_ts,
 	message_ts, body_json, status_text, steps_json, coalesce_key, card_version,
-	sequence_key, sequence_index, state, failure_count, next_attempt_at, last_error, created_at`
+	sequence_key, sequence_index, response_root, state, failure_count, next_attempt_at, last_error, created_at`
 
 func (s *Store) NextSlackStatusGeneration(
 	ctx context.Context,
@@ -126,6 +127,28 @@ func (s *Store) EnqueueSlackDelivery(
 			return false, errors.New("Slack delivery destination does not match the current episode binding")
 		}
 	}
+	if delivery.AgentRunID == "" && delivery.EpisodeID != "" {
+		_ = tx.QueryRowContext(ctx, `
+			SELECT id, idempotency_key, source_id FROM agent_runs
+			WHERE episode_id = ? AND state = 'finalizing'
+			ORDER BY updated_at DESC, id DESC LIMIT 1`, delivery.EpisodeID,
+		).Scan(&delivery.AgentRunID, &delivery.AgentRunKey, &delivery.SourceInputID)
+	}
+	if delivery.AgentRunID == "" && delivery.SourceInputID != "" {
+		_ = tx.QueryRowContext(ctx, `
+			SELECT id FROM agent_runs
+			WHERE source_kind = 'watch' AND source_id = ?
+			ORDER BY created_at DESC, id DESC LIMIT 1`, delivery.SourceInputID,
+		).Scan(&delivery.AgentRunID)
+	}
+	if delivery.SourceInputID == "" && delivery.AgentRunID != "" {
+		_ = tx.QueryRowContext(ctx,
+			`SELECT source_id, idempotency_key FROM agent_runs WHERE id = ?`,
+			delivery.AgentRunID).Scan(&delivery.SourceInputID, &delivery.AgentRunKey)
+	} else if delivery.AgentRunID != "" && delivery.AgentRunKey == "" {
+		_ = tx.QueryRowContext(ctx, `SELECT idempotency_key FROM agent_runs WHERE id = ?`,
+			delivery.AgentRunID).Scan(&delivery.AgentRunKey)
+	}
 	if delivery.CoalesceKey != "" && delivery.CardVersion > 0 {
 		var newest int64
 		if err := tx.QueryRowContext(ctx, `
@@ -146,17 +169,19 @@ func (s *Store) EnqueueSlackDelivery(
 	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO slack_deliveries (
-		  id, incident_id, episode_id, expected_episode_revision,
+		  id, incident_id, episode_id, agent_run_id, agent_run_key, source_input_id, expected_episode_revision,
 		  expected_destination_revision, operation, kind, channel_id, thread_ts, message_ts,
 		  body_json, status_text, steps_json, coalesce_key, card_version,
-		  sequence_key, sequence_index, state, next_attempt_at, created_at, updated_at
+		  sequence_key, sequence_index, response_root, state, next_attempt_at, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		delivery.ID, incidentID, delivery.EpisodeID, delivery.ExpectedEpisodeRevision,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		delivery.ID, incidentID, delivery.EpisodeID, delivery.AgentRunID,
+		delivery.AgentRunKey, delivery.SourceInputID, delivery.ExpectedEpisodeRevision,
 		delivery.ExpectedDestinationRevision, delivery.Operation, delivery.Kind,
 		delivery.ChannelID, delivery.ThreadTS, delivery.MessageTS, delivery.Body,
 		delivery.Status, steps, delivery.CoalesceKey, delivery.CardVersion,
 		sequenceKey, sequenceIndex,
+		boolInt(delivery.ResponseRoot),
 		now, now, now)
 	if err != nil {
 		return false, err
@@ -193,6 +218,75 @@ func (s *Store) EnqueueSlackDelivery(
 	return rows == 1, nil
 }
 
+// insertTerminalSlackDeliveryTx is the deliberately small outbox seam used by
+// terminal agent finalization. It omits coalescing because terminal notices
+// have deterministic IDs, but preserves episode destination fencing and the
+// same durable delivery shape as the ordinary enqueue path.
+func (s *Store) insertTerminalSlackDeliveryTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	delivery core.SlackDelivery,
+	now string,
+) error {
+	if delivery.ID == "" || delivery.ChannelID == "" ||
+		(delivery.Operation != "status" && len(delivery.Body) == 0) {
+		return errors.New("terminal Slack delivery identity, destination, and body are required")
+	}
+	if delivery.Operation == "" {
+		delivery.Operation = "post"
+	}
+	if delivery.Kind == "" {
+		delivery.Kind = "notice"
+	}
+	if delivery.Body == nil {
+		delivery.Body = []byte{}
+	}
+	if delivery.EpisodeID != "" {
+		var channelID, threadTS string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT destination_channel_id, destination_thread_ts,
+			       destination_revision, event_sequence
+			FROM work_episodes WHERE id = ?`, delivery.EpisodeID,
+		).Scan(&channelID, &threadTS, &delivery.ExpectedDestinationRevision,
+			&delivery.ExpectedEpisodeRevision); err != nil {
+			return err
+		}
+		if channelID != "" {
+			delivery.ChannelID, delivery.ThreadTS = channelID, threadTS
+		}
+	}
+	if delivery.AgentRunID != "" && delivery.AgentRunKey == "" {
+		if err := tx.QueryRowContext(ctx,
+			`SELECT idempotency_key FROM agent_runs WHERE id = ?`, delivery.AgentRunID,
+		).Scan(&delivery.AgentRunKey); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+	sequenceKey, sequenceIndex := slackDeliverySequence(delivery.ID)
+	var incidentID any
+	if delivery.IncidentID != "" {
+		incidentID = delivery.IncidentID
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO slack_deliveries (
+		  id, incident_id, episode_id, agent_run_id, agent_run_key, source_input_id,
+		  expected_episode_revision, expected_destination_revision,
+		  operation, kind, channel_id, thread_ts, message_ts, body_json,
+		  status_text, steps_json, coalesce_key, card_version,
+		  sequence_key, sequence_index, response_root,
+		  state, next_attempt_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '[]', ?, ?,
+		          ?, ?, ?, 'pending', ?, ?, ?)`,
+		delivery.ID, incidentID, delivery.EpisodeID,
+		delivery.AgentRunID, delivery.AgentRunKey, delivery.SourceInputID, delivery.ExpectedEpisodeRevision,
+		delivery.ExpectedDestinationRevision, delivery.Operation, delivery.Kind,
+		delivery.ChannelID, delivery.ThreadTS, delivery.MessageTS, delivery.Body,
+		delivery.CoalesceKey, delivery.CardVersion,
+		sequenceKey, sequenceIndex, boolInt(delivery.ResponseRoot), now, now, now,
+	)
+	return err
+}
+
 func scanSlackDelivery(
 	row interface{ Scan(...any) error },
 ) (core.SlackDelivery, error) {
@@ -203,11 +297,12 @@ func scanSlackDelivery(
 	var next, created string
 	err := row.Scan(
 		&delivery.ID, &delivery.IncidentID, &delivery.EpisodeID,
+		&delivery.AgentRunID, &delivery.AgentRunKey, &delivery.SourceInputID,
 		&delivery.ExpectedEpisodeRevision, &delivery.ExpectedDestinationRevision,
 		&delivery.Operation, &delivery.Kind,
 		&delivery.ChannelID, &delivery.ThreadTS, &delivery.MessageTS,
 		&delivery.Body, &delivery.Status, &steps, &delivery.CoalesceKey,
-		&delivery.CardVersion, &sequenceKey, &sequenceIndex,
+		&delivery.CardVersion, &sequenceKey, &sequenceIndex, &delivery.ResponseRoot,
 		&delivery.State, &delivery.Attempts, &next,
 		&delivery.LastError, &created,
 	)
@@ -297,7 +392,8 @@ func (s *Store) RetryLatestGeneratedVisual(
 		  AND kind = 'generated_visual'
 		  AND channel_id = ?
 		  AND thread_ts = ?
-		  AND state IN ('pending', 'retry', 'failed')
+		  AND (state IN ('pending', 'retry', 'failed') OR
+		       (state = 'superseded' AND last_error = 'replaced by upload failure notice'))
 		ORDER BY created_at DESC, id DESC
 		LIMIT 1`,
 		channelID,
@@ -305,6 +401,21 @@ func (s *Store) RetryLatestGeneratedVisual(
 	))
 	if err != nil {
 		return core.SlackDelivery{}, err
+	}
+	if sequenceKey, _ := slackDeliverySequence(delivery.ID); sequenceKey != "" {
+		earliest, earliestErr := scanSlackDelivery(tx.QueryRowContext(ctx, `
+			SELECT `+slackDeliveryColumns+`
+			FROM slack_deliveries
+			WHERE sequence_key = ? AND operation = 'file'
+			  AND kind = 'generated_visual'
+			  AND (state = 'failed' OR
+			       (state = 'superseded' AND last_error = 'replaced by upload failure notice'))
+			ORDER BY sequence_index, created_at, id LIMIT 1`, sequenceKey))
+		if earliestErr == nil {
+			delivery = earliest
+		} else if !errors.Is(earliestErr, ErrNotFound) {
+			return core.SlackDelivery{}, earliestErr
+		}
 	}
 	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
@@ -348,7 +459,7 @@ func (s *Store) GetLatestSentSlackMessageDelivery(
 		  AND channel_id = ?
 		  AND message_ts = ?
 		  AND state = 'sent'
-		  AND operation IN ('post', 'update')
+		  AND operation IN ('post', 'update', 'file')
 		ORDER BY updated_at DESC, created_at DESC, id DESC
 		LIMIT 1`,
 		incidentID,
@@ -373,7 +484,7 @@ func (s *Store) GetSentSlackMessageDelivery(
 		WHERE channel_id = ?
 		  AND message_ts = ?
 		  AND state = 'sent'
-		  AND operation IN ('post', 'update')
+		  AND operation IN ('post', 'update', 'file')
 		ORDER BY updated_at DESC, created_at DESC, id DESC
 		LIMIT 1`,
 		channelID,
@@ -397,6 +508,32 @@ func (s *Store) LeaseSlackDelivery(
 	}
 	defer tx.Rollback()
 	now := s.nowText()
+	// A human correction becomes authoritative when its input is admitted, not
+	// later when the control lane happens to create an agent run. Enforce that
+	// boundary at the outbox lease so a result cannot pass an earlier service
+	// check and then race a newly durable correction into Slack.
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE slack_deliveries AS delivery
+		SET state = 'superseded', last_error = 'newer human turn admitted', updated_at = ?
+		WHERE delivery.state IN ('pending', 'retry')
+		  AND delivery.source_input_id != ''
+		  AND EXISTS (
+		    SELECT 1
+		    FROM slack_inputs AS source
+		    JOIN slack_inputs AS newer
+		      ON newer.id != source.id
+		     AND newer.channel_id = source.channel_id
+		     AND COALESCE(NULLIF(newer.thread_ts, ''), newer.message_ts) =
+		         COALESCE(NULLIF(source.thread_ts, ''), source.message_ts)
+		     AND newer.kind IN ('message', 'mention', 'direct')
+		     AND (
+		       CAST(newer.message_ts AS REAL) > CAST(source.message_ts AS REAL) OR
+		       (newer.message_ts = source.message_ts AND newer.rowid > source.rowid)
+		     )
+		    WHERE source.id = delivery.source_input_id
+		  )`, now); err != nil {
+		return core.SlackDelivery{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE slack_deliveries AS delivery
 		SET state = 'superseded', last_error = 'episode destination changed', updated_at = ?
@@ -469,16 +606,32 @@ func (s *Store) LeaseSlackDelivery(
 }
 
 func slackDeliverySequence(id string) (string, int) {
-	const marker = "_part_"
-	index := strings.LastIndex(id, marker)
-	if index <= 0 || len(id[index+len(marker):]) != 3 {
-		return "", 0
+	id = strings.TrimSuffix(id, "_upload_failed")
+	visualAt := strings.LastIndex(id, "_visual_")
+	if visualAt > 0 && len(id[visualAt+len("_visual_"):]) == 2 {
+		visual, err := strconv.Atoi(id[visualAt+len("_visual_"):])
+		if err == nil && visual > 0 {
+			key := id[:visualAt]
+			// Multipart results attach visuals to their synthetic final part. Keep
+			// those files in the original text sequence so a retrying text part
+			// cannot be overtaken by a file that creates the reply thread.
+			if partAt := strings.LastIndex(key, "_part_"); partAt > 0 &&
+				len(key[partAt+len("_part_"):]) == 3 {
+				if part, partErr := strconv.Atoi(key[partAt+len("_part_"):]); partErr == nil {
+					return key[:partAt], part*1000 + visual
+				}
+			}
+			return key, visual
+		}
 	}
-	sequence, err := strconv.Atoi(id[index+len(marker):])
-	if err != nil || sequence <= 0 {
-		return "", 0
+	partAt := strings.LastIndex(id, "_part_")
+	if partAt > 0 && len(id[partAt+len("_part_"):]) == 3 {
+		part, err := strconv.Atoi(id[partAt+len("_part_"):])
+		if err == nil && part > 0 {
+			return id[:partAt], part
+		}
 	}
-	return id[:index], sequence
+	return "", 0
 }
 
 func (s *Store) FinishSlackDelivery(
@@ -493,26 +646,87 @@ func (s *Store) FinishSlackDelivery(
 	}
 	defer tx.Rollback()
 	var incidentID sql.NullString
-	var kind string
+	var episodeID, operation, kind, channelID, threadTS, sequenceKey string
+	var responseRoot bool
 	var cardVersion int64
 	if err := tx.QueryRowContext(ctx, `
-		SELECT incident_id, kind, card_version
+		SELECT incident_id, episode_id, operation, kind, channel_id, thread_ts, card_version,
+		  response_root, sequence_key
 		FROM slack_deliveries
 		WHERE id = ? AND state = ?`,
-		id, fromState).Scan(&incidentID, &kind, &cardVersion); err != nil {
+		id, fromState).Scan(
+		&incidentID, &episodeID, &operation, &kind, &channelID, &threadTS, &cardVersion,
+		&responseRoot, &sequenceKey,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("finish Slack delivery: %w", ErrConflict)
 		}
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `
-		UPDATE slack_deliveries
+				UPDATE slack_deliveries
 		SET state = 'sent', message_ts = CASE WHEN ? = '' THEN message_ts ELSE ? END,
 		    last_error = '', updated_at = ?
 		WHERE id = ? AND state = ?`,
 		messageTS, messageTS, s.nowText(), id, fromState)
 	if err := sqlutil.ExpectOne(result, err, "finish Slack delivery"); err != nil {
 		return err
+	}
+	if episodeID != "" && responseRoot && threadTS == "" && messageTS != "" {
+		episode, getErr := scanWorkEpisode(tx.QueryRowContext(
+			ctx, `SELECT `+workEpisodeColumns+` FROM work_episodes WHERE id = ?`, episodeID,
+		))
+		if getErr != nil {
+			return getErr
+		}
+		if episode.Destination.ChannelID == channelID && episode.Destination.ThreadTS == "" {
+			payload, _ := episodepkg.Encode(map[string]any{
+				"channel_id": channelID, "thread_ts": messageTS,
+				"reason":               "reply_thread_created",
+				"destination_revision": episode.DestinationRevision + 1,
+			})
+			event, err := s.appendEpisodeEventTx(ctx, tx, episodeID, core.WorkEpisodeEvent{
+				Kind: episodepkg.EventDestinationChanged, Actor: "host",
+				IdempotencyKey: "reply-thread:" + id, Payload: payload,
+			})
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE work_episodes
+				SET thread_ts = CASE WHEN thread_ts = '' AND channel_id = ? THEN ? ELSE thread_ts END,
+				    destination_thread_ts = ?, destination_revision = destination_revision + 1
+				WHERE id = ? AND destination_thread_ts = ''`,
+				channelID, messageTS, messageTS, episodeID,
+			); err != nil {
+				return err
+			}
+			// A visual bundle starts with one top-level file and continues in the
+			// thread that Slack creates for it. Retarget its not-yet-leased siblings
+			// in the same transaction as the durable episode destination change.
+			if sequenceKey != "" {
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE slack_deliveries
+					SET thread_ts = ?, expected_destination_revision = ?,
+					    expected_episode_revision = ?, updated_at = ?
+					WHERE sequence_key = ? AND id != ? AND state IN ('pending', 'retry', 'failed')`,
+					messageTS, episode.DestinationRevision+1, event.Sequence, s.nowText(),
+					sequenceKey, id,
+				); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if responseRoot && strings.HasSuffix(id, "_upload_failed") && sequenceKey != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE slack_deliveries
+			SET state = 'superseded', last_error = 'replaced by upload failure notice', updated_at = ?
+			WHERE sequence_key = ? AND operation = 'file' AND state = 'failed'`,
+			s.nowText(), sequenceKey,
+		); err != nil {
+			return err
+		}
 	}
 	if incidentID.Valid && kind == "root" {
 		result, err = tx.ExecContext(ctx, `
@@ -571,6 +785,14 @@ func (s *Store) RetrySlackDelivery(
 		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
 		s.nowText(), id)
 	return sqlutil.ExpectOne(result, err, "retry Slack delivery")
+}
+
+func (s *Store) SupersedeLeasedSlackDelivery(ctx context.Context, id, detail string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE slack_deliveries
+		SET state = 'superseded', last_error = ?, updated_at = ?
+		WHERE id = ? AND state = 'sending'`, sqlutil.BoundedError(detail), s.nowText(), id)
+	return sqlutil.ExpectOne(result, err, "supersede leased Slack delivery")
 }
 
 func (s *Store) ListUncertainSlackDeliveries(

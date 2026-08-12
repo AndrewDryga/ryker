@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -136,7 +138,8 @@ func TestOperationalBurstCoalescesBeforeCoopAndLinksEpisodes(t *testing.T) {
 
 	base := core.SlackInput{
 		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
-		UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		EnvelopeID: "env-finalizing-alert",
+		UserID:     "BGRAFANA", ReceivedAt: time.Now().UTC(),
 		Text: "[VA1 FIRING:1] WARNING | High disk I/O latency\n" +
 			"FIRING - 1 alert\nService: cluster\nComponent: cassandra",
 	}
@@ -177,6 +180,131 @@ func TestOperationalBurstCoalescesBeforeCoopAndLinksEpisodes(t *testing.T) {
 	newEpisode, err := st.GetWorkEpisode(ctx, newRun.EpisodeID)
 	if err != nil || newRun.EpisodeID != oldRun.EpisodeID || newEpisode.ParentEpisodeID != "" {
 		t.Fatalf("correlated lifecycle episode = run=%+v episode=%+v err=%v", newRun, newEpisode, err)
+	}
+}
+
+func TestNewOperationalInputAdmittedDuringFinalizationSuppressesOldResult(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	base := core.SlackInput{
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+		UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "[VA1 FIRING:1] WARNING | High disk I/O latency\nService: cluster\nComponent: cassandra",
+	}
+	older := base
+	older.ID, older.EventID, older.MessageTS = "finalizing-alert", "event-finalizing-alert", "1700.100"
+	newer := base
+	newer.EnvelopeID = "env-terminal-alert"
+	newer.ID, newer.EventID, newer.MessageTS, newer.ReceivedAt = "terminal-alert", "event-terminal-alert", "1900.200", base.ReceivedAt.Add(4*time.Minute)
+	newer.Text = "[VA1 RESOLVED:1] WARNING | High disk I/O latency\nService: cluster\nComponent: cassandra"
+	if created, err := st.AdmitSlackInput(ctx, older); err != nil || !created {
+		t.Fatalf("admit older = %t, %v", created, err)
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: older.ChannelID,
+		ConversationKey: watchConversationKey(older), SourceKind: "watch", SourceID: older.ID,
+		UserID: older.UserID, State: core.AgentRunRunning, Context: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(ctx, run.ID, "completed", []byte(`{"action":"ignore"}`), "", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BeginAgentRunFinalization(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 101; index++ {
+		unrelated := base
+		unrelated.ID = fmt.Sprintf("unrelated-bot-%03d", index)
+		unrelated.EnvelopeID = fmt.Sprintf("env-unrelated-bot-%03d", index)
+		unrelated.EventID = fmt.Sprintf("event-unrelated-bot-%03d", index)
+		unrelated.MessageTS = fmt.Sprintf("1800.%03d", index)
+		unrelated.ReceivedAt = base.ReceivedAt.Add(2*time.Minute + time.Duration(index)*time.Millisecond)
+		unrelated.Text = fmt.Sprintf("unrelated application notification %d", index)
+		if created, err := st.AdmitSlackInput(ctx, unrelated); err != nil || !created {
+			t.Fatalf("admit unrelated update %d = %t, %v", index, created, err)
+		}
+	}
+	if created, err := st.AdmitSlackInput(ctx, newer); err != nil || !created {
+		t.Fatalf("admit terminal update = %t, %v", created, err)
+	}
+	staged, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if newerFound, err := svc.hasNewerOperationalInput(ctx, staged, older); err != nil || !newerFound {
+		t.Fatalf("newer operational input = %t, %v", newerFound, err)
+	}
+	if err := svc.finalizeTriageAgentRun(ctx, staged); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || stored.State != core.AgentRunSuperseded {
+		t.Fatalf("older operational result = %+v, %v", stored, err)
+	}
+	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("older operational result reached Slack: %v", err)
+	}
+}
+
+func TestNewOperationalInputSupersedesAlreadyStagedOlderDelivery(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	older := core.SlackInput{
+		ID: "staged-alert", EnvelopeID: "env-staged-alert", EventID: "event-staged-alert",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+		MessageTS: "1700.100", UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "[VA1 FIRING:1] WARNING | High disk I/O latency\nService: cluster\nComponent: cassandra",
+	}
+	newer := older
+	newer.ID, newer.EnvelopeID, newer.EventID = "staged-alert-resolved", "env-staged-alert-resolved", "event-staged-alert-resolved"
+	newer.MessageTS, newer.ReceivedAt = "1700.200", older.ReceivedAt.Add(time.Second)
+	newer.Text = "[VA1 RESOLVED:1] WARNING | High disk I/O latency\nService: cluster\nComponent: cassandra"
+	if created, err := st.AdmitSlackInput(ctx, older); err != nil || !created {
+		t.Fatalf("admit older = %t, %v", created, err)
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: older.ChannelID,
+		ConversationKey: watchConversationKey(older), SourceKind: "watch", SourceID: older.ID,
+		UserID: older.UserID, Context: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := slackui.Encode(slackui.ConversationResponse("The alert is still firing.", slackui.NewSanitizer(12000)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "watch_reply_" + older.ID, Operation: "post", Kind: "notice",
+		ChannelID: older.ChannelID, ThreadTS: older.MessageTS, Body: body,
+		ResponseRoot: true, SourceInputID: older.ID, AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey,
+	}); err != nil || !created {
+		t.Fatalf("stage older delivery = %t, %v", created, err)
+	}
+	if created, err := st.AdmitSlackInput(ctx, newer); err != nil || !created {
+		t.Fatalf("admit terminal update = %t, %v", created, err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.GetSlackDelivery(ctx, "watch_reply_"+older.ID)
+	if err != nil || delivery.State != "superseded" || len(slack.posts) != 0 {
+		t.Fatalf("staged operational delivery = %+v, posts=%+v, err=%v", delivery, slack.posts, err)
 	}
 }
 

@@ -191,10 +191,18 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		ALTER TABLE incidents DROP COLUMN latest_update;
+		ALTER TABLE incidents DROP COLUMN latest_update_run_id;
+		ALTER TABLE incidents DROP COLUMN latest_update_run_key;
 		ALTER TABLE incidents DROP COLUMN task_pull_request_json;
 		ALTER TABLE publications DROP COLUMN attempt_input_id;
 		ALTER TABLE publications DROP COLUMN failure_code;
 		ALTER TABLE publications DROP COLUMN generation;
+		ALTER TABLE slack_deliveries DROP COLUMN response_root;
+		ALTER TABLE slack_deliveries DROP COLUMN agent_run_id;
+		ALTER TABLE slack_deliveries DROP COLUMN agent_run_key;
+		ALTER TABLE slack_deliveries DROP COLUMN source_input_id;
+		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_id;
+		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
 		DROP TABLE quality_findings;
 		DROP TABLE conversation_memory_changes;`); err != nil {
 		t.Fatal(err)
@@ -302,10 +310,18 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		ALTER TABLE incidents DROP COLUMN latest_update;
+		ALTER TABLE incidents DROP COLUMN latest_update_run_id;
+		ALTER TABLE incidents DROP COLUMN latest_update_run_key;
 		ALTER TABLE incidents DROP COLUMN task_pull_request_json;
 		ALTER TABLE publications DROP COLUMN attempt_input_id;
 		ALTER TABLE publications DROP COLUMN failure_code;
 		ALTER TABLE publications DROP COLUMN generation;
+		ALTER TABLE slack_deliveries DROP COLUMN response_root;
+		ALTER TABLE slack_deliveries DROP COLUMN agent_run_id;
+		ALTER TABLE slack_deliveries DROP COLUMN agent_run_key;
+		ALTER TABLE slack_deliveries DROP COLUMN source_input_id;
+		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_id;
+		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
 		DROP TABLE conversation_memory_changes;
 		CREATE TABLE action_proposals (
 		  id TEXT PRIMARY KEY,

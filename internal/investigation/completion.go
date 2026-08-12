@@ -667,7 +667,7 @@ func ClaimCorrection(
 		matched := false
 		for _, item := range coverage {
 			if item.Layer == requirement.Layer &&
-				contract.claimIDsAnswer(item.ClaimIDs, requirement.ID) {
+				contract.ClaimIDsAnswer(item.ClaimIDs, requirement.ID) {
 				matched = true
 				break
 			}

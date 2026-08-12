@@ -214,7 +214,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	coopClient.completeQueue = []string{
 		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"lasting channel behavior","message":"I can remember the thread preference.","followup_messages":["This duplicate explanation must not reach Slack."],"preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"},"memory":{}}`,
 		`{"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"The critical checkout alert needs investigation.","title":"Critical checkout error rate","evidence":[{"claim":"checkout errors are firing","observation":"the app reports an error rate above 20 percent","source_type":"slack","source_name":"Grafana alert"}],"memory":{}}`,
-		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"reason":"fresh repository and live evidence confirm the alert","message":"**Checkout errors are affecting current requests:** more than 20 percent are failing.\n\nRemove the unhealthy backend from service and verify the error rate falls. The durable fix is to correct the deployment regression and add a rollout guard for checkout errors.","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."},"evidence":[{"claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf"},{"claim":"checkout errors remain elevated","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q}],"coverage":[{"layer":"change","status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"},{"layer":"application","status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"},{"layer":"slo","status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}],"completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."},"memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}}`, observedAt),
+		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"reason":"fresh repository and live evidence confirm the alert","message":"**Checkout errors are affecting current requests:** more than 20 percent are failing.\n\nRemove the unhealthy backend from service and verify the error rate falls. The durable fix is to correct the deployment regression and add a rollout guard for checkout errors.","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["checkout-live"],"immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."},"evidence":[{"claim_id":"change.recent","claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf","dimensions":{"repository":"repo","environment":"production","revision":"current"}},{"id":"checkout-live","claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","relation":"contradicts","health_effect":"unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","endpoint":"requests","environment":"production","window":"current"}},{"id":"checkout-impact","claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 20.5 percent","relation":"contradicts","health_effect":"degraded","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","indicator":"error_rate","environment":"production","window":"current"}}],"coverage":[{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"},{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"},{"layer":"slo","claim_ids":["impact.current"],"status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}],"completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."},"memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}}`, observedAt, observedAt),
 	}
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -489,6 +489,8 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 	assessment := &decisionpkg.AlertAssessment{
 		Verdict: "likely_issue", Impact: "One database host may be slow.",
 		CauseStatus: "bounded", Cause: "Both devices on one host share a degraded storage path.",
+		CauseClaimIDs:    []string{"dependency.current_health"},
+		EvidenceRefs:     []string{"storage-live"},
 		ImmediateAction:  "Drain the host if latency persists.",
 		Verification:     "Confirm device latency returns below 50 ms after draining.",
 		LongTermSolution: "Repair the shared storage path.",
@@ -499,6 +501,7 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 		SourceType: "repository", SourceName: "infra/inventory",
 	}
 	liveEvidence := core.Evidence{
+		ID: "storage-live", ClaimID: "dependency.current_health",
 		Claim: "latency is elevated", Observation: "both devices exceed 50 ms",
 		SourceType: "emisar", SourceName: "storage health", ObservedAt: now,
 	}
@@ -786,11 +789,32 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	if err := svc.finishSlackInput(ctx, leased); err != nil {
 		t.Fatal(err)
 	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+		ThreadTS: input.MessageTS, ConversationKey: "channel:" + input.ChannelID,
+		SourceKind: "watch", SourceID: input.ID, UserID: input.UserID,
+	})
+	if err != nil || !created {
+		t.Fatalf("queue failed watch = %+v, %t, %v", run, created, err)
+	}
+	run, err = st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := decisionpkg.WatchTurnState{SessionID: "ses_1", Generation: 2}
+	contextJSON, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindAgentRunSession(ctx, run.ID, "ses_1", 2, "repo", 0, contextJSON); err != nil {
+		t.Fatal(err)
+	}
+	run.SessionID, run.SessionGeneration, run.Context = "ses_1", 2, contextJSON
 	if err := svc.finishTriageRunFailure(
 		ctx,
-		core.AgentRun{ID: "run_failed_watch"},
+		run,
 		leased,
-		decisionpkg.WatchTurnState{SessionID: "ses_1"},
+		state,
 		"watch triage failed: turn cleanup failed",
 	); err != nil {
 		t.Fatal(err)
@@ -808,12 +832,12 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if memory.SessionID != "" || memory.Generation != 2 ||
+	if memory.SessionID != "" || memory.Generation != 3 ||
 		memory.State.Goal != memoryState.Goal {
 		t.Fatalf("detached failed session memory = %+v", memory)
 	}
-	if coopClient.session.State != "closed" {
-		t.Fatalf("failed Coop session state = %q", coopClient.session.State)
+	if coopClient.session.State != "open" {
+		t.Fatalf("failure worker mutated detached Coop session = %q", coopClient.session.State)
 	}
 	metrics, err := st.Metrics(ctx)
 	if err != nil {
@@ -826,11 +850,12 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	if err != nil || cleanup.SessionID != "ses_1" {
 		t.Fatalf("failed session was not immediately eligible for cleanup: %+v, %v", cleanup, err)
 	}
-	// The session is cleaned up and nothing is said. "Responder could not
-	// complete this check" told the channel about Responder's plumbing, once
-	// per retry, in a room full of people who could do nothing with it.
-	if len(slackClient.posts) != 0 {
-		t.Fatalf("a failed session posted to Slack: %+v", slackClient.posts)
+	// This targeted request is terminal, not queued. It gets one bounded notice
+	// with a retry path and no raw Coop/session detail.
+	if len(slackClient.posts) != 1 ||
+		!strings.Contains(slackClient.posts[0].message.Text, "couldn't finish this request") ||
+		strings.Contains(slackClient.posts[0].message.Text, "turn cleanup") {
+		t.Fatalf("terminal targeted failure notice = %+v", slackClient.posts)
 	}
 }
 
@@ -867,10 +892,8 @@ func TestAmbientBotAlertFailureDoesNotPostToSlack(t *testing.T) {
 	if len(slackClient.posts) != 0 {
 		t.Fatalf("ambient alert failure posts = %+v", slackClient.posts)
 	}
-	// Nothing decides whether a failure is publishable any more, because
-	// nothing publishes one. Every terminal triage failure pauses the message
-	// and stays queued instead, including an approval continuation — which used
-	// to be the case that always spoke up.
+	// Ambient feed traffic remains silent; only accepted human requests and
+	// approval continuations receive a bounded terminal notice.
 }
 
 func TestWatchSessionTerminalIncludesDiscarded(t *testing.T) {

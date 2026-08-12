@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/evidencepolicy"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 )
@@ -654,6 +655,8 @@ func ValidateAlertAssessment(assessment *AlertAssessment) error {
 	assessment.Impact = strings.TrimSpace(assessment.Impact)
 	assessment.CauseStatus = strings.TrimSpace(assessment.CauseStatus)
 	assessment.Cause = strings.TrimSpace(assessment.Cause)
+	assessment.CauseClaimIDs = BoundedUniqueFields(assessment.CauseClaimIDs, 8, 120)
+	assessment.EvidenceRefs = BoundedUniqueFields(assessment.EvidenceRefs, 12, 120)
 	assessment.ImmediateAction = strings.TrimSpace(assessment.ImmediateAction)
 	assessment.Verification = strings.TrimSpace(assessment.Verification)
 	assessment.LongTermSolution = strings.TrimSpace(assessment.LongTermSolution)
@@ -1056,6 +1059,7 @@ func SanitizeEvidence(
 		item.IncidentID = incidentID
 		item.ChannelID = channelID
 		item.SourceInput = sourceInput
+		item.ID = BoundedField(item.ID, 120)
 		item.ClaimID = BoundedField(item.ClaimID, 120)
 		item.Claim = BoundedField(item.Claim, 1000)
 		item.Observation = BoundedField(item.Observation, 2000)
@@ -1067,7 +1071,7 @@ func SanitizeEvidence(
 		if item.HealthEffect == "" {
 			item.HealthEffect = "none"
 		}
-		if !ValidEvidenceHealthEffect(item.HealthEffect) {
+		if !evidencepolicy.ValidHealthEffect(item.HealthEffect) {
 			item.HealthEffect = "unknown"
 		}
 		item.SourceType = BoundedField(item.SourceType, 80)
@@ -1079,10 +1083,10 @@ func SanitizeEvidence(
 		item.SourceURL = SafeEvidenceURL(item.SourceURL)
 		item.Metadata = BoundedMetadata(item.Metadata)
 		item.Dimensions = BoundedMetadata(item.Dimensions)
-		if !ValidEvidenceSourceType(item.SourceType) {
+		if !evidencepolicy.ValidSourceType(item.SourceType) {
 			item.SourceType = "other"
 		}
-		if !ValidConfidence(item.Confidence) {
+		if !evidencepolicy.ValidConfidence(item.Confidence) {
 			item.Confidence = ""
 		}
 		if item.ObservedAt.After(now.Add(5 * time.Minute)) {
@@ -1098,15 +1102,6 @@ func SanitizeEvidence(
 	return result
 }
 
-func ValidEvidenceHealthEffect(value string) bool {
-	switch value {
-	case "none", "risk", "degraded", "unhealthy", "unknown":
-		return true
-	default:
-		return false
-	}
-}
-
 func SanitizeCoverage(
 	items []core.Coverage,
 	incidentID string,
@@ -1120,7 +1115,7 @@ func SanitizeCoverage(
 		item.ChannelID = channelID
 		item.SourceInput = sourceInput
 		item.Layer = BoundedField(item.Layer, 100)
-		item.Status = BoundedField(item.Status, 40)
+		item.Status = investigation.NormalizeCoverageStatus(BoundedField(item.Status, 40))
 		item.Source = BoundedField(item.Source, 200)
 		item.Detail = BoundedField(item.Detail, 1000)
 		item.ClaimIDs = BoundedUniqueFields(item.ClaimIDs, 20, 120)
@@ -1156,24 +1151,6 @@ func BoundedUniqueFields(values []string, limit int, bound int) []string {
 		}
 	}
 	return result
-}
-
-func ValidEvidenceSourceType(value string) bool {
-	switch value {
-	case "repository", "emisar", "monitoring", "slack", "other":
-		return true
-	default:
-		return false
-	}
-}
-
-func ValidConfidence(value string) bool {
-	switch value {
-	case "", "high", "medium", "low":
-		return true
-	default:
-		return false
-	}
 }
 
 func ValidCoverageLayer(value string) bool {
@@ -1532,6 +1509,10 @@ func foldResultOperations(
 			if err := investigation.ValidateEvidence(*operation.Evidence); err != nil {
 				return fmt.Errorf("result operation %q: %w", operation.ID, err)
 			}
+			// The operation id is the ledger identity. Accepting a second payload
+			// id lets two unique operations collide after validation and makes
+			// cause evidence refer to a different row than the one persisted.
+			operation.Evidence.ID = operation.ID
 			*target.evidence = append(*target.evidence, *operation.Evidence)
 		case "record_coverage":
 			*target.coverage = append(*target.coverage, *operation.Coverage)

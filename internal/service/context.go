@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/agentcontext"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
@@ -305,7 +306,7 @@ func historyWatchContext(
 		inputs = append(inputs, core.SlackInput{
 			Kind: kind, ChannelID: channelID, ThreadTS: message.ThreadTS,
 			MessageTS: message.Timestamp, UserID: userID, Text: message.Text,
-			Reactions: coreSlackReactions(message.Reactions),
+			Reactions: agentcontext.Reactions(message.Reactions),
 		})
 	}
 	slices.SortFunc(inputs, func(left, right core.SlackInput) int {
@@ -321,17 +322,6 @@ func historyWatchContext(
 	result := make([]decisionpkg.WatchContextMessage, 0, len(inputs))
 	for _, input := range inputs {
 		result = append(result, watchPromptMessage(input, botUserID, false))
-	}
-	return result
-}
-
-func coreSlackReactions(reactions []slackui.HistoryReaction) []core.SlackReaction {
-	result := make([]core.SlackReaction, 0, len(reactions))
-	for _, reaction := range reactions {
-		result = append(result, core.SlackReaction{
-			Name: reaction.Name, Count: reaction.Count,
-			UserIDs: append([]string(nil), reaction.UserIDs...),
-		})
 	}
 	return result
 }
@@ -354,112 +344,5 @@ func mergeSlackContext(
 	target core.SlackInput,
 	limit int,
 ) []core.SlackInput {
-	byTimestamp := make(map[string]core.SlackInput, len(admitted)+len(history)+1)
-	for _, input := range admitted {
-		if input.MessageTS != "" && sameSlackConversation(input, target) {
-			byTimestamp[input.MessageTS] = input
-		}
-	}
-	for _, message := range history {
-		if message.Timestamp == "" {
-			continue
-		}
-		kind := "message"
-		userID := message.UserID
-		if message.BotID != "" {
-			kind = "bot_message"
-			if userID == "" {
-				userID = message.BotID
-			}
-		}
-		if _, exists := byTimestamp[message.Timestamp]; !exists {
-			attachments := make([]core.SlackAttachment, 0, len(message.Files))
-			for _, file := range message.Files {
-				attachments = append(attachments, core.SlackAttachment{
-					ID: file.ID, Name: file.Name, MediaType: file.MediaType,
-					Size: file.Size, URLPrivate: file.URLPrivate,
-				})
-			}
-			byTimestamp[message.Timestamp] = core.SlackInput{
-				Kind: kind, ChannelID: target.ChannelID,
-				ThreadTS: message.ThreadTS, MessageTS: message.Timestamp,
-				UserID: userID, Text: message.Text, Attachments: attachments,
-				Reactions: coreSlackReactions(message.Reactions),
-			}
-		}
-	}
-	if target.MessageTS != "" {
-		byTimestamp[target.MessageTS] = target
-	}
-	result := make([]core.SlackInput, 0, len(byTimestamp))
-	for _, input := range byTimestamp {
-		result = append(result, input)
-	}
-	slices.SortFunc(result, func(left, right core.SlackInput) int {
-		switch {
-		case left.MessageTS < right.MessageTS:
-			return -1
-		case left.MessageTS > right.MessageTS:
-			return 1
-		case left.ReceivedAt.Before(right.ReceivedAt):
-			return -1
-		case left.ReceivedAt.After(right.ReceivedAt):
-			return 1
-		default:
-			return 0
-		}
-	})
-	return targetCenteredSlackContext(result, target, limit)
-}
-
-func sameSlackConversation(input core.SlackInput, target core.SlackInput) bool {
-	if target.ThreadTS == "" {
-		return input.ThreadTS == ""
-	}
-	return input.ThreadTS == target.ThreadTS || input.MessageTS == target.ThreadTS
-}
-
-func targetCenteredSlackContext(
-	inputs []core.SlackInput,
-	target core.SlackInput,
-	limit int,
-) []core.SlackInput {
-	if limit < 1 || len(inputs) <= limit {
-		return inputs
-	}
-	targetIndex := -1
-	rootIndex := -1
-	for index := range inputs {
-		if inputs[index].MessageTS == target.MessageTS {
-			targetIndex = index
-		}
-		if target.ThreadTS != "" && inputs[index].MessageTS == target.ThreadTS {
-			rootIndex = index
-		}
-	}
-	if targetIndex < 0 {
-		return slices.Clone(inputs[len(inputs)-limit:])
-	}
-	selected := make(map[int]struct{}, limit)
-	selected[targetIndex] = struct{}{}
-	if rootIndex >= 0 {
-		selected[rootIndex] = struct{}{}
-	}
-	following := min(3, len(inputs)-targetIndex-1)
-	for index := targetIndex + 1; index <= targetIndex+following && len(selected) < limit; index++ {
-		selected[index] = struct{}{}
-	}
-	for index := targetIndex - 1; index >= 0 && len(selected) < limit; index-- {
-		selected[index] = struct{}{}
-	}
-	for index := targetIndex + following + 1; index < len(inputs) && len(selected) < limit; index++ {
-		selected[index] = struct{}{}
-	}
-	result := make([]core.SlackInput, 0, len(selected))
-	for index, input := range inputs {
-		if _, ok := selected[index]; ok {
-			result = append(result, input)
-		}
-	}
-	return result
+	return agentcontext.MergeSlackContext(admitted, history, target, limit)
 }

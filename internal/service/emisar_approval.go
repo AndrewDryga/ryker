@@ -82,7 +82,7 @@ func (s *Service) processEmisarApproval(
 	}
 	state, err := s.emisar.WaitForRun(ctx, approval.RunID)
 	if err != nil {
-		next := now.Add(queueDelayDuration(approval.FailureCount + 1))
+		next := s.queueDelay(approval.FailureCount + 1)
 		if retryErr := s.store.RetryEmisarApproval(
 			ctx,
 			approval.RequestID,

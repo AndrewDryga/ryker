@@ -105,4 +105,4 @@ func TestUndecodableContextIsNotOverwrittenByACorrection(t *testing.T) {
 
 // The table that used to live here checked which terminal triage failures were
 // worth telling a channel about. Nothing is: every one of them now pauses the
-// message and stays queued, so there is no decision left to test.
+// message and ends with a bounded failure notice, so there is no decision left to test.

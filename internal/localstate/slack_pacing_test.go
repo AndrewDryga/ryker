@@ -238,8 +238,8 @@ func (*stubSlack) DownloadFile(context.Context, string, io.Writer) error { retur
 
 func (*stubSlack) UploadFile(
 	context.Context, string, string, slackui.FileUpload,
-) (string, error) {
-	return "", nil
+) (slackui.FileDeliveryResult, error) {
+	return slackui.FileDeliveryResult{}, nil
 }
 
 func (*stubSlack) RecentMessages(
@@ -254,6 +254,8 @@ func (*stubSlack) FindDeliveryMessage(
 	return "", nil
 }
 
-func (*stubSlack) FindDeliveryFile(context.Context, string, string, string) (string, error) {
-	return "", nil
+func (*stubSlack) FindDeliveryFile(
+	context.Context, string, string, string,
+) (slackui.FileDeliveryResult, error) {
+	return slackui.FileDeliveryResult{}, nil
 }

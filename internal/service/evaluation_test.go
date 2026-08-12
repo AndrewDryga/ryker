@@ -1077,7 +1077,7 @@ func TestEvaluationStructuredCorrectionUsesProductionAlertStateMachine(t *testin
 	correction := evaluationStructuredCorrection(
 		cfg, testCase, response, time.Date(2026, 8, 5, 14, 2, 0, 0, time.UTC),
 	)
-	if !strings.Contains(correction, "no alert_assessment") {
+	if !strings.Contains(correction, "no record_alert_assessment result") {
 		t.Fatalf("correction = %q", correction)
 	}
 }

@@ -242,6 +242,29 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 	if err != nil {
 		return err
 	}
+	if item.SourceInputID != "" {
+		source, sourceErr := s.store.GetSlackInput(ctx, item.SourceInputID)
+		if sourceErr != nil && !errors.Is(sourceErr, store.ErrNotFound) {
+			return s.store.RetrySlackDelivery(ctx, item.ID, trimError(sourceErr), s.now(), false, false)
+		}
+		if sourceErr == nil && source.Kind == "bot_message" && item.AgentRunID != "" {
+			run, runErr := s.store.GetAgentRun(ctx, item.AgentRunID)
+			if runErr != nil && !errors.Is(runErr, store.ErrNotFound) {
+				return s.store.RetrySlackDelivery(ctx, item.ID, trimError(runErr), s.now(), false, false)
+			}
+			if runErr == nil {
+				newer, newerErr := s.hasNewerOperationalInput(ctx, run, source)
+				if newerErr != nil {
+					return s.store.RetrySlackDelivery(ctx, item.ID, trimError(newerErr), s.now(), false, false)
+				}
+				if newer {
+					return s.store.SupersedeLeasedSlackDelivery(
+						ctx, item.ID, "newer correlated operational input admitted",
+					)
+				}
+			}
+		}
+	}
 	var incident core.Incident
 	if item.IncidentID != "" {
 		incident, err = s.store.GetIncident(ctx, item.IncidentID)
@@ -309,10 +332,11 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 			break
 		}
 		fileDelivery = &file
-		timestamp, err = s.slack.UploadFile(ctx, item.ChannelID, item.ThreadTS, slackui.FileUpload{
+		result, uploadErr := s.slack.UploadFile(ctx, item.ChannelID, item.ThreadTS, slackui.FileUpload{
 			Filename: file.Filename, Title: file.Title, AltText: file.AltText,
 			Data: file.Data, Message: file.Message,
 		})
+		timestamp, err = result.MessageTS, uploadErr
 	default:
 		err = fmt.Errorf("unsupported Slack delivery operation %q", item.Operation)
 	}
@@ -418,7 +442,8 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 				ctx, item, file, item.LastError,
 			)
 		}
-		timestamp, err = s.slack.FindDeliveryFile(ctx, item.ChannelID, item.ThreadTS, file.Filename)
+		result, findErr := s.slack.FindDeliveryFile(ctx, item.ChannelID, item.ThreadTS, file.Filename)
+		timestamp, err = result.MessageTS, findErr
 	} else {
 		timestamp, err = s.slack.FindDeliveryMessage(ctx, item.ChannelID, item.ThreadTS, item.ID)
 	}
@@ -813,6 +838,8 @@ func (s *Service) processCard(ctx context.Context) error {
 		Body:        body,
 		CoalesceKey: "card:" + incident.ID,
 		CardVersion: incident.CardVersion,
+		AgentRunID:  incident.LatestUpdateRunID,
+		AgentRunKey: incident.LatestUpdateRunKey,
 	})
 	if err != nil {
 		return err
@@ -1149,6 +1176,7 @@ func (s *Service) enqueueEpisode(
 	kind string,
 	threadTS string,
 	message slackui.Message,
+	responseRoot ...bool,
 ) error {
 	if _, err := s.bindEpisodeDestination(
 		ctx,
@@ -1166,6 +1194,7 @@ func (s *Service) enqueueEpisode(
 	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID: id, IncidentID: incident.ID, EpisodeID: episodeID, Kind: kind,
 		ChannelID: incident.ChannelID, ThreadTS: threadTS, Body: body,
+		ResponseRoot: len(responseRoot) > 0 && responseRoot[0],
 	})
 	return err
 }

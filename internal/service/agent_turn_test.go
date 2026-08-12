@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/agentprompt"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/emisar"
@@ -1080,6 +1081,13 @@ func TestAgentRunFinalizationExhaustionPostsFailureAndClearsStatus(t *testing.T)
 	}
 	defer st.Close()
 	run := stageAgentRunWithMissingConversationSource(t, ctx, st)
+	if !cfg.Slack.NativeStatus {
+		t.Fatal("test requires native status")
+	}
+	beforeIncident, beforeErr := st.GetIncident(ctx, run.IncidentID)
+	if beforeErr != nil || beforeIncident.ConversationThreadTS() == "" {
+		t.Fatalf("test incident status target = %+v, %v", beforeIncident, beforeErr)
+	}
 	slack := &fakeSlack{}
 	svc := New(
 		cfg, st, newFakeCoop(), slack, nil,
@@ -1098,6 +1106,9 @@ func TestAgentRunFinalizationExhaustionPostsFailureAndClearsStatus(t *testing.T)
 		incident.Workflow != core.WorkflowParked {
 		t.Fatalf("terminal incident = %+v, %v", incident, err)
 	}
+	if queued, queueErr := st.ListSlackDeliveriesByPrefix(ctx, "delivery_status_clear_failure_"); queueErr != nil || len(queued) != 1 {
+		t.Fatalf("terminal status clear outbox = %+v, %v", queued, queueErr)
+	}
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 1 ||
 		!strings.Contains(slack.posts[0].message.Text, "could not finalize") {
@@ -1106,6 +1117,96 @@ func TestAgentRunFinalizationExhaustionPostsFailureAndClearsStatus(t *testing.T)
 	if len(slack.statuses) != 1 || slack.statuses[0].text != "" ||
 		slack.statuses[0].thread != incident.RootTS {
 		t.Fatalf("terminal finalization status clear = %+v", slack.statuses)
+	}
+}
+
+func TestFailedIncidentRetryPublishesDistinctSuccessfulExecution(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	if err := st.SetCoopSession(ctx, incident.ID, "ses_retry", "incident-retry", 1); err != nil {
+		t.Fatal(err)
+	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.RootTS,
+		ConversationKey: "incident:" + incident.ID,
+		SourceKind:      "incident", SourceID: "retry-incident", Repository: incident.Repository,
+	})
+	if err != nil || !created {
+		t.Fatalf("queue incident run = %+v, %t, %v", run, created, err)
+	}
+	leaseAndSubmit := func(turnID string) core.AgentRun {
+		t.Helper()
+		leased, err := st.LeaseAgentRun(ctx)
+		if err != nil || leased.ID != run.ID {
+			t.Fatalf("lease run = %+v, %v", leased, err)
+		}
+		if leased.SessionID == "" {
+			if err := st.BindAgentRunSession(
+				ctx, leased.ID, "ses_retry", 1, incident.Repository, 0, []byte(`{}`),
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := st.MarkAgentRunSubmitted(ctx, leased.ID, turnID, 2, 0); err != nil {
+			t.Fatal(err)
+		}
+		stored, err := st.GetAgentRun(ctx, leased.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stored
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	first := leaseAndSubmit("turn_retry_1")
+	if err := st.StageAgentRunResult(ctx, first.ID, "failed", nil, "provider failed", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BeginAgentRunFinalization(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	first, err = st.GetAgentRun(ctx, first.ID)
+	if err != nil || svc.finalizeIncidentAgentRun(ctx, first) != nil {
+		t.Fatalf("finalize first execution = %+v, %v", first, err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if err := st.RequeueFailedAgentRun(ctx, run.ID, "operator retried"); err != nil {
+		t.Fatal(err)
+	}
+	second := leaseAndSubmit("turn_retry_2")
+	if second.IdempotencyKey == first.IdempotencyKey {
+		t.Fatal("retry did not rotate the execution key")
+	}
+	result := []byte(`{"message":"The retried investigation completed.","evidence":[],"coverage":[]}`)
+	if err := st.StageAgentRunResult(ctx, second.ID, "completed", result, "", 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BeginAgentRunFinalization(ctx, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	second, err = st.GetAgentRun(ctx, second.ID)
+	if err != nil || svc.finalizeIncidentAgentRun(ctx, second) != nil {
+		t.Fatalf("finalize retry = %+v, %v", second, err)
+	}
+	deliveries, err := st.ListSlackDeliveriesByPrefix(ctx, "out_run_"+run.ID)
+	if err != nil || len(deliveries) != 2 || deliveries[0].AgentRunKey == deliveries[1].AgentRunKey {
+		t.Fatalf("execution deliveries = %+v, %v", deliveries, err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 2 || slack.posts[0].outboxID == slack.posts[1].outboxID ||
+		!strings.Contains(slack.posts[1].message.Text, "retried investigation completed") {
+		t.Fatalf("retry Slack outcomes = %+v", slack.posts)
+	}
+	timeline, err := st.Intelligence.ListTimeline(ctx, incident.ID, "", 10)
+	if err != nil || len(timeline) != 2 || timeline[0].ID == timeline[1].ID {
+		t.Fatalf("execution timeline = %+v, %v", timeline, err)
 	}
 }
 
@@ -1212,7 +1313,7 @@ func TestRaisingTurnLimitResumesPreservedIncidentWork(t *testing.T) {
 }
 
 func TestAgentRunContinuationPromptCarriesStructuredCorrection(t *testing.T) {
-	prompt := agentRunContinuationPrompt(core.AgentRun{
+	prompt := agentprompt.Continuation(core.AgentRun{
 		LastError: "the structured agent report is invalid: completion capability gap 1: requires evidence_refs from pack discovery",
 	})
 	for _, required := range []string{

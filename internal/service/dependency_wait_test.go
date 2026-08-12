@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -33,8 +34,8 @@ func TestDependencyWaitDelayHoldsTheFloorThenBacksOffToACap(t *testing.T) {
 		// delay in the past, which would restore the once-a-second loop.
 		{waited: -time.Hour, want: time.Second},
 	} {
-		if got := dependencyWaitDelay(testCase.waited); got != testCase.want {
-			t.Errorf("dependencyWaitDelay(%s) = %s, want %s", testCase.waited, got, testCase.want)
+		if got := retrydelay.DependencyWait(testCase.waited); got != testCase.want {
+			t.Errorf("DependencyWait(%s) = %s, want %s", testCase.waited, got, testCase.want)
 		}
 	}
 }

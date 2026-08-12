@@ -63,7 +63,17 @@ func TestSchemaV63RepaintsPublicationLifecycleCards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE schema_version SET version = 62`); err != nil {
+	if _, err := db.Exec(`
+		ALTER TABLE slack_deliveries DROP COLUMN response_root;
+		ALTER TABLE slack_deliveries DROP COLUMN agent_run_id;
+		ALTER TABLE slack_deliveries DROP COLUMN agent_run_key;
+		ALTER TABLE slack_deliveries DROP COLUMN source_input_id;
+		ALTER TABLE incidents DROP COLUMN latest_update_run_id;
+		ALTER TABLE incidents DROP COLUMN latest_update_run_key;
+		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_id;
+		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
+		UPDATE schema_version SET version = 62;
+	`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {

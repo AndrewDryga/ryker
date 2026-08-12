@@ -43,7 +43,7 @@ func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 	clock := useTestClock(svc, st)
 	message := slackui.ConversationResponse("CPU stayed below saturation.", slackui.NewSanitizer(12000))
-	if err := svc.enqueueGeneratedVisuals(ctx, "out_test", "", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
+	if err := svc.enqueueGeneratedVisuals(ctx, "out_test", "", "", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
 		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
 	}}, &message); err != nil {
 		t.Fatal(err)
@@ -74,6 +74,101 @@ func TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled(t *testing.T) {
 	}
 }
 
+func TestVisualOnlyGeneratedReplyCarriesDurableResponseRoot(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	data := []byte("\x89PNG\r\n\x1a\nchart")
+	digest := sha256.Sum256(data)
+	digestHex := hex.EncodeToString(digest[:])
+	coopClient := newFakeCoop()
+	coopClient.turn = coop.Turn{ID: "turn_visual_only", SessionID: "ses_1", OutputArtifacts: []coop.OutputArtifact{{
+		ID: "artifact_visual_only", Name: "load.png", MediaType: "image/png",
+		SHA256: digestHex, Bytes: int64(len(data)),
+	}}}
+	coopClient.outputArtifacts = map[string]coop.OutputArtifact{
+		"artifact_visual_only": {
+			ID: "artifact_visual_only", MediaType: "image/png",
+			SHA256: digestHex, Bytes: int64(len(data)), Data: data,
+		},
+	}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.enqueueGeneratedVisuals(
+		ctx, "out_visual_only", "", "", "visual-source", "C123", "1700.001",
+		"ses_1", "turn_visual_only", []core.GeneratedVisual{{
+			Artifact: "load.png", Title: "Production load", AltText: "Load chart.",
+		}}, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.GetSlackDelivery(ctx, "out_visual_only_visual_01")
+	if err != nil || !delivery.ResponseRoot || delivery.SourceInputID != "visual-source" {
+		t.Fatalf("visual-only response identity = %+v, %v", delivery, err)
+	}
+}
+
+func TestVisualOnlyBundleContinuesInFirstFilesDurableThread(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "C123", ConversationKey: "channel:C123",
+		SourceKind: "watch", SourceID: "visual-bundle-source", Prompt: "show both charts",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue visual episode = %+v, %t, %v", run, created, err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstData := []byte("\x89PNG\r\n\x1a\nfirst")
+	secondData := []byte("\x89PNG\r\n\x1a\nsecond")
+	firstDigest, secondDigest := sha256.Sum256(firstData), sha256.Sum256(secondData)
+	coopClient := newFakeCoop()
+	coopClient.turn = coop.Turn{ID: "turn_visual_bundle", SessionID: "ses_1", OutputArtifacts: []coop.OutputArtifact{
+		{ID: "artifact_first", Name: "first.png", MediaType: "image/png", SHA256: hex.EncodeToString(firstDigest[:]), Bytes: int64(len(firstData))},
+		{ID: "artifact_second", Name: "second.png", MediaType: "image/png", SHA256: hex.EncodeToString(secondDigest[:]), Bytes: int64(len(secondData))},
+	}}
+	coopClient.outputArtifacts = map[string]coop.OutputArtifact{
+		"artifact_first":  {ID: "artifact_first", MediaType: "image/png", SHA256: hex.EncodeToString(firstDigest[:]), Bytes: int64(len(firstData)), Data: firstData},
+		"artifact_second": {ID: "artifact_second", MediaType: "image/png", SHA256: hex.EncodeToString(secondDigest[:]), Bytes: int64(len(secondData)), Data: secondData},
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.enqueueGeneratedVisuals(
+		ctx, "out_visual_bundle", "", episode.ID, "visual-bundle-source", "C123", "",
+		"ses_1", "turn_visual_bundle", []core.GeneratedVisual{
+			{Artifact: "first.png", Title: "First", AltText: "First chart."},
+			{Artifact: "second.png", Title: "Second", AltText: "Second chart."},
+		}, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.uploads) != 2 || slackClient.uploads[0].thread != "" ||
+		slackClient.uploads[1].thread != "1700.001" {
+		t.Fatalf("visual bundle destinations = %+v", slackClient.uploads)
+	}
+	current, err := st.GetWorkEpisode(ctx, episode.ID)
+	if err != nil || current.Destination.ThreadTS != "1700.001" {
+		t.Fatalf("visual bundle episode = %+v, %v", current, err)
+	}
+}
+
 func TestGeneratedVisualMissingScopePostsTruthfulFailureInsteadOfSuccess(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -95,7 +190,7 @@ func TestGeneratedVisualMissingScopePostsTruthfulFailureInsteadOfSuccess(t *test
 	slackClient := &fakeSlack{uploadErr: errors.New("GetUploadURLExternal: missing_scope")}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 	message := slackui.ConversationResponse("CPU stayed below saturation.", slackui.NewSanitizer(12000))
-	if err := svc.enqueueGeneratedVisuals(ctx, "out_scope", "", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
+	if err := svc.enqueueGeneratedVisuals(ctx, "out_scope", "", "", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
 		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
 	}}, &message); err != nil {
 		t.Fatal(err)
@@ -117,6 +212,119 @@ func TestGeneratedVisualMissingScopePostsTruthfulFailureInsteadOfSuccess(t *test
 		!strings.Contains(slackClient.posts[0].message.Text, "files:write") ||
 		!strings.Contains(slackClient.posts[0].message.Text, "CPU stayed below saturation") {
 		t.Fatalf("upload failure reply = %+v", slackClient.posts)
+	}
+}
+
+func TestTopLevelTwoVisualFailureNoticeCanRetryRetainedBundle(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "visual-request", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "C123", MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "<@UBOT> send two charts",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit source = %t, %v", created, err)
+	}
+	if leased, err := st.LeaseSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	} else if err := st.FinishSlackInput(ctx, leased.ID); err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+		ConversationKey: "channel:C123",
+		SourceKind:      "watch", SourceID: input.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leased, err := st.LeaseAgentRun(ctx); err != nil || leased.ID != run.ID {
+		t.Fatalf("lease source run = %+v, %v", leased, err)
+	}
+	if err := st.BindAgentRunSession(ctx, run.ID, "ses_1", 1, "repo", 0, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(ctx, run.ID, "turn_visual_bundle", 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(ctx, run.ID, "completed", []byte(`{"action":"reply"}`), "", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BeginAgentRunFinalization(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishAgentRun(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstData, secondData := []byte("\x89PNG\r\n\x1a\nfirst"), []byte("\x89PNG\r\n\x1a\nsecond")
+	firstDigest, secondDigest := sha256.Sum256(firstData), sha256.Sum256(secondData)
+	coopClient := newFakeCoop()
+	coopClient.turn = coop.Turn{ID: "turn_retry_bundle", SessionID: "ses_1", OutputArtifacts: []coop.OutputArtifact{
+		{ID: "first", Name: "first.png", MediaType: "image/png", SHA256: hex.EncodeToString(firstDigest[:]), Bytes: int64(len(firstData))},
+		{ID: "second", Name: "second.png", MediaType: "image/png", SHA256: hex.EncodeToString(secondDigest[:]), Bytes: int64(len(secondData))},
+	}}
+	coopClient.outputArtifacts = map[string]coop.OutputArtifact{
+		"first":  {ID: "first", MediaType: "image/png", SHA256: hex.EncodeToString(firstDigest[:]), Bytes: int64(len(firstData)), Data: firstData},
+		"second": {ID: "second", MediaType: "image/png", SHA256: hex.EncodeToString(secondDigest[:]), Bytes: int64(len(secondData)), Data: secondData},
+	}
+	slackClient := &fakeSlack{uploadErr: errors.New("GetUploadURLExternal: missing_scope")}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.enqueueGeneratedVisuals(
+		ctx, "out_retry_bundle", "", episode.ID, input.ID, input.ChannelID, "",
+		"ses_1", "turn_retry_bundle", []core.GeneratedVisual{
+			{Artifact: "first.png", Title: "First", AltText: "First chart."},
+			{Artifact: "second.png", Title: "Second", AltText: "Second chart."},
+		}, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.posts) != 1 || slackClient.posts[0].thread != "" ||
+		!strings.Contains(slackClient.posts[0].message.Text, "retry the chart upload") {
+		t.Fatalf("failure response root = %+v", slackClient.posts)
+	}
+	noticeTS := slackClient.posts[0].thread
+	if noticeTS == "" {
+		noticeTS = "1700.001"
+	}
+	followup := core.SlackInput{
+		ID: "retry-visual-bundle", EventID: "event-retry-visual-bundle",
+		EnvelopeID: "env-retry-visual-bundle",
+		Kind:       "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: input.ChannelID, ThreadTS: noticeTS, MessageTS: "1700.200",
+		UserID: input.UserID, Text: "retry the chart upload",
+	}
+	if created, err := st.AdmitSlackInput(ctx, followup); err != nil || !created {
+		t.Fatalf("admit retry = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.GetSlackDelivery(ctx, "out_retry_bundle_visual_01")
+	if err != nil || first.State != "retry" || first.ThreadTS != noticeTS {
+		t.Fatalf("retained first visual = %+v, %v", first, err)
+	}
+	second, err := st.GetSlackDelivery(ctx, "out_retry_bundle_visual_02")
+	if err != nil || second.ThreadTS != noticeTS || second.State != "pending" {
+		t.Fatalf("retained second visual = %+v, %v", second, err)
+	}
+	if _, err := st.LeaseAgentRun(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("visual retry queued a model run: %v", err)
 	}
 }
 
@@ -148,7 +356,7 @@ func TestGeneratedVisualDeliveryRejectsUnknownAndMismatchedArtifacts(t *testing.
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := svc.enqueueGeneratedVisuals(
-				ctx, "out_"+name, "", "", "C123", "1700.1", "ses_1", "turn_visual",
+				ctx, "out_"+name, "", "", "", "C123", "1700.1", "ses_1", "turn_visual",
 				[]core.GeneratedVisual{visual}, nil,
 			); err == nil {
 				t.Fatal("untrusted generated visual was accepted")

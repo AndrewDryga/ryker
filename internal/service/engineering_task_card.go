@@ -10,6 +10,7 @@ import (
 
 func (s *Service) updateEngineeringTaskCard(
 	ctx context.Context,
+	runID string,
 	incident core.Incident,
 	message slackui.Message,
 	replyParts []string,
@@ -17,6 +18,7 @@ func (s *Service) updateEngineeringTaskCard(
 	return s.store.TaskCards.SetUpdate(
 		ctx,
 		incident.ID,
+		runID,
 		taskcard.Update(message, replyParts, s.sanitizeText),
 	)
 }

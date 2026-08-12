@@ -887,15 +887,24 @@ func (s *Store) ListOverdueEpisodes(
 		SELECT `+workEpisodeColumns+`
 		FROM work_episodes
 		WHERE completed_at IS NULL
-		  AND progress_due_at IS NOT NULL
-		  AND julianday(progress_due_at) <= julianday(?)
+		  AND (
+		    (progress_due_at IS NOT NULL AND julianday(progress_due_at) <= julianday(?))
+		    OR (progress_due_at IS NULL
+		      AND lifecycle_state IN ('accepted', 'acknowledged')
+		      AND julianday(updated_at) <= julianday(?)
+		      AND NOT EXISTS (
+		        SELECT 1 FROM agent_runs AS run
+		        WHERE run.episode_id = work_episodes.id
+		          AND run.state IN ('pending', 'preparing', 'running', 'applying', 'finalizing')
+		      ))
+		  )
 		  -- 'refused' is explicit because the legacy state column this replaced
 		  -- collapsed refused into failed and so excluded it already.
 		  AND lifecycle_state NOT IN (
 		    'completed', 'cancelled', 'failed', 'refused', 'superseded')
 		ORDER BY progress_due_at
 		LIMIT ?`,
-		now.UTC().Format(timestampFormat), limit,
+		now.UTC().Format(timestampFormat), now.UTC().Format(timestampFormat), limit,
 	)
 	if err != nil {
 		return nil, err

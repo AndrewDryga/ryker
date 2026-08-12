@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestEvidenceNormalizesScalarDimensions(t *testing.T) {
@@ -32,6 +33,23 @@ func TestEvidenceNormalizesScalarDimensions(t *testing.T) {
 		"invented":true
 	}`), &item); err == nil {
 		t.Fatal("unknown evidence field was accepted")
+	}
+}
+
+func TestEvidenceAcceptsBoundedLegacySourceAliases(t *testing.T) {
+	var item Evidence
+	if err := json.Unmarshal([]byte(`{
+		"claim":"latency recovered","observation":"the latest probe passed",
+		"source":"monitoring","source_ref":"https://monitoring.example.test/check/7",
+		"source_time":"2026-08-12T04:20:00Z"
+	}`), &item); err != nil {
+		t.Fatal(err)
+	}
+	wantTime := time.Date(2026, 8, 12, 4, 20, 0, 0, time.UTC)
+	if item.SourceType != "monitoring" || item.SourceName != "monitoring" ||
+		item.SourceURL != "https://monitoring.example.test/check/7" ||
+		!item.ObservedAt.Equal(wantTime) {
+		t.Fatalf("aliased evidence = %+v", item)
 	}
 }
 

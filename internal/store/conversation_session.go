@@ -81,11 +81,12 @@ func (s *Store) BindConversationSession(
 	if started.IsZero() {
 		started = s.now().UTC()
 	}
-	_, err := s.db.ExecContext(ctx, `
+	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO conversation_sessions (
 		  channel_id, repository, policy, session_id, session_revision,
 		  coop_event_sequence, generation, turn_count, session_started_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
+		) SELECT ?, ?, ?, ?, ?, 0, ?, 0, ?, ?
+		WHERE NOT EXISTS (SELECT 1 FROM coop_cleanup WHERE session_id = ?)
 		ON CONFLICT(channel_id) DO UPDATE SET
 		  repository = excluded.repository,
 		  policy = excluded.policy,
@@ -96,7 +97,8 @@ func (s *Store) BindConversationSession(
 		  turn_count = 0,
 		  session_started_at = excluded.session_started_at,
 		  rotated_at = conversation_sessions.updated_at,
-		  updated_at = excluded.updated_at`,
+		  updated_at = excluded.updated_at
+		WHERE NOT EXISTS (SELECT 1 FROM coop_cleanup WHERE session_id = excluded.session_id)`,
 		channelID,
 		repository,
 		policy,
@@ -105,8 +107,9 @@ func (s *Store) BindConversationSession(
 		generation,
 		started.UTC().Format(timestampFormat),
 		s.nowText(),
+		sessionID,
 	)
-	return err
+	return sqlutil.ExpectOne(result, err, "bind conversation session outside cleanup ownership")
 }
 
 func (s *Store) AdvanceConversationSessionEvents(

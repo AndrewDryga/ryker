@@ -139,7 +139,7 @@ func (p *pacedSlack) UploadFile(
 	channel string,
 	threadTS string,
 	upload slackui.FileUpload,
-) (string, error) {
+) (slackui.FileDeliveryResult, error) {
 	defer p.record(channel)
 	return p.API.UploadFile(ctx, channel, threadTS, upload)
 }

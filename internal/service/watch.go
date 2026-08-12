@@ -392,7 +392,8 @@ func (s *Service) applyReplyDecision(
 	decision decisionpkg.WatchDecision,
 	episodeID string,
 	responseThreadTS string,
-	post func(context.Context, string, core.SlackInput, slackui.Message) error,
+	executionKey string,
+	post func(context.Context, string, core.SlackInput, slackui.Message, bool) error,
 ) error {
 	// The answer is arriving, so the pause comes off. A message that was
 	// marked "not yet" and then answered should not keep the mark.
@@ -585,16 +586,17 @@ func (s *Service) applyReplyDecision(
 			message = slackui.WithPullRequestReview(message, input.ID)
 		}
 	}
-	baseDeliveryID := core.FirstNonempty(
+	baseDeliveryID := executionDeliveryID(core.FirstNonempty(
 		state.ReplyDeliveryID,
 		"watch_reply_"+input.ID,
-	)
+	), executionKey)
 	for index, part := range replyParts[:len(replyParts)-1] {
 		if err := post(
 			ctx,
 			replySequenceDeliveryID(baseDeliveryID, index, len(replyParts)),
 			input,
 			slackui.ConversationResponse(part, s.sanitizer),
+			false,
 		); err != nil {
 			return err
 		}
@@ -610,11 +612,12 @@ func (s *Service) applyReplyDecision(
 			deliveryID,
 			input,
 			message,
+			true,
 		); err != nil {
 			return err
 		}
 	} else if err := s.enqueueGeneratedVisuals(
-		ctx, deliveryID, "", episodeID, input.ChannelID, responseThreadTS,
+		ctx, deliveryID, "", episodeID, input.ID, input.ChannelID, responseThreadTS,
 		state.SessionID, state.TurnID, decision.Visuals, &message,
 	); err != nil {
 		return err
@@ -684,8 +687,9 @@ func (s *Service) applyWatchDecision(
 	input core.SlackInput,
 	state decisionpkg.WatchTurnState,
 	decision decisionpkg.WatchDecision,
-	episodeID string,
+	run core.AgentRun,
 ) error {
+	episodeID := run.EpisodeID
 	if s.cfg.IsOperator(input.UserID) {
 		offers, acknowledgement, replaced := normalizedOffers(
 			input,
@@ -796,7 +800,7 @@ func (s *Service) applyWatchDecision(
 		mode = "shadow"
 	}
 	if _, err := s.store.Intelligence.ApplyWatchDecision(ctx, core.EvaluationDecision{
-		EpisodeID: episodeID,
+		EpisodeID: episodeID, AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey,
 		ChannelID: input.ChannelID, SessionChannelID: state.SessionChannelID,
 		ThreadTS:  input.ThreadTS,
 		MessageTS: input.MessageTS, Repository: state.Repository,
@@ -825,9 +829,10 @@ func (s *Service) applyWatchDecision(
 		id string,
 		input core.SlackInput,
 		message slackui.Message,
+		responseRoot bool,
 	) error {
-		return s.postInputMessageAt(
-			ctx, id, input.ChannelID, responseThreadTS, message,
+		return s.postInputMessageAtResponse(
+			ctx, id, input.ID, input.ChannelID, responseThreadTS, message, responseRoot,
 		)
 	}
 	if episodeID != "" {
@@ -836,9 +841,11 @@ func (s *Service) applyWatchDecision(
 			id string,
 			input core.SlackInput,
 			message slackui.Message,
+			responseRoot bool,
 		) error {
-			return s.postInputMessageAtEpisode(
-				ctx, id, episodeID, input.ChannelID, responseThreadTS, message,
+			return s.postInputMessageAtEpisodeResponse(
+				ctx, id, episodeID, input.ID, input.ChannelID, responseThreadTS,
+				message, responseRoot,
 			)
 		}
 	}
@@ -880,7 +887,7 @@ func (s *Service) applyWatchDecision(
 		})
 	case "reply":
 		if err := s.applyReplyDecision(
-			ctx, input, state, decision, episodeID, responseThreadTS, post,
+			ctx, input, state, decision, episodeID, responseThreadTS, run.IdempotencyKey, post,
 		); err != nil {
 			return err
 		}
@@ -907,7 +914,7 @@ func (s *Service) applyWatchDecision(
 			input,
 			state,
 			decisionpkg.StandingRuleIncidentAsReply(decision, offerIncident),
-			episodeID,
+			run,
 		)
 	default:
 		return fmt.Errorf("unsupported watch decision %q", decision.Action)
@@ -1622,10 +1629,15 @@ func (s *Service) watchOfferActionMatchesDelivery(
 		}
 		return false, err
 	}
-	baseID := "watch_reply_" + source.ID
-	matchingDelivery := delivery.ID == baseID ||
-		delivery.ID == baseID+"_part_999"
-	return matchingDelivery &&
+	run, err := s.store.GetAgentRunBySource(ctx, "watch", source.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return delivery.ResponseRoot && delivery.SourceInputID == source.ID &&
+		delivery.AgentRunID == run.ID && delivery.AgentRunKey == run.IdempotencyKey &&
 		delivery.ThreadTS == input.ThreadTS &&
 		delivery.MessageTS != "" &&
 		delivery.MessageTS == input.MessageTS, nil
@@ -1663,61 +1675,6 @@ func (s *Service) finishWatchTaskOffer(
 		Detail:   detail + "; source=" + input.ActionValue,
 	})
 	return s.finishSlashInput(ctx, input, message)
-}
-
-func (s *Service) retireFailedWatchSession(
-	ctx context.Context,
-	input core.SlackInput,
-	state decisionpkg.WatchTurnState,
-) error {
-	if input.ChannelID == "" || state.SessionID == "" {
-		return nil
-	}
-	var errs []error
-	session, sessionErr := s.coop.GetSession(ctx, state.SessionID)
-	if sessionErr != nil {
-		errs = append(errs, sessionErr)
-	} else if !watchSessionTerminal(session.State) && session.ActiveTurnID == "" {
-		closed, _, closeErr := s.coop.Close(
-			ctx,
-			"responder:watch-failure-close:"+input.ID,
-			session.ID,
-			session.Revision,
-		)
-		if closeErr != nil {
-			errs = append(errs, closeErr)
-		} else {
-			session = closed
-		}
-	}
-	var detachErr error
-	if state.Lane == "conversation" {
-		_, detachErr = s.store.DetachConversationSession(
-			ctx, input.ChannelID, state.SessionID,
-		)
-	} else {
-		sessionChannelID := core.FirstNonempty(state.SessionChannelID, input.ChannelID)
-		_, detachErr = s.store.Intelligence.DetachChannelSession(
-			ctx, sessionChannelID, state.SessionID,
-		)
-	}
-	if detachErr != nil {
-		errs = append(errs, detachErr)
-	}
-	if sessionErr == nil && watchSessionTerminal(session.State) &&
-		session.ActiveTurnID == "" {
-		if err := s.store.ScheduleCleanup(
-			ctx,
-			session.ID,
-			"",
-			"failed Slack channel triage session",
-			false,
-			s.now().UTC(),
-		); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
 }
 
 func (s *Service) clearWatchPendingStatus(

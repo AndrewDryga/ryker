@@ -441,7 +441,7 @@ func TestMergedPullRequestRemainsAuthoritativeAcrossFollowupAndStaleControls(t *
 		t.Fatal(err)
 	}
 	if err := st.TaskCards.SetUpdate(
-		ctx, task.ID, "The follow-up apply exposed one more hostname to stage.",
+		ctx, task.ID, "", "The follow-up apply exposed one more hostname to stage.",
 	); err != nil {
 		t.Fatal(err)
 	}

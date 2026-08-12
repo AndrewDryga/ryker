@@ -5,6 +5,7 @@ import (
 	"time"
 
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/evidencepolicy"
 )
 
 // Both of these are the exact shapes a real model returned on the promoted
@@ -60,6 +61,27 @@ func TestRecordedFieldNameDriftStillDecodes(t *testing.T) {
 				t.Fatalf("decision = %+v", decision)
 			}
 		})
+	}
+}
+
+func TestEvidenceOperationIDIsCanonicalForCauseReferences(t *testing.T) {
+	decision, err := decisionpkg.ParseWatchDecision(`{"action":"reply","operations":[
+		{"id":"cause-live","type":"record_evidence","evidence":{"id":"duplicate-payload-id","claim_id":"dependency.current_health","claim":"The dependency is healthy.","observation":"The live probe failed.","relation":"contradicts","health_effect":"unhealthy","source_type":"monitoring","source_name":"probe"}},
+		{"id":"change-current","type":"record_evidence","evidence":{"id":"duplicate-payload-id","claim_id":"change.recent","claim":"The revision is current.","observation":"The expected revision is deployed.","relation":"supports","health_effect":"none","source_type":"repository","source_name":"repository"}},
+		{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"Requests fail.","cause_status":"identified","cause":"The dependency is unavailable.","cause_claim_ids":["dependency.current_health"],"evidence_refs":["cause-live"],"immediate_action":"Fail over.","verification":"Probe succeeds.","long_term_solution":"Remove the single dependency."}},
+		{"id":"complete","type":"complete_episode","completion":{"message":"The dependency is unavailable.","completion":{"status":"decision_ready","summary":"Dependency failure confirmed."}}}
+	]}`, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decision.Evidence) != 2 || decision.Evidence[0].ID != "cause-live" ||
+		decision.Evidence[1].ID != "change-current" {
+		t.Fatalf("canonical evidence ids = %+v", decision.Evidence)
+	}
+	if correction := evidencepolicy.AlertCauseCorrection(
+		decision.AlertAssessment, decision.Evidence,
+	); correction != "" {
+		t.Fatalf("canonical cause reference rejected: %s", correction)
 	}
 }
 

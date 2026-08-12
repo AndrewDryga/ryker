@@ -545,7 +545,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		LongTermSolution: "Fix the LoL and Rivals request paths.",
 	}
 	if got := decisionpkg.EpisodeDiagnosisCorrection(
-		episode, "reply", coverage, unfinished, completion,
+		episode, "reply", nil, coverage, unfinished, completion,
 	); !strings.Contains(got, "identified or bounded cause") {
 		t.Fatalf("unfinished diagnosis correction = %q", got)
 	}
@@ -555,20 +555,33 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		Impact:           "LoL requests using the ranked-profile endpoint fail for affected accounts.",
 		CauseStatus:      "bounded",
 		Cause:            "The ranked-profile decoder rejects the newly returned rank values.",
+		CauseClaimIDs:    []string{"application.functional_behavior"},
+		EvidenceRefs:     []string{"decoder-values"},
 		ImmediateAction:  "Disable ranked-profile enrichment while preserving the base request.",
 		Verification:     "Repeat affected requests and confirm ingress 5xx returns below 0.1 percent.",
 		LongTermSolution: "Accept the new rank values and add compatibility fixtures.",
 	}
+	evidence := []core.Evidence{{
+		ID: "decoder-values", ClaimID: "application.functional_behavior", Relation: "supports", Claim: "the decoder rejects the new values",
+		Observation: "repository and request logs show the strict decoder on the failing request path",
+	}}
 	if got := decisionpkg.EpisodeDiagnosisCorrection(
-		episode, "reply", coverage, bounded, completion,
+		episode, "reply", evidence, coverage, bounded, completion,
 	); got != "" {
 		t.Fatalf("bounded diagnosis rejected: %s", got)
+	}
+	unsupported := *bounded
+	unsupported.EvidenceRefs = []string{"missing-cause-evidence"}
+	if got := decisionpkg.EpisodeDiagnosisCorrection(
+		episode, "reply", evidence, coverage, &unsupported, completion,
+	); !strings.Contains(got, "absent") {
+		t.Fatalf("unsupported diagnosis correction = %q", got)
 	}
 
 	unfinishedAction := *bounded
 	unfinishedAction.ImmediateAction = "Inspect the current allocations and service registrations."
 	if got := decisionpkg.EpisodeDiagnosisCorrection(
-		episode, "reply", coverage, &unfinishedAction, completion,
+		episode, "reply", evidence, coverage, &unfinishedAction, completion,
 	); !strings.Contains(got, "investigative handoff") {
 		t.Fatalf("unfinished action correction = %q", got)
 	}
@@ -580,7 +593,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		NextAction: "Restore endpoint labels in the application telemetry, then retry",
 	}
 	if got := decisionpkg.EpisodeDiagnosisCorrection(
-		episode, "reply", coverage, nil, blocked,
+		episode, "reply", nil, coverage, nil, blocked,
 	); got != "" {
 		t.Fatalf("exact diagnostic blocker rejected: %s", got)
 	}

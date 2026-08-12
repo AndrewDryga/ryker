@@ -72,6 +72,7 @@ func (s *Service) enqueueGeneratedVisuals(
 	keyPrefix string,
 	incidentID string,
 	episodeID string,
+	sourceInputID string,
 	channelID string,
 	threadTS string,
 	sessionID string,
@@ -151,9 +152,9 @@ func (s *Service) enqueueGeneratedVisuals(
 		}
 		_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 			ID: fmt.Sprintf("%s_visual_%02d", keyPrefix, index+1), IncidentID: incidentID,
-			EpisodeID: episodeID,
+			EpisodeID: episodeID, SourceInputID: sourceInputID,
 			Operation: "file", Kind: "generated_visual", ChannelID: channelID,
-			ThreadTS: threadTS, Body: body,
+			ThreadTS: threadTS, Body: body, ResponseRoot: index == 0,
 		})
 		if err != nil {
 			return err
@@ -210,9 +211,9 @@ func (s *Service) enqueueGeneratedVisualFailure(
 	file slackFileDelivery,
 	detail string,
 ) error {
-	fix := "Slack rejected the upload after the configured retries. Check the app's file-upload access, then ask me to try again."
+	fix := "Slack rejected the upload after the configured retries. Check the app's file-upload access, then reply `retry the chart upload`."
 	if strings.Contains(strings.ToLower(detail), "missing_scope") {
-		fix = "This Slack app is missing `files:write`. Apply the current app manifest, reinstall the app in this workspace, then ask me to try again."
+		fix = "This Slack app is missing `files:write`. Apply the current app manifest, reinstall the app in this workspace, then reply `retry the chart upload`."
 	}
 	notice := fmt.Sprintf(
 		"*Chart could not be attached*\nI generated *%s*, but Slack did not accept the upload. %s",
@@ -233,11 +234,16 @@ func (s *Service) enqueueGeneratedVisualFailure(
 			"The analysis completed; only the Slack file delivery failed.",
 		)
 	}
-	return s.postInputMessageAt(
-		ctx,
-		delivery.ID+"_upload_failed",
-		delivery.ChannelID,
-		delivery.ThreadTS,
-		message,
-	)
+	body, err := slackui.Encode(s.sanitizeMessage(message))
+	if err != nil {
+		return err
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: delivery.ID + "_upload_failed", IncidentID: delivery.IncidentID,
+		EpisodeID: delivery.EpisodeID, AgentRunID: delivery.AgentRunID,
+		SourceInputID: delivery.SourceInputID, Operation: "post", Kind: "notice",
+		ChannelID: delivery.ChannelID, ThreadTS: delivery.ThreadTS,
+		Body: body, ResponseRoot: true,
+	})
+	return err
 }

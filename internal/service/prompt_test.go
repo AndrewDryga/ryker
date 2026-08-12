@@ -341,7 +341,11 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // atomic batch and make later timing corrections replace older variants.
 // Raised by 321 on 2026-08-11 for the typed ambient-contribution contract. It
 // lets the host reject confident but unhelpful restatements deterministically.
-const staticWatchPromptBytes = 48345
+// Raised by 234 on 2026-08-12 for numerical fidelity: operational replies now
+// preserve binary-unit conversions instead of turning 305,282 MiB into the
+// materially wrong "about 305 GiB". The host also validates that explicit
+// MiB/GiB conversions agree before a reply can leave the process.
+const staticWatchPromptBytes = 48557
 
 // The static prompt must not grow without someone deciding it should.
 //

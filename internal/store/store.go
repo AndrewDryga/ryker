@@ -18,6 +18,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/incidentstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
+	"github.com/AndrewDryga/responder/internal/store/pausecleanupstore"
 	"github.com/AndrewDryga/responder/internal/store/publicationfollowupstore"
 	"github.com/AndrewDryga/responder/internal/store/publicationrecoverystore"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
@@ -83,6 +84,9 @@ type Store struct {
 	Incidents *incidentstore.Repository
 	// SlackInputs owns source-message provenance lookups used after admission.
 	SlackInputs *slackinputstore.Repository
+	// PauseCleanup owns discovery of terminal messages carrying the legacy
+	// pause reaction. The scheduler owns its retry lifecycle.
+	PauseCleanup *pausecleanupstore.Repository
 }
 
 type Metrics struct {
@@ -1088,6 +1092,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.PublicationRecovery = publicationrecoverystore.New(db, clock)
 	s.Incidents = incidentstore.New(db, clock)
 	s.SlackInputs = slackinputstore.New(db)
+	s.PauseCleanup = pausecleanupstore.New(db)
 }
 
 // SetClock replaces the store clock. It exists for tests.
@@ -2404,10 +2409,8 @@ func (s *Store) HasRecentWatchReply(
 		SELECT EXISTS (
 		  SELECT 1
 		  FROM slack_deliveries AS delivery
-		  JOIN agent_runs AS run
-		    ON run.source_kind = 'watch'
-		   AND delivery.id = 'watch_reply_' || run.source_id
-		  WHERE delivery.operation = 'post'
+		  WHERE delivery.operation IN ('post', 'file')
+		    AND delivery.response_root = 1
 		    AND delivery.state = 'sent'
 		    AND delivery.channel_id = ?
 		    AND (

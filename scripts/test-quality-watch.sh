@@ -82,8 +82,10 @@ CREATE TABLE agent_runs (
   started_at TEXT,
   completed_at TEXT,
   updated_at TEXT,
-  result_json TEXT,
-  failure_count INTEGER
+	result_json TEXT,
+	failure_count INTEGER,
+	incident_id TEXT,
+	idempotency_key TEXT
 );
 CREATE TABLE slack_inputs (
   id TEXT PRIMARY KEY,
@@ -105,7 +107,9 @@ CREATE TABLE evaluation_decisions (
   action TEXT,
   reason TEXT,
   evidence_count INTEGER,
-  coverage_count INTEGER
+	coverage_count INTEGER,
+	agent_run_id TEXT,
+	agent_run_key TEXT
 );
 CREATE TABLE slack_deliveries (
   id TEXT PRIMARY KEY,
@@ -114,7 +118,13 @@ CREATE TABLE slack_deliveries (
   kind TEXT,
   message_ts TEXT,
   last_error TEXT,
-  body_json TEXT
+	body_json TEXT
+	,incident_id TEXT
+	,card_version INTEGER
+	,agent_run_id TEXT
+	,source_input_id TEXT
+	,response_root INTEGER
+	,agent_run_key TEXT
 );
 SQL
 
@@ -174,16 +184,22 @@ INSERT INTO agent_runs VALUES (
   'run_one', 'triage', 'completed', 'completed', 'C0TENANTX01', '',
   'watch', 'slack_one', 'emisar', '',
   '2999-01-01T00:00:00.000Z', '2999-01-01T00:00:01.000Z',
-  '2999-01-01T00:00:02.000Z', '2999-01-01T00:00:02.000Z', '{"action":"reply"}', 0
+	'2999-01-01T00:00:02.000Z', '2999-01-01T00:00:02.000Z', '{"action":"reply"}', 0, '', 'run:key:one'
 );
 INSERT INTO slack_deliveries VALUES (
-  'watch_reply_slack_one', 'sent', 'post', 'notice', '2999.002', '',
-  '{"text":"Production is healthy within the checked scope."}'
+	'watch_reply_slack_one', 'sent', 'post', 'notice', '2999.002', '',
+	'{"text":"Production is healthy within the checked scope."}', '', 0,
+	'run_one', 'slack_one', 1, 'run:key:one'
+);
+INSERT INTO evaluation_decisions VALUES (
+	'slack_one', 'live', 'reply', 'fresh evidence supports the answer', 2, 3,
+	'run_one', 'run:key:one'
 );
 SQL
 run_watch clean --once
 grep -Fq 'Production is healthy within the checked scope.' "$capture"
 grep -Fq '"reply_delivery_state": "sent"' "$capture"
+grep -Fq '"recorded_action": "reply"' "$capture"
 grep -Fq 'C0TENANTX01' "$capture"
 grep -Fq $'2999-01-01T00:00:02.000Z\trun_one' "$state_dir/quality-watch/cursor.tsv"
 
@@ -198,17 +214,28 @@ INSERT INTO slack_inputs (
   '2999-01-01T00:00:03.000Z', '2999-01-01T00:00:05.000Z'
 );
 INSERT INTO agent_runs VALUES (
-  'run_two', 'triage', 'completed', 'completed', 'C0TENANTX01', '',
-  'watch', 'slack_two', 'emisar', '',
-  '2999-01-01T00:00:03.000Z', '2999-01-01T00:00:04.000Z',
-  '2999-01-01T00:00:05.000Z', '2999-01-01T00:00:05.000Z', '{"action":"reply"}', 0
+	'run_two', 'engineering_task', 'completed', 'completed', 'C0TENANTX01', '',
+	'watch', 'slack_two', 'emisar', '',
+	'2999-01-01T00:00:03.000Z', '2999-01-01T00:00:04.000Z',
+	'2999-01-01T00:00:05.000Z', '2999-01-01T00:00:05.000Z', '{"action":"reply"}', 0, 'inc_task', 'run:key:two'
 );
 INSERT INTO slack_deliveries VALUES (
-  'out_run_run_two', 'sent', 'post', 'assistant', '2999.004', '',
-  '{"text":"The deployment is healthy.","actions":[{"id":"stale_control","label":"Create draft PR"}]}'
+	'delivery_card_inc_task_1', 'sent', 'update', 'card', '2999.004', '',
+	'{"text":"The deployment is healthy.","actions":[{"id":"stale_control","label":"Create draft PR"}]}',
+	'inc_task', 1, 'run_two', 'slack_two', 0, 'run:key:two'
+);
+INSERT INTO slack_deliveries VALUES (
+	'delivery_card_inc_task_2', 'sent', 'update', 'card', '2999.0045', '',
+	'{"text":"Wrong card from a newer task turn."}',
+	'inc_task', 2, 'run_future', 'slack_future', 0, 'run:key:future'
 );
 SQL
 run_watch challenge --once
+grep -Fq 'The deployment is healthy.' "$capture"
+if grep -Fq 'Wrong card from a newer task turn.' "$capture"; then
+  printf 'quality-watch test: older engineering run was paired with the latest incident card\n' >&2
+  exit 1
+fi
 grep -Fq 'Create draft PR' "$capture"
 grep -Fq 'adversarial review rejected the proposed defect' \
   "$state_dir/quality-watch/quality-watch.log"
@@ -224,6 +251,42 @@ if [[ $(findings "SELECT COUNT(*) FROM quality_findings WHERE verdict = 'rejecte
   exit 1
 fi
 
+# Requeue keeps the durable run ID but rotates its execution key. An answer
+# from the failed execution must not make the retried execution look answered.
+rm -f "$count_file"
+sqlite3 "$state_dir/responder.db" <<'SQL'
+INSERT INTO slack_inputs (
+  id, kind, channel_id, thread_ts, user_id, message_ts, text, state,
+  failure_count, last_error, received_at, updated_at
+) VALUES (
+  'slack_requeued', 'mention', 'C0TENANTX01', '', 'U123', '2999.0055',
+  'retry the failed check', 'done', 0, '',
+  '2999-01-01T00:00:05.500Z', '2999-01-01T00:00:05.800Z'
+);
+INSERT INTO agent_runs VALUES (
+  'run_requeued', 'triage', 'failed', 'failed', 'C0TENANTX01', '',
+  'watch', 'slack_requeued', 'emisar', 'retry finalization failed',
+  '2999-01-01T00:00:05.500Z', '2999-01-01T00:00:05.600Z',
+  '2999-01-01T00:00:05.800Z', '2999-01-01T00:00:05.800Z', '', 2, '', 'run:key:new:recovery_2'
+);
+INSERT INTO slack_deliveries VALUES (
+  'watch_reply_slack_requeued', 'sent', 'post', 'notice', '2999.0057', '',
+  '{"text":"Answer from the earlier failed execution."}', '', 0,
+  '', 'slack_requeued', 1, ''
+);
+INSERT INTO evaluation_decisions VALUES (
+  'slack_requeued', 'live', 'reply', 'decision from the earlier execution', 1, 1,
+  '', ''
+);
+SQL
+run_watch clean --once
+if grep -Fq 'Answer from the earlier failed execution.' "$capture"; then
+  printf 'quality-watch test: retried run inherited its prior execution reply\n' >&2
+  exit 1
+fi
+grep -Fq '"reply_delivery_state": null' "$capture"
+grep -Fq '"recorded_action": null' "$capture"
+
 rm -f "$count_file"
 sqlite3 "$state_dir/responder.db" <<'SQL'
 INSERT INTO slack_inputs (
@@ -235,8 +298,9 @@ INSERT INTO slack_inputs (
   '2999-01-01T00:00:06.000Z', '2999-01-01T00:00:07.000Z'
 );
 INSERT INTO slack_deliveries VALUES (
-  'out_input_error_slack_three', 'sent', 'post', 'notice', '2999.007', '',
-  '{"text":"Responder could not complete that request after retrying.","reason":"empty Slack message"}'
+	'out_input_error_slack_three', 'sent', 'post', 'notice', '2999.007', '',
+	'{"text":"Responder could not complete that request after retrying.","reason":"empty Slack message"}', '', 0,
+	'', 'slack_three', 1, ''
 );
 SQL
 run_watch clean --once
@@ -260,11 +324,12 @@ INSERT INTO agent_runs VALUES (
   'run_four', 'triage', 'completed', 'failed', 'C0TENANTX01', '',
   'watch', 'slack_four', 'tenant-platform', 'ACP transcript exceeded its bound',
   '2999-01-01T00:00:08.000Z', '2999-01-01T00:00:09.000Z',
-  '2999-01-01T00:00:10.000Z', '2999-01-01T00:00:10.000Z', '', 20
+	'2999-01-01T00:00:10.000Z', '2999-01-01T00:00:10.000Z', '', 20, '', 'run:key:four'
 );
 INSERT INTO slack_deliveries VALUES (
-  'watch_failure_slack_four', 'sent', 'post', 'notice', '2999.009', '',
-  '{"text":"Responder could not complete this check.","reason":"ACP transcript exceeded its bound"}'
+	'watch_failure_slack_four', 'sent', 'post', 'notice', '2999.009', '',
+	'{"text":"Responder could not complete this check.","reason":"ACP transcript exceeded its bound"}', '', 0,
+	'run_four', 'slack_four', 1, 'run:key:four'
 );
 SQL
 run_watch clean --once
@@ -293,7 +358,7 @@ INSERT INTO agent_runs VALUES (
   'run_recorded', 'triage', 'completed', 'failed', 'C0TENANTX01', '',
   'watch', 'slack_recorded', 'tenant-platform', 'reproducible failure',
   '2999-01-01T00:00:10.400Z', '2999-01-01T00:00:10.450Z',
-  '2999-01-01T00:00:10.500Z', '2999-01-01T00:00:10.500Z', '', 1
+	'2999-01-01T00:00:10.500Z', '2999-01-01T00:00:10.500Z', '', 1, '', 'run:key:recorded'
 );
 SQL
 run_watch confirmed --once
@@ -343,7 +408,7 @@ INSERT INTO agent_runs VALUES (
   'run_five', 'triage', 'completed', 'failed', 'C0TENANTX01', '',
   'watch', 'slack_five', 'tenant-platform', 'reproducible failure',
   '2999-01-01T00:00:11.000Z', '2999-01-01T00:00:12.000Z',
-  '2999-01-01T00:00:13.000Z', '2999-01-01T00:00:13.000Z', '', 1
+	'2999-01-01T00:00:13.000Z', '2999-01-01T00:00:13.000Z', '', 1, '', 'run:key:five'
 );
 SQL
 FIX_MODE=on run_watch confirmed --once
@@ -391,7 +456,7 @@ INSERT INTO agent_runs VALUES (
   'run_six', 'triage', 'completed', 'succeeded', 'C0TENANTX01', '',
   'watch', 'slack_six', 'tenant-platform', 'answered',
   '2999-01-01T00:00:21.000Z', '2999-01-01T00:00:22.000Z',
-  '2999-01-01T00:00:23.000Z', '2999-01-01T00:00:23.000Z', '', 0
+	'2999-01-01T00:00:23.000Z', '2999-01-01T00:00:23.000Z', '', 0, '', 'run:key:six'
 );
 SQL
 

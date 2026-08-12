@@ -47,7 +47,7 @@ func TestGeneratedVisualLegacyUncertainMissingScopeFailsImmediately(t *testing.T
 	}
 	slackClient := &fakeSlack{}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
-	if err := svc.enqueueGeneratedVisuals(ctx, "out_legacy", "", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
+	if err := svc.enqueueGeneratedVisuals(ctx, "out_legacy", "", "", "", "C123", "1700.001", "ses_1", "turn_visual", []core.GeneratedVisual{{
 		Artifact: "load.png", Title: "Production load", AltText: "Line chart of production load over 24 hours.",
 	}}, nil); err != nil {
 		t.Fatal(err)
@@ -550,8 +550,8 @@ func TestMalformedDeepCompletionIsCorrectedAndRetried(t *testing.T) {
 	}
 }
 
-// The operator-facing failure notice is gone. Responder does not tell a channel
-// that it failed — it pauses the message and keeps the work queued.
+// Terminal notices are reserved for accepted human requests. Retryable failures
+// remain queued; terminal targeted work says what the operator can do next.
 
 func TestStructuredCorrectionBudgetIsBounded(t *testing.T) {
 	if terminalStructuredCorrection(1, 1, 20) ||
@@ -1446,12 +1446,17 @@ func (f *fakeSlack) DownloadFile(_ context.Context, fileURL string, writer io.Wr
 	_, err := writer.Write(data)
 	return err
 }
-func (f *fakeSlack) UploadFile(_ context.Context, channel, thread string, upload slackui.FileUpload) (string, error) {
+func (f *fakeSlack) UploadFile(
+	_ context.Context, channel, thread string, upload slackui.FileUpload,
+) (slackui.FileDeliveryResult, error) {
 	f.uploads = append(f.uploads, slackFileUpload{channel: channel, thread: thread, upload: upload})
 	if f.uploadErr != nil {
-		return "", f.uploadErr
+		return slackui.FileDeliveryResult{}, f.uploadErr
 	}
-	return fmt.Sprintf("F%03d", len(f.uploads)), nil
+	return slackui.FileDeliveryResult{
+		FileID:    fmt.Sprintf("F%03d", len(f.uploads)),
+		MessageTS: fmt.Sprintf("1700.%03d", len(f.uploads)),
+	}, nil
 }
 func (f *fakeSlack) RecentMessages(
 	_ context.Context,
@@ -1481,13 +1486,18 @@ func (f *fakeSlack) FindDeliveryMessage(
 	}
 	return "", slackui.ErrNotFound
 }
-func (f *fakeSlack) FindDeliveryFile(_ context.Context, channel, thread, filename string) (string, error) {
+func (f *fakeSlack) FindDeliveryFile(
+	_ context.Context, channel, thread, filename string,
+) (slackui.FileDeliveryResult, error) {
 	for index, upload := range f.uploads {
 		if upload.channel == channel && upload.thread == thread && upload.upload.Filename == filename {
-			return fmt.Sprintf("F%03d", index+1), nil
+			return slackui.FileDeliveryResult{
+				FileID:    fmt.Sprintf("F%03d", index+1),
+				MessageTS: fmt.Sprintf("1700.%03d", index+1),
+			}, nil
 		}
 	}
-	return "", slackui.ErrNotFound
+	return slackui.FileDeliveryResult{}, slackui.ErrNotFound
 }
 
 func serviceConfig(t *testing.T) config.Config {

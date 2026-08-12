@@ -204,6 +204,141 @@ func TestLeaseSlackDeliveryPreservesMultipartSequence(t *testing.T) {
 	}
 }
 
+func TestLeaseSlackDeliverySuppressesReplyAfterNewHumanInputIsAdmitted(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	for _, input := range []core.SlackInput{
+		{ID: "input-001", EnvelopeID: "env-001", Kind: "message", ChannelID: "C123", MessageTS: "1700.100", ReceivedAt: now},
+		{ID: "input-002", EnvelopeID: "env-002", Kind: "message", ChannelID: "C123", ThreadTS: "1700.100", MessageTS: "1700.101", ReceivedAt: now.Add(time.Second)},
+		{ID: "input-003", EnvelopeID: "env-003", Kind: "message", ChannelID: "C123", MessageTS: "1700.200", ReceivedAt: now.Add(2 * time.Second)},
+	} {
+		created, err := st.AdmitSlackInput(ctx, input)
+		if err != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, err)
+		}
+	}
+	for _, delivery := range []core.SlackDelivery{
+		{ID: "old-response", SourceInputID: "input-001", Operation: "post", Kind: "notice", ChannelID: "C123", ThreadTS: "1700.100", Body: []byte(`{"text":"old"}`), ResponseRoot: true},
+		{ID: "other-response", SourceInputID: "input-003", Operation: "post", Kind: "notice", ChannelID: "C123", ThreadTS: "1700.200", Body: []byte(`{"text":"other"}`), ResponseRoot: true},
+	} {
+		created, err := st.EnqueueSlackDelivery(ctx, delivery)
+		if err != nil || !created {
+			t.Fatalf("enqueue %s = %t, %v", delivery.ID, created, err)
+		}
+	}
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil || leased.ID != "other-response" {
+		t.Fatalf("lease after correction = %+v, %v", leased, err)
+	}
+	old, err := st.GetSlackDelivery(ctx, "old-response")
+	if err != nil || old.State != "superseded" || old.LastError != "newer human turn admitted" {
+		t.Fatalf("stale response = %+v, %v", old, err)
+	}
+}
+
+func TestLeaseSlackDeliveryDoesNotTreatBotUpdateAsHumanCorrection(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	source := core.SlackInput{
+		ID: "human-source", EnvelopeID: "env-human-source", Kind: "mention",
+		TeamID: "T1", ChannelID: "C1", MessageTS: "1700.100", UserID: "U1",
+		Text: "check the deploy", ReceivedAt: time.Now().UTC(),
+	}
+	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
+		t.Fatalf("admit human source = %t, %v", created, err)
+	}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "human-answer", SourceInputID: source.ID, Operation: "post", Kind: "notice",
+		ChannelID: source.ChannelID, Body: []byte(`{"text":"answer"}`), ResponseRoot: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if created, err := st.AdmitSlackInput(ctx, core.SlackInput{
+		ID: "newer-bot", EnvelopeID: "env-newer-bot", Kind: "bot_message",
+		TeamID: "T1", ChannelID: "C1", MessageTS: "1700.200", UserID: "B1",
+		Text: "deployment status changed", ReceivedAt: source.ReceivedAt.Add(time.Second),
+	}); err != nil || !created {
+		t.Fatalf("admit bot update = %t, %v", created, err)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil || leased.ID != "human-answer" {
+		t.Fatalf("human answer after bot update = %+v, %v", leased, err)
+	}
+}
+
+func TestLeaseSlackDeliveryUsesSlackOrderWhenAdmissionTimesTie(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	for _, input := range []core.SlackInput{
+		{ID: "z-source", EnvelopeID: "env-z", Kind: "mention", ChannelID: "C123", MessageTS: "1700.100", ReceivedAt: now},
+		{ID: "a-correction", EnvelopeID: "env-a", Kind: "message", ChannelID: "C123", ThreadTS: "1700.100", MessageTS: "1700.200", ReceivedAt: now},
+	} {
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, admitErr)
+		}
+	}
+	if created, enqueueErr := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "equal-time-old-response", SourceInputID: "z-source",
+		Operation: "post", Kind: "notice", ChannelID: "C123", ThreadTS: "1700.100",
+		Body: []byte(`{"text":"old"}`), ResponseRoot: true,
+	}); enqueueErr != nil || !created {
+		t.Fatalf("enqueue = %t, %v", created, enqueueErr)
+	}
+	if _, leaseErr := st.LeaseSlackDelivery(ctx, nil); !errors.Is(leaseErr, ErrNotFound) {
+		t.Fatalf("lease stale equal-time response = %v", leaseErr)
+	}
+	stored, err := st.GetSlackDelivery(ctx, "equal-time-old-response")
+	if err != nil || stored.State != "superseded" {
+		t.Fatalf("equal-time stale response = %+v, %v", stored, err)
+	}
+}
+
+func TestRecentWatchReplyUsesDurableResponseRootForPostAndFile(t *testing.T) {
+	for _, operation := range []string{"post", "file"} {
+		t.Run(operation, func(t *testing.T) {
+			ctx := context.Background()
+			st, err := Open(filepath.Join(t.TempDir(), "state"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+				ID: "opaque-response", Operation: operation, Kind: "notice",
+				ChannelID: "C123", ThreadTS: "1700.100", Body: []byte(`{"text":"answer"}`),
+				ResponseRoot: true,
+			})
+			if err != nil || !created {
+				t.Fatalf("enqueue = %t, %v", created, err)
+			}
+			leased, err := st.LeaseSlackDelivery(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := st.FinishSlackDelivery(ctx, leased.ID, "1700.150", "sending"); err != nil {
+				t.Fatal(err)
+			}
+			got, err := st.HasRecentWatchReply(ctx, "C123", "1700.100", "1700.200", time.Time{})
+			if err != nil || !got {
+				t.Fatalf("recent response root = %t, %v", got, err)
+			}
+		})
+	}
+}
+
 func TestSlackDeliveryFailureCountTracksFailuresNotLeases(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

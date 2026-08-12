@@ -10,88 +10,137 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-// reactingSlack records reactions so a test can tell a pause from silence.
-type reactingSlack struct {
-	fakeSlack
-	reactions []string
-}
-
-func (s *reactingSlack) React(_ context.Context, _, _, reaction string) error {
-	s.reactions = append(s.reactions, reaction)
-	return nil
-}
-
-// A message Responder could not answer is paused, never explained.
-//
-// "Responder could not complete this check. Coop ended the agent turn before it
-// produced a usable response." went to a shared channel, once per retry, and
-// described Responder's own plumbing to someone who had asked about their
-// infrastructure. Nobody reading it could act on it.
-func TestUnansweredMessageIsPausedRatherThanExplained(t *testing.T) {
-	ctx := context.Background()
-	cfg := serviceConfig(t)
-	st, err := store.Open(cfg.StateDir)
+func TestSuccessfulOutcomeClearsLegacyPausedReaction(t *testing.T) {
+	slack := &fakeSlack{}
+	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	slack := &reactingSlack{}
-	svc := &Service{cfg: cfg, store: st, slack: slack, log: slog.New(slog.DiscardHandler)}
-
-	svc.markInputPaused(ctx, core.SlackInput{
-		ID: "slack_paused", ChannelID: "COPS", MessageTS: "1700.100",
+	if err := st.Audit(context.Background(), core.AuditEvent{
+		Kind: "slack.paused", ObjectID: "legacy-paused", Outcome: "queued",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{store: st, slack: slack, log: slog.New(slog.DiscardHandler)}
+	svc.clearInputPaused(context.Background(), core.SlackInput{
+		ID: "legacy-paused", ChannelID: "COPS", MessageTS: "1700.100",
 	})
-
-	if len(slack.posts) != 0 {
-		t.Fatalf("pausing a message posted to the channel: %+v", slack.posts)
+	if len(slack.removedReactions) != 1 ||
+		slack.removedReactions[0].name != pausedReaction ||
+		slack.removedReactions[0].channel != "COPS" ||
+		slack.removedReactions[0].timestamp != "1700.100" {
+		t.Fatalf("removed reactions = %+v", slack.removedReactions)
 	}
-	if len(slack.reactions) != 1 || slack.reactions[0] != pausedReaction {
-		t.Fatalf("reactions = %v, want exactly [%s]", slack.reactions, pausedReaction)
+	queued, err := st.PauseCleanup.Queued(context.Background(), "legacy-paused")
+	if err != nil || queued {
+		t.Fatalf("legacy pause remains queued = %t, %v", queued, err)
 	}
 }
 
-// A message with no channel or timestamp cannot be reacted to, and must not
-// cause anything else to fail.
-func TestPausingWithoutAMessageIsHarmless(t *testing.T) {
-	ctx := context.Background()
-	cfg := serviceConfig(t)
-	st, err := store.Open(cfg.StateDir)
+func TestSuccessfulModernOutcomeDoesNotInventPauseHistory(t *testing.T) {
+	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	slack := &reactingSlack{}
-	svc := &Service{cfg: cfg, store: st, slack: slack, log: slog.New(slog.DiscardHandler)}
-
-	svc.markInputPaused(ctx, core.SlackInput{ID: "slack_no_message"})
-	if len(slack.reactions) != 0 || len(slack.posts) != 0 {
-		t.Fatalf("reacted to nothing: %v %+v", slack.reactions, slack.posts)
+	slack := &fakeSlack{}
+	(&Service{store: st, slack: slack, log: slog.New(slog.DiscardHandler)}).clearInputPaused(
+		context.Background(), core.SlackInput{
+			ID: "modern-input", ChannelID: "COPS", MessageTS: "1700.101",
+		},
+	)
+	if len(slack.removedReactions) != 0 {
+		t.Fatalf("modern input triggered legacy cleanup: %+v", slack.removedReactions)
+	}
+	queued, err := st.PauseCleanup.Queued(context.Background(), "modern-input")
+	if err != nil || queued {
+		t.Fatalf("modern input gained pause history = %t, %v", queued, err)
 	}
 }
 
-// The reaction is a courtesy; the queue is the guarantee. A Slack failure must
-// not take the run down with it.
-func TestAFailedReactionDoesNotFailTheRun(t *testing.T) {
+func TestClearingLegacyPauseWithoutMessageOrSlackSupportIsHarmless(t *testing.T) {
 	ctx := context.Background()
-	cfg := serviceConfig(t)
-	st, err := store.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	(&Service{slack: &fakeSlack{}}).clearInputPaused(ctx, core.SlackInput{})
+	(&Service{}).clearInputPaused(ctx, core.SlackInput{
+		ChannelID: "COPS", MessageTS: "1700.100",
+	})
+}
+
+func TestFailedLegacyPauseCleanupDoesNotFailOutcome(t *testing.T) {
 	svc := &Service{
-		cfg: cfg, store: st, slack: &refusingSlack{}, log: slog.New(slog.DiscardHandler),
+		slack: &refusingUnreactSlack{}, log: slog.New(slog.DiscardHandler),
 	}
-
-	// markInputPaused returns nothing: there is no failure for a caller to
-	// propagate, which is the point.
-	svc.markInputPaused(ctx, core.SlackInput{
-		ID: "slack_paused", ChannelID: "COPS", MessageTS: "1700.100",
+	// Cleanup is best effort and deliberately returns no error to propagate.
+	svc.clearInputPaused(context.Background(), core.SlackInput{
+		ID: "legacy-paused", ChannelID: "COPS", MessageTS: "1700.100",
 	})
 }
 
-type refusingSlack struct{ fakeSlack }
+func TestLegacyTerminalPauseRetriesAcrossRestartUntilCleared(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := core.SlackInput{
+		ID: "pre-upgrade-paused", Kind: "mention", ChannelID: "COPS",
+		MessageTS: "1700.300", UserID: "U123ABC", Text: "check it",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit legacy input = %t, %v", created, err)
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+		ThreadTS: input.MessageTS, ConversationKey: "channel:COPS",
+		SourceKind: "watch", SourceID: input.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, applied, err := st.FinishAgentRunFailure(
+		ctx, run.ID, "old terminal failure", nil, store.AgentRunFailureEffects{},
+	); err != nil || !applied {
+		t.Fatalf("finish legacy failure = %t, %v", applied, err)
+	}
+	if err := st.Audit(ctx, core.AuditEvent{
+		Kind: "slack.paused", ObjectID: input.ID, Outcome: "queued",
+		Detail: "answer deferred; the work stays queued",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first := &Service{store: st, slack: &refusingUnreactSlack{}, log: slog.New(slog.DiscardHandler)}
+	if err := first.processLegacyPauseCleanup(ctx); err == nil {
+		t.Fatal("transient Slack failure did not retain cleanup work")
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-func (s *refusingSlack) React(_ context.Context, _, _, _ string) error {
-	return errors.New("slack is unavailable")
+	reopened, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	slack := &fakeSlack{}
+	restarted := &Service{store: reopened, slack: slack, log: slog.New(slog.DiscardHandler)}
+	if err := restarted.processLegacyPauseCleanup(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slack.removedReactions) != 1 || slack.removedReactions[0].timestamp != input.MessageTS {
+		t.Fatalf("legacy pause removal = %+v", slack.removedReactions)
+	}
+	if err := restarted.processLegacyPauseCleanup(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("cleanup receipt did not suppress replay: %v", err)
+	}
+}
+
+type refusingUnreactSlack struct{ fakeSlack }
+
+func (s *refusingUnreactSlack) Unreact(context.Context, string, string, string) error {
+	return errors.New("Slack unavailable")
 }

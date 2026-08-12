@@ -735,7 +735,7 @@ func evaluateCaseWithConfig(
 		}
 		if testCase.Kind == "watch" {
 			if correction := decisionpkg.EpisodeDiagnosisCorrection(
-				*episode, completionAction, coverage, assessment, completion,
+				*episode, completionAction, evidence, coverage, assessment, completion,
 			); correction != "" {
 				result.Detail = "premature diagnosis: " + correction
 				return result

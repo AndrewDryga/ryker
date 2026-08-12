@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -16,6 +18,14 @@ import (
 )
 
 const ()
+
+func executionDeliveryID(base, idempotencyKey string) string {
+	if !strings.Contains(idempotencyKey, ":recovery_") {
+		return base
+	}
+	digest := sha256.Sum256([]byte(idempotencyKey))
+	return base + "_exec_" + hex.EncodeToString(digest[:8])
+}
 
 func replySequenceDeliveryID(base string, index int, total int) string {
 	if total <= 1 {

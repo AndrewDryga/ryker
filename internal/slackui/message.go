@@ -675,6 +675,36 @@ func AgentReportFailureMessage() Message {
 		},
 	}
 }
+
+// TriageFailureMessage is the terminal notice for an accepted human request.
+// It intentionally takes no raw error: provider and transport diagnostics are
+// useful in logs, not in the Slack thread of the person waiting for an answer.
+func TriageFailureMessage() Message {
+	return Message{
+		Text:   "I couldn't finish this request.",
+		Header: "Request needs a retry",
+		Sections: []string{
+			"I stopped retrying this request so it would not remain silently queued.",
+			"Reply in this thread to try again. Verify current state before repeating any operation.",
+		},
+		Context: []string{"Internal provider and transport errors were kept out of the channel."},
+	}
+}
+
+// ApprovalVerificationFailureMessage reports only the verification boundary:
+// the governed external action may have happened, so retrying it blindly would
+// be unsafe even though the follow-up verification has stopped.
+func ApprovalVerificationFailureMessage() Message {
+	return Message{
+		Text:   "The governed run finished, but I couldn't verify or report its result.",
+		Header: "Verification needs attention",
+		Sections: []string{
+			"I stopped the automatic verification after its retry limit.",
+			"Check the run and current state before repeating any action, then reply here to continue verification.",
+		},
+		Context: []string{"Internal provider and transport errors were kept out of the channel."},
+	}
+}
 func EvidenceDirectoryMessage(
 	incident core.Incident,
 	evidence []core.Evidence,

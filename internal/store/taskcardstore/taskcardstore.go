@@ -43,14 +43,20 @@ func (r *Repository) AdoptOffer(ctx context.Context, id, messageTS string) error
 }
 
 // SetUpdate replaces the human-readable progress section on the task card.
-func (r *Repository) SetUpdate(ctx context.Context, id, update string) error {
+func (r *Repository) SetUpdate(ctx context.Context, id, runID, update string) error {
 	update = core.BoundedText(strings.TrimSpace(update), 6000)
 	now := r.nowText()
 	result, err := r.db.ExecContext(ctx, `
-		UPDATE incidents SET latest_update = ?, updated_at = ?,
-		  card_version = card_version + CASE WHEN latest_update != ? THEN 1 ELSE 0 END,
+		UPDATE incidents SET latest_update = ?, latest_update_run_id = ?,
+		  latest_update_run_key = run_key.value, updated_at = ?,
+		  card_version = card_version + CASE
+		    WHEN latest_update != ? OR latest_update_run_id != ?
+		      OR latest_update_run_key != run_key.value THEN 1 ELSE 0 END,
 		  last_error = ''
-		WHERE id = ? AND work_kind = 'engineering_task'`,
-		update, now, update, id)
+		FROM (SELECT COALESCE((
+		  SELECT idempotency_key FROM agent_runs WHERE id = ?
+		), '') AS value) AS run_key
+		WHERE incidents.id = ? AND work_kind = 'engineering_task'`,
+		update, runID, now, update, runID, runID, id)
 	return sqlutil.ExpectOne(result, err, "update task card")
 }

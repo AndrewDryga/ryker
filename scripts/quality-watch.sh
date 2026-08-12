@@ -595,8 +595,10 @@ review_once() {
   query="
 WITH terminal AS (
   SELECT
-    r.id,
-    r.mode,
+	    r.id,
+	    r.idempotency_key,
+	    COALESCE(r.incident_id, '') AS incident_id,
+	    r.mode,
     r.state,
     r.terminal_state,
     r.channel_id,
@@ -617,9 +619,11 @@ WITH terminal AS (
   FROM agent_runs AS r
   WHERE r.state IN ('completed', 'failed', 'cancelled', 'superseded')
   UNION ALL
-  SELECT
-    'input_error_' || input.id AS id,
-    'input' AS mode,
+	  SELECT
+	    'input_error_' || input.id AS id,
+	    '' AS idempotency_key,
+	    '' AS incident_id,
+	    'input' AS mode,
     input.state,
     input.state AS terminal_state,
     input.channel_id,
@@ -642,7 +646,8 @@ WITH terminal AS (
     )
 )
 SELECT
-  r.id AS run_id,
+	r.id AS run_id,
+	r.incident_id,
   r.mode,
   r.state,
   r.terminal_state,
@@ -676,29 +681,62 @@ SELECT
 FROM terminal AS r
 LEFT JOIN slack_inputs AS input ON input.id = r.source_id
 LEFT JOIN evaluation_decisions AS decision
-  ON decision.source_input = r.source_id AND decision.mode = 'watch'
+	ON decision.rowid = (
+	  SELECT candidate.rowid FROM evaluation_decisions AS candidate
+	  WHERE candidate.source_input = CASE
+	    WHEN r.source_kind LIKE 'emisar_approval:%' THEN substr(r.source_kind, length('emisar_approval:') + 1)
+	    ELSE r.source_id
+	  END
+	    AND ((candidate.agent_run_id = r.id
+	          AND candidate.agent_run_key = r.idempotency_key) OR
+	         (r.idempotency_key NOT LIKE '%:recovery_%'
+	          AND candidate.agent_run_id = '' AND candidate.agent_run_key = ''))
+	    AND candidate.mode IN ('live', 'shadow')
+	  ORDER BY CASE candidate.mode WHEN 'live' THEN 0 ELSE 1 END, candidate.rowid DESC
+	  LIMIT 1
+	)
 LEFT JOIN slack_deliveries AS delivery
   ON delivery.id = COALESCE(
     (
       SELECT candidate.id FROM slack_deliveries AS candidate
-      WHERE candidate.id = 'out_run_' || r.id LIMIT 1
+	      WHERE ((candidate.agent_run_id = r.id
+	              AND candidate.agent_run_key = r.idempotency_key) OR
+	             (r.idempotency_key NOT LIKE '%:recovery_%'
+	              AND candidate.agent_run_id = '' AND candidate.agent_run_key = ''
+	              AND candidate.source_input_id != ''
+	              AND candidate.source_input_id = r.source_id))
+        AND (candidate.response_root = 1 OR candidate.kind = 'card')
+      ORDER BY candidate.card_version DESC, candidate.rowid DESC LIMIT 1
     ),
     (
       SELECT candidate.id FROM slack_deliveries AS candidate
-      WHERE candidate.id = 'out_run_' || r.id || '_part_999' LIMIT 1
+	      WHERE r.idempotency_key NOT LIKE '%:recovery_%'
+	        AND candidate.agent_run_id = '' AND candidate.agent_run_key = ''
+	        AND candidate.id = 'out_run_' || r.id LIMIT 1
     ),
     (
       SELECT candidate.id FROM slack_deliveries AS candidate
-      WHERE candidate.id = 'watch_reply_' || r.source_id LIMIT 1
+	      WHERE r.idempotency_key NOT LIKE '%:recovery_%'
+	        AND candidate.agent_run_id = '' AND candidate.agent_run_key = ''
+	        AND candidate.id = 'out_run_' || r.id || '_part_999' LIMIT 1
     ),
     (
       SELECT candidate.id FROM slack_deliveries AS candidate
-      WHERE candidate.id = 'watch_failure_' || r.source_id LIMIT 1
+	      WHERE r.idempotency_key NOT LIKE '%:recovery_%'
+	        AND candidate.agent_run_id = '' AND candidate.agent_run_key = ''
+	        AND candidate.id = 'watch_reply_' || r.source_id LIMIT 1
     ),
     (
       SELECT candidate.id FROM slack_deliveries AS candidate
-      WHERE candidate.id = 'out_input_error_' || r.source_id LIMIT 1
-    )
+	      WHERE r.idempotency_key NOT LIKE '%:recovery_%'
+	        AND candidate.agent_run_id = '' AND candidate.agent_run_key = ''
+	        AND candidate.id = 'watch_failure_' || r.source_id LIMIT 1
+    ),
+	    (
+	      SELECT candidate.id FROM slack_deliveries AS candidate
+	      WHERE candidate.id = 'out_input_error_' || r.source_id LIMIT 1
+	    ),
+	    NULL
   )
 WHERE r.sort_time > '$quoted_time'
    OR (r.sort_time = '$quoted_time' AND r.id > '$quoted_id')

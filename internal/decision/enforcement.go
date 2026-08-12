@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/evidencepolicy"
 	"github.com/AndrewDryga/responder/internal/investigation"
 )
 
@@ -216,8 +217,14 @@ func AlertAssessmentCorrection(
 	}
 	if decision.Action == "reply" {
 		if decision.AlertAssessment == nil {
-			return "the alert reply has no alert_assessment; continue the read-only investigation " +
+			return "the alert reply has no record_alert_assessment result; continue the read-only investigation " +
 				"until you can state a verdict, impact, immediate action, and durable solution"
+		}
+		if correction := evidencepolicy.AlertCauseCorrection(
+			decision.AlertAssessment,
+			SanitizeEvidence(decision.Evidence, "", "", "", now),
+		); correction != "" {
+			return correction
 		}
 		evidence := SanitizeEvidence(decision.Evidence, "", "", "", now)
 		recovered := decision.AlertAssessment.Verdict == "not_issue" &&
@@ -542,6 +549,7 @@ func WatchInputExplicitlyTargeted(input core.SlackInput, state WatchTurnState) b
 func EpisodeDiagnosisCorrection(
 	episode core.WorkEpisode,
 	action string,
+	evidence []core.Evidence,
 	coverage []core.Coverage,
 	assessment *AlertAssessment,
 	completion *investigation.CompletionAssessment,
@@ -574,6 +582,9 @@ func EpisodeDiagnosisCorrection(
 	}
 	if strings.TrimSpace(assessment.Cause) == "" {
 		return "the active issue has no actionable cause boundary; continue the diagnosis or return an exact external blocker"
+	}
+	if correction := evidencepolicy.AlertCauseCorrection(assessment, evidence); correction != "" {
+		return correction
 	}
 	if strings.TrimSpace(assessment.Verification) == "" {
 		return "the active issue has no fresh verification plan for its mitigation; continue until the result is operationally testable"

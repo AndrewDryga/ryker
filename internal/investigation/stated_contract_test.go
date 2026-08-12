@@ -36,6 +36,11 @@ func TestStatedResultOperationsCoverWhatTheContractDemands(t *testing.T) {
 			t.Errorf("the contract lists %q, which no result operation validator accepts", stated)
 		}
 	}
+	for supported := range resultOperationValidators {
+		if supported != "propose_action" && !slices.Contains(contract.ResultOperations, supported) {
+			t.Errorf("the host accepts and documents %q but the contract forbids it", supported)
+		}
+	}
 	if !strings.Contains(contract.Prompt(), `"request_operator_input"`) {
 		t.Error("the serialized contract does not carry its own operation list")
 	}

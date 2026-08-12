@@ -59,7 +59,11 @@ func (s *Service) surfaceOverdueEpisode(
 	now time.Time,
 	grace time.Duration,
 ) error {
-	overdueBy := now.Sub(episode.ProgressDueAt)
+	dueAt := episode.ProgressDueAt
+	if dueAt.IsZero() {
+		dueAt = episode.UpdatedAt
+	}
+	overdueBy := now.Sub(dueAt)
 	// One notice per progress generation. The generation advances whenever the
 	// episode reports progress, so a stalled episode keeps the same key and a
 	// resumed one gets a fresh chance to be surfaced later.

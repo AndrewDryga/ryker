@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -1238,6 +1240,52 @@ func TestIncidentControlMatchesDeliveredResultMessage(t *testing.T) {
 	matches, err = svc.incidentControlMatchesMessage(ctx, input, incident)
 	if err != nil || matches {
 		t.Fatalf("wrong result message control = %t, %v", matches, err)
+	}
+}
+
+func TestIncidentControlMatchesMessageEmbeddedInDeliveredVisual(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	message := slackui.Message{Text: "The requested change and chart are ready.", Actions: []slackui.Action{{
+		ID: slackui.ActionChanges, Label: "View diff", Value: incident.ID,
+	}}}
+	data := []byte("\x89PNG\r\n\x1a\nchart")
+	digest := sha256.Sum256(data)
+	body, err := json.Marshal(slackFileDelivery{
+		Filename: "result.png", Title: "Result", AltText: "Result chart",
+		MediaType: "image/png", SHA256: hex.EncodeToString(digest[:]), Data: data, Message: &message,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "out_visual_result_with_controls", IncidentID: incident.ID,
+		Operation: "file", Kind: "generated_visual", ChannelID: incident.ChannelID,
+		ThreadTS: incident.ConversationThreadTS(), Body: body, ResponseRoot: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, delivery.ID, "1700.950", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	matches, err := svc.incidentControlMatchesMessage(ctx, core.SlackInput{
+		Kind: "action", ChannelID: incident.ChannelID,
+		ThreadTS: incident.ConversationThreadTS(), MessageTS: "1700.950",
+		ActionID: slackui.ActionChanges, ActionValue: incident.ID,
+	}, incident)
+	if err != nil || !matches {
+		t.Fatalf("visual result control = %t, %v", matches, err)
 	}
 }
 

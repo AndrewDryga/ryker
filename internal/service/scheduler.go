@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -30,6 +31,7 @@ const (
 	workEpisodeWakeup    = "episode_wakeup"
 	workPublicationTrack = "publication_followup"
 	workEpisodeRecheck   = "episode_recheck"
+	workLegacyPause      = "legacy_pause_cleanup"
 	schedulerSingletonID = "drain"
 )
 
@@ -85,6 +87,7 @@ func (s *Service) seedScheduledWork(ctx context.Context) error {
 		{Kind: workSlackReconcile, SubjectID: schedulerSingletonID, Lane: store.WorkLaneControl, Priority: 20},
 		{Kind: workSlackDelivery, SubjectID: schedulerSingletonID, Lane: store.WorkLaneControl, Priority: 30},
 		{Kind: workSlackMembership, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 5},
+		{Kind: workLegacyPause, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 6},
 		{Kind: workWebhook, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 10},
 		{Kind: workAgentFinalize, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 20},
 		{Kind: workIncidentDiscover, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 25},
@@ -272,7 +275,7 @@ func scheduledRetryAt(
 	attempt int,
 	err error,
 ) (time.Time, time.Duration, bool) {
-	next := now.Add(queueDelayDuration(attempt))
+	next := now.Add(retrydelay.Duration(attempt))
 	retryAfter, rateLimited := slackui.RetryAfter(err)
 	if rateLimited && now.Add(retryAfter).After(next) {
 		next = now.Add(retryAfter)
@@ -294,7 +297,8 @@ func recurringScheduledWork(kind string) bool {
 		workMaintenance,
 		workScheduledTask,
 		workEpisodeWakeup,
-		workPublicationTrack:
+		workPublicationTrack,
+		workLegacyPause:
 		return true
 	default:
 		return false
@@ -311,6 +315,8 @@ func (s *Service) scheduledIdleDelay(kind string) time.Duration {
 		return s.cfg.GitHub.FollowupInterval.Duration
 	case workMaintenance:
 		return s.cfg.Retention.MaintenanceInterval.Duration
+	case workLegacyPause:
+		return time.Minute
 	default:
 		return s.cfg.Limits.WorkerInterval.Duration
 	}
@@ -350,6 +356,8 @@ func (s *Service) runScheduledWork(
 	case workMaintenance:
 		s.runMaintenance(ctx)
 		return store.ErrNotFound
+	case workLegacyPause:
+		return s.processLegacyPauseCleanup(ctx)
 	case workScheduledTask:
 		return s.processScheduledTasks(ctx)
 	case workEpisodeWakeup:

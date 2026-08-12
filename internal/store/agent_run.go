@@ -121,6 +121,35 @@ func (s *Store) queueAgentRun(
 				"cannot resume terminal episode %q in state %q", resumeEpisodeID, state,
 			)
 		}
+		var finalizing bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+			  SELECT 1 FROM work_episodes AS episode
+			  JOIN episode_attempts AS attempt ON attempt.id = episode.latest_attempt_id
+			  JOIN agent_runs AS owner ON owner.id = attempt.agent_run_id
+			  WHERE episode.id = ? AND owner.state = 'finalizing'
+			)`, resumeEpisodeID).Scan(&finalizing); err != nil {
+			return core.AgentRun{}, false, err
+		}
+		if finalizing {
+			return core.AgentRun{}, false, fmt.Errorf(
+				"episode %q result is finalizing: %w", resumeEpisodeID, ErrConflict,
+			)
+		}
+	} else if run.IncidentID != "" {
+		var finalizing bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+			  SELECT 1 FROM agent_runs
+			  WHERE incident_id = ? AND state = 'finalizing'
+			)`, run.IncidentID).Scan(&finalizing); err != nil {
+			return core.AgentRun{}, false, err
+		}
+		if finalizing {
+			return core.AgentRun{}, false, fmt.Errorf(
+				"incident %q result is finalizing: %w", run.IncidentID, ErrConflict,
+			)
+		}
 	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO agent_runs (
@@ -287,6 +316,7 @@ func (s *Store) GetAgentRunByCoopTurn(
 func (s *Store) GetLatestWorkEpisodeByConversationKey(
 	ctx context.Context,
 	conversationKey string,
+	preferredWaitingThread string,
 ) (core.WorkEpisode, error) {
 	if strings.TrimSpace(conversationKey) == "" {
 		return core.WorkEpisode{}, errors.New("conversation key is required")
@@ -295,12 +325,18 @@ func (s *Store) GetLatestWorkEpisodeByConversationKey(
 		SELECT `+workEpisodeColumns+`
 		FROM work_episodes
 		WHERE id = (
-			SELECT episode_id
-			FROM agent_runs
-			WHERE conversation_key = ? AND episode_id != ''
-			ORDER BY created_at DESC, id DESC
+			SELECT run.episode_id
+			FROM agent_runs AS run
+			JOIN work_episodes AS episode ON episode.id = run.episode_id
+			WHERE run.conversation_key = ? AND run.episode_id != ''
+			ORDER BY CASE
+				WHEN ? != '' AND episode.lifecycle_state = 'waiting_operator'
+				  AND episode.destination_thread_ts = ? THEN 0
+				ELSE 1
+			END,
+			run.created_at DESC, run.id DESC
 			LIMIT 1
-		)`, conversationKey))
+		)`, conversationKey, preferredWaitingThread, preferredWaitingThread))
 }
 
 // GetLatestOperationalWorkEpisode returns the most recent episode created by
@@ -457,14 +493,42 @@ func (s *Store) LeaseAgentRunFinalization(ctx context.Context) (core.AgentRun, e
 	}
 	defer tx.Rollback()
 	run, err := scanAgentRun(tx.QueryRowContext(ctx, `
-		SELECT `+agentRunColumns+`
-		FROM agent_runs
-		WHERE state = 'applying'
-		  AND julianday(next_attempt_at) <= julianday(?)
-		ORDER BY updated_at, id
-		LIMIT 1`, s.nowText()))
+			SELECT `+agentRunColumns+`
+			FROM agent_runs
+			WHERE state = 'applying'
+			  AND julianday(next_attempt_at) <= julianday(?)
+			ORDER BY updated_at, id
+			LIMIT 1`, s.nowText()))
 	if err != nil {
 		return core.AgentRun{}, err
+	}
+	if run.EpisodeID != "" {
+		var latestAttempt string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT latest_attempt_id FROM work_episodes WHERE id = ?`, run.EpisodeID,
+		).Scan(&latestAttempt); err != nil {
+			return core.AgentRun{}, err
+		}
+		if latestAttempt != run.AttemptID {
+			now := s.nowText()
+			result, supersedeErr := tx.ExecContext(ctx, `
+			UPDATE agent_runs SET state = 'superseded', completed_at = ?,
+			  last_error = 'newer episode attempt owns finalization', updated_at = ?
+			WHERE id = ? AND state = 'applying'`, now, now, run.ID)
+			if err := sqlutil.ExpectOne(result, supersedeErr, "supersede stale finalization"); err != nil {
+				return core.AgentRun{}, err
+			}
+			if err := s.setEpisodeAttemptStateTx(
+				ctx, tx, run.ID, core.AttemptCancelled,
+				"newer episode attempt owns finalization", false,
+			); err != nil {
+				return core.AgentRun{}, err
+			}
+			if err := tx.Commit(); err != nil {
+				return core.AgentRun{}, err
+			}
+			return core.AgentRun{}, ErrNotFound
+		}
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs SET state = 'finalizing', updated_at = ?
@@ -526,9 +590,43 @@ func (s *Store) BindAgentRunSession(
 		UPDATE agent_runs
 		SET session_id = ?, session_generation = ?, repository = ?,
 		    coop_event_sequence = ?, context_json = ?, updated_at = ?
-		WHERE id = ? AND state = 'preparing'`,
+		WHERE id = ? AND state IN ('preparing', 'finalizing')`,
 		sessionID, generation, repository, eventSequence, contextJSON, s.nowText(), id)
 	return sqlutil.ExpectOne(result, err, "bind agent run session")
+}
+
+func (s *Store) BindTriageAgentRunSession(
+	ctx context.Context,
+	id string,
+	sessionChannelID string,
+	sessionID string,
+	generation int,
+	conversation bool,
+	repository string,
+	eventSequence int64,
+	contextJSON []byte,
+) error {
+	if sessionChannelID == "" || sessionID == "" || generation < 1 ||
+		len(contextJSON) == 0 || len(contextJSON) > 256<<10 {
+		return errors.New("triage agent run session binding is incomplete")
+	}
+	table := "channel_memories"
+	if conversation {
+		table = "conversation_sessions"
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET session_id = ?, session_generation = ?, repository = ?,
+		    coop_event_sequence = ?, context_json = ?, updated_at = ?
+		WHERE id = ? AND state IN ('preparing', 'finalizing')
+		  AND EXISTS (
+		    SELECT 1 FROM `+table+`
+		    WHERE channel_id = ? AND session_id = ? AND generation = ?
+		  )
+		  AND NOT EXISTS (SELECT 1 FROM coop_cleanup WHERE session_id = ?)`,
+		sessionID, generation, repository, eventSequence, contextJSON, s.nowText(), id,
+		sessionChannelID, sessionID, generation, sessionID)
+	return sqlutil.ExpectOne(result, err, "bind triage agent run session")
 }
 
 func (s *Store) SetAgentRunContext(
@@ -1305,32 +1403,235 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 		return err
 	}
 	defer tx.Rollback()
-	var terminal, coopTurnID string
-	var incidentID sql.NullString
-	if err := tx.QueryRowContext(ctx, `
-		SELECT terminal_state, coop_turn_id, incident_id
-		FROM agent_runs WHERE id = ? AND state = 'finalizing'`, id).Scan(
-		&terminal, &coopTurnID, &incidentID,
-	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("finish agent run: %w", ErrConflict)
-		}
-		return err
+	run, err := scanAgentRun(tx.QueryRowContext(ctx, `
+		SELECT `+agentRunColumns+` FROM agent_runs
+		WHERE id = ? AND state = 'finalizing'`, id))
+	if err != nil {
+		return fmt.Errorf("finish agent run: %w", err)
 	}
-	finalState := core.AgentRunState(terminal)
+	finalState := core.AgentRunState(run.TerminalState)
 	if finalState != core.AgentRunCompleted &&
 		finalState != core.AgentRunFailed &&
 		finalState != core.AgentRunCancelled {
-		return fmt.Errorf("agent run has invalid terminal state %q", terminal)
+		return fmt.Errorf("agent run has invalid terminal state %q", run.TerminalState)
 	}
+	if err := s.finishAgentRunTx(ctx, tx, run, finalState, run.LastError, nil); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// FinishAgentRunFailure commits the terminal lifecycle and its user-visible
+// failure notice together. If the accepted result already staged a durable
+// response root, that successful outcome wins and no contradictory failure is
+// inserted. The return value is the state actually committed; applied is false
+// when a newer episode attempt owns the lifecycle.
+func (s *Store) FinishAgentRunFailure(
+	ctx context.Context,
+	id string,
+	detail string,
+	delivery *core.SlackDelivery,
+	effects AgentRunFailureEffects,
+) (finalState core.AgentRunState, applied bool, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback()
+	run, err := scanAgentRun(tx.QueryRowContext(ctx, `
+		SELECT `+agentRunColumns+` FROM agent_runs
+		WHERE id = ? AND state IN ('preparing', 'finalizing')`, id))
+	if errors.Is(err, ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if run.EpisodeID != "" {
+		var latestAttempt string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT latest_attempt_id FROM work_episodes WHERE id = ?`, run.EpisodeID,
+		).Scan(&latestAttempt); err != nil {
+			return "", false, err
+		}
+		if latestAttempt != run.AttemptID {
+			return "", false, nil
+		}
+	}
+	var responseStaged bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM slack_deliveries
+		  WHERE state IN ('pending', 'sending', 'retry', 'uncertain', 'sent')
+		    AND response_root = 1
+		    AND id NOT LIKE 'watch_failure_%'
+		    AND id NOT LIKE 'out_run_finalization_failure_%'
+		    AND agent_run_id = ? AND agent_run_key = ?
+		    AND (? = '' OR id != ?)
+		) OR EXISTS (
+		  SELECT 1 FROM incidents
+		  WHERE id = ? AND latest_update_run_id = ?
+		    AND latest_update_run_key = ? AND latest_update != ''
+		)`, run.ID, run.IdempotencyKey, deliveryID(delivery), deliveryID(delivery),
+		run.IncidentID, run.ID, run.IdempotencyKey,
+	).Scan(&responseStaged); err != nil {
+		return "", false, err
+	}
+	finalState = core.AgentRunFailed
+	if run.State == core.AgentRunFinalizing &&
+		run.TerminalState == string(core.AgentRunCompleted) && responseStaged {
+		finalState = core.AgentRunCompleted
+		delivery = nil
+	}
+	if err := s.finishAgentRunTx(ctx, tx, run, finalState, detail, delivery); err != nil {
+		return "", false, err
+	}
+	if finalState == core.AgentRunFailed {
+		if err := s.applyAgentRunFailureEffectsTx(ctx, tx, run, effects); err != nil {
+			return "", false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, err
+	}
+	return finalState, true, nil
+}
+
+// AgentRunFailureEffects are shared bindings that must retire in the same
+// transaction as the attempt that owns the terminal failure.
+type AgentRunFailureEffects struct {
+	StatusChannelID     string
+	StatusThreadTS      string
+	SessionChannelID    string
+	SessionID           string
+	SessionGeneration   int
+	ConversationSession bool
+}
+
+func (s *Store) applyAgentRunFailureEffectsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	run core.AgentRun,
+	effects AgentRunFailureEffects,
+) error {
+	now := s.nowText()
+	statusOwned := true
+	if effects.StatusChannelID != "" && effects.StatusThreadTS != "" {
+		if err := tx.QueryRowContext(ctx, `
+			SELECT NOT EXISTS (
+			  SELECT 1 FROM agent_runs newer
+			  WHERE newer.id != ?
+			    AND newer.state IN ('pending', 'preparing', 'running', 'applying', 'finalizing')
+			    AND (
+			      (? != '' AND newer.incident_id = ?) OR
+			      (newer.channel_id = ? AND newer.thread_ts = ?) OR
+			      EXISTS (
+			        SELECT 1 FROM slack_inputs input
+			        WHERE input.id = newer.source_id AND input.channel_id = ?
+			          AND COALESCE(NULLIF(input.thread_ts, ''), input.message_ts) = ?
+			      )
+			    )
+			)`, run.ID, run.IncidentID, run.IncidentID,
+			effects.StatusChannelID, effects.StatusThreadTS,
+			effects.StatusChannelID, effects.StatusThreadTS,
+		).Scan(&statusOwned); err != nil {
+			return err
+		}
+	}
+	if statusOwned && effects.StatusChannelID != "" && effects.StatusThreadTS != "" {
+		var generation int64
+		if err := tx.QueryRowContext(ctx, `
+			INSERT INTO slack_status_generations (channel_id, thread_ts, generation, updated_at)
+			VALUES (?, ?, 1, ?)
+			ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
+			  generation = slack_status_generations.generation + 1,
+			  updated_at = excluded.updated_at
+			RETURNING generation`, effects.StatusChannelID, effects.StatusThreadTS, now,
+		).Scan(&generation); err != nil {
+			return err
+		}
+		status := core.SlackDelivery{
+			ID: "delivery_status_clear_failure_" + run.ID, IncidentID: run.IncidentID,
+			EpisodeID: run.EpisodeID, AgentRunID: run.ID, Operation: "status", Kind: "status",
+			ChannelID: effects.StatusChannelID, ThreadTS: effects.StatusThreadTS,
+			CoalesceKey: "status:" + effects.StatusChannelID + ":" + effects.StatusThreadTS,
+			CardVersion: generation,
+		}
+		if err := s.insertTerminalSlackDeliveryTx(ctx, tx, status, now); err != nil {
+			return err
+		}
+	}
+	if effects.SessionID == "" || effects.SessionChannelID == "" {
+		return nil
+	}
+	var sessionOwned bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT NOT EXISTS (
+		  SELECT 1 FROM agent_runs
+		  WHERE id != ? AND session_id = ?
+		    AND state IN ('pending', 'preparing', 'running', 'applying', 'finalizing')
+		)`, run.ID, effects.SessionID).Scan(&sessionOwned); err != nil {
+		return err
+	}
+	if !sessionOwned {
+		return nil
+	}
+	table := "channel_memories"
+	if effects.ConversationSession {
+		table = "conversation_sessions"
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE `+table+` SET session_id = '',
+		session_revision = 0, coop_event_sequence = 0, turn_count = 0,
+		generation = generation + 1,
+		session_started_at = NULL, rotated_at = updated_at, updated_at = ?
+		WHERE channel_id = ? AND session_id = ? AND generation = ?`,
+		now, effects.SessionChannelID, effects.SessionID, effects.SessionGeneration)
+	if err != nil {
+		return err
+	}
+	if rows, rowsErr := result.RowsAffected(); rowsErr != nil {
+		return rowsErr
+	} else if rows == 0 {
+		return nil
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO coop_cleanup (
+		  session_id, incident_id, reason, allow_unmerged, state,
+		  eligible_at, next_attempt_at, created_at, updated_at
+		) VALUES (?, '', 'failed Slack channel triage session', 0, 'pending', ?, ?, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+		  eligible_at = MIN(coop_cleanup.eligible_at, excluded.eligible_at),
+		  next_attempt_at = MIN(coop_cleanup.next_attempt_at, excluded.next_attempt_at),
+		  updated_at = excluded.updated_at
+		WHERE coop_cleanup.state != 'done'`, effects.SessionID, now, now, now, now)
+	return err
+}
+
+func deliveryID(delivery *core.SlackDelivery) string {
+	if delivery == nil {
+		return ""
+	}
+	return delivery.ID
+}
+
+func (s *Store) finishAgentRunTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	run core.AgentRun,
+	finalState core.AgentRunState,
+	detail string,
+	delivery *core.SlackDelivery,
+) error {
 	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
-		SET state = ?, completed_at = ?,
-		    last_error = CASE WHEN ? = 'completed' THEN '' ELSE last_error END,
+		SET state = ?, terminal_state = ?, completed_at = ?,
+		    failure_count = failure_count + CASE WHEN ? = 'failed' THEN 1 ELSE 0 END,
+		    last_error = CASE WHEN ? = 'completed' THEN '' ELSE ? END,
 		    updated_at = ?
-		WHERE id = ? AND state = 'finalizing'`,
-		finalState, now, finalState, now, id)
+		WHERE id = ? AND state = ?`,
+		finalState, finalState, now, finalState, finalState, sqlutil.BoundedError(detail),
+		now, run.ID, run.State)
 	if err := sqlutil.ExpectOne(result, err, "finish agent run"); err != nil {
 		return err
 	}
@@ -1340,24 +1641,20 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 	} else if finalState == core.AgentRunCancelled {
 		attemptState = core.AttemptCancelled
 	}
-	if err := s.setEpisodeAttemptStateTx(ctx, tx, id, attemptState, "", false); err != nil {
+	if err := s.setEpisodeAttemptStateTx(ctx, tx, run.ID, attemptState, detail, false); err != nil {
 		return err
 	}
-	if incidentID.Valid {
+	if run.IncidentID != "" {
 		lastError := ""
 		if finalState == core.AgentRunFailed {
-			if err := tx.QueryRowContext(
-				ctx, `SELECT last_error FROM agent_runs WHERE id = ?`, id,
-			).Scan(&lastError); err != nil {
-				return err
-			}
+			lastError = sqlutil.BoundedError(detail)
 		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE incidents
 			SET active_turn_id = '', workflow = 'parked', last_error = ?,
 			    updated_at = ?, card_version = card_version + 1
 			WHERE id = ? AND active_turn_id = ?`,
-			lastError, now, incidentID.String, coopTurnID); err != nil {
+			lastError, now, run.IncidentID, run.CoopTurnID); err != nil {
 			return err
 		}
 	}
@@ -1376,19 +1673,31 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 	if err := tx.QueryRowContext(
 		ctx, `SELECT lifecycle_state FROM work_episodes WHERE id = (
 		  SELECT episode_id FROM agent_runs WHERE id = ?
-		)`, id,
+		)`, run.ID,
 	).Scan(&currentEpisodeState); err != nil {
 		return err
 	}
 	if agentRunOwnsEpisodeCompletion(currentEpisodeState) {
 		if err := s.setWorkEpisodePhaseTx(
-			ctx, tx, id, episodeState, "finished", episodeStatus, episodeNextAction,
-			time.Time{}, "agent-run:"+id+":finished:"+string(finalState),
+			ctx, tx, run.ID, episodeState, "finished", episodeStatus, episodeNextAction,
+			time.Time{}, "agent-run:"+run.ID+":finished:"+string(finalState),
 		); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	if finalState == core.AgentRunFailed && delivery != nil {
+		delivery.AgentRunID = run.ID
+		if delivery.SourceInputID == "" && run.SourceKind == "watch" {
+			delivery.SourceInputID = run.SourceID
+		}
+		if delivery.EpisodeID == "" {
+			delivery.EpisodeID = run.EpisodeID
+		}
+		if err := s.insertTerminalSlackDeliveryTx(ctx, tx, *delivery, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // The transport attempt may finish while the accepted work remains open. Only
@@ -1427,19 +1736,6 @@ func (s *Store) RetryAgentRunFinalization(
 	return sqlutil.ExpectOne(result, err, "retry agent run finalization")
 }
 
-func (s *Store) FailAgentRunFinalization(
-	ctx context.Context,
-	id string,
-	detail string,
-) error {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE agent_runs
-		SET terminal_state = 'failed', last_error = ?, updated_at = ?
-		WHERE id = ? AND state = 'finalizing'`,
-		sqlutil.BoundedError(detail), s.nowText(), id)
-	return sqlutil.ExpectOne(result, err, "fail agent run finalization")
-}
-
 func (s *Store) SupersedeAgentRun(ctx context.Context, id, detail string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1449,7 +1745,7 @@ func (s *Store) SupersedeAgentRun(ctx context.Context, id, detail string) error 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'superseded', last_error = ?, completed_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'preparing'`,
+		WHERE id = ? AND state IN ('preparing', 'finalizing')`,
 		sqlutil.BoundedError(detail), s.nowText(), s.nowText(), id)
 	if err := sqlutil.ExpectOne(result, err, "supersede agent run"); err != nil {
 		return err
@@ -1611,22 +1907,53 @@ func (s *Store) HasNewerOperationalAgentRun(
 	return count > 0, err
 }
 
-func (s *Store) HasNewerAgentRun(ctx context.Context, run core.AgentRun) (bool, error) {
+func (s *Store) HasNewerAgentRun(
+	ctx context.Context,
+	run core.AgentRun,
+	sameHumanThread bool,
+) (bool, error) {
+	if sameHumanThread {
+		// Slack event_time is only second-resolution, so durable admission order
+		// breaks ties for edits to the same message. For distinct messages the
+		// Slack timestamp is the conversation's authoritative order. Do not wait
+		// for the control lane to queue the correction's run: admission itself
+		// makes the newer human instruction authoritative.
+		var exists bool
+		err := s.db.QueryRowContext(ctx, `
+			SELECT EXISTS (
+			  SELECT 1
+			  FROM slack_inputs AS source
+			  JOIN slack_inputs AS newer
+			    ON newer.id != source.id
+			   AND newer.channel_id = source.channel_id
+			   AND COALESCE(NULLIF(newer.thread_ts, ''), newer.message_ts) =
+			       COALESCE(NULLIF(source.thread_ts, ''), source.message_ts)
+			   AND newer.kind IN ('message', 'mention', 'direct')
+			   AND (
+			     CAST(newer.message_ts AS REAL) > CAST(source.message_ts AS REAL) OR
+			     (newer.message_ts = source.message_ts AND newer.rowid > source.rowid)
+			   )
+			  WHERE source.id = ?
+			)`, run.SourceID).Scan(&exists)
+		return exists, err
+	}
+	threadFilter := ""
+	stateFilter := "AND candidate.state NOT IN ('superseded', 'cancelled', 'failed')"
 	var count int
-	err := s.db.QueryRowContext(ctx, `
+	query := `
 		SELECT count(*)
-		FROM agent_runs
-		WHERE conversation_key = ? AND id != ?
-		  AND state NOT IN ('superseded', 'cancelled', 'failed')
+		FROM agent_runs AS candidate
+		WHERE candidate.conversation_key = ? AND candidate.id != ?
+		  ` + stateFilter + `
 		  AND (
-		    julianday(created_at) > julianday(?) OR
-		    (julianday(created_at) = julianday(?) AND id > ?)
-		  )`,
-		run.ConversationKey, run.ID,
+		    julianday(candidate.created_at) > julianday(?) OR
+		    (julianday(candidate.created_at) = julianday(?) AND candidate.id > ?)
+		  )` + threadFilter
+	args := []any{run.ConversationKey, run.ID,
 		run.CreatedAt.UTC().Format(timestampFormat),
 		run.CreatedAt.UTC().Format(timestampFormat),
-		run.ID,
-	).Scan(&count)
+		run.ID}
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
 	return count > 0, err
 }
 

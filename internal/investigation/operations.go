@@ -46,13 +46,15 @@ type RecheckDirective struct {
 }
 
 type AlertAssessment struct {
-	Verdict          string `json:"verdict"`
-	Impact           string `json:"impact"`
-	CauseStatus      string `json:"cause_status,omitempty"`
-	Cause            string `json:"cause,omitempty"`
-	ImmediateAction  string `json:"immediate_action,omitempty"`
-	Verification     string `json:"verification,omitempty"`
-	LongTermSolution string `json:"long_term_solution,omitempty"`
+	Verdict          string   `json:"verdict"`
+	Impact           string   `json:"impact"`
+	CauseStatus      string   `json:"cause_status,omitempty"`
+	Cause            string   `json:"cause,omitempty"`
+	CauseClaimIDs    []string `json:"cause_claim_ids,omitempty"`
+	EvidenceRefs     []string `json:"evidence_refs,omitempty"`
+	ImmediateAction  string   `json:"immediate_action,omitempty"`
+	Verification     string   `json:"verification,omitempty"`
+	LongTermSolution string   `json:"long_term_solution,omitempty"`
 }
 
 // UnmarshalJSON accepts a small set of previously emitted semantic aliases so
@@ -64,6 +66,7 @@ func (assessment *AlertAssessment) UnmarshalJSON(data []byte) error {
 		Impact           string   `json:"impact"`
 		CauseStatus      string   `json:"cause_status,omitempty"`
 		Cause            string   `json:"cause,omitempty"`
+		CauseClaimIDs    []string `json:"cause_claim_ids,omitempty"`
 		ImmediateAction  string   `json:"immediate_action,omitempty"`
 		Verification     string   `json:"verification,omitempty"`
 		LongTermSolution string   `json:"long_term_solution,omitempty"`
@@ -86,6 +89,8 @@ func (assessment *AlertAssessment) UnmarshalJSON(data []byte) error {
 		Impact:           value.Impact,
 		CauseStatus:      value.CauseStatus,
 		Cause:            value.Cause,
+		CauseClaimIDs:    value.CauseClaimIDs,
+		EvidenceRefs:     value.EvidenceRefs,
 		ImmediateAction:  value.ImmediateAction,
 		Verification:     value.Verification,
 		LongTermSolution: value.LongTermSolution,
@@ -409,10 +414,10 @@ accepted operations in the episode event stream.
 - update_goal: {"id":"goal-done-1","type":"update_goal","goal_state":{"goal_id":"goal-1","state":"ready|working|waiting|completed|blocked|excluded|cancelled","detail":"optional blocker"}}
 - request_operator_input: {"id":"input-1","type":"request_operator_input","operator_input":{"question":"one exact question","choices":["optional choice"]}}
 - wait_external: {"id":"wait-1","type":"wait_external","external_wait":{"id":"wakeup-1","kind":"github_checks|deployment|terraform_run|emisar_approval|scheduled_verification|other","event_matcher":{"provider":"github","pr":42},"poll_after":"RFC3339","deadline":"RFC3339"}}
-- record_feedback: {"id":"feedback-1","type":"record_feedback","feedback":{"category":"ux|correctness|tone|latency|reliability|feature_request|other","sentiment":"negative|positive|suggestion|mixed","summary":"one actionable sentence","details":"optional concise context","target_message_ts":"optional Slack timestamp of the Responder reply this is about","needs_followup":false,"followup_question":"required only when needs_followup is true"}}
+- record_feedback: {"id":"feedback-1","type":"record_feedback","feedback":{"category":"ux|correctness|tone|latency|reliability|feature_request|other","sentiment":"negative|positive|suggestion|mixed","summary":"one actionable sentence","details":"optional concise context","target_message_ts":"optional target reply timestamp","needs_followup":false,"followup_question":"required when needs_followup"}}
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
-- record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current operator impact","cause_status":"identified|bounded when required","cause":"bounded cause when required","immediate_action":"what to do now","verification":"observable success condition","long_term_solution":"durable fix when required"}}
+- record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current impact","cause_status":"identified|bounded when required","cause":"bounded cause","cause_claim_ids":["claim_id"],"evidence_refs":["evidence id for claim"],"immediate_action":"safe next step","verification":"success check","long_term_solution":"durable fix"}}
 - attach_visual{visual}, update_memory{memory}: one payload under the braced key. Offers use offer_memory{memory_offer: scope,subject,predicate,value,visibility}, offer_preference{preference_offer: scope,name,value}, offer_rule{rule_offer: scope,repository,trigger,action}, offer_schedule{schedule_offer: title,prompt,repository,recurrence,start_at}.
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
 - complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure|capability_unavailable","attempts":["route already attempted"],"next_action":"exact action that unblocks it","capability_gaps":[{"capability":"GitHub Actions run and job inspection","status":"not_installed|not_trusted|not_advertised|incompatible|not_found","pack_id":"github-cli when an evidence source identifies it; omit for not_found","pack_ref":"optional observed immutable ref","evidence_refs":["source_id or source_name from a record_evidence operation"],"recommendation":"one concise operator-facing installation, trust, deployment, or compatibility step"}],"recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}

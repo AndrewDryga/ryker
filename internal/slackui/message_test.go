@@ -1060,6 +1060,14 @@ func TestAgentReportFailureSpeaksToTheOperatorNotAboutTheParser(t *testing.T) {
 	// caller ever had was the parse error.
 }
 
+func TestTriageFailureMessageDoesNotAcceptOrExposeRawErrors(t *testing.T) {
+	message := TriageFailureMessage()
+	if !strings.Contains(message.Text, "couldn't finish this request") ||
+		!strings.Contains(strings.Join(message.Sections, " "), "Reply in this thread") {
+		t.Fatalf("terminal triage failure = %+v", message)
+	}
+}
+
 func TestTimelineHandoffAndPostmortemRemainEvidenceGrounded(t *testing.T) {
 	incident := core.Incident{
 		ID: "inc_1234567890abcdef", Title: "Checkout latency",

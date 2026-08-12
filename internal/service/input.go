@@ -947,6 +947,27 @@ func (s *Service) postInputMessageAt(
 	)
 }
 
+func (s *Service) postInputMessageAtResponse(
+	ctx context.Context,
+	id string,
+	sourceInputID string,
+	channelID string,
+	threadTS string,
+	message slackui.Message,
+	responseRoot bool,
+) error {
+	message = s.sanitizeMessage(message)
+	body, err := slackui.Encode(message)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: id, SourceInputID: sourceInputID, Operation: "post", Kind: "notice",
+		ChannelID: channelID, ThreadTS: threadTS, Body: body, ResponseRoot: responseRoot,
+	})
+	return err
+}
+
 func (s *Service) postInputMessageAtEpisode(
 	ctx context.Context,
 	id string,
@@ -954,6 +975,21 @@ func (s *Service) postInputMessageAtEpisode(
 	channelID string,
 	threadTS string,
 	message slackui.Message,
+) error {
+	return s.postInputMessageAtEpisodeResponse(
+		ctx, id, episodeID, "", channelID, threadTS, message, false,
+	)
+}
+
+func (s *Service) postInputMessageAtEpisodeResponse(
+	ctx context.Context,
+	id string,
+	episodeID string,
+	sourceInputID string,
+	channelID string,
+	threadTS string,
+	message slackui.Message,
+	responseRoot bool,
 ) error {
 	if _, err := s.bindEpisodeDestination(
 		ctx,
@@ -971,7 +1007,8 @@ func (s *Service) postInputMessageAtEpisode(
 	}
 	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID: id, EpisodeID: episodeID, Operation: "post", Kind: "notice",
-		ChannelID: channelID, ThreadTS: threadTS, Body: body,
+		SourceInputID: sourceInputID, ChannelID: channelID, ThreadTS: threadTS,
+		Body: body, ResponseRoot: responseRoot,
 	})
 	return err
 }
@@ -1401,6 +1438,7 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 	review := publicationreview.NormalizeReview(rawReview)
 	err = s.updateEngineeringTaskCard(
 		ctx,
+		"",
 		incident,
 		slackui.ReviewMessage(incident, publicationreview.ReviewSummary(rawReview), review.Publishable),
 		nil,
@@ -1640,13 +1678,21 @@ func (s *Service) incidentControlMatchesMessage(
 	if err != nil {
 		return false, err
 	}
-	message, err := slackui.Decode(delivery.Body)
-	if err != nil {
-		return false, fmt.Errorf(
-			"decode Slack control delivery %q: %w",
-			delivery.ID,
-			err,
-		)
+	var message slackui.Message
+	if delivery.Operation == "file" {
+		file, decodeErr := decodeSlackFileDelivery(delivery.Body)
+		if decodeErr != nil {
+			return false, fmt.Errorf("decode Slack control delivery %q: %w", delivery.ID, decodeErr)
+		}
+		if file.Message == nil {
+			return false, nil
+		}
+		message = *file.Message
+	} else {
+		message, err = slackui.Decode(delivery.Body)
+		if err != nil {
+			return false, fmt.Errorf("decode Slack control delivery %q: %w", delivery.ID, err)
+		}
 	}
 	for _, action := range message.Actions {
 		if action.ID == input.ActionID && action.Value == input.ActionValue {

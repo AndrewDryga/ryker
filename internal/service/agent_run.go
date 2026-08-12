@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/agentcontext"
+	"github.com/AndrewDryga/responder/internal/agentprompt"
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
@@ -17,10 +19,12 @@ import (
 	"github.com/AndrewDryga/responder/internal/investigation"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/mentioncontext"
+	"github.com/AndrewDryga/responder/internal/promptbudget"
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/publicationcontext"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/resultwire"
+	"github.com/AndrewDryga/responder/internal/retrydelay"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -67,6 +71,13 @@ func (s *Service) queueIncidentAgentRun(
 		CommitmentTitle: incident.Title,
 		Episode:         episode,
 	})
+}
+
+func prefixedPrompt(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return "\n\n" + value
 }
 
 func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) error {
@@ -170,7 +181,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		return err
 	}
 	conversationKey := watchConversationKey(input)
-	episode, err := s.correlateWatchEpisode(ctx, input, conversationKey, &state)
+	episode, resumeEpisode, err := s.correlateWatchEpisode(ctx, input, conversationKey, &state)
 	if err != nil {
 		return err
 	}
@@ -178,7 +189,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	if err != nil {
 		return err
 	}
-	run, created, err := s.store.QueueAgentRun(ctx, core.AgentRun{
+	candidate := core.AgentRun{
 		Mode:            core.AgentRunTriage,
 		ChannelID:       input.ChannelID,
 		ThreadTS:        state.ResponseThreadTS,
@@ -190,7 +201,14 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		NextAttemptAt:   readyAt,
 		CommitmentTitle: episodepkg.ObjectiveForSlackInput(input),
 		Episode:         episode,
-	})
+	}
+	var run core.AgentRun
+	var created bool
+	if resumeEpisode {
+		run, created, err = s.store.QueueEpisodeAttempt(ctx, episode.ID, candidate)
+	} else {
+		run, created, err = s.store.QueueAgentRun(ctx, candidate)
+	}
 	if err != nil {
 		return fmt.Errorf("queue watched agent run: %w", err)
 	}
@@ -373,7 +391,7 @@ func (s *Service) correlateWatchEpisode(
 	input core.SlackInput,
 	conversationKey string,
 	state *decisionpkg.WatchTurnState,
-) (*core.WorkEpisode, error) {
+) (*core.WorkEpisode, bool, error) {
 	operationalLifecycle := input.Kind == "bot_message" &&
 		strings.HasPrefix(conversationKey, "operation:")
 	if operationalLifecycle {
@@ -383,8 +401,9 @@ func (s *Service) correlateWatchEpisode(
 		state.ResponseThreadTS = slackReplyThread(input)
 	}
 	episode := s.episodeForWatchedInput(input, *state)
+	preferredWaitingThread := episodepkg.PreferredWaitingThread(input, state.ResponseThreadTS, operationalLifecycle)
 	if previous, previousErr := s.store.GetLatestWorkEpisodeByConversationKey(
-		ctx, conversationKey,
+		ctx, conversationKey, preferredWaitingThread,
 	); previousErr == nil {
 		if operationalLifecycle {
 			// Updates share an active unit of work. Once that unit is terminal, the
@@ -406,10 +425,20 @@ func (s *Service) correlateWatchEpisode(
 				state.ResponseThreadTS = previous.Destination.ThreadTS
 			}
 		} else {
+			if episodepkg.AcceptsOperatorAnswer(
+				previous, input, state.ResponseThreadTS, state.ConversationFollowup,
+			) {
+				state.ConversationFollowup = true
+				episode = &previous
+				if previous.Destination.ThreadTS != "" {
+					state.ResponseThreadTS = previous.Destination.ThreadTS
+				}
+				return episode, true, nil
+			}
 			episode.ParentEpisodeID = previous.ID
 		}
 	} else if !errors.Is(previousErr, store.ErrNotFound) {
-		return nil, previousErr
+		return nil, false, previousErr
 	} else if input.Kind == "bot_message" {
 		previous, operationalErr := s.store.GetLatestOperationalWorkEpisode(
 			ctx, input.ChannelID, input.UserID, input.ReceivedAt.Add(-30*time.Minute),
@@ -421,10 +450,10 @@ func (s *Service) correlateWatchEpisode(
 				state.ResponseThreadTS = previous.Destination.ThreadTS
 			}
 		} else if !errors.Is(operationalErr, store.ErrNotFound) {
-			return nil, operationalErr
+			return nil, false, operationalErr
 		}
 	}
-	return episode, nil
+	return episode, false, nil
 }
 
 func (s *Service) completeIgnoredLifecycleInput(
@@ -634,13 +663,15 @@ func (s *Service) prepareIncidentAgentRun(
 		)
 	}
 	assembled, captured := decodeAssembledAgentContext(run.Context)
+	run.Repository = incident.Repository
 	contextChanged := false
-	if !captured {
+	if agentcontext.NeedsCapture(captured, assembled.Repository, incident.Repository) {
 		assembled, err = s.assembleAgentContext(
 			ctx,
 			agentContextRequest{
 				ChannelID: incident.ChannelID, Repository: incident.Repository,
-				OperatorID: run.UserID, SourceInputID: run.SourceID,
+				RepositoryPinned: true,
+				OperatorID:       run.UserID, SourceInputID: run.SourceID,
 			},
 		)
 		if err != nil {
@@ -652,13 +683,8 @@ func (s *Service) prepareIncidentAgentRun(
 	if incident.IsEngineeringTask() && assembled.InitialTaskChangesFingerprint == "" {
 		changes, changesErr := s.coop.Changes(ctx, incident.CoopSessionID)
 		if changesErr != nil {
-			assembled.InitialTaskChangesFingerprint = "unavailable"
-			s.log.Warn(
-				"capture engineering task changes before turn failed",
-				"incident", incident.ID,
-				"run", run.ID,
-				"error", changesErr,
-			)
+			return s.retryIncidentAgentRun(ctx, run, incident,
+				fmt.Errorf("capture engineering task changes before turn: %w", changesErr), false)
 		} else {
 			assembled.InitialTaskChangesFingerprint = taskcard.ChangesFingerprint(changes)
 		}
@@ -678,7 +704,7 @@ func (s *Service) prepareIncidentAgentRun(
 		run.ID,
 		session.ID,
 		0,
-		core.FirstNonempty(run.Repository, incident.Repository),
+		incident.Repository,
 		incident.CoopEventSequence,
 		run.Context,
 	); err != nil {
@@ -686,26 +712,18 @@ func (s *Service) prepareIncidentAgentRun(
 	}
 	run.SessionID = session.ID
 	run.CoopEventSequence = incident.CoopEventSequence
-	prompt := run.Prompt
-	if memoryPrompt := operationalMemoryPrompt(assembled.Prior); memoryPrompt != "" {
-		prompt += "\n\n" + memoryPrompt
-	}
-	if situationPrompt := channelSituationPrompt(assembled.Situation); situationPrompt != "" {
-		prompt += "\n\n" + situationPrompt
-	}
-	if relatedPrompt := relatedSituationsPrompt(assembled.RelatedSituations); relatedPrompt != "" {
-		prompt += "\n\n" + relatedPrompt
-	}
-	if repositoryPrompt := repositorySetPrompt(session); repositoryPrompt != "" {
-		prompt += "\n\n" + repositoryPrompt
+	promptSections := []promptbudget.Section{
+		{Name: "prior_operational_context", Text: prefixedPrompt(operationalMemoryPrompt(assembled.Prior)), Reason: "older operational memory was omitted to fit the turn"},
+		{Name: "channel_situation", Text: prefixedPrompt(channelSituationPrompt(assembled.Situation)), Reason: "the compact channel situation was omitted to fit the turn"},
+		{Name: "related_situations", Text: prefixedPrompt(relatedSituationsPrompt(assembled.RelatedSituations)), Reason: "related conversation summaries were omitted to fit the turn"},
 	}
 	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 	if episodeErr != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, episodeErr, false)
 	}
-	prompt += "\n\n" + workEpisodePrompt(episode)
-	prompt += s.episodeContinuityPrompt(ctx, episode)
-	prompt += agentToolTransportPrompt()
+	requiredContext := prefixedPrompt(repositorySetPrompt(session)) + "\n\n" +
+		workEpisodePrompt(episode) + s.episodeContinuityPrompt(ctx, episode) +
+		agentprompt.ToolTransport()
 	revision, err := s.store.FreezeAgentRunRevision(ctx, run.ID, session.Revision)
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, true)
@@ -716,22 +734,31 @@ func (s *Service) prepareIncidentAgentRun(
 			ctx, run, incident, err, permanentSlackAttachmentError(err),
 		)
 	}
-	submissionPrompt := prompt + "\n\n" + structuredResponseInstructions() +
-		agentRunContinuationPrompt(run)
+	provisionalPrompt := run.Prompt
+	for _, section := range promptSections {
+		provisionalPrompt += section.Text
+	}
+	provisionalPrompt += requiredContext + "\n\n" + structuredResponseInstructions() +
+		agentprompt.Continuation(run)
 	artifacts, err = s.augmentAgentRunArtifacts(
 		ctx,
-		submissionPrompt+"\n"+string(run.Context),
+		provisionalPrompt+"\n"+string(run.Context),
 		artifacts,
 	)
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
-	submissionPrompt += taskpr.ArtifactsPrompt(artifacts)
-	// No omissions to declare: the incident path assembles its prompt without a
-	// budget pass, so nothing here decides to leave anything out. If the result
-	// is oversized the transport still cuts it, and the manifest records that.
+	requiredTail := requiredContext + "\n\n" + structuredResponseInstructions() +
+		agentprompt.Continuation(run) + taskpr.ArtifactsPrompt(artifacts)
+	submissionPrompt, omissions, err := assemblePrompt(
+		coop.MaxPromptBytes, run.Prompt, requiredTail, promptSections...,
+	)
+	if err != nil {
+		return s.retryIncidentAgentRun(ctx, run, incident,
+			fmt.Errorf("assemble complete engineering prompt: %w", err), true)
+	}
 	if _, err := s.ensureAttemptContextManifest(
-		ctx, run, session, submissionPrompt, artifacts, nil,
+		ctx, run, session, submissionPrompt, artifacts, omissions,
 	); err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
@@ -948,15 +975,6 @@ func (s *Service) freezeTriageContext(
 // they start at the ceiling rather than ramping up to it. That is the right
 // answer for them — a retry of an old run is not the latency anyone is
 // watching — and it is a consequence worth naming rather than discovering.
-func dependencyWaitDelay(waited time.Duration) time.Duration {
-	const (
-		floor   = time.Second
-		ceiling = 15 * time.Second
-		share   = 8
-	)
-	return min(max(waited/share, floor), ceiling)
-}
-
 func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) error {
 	input, err := s.store.GetSlackInput(ctx, run.SourceID)
 	if err != nil {
@@ -1000,7 +1018,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			ctx,
 			run.ID,
 			"waiting for the previous agent run in this Slack channel",
-			now.Add(dependencyWaitDelay(now.Sub(run.CreatedAt))),
+			now.Add(retrydelay.DependencyWait(now.Sub(run.CreatedAt))),
 		)
 	}
 	switch session.State {
@@ -1024,11 +1042,17 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	if err := s.store.BindAgentRunSession(
+	sessionChannelID := input.ChannelID
+	if state.Lane != "conversation" {
+		sessionChannelID = core.FirstNonempty(state.SessionChannelID, input.ChannelID)
+	}
+	if err := s.store.BindTriageAgentRunSession(
 		ctx,
 		run.ID,
+		sessionChannelID,
 		session.ID,
 		generation,
+		state.Lane == "conversation",
 		repositoryKey,
 		eventSequence,
 		contextJSON,
@@ -1079,8 +1103,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		return s.retryAgentRun(ctx, run, episodeErr)
 	}
 	late.WriteString("\n\n" + workEpisodePrompt(episode))
-	late.WriteString(agentToolTransportPrompt())
-	late.WriteString(agentRunContinuationPrompt(run))
+	late.WriteString(agentprompt.ToolTransport())
+	late.WriteString(agentprompt.Continuation(run))
 
 	var prompt string
 	var omissions []core.ContextOmission
@@ -1097,7 +1121,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			repositoryKey,
 		) + late.String()
 	} else {
-		prompt, omissions = s.watchPrompt(
+		prompt, _ = s.watchPrompt(
 			input,
 			s.identity.BotUserID,
 			state.ConversationFollowup,
@@ -1120,7 +1144,33 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	prompt += taskpr.ArtifactsPrompt(artifacts)
+	artifactPrompt := taskpr.ArtifactsPrompt(artifacts)
+	if state.Lane == "conversation" {
+		prompt, omissions, err = s.boundedConversationPrompt(
+			input, s.identity.BotUserID, state.ConversationFollowup,
+			state.RecentMessages, state.Memory, state.RelatedSituations,
+			state.ReferencedThread, state.Prior, repositoryKey,
+			coop.MaxPromptBytes-len(late.String())-len(artifactPrompt),
+		)
+		if err != nil {
+			return s.retryAgentRun(ctx, run, fmt.Errorf("assemble complete conversation prompt: %w", err))
+		}
+		prompt += late.String()
+	} else {
+		prompt, omissions = s.watchPrompt(
+			input, s.identity.BotUserID, state.ConversationFollowup,
+			state.RecentMessages, state.Memory, state.RelatedSituations,
+			state.ReferencedThread, state.Prior,
+			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
+			state.MatchedRules,
+			watchPromptBudget(early.Len()+late.Len()+len(artifactPrompt)),
+		)
+		prompt += early.String() + late.String()
+	}
+	prompt += artifactPrompt
+	if len(prompt) > coop.MaxPromptBytes {
+		return s.retryAgentRun(ctx, run, errRequiredPromptTooLarge)
+	}
 	if _, err := s.ensureAttemptContextManifest(
 		ctx, run, session, prompt, artifacts, omissions,
 	); err != nil {
@@ -1504,22 +1554,7 @@ func (s *Service) failPreparingTriageRun(
 	state decisionpkg.WatchTurnState,
 	detail string,
 ) error {
-	// The channel is never told that Responder failed. It is told, with a
-	// pause on the message, that this has not been answered yet — and the work
-	// stays queued so it still can be.
-	s.markInputPaused(ctx, input)
-	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
-		_, retryErr := s.store.RetryAgentRunIfOwned(ctx, run.ID,
-			"clear terminal triage status: "+trimError(err), s.queueDelay(run.Failures+1), false)
-		return retryErr
-	}
-	_ = s.retireFailedWatchSession(ctx, input, state)
-	s.audit(ctx, core.AuditEvent{
-		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-		Outcome: "failed_paused", Detail: detail,
-	})
-	_, err := s.store.RetryAgentRunIfOwned(ctx, run.ID, detail, s.now(), true)
-	return err
+	return s.finishTriageRunFailure(ctx, run, input, state, detail)
 }
 
 func (s *Service) pollAgentRuns(ctx context.Context) {
@@ -1910,8 +1945,8 @@ func (s *Service) stageTriageTerminal(
 			}
 			if correction == "" {
 				correction = decisionpkg.EpisodeDiagnosisCorrection(
-					episode,
-					decision.Action,
+					episode, decision.Action,
+					decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", s.now()),
 					decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 					decision.AlertAssessment,
 					decision.Completion,
@@ -2186,7 +2221,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 			return nil
 		} else {
 			reason := "waiting for the managed Coop execution image: " + trimError(err)
-			delay := max(30*time.Second, queueDelayDuration(run.Failures+1))
+			delay := max(30*time.Second, retrydelay.Duration(run.Failures+1))
 			s.parkWatchedStatus(ctx, run, "clear watched Slack status while Coop is unavailable")
 			if err := s.store.DeferRunningAgentRun(
 				ctx, run.ID, reason, cursor, s.now().Add(delay),
@@ -2554,59 +2589,6 @@ func transcriptOverflow(turn coop.Turn) bool {
 	)
 }
 
-func agentToolTransportPrompt() string {
-	return `
-
-<host-tool-transport>
-Keep tool output bounded without reducing investigation quality. Prefer precise filters, narrow time
-windows, server-side aggregation, counts or top-N results, and pagination when the tool supports it.
-Do not request complete logs, histories, inventories, or source trees when narrower queries can answer
-the claim. If a result is truncated or unexpectedly large, refine the next query instead of repeating
-the broad call. Maintain a concise working summary of verified facts as you go. Transport limits are
-not a reason to stop: continue until the work episode is decision-ready or has an exact external
-blocker.
-</host-tool-transport>`
-}
-
-func agentRunContinuationPrompt(run core.AgentRun) string {
-	lower := strings.ToLower(run.LastError)
-	if decisionpkg.StructuredResultFailure(run.LastError) {
-		return `
-
-<host-structured-correction>
-The previous turn completed its work, but Responder rejected only its final structured report.
-Preserve the work and verified result. Return a corrected report that fixes this exact host validation
-error: ` + decisionpkg.BoundedField(trimError(errors.New(run.LastError)), 1200) + `
-Do not repeat the investigation or drop completed work merely to repair the response envelope.
-</host-structured-correction>`
-	}
-	if strings.Contains(lower, "acp transcript") {
-		return `
-
-<host-transport-recovery>
-The previous read-only session exceeded Coop's ACP transcript bound and returned no usable final
-answer. This is a fresh authenticated session with the original Slack request and saved Responder
-context. Restart the required checks from current authoritative evidence. Avoid the prior failure by
-using tightly filtered queries, short time windows, aggregation, top-N results, and pagination rather
-than broad raw output. Do not assume that observations from the failed session are valid. Complete the
-full effort contract and return the exact structured response requested by the host.
-</host-transport-recovery>`
-	}
-	if strings.Contains(lower, "acp child closed") ||
-		strings.Contains(lower, "turn was interrupted") {
-		return `
-
-<host-transport-recovery>
-The previous read-only agent process ended before returning an answer. This is a fresh authenticated
-session with the original Slack request and saved context. Perform the requested work from current
-authoritative evidence; do not assume that unreported observations from the interrupted process are
-valid. Long task duration is not a reason to stop. Return the exact structured response requested by
-the host when the task is complete.
-</host-transport-recovery>`
-	}
-	return ""
-}
-
 func (s *Service) ensureWatchRunPendingStatus(
 	ctx context.Context,
 	run core.AgentRun,
@@ -2669,10 +2651,8 @@ func (s *Service) processAgentRunFinalization(ctx context.Context) error {
 		return nil
 	default:
 		detail := "unsupported agent run finalization mode " + string(run.Mode)
-		if err := s.store.FailAgentRunFinalization(ctx, run.ID, detail); err != nil {
-			return err
-		}
-		return s.store.FinishAgentRun(ctx, run.ID)
+		_, _, err := s.store.FinishAgentRunFailure(ctx, run.ID, detail, nil, store.AgentRunFailureEffects{})
+		return err
 	}
 }
 
@@ -2713,15 +2693,7 @@ func (s *Service) retryAgentRunFinalization(
 	attempt := run.Failures + 1
 	if attempt >= s.cfg.Limits.MaxAgentRunAttempts {
 		if err := s.stageTerminalFinalizationFailure(ctx, run, cause); err == nil {
-			if err := s.store.FailAgentRunFinalization(
-				ctx,
-				run.ID,
-				"finalization failed after the configured retry limit: "+trimError(cause),
-			); err != nil {
-				cause = err
-			} else {
-				return s.store.FinishAgentRun(ctx, run.ID)
-			}
+			return nil
 		} else {
 			cause = fmt.Errorf(
 				"stage terminal finalization failure: %w; original failure: %v",
@@ -2752,7 +2724,7 @@ func (s *Service) stageTerminalFinalizationFailure(
 	run core.AgentRun,
 	cause error,
 ) error {
-	detail := "Responder could not finalize this agent result after repeated attempts. " +
+	detail := "Responder could not finalize this agent result after the configured retry limit. " +
 		"The run and collected state are preserved for operator inspection.\n\n" +
 		"Reported detail: `" + decisionpkg.BoundedField(trimError(cause), 1200) + "`"
 	switch run.Mode {
@@ -2765,47 +2737,45 @@ func (s *Service) stageTerminalFinalizationFailure(
 				MessageTS: run.ThreadTS,
 			}
 		}
-		if input.ChannelID == "" || slackReplyThread(input) == "" {
-			s.audit(ctx, core.AuditEvent{
-				Kind: "agent.finalization", ObjectID: run.ID,
-				Outcome: "failed",
-				Detail:  "terminal triage run has no Slack destination",
-			})
-			return nil
+		state, stateErr := decodeWatchRunContext(run)
+		if stateErr != nil {
+			state = decisionpkg.WatchTurnState{}
 		}
-		s.markInputPaused(ctx, input)
-		s.audit(ctx, core.AuditEvent{
-			Kind: "agent.finalization", ObjectID: run.ID,
-			Outcome: "failed_paused", Detail: detail,
-		})
-		if !s.cfg.Slack.NativeStatus {
-			return nil
+		_, err = s.finishTriageRunFailureIfOwned(ctx, run, input, state, detail)
+		if err != nil {
+			return err
 		}
-		return s.enqueueNativeStatus(
-			ctx,
-			"",
-			run.EpisodeID,
-			input.ChannelID,
-			slackReplyThread(input),
-			"",
-			nil,
-		)
+		return nil
 	case core.AgentRunIncident, core.AgentRunEngineeringTask:
 		incident, err := s.store.GetIncident(ctx, run.IncidentID)
 		if err != nil {
 			return err
 		}
-		if err := s.enqueue(
-			ctx,
-			"out_run_finalization_failure_"+run.ID,
-			incident,
-			"assistant",
-			incident.ConversationThreadTS(),
+		body, err := slackui.Encode(s.sanitizeMessage(
 			slackui.TurnFailureMessage("failed", detail),
-		); err != nil {
+		))
+		if err != nil {
 			return err
 		}
-		return s.requireNativeStatusClear(ctx, incident, run.ID)
+		delivery := &core.SlackDelivery{
+			ID: executionDeliveryID("out_run_finalization_failure_"+run.ID, run.IdempotencyKey), IncidentID: incident.ID,
+			EpisodeID: run.EpisodeID, AgentRunID: run.ID, Operation: "post", Kind: "assistant",
+			ChannelID: incident.ChannelID, ThreadTS: incident.ConversationThreadTS(),
+			Body: body, ResponseRoot: true,
+		}
+		effects := store.AgentRunFailureEffects{}
+		if s.cfg.Slack.NativeStatus {
+			effects.StatusChannelID = incident.ChannelID
+			effects.StatusThreadTS = incident.ConversationThreadTS()
+		}
+		_, applied, err := s.store.FinishAgentRunFailure(ctx, run.ID, detail, delivery, effects)
+		if err != nil {
+			return err
+		}
+		if !applied {
+			return nil
+		}
+		return nil
 	default:
 		return nil
 	}
@@ -2827,24 +2797,16 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	state.TurnID = run.CoopTurnID
 	if run.TerminalState != "completed" {
 		detail := strings.TrimSpace(core.FirstNonempty(run.LastError, run.TerminalState))
-		if err := s.finishTriageRunFailure(ctx, run, input, state, detail); err != nil {
-			return err
-		}
-		return s.store.FinishAgentRun(ctx, run.ID)
+		return s.finishTriageRunFailure(ctx, run, input, state, detail)
+	}
+	if stale, staleErr := s.supersedeStaleHumanTriageResult(ctx, run, input, state); staleErr != nil || stale {
+		return staleErr
 	}
 	if input.Kind == "bot_message" && !isPrivateSlackVerificationReplay(input) &&
 		strings.HasPrefix(run.ConversationKey, "operation:") {
-		newer, newerErr := s.store.HasNewerAgentRun(ctx, run)
+		newer, newerErr := s.hasNewerOperationalInput(ctx, run, input)
 		if newerErr != nil {
 			return newerErr
-		}
-		if !newer && broadOperationalBurstCoalescingAllowed(input) {
-			newer, newerErr = s.store.HasNewerOperationalAgentRun(
-				ctx, run, operationalBurstWindow, false,
-			)
-			if newerErr != nil {
-				return newerErr
-			}
 		}
 		if newer {
 			s.audit(ctx, core.AuditEvent{
@@ -2852,27 +2814,17 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 				Outcome: "coalesced",
 				Detail:  "suppressed a stale result because a newer operational update is queued",
 			})
-			if err := s.store.SetWorkEpisodePhase(
-				ctx, run.ID, core.EpisodeSuperseded, "finished",
-				"Superseded by a newer operational update", "", time.Time{},
-			); err != nil {
-				return err
-			}
-			return s.store.FinishAgentRun(ctx, run.ID)
+			return s.store.SupersedeAgentRun(
+				ctx, run.ID, "superseded by a newer operational update",
+			)
 		}
 	}
 	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), s.now())
 	if err != nil {
 		detail := "malformed watch decision: " + trimError(err)
-		if failErr := s.finishTriageRunFailure(
+		return s.finishTriageRunFailure(
 			ctx, run, input, state, detail,
-		); failErr != nil {
-			return failErr
-		}
-		if err := s.store.FailAgentRunFinalization(ctx, run.ID, detail); err != nil {
-			return err
-		}
-		return s.store.FinishAgentRun(ctx, run.ID)
+		)
 	}
 	if len(state.MatchedRules) > 0 && decision.Action == "incident" {
 		alertPolicy, policyErr := s.channelAlertPolicy(ctx, input.ChannelID)
@@ -2886,8 +2838,10 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	if isPrivateSlackVerificationReplay(input) {
 		decision = attentionpkg.EnforcePrivateReplay(input, state, decision,
 			s.cfg.Slack.ReplyAttention, s.cfg.Slack.ReactionAttention)
+		privateDecision := attentionpkg.PrivateReplayDecision(run.EpisodeID, input, decision)
+		privateDecision.AgentRunID, privateDecision.AgentRunKey = run.ID, run.IdempotencyKey
 		if _, err := s.store.Intelligence.RecordEvaluationDecision(ctx,
-			attentionpkg.PrivateReplayDecision(run.EpisodeID, input, decision)); err != nil {
+			privateDecision); err != nil {
 			return fmt.Errorf("record private replay decision: %w", err)
 		}
 		if err := s.persistPrivateReplayKnowledge(ctx, input, state, decision.Memory); err != nil {
@@ -2909,7 +2863,7 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	); err != nil {
 		return err
 	}
-	if err := s.applyWatchDecision(ctx, input, state, decision, run.EpisodeID); err != nil {
+	if err := s.applyWatchDecision(ctx, input, state, decision, run); err != nil {
 		return err
 	}
 	if err := s.scheduleEpisodeRechecks(
@@ -2928,6 +2882,28 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 		return err
 	}
 	return s.store.FinishAgentRun(ctx, run.ID)
+}
+
+func (s *Service) hasNewerOperationalInput(
+	ctx context.Context,
+	run core.AgentRun,
+	source core.SlackInput,
+) (bool, error) {
+	inputs, err := s.store.SlackInputs.NewerBotMessages(ctx, source.ID)
+	if err != nil {
+		return false, err
+	}
+	for _, input := range inputs {
+		if watchConversationKey(input) == run.ConversationKey {
+			return true, nil
+		}
+		if broadOperationalBurstCoalescingAllowed(source) &&
+			broadOperationalBurstCoalescingAllowed(input) &&
+			!input.ReceivedAt.After(source.ReceivedAt.Add(operationalBurstWindow)) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) persistPrivateReplayKnowledge(
@@ -2984,7 +2960,7 @@ func (s *Service) reportTurnFailure(
 		)
 	}
 	s.recordTimeline(ctx, core.TimelineEvent{
-		ID:         "tl_agent_failure_" + run.ID,
+		ID:         executionDeliveryID("tl_agent_failure_"+run.ID, run.IdempotencyKey),
 		IncidentID: incident.ID, ChannelID: incident.ChannelID,
 		Kind: "agent.failure", ActorID: "responder",
 		Title: "Agent turn " + state, Detail: detail,
@@ -3103,7 +3079,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			// error, which means nothing to them.
 			message = slackui.AgentReportFailureMessage()
 			s.recordTimeline(ctx, core.TimelineEvent{
-				ID:         "tl_agent_failure_" + run.ID,
+				ID:         executionDeliveryID("tl_agent_failure_"+run.ID, run.IdempotencyKey),
 				IncidentID: incident.ID, ChannelID: incident.ChannelID,
 				Kind: "agent.failure", ActorID: "responder",
 				Title:  "Agent result could not be rendered",
@@ -3263,7 +3239,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				evidenceIDs = append(evidenceIDs, evidence.ID)
 			}
 			s.recordTimeline(ctx, core.TimelineEvent{
-				ID:          "tl_agent_finding_" + run.ID,
+				ID:          executionDeliveryID("tl_agent_finding_"+run.ID, run.IdempotencyKey),
 				IncidentID:  incident.ID,
 				ChannelID:   incident.ChannelID,
 				Kind:        "agent.finding",
@@ -3284,9 +3260,9 @@ func (s *Service) finalizeIncidentAgentRun(
 	if incident.IsEngineeringTask() {
 		message = s.withEngineeringTaskChanges(ctx, run, incident, state, message)
 	}
-	baseDeliveryID := "out_run_" + run.ID
+	baseDeliveryID := executionDeliveryID("out_run_"+run.ID, run.IdempotencyKey)
 	if incident.IsEngineeringTask() && !standaloneTaskResult {
-		if err := s.updateEngineeringTaskCard(ctx, incident, message, reportReplyParts); err != nil {
+		if err := s.updateEngineeringTaskCard(ctx, run.ID, incident, message, reportReplyParts); err != nil {
 			return err
 		}
 	} else if len(reportReplyParts) > 1 {
@@ -3313,7 +3289,7 @@ func (s *Service) finalizeIncidentAgentRun(
 	if incident.IsEngineeringTask() && !standaloneTaskResult {
 		if len(visuals) > 0 {
 			if err := s.enqueueGeneratedVisuals(
-				ctx, deliveryID, incident.ID, run.EpisodeID, incident.ChannelID, threadTS,
+				ctx, deliveryID, incident.ID, run.EpisodeID, run.SourceID, incident.ChannelID, threadTS,
 				run.SessionID, run.CoopTurnID, visuals, nil,
 			); err != nil {
 				return err
@@ -3328,11 +3304,12 @@ func (s *Service) finalizeIncidentAgentRun(
 			"assistant",
 			threadTS,
 			message,
+			true,
 		); err != nil {
 			return err
 		}
 	} else if err := s.enqueueGeneratedVisuals(
-		ctx, deliveryID, incident.ID, run.EpisodeID, incident.ChannelID, threadTS,
+		ctx, deliveryID, incident.ID, run.EpisodeID, run.SourceID, incident.ChannelID, threadTS,
 		run.SessionID, run.CoopTurnID, visuals, &message,
 	); err != nil {
 		return err
@@ -3379,22 +3356,65 @@ func (s *Service) finishTriageRunFailure(
 	state decisionpkg.WatchTurnState,
 	detail string,
 ) error {
-	// No message, in any of these cases. The channel gets a pause on the
-	// original message and the work stays queued; an error about Responder's
-	// plumbing is not something the person who asked can act on.
-	s.markInputPaused(ctx, input)
+	_, err := s.finishTriageRunFailureIfOwned(ctx, run, input, state, detail)
+	return err
+}
+
+func (s *Service) finishTriageRunFailureIfOwned(
+	ctx context.Context,
+	run core.AgentRun,
+	input core.SlackInput,
+	state decisionpkg.WatchTurnState,
+	detail string,
+) (bool, error) {
+	var delivery *core.SlackDelivery
+	var err error
+	message := slackui.TriageFailureMessage()
 	if state.ApprovalContinuation {
-		return s.clearWatchPendingStatus(ctx, input, state)
+		message = slackui.ApprovalVerificationFailureMessage()
 	}
-	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
-		return err
+	delivery, err = s.terminalTriageFailureDelivery(run, input, state, message)
+	if err != nil {
+		return false, err
 	}
-	if err := s.retireFailedWatchSession(ctx, input, state); err != nil && s.log != nil {
-		s.log.Warn("retire failed triage session", "run", run.ID, "error", err)
+	effects := store.AgentRunFailureEffects{}
+	if s.cfg.Slack.NativeStatus {
+		effects.StatusChannelID = input.ChannelID
+		effects.StatusThreadTS = watchRunStatusThread(input, state)
+	}
+	if !state.ApprovalContinuation && state.SessionID != "" {
+		effects.SessionID = state.SessionID
+		effects.SessionChannelID = core.FirstNonempty(state.SessionChannelID, input.ChannelID)
+		effects.SessionGeneration = state.Generation
+		effects.ConversationSession = state.Lane == "conversation"
+	}
+	finalState, applied, err := s.store.FinishAgentRunFailure(
+		ctx, run.ID, detail, delivery, effects,
+	)
+	if err != nil {
+		return false, err
+	}
+	if !applied {
+		return false, nil
+	}
+	if finalState == core.AgentRunCompleted {
+		s.audit(ctx, core.AuditEvent{
+			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: "completed", Detail: "preserved the already-staged reply",
+		})
+		return true, nil
+	}
+	if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil && s.log != nil {
+		s.log.Warn("clear terminal triage acknowledgement", "run", run.ID, "error", err)
+	}
+	s.clearInputPaused(ctx, input)
+	outcome := "failed_silent"
+	if delivery != nil {
+		outcome = "failed_notified"
 	}
 	s.audit(ctx, core.AuditEvent{
 		Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-		Outcome: "failed_paused", Detail: detail,
+		Outcome: outcome, Detail: detail,
 	})
-	return nil
+	return true, nil
 }

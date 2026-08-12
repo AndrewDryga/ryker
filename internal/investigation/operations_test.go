@@ -28,7 +28,7 @@ func TestAlertAssessmentAcceptsKnownSemanticAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(encoded), "durable_solution") ||
-		strings.Contains(string(encoded), "evidence_refs") {
+		!strings.Contains(string(encoded), `"evidence_refs":["repair-complete"]`) {
 		t.Fatalf("aliases leaked into canonical output: %s", encoded)
 	}
 }

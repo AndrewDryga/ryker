@@ -1360,10 +1360,19 @@ func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
 		ID: "threaded-offer-source", ChannelID: "CWATCH",
 		ThreadTS: "1700.700", MessageTS: "1700.701",
 	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: source.ChannelID, ThreadTS: source.ThreadTS,
+		ConversationKey: "channel:CWATCH:threaded-offer", SourceKind: "watch", SourceID: source.ID,
+		IdempotencyKey: "run:threaded-offer:recovery_2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
-		ID: "watch_reply_" + source.ID, Kind: "notice",
+		ID: "watch_reply_" + source.ID + "_exec_12345678", Kind: "notice",
 		ChannelID: source.ChannelID, ThreadTS: source.ThreadTS,
-		Body: []byte(`{"text":"offer"}`),
+		Body: []byte(`{"text":"offer"}`), SourceInputID: source.ID,
+		AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey, ResponseRoot: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1411,6 +1420,13 @@ func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
 		ID: "multipart-offer-source", ChannelID: "CWATCH",
 		ThreadTS: "1700.800", MessageTS: "1700.801",
 	}
+	multipartRun, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: multipartSource.ChannelID, ThreadTS: multipartSource.ThreadTS,
+		ConversationKey: "channel:CWATCH:multipart-offer", SourceKind: "watch", SourceID: multipartSource.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, part := range []struct {
 		id        string
 		messageTS string
@@ -1421,6 +1437,8 @@ func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
 		if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 			ID: part.id, Kind: "notice", ChannelID: multipartSource.ChannelID,
 			ThreadTS: multipartSource.ThreadTS, Body: []byte(`{"text":"offer part"}`),
+			SourceInputID: multipartSource.ID, AgentRunID: multipartRun.ID,
+			AgentRunKey: multipartRun.IdempotencyKey, ResponseRoot: part.id == "watch_reply_"+multipartSource.ID+"_part_999",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -1454,6 +1472,39 @@ func TestWatchOfferActionMatchesExactThreadedDelivery(t *testing.T) {
 	matches, err = svc.watchOfferActionMatchesDelivery(ctx, earlierPart, multipartSource)
 	if err != nil || matches {
 		t.Fatalf("multipart earlier offer = %v, %v", matches, err)
+	}
+
+	visualSource := core.SlackInput{
+		ID: "visual-offer-source", ChannelID: "CWATCH",
+		ThreadTS: "1700.900", MessageTS: "1700.901",
+	}
+	visualRun, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: visualSource.ChannelID, ThreadTS: visualSource.ThreadTS,
+		ConversationKey: "channel:CWATCH:visual-offer", SourceKind: "watch", SourceID: visualSource.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "watch_reply_" + visualSource.ID + "_visual_01", Operation: "file", Kind: "visual",
+		ChannelID: visualSource.ChannelID, ThreadTS: visualSource.ThreadTS,
+		Body: []byte(`{"title":"offer chart"}`), SourceInputID: visualSource.ID,
+		AgentRunID: visualRun.ID, AgentRunKey: visualRun.IdempotencyKey, ResponseRoot: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	visualDelivery, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, visualDelivery.ID, "1700.902", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	matches, err = svc.watchOfferActionMatchesDelivery(ctx, core.SlackInput{
+		ChannelID: visualSource.ChannelID, ThreadTS: visualSource.ThreadTS, MessageTS: "1700.902",
+	}, visualSource)
+	if err != nil || !matches {
+		t.Fatalf("visual offer = %v, %v", matches, err)
 	}
 }
 

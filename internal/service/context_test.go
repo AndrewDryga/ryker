@@ -60,6 +60,130 @@ func TestMergeSlackContextCentersTargetAndExcludesOtherThreads(t *testing.T) {
 	}
 }
 
+func TestPinnedTaskContextKeepsItsApprovedRepository(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Repositories["incident-repo"] = cfg.Repositories["repo"]
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "COPS", Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "U123ABC",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	pinned, err := svc.assembleAgentContext(ctx, agentContextRequest{
+		ChannelID: "COPS", Repository: "incident-repo", RepositoryPinned: true,
+		OperatorID: "U123ABC", SourceInputID: "task-input",
+	})
+	if err != nil || pinned.Repository != "incident-repo" {
+		t.Fatalf("pinned task context = %+v, %v", pinned, err)
+	}
+	unpinned, err := svc.assembleAgentContext(ctx, agentContextRequest{
+		ChannelID: "COPS", Repository: "incident-repo",
+		OperatorID: "U123ABC", SourceInputID: "conversation-input",
+	})
+	if err != nil || unpinned.Repository != "repo" {
+		t.Fatalf("ordinary channel context = %+v, %v", unpinned, err)
+	}
+}
+
+func TestLegacyIncidentContextRepositoryIsRecapturedAndPersisted(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Repositories["channel-repo"] = cfg.Repositories["repo"]
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: incident.ChannelID, Participation: "proactive",
+		Repository: "channel-repo", AlertPolicy: "reply", ActorID: "U123ABC",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(
+		ctx, incident.ID, "ses_context_recapture", "context-recapture", 1,
+	); err != nil {
+		t.Fatal(err)
+	}
+	legacyContext := []byte(`{"repository":"channel-repo","captured_at":"2026-08-01T00:00:00Z"}`)
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.RootTS,
+		ConversationKey: "incident:" + incident.ID,
+		SourceKind:      "signal", SourceID: "legacy-context-signal",
+		Repository: incident.Repository, Prompt: "investigate", Context: legacyContext,
+	})
+	if err != nil || !created {
+		t.Fatalf("queue legacy context run = %+v, %t, %v", run, created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.session.ID = "ses_context_recapture"
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assembled, captured := decodeAssembledAgentContext(stored.Context)
+	if !captured || stored.Repository != incident.Repository ||
+		assembled.Repository != incident.Repository || string(stored.Context) == string(legacyContext) {
+		t.Fatalf("recaptured run = repository %q context %+v captured=%t", stored.Repository, assembled, captured)
+	}
+}
+
+func TestLegacyIncidentRunRepositoryIsRepairedWhenContextIsAlreadyPinned(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Repositories["channel-repo"] = cfg.Repositories["repo"]
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident := createBoundIncident(t, ctx, st)
+	if err := st.SetCoopSession(ctx, incident.ID, "ses_repository_repair", "repository-repair", 1); err != nil {
+		t.Fatal(err)
+	}
+	pinnedContext := []byte(`{"repository":"repo","repository_pinned":true,"captured_at":"2026-08-01T00:00:00Z"}`)
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.RootTS,
+		ConversationKey: "incident:" + incident.ID,
+		SourceKind:      "signal", SourceID: "legacy-run-repository",
+		Repository: "channel-repo", Prompt: "investigate", Context: pinnedContext,
+	})
+	if err != nil || !created {
+		t.Fatalf("queue legacy repository run = %+v, %t, %v", run, created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.session.ID = "ses_repository_repair"
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || stored.Repository != incident.Repository {
+		t.Fatalf("repaired run repository = %+v, %v", stored, err)
+	}
+	assembled, captured := decodeAssembledAgentContext(stored.Context)
+	if !captured || assembled.Repository != incident.Repository {
+		t.Fatalf("preserved pinned context = %+v captured=%t", assembled, captured)
+	}
+}
+
 func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 	prompt, _ := (&Service{}).watchPrompt(
 		core.SlackInput{

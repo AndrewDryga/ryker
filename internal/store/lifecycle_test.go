@@ -576,7 +576,7 @@ func TestEngineeringTaskAdoptsOfferAsRestartSafeWorkCard(t *testing.T) {
 	if err := st.TaskCards.AdoptOffer(ctx, incident.ID, "1700.101"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.TaskCards.SetUpdate(ctx, incident.ID, "Draft PR #526 is ready."); err != nil {
+	if err := st.TaskCards.SetUpdate(ctx, incident.ID, "", "Draft PR #526 is ready."); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {
@@ -596,6 +596,92 @@ func TestEngineeringTaskAdoptsOfferAsRestartSafeWorkCard(t *testing.T) {
 		incident.Workflow != core.WorkflowProvisioningSession ||
 		incident.LatestUpdate != "Draft PR #526 is ready." {
 		t.Fatalf("restart-safe task card = %+v", incident)
+	}
+}
+
+func TestIdenticalTaskUpdateFromNewRunRepaintsAndPersistsOwner(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-identical", "Keep ownership exact", "summary",
+		"UOP", "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.TaskCards.SetUpdate(ctx, incident.ID, "run-first", "Checks passed."); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.TaskCards.SetUpdate(ctx, incident.ID, "run-second", "Checks passed."); err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.LatestUpdateRunID != "run-second" || second.CardVersion != first.CardVersion+1 {
+		t.Fatalf("second identical update = %+v; first version %d", second, first.CardVersion)
+	}
+}
+
+func TestIdenticalTaskUpdateFromRetriedRunRepaintsForNewExecution(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-retried", "Keep retry ownership exact", "summary",
+		"UOP", "COPS", "1700.100", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunIncident, IncidentID: incident.ID, ChannelID: "COPS",
+		ConversationKey: "incident:" + incident.ID, SourceKind: "incident", SourceID: incident.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE agent_runs SET state = 'preparing' WHERE id = ?`, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.TaskCards.SetUpdate(ctx, incident.ID, run.ID, "Checks passed."); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, applied, err := st.FinishAgentRunFailure(ctx, run.ID, "failed", nil, AgentRunFailureEffects{}); err != nil || !applied {
+		t.Fatalf("fail first execution = %t, %v", applied, err)
+	}
+	if err := st.RequeueFailedAgentRun(ctx, run.ID, "retry"); err != nil {
+		t.Fatal(err)
+	}
+	beforeUpdate, err := st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.TaskCards.SetUpdate(ctx, incident.ID, run.ID, "Checks passed."); err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.LatestUpdateRunKey == first.LatestUpdateRunKey || second.CardVersion != beforeUpdate.CardVersion+1 {
+		t.Fatalf("retry update = %+v; first key %q pre-update version %d", second, first.LatestUpdateRunKey, beforeUpdate.CardVersion)
 	}
 }
 

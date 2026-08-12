@@ -299,7 +299,9 @@ var lineBudget = map[string]int{
 	// atomic publication/close exclusion. Keeping both claim directions here is
 	// what prevents a close and a publication from starting concurrently; the
 	// independent receipt decoder and restart recovery live elsewhere.
-	"publicationstore": 575,
+	"publicationstore":  575,
+	"pausecleanupstore": 70,
+	"promptbudget":      60,
 	// decision owns the shapes a model result arrives in and the rules for
 	// reading one, so the evaluation family can reach them without the runtime.
 	//
@@ -329,6 +331,18 @@ var lineBudget = map[string]int{
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	"investigation": 1800,
+	// These packages own policy and data transformations that used to sit in
+	// the broad service, store, decision, and investigation packages. Register
+	// every extraction here so moving code cannot evade the architecture ratchet.
+	"agentcontext":          200,
+	"agentprompt":           300,
+	"evidencepolicy":        100,
+	"episode":               350,
+	"investigationcontract": 550,
+	"replypolicy":           220,
+	"retrydelay":            40,
+	"schemaassets":          1050,
+	"triageoutcome":         50,
 }
 
 // forbiddenImports records the dependency direction. Each package maps to the
@@ -342,8 +356,18 @@ var forbiddenImports = map[string][]string{
 	"emisar":                   {"service", "store", "slackui", "httpapi", "app"},
 	"webhook":                  {"service", "store", "slackui", "httpapi", "app"},
 	"episode":                  {"service", "store", "slackui", "httpapi", "app"},
+	"pausecleanupstore":        {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
+	"promptbudget":             {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "core"},
 	"investigation":            {"service", "store", "slackui", "httpapi", "app"},
+	"investigationcontract":    {"service", "store", "slackui", "httpapi", "app", "decision", "investigation"},
 	"decision":                 {"service", "store", "httpapi", "app", "publisher", "coop"},
+	"agentcontext":             {"service", "store", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	"agentprompt":              {"service", "store", "slackui", "httpapi", "app", "publisher", "config"},
+	"evidencepolicy":           {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
+	"replypolicy":              {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	"retrydelay":               {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	"schemaassets":             {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation", "core"},
+	"triageoutcome":            {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "investigation"},
 	"publication":              {"service", "httpapi", "app", "coop", "decision"},
 	"publicationcontext":       {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
 	"publicationrecord":        {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},

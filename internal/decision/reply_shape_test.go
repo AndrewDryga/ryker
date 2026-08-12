@@ -171,3 +171,16 @@ func TestReplyShapeIgnoresNonReplyActions(t *testing.T) {
 		t.Fatalf("an empty reply was shape-checked: %q", correction)
 	}
 }
+
+func TestReplyShapeCorrectsExplicitBinaryUnitConversion(t *testing.T) {
+	trigger := "The process used 305,282 MiB of memory."
+	wrong := decisionpkg.ReplyShapeCorrection(trigger, "investigation", "reply", "It used about 305 GiB.")
+	if !strings.Contains(wrong, "298.1 GiB") {
+		t.Fatalf("wrong conversion correction = %q", wrong)
+	}
+	if correction := decisionpkg.ReplyShapeCorrection(
+		trigger, "investigation", "reply", "It used about 298.1 GiB.",
+	); correction != "" {
+		t.Fatalf("correct conversion rejected: %s", correction)
+	}
+}

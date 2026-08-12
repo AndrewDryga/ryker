@@ -246,8 +246,8 @@ Step meanings:
 - triage_alert: investigate repository topology and fresh live evidence until the issue is disproved,
   confirmed, tightly bounded, or blocked by one exact exhausted source. Do not hand available checks
   back to the operator. For a real issue, identify impact, cause, immediate mitigation, durable fix,
-  and verification. For a non-issue, record what disproved it. Return the same result in
-  alert_assessment. Apply the shared operational-alert writing policy to the Slack message. Choose
+  and verification. For a non-issue, record what disproved it. Return the same result with the
+  record_alert_assessment operation. Apply the shared operational-alert writing policy to the Slack message. Choose
   reply after useful investigation and add incident_title only when coordination is warranted; never
   choose incident for a matched rule. Responder owns the temporary eyes reaction and channel policy.
 - suggest_remediation: for a confirmed issue, give the safest immediate mitigation, durable fix, and
@@ -371,8 +371,8 @@ func (s *Service) confirmPendingPreferenceReply(
 	if err != nil {
 		return false, err
 	}
-	sourceID, ok := watchReplySourceInputID(delivery.ID)
-	if !ok || time.Since(delivery.CreatedAt) > behaviorOfferMaxAge {
+	sourceID := delivery.SourceInputID
+	if !delivery.ResponseRoot || sourceID == "" || time.Since(delivery.CreatedAt) > behaviorOfferMaxAge {
 		return false, nil
 	}
 	run, err := s.store.GetAgentRunBySource(ctx, "watch", sourceID)
@@ -381,6 +381,9 @@ func (s *Service) confirmPendingPreferenceReply(
 	}
 	if err != nil {
 		return false, err
+	}
+	if delivery.AgentRunID != run.ID || delivery.AgentRunKey != run.IdempotencyKey {
+		return false, nil
 	}
 	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), s.now())
 	if err != nil || decision.PreferenceOffer == nil ||
@@ -443,17 +446,6 @@ func affirmativeBehaviorConfirmation(text string) bool {
 	default:
 		return false
 	}
-}
-
-func watchReplySourceInputID(deliveryID string) (string, bool) {
-	value := strings.TrimPrefix(deliveryID, "watch_reply_")
-	if value == deliveryID || value == "" {
-		return "", false
-	}
-	if index := strings.LastIndex(value, "_part_"); index >= 0 {
-		value = value[:index]
-	}
-	return value, value != ""
 }
 
 func containsAnyPhrase(value string, phrases ...string) bool {

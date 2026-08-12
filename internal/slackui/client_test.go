@@ -131,6 +131,8 @@ func TestUploadFileUsesFileCompatibleBlocks(t *testing.T) {
 			}
 			blocks = r.FormValue("blocks")
 			_, _ = fmt.Fprint(w, `{"ok":true,"files":[{"id":"F123","title":"Chart"}]}`)
+		case "/files.info":
+			_, _ = fmt.Fprint(w, `{"ok":true,"file":{"id":"F123","shares":{"private":{"C123":[{"ts":"1700.2","thread_ts":"1700.1"}]}}}}`)
 		default:
 			t.Errorf("unexpected Slack API path %s", r.URL.Path)
 		}
@@ -142,20 +144,20 @@ func TestUploadFileUsesFileCompatibleBlocks(t *testing.T) {
 		slack.OptionHTTPClient(server.Client()),
 	)}
 	message := Message{Text: "CPU summary", Markdown: "CPU is `healthy`."}
-	fileID, err := client.UploadFile(context.Background(), "C123", "1700.1", FileUpload{
+	result, err := client.UploadFile(context.Background(), "C123", "1700.1", FileUpload{
 		Filename: "cpu.png", Title: "Chart", AltText: "CPU chart",
 		Data: []byte("png"), Message: &message,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fileID != "F123" ||
+	if result.FileID != "F123" || result.MessageTS != "1700.2" ||
 		!strings.Contains(blocks, `"type":"section"`) ||
 		!strings.Contains(blocks, "CPU is `healthy`.") ||
 		strings.Contains(blocks, `"type":"markdown"`) {
 		t.Fatalf(
-			"upload result file=%q blocks=%q",
-			fileID,
+			"upload result=%+v blocks=%q",
+			result,
 			blocks,
 		)
 	}

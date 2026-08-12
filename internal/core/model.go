@@ -101,6 +101,8 @@ type Incident struct {
 	CardRenderedVersion   int64
 	LastError             string
 	LatestUpdate          string
+	LatestUpdateRunID     string
+	LatestUpdateRunKey    string
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	LastFiringAt          time.Time
@@ -240,6 +242,9 @@ type SlackDelivery struct {
 	ID                          string
 	IncidentID                  string
 	EpisodeID                   string
+	AgentRunID                  string
+	AgentRunKey                 string
+	SourceInputID               string
 	ExpectedEpisodeRevision     int
 	ExpectedDestinationRevision int
 	Operation                   string
@@ -252,11 +257,15 @@ type SlackDelivery struct {
 	Steps                       []string
 	CoalesceKey                 string
 	CardVersion                 int64
-	State                       string
-	Attempts                    int
-	NextAttemptAt               time.Time
-	LastError                   string
-	CreatedAt                   time.Time
+	// ResponseRoot marks the delivery that owns one logical Responder reply.
+	// Slack returns the thread root only after this delivery succeeds; for a
+	// visual-only bundle this is the first file, not the last delivery.
+	ResponseRoot  bool
+	State         string
+	Attempts      int
+	NextAttemptAt time.Time
+	LastError     string
+	CreatedAt     time.Time
 }
 
 type GeneratedVisual struct {
@@ -317,6 +326,7 @@ func (item *Evidence) UnmarshalJSON(data []byte) error {
 		"id": {}, "incident_id": {}, "channel_id": {}, "source_input": {},
 		"claim_id": {}, "claim": {}, "observation": {}, "relation": {}, "health_effect": {},
 		"source_type": {}, "source_id": {}, "source_name": {}, "source_url": {},
+		"source": {}, "source_ref": {}, "source_time": {},
 		"target": {}, "scope_note": {}, "freshness": {}, "confidence": {},
 		"observed_at": {}, "valid_until": {}, "dimensions": {}, "metadata": {},
 		"created_at": {},
@@ -331,9 +341,33 @@ func (item *Evidence) UnmarshalJSON(data []byte) error {
 	wire := struct {
 		*evidenceAlias
 		Dimensions map[string]json.RawMessage `json:"dimensions,omitempty"`
+		Source     string                     `json:"source,omitempty"`
+		SourceRef  string                     `json:"source_ref,omitempty"`
+		SourceTime time.Time                  `json:"source_time,omitempty"`
 	}{evidenceAlias: (*evidenceAlias)(item)}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
+	}
+	if item.SourceName == "" {
+		item.SourceName = wire.Source
+	}
+	if item.SourceType == "" && wire.Source != "" {
+		switch strings.ToLower(wire.Source) {
+		case "repository", "emisar", "monitoring", "slack", "other":
+			item.SourceType = strings.ToLower(wire.Source)
+		default:
+			item.SourceType = "other"
+		}
+	}
+	if wire.SourceRef != "" && item.SourceURL == "" && item.SourceID == "" {
+		if strings.HasPrefix(wire.SourceRef, "https://") || strings.HasPrefix(wire.SourceRef, "http://") {
+			item.SourceURL = wire.SourceRef
+		} else {
+			item.SourceID = wire.SourceRef
+		}
+	}
+	if item.ObservedAt.IsZero() {
+		item.ObservedAt = wire.SourceTime
 	}
 	if wire.Dimensions == nil {
 		return nil
@@ -1426,6 +1460,8 @@ type EmisarApproval struct {
 type EvaluationDecision struct {
 	ID               string
 	EpisodeID        string
+	AgentRunID       string
+	AgentRunKey      string
 	ChannelID        string
 	SessionChannelID string
 	ThreadTS         string

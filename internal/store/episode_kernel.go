@@ -184,9 +184,15 @@ func (s *Store) ChangeEpisodeDestination(
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE work_episodes
-		SET destination_channel_id = ?, destination_thread_ts = ?,
+		SET channel_id = CASE WHEN channel_id = '' THEN ? ELSE channel_id END,
+		    thread_ts = CASE
+		      WHEN thread_ts = '' AND (channel_id = '' OR channel_id = ?) THEN ?
+		      ELSE thread_ts
+		    END,
+		    destination_channel_id = ?, destination_thread_ts = ?,
 		    destination_revision = destination_revision + 1, updated_at = ?
 		WHERE id = ? AND event_sequence = ?`,
+		destination.ChannelID, destination.ChannelID, destination.ThreadTS,
 		destination.ChannelID, destination.ThreadTS, event.CreatedAt.Format(timestampFormat),
 		episodeID, event.Sequence,
 	)

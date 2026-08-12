@@ -244,3 +244,50 @@ func TestWaitingWorkEpisodeRemainsOpenAfterTransportFinishes(t *testing.T) {
 		})
 	}
 }
+
+func TestAcceptedEpisodeWithoutProgressDeadlineBecomesOverdue(t *testing.T) {
+	ctx := context.Background()
+	createdAt := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	st.clock = func() time.Time { return createdAt }
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "COPS",
+		ConversationKey: "channel:COPS", SourceKind: "watch", SourceID: "orphaned_accept",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if episodes, err := st.ListOverdueEpisodes(ctx, createdAt.Add(-time.Nanosecond), 10); err != nil {
+		t.Fatal(err)
+	} else if len(episodes) != 0 {
+		t.Fatalf("fresh episode was already overdue: %+v", episodes)
+	}
+	for _, state := range []string{"pending", "preparing", "running", "applying", "finalizing"} {
+		if _, err := st.db.ExecContext(ctx,
+			`UPDATE agent_runs SET state = ?, updated_at = ? WHERE id = ?`,
+			state, createdAt, run.ID,
+		); err != nil {
+			t.Fatalf("set live state %s: %v", state, err)
+		}
+		if episodes, err := st.ListOverdueEpisodes(ctx, createdAt.Add(time.Hour), 10); err != nil {
+			t.Fatal(err)
+		} else if len(episodes) != 0 {
+			t.Fatalf("live %s run was reported as an orphan: %+v", state, episodes)
+		}
+	}
+	if _, err := st.db.ExecContext(ctx,
+		`UPDATE agent_runs SET state = 'failed', completed_at = ?, updated_at = ? WHERE id = ?`,
+		createdAt, createdAt, run.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	episodes, err := st.ListOverdueEpisodes(ctx, createdAt.Add(time.Hour), 10)
+	if err != nil || len(episodes) != 1 || episodes[0].AgentRunID != run.ID {
+		t.Fatalf("orphaned accepted episode = %+v, %v", episodes, err)
+	}
+}

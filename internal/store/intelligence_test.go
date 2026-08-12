@@ -595,3 +595,52 @@ func TestEvaluationDecisionCanBeRecordedWithoutApplyingSideEffects(t *testing.T)
 		t.Fatalf("record-only decision changed channel memory: %v", err)
 	}
 }
+
+func TestEvaluationDecisionAdvancesOnlyForANewRunExecution(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Intelligence.EnsureChannelMemory(ctx, "COPS", "emisar"); err != nil {
+		t.Fatal(err)
+	}
+
+	apply := func(id, key, action, reason string) bool {
+		t.Helper()
+		applied, err := st.Intelligence.ApplyWatchDecision(ctx, core.EvaluationDecision{
+			ID: id, AgentRunID: "run-retry", AgentRunKey: key,
+			ChannelID: "COPS", SourceInput: "same-input", Mode: "live",
+			Action: action, Reason: reason,
+		}, "investigation", 0, core.AgentMemory{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return applied
+	}
+	if !apply("eval-generation-1", "run:retry", "reply", "first execution") {
+		t.Fatal("first execution was not recorded")
+	}
+	if apply("eval-generation-1-replay", "run:retry", "ignore", "same execution replay") {
+		t.Fatal("same execution replay replaced its durable decision")
+	}
+	stored, err := st.Intelligence.GetEvaluationDecision(ctx, "same-input", "live")
+	if err != nil || stored.ID != "eval-generation-1" || stored.Action != "reply" {
+		t.Fatalf("same-generation decision = %+v, %v", stored, err)
+	}
+
+	if !apply("eval-generation-2", "run:retry:recovery_2", "ignore", "operator retry") {
+		t.Fatal("new execution did not replace the prior decision")
+	}
+	stored, err = st.Intelligence.GetEvaluationDecision(ctx, "same-input", "live")
+	if err != nil || stored.ID != "eval-generation-2" ||
+		stored.AgentRunID != "run-retry" || stored.AgentRunKey != "run:retry:recovery_2" ||
+		stored.Action != "ignore" || stored.Reason != "operator retry" {
+		t.Fatalf("new-generation decision = %+v, %v", stored, err)
+	}
+	memory, err := st.Intelligence.GetChannelMemory(ctx, "COPS")
+	if err != nil || memory.TurnCount != 2 {
+		t.Fatalf("decision side effects ran %d times, want 2: %+v, %v", memory.TurnCount, memory, err)
+	}
+}

@@ -36,6 +36,16 @@ func TestLifecycleDivergenceDetectsEachDisagreement(t *testing.T) {
 			want: func(d lifecyclecheck.Report) []string { return d.ExecutingWithoutRun },
 		},
 		{
+			name:    "accepted episode has no live run",
+			episode: "accepted", run: "completed",
+			want: func(d lifecyclecheck.Report) []string { return d.ExecutingWithoutRun },
+		},
+		{
+			name:    "acknowledged episode has no live run",
+			episode: "acknowledged", run: "completed",
+			want: func(d lifecyclecheck.Report) []string { return d.ExecutingWithoutRun },
+		},
+		{
 			name:    "episode and its latest run disagree on the outcome",
 			episode: "completed", run: "failed",
 			want: func(d lifecyclecheck.Report) []string { return d.OutcomeConflict },

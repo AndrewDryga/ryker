@@ -122,6 +122,7 @@ func TestLocationWorkAndOldThreadContinuationSetPendingStatus(t *testing.T) {
 	}
 	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID: "watch_reply_" + replySource.ID, Operation: "post", Kind: "notice",
+		SourceInputID: replySource.ID, ResponseRoot: true,
 		ChannelID: replySource.ChannelID, ThreadTS: replySource.ThreadTS,
 		Body: []byte(`{"text":"The result is 8."}`),
 	}); err != nil {

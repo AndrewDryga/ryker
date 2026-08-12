@@ -26,6 +26,48 @@ func (r *Repository) GetByEventID(ctx context.Context, eventID string) (core.Sla
 		FROM slack_inputs WHERE event_id = ?`, eventID))
 }
 
+// NewerBotMessages returns app notifications admitted after source in Slack
+// order. Admission is the authority boundary: callers must not wait for the
+// control lane to create a run before suppressing an older result.
+func (r *Repository) NewerBotMessages(
+	ctx context.Context,
+	sourceID string,
+) ([]core.SlackInput, error) {
+	if sourceID == "" {
+		return nil, core.ErrNotFound
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT newer.id, newer.envelope_id, newer.event_id, newer.kind, newer.team_id,
+		  newer.channel_id, newer.thread_ts, newer.message_ts, newer.user_id, newer.text,
+		  newer.action_id, newer.action_value, newer.attachments_json, newer.frozen_json,
+		  newer.state, newer.attempts, newer.failure_count, newer.received_at
+		FROM slack_inputs AS source
+		JOIN slack_inputs AS newer
+		  ON newer.id != source.id
+		 AND newer.channel_id = source.channel_id
+		 AND newer.user_id = source.user_id
+		 AND newer.kind = 'bot_message'
+		 AND (
+		   CAST(newer.message_ts AS REAL) > CAST(source.message_ts AS REAL) OR
+		   (newer.message_ts = source.message_ts AND newer.rowid > source.rowid)
+		 )
+		WHERE source.id = ?
+		ORDER BY CAST(newer.message_ts AS REAL), newer.rowid`, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var inputs []core.SlackInput
+	for rows.Next() {
+		input, scanErr := Scan(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		inputs = append(inputs, input)
+	}
+	return inputs, rows.Err()
+}
+
 func Scan(row interface{ Scan(...any) error }) (core.SlackInput, error) {
 	var input core.SlackInput
 	var received string

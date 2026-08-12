@@ -315,7 +315,7 @@ func (s *Service) publishDraftPR(
 	if publicationreview.GateIncomplete(review) {
 		message = slackui.WithIncompleteValidationWarning(message)
 	}
-	if err := s.updateEngineeringTaskCard(ctx, incident, message, nil); err != nil {
+	if err := s.updateEngineeringTaskCard(ctx, "", incident, message, nil); err != nil {
 		s.log.Error(
 			"record published draft PR task-card summary",
 			"incident", incident.ID,

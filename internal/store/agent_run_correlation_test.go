@@ -130,6 +130,55 @@ func TestMentionOnlyRunDoesNotSupersedeSubstantiveWork(t *testing.T) {
 	}
 }
 
+func TestFailedNewerHumanCorrectionStillSuppressesOlderThreadAnswer(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	inputs := []core.SlackInput{
+		{ID: "input_old_answer", EnvelopeID: "env_old_answer", EventID: "event_old_answer",
+			Kind: "mention", TeamID: "T1", ChannelID: "C1", MessageTS: "100.1",
+			UserID: "U1", Text: "use the old target", ReceivedAt: now},
+		{ID: "input_new_correction", EnvelopeID: "env_new_correction", EventID: "event_new_correction",
+			Kind: "message", TeamID: "T1", ChannelID: "C1", ThreadTS: "100.1",
+			MessageTS: "100.2", UserID: "U1", Text: "use the new target",
+			ReceivedAt: now.Add(time.Second)},
+	}
+	for _, input := range inputs {
+		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, err)
+		}
+	}
+	older, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "C1", ThreadTS: "100.1",
+		ConversationKey: "channel:C1", SourceKind: "watch", SourceID: inputs[0].ID,
+		CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "C1", ThreadTS: "100.1",
+		ConversationKey: "channel:C1", SourceKind: "watch", SourceID: inputs[1].ID,
+		CreatedAt: now.Add(time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE agent_runs SET state = 'failed' WHERE id = ?`, newer.ID); err != nil {
+		t.Fatal(err)
+	}
+	if superseded, err := st.HasNewerAgentRun(ctx, older, true); err != nil || !superseded {
+		t.Fatalf("failed human correction = %t, %v", superseded, err)
+	}
+	if active, err := st.HasNewerAgentRun(ctx, older, false); err != nil || active {
+		t.Fatalf("failed operational successor = %t, %v", active, err)
+	}
+}
+
 func TestNudgeLatestAgentRunWakesPendingConversation(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

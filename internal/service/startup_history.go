@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/agentcontext"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
@@ -137,7 +138,7 @@ func slackHistoryAppInput(
 		UserID:      core.FirstNonempty(message.BotID, message.UserID),
 		Text:        message.Text,
 		Attachments: attachments,
-		Reactions:   coreSlackReactions(message.Reactions),
+		Reactions:   agentcontext.Reactions(message.Reactions),
 		ReceivedAt:  slackMessageTime(message.Timestamp, now),
 	}
 	bindCanonicalSlackMessageInputID(&input)

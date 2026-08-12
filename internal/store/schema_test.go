@@ -174,7 +174,15 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		ALTER TABLE publications DROP COLUMN attempt_input_id;
 		ALTER TABLE publications DROP COLUMN failure_code;
 		ALTER TABLE publications DROP COLUMN generation;
-		ALTER TABLE incidents DROP COLUMN task_pull_request_json;`); err != nil {
+		ALTER TABLE incidents DROP COLUMN task_pull_request_json;
+		ALTER TABLE incidents DROP COLUMN latest_update_run_id;
+		ALTER TABLE incidents DROP COLUMN latest_update_run_key;
+		ALTER TABLE slack_deliveries DROP COLUMN response_root;
+		ALTER TABLE slack_deliveries DROP COLUMN agent_run_id;
+		ALTER TABLE slack_deliveries DROP COLUMN agent_run_key;
+		ALTER TABLE slack_deliveries DROP COLUMN source_input_id;
+		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_id;
+		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;`); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {

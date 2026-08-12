@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/localstate"
 	"github.com/AndrewDryga/responder/internal/publisher"
+	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskpr"
@@ -662,14 +662,7 @@ func (s *Service) reconcileIncidentChannel(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) queueDelay(attempt int) time.Time {
-	return s.now().Add(queueDelayDuration(attempt))
-}
-
-func queueDelayDuration(attempt int) time.Duration {
-	seconds := math.Min(300, math.Pow(2, float64(min(max(attempt, 1), 8))))
-	return time.Duration(seconds) * time.Second
-}
+func (s *Service) queueDelay(attempt int) time.Time { return s.now().Add(retrydelay.Duration(attempt)) }
 
 func terminalAttempt(attempt, maximum int) bool {
 	return attempt >= maximum

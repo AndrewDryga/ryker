@@ -407,13 +407,20 @@ func (c *Client) SubmitTurnWithArtifacts(
 }
 
 func (c *Client) boundedPrompt(prompt string) string {
+	bounded, truncated := BoundPrompt(prompt)
+	if truncated && c.truncated != nil {
+		c.truncated(len(prompt), maxPromptBytes)
+	}
+	return bounded
+}
+
+// BoundPrompt applies the exact transport limit before callers freeze their
+// context manifest, preserving the assignment head and contract tail.
+func BoundPrompt(prompt string) (string, bool) {
 	prompt = strings.ToValidUTF8(prompt, "\uFFFD")
 	prompt = strings.ReplaceAll(prompt, "\x00", "\uFFFD")
 	if len(prompt) <= maxPromptBytes {
-		return prompt
-	}
-	if c.truncated != nil {
-		c.truncated(len(prompt), maxPromptBytes)
+		return prompt, false
 	}
 	tailStart := len(prompt) - promptTailBytes
 	for tailStart < len(prompt) && !utf8.RuneStart(prompt[tailStart]) {
@@ -423,7 +430,7 @@ func (c *Client) boundedPrompt(prompt string) string {
 	for headBytes > 0 && !utf8.ValidString(prompt[:headBytes]) {
 		headBytes--
 	}
-	return prompt[:headBytes] + promptElisionMarker + prompt[tailStart:]
+	return prompt[:headBytes] + promptElisionMarker + prompt[tailStart:], true
 }
 
 func (c *Client) GetTurn(ctx context.Context, sessionID, turnID string) (Turn, error) {

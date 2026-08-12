@@ -270,11 +270,12 @@ func (r *Repository) BindChannelSession(
 	if started.IsZero() {
 		started = r.now().UTC()
 	}
-	_, err := r.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, `
 		INSERT INTO channel_memories
 		  (channel_id, repository, session_id, session_revision, generation, turn_count,
 		   state_json, session_started_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 0, '{}', ?, ?)
+		SELECT ?, ?, ?, ?, ?, 0, '{}', ?, ?
+		WHERE NOT EXISTS (SELECT 1 FROM coop_cleanup WHERE session_id = ?)
 			ON CONFLICT(channel_id) DO UPDATE SET
 		  repository = excluded.repository,
 		  session_id = excluded.session_id,
@@ -284,11 +285,12 @@ func (r *Repository) BindChannelSession(
 			  coop_event_sequence = 0,
 		  session_started_at = excluded.session_started_at,
 		  rotated_at = channel_memories.updated_at,
-		  updated_at = excluded.updated_at`,
+		  updated_at = excluded.updated_at
+		WHERE NOT EXISTS (SELECT 1 FROM coop_cleanup WHERE session_id = excluded.session_id)`,
 		channelID, repository, sessionID, revision, generation,
-		started.UTC().Format(core.TimestampFormat), r.nowText(),
+		started.UTC().Format(core.TimestampFormat), r.nowText(), sessionID,
 	)
-	return err
+	return sqlutil.ExpectOne(result, err, "bind channel session outside cleanup ownership")
 }
 
 func (r *Repository) EnsureChannelMemory(
@@ -388,11 +390,19 @@ func (r *Repository) ApplyWatchDecision(
 	}
 	defer tx.Rollback()
 	insert, err := tx.ExecContext(ctx, `
-		INSERT OR IGNORE INTO evaluation_decisions
-		  (id, channel_id, source_input, mode, action, reason, evidence_count,
+		INSERT INTO evaluation_decisions
+		  (id, agent_run_id, agent_run_key, channel_id, source_input, mode, action, reason, evidence_count,
 		   coverage_count, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		decision.ID, decision.ChannelID, decision.SourceInput, decision.Mode,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(source_input, mode) DO UPDATE SET
+		  id = excluded.id, agent_run_id = excluded.agent_run_id,
+		  agent_run_key = excluded.agent_run_key, action = excluded.action,
+		  reason = excluded.reason, evidence_count = excluded.evidence_count,
+		  coverage_count = excluded.coverage_count, created_at = excluded.created_at
+		WHERE excluded.agent_run_key != ''
+		  AND evaluation_decisions.agent_run_key != excluded.agent_run_key`,
+		decision.ID, decision.AgentRunID, decision.AgentRunKey,
+		decision.ChannelID, decision.SourceInput, decision.Mode,
 		decision.Action, decision.Reason, decision.Evidence, decision.Coverage,
 		decision.CreatedAt.UTC().Format(core.TimestampFormat),
 	)
@@ -559,11 +569,19 @@ func (r *Repository) RecordEvaluationDecision(
 		decision.CreatedAt = r.now().UTC()
 	}
 	result, err := r.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO evaluation_decisions
-		  (id, channel_id, source_input, mode, action, reason, evidence_count,
+		INSERT INTO evaluation_decisions
+		  (id, agent_run_id, agent_run_key, channel_id, source_input, mode, action, reason, evidence_count,
 		   coverage_count, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		decision.ID, decision.ChannelID, decision.SourceInput, decision.Mode,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(source_input, mode) DO UPDATE SET
+		  id = excluded.id, agent_run_id = excluded.agent_run_id,
+		  agent_run_key = excluded.agent_run_key, action = excluded.action,
+		  reason = excluded.reason, evidence_count = excluded.evidence_count,
+		  coverage_count = excluded.coverage_count, created_at = excluded.created_at
+		WHERE excluded.agent_run_key != ''
+		  AND evaluation_decisions.agent_run_key != excluded.agent_run_key`,
+		decision.ID, decision.AgentRunID, decision.AgentRunKey,
+		decision.ChannelID, decision.SourceInput, decision.Mode,
 		decision.Action, decision.Reason, decision.Evidence, decision.Coverage,
 		decision.CreatedAt.UTC().Format(core.TimestampFormat),
 	)
@@ -582,11 +600,13 @@ func (r *Repository) GetEvaluationDecision(
 	var decision core.EvaluationDecision
 	var createdAt string
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, channel_id, source_input, mode, action, reason,
+		SELECT id, agent_run_id, agent_run_key, channel_id, source_input, mode, action, reason,
 		       evidence_count, coverage_count, created_at
 		FROM evaluation_decisions
 		WHERE source_input = ? AND mode = ?`, sourceInput, mode).Scan(
 		&decision.ID,
+		&decision.AgentRunID,
+		&decision.AgentRunKey,
 		&decision.ChannelID,
 		&decision.SourceInput,
 		&decision.Mode,
