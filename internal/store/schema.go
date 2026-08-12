@@ -2,7 +2,7 @@ package store
 
 import "github.com/AndrewDryga/responder/internal/store/migrationddl"
 
-const currentSchemaVersion = 62
+const currentSchemaVersion = 63
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -1316,4 +1316,14 @@ var migrations = map[int]string{
 	`,
 	61: migrationddl.V61,
 	62: `ALTER TABLE incidents ADD COLUMN task_pull_request_json TEXT NOT NULL DEFAULT '';`,
+	63: `
+		UPDATE publications SET state = 'published', failure_code = '', last_error = ''
+		  WHERE state != 'published' AND pr_number > 0 AND published_at IS NOT NULL
+		    AND incident_id IN (
+		      SELECT incident_id FROM publication_followups
+		      WHERE pr_state IN ('merged', 'closed')
+		    );
+		UPDATE incidents SET card_version = card_version + 1
+		  WHERE id IN (SELECT incident_id FROM publication_followups);
+	`,
 }

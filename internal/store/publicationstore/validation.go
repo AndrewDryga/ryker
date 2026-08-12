@@ -8,16 +8,18 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/publicationrecord"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
 var (
-	ErrNotFound        = errors.New("publication not found")
+	ErrNotFound        = core.ErrNotFound
 	ErrInProgress      = errors.New("draft PR publication is already in progress")
 	ErrBindingChanged  = errors.New("draft PR repository binding changed")
 	ErrCoalesced       = errors.New("duplicate draft PR publication was coalesced")
 	ErrAttemptLost     = errors.New("draft PR publication attempt no longer owns the record")
 	ErrWorkUnavailable = errors.New("engineering task is closing or closed")
+	ErrPRTerminal      = errors.New("pull request is already merged or closed")
 	ErrCloseConflict   = errors.New("draft PR publication is in progress")
 )
 
@@ -27,7 +29,7 @@ type Repository struct {
 }
 
 func (r *Repository) Get(ctx context.Context, incidentID string) (core.Publication, error) {
-	return get(ctx, r.db, incidentID)
+	return publicationrecord.Get(ctx, r.db, incidentID)
 }
 
 func (r *Repository) RecordFailure(
@@ -57,7 +59,7 @@ func (r *Repository) RecordFailure(
 }
 
 func (r *Repository) Save(ctx context.Context, item core.Publication) error {
-	if err := Validate(item); err != nil {
+	if err := publicationrecord.Validate(item); err != nil {
 		return err
 	}
 	now := r.clock().UTC()
@@ -87,7 +89,12 @@ func (r *Repository) Save(ctx context.Context, item core.Publication) error {
 		  pr_url = excluded.pr_url, state = excluded.state, failure_code = excluded.failure_code,
 		  last_error = excluded.last_error, updated_at = excluded.updated_at,
 		  published_at = excluded.published_at
-		WHERE publications.attempt_input_id = excluded.attempt_input_id AND (
+		WHERE publications.attempt_input_id = excluded.attempt_input_id
+		  AND NOT EXISTS (
+		    SELECT 1 FROM publication_followups
+		    WHERE incident_id = publications.incident_id
+		      AND pr_state IN ('merged', 'closed')
+		  ) AND (
 		  publications.attempt_input_id = '' OR publications.state = excluded.state OR
 		  (excluded.failure_code = 'session_binding' AND
 		    publications.state NOT IN ('reviewing', 'publishing', 'retrying', 'published', 'stale')) OR
@@ -136,15 +143,20 @@ func (r *Repository) MarkStale(
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE publications SET state = 'stale', last_error = ?, updated_at = ?
-		WHERE incident_id = ? AND state = 'published'`, reason, now, incidentID)
+		WHERE incident_id = ? AND state = 'published'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM publication_followups AS followup
+		    WHERE followup.incident_id = publications.incident_id
+		      AND followup.pr_state IN ('merged', 'closed')
+		  )`, reason, now, incidentID)
 	if err != nil {
 		return false, err
 	}
-	changed, err := result.RowsAffected()
+	changed, err := sqlutil.Changed(result, nil)
 	if err != nil {
 		return false, err
 	}
-	if changed == 0 {
+	if !changed {
 		return false, tx.Commit()
 	}
 	result, err = tx.ExecContext(ctx, `
@@ -156,12 +168,96 @@ func (r *Repository) MarkStale(
 	return true, tx.Commit()
 }
 
-func New(db *sql.DB, clock func() time.Time) *Repository {
-	return &Repository{db: db, clock: clock}
+// BeginPublishing commits the reviewed candidate only while the pull request
+// is still nonterminal. If a concurrent follow-up observed merge or close, it
+// restores the prior published receipt and refuses the transition.
+func (r *Repository) BeginPublishing(
+	ctx context.Context,
+	item core.Publication,
+) error {
+	if item.State != core.PublicationPublishing {
+		return errors.New("publication must be publishing")
+	}
+	if err := publicationrecord.Validate(item); err != nil {
+		return err
+	}
+	now := r.clock().UTC().Format(core.TimestampFormat)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE publications SET
+		  state = 'publishing', failure_code = '', last_error = '', updated_at = ?
+		WHERE incident_id = ? AND attempt_input_id = ? AND state = 'reviewing'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM publication_followups
+		    WHERE incident_id = publications.incident_id
+		      AND pr_state IN ('merged', 'closed')
+		  )`, now, item.IncidentID, item.AttemptInputID)
+	if err != nil {
+		return err
+	}
+	changed, err := sqlutil.Changed(result, err)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		var terminal int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+			  SELECT 1 FROM publication_followups
+			  WHERE incident_id = ? AND pr_state IN ('merged', 'closed')
+			)`, item.IncidentID).Scan(&terminal); err != nil {
+			return err
+		}
+		if terminal == 0 {
+			return ErrAttemptLost
+		}
+		result, err = tx.ExecContext(ctx, `
+			UPDATE publications SET state = 'published', failure_code = '',
+			  last_error = '', updated_at = ?
+			WHERE incident_id = ? AND attempt_input_id = ? AND state != 'published'
+			  AND pr_number > 0 AND published_at IS NOT NULL`,
+			now, item.IncidentID, item.AttemptInputID)
+		if err != nil {
+			return err
+		}
+		changed, err := sqlutil.Changed(result, nil)
+		if err != nil {
+			return err
+		}
+		if current, readErr := publicationrecord.Get(ctx, tx, item.IncidentID); readErr != nil {
+			return readErr
+		} else if !current.Published() {
+			return errors.New("terminal publication receipt is unavailable")
+		}
+		if changed {
+			result, err = tx.ExecContext(ctx, `
+				UPDATE incidents SET updated_at = ?, card_version = card_version + 1
+				WHERE id = ?`, now, item.IncidentID)
+			if err := sqlutil.ExpectOne(result, err, "mark terminal publication on incident"); err != nil {
+				return err
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		return ErrPRTerminal
+	}
+	result, err = tx.ExecContext(ctx, `
+		UPDATE incidents SET updated_at = ?, card_version = card_version + 1
+		WHERE id = ?`, now, item.IncidentID)
+	if err := sqlutil.ExpectOne(result, err, "mark publishing on incident"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // BeginClose reserves the incident lifecycle against a concurrent publication
-// claim before Coop is asked to close the session.
+// claim before Coop is asked to close the session. It lives with BeginReview
+// so both directions of the close/publication exclusion share one owner.
 func (r *Repository) BeginClose(
 	ctx context.Context,
 	incidentID string,
@@ -182,7 +278,8 @@ func (r *Repository) BeginClose(
 		return "", err
 	}
 	result, err := tx.ExecContext(ctx, `
-		UPDATE incidents SET workflow = 'closing', updated_at = ?, card_version = card_version + 1
+		UPDATE incidents SET workflow = 'closing', updated_at = ?,
+		  card_version = card_version + 1
 		WHERE id = ? AND status != 'closed' AND active_turn_id = ''
 		  AND workflow != 'closing' AND NOT EXISTS (
 		    SELECT 1 FROM publications
@@ -192,11 +289,11 @@ func (r *Repository) BeginClose(
 	if err != nil {
 		return "", err
 	}
-	rows, err := result.RowsAffected()
+	changed, err := sqlutil.Changed(result, nil)
 	if err != nil {
 		return "", err
 	}
-	if rows != 1 {
+	if !changed {
 		var active int
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*) FROM publications
@@ -228,92 +325,8 @@ func (r *Repository) RestoreClose(
 	return sqlutil.ExpectOne(result, err, "restore interrupted incident close")
 }
 
-// RecoverInterrupted transfers ownership of an interrupted publication back
-// to its durable input before the generic Slack-input recovery runs. Bound
-// inputs retain automatic retry ownership; orphaned attempts become manual.
-func (r *Repository) RecoverInterrupted(ctx context.Context) error {
-	now := r.clock().UTC().Format(core.TimestampFormat)
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE incidents SET workflow = 'parked', updated_at = ?,
-		  card_version = card_version + 1
-		WHERE status != 'closed' AND workflow = 'closing'`, now); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE incidents SET updated_at = ?, card_version = card_version + 1
-		WHERE id IN (
-		  SELECT incident_id FROM publications
-		  WHERE state IN ('reviewing', 'publishing')
-		)`, now); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE publications AS publication SET
-		  state = CASE WHEN EXISTS (
-		    SELECT 1 FROM slack_inputs AS input
-		    WHERE input.state = 'processing'
-		      AND input.id = publication.attempt_input_id
-		      AND input.action_id = 'responder_publish_pr'
-		      AND input.action_value = publication.incident_id
-		  ) THEN 'retrying' ELSE 'failed' END,
-		  last_error = CASE WHEN EXISTS (
-		    SELECT 1 FROM slack_inputs AS input
-		    WHERE input.state = 'processing'
-		      AND input.id = publication.attempt_input_id
-		      AND input.action_id = 'responder_publish_pr'
-		      AND input.action_value = publication.incident_id
-		  ) THEN 'Responder restarted during draft PR work; retry is scheduled'
-		  ELSE 'Responder stopped during draft PR work; retry it from the task card' END,
-		  updated_at = ?
-		WHERE state IN ('reviewing', 'publishing')`, now); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE slack_inputs SET state = 'retry', next_attempt_at = ?, updated_at = ?
-		WHERE state = 'processing' AND action_id = 'responder_publish_pr'
-		  AND EXISTS (
-		    SELECT 1 FROM publications
-		    WHERE publications.incident_id = slack_inputs.action_value
-		      AND publications.attempt_input_id = slack_inputs.id
-		      AND publications.state = 'retrying'
-		  )`, now, now); err != nil {
-		return err
-	}
-	// A terminal publication is already the authoritative result. Re-running
-	// its input after a crash can force-push a different commit or repeat a
-	// rejected review, so complete the input instead of replaying side effects.
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE slack_inputs SET state = 'done', updated_at = ?
-		WHERE state = 'processing' AND action_id = 'responder_publish_pr'
-		  AND EXISTS (
-		    SELECT 1 FROM publications
-		    WHERE publications.incident_id = slack_inputs.action_value
-		      AND publications.attempt_input_id = slack_inputs.id
-		      AND publications.state IN ('failed', 'published', 'stale')
-		  )`, now); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT OR IGNORE INTO publication_followups (
-		  incident_id, next_check_at, created_at, updated_at
-		)
-		SELECT publication.incident_id, ?, ?, ?
-		FROM publications AS publication
-		WHERE publication.state = 'published' AND EXISTS (
-		  SELECT 1 FROM slack_inputs AS input
-		  WHERE input.action_id = 'responder_publish_pr'
-		    AND input.id = publication.attempt_input_id
-		    AND input.action_value = publication.incident_id
-		    AND input.state = 'done' AND input.updated_at = ?
-		)`, now, now, now, now); err != nil {
-		return err
-	}
-	return tx.Commit()
+func New(db *sql.DB, clock func() time.Time) *Repository {
+	return &Repository{db, clock}
 }
 
 // BeginReview atomically claims one publication attempt and binds its Slack
@@ -352,7 +365,7 @@ func (r *Repository) BeginReview(
 		item.PRNumber = binding.Number
 		item.PRURL = binding.URL
 	}
-	if err := Validate(item); err != nil {
+	if err := publicationrecord.Validate(item); err != nil {
 		return core.Publication{}, err
 	}
 	now := r.clock().UTC().Format(core.TimestampFormat)
@@ -363,13 +376,28 @@ func (r *Repository) BeginReview(
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE incidents SET updated_at = updated_at
-		WHERE id = ? AND status != 'closed' AND workflow != 'closing'`, incidentID)
+		WHERE id = ? AND status != 'closed' AND workflow != 'closing'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM publication_followups
+		    WHERE incident_id = ? AND pr_state IN ('merged', 'closed')
+		  )`, incidentID, incidentID)
 	if err != nil {
 		return core.Publication{}, err
 	}
 	if rows, rowsErr := result.RowsAffected(); rowsErr != nil {
 		return core.Publication{}, rowsErr
 	} else if rows != 1 {
+		var terminal int
+		if readErr := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+			  SELECT 1 FROM publication_followups
+			  WHERE incident_id = ? AND pr_state IN ('merged', 'closed')
+			)`, incidentID).Scan(&terminal); readErr != nil {
+			return core.Publication{}, readErr
+		}
+		if terminal == 1 {
+			return core.Publication{}, ErrPRTerminal
+		}
 		return core.Publication{}, ErrWorkUnavailable
 	}
 	result, err = tx.ExecContext(ctx, `
@@ -457,7 +485,7 @@ func (r *Repository) BeginReview(
 		return core.Publication{}, err
 	}
 	if rows != 1 {
-		current, readErr := get(ctx, tx, incidentID)
+		current, readErr := publicationrecord.Get(ctx, tx, incidentID)
 		if readErr != nil {
 			return core.Publication{}, readErr
 		}
@@ -531,7 +559,7 @@ func (r *Repository) BeginReview(
 	if err := sqlutil.ExpectOne(result, err, "mark publication review on incident"); err != nil {
 		return core.Publication{}, err
 	}
-	claimed, err := get(ctx, tx, incidentID)
+	claimed, err := publicationrecord.Get(ctx, tx, incidentID)
 	if err != nil {
 		return core.Publication{}, err
 	}
@@ -539,59 +567,4 @@ func (r *Repository) BeginReview(
 		return core.Publication{}, err
 	}
 	return claimed, nil
-}
-
-type queryer interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-func get(ctx context.Context, db queryer, incidentID string) (core.Publication, error) {
-	var item core.Publication
-	var created, updated string
-	var published sql.NullString
-	err := db.QueryRowContext(ctx, `
-		SELECT incident_id, attempt_input_id, generation, repository, base_branch, head_branch, parent_head,
-		  candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
-		  failure_code, last_error, created_at, updated_at, published_at
-		FROM publications WHERE incident_id = ?`, incidentID).Scan(
-		&item.IncidentID, &item.AttemptInputID, &item.Generation, &item.Repository, &item.BaseBranch, &item.HeadBranch,
-		&item.ParentHead, &item.CandidateTree, &item.CommitSHA, &item.RemoteSHA,
-		&item.PRNumber, &item.PRURL, &item.State, &item.FailureCode, &item.LastError, &created,
-		&updated, &published,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return core.Publication{}, ErrNotFound
-		}
-		return core.Publication{}, err
-	}
-	item.CreatedAt = sqlutil.ParseTime(created)
-	item.UpdatedAt = sqlutil.ParseTime(updated)
-	item.PublishedAt = sqlutil.ScanTime(published)
-	return item, nil
-}
-
-// Validate checks the durable proof required at each publication state.
-func Validate(item core.Publication) error {
-	if item.IncidentID == "" || item.Repository == "" || item.BaseBranch == "" {
-		return errors.New("publication identity, repository, base branch, and state are required")
-	}
-	switch item.State {
-	case core.PublicationReviewing, core.PublicationRetrying, core.PublicationFailed:
-	case core.PublicationPublishing:
-		if item.ParentHead == "" || item.CandidateTree == "" {
-			return errors.New("reviewed tree is required before publication")
-		}
-	case core.PublicationPublished, core.PublicationStale:
-		if item.ParentHead == "" || item.CandidateTree == "" {
-			return errors.New("reviewed tree is required before publication")
-		}
-		if item.HeadBranch == "" || item.CommitSHA == "" || item.RemoteSHA == "" ||
-			item.PRNumber < 1 || item.PRURL == "" || item.PublishedAt.IsZero() {
-			return errors.New("durable draft PR identity and proof are required")
-		}
-	default:
-		return fmt.Errorf("publication state %q is invalid", item.State)
-	}
-	return nil
 }

@@ -14,10 +14,13 @@ func IncidentCardWithPublication(
 	hasCodeChanges bool,
 	codeChangesKnown bool,
 	publication core.Publication,
+	followup core.PublicationFollowup,
+	lifecycle core.PublicationLifecycleEvent,
 ) Message {
 	if incident.IsEngineeringTask() {
 		return engineeringTaskCard(
-			incident, repositoryName, signals, hasCodeChanges, codeChangesKnown, publication,
+			incident, repositoryName, signals, hasCodeChanges, codeChangesKnown,
+			publication, followup, lifecycle,
 		)
 	}
 	status := incidentStatusLabel(incident.Status)
@@ -51,7 +54,9 @@ func IncidentCardWithPublication(
 			"Reply in this thread to collaborate with Responder.",
 			"Updated " + incident.UpdatedAt.UTC().Format("2006-01-02 15:04 UTC"),
 		},
-		Actions: incidentActions(incident, hasCodeChanges, codeChangesKnown, publication),
+		Actions: incidentActions(
+			incident, hasCodeChanges, codeChangesKnown, publication, followup,
+		),
 	}
 	if !incident.CreatedAt.IsZero() {
 		message.Fields = append(message.Fields, Field{
@@ -369,6 +374,7 @@ func incidentActions(
 	hasCodeChanges bool,
 	codeChangesKnown bool,
 	publication core.Publication,
+	followup core.PublicationFollowup,
 ) []Action {
 	if incident.RootTS == "" {
 		return nil
@@ -451,6 +457,13 @@ func incidentActions(
 			actions = append(actions, viewPR)
 		}
 		return actions
+	}
+	if followup.Terminal() {
+		actions := []Action{changes}
+		if publication.HasPR() {
+			actions = append(actions, viewPR)
+		}
+		return append(actions, closeIncident)
 	}
 	if publication.InProgress() {
 		actions := make([]Action, 0, 2)

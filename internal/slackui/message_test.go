@@ -456,6 +456,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	}
 	changed := IncidentCardWithPublication(
 		task, "Emisar", nil, true, true, core.Publication{},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
 	if !slices.ContainsFunc(changed.Actions, func(action Action) bool {
 		return action.ID == ActionPublishPR && action.Label == "Create draft PR"
@@ -466,11 +467,53 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		task, "Emisar", nil, true, true, core.Publication{
 			State: "published", PRNumber: 42, PRURL: "https://github.example/pull/42",
 		},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
 	if !slices.ContainsFunc(published.Actions, func(action Action) bool {
 		return action.ID == ActionViewPR && action.URL == "https://github.example/pull/42"
 	}) || !strings.Contains(strings.Join(published.Sections, "\n"), "PR ready") {
 		t.Fatalf("published task lacks durable PR state: %+v", published)
+	}
+	mergedTask := task
+	mergedTask.LatestUpdate = "The follow-up apply exposed one more hostname to stage."
+	mergedPublication := core.Publication{
+		State: core.PublicationPublished, PRNumber: 529,
+		PRURL: "https://github.example/pull/529",
+	}
+	mergedFollowup := core.PublicationFollowup{
+		PRState: "merged", ChecksState: "passing", MergeSHA: "b3b6bb4e50119ba6",
+	}
+	merged := IncidentCardWithPublication(
+		mergedTask, "Emisar", nil, true, true, mergedPublication, mergedFollowup,
+		core.PublicationLifecycleEvent{
+			ID: "delivery-1", Kind: "terraform", State: "failed",
+			Summary: "Terraform apply failed for the next staged hostname.",
+		},
+	)
+	mergedText := merged.Text + "\n" + strings.Join(merged.Sections, "\n")
+	if !strings.Contains(mergedText, "PR merged") ||
+		!strings.Contains(mergedText, "b3b6bb4e501") ||
+		!strings.Contains(mergedText, mergedTask.LatestUpdate) ||
+		!strings.Contains(mergedText, "Terraform apply failed") {
+		t.Fatalf("merged task card lost durable or work state: %+v", merged)
+	}
+	if slices.ContainsFunc(merged.Actions, func(action Action) bool {
+		return action.ID == ActionReview || action.ID == ActionPublishPR || action.ID == ActionUpdate
+	}) || !slices.ContainsFunc(merged.Actions, func(action Action) bool {
+		return action.ID == ActionViewPR
+	}) || !slices.ContainsFunc(merged.Actions, func(action Action) bool {
+		return action.ID == ActionChanges
+	}) {
+		t.Fatalf("merged task actions = %+v", merged.Actions)
+	}
+	mergedReply := WithEngineeringTaskDelivery(
+		ConversationResponse("I staged the next hostname.", NewSanitizer(12000)),
+		mergedTask, true, mergedPublication, mergedFollowup,
+	)
+	if slices.ContainsFunc(mergedReply.Actions, func(action Action) bool {
+		return action.ID == ActionPublishPR || action.ID == ActionReview
+	}) || !strings.Contains(strings.Join(mergedReply.Context, "\n"), "new engineering task") {
+		t.Fatalf("merged task follow-up delivery = %+v", mergedReply)
 	}
 	for _, state := range []struct {
 		name     string
@@ -488,6 +531,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 				State: core.PublicationPublished, PRNumber: 42,
 				PRURL: "https://github.example/pull/42",
 			},
+			core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 		)
 		if !slices.ContainsFunc(stateCard.Actions, func(action Action) bool {
 			return action.ID == ActionViewPR
@@ -498,7 +542,10 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	stalePublication := core.Publication{
 		State: "stale", PRNumber: 42, PRURL: "https://github.example/pull/42",
 	}
-	stale := IncidentCardWithPublication(task, "Emisar", nil, true, true, stalePublication)
+	stale := IncidentCardWithPublication(
+		task, "Emisar", nil, true, true, stalePublication,
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
+	)
 	if !slices.ContainsFunc(stale.Actions, func(action Action) bool {
 		return action.ID == ActionPublishPR && action.Label == "Update PR"
 	}) || !slices.ContainsFunc(stale.Actions, func(action Action) bool {
@@ -508,6 +555,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	}
 	delivery := WithEngineeringTaskDelivery(
 		ConversationResponse("Done.", NewSanitizer(12000)), task, true, stalePublication,
+		core.PublicationFollowup{},
 	)
 	if !slices.ContainsFunc(delivery.Actions, func(action Action) bool {
 		return action.ID == ActionPublishPR && action.Label == "Update PR"
@@ -528,6 +576,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 				State: core.PublicationState(progress.state), PRNumber: 42, PRURL: progress.prURL,
 				LastError: "temporary Coop error",
 			},
+			core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 		)
 		rendered := card.Text + "\n" + strings.Join(card.Sections, "\n")
 		if !strings.Contains(rendered, progress.text) {
@@ -556,6 +605,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 			State: core.PublicationReviewing, PRNumber: 42,
 			PRURL: "https://github.example/pull/42",
 		},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
 	if strings.Contains(existingProgress.Text, "Draft PR") ||
 		!strings.Contains(existingProgress.Text, "PR update readiness review") {
@@ -575,6 +625,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 			stateTask, "Emisar", nil, false, true, core.Publication{
 				PRNumber: 42, PRURL: "https://github.example/pull/42",
 			},
+			core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 		)
 		if !slices.ContainsFunc(card.Actions, func(action Action) bool {
 			return action.ID == ActionViewPR
@@ -587,6 +638,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 			State: "failed", LastError: "GitHub rejected the branch update",
 			PRNumber: 42, PRURL: "https://github.example/pull/42",
 		},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
 	if !strings.Contains(strings.Join(failed.Sections, "\n"), "needs attention") ||
 		!strings.Contains(strings.Join(failed.Sections, "\n"), "Retry PR update") ||
@@ -603,6 +655,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 			State:     core.PublicationFailed,
 			LastError: "The isolated task has no code changes to publish.",
 		},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
 	if !strings.Contains(strings.Join(emptyFailure.Sections, "\n"), "Add or restore") ||
 		slices.ContainsFunc(emptyFailure.Actions, func(action Action) bool {

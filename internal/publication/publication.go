@@ -21,16 +21,23 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
-// Store is the durable state a followup reads and writes.
-type Store interface {
-	NextPublicationFollowup(ctx context.Context, now time.Time) (core.PublicationFollowup, core.Publication, error)
-	GetPublicationFollowup(ctx context.Context, incidentID string) (core.PublicationFollowup, error)
-	EnsurePublicationFollowup(ctx context.Context, incidentID string, now time.Time) error
-	SavePublicationFollowup(ctx context.Context, followup core.PublicationFollowup) error
-	GetPublication(ctx context.Context, incidentID string) (core.Publication, error)
-	MarkPublicationStale(ctx context.Context, incidentID, reason string) (bool, error)
+// FollowupStore owns post-publication status and lifecycle events.
+type FollowupStore interface {
+	Next(ctx context.Context, now time.Time) (core.PublicationFollowup, core.Publication, error)
+	Get(ctx context.Context, incidentID string) (core.PublicationFollowup, error)
+	Ensure(ctx context.Context, incidentID string, now time.Time) error
+	SaveTransition(ctx context.Context, expected, followup core.PublicationFollowup, event *core.PublicationLifecycleEvent) (bool, error)
+}
+
+// PublicationStore owns the reviewed publication receipt.
+type PublicationStore interface {
+	Get(ctx context.Context, incidentID string) (core.Publication, error)
+	MarkStale(ctx context.Context, incidentID, reason string) (bool, error)
+}
+
+// IncidentStore supplies the task whose card or thread receives a transition.
+type IncidentStore interface {
 	GetIncident(ctx context.Context, incidentID string) (core.Incident, error)
-	RecordPublicationLifecycleEvent(ctx context.Context, event core.PublicationLifecycleEvent) (bool, error)
 }
 
 // StatusSource reports what the forge currently says about a publication.
@@ -39,6 +46,35 @@ type Store interface {
 type StatusSource interface {
 	Enabled() bool
 	PublicationStatus(ctx context.Context, publication core.Publication) (core.PublicationLifecycleStatus, error)
+}
+
+type statusAPI interface {
+	PublicationStatus(context.Context, core.Publication) (core.PublicationLifecycleStatus, error)
+}
+
+type statusSource struct {
+	publisher interface{ Enabled() bool }
+	client    statusAPI
+}
+
+func (s statusSource) Enabled() bool { return s.publisher.Enabled() }
+
+func (s statusSource) PublicationStatus(
+	ctx context.Context,
+	publication core.Publication,
+) (core.PublicationLifecycleStatus, error) {
+	return s.client.PublicationStatus(ctx, publication)
+}
+
+// StatusSourceFor joins the publisher's capability and status halves when both
+// are present. A deployment without the status half is supported and returns nil.
+func StatusSourceFor(candidate any) StatusSource {
+	publisher, enabled := candidate.(interface{ Enabled() bool })
+	client, supported := candidate.(statusAPI)
+	if candidate == nil || !enabled || !supported {
+		return nil
+	}
+	return statusSource{publisher: publisher, client: client}
 }
 
 // Reporter delivers what the followup found. Enqueue rather than post: a
@@ -58,19 +94,26 @@ type Config struct {
 
 // Follower tracks publications through their remaining lifecycle.
 type Follower struct {
-	store    Store
-	status   StatusSource
-	reporter Reporter
-	cfg      Config
-	now      func() time.Time
+	followups    FollowupStore
+	publications PublicationStore
+	incidents    IncidentStore
+	status       StatusSource
+	reporter     Reporter
+	cfg          Config
+	now          func() time.Time
 }
 
 func NewFollower(
-	store Store,
+	followups FollowupStore,
+	publications PublicationStore,
+	incidents IncidentStore,
 	status StatusSource,
 	reporter Reporter,
 	cfg Config,
 	now func() time.Time,
 ) *Follower {
-	return &Follower{store: store, status: status, reporter: reporter, cfg: cfg, now: now}
+	return &Follower{
+		followups: followups, publications: publications, incidents: incidents,
+		status: status, reporter: reporter, cfg: cfg, now: now,
+	}
 }

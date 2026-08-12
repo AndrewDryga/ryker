@@ -868,7 +868,18 @@ func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (sla
 	if publication.FailureCode == core.PublicationFailureNoChanges {
 		codeChangesKnown = true
 	}
+	var followup core.PublicationFollowup
+	followup, followupErr := s.store.PublicationFollowups.Get(ctx, incident.ID)
+	if followupErr != nil && !errors.Is(followupErr, core.ErrNotFound) {
+		return slackui.Message{}, followupErr
+	}
+	var lifecycle core.PublicationLifecycleEvent
+	lifecycle, lifecycleErr := s.store.PublicationFollowups.LatestLifecycleEvent(ctx, incident.ID)
+	if lifecycleErr != nil && !errors.Is(lifecycleErr, core.ErrNotFound) {
+		return slackui.Message{}, lifecycleErr
+	}
 	if incident.CoopSessionID != "" && !publication.InProgress() &&
+		!followup.Terminal() &&
 		publication.State != core.PublicationFailed && !publication.Published() &&
 		!publication.NeedsUpdate() {
 		changes, changesErr := s.coop.Changes(ctx, incident.CoopSessionID)
@@ -891,6 +902,8 @@ func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (sla
 		hasCodeChanges,
 		codeChangesKnown,
 		publication,
+		followup,
+		lifecycle,
 	), nil
 }
 

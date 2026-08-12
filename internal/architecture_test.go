@@ -269,7 +269,10 @@ var lineBudget = map[string]int{
 	// of margin, which the note at the top of this map calls a tripwire rather
 	// than a ratchet. The package still ends 17 lines smaller and its budget 20
 	// lower than either was before.
-	"store":      11400,
+	// Publication follow-up queries and lifecycle events moved to their own
+	// repository. Lock most of that reduction into the ratchet while keeping
+	// enough room for the one-time card repaint migration that accompanies it.
+	"store":      11320,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
@@ -281,17 +284,21 @@ var lineBudget = map[string]int{
 	"schedule": 291,
 	// publication tracks a published PR through checks, merge and deployment.
 	"publication": 392,
+	// publicationcontext recognizes trusted references to active PR work.
+	"publicationcontext": 155,
+	// publicationrecord defines and decodes the durable proof required by each state.
+	"publicationrecord": 95,
 	// publicationreview interprets one Coop readiness dossier for publication.
 	"publicationreview": 245,
+	// publicationfollowupstore owns post-publication status and lifecycle events.
+	"publicationfollowupstore": 395,
+	// publicationrecoverystore owns restart reconciliation for publication attempts.
+	"publicationrecoverystore": 120,
 	// publicationstore owns the complete publication-row lifecycle: reads,
 	// validated writes, staleness, attempt claims, duplicate coalescing, and
-	// atomic restart recovery. Centralizing the formerly duplicated Store SQL
-	// leaves this cohesive package a margin of roughly five percent.
-	// Raised from its pre-implementation placeholder after attempt ownership,
-	// close exclusion, and restart recovery landed together: splitting those
-	// transaction boundaries across packages would recreate the lifecycle race
-	// this package exists to prevent. The 530 cap is 29 lines above the measured
-	// 544-line implementation and remains a tight ratchet.
+	// atomic publication/close exclusion. Keeping both claim directions here is
+	// what prevents a close and a publication from starting concurrently; the
+	// independent receipt decoder and restart recovery live elsewhere.
 	"publicationstore": 575,
 	// decision owns the shapes a model result arrives in and the rules for
 	// reading one, so the evaluation family can reach them without the runtime.
@@ -328,25 +335,29 @@ var lineBudget = map[string]int{
 // internal packages it must never import, keeping the layering acyclic and
 // stopping the domain and persistence layers from depending on presentation.
 var forbiddenImports = map[string][]string{
-	"core":              {"config", "coop", "emisar", "publisher", "service", "slackui", "store", "webhook", "httpapi", "app"},
-	"store":             {"service", "slackui", "publisher", "httpapi", "app", "emisar"},
-	"slackui":           {"service", "store", "httpapi", "app", "publisher"},
-	"coop":              {"service", "store", "slackui", "httpapi", "app"},
-	"emisar":            {"service", "store", "slackui", "httpapi", "app"},
-	"webhook":           {"service", "store", "slackui", "httpapi", "app"},
-	"episode":           {"service", "store", "slackui", "httpapi", "app"},
-	"investigation":     {"service", "store", "slackui", "httpapi", "app"},
-	"decision":          {"service", "store", "httpapi", "app", "publisher", "coop"},
-	"publication":       {"service", "httpapi", "app", "coop", "decision"},
-	"publicationreview": {"service", "store", "slackui", "httpapi", "app", "publisher", "decision"},
-	"publicationstore":  {"service", "slackui", "httpapi", "app", "publisher", "coop", "config"},
-	"schedule":          {"service", "store", "httpapi", "app", "coop", "publisher", "slackui"},
-	"memory":            {"service", "httpapi", "app", "coop", "publisher", "slackui"},
-	"channelsetup":      {"service", "store", "httpapi", "app", "coop", "publisher"},
-	"publisher":         {"service", "store", "slackui", "httpapi", "app"},
-	"localstate":        {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
-	"provider":          {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "core"},
-	"recall":            {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config"},
+	"core":                     {"config", "coop", "emisar", "publisher", "service", "slackui", "store", "webhook", "httpapi", "app"},
+	"store":                    {"service", "slackui", "publisher", "httpapi", "app", "emisar"},
+	"slackui":                  {"service", "store", "httpapi", "app", "publisher"},
+	"coop":                     {"service", "store", "slackui", "httpapi", "app"},
+	"emisar":                   {"service", "store", "slackui", "httpapi", "app"},
+	"webhook":                  {"service", "store", "slackui", "httpapi", "app"},
+	"episode":                  {"service", "store", "slackui", "httpapi", "app"},
+	"investigation":            {"service", "store", "slackui", "httpapi", "app"},
+	"decision":                 {"service", "store", "httpapi", "app", "publisher", "coop"},
+	"publication":              {"service", "httpapi", "app", "coop", "decision"},
+	"publicationcontext":       {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
+	"publicationrecord":        {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
+	"publicationreview":        {"service", "store", "slackui", "httpapi", "app", "publisher", "decision"},
+	"publicationfollowupstore": {"service", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
+	"publicationrecoverystore": {"service", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
+	"publicationstore":         {"service", "slackui", "httpapi", "app", "publisher", "coop", "config"},
+	"schedule":                 {"service", "store", "httpapi", "app", "coop", "publisher", "slackui"},
+	"memory":                   {"service", "httpapi", "app", "coop", "publisher", "slackui"},
+	"channelsetup":             {"service", "store", "httpapi", "app", "coop", "publisher"},
+	"publisher":                {"service", "store", "slackui", "httpapi", "app"},
+	"localstate":               {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
+	"provider":                 {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "core"},
+	"recall":                   {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config"},
 }
 
 func repoRoot(t *testing.T) string {
@@ -514,11 +525,11 @@ func TestPackageLineBudget(t *testing.T) {
 // correct: fixed-width hex digests and identifiers whose alphabet is ASCII by
 // construction. Everything else must go through core.TruncateUTF8.
 var stringSliceAllowlist = map[string]bool{
-	"internal/publisher/github.go":             true, // slug is ASCII by regex construction
-	"internal/service/publication_followup.go": true, // 7-char hex SHA prefix
-	"internal/slackui/message.go":              true, // hex digest + ShortID over an ASCII id
-	"internal/core/text.go":                    true, // the safe truncation helper itself
-	"internal/coop/client.go":                  true, // prompt elision walks rune boundaries itself
+	"internal/publisher/github.go":           true, // slug is ASCII by regex construction
+	"internal/publicationcontext/context.go": true, // ASCII SHA prefixes and reference-token byte boundaries
+	"internal/slackui/message.go":            true, // hex digest + ShortID over an ASCII id
+	"internal/core/text.go":                  true, // the safe truncation helper itself
+	"internal/coop/client.go":                true, // prompt elision walks rune boundaries itself
 }
 
 // Slicing a string on a byte boundary splits multi-byte runes, which reaches

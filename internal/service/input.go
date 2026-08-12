@@ -1335,6 +1335,11 @@ func (s *Service) explainAutomaticCapacity(
 }
 
 func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident core.Incident) error {
+	if _, terminal, err := s.terminalPublicationFollowup(ctx, incident.ID); err != nil {
+		return err
+	} else if terminal {
+		return s.refuseTerminalPullRequestControl(ctx, input, incident, false)
+	}
 	if incident.CoopSessionID == "" {
 		return s.refuseControl(ctx, input, incident,
 			"*Fix review is not available yet.* Responder is still preparing the isolated "+
@@ -1385,6 +1390,13 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 	if err := taskpr.ValidateReview(rawReview, target, targeted); err != nil {
 		s.clearNativeStatus(ctx, incident)
 		return err
+	}
+	if _, terminal, err := s.terminalPublicationFollowup(ctx, incident.ID); err != nil {
+		s.clearNativeStatus(ctx, incident)
+		return err
+	} else if terminal {
+		s.clearNativeStatus(ctx, incident)
+		return s.refuseTerminalPullRequestControl(ctx, input, incident, true)
 	}
 	review := publicationreview.NormalizeReview(rawReview)
 	err = s.updateEngineeringTaskCard(

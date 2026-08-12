@@ -1531,6 +1531,10 @@ type PublicationFollowup struct {
 	UpdatedAt    time.Time
 }
 
+func (p PublicationFollowup) Terminal() bool {
+	return p.PRState == "merged" || p.PRState == "closed"
+}
+
 type PublicationContext struct {
 	IncidentID    string `json:"incident_id"`
 	RepositoryKey string `json:"repository_key"`

@@ -11,7 +11,6 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
 )
 
 // trimError bounds an error for storage beside the followup row.
@@ -23,7 +22,7 @@ func trimError(err error) string {
 }
 
 func (f *Follower) Process(ctx context.Context) error {
-	followup, publication, err := f.store.NextPublicationFollowup(ctx, f.now().UTC())
+	followup, publication, err := f.followups.Next(ctx, f.now().UTC())
 	if err != nil {
 		return err
 	}
@@ -35,16 +34,16 @@ func (f *Follower) Check(
 	input core.SlackInput,
 	incident core.Incident,
 ) error {
-	publication, err := f.store.GetPublication(ctx, incident.ID)
+	publication, err := f.publications.Get(ctx, incident.ID)
 	if err != nil {
 		return err
 	}
-	followup, err := f.store.GetPublicationFollowup(ctx, incident.ID)
-	if errors.Is(err, store.ErrNotFound) {
-		if err := f.store.EnsurePublicationFollowup(ctx, incident.ID, f.now().UTC()); err != nil {
+	followup, err := f.followups.Get(ctx, incident.ID)
+	if errors.Is(err, core.ErrNotFound) {
+		if err := f.followups.Ensure(ctx, incident.ID, f.now().UTC()); err != nil {
 			return err
 		}
-		followup, err = f.store.GetPublicationFollowup(ctx, incident.ID)
+		followup, err = f.followups.Get(ctx, incident.ID)
 	}
 	if err != nil {
 		return err
@@ -59,20 +58,22 @@ func (f *Follower) refresh(
 	input core.SlackInput,
 	manual bool,
 ) error {
-	if !publication.Published() {
+	if !publication.Published() && publication.State != core.PublicationStale {
 		return nil
 	}
+	old := followup
 	if f.status == nil || !f.status.Enabled() {
 		return f.deferFollowup(
-			ctx, followup, errors.New("GitHub publication status is unavailable"),
+			ctx, old, errors.New("GitHub publication status is unavailable"),
 		)
 	}
 	status, err := f.status.PublicationStatus(ctx, publication)
 	if err != nil {
-		return f.deferFollowup(ctx, followup, err)
+		return f.deferFollowup(ctx, old, err)
 	}
-	if status.HeadSHA != "" && status.HeadSHA != publication.RemoteSHA {
-		_, err := f.store.MarkPublicationStale(
+	terminal := status.PRState == "merged" || status.PRState == "closed"
+	if !terminal && publication.Published() && status.HeadSHA != "" && status.HeadSHA != publication.RemoteSHA {
+		_, err := f.publications.MarkStale(
 			ctx,
 			publication.IncidentID,
 			"The draft PR head changed after Responder's last verified publication. "+
@@ -80,18 +81,19 @@ func (f *Follower) refresh(
 		)
 		return err
 	}
-	latest, err := f.store.GetPublication(ctx, publication.IncidentID)
+	latest, err := f.publications.Get(ctx, publication.IncidentID)
 	if err != nil {
 		return err
 	}
-	if !latest.Published() || latest.RemoteSHA != publication.RemoteSHA {
+	if latest.PRNumber != publication.PRNumber || latest.PRURL != publication.PRURL ||
+		latest.RemoteSHA != publication.RemoteSHA ||
+		(!terminal && !latest.Published() && latest.State != core.PublicationStale) {
 		return nil
 	}
-	incident, err := f.store.GetIncident(ctx, publication.IncidentID)
+	incident, err := f.incidents.GetIncident(ctx, publication.IncidentID)
 	if err != nil {
 		return err
 	}
-	old := followup
 	followup.PRState = core.FirstNonempty(status.PRState, "unknown")
 	followup.ChecksState = core.FirstNonempty(status.ChecksState, "unknown")
 	followup.MergeSHA = status.MergeSHA
@@ -115,6 +117,7 @@ func (f *Follower) refresh(
 	}
 	if kind != "" {
 		eventKey := LifecycleKey(publication.IncidentID, kind, state, status.HeadSHA, status.MergeSHA)
+		followup.LastEventKey = eventKey
 		deliveryID := "out_publication_followup_" + eventKey
 		if manual {
 			deliveryID = "out_publication_followup_manual_" + input.ID
@@ -128,32 +131,37 @@ func (f *Follower) refresh(
 		); err != nil {
 			return err
 		}
-		_, _ = f.store.RecordPublicationLifecycleEvent(ctx, core.PublicationLifecycleEvent{
+		event := core.PublicationLifecycleEvent{
 			ID: eventKey, IncidentID: incident.ID, Kind: kind, State: state,
 			Summary: summary, SourceChannelID: input.ChannelID,
 			SourceMessageTS: input.MessageTS,
-		})
+		}
+		if _, err := f.followups.SaveTransition(ctx, old, followup, &event); err != nil {
+			return err
+		}
 		f.reporter.RecordTimeline(ctx, core.TimelineEvent{
 			ID: "tl_" + eventKey, IncidentID: incident.ID,
 			ChannelID: incident.ChannelID, Kind: "publication." + kind,
 			ActorID: "github", Title: summary, Detail: publication.PRURL,
 		})
-		followup.LastEventKey = eventKey
+		return nil
 	}
-	return f.store.SavePublicationFollowup(ctx, followup)
+	_, err = f.followups.SaveTransition(ctx, old, followup, nil)
+	return err
 }
 
 func (f *Follower) deferFollowup(
 	ctx context.Context,
-	followup core.PublicationFollowup,
+	expected core.PublicationFollowup,
 	err error,
 ) error {
+	followup := expected
 	followup.FailureCount++
 	followup.LastError = trimError(err)
 	followup.NextCheckAt = f.now().UTC().Add(
 		publicationFollowupBackoff(followup.FailureCount),
 	)
-	if saveErr := f.store.SavePublicationFollowup(ctx, followup); saveErr != nil {
+	if _, saveErr := f.followups.SaveTransition(ctx, expected, followup, nil); saveErr != nil {
 		return saveErr
 	}
 	return err
@@ -167,9 +175,12 @@ func publicationTransition(
 	manual bool,
 	correlationWindow time.Duration,
 ) (string, string, string) {
-	if !publication.Published() ||
+	terminal := current.PRState == "merged" || current.PRState == "closed"
+	if (!publication.Published() && !(publication.State == core.PublicationStale && terminal)) ||
 		(status.HeadSHA != "" && status.HeadSHA != publication.RemoteSHA) {
-		return "", "", ""
+		if !terminal {
+			return "", "", ""
+		}
 	}
 	switch {
 	case current.PRState == "merged" && old.PRState != "merged":

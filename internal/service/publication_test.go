@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/publicationcontext"
 	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
 	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -152,32 +153,62 @@ func TestPublicationReviewIgnoresOnlyPreExistingPolicyFindings(t *testing.T) {
 
 func TestPublicationReferenceMatchingIsExact(t *testing.T) {
 	context := core.PublicationContext{
+		IncidentID: "incident-493", Repository: "org/repo",
 		PRNumber: 493, PRURL: "https://github.com/org/repo/pull/493",
 		HeadBranch: "responder/reduce-redis", HeadSHA: "0123456789abcdef",
 		MergeSHA: "abcdef0123456789",
 	}
-	if !publicationReferenceMatches(
-		"Deployed commit abcdef0 to production", "abcdef0", context,
+	if !publicationcontext.ReferenceMatches(
+		"Deployed commit abcdef0 to production", "abcdef0", context, []core.PublicationContext{context},
 	) {
 		t.Fatal("exact merge SHA prefix was not accepted")
 	}
-	if publicationReferenceMatches(
-		"A deploy happened in org/repo", "org/repo", context,
+	if publicationcontext.ReferenceMatches(
+		"A deploy happened in org/repo", "org/repo", context, []core.PublicationContext{context},
 	) {
 		t.Fatal("repository-only correlation was accepted")
 	}
-	if publicationReferenceMatches(
-		"Deployed a different commit", "0123456", context,
+	if publicationcontext.ReferenceMatches(
+		"Deployed a different commit", "0123456", context, []core.PublicationContext{context},
 	) {
 		t.Fatal("reference absent from the source message was accepted")
 	}
-	if !publicationContextAppearsInText(
-		"Terraform applied main at abcdef0123456789", context,
+	if !publicationcontext.AppearsInAny(
+		"Terraform applied main at abcdef0123456789", []core.PublicationContext{context},
 	) {
 		t.Fatal("exact merge SHA did not activate delivery correlation")
 	}
-	if publicationContextAppearsInText("Terraform applied org/repo", context) {
+	if publicationcontext.AppearsInAny("Terraform applied org/repo", []core.PublicationContext{context}) {
 		t.Fatal("repository-only text activated delivery correlation")
+	}
+	ambiguous := context
+	ambiguous.IncidentID = "incident-other"
+	ambiguous.Repository = "other/repo"
+	ambiguous.PRURL = "https://github.com/other/repo/pull/493"
+	ambiguous.HeadSHA = "fedcba9876543210"
+	ambiguous.MergeSHA = "76543210fedcba98"
+	items := []core.PublicationContext{context, ambiguous}
+	if publicationcontext.ReferenceMatches("PR #493 succeeded", "#493", context, items) ||
+		publicationcontext.AppearsInAny("PR #493 succeeded", items) {
+		t.Fatal("ambiguous bare PR number activated delivery correlation")
+	}
+	if !publicationcontext.ReferenceMatches("org/repo PR #493 succeeded", "#493", context, items) {
+		t.Fatal("repository-qualified PR number was rejected")
+	}
+	prefix := context
+	prefix.IncidentID = "incident-49"
+	prefix.PRNumber = 49
+	prefix.PRURL = "https://github.com/org/repo/pull/49"
+	if publicationcontext.AppearsInAny(
+		"https://github.com/org/repo/pull/493 was merged", []core.PublicationContext{prefix},
+	) {
+		t.Fatal("PR URL prefix collision activated the wrong publication")
+	}
+	prefix.Repository = "org/rep"
+	if publicationcontext.ReferenceMatches(
+		"org/repo PR #49 passed", "#49", prefix, []core.PublicationContext{prefix},
+	) {
+		t.Fatal("repository prefix collision authenticated a bare PR number")
 	}
 }
 
@@ -505,7 +536,7 @@ func TestPublicationPersistsRemoteReceiptAfterWorkerCancellation(t *testing.T) {
 		record.PRNumber != 91 {
 		t.Fatalf("publication after cancellation = %+v, %v", record, err)
 	}
-	followup, followedPublication, err := st.NextPublicationFollowup(
+	followup, followedPublication, err := st.PublicationFollowups.Next(
 		context.Background(), time.Now().UTC().Add(24*time.Hour),
 	)
 	if err != nil || followup.IncidentID != task.ID ||
@@ -556,6 +587,240 @@ func TestDraftPRRetryRefusalDoesNotLeaveProgressStuck(t *testing.T) {
 	if err != nil || publication.State != "failed" ||
 		!strings.Contains(publication.LastError, "agent is still changing") {
 		t.Fatalf("refused retry publication = %+v, %v", publication, err)
+	}
+}
+
+func TestDraftPRReviewTreatsMatchingTreesAsNoNewChange(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.GitHubRepository = "owner/repo"
+	repository.GitHubBaseBranch = "main"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-no-new-tree", "Publish task", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.620", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.621"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "session-no-new-tree", "fork", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient := &publicationCoop{
+		fakeCoop: newFakeCoop(),
+		changes: coop.Changes{
+			Unstaged: []coop.Change{{Path: "service.go", Status: "modified"}},
+		},
+		review: coop.Review{
+			SessionID: task.CoopSessionID, SessionRevision: 1,
+			ParentHead: "parent", ParentTree: "same-tree", CandidateTree: "same-tree",
+			Rebase: "clean", Gate: "passed", Publishable: false,
+			NotPublishableReasons: []string{"patch_artifact_unavailable"},
+		},
+	}
+	publisherClient := &recordingPublisher{}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.SetPublisher(publisherClient)
+	err = svc.publishDraftPR(ctx, core.SlackInput{
+		ID: "publish-no-new-tree", Kind: controlPlaneInput,
+		ChannelID: task.ChannelID, UserID: cfg.Slack.Operators[0],
+		ActionID: slackui.ActionPublishPR, ActionValue: task.ID,
+	}, task)
+	if err == nil || !strings.Contains(err.Error(), "nothing new to publish") {
+		t.Fatalf("matching-tree publication = %v", err)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || stored.FailureCode != core.PublicationFailureNoChanges ||
+		!strings.Contains(stored.LastError, "matches the pull request baseline") {
+		t.Fatalf("matching-tree publication state = %+v, %v", stored, err)
+	}
+	if coopClient.reviewCalls != 1 || publisherClient.publishCalls != 0 {
+		t.Fatalf("matching-tree calls = review %d publish %d", coopClient.reviewCalls, publisherClient.publishCalls)
+	}
+}
+
+func TestDraftPRMergeDuringReviewStopsBeforePublisher(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.GitHubRepository = "owner/repo"
+	repository.GitHubBaseBranch = "main"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-merge-review-race", "Update published PR", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.640", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.641"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "session-merge-race", "fork", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication := core.Publication{
+		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
+		HeadBranch: "responder/task", ParentHead: "old-parent", CandidateTree: "old-tree",
+		CommitSHA: "old-commit", RemoteSHA: "old-remote", PRNumber: 529,
+		PRURL: "https://github.com/owner/repo/pull/529",
+		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PublicationFollowups.Ensure(ctx, task.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	reviewStarted := make(chan struct{}, 1)
+	releaseReview := make(chan struct{})
+	coopClient := &publicationCoop{
+		fakeCoop: newFakeCoop(),
+		changes:  coop.Changes{Unstaged: []coop.Change{{Path: "tls.tf", Status: "modified"}}},
+		review: coop.Review{
+			SessionID: task.CoopSessionID, SessionRevision: 1,
+			ParentHead: "new-parent", ParentTree: "parent-tree", CandidateTree: "new-tree",
+			Rebase: "clean", Gate: "passed", Patch: []byte("+change\n"), Publishable: true,
+		},
+		reviewStarted: reviewStarted, releaseReview: releaseReview,
+	}
+	publisherClient := &recordingPublisher{}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.SetPublisher(publisherClient)
+	result := make(chan error, 1)
+	go func() {
+		result <- svc.publishDraftPR(ctx, core.SlackInput{
+			ID: "publish-merge-race", Kind: controlPlaneInput,
+			ChannelID: task.ChannelID, UserID: cfg.Slack.Operators[0],
+			ActionID: slackui.ActionPublishPR, ActionValue: task.ID,
+		}, task)
+	}()
+	select {
+	case <-reviewStarted:
+	case <-time.After(time.Second):
+		t.Fatal("publication did not reach blocked review")
+	}
+	followup, err := st.PublicationFollowups.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	followup.PRState = "merged"
+	followup.ChecksState = "passing"
+	followup.MergeSHA = "merge-sha"
+	followup.MergedAt = time.Now().UTC()
+	followup.NextCheckAt = time.Now().UTC().Add(24 * time.Hour)
+	if err := st.PublicationFollowups.Save(ctx, followup); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseReview)
+	err = <-result
+	if err == nil || !strings.Contains(err.Error(), "already merged") {
+		t.Fatalf("merge-during-review result = %v", err)
+	}
+	if !strings.Contains(err.Error(), "readiness review completed") ||
+		strings.Contains(err.Error(), "did not run a readiness review") {
+		t.Fatalf("merge-during-review explanation = %v", err)
+	}
+	if publisherClient.publishCalls != 0 {
+		t.Fatalf("merge-during-review publisher calls = %d", publisherClient.publishCalls)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || !stored.Published() || stored.ParentHead != publication.ParentHead ||
+		stored.CandidateTree != publication.CandidateTree || stored.LastError != "" {
+		t.Fatalf("restored merged receipt = %+v, %v", stored, err)
+	}
+}
+
+func TestTerminalObservationAfterBeginPublishingPreservesPriorReceipt(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-publishing-merge-race", "Update PR", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.650", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := core.Publication{
+		IncidentID: task.ID, AttemptInputID: "publish-race", Repository: "owner/repo",
+		BaseBranch: "main", HeadBranch: "responder/task", ParentHead: "old-parent",
+		CandidateTree: "old-tree", CommitSHA: "old-commit", RemoteSHA: "old-remote",
+		PRNumber: 529, PRURL: "https://github.com/owner/repo/pull/529",
+		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
+	}
+	if err := st.SavePublication(ctx, prior); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PublicationFollowups.Ensure(ctx, task.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := st.Publications.BeginReview(
+		ctx, "publish-race", "", task.ID, "owner/repo", "main", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := claimed
+	pending.State = core.PublicationPublishing
+	pending.ParentHead = "new-parent"
+	pending.CandidateTree = "new-tree"
+	if err := st.Publications.BeginPublishing(ctx, pending); err != nil {
+		t.Fatal(err)
+	}
+	during, err := st.GetPublication(ctx, task.ID)
+	if err != nil || during.State != core.PublicationPublishing ||
+		during.ParentHead != prior.ParentHead || during.CandidateTree != prior.CandidateTree {
+		t.Fatalf("publishing overwrote prior receipt = %+v, %v", during, err)
+	}
+	followup, err := st.PublicationFollowups.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	followup.PRState = "merged"
+	followup.ChecksState = "passing"
+	followup.MergeSHA = "merge-sha"
+	followup.MergedAt = time.Now().UTC()
+	followup.NextCheckAt = time.Now().UTC().Add(24 * time.Hour)
+	if err := st.PublicationFollowups.Save(ctx, followup); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || !restored.Published() || restored.ParentHead != prior.ParentHead ||
+		restored.CandidateTree != prior.CandidateTree || restored.RemoteSHA != prior.RemoteSHA {
+		t.Fatalf("terminal observation corrupted prior receipt = %+v, %v", restored, err)
 	}
 }
 
@@ -885,7 +1150,7 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	if err := st.SavePublication(ctx, publication); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.EnsurePublicationFollowup(ctx, incident.ID, time.Now().UTC()); err != nil {
+	if err := st.PublicationFollowups.Ensure(ctx, incident.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	slackClient := &fakeSlack{}

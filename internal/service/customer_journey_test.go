@@ -1097,6 +1097,162 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 	}
 }
 
+func TestCustomerJourneyMergedFollowupOwnsDurableCardAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-merged-journey", "Merged delivery", "publish this change",
+		cfg.Slack.Operators[0], "COPS", "1700.700", cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.701"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_merged_journey", "merged-journey", 1); err != nil {
+		t.Fatal(err)
+	}
+	publication := core.Publication{
+		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
+		HeadBranch: "responder/task", ParentHead: "parent", CandidateTree: "tree",
+		CommitSHA: "commit", RemoteSHA: "remote-head", PRNumber: 529,
+		PRURL: "https://github.com/owner/repo/pull/529",
+		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PublicationFollowups.Ensure(ctx, task.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	publisherClient := &recordingPublisher{status: core.PublicationLifecycleStatus{
+		PRState: "merged", HeadSHA: "remote-head", MergeSHA: "merge-sha",
+		ChecksState: "passing", MergedAt: time.Now().UTC(),
+	}}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.SetPublisher(publisherClient)
+	if err := svc.processPublicationFollowup(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processCard(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 0 || len(slackClient.updates) != 1 {
+		t.Fatalf("merged follow-up delivery = posts %d updates %d", len(slackClient.posts), len(slackClient.updates))
+	}
+	assertMergedCard := func(message slackui.Message) {
+		t.Helper()
+		rendered := message.Text + "\n" + strings.Join(message.Sections, "\n")
+		if !strings.Contains(rendered, "PR merged") || !strings.Contains(rendered, "merge-sha") {
+			t.Fatalf("merged journey card = %+v", message)
+		}
+		if slices.ContainsFunc(message.Actions, func(action slackui.Action) bool {
+			return action.ID == slackui.ActionReview || action.ID == slackui.ActionPublishPR
+		}) {
+			t.Fatalf("merged journey controls = %+v", message.Actions)
+		}
+	}
+	assertMergedCard(slackClient.updates[0].message)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc = New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.SetPublisher(publisherClient)
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, err := svc.incidentCard(ctx, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMergedCard(card)
+}
+
+func TestCustomerJourneyStalePublicationStillLearnsRemoteMerge(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-stale-merged-journey", "Stale then merged", "publish",
+		cfg.Slack.Operators[0], "COPS", "1700.720", cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.721"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_stale_merged", "stale-merged", 1); err != nil {
+		t.Fatal(err)
+	}
+	publication := core.Publication{
+		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
+		HeadBranch: "responder/task", ParentHead: "parent", CandidateTree: "tree",
+		CommitSHA: "commit", RemoteSHA: "published-head", PRNumber: 530,
+		PRURL: "https://github.com/owner/repo/pull/530",
+		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PublicationFollowups.Ensure(ctx, task.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := st.MarkPublicationStale(ctx, task.ID, "task changed"); err != nil || !changed {
+		t.Fatalf("mark publication stale = %t, %v", changed, err)
+	}
+	publisherClient := &recordingPublisher{status: core.PublicationLifecycleStatus{
+		PRState: "merged", HeadSHA: "human-merge-head", MergeSHA: "merge-after-stale",
+		ChecksState: "passing", MergedAt: time.Now().UTC(),
+	}}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.SetPublisher(publisherClient)
+	if err := svc.processPublicationFollowup(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || !stored.Published() || stored.LastError != "" {
+		t.Fatalf("stale merged receipt = %+v, %v", stored, err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, err := svc.incidentCard(ctx, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(card.Sections, "\n"), "PR merged") ||
+		slices.ContainsFunc(card.Actions, func(action slackui.Action) bool {
+			return action.ID == slackui.ActionPublishPR || action.ID == slackui.ActionReview
+		}) {
+		t.Fatalf("stale then merged card = %+v", card)
+	}
+}
+
 type publicationCoop struct {
 	*fakeCoop
 	changes        coop.Changes
@@ -1195,6 +1351,8 @@ type recordingPublisher struct {
 	publishStarted chan<- struct{}
 	releasePublish <-chan struct{}
 	afterPublish   func()
+	status         core.PublicationLifecycleStatus
+	statusErr      error
 }
 
 func (f *recordingPublisher) Enabled() bool {
@@ -1238,4 +1396,11 @@ func (f *recordingPublisher) Publish(
 
 func (f *recordingPublisher) VerifyPublication(context.Context, core.Publication) error {
 	return nil
+}
+
+func (f *recordingPublisher) PublicationStatus(
+	context.Context,
+	core.Publication,
+) (core.PublicationLifecycleStatus, error) {
+	return f.status, f.statusErr
 }

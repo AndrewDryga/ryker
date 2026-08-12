@@ -51,10 +51,6 @@ type PublicationAPI interface {
 	VerifyPublication(context.Context, core.Publication) error
 }
 
-type publicationStatusAPI interface {
-	PublicationStatus(context.Context, core.Publication) (core.PublicationLifecycleStatus, error)
-}
-
 func (s *Service) taskPullRequestResolver(inspector taskpr.Inspector) taskpr.IncidentResolver {
 	return taskpr.IncidentResolver{
 		Repositories: s.cfg.Repositories, Inspector: inspector,

@@ -18,6 +18,7 @@ import (
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/mentioncontext"
 	"github.com/AndrewDryga/responder/internal/provider"
+	"github.com/AndrewDryga/responder/internal/publicationcontext"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/resultwire"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
@@ -301,7 +302,7 @@ func (s *Service) captureWatchTurnState(
 	}
 	if !state.PublicationsCaptured {
 		if input.Kind == "bot_message" {
-			publications, err := s.store.ListActivePublicationContexts(
+			publications, err := s.store.PublicationFollowups.ListActiveContexts(
 				ctx,
 				s.now().UTC().Add(-s.cfg.GitHub.DeliveryCorrelationWindow.Duration),
 				20,
@@ -1071,7 +1072,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			"request because: " + boundedOperatorText(state.EscalationReason) +
 			". Perform the full evidence-backed work now.\n</host-escalation>")
 	}
-	late.WriteString(activePublicationPrompt(state.ActivePublications))
+	late.WriteString(publicationcontext.ActivePrompt(state.ActivePublications))
 	late.WriteString(watchDecisionCorrectionPrompt(state.FailureDetail))
 	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 	if episodeErr != nil {
@@ -3030,7 +3031,17 @@ func (s *Service) withEngineeringTaskChanges(
 	if state != "completed" {
 		return message
 	}
-	return slackui.WithEngineeringTaskDelivery(message, incident, true, publication)
+	var followup core.PublicationFollowup
+	followup, followupErr := s.store.PublicationFollowups.Get(ctx, incident.ID)
+	if followupErr != nil && !errors.Is(followupErr, core.ErrNotFound) {
+		s.log.Warn(
+			"load publication follow-up for engineering delivery",
+			"incident", incident.ID, "error", followupErr,
+		)
+	}
+	return slackui.WithEngineeringTaskDelivery(
+		message, incident, true, publication, followup,
+	)
 }
 
 func (s *Service) finalizeIncidentAgentRun(

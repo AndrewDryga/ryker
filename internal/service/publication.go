@@ -28,6 +28,11 @@ func (s *Service) publishDraftPR(
 				"Incident investigations remain read-only unless an operator starts an "+
 				"explicit writable task.")
 	}
+	if _, terminal, err := s.terminalPublicationFollowup(ctx, incident.ID); err != nil {
+		return err
+	} else if terminal {
+		return s.refuseTerminalPullRequestControl(ctx, input, incident, false)
+	}
 	if s.publisher == nil || !s.publisher.Enabled() {
 		return s.refusePublicationControl(ctx, input, incident,
 			"*Draft PR publication is not configured.* Enable the `github` publisher and "+
@@ -102,6 +107,9 @@ func (s *Service) publishDraftPR(
 			"*Draft PR publication did not start because this task is closing or closed.* "+
 				"No review, branch push, or pull-request update was started.")
 	}
+	if errors.Is(err, publicationstore.ErrPRTerminal) {
+		return s.refuseTerminalPullRequestControl(ctx, input, incident, false)
+	}
 	if err != nil {
 		return err
 	}
@@ -173,21 +181,32 @@ func (s *Service) publishDraftPR(
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	review := publicationreview.NormalizeReview(rawReview)
-	if !review.Publishable {
+	if rawReview.ParentTree != "" && rawReview.CandidateTree == rawReview.ParentTree {
 		progress.State = core.PublicationFailed
-		progress.LastError = "The readiness review found blockers. See Latest update for details."
+		progress.FailureCode = core.PublicationFailureNoChanges
+		progress.LastError = "The reviewed task tree already matches the pull request baseline."
 		if err := s.store.SavePublication(ctx, progress); err != nil {
 			s.clearNativeStatus(ctx, incident)
 			return err
 		}
 		s.clearNativeStatus(ctx, incident)
-		return s.updateEngineeringTaskCard(
-			ctx,
-			incident,
-			slackui.ReviewMessage(incident, publicationreview.ReviewSummary(rawReview), false),
-			nil,
+		return s.refuseControl(ctx, input, incident,
+			"*There is nothing new to publish.* The reviewed task tree already matches "+
+				"the pull request baseline. No branch was pushed and no pull request was updated.")
+	}
+	review := publicationreview.NormalizeReview(rawReview)
+	if !review.Publishable {
+		progress.State = core.PublicationFailed
+		progress.LastError = core.BoundedText(
+			s.sanitizeText(publicationreview.ReviewSummary(rawReview)), 1000,
 		)
+		if err := s.store.SavePublication(ctx, progress); err != nil {
+			s.clearNativeStatus(ctx, incident)
+			return err
+		}
+		s.clearNativeStatus(ctx, incident)
+		return s.refuseControl(ctx, input, incident,
+			"*The readiness review found blockers.*\n\n"+progress.LastError)
 	}
 	review, err = coop.CompleteReviewPatch(ctx, review, s.coop)
 	if err != nil {
@@ -216,7 +235,10 @@ func (s *Service) publishDraftPR(
 	pending.HeadBranch = headBranch
 	pending.State = core.PublicationPublishing
 	pending.LastError = ""
-	if err := s.store.SavePublication(ctx, pending); err != nil {
+	if err := s.store.Publications.BeginPublishing(ctx, pending); errors.Is(err, publicationstore.ErrPRTerminal) {
+		s.clearNativeStatus(ctx, incident)
+		return s.refuseTerminalPullRequestControl(ctx, input, incident, true)
+	} else if err != nil {
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
@@ -269,7 +291,7 @@ func (s *Service) publishDraftPR(
 		s.clearNativeStatus(ctx, incident)
 		return err
 	}
-	if err := s.store.ResetPublicationFollowup(
+	if err := s.store.PublicationFollowups.Reset(
 		receiptCtx, record.IncidentID,
 		s.now().UTC().Add(s.cfg.GitHub.FollowupInterval.Duration),
 	); err != nil {
@@ -302,6 +324,38 @@ func (s *Service) publishDraftPR(
 		)
 	}
 	return nil
+}
+
+func (s *Service) refuseTerminalPullRequestControl(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+	reviewed bool,
+) error {
+	followup, err := s.store.PublicationFollowups.Get(ctx, incident.ID)
+	if err != nil && !errors.Is(err, core.ErrNotFound) {
+		return err
+	}
+	state := core.FirstNonempty(followup.PRState, "finished")
+	detail := "Responder did not run a readiness review, push a branch, or change the pull request."
+	if reviewed {
+		detail = "The readiness review completed, but Responder stopped before any branch push or pull-request change."
+	}
+	return s.refuseControl(ctx, input, incident, fmt.Sprintf(
+		"*This pull request is already %s.* %s Start a new engineering task to "+
+			"review and publish another change.", state, detail,
+	))
+}
+
+func (s *Service) terminalPublicationFollowup(
+	ctx context.Context,
+	incidentID string,
+) (core.PublicationFollowup, bool, error) {
+	followup, err := s.store.PublicationFollowups.Get(ctx, incidentID)
+	if errors.Is(err, core.ErrNotFound) {
+		return core.PublicationFollowup{}, false, nil
+	}
+	return followup, followup.Terminal(), err
 }
 
 func (s *Service) recordPublicationAttemptFailure(

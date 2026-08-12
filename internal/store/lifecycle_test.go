@@ -550,7 +550,7 @@ func TestRecoverInterruptedPublicationProgressUpdatesTaskCards(t *testing.T) {
 	if err != nil || publishedInput.State != "done" {
 		t.Fatalf("published input was replayed = %+v, %v", publishedInput, err)
 	}
-	if _, err := st.GetPublicationFollowup(ctx, publishedBeforeFinish.task.ID); err != nil {
+	if _, err := st.PublicationFollowups.Get(ctx, publishedBeforeFinish.task.ID); err != nil {
 		t.Fatalf("published restart did not restore follow-up: %v", err)
 	}
 	dirty, err := st.ListDirtyCards(ctx, 10)
@@ -624,10 +624,10 @@ func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
 	if err := st.SavePublication(ctx, publication); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.EnsurePublicationFollowup(ctx, incident.ID, now); err != nil {
+	if err := st.PublicationFollowups.Ensure(ctx, incident.ID, now); err != nil {
 		t.Fatal(err)
 	}
-	followup, gotPublication, err := st.NextPublicationFollowup(ctx, now.Add(time.Second))
+	followup, gotPublication, err := st.PublicationFollowups.Next(ctx, now.Add(time.Second))
 	if err != nil || followup.IncidentID != incident.ID || gotPublication.PRNumber != 493 {
 		t.Fatalf("due follow-up = %+v, %+v, %v", followup, gotPublication, err)
 	}
@@ -636,33 +636,154 @@ func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
 	followup.MergeSHA = "abcdefabcdef"
 	followup.MergedAt = now
 	followup.NextCheckAt = now.Add(24 * time.Hour)
-	if err := st.SavePublicationFollowup(ctx, followup); err != nil {
+	if err := st.PublicationFollowups.Save(ctx, followup); err != nil {
 		t.Fatal(err)
 	}
-	contexts, err := st.ListActivePublicationContexts(ctx, now.Add(-time.Hour), 10)
+	mergedCard, err := st.GetIncident(ctx, incident.ID)
+	if err != nil || mergedCard.CardVersion <= incident.CardVersion {
+		t.Fatalf("merged follow-up card version = %d after %d, %v", mergedCard.CardVersion, incident.CardVersion, err)
+	}
+	contexts, err := st.PublicationFollowups.ListActiveContexts(ctx, now.Add(-time.Hour), 10)
 	if err != nil || len(contexts) != 1 || contexts[0].ThreadTS != "1700.100" ||
 		contexts[0].RepositoryKey != "tenant-infra" || contexts[0].MergeSHA == "" {
 		t.Fatalf("active publication contexts = %+v, %v", contexts, err)
 	}
-	if err := st.ResetPublicationFollowup(ctx, incident.ID, now.Add(time.Minute)); err != nil {
+	if err := st.PublicationFollowups.Reset(ctx, incident.ID, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	reset, err := st.GetPublicationFollowup(ctx, incident.ID)
-	if err != nil || reset.PRState != "open" || reset.ChecksState != "unknown" ||
-		reset.MergeSHA != "" || reset.LastEventKey != "" || reset.FailureCount != 0 {
-		t.Fatalf("reset publication follow-up = %+v, %v", reset, err)
+	reset, err := st.PublicationFollowups.Get(ctx, incident.ID)
+	if err != nil || reset.PRState != "merged" || reset.ChecksState != "passing" ||
+		reset.MergeSHA != "abcdefabcdef" {
+		t.Fatalf("terminal publication follow-up reopened by reset = %+v, %v", reset, err)
 	}
 	event := core.PublicationLifecycleEvent{
 		ID: "event-1", IncidentID: incident.ID, Kind: "deployment",
 		State: "succeeded", Summary: "Production rollout completed.",
 	}
-	inserted, err := st.RecordPublicationLifecycleEvent(ctx, event)
+	inserted, err := st.PublicationFollowups.RecordLifecycleEvent(ctx, event)
 	if err != nil || !inserted {
 		t.Fatalf("first lifecycle event = %v, %v", inserted, err)
 	}
-	inserted, err = st.RecordPublicationLifecycleEvent(ctx, event)
+	latest, err := st.PublicationFollowups.LatestLifecycleEvent(ctx, incident.ID)
+	if err != nil || latest.ID != event.ID || latest.Summary != event.Summary {
+		t.Fatalf("latest lifecycle event = %+v, %v", latest, err)
+	}
+	eventCard, err := st.GetIncident(ctx, incident.ID)
+	if err != nil || eventCard.CardVersion <= mergedCard.CardVersion {
+		t.Fatalf("event card version = %d after %d, %v", eventCard.CardVersion, mergedCard.CardVersion, err)
+	}
+	inserted, err = st.PublicationFollowups.RecordLifecycleEvent(ctx, event)
 	if err != nil || inserted {
 		t.Fatalf("duplicate lifecycle event = %v, %v", inserted, err)
+	}
+	duplicateCard, err := st.GetIncident(ctx, incident.ID)
+	if err != nil || duplicateCard.CardVersion != eventCard.CardVersion {
+		t.Fatalf("duplicate event card version = %d, want %d, %v", duplicateCard.CardVersion, eventCard.CardVersion, err)
+	}
+}
+
+func TestTerminalPublicationFollowupRejectsReviewAndStaleness(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	incident, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-terminal-pr", "Merged task", "summary", "UOP",
+		"COPS", "1700.500", 100,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	publication := core.Publication{
+		IncidentID: incident.ID, Repository: "owner/repo", BaseBranch: "main",
+		HeadBranch: "responder/task", ParentHead: "parent", CandidateTree: "tree",
+		CommitSHA: "commit", RemoteSHA: "remote", PRNumber: 529,
+		PRURL: "https://github.example/owner/repo/pull/529",
+		State: core.PublicationPublished, PublishedAt: now,
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PublicationFollowups.Ensure(ctx, incident.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	followup, err := st.PublicationFollowups.Get(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := followup
+	newer.ChecksState = "passing"
+	newer.FailureCount = 0
+	newer.LastError = ""
+	newer.NextCheckAt = now.Add(5 * time.Minute)
+	if _, err := st.PublicationFollowups.SaveTransition(ctx, followup, newer, nil); err != nil {
+		t.Fatal(err)
+	}
+	delayed := followup
+	delayed.FailureCount++
+	delayed.LastError = "delayed poll failed"
+	delayed.NextCheckAt = now.Add(time.Minute)
+	if _, err := st.PublicationFollowups.SaveTransition(ctx, followup, delayed, nil); !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("delayed follow-up write = %v, want conflict", err)
+	}
+	followup, err = st.PublicationFollowups.Get(ctx, incident.ID)
+	if err != nil || followup.ChecksState != "passing" || followup.FailureCount != 0 ||
+		followup.LastError != "" || !followup.NextCheckAt.Equal(newer.NextCheckAt) {
+		t.Fatalf("newer follow-up overwritten = %+v, %v", followup, err)
+	}
+	staleOpen := followup
+	followup.PRState = "merged"
+	followup.ChecksState = "passing"
+	followup.MergeSHA = "merge"
+	followup.MergedAt = now
+	followup.NextCheckAt = now.Add(24 * time.Hour)
+	if err := st.PublicationFollowups.Save(ctx, followup); err != nil {
+		t.Fatal(err)
+	}
+	staleOpen.ChecksState = "failing"
+	staleOpen.LastError = "delayed open poll"
+	if err := st.PublicationFollowups.Save(ctx, staleOpen); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PublicationFollowups.Reset(ctx, incident.ID, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	absorbing, err := st.PublicationFollowups.Get(ctx, incident.ID)
+	if err != nil || absorbing.PRState != "merged" || absorbing.MergeSHA != "merge" {
+		t.Fatalf("absorbing terminal follow-up = %+v, %v", absorbing, err)
+	}
+	if _, err := st.Publications.BeginReview(
+		ctx, "stale-control", "", incident.ID, "owner/repo", "main", nil,
+	); !errors.Is(err, publicationstore.ErrPRTerminal) {
+		t.Fatalf("terminal PR review = %v", err)
+	}
+	if changed, err := st.Publications.MarkStale(ctx, incident.ID, "new task changes"); err != nil || changed {
+		t.Fatalf("terminal PR stale = %t, %v", changed, err)
+	}
+	stored, err := st.GetPublication(ctx, incident.ID)
+	if err != nil || !stored.Published() || stored.PRNumber != 529 {
+		t.Fatalf("terminal publication receipt = %+v, %v", stored, err)
+	}
+	failed := stored
+	failed.State = core.PublicationFailed
+	failed.LastError = "review failed after merge"
+	if err := st.SavePublication(ctx, failed); !errors.Is(err, publicationstore.ErrAttemptLost) {
+		t.Fatalf("terminal publication failure overwrite = %v", err)
+	}
+	if _, err := st.db.ExecContext(ctx, `
+		UPDATE publications SET state = 'reviewing', last_error = 'interrupted'
+		WHERE incident_id = ?`, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := st.GetPublication(ctx, incident.ID)
+	if err != nil || !recovered.Published() || recovered.LastError != "" {
+		t.Fatalf("terminal publication recovery = %+v, %v", recovered, err)
 	}
 }
 

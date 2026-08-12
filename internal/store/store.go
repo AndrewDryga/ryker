@@ -18,6 +18,8 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/incidentstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
+	"github.com/AndrewDryga/responder/internal/store/publicationfollowupstore"
+	"github.com/AndrewDryga/responder/internal/store/publicationrecoverystore"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
@@ -72,6 +74,11 @@ type Store struct {
 	TaskCards *taskcardstore.Repository
 	// Publications owns atomic publication-attempt acquisition.
 	Publications *publicationstore.Repository
+	// PublicationFollowups owns post-publication status, delivery correlation,
+	// and the lifecycle events rendered on durable task cards.
+	PublicationFollowups *publicationfollowupstore.Repository
+	// PublicationRecovery restores interrupted attempts before input replay.
+	PublicationRecovery *publicationrecoverystore.Repository
 	// Incidents owns durable task-source bindings and shared incident decoding.
 	Incidents *incidentstore.Repository
 	// SlackInputs owns source-message provenance lookups used after admission.
@@ -617,7 +624,7 @@ func (s *Store) RecoverInterrupted(ctx context.Context) error {
 	`); err != nil {
 		return fmt.Errorf("recover interrupted work: %w", err)
 	}
-	if err := s.Publications.RecoverInterrupted(ctx); err != nil {
+	if err := s.PublicationRecovery.RecoverInterrupted(ctx); err != nil {
 		return fmt.Errorf("recover interrupted publication: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `
@@ -1077,6 +1084,8 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.Behavior = behaviorstore.New(db, clock)
 	s.TaskCards = taskcardstore.New(db, clock)
 	s.Publications = publicationstore.New(db, clock)
+	s.PublicationFollowups = publicationfollowupstore.New(db, clock)
+	s.PublicationRecovery = publicationrecoverystore.New(db, clock)
 	s.Incidents = incidentstore.New(db, clock)
 	s.SlackInputs = slackinputstore.New(db)
 }

@@ -376,6 +376,132 @@ func TestStoredPullRequestBindingRejectsRepositoryConfigurationDrift(t *testing.
 	}
 }
 
+func TestMergedPullRequestRemainsAuthoritativeAcrossFollowupAndStaleControls(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.GitHubRepository = "owner/repo"
+	repository.GitHubBaseBranch = "main"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	target := core.PullRequestTarget{
+		Repository: "owner/repo", Number: 529,
+		URL:        "https://github.com/owner/repo/pull/529",
+		BaseBranch: "main", HeadBranch: "feature",
+		HeadCommit: strings.Repeat("a", 40),
+	}
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "source-merged-pr", "Merged PR follow-up", "stage TLS",
+		cfg.Slack.Operators[0], "COPS", "1700.900", 100, target,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.901"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_merged", "merged-task", 1); err != nil {
+		t.Fatal(err)
+	}
+	publication := core.Publication{
+		IncidentID: task.ID, Repository: target.Repository, BaseBranch: target.BaseBranch,
+		HeadBranch: target.HeadBranch, ParentHead: "parent", CandidateTree: "tree",
+		CommitSHA: "commit", RemoteSHA: target.HeadCommit, PRNumber: target.Number,
+		PRURL: target.URL, State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PublicationFollowups.Ensure(ctx, task.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	followup, err := st.PublicationFollowups.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	followup.PRState = "merged"
+	followup.ChecksState = "passing"
+	followup.MergeSHA = "b3b6bb4e50119ba6"
+	followup.MergedAt = time.Now().UTC()
+	followup.NextCheckAt = time.Now().UTC().Add(24 * time.Hour)
+	if err := st.PublicationFollowups.Save(ctx, followup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PublicationFollowups.RecordLifecycleEvent(ctx, core.PublicationLifecycleEvent{
+		ID: "merged-event", IncidentID: task.ID, Kind: "merged", State: "succeeded",
+		Summary: "PR #529 was merged.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.TaskCards.SetUpdate(
+		ctx, task.ID, "The follow-up apply exposed one more hostname to stage.",
+	); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseCoop := newFakeCoop()
+	baseCoop.session.ID = "ses_merged"
+	coopClient := &publicationCoop{
+		fakeCoop: baseCoop,
+		changes:  coop.Changes{Unstaged: []coop.Change{{Path: "tls.tf", Status: "modified"}}},
+	}
+	publisherClient := &recordingPublisher{}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.SetPublisher(publisherClient)
+
+	card, err := svc.incidentCard(ctx, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := card.Text + "\n" + strings.Join(card.Sections, "\n")
+	if !strings.Contains(rendered, "PR merged") ||
+		!strings.Contains(rendered, task.LatestUpdate) ||
+		slices.ContainsFunc(card.Actions, func(action slackui.Action) bool {
+			return action.ID == slackui.ActionReview || action.ID == slackui.ActionPublishPR
+		}) {
+		t.Fatalf("merged follow-up card = %+v", card)
+	}
+	for _, control := range []struct {
+		name string
+		run  func() error
+	}{
+		{name: "publish", run: func() error {
+			return svc.publishDraftPR(ctx, core.SlackInput{
+				ID: "stale-publish", Kind: controlPlaneInput, ActionID: slackui.ActionPublishPR,
+				ActionValue: task.ID,
+			}, task)
+		}},
+		{name: "review", run: func() error {
+			return svc.reviewFix(ctx, core.SlackInput{
+				ID: "stale-review", Kind: controlPlaneInput, ActionID: slackui.ActionReview,
+				ActionValue: task.ID,
+			}, task)
+		}},
+	} {
+		err := control.run()
+		if err == nil || !strings.Contains(err.Error(), "already merged") {
+			t.Fatalf("stale %s control = %v", control.name, err)
+		}
+	}
+	if coopClient.reviewCalls != 0 || publisherClient.publishCalls != 0 {
+		t.Fatalf("terminal controls reached review=%d publish=%d", coopClient.reviewCalls, publisherClient.publishCalls)
+	}
+	stored, err := st.GetPublication(ctx, task.ID)
+	if err != nil || !stored.Published() || stored.PRNumber != 529 {
+		t.Fatalf("merged publication after stale controls = %+v, %v", stored, err)
+	}
+}
+
 func TestPublishedPullRequestReceiptSurvivesRepositoryConfigurationDrift(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -420,7 +546,7 @@ func TestPublishedPullRequestReceiptSurvivesRepositoryConfigurationDrift(t *test
 	if err := st.SavePublication(ctx, publication); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResetPublicationFollowup(ctx, task.ID, time.Now().UTC()); err != nil {
+	if err := st.PublicationFollowups.Reset(ctx, task.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	repository.GitHubBaseBranch = "release"
@@ -441,7 +567,7 @@ func TestPublishedPullRequestReceiptSurvivesRepositoryConfigurationDrift(t *test
 	if err != nil || !stored.Published() || stored.RemoteSHA != publication.RemoteSHA {
 		t.Fatalf("published receipt after config drift = %+v, %v", stored, err)
 	}
-	followup, followed, err := st.NextPublicationFollowup(
+	followup, followed, err := st.PublicationFollowups.Next(
 		ctx, time.Now().UTC().Add(time.Hour),
 	)
 	if err != nil || followup.IncidentID != task.ID || followed.IncidentID != task.ID {

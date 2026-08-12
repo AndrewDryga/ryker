@@ -26,6 +26,8 @@ func engineeringTaskCard(
 	hasCodeChanges bool,
 	codeChangesKnown bool,
 	publication core.Publication,
+	followup core.PublicationFollowup,
+	lifecycle core.PublicationLifecycleEvent,
 ) Message {
 	workflow := workflowStateLabel(task.Workflow)
 	if task.Workflow == core.WorkflowProvisioningChannel {
@@ -58,7 +60,7 @@ func engineeringTaskCard(
 	if task.LastError != "" {
 		fallback += " Action needed: " + truncateUTF8(escapeSlackText(task.LastError), 500)
 	}
-	if progress := publicationFallback(publication); progress != "" {
+	if progress := publicationFallback(publication, followup); progress != "" {
 		fallback += " " + progress
 	}
 	message := Message{
@@ -75,7 +77,9 @@ func engineeringTaskCard(
 			"Continue in this thread; replies here go to the same isolated task session.",
 			"Updated " + task.UpdatedAt.UTC().Format("2006-01-02 15:04 UTC"),
 		},
-		Actions: incidentActions(task, hasCodeChanges, codeChangesKnown, publication),
+		Actions: incidentActions(
+			task, hasCodeChanges, codeChangesKnown, publication, followup,
+		),
 	}
 	if !task.CreatedAt.IsZero() {
 		message.Fields = append(message.Fields, Field{
@@ -97,7 +101,25 @@ func engineeringTaskCard(
 			"*Latest update*\n"+truncateUTF8(task.LatestUpdate, 3000),
 		)
 	}
+	if lifecycle.ID != "" && lifecycle.Kind != "merged" && lifecycle.Kind != "closed" {
+		message.Sections = append(
+			message.Sections,
+			"*Delivery update*\n"+truncateUTF8(escapeSlackText(lifecycle.Summary), 1200),
+		)
+	}
 	switch {
+	case followup.PRState == "merged":
+		detail := fmt.Sprintf("*PR merged*\n<%s|PR #%d> was merged.", publication.PRURL, publication.PRNumber)
+		if followup.MergeSHA != "" {
+			detail += "\n\nMerge commit: `" + escapeSlackText(shortSHA(followup.MergeSHA)) + "`"
+		}
+		detail += "\n\nThis task can keep receiving follow-up discussion, but the merged PR is terminal. Start a new engineering task to publish another change."
+		message.Sections = append(message.Sections, detail)
+	case followup.PRState == "closed":
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"*PR closed*\n<%s|PR #%d> was closed without merging. This task can keep receiving follow-up discussion, but start a new engineering task to publish another change.",
+			publication.PRURL, publication.PRNumber,
+		))
 	case publication.State == core.PublicationReviewing:
 		label := "Draft PR"
 		if publication.HasPR() {
@@ -203,7 +225,16 @@ func engineeringTaskCard(
 	return message
 }
 
-func publicationFallback(publication core.Publication) string {
+func publicationFallback(
+	publication core.Publication,
+	followup core.PublicationFollowup,
+) string {
+	if followup.PRState == "merged" {
+		return fmt.Sprintf("PR #%d is merged.", publication.PRNumber)
+	}
+	if followup.PRState == "closed" {
+		return fmt.Sprintf("PR #%d is closed.", publication.PRNumber)
+	}
 	noun := "Draft PR publication"
 	if publication.HasPR() {
 		noun = "PR update"
@@ -533,6 +564,7 @@ func WithEngineeringTaskDelivery(
 	incident core.Incident,
 	hasCodeChanges bool,
 	publication core.Publication,
+	followup core.PublicationFollowup,
 ) Message {
 	if !incident.IsEngineeringTask() {
 		return message
@@ -542,6 +574,25 @@ func WithEngineeringTaskDelivery(
 			message.Context,
 			"No code changes were produced. There is no diff or draft PR to deliver.",
 		)
+		return message
+	}
+	if followup.Terminal() {
+		state := "closed"
+		if followup.PRState == "merged" {
+			state = "merged"
+		}
+		message.Context = append(message.Context, fmt.Sprintf(
+			"Changes are preserved in this task, but PR #%d is already %s. Start a new engineering task to review and publish another change.",
+			publication.PRNumber, state,
+		))
+		message.Actions = append(message.Actions,
+			Action{ID: ActionChanges, Label: "View diff", Value: incident.ID},
+		)
+		if publication.HasPR() {
+			message.Actions = append(message.Actions, Action{
+				ID: ActionViewPR, Label: "Open PR", Value: incident.ID, URL: publication.PRURL,
+			})
+		}
 		return message
 	}
 	context := "Changes are preserved in the isolated task fork. View the diff, then create a draft PR for external review."

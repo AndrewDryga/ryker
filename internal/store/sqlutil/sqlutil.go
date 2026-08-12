@@ -63,6 +63,15 @@ func ExpectOne(result sql.Result, err error, action string) error {
 	return nil
 }
 
+// Changed reports whether a successful statement touched any row.
+func Changed(result sql.Result, err error) (bool, error) {
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows > 0, err
+}
+
 // BoundedError caps a stored error message so one runaway string cannot
 // dominate a row.
 func BoundedError(value string) string {
