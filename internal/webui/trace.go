@@ -361,6 +361,13 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			// card at the same instant is plumbing.
 			continue
 		}
+		if event.Kind == "context_extended" && manifestEventCovered(event.Payload, manifests) {
+			// The kernel writes this receipt inside the transaction that
+			// creates a context manifest — the same fact the "Model briefed"
+			// card for that manifest already presents in full. The event
+			// renders only when its manifest is not on the page.
+			continue
+		}
 		includePayload := true
 		step := TraceStep{
 			ID: fmt.Sprintf("event-%d", index+1), Stage: eventStage(event.Kind), Actor: event.Actor, Icon: eventIcon(event.Kind),
@@ -987,6 +994,24 @@ func countList(parts []countPart) string {
 		kept = append(kept, fmt.Sprintf("%d %s", part.count, label))
 	}
 	return strings.Join(kept, " · ")
+}
+
+// manifestEventCovered reports whether a context_extended event's manifest is
+// already rendered as a "Model briefed" card, which presents the same fact
+// with its full contents.
+func manifestEventCovered(payload string, manifests []ManifestRow) bool {
+	var decoded struct {
+		ManifestID string `json:"manifest_id"`
+	}
+	if json.Unmarshal([]byte(payload), &decoded) != nil || decoded.ManifestID == "" {
+		return false
+	}
+	for _, manifest := range manifests {
+		if manifest.ID == decoded.ManifestID {
+			return true
+		}
+	}
+	return false
 }
 
 type phasePayload struct {
@@ -2825,7 +2850,7 @@ func eventTitle(kind string) string {
 		"standing_rule.acknowledged": "Standing rules",
 		"episode_created":            "Episode created",
 		"phase_changed":              "Phase changed",
-		"context_extended":           "More context added",
+		"context_extended":           "Context recorded",
 		"completed":                  "Episode completed",
 		"blocked":                    "Blocked",
 	}[kind]; ok {
@@ -2974,7 +2999,7 @@ func usageTraceStep(page episodePage) TraceStep {
 
 func eventWhy(kind string) string {
 	if kind == "context_extended" {
-		return "The added context was recorded so the result can be traced to the exact inputs it used."
+		return "The kernel's receipt for freezing a context manifest. It renders here because the manifest itself could not be loaded on this page."
 	}
 	return ""
 }

@@ -508,6 +508,34 @@ func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
 	}
 }
 
+// The kernel writes a context_extended receipt in the same transaction that
+// creates a manifest; when that manifest renders as a "Model briefed" card,
+// the receipt is the same fact twice and must not become its own step.
+func TestContextReceiptFoldsIntoItsBriefedCard(t *testing.T) {
+	at := time.Date(2026, 8, 12, 23, 53, 0, 0, time.UTC)
+	page := episodePage{
+		Manifests: []ManifestRow{{ID: "context_1", Version: 1, Created: at,
+			SubmittedPrompt: "SYSTEM: x"}},
+		Manifest: ManifestRow{ID: "context_1", Version: 1},
+		Events: []Event{
+			{Kind: "context_extended", At: at,
+				Payload: `{"manifest_id":"context_1","attempt_id":"attempt_1","reference_count":10,"version":1}`},
+			{Kind: "context_extended", At: at,
+				Payload: `{"manifest_id":"context_gone","version":2}`},
+		},
+	}
+	trace := buildEpisodeTrace(config.Pricing{}, page, nil)
+	events := []string{}
+	for _, step := range trace.Steps {
+		if strings.HasPrefix(step.ID, "event-") {
+			events = append(events, step.ID+":"+step.Title)
+		}
+	}
+	if len(events) != 1 || events[0] != "event-2:Context recorded" {
+		t.Fatalf("context receipts = %v, want only the manifest the page cannot show", events)
+	}
+}
+
 // A phase card explains what the stage is in plain words; the host's canned
 // checklist never prints as a "next" that contradicts the following card,
 // and the JSON payload renders only when it holds something the card does
