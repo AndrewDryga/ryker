@@ -60,17 +60,21 @@
 
 {{if or .Resolvable .Retryable}}
 <div class="episode-action-strip">
-  <p class="note">{{if .Resolvable}}Nothing more runs until this is unblocked.{{else}}This attempt failed.{{end}}</p>
+  {{/* No caption for a blocked episode: the panel above already says nothing
+       more runs until somebody unblocks it, and repeating it here left the
+       actions competing with a sentence the reader had just read. A failed
+       attempt has no such panel, so it keeps its line. */}}
+  {{if not .Resolvable}}<p class="note">This attempt failed.</p>{{end}}
   {{with .Source.SlackHref}}<a class="act-link" href="{{.}}" target="_blank" rel="noopener noreferrer">Answer in Slack →</a>{{end}}
   {{if .CanAct}}
   {{if .Resolvable}}
-  {{template "confirm" confirm "Run it again" "Queues the original request as fresh work, for when you have just cleared whatever stopped it. The earlier attempt stays on the record; this does not revive it, it starts another one." "Yes, run it again" "/actions/episodes/rerun" .ID}}
+  {{template "confirm" confirm "Run it again" "Starts a fresh attempt at the original request. The one below stays on the record." "Yes, run it again" "/actions/episodes/rerun" .ID}}
   {{end}}
   {{if .Retryable}}
-  {{template "confirm" confirm "Retry this run" "Puts the failed run back in the queue so the ordinary workers pick it up again, from the same saved context. Only the episode's latest attempt can be retried." "Yes, retry it" "/actions/failures/retry" .Turn.RunID}}
+  {{template "confirm" confirm "Retry this run" "Puts the failed run back in the queue, from the same saved context." "Yes, retry it" "/actions/failures/retry" .Turn.RunID}}
   {{end}}
   {{if .Resolvable}}
-  {{template "confirm" confirm "Close as no longer needed" "Marks this cancelled, so no further attempt runs and it stops counting as waiting on you. Nothing is deleted and nothing is posted to Slack — the trace below stays exactly as it is." "Yes, close it" "/actions/episodes/resolve" .ID}}
+  {{template "confirm" confirm "Close as no longer needed" "Stops this counting as waiting on you. Nothing is deleted and nothing reaches Slack." "Yes, close it" "/actions/episodes/resolve" .ID}}
   {{end}}
   {{end}}
 </div>

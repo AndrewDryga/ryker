@@ -541,20 +541,38 @@ button.go:hover { background: var(--accent); border-color: var(--accent); }
    destructive button fired on first click while looking guarded. Here the real
    submit button does not exist on the page until the operator opens the step. */
 details.confirm { display: inline-block; }
+/* One vocabulary for every way to act on a piece of work. They differ in what
+   they do, not in how loudly they say it: a 13px outlined link sat beside a
+   12px filled button beside an amber-outlined one, at three different
+   paddings, and read as three unrelated controls rather than one set of
+   choices about the same episode. */
+.act-link,
 details.confirm > summary {
   list-style: none;
   cursor: pointer;
   display: inline-block;
-  font: 500 12px/1.9 var(--sans);
-  padding: 1px 13px;
-  border-radius: 7px;
+  font: 500 12.5px/1.35 var(--sans);
+  padding: 6px 13px;
+  border-radius: 8px;
   border: 1px solid var(--line);
   background: var(--panel-2);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.act-link:hover,
+details.confirm > summary:hover {
   color: var(--ink);
+  border-color: var(--faint);
+  text-decoration: none;
 }
 details.confirm > summary::-webkit-details-marker { display: none; }
-details.confirm > summary:hover { border-color: var(--faint); }
-details.confirm[open] > summary { border-color: rgb(251 191 36 / .55); color: var(--warn); }
+/* Opened, the button is the label of the row below it rather than a second
+   alarm. Amber belongs to the one control that fires. */
+details.confirm[open] > summary {
+  border-color: var(--faint);
+  background: var(--panel);
+  color: var(--ink);
+}
 
 /* The armed step is a contained panel on its own row, in the amber of "about
    to happen" — not a bare accent-green sentence with the button drifting to
@@ -563,20 +581,29 @@ details.confirm[open] > summary { border-color: rgb(251 191 36 / .55); color: va
    sideways and the explanation read as a call-to-action. Opening moves the
    whole control below its row (order + basis), which is motion that means
    something: the button became a panel. */
-details.confirm[open] { order: 99; flex-basis: 100%; }
+/* Opening takes the whole row and puts the button beside what it is about, so
+   the armed step reads as one line — "this control, this consequence, this
+   confirmation" — instead of a button orphaned above a boxed paragraph. */
+details.confirm[open] {
+  order: 99;
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 details.confirm .arm {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 8px;
-  padding: 9px 12px;
-  border: 1px solid rgb(251 191 36 / .3);
+  gap: 14px;
+  flex: 1;
+  padding: 7px 13px;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgb(251 191 36 / .05);
+  background: var(--panel);
   font-size: 12.5px;
-  color: var(--ink-2);
+  line-height: 1.5;
+  color: var(--dim);
   text-align: left;
-  max-width: 640px;
 }
 details.confirm .arm form { margin: 0 0 0 auto; }
 details.confirm .arm button {
@@ -1293,14 +1320,10 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 }
 .stopped code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
 .episode-action-strip { flex-wrap: wrap; gap: 8px; align-items: center; }
-.episode-action-strip .note { margin: 0; margin-right: auto; }
+.episode-action-strip .note { margin: 0; margin-right: auto; max-width: 46ch; }
 /* Answering in Slack is a link, not a mutation, so it does not wear the
-   confirm disclosure the writes do. */
-.act-link {
-  padding: 7px 13px; border: 1px solid var(--line); border-radius: 8px;
-  font-size: 13px; color: var(--dim); white-space: nowrap;
-}
-.act-link:hover { color: var(--accent); border-color: var(--faint); text-decoration: none; }
+   confirm disclosure the writes do — but it is the same size and shape as
+   them, because it is one of the same set of choices. See .act-link above. */
 
 /* Two rows on the overview borrow the episode row's grid so the page reads as
    one list vocabulary rather than three. A question waiting on somebody adds
