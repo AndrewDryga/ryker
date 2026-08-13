@@ -302,18 +302,64 @@ never been in is not its business.</p>
 {{end}}
 
 {{define "failures"}}
-<p class="note">{{.Total}} failed work items, grouped by cause. Open a cause to reach the runs
-behind it and retry them.</p>
-{{if .Err}}<p class="unwired"><span class="tag">Could not load</span>{{.Err}}</p>{{else if .Groups}}
-<table>
-  <tr><th>Cause</th><th class="num">Count</th><th></th><th>Most recent</th></tr>
-  {{range .Groups}}
-  <tr><td><a href="/failures/{{.Key}}">{{truncate 110 .Cause}}</a></td><td class="mono num">{{.Count}}</td>
-      <td class="meter-cell">{{meter .Pct}}</td>
-      <td class="note">{{since .Latest}}</td></tr>
+{{if .Err}}<p class="unwired"><span class="tag">Could not load</span>{{.Err}}</p>{{end}}
+<section class="hero{{if .Live}} busy{{else}} calm{{end}}">
+  <div class="hero-status">
+    <div class="hero-line">
+      <span class="hero-beacon" aria-hidden="true"></span>
+      <h2 class="hero-word">{{if .Live}}{{len .Live}} cause{{if ne (len .Live) 1}}s{{end}} still failing{{else}}Nothing is failing now{{end}}</h2>
+    </div>
+    <div class="hero-stats">
+      <span{{if .Day}} class="warn"{{end}}><strong>{{.Day}}</strong>in the last day</span>
+      <span><strong>{{.Week}}</strong>this week</span>
+      <span><strong>{{.Unfinished}}</strong>episodes left failed</span>
+      <span><strong>{{.Total}}</strong>runs all time</span>
+    </div>
+  </div>
+</section>
+
+<h2>Still failing <span class="note">{{len .Live}}</span></h2>
+{{if .Live}}
+<p class="note">Seen in the last two days, most active first. Open one to reach the runs behind
+it and retry them.</p>
+<div class="rows">
+  {{range .Live}}
+  <a class="row episode-row" href="/failures/{{.Key}}" data-state="failed">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-title">{{.Cause}}</span>
+    <span class="episode-when">{{since .Latest}}</span>
+    <span class="episode-facts">
+      <span class="episode-state">{{.Tally}}</span>
+      {{with .Spread}}<span>{{.}}</span>{{end}}
+      {{if gt .Variants 1}}<span>{{.Variants}} wordings</span>{{end}}
+      <span>the runs behind it →</span>
+    </span>
+  </a>
   {{end}}
-</table>
-{{else}}<p class="empty">No failed work.</p>{{end}}
+</div>
+{{else}}<p class="empty">No cause has failed in the last two days. Anything below stopped on
+its own or was fixed.</p>{{end}}
+
+{{if .Stopped}}
+<h2>Stopped <span class="note">{{len .Stopped}}</span></h2>
+<p class="note">These have not happened for at least two days. They are kept because a cause
+that comes back is worth recognising, and because the runs behind them can still be retried —
+but nothing here is a queue.</p>
+<div class="rows">
+  {{range .Stopped}}
+  <a class="row episode-row" href="/failures/{{.Key}}" data-state="superseded">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-title">{{.Cause}}</span>
+    <span class="episode-when">last {{since .Latest}}</span>
+    <span class="episode-facts">
+      <span class="episode-state">{{.Tally}}</span>
+      {{with .Spread}}<span>{{.}}</span>{{end}}
+      {{if gt .Variants 1}}<span>{{.Variants}} wordings</span>{{end}}
+    </span>
+  </a>
+  {{end}}
+</div>
+{{end}}
 {{end}}
 
 {{define "decisions"}}
@@ -792,8 +838,29 @@ polling gap — the one span it can fix alone.</p>
 {{end}}
 
 {{define "failure"}}
+{{template "problems" .Errs}}
+{{if gt (len .Variants) 1}}
+<h2>How it was reported <span class="note">{{len .Variants}}</span></h2>
+<p class="note">One problem is recorded under several wordings, because the headline is the
+failure and the tail is one instance of it. They are grouped so the cause is countable, and
+listed here so nothing that was written down is out of reach.</p>
+<div class="rows">
+  {{range .Variants}}
+  <div class="row episode-row layer-row" data-state="failed">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-title">{{.Text}}</span>
+    <span class="episode-when">{{.Count}}</span>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
 <h2>Runs <span class="note">{{len .Runs}}</span></h2>
 {{if .Runs}}
+{{with .Shape}}<p class="shape">{{.}}</p>{{end}}
+<p class="note">Every failed run behind this cause. Retrying one puts it back in the queue and
+reopens its episode; a run that cannot be retried says why, because "no button" and "no reason"
+are different answers.</p>
 <table>
   <tr><th>Episode</th><th>Channel</th><th>Kind</th><th class="num">Attempts</th><th>When</th><th></th></tr>
   {{$act := .CanAct}}
@@ -804,7 +871,8 @@ polling gap — the one span it can fix alone.</p>
       <td>{{if $act}}{{if .Retryable}}{{template "confirm" confirm "Retry" "The run goes back in the queue and its episode reopens." "Yes, run it again" "/actions/failures/retry" .RunID}}{{else}}<span class="note">{{.Why}}</span>{{end}}{{end}}</td></tr>
   {{end}}
 </table>
-{{else}}<p class="empty">No runs behind this cause.</p>{{end}}
+{{else}}<p class="empty">No runs behind this cause. Runs are kept on the operational horizon,
+so a cause whose runs have aged out keeps its name and loses its evidence.</p>{{end}}
 {{end}}
 
 {{define "conversation"}}

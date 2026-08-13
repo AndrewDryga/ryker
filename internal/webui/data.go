@@ -2,7 +2,6 @@ package webui
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -470,6 +469,18 @@ const (
 	countNeedsDecision = `SELECT COUNT(*) FROM work_episodes
 	  WHERE lifecycle_state IN ('blocked','waiting_operator','waiting_approval')`
 	countFailedRuns = `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`
+	// countFailedEpisodes is the number that says how much work was actually
+	// lost. Runs are the attempts; an episode is the piece of work someone
+	// asked for, and several failed runs can belong to one of them.
+	countFailedEpisodes = `SELECT COUNT(*) FROM work_episodes WHERE lifecycle_state = 'failed'`
+	// countFailedWeek is what the sidebar badge counts.
+	//
+	// It counted every failure ever, which on a deployment two weeks old was a
+	// permanent 122 next to a page whose live causes numbered four. A badge is
+	// a call to action, and one that cannot go down is furniture.
+	countFailedWeek = `SELECT COUNT(*) FROM agent_runs
+	  WHERE terminal_state = 'failed'
+	    AND updated_at > strftime('%Y-%m-%dT%H:%M:%f', 'now', '-7 day')`
 	// countFailedToday is the overview's failure number, and it is deliberately
 	// not countFailedRuns.
 	//
@@ -731,51 +742,6 @@ func (r *Reader) Evidence(ctx context.Context, episodeID string) ([]EvidenceRow,
 			item.Observation = r.resolveChannels(ctx, item.Observation)
 			return item, err
 		}, episodeID, episodeID)
-}
-
-type FailureGroup struct {
-	Cause  string
-	Key    string
-	Count  int
-	Pct    int
-	Latest time.Time
-}
-
-// Failures are grouped because a hundred failures are rarely a hundred
-// problems, and a flat list of a hundred rows is not triage.
-func (r *Reader) Failures(ctx context.Context) ([]FailureGroup, error) {
-	if !r.live() {
-		return nil, nil
-	}
-	rows, err := r.db.QueryContext(ctx, `
-	  SELECT COALESCE(NULLIF(last_error,''),'(no error recorded)'), COUNT(*), MAX(updated_at)
-	  FROM agent_runs WHERE terminal_state = 'failed'
-	  GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 40`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	groups := []FailureGroup{}
-	for rows.Next() {
-		var group FailureGroup
-		var latest string
-		if err := rows.Scan(&group.Cause, &group.Count, &latest); err != nil {
-			return nil, err
-		}
-		group.Latest = parseStamp(latest)
-		// A hash, because the cause is free text containing slashes, quotes and
-		// newlines. The page looks the cause back up from it.
-		group.Key = fmt.Sprintf("%x", sha256.Sum256([]byte(group.Cause)))[:16]
-		groups = append(groups, group)
-	}
-	// Pct is each cause's weight against the biggest one, so the table can
-	// draw the comparison the eye would otherwise do over raw counts.
-	if len(groups) > 0 && groups[0].Count > 0 {
-		for index := range groups {
-			groups[index].Pct = groups[index].Count * 100 / groups[0].Count
-		}
-	}
-	return groups, rows.Err()
 }
 
 // Correction is one recorded complaint the host made about a model answer.
@@ -1209,6 +1175,11 @@ func (r *Reader) FailureRuns(ctx context.Context, cause string) ([]FailureRun, e
 	if !r.live() {
 		return nil, nil
 	}
+	// Selected by cause family rather than by the exact error text, and
+	// filtered here for the same reason the grouping is: one problem arrives
+	// under several texts, and a detail page that matched the text exactly
+	// showed a third of the runs its own row had counted.
+	//
 	// Joined on the run's own episode_id, not on work_episodes.agent_run_id:
 	// that column names the episode's first run, so every later attempt of a
 	// retried episode rendered "no episode" over an episode that was right
@@ -1217,12 +1188,12 @@ func (r *Reader) FailureRuns(ctx context.Context, cause string) ([]FailureRun, e
 	  SELECT a.id, COALESCE(a.episode_id,''), COALESCE(a.channel_id,''), COALESCE(a.mode,''),
 	         COALESCE(a.failure_count,0), a.updated_at,
 	         COALESCE(a.attempt_id,''), COALESCE(e.latest_attempt_id,''),
-	         COALESCE(e.lifecycle_state,'')
+	         COALESCE(e.lifecycle_state,''),
+	         COALESCE(NULLIF(a.last_error,''),'(no error recorded)')
 	  FROM agent_runs AS a
 	  LEFT JOIN work_episodes AS e ON e.id = a.episode_id
 	  WHERE a.terminal_state = 'failed'
-	    AND COALESCE(NULLIF(a.last_error,''),'(no error recorded)') = ?
-	  ORDER BY a.updated_at DESC LIMIT 100`, cause)
+	  ORDER BY a.updated_at DESC LIMIT 500`)
 	if err != nil {
 		return nil, err
 	}
@@ -1230,10 +1201,17 @@ func (r *Reader) FailureRuns(ctx context.Context, cause string) ([]FailureRun, e
 	items := []FailureRun{}
 	for rows.Next() {
 		var item FailureRun
-		var channel, updated, attempt, latest, episodeState string
+		var channel, updated, attempt, latest, episodeState, recorded string
 		if err := rows.Scan(&item.RunID, &item.EpisodeID, &channel, &item.Mode,
-			&item.Attempts, &updated, &attempt, &latest, &episodeState); err != nil {
+			&item.Attempts, &updated, &attempt, &latest, &episodeState,
+			&recorded); err != nil {
 			return nil, err
+		}
+		if failureFamily(recorded) != cause {
+			continue
+		}
+		if len(items) >= 100 {
+			break
 		}
 		item.Channel = r.channelName(ctx, channel)
 		item.Updated = parseStamp(updated)

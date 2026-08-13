@@ -164,7 +164,7 @@ func (h *Handler) shell(r *http.Request, slug string, content any) Shell {
 	shell.Badges = map[string]Badge{
 		"": {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM work_episodes
 		  WHERE lifecycle_state IN ('blocked','waiting_operator','waiting_approval')`), Warn: true},
-		"failures":   {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`)},
+		"failures":   {N: h.reader.Count(ctx, countFailedWeek), Warn: true},
 		"workspaces": {N: h.reader.Count(ctx, countRetained), Warn: true},
 		"decisions":  {N: h.reader.Count(ctx, `SELECT COUNT(*) FROM fixture_candidates WHERE status = 'pending'`), Warn: true},
 		// Confirmed only, and not a warning. There is no action to take on a
@@ -788,11 +788,31 @@ func (h *Handler) failures(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		message = err.Error()
 	}
+	// Split rather than sorted-and-hoped. A cause that stopped days ago is
+	// history and belongs under a heading that says so; leaving it in one list
+	// meant the operator had to read every date to find out whether anything on
+	// the page still mattered, and the conclusion they reached was that none of
+	// it did.
+	var live, stopped []FailureGroup
+	var day, week int
+	for _, group := range groups {
+		day, week = day+group.Day, week+group.Week
+		if group.Live() {
+			live = append(live, group)
+		} else {
+			stopped = append(stopped, group)
+		}
+	}
 	h.page(w, r, "failures", "failures", struct {
-		Groups []FailureGroup
-		Total  int
-		Err    string
-	}{groups, h.reader.Count(ctx, countFailedRuns), message})
+		Live, Stopped []FailureGroup
+		Total         int
+		Day, Week     int
+		Unfinished    int
+		Err           string
+	}{
+		live, stopped, h.reader.Count(ctx, countFailedRuns), day, week,
+		h.reader.Count(ctx, countFailedEpisodes), message,
+	})
 }
 
 // failure opens one grouped cause. A group that cannot be opened is a report,
@@ -806,12 +826,19 @@ func (h *Handler) failure(w http.ResponseWriter, r *http.Request) {
 			"No current failure matches this link — likely every run behind it was retried or aged out since the page that linked here was rendered.")
 		return
 	}
-	runs, _ := h.reader.FailureRuns(ctx, cause)
+	var failed problems
+	runs, err := h.reader.FailureRuns(ctx, cause)
+	failed.note("runs", err)
+	variants, err := h.reader.FailureVariants(ctx, cause)
+	failed.note("variants", err)
 	h.detail(w, r, "failures", "failure", cause, struct {
-		Cause  string
-		Runs   []FailureRun
-		CanAct bool
-	}{cause, runs, h.CanAct()})
+		Cause    string
+		Shape    string
+		Runs     []FailureRun
+		Variants []FailureVariant
+		CanAct   bool
+		Errs     problems
+	}{cause, FailureShape(runs), runs, variants, h.CanAct(), failed})
 }
 
 // workspaces lists every Coop fork still on disk and why. The blocked rows are

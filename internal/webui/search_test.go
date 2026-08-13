@@ -487,3 +487,63 @@ func TestTurnBudgetReadsWhatWasCutAndWhy(t *testing.T) {
 		t.Fatal("an empty or unreadable omission list produced reasons")
 	}
 }
+
+// The failures page read as dead for a week while work was failing every day,
+// because one problem arrived under several wordings and a lifetime count
+// ranked a fixed cause above a live one. Both are pinned here.
+func TestFailureGroupingSeparatesLiveFromFixed(t *testing.T) {
+	// One problem, six texts. The operation id and the byte count make each
+	// occurrence unique and identify nothing; the tail after the colon explains
+	// the same headline in more detail.
+	family := failureFamily("ACP child closed before its response")
+	for _, variant := range []string{
+		"ACP child closed before its response: Coop box image is not built; run 'coop build'",
+		"ACP child closed before its response: Coop box image is not built; automatic build failed",
+	} {
+		if got := failureFamily(variant); got != family {
+			t.Fatalf("failureFamily(%q) = %q, want %q", variant, got, family)
+		}
+	}
+	conflict := failureFamily(
+		"Coop API idempotency_conflict (409) operation=op_b9764038065ca3eb09ea55b93422f635: idempotency key is bound")
+	if conflict != "Coop API idempotency_conflict (409)" {
+		t.Fatalf("conflict family = %q, want the id and its stranded label gone", conflict)
+	}
+	if failureFamily("Coop API idempotency_conflict (409) operation=op_9cc7e387d34f2d1b1b94ee7dfbc203e9: bound elsewhere") != conflict {
+		t.Fatal("two conflicts with different operation ids did not group")
+	}
+	// A short head before a colon is punctuation inside a label rather than a
+	// boundary, so cutting there would file unrelated failures under a fragment.
+	if got := failureFamily("bad: everything went wrong in a specific way"); got !=
+		"bad: everything went wrong in a specific way" {
+		t.Fatalf("cut at a short head: %q", got)
+	}
+
+	// A cause fixed days ago must not outrank one failing now, however much
+	// bigger its lifetime pile is.
+	fixed := FailureGroup{Cause: "old", Count: 29, Latest: time.Now().Add(-5 * 24 * time.Hour)}
+	live := FailureGroup{Cause: "new", Count: 3, Day: 3, Week: 3, Latest: time.Now().Add(-2 * time.Hour)}
+	if fixed.Live() || !live.Live() {
+		t.Fatalf("live split wrong: fixed=%v live=%v", fixed.Live(), live.Live())
+	}
+	// Three identical numbers are one number. The row earns each figure by
+	// differing from the one before it.
+	if got := live.Tally(); got != "3 today, all of them" {
+		t.Fatalf("tally = %q, want the repetition collapsed", got)
+	}
+	if got := fixed.Tally(); got != "29 in total" {
+		t.Fatalf("stopped tally = %q", got)
+	}
+
+	// The shape states once what a table of near-identical rows makes the
+	// reader derive row by row.
+	shape := FailureShape([]FailureRun{
+		{Mode: "triage", Channel: "#a", Attempts: 20, Retryable: true},
+		{Mode: "triage", Channel: "#b", Attempts: 20},
+	})
+	for _, want := range []string{"2 runs", "all triage", "across 2 channels", "up to 20 attempts", "1 can be retried"} {
+		if !strings.Contains(shape, want) {
+			t.Fatalf("shape %q missing %q", shape, want)
+		}
+	}
+}
