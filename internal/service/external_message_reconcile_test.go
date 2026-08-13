@@ -825,3 +825,57 @@ func TestExternalLifecyclePhaseDoesNotClassifyConversationProse(t *testing.T) {
 		}
 	}
 }
+
+// Host suppression has to survive the database. Policy converted a redundant
+// Terraform-success notice to ignore and left the operation stream intact,
+// because those operations carry evidence worth keeping — but the operation
+// stream is also what a reply is rebuilt from, so finalization read it back and
+// posted the exact message policy had just decided not to send. Seventeen
+// separate quality findings are this one round trip.
+func TestSuppressedLifecycleReplyStaysSuppressedAfterPersistence(t *testing.T) {
+	input := core.SlackInput{
+		ID: "slack-run-succeeded", EventID: "EvRunOK", Kind: "bot_message",
+		ReceivedAt: time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC),
+		Text: "Run notification for <https://example.com/acme/infra|acme/infra>\n" +
+			"<https://example.com/acme/infra/runs/run-ok|Run run-ok>\nRun Applied",
+	}
+	message := `{"action":"reply","operations":[` +
+		`{"id":"evidence-change","type":"record_evidence","evidence":{"claim_id":"change.recent",` +
+		`"observation":"The apply completed cleanly.","source_type":"terraform","source_name":"acme/infra",` +
+		`"relation":"supports","health_effect":"none"}},` +
+		`{"id":"complete","type":"complete_episode","completion":{"message":"The Terraform apply succeeded.",` +
+		`"completion":{"status":"decision_ready","verdict":"healthy","summary":"Apply succeeded."}}}` +
+		`]}`
+	decision, err := decisionpkg.ParseWatchDecision(message, testDecodeClock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision = EnforceExternalLifecycleCommunication(input, decision)
+	if decision.Action != "ignore" {
+		t.Fatalf("host did not suppress the successful lifecycle reply: action %q", decision.Action)
+	}
+
+	encoded, err := decisionpkg.MarshalWatchDecisionResult(decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed, err := decisionpkg.ParseWatchDecision(string(encoded), testDecodeClock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reparsed.Action != "ignore" {
+		t.Fatalf("suppressed decision became %q after the round trip: %s", reparsed.Action, encoded)
+	}
+	if strings.TrimSpace(reparsed.Message) != "" {
+		t.Fatalf("suppressed decision recovered a reply body: %q", reparsed.Message)
+	}
+	if reparsed.Completion != nil || len(reparsed.FollowupMessages) != 0 || len(reparsed.Visuals) != 0 {
+		t.Fatal("suppressed decision recovered reply content beside the empty message")
+	}
+	// The suppression was about the message, never about what the turn found.
+	// Dropping the evidence would trade a redundant Slack notice for a hole in
+	// the record, which is the wrong repair.
+	if len(reparsed.Evidence) != 1 || reparsed.Evidence[0].ClaimID != "change.recent" {
+		t.Fatalf("suppression discarded the evidence it should keep: %+v", reparsed.Evidence)
+	}
+}

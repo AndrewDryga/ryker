@@ -115,6 +115,24 @@ type WatchContextAttachment struct {
 }
 
 func SuppressWatchDecision(decision WatchDecision, reason string) WatchDecision {
+	_ = applySuppression(&decision)
+	// Recorded on the decision, not only in the prose reason, because the
+	// reason is free text nothing can branch on and this has to be readable
+	// after the decision has been through the database. See WatchDecision.
+	decision.Suppressed = strings.TrimSpace(reason)
+	if decision.Suppressed == "" {
+		decision.Suppressed = "host policy"
+	}
+	decision.Reason = strings.TrimSpace(
+		decision.Reason + "; " + reason,
+	)
+	return decision
+}
+
+// applySuppression clears everything a decision would say out loud, leaving
+// what it learned. Shared with the finalization path so that silencing a
+// decision and reading a silenced one back agree on what silence means.
+func applySuppression(decision *WatchDecision) error {
 	decision.Action = "ignore"
 	decision.Reaction = ""
 	decision.Message = ""
@@ -133,10 +151,7 @@ func SuppressWatchDecision(decision WatchDecision, reason string) WatchDecision 
 	decision.PendingApproval = nil
 	decision.AlertAssessment = nil
 	decision.Completion = nil
-	decision.Reason = strings.TrimSpace(
-		decision.Reason + "; " + reason,
-	)
-	return decision
+	return nil
 }
 
 func StandingRuleIncidentAsReply(decision WatchDecision, offerIncident bool) WatchDecision {

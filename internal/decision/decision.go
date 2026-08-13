@@ -91,8 +91,19 @@ type WatchDecision struct {
 	Completion         *investigation.CompletionAssessment `json:"completion,omitempty"`
 	PublicationUpdates []PublicationUpdate                 `json:"publication_updates,omitempty"`
 	Reason             string                              `json:"reason,omitempty"`
-	Operations         []investigation.ResultOperation     `json:"operations,omitempty"`
-	AppliedOperations  []investigation.ResultOperation     `json:"-"`
+	// Suppressed is the host's reason for silencing this decision, and it is
+	// serialized because suppression has to survive the round trip.
+	//
+	// The host cleared the projected reply fields and left the operation stream
+	// intact, which is correct — the operations still carry evidence, coverage
+	// and memory worth recording. But the operation stream is also what the
+	// reply is rebuilt from, so reparsing a persisted suppressed decision
+	// restored the reply and posted to Slack exactly the message policy had
+	// just decided not to send. Nothing in the persisted shape said "the host
+	// silenced this", so the reparse could not know.
+	Suppressed        string                          `json:"host_suppressed,omitempty"`
+	Operations        []investigation.ResultOperation `json:"operations,omitempty"`
+	AppliedOperations []investigation.ResultOperation `json:"-"`
 
 	// See AgentReport: these record whether the typed protocol was actually
 	// used, so the legacy path can be deleted on evidence rather than hope.
@@ -110,11 +121,13 @@ func MarshalWatchDecisionResult(decision WatchDecision) ([]byte, error) {
 		Action             string                          `json:"action"`
 		Attention          AttentionAssessment             `json:"attention,omitempty"`
 		Reason             string                          `json:"reason,omitempty"`
+		Suppressed         string                          `json:"host_suppressed,omitempty"`
 		PublicationUpdates []PublicationUpdate             `json:"publication_updates,omitempty"`
 		Operations         []investigation.ResultOperation `json:"operations"`
 	}
 	return json.Marshal(operationsEnvelope{
 		Action: decision.Action, Attention: decision.Attention, Reason: decision.Reason,
+		Suppressed:         decision.Suppressed,
 		PublicationUpdates: decision.PublicationUpdates, Operations: decision.Operations,
 	})
 }
@@ -1280,6 +1293,16 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 			}
 		}
 	}
+	// Host suppression outranks the operation stream. Everything below this
+	// point exists to rebuild a reply from the operations, and a decision the
+	// host silenced must not acquire one on the way back out of the database —
+	// which is what happened: policy converted a redundant Terraform-success
+	// notice to ignore, the operations survived because they carry evidence
+	// worth keeping, and finalization read those same operations as proof that
+	// a reply was intended.
+	if strings.TrimSpace(decision.Suppressed) != "" {
+		return ApplySuppressedWatchOperations(decision)
+	}
 	// A complete_episode operation is itself an unambiguous reply decision. The
 	// host owns that projection even if the model omitted action or left an old
 	// ignore value beside the operation stream.
@@ -1411,6 +1434,37 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 	decision.Operations = operations
 	decision.AppliedOperations = applied
 	return nil
+}
+
+// ApplySuppressedWatchOperations records what a silenced decision found without
+// letting it speak.
+//
+// The operations are folded for their side effects — evidence, coverage and
+// conversation memory are all things the turn genuinely learned and the host
+// never objected to. What the host objected to was the message, so the fold's
+// message, offers and titles are collected into a scratch decision and dropped.
+func ApplySuppressedWatchOperations(decision *WatchDecision) error {
+	scratch := WatchDecision{}
+	err := FoldResultOperations(decision.Operations, OperationTargets{
+		message: &scratch.Message, followups: &scratch.FollowupMessages, visuals: &scratch.Visuals,
+		evidence: &scratch.Evidence, coverage: &scratch.Coverage, memory: &scratch.Memory,
+		memoryOffer: &scratch.MemoryOffer, preferenceOffer: &scratch.PreferenceOffer,
+		ruleOffer: &scratch.RuleOffer, scheduleOffer: &scratch.ScheduleOffer,
+		scheduleOffers: &scratch.ScheduleOffers,
+		approval:       &scratch.PendingApproval, alert: &scratch.AlertAssessment,
+		completion:    &scratch.Completion,
+		incidentTitle: &scratch.IncidentTitle, taskTitle: &scratch.TaskTitle,
+		taskRepository: &scratch.TaskRepository, taskPrompt: &scratch.TaskPrompt,
+	}, &decision.AppliedOperations)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidOperations, err)
+	}
+	decision.Evidence, decision.Coverage = scratch.Evidence, scratch.Coverage
+	decision.Memory = scratch.Memory
+	// Re-cleared rather than assumed clear. This runs on a decision read back
+	// from the database, and the only guarantee worth relying on is the one
+	// this function makes itself.
+	return applySuppression(decision)
 }
 
 func ApplySilentWatchMemoryOperation(decision *WatchDecision) error {
