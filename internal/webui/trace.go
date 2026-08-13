@@ -1123,13 +1123,16 @@ func routinePhasePayload(payload string) bool {
 	return true
 }
 
-// phaseTitle names a work phase the way a person would say it.
+// phaseTitle names a work phase the way a person would say it. The stored
+// "investigating" label marks the moment the Coop turn starts on every lane —
+// a plain reply as much as an investigation — so the card says what the
+// transition means rather than repeating the stage's internal name.
 func phaseTitle(phase string) string {
 	if title, ok := map[string]string{
 		"accepted":      "Accepted the work",
 		"planning":      "Planning the work",
-		"investigating": "Investigating",
-		"executing":     "Executing",
+		"investigating": "Model working",
+		"executing":     "Model working",
 		"implementing":  "Implementing",
 		"verifying":     "Verifying",
 		"finalizing":    "Wrapping up",
