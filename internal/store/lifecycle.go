@@ -10,6 +10,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store/artifactstore"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
+	"github.com/AndrewDryga/responder/internal/store/retention"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -575,6 +576,10 @@ func (s *Store) Prune(
 	}
 	// Artifact bodies live exactly as long as a prompt that referenced them.
 	if result.ContextArtifacts, err = artifactstore.PruneSpent(ctx, tx, operational); err != nil {
+		return result, err
+	}
+	// The tables Prune's own body never reached. See internal/store/retention.
+	if result.Retention, err = retention.Sweep(ctx, tx, operational, episodeHistoryBefore, auditBefore); err != nil {
 		return result, err
 	}
 	if result.EvaluationDecisions, err = deleteCount(`

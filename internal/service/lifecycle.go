@@ -149,6 +149,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			"episodes", result.Episodes,
 			"agent_run_contexts", result.AgentRunContexts,
 			"audit", result.AuditEvents,
+			"retention", result.Retention,
 		)
 	}
 }

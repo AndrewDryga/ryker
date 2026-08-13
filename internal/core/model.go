@@ -1691,7 +1691,11 @@ type PruneResult struct {
 	// prompts that referenced them were themselves emptied; the digest on the
 	// manifest reference remains for audit.
 	ContextArtifacts int64
-	AuditEvents      int64
+	// Retention counts rows removed by the table sweeps that live in
+	// internal/store/retention rather than in Prune's own body — the tables
+	// that had no policy at all until they were given one.
+	Retention   int64
+	AuditEvents int64
 }
 
 func (r PruneResult) Total() int64 {
@@ -1701,7 +1705,7 @@ func (r PruneResult) Total() int64 {
 		r.Preferences + r.StandingRules +
 		r.StandingRuleRuns + r.ScheduledTasks + r.ScheduledTaskRuns +
 		r.EmisarApprovals + r.ConfigurationSessions +
-		r.ClosedIncidents + r.Episodes + r.AuditEvents
+		r.ClosedIncidents + r.Episodes + r.Retention + r.AuditEvents
 }
 
 // StoredAgentResult is one historical model output, for replaying the result
