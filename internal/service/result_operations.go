@@ -62,11 +62,37 @@ func (s *Service) recordResultOperationEvents(
 			}
 			continue
 		case "update_goal":
+			// Closing a goal the episode never planned is not a host failure.
+			// The goal ledger is the agent's own bookkeeping, so an update
+			// naming an id nothing created has nothing to update — the same
+			// reading this function already gives a missing episode above and
+			// a missing run below.
+			//
+			// Returning the error instead cost a finished engineering task
+			// twenty-one minutes and counting. The agent committed its work,
+			// then closed a goal it had never opened. The not-found propagated
+			// out through the terminal poll, which has no failure counter and
+			// no backoff, so the same terminal event replayed about three
+			// times a second — six thousand times. Because operations apply in
+			// order and this one sorted ahead of the complete_episode beside
+			// it, the completion never applied at all: the work was done, the
+			// commit was sound, and the Slack card read "Investigating" until
+			// a person went looking. A slip in the model's bookkeeping must
+			// not be able to withhold the answer it is bookkeeping about.
 			if err := s.store.SetEpisodeGoalState(
 				ctx, operation.GoalState.GoalID, operation.GoalState.State,
 				operation.GoalState.Detail,
 			); err != nil {
-				return fmt.Errorf("result operation %q: %w", operation.ID, err)
+				if !errors.Is(err, store.ErrNotFound) {
+					return fmt.Errorf("result operation %q: %w", operation.ID, err)
+				}
+				if s.log != nil {
+					s.log.Warn(
+						"result operation closes a goal the episode never planned",
+						"run", runID, "operation", operation.ID,
+						"goal", operation.GoalState.GoalID,
+					)
+				}
 			}
 			continue
 		case "request_operator_input":
