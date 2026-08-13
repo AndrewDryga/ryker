@@ -680,7 +680,10 @@ func TestCustomerJourneyMentionOnlyContinuesIncidentThread(t *testing.T) {
 	}
 }
 
-func TestCustomerJourneyMentionOnlyOutsideIncidentPromptsWithoutCoop(t *testing.T) {
+// Even with nothing for the deterministic carry to resolve, a bare mention
+// queues a model run. The model asks its own clarifying question against
+// whatever context the channel holds; the host never answers in its place.
+func TestCustomerJourneyMentionOnlyOutsideIncidentStillQueuesTheModel(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -711,17 +714,15 @@ func TestCustomerJourneyMentionOnlyOutsideIncidentPromptsWithoutCoop(t *testing.
 	}
 	drainSlackDeliveries(t, ctx, svc)
 
-	if len(slackClient.posts) != 1 ||
-		slackClient.posts[0].message.Text != "What should I check?" ||
-		slackClient.posts[0].thread != input.MessageTS {
-		t.Fatalf("channel mention-only reply = %+v", slackClient.posts)
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("channel mention-only answered without the model = %+v", slackClient.posts)
 	}
 	stored, err := st.GetSlackInput(ctx, input.ID)
 	if err != nil || stored.State != "done" || stored.Failures != 0 {
 		t.Fatalf("channel mention-only input = %+v, %v", stored, err)
 	}
-	if _, err := st.GetAgentRunBySource(ctx, "slack", input.ID); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("channel mention-only input created an agent run: %v", err)
+	if run, err := st.GetAgentRunBySource(ctx, "watch", input.ID); err != nil {
+		t.Fatalf("channel mention-only queued no watch run = %+v, %v", run, err)
 	}
 }
 
@@ -823,12 +824,147 @@ func TestCustomerJourneyMentionOnlyDoesNotReachPastAnotherPerson(t *testing.T) {
 	}
 	drainSlackDeliveries(t, ctx, svc)
 
-	if len(slackClient.posts) != 1 ||
-		slackClient.posts[0].message.Text != "What should I check?" {
-		t.Fatalf("interrupted mention-only reply = %+v", slackClient.posts)
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("interrupted mention-only answered without the model = %+v", slackClient.posts)
 	}
-	if _, err := st.GetAgentRunBySource(ctx, "watch", input.ID); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("interrupted mention-only input created an agent run: %v", err)
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatalf("interrupted mention-only queued no watch run: %v", err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ResolvedMentionRequest != nil {
+		t.Fatalf(
+			"bare mention reached past another person = %+v",
+			state.ResolvedMentionRequest,
+		)
+	}
+}
+
+// On 2026-08-13 an operator answered Responder's own "Request needs a retry —
+// reply in this thread to try again" notice with a bare @Emisar twelve minutes
+// later. The deterministic carry cannot bind a bot message or reach past five
+// minutes, and the host answered "What should I check?" on its own — without
+// the model, in the channel where its own notice already said what to check.
+func TestCustomerJourneyBareMentionAfterRetryNoticeReachesTheModelWithChannelContext(
+	t *testing.T,
+) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "message":"Retrying the log and Sentry check now."
+	}`
+	input := core.SlackInput{
+		ID: "slack-bare-mention-retry", EnvelopeID: "env-bare-mention-retry",
+		EventID: "EvBareMentionRetry", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "C000CHANNEL",
+		MessageTS: "1702.860", UserID: cfg.Slack.Operators[0], Text: "<@U999BOT>",
+	}
+	slackClient := &fakeSlack{history: []slackui.HistoryMessage{
+		{
+			Timestamp: "1700.100", UserID: cfg.Slack.Operators[0],
+			Text: "<@U999BOT> what happened? check logs, sentry, etc",
+		},
+		{
+			Timestamp: "1702.140", BotID: "B999BOT", UserID: "U999BOT",
+			Text: "Request needs a retry. I stopped retrying this request so it " +
+				"would not remain silently queued. Reply in this thread to try again.",
+		},
+		{Timestamp: input.MessageTS, UserID: input.UserID, Text: input.Text},
+	}}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit bare mention after retry notice = %v, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	for _, post := range slackClient.posts {
+		if post.message.Text == "What should I check?" {
+			t.Fatalf(
+				"host answered the retry notice without the model = %+v",
+				slackClient.posts,
+			)
+		}
+	}
+	if _, err := st.GetAgentRunBySource(ctx, "watch", input.ID); err != nil {
+		t.Fatalf("bare mention after retry notice queued no watch run: %v", err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+
+	if len(coopClient.submitPrompts) != 1 ||
+		!strings.Contains(coopClient.submitPrompts[0], "stopped retrying") ||
+		!strings.Contains(coopClient.submitPrompts[0], "check logs, sentry") {
+		t.Fatalf("channel context did not reach the model = %+v", coopClient.submitPrompts)
+	}
+	answered := false
+	for _, post := range slackClient.posts {
+		if strings.Contains(post.message.Text, "Retrying the log and Sentry check") {
+			answered = true
+		}
+	}
+	if !answered {
+		t.Fatalf("model answer did not reach the channel = %+v", slackClient.posts)
+	}
+}
+
+// An empty direct message is still a request. It queues a model run that reads
+// the direct-message conversation context rather than being answered by a
+// host-written clarifying question.
+func TestCustomerJourneyEmptyDirectMessageStillQueuesTheModel(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-empty-dm", EnvelopeID: "env-empty-dm",
+		EventID: "EvEmptyDM", Kind: "direct",
+		TeamID: cfg.Slack.TeamID, ChannelID: "D000DM",
+		MessageTS: "1700.500", UserID: cfg.Slack.Operators[0], Text: "",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit empty direct message = %v, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("empty direct message answered without the model = %+v", slackClient.posts)
+	}
+	if _, err := st.GetAgentRunBySource(ctx, "watch", input.ID); err != nil {
+		t.Fatalf("empty direct message queued no watch run: %v", err)
 	}
 }
 

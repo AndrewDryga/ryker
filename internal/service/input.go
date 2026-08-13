@@ -268,9 +268,9 @@ func (s *Service) routeSlackInputKind(
 
 // handleConversationPrefix answers the parts of an ordinary message that are
 // resolved before any incident lookup: an in-flight configuration or preference
-// reply, a retained visual retry, an empty mention, and the deterministic
-// channel-setup and conversational commands. It reports whether the input was
-// consumed.
+// reply, a retained visual retry, and the deterministic channel-setup and
+// conversational commands. It also drops an empty channel message that never
+// addressed Responder. It reports whether the input was consumed.
 func (s *Service) handleConversationPrefix(
 	ctx context.Context,
 	input core.SlackInput,
@@ -307,23 +307,13 @@ func (s *Service) handleConversationPrefix(
 		return true, nil
 	}
 	text := strings.TrimSpace(s.stripBotMention(input.Text))
-	if text == "" && len(input.Attachments) == 0 && input.ThreadTS == "" {
-		if input.Kind == "direct" {
-			if err := s.postInputMessageInSourceThread(
-				ctx,
-				"mention_prompt_"+input.ID,
-				input,
-				slackui.ConversationResponse(
-					"What should I check?",
-					s.sanitizer,
-				),
-			); err != nil {
-				return true, s.retrySlackInput(ctx, input, err)
-			}
-		}
-		if input.Kind != "mention" {
-			return true, s.finishSlackInput(ctx, input)
-		}
+	// An empty mention or direct message is still a request: it queues a model
+	// run that reads the conversation context, rather than a host-written
+	// clarifying question. Only an empty plain channel message, which never
+	// addressed Responder, is dropped here.
+	if text == "" && len(input.Attachments) == 0 && input.ThreadTS == "" &&
+		input.Kind == "message" {
+		return true, s.finishSlackInput(ctx, input)
 	}
 	if input.Kind == "mention" || input.Kind == "direct" ||
 		(input.Kind == "message" && s.cfg.IsOperator(input.UserID)) {

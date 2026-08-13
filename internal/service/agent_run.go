@@ -130,24 +130,22 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 			if err != nil {
 				return fmt.Errorf("resolve the request before a bare mention: %w", err)
 			}
-			if !found {
-				if err := s.postInputMessageInSourceThread(
-					ctx,
-					"mention_prompt_"+input.ID,
-					input,
-					slackui.ConversationResponse("What should I check?", s.sanitizer),
-				); err != nil {
-					return err
-				}
-				return s.finishInputIfOpen(ctx, input)
+			// A bare mention the carry cannot resolve still queues a model run:
+			// the triage run reads the recent channel messages, so the model
+			// decides what the mention meant. On 2026-08-13 an operator answered
+			// the bot's own "reply in this thread to try again" notice with a
+			// bare @Emisar twelve minutes later; the carry cannot bind a bot
+			// message or reach past five minutes, and the host replied "What
+			// should I check?" beneath the notice that already said what to check.
+			if found {
+				state.ResolvedMentionRequest = &resolved
+				input = mentioncontext.Apply(input, state.ResolvedMentionRequest)
+				s.audit(ctx, core.AuditEvent{
+					Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
+					Outcome: "resolved_previous_message",
+					Detail:  "bare mention applied to the immediately preceding message " + resolved.MessageTS,
+				})
 			}
-			state.ResolvedMentionRequest = &resolved
-			input = mentioncontext.Apply(input, state.ResolvedMentionRequest)
-			s.audit(ctx, core.AuditEvent{
-				Kind: "slack.input", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "resolved_previous_message",
-				Detail:  "bare mention applied to the immediately preceding message " + resolved.MessageTS,
-			})
 		}
 	}
 	if err := s.captureWatchTurnState(ctx, input, &state); err != nil {
