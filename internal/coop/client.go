@@ -110,10 +110,14 @@ type OperationPendingError struct {
 func (e *OperationPendingError) Error() string {
 	what := "Coop operation " + e.ID + " is still running"
 	switch e.Method {
-	case "CreateSession":
+	case "CreateSession", "CreateRemoteSession":
 		what = "Coop is still preparing the model session (operation " + e.ID + ")"
 	case "SubmitTurn":
 		what = "Coop is still starting the model turn (operation " + e.ID + ")"
+	case "CloseSession":
+		what = "Coop is still closing the model session (operation " + e.ID + ")"
+	case "PlanDiscard", "Discard":
+		what = "Coop is still cleaning up the workspace (operation " + e.ID + ")"
 	default:
 		if e.Method != "" {
 			what = "Coop is still running " + e.Method + " (operation " + e.ID + ")"
