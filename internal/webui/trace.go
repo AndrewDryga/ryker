@@ -1991,16 +1991,43 @@ func evidenceMemoryBody(raw json.RawMessage, present func(string) string) string
 	return strings.Join(items, "\n\n")
 }
 
+// modelSelectionWhy explains how the routing decision is actually made, from
+// the code that makes it: Responder never ranks models per message. The
+// channel's setup binds it to a repository; the repository's configuration
+// names a Coop policy; the policy's model ladder picks what runs and rotates
+// on rate limits. The manifest records the effective answerer, so a rotated
+// turn shows the fallback that ran, not the first rung that was configured.
 func modelSelectionWhy(manifest ManifestRow) string {
 	target := strings.TrimSpace(manifest.Provider + "/" + manifest.Model)
 	if target == "/" {
 		target = "an unrecorded target"
 	}
-	effort := fallback(manifest.Effort, "an unrecorded reasoning effort")
-	if manifest.Preset != "" {
-		return fmt.Sprintf("Preset %s routed this episode to %s at %s effort.", manifest.Preset, target, effort)
+	effort := fallback(manifest.Effort, "an unrecorded")
+	answered := fmt.Sprintf("%s at %s effort is what actually answered this attempt.", target, effort)
+	if manifest.Preset == "" {
+		return answered + " No Coop policy was recorded, so the routing source is unknown."
 	}
-	return fmt.Sprintf("The routing policy selected %s at %s effort.", target, effort)
+	source := fmt.Sprintf("Coop policy %s's", manifest.Preset)
+	if repository := manifestRepository(manifest.Refs); repository != "" {
+		source = fmt.Sprintf("this channel's repository binding (%s) names Coop policy %s, whose",
+			repository, manifest.Preset)
+	}
+	return fmt.Sprintf(
+		"Routing is configuration, not a per-message choice: %s model ladder picks what runs and rotates on rate limits. %s",
+		source, answered)
+}
+
+// manifestRepository names the repository the attempt was bound to, from the
+// manifest's own reference rows.
+func manifestRepository(refs []ContextRef) string {
+	for _, ref := range refs {
+		if ref.Kind != "repository" {
+			continue
+		}
+		name, _, _ := strings.Cut(ref.What, " @ ")
+		return strings.TrimSpace(name)
+	}
+	return ""
 }
 
 type promptRange struct {
