@@ -1076,7 +1076,7 @@ func phaseExplain(phase string) string {
 		"planning":        "A background worker took this job off the queue and is preparing the model call — no model is running yet.",
 		"investigating":   "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
 		"executing":       "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
-		"finalizing":      "The model finished its turn. Responder is checking the result before anything reaches Slack.",
+		"finalizing":      "The model finished its turn. Before anything reaches Slack, Responder checks the result: it must parse, the answer must be complete — a verdict, coverage explained, claims the evidence supports — anything it offers must be well-formed, and the reply must fit the shape bounds. A failure goes back to the model as a correction instead of posting.",
 		"finished":        "The final outcome is recorded; nothing more runs for this episode.",
 		"resuming":        "A new attempt is starting from this episode's saved state.",
 		"retrying":        "The previous attempt failed; the work is queued to run again from the preserved context.",
