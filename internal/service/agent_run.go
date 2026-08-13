@@ -1854,6 +1854,22 @@ func (s *Service) requeueWithCorrection(
 	return nil
 }
 
+// supersededByNewerLifecycle reports whether a newer update for this exact
+// operational stream is already queued, which is the same question
+// finalization asks before applying a result — asked earlier here, because some
+// of what a result carries cannot be taken back.
+func (s *Service) supersededByNewerLifecycle(
+	ctx context.Context,
+	run core.AgentRun,
+	input core.SlackInput,
+) (bool, error) {
+	if input.Kind != "bot_message" || isPrivateSlackVerificationReplay(input) ||
+		!strings.HasPrefix(run.ConversationKey, "operation:") {
+		return false, nil
+	}
+	return s.hasNewerOperationalInput(ctx, run, input)
+}
+
 func (s *Service) stageTriageTerminal(
 	ctx context.Context,
 	run core.AgentRun,
@@ -2079,10 +2095,19 @@ func (s *Service) stageTriageTerminal(
 			if err := staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); err != nil {
 				return true, err
 			}
-		} else if err := s.recordResultOperationEvents(
-			ctx, run.ID, decision.AppliedOperations,
-		); err != nil {
+		} else if superseded, err := s.supersededByNewerLifecycle(ctx, run, input); err != nil {
 			return true, err
+		} else if !superseded {
+			// Recorded only once nothing newer is queued for this lifecycle.
+			// These operations are durable: a wait_external schedules a wakeup
+			// that outlives the turn, so staging one from a result finalization
+			// was about to discard left a timer behind that later fired a
+			// recheck for an update already answered.
+			if err := s.recordResultOperationEvents(
+				ctx, run.ID, decision.AppliedOperations,
+			); err != nil {
+				return true, err
+			}
 		}
 	}
 	if err := staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); err != nil {
