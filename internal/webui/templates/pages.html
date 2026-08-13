@@ -449,8 +449,30 @@ copy.</p>
 {{end}}
 
 {{define "memory"}}
-<p class="note">Five stores, each with a different lifetime. A memory nothing recalls is a
-memory to prune.</p>
+<p class="note">Six stores, each with a different lifetime. A memory nothing recalls is a
+memory to prune — except the repository map, which every cross-repository turn reads and
+which is pruned only by being rewritten.</p>
+
+<h2>Repository map <span class="note">{{len .Repositories}}</span></h2>
+<p class="note">Which part of the product lives in each repository. Responder maintains this
+itself: an agent that reads a repository records what it found, replacing the sentence
+configuration started with. Mounts and pins are not shown here because they are not stored —
+they come from the session's own pins each turn, so the map cannot disagree with them.
+{{if .Undescribed}} {{.Undescribed}} still undescribed; the next turn that reads one will
+fill it in.{{end}}</p>
+{{if .Repositories}}
+<table>
+  <tr><th>Repository</th><th>Contents</th><th>Written by</th><th class="num">Recalled</th><th class="num">Revised</th><th>Updated</th></tr>
+  {{range .Repositories}}
+  <tr><td class="mono">{{.Repository}}</td>
+      <td>{{if .Described}}{{.Contents}}{{else}}<span class="note">Not described yet</span>{{end}}</td>
+      <td class="note">{{if eq .Source "agent"}}Responder{{else if eq .Source "configured"}}Configuration{{else}}—{{end}}</td>
+      <td class="mono num">{{if eq .Source "agent"}}{{.Recalls}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="mono num">{{if eq .Source "agent"}}{{if .Rewrites}}{{.Rewrites}}{{else}}<span class="note">never</span>{{end}}{{else}}<span class="note">—</span>{{end}}</td>
+      <td class="note">{{if eq .Source "agent"}}{{since .Updated}}{{else}}<span class="note">—</span>{{end}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="empty">No repositories are configured.</p>{{end}}
 
 <h2>Operational memory <span class="note">{{len .Entries}}</span></h2>
 {{if .Entries}}

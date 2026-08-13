@@ -55,6 +55,16 @@ const CompoundRequestPolicy = `Handle every explicit instruction in the current 
 - Do not use multiple messages merely to evade length limits or narrate internal planning. The sequence is one atomic response: evidence, coverage, memory, approvals, durable offers, generated visuals, and host-rendered controls apply to the sequence as a whole and appear with the final part.
 - Read-only clauses may be completed in the current turn. Repository changes still require one confirmed engineering-task transition, and operational changes still require exact configured-operator intent plus Emisar policy and approval. Group compatible work for the same repository into one focused task offer; ask a concise clarifying question only when ambiguity prevents a safe transition.`
 
+// WorkspaceMapPolicy is what a hand-written workspace index in a repository
+// used to carry. Only the doctrine belongs here: the list itself is rendered
+// per session from the pins in RepositorySet, because a list projected at
+// deploy time is a list that goes stale between deploys.
+const WorkspaceMapPolicy = `Treat the pinned repository set as one declared platform context.
+
+- The repository set supplied with each turn is authoritative for which repositories exist, where they are mounted, and the exact commit each is pinned at. Never infer a repository, path, or version from a directory name, a document, or memory of an earlier session.
+- Before proposing a change, identify the repository that owns it. Only the primary working copy can be reviewed or published; companion snapshots are immutable context, and a change to one requires a task opened against that repository's own context.
+- Reconcile repository declarations against fresh operational evidence before drawing a cross-system conclusion. A declaration states intent; it is not proof of what is deployed or healthy.`
+
 var EvidenceSourcePolicy = investigation.SourcePolicy()
 
 const EmisarGovernedActionPolicy = `Emisar is the only authority for operational actions.
@@ -71,14 +81,26 @@ const EmisarGovernedActionPolicy = `Emisar is the only authority for operational
 func CoopInstructions(configured string) string {
 	configured = strings.TrimSpace(configured)
 	if configured == "" {
-		return EvidenceSourcePolicy + "\n\n" + EmisarGovernedActionPolicy + "\n\n" +
+		return WorkspaceMapPolicy + "\n\n" + EvidenceSourcePolicy + "\n\n" +
+			EmisarGovernedActionPolicy + "\n\n" +
 			CompoundRequestPolicy + "\n\n" + replypolicy.ReplyFormattingPolicy
 	}
-	return configured + "\n\n" + EvidenceSourcePolicy + "\n\n" +
+	return configured + "\n\n" + WorkspaceMapPolicy + "\n\n" + EvidenceSourcePolicy + "\n\n" +
 		EmisarGovernedActionPolicy + "\n\n" + CompoundRequestPolicy + "\n\n" + replypolicy.ReplyFormattingPolicy
 }
 
-func RepositorySet(bound coop.Session) string {
+// RepositorySet renders the repository map from the session's own pins, so the
+// map and the mounts cannot disagree. A hand-written index in a repository
+// could and did: it listed nine repositories Coop never mounted and omitted six
+// it did, for two weeks, because nothing derived it from the thing that decides
+// what gets pinned.
+//
+// contents supplies one sentence per repository saying which part of the
+// product lives there — a repository_contents memory where an agent has written
+// one, the configured description until then. A repository with neither is
+// named as undescribed rather than silently omitted, because that is the only
+// signal an agent gets that the map has a hole it can close.
+func RepositorySet(bound coop.Session, contents map[string]string) string {
 	if len(bound.Companions) == 0 {
 		return ""
 	}
@@ -88,9 +110,23 @@ func RepositorySet(bound coop.Session) string {
 		"- Primary working copy: the current working directory at creation commit `" +
 			creationCommit + "`. This is the only repository whose changes can be reviewed or published.",
 	}
+	undescribed := make([]string, 0, len(bound.Companions))
 	for _, companion := range bound.Companions {
-		lines = append(lines, "- Read-only companion `"+companion.Name+"`: `"+
-			companion.Path+"` pinned at `"+companion.BaseCommit+"`.")
+		line := "- Read-only companion `" + companion.Name + "`: `" +
+			companion.Path + "` pinned at `" + companion.BaseCommit + "`."
+		if summary := strings.TrimSpace(contents[companion.Name]); summary != "" {
+			line += " " + summary
+		} else {
+			undescribed = append(undescribed, companion.Name)
+		}
+		lines = append(lines, line)
+	}
+	if len(undescribed) > 0 {
+		lines = append(lines,
+			"No description is recorded for `"+strings.Join(undescribed, "`, `")+
+				"`. If you read one of these this turn, record what part of the product it holds "+
+				"with record_repository_contents so the next turn starts with it.",
+		)
 	}
 	lines = append(lines,
 		"Use every relevant companion for declared topology, dependencies, runbooks, and implementation context. "+

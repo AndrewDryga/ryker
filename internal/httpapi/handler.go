@@ -513,6 +513,7 @@ func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 		version.Version,
 		func() bool { ready, _ := h.service.Ready(context.Background()); return ready },
 		h.cfg.Pricing,
+		h.cfg.Repositories,
 		&dashboardActions{store: h.store, service: h.service, cfg: h.cfg},
 	)
 	if err != nil {

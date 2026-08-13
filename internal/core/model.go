@@ -589,6 +589,12 @@ func PredicateMayBePermanent(predicate string) bool {
 	return predicate == "guidance"
 }
 
+// RepositoryContentsSubject is the single subject a repository-scoped memory
+// uses for "which part of the product lives here". One subject per scope means
+// the memory table's UNIQUE(scope_kind, scope_key, subject_key, predicate)
+// gives each repository exactly one such row, replaced rather than accumulated.
+const RepositoryContentsSubject = "repository_contents"
+
 // MemoryRollup is an automatically synthesized continuity summary. It is derived
 // from already bounded conversation summaries and is never operational evidence.
 type MemoryRollup struct {

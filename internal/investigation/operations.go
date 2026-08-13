@@ -158,6 +158,22 @@ type FeedbackOperation struct {
 	FollowupQuestion string `json:"followup_question,omitempty"`
 }
 
+// MaxRepositoryContentsBytes bounds the repository map to one readable line per
+// repository. The map's job is to route a question to the repository that owns
+// it, and a paragraph does that no better than a sentence while costing every
+// turn the whole set is listed. The bound is also what stops the slot drifting
+// into a changelog: anything that needs more room is evidence or guidance, both
+// of which already have somewhere to go.
+const MaxRepositoryContentsBytes = 240
+
+// RepositoryContentsOperation revises which part of the product a repository
+// holds. It carries no version, health, or ownership claim — those change
+// without telling Responder, and this row never expires.
+type RepositoryContentsOperation struct {
+	Repository string `json:"repository"`
+	Contents   string `json:"contents"`
+}
+
 type CompleteEpisode struct {
 	Message          string                 `json:"message"`
 	FollowupMessages []string               `json:"followup_messages,omitempty"`
@@ -192,6 +208,11 @@ type ResultOperation struct {
 	RuleOffer       *core.RuleOffer         `json:"rule_offer,omitempty"`
 	ScheduleOffer   *core.ScheduleOffer     `json:"schedule_offer,omitempty"`
 	AlertAssessment *AlertAssessment        `json:"alert_assessment,omitempty"`
+	// RepositoryContents is the one memory an agent maintains without an
+	// operator confirming it. It answers only "which part of the product lives
+	// in this repository", it is one permanent row per repository, and writing
+	// it again replaces the previous sentence rather than accumulating.
+	RepositoryContents *RepositoryContentsOperation `json:"repository_contents,omitempty"`
 	// Proposal is the payload of propose_action, which no longer exists.
 	//
 	// The operation is out of the prompt and the host has nothing left to do
@@ -260,6 +281,7 @@ var resultOperationPayloads = []func(ResultOperation) bool{
 	func(o ResultOperation) bool { return o.RuleOffer != nil },
 	func(o ResultOperation) bool { return o.ScheduleOffer != nil },
 	func(o ResultOperation) bool { return o.AlertAssessment != nil },
+	func(o ResultOperation) bool { return o.RepositoryContents != nil },
 	func(o ResultOperation) bool { return len(o.Proposal) > 0 },
 	func(o ResultOperation) bool { return o.Completion != nil },
 }
@@ -315,6 +337,31 @@ func requirePayload(
 // payload is complete. A table rather than a switch keeps the supported types
 // and their requirements in one readable place, and makes an unsupported type
 // a missing key instead of a forgotten branch.
+// validateRepositoryContentsOperation is stricter than the offer validators
+// around it because nothing downstream asks an operator whether this is right.
+// The rejection names the bound so a model that wrote a paragraph can shorten
+// it rather than guess why the operation vanished.
+func validateRepositoryContentsOperation(o ResultOperation) error {
+	if o.RepositoryContents == nil {
+		return fmt.Errorf("result operation %q requires repository_contents", o.ID)
+	}
+	repository := strings.TrimSpace(o.RepositoryContents.Repository)
+	contents := strings.TrimSpace(o.RepositoryContents.Contents)
+	if repository == "" || contents == "" {
+		return fmt.Errorf(
+			"result operation %q requires a repository and one sentence of contents", o.ID,
+		)
+	}
+	if len(contents) > MaxRepositoryContentsBytes {
+		return fmt.Errorf(
+			"result operation %q describes repository %q in %d bytes; the repository map holds "+
+				"one sentence of at most %d naming which part of the product lives there",
+			o.ID, repository, len(contents), MaxRepositoryContentsBytes,
+		)
+	}
+	return nil
+}
+
 var resultOperationValidators = map[string]func(ResultOperation) error{
 	"record_evidence": requirePayload("evidence", func(o ResultOperation) bool {
 		return o.Evidence != nil
@@ -342,16 +389,17 @@ var resultOperationValidators = map[string]func(ResultOperation) error{
 			strings.TrimSpace(o.ExternalWait.Kind) != "" &&
 			(o.ExternalWait.DueAt != "" || o.ExternalWait.PollAfter != "")
 	}),
-	"record_feedback":         validateFeedbackOperation,
-	"offer_task":              validateTaskOperation,
-	"request_approval":        requirePayload("approval", func(o ResultOperation) bool { return o.Approval != nil }),
-	"attach_visual":           requirePayload("a visual artifact", func(o ResultOperation) bool { return o.Visual != nil && strings.TrimSpace(o.Visual.Artifact) != "" }),
-	"update_memory":           requirePayload("memory", func(o ResultOperation) bool { return o.Memory != nil }),
-	"offer_memory":            requirePayload("a memory offer", func(o ResultOperation) bool { return o.MemoryOffer != nil }),
-	"offer_preference":        requirePayload("a preference offer", func(o ResultOperation) bool { return o.PreferenceOffer != nil }),
-	"offer_rule":              requirePayload("a rule offer", func(o ResultOperation) bool { return o.RuleOffer != nil }),
-	"offer_schedule":          requirePayload("a schedule offer", func(o ResultOperation) bool { return o.ScheduleOffer != nil }),
-	"record_alert_assessment": requirePayload("an alert assessment", func(o ResultOperation) bool { return o.AlertAssessment != nil }),
+	"record_feedback":            validateFeedbackOperation,
+	"offer_task":                 validateTaskOperation,
+	"request_approval":           requirePayload("approval", func(o ResultOperation) bool { return o.Approval != nil }),
+	"attach_visual":              requirePayload("a visual artifact", func(o ResultOperation) bool { return o.Visual != nil && strings.TrimSpace(o.Visual.Artifact) != "" }),
+	"update_memory":              requirePayload("memory", func(o ResultOperation) bool { return o.Memory != nil }),
+	"offer_memory":               requirePayload("a memory offer", func(o ResultOperation) bool { return o.MemoryOffer != nil }),
+	"offer_preference":           requirePayload("a preference offer", func(o ResultOperation) bool { return o.PreferenceOffer != nil }),
+	"offer_rule":                 requirePayload("a rule offer", func(o ResultOperation) bool { return o.RuleOffer != nil }),
+	"offer_schedule":             requirePayload("a schedule offer", func(o ResultOperation) bool { return o.ScheduleOffer != nil }),
+	"record_alert_assessment":    requirePayload("an alert assessment", func(o ResultOperation) bool { return o.AlertAssessment != nil }),
+	"record_repository_contents": validateRepositoryContentsOperation,
 	// propose_action is refused rather than absent. The operation is gone from
 	// ResultOperationsPrompt, so a model working from the current contract will
 	// not emit one; a model working from anything older would otherwise get a
@@ -450,9 +498,14 @@ accepted operations in the episode event stream.
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
 - record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current impact","cause_status":"identified|bounded when required","cause":"bounded cause","cause_claim_ids":["claim_id"],"evidence_refs":["evidence id for claim"],"immediate_action":"safe next step","verification":"success check","long_term_solution":"durable fix"}}
+- record_repository_contents: {"id":"repo-contents-1","type":"record_repository_contents","repository_contents":{"repository":"exact alias from the repository set","contents":"one sentence naming which part of the product lives there"}}
 - attach_visual{visual}, update_memory{memory}: one payload under the braced key. Offers use offer_memory{memory_offer: scope,subject,predicate,value,visibility}, offer_preference{preference_offer: scope,name,value}, offer_rule{rule_offer: scope,repository,trigger,action}, offer_schedule{schedule_offer: title,prompt,repository,recurrence,start_at}.
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
 - complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure|capability_unavailable","attempts":["route already attempted"],"next_action":"exact action that unblocks it","capability_gaps":[{"capability":"GitHub Actions run and job inspection","status":"not_installed|not_trusted|not_advertised|incompatible|not_found","pack_id":"github-cli when an evidence source identifies it; omit for not_found","pack_ref":"optional observed immutable ref","evidence_refs":["source_id or source_name from a record_evidence operation"],"recommendation":"one concise operator-facing installation, trust, deployment, or compatibility step"}],"recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}
+
+Use record_repository_contents only for a repository you read this turn, and only to name which part
+of the product it holds; it never expires, so it carries no version, health, or ownership claim. Send
+it when the repository set marks one undescribed, or when what you read contradicts what it shows.
 
 Use record_evidence once per atomic claim and record_coverage once per assessed claim group. Put
 each memory update, visual, durable behavior offer, and alert assessment in its own

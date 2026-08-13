@@ -18,7 +18,7 @@ import (
 func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	handler, err := NewHandler(&Reader{}, "test", "47", "responder-abc1234",
 		func() bool { return true },
-		config.Pricing{}, nil)
+		config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestActionsConfirmWithoutScript(t *testing.T) {
 // The dashboard is read-only in v1. Loopback is the only thing between a button
 // and production state, so a write path is opted into deliberately.
 func TestNoWriteRoutesAreExposed(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, config.Pricing{}, nil)
+	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestNoWriteRoutesAreExposed(t *testing.T) {
 // than appearing to accept them. A control that looks live and is not is the
 // defect this dashboard exists to stop showing.
 func TestActionsRefusedWhenTheBuildCannotWrite(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, config.Pricing{}, nil)
+	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestActionsRefusedWhenTheBuildCannotWrite(t *testing.T) {
 // An action reports its failure. One that failed quietly while the page
 // re-rendered unchanged would leave the operator believing it was done.
 func TestActionFailureIsReported(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, config.Pricing{}, failingActions{})
+	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, config.Pricing{}, nil, failingActions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func (failingActions) ConvertFeedback(context.Context, string, string) error {
 // of them; a conversation row that cannot be opened counts a memory without
 // showing what is in it.
 func TestListsLinkToDetail(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, config.Pricing{}, nil)
+	handler, err := NewHandler(&Reader{}, "test", "47", "abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +541,7 @@ func TestEveryEpisodeRowNamesTheModelThatAnsweredIt(t *testing.T) {
 // them itself rather than through act. The value list is closed: this surface
 // offers on, off and inherit, and anything else is a request it never made.
 func TestChannelSettingRefusesWhatItNeverOffered(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "50", "abc", nil, config.Pricing{}, failingActions{})
+	handler, err := NewHandler(&Reader{}, "test", "50", "abc", nil, config.Pricing{}, nil, failingActions{})
 	if err != nil {
 		t.Fatal(err)
 	}

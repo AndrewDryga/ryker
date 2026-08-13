@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/decision"
 	"path/filepath"
@@ -928,6 +929,99 @@ type ChannelConfigRow struct {
 	Episodes   int
 }
 
+// RepositoryDescription is one row of the repository map: which part of the
+// product a repository holds, and who last said so.
+//
+// It is separated from the operational-memory table because the two are read
+// for opposite reasons. An operational memory earns its place by being recalled
+// and is pruned when it is not; a repository description is recalled on every
+// cross-repository turn by construction, never expires, and the only thing an
+// operator wants to know is whether it is right and whether anything is still
+// missing.
+type RepositoryDescription struct {
+	Repository string
+	Contents   string
+	// Source is "agent" when a turn that read the repository wrote this,
+	// "configured" when it is still the sentence from responder.yaml, and
+	// "" when nothing describes the repository at all.
+	Source  string
+	Recalls int
+	// Rewrites counts how many times an agent has revised the sentence, which
+	// separates a description that settled from one still being argued with.
+	Rewrites int
+	Updated  time.Time
+}
+
+// Described reports whether anything at all describes this repository.
+func (d RepositoryDescription) Described() bool { return d.Contents != "" }
+
+// RepositoryMap lists every configured repository with whatever currently
+// describes it, undescribed ones first: a hole is the only row on this page an
+// operator can do something about, so it should not be below the fold.
+func (r *Reader) RepositoryMap(
+	ctx context.Context,
+	configured map[string]config.Repository,
+) ([]RepositoryDescription, error) {
+	stored := map[string]RepositoryDescription{}
+	if r.live() {
+		rows, err := r.db.QueryContext(ctx, `
+		  SELECT m.scope_key, m.value_json, m.recall_count, m.updated_at,
+		         (SELECT COUNT(*) FROM memory_supersessions s WHERE s.entry_id = m.id)
+		  FROM memory_entries m
+		  WHERE m.scope_kind = 'repository' AND m.subject_key = ? AND m.predicate = 'guidance'`,
+			core.RepositoryContentsSubject,
+		)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var item RepositoryDescription
+			var updated string
+			if err := rows.Scan(
+				&item.Repository, &item.Contents, &item.Recalls, &updated, &item.Rewrites,
+			); err != nil {
+				return nil, err
+			}
+			item.Contents = strings.Trim(item.Contents, `"`)
+			item.Source, item.Updated = "agent", parseStamp(updated)
+			stored[item.Repository] = item
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	names := make([]string, 0, len(configured)+len(stored))
+	for name := range configured {
+		names = append(names, name)
+	}
+	// A companion an agent described but no repositories: entry configures is
+	// still part of the map. Omitting it would hide exactly the rows this
+	// feature exists to accumulate.
+	for name := range stored {
+		if _, ok := configured[name]; !ok {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	items := make([]RepositoryDescription, 0, len(names))
+	for _, name := range names {
+		if item, ok := stored[name]; ok {
+			items = append(items, item)
+			continue
+		}
+		item := RepositoryDescription{Repository: name}
+		if described := strings.TrimSpace(configured[name].Description); described != "" {
+			item.Contents, item.Source = described, "configured"
+		}
+		items = append(items, item)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return !items[i].Described() && items[j].Described()
+	})
+	return items, nil
+}
+
 // MemoryEntry is one saved operational fact.
 //
 // Recall count is shown because it is the only evidence that a memory is worth
@@ -963,7 +1057,9 @@ func (r *Reader) MemoryEntries(ctx context.Context) ([]MemoryEntry, error) {
 	         COALESCE((SELECT s.reason FROM memory_supersessions s
 	                   WHERE s.entry_id = m.id
 	                   ORDER BY s.created_at DESC LIMIT 1), '')
-	  FROM memory_entries m ORDER BY m.updated_at DESC LIMIT 100`)
+	  FROM memory_entries m
+	  WHERE m.subject_key != ?
+	  ORDER BY m.updated_at DESC LIMIT 100`, core.RepositoryContentsSubject)
 	if err != nil {
 		return nil, err
 	}

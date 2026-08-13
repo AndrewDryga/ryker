@@ -147,7 +147,7 @@ func TestEveryCounterRunsAgainstTheMigratedSchema(t *testing.T) {
 // no compile catches.
 func TestEveryPageRendersAgainstTheMigratedSchema(t *testing.T) {
 	reader := migratedReader(t)
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestLanesSeparatePollersFromActualWork(t *testing.T) {
 		t.Errorf("lane status = %q, error = %q", lane.Status, lane.Error)
 	}
 
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	handler, err := NewHandler(reader, "test", "53", "responder-abc", nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "53", "responder-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,7 +611,7 @@ func TestArtifactRouteServesRetainedBodiesAsInertText(t *testing.T) {
 	}
 	defer reader.Close()
 	handler, err := NewHandler(reader, "test", "70", "responder-abc",
-		func() bool { return true }, config.Pricing{}, nil)
+		func() bool { return true }, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

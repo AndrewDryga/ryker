@@ -232,13 +232,20 @@ func TestProgressCopyUsesPlainOperatorLanguage(t *testing.T) {
 }
 
 func TestRepositorySetPromptExplainsPinnedReadOnlyCompanions(t *testing.T) {
-	prompt := repositorySetPrompt(coop.Session{
+	session := coop.Session{
 		BaseCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Companions: []coop.CompanionRepository{{
 			Name:       "control-plane",
 			Path:       "/coop/repositories/control-plane",
 			BaseCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		}, {
+			Name:       "undocumented",
+			Path:       "/coop/repositories/undocumented",
+			BaseCommit: "cccccccccccccccccccccccccccccccccccccccc",
 		}},
+	}
+	prompt := repositorySetPrompt(session, map[string]string{
+		"control-plane": "Scheduler and runner control plane.",
 	})
 	for _, required := range []string{
 		"Primary working copy",
@@ -246,12 +253,26 @@ func TestRepositorySetPromptExplainsPinnedReadOnlyCompanions(t *testing.T) {
 		"Read-only companion `control-plane`",
 		"`/coop/repositories/control-plane`",
 		"pinned at `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`",
+		"Scheduler and runner control plane.",
 		"Reconcile across repositories",
 		"never try to edit them",
+		// A repository nobody has described has to say so. Silence reads as
+		// "there is nothing here", and the map's only route to being filled in
+		// is an agent noticing the hole while it already has the snapshot.
+		"No description is recorded for `undocumented`",
+		"record_repository_contents",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("repository-set prompt lacks %q:\n%s", required, prompt)
 		}
+	}
+	// A fully described set must not carry the prompt to describe anything.
+	described := repositorySetPrompt(session, map[string]string{
+		"control-plane": "Scheduler and runner control plane.",
+		"undocumented":  "Ad delivery service.",
+	})
+	if strings.Contains(described, "No description is recorded") {
+		t.Fatalf("described repository set still asks for descriptions:\n%s", described)
 	}
 }
 
@@ -351,7 +372,14 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // investigation's goal as though the room existed to answer it. The host now
 // drops a goal at channel scope, and these bytes stop the model spending a
 // field on something that will be discarded.
-const staticWatchPromptBytes = 48746
+// Raised by 540 on 2026-08-13 for record_repository_contents: one operation
+// example and three lines saying what the repository map may hold. It replaces
+// RESPONDER_WORKSPACE.md, a hand-maintained 3,092-byte index that the Coop
+// instructions told every cross-repository turn to read first and that had
+// drifted in both directions for two weeks. The prompt now carries a map
+// derived from the session's own pins, so the bytes bought a smaller total read
+// and a map that cannot go stale between deploys.
+const staticWatchPromptBytes = 49286
 
 // The static prompt must not grow without someone deciding it should.
 //

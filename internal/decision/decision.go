@@ -105,6 +105,11 @@ type WatchDecision struct {
 	Operations        []investigation.ResultOperation `json:"operations,omitempty"`
 	AppliedOperations []investigation.ResultOperation `json:"-"`
 
+	// RepositoryContents is derived from Operations on every parse, so it is not
+	// serialized: the operations array is the persisted shape and a second copy
+	// could disagree with it after a replay.
+	RepositoryContents []investigation.RepositoryContentsOperation `json:"-"`
+
 	// See AgentReport: these record whether the typed protocol was actually
 	// used, so the legacy path can be deleted on evidence rather than hope.
 	LegacyShape bool `json:"-"`
@@ -1332,8 +1337,9 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 		ruleOffer: &decision.RuleOffer, scheduleOffer: &decision.ScheduleOffer,
 		scheduleOffers: &decision.ScheduleOffers,
 		approval:       &decision.PendingApproval, alert: &decision.AlertAssessment,
-		completion:    &decision.Completion,
-		incidentTitle: &decision.IncidentTitle, taskTitle: &decision.TaskTitle,
+		completion:         &decision.Completion,
+		repositoryContents: &decision.RepositoryContents,
+		incidentTitle:      &decision.IncidentTitle, taskTitle: &decision.TaskTitle,
 		taskRepository: &decision.TaskRepository, taskPrompt: &decision.TaskPrompt,
 	}, &decision.AppliedOperations)
 	if err != nil {
@@ -1526,10 +1532,12 @@ type OperationTargets struct {
 	approval        **core.EmisarApproval
 	alert           **AlertAssessment
 	completion      **investigation.CompletionAssessment
-	incidentTitle   *string
-	taskTitle       *string
-	taskRepository  *string
-	taskPrompt      *string
+	// repositoryContents is optional: only the watch path collects it.
+	repositoryContents *[]investigation.RepositoryContentsOperation
+	incidentTitle      *string
+	taskTitle          *string
+	taskRepository     *string
+	taskPrompt         *string
 }
 
 func FoldResultOperations(operations []investigation.ResultOperation, target OperationTargets, applied *[]investigation.ResultOperation) error {
@@ -1570,6 +1578,16 @@ func foldResultOperations(
 			*target.evidence = append(*target.evidence, *operation.Evidence)
 		case "record_coverage":
 			*target.coverage = append(*target.coverage, *operation.Coverage)
+		case "record_repository_contents":
+			// Dropped rather than refused where nothing collects it, because the
+			// repository map is a side effect of the turn and not the answer.
+			// Failing a whole finalization over a note nobody asked for would
+			// cost the operator the reply.
+			if target.repositoryContents != nil {
+				*target.repositoryContents = append(
+					*target.repositoryContents, *operation.RepositoryContents,
+				)
+			}
 		case "report_progress":
 			// Progress is projected from the episode event stream. It is not copied
 			// into the final Slack report.

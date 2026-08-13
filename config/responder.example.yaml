@@ -136,6 +136,10 @@ memory:
 repositories:
   infrastructure:
     display_name: Infrastructure
+    # One sentence naming which part of the product lives here. It seeds the repository map an
+    # agent reads before cross-repository work; an agent that reads the repository replaces it
+    # with a repository_contents memory, so this only has to be right enough to start from.
+    description: Terraform, deployment definitions, and image-version pins for production.
     coop_policy: infrastructure-observe
     # Writable teammate tasks use a Coop policy with project_env/project_mcp disabled.
     contributor_policy: infrastructure-contributor

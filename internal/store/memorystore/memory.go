@@ -276,6 +276,35 @@ func (r *Repository) ListMemoryForContext(
 	return scanMemoryEntries(rows)
 }
 
+// ListRepositoryContents reads the one durable sentence per repository that
+// says which part of the product lives there, keyed by repository alias.
+//
+// It is fetched for the whole set at once because the repository map is
+// rendered for the whole set at once: sixteen single-row lookups per turn to
+// build one list is a cost with no reader.
+func (r *Repository) ListRepositoryContents(ctx context.Context) (map[string]string, error) {
+	rows, err := r.db.QueryContext(ctx, memorySelect+`
+		WHERE scope_kind = 'repository'
+		  AND subject_key = ?
+		  AND predicate = 'guidance'
+		  AND expires_at > ?`,
+		core.RepositoryContentsSubject, r.nowText(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries, err := scanMemoryEntries(rows)
+	if err != nil {
+		return nil, err
+	}
+	contents := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		contents[entry.ScopeKey] = entry.Value
+	}
+	return contents, nil
+}
+
 func (r *Repository) GetChannelRepositoryBinding(
 	ctx context.Context,
 	workspaceID string,

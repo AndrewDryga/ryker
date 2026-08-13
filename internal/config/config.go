@@ -226,7 +226,12 @@ type CoopConfig struct {
 }
 
 type Repository struct {
-	DisplayName        string `yaml:"display_name"`
+	DisplayName string `yaml:"display_name"`
+	// Description is one sentence naming which part of the product lives here.
+	// It seeds the repository map an agent reads before cross-repository work,
+	// and a repository_contents memory replaces it once an agent that has the
+	// snapshot mounted has read the repository and written a better one.
+	Description        string `yaml:"description"`
 	CoopPolicy         string `yaml:"coop_policy"`
 	ContributorPolicy  string `yaml:"contributor_policy"`
 	ConversationPolicy string `yaml:"conversation_policy"`

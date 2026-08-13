@@ -21,8 +21,10 @@ var (
 	evidenceSourcePolicy = agentprompt.EvidenceSourcePolicy
 )
 
-func CoopInstructions(configured string) string     { return agentprompt.CoopInstructions(configured) }
-func repositorySetPrompt(bound coop.Session) string { return agentprompt.RepositorySet(bound) }
+func CoopInstructions(configured string) string { return agentprompt.CoopInstructions(configured) }
+func repositorySetPrompt(bound coop.Session, contents map[string]string) string {
+	return agentprompt.RepositorySet(bound, contents)
+}
 func initialPrompt(instructions string, incident core.Incident, signals []core.Signal, prior string, contributorTask bool) (string, error) {
 	return agentprompt.Initial(instructions, incident, signals, prior, contributorTask)
 }

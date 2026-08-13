@@ -26,7 +26,12 @@ type Handler struct {
 	binary     string
 	ready      func() bool
 	pricing    config.Pricing
-	actions    Actions
+	// repositories is taken by value for the same reason as pricing: it is the
+	// operator's file, and the Memory page has to show a repository that has no
+	// description yet. A hole is the only thing on that page an operator can
+	// act on, and reading only the memory table cannot see one.
+	repositories map[string]config.Repository
+	actions      Actions
 }
 
 // NewHandler takes the price table by value from configuration: prices change
@@ -38,6 +43,7 @@ func NewHandler(
 	deployment, schema, binary string,
 	ready func() bool,
 	pricing config.Pricing,
+	repositories map[string]config.Repository,
 	actions Actions,
 ) (*Handler, error) {
 	render, err := NewRenderer()
@@ -50,7 +56,7 @@ func NewHandler(
 	return &Handler{
 		reader: reader, render: render, deployment: deployment,
 		schema: schema, binary: binary, ready: ready,
-		pricing: pricing, actions: actions,
+		pricing: pricing, repositories: repositories, actions: actions,
 	}, nil
 }
 
@@ -971,14 +977,26 @@ func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
 	conversations, _ := h.reader.Conversations(ctx)
 	rollups, _ := h.reader.Rollups(ctx)
 	review, _ := h.reader.MemoryReview(ctx)
+	repositories, _ := h.reader.RepositoryMap(ctx, h.repositories)
+	undescribed := 0
+	for _, repository := range repositories {
+		if !repository.Described() {
+			undescribed++
+		}
+	}
 	h.page(w, r, "memory", "memory", struct {
+		Repositories  []RepositoryDescription
+		Undescribed   int
 		Channels      []ChannelMemoryRow
 		Entries       []MemoryEntry
 		Conversations []Conversation
 		Rollups       []Rollup
 		Review        []ReviewItem
 		CanAct        bool
-	}{channels, entries, conversations, rollups, review, h.CanAct()})
+	}{
+		repositories, undescribed, channels, entries, conversations,
+		rollups, review, h.CanAct(),
+	})
 }
 
 // channels is the roster: every channel Responder has a footprint in, grouped

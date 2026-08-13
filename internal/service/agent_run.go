@@ -743,7 +743,9 @@ func (s *Service) prepareIncidentAgentRun(
 	if episodeErr != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, episodeErr, false)
 	}
-	requiredContext := prefixedPrompt(repositorySetPrompt(session)) + "\n\n" +
+	requiredContext := prefixedPrompt(
+		repositorySetPrompt(session, s.repositoryContentsForPrompt(ctx)),
+	) + "\n\n" +
 		WorkEpisodePrompt(episode) + s.episodeContinuityPrompt(ctx, episode) +
 		agentprompt.ToolTransport()
 	revision, err := s.store.FreezeAgentRunRevision(ctx, run.ID, session.Revision)
@@ -1078,7 +1080,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	// fixed guess. early is dropped when the conversation lane replaces the
 	// head, exactly as before; late always survives.
 	var early, late strings.Builder
-	early.WriteString("\n\n" + repositorySetPrompt(session))
+	early.WriteString("\n\n" + repositorySetPrompt(session, s.repositoryContentsForPrompt(ctx)))
 	if input.Kind == "bot_message" {
 		early.WriteString("\n\n<operational-burst>\nThis is the newest app update in a bounded " +
 			"operational burst. Reconcile every material app notice in the supplied recent " +
@@ -2968,6 +2970,13 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	if err := s.recordFeedbackOperations(
 		ctx, run, input, state, decision.AppliedOperations,
 	); err != nil {
+		return err
+	}
+	// Before applyWatchDecision, so a repository description is saved on the
+	// same terms as the rest of the turn's durable output rather than only when
+	// the turn also had something to say in Slack. A silenced turn still read
+	// the repository.
+	if err := s.applyRepositoryContents(ctx, run, decision); err != nil {
 		return err
 	}
 	if err := s.applyWatchDecision(ctx, input, state, decision, run); err != nil {

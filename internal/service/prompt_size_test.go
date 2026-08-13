@@ -45,7 +45,16 @@ var promptCeilings = map[string]int{
 	// slices had just saved. Net for the day is 113 bytes; the budget bought
 	// two behaviours instead of context, which is the right way round when the
 	// context was being spent on unreadable answers.
-	"watch-operator": 47 * 1024,
+	//
+	// Raised to 48 KiB on 2026-08-13 for record_repository_contents and the
+	// repository map it maintains. This is a rare raise that buys context back
+	// rather than spending it: the map it replaces was a 3,092-byte file in a
+	// business repository that the instructions told every cross-repository
+	// turn to open first, so the old arrangement cost more than this and was
+	// wrong besides — it named nine repositories Coop never mounted and omitted
+	// six it did. 231 bytes of contract, against a file read that no longer
+	// happens and a map that can no longer disagree with the pins.
+	"watch-operator": 48 * 1024,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {
