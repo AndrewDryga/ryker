@@ -602,7 +602,7 @@ func (c *Client) post(
 ) (string, error) {
 	options := []slack.MsgOption{
 		slack.MsgOptionText(message.Text, false),
-		slack.MsgOptionBlocks(message.Blocks()...),
+		messageBlocks(message),
 		slack.MsgOptionDisableLinkUnfurl(),
 		slack.MsgOptionDisableMediaUnfurl(),
 		slack.MsgOptionMetadata(slack.SlackMetadata{
@@ -630,11 +630,31 @@ func (c *Client) PostEphemeral(
 		channel,
 		user,
 		slack.MsgOptionText(message.Text, false),
-		slack.MsgOptionBlocks(message.Blocks()...),
+		messageBlocks(message),
 		slack.MsgOptionDisableLinkUnfurl(),
 		slack.MsgOptionDisableMediaUnfurl(),
 	)
 	return err
+}
+
+// messageBlocks is the one place the custody stripe reaches Slack.
+//
+// A bot cannot colour a block; the only tint it owns is an attachment's, so a
+// striped card ships as a single attachment holding the entire block set rather
+// than as blocks beside one. attachments[].color is legacy and Slack has
+// published no sunset for it, which is a dependency worth taking for the
+// affordance — and it is confined to this function, so dropping it later is one
+// edit rather than sixty-seven. Without a stripe the payload is byte-identical
+// to what it always was.
+func messageBlocks(message Message) slack.MsgOption {
+	blocks := message.Blocks()
+	if message.Stripe == "" {
+		return slack.MsgOptionBlocks(blocks...)
+	}
+	return slack.MsgOptionAttachments(slack.Attachment{
+		Color:  message.Stripe,
+		Blocks: slack.Blocks{BlockSet: blocks},
+	})
 }
 
 func (c *Client) Update(ctx context.Context, channel, timestamp string, message Message) error {
@@ -643,7 +663,7 @@ func (c *Client) Update(ctx context.Context, channel, timestamp string, message 
 		channel,
 		timestamp,
 		slack.MsgOptionText(message.Text, false),
-		slack.MsgOptionBlocks(message.Blocks()...),
+		messageBlocks(message),
 		slack.MsgOptionDisableLinkUnfurl(),
 		slack.MsgOptionDisableMediaUnfurl(),
 	)

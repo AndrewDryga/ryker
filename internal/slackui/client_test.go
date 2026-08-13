@@ -3,10 +3,12 @@ package slackui
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -702,5 +704,91 @@ func TestDialSocketModeCompletesWebSocketHandshake(t *testing.T) {
 	websocketURL := "ws" + strings.TrimPrefix(server.URL, "http")
 	if err := dialSocketMode(context.Background(), websocketURL); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Colour is the one affordance Slack gives a bot for saying whose turn it is,
+// and it lives on an attachment rather than on a block. A striped card
+// therefore ships as a single attachment holding the entire block set — and a
+// card without a stripe has to keep shipping exactly the payload it always did,
+// because every existing surface is one.
+func TestCustodyStripeShipsTheCardAsOneColouredAttachment(t *testing.T) {
+	type call struct {
+		path string
+		form url.Values
+	}
+	var calls []call
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		calls = append(calls, call{path: r.URL.Path, form: r.Form})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"ok":true,"channel":"C123","ts":"1700.1"}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+
+	striped := Message{
+		Text:   "Working — VA1: prevent reload-driven Traefik OOM recurrence",
+		Header: "⚙️ VA1: prevent reload-driven Traefik OOM recurrence",
+		Stripe: StripeWorking,
+		Ledger: []LedgerStep{{Label: "Making changes", Current: true, When: "2m"}},
+	}
+	plain := Message{Text: "Merged.", Header: "VA1", Sections: []string{"Draft PR #482 merged."}}
+	ctx := context.Background()
+	if _, err := client.Post(ctx, "d1", "C123", "", striped); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Post(ctx, "d2", "C123", "", plain); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Update(ctx, "C123", "1700.1", striped); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("expected two posts and an update, got %d calls", len(calls))
+	}
+
+	blocks, err := json.Marshal(slack.Blocks{BlockSet: striped.Blocks()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range []call{calls[0], calls[2]} {
+		if call.form.Get("blocks") != "" {
+			t.Errorf("%s sent bare blocks beside the attachment: %s", call.path, call.form.Get("blocks"))
+		}
+		var attachments []struct {
+			Color  string          `json:"color"`
+			Blocks json.RawMessage `json:"blocks"`
+		}
+		if err := json.Unmarshal([]byte(call.form.Get("attachments")), &attachments); err != nil {
+			t.Fatalf("%s attachments = %q: %v", call.path, call.form.Get("attachments"), err)
+		}
+		if len(attachments) != 1 {
+			t.Fatalf("%s sent %d attachments; the card is one striped block set", call.path, len(attachments))
+		}
+		if attachments[0].Color != StripeWorking {
+			t.Errorf("%s attachment colour = %q, want %q", call.path, attachments[0].Color, StripeWorking)
+		}
+		if string(attachments[0].Blocks) != string(blocks) {
+			t.Errorf("%s attachment blocks = %s, want %s", call.path, attachments[0].Blocks, blocks)
+		}
+		// Notifications and the sidebar strip the colour, so the fallback
+		// still has to lead with the state word.
+		if call.form.Get("text") != striped.Text {
+			t.Errorf("%s fallback text = %q", call.path, call.form.Get("text"))
+		}
+	}
+
+	if attachments := calls[1].form.Get("attachments"); attachments != "" {
+		t.Errorf("an unstriped card grew an attachment: %s", attachments)
+	}
+	if blocks := calls[1].form.Get("blocks"); !strings.Contains(blocks, `"type":"header"`) {
+		t.Errorf("an unstriped card no longer sends its blocks: %s", blocks)
 	}
 }

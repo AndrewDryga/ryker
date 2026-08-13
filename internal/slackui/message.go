@@ -99,6 +99,37 @@ const (
 	ActionCommandAllIncidents      = "responder_command_incidents_all"
 	ActionCommandPreviousIncidents = "responder_command_incidents_previous"
 	ActionCommandNextIncidents     = "responder_command_incidents_next"
+
+	// ActionOverflow is the id every overflow menu carries. One id for every
+	// menu on purpose: which item was chosen travels in the option value, the
+	// same way a repeated button's row travels in its value, so routing needs
+	// one entry rather than one per card.
+	ActionOverflow = "responder_overflow"
+)
+
+// Custody colours. The stripe answers one question — whose turn is it — and it
+// is never a status taxonomy: queued, investigating and finishing all wear
+// amber, because in all three the operator is waiting on Emisar and that is the
+// only thing the colour is allowed to say.
+//
+// Colour never travels alone. A card that sets a stripe also states the glyph
+// and the word, because notifications, the sidebar, and a colourblind reader
+// all get the text and none of them get the stripe.
+const (
+	StripeWorking  = "#FAB219" // Emisar has it
+	StripeNeedsYou = "#EC835A" // you have it
+	StripeFailed   = "#D03B3B" // it stopped unexpectedly
+	StripeDone     = "#0CA30C" // done, nothing outstanding
+	StripeIdle     = "#8E9296" // parked, informational, nobody is waiting
+)
+
+// Activity kinds. The window shows what the agent is doing right now; the kind
+// picks the glyph, and an unrecognised one still renders rather than shifting
+// every column to the left.
+const (
+	ActivityThinking = "thinking"
+	ActivityTool     = "tool"
+	ActivityEdit     = "edit"
 )
 
 var (
@@ -113,8 +144,12 @@ var (
 	slackMentionPattern = regexp.MustCompile(`<(?:@[A-Z0-9]+|![^>]+)>`)
 	// <https://host/path|Label> renders as Label. A work title is often the
 	// Slack message that started it, so it arrives full of these.
-	slackLinkTextPattern      = regexp.MustCompile(`<https?://[^|>]+\|([^>]*)>`)
-	bareURLPattern            = regexp.MustCompile(`<?https?://[^\s|>]+>?`)
+	slackLinkTextPattern = regexp.MustCompile(`<https?://[^|>]+\|([^>]*)>`)
+	bareURLPattern       = regexp.MustCompile(`<?https?://[^\s|>]+>?`)
+	// An Emisar pack ref arrives as `name@version/sha256:<64 hex>`. The digest
+	// is what makes the reference immutable and what makes it unreadable, and
+	// the version before it already identifies the pack to a person.
+	packDigestPattern         = regexp.MustCompile(`/sha256:[0-9a-f]{8,}`)
 	scheduleCommitmentPattern = regexp.MustCompile(`(?i)^\s*i(?:['’]ll| will)\s+`)
 )
 
@@ -136,6 +171,62 @@ type Message struct {
 	Fields  []Field  `json:"fields,omitempty"`
 	Context []string `json:"context,omitempty"`
 	Actions []Action `json:"actions,omitempty"`
+	// Stripe is the custody colour, applied by client.go rather than by
+	// Blocks: colour lives on an attachment, which is the one thing a bot can
+	// tint and the one thing that is not a block. Empty renders as before.
+	Stripe string `json:"stripe,omitempty"`
+	// Ledger states where a run has got to by position instead of by
+	// adjective, so "step 4 of 5" is read rather than inferred from prose.
+	Ledger []LedgerStep `json:"ledger,omitempty"`
+	// Activity is the live window onto the turn. It exists because the model's
+	// own progress prose is structurally thin — "Still working", twice, byte
+	// for byte — while the tool calls underneath it are specific and already
+	// recorded. Newest first; the renderer keeps three.
+	Activity []ActivityLine `json:"activity,omitempty"`
+	Chips    []Chip         `json:"chips,omitempty"`
+	// Overflow holds the controls that did not earn a button. Slack shows them
+	// behind ⋯, which keeps the bottom row at the few actions worth pressing.
+	Overflow []Action `json:"overflow,omitempty"`
+}
+
+// LedgerStep is one step of a run.
+//
+// When and Owner are the same column: a finished step says when it finished, an
+// unstarted one says who it is waiting for ("Review & merge — yours"), and no
+// step needs both. Children are the checks under a running step, not steps of
+// their own.
+type LedgerStep struct {
+	Glyph  string `json:"glyph,omitempty"`
+	Label  string `json:"label"`
+	Detail string `json:"detail,omitempty"`
+	When   string `json:"when,omitempty"`
+	Owner  string `json:"owner,omitempty"`
+	// Current marks where the run is now. It picks the glyph when the caller
+	// did not supply one, so the mark survives a caller that only knows the
+	// order of its steps.
+	Current  bool         `json:"current,omitempty"`
+	Children []LedgerStep `json:"children,omitempty"`
+}
+
+// ActivityLine is one entry in the live window: a reasoning summary title, a
+// tool call, or a file edit. Never raw thinking — the title is the whole of
+// what the model's reasoning is allowed to say in Slack.
+type ActivityLine struct {
+	Kind   string `json:"kind,omitempty"`
+	Title  string `json:"title"`
+	Target string `json:"target,omitempty"`
+}
+
+// Chip is one counter in the card's context line.
+//
+// Live marks a value that moves while the card is open (`last activity 6s
+// ago`). It changes nothing about the rendering — Slack has no live text, and a
+// chip that looked animated while only moving on rewrite would lie about
+// freshness — so it is stored for the caller deciding what to refresh.
+type Chip struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Live  bool   `json:"live,omitempty"`
 }
 
 // Row is one item in a list, with the controls that act on that item.
@@ -249,6 +340,12 @@ func (m Message) Blocks() []slack.Block {
 		}
 		emitRows(index + 1)
 	}
+	if block := preformattedBlock(ledgerLines(m.Ledger, 0)); block != nil {
+		blocks = append(blocks, block)
+	}
+	if block := preformattedBlock(activityLines(m.Activity)); block != nil {
+		blocks = append(blocks, block)
+	}
 	// Slack allows ten fields in a section and rejects the whole surface over
 	// that, which is how the App Home came to publish nothing at all: the
 	// dashboard carries a dozen counters, so every view it ever built was
@@ -266,6 +363,14 @@ func (m Message) Blocks() []slack.Block {
 		}
 		blocks = append(blocks, slack.NewSectionBlock(nil, fields, nil))
 	}
+	// Chips are counters, so they sit above the footer rather than in it: the
+	// footer states identifiers and boundaries, which do not change, and a
+	// reader who has learned to skip that line would skip the counters too.
+	if line := chipLine(m.Chips); line != "" {
+		blocks = append(blocks, slack.NewContextBlock("",
+			slack.NewTextBlockObject(slack.MarkdownType, line, false, true),
+		))
+	}
 	if len(m.Context) > 0 {
 		elements := make([]slack.MixedElement, 0, len(m.Context))
 		for _, text := range m.Context {
@@ -275,15 +380,29 @@ func (m Message) Blocks() []slack.Block {
 		}
 		blocks = append(blocks, slack.NewContextBlock("", elements...))
 	}
-	if len(m.Actions) > 0 {
+	if len(m.Actions) > 0 || len(m.Overflow) > 0 {
 		blocks = append(blocks, slack.NewDividerBlock())
+		actionBlocks := make([]*slack.ActionBlock, 0, len(m.Actions)/4+1)
 		for begin := 0; begin < len(m.Actions); begin += 4 {
 			stop := min(begin+4, len(m.Actions))
 			elements := buttonElements(m.Actions[begin:stop], occurrences)
 			if len(elements) == 0 {
 				continue
 			}
-			blocks = append(blocks, slack.NewActionBlock("", elements...))
+			actionBlocks = append(actionBlocks, slack.NewActionBlock("", elements...))
+		}
+		// The menu belongs beside the buttons it is the remainder of, so it
+		// joins the last row rather than starting one of its own.
+		if overflow := overflowElement(m.Overflow, occurrences); overflow != nil {
+			if len(actionBlocks) == 0 {
+				actionBlocks = append(actionBlocks, slack.NewActionBlock("", overflow))
+			} else {
+				last := actionBlocks[len(actionBlocks)-1]
+				last.Elements.ElementSet = append(last.Elements.ElementSet, overflow)
+			}
+		}
+		for _, block := range actionBlocks {
+			blocks = append(blocks, block)
 		}
 	}
 	return blocks
@@ -328,6 +447,287 @@ func buttonElements(actions []Action, occurrences map[string]int) []slack.BlockE
 		elements = append(elements, button)
 	}
 	return elements
+}
+
+// overflowElement renders the ⋯ menu.
+//
+// Slack sends the menu's action_id and the chosen option's value, and nothing
+// about which option object it came from, so the value carries the target the
+// same way a repeated button's value does. Each option's own Action.ID is
+// therefore unused; it stays on the struct because callers build overflow
+// entries from the same Action they would have made a button from.
+//
+// There is no per-option confirmation in Block Kit. The element takes a single
+// confirm dialog, which would then guard every option including the harmless
+// ones and teach the operator to dismiss it — so an overflow holds only
+// reversible or read-only actions, and anything that destroys retained work
+// stays on a button with its own confirm, or moves into a modal.
+func overflowElement(actions []Action, occurrences map[string]int) *slack.OverflowBlockElement {
+	options := make([]*slack.OptionBlockObject, 0, len(actions))
+	for _, action := range actions {
+		if action.Label == "" {
+			continue
+		}
+		// Slack accepts at most five options and rejects the message over
+		// that. Unlike fields there is nothing to chunk into — a second menu
+		// would be a second ⋯ with no way to tell them apart — so the bound is
+		// the caller's to respect, and this only stops the delivery failure.
+		if len(options) == 5 {
+			break
+		}
+		options = append(options, slack.NewOptionBlockObject(
+			action.Value,
+			slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Label, 75), false, false),
+			nil,
+		))
+	}
+	if len(options) == 0 {
+		return nil
+	}
+	actionID := ActionOverflow
+	occurrences[ActionOverflow]++
+	if seen := occurrences[ActionOverflow]; seen > 1 {
+		actionID = fmt.Sprintf("%s%s%d", ActionOverflow, ActionInstanceSeparator, seen)
+	}
+	return slack.NewOverflowBlockElement(actionID, options...)
+}
+
+// A monospace strip is the only place a card can hold columns, and Slack wraps
+// a long line rather than scrolling it: the overflow lands under the glyph
+// column and the alignment that made the strip scannable is gone. So the strips
+// truncate to a width that survives a phone in portrait instead of letting
+// Slack choose where to break. The bound is load-bearing rather than tidy — a
+// real pack ref carries a 64-character digest and a PromQL expression has no
+// bound at all.
+const monospaceLineRunes = 46
+
+// Children sit five spaces in: far enough that a check reads as belonging to
+// the step above it, near enough that it is still the same instrument.
+const ledgerChildIndent = 5
+
+type monoRow struct{ glyph, label, detail, right string }
+
+// monoLines lays rows out in columns separated by a two-space gutter, shrinking
+// the columns until the widest line fits.
+//
+// Detail gives way before Label, because a label names the step and a detail
+// only qualifies it, and the glyph column never yields at all — losing the
+// glyph would cost the reader the state itself, which is the one thing the
+// strip exists to show.
+func monoLines(rows []monoRow, limit int) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	var glyphWidth, labelWidth, detailWidth, rightWidth int
+	for _, row := range rows {
+		glyphWidth = max(glyphWidth, utf8.RuneCountInString(row.glyph))
+		// A cell only claims a column when something follows it on its line.
+		// Otherwise the one long reasoning summary in a window — "Planning
+		// PromQL queries for request rates" — would set the width every tool
+		// call underneath it has to live with, and squeeze their targets, the
+		// part that says which tool it actually was, down to an ellipsis.
+		if row.detail != "" || row.right != "" {
+			labelWidth = max(labelWidth, utf8.RuneCountInString(row.label))
+		}
+		detailWidth = max(detailWidth, utf8.RuneCountInString(row.detail))
+		rightWidth = max(rightWidth, utf8.RuneCountInString(row.right))
+	}
+	glyphWidth = max(glyphWidth, 1)
+	width := func(label, detail int) int {
+		total := glyphWidth + 2 + label
+		if detail > 0 {
+			total += 2 + detail
+		}
+		if rightWidth > 0 {
+			total += 2 + rightWidth
+		}
+		return total
+	}
+	if over := width(labelWidth, detailWidth) - limit; over > 0 && detailWidth > 0 {
+		detailWidth = max(1, detailWidth-over)
+	}
+	if over := width(labelWidth, detailWidth) - limit; over > 0 {
+		labelWidth = max(1, labelWidth-over)
+	}
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		var line strings.Builder
+		line.WriteString(padRunes(row.glyph, glyphWidth))
+		line.WriteString("  ")
+		if row.detail == "" && row.right == "" {
+			// Nothing follows, so the label keeps its own length and only the
+			// line bound applies to it.
+			lines = append(lines, truncateRunes(strings.TrimRight(line.String()+row.label, " "), limit))
+			continue
+		}
+		line.WriteString(padRunes(truncateRunes(row.label, labelWidth), labelWidth))
+		if detailWidth > 0 {
+			line.WriteString("  ")
+			line.WriteString(padRunes(truncateRunes(row.detail, detailWidth), detailWidth))
+		}
+		if rightWidth > 0 {
+			line.WriteString("  ")
+			line.WriteString(row.right)
+		}
+		// The right column is the answer to "when" or "whose", so it is never
+		// shrunk with the others; the line bound still applies to it last.
+		lines = append(lines, truncateRunes(strings.TrimRight(line.String(), " "), limit))
+	}
+	return lines
+}
+
+func padRunes(value string, width int) string {
+	if pad := width - utf8.RuneCountInString(value); pad > 0 {
+		return value + strings.Repeat(" ", pad)
+	}
+	return value
+}
+
+// truncateRunes cuts by rune rather than by byte, because these lines are
+// measured in columns: core.TruncateUTF8 bounds a payload, this bounds a shape.
+// The ellipsis costs one of them and is worth it — a silently clipped tool
+// target reads as a different tool.
+func truncateRunes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(value) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	return strings.TrimRight(string(runes[:limit-1]), " ") + "…"
+}
+
+// preformattedBlock renders literal, already-bounded lines.
+//
+// rich_text_preformatted rather than a fenced section because Slack never
+// parses its text as mrkdwn: a model-written activity title cannot open a link,
+// a mention, or a code fence out of a strip it is only supposed to describe.
+// slack-go v0.22.0 ships no constructor for the element — only NewRichTextBlock
+// and the section elements — so the struct literal is the supported form.
+func preformattedBlock(lines []string) slack.Block {
+	if len(lines) == 0 {
+		return nil
+	}
+	return slack.NewRichTextBlock("", &slack.RichTextPreformatted{
+		Type: slack.RTEPreformatted,
+		Elements: []slack.RichTextSectionElement{
+			slack.NewRichTextSectionTextElement(strings.Join(lines, "\n"), nil),
+		},
+	})
+}
+
+func ledgerLines(steps []LedgerStep, indent int) []string {
+	limit := monospaceLineRunes - indent
+	// Nesting deeper than the strip is wide has nothing left to say.
+	if len(steps) == 0 || limit < 8 {
+		return nil
+	}
+	rows := make([]monoRow, 0, len(steps))
+	for _, step := range steps {
+		rows = append(rows, monoRow{
+			glyph:  ledgerGlyph(step),
+			label:  step.Label,
+			detail: step.Detail,
+			right:  firstNonemptyUI(step.When, step.Owner),
+		})
+	}
+	aligned := monoLines(rows, limit)
+	prefix := strings.Repeat(" ", indent)
+	lines := make([]string, 0, len(aligned))
+	for index, line := range aligned {
+		lines = append(lines, prefix+line)
+		// A child group aligns against its siblings, not against the steps
+		// above it: the checks under "Draft PR" are their own small table.
+		lines = append(lines, ledgerLines(steps[index].Children, indent+ledgerChildIndent)...)
+	}
+	return lines
+}
+
+func ledgerGlyph(step LedgerStep) string {
+	switch {
+	case step.Glyph != "":
+		return step.Glyph
+	case step.Current:
+		return "▸"
+	default:
+		return "·"
+	}
+}
+
+// activityLines keeps the first three entries. Callers pass newest first, and
+// the window is a window: a fourth line would push the card taller every turn,
+// and the card is a fixed-height instrument that is rewritten, never extended.
+func activityLines(activity []ActivityLine) []string {
+	if len(activity) == 0 {
+		return nil
+	}
+	rows := make([]monoRow, 0, 3)
+	for _, line := range activity[:min(len(activity), 3)] {
+		rows = append(rows, monoRow{
+			glyph:  activityGlyph(line.Kind),
+			label:  activityText(line.Title),
+			detail: activityText(line.Target),
+		})
+	}
+	return monoLines(rows, monospaceLineRunes)
+}
+
+func activityGlyph(kind string) string {
+	switch kind {
+	case ActivityThinking:
+		return "🧠"
+	case ActivityTool:
+		return "⚡"
+	case ActivityEdit:
+		return "✏"
+	default:
+		return "·"
+	}
+}
+
+// activityText is the sanitizer boundary for the live window.
+//
+// Every string here comes from an agent transcript rather than from this
+// package, so it is treated as hostile: ANSI escapes and credential shapes go
+// first, then the digest a pack ref drags behind it, then the line breaks that
+// would let one entry occupy the whole strip. Sanitizer.Text is a method on an
+// instance the renderer does not have, so the shared patterns are applied
+// directly — the renderer is the last place this text can be caught.
+func activityText(value string) string {
+	value = ansiPattern.ReplaceAllString(value, "")
+	for _, pattern := range tokenPatterns {
+		value = pattern.ReplaceAllString(value, "[REDACTED]")
+	}
+	// `victoriametrics@0.1.7/sha256:2cb5c…` says nothing the version did not
+	// already say, and it is 71 of the 46 characters a line has.
+	value = packDigestPattern.ReplaceAllString(value, "")
+	return singleLine(value)
+}
+
+// chipLine renders the counters as one context line. Bold on the value because
+// the label is the constant and the number is the news.
+func chipLine(chips []Chip) string {
+	if len(chips) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(chips))
+	for _, chip := range chips {
+		switch {
+		case chip.Label != "" && chip.Value != "":
+			// One asterisk: Slack's mrkdwn bold is not Markdown's, and `**x**`
+			// renders the asterisks.
+			parts = append(parts, chip.Label+" *"+chip.Value+"*")
+		case chip.Value != "":
+			parts = append(parts, "*"+chip.Value+"*")
+		case chip.Label != "":
+			parts = append(parts, chip.Label)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return truncateUTF8(strings.Join(parts, " · "), 500)
 }
 
 func (m Message) FileBlocks() []slack.Block {
@@ -463,6 +863,24 @@ func shortSHA(value string) string {
 		return value[:12]
 	}
 	return value
+}
+
+// slackDate renders a wall time in the reader's own timezone.
+//
+// Responder runs in UTC and the people reading it do not, so every absolute
+// time in a card body has been asking its reader to do arithmetic. Slack does
+// that conversion client-side from this token; the fallback after the pipe is
+// what a client that cannot renders instead, and it stays UTC because it is
+// also what the message looks like in a log or an export.
+func slackDate(t time.Time, fallbackLayout string) string {
+	if t.IsZero() {
+		return ""
+	}
+	return fmt.Sprintf(
+		"<!date^%d^{date_short_pretty} at {time}|%s>",
+		t.Unix(),
+		t.UTC().Format(fallbackLayout),
+	)
 }
 
 func WithRepositoryGateRecommendation(message Message) Message {
