@@ -385,14 +385,16 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		ChannelID: "COPS", SourceInput: "slack_once", Mode: "live",
 		Action: "reply", Reason: "explicit question",
 	}
+	// The witness is the situation rather than the goal: a channel's memory
+	// carries no goal, because an objective belongs to the thread pursuing it.
 	applied, err := st.Intelligence.ApplyWatchDecision(ctx, decision, "investigation", 9, core.AgentMemory{
-		Goal: "Answer the explicit question",
+		SituationSummary: "Answering the explicit question",
 	})
 	if err != nil || !applied {
 		t.Fatalf("apply watch decision = %t, %v", applied, err)
 	}
 	applied, err = st.Intelligence.ApplyWatchDecision(ctx, decision, "investigation", 10, core.AgentMemory{
-		Goal: "duplicate must not replace memory",
+		SituationSummary: "duplicate must not replace memory",
 	})
 	if err != nil || applied {
 		t.Fatalf("replay watch decision = %t, %v", applied, err)
@@ -402,8 +404,11 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if memory.TurnCount != 2 || memory.SessionRevision != 9 ||
-		memory.State.Goal != "Answer the explicit question" {
+		memory.State.SituationSummary != "Answering the explicit question" {
 		t.Fatalf("idempotent watch memory = %+v", memory)
+	}
+	if memory.State.Goal != "" {
+		t.Fatalf("the channel's memory kept a goal: %+v", memory.State)
 	}
 
 	observed := time.Now().UTC().Add(-30 * time.Second)
@@ -464,6 +469,67 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		len(timeline[0].EvidenceIDs) != 1 ||
 		timeline[0].EvidenceIDs[0] != items[0].ID {
 		t.Fatalf("timeline = %+v, %v", timeline, err)
+	}
+}
+
+// A model names its evidence with stable slugs and reuses them from one
+// episode to the next. The id it picks is not unique, so a later episode has to
+// be able to store its own evidence under that slug — and be told which row it
+// actually got. This used to read back nothing and fail the batch with a bare
+// "sql: no rows in result set", which failed finalization on every retry and
+// left a finished investigation with no reply in Slack.
+func TestRecordEvidenceStoresASlugAnEarlierEpisodeAlreadyClaimed(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	yesterday := core.Evidence{
+		ChannelID: "COPS", SourceInput: "slack_yesterday", ID: "evidence-postapply-runtime",
+		ClaimID:     "change.recent",
+		Claim:       "Both observed production Portal runtimes were responsive after the apply.",
+		Observation: "Two runners returned release 0.38.0.",
+		SourceType:  "emisar", SourceName: "Portal runtime status via Emisar",
+	}
+	first, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{yesterday})
+	if err != nil || len(first) != 1 || first[0].ID != "evidence-postapply-runtime" {
+		t.Fatalf("first episode evidence = %+v, %v", first, err)
+	}
+
+	today := core.Evidence{
+		ChannelID: "COPS", SourceInput: "slack_today", ID: "evidence-postapply-runtime",
+		ClaimID:     "change.recent",
+		Claim:       "Both replacement Portal runtimes were responsive after the apply.",
+		Observation: "Two runners returned release 0.39.0.",
+		SourceType:  "emisar", SourceName: "Portal runtime status via Emisar",
+	}
+	second, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{today})
+	if err != nil || len(second) != 1 {
+		t.Fatalf("second episode evidence = %+v, %v", second, err)
+	}
+	if second[0].ID == first[0].ID {
+		t.Fatalf("reused slug kept a claimed id = %q", second[0].ID)
+	}
+
+	// Replaying the same turn is what a finalization retry does. It has to
+	// resolve to the row the first attempt wrote, not add another one.
+	replayed, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{today})
+	if err != nil || len(replayed) != 1 || replayed[0].ID != second[0].ID {
+		t.Fatalf("replayed evidence = %+v, %v", replayed, err)
+	}
+
+	stored, err := st.Intelligence.ListEvidence(ctx, "", "COPS", 10)
+	if err != nil || len(stored) != 2 {
+		t.Fatalf("stored evidence = %+v, %v", stored, err)
+	}
+	claims := map[string]string{}
+	for _, item := range stored {
+		claims[item.ID] = item.Claim
+	}
+	if claims[first[0].ID] != yesterday.Claim || claims[second[0].ID] != today.Claim {
+		t.Fatalf("stored claims = %+v", claims)
 	}
 }
 

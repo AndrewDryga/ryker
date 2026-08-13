@@ -2,7 +2,9 @@ package intelligencestore
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -377,6 +379,12 @@ func (r *Repository) ApplyWatchDecision(
 	if decision.CreatedAt.IsZero() {
 		decision.CreatedAt = r.now().UTC()
 	}
+	// The channel's own row carries no goal. Written at the one point every
+	// watch decision passes through, so a future write path cannot reintroduce
+	// a thread's objective as the room's.
+	if decision.ThreadTS == "" {
+		state = state.WithoutThreadScope()
+	}
 	encodedMemory, err := json.Marshal(state)
 	if err != nil {
 		return false, err
@@ -681,34 +689,50 @@ func (r *Repository) RecordEvidence(ctx context.Context, evidence []core.Evidenc
 		default:
 			return nil, fmt.Errorf("unsupported evidence health_effect %q", item.HealthEffect)
 		}
-		insert, err := tx.ExecContext(ctx, `
-			INSERT OR IGNORE INTO evidence
-			  (id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, health_effect, source_type,
-			   source_id, source_name, source_url, target, scope_note, freshness, confidence, observed_at,
-			   valid_until, dimensions_json, metadata_json, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			item.ID, item.IncidentID, item.ChannelID, item.SourceInput, item.ClaimID, item.Claim,
-			item.Observation, item.Relation, item.HealthEffect, item.SourceType, item.SourceID, item.SourceName, item.SourceURL, item.Target, item.ScopeNote,
-			item.Freshness, item.Confidence, sqlutil.TimeText(item.ObservedAt), sqlutil.TimeText(item.ValidUntil), dimensions, metadata,
-			item.CreatedAt.UTC().Format(core.TimestampFormat),
-		)
+		// INSERT OR IGNORE hides a conflict on either uniqueness key this table
+		// carries: the primary key, and the partial unique index over
+		// (source_input, claim, source_name, target). Only the second one means
+		// "this exact evidence is already stored". The first can equally mean a
+		// different source input already claimed the id.
+		//
+		// Models name evidence with stable slugs — evidence-plan,
+		// evidence-postapply-runtime — and reuse them across episodes. While the
+		// recovery lookup knew only the source key, a reused slug read back
+		// nothing and returned a bare "sql: no rows in result set", which rolled
+		// the whole batch back and failed finalization identically on every
+		// retry. The investigation had already succeeded; the answer was
+		// complete, correct, and never reached Slack, because an episode from
+		// the day before owned the id.
+		inserted, err := insertEvidenceTx(ctx, tx, item, dimensions, metadata)
 		if err != nil {
 			return nil, err
 		}
-		rows, err := insert.RowsAffected()
-		if err != nil {
-			return nil, err
-		}
-		if rows == 0 && item.SourceInput != "" {
-			var created string
-			if err := tx.QueryRowContext(ctx, `
-				SELECT id, created_at FROM evidence
-				WHERE source_input = ? AND claim = ? AND source_name = ? AND target = ?`,
-				item.SourceInput, item.Claim, item.SourceName, item.Target,
-			).Scan(&item.ID, &created); err != nil {
+		if !inserted && item.SourceInput != "" {
+			_, stored, err := storedEvidenceTx(ctx, tx, item)
+			if err != nil {
 				return nil, err
 			}
-			item.CreatedAt = sqlutil.ParseTime(created)
+			if !stored {
+				// Nothing answers the source key, so the primary key belongs to
+				// another source input and this evidence is not stored yet.
+				// Deriving the id from the source makes it unique per episode
+				// while still landing a retry of this turn on the same row.
+				item.ID = sourceScopedEvidenceID(item.SourceInput, item.ID)
+				if _, err := insertEvidenceTx(ctx, tx, item, dimensions, metadata); err != nil {
+					return nil, err
+				}
+			}
+			existing, stored, err := storedEvidenceTx(ctx, tx, item)
+			if err != nil {
+				return nil, err
+			}
+			if !stored {
+				return nil, fmt.Errorf(
+					"evidence %q conflicts with a stored row that no lookup key matches",
+					item.ID,
+				)
+			}
+			item.ID, item.CreatedAt = existing.ID, existing.CreatedAt
 		}
 		result = append(result, item)
 	}
@@ -716,6 +740,68 @@ func (r *Repository) RecordEvidence(ctx context.Context, evidence []core.Evidenc
 		return nil, err
 	}
 	return result, nil
+}
+
+// insertEvidenceTx stores one evidence row and reports whether it landed. A
+// false return means some uniqueness key already holds it; which one is the
+// caller's question to answer.
+func insertEvidenceTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	item core.Evidence,
+	dimensions, metadata []byte,
+) (bool, error) {
+	insert, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO evidence
+		  (id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, health_effect, source_type,
+		   source_id, source_name, source_url, target, scope_note, freshness, confidence, observed_at,
+		   valid_until, dimensions_json, metadata_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.ID, item.IncidentID, item.ChannelID, item.SourceInput, item.ClaimID, item.Claim,
+		item.Observation, item.Relation, item.HealthEffect, item.SourceType, item.SourceID, item.SourceName, item.SourceURL, item.Target, item.ScopeNote,
+		item.Freshness, item.Confidence, sqlutil.TimeText(item.ObservedAt), sqlutil.TimeText(item.ValidUntil), dimensions, metadata,
+		item.CreatedAt.UTC().Format(core.TimestampFormat),
+	)
+	if err != nil {
+		return false, err
+	}
+	rows, err := insert.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
+// storedEvidenceTx reads the row the source uniqueness index dedupes against,
+// which is the only key that means the same evidence was recorded before.
+func storedEvidenceTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	item core.Evidence,
+) (core.Evidence, bool, error) {
+	var existing core.Evidence
+	var created string
+	err := tx.QueryRowContext(ctx, `
+		SELECT id, created_at FROM evidence
+		WHERE source_input = ? AND claim = ? AND source_name = ? AND target = ?`,
+		item.SourceInput, item.Claim, item.SourceName, item.Target,
+	).Scan(&existing.ID, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.Evidence{}, false, nil
+	}
+	if err != nil {
+		return core.Evidence{}, false, err
+	}
+	existing.CreatedAt = sqlutil.ParseTime(created)
+	return existing, true, nil
+}
+
+// sourceScopedEvidenceID rebuilds an id that another source input already owns.
+// It is derived rather than random so that replaying the same turn resolves to
+// the same row instead of accumulating one per attempt.
+func sourceScopedEvidenceID(sourceInput, id string) string {
+	digest := sha256.Sum256([]byte(strings.Join([]string{sourceInput, id}, "\x00")))
+	return "ev_" + hex.EncodeToString(digest[:16])
 }
 
 func (r *Repository) RecordCoverage(ctx context.Context, coverage []core.Coverage) error {

@@ -2256,6 +2256,8 @@ evidence, progress, approvals, task offers, and completion; do not duplicate tho
 
 Memory is the compact current Slack conversation situation with goal, channel_purpose, situation_summary,
 active_topics, open_loops, topology, decisions, unresolved_questions, evidence_refs, and knowledge.
+Memory is stored per thread, or per channel when there is none. A channel is a place, not a task:
+outside a thread leave goal empty and record only what stays true between unrelated alerts.
 Each knowledge item uses subject, kind, statement, status, confidence, source_ref, and
 source_message_ts under the background-learning rules above. Preserve
 still-relevant prior facts, incorporate relevant related_situations without copying unrelated work,

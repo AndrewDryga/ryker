@@ -433,6 +433,26 @@ type AgentMemory struct {
 	Knowledge           []KnowledgeItem `json:"knowledge,omitempty"`
 }
 
+// WithoutThreadScope drops what belongs to a piece of work rather than to the
+// place the work happened.
+//
+// Channel memory and thread memory are the same shape stored under two keys —
+// a thread's timestamp, or the empty string for the channel itself — so a turn
+// answered in the channel writes its own working state as the channel's. On an
+// alerts feed that is plainly wrong: #backend-ops received one investigation's
+// goal, "Explain why website image bumps are not reaching VA1", as though the
+// channel existed to answer it, when the channel exists to carry alerts for
+// many services and the goal belonged to one thread inside it.
+//
+// Only the goal is dropped. A channel purpose, the topology it has learned,
+// the conventions it has settled and its standing knowledge are all properties
+// of the place. A summary of what is going on there is continuity worth
+// keeping. An objective is not: a room does not have one.
+func (m AgentMemory) WithoutThreadScope() AgentMemory {
+	m.Goal = ""
+	return m
+}
+
 // KnowledgeItem is a provenance-linked fact learned from a Slack conversation.
 // It is continuity context, not an instruction, authority grant, or current
 // operational evidence.

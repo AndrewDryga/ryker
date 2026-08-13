@@ -344,7 +344,14 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // preserve binary-unit conversions instead of turning 305,282 MiB into the
 // materially wrong "about 305 GiB". The host also validates that explicit
 // MiB/GiB conversions agree before a reply can leave the process.
-const staticWatchPromptBytes = 48556
+// Raised by 190 on 2026-08-13 to say which scope the memory is being written
+// for. Channel memory and thread memory are the same shape under two keys, so
+// a turn answered outside a thread wrote its own working state as the
+// channel's: #backend-ops, an alerts feed for many services, carried one
+// investigation's goal as though the room existed to answer it. The host now
+// drops a goal at channel scope, and these bytes stop the model spending a
+// field on something that will be discarded.
+const staticWatchPromptBytes = 48746
 
 // The static prompt must not grow without someone deciding it should.
 //

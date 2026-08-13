@@ -90,9 +90,12 @@ func TestWatchedStructuredReportPersistsEvidenceCoverageAndMemory(t *testing.T) 
 	if err != nil || len(coverage) != 1 || coverage[0].Status != "unknown" {
 		t.Fatalf("coverage = %+v, %v", coverage, err)
 	}
+	// The channel's memory keeps what describes the channel and drops the
+	// goal, which belongs to the thread that pursues it rather than to the
+	// room the thread is in.
 	memory, err := st.Intelligence.GetChannelMemory(ctx, input.ChannelID)
 	if err != nil || memory.TurnCount != 1 ||
-		memory.State.Goal != "Assess production health" ||
+		memory.State.Goal != "" ||
 		len(memory.State.Topology) != 1 {
 		t.Fatalf("memory = %+v, %v", memory, err)
 	}
