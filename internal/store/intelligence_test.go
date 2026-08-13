@@ -478,6 +478,15 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 // actually got. This used to read back nothing and fail the batch with a bare
 // "sql: no rows in result set", which failed finalization on every retry and
 // left a finished investigation with no reply in Slack.
+// Covers: TestRecordEvidenceHandlesSuppliedIDCollisionAcrossSources
+// Covers: TestTriageFinalizationSurvivesEvidenceOperationIDReusedByAnotherInput
+//
+// The largest cluster in the recorded history: sixteen confirmed findings and
+// nineteen lost replies in a day. Models name evidence with stable slugs and
+// reuse them across episodes, and the id was a global primary key, so the
+// collision failed finalization deterministically with "sql: no rows in result
+// set" — an investigation that had already succeeded, retried twenty times and
+// never delivered.
 func TestRecordEvidenceStoresASlugAnEarlierEpisodeAlreadyClaimed(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))
