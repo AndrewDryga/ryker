@@ -1169,6 +1169,19 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		)
 		prompt += early.String() + late.String()
 	}
+	// Artifacts are dropped as one unit rather than trimmed. A PR diff is the
+	// only unbounded thing in the suffix, and half a diff is worse than none:
+	// the model reads it as the whole change and reasons about the part it was
+	// given. WatchPromptBudget already reserved room for it, but the reservation
+	// floors at minimumWatchPromptBytes, so a suffix larger than the budget can
+	// still push the assembled prompt past the ceiling.
+	if len(prompt)+len(artifactPrompt) > coop.MaxPromptBytes && artifactPrompt != "" {
+		omissions = append(omissions, core.DroppedContextLayer(
+			"task_artifacts",
+			"the attached artifacts were omitted to fit the turn",
+		))
+		artifacts, artifactPrompt = nil, ""
+	}
 	prompt += artifactPrompt
 	if len(prompt) > coop.MaxPromptBytes {
 		return s.retryAgentRun(ctx, run, errRequiredPromptTooLarge)
@@ -1187,7 +1200,11 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		artifacts,
 	)
 	if err != nil {
-		return s.retryAgentRun(ctx, run, err)
+		recovered, bound := s.turnBoundToRunKey(ctx, run, session, err)
+		if !bound {
+			return s.retryAgentRun(ctx, run, err)
+		}
+		turn = recovered
 	}
 	if turn.ID == "" {
 		return s.retryAgentRun(ctx, run, errors.New("Coop returned an empty agent turn ID"))
@@ -1204,6 +1221,49 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		run.CoopEventSequence,
 		state.Lane,
 	)
+}
+
+// turnBoundToRunKey resolves an idempotency conflict on turn submission by
+// asking Coop what that key already owns.
+//
+// A 409 is not retryable, and Responder read "not retryable" as "this work is
+// finished" — it retired the session and failed the run without ever asking
+// what the conflict referred to. But an idempotency conflict on a key the run
+// owns has one likely cause: the submission reached Coop and its response did
+// not reach us. The turn is running. Abandoning the run drops an alert whose
+// investigation is at that moment underway.
+//
+// Only a conflict that resolves to this session's own submitted turn is
+// recovered. An absent, failed, or mismatched operation falls through to the
+// original error, because those are the cases where the key means something
+// Responder does not understand and guessing would bind the run to a stranger's
+// turn.
+func (s *Service) turnBoundToRunKey(
+	ctx context.Context,
+	run core.AgentRun,
+	session coop.Session,
+	cause error,
+) (coop.Turn, bool) {
+	if !isCoopIdempotencyConflict(cause) {
+		return coop.Turn{}, false
+	}
+	operation, err := s.coop.OperationByKey(ctx, run.IdempotencyKey)
+	if err != nil || operation.Method != "SubmitTurn" ||
+		operation.State != "succeeded" || operation.ResourceType != "turn" ||
+		operation.ResourceID == "" {
+		return coop.Turn{}, false
+	}
+	// Fetched through the session it must belong to, so a key that somehow
+	// names a turn in another session cannot be adopted here.
+	turn, err := s.coop.GetTurn(ctx, session.ID, operation.ResourceID)
+	if err != nil || turn.ID == "" {
+		return coop.Turn{}, false
+	}
+	s.log.Info(
+		"recovered the Coop turn already bound to this run's idempotency key",
+		"run", run.ID, "session", session.ID, "turn", turn.ID,
+	)
+	return turn, true
 }
 
 // admitTriageRun applies the checks that can end a run before any work is
@@ -1511,7 +1571,7 @@ func (s *Service) retryAgentRun(
 	if errors.As(cause, &apiErr) && !apiErr.Retryable() {
 		terminal = true
 	}
-	if permanentSlackAttachmentError(cause) {
+	if permanentSlackAttachmentError(cause) || permanentPreparationError(cause) {
 		terminal = true
 	}
 	if run.Mode == core.AgentRunTriage && terminal {
@@ -1524,6 +1584,19 @@ func (s *Service) retryAgentRun(
 	_, err := s.store.RetryAgentRunIfOwned(ctx, run.ID, trimError(cause),
 		s.queueDelay(run.Failures+1), terminal)
 	return err
+}
+
+// permanentPreparationError reports a failure that assembling the same run
+// again cannot fix.
+//
+// A run's inputs are frozen in its context when it is admitted, so preparation
+// is a pure function of them. When it produces a prompt too large for the
+// transport, the twentieth attempt produces exactly the same prompt as the
+// first — and it did: one alert spent 65 minutes and twenty attempts arriving
+// at the identical byte count before giving up. Retrying is for failures that
+// something outside the run might resolve. This is not one.
+func permanentPreparationError(cause error) bool {
+	return errors.Is(cause, errRequiredPromptTooLarge)
 }
 
 func (s *Service) failPreparingTriageRun(

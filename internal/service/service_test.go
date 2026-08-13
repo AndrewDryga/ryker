@@ -992,16 +992,20 @@ type fakeCoop struct {
 	completeOnSubmit   string
 	completeQueue      []string
 	submitTurns        []coop.Turn
-	discardPlan        coop.DiscardPlan
-	discardPlans       []coop.DiscardPlan
-	discardPlanKeys    []string
-	discardPlanErrors  []error
-	discardCalls       int
-	discardAccepts     []bool
-	outputArtifacts    map[string]coop.OutputArtifact
-	getSessionErr      error
-	getSessionStarted  chan<- struct{}
-	releaseGetSession  <-chan struct{}
+	// submitErrs is consumed after the key is recorded, which is the shape of
+	// the failure worth simulating: Coop committed the submission and the
+	// response did not come back.
+	submitErrs        []error
+	discardPlan       coop.DiscardPlan
+	discardPlans      []coop.DiscardPlan
+	discardPlanKeys   []string
+	discardPlanErrors []error
+	discardCalls      int
+	discardAccepts    []bool
+	outputArtifacts   map[string]coop.OutputArtifact
+	getSessionErr     error
+	getSessionStarted chan<- struct{}
+	releaseGetSession <-chan struct{}
 	// completeUsage is what the provider reported for each completed turn.
 	// Zero by default, which is what an ACP adapter that reports nothing
 	// produces, so every existing test keeps describing an unmeasured turn.
@@ -1132,6 +1136,18 @@ func (f *fakeCoop) SubmitTurnWithArtifacts(
 	f.submitKeys = append(f.submitKeys, key)
 	f.submitPrompts = append(f.submitPrompts, prompt)
 	f.submitArtifacts = append(f.submitArtifacts, artifacts)
+	if len(f.submitErrs) > 0 {
+		scripted := f.submitErrs[0]
+		f.submitErrs = f.submitErrs[1:]
+		if scripted != nil {
+			f.turn = coop.Turn{
+				ID:        fmt.Sprintf("coop_turn_%d", len(f.submitKeys)),
+				SessionID: f.session.ID,
+				State:     "running",
+			}
+			return coop.Turn{}, coop.Operation{}, scripted
+		}
+	}
 	state := f.submitState
 	if state == "" {
 		state = "running"

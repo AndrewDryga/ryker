@@ -1412,3 +1412,119 @@ func TestCleanupStopsRetryingPersistentCoopFailures(t *testing.T) {
 		t.Fatalf("persistent cleanup was not blocked: %+v", metrics)
 	}
 }
+
+// A run's inputs are frozen when it is admitted, so preparing it is a pure
+// function of them: the twentieth attempt assembles exactly the prompt the
+// first one did. One alert spent sixty-five minutes and twenty attempts
+// arriving at the same byte count before giving up, which is the whole of what
+// three findings describe.
+func TestRequiredPromptTooLargeIsTerminalOnFirstPreparationAttempt(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CBIGPROMPT"}
+	cfg.Slack.WatchChannels = nil
+	// The budget an operator would actually configure, so the assertion is that
+	// the run stops on its first failure rather than that it had no attempts
+	// left to spend.
+	cfg.Limits.MaxAgentRunAttempts = 20
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-big-prompt", EnvelopeID: "env-big-prompt",
+		EventID: "event-big-prompt", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CBIGPROMPT", MessageTS: "1700.900", UserID: "U123ABC",
+		Text: "<@U999BOT> check production health",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Leased, because the failure is recorded only against a run this service
+	// owns — preparation is exactly where the run is held.
+	run, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.retryAgentRun(ctx, run, errRequiredPromptTooLarge); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.TerminalState != string(core.AgentRunFailed) {
+		t.Fatalf("terminal state = %q after a deterministic size failure, want failed", failed.TerminalState)
+	}
+	if failed.Failures > 1 {
+		t.Fatalf("failures = %d, want the run stopped on its first", failed.Failures)
+	}
+	if !failed.NextAttemptAt.IsZero() && failed.State == core.AgentRunPending {
+		t.Fatalf("a permanently failed run is queued for another attempt at %s", failed.NextAttemptAt)
+	}
+	if !strings.Contains(failed.LastError, "exceed the Coop turn limit") {
+		t.Fatalf("last error does not name the cause: %q", failed.LastError)
+	}
+}
+
+// An idempotency conflict on a key the run owns has one likely cause: the
+// submission reached Coop and its response did not reach us. The turn is
+// running. Responder read "409 is not retryable" as "this work is finished",
+// retired the session and failed the run — dropping an alert whose
+// investigation was at that moment underway.
+func TestTriageSubmitIdempotencyConflictRecoversExistingTurn(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CCONFLICT"}
+	cfg.Slack.WatchChannels = nil
+	cfg.Limits.MaxAgentRunAttempts = 20
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-conflict", EnvelopeID: "env-conflict", EventID: "event-conflict",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: "CCONFLICT",
+		MessageTS: "1700.901", UserID: "U123ABC",
+		Text: "<@U999BOT> check production health",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitErrs = []error{&coop.APIError{
+		Status: 409, Code: "idempotency_conflict", OperationID: "op_coop_turn_1",
+		Detail: "idempotency key is bound to another operation",
+	}}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.TerminalState != "" {
+		t.Fatalf("run went terminal on a recoverable conflict: state=%q error=%q",
+			run.TerminalState, run.LastError)
+	}
+	if run.CoopTurnID != "coop_turn_1" {
+		t.Fatalf("run bound to turn %q, want the turn the conflicted key already owned", run.CoopTurnID)
+	}
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("a recovered conflict reported failure to Slack: %+v", slackClient.posts)
+	}
+}
