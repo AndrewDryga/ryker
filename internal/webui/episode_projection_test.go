@@ -508,6 +508,22 @@ func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
 	}
 }
 
+// A status delivery with no text is the spinner coming down; it must not
+// present itself as progress being shown.
+func TestClearedStatusDeliveryDoesNotClaimProgress(t *testing.T) {
+	cleared := Delivery{Operation: "status", Kind: "status"}
+	if got := deliveryTitle(cleared); got != "Slack status cleared" {
+		t.Fatalf("cleared status title = %q", got)
+	}
+	if why := deliveryWhy(cleared); !strings.Contains(why, "came down") {
+		t.Fatalf("cleared status why = %q", why)
+	}
+	working := Delivery{Operation: "status", Kind: "status", Status: "Investigating…"}
+	if got := deliveryTitle(working); got != "Working status shown in Slack" {
+		t.Fatalf("working status title = %q", got)
+	}
+}
+
 // The model's closing statement renders as prose with its markup honored;
 // verdict and status are structure beside it, not a jargon prefix inside it.
 func TestCompletionCardSeparatesProseFromMachineFields(t *testing.T) {

@@ -564,6 +564,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if delivery.ThreadTS != "" {
 			summary += " · thread " + delivery.ThreadTS
 		}
+		if delivery.Operation == "status" && strings.TrimSpace(delivery.Status) != "" {
+			summary = "“" + present(delivery.Status) + "” · " + summary
+		}
 		details := []TraceDetail{}
 		if delivery.Body != "" {
 			details = append(details, TraceDetail{Label: "Slack payload", Body: present(delivery.Body), Kind: "json"})
@@ -1326,6 +1329,10 @@ func deliveryTitle(delivery Delivery) string {
 	case "update":
 		return "Updated the Slack message"
 	case "status":
+		// An empty status text is the spinner coming down, not going up.
+		if strings.TrimSpace(delivery.Status) == "" {
+			return "Slack status cleared"
+		}
 		return "Working status shown in Slack"
 	case "reaction":
 		if delivery.Kind == "failure_marker_remove" {
@@ -3079,6 +3086,9 @@ func sideEffectWhy(effect SideEffect) string {
 
 func deliveryWhy(delivery Delivery) string {
 	if delivery.Operation == "status" {
+		if strings.TrimSpace(delivery.Status) == "" {
+			return "The episode ended, so the native status came down — a spinner that outlives its work reads as a hang."
+		}
 		return "A native status shows progress without adding a message to the conversation."
 	}
 	if delivery.Operation == "reaction" {
