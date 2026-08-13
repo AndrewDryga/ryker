@@ -344,8 +344,8 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if event.Kind == "phase_changed" {
 			if payload := decodePhasePayload(event.Payload); payload.Phase != "" {
 				step.State, step.Title = payload.Phase, phaseTitle(payload.Phase)
-				step.Summary = phaseSummary(payload, present)
-				step.Why = phaseWhy(payload.Phase)
+				step.Summary = phaseCardSummary(payload, event.Detail, step.Title, present)
+				step.Why = ""
 				// The card already says everything a routine phase payload
 				// holds; a JSON block restating the title in four spellings
 				// is noise. Payloads with more than the routine keys stay.
@@ -393,10 +393,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			step.Title, step.Summary, step.Why = "Episode created", "", ""
 		case "progress":
 			step.Title = phaseTitle(artifact.State)
-			step.Why = phaseWhy(artifact.State)
-			if strings.EqualFold(strings.TrimSpace(artifact.Summary), strings.TrimSpace(artifact.State)) {
-				step.Summary = ""
-			}
+			step.Summary = phaseCardSummary(phasePayload{Phase: artifact.State}, artifact.Summary, step.Title, present)
 		case "evaluation":
 			step.Title = decisionTitle(artifact.State)
 		}
@@ -972,35 +969,64 @@ func decodePhasePayload(payload string) phasePayload {
 	return decoded
 }
 
-// phaseSummary says what the phase record means in one plain line: what
-// Responder planned to do next, when the record says so.
-func phaseSummary(payload phasePayload, present func(string) string) string {
-	if next := strings.TrimSpace(payload.NextAction); next != "" {
-		return "Next: " + present(next)
-	}
-	return present(payload.Summary)
-}
-
-// phaseWhy explains what actually happened in the machine at each phase
-// transition, in plain words. Each sentence is written from the store call
-// that sets the phase, not invented: "planning" is LeaseAgentRun moving a
-// queued run to a worker, "investigating" is the Coop turn starting, and so
-// on. This is the line that lets someone build a mental model of the
+// phaseExplain says what actually happened in the machine at each phase
+// transition, in plain present-tense words. Each sentence is written from the
+// store call that sets the phase, not invented: "planning" is LeaseAgentRun
+// moving a queued run to a worker, "investigating" is the Coop turn starting,
+// and so on. This is the line that lets someone build a mental model of the
 // pipeline from one episode.
-func phaseWhy(phase string) string {
+func phaseExplain(phase string) string {
 	return map[string]string{
-		"planning":        "A background worker picked this job off the queue and is assembling the model call. No model is running yet — the next step named here is the host's checklist, not the model's words.",
-		"investigating":   "The prepared call was submitted to Coop; from here until the result arrives, the model is the one working.",
-		"executing":       "The prepared call was submitted to Coop; from here until the result arrives, the model is the one working.",
-		"finalizing":      "The model finished its turn. Responder is checking the result against its contract before anything reaches Slack.",
-		"finished":        "The final outcome was recorded; nothing more runs for this episode.",
-		"resuming":        "A later attempt is starting again from this episode's saved state.",
+		"planning":        "A background worker took this job off the queue and is preparing the model call — no model is running yet.",
+		"investigating":   "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
+		"executing":       "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
+		"finalizing":      "The model finished its turn. Responder is checking the result before anything reaches Slack.",
+		"finished":        "The final outcome is recorded; nothing more runs for this episode.",
+		"resuming":        "A new attempt is starting from this episode's saved state.",
 		"retrying":        "The previous attempt failed; the work is queued to run again from the preserved context.",
-		"waiting":         "The work is parked until the named dependency recovers. No worker is held while it waits.",
+		"waiting":         "The work is parked until the dependency recovers — no worker is held while it waits.",
 		"queued":          "The work is waiting for a dependency before a worker can pick it up.",
-		"continuing":      "Unfinished work from the previous turn is being carried forward into a new one.",
+		"continuing":      "Unfinished work from the previous turn carries forward into a new one.",
 		"expanding_scope": "The quick lane was not enough; the work moved to the full investigation lane.",
 	}[phase]
+}
+
+// cannedNextAction recognizes the host's fixed checklist strings, verbatim
+// from the setWorkEpisodePhaseTx call sites. In a timeline, "Next:" printed
+// from a checklist contradicts the card that actually comes next; only a
+// next action that carries real information survives onto the card.
+func cannedNextAction(next string) bool {
+	return map[string]bool{
+		"Establish the evidence plan":                    true,
+		"Complete the evidence plan":                     true,
+		"Complete the requested work":                    true,
+		"Validate and deliver the result":                true,
+		"Run the next attempt":                           true,
+		"Continue unfinished work":                       true,
+		"Retry the work from preserved context":          true,
+		"Waiting for execution runtime":                  true,
+		"Resume when the dependency is ready":            true,
+		"Resume when the provider limit window recovers": true,
+		"Continue in the full investigation lane":        true,
+		"Review the blocker or retry":                    true,
+	}[next]
+}
+
+// phaseCardSummary is the one line a phase card carries: the recorded status
+// when it says something the title does not, otherwise the plain explanation
+// of what this stage is — plus any next action that is not host boilerplate.
+func phaseCardSummary(payload phasePayload, status, title string, present func(string) string) string {
+	summary := strings.TrimSpace(present(status))
+	if strings.EqualFold(summary, title) || strings.EqualFold(summary, payload.Phase) {
+		summary = ""
+	}
+	if summary == "" {
+		summary = phaseExplain(payload.Phase)
+	}
+	if next := strings.TrimSpace(payload.NextAction); next != "" && !cannedNextAction(next) {
+		summary = strings.TrimSpace(summary + " Next: " + present(next))
+	}
+	return summary
 }
 
 // routinePhasePayload reports whether a phase payload holds only the fields

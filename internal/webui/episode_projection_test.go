@@ -486,8 +486,10 @@ func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
 	}
 }
 
-// A phase card says what happens next in words; its JSON payload renders only
-// when it holds something the card does not already present.
+// A phase card explains what the stage is in plain words; the host's canned
+// checklist never prints as a "next" that contradicts the following card,
+// and the JSON payload renders only when it holds something the card does
+// not already present.
 func TestPhaseCardsSpeakPlainlyAndDropRoutinePayloads(t *testing.T) {
 	payload := `{"phase":"planning","state":"planning","status":"Planning the work","next_action":"Establish the evidence plan"}`
 	if !routinePhasePayload(payload) {
@@ -496,9 +498,15 @@ func TestPhaseCardsSpeakPlainlyAndDropRoutinePayloads(t *testing.T) {
 	if routinePhasePayload(`{"phase":"planning","worker_id":"w-4"}`) {
 		t.Fatal("a payload with extra fields must keep its JSON detail")
 	}
-	summary := phaseSummary(decodePhasePayload(payload), func(text string) string { return text })
-	if summary != "Next: Establish the evidence plan" {
-		t.Fatalf("phase summary = %q", summary)
+	identity := func(text string) string { return text }
+	summary := phaseCardSummary(decodePhasePayload(payload), "Planning the work", "Planning the work", identity)
+	if !strings.Contains(summary, "no model is running yet") || strings.Contains(summary, "Next:") {
+		t.Fatalf("planning summary = %q, want the explanation without the canned checklist", summary)
+	}
+	blocked := phaseCardSummary(phasePayload{Phase: "waiting", NextAction: "Ask the operator which account to use"},
+		"The AI provider is rate-limiting requests; the work is queued.", "Waiting", identity)
+	if !strings.Contains(blocked, "rate-limiting") || !strings.Contains(blocked, "Next: Ask the operator") {
+		t.Fatalf("waiting summary = %q, want the real status and the meaningful next action", blocked)
 	}
 }
 
