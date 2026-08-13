@@ -1,4 +1,4 @@
-package service
+package evaluation
 
 import (
 	"bufio"
@@ -16,6 +16,8 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
+	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/serviceport"
 )
 
 type EvaluationScenario struct {
@@ -125,7 +127,7 @@ func EvaluateLiveScenariosJSONL(
 	ctx context.Context,
 	reader io.Reader,
 	cfg config.Config,
-	client CoopAPI,
+	client serviceport.Coop,
 	options LiveEvaluationOptions,
 ) (EvaluationSummary, error) {
 	scenarios, err := decodeEvaluationScenarios(reader)
@@ -233,7 +235,7 @@ func filterEvaluationScenarios(
 func runLiveEvaluationScenario(
 	ctx context.Context,
 	cfg config.Config,
-	client CoopAPI,
+	client serviceport.Coop,
 	scenario EvaluationScenario,
 	scenarioID string,
 	repetition int,
@@ -251,7 +253,7 @@ func runLiveEvaluationScenario(
 		ctx,
 		"responder:scenario-session:"+scenarioID,
 		repository.CoopPolicy,
-		"Responder stateful evaluation: "+truncateWatchText(scenario.Name, 160),
+		"Responder stateful evaluation: "+service.TruncateWatchText(scenario.Name, 160),
 	)
 	if err != nil {
 		return nil, 0, err
@@ -414,7 +416,7 @@ func runLiveEvaluationScenario(
 				current.UpdatedAt = time.Now().UTC()
 				current.History = append(
 					current.History,
-					watchPromptMessage(input, "UEVALBOT", true),
+					service.WatchPromptMessage(input, "UEVALBOT", true),
 				)
 				if decision.Action == "reply" {
 					current.History = append(current.History, decisionpkg.WatchContextMessage{
@@ -425,7 +427,7 @@ func runLiveEvaluationScenario(
 						ThreadTS:   current.Thread,
 						SenderID:   "UEVALBOT",
 						SenderType: "responder",
-						Text:       truncateWatchText(decision.Message, watchContextTextLimit),
+						Text:       service.TruncateWatchText(decision.Message, service.WatchContextTextLimit),
 					})
 				}
 			}
@@ -521,9 +523,9 @@ func liveScenarioPrompt(
 			UpdatedAt:    item.UpdatedAt.UTC().Format(time.RFC3339),
 		})
 	}
-	evaluator := &Service{cfg: cfg}
-	episode := evaluator.episodeForWatchedInput(input, decisionpkg.WatchTurnState{})
-	watch, _ := evaluator.watchPrompt(
+	evaluator := service.NewEvaluator(cfg)
+	episode := evaluator.EpisodeForWatchedInput(input, decisionpkg.WatchTurnState{})
+	watch, _ := evaluator.WatchPrompt(
 		input,
 		"UEVALBOT",
 		current.Answered,
@@ -534,9 +536,9 @@ func liveScenarioPrompt(
 		decisionpkg.OperationalMemoryContext{},
 		testCase.Repository,
 		nil,
-		watchPromptBudget(0),
+		service.WatchPromptBudget(0),
 	)
-	return watch + "\n\n" + workEpisodePrompt(*episode), input, current, nil
+	return watch + "\n\n" + service.WorkEpisodePrompt(*episode), input, current, nil
 }
 
 func scenarioConversationKey(channel string, thread string) string {
@@ -550,7 +552,7 @@ func memoryEmpty(memory core.AgentMemory) bool {
 
 func waitEvaluationTurn(
 	ctx context.Context,
-	client CoopAPI,
+	client serviceport.Coop,
 	sessionID string,
 	turnID string,
 	pollInterval time.Duration,
@@ -583,7 +585,7 @@ func waitEvaluationTurn(
 
 func runEvaluationTurnWithRetry(
 	ctx context.Context,
-	client CoopAPI,
+	client serviceport.Coop,
 	sessionID string,
 	idempotencyKey string,
 	prompt string,

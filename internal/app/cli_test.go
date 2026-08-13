@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/evaluation"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -70,7 +70,7 @@ func TestEvaluationBaselineRoundTripAndRejection(t *testing.T) {
 		t.Fatal("a missing baseline was accepted")
 	}
 
-	baseline := service.EvaluationBaseline{
+	baseline := evaluation.EvaluationBaseline{
 		Version:         1,
 		CorpusDigest:    "sha256:abc123",
 		OverallPassRate: 0.92,

@@ -23,12 +23,12 @@ func TestOperationalCorrelationKeyTracksAlertLifecycle(t *testing.T) {
 	resolved := firing
 	resolved.Text = "[VA1 RESOLVED:2] WARNING | High disk I/O latency\n" +
 		"RESOLVED - 2 alerts\nDisk latency is normal\nService: cluster\nComponent: cassandra"
-	if got, want := operationalCorrelationKey(resolved), operationalCorrelationKey(firing); got != want {
+	if got, want := OperationalCorrelationKey(resolved), OperationalCorrelationKey(firing); got != want {
 		t.Fatalf("resolved correlation = %q, want %q", got, want)
 	}
 	other := firing
 	other.Text = strings.ReplaceAll(other.Text, "cassandra", "typesense")
-	if operationalCorrelationKey(other) == operationalCorrelationKey(firing) {
+	if OperationalCorrelationKey(other) == OperationalCorrelationKey(firing) {
 		t.Fatal("unrelated components shared an alert stream")
 	}
 }
@@ -42,15 +42,15 @@ func TestOperationalCorrelationKeyPrefersStableAlertLinkOverDashboardRange(t *te
 	second := first
 	second.Text = "<https://grafana.example.com/alerting/grafana/alert-123/view?orgId=1|FIRING>\n" +
 		"<https://grafana.example.com/d/dashboard?from=300&amp;to=400|Dashboard>"
-	if got, want := operationalCorrelationKey(second), operationalCorrelationKey(first); got != want {
+	if got, want := OperationalCorrelationKey(second), OperationalCorrelationKey(first); got != want {
 		t.Fatalf("repeated alert correlation = %q, want %q", got, want)
 	}
-	if got := operationalCorrelationKey(first); !strings.Contains(got, "/alerting/grafana/alert-123/view") {
+	if got := OperationalCorrelationKey(first); !strings.Contains(got, "/alerting/grafana/alert-123/view") {
 		t.Fatalf("alert correlation did not retain stable alert identity: %q", got)
 	}
 	other := first
 	other.Text = strings.ReplaceAll(other.Text, "alert-123", "alert-456")
-	if operationalCorrelationKey(other) == operationalCorrelationKey(first) {
+	if OperationalCorrelationKey(other) == OperationalCorrelationKey(first) {
 		t.Fatal("distinct stable alert links shared an operational stream")
 	}
 }
@@ -74,7 +74,7 @@ func TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation(t *
 		},
 	}}
 	correction := decisionpkg.WatchDecisionCorrectionAt(
-		resolved, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(), operationalCorrelationKey,
+		resolved, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(), OperationalCorrelationKey,
 	)
 	if !strings.Contains(correction, "investigation was already admitted") {
 		t.Fatalf("resolved alert correction = %q", correction)
@@ -83,7 +83,7 @@ func TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation(t *
 	unrelated := resolved
 	unrelated.Text = strings.ReplaceAll(unrelated.Text, "cassandra", "typesense")
 	if correction := decisionpkg.WatchDecisionCorrectionAt(
-		unrelated, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(), operationalCorrelationKey,
+		unrelated, state, decisionpkg.WatchDecision{Action: "ignore"}, time.Now().UTC(), OperationalCorrelationKey,
 	); correction != "" {
 		t.Fatalf("unrelated resolved alert correction = %q", correction)
 	}
@@ -112,12 +112,12 @@ Run Planned - Needs Confirmation`}
 	errored := planned
 	errored.Text = `Run run-6d2hQfNJrTeyAP4T is applying
 Run Errored`
-	if got, want := operationalCorrelationKey(errored), operationalCorrelationKey(planned); got != want {
+	if got, want := OperationalCorrelationKey(errored), OperationalCorrelationKey(planned); got != want {
 		t.Fatalf("Terraform lifecycle correlation = %q, want %q", got, want)
 	}
 	other := planned
 	other.Text = strings.ReplaceAll(other.Text, "run-6d2hQfNJrTeyAP4T", "run-R1FRs9QFdGmTbBUx")
-	if operationalCorrelationKey(other) == operationalCorrelationKey(planned) {
+	if OperationalCorrelationKey(other) == OperationalCorrelationKey(planned) {
 		t.Fatal("different Terraform runs shared a lifecycle stream")
 	}
 }

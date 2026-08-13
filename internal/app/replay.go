@@ -16,7 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/evaluation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -38,13 +38,13 @@ type slackReplayResult struct {
 }
 
 type slackReplayDelivery struct {
-	ID        string                    `json:"id"`
-	Operation string                    `json:"operation"`
-	State     string                    `json:"state"`
-	ChannelID string                    `json:"channel_id"`
-	ThreadTS  string                    `json:"thread_ts,omitempty"`
-	MessageTS string                    `json:"message_ts,omitempty"`
-	SlackUX   service.SlackUXAssessment `json:"slack_ux,omitempty"`
+	ID        string                       `json:"id"`
+	Operation string                       `json:"operation"`
+	State     string                       `json:"state"`
+	ChannelID string                       `json:"channel_id"`
+	ThreadTS  string                       `json:"thread_ts,omitempty"`
+	MessageTS string                       `json:"message_ts,omitempty"`
+	SlackUX   evaluation.SlackUXAssessment `json:"slack_ux,omitempty"`
 }
 
 func runReplay(args []string, stdout, stderr io.Writer) error {
@@ -469,9 +469,9 @@ func waitForSlackReplay(
 					Deliveries:    make([]slackReplayDelivery, 0, len(deliveries)),
 				}
 				for _, delivery := range deliveries {
-					var ux service.SlackUXAssessment
+					var ux evaluation.SlackUXAssessment
 					if delivery.Operation == "post" || delivery.Operation == "update" {
-						ux, err = service.AssessSlackDeliveryUX(delivery.Body, action)
+						ux, err = evaluation.AssessSlackDeliveryUX(delivery.Body, action)
 						if err != nil {
 							return slackReplayResult{}, fmt.Errorf(
 								"verify Slack replay delivery %s: %w",
@@ -533,7 +533,7 @@ func replayModeName(publish bool) string {
 	return "private"
 }
 
-func replayUXState(assessment service.SlackUXAssessment) string {
+func replayUXState(assessment evaluation.SlackUXAssessment) string {
 	if !assessment.Evaluated {
 		return ""
 	}

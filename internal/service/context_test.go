@@ -206,7 +206,7 @@ func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 		decisionpkg.OperationalMemoryContext{},
 		"emisar",
 		nil,
-		watchPromptBudget(0),
+		WatchPromptBudget(0),
 	)
 	for _, required := range []string{
 		"compact summary of this exact Slack conversation",
@@ -230,7 +230,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	prompt, _ := svc.watchPrompt(
 		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
-		watchPromptBudget(0),
+		WatchPromptBudget(0),
 	)
 	for _, required := range []string{
 		"explicit host verification replay",
@@ -247,7 +247,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	ordinary, _ := svc.watchPrompt(
 		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
-		watchPromptBudget(0),
+		WatchPromptBudget(0),
 	)
 	if strings.Contains(ordinary, "explicit host verification replay") {
 		t.Fatalf("ordinary prompt contains replay policy:\n%s", ordinary)
@@ -257,7 +257,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	// Each of the twenty messages is sized so the assembled prompt exceeds
 	// the watch budget however large the transport cap grows.
-	messageBytes := watchPromptBudget(0) / 12
+	messageBytes := WatchPromptBudget(0) / 12
 	unit := "old-alert-00 "
 	recent := make([]decisionpkg.WatchContextMessage, 0, 20)
 	for index := 0; index < 20; index++ {
@@ -278,15 +278,15 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		nil,
 	)
-	if len(raw) <= watchPromptBudget(0) {
+	if len(raw) <= WatchPromptBudget(0) {
 		t.Fatalf("test prompt did not exceed assembly bound: %d", len(raw))
 	}
 	prompt, _ := svc.watchPrompt(
 		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
-		watchPromptBudget(0),
+		WatchPromptBudget(0),
 	)
-	if len(prompt) > watchPromptBudget(0) {
+	if len(prompt) > WatchPromptBudget(0) {
 		t.Fatalf("watch prompt bytes = %d", len(prompt))
 	}
 	if !strings.Contains(prompt, input.Text) || strings.Contains(prompt, "old-alert-00") {

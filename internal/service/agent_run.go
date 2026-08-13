@@ -534,7 +534,7 @@ func watchInputWantsPendingStatus(
 
 func watchConversationKey(input core.SlackInput) string {
 	if input.Kind == "bot_message" {
-		if key := operationalCorrelationKey(input); key != "" {
+		if key := OperationalCorrelationKey(input); key != "" {
 			return "operation:" + input.ChannelID + ":" + key
 		}
 	}
@@ -744,7 +744,7 @@ func (s *Service) prepareIncidentAgentRun(
 		return s.retryIncidentAgentRun(ctx, run, incident, episodeErr, false)
 	}
 	requiredContext := prefixedPrompt(repositorySetPrompt(session)) + "\n\n" +
-		workEpisodePrompt(episode) + s.episodeContinuityPrompt(ctx, episode) +
+		WorkEpisodePrompt(episode) + s.episodeContinuityPrompt(ctx, episode) +
 		agentprompt.ToolTransport()
 	revision, err := s.store.FreezeAgentRunRevision(ctx, run.ID, session.Revision)
 	if err != nil {
@@ -760,7 +760,7 @@ func (s *Service) prepareIncidentAgentRun(
 	for _, section := range promptSections {
 		provisionalPrompt += section.Text
 	}
-	provisionalPrompt += requiredContext + "\n\n" + structuredResponseInstructions() +
+	provisionalPrompt += requiredContext + "\n\n" + StructuredResponseInstructions() +
 		agentprompt.Continuation(run)
 	artifacts, err = s.augmentAgentRunArtifacts(
 		ctx,
@@ -770,7 +770,7 @@ func (s *Service) prepareIncidentAgentRun(
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
-	requiredTail := requiredContext + "\n\n" + structuredResponseInstructions() +
+	requiredTail := requiredContext + "\n\n" + StructuredResponseInstructions() +
 		agentprompt.Continuation(run) + taskpr.ArtifactsPrompt(artifacts)
 	submissionPrompt, omissions, err := assemblePrompt(
 		coop.MaxPromptBytes, run.Prompt, requiredTail, promptSections...,
@@ -1104,7 +1104,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if episodeErr != nil {
 		return s.retryAgentRun(ctx, run, episodeErr)
 	}
-	late.WriteString("\n\n" + workEpisodePrompt(episode))
+	late.WriteString("\n\n" + WorkEpisodePrompt(episode))
 	late.WriteString(agentprompt.ToolTransport())
 	late.WriteString(agentprompt.Continuation(run))
 
@@ -1134,7 +1134,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.Prior,
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
-			watchPromptBudget(early.Len()+late.Len()),
+			WatchPromptBudget(early.Len()+late.Len()),
 		)
 		prompt += early.String() + late.String()
 	}
@@ -1165,7 +1165,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.ReferencedThread, state.Prior,
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
-			watchPromptBudget(early.Len()+late.Len()+len(artifactPrompt)),
+			WatchPromptBudget(early.Len()+late.Len()+len(artifactPrompt)),
 		)
 		prompt += early.String() + late.String()
 	}
@@ -1842,14 +1842,14 @@ func (s *Service) stageTriageTerminal(
 			return true, episodeErr
 		}
 		decisionpkg.NormalizeAppAlertCompletion(input, &decision)
-		lifecycleContinuationCorrection := terraformLifecycleContinuationCorrection(
+		lifecycleContinuationCorrection := TerraformLifecycleContinuationCorrection(
 			input, state, decision,
 		)
 		originalAction := decision.Action
 		originalPublicationUpdates := len(decision.PublicationUpdates)
-		decision = enforceExternalLifecycleCommunication(input, decision)
+		decision = EnforceExternalLifecycleCommunication(input, decision)
 		var lifecycleEvidenceAdjusted bool
-		decision, lifecycleEvidenceAdjusted = enforceExternalLifecycleEvidence(
+		decision, lifecycleEvidenceAdjusted = EnforceExternalLifecycleEvidence(
 			input, episode, decision,
 		)
 		var recoveryLinkAdjusted bool
@@ -1876,13 +1876,13 @@ func (s *Service) stageTriageTerminal(
 			}
 		}
 		if correction == "" {
-			correction = decisionpkg.WatchDecisionCorrection(input, state, decision, operationalCorrelationKey)
+			correction = decisionpkg.WatchDecisionCorrection(input, state, decision, OperationalCorrelationKey)
 		}
 		if correction == "" {
 			correction = decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision)
 		}
 		if correction == "" {
-			correction = externalLifecycleReplyLanguageCorrection(input, decision)
+			correction = ExternalLifecycleReplyLanguageCorrection(input, decision)
 		}
 		if correction == "" {
 			correction = investigation.CompletionCorrection(
@@ -2409,7 +2409,7 @@ func blockedWatchContinuation(
 		decision.Action = "reply"
 		decision.Message = "I couldn't finish this check safely yet. I saved the evidence and kept the investigation open for a clean retry."
 	}
-	completion := &completionAssessment{
+	completion := &CompletionAssessment{
 		Status:       "blocked",
 		Summary:      "The host could not validate the final structured result.",
 		MaterialGaps: []string{decisionpkg.BoundedField(reason, 500)},
@@ -2430,7 +2430,7 @@ func blockedWatchContinuation(
 func blockedAgentContinuation(reason string, prior *decisionpkg.AgentReport) decisionpkg.AgentReport {
 	report := decisionpkg.AgentReport{
 		Message: "I couldn't finish this check safely yet. The evidence is saved in this task, so it can continue without starting over.",
-		Completion: &completionAssessment{
+		Completion: &CompletionAssessment{
 			Status:       "blocked",
 			Summary:      "The host could not validate the final structured result.",
 			MaterialGaps: []string{decisionpkg.BoundedField(reason, 500)},
@@ -3037,7 +3037,7 @@ func (s *Service) finalizeIncidentAgentRun(
 	var message slackui.Message
 	var visuals []core.GeneratedVisual
 	var pendingApproval *core.EmisarApproval
-	var episodeCompletion *completionAssessment
+	var episodeCompletion *CompletionAssessment
 	var episodeOperations []investigation.ResultOperation
 	var reportReplyParts []string
 	if state == "completed" {
@@ -3172,7 +3172,7 @@ func (s *Service) finalizeIncidentAgentRun(
 						expires,
 					)
 				}
-				scheduleOffers := orderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers)
+				scheduleOffers := OrderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers)
 				if len(scheduleOffers) != 0 {
 					if actionValue, tasks, whens, ok := s.prepareScheduleOffersAction(
 						ctx, conversationInput, scheduleOffers,
@@ -3337,7 +3337,7 @@ func (s *Service) finalizeIncidentAgentRun(
 }
 
 func agentReportCanActivateSchedule(report decisionpkg.AgentReport) bool {
-	return len(orderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers)) != 0 && report.MemoryOffer == nil &&
+	return len(OrderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers)) != 0 && report.MemoryOffer == nil &&
 		report.PreferenceOffer == nil && report.RuleOffer == nil &&
 		report.PendingApproval == nil && len(report.Visuals) == 0
 }

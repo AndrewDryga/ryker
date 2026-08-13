@@ -194,7 +194,7 @@ func (s *Service) persistAgentReport(
 			report.RuleOffer.ExpiresIn, 20,
 		)
 	}
-	for _, offer := range orderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers) {
+	for _, offer := range OrderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers) {
 		offer.Title = s.cleanStructuredField(offer.Title, 160)
 		offer.Prompt = s.cleanStructuredField(offer.Prompt, 1200)
 		offer.Repository = s.cleanStructuredField(offer.Repository, 63)
@@ -368,7 +368,9 @@ func safeEmisarApprovalURL(value, emisarRPCURL, requestID string) string {
 	return approval.String()
 }
 
-func structuredResponseInstructions() string {
+// StructuredResponseInstructions is the prompt section demanding a single
+// structured JSON result.
+func StructuredResponseInstructions() string {
 	return `Return exactly one JSON object and no code fence: {"operations": [...]}
 
 ` + investigation.ResultOperationsPrompt() + `

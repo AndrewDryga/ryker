@@ -15,7 +15,7 @@ import (
 )
 
 func TestCompletionRecheckIsTypedAndBounded(t *testing.T) {
-	valid := &completionAssessment{
+	valid := &CompletionAssessment{
 		Status: "blocked", Summary: "Pack is not advertised yet.",
 		MaterialGaps: []string{"live action catalog"},
 		BlockerKind:  "source_unavailable",
@@ -79,7 +79,7 @@ func TestEpisodeRechecksAreChainedAfterEachCompletedAttempt(t *testing.T) {
 		t.Fatalf("queue origin = %+v, %t, %v", origin, created, err)
 	}
 	svc := &Service{cfg: cfg, store: st}
-	completion := &completionAssessment{Recheck: &investigation.RecheckDirective{
+	completion := &CompletionAssessment{Recheck: &investigation.RecheckDirective{
 		Key: "catalog", AfterSeconds: 30, AdditionalAttempts: 3,
 	}}
 	if err := svc.scheduleEpisodeRechecks(

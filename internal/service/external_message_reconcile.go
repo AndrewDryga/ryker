@@ -39,7 +39,9 @@ func externalMessageLifecyclePhase(text string) externalLifecyclePhase {
 	return lifecycle.Classify(text)
 }
 
-func enforceExternalLifecycleCommunication(
+// EnforceExternalLifecycleCommunication suppresses public narration of an
+// external lifecycle that has not reached a state worth telling anyone about.
+func EnforceExternalLifecycleCommunication(
 	input core.SlackInput,
 	decision decisionpkg.WatchDecision,
 ) decisionpkg.WatchDecision {
@@ -99,12 +101,12 @@ func waitsForExternalKind(decision decisionpkg.WatchDecision, kind string) bool 
 	return lifecycle.WaitsForKind(decision, kind)
 }
 
-// terraformLifecycleContinuationCorrection prevents a nonterminal Terraform
+// TerraformLifecycleContinuationCorrection prevents a nonterminal Terraform
 // episode from ending merely because the current turn had nothing public to
 // say. Slack's Terraform app can stop at Run Planning, so the agent must leave
 // a durable exact-run wakeup until HCP exposes a reviewable plan or a terminal
 // result. Public narration is governed separately below.
-func terraformLifecycleContinuationCorrection(
+func TerraformLifecycleContinuationCorrection(
 	input core.SlackInput,
 	state decisionpkg.WatchTurnState,
 	decision decisionpkg.WatchDecision,
@@ -122,7 +124,9 @@ func terraformLifecycleContinuationCorrection(
 	})
 }
 
-func externalLifecycleReplyLanguageCorrection(
+// ExternalLifecycleReplyLanguageCorrection reports when a reply describes an
+// external lifecycle phase the source event does not support.
+func ExternalLifecycleReplyLanguageCorrection(
 	input core.SlackInput,
 	decision decisionpkg.WatchDecision,
 ) string {
@@ -175,11 +179,11 @@ func successfulExternalLifecycleReplyAddsValue(
 	return lifecycle.ReplyAddsFreshOperationalValue(decision, now)
 }
 
-// enforceExternalLifecycleEvidence binds facts already established by the
+// EnforceExternalLifecycleEvidence binds facts already established by the
 // source event to the typed result. The model still owns diagnosis and the
 // operator-facing explanation, but it cannot accidentally lose or contradict
 // an exact terminal lifecycle state while translating tool results.
-func enforceExternalLifecycleEvidence(
+func EnforceExternalLifecycleEvidence(
 	input core.SlackInput,
 	episode core.WorkEpisode,
 	decision decisionpkg.WatchDecision,

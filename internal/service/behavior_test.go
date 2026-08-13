@@ -520,7 +520,7 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if correction := decisionpkg.WatchDecisionCorrection(input, state, decision, operationalCorrelationKey); correction == "" {
+			if correction := decisionpkg.WatchDecisionCorrection(input, state, decision, OperationalCorrelationKey); correction == "" {
 				t.Fatalf("accepted shallow alert decision: %+v", decision)
 			}
 		})
@@ -529,12 +529,12 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 		Action: "reply", Message: "Likely shared-path issue.", AlertAssessment: assessment,
 		Evidence: []core.Evidence{repositoryEvidence, liveEvidence},
 	}
-	if correction := decisionpkg.WatchDecisionCorrection(input, state, complete, operationalCorrelationKey); correction != "" {
+	if correction := decisionpkg.WatchDecisionCorrection(input, state, complete, OperationalCorrelationKey); correction != "" {
 		t.Fatalf("rejected decision-ready alert: %s", correction)
 	}
 	state.FailureDetail = "the first alert reply was incomplete"
 	if correction := decisionpkg.WatchDecisionCorrection(
-		input, state, decisionpkg.WatchDecision{Action: "ignore"}, operationalCorrelationKey,
+		input, state, decisionpkg.WatchDecision{Action: "ignore"}, OperationalCorrelationKey,
 	); correction == "" {
 		t.Fatal("corrected alert investigation was allowed to disappear")
 	}
@@ -562,13 +562,13 @@ func TestRecoveredAlertCanCloseFromFreshExactEvidenceWithoutRepositorySweep(t *t
 			SourceName:  "Cassandra repair status",
 			ObservedAt:  now,
 		}},
-		Completion: &completionAssessment{
+		Completion: &CompletionAssessment{
 			Status:  "decision_ready",
 			Verdict: "healthy",
 			Summary: "The scheduled repair completed.",
 		},
 	}
-	if correction := decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, operationalCorrelationKey); correction != "" {
+	if correction := decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, OperationalCorrelationKey); correction != "" {
 		t.Fatalf("rejected exact recovered-alert evidence: %s", correction)
 	}
 }
@@ -596,16 +596,16 @@ func TestRecoveredAlertCorrectsBlockedBroadAssessmentAndRequiresPriorLink(t *tes
 			Claim: "the repair completed", Observation: "progress reached 100 percent",
 			SourceType: "emisar", SourceName: "repair status", ObservedAt: now,
 		}},
-		Completion: &completionAssessment{
+		Completion: &CompletionAssessment{
 			Status: "blocked", Summary: "Broader health was not checked.",
 			MaterialGaps: []string{"application health"}, BlockerKind: "source_unavailable",
 			Attempts: []string{"verified the repair"}, NextAction: "check application traffic",
 		},
 	}
-	if correction := decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, operationalCorrelationKey); correction == "" {
+	if correction := decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, OperationalCorrelationKey); correction == "" {
 		t.Fatal("accepted a blocked completion for an exactly verified recovery")
 	}
-	decision.Completion = &completionAssessment{
+	decision.Completion = &CompletionAssessment{
 		Status: "decision_ready", Verdict: "healthy", Summary: "The repair completed.",
 	}
 	if correction := decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision); correction == "" ||
@@ -716,14 +716,14 @@ func TestOperationalAlertReplyEditsToTheDecisionUsefulDelta(t *testing.T) {
 }
 
 func TestWatchContextIncludesExactSlackThreadLink(t *testing.T) {
-	message := watchPromptMessage(core.SlackInput{
+	message := WatchPromptMessage(core.SlackInput{
 		TeamID: "T123ABC", ChannelID: "C456DEF", MessageTS: "1700.200",
 		ThreadTS: "1700.100", Kind: "bot_message", Text: "Alert resolved",
 	}, "U999BOT", false)
 	if message.MessageLink != "https://app.slack.com/client/T123ABC/C456DEF/thread/C456DEF-1700.100" {
 		t.Fatalf("message link = %q", message.MessageLink)
 	}
-	if link := slackMessageLink(core.SlackInput{
+	if link := SlackMessageLink(core.SlackInput{
 		TeamID: "T123ABC", ChannelID: "C456DEF", MessageTS: "not-a-timestamp",
 	}); link != "" {
 		t.Fatalf("unsafe message link = %q", link)

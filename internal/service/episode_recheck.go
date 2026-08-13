@@ -23,7 +23,7 @@ func (s *Service) scheduleEpisodeRechecks(
 	input core.SlackInput,
 	state decisionpkg.WatchTurnState,
 	action string,
-	completion *completionAssessment,
+	completion *CompletionAssessment,
 ) error {
 	directive := (*investigation.RecheckDirective)(nil)
 	nextAttempt := 1

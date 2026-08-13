@@ -1060,13 +1060,13 @@ func TestEvidenceBackedConversationReplyCorrectsHumanAddressee(t *testing.T) {
 			SourceName:  "GitHub Actions",
 			ObservedAt:  now,
 		}},
-		Completion: &completionAssessment{
+		Completion: &CompletionAssessment{
 			Status: "decision_ready", Summary: "The build passed; image publication remains suspect.",
 		},
 	}
 
 	correction := decisionpkg.WatchDecisionCorrectionAt(
-		input, state, decision, now, operationalCorrelationKey,
+		input, state, decision, now, OperationalCorrelationKey,
 	)
 	if correction == "" || !strings.Contains(correction, "attention.addressee=responder") {
 		t.Fatalf("correction = %q, want responder-addressee correction", correction)
@@ -1074,7 +1074,7 @@ func TestEvidenceBackedConversationReplyCorrectsHumanAddressee(t *testing.T) {
 
 	decision.Attention.Addressee = "responder"
 	if correction := decisionpkg.WatchDecisionCorrectionAt(
-		input, state, decision, now, operationalCorrelationKey,
+		input, state, decision, now, OperationalCorrelationKey,
 	); correction != "" {
 		t.Fatalf("corrected decision was rejected: %s", correction)
 	}

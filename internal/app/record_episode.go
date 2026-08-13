@@ -12,7 +12,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/evaluation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -138,31 +138,31 @@ func recordEpisodeFixture(
 	episodeID string,
 	capability string,
 	name string,
-) (service.EvaluationCase, error) {
+) (evaluation.EvaluationCase, error) {
 	// Guarded here rather than only in the flag parser because there are two
 	// callers and only one of them had a check. Promotion went straight past it
 	// and wrote four fixtures tagged "capability:" with nothing after it, which
 	// the coverage ratchet reads as a claim to cover a capability that does not
 	// exist in the matrix.
 	if strings.TrimSpace(capability) == "" {
-		return service.EvaluationCase{}, errors.New(
+		return evaluation.EvaluationCase{}, errors.New(
 			"a replay fixture needs a capability from section 24; an empty tag claims coverage of nothing",
 		)
 	}
 	episode, err := source.GetWorkEpisode(ctx, episodeID)
 	if err != nil {
-		return service.EvaluationCase{}, err
+		return evaluation.EvaluationCase{}, err
 	}
 	events, err := source.ListEpisodeEvents(ctx, episodeID, recordEpisodeMaxEvents)
 	if err != nil {
-		return service.EvaluationCase{}, err
+		return evaluation.EvaluationCase{}, err
 	}
 	evidence, err := source.ListEpisodeEvidence(ctx, episodeID, 200)
 	if err != nil {
-		return service.EvaluationCase{}, err
+		return evaluation.EvaluationCase{}, err
 	}
 	if len(events) == 0 || len(evidence) == 0 {
-		return service.EvaluationCase{}, fmt.Errorf(
+		return evaluation.EvaluationCase{}, fmt.Errorf(
 			"episode %s has %d events and %d evidence rows; a replay fixture requires both",
 			episodeID, len(events), len(evidence),
 		)
@@ -174,7 +174,7 @@ func recordEpisodeFixture(
 	// promotion stops rather than writing one.
 	trigger, err := episodeTriggerText(ctx, source, episode)
 	if err != nil {
-		return service.EvaluationCase{}, fmt.Errorf(
+		return evaluation.EvaluationCase{}, fmt.Errorf(
 			"episode %s: %w; a fixture recorded without its real trigger text asks a question "+
 				"nothing can answer, so it is not written at all",
 			episodeID, err,
@@ -186,13 +186,13 @@ func recordEpisodeFixture(
 	// that a Slack message would have had redacted.
 	sanitizer := slackui.NewSanitizer(0, recordingRedactions(cfg)...)
 
-	recorded := make([]service.EvaluationRecordedEvent, 0, len(events))
+	recorded := make([]evaluation.EvaluationRecordedEvent, 0, len(events))
 	for _, event := range events {
 		payload, err := sanitizeJSON(sanitizer, event.Payload)
 		if err != nil {
-			return service.EvaluationCase{}, fmt.Errorf("event %d: %w", event.Sequence, err)
+			return evaluation.EvaluationCase{}, fmt.Errorf("event %d: %w", event.Sequence, err)
 		}
-		recorded = append(recorded, service.EvaluationRecordedEvent{
+		recorded = append(recorded, evaluation.EvaluationRecordedEvent{
 			Sequence:   int64(event.Sequence),
 			Kind:       event.Kind,
 			Actor:      event.Actor,
@@ -201,7 +201,7 @@ func recordEpisodeFixture(
 		})
 	}
 
-	results := make([]service.EvaluationToolResult, 0, len(evidence))
+	results := make([]evaluation.EvaluationToolResult, 0, len(evidence))
 	for index, item := range evidence {
 		observed := item.ObservedAt
 		if observed.IsZero() {
@@ -215,9 +215,9 @@ func recordEpisodeFixture(
 			"confidence":  item.Confidence,
 		})
 		if err != nil {
-			return service.EvaluationCase{}, err
+			return evaluation.EvaluationCase{}, err
 		}
-		results = append(results, service.EvaluationToolResult{
+		results = append(results, evaluation.EvaluationToolResult{
 			ID:         fmt.Sprintf("rec_%s_%d", episode.ID, index+1),
 			Tool:       core.FirstNonempty(item.SourceType, "unknown"),
 			SourceType: core.FirstNonempty(item.SourceType, "unknown"),
@@ -228,7 +228,7 @@ func recordEpisodeFixture(
 	}
 
 	fixtureName := core.FirstNonempty(name, sanitizer.Text(episode.Objective), episode.ID)
-	return service.EvaluationCase{
+	return evaluation.EvaluationCase{
 		Name: fixtureName,
 		Tags: []string{
 			"episode-replay",

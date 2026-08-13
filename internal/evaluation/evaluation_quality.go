@@ -1,4 +1,4 @@
-package service
+package evaluation
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
+	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -246,7 +247,7 @@ func renderEvaluationMessage(
 			if decision.IncidentTitle != "" {
 				message = slackui.WithIncidentOffer(message, "evaluation-source")
 			}
-			if offers := orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 {
+			if offers := service.OrderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 {
 				operatorID := "UEVALOPERATOR"
 				if len(cfg.Slack.Operators) > 0 {
 					operatorID = cfg.Slack.Operators[0]
@@ -255,12 +256,12 @@ func renderEvaluationMessage(
 				if err != nil {
 					return slackui.Message{}, decision.Action, err
 				}
-				evaluator := &Service{cfg: cfg}
+				evaluator := service.NewEvaluator(cfg)
 				tasks := make([]core.ScheduledTask, 0, len(offers))
 				whens := make([]string, 0, len(offers))
 				valid := true
 				for _, offer := range offers {
-					task, when, ok := evaluator.normalizeScheduleOffer(context.Background(), input, offer)
+					task, when, ok := evaluator.NormalizeScheduleOffer(context.Background(), input, offer)
 					if !ok {
 						valid = false
 						break

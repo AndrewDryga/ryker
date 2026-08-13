@@ -124,7 +124,7 @@ func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 	// Filler scales with the budget so assembly overflows it however large
 	// the transport cap grows: forty messages of budget/50 bytes each are
 	// alone most of a budget, before memory and related summaries pile on.
-	filler := strings.Repeat("saturated evidence detail ", watchPromptBudget(0)/50/len("saturated evidence detail ")+1)
+	filler := strings.Repeat("saturated evidence detail ", WatchPromptBudget(0)/50/len("saturated evidence detail ")+1)
 
 	recent := make([]decisionpkg.WatchContextMessage, 0, 40)
 	for index := range 40 {
@@ -156,12 +156,12 @@ func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 	prompt, _ := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "why is checkout failing"},
 		"U999BOT", false, recent, core.AgentMemory{}, related, nil, prior, "emisar", nil,
-		watchPromptBudget(0),
+		WatchPromptBudget(0),
 	)
 
-	if len(prompt) > watchPromptBudget(0) {
+	if len(prompt) > WatchPromptBudget(0) {
 		t.Fatalf("budgeted prompt is %d bytes, over the %d bound",
-			len(prompt), watchPromptBudget(0))
+			len(prompt), WatchPromptBudget(0))
 	}
 	if !strings.Contains(prompt, "why is checkout failing") {
 		t.Fatal("budgeting dropped the target message")
@@ -224,7 +224,7 @@ func TestBudgetedContextRemainsValidJSON(t *testing.T) {
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "status?"},
 		"U999BOT", false, recent, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "emisar", nil,
-		watchPromptBudget(0),
+		WatchPromptBudget(0),
 	)
 	start := strings.Index(prompt, `{"channel_id"`)
 	if start < 0 {
@@ -315,7 +315,7 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 func TestWatchBudgetLeavesRoomForWhatFollowsIt(t *testing.T) {
 	// A suffix and a section that together must fit under the transport cap.
 	for _, suffix := range []int{0, 8 << 10, 14 << 10, 20 << 10} {
-		budget := watchPromptBudget(suffix)
+		budget := WatchPromptBudget(suffix)
 		if budget+suffix > coop.MaxPromptBytes {
 			t.Errorf("a %d byte suffix leaves a %d byte budget: %d total, over the %d cap",
 				suffix, budget, budget+suffix, coop.MaxPromptBytes)
@@ -325,7 +325,7 @@ func TestWatchBudgetLeavesRoomForWhatFollowsIt(t *testing.T) {
 	// A suffix large enough to squeeze the section out entirely still leaves a
 	// floor. Below it the context is too thin to answer from, and a turn that
 	// cannot see the conversation should fail visibly rather than answer badly.
-	if got := watchPromptBudget(coop.MaxPromptBytes * 2); got != minimumWatchPromptBytes {
+	if got := WatchPromptBudget(coop.MaxPromptBytes * 2); got != minimumWatchPromptBytes {
 		t.Errorf("an oversized suffix gave budget %d, want the %d floor",
 			got, minimumWatchPromptBytes)
 	}

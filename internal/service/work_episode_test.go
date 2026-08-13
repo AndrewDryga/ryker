@@ -195,14 +195,14 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 		name       string
 		action     string
 		coverage   []core.Coverage
-		completion *completionAssessment
+		completion *CompletionAssessment
 		want       string
 	}{
 		{name: "non final action", action: "ignore"},
 		{name: "missing completion", action: "reply", coverage: completeCoverage, want: "no completion assessment"},
 		{
 			name: "missing layer", action: "reply", coverage: completeCoverage[:2],
-			completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "Healthy"},
+			completion: &CompletionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "Healthy"},
 			want:       "has not assessed required coverage layers: slo",
 		},
 		{
@@ -212,17 +212,17 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 				{Layer: "application", Status: "unknown", Detail: "Probe access is unavailable"},
 				{Layer: "slo", Status: "healthy", Detail: "No alert is active"},
 			},
-			completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "Healthy"},
+			completion: &CompletionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "Healthy"},
 			want:       "healthy verdict cannot leave material operational coverage unknown",
 		},
 		{
 			name: "blocked without action", action: "reply", coverage: completeCoverage,
-			completion: &completionAssessment{Status: "blocked", Summary: "Impact is unknown", MaterialGaps: []string{"SLO source"}},
+			completion: &CompletionAssessment{Status: "blocked", Summary: "Impact is unknown", MaterialGaps: []string{"SLO source"}},
 			want:       "external blocker_kind",
 		},
 		{
 			name: "unfinished investigation is not a blocker", action: "reply", coverage: completeCoverage,
-			completion: &completionAssessment{
+			completion: &CompletionAssessment{
 				Status: "blocked", Summary: "Impact needs more investigation.",
 				MaterialGaps: []string{"SLO evidence"}, NextAction: "Query the SLO source",
 			},
@@ -235,7 +235,7 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 				{Layer: "application", Status: "unknown", Detail: "Probe access is unavailable"},
 				{Layer: "slo", Status: "unknown", Detail: "The monitoring account is unavailable"},
 			},
-			completion: &completionAssessment{
+			completion: &CompletionAssessment{
 				Status: "blocked", Summary: "Host health is known but customer impact is not.",
 				MaterialGaps: []string{"application and SLO evidence"},
 				BlockerKind:  "access_denied",
@@ -247,7 +247,7 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 		},
 		{
 			name: "decision ready", action: "reply", coverage: completeCoverage,
-			completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "The checked scope is healthy."},
+			completion: &CompletionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "The checked scope is healthy."},
 		},
 		{
 			name: "healthy without formal SLO", action: "reply",
@@ -256,7 +256,7 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 				{Layer: "application", Status: "healthy", Detail: "Functional checks pass and error rates are normal"},
 				{Layer: "slo", Status: "not_applicable", Detail: "No formal SLO is defined"},
 			},
-			completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "The platform is healthy."},
+			completion: &CompletionAssessment{Status: "decision_ready", Verdict: "healthy", Summary: "The platform is healthy."},
 		},
 		{
 			name: "verified errors decide degradation despite other unknowns", action: "reply",
@@ -265,7 +265,7 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 				{Layer: "application", Status: "degraded", Detail: "Current request errors exceed baseline"},
 				{Layer: "slo", Status: "not_applicable", Detail: "No formal SLO is defined"},
 			},
-			completion: &completionAssessment{Status: "decision_ready", Verdict: "degraded", Summary: "The platform is degraded."},
+			completion: &CompletionAssessment{Status: "decision_ready", Verdict: "degraded", Summary: "The platform is degraded."},
 		},
 	}
 	for _, test := range tests {
@@ -284,25 +284,25 @@ func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *tes
 func TestCompletionAssessmentIsStrictAndBounded(t *testing.T) {
 	tests := []struct {
 		name       string
-		completion *completionAssessment
+		completion *CompletionAssessment
 		wantError  bool
 	}{
 		{name: "omitted"},
-		{name: "decision ready", completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy"}},
-		{name: "decision ready with follow-up", completion: &completionAssessment{Status: "decision_ready", Summary: "The schedule is ready for confirmation", NextAction: "Confirm the schedule"}},
-		{name: "terminal failure with bounded gap", completion: &completionAssessment{Status: "decision_ready", Verdict: "failed", Summary: "The apply failed", MaterialGaps: []string{"partial effects are unknown"}, NextAction: "Reconcile state before retrying"}},
-		{name: "terminal failure gap without action", completion: &completionAssessment{Status: "decision_ready", Verdict: "failed", Summary: "The apply failed", MaterialGaps: []string{"partial effects are unknown"}}, wantError: true},
-		{name: "decision with gap", completion: &completionAssessment{Status: "decision_ready", Summary: "Healthy", MaterialGaps: []string{"database"}}, wantError: true},
-		{name: "blocked", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", Attempts: []string{"Monitoring query returned permission denied"}, NextAction: "Restore access"}},
-		{name: "blocked capability", completion: &completionAssessment{Status: "blocked", Summary: "GitHub Actions inspection is unavailable", MaterialGaps: []string{"exact workflow result"}, BlockerKind: "capability_unavailable", Attempts: []string{"Searched find_actions and list_packs"}, NextAction: "Install the observed pack", CapabilityGaps: []investigation.CapabilityGap{{Capability: "GitHub Actions run inspection", Status: "not_installed", PackID: "github-cli", EvidenceRefs: []string{"pack-catalog"}, Recommendation: "Install the `github-cli` pack on the operations runner."}}}},
-		{name: "capability blocker without gap", completion: &completionAssessment{Status: "blocked", Summary: "GitHub Actions inspection is unavailable", MaterialGaps: []string{"exact workflow result"}, BlockerKind: "capability_unavailable", Attempts: []string{"Searched find_actions and list_packs"}, NextAction: "Add the capability"}, wantError: true},
-		{name: "pack id need not be duplicated in prose", completion: &completionAssessment{Status: "blocked", Summary: "GitHub Actions inspection is unavailable", MaterialGaps: []string{"exact workflow result"}, BlockerKind: "capability_unavailable", Attempts: []string{"Searched find_actions and list_packs"}, NextAction: "Install a pack", CapabilityGaps: []investigation.CapabilityGap{{Capability: "GitHub Actions run inspection", Status: "not_installed", PackID: "github-cli", EvidenceRefs: []string{"pack-catalog"}, Recommendation: "Install the observed pack."}}}},
-		{name: "no matching pack", completion: &completionAssessment{Status: "blocked", Summary: "The capability is unavailable", MaterialGaps: []string{"provider evidence"}, BlockerKind: "capability_unavailable", Attempts: []string{"Searched find_actions and list_packs"}, NextAction: "Add a compatible governed pack", CapabilityGaps: []investigation.CapabilityGap{{Capability: "Vendor-specific evidence", Status: "not_found", EvidenceRefs: []string{"pack-catalog"}, Recommendation: "No matching pack was found; add a governed pack for this provider."}}}},
-		{name: "blocked with verdict", completion: &completionAssessment{Status: "blocked", Verdict: "degraded", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", Attempts: []string{"Monitoring query returned permission denied"}, NextAction: "Restore access"}, wantError: true},
-		{name: "blocked without kind", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, Attempts: []string{"Queried monitoring"}, NextAction: "Restore access"}, wantError: true},
-		{name: "blocked without attempts", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", NextAction: "Restore access"}, wantError: true},
-		{name: "blocked without action", completion: &completionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}}, wantError: true},
-		{name: "unknown state", completion: &completionAssessment{Status: "working", Summary: "Partial"}, wantError: true},
+		{name: "decision ready", completion: &CompletionAssessment{Status: "decision_ready", Summary: "Healthy"}},
+		{name: "decision ready with follow-up", completion: &CompletionAssessment{Status: "decision_ready", Summary: "The schedule is ready for confirmation", NextAction: "Confirm the schedule"}},
+		{name: "terminal failure with bounded gap", completion: &CompletionAssessment{Status: "decision_ready", Verdict: "failed", Summary: "The apply failed", MaterialGaps: []string{"partial effects are unknown"}, NextAction: "Reconcile state before retrying"}},
+		{name: "terminal failure gap without action", completion: &CompletionAssessment{Status: "decision_ready", Verdict: "failed", Summary: "The apply failed", MaterialGaps: []string{"partial effects are unknown"}}, wantError: true},
+		{name: "decision with gap", completion: &CompletionAssessment{Status: "decision_ready", Summary: "Healthy", MaterialGaps: []string{"database"}}, wantError: true},
+		{name: "blocked", completion: &CompletionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", Attempts: []string{"Monitoring query returned permission denied"}, NextAction: "Restore access"}},
+		{name: "blocked capability", completion: &CompletionAssessment{Status: "blocked", Summary: "GitHub Actions inspection is unavailable", MaterialGaps: []string{"exact workflow result"}, BlockerKind: "capability_unavailable", Attempts: []string{"Searched find_actions and list_packs"}, NextAction: "Install the observed pack", CapabilityGaps: []investigation.CapabilityGap{{Capability: "GitHub Actions run inspection", Status: "not_installed", PackID: "github-cli", EvidenceRefs: []string{"pack-catalog"}, Recommendation: "Install the `github-cli` pack on the operations runner."}}}},
+		{name: "capability blocker without gap", completion: &CompletionAssessment{Status: "blocked", Summary: "GitHub Actions inspection is unavailable", MaterialGaps: []string{"exact workflow result"}, BlockerKind: "capability_unavailable", Attempts: []string{"Searched find_actions and list_packs"}, NextAction: "Add the capability"}, wantError: true},
+		{name: "pack id need not be duplicated in prose", completion: &CompletionAssessment{Status: "blocked", Summary: "GitHub Actions inspection is unavailable", MaterialGaps: []string{"exact workflow result"}, BlockerKind: "capability_unavailable", Attempts: []string{"Searched find_actions and list_packs"}, NextAction: "Install a pack", CapabilityGaps: []investigation.CapabilityGap{{Capability: "GitHub Actions run inspection", Status: "not_installed", PackID: "github-cli", EvidenceRefs: []string{"pack-catalog"}, Recommendation: "Install the observed pack."}}}},
+		{name: "no matching pack", completion: &CompletionAssessment{Status: "blocked", Summary: "The capability is unavailable", MaterialGaps: []string{"provider evidence"}, BlockerKind: "capability_unavailable", Attempts: []string{"Searched find_actions and list_packs"}, NextAction: "Add a compatible governed pack", CapabilityGaps: []investigation.CapabilityGap{{Capability: "Vendor-specific evidence", Status: "not_found", EvidenceRefs: []string{"pack-catalog"}, Recommendation: "No matching pack was found; add a governed pack for this provider."}}}},
+		{name: "blocked with verdict", completion: &CompletionAssessment{Status: "blocked", Verdict: "degraded", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", Attempts: []string{"Monitoring query returned permission denied"}, NextAction: "Restore access"}, wantError: true},
+		{name: "blocked without kind", completion: &CompletionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, Attempts: []string{"Queried monitoring"}, NextAction: "Restore access"}, wantError: true},
+		{name: "blocked without attempts", completion: &CompletionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}, BlockerKind: "access_denied", NextAction: "Restore access"}, wantError: true},
+		{name: "blocked without action", completion: &CompletionAssessment{Status: "blocked", Summary: "Impact unknown", MaterialGaps: []string{"monitoring"}}, wantError: true},
+		{name: "unknown state", completion: &CompletionAssessment{Status: "working", Summary: "Partial"}, wantError: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -326,7 +326,7 @@ func TestFocusedChangeReviewUsesLifecycleVerdict(t *testing.T) {
 		Layer: "change", Status: "unknown",
 		Detail: "The Terraform run is applying; terminal verification is pending.",
 	}}
-	completion := &completionAssessment{
+	completion := &CompletionAssessment{
 		Status: "decision_ready", Verdict: "in_progress",
 		Summary: "The change is applying and needs terminal verification.",
 	}
@@ -535,7 +535,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 	coverage := []core.Coverage{
 		{Layer: "application", Status: "degraded", Detail: "LoL and Rivals errors persist"},
 	}
-	completion := &completionAssessment{
+	completion := &CompletionAssessment{
 		Status: "decision_ready", Summary: "Production is operational but degraded.",
 	}
 	unfinished := &decisionpkg.AlertAssessment{
@@ -586,7 +586,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		t.Fatalf("unfinished action correction = %q", got)
 	}
 
-	blocked := &completionAssessment{
+	blocked := &CompletionAssessment{
 		Status: "blocked", Summary: "Endpoint attribution is unavailable.",
 		MaterialGaps: []string{"endpoint labels"}, BlockerKind: "source_unavailable",
 		Attempts:   []string{"Queried the configured log and trace sources; neither contains endpoint labels"},
@@ -604,7 +604,7 @@ func TestEpisodeClaimCorrectionRequiresTypedEvidenceAndCoverageBinding(t *testin
 	episode := core.WorkEpisode{
 		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"change"},
 	}
-	completion := &completionAssessment{Status: "decision_ready", Summary: "Validation commands identified."}
+	completion := &CompletionAssessment{Status: "decision_ready", Summary: "Validation commands identified."}
 	coverage := []core.Coverage{{
 		Layer: "change", Status: "healthy", Detail: "Current repository manuals define the validation commands.",
 	}}

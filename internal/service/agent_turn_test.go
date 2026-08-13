@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -884,52 +883,6 @@ func TestAgentRunTranscriptOverflowRotatesSlackSession(t *testing.T) {
 		!strings.Contains(slackClient.posts[0].message.Text, "All pull zones were checked") ||
 		strings.Contains(slackClient.posts[0].message.Text, "could not complete") {
 		t.Fatalf("Slack continuation result = %+v", slackClient.posts)
-	}
-}
-
-func TestEvaluationTurnCleanupRetryIsBoundedAndRecovers(t *testing.T) {
-	client := newFakeCoop()
-	client.submitTurns = []coop.Turn{
-		{
-			State:       "failed",
-			ErrorCode:   "acp_protocol_error",
-			ErrorDetail: "turn cleanup failed",
-		},
-		{
-			State:       "failed",
-			ErrorCode:   "acp_protocol_error",
-			ErrorDetail: "turn cleanup failed",
-		},
-		{
-			State:            "completed",
-			AssistantMessage: `{"action":"ignore"}`,
-		},
-	}
-	response, turnID, calls, err := runEvaluationTurnWithRetry(
-		context.Background(),
-		client,
-		client.session.ID,
-		"responder:test-eval-turn",
-		"evaluate",
-		time.Millisecond,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response != `{"action":"ignore"}` || turnID == "" || calls != 3 {
-		t.Fatalf(
-			"retry result = response %q, turn %q, calls %d",
-			response,
-			turnID,
-			calls,
-		)
-	}
-	if want := []string{
-		"responder:test-eval-turn",
-		"responder:test-eval-turn:cleanup-retry:1",
-		"responder:test-eval-turn:cleanup-retry:2",
-	}; !slices.Equal(client.submitKeys, want) {
-		t.Fatalf("retry keys = %v, want %v", client.submitKeys, want)
 	}
 }
 

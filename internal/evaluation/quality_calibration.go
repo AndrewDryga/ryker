@@ -1,4 +1,4 @@
-package service
+package evaluation
 
 import (
 	"bufio"
@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/serviceport"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -92,7 +93,7 @@ func EvaluateQualityCalibrationJSONL(
 	ctx context.Context,
 	reader io.Reader,
 	cfg config.Config,
-	client CoopAPI,
+	client serviceport.Coop,
 	options LiveEvaluationOptions,
 ) (EvaluationSummary, error) {
 	cases, err := decodeQualityCalibrationCases(reader)

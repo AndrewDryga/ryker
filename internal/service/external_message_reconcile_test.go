@@ -499,7 +499,7 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 		{name: "failed", status: "Run Errored", wantAction: "reply", wantPublications: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			decision := enforceExternalLifecycleCommunication(core.SlackInput{
+			decision := EnforceExternalLifecycleCommunication(core.SlackInput{
 				Kind: "bot_message", Text: "Run run-abc\n" + test.status,
 			}, base)
 			if decision.Action != test.wantAction ||
@@ -510,39 +510,39 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 	}
 
 	inProgress := base
-	inProgress.Completion = &completionAssessment{
+	inProgress.Completion = &CompletionAssessment{
 		Status: "decision_ready", Verdict: "in_progress", Summary: "The run is applying.",
 	}
-	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+	if decision := EnforceExternalLifecycleCommunication(core.SlackInput{
 		Kind: "bot_message", Text: "Run run-abc\nRun Planned - Needs Confirmation",
 	}, inProgress); decision.Action != "ignore" {
 		t.Fatalf("nonterminal plan narration was not suppressed: %+v", decision)
 	}
 	materialReview := base
 	materialReview.Message = "The plan replaces a production database. Hold it for review."
-	materialReview.Completion = &completionAssessment{
+	materialReview.Completion = &CompletionAssessment{
 		Status: "decision_ready", Verdict: "needs_review", Summary: "Replacement needs review.",
 	}
-	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+	if decision := EnforceExternalLifecycleCommunication(core.SlackInput{
 		Kind: "bot_message", Text: "Run run-abc\nRun Planned - Needs Confirmation",
 	}, materialReview); decision.Action != "reply" {
 		t.Fatalf("material plan review was suppressed: %+v", decision)
 	}
-	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+	if decision := EnforceExternalLifecycleCommunication(core.SlackInput{
 		Kind: "bot_message", Text: "Run run-abc\nRun Planning",
 	}, materialReview); decision.Action != "reply" {
 		t.Fatalf("provider-backed review discovered during planning was suppressed: %+v", decision)
 	}
 	blockedReview := base
 	blockedReview.Message = "The saved plan is ready, but the provider omitted part of its drift list."
-	blockedReview.Completion = &completionAssessment{
+	blockedReview.Completion = &CompletionAssessment{
 		Status: "blocked", Summary: "The material plan review is incomplete.",
 		MaterialGaps: []string{"The complete drift list is unavailable."},
 		BlockerKind:  "source_unavailable",
 		Attempts:     []string{"Read the exact saved plan."},
 		NextAction:   "Expose the complete drift list.",
 	}
-	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+	if decision := EnforceExternalLifecycleCommunication(core.SlackInput{
 		Kind: "bot_message", Text: "Run run-abc\nRun Planning",
 	}, blockedReview); decision.Action != "reply" {
 		t.Fatalf("provider blocker discovered during planning was suppressed: %+v", decision)
@@ -554,10 +554,10 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 			ID: "wake-run", Kind: "terraform_run",
 		},
 	}}
-	quietWait.Completion = &completionAssessment{
+	quietWait.Completion = &CompletionAssessment{
 		Status: "decision_ready", Verdict: "in_progress", Summary: "Still planning.",
 	}
-	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+	if decision := EnforceExternalLifecycleCommunication(core.SlackInput{
 		Kind: "recheck",
 	}, quietWait); decision.Action != "ignore" ||
 		!waitsForExternalKind(decision, "terraform_run") {
@@ -575,7 +575,7 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 		Layer: "workload", Status: "healthy", Source: "rollout health",
 		Detail: "both instances serve the new revision", ObservedAt: now,
 	}}
-	if decision := enforceExternalLifecycleCommunication(core.SlackInput{
+	if decision := EnforceExternalLifecycleCommunication(core.SlackInput{
 		Kind: "bot_message", Text: "Run run-abc\nRun Applied",
 	}, verifiedRollout); decision.Action != "reply" {
 		t.Fatalf("fresh rollout verification was suppressed: %+v", decision)
@@ -593,11 +593,11 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 	}}}
 	unfinished := decisionpkg.WatchDecision{
 		Action: "reply",
-		Completion: &completionAssessment{
+		Completion: &CompletionAssessment{
 			Status: "decision_ready", Verdict: "in_progress", Summary: "Still planning.",
 		},
 	}
-	if correction := terraformLifecycleContinuationCorrection(input, state, unfinished); correction == "" {
+	if correction := TerraformLifecycleContinuationCorrection(input, state, unfinished); correction == "" {
 		t.Fatal("accepted a nonterminal Terraform result without durable continuation")
 	}
 	waiting := unfinished
@@ -610,7 +610,7 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 			Deadline:     now.Add(24 * time.Hour).Format(time.RFC3339),
 		},
 	}}
-	if correction := terraformLifecycleContinuationCorrection(input, state, waiting); correction != "" {
+	if correction := TerraformLifecycleContinuationCorrection(input, state, waiting); correction != "" {
 		t.Fatalf("rejected exact durable Terraform wait: %s", correction)
 	}
 	wrongRun := unfinished
@@ -623,15 +623,15 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 			Deadline:     now.Add(24 * time.Hour).Format(time.RFC3339),
 		},
 	}}
-	if correction := terraformLifecycleContinuationCorrection(input, state, wrongRun); correction == "" {
+	if correction := TerraformLifecycleContinuationCorrection(input, state, wrongRun); correction == "" {
 		t.Fatal("accepted a Terraform wait for a different run")
 	}
 	review := waiting
 	review.Message = "Review the plan at https://app.terraform.io/app/acme/infra/runs/run-abc."
-	review.Completion = &completionAssessment{
+	review.Completion = &CompletionAssessment{
 		Status: "decision_ready", Verdict: "needs_review", Summary: "The saved plan needs approval.",
 	}
-	if correction := terraformLifecycleContinuationCorrection(input, state, review); !strings.Contains(correction, "fresh affected-scope") {
+	if correction := TerraformLifecycleContinuationCorrection(input, state, review); !strings.Contains(correction, "fresh affected-scope") {
 		t.Fatalf("approval review without pre-change health correction = %q", correction)
 	}
 	review.Evidence = []core.Evidence{{
@@ -642,12 +642,12 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 		Layer: "workload", Status: "healthy", Source: "workload health",
 		Detail: "both replicas are ready", ObservedAt: now,
 	}}
-	if correction := terraformLifecycleContinuationCorrection(input, state, review); correction != "" {
+	if correction := TerraformLifecycleContinuationCorrection(input, state, review); correction != "" {
 		t.Fatalf("rejected approval-ready review with URL, health, and terminal wait: %s", correction)
 	}
 	reviewWithoutURL := review
 	reviewWithoutURL.Message = "The saved plan needs approval."
-	if correction := terraformLifecycleContinuationCorrection(input, state, reviewWithoutURL); !strings.Contains(correction, "canonical provider") {
+	if correction := TerraformLifecycleContinuationCorrection(input, state, reviewWithoutURL); !strings.Contains(correction, "canonical provider") {
 		t.Fatalf("approval review without provider URL correction = %q", correction)
 	}
 	terminal := decisionpkg.WatchDecision{
@@ -661,24 +661,24 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 			Layer: "workload", Status: "healthy", Source: "rollout health",
 			Detail: "both replicas serve the new revision", ObservedAt: now,
 		}},
-		Completion: &completionAssessment{
+		Completion: &CompletionAssessment{
 			Status: "decision_ready", Verdict: "succeeded", Summary: "Applied and verified.",
 		},
 	}
-	if correction := terraformLifecycleContinuationCorrection(input, state, terminal); correction != "" {
+	if correction := TerraformLifecycleContinuationCorrection(input, state, terminal); correction != "" {
 		t.Fatalf("required a wakeup after terminal completion: %s", correction)
 	}
 	terminalWithoutHealth := terminal
 	terminalWithoutHealth.Evidence = nil
 	terminalWithoutHealth.Coverage = nil
-	if correction := terraformLifecycleContinuationCorrection(input, state, terminalWithoutHealth); !strings.Contains(correction, "post") && !strings.Contains(correction, "applied") {
+	if correction := TerraformLifecycleContinuationCorrection(input, state, terminalWithoutHealth); !strings.Contains(correction, "post") && !strings.Contains(correction, "applied") {
 		t.Fatalf("applied result without post-change health correction = %q", correction)
 	}
 }
 
 func TestSuccessfulLifecycleDoesNotParaphraseVisibleStatusOrOldPlanContext(t *testing.T) {
 	now := time.Now().UTC()
-	decision := enforceExternalLifecycleCommunication(core.SlackInput{
+	decision := EnforceExternalLifecycleCommunication(core.SlackInput{
 		Kind: "bot_message",
 		Text: "Run notification for SME-Tenant/tenant-infra\n" +
 			"Run run-RvK3U9VVwhcujW6D\nRun Applied",
@@ -694,7 +694,7 @@ func TestSuccessfulLifecycleDoesNotParaphraseVisibleStatusOrOldPlanContext(t *te
 			Layer: "change", Status: "healthy", Source: "HCP Terraform",
 			Detail: "the apply completed", ObservedAt: now,
 		}},
-		Completion: &completionAssessment{
+		Completion: &CompletionAssessment{
 			Status: "decision_ready", Verdict: "healthy", Summary: "The apply completed.",
 		},
 	})
@@ -717,9 +717,9 @@ func TestStaleLifecycleReplyKeepsOnlyChangeHealthAndIndependentCaveat(t *testing
 			"exposed three Better Uptime monitors but omitted the other 58 entries. No further apply " +
 			"action is needed; review the complete drift list before the next run and verify it " +
 			"contains only expected external changes.",
-		Completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy"},
+		Completion: &CompletionAssessment{Status: "decision_ready", Verdict: "healthy"},
 	}
-	if correction := externalLifecycleReplyLanguageCorrection(input, verbose); correction == "" {
+	if correction := ExternalLifecycleReplyLanguageCorrection(input, verbose); correction == "" {
 		t.Fatal("accepted bureaucratic stale lifecycle narration")
 	}
 	concise := decisionpkg.WatchDecision{
@@ -727,16 +727,16 @@ func TestStaleLifecycleReplyKeepsOnlyChangeHealthAndIndependentCaveat(t *testing
 		Message: "**This plan already applied, so the confirmation card is stale.** It replaced " +
 			"the Emisar runner VM and updated Tolgee Cloud SQL; the runner is connected and the " +
 			"database is healthy.\n\nThe 61 drifted resources are separate follow-up work.",
-		Completion: &completionAssessment{Status: "decision_ready", Verdict: "healthy"},
+		Completion: &CompletionAssessment{Status: "decision_ready", Verdict: "healthy"},
 	}
-	if correction := externalLifecycleReplyLanguageCorrection(input, concise); correction != "" {
+	if correction := ExternalLifecycleReplyLanguageCorrection(input, concise); correction != "" {
 		t.Fatalf("rejected concise stale lifecycle update: %s", correction)
 	}
 	missingStale := concise
 	missingStale.Message = "The run applied successfully. It replaced the Emisar runner VM and " +
 		"updated Tolgee Cloud SQL; the runner is connected and the database is healthy."
 	missingStale.Completion.Verdict = "succeeded"
-	if correction := externalLifecycleReplyLanguageCorrection(input, missingStale); correction == "" {
+	if correction := ExternalLifecycleReplyLanguageCorrection(input, missingStale); correction == "" {
 		t.Fatal("accepted a stale source card without calling it stale")
 	}
 }
@@ -747,7 +747,7 @@ func TestTerminalLifecycleEvidenceIsHostBoundBeforeCompletionValidation(t *testi
 		Effort: core.EffortFocusedCheck, Objective: "Review the exact Terraform run",
 		RequiredCoverage: []string{"change"},
 	}
-	decision, adjusted := enforceExternalLifecycleEvidence(core.SlackInput{
+	decision, adjusted := EnforceExternalLifecycleEvidence(core.SlackInput{
 		ID: "slack-run-failed", EventID: "EvRunFailed", Kind: "bot_message",
 		ReceivedAt: observedAt,
 		Text: "Run notification for <https://example.com/acme/infra|acme/infra>\n" +
@@ -787,7 +787,7 @@ func TestTerminalLifecycleEvidencePreservesTypedOperationsTransport(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, adjusted := enforceExternalLifecycleEvidence(input, core.WorkEpisode{
+	decision, adjusted := EnforceExternalLifecycleEvidence(input, core.WorkEpisode{
 		Effort: core.EffortFocusedCheck, Objective: "Review the exact Terraform run",
 		RequiredCoverage: []string{"change"},
 	}, decision)

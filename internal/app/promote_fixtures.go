@@ -14,7 +14,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/evaluation"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -142,10 +142,10 @@ func runPromoteFixtures(args []string, stdout, stderr io.Writer) error {
 // The prose is kept in the tags so a reviewer reading a failure can see what
 // the original correction actually said.
 func withCorrectionAssertion(
-	fixture service.EvaluationCase,
+	fixture evaluation.EvaluationCase,
 	class string,
 	correction string,
-) service.EvaluationCase {
+) evaluation.EvaluationCase {
 	fixture.Tags = append(fixture.Tags, "regression", "correction:"+class)
 	if summary := strings.TrimSpace(correction); summary != "" {
 		fixture.Tags = append(fixture.Tags, "corrected:"+truncateTag(summary))

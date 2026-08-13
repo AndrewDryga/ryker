@@ -14,7 +14,8 @@ import (
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 )
 
-type completionAssessment = investigation.CompletionAssessment
+// CompletionAssessment is the model's own verdict on whether a turn finished.
+type CompletionAssessment = investigation.CompletionAssessment
 
 func (s *Service) episodeForIncident(
 	incident core.Incident,
@@ -283,7 +284,8 @@ func explicitGovernedOperationRequest(text string) bool {
 	return decisionpkg.EpisodeContainsAny(text, "can you", "please", "do it", "go ahead", "i want you to", "now")
 }
 
-func workEpisodePrompt(episode core.WorkEpisode) string {
+// WorkEpisodePrompt renders the episode contract section of a prompt.
+func WorkEpisodePrompt(episode core.WorkEpisode) string {
 	return investigation.Compile(episode).Prompt()
 }
 
@@ -376,7 +378,7 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 	action string,
 	evidence []core.Evidence,
 	coverage []core.Coverage,
-	completion *completionAssessment,
+	completion *CompletionAssessment,
 	now time.Time,
 	strict bool,
 ) (string, error) {
@@ -400,7 +402,7 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 }
 
 func completionEpisodePhase(
-	completion *completionAssessment,
+	completion *CompletionAssessment,
 	pendingApproval *core.EmisarApproval,
 	operations []investigation.ResultOperation,
 ) (core.WorkEpisodeState, string, string, string) {

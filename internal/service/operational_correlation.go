@@ -10,7 +10,9 @@ import (
 
 const operationalBurstWindow = 90 * time.Second
 
-var operationalCorrelationKey = operationalkey.Key
+// OperationalCorrelationKey derives the key that groups operationally
+// related inputs into one burst.
+var OperationalCorrelationKey = operationalkey.Key
 var broadOperationalBurstCoalescingAllowed = operationalkey.BroadBurstCoalescingAllowed
 
 func (s *Service) obviousHumanDialogue(input core.SlackInput, state decisionpkg.WatchTurnState) bool {

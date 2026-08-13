@@ -1,4 +1,4 @@
-package service
+package evaluation
 
 import (
 	"context"
@@ -13,11 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/agentprompt"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/serviceport"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -122,7 +125,7 @@ func EvaluateLiveJSONL(
 	ctx context.Context,
 	reader io.Reader,
 	cfg config.Config,
-	client CoopAPI,
+	client serviceport.Coop,
 	options LiveEvaluationOptions,
 ) (EvaluationSummary, error) {
 	cases, err := decodeEvaluationCases(reader)
@@ -459,7 +462,7 @@ func appendEvaluationFailure(existing string, failure string) string {
 
 func collectEvaluationArtifacts(
 	ctx context.Context,
-	client CoopAPI,
+	client serviceport.Coop,
 	sessionID string,
 	testCase EvaluationCase,
 	caseID string,
@@ -600,7 +603,7 @@ func evaluationPathMatches(paths []string, pattern string) bool {
 
 func assessEvaluationLifecycle(
 	ctx context.Context,
-	client CoopAPI,
+	client serviceport.Coop,
 	sessionID string,
 	turnID string,
 	expectedCompletions int,
@@ -654,7 +657,7 @@ func assessEvaluationLifecycle(
 func runQualityEvaluation(
 	ctx context.Context,
 	cfg config.Config,
-	client CoopAPI,
+	client serviceport.Coop,
 	testCase EvaluationCase,
 	rendered slackui.Message,
 	caseID string,
@@ -689,7 +692,7 @@ func runQualityEvaluation(
 func runEvidenceVerification(
 	ctx context.Context,
 	cfg config.Config,
-	client CoopAPI,
+	client serviceport.Coop,
 	testCase EvaluationCase,
 	rendered slackui.Message,
 	caseID string,
@@ -724,7 +727,7 @@ func runEvidenceVerification(
 func runAuxiliaryEvaluation(
 	ctx context.Context,
 	cfg config.Config,
-	client CoopAPI,
+	client serviceport.Coop,
 	testCase EvaluationCase,
 	caseID string,
 	prompt string,
@@ -745,7 +748,7 @@ func runAuxiliaryEvaluation(
 		ctx,
 		"responder:live-eval-aux-session:"+caseID,
 		repository.CoopPolicy,
-		"Responder evaluation verifier: "+truncateWatchText(testCase.Name, 160),
+		"Responder evaluation verifier: "+service.TruncateWatchText(testCase.Name, 160),
 	)
 	if err != nil {
 		return "", 0, err
@@ -848,7 +851,7 @@ var errEvaluationCaseInvalid = errors.New("invalid evaluation case")
 func runLiveEvaluationCase(
 	ctx context.Context,
 	cfg config.Config,
-	client CoopAPI,
+	client serviceport.Coop,
 	testCase EvaluationCase,
 	caseID string,
 	pollInterval time.Duration,
@@ -900,7 +903,7 @@ func runLiveEvaluationCase(
 		ctx,
 		"responder:live-eval-session:"+caseID,
 		policy,
-		"Responder live model evaluation: "+truncateWatchText(testCase.Name, 160),
+		"Responder live model evaluation: "+service.TruncateWatchText(testCase.Name, 160),
 	)
 	if err != nil {
 		return "", "", 0, WorkspaceAssessment{}, 0, err
@@ -1024,19 +1027,19 @@ func evaluationStructuredCorrection(
 			if contextErr == nil {
 				state := evaluationWatchState(testCase)
 				state.RecentMessages = recent
-				episode := (&Service{cfg: cfg}).episodeForWatchedInput(input, state)
+				episode := service.NewEvaluator(cfg).EpisodeForWatchedInput(input, state)
 				decisionpkg.NormalizeAppAlertCompletion(input, &decision)
-				lifecycleContinuationCorrection := terraformLifecycleContinuationCorrection(
+				lifecycleContinuationCorrection := service.TerraformLifecycleContinuationCorrection(
 					input, state, decision,
 				)
-				decision = enforceExternalLifecycleCommunication(input, decision)
-				decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
+				decision = service.EnforceExternalLifecycleCommunication(input, decision)
+				decision, _ = service.EnforceExternalLifecycleEvidence(input, *episode, decision)
 				decision, _ = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
 				for _, correction := range []string{
 					lifecycleContinuationCorrection,
-					decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, operationalCorrelationKey),
+					decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, service.OperationalCorrelationKey),
 					decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision),
-					externalLifecycleReplyLanguageCorrection(input, decision),
+					service.ExternalLifecycleReplyLanguageCorrection(input, decision),
 					investigation.CompletionCorrection(
 						*episode,
 						decision.Action,
@@ -1176,7 +1179,7 @@ func liveEvaluationPrompt(
 	repositoryKey string,
 	caseID string,
 ) (string, error) {
-	evaluator := &Service{cfg: cfg}
+	evaluator := service.NewEvaluator(cfg)
 	switch testCase.Kind {
 	case "watch":
 		operatorID := "UEVALOPERATOR"
@@ -1228,7 +1231,7 @@ func liveEvaluationPrompt(
 			})
 		}
 		if testCase.Lane == "conversation" {
-			return evaluator.conversationPrompt(
+			return evaluator.ConversationPrompt(
 				input,
 				"UEVALBOT",
 				false,
@@ -1242,8 +1245,8 @@ func liveEvaluationPrompt(
 		}
 		state := evaluationWatchState(testCase)
 		state.MatchedRules = rules
-		episode := evaluator.episodeForWatchedInput(input, state)
-		watch, _ := evaluator.watchPrompt(
+		episode := evaluator.EpisodeForWatchedInput(input, state)
+		watch, _ := evaluator.WatchPrompt(
 			input,
 			"UEVALBOT",
 			false,
@@ -1256,9 +1259,9 @@ func liveEvaluationPrompt(
 			rules,
 			// Evaluation builds its own suffix, so the section gets the budget
 			// it would have with none.
-			watchPromptBudget(0),
+			service.WatchPromptBudget(0),
 		)
-		return watch + "\n\n" + workEpisodePrompt(*episode), nil
+		return watch + "\n\n" + service.WorkEpisodePrompt(*episode), nil
 	case "incident", "task":
 		incident := core.Incident{
 			ID:         caseID,
@@ -1280,10 +1283,10 @@ func liveEvaluationPrompt(
 			CorrelationKey: caseID,
 			Status:         core.SignalFiring,
 			Title:          testCase.Name,
-			Summary:        boundedOperatorText(testCase.Input),
+			Summary:        agentprompt.BoundedOperatorText(testCase.Input),
 			ReceivedAt:     time.Now().UTC(),
 		}
-		prompt, err := initialPrompt(
+		prompt, err := agentprompt.Initial(
 			"", incident, []core.Signal{signal}, "", testCase.Kind == "task",
 		)
 		if err != nil {
@@ -1293,9 +1296,9 @@ func liveEvaluationPrompt(
 		if testCase.Kind == "task" {
 			mode = core.AgentRunEngineeringTask
 		}
-		episode := evaluator.episodeForIncident(incident, mode, "evaluation", testCase.Input)
-		return prompt + "\n\n" + structuredResponseInstructions() +
-			"\n\n" + workEpisodePrompt(*episode), nil
+		episode := evaluator.EpisodeForIncident(incident, mode, "evaluation", testCase.Input)
+		return prompt + "\n\n" + service.StructuredResponseInstructions() +
+			"\n\n" + service.WorkEpisodePrompt(*episode), nil
 	default:
 		return "", errors.New("live case kind must be watch, incident, or task")
 	}
@@ -1333,7 +1336,7 @@ func liveEvaluationWatchContext(
 			"unsupported sender_type %q", testCase.SenderType,
 		)
 	}
-	text := boundedOperatorText(testCase.Input)
+	text := agentprompt.BoundedOperatorText(testCase.Input)
 	if testCase.MentionsResponder && !strings.Contains(text, "<@UEVALBOT>") {
 		text = "<@UEVALBOT> " + text
 	}
@@ -1361,12 +1364,12 @@ func liveEvaluationWatchContext(
 		if err != nil {
 			return core.SlackInput{}, nil, fmt.Errorf("recent message %d: %w", index+1, err)
 		}
-		item.MessageLink = slackMessageLink(core.SlackInput{
+		item.MessageLink = service.SlackMessageLink(core.SlackInput{
 			TeamID: "TEVALUATION", ChannelID: input.ChannelID, MessageTS: item.MessageTS,
 		})
 		recent = append(recent, item)
 	}
-	recent = append(recent, watchPromptMessage(input, "UEVALBOT", true))
+	recent = append(recent, service.WatchPromptMessage(input, "UEVALBOT", true))
 	for index, message := range testCase.FollowingMessages {
 		ordinal := len(testCase.RecentMessages) + index + 2
 		item, err := liveEvaluationContextMessage(
@@ -1381,7 +1384,7 @@ func liveEvaluationWatchContext(
 				err,
 			)
 		}
-		item.MessageLink = slackMessageLink(core.SlackInput{
+		item.MessageLink = service.SlackMessageLink(core.SlackInput{
 			TeamID: "TEVALUATION", ChannelID: input.ChannelID, MessageTS: item.MessageTS,
 		})
 		recent = append(recent, item)
@@ -1425,14 +1428,14 @@ func liveEvaluationContextMessage(
 		MessageTS:         fmt.Sprintf("1700.%06d", ordinal),
 		SenderID:          senderID,
 		SenderType:        senderType,
-		Text:              boundedOperatorText(message.Text),
+		Text:              agentprompt.BoundedOperatorText(message.Text),
 		MentionsResponder: message.MentionsResponder,
 	}, nil
 }
 
 func cleanupLiveEvaluationSession(
 	ctx context.Context,
-	client CoopAPI,
+	client serviceport.Coop,
 	sessionID string,
 	caseID string,
 	pollInterval time.Duration,

@@ -15,7 +15,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/evaluation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
@@ -305,9 +305,9 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return fmt.Errorf("open evaluation corpus: %w", err)
 	}
 	defer file.Close()
-	var summary service.EvaluationSummary
+	var summary evaluation.EvaluationSummary
 	if *replay {
-		summary, err = service.EvaluateJSONL(file)
+		summary, err = evaluation.EvaluateJSONL(file)
 		if err != nil {
 			return err
 		}
@@ -365,7 +365,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		if !*jsonOutput {
 			fmt.Fprintf(stderr, "Coop ready (%s); running real model evaluation\n", supervision)
 		}
-		options := service.LiveEvaluationOptions{
+		options := evaluation.LiveEvaluationOptions{
 			CaseTimeout:    *caseTimeout,
 			CaseFilter:     *caseFilter,
 			Repeat:         *repeat,
@@ -384,7 +384,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 			},
 		}
 		if *calibrateJudge {
-			summary, err = service.EvaluateQualityCalibrationJSONL(
+			summary, err = evaluation.EvaluateQualityCalibrationJSONL(
 				context.Background(),
 				file,
 				cfg,
@@ -392,7 +392,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 				options,
 			)
 		} else if *scenarios {
-			summary, err = service.EvaluateLiveScenariosJSONL(
+			summary, err = evaluation.EvaluateLiveScenariosJSONL(
 				context.Background(),
 				file,
 				cfg,
@@ -400,7 +400,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 				options,
 			)
 		} else {
-			summary, err = service.EvaluateLiveJSONL(
+			summary, err = evaluation.EvaluateLiveJSONL(
 				context.Background(),
 				file,
 				cfg,
@@ -412,7 +412,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 			return err
 		}
 	}
-	var baseline *service.EvaluationBaseline
+	var baseline *evaluation.EvaluationBaseline
 	if *baselinePath != "" {
 		value, readErr := readEvaluationBaseline(*baselinePath)
 		if readErr != nil {
@@ -420,7 +420,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		}
 		baseline = &value
 	}
-	service.ApplyEvaluationGates(&summary, service.EvaluationGateOptions{
+	evaluation.ApplyEvaluationGates(&summary, evaluation.EvaluationGateOptions{
 		MinOverallPassRate:       *minOverallPassRate,
 		MinCasePassRate:          *minCasePassRate,
 		MinProactivePrecision:    *minProactivePrecision,
@@ -437,7 +437,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		}
 		if err := writeEvaluationBaseline(
 			*writeBaselinePath,
-			service.BaselineFromSummary(summary),
+			evaluation.BaselineFromSummary(summary),
 		); err != nil {
 			return err
 		}
@@ -515,7 +515,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 // An unevaluated case is always non-zero. An unproven fixture must not pass
 // because a provider was busy; only the sentence changes, and the sentence is
 // the difference between "go read three fixtures" and "run it again later".
-func evaluationExit(summary service.EvaluationSummary, minCasePassRate float64) error {
+func evaluationExit(summary evaluation.EvaluationSummary, minCasePassRate float64) error {
 	if summary.Failed > 0 && minCasePassRate <= 0 {
 		return fmt.Errorf("%d evaluation cases failed", summary.Failed)
 	}
@@ -531,26 +531,26 @@ func evaluationExit(summary service.EvaluationSummary, minCasePassRate float64) 
 	return nil
 }
 
-func readEvaluationBaseline(path string) (service.EvaluationBaseline, error) {
+func readEvaluationBaseline(path string) (evaluation.EvaluationBaseline, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return service.EvaluationBaseline{}, fmt.Errorf(
+		return evaluation.EvaluationBaseline{}, fmt.Errorf(
 			"open evaluation baseline: %w",
 			err,
 		)
 	}
 	defer file.Close()
-	var result service.EvaluationBaseline
+	var result evaluation.EvaluationBaseline
 	decoder := json.NewDecoder(file)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&result); err != nil {
-		return service.EvaluationBaseline{}, fmt.Errorf(
+		return evaluation.EvaluationBaseline{}, fmt.Errorf(
 			"decode evaluation baseline: %w",
 			err,
 		)
 	}
 	if result.Version != 1 {
-		return service.EvaluationBaseline{}, fmt.Errorf(
+		return evaluation.EvaluationBaseline{}, fmt.Errorf(
 			"evaluation baseline version must be 1",
 		)
 	}
@@ -559,7 +559,7 @@ func readEvaluationBaseline(path string) (service.EvaluationBaseline, error) {
 
 func writeEvaluationBaseline(
 	path string,
-	baseline service.EvaluationBaseline,
+	baseline evaluation.EvaluationBaseline,
 ) error {
 	var output bytes.Buffer
 	encoder := json.NewEncoder(&output)
@@ -570,7 +570,7 @@ func writeEvaluationBaseline(
 	return writePrivateEvaluationFile(path, output.Bytes(), "baseline")
 }
 
-func writeEvaluationSummary(path string, summary service.EvaluationSummary) error {
+func writeEvaluationSummary(path string, summary evaluation.EvaluationSummary) error {
 	var output bytes.Buffer
 	encoder := json.NewEncoder(&output)
 	encoder.SetIndent("", "  ")

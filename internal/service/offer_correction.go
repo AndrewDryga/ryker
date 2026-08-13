@@ -77,7 +77,7 @@ func (s *Service) rejectedOffers(
 			})
 		}
 	}
-	if offers := orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 && s.scheduleOfferInScope(input) {
+	if offers := OrderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 && s.scheduleOfferInScope(input) {
 		for _, offer := range offers {
 			if _, err := s.scheduledTaskFromOffer(ctx, input, *offer, now); err == nil {
 				continue

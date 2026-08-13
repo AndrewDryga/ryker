@@ -55,16 +55,15 @@ var methodBudget = map[string]int{
 // written beside it — that has happened once, during the decision-logic
 // refactors, and was earned back by extracting internal/localstate.
 //
-// The identified extraction is the offline evaluation family
-// — live_evaluation.go, evaluation.go, evaluation_quality.go,
-// scenario_evaluation.go, and quality_calibration.go, together 3,759 lines with
-// zero *Service methods, none of which runs in the service at all.
-//
-// It cannot move yet: those files reference 57 unexported service symbols,
-// mostly the watch-decision and agent-report types and their validators.
-// Exporting all 57 would widen the package's API instead of narrowing it, so
-// the decision domain has to become its own package first. That is the next
-// extraction, and this number comes down again when it lands.
+// The offline evaluation family moved to internal/evaluation on 2026-08-12.
+// When the paragraph this one replaced was written, those files referenced 57
+// unexported service symbols and the move was blocked; extracting
+// internal/decision quietly paid most of that debt down, and the remainder
+// was 16. Fourteen shared helpers are now exported where they live, two were
+// wrappers whose agentprompt originals the harness calls directly, and the
+// Service internals the harness replays — episode construction, the watch and
+// conversation prompts, the offer preparation — are reached through the
+// Evaluator seam, which exists for the harness and nothing else.
 //
 // The process-local coordination state moved to internal/localstate, which is
 // how this budget came back to 28000 after the decision-logic refactors.
@@ -220,7 +219,13 @@ var lineBudget = map[string]int{
 	// change extracted the 225-line review policy and the entire persistence
 	// state machine. The remaining service code is orchestration across Coop,
 	// Slack, and the publisher; moving it would duplicate those clients.
-	"service": 25140,
+	// Lowered to 21820 on 2026-08-12 when the offline evaluation family became
+	// internal/evaluation — the ~3,800 lines this file had named as the next
+	// extraction three times. The margin left is a few hundred lines on purpose:
+	// the change that tripped this budget at three lines of headroom is still in
+	// flight, and a ratchet that re-arms at zero is the tripwire the note at the
+	// top of this map warns about.
+	"service": 21820,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -339,8 +344,13 @@ var lineBudget = map[string]int{
 	// These packages own policy and data transformations that used to sit in
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.
-	"agentcontext":          200,
-	"agentprompt":           300,
+	"agentcontext": 200,
+	"agentprompt":  300,
+	// evaluation replays recorded and live corpora through the same prompt and
+	// decision paths the runtime uses, and gates releases on the result. It sits
+	// above service the way app does: it may import service, and nothing imports
+	// it back.
+	"evaluation":            4050,
 	"evidencepolicy":        100,
 	"episode":               350,
 	"investigationcontract": 550,
@@ -375,6 +385,7 @@ var forbiddenImports = map[string][]string{
 	"investigation":            {"service", "store", "slackui", "httpapi", "app"},
 	"investigationcontract":    {"service", "store", "slackui", "httpapi", "app", "decision", "investigation"},
 	"decision":                 {"service", "store", "httpapi", "app", "publisher", "coop"},
+	"evaluation":               {"httpapi", "app", "webhook"},
 	"agentcontext":             {"service", "store", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
 	"agentprompt":              {"service", "store", "slackui", "httpapi", "app", "publisher", "config"},
 	"evidencepolicy":           {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},

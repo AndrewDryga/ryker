@@ -262,7 +262,7 @@ func TestStructuredEvidenceAndCoverageEnumsAreHostValidated(t *testing.T) {
 }
 
 func TestStructuredResponseInstructionsOwnFormattingAndApprovalRouting(t *testing.T) {
-	policy := structuredResponseInstructions()
+	policy := StructuredResponseInstructions()
 	for _, required := range []string{
 		"Return exactly one JSON object",
 		"Slack-supported standard Markdown",

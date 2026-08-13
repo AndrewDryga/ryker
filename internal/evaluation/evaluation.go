@@ -1,4 +1,4 @@
-package service
+package evaluation
 
 import (
 	"bufio"
@@ -15,6 +15,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/taskaccess"
 )
@@ -341,7 +342,7 @@ type evaluationObservation struct {
 	offers            []string
 	evidence          []core.Evidence
 	coverage          []core.Coverage
-	completion        *completionAssessment
+	completion        *service.CompletionAssessment
 	assessment        *decisionpkg.AlertAssessment
 	attention         decisionpkg.AttentionAssessment
 	memory            core.AgentMemory
@@ -600,7 +601,7 @@ func evaluateCaseWithConfig(
 	var evidence []core.Evidence
 	var coverage []core.Coverage
 	var assessment *decisionpkg.AlertAssessment
-	var completion *completionAssessment
+	var completion *service.CompletionAssessment
 	var episode *core.WorkEpisode
 	var pendingApproval bool
 	var strictOperations bool
@@ -628,13 +629,13 @@ func evaluateCaseWithConfig(
 			}
 			state := evaluationWatchState(testCase)
 			state.RecentMessages = recent
-			episode = (&Service{cfg: *cfg}).episodeForWatchedInput(input, state)
+			episode = service.NewEvaluator(*cfg).EpisodeForWatchedInput(input, state)
 			decisionpkg.NormalizeAppAlertCompletion(input, &decision)
-			lifecycleContinuationCorrection = terraformLifecycleContinuationCorrection(
+			lifecycleContinuationCorrection = service.TerraformLifecycleContinuationCorrection(
 				input, state, decision,
 			)
-			decision = enforceExternalLifecycleCommunication(input, decision)
-			decision, _ = enforceExternalLifecycleEvidence(input, *episode, decision)
+			decision = service.EnforceExternalLifecycleCommunication(input, decision)
+			decision, _ = service.EnforceExternalLifecycleEvidence(input, *episode, decision)
 			decision = attentionpkg.Enforce(
 				input,
 				state,
@@ -688,7 +689,7 @@ func evaluateCaseWithConfig(
 			if testCase.Kind == "task" {
 				mode = core.AgentRunEngineeringTask
 			}
-			episode = (&Service{cfg: *cfg}).episodeForIncident(
+			episode = service.NewEvaluator(*cfg).EpisodeForIncident(
 				core.Incident{Title: testCase.Name}, mode, "evaluation", testCase.Input,
 			)
 		}
@@ -771,21 +772,21 @@ func hostedWatchDecisionOffers(
 	if err != nil {
 		return []string{"invalid"}
 	}
-	evaluator := &Service{cfg: cfg}
+	evaluator := service.NewEvaluator(cfg)
 	result := make([]string, 0, 3)
 	if decision.IncidentTitle != "" {
 		return []string{"incident"}
 	}
 	if decision.TaskTitle != "" {
 		if _, err := taskaccess.ResolveOfferRepository(
-			context.Background(), evaluator.cfg, evaluator.store, input, decision.TaskRepository,
+			context.Background(), cfg, evaluator.Store(), input, decision.TaskRepository,
 		); err != nil {
 			return nil
 		}
 		result = append(result, "engineering_task")
 	}
 	if decision.MemoryOffer != nil {
-		if _, _, _, _, ok := evaluator.prepareMemoryOfferAction(
+		if _, _, _, _, ok := evaluator.PrepareMemoryOfferAction(
 			input,
 			decision.MemoryOffer,
 		); ok {
@@ -793,7 +794,7 @@ func hostedWatchDecisionOffers(
 		}
 	}
 	if decision.PreferenceOffer != nil {
-		if _, _, _, ok := evaluator.preparePreferenceOfferAction(
+		if _, _, _, ok := evaluator.PreparePreferenceOfferAction(
 			input,
 			decision.PreferenceOffer,
 		); ok {
@@ -801,17 +802,17 @@ func hostedWatchDecisionOffers(
 		}
 	}
 	if decision.RuleOffer != nil {
-		if _, _, _, ok := evaluator.prepareRuleOfferAction(
+		if _, _, _, ok := evaluator.PrepareRuleOfferAction(
 			input,
 			decision.RuleOffer,
 		); ok {
 			result = append(result, "rule")
 		}
 	}
-	if offers := orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 {
+	if offers := service.OrderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 {
 		valid := true
 		for _, offer := range offers {
-			if _, _, ok := evaluator.normalizeScheduleOffer(context.Background(), input, offer); !ok {
+			if _, _, ok := evaluator.NormalizeScheduleOffer(context.Background(), input, offer); !ok {
 				valid = false
 				break
 			}
@@ -840,7 +841,7 @@ func watchDecisionOffers(decision decisionpkg.WatchDecision) []string {
 	if decision.RuleOffer != nil {
 		result = append(result, "rule")
 	}
-	if len(orderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers)) != 0 {
+	if len(service.OrderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers)) != 0 {
 		result = append(result, "schedule")
 	}
 	return result
@@ -857,7 +858,7 @@ func agentReportOffers(report decisionpkg.AgentReport) []string {
 	if report.RuleOffer != nil {
 		result = append(result, "rule")
 	}
-	if len(orderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers)) != 0 {
+	if len(service.OrderedScheduleOffers(report.ScheduleOffer, report.ScheduleOffers)) != 0 {
 		result = append(result, "schedule")
 	}
 	return result

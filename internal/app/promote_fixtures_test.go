@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/service"
+	"github.com/AndrewDryga/responder/internal/evaluation"
 )
 
 // The correction class becomes an assertion; the correction text does not.
@@ -18,7 +18,7 @@ import (
 // reviewer reading a failure can see what was originally said.
 func TestPromotionAssertsTheClassNotTheProse(t *testing.T) {
 	fixture := withCorrectionAssertion(
-		service.EvaluationCase{Name: "recorded"},
+		evaluation.EvaluationCase{Name: "recorded"},
 		"incomplete",
 		"the reply claimed healthy without fresh evidence",
 	)
@@ -35,7 +35,7 @@ func TestPromotionAssertsTheClassNotTheProse(t *testing.T) {
 	// An unreadable result asserts nothing extra: that it parses at all is
 	// inherent in the fixture running, and inventing a second assertion would
 	// make the fixture fail for a reason the correction never mentioned.
-	unreadable := withCorrectionAssertion(service.EvaluationCase{}, "unreadable", "bad json")
+	unreadable := withCorrectionAssertion(evaluation.EvaluationCase{}, "unreadable", "bad json")
 	if unreadable.RequireCompletion {
 		t.Error("an unreadable correction invented a completion requirement")
 	}

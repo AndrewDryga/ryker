@@ -23,7 +23,9 @@ const scheduleOfferMaxAge = 24 * time.Hour
 
 type scheduleActionPayload = scheduleofferpkg.ActionPayload
 
-func orderedScheduleOffers(primary *core.ScheduleOffer, additional []*core.ScheduleOffer) []*core.ScheduleOffer {
+// OrderedScheduleOffers merges the primary schedule offer with any additional
+// ones into the single order the runtime presents them in.
+func OrderedScheduleOffers(primary *core.ScheduleOffer, additional []*core.ScheduleOffer) []*core.ScheduleOffer {
 	return schedulepkg.Offers(primary, additional)
 }
 

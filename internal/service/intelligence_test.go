@@ -482,7 +482,7 @@ func TestSlackShortcutAndDirectMessageBecomeExplicitReadOnlyRequests(t *testing.
 		shortcut.ThreadTS != shortcut.MessageTS {
 		t.Fatalf("shortcut = %+v, %v", shortcut, err)
 	}
-	contextMessage := watchPromptMessage(shortcut, "U999BOT", true)
+	contextMessage := WatchPromptMessage(shortcut, "U999BOT", true)
 	if contextMessage.SenderID != "U456DEF" ||
 		contextMessage.RequestedBy != "U123ABC" ||
 		contextMessage.SenderType != "selected_message" {

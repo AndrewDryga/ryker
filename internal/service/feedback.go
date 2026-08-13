@@ -136,8 +136,8 @@ func (s *Service) recordFeedbackOperations(
 			ThreadTS: input.ThreadTS, MessageTS: input.MessageTS,
 			TargetMessageTS: value.TargetMessageTS, UserID: input.UserID,
 			Source: "model_sentiment", Category: value.Category, Sentiment: value.Sentiment,
-			Summary: truncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(value.Summary)), 500),
-			Details: truncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(value.Details)), 4000),
+			Summary: TruncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(value.Summary)), 500),
+			Details: TruncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(value.Details)), 4000),
 			Context: contextMessages, EpisodeID: run.EpisodeID, AgentRunID: run.ID,
 			SourceRef: exactSlackMessageLink(input, input.MessageTS),
 		}
@@ -162,7 +162,7 @@ func (s *Service) recordExplicitFeedback(
 		WorkspaceID: input.TeamID, ChannelID: input.ChannelID,
 		ThreadTS: input.ThreadTS, MessageTS: input.MessageTS, UserID: input.UserID,
 		Source: "slash_command", Category: "other", Sentiment: "suggestion",
-		Summary: truncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(text)), 500),
+		Summary: TruncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(text)), 500),
 		Context: contextMessages, SourceRef: exactSlackMessageLink(input, input.MessageTS),
 	}
 	if _, err := s.store.RecordFeedback(ctx, item); err != nil {
@@ -192,7 +192,7 @@ func (s *Service) feedbackContext(
 			}
 			messages = make([]decisionpkg.WatchContextMessage, 0, len(recent)+1)
 			for _, value := range recent {
-				messages = append(messages, watchPromptMessage(value, s.identity.BotUserID, false))
+				messages = append(messages, WatchPromptMessage(value, s.identity.BotUserID, false))
 			}
 		}
 	}
@@ -208,7 +208,7 @@ func (s *Service) feedbackContext(
 			MessageTS: message.MessageTS, ThreadTS: message.ThreadTS,
 			MessageLink: message.MessageLink, SenderID: message.SenderID,
 			SenderType:  message.SenderType,
-			Text:        truncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(message.Text)), 2000),
+			Text:        TruncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(message.Text)), 2000),
 			Attachments: attachments,
 		})
 	}
@@ -221,7 +221,7 @@ func (s *Service) feedbackContext(
 				result = append(result, store.FeedbackContextMessage{
 					MessageTS: targetMessageTS, ThreadTS: delivery.ThreadTS,
 					SenderID: s.identity.BotUserID, SenderType: "responder",
-					Text: truncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(text)), 3000),
+					Text: TruncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(text)), 3000),
 				})
 			}
 		} else if !errors.Is(err, store.ErrNotFound) {
@@ -240,7 +240,7 @@ func exactSlackMessageLink(input core.SlackInput, messageTS string) string {
 	}
 	input.ThreadTS = ""
 	input.MessageTS = messageTS
-	return slackMessageLink(input)
+	return SlackMessageLink(input)
 }
 
 func (s *Service) finishSlashFeedback(ctx context.Context, input core.SlackInput, text string) error {

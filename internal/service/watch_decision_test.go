@@ -116,13 +116,13 @@ func TestSocketPersistsReactionsToResponderMessagesWithoutStartingAgentTurn(t *t
 		t.Fatalf("reactions started agent turns: %v", coopClient.submitPrompts)
 	}
 
-	message := watchPromptMessage(context[1], "U999BOT", false)
+	message := WatchPromptMessage(context[1], "U999BOT", false)
 	if message.SenderType != "human_reaction" || message.Text != "" ||
 		len(message.Reactions) != 1 || message.Reactions[0].Change != "removed" ||
 		message.Reactions[0].TargetMessageTS != "1700.200" {
 		t.Fatalf("reaction prompt context = %+v", message)
 	}
-	current := watchPromptMessage(core.SlackInput{
+	current := WatchPromptMessage(core.SlackInput{
 		Kind: "bot_message", UserID: "U999BOT", Text: "Production is healthy.",
 		Reactions: []core.SlackReaction{{
 			Name: "thumbsup", Count: 2, UserIDs: []string{"U123ABC", "U456DEF"},
@@ -1369,7 +1369,7 @@ func TestDecisionReadyFactualAssessmentCanOfferSourceBackedFix(t *testing.T) {
 		t.Fatalf("decision-ready source fix = %+v", decision)
 	}
 
-	decision.Completion = &completionAssessment{
+	decision.Completion = &CompletionAssessment{
 		Status: "blocked", BlockerKind: "source_unavailable",
 	}
 	if decisionpkg.ValidSuggestedEngineeringTaskBoundary(decision) {

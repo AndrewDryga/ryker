@@ -321,7 +321,7 @@ func historyWatchContext(
 	})
 	result := make([]decisionpkg.WatchContextMessage, 0, len(inputs))
 	for _, input := range inputs {
-		result = append(result, watchPromptMessage(input, botUserID, false))
+		result = append(result, WatchPromptMessage(input, botUserID, false))
 	}
 	return result
 }
