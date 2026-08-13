@@ -820,6 +820,47 @@ func TestAuditTraceExplainsEveryMatchedAndSkippedStandingRule(t *testing.T) {
 	}
 }
 
+// The evaluation renders as structure: every channel rule, its verdict, and
+// its reason — matched rules carrying their definition as labeled facts.
+func TestStandingRuleCardsStructureEveryRule(t *testing.T) {
+	detail, err := json.Marshal(core.StandingRuleEvaluationAudit{
+		Checked: 3, Matched: 1, Acknowledged: "eyes",
+		Rules: []core.StandingRuleEvaluation{
+			{Name: "Review Terraform plans", Matched: true,
+				Why:     "Matched because this is an app message about a planned Terraform run.",
+				Trigger: "App messages about Terraform runs.", Work: "Reviews the saved plan.",
+				Delivery: "Replies in the thread for a useful finding."},
+			{Name: "Investigate operational alerts", Why: "Skipped because this is not an alert.",
+				Trigger: "App messages about operational alerts.", Work: "Investigates.", Delivery: "Replies."},
+			{Name: "Verify deployments", Why: "Skipped because this is not a deployment.",
+				Trigger: "App messages about deployments.", Work: "Checks revisions.", Delivery: "Replies."},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, verdict, ok := standingRuleCards(AuditRow{
+		Kind: "standing_rules.evaluated", Detail: string(detail),
+	}, func(text string) string { return text })
+	if !ok || len(rules) != 3 {
+		t.Fatalf("rule cards = %+v, ok %t", rules, ok)
+	}
+	if verdict != "1 of 3 channel rules matched · 👀 added while it works" {
+		t.Fatalf("verdict = %q", verdict)
+	}
+	matched := rules[0]
+	if !matched.Matched || len(matched.Facts) != 3 || matched.Facts[0].Label != "Watches" ||
+		matched.Effect == "" || !strings.Contains(matched.Why, "Matched because") {
+		t.Fatalf("matched card = %+v", matched)
+	}
+	for _, skipped := range rules[1:] {
+		if skipped.Matched || skipped.Facts != nil || skipped.Effect != "" ||
+			!strings.Contains(skipped.Why, "Skipped because") {
+			t.Fatalf("skipped card = %+v", skipped)
+		}
+	}
+}
+
 func TestPromptSegmentsPreserveEveryCharacterInOrder(t *testing.T) {
 	prompt := "SYSTEM: one\n<trusted-responder-context>trusted</trusted-responder-context>\n" +
 		"<untrusted-slack-context>{\"channel_id\":\"C1\",\"prior_operational_context\":{\"open_commitments\":[\"check rollout\"]}," +

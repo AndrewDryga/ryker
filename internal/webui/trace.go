@@ -82,7 +82,11 @@ type TraceStep struct {
 	Chip string
 	// Bar is this kind's micro-visualization — the briefing's token
 	// composition, a turn's fresh/cached/output split — or nil.
-	Bar   *StepBar
+	Bar *StepBar
+	// Rules is the standing-rule evaluation rendered as structure: every
+	// rule the channel holds, whether it matched, and why — instead of a
+	// paragraph blob behind a disclosure.
+	Rules []TraceRule
 	Stats []TraceStat
 	// Footer is one flat label-over-value strip at the very bottom of the
 	// card, below every disclosure: replay fingerprints live here, since two
@@ -108,6 +112,15 @@ type StepBar struct {
 type BarSlice struct {
 	Label, Value, Class string
 	X, W                int
+}
+
+// TraceRule is one standing rule as the evaluation saw it: its name, whether
+// it matched this message, the reason either way, and — for matched rules —
+// the definition that now governs the turn.
+type TraceRule struct {
+	Name, Why, Effect string
+	Matched           bool
+	Facts             []TraceStat
 }
 
 // TraceChapter is one act of the episode: what came in, the work, the answer,
@@ -603,16 +616,24 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if audit.Kind == "standing_rules.evaluated" || audit.Kind == "standing_rule.acknowledged" {
 			stage, actor, state = "", "", ""
 		}
-		details := auditTraceDetails(audit, present)
-		if occurrences := occurrenceDetail(audit.Occurrences); occurrences != nil {
-			details = append(details, *occurrences)
-		}
-		add(TraceStep{
+		step := TraceStep{
 			ID: fmt.Sprintf("audit-%d", index+1), Stage: stage, Actor: actor, State: state, Icon: auditIcon(audit.Kind),
 			Tone:  stateTone(audit.Outcome),
 			Title: auditTitle(audit.Kind), Summary: summary, Why: auditTraceWhy(audit), At: audit.At,
-			Stats: stats, Details: details, band: auditBand(audit.Kind),
-		})
+			Stats: stats, band: auditBand(audit.Kind),
+		}
+		if audit.Kind == "standing_rules.evaluated" {
+			if rules, verdict, ok := standingRuleCards(audit, present); ok {
+				step.Rules, step.Summary, step.Stats = rules, verdict, nil
+			}
+		}
+		if step.Rules == nil {
+			step.Details = auditTraceDetails(audit, present)
+		}
+		if occurrences := occurrenceDetail(audit.Occurrences); occurrences != nil {
+			step.Details = append(step.Details, *occurrences)
+		}
+		add(step)
 	}
 
 	sort.SliceStable(steps, func(i, j int) bool {
@@ -1582,6 +1603,39 @@ func layoutBar(bar *StepBar) *StepBar {
 	}
 	bar.Slices[len(bar.Slices)-1].W = 1000 - bar.Slices[len(bar.Slices)-1].X
 	return bar
+}
+
+// standingRuleCards turns the evaluation audit into structure: a verdict
+// sentence and one card per rule — every rule the channel holds, whether it
+// matched, and why. Matched rules carry their definition as labeled facts.
+func standingRuleCards(audit AuditRow, present func(string) string) ([]TraceRule, string, bool) {
+	var evaluation core.StandingRuleEvaluationAudit
+	if json.Unmarshal([]byte(audit.Detail), &evaluation) != nil || len(evaluation.Rules) == 0 {
+		return nil, "", false
+	}
+	rules := make([]TraceRule, 0, len(evaluation.Rules))
+	for _, rule := range evaluation.Rules {
+		card := TraceRule{
+			Name:    fallback(strings.TrimSpace(present(rule.Name)), "Standing rule"),
+			Why:     present(rule.Why),
+			Matched: rule.Matched,
+		}
+		if rule.Matched {
+			card.Facts = []TraceStat{
+				{"Watches", present(rule.Trigger)},
+				{"Does", present(rule.Work)},
+				{"In Slack", present(rule.Delivery)},
+			}
+			card.Effect = "This rule now controls which checks run and when Slack gets a reply."
+		}
+		rules = append(rules, card)
+	}
+	verdict := fmt.Sprintf("%d of %d channel rule%s matched", evaluation.Matched,
+		evaluation.Checked, plural(evaluation.Checked))
+	if evaluation.Acknowledged != "" {
+		verdict += " · " + slackReactionDisplay(evaluation.Acknowledged) + " added while it works"
+	}
+	return rules, verdict, true
 }
 
 func auditTracePresentation(audit AuditRow, present func(string) string) (string, []TraceStat) {

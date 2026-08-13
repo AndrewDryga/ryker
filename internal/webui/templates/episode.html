@@ -95,6 +95,27 @@
           </div>
           {{end}}
 
+          {{if .Rules}}
+          <div class="rules">
+            {{range .Rules}}
+            <div class="rule{{if .Matched}} on{{end}}">
+              <div class="rule-head">
+                <i aria-hidden="true"></i>
+                <strong>{{.Name}}</strong>
+                <span>{{if .Matched}}matched{{else}}skipped{{end}}</span>
+              </div>
+              <p class="rule-why">{{.Why}}</p>
+              {{if .Facts}}
+              <dl class="rule-facts">
+                {{range .Facts}}<div><dt>{{.Label}}</dt><dd>{{.Value}}</dd></div>{{end}}
+              </dl>
+              {{end}}
+              {{if .Effect}}<p class="rule-effect">{{.Effect}}</p>{{end}}
+            </div>
+            {{end}}
+          </div>
+          {{end}}
+
           {{if .Why}}
           <div class="trace-why">
             <span>Why</span>
