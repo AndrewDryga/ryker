@@ -185,6 +185,11 @@ func TestActivityStepFoldsEveryCallIntoOneCard(t *testing.T) {
 	if !ok || table.Table == nil {
 		t.Fatalf("the calls are not behind a table: %+v", step.Details)
 	}
+	// A closed disclosure is why the first person to look for this on a live
+	// episode reported not seeing it at all.
+	if !table.Open {
+		t.Fatal("the call table renders collapsed")
+	}
 	if len(table.Table.Rows) != 3 {
 		t.Fatalf("table rows = %d, want one per call", len(table.Table.Rows))
 	}
@@ -200,6 +205,27 @@ func TestActivityStepFoldsEveryCallIntoOneCard(t *testing.T) {
 	// without opening anything.
 	if len(step.Stats) != 2 || step.Stats[0].Label != "execute" || step.Stats[0].Value != "2" {
 		t.Fatalf("kind tally = %+v", step.Stats)
+	}
+}
+
+// The summary strip above the trace is what a reader scans before opening
+// anything, so it has to admit the turn's interior was recorded at all.
+func TestTraceSummaryCountsToolCalls(t *testing.T) {
+	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
+	trace := buildEpisodeTrace(config.Pricing{}, episodePage{Activity: []ActivityMoment{
+		{Kind: "tool", Title: "Emisar run_action", ToolKind: "execute", Status: "completed", At: at},
+		{Kind: "tool", Title: "Emisar http.probe", ToolKind: "execute", Status: "completed", At: at},
+		// Not a call, and must not be counted as one.
+		{Kind: "thought", Detail: "Check the rollout.", At: at},
+	}}, nil)
+	var found string
+	for _, stat := range trace.Stats {
+		if stat.Label == "Tool calls" {
+			found = stat.Value
+		}
+	}
+	if found != "2" {
+		t.Fatalf("tool calls in the summary strip = %q, want \"2\"; stats=%+v", found, trace.Stats)
 	}
 }
 

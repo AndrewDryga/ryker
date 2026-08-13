@@ -862,6 +862,11 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		{len(page.Attempts), "Attempt", "Attempts"},
 		{len(turns), "Model turn", "Model turns"},
 		{len(wakeups), "Wake-up", "Wake-ups"},
+		// Counted here because this strip is what a reader scans before
+		// deciding whether to open anything. A trace that recorded twenty
+		// Emisar actions and advertised only its context components read as
+		// though the interior of the turn still was not kept.
+		{countActivityTools(page.Activity), "Tool call", "Tool calls"},
 		{len(page.Manifest.Refs), "Context component", "Context components"},
 		{len(page.Evidence), "Evidence record", "Evidence records"},
 		{len(page.Effects), "Side effect", "Side effects"},
@@ -3853,6 +3858,11 @@ func activityTraceStep(page episodePage) (TraceStep, bool) {
 			Label: "Every call, in order", Kind: "context", Status: "Tool calls",
 			Description: "Arguments are recorded, results are not: results dominate a " +
 				"transcript and routinely carry credentials and log bodies.",
+			// Open, unlike the prompt bodies below it. This table is the
+			// substance of the card rather than a large body kept one click
+			// away, and a closed disclosure is why the first person to look
+			// for this on a live episode reported not seeing it at all.
+			Open:      true,
 			ShowCount: true, Count: len(rows),
 			Table: &TraceTable{
 				Headers: []string{"At", "What ran", "Kind", "Status", "Took", "Arguments"},
@@ -3885,6 +3895,16 @@ func activityTraceStep(page episodePage) (TraceStep, bool) {
 		})
 	}
 	return step, true
+}
+
+func countActivityTools(moments []ActivityMoment) int {
+	count := 0
+	for _, moment := range moments {
+		if moment.Kind == "tool" {
+			count++
+		}
+	}
+	return count
 }
 
 func activityOffset(start, at time.Time) string {
