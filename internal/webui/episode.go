@@ -534,6 +534,9 @@ func (r *Reader) Coverage(ctx context.Context, episodeID string) ([]CoverageRow,
 // revision, the Coop policy, and any artifact handed in.
 type ContextRef struct {
 	Kind, What, Visibility, Digest, Omitted string
+	// FullDigest keeps the untruncated hash for lookups — the retained
+	// artifact body is keyed by it — while Digest stays display-short.
+	FullDigest string
 }
 
 // ManifestRow is the frozen context envelope for the episode's latest attempt.
@@ -610,8 +613,8 @@ func (r *Reader) manifestRefs(ctx context.Context, manifestID string) ([]Context
 			var item ContextRef
 			var ref, revision, metadata string
 			err := rows.Scan(&item.Kind, &ref, &revision, &item.Visibility,
-				&item.Digest, &item.Omitted, &metadata)
-			item.Digest = truncate(item.Digest, 12)
+				&item.FullDigest, &item.Omitted, &metadata)
+			item.Digest = truncate(item.FullDigest, 12)
 			item.What = r.describeRef(ctx, item.Kind, ref, revision, metadata)
 			return item, err
 		}, manifestID)
@@ -659,6 +662,58 @@ func (r *Reader) describeRef(ctx context.Context, kind, ref, revision, metadata 
 	default:
 		return rest
 	}
+}
+
+// RetainedArtifact is one stored input artifact body, openable from the
+// trace's runtime-access table.
+type RetainedArtifact struct {
+	Digest, Name, MediaType string
+	Body                    []byte
+}
+
+func (r *Reader) ContextArtifact(ctx context.Context, digest string) (RetainedArtifact, bool, error) {
+	artifact := RetainedArtifact{Digest: strings.TrimSpace(digest)}
+	if artifact.Digest == "" || !r.live() {
+		return RetainedArtifact{}, false, nil
+	}
+	err := r.db.QueryRowContext(ctx, `
+	  SELECT name, media_type, body FROM context_artifacts WHERE digest = ?`,
+		artifact.Digest).Scan(&artifact.Name, &artifact.MediaType, &artifact.Body)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RetainedArtifact{}, false, nil
+	}
+	if err != nil {
+		return RetainedArtifact{}, false, err
+	}
+	return artifact, true, nil
+}
+
+// StoredArtifactDigests reports which of the given digests have a retained
+// body, so the trace links only artifacts that will actually open.
+func (r *Reader) StoredArtifactDigests(ctx context.Context, digests []string) (map[string]bool, error) {
+	stored := map[string]bool{}
+	if !r.live() || len(digests) == 0 {
+		return stored, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(digests)), ",")
+	args := make([]any, 0, len(digests))
+	for _, digest := range digests {
+		args = append(args, digest)
+	}
+	found, err := collect(ctx, r,
+		`SELECT digest FROM context_artifacts WHERE digest IN (`+placeholders+`)`,
+		func(rows *sql.Rows) (string, error) {
+			var digest string
+			err := rows.Scan(&digest)
+			return digest, err
+		}, args...)
+	if err != nil {
+		return nil, err
+	}
+	for _, digest := range found {
+		stored[digest] = true
+	}
+	return stored, nil
 }
 
 // Attempt is one try at the episode and what ended it. The brief asks for

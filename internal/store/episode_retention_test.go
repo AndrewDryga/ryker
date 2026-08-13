@@ -397,13 +397,28 @@ func TestPruneEmptiesOnlySpentAgentRunContext(t *testing.T) {
 			EpisodeID: episode.ID, AttemptID: run.AttemptID,
 			PromptVersion: "p1", ContractVersion: "c1", ToolSchemaVersion: "t1",
 			SubmittedPrompt: "SYSTEM: retained only while the operational trace is live",
+			References: []core.ContextReference{{
+				Kind: "artifact", SourceRef: "artifact:github-pr-1.md:0",
+				ContentDigest: "artifact-digest-1", Visibility: "eligible",
+			}},
 		})
 		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Artifacts.Save(ctx, []core.ContextArtifact{{
+			Digest: "artifact-digest-1", Name: "github-pr-1.md",
+			MediaType: "text/markdown", Body: []byte("# PR body"),
+		}}); err != nil {
 			t.Fatal(err)
 		}
 		aged := time.Now().UTC().Add(-48 * time.Hour).Format(timestampFormat)
 		if _, err := st.db.Exec(
 			`UPDATE context_manifests SET created_at = ? WHERE id = ?`, aged, manifest.ID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.db.Exec(
+			`UPDATE context_artifacts SET created_at = ?`, aged,
 		); err != nil {
 			t.Fatal(err)
 		}
@@ -439,6 +454,14 @@ func TestPruneEmptiesOnlySpentAgentRunContext(t *testing.T) {
 		}
 		if storedManifest.SubmittedPrompt != "" {
 			t.Fatalf("submitted prompt = %q, want redacted with spent context", storedManifest.SubmittedPrompt)
+		}
+		// The artifact body follows the prompt text out; its digest stays on
+		// the manifest reference for audit.
+		if result.ContextArtifacts != 1 {
+			t.Fatalf("pruned artifact bodies = %d, want 1", result.ContextArtifacts)
+		}
+		if _, found, err := st.Artifacts.Get(ctx, "artifact-digest-1"); err != nil || found {
+			t.Fatalf("artifact body survived its prompt: found=%t err=%v", found, err)
 		}
 		// Idempotent: a second pass finds nothing left to empty.
 		second, err := st.Prune(

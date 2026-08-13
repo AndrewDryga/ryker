@@ -510,6 +510,51 @@ func AugmentArtifacts(
 	}), nil
 }
 
+// ArtifactReferences describes every input artifact for the context manifest
+// and, alongside, the bodies worth retaining so the trace can show the exact
+// bytes the model saw.
+func ArtifactReferences(artifacts []coop.InputArtifact) ([]core.ContextReference, []core.ContextArtifact) {
+	references := make([]core.ContextReference, 0, len(artifacts))
+	retained := make([]core.ContextArtifact, 0, len(artifacts))
+	for index, artifact := range artifacts {
+		digest := strings.TrimSpace(artifact.SHA256)
+		if digest == "" {
+			sum := sha256.Sum256(artifact.Data)
+			digest = hex.EncodeToString(sum[:])
+		}
+		references = append(references, core.ContextReference{
+			Kind: "artifact", SourceRef: fmt.Sprintf("artifact:%s:%d", artifact.Name, index),
+			ContentDigest: digest, Visibility: "eligible",
+			Metadata: map[string]string{"name": artifact.Name, "media_type": artifact.MediaType},
+		})
+		if core.RetainableArtifact(artifact.MediaType, len(artifact.Data)) {
+			retained = append(retained, core.ContextArtifact{
+				Digest: digest, Name: artifact.Name, MediaType: artifact.MediaType,
+				Body: append([]byte(nil), artifact.Data...),
+			})
+		}
+	}
+	return references, retained
+}
+
+// CompanionReferences records each read-only companion checkout Coop mounted
+// beside the bound repository, so "which repositories, in which mode" is a
+// fact the trace can answer instead of an alias it can only restate.
+func CompanionReferences(session coop.Session, primary string) []core.ContextReference {
+	references := make([]core.ContextReference, 0, len(session.Companions))
+	for _, companion := range session.Companions {
+		name := strings.TrimSpace(companion.Name)
+		if name == "" || name == primary {
+			continue
+		}
+		references = append(references, core.ContextReference{
+			Kind: "repository", SourceRef: "repository:" + name,
+			SourceRevision: companion.BaseCommit, Visibility: "companion",
+		})
+	}
+	return references
+}
+
 func ArtifactsPrompt(artifacts []coop.InputArtifact) string {
 	if len(artifacts) == 0 {
 		return ""

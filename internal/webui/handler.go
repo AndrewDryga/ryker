@@ -83,6 +83,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /configuration", h.configuration)
 	mux.HandleFunc("GET /channels/{id}", h.channel)
 	mux.HandleFunc("GET /usage", h.usage)
+	mux.HandleFunc("GET /artifacts/{digest}", h.artifact)
 	// Writes are POST only, and only these routes. Each calls the same store
 	// or service path the equivalent Slack button calls.
 	mux.HandleFunc("POST /actions/corrections/keep", h.keepCorrection)
@@ -450,7 +451,10 @@ type episodePage struct {
 	Audit      []AuditRow
 	Errs       problems
 	Spent      EpisodeTokens
-	CanAct     bool
+	// StoredArtifacts marks which artifact digests have a retained body, so
+	// the trace links only artifacts that will actually open.
+	StoredArtifacts map[string]bool
+	CanAct          bool
 	// Resolvable gates the overtaken-by-events action to the states where a
 	// person is what the episode is waiting for. The kernel re-checks on the
 	// way through; this only decides whether a button is honest to offer.
@@ -522,6 +526,16 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("audit trail", err)
 	page.Spent, err = h.reader.EpisodeTokens(ctx, id)
 	page.Errs.note("token usage", err)
+	digests := []string{}
+	for _, manifest := range page.Manifests {
+		for _, ref := range manifest.Refs {
+			if ref.Kind == "artifact" && ref.FullDigest != "" {
+				digests = append(digests, ref.FullDigest)
+			}
+		}
+	}
+	page.StoredArtifacts, err = h.reader.StoredArtifactDigests(ctx, digests)
+	page.Errs.note("retained artifacts", err)
 	present := func(text string) string { return h.reader.resolveSlackText(ctx, text) }
 	page.Trace = buildEpisodeTrace(h.pricing, page, present)
 	shell := h.shell(r, "episodes", page)
@@ -556,6 +570,22 @@ func episodeDisplayTitle(page episodePage) string {
 		title = page.Title
 	}
 	return truncate(cleanTitle(title), 90)
+}
+
+// artifact serves one retained input artifact body — the exact bytes handed
+// to the model. Always text/plain with sniffing disabled: a markdown pull
+// request renders as its source, and nothing stored here can become script.
+func (h *Handler) artifact(w http.ResponseWriter, r *http.Request) {
+	artifact, found, err := h.reader.ContextArtifact(r.Context(), r.PathValue("digest"))
+	if err != nil || !found {
+		h.trouble(w, r, http.StatusNotFound, "No such artifact",
+			"No retained artifact body carries this digest. Bodies are kept on the same horizon as prompt text, so an old episode's artifact may have been pruned while its digest remains on the manifest.")
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", "inline; filename=\""+strings.ReplaceAll(artifact.Name, "\"", "")+"\"")
+	_, _ = w.Write(artifact.Body)
 }
 
 // incident opens the room a whole conversation of work happened in: the ask

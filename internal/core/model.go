@@ -1109,6 +1109,33 @@ type ContextManifest struct {
 	Latency           ContextLatency
 }
 
+// ContextArtifact is the retained body of one bounded input artifact handed
+// to a turn — a rendered pull-request snapshot, a Slack file — keyed by the
+// digest its manifest reference records, so "what exactly did the model see"
+// stays answerable for artifacts the same way it is for the prompt.
+type ContextArtifact struct {
+	Digest    string
+	Name      string
+	MediaType string
+	Body      []byte
+	CreatedAt time.Time
+}
+
+// MaxRetainedArtifactBytes bounds what an artifact body may cost the state
+// database. The transport accepts artifacts far larger; retention is for the
+// text-sized ones a person would open from a trace.
+const MaxRetainedArtifactBytes = 1 << 20
+
+// RetainableArtifact reports whether an input artifact's body is worth
+// keeping: bounded, and a text shape a trace can render.
+func RetainableArtifact(mediaType string, size int) bool {
+	if size <= 0 || size > MaxRetainedArtifactBytes {
+		return false
+	}
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	return strings.HasPrefix(mediaType, "text/") || mediaType == "application/json"
+}
+
 // ContextUsage is what one attempt spent, totalled over every Coop turn that
 // attempt took. CostUSD is provider-reported; token pricing remains an estimate.
 //
@@ -1660,6 +1687,10 @@ type PruneResult struct {
 	// stays readable — which is why it is reported separately and left out of
 	// Total rather than inflating a count of records removed.
 	AgentRunContexts int64
+	// ContextArtifacts counts retained input artifact bodies deleted once the
+	// prompts that referenced them were themselves emptied; the digest on the
+	// manifest reference remains for audit.
+	ContextArtifacts int64
 	AuditEvents      int64
 }
 

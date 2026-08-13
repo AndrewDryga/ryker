@@ -143,7 +143,7 @@
               <div class="trace-table-wrap">
                 <table class="trace-table">
                   <thead><tr>{{range .Table.Headers}}<th>{{.}}</th>{{end}}</tr></thead>
-                  <tbody>{{range .Table.Rows}}<tr>{{range .Cells}}<td>{{.}}</td>{{end}}</tr>{{end}}</tbody>
+                  <tbody>{{range .Table.Rows}}{{$href := .Href}}<tr>{{range $cell, $value := .Cells}}<td>{{if and $href (eq $cell 1)}}<a href="{{$href}}">{{$value}}</a>{{else}}{{$value}}{{end}}</td>{{end}}</tr>{{end}}</tbody>
                 </table>
               </div>
               {{else if .Segments}}

@@ -74,6 +74,7 @@ func TestSchemaV63RepaintsPublicationLifecycleCards(t *testing.T) {
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
 		ALTER TABLE context_manifests DROP COLUMN usage_cost_usd;
 		ALTER TABLE context_manifests DROP COLUMN usage_costed_turns;
+		DROP TABLE context_artifacts;
 		DROP TABLE replay_cancellations;
 		UPDATE schema_version SET version = 62;
 	`); err != nil {

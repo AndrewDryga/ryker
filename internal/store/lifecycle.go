@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/artifactstore"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
@@ -571,6 +572,10 @@ func (s *Store) Prune(
 		WHERE r.attempt_id = context_manifests.attempt_id AND r.state IN `+terminalAgentRunStates+`
 		AND length(r.context_json) = 0)`, operational); err != nil {
 		return result, fmt.Errorf("empty spent submitted prompt: %w", err)
+	}
+	// Artifact bodies live exactly as long as a prompt that referenced them.
+	if result.ContextArtifacts, err = artifactstore.PruneSpent(ctx, tx, operational); err != nil {
+		return result, err
 	}
 	if result.EvaluationDecisions, err = deleteCount(`
 		DELETE FROM evaluation_decisions WHERE created_at < ?`, operational); err != nil {

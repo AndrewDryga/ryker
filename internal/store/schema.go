@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 69
+const currentSchemaVersion = 70
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -338,5 +338,17 @@ var migrations = map[int]string{
 	69: `
 		ALTER TABLE context_manifests ADD COLUMN usage_cost_usd REAL NOT NULL DEFAULT 0;
 		ALTER TABLE context_manifests ADD COLUMN usage_costed_turns INTEGER NOT NULL DEFAULT 0;
+	`,
+	// Input artifact bodies, keyed by the digest the manifest reference
+	// records. Until now the dashboard could prove a pull-request snapshot
+	// was handed to the model and could not show a byte of it.
+	70: `
+		CREATE TABLE context_artifacts (
+		  digest TEXT PRIMARY KEY,
+		  name TEXT NOT NULL,
+		  media_type TEXT NOT NULL,
+		  body BLOB NOT NULL,
+		  created_at TEXT NOT NULL
+		);
 	`,
 }

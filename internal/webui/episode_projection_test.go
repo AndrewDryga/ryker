@@ -858,29 +858,34 @@ USER: check this`
 }
 
 func TestContextReferenceDetailsSeparateReplayMetadataFromInputs(t *testing.T) {
-	details := contextReferenceDetails([]ContextRef{
+	runtime, replay := contextReferenceDetails([]ContextRef{
 		{Kind: "source_input", What: "watch in #infra", Visibility: "eligible"},
 		{Kind: "compiled_prompt", What: "attempt run_secret", Visibility: "private", Digest: "abc123"},
 		{Kind: "assembled_context", What: "attempt run_secret", Visibility: "private", Digest: "def456"},
 		{Kind: "repository", What: "emisar @ deadbeef", Visibility: "eligible"},
+		{Kind: "repository", What: "emisar-docs @ 12341234", Visibility: "companion"},
 		{Kind: "execution_policy", What: "emisar-conversation", Visibility: "private"},
-	}, func(value string) string { return value })
-	if len(details) != 2 {
-		t.Fatalf("context details = %+v, want one runtime table and one replay table", details)
+		{Kind: "artifact", What: "github-pr-529.md (text/markdown)", Visibility: "eligible",
+			FullDigest: "5256adaff57a0000", Digest: "5256adaff57a"},
+	}, func(value string) string { return value }, map[string]bool{"5256adaff57a0000": true})
+	if len(runtime) != 1 || len(replay) != 1 {
+		t.Fatalf("context details = %+v / %+v, want one runtime table and one replay table", runtime, replay)
 	}
 	joined := ""
-	for _, detail := range details {
+	for _, detail := range append(append([]TraceDetail{}, runtime...), replay...) {
 		joined += detail.Group + "\n" + detail.Label + "\n" + detail.Description + "\n"
 		if detail.Table != nil {
 			joined += strings.Join(detail.Table.Headers, "\n") + "\n"
 			for _, row := range detail.Table.Rows {
-				joined += strings.Join(row.Cells, "\n") + "\n"
+				joined += strings.Join(row.Cells, "\n") + string(row.Href) + "\n"
 			}
 		}
 	}
 	for _, want := range []string{
 		"Runtime access", "Repositories and session controls", "Repository snapshot", "emisar", "deadbeef",
+		"Companion repository", "Read-only companion checkout", "emisar-docs",
 		"Execution policy", "Controls tools and whether files can change",
+		"Exact file handed to the model", "/artifacts/5256adaff57a0000",
 		"Replay verification", "The model never sees them", "Integrity fingerprints",
 		"Final prompt", "abc123", "Selected context", "def456",
 	} {

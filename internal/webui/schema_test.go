@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -58,6 +59,8 @@ func TestEveryQueryRunsAgainstTheMigratedSchema(t *testing.T) {
 		"Claims":              func() error { _, err := reader.Claims(ctx, "ep"); return err },
 		"Evidence":            func() error { _, err := reader.Evidence(ctx, "ep"); return err },
 		"Coverage":            func() error { _, err := reader.Coverage(ctx, "ep"); return err },
+		"ContextArtifact":     func() error { _, _, err := reader.ContextArtifact(ctx, "digest"); return err },
+		"StoredArtifacts":     func() error { _, err := reader.StoredArtifactDigests(ctx, []string{"digest"}); return err },
 		"Manifest":            func() error { _, err := reader.Manifest(ctx, "ep"); return err },
 		"Attempts":            func() error { _, err := reader.Attempts(ctx, "ep"); return err },
 		"Deliveries":          func() error { _, err := reader.Deliveries(ctx, "ep"); return err },
@@ -553,6 +556,59 @@ func seededReader(t *testing.T) *Reader {
 // migratedReader opens the dashboard against a database the store itself
 // created, so the columns are the ones production has rather than the ones a
 // fixture guessed at.
+// A retained artifact body serves as inert text with sniffing disabled, and a
+// digest with no body answers with the styled miss rather than a bare 404.
+func TestArtifactRouteServesRetainedBodiesAsInertText(t *testing.T) {
+	dir := t.TempDir()
+	live, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Artifacts.Save(context.Background(), []core.ContextArtifact{{
+		Digest: "digest-1", Name: "github-pr-529.md", MediaType: "text/markdown",
+		Body: []byte("# PR 529\n\n<script>alert(1)</script>"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReader(filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	handler, err := NewHandler(reader, "test", "70", "responder-abc",
+		func() bool { return true }, nil, config.Pricing{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/artifacts/digest-1", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("artifact = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("content type = %q, want inert text", got)
+	}
+	if got := recorder.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("nosniff header = %q", got)
+	}
+	if !strings.Contains(recorder.Body.String(), "# PR 529") {
+		t.Fatalf("artifact body missing: %s", recorder.Body.String())
+	}
+
+	missing := httptest.NewRecorder()
+	mux.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/artifacts/unknown", nil))
+	if missing.Code != http.StatusNotFound ||
+		!strings.Contains(missing.Body.String(), "No such artifact") {
+		t.Fatalf("missing artifact = %d: %s", missing.Code, missing.Body.String())
+	}
+}
+
 func migratedReader(t *testing.T) *Reader {
 	t.Helper()
 	dir := t.TempDir()

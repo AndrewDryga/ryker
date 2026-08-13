@@ -89,23 +89,19 @@ func (s *Service) ensureAttemptContextManifest(
 			SourceRevision: sourceRevision, Visibility: "eligible",
 		})
 	}
+	manifest.References = append(manifest.References, taskpr.CompanionReferences(session, run.Repository)...)
 	if session.PolicyDigest != "" {
 		manifest.References = append(manifest.References, core.ContextReference{
 			Kind: "execution_policy", SourceRef: "coop-policy:" + session.Policy,
 			ContentDigest: session.PolicyDigest, Visibility: "private",
 		})
 	}
-	for index, artifact := range artifacts {
-		digest := strings.TrimSpace(artifact.SHA256)
-		if digest == "" {
-			sum := sha256.Sum256(artifact.Data)
-			digest = hex.EncodeToString(sum[:])
+	artifactRefs, retained := taskpr.ArtifactReferences(artifacts)
+	manifest.References = append(manifest.References, artifactRefs...)
+	if len(retained) > 0 {
+		if err := s.store.Artifacts.Save(ctx, retained); err != nil {
+			return core.ContextManifest{}, fmt.Errorf("retain input artifacts: %w", err)
 		}
-		manifest.References = append(manifest.References, core.ContextReference{
-			Kind: "artifact", SourceRef: fmt.Sprintf("artifact:%s:%d", artifact.Name, index),
-			ContentDigest: digest, Visibility: "eligible",
-			Metadata: map[string]string{"name": artifact.Name, "media_type": artifact.MediaType},
-		})
 	}
 
 	manifest.References = append(manifest.References, core.OmittedContextReferences(omissions)...)

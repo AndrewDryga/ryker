@@ -272,7 +272,11 @@ var lineBudget = map[string]int{
 	// Publication follow-up queries and lifecycle events moved to their own
 	// repository. Lock most of that reduction into the ratchet while keeping
 	// enough room for the one-time card repaint migration that accompanies it.
-	"store":      11320,
+	// Raised to 11340 on 2026-08-12 for retained input artifact bodies: the
+	// storage logic lives in store/artifactstore, but the schema migration,
+	// the repository wiring, and the retention hook are irreducibly this
+	// package's, and fourteen lines of them landed over a four-line margin.
+	"store":      11340,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

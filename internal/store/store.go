@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/artifactstore"
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
 	"github.com/AndrewDryga/responder/internal/store/incidentstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
@@ -63,6 +64,8 @@ type Store struct {
 	// resulting task, and its runs. It was two packages over the same three
 	// tables, which is one owner too many for their invariants.
 	Schedules *schedulestore.Repository
+	// Artifacts retains bounded input artifact bodies for the trace.
+	Artifacts *artifactstore.Repository
 	// Memory owns everything remembered between turns. It is a field rather
 	// than a set of methods because a delegating method still counts against
 	// the store's method budget, so extraction only reduces the surface if
@@ -1089,6 +1092,7 @@ func (s *Store) nowText() string {
 func (s *Store) attachRepositories(db *sql.DB) {
 	clock := func() time.Time { return s.now() }
 	s.Schedules = schedulestore.New(db, clock)
+	s.Artifacts = artifactstore.New(db, clock)
 	s.Memory = memorystore.New(db, clock)
 	s.Intelligence = intelligencestore.New(db, clock)
 	s.Behavior = behaviorstore.New(db, clock)

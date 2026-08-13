@@ -3,6 +3,7 @@ package webui
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/url"
 	"sort"
 	"strings"
@@ -53,6 +54,9 @@ type TraceTable struct {
 
 type TraceTableRow struct {
 	Cells []string
+	// Href links the row's name cell to the record behind it — a retained
+	// artifact body, openable from the trace.
+	Href template.URL
 }
 
 // TraceStep is one host-observable fact in the execution story. Why describes
@@ -288,7 +292,8 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				"This attempt kept the prompt's metadata and fingerprint, but not its text.",
 			)
 		}
-		promptDetails = append(promptDetails, contextReferenceDetails(manifest.Refs, present)...)
+		runtimeAccess, replayVerification := contextReferenceDetails(manifest.Refs, present, page.StoredArtifacts)
+		promptDetails = append(promptDetails, runtimeAccess...)
 		if len(manifest.Omissions) > 0 {
 			promptDetails = append(promptDetails, TraceDetail{
 				Label: "Trimmed to fit the turn", Body: present(strings.Join(manifest.Omissions, "\n")), Kind: "missing",
@@ -311,6 +316,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				GroupCount: 1, Segments: segments,
 			})
 		}
+		// Verification metadata reads last: it proves the content above it and
+		// is the one section that never went to the model.
+		promptDetails = append(promptDetails, replayVerification...)
 		// Prompt sources can be large. Keep the inventory, counts, and selection
 		// rationale scannable while leaving full bodies one click away.
 		for index := range promptDetails {
@@ -1664,7 +1672,13 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 		if emptyJSON(envelope[key]) {
 			continue
 		}
-		workspace = append(workspace, promptFieldDetail(key, envelope[key], present))
+		detail := promptFieldDetail(key, envelope[key], present)
+		if strings.TrimSpace(detail.Body) == "" {
+			// A field whose rendering comes out blank must not offer a
+			// disclosure that opens onto nothing.
+			continue
+		}
+		workspace = append(workspace, detail)
 	}
 	details = append(details, markDetailGroup(workspace,
 		"Workspace and prompt controls",
@@ -2302,7 +2316,10 @@ func promptFieldPresentation(key string) (string, string) {
 	return eventTitle(key), "slack"
 }
 
-func contextReferenceDetails(refs []ContextRef, present func(string) string) []TraceDetail {
+// contextReferenceDetails returns the runtime-access table and, separately,
+// the replay fingerprints — the caller places verification metadata at the
+// bottom of the card, after the model-visible content it verifies.
+func contextReferenceDetails(refs []ContextRef, present func(string) string, stored map[string]bool) (runtimeDetail, replayDetail []TraceDetail) {
 	runtime := make([]TraceTableRow, 0, len(refs))
 	replay := make([]TraceTableRow, 0, 2)
 	for _, ref := range refs {
@@ -2324,13 +2341,16 @@ func contextReferenceDetails(refs []ContextRef, present func(string) string) []T
 			continue
 		default:
 			if ref.Visibility != "omitted" {
-				runtime = append(runtime, contextReferenceTableRow(ref, present))
+				row := contextReferenceTableRow(ref, present)
+				if ref.Kind == "artifact" && stored[ref.FullDigest] {
+					row.Href = template.URL("/artifacts/" + url.PathEscape(ref.FullDigest))
+				}
+				runtime = append(runtime, row)
 			}
 		}
 	}
-	details := make([]TraceDetail, 0, 2)
 	if len(runtime) > 0 {
-		details = append(details, TraceDetail{
+		runtimeDetail = []TraceDetail{{
 			Label: "Repositories and session controls", Kind: "context",
 			Status: "Runtime access", Tone: "runtime", ShowCount: true, Count: len(runtime),
 			Group: "Runtime access", GroupCount: len(runtime),
@@ -2338,10 +2358,10 @@ func contextReferenceDetails(refs []ContextRef, present func(string) string) []T
 				Headers: []string{"Type", "Name", "Revision", "How it was used"},
 				Rows:    runtime,
 			},
-		})
+		}}
 	}
 	if len(replay) > 0 {
-		details = append(details, TraceDetail{
+		replayDetail = []TraceDetail{{
 			Label: "Integrity fingerprints", Kind: "context",
 			Status: "Not model input", Tone: "structure", ShowCount: true, Count: len(replay),
 			Description: "Responder stores these hashes so a replay can prove it used the same inputs. The model never sees them.",
@@ -2350,9 +2370,9 @@ func contextReferenceDetails(refs []ContextRef, present func(string) string) []T
 				Headers: []string{"Input", "Fingerprint", "Purpose"},
 				Rows:    replay,
 			},
-		})
+		}}
 	}
-	return details
+	return runtimeDetail, replayDetail
 }
 
 func markDetailGroup(details []TraceDetail, label, description string) []TraceDetail {
@@ -2377,10 +2397,14 @@ func contextReferenceTableRow(ref ContextRef, present func(string) string) Trace
 		revision = ref.Digest
 	}
 	role := map[string]string{
-		"repository":       "Code available to inspect through Coop",
+		"repository":       "The bound repository, checked out for the model through Coop",
 		"execution_policy": "Controls tools and whether files can change",
-		"artifact":         "File available to inspect through Coop",
+		"artifact":         "Exact file handed to the model for this turn",
 	}[ref.Kind]
+	if ref.Kind == "repository" && ref.Visibility == "companion" {
+		kind = "Companion repository"
+		role = "Read-only companion checkout, mounted beside the bound repository"
+	}
 	if role == "" {
 		role = "Available through the model session"
 	}
