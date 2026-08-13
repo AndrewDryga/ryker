@@ -1319,11 +1319,27 @@ func (s *Service) admitTriageRun(
 				ctx, run.ID, "a newer channel message was already classified",
 			)
 		}
-		newer, err := s.store.HasNewerSubstantivePendingAgentRun(
-			ctx, run, s.identity.BotUserID,
-		)
-		if err != nil {
-			return true, s.retryAgentRun(ctx, run, err)
+		// Only while this run has done nothing yet. Superseding rests on the
+		// premise that a newer nearby message will carry the conversation, and
+		// that premise holds for a run which has not started: nothing is lost
+		// because nothing was produced.
+		//
+		// It fails for a run that has already attempted. A retry or a host
+		// correction puts work back into pending, so an investigation into a
+		// human-reported production failure — mid-retry, carrying everything it
+		// had established — met the supersession check on its next lease and
+		// was dropped for a follow-up like "this started around 3pm". The
+		// successor inherits no obligation and is free to ignore, so the
+		// failure went uninvestigated and nobody was told.
+		attempted := run.Failures > 0
+		newer := false
+		if !attempted {
+			newer, err = s.store.HasNewerSubstantivePendingAgentRun(
+				ctx, run, s.identity.BotUserID,
+			)
+			if err != nil {
+				return true, s.retryAgentRun(ctx, run, err)
+			}
 		}
 		if newer {
 			s.audit(ctx, core.AuditEvent{

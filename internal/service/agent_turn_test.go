@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/agentprompt"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -1580,5 +1581,94 @@ func TestRevisionConflictReleasesTheFrozenRevisionAndRetries(t *testing.T) {
 	// actually in rather than the one it remembered.
 	if run.ExpectedRevision != 0 {
 		t.Fatalf("expected revision = %d after a revision conflict, want it released", run.ExpectedRevision)
+	}
+}
+
+// A retry or a host correction puts work back into pending, which exposed it
+// to the supersession check on its next lease. An investigation into a
+// human-reported production failure — mid-retry, carrying everything it had
+// established — was dropped for a follow-up like "this started around 3pm",
+// and the successor inherits no obligation and is free to ignore. The failure
+// went uninvestigated and nobody was told.
+func TestAttemptedRunSurvivesANewerContextualMessage(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CFAILURE"}
+	cfg.Slack.SummonChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	report := core.SlackInput{
+		ID: "slack-report", EnvelopeID: "env-report", EventID: "event-report",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CFAILURE",
+		MessageTS: "1700.700", UserID: "U123ABC",
+		Text: "checkout is failing in production for about a third of requests",
+	}
+	if created, err := st.AdmitSlackInput(ctx, report); err != nil || !created {
+		t.Fatalf("admit report = %v, %v", created, err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Leased first, because a failure is only recorded against a run this
+	// service owns — which is the state a real investigation is in when it
+	// hits a correction.
+	run, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The addendum: more context about the same failure, not a replacement
+	// question. It gets its own run, newer and pending.
+	addendum := core.SlackInput{
+		ID: "slack-addendum", EnvelopeID: "env-addendum", EventID: "event-addendum",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CFAILURE",
+		MessageTS: "1700.701", UserID: "U123ABC",
+		Text: "this started around 3pm",
+	}
+	if created, err := st.AdmitSlackInput(ctx, addendum); err != nil || !created {
+		t.Fatalf("admit addendum = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// The successor exists and is newer, so the supersession rule fires on its
+	// own terms — this is the state that used to end the investigation.
+	newer, err := st.HasNewerSubstantivePendingAgentRun(ctx, run, "U999BOT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !newer {
+		t.Fatal("the follow-up did not register as a newer nearby run, so this test proves nothing")
+	}
+
+	// Once the original has attempted, it carries work the successor never
+	// inherits, and must not be dropped for the follow-up.
+	if retried, err := st.RetryAgentRunIfOwned(
+		ctx, run.ID, "the structured response was invalid", time.Now().UTC(), false,
+	); err != nil || !retried {
+		t.Fatalf("retry = %v, %v", retried, err)
+	}
+	attempted, err := st.GetAgentRunBySource(ctx, "watch", report.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempted.Failures == 0 {
+		t.Fatalf("the retry did not record an attempt: %+v", attempted)
+	}
+	survived := decisionpkg.WatchTurnState{}
+	// Checked before the error, so a failure here names the behaviour rather
+	// than whatever the store said about the write that should not happen.
+	decided, err := svc.admitTriageRun(ctx, attempted, report, &survived)
+	if decided {
+		t.Fatalf("an investigation mid-retry was abandoned for a follow-up (store said: %v)", err)
+	}
+	if err != nil {
+		t.Fatal(err)
 	}
 }
