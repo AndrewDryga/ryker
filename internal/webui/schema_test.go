@@ -434,11 +434,17 @@ func TestReadersScanTheColumnsTheySelect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Corrections: %v", err)
 	}
+	// One group, because the queue is grouped by the complaint now, and it has
+	// to carry the episode the complaint came from — a correction whose
+	// episode is unreachable cannot be judged, only guessed at.
 	if len(corrections) != 1 {
-		t.Fatalf("Corrections returned %d rows, want 1", len(corrections))
+		t.Fatalf("Corrections returned %d groups, want 1", len(corrections))
 	}
-	if corrections[0].EpisodeID != "ep_1" {
+	if len(corrections[0].Episodes) != 1 || corrections[0].Episodes[0] != "ep_1" {
 		t.Errorf("correction lost its episode: %+v", corrections[0])
+	}
+	if corrections[0].Count != 1 || len(corrections[0].IDs) != 1 {
+		t.Errorf("a single correction did not group as one: %+v", corrections[0])
 	}
 
 	feedback, err := reader.Feedback(ctx)

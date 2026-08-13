@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -762,6 +763,7 @@ func (r *Reader) Failures(ctx context.Context) ([]FailureGroup, error) {
 	return groups, rows.Err()
 }
 
+// Correction is one recorded complaint the host made about a model answer.
 type Correction struct {
 	ID        string
 	EpisodeID string
@@ -771,29 +773,122 @@ type Correction struct {
 	Expires   time.Time
 }
 
-func (r *Reader) Corrections(ctx context.Context) ([]Correction, error) {
+// CorrectionGroup is one distinct complaint and every candidate carrying it.
+//
+// The queue used to list candidates. Seventy-one of them were thirty-seven
+// complaints, the commonest repeated eight times, so the page asked for
+// seventy-one decisions when there were thirty-seven to make — and a reviewer
+// who kept one copy of a complaint met the same words again four rows later
+// with no sign they had already ruled on it.
+type CorrectionGroup struct {
+	Text     string
+	Class    string
+	Kind     string
+	Caution  string
+	IDs      []string
+	Episodes []string
+	Count    int
+	First    time.Time
+	Last     time.Time
+}
+
+// IDList is what a group action posts: every candidate the decision covers.
+func (g CorrectionGroup) IDList() string { return strings.Join(g.IDs, ",") }
+
+// correctionKind sorts a complaint by how a test could check it, which is the
+// difference between an hour's work and an argument.
+//
+// A malformed body or an invented field name is a fact — the host could not
+// read the answer, and a test asserting so cannot drift. A contract rule names
+// a precondition with an enumerable answer. A critique of the prose is a
+// judgment, and a test built on one is only as stable as the sentence that
+// provoked it.
+func correctionKind(text string) string {
+	switch {
+	case strings.Contains(text, "invalid character"),
+		strings.Contains(text, "cannot unmarshal"),
+		strings.Contains(text, "unknown evidence field"),
+		strings.Contains(text, "decode structured"):
+		return "unreadable input"
+	case strings.Contains(text, "rewrite"), strings.Contains(text, "edit this"),
+		strings.Contains(text, "say explicitly"), strings.Contains(text, "compact closure"),
+		strings.Contains(text, "hands the question back"):
+		return "judgment"
+	default:
+		return "contract rule"
+	}
+}
+
+// correctionCaution warns where a complaint may be the host's own fault.
+//
+// The contradiction gate refused to let a claim resolve while it held both
+// supporting and contradicting evidence, and correlation-based staleness could
+// not retire the contradiction when the thing that changed was the very
+// dimension the correlation keyed on. Corrections it produced record the model
+// failing to do something it had already done. Promoting one would pin an
+// impossible requirement as a regression test, which is the most expensive
+// mistake available on this page.
+func correctionCaution(text string) string {
+	if strings.Contains(text, "unresolved contradictions") {
+		return "The contradiction gate produced this, and it could refuse a claim the model had " +
+			"already resolved. Check the episode before keeping it: a correction from that fault " +
+			"would pin a requirement nothing can satisfy."
+	}
+	return ""
+}
+
+// Corrections groups the pending queue by the complaint itself.
+func (r *Reader) Corrections(ctx context.Context) ([]CorrectionGroup, error) {
 	if !r.live() {
 		return nil, nil
 	}
+	// No LIMIT. The list was capped at fifty against seventy-one pending, so a
+	// fifth of the queue was invisible on the page that exists to review it.
 	rows, err := r.db.QueryContext(ctx, `
-	  SELECT id, episode_id, correction, correction_class, created_at, expires_at
+	  SELECT id, episode_id, correction, correction_class, created_at
 	  FROM fixture_candidates WHERE status = 'pending'
-	  ORDER BY created_at DESC LIMIT 50`)
+	  ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Correction{}
+	groups := []CorrectionGroup{}
+	index := map[string]int{}
 	for rows.Next() {
-		var item Correction
-		var created, expires string
-		if err := rows.Scan(&item.ID, &item.EpisodeID, &item.Text, &item.Class, &created, &expires); err != nil {
+		var id, episodeID, text, class, created string
+		if err := rows.Scan(&id, &episodeID, &text, &class, &created); err != nil {
 			return nil, err
 		}
-		item.Created, item.Expires = parseStamp(created), parseStamp(expires)
-		items = append(items, item)
+		at := parseStamp(created)
+		position, seen := index[text]
+		if !seen {
+			groups = append(groups, CorrectionGroup{
+				Text: text, Class: class, Kind: correctionKind(text),
+				Caution: correctionCaution(text), First: at, Last: at,
+			})
+			position = len(groups) - 1
+			index[text] = position
+		}
+		group := &groups[position]
+		group.IDs = append(group.IDs, id)
+		group.Count++
+		if episodeID != "" && len(group.Episodes) < 8 {
+			group.Episodes = append(group.Episodes, episodeID)
+		}
+		if at.Before(group.First) {
+			group.First = at
+		}
+		if at.After(group.Last) {
+			group.Last = at
+		}
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Commonest first: a complaint the model made eight times is a habit, and
+	// one test retires all eight.
+	sort.SliceStable(groups, func(i, j int) bool { return groups[i].Count > groups[j].Count })
+	return groups, nil
 }
 
 type ChannelMemoryRow struct {

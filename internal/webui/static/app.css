@@ -1498,6 +1498,25 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .episode-row[data-state="working"] .episode-dot::before { background: var(--accent); }
 .episode-row[data-state="parked"] .episode-dot::before { background: var(--faint); }
 
+/* The correction queue. Its rows carry a complaint, how it can be checked, and
+   whether the host may have produced it by mistake — which is the one thing a
+   reviewer must not miss, because a test built on a host fault pins a
+   requirement nothing can satisfy. */
+.correction .title { font-size: 13.5px; line-height: 1.55; max-width: 110ch; }
+.correction-kind {
+  font: 600 10.5px/1.6 var(--sans); letter-spacing: .06em; text-transform: uppercase;
+  border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; margin-right: 8px;
+  color: var(--faint);
+}
+/* An unreadable answer is a fact and makes the cheapest test; a judgment is
+   the one that needs an argument before it is worth pinning. */
+.correction-kind.kind-unreadable { color: var(--accent); border-color: rgb(54 230 165 / .35); }
+.correction-caution {
+  margin-top: 7px; padding: 8px 11px; border-radius: 8px;
+  border: 1px solid rgb(251 191 36 / .3); background: rgb(251 191 36 / .05);
+  color: var(--warn); font-size: 12.5px; line-height: 1.55; max-width: 110ch;
+}
+
 @media (max-width: 900px) {
   body { display: block; }
   .sidebar {

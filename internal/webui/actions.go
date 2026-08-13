@@ -113,15 +113,46 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request, run func(context.C
 	http.Redirect(w, r, back, http.StatusSeeOther)
 }
 
+// The correction controls act on every candidate carrying the same complaint.
+//
+// The queue is grouped by the complaint, so a decision is about the complaint;
+// leaving the other copies pending would put the identical words back in front
+// of the reviewer with no sign they had already ruled on them. Each id still
+// goes through the review path one at a time, so the audit ledger records the
+// decision per candidate exactly as a single-row review did.
+// The review call is wrapped rather than passed as a method value: taking
+// h.actions.KeepCorrection evaluates the receiver, and on a read-only build
+// that receiver is a nil interface, so the handler would fault before act got
+// the chance to answer "this build cannot write".
 func (h *Handler) keepCorrection(w http.ResponseWriter, r *http.Request) {
-	h.act(w, r, func(ctx context.Context, id string) error {
-		return h.actions.KeepCorrection(ctx, id, dashboardActor)
+	h.reviewCorrections(w, r, func(ctx context.Context, id, actor string) error {
+		return h.actions.KeepCorrection(ctx, id, actor)
 	})
 }
 
 func (h *Handler) discardCorrection(w http.ResponseWriter, r *http.Request) {
-	h.act(w, r, func(ctx context.Context, id string) error {
-		return h.actions.DiscardCorrection(ctx, id, dashboardActor)
+	h.reviewCorrections(w, r, func(ctx context.Context, id, actor string) error {
+		return h.actions.DiscardCorrection(ctx, id, actor)
+	})
+}
+
+func (h *Handler) reviewCorrections(
+	w http.ResponseWriter, r *http.Request,
+	review func(context.Context, string, string) error,
+) {
+	h.act(w, r, func(ctx context.Context, ids string) error {
+		for _, id := range strings.Split(ids, ",") {
+			if id = strings.TrimSpace(id); id == "" {
+				continue
+			}
+			// The first refusal stops the batch rather than pressing on: a
+			// candidate that has already been reviewed elsewhere means the page
+			// is stale, and the honest answer is to say so and re-render.
+			if err := review(ctx, id, dashboardActor); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

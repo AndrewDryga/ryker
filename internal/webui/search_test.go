@@ -299,3 +299,98 @@ func TestSchedulePagesListRunsAndOpenExpiredSchedules(t *testing.T) {
 		t.Fatalf("outcome reads %q, want the stored token in words", runs[0].Reads())
 	}
 }
+
+// The correction queue is grouped by the complaint, because seventy-one
+// candidates were thirty-seven complaints and the commonest was eight copies
+// of one habit. A reviewer who ruled on one copy used to meet the same words
+// again four rows later with no sign they had already decided.
+func TestCorrectionsGroupByComplaintAndFlagHostFaults(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	migrated, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrated.Close(); err != nil {
+		t.Fatal(err)
+	}
+	live, err := sql.Open("sqlite", filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := func(id, episode, text, class, created string) {
+		t.Helper()
+		if _, err := live.ExecContext(ctx, `
+			INSERT INTO fixture_candidates (
+			  id, episode_id, run_id, capability, correction_class, correction,
+			  status, reviewed_by, created_at, expires_at, updated_at
+			) VALUES (?, ?, 'run_1', '', ?, ?, 'pending', '', ?, ?, ?)`,
+			id, episode, class, text, created, created, created); err != nil {
+			t.Fatalf("insert %s: %v", id, err)
+		}
+	}
+	repeated := "the alert reply has no alert_assessment; continue the read-only investigation"
+	add("c1", "ep_1", repeated, "incomplete", "2026-08-10T09:00:00.000000000Z")
+	add("c2", "ep_2", repeated, "incomplete", "2026-08-11T09:00:00.000000000Z")
+	add("c3", "ep_3", repeated, "incomplete", "2026-08-12T09:00:00.000000000Z")
+	add("c4", "ep_4", `the structured Slack response is invalid: unknown evidence field "source_ref"`,
+		"unreadable", "2026-08-11T10:00:00.000000000Z")
+	add("c5", "ep_5", "required claims still contain unresolved contradictions: change.recent",
+		"incomplete", "2026-08-12T10:00:00.000000000Z")
+	add("c6", "ep_6", "rewrite this recovered-alert update as a compact closure",
+		"incomplete", "2026-08-12T11:00:00.000000000Z")
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReader(filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	groups, err := reader.Corrections(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 4 {
+		t.Fatalf("groups = %d, want six candidates collapsed to four complaints", len(groups))
+	}
+	// Commonest first: a complaint earned three times is one habit worth one
+	// test, and it should be the first thing a reviewer sees.
+	if groups[0].Count != 3 || len(groups[0].IDs) != 3 {
+		t.Fatalf("first group = %+v, want the three-copy complaint", groups[0])
+	}
+	if groups[0].IDList() != "c3,c2,c1" {
+		t.Fatalf("group ids = %q, want every copy so one decision settles them all", groups[0].IDList())
+	}
+	if len(groups[0].Episodes) != 3 {
+		t.Fatalf("group kept %d episodes, want each copy reachable", len(groups[0].Episodes))
+	}
+	// The span says whether a habit is old news or still happening.
+	if groups[0].First.After(groups[0].Last) {
+		t.Fatalf("group span is inverted: %+v", groups[0])
+	}
+	byText := map[string]CorrectionGroup{}
+	for _, group := range groups {
+		byText[group.Text] = group
+	}
+	// An unreadable answer is a fact; a prose critique is an argument. The
+	// difference decides whether a test is cheap or brittle.
+	if kind := byText[`the structured Slack response is invalid: unknown evidence field "source_ref"`].Kind; kind != "unreadable input" {
+		t.Fatalf("invented field name classified as %q", kind)
+	}
+	if kind := byText["rewrite this recovered-alert update as a compact closure"].Kind; kind != "judgment" {
+		t.Fatalf("prose critique classified as %q", kind)
+	}
+	if kind := byText[repeated].Kind; kind != "contract rule" {
+		t.Fatalf("contract precondition classified as %q", kind)
+	}
+	// The one that must never be promoted silently.
+	contradiction := byText["required claims still contain unresolved contradictions: change.recent"]
+	if contradiction.Caution == "" {
+		t.Fatal("a correction from the contradiction gate carried no warning")
+	}
+	if byText[repeated].Caution != "" {
+		t.Fatalf("an ordinary complaint was flagged as a host fault: %q", byText[repeated].Caution)
+	}
+}

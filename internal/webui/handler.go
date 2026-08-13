@@ -903,16 +903,24 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 	}
 	praised := h.reader.Count(ctx, countFeedbackSentiment, "positive")
 	complained := h.reader.Count(ctx, countFeedbackSentiment, "negative")
+	// Both numbers, because they differ and the difference is the point: the
+	// queue is a third smaller than its row count once identical complaints
+	// are one decision.
+	waiting := 0
+	for _, group := range corrections {
+		waiting += group.Count
+	}
 	h.page(w, r, "decisions", "decisions", struct {
 		Rates            []rate
-		Corrections      []Correction
+		Corrections      []CorrectionGroup
+		Waiting          int
 		Feedback, Praise []Feedback
 		Praised, Reacted int
 		PraisedPercent   int
 		Errs             problems
 		CanAct           bool
 	}{
-		rates, corrections, feedback, praise,
+		rates, corrections, waiting, feedback, praise,
 		praised, praised + complained, percent(praised, praised+complained),
 		failed, h.CanAct(),
 	})

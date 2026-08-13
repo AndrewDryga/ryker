@@ -326,18 +326,29 @@ Each row links to the episode that earned it, kept whole as an example worth cop
 {{else}}<p class="empty">No positive reactions yet. A 👍, 🎉, ❤️ or 🔥 on a Responder reply
 lands here as an example of the target behaviour.</p>{{end}}
 
-<h2>Corrections waiting to become tests</h2>
+<h2>Corrections waiting to become tests <span class="note">{{len .Corrections}} to decide{{if ne .Waiting (len .Corrections)}}, {{.Waiting}} recorded{{end}}</span></h2>
 {{if .Corrections}}
+<p class="note">Grouped by the complaint itself, commonest first — a correction the model earned
+eight times is one habit and one test, not eight decisions. Keeping or discarding settles every
+copy.</p>
 <div class="rows">
   {{$act := .CanAct}}
   {{range .Corrections}}
-  <div class="row">
-    <div class="title">{{truncate 200 .Text}}</div>
-    <div class="meta">{{.Class}} · captured {{since .Created}} · expires {{stamp .Expires}}{{if .EpisodeID}} · <a href="/episodes/{{.EpisodeID}}">the episode →</a>{{end}}</div>
+  <div class="row correction">
+    <div class="title">{{truncate 240 .Text}}</div>
+    <div class="meta">
+      <span class="correction-kind kind-{{.Class}}">{{.Kind}}</span>
+      {{if gt .Count 1}}<span class="rep">×{{.Count}}</span>{{end}}
+      {{.Class}} · first {{since .First}}{{if gt .Count 1}} · most recent {{since .Last}}{{end}}
+    </div>
+    {{if .Caution}}<div class="correction-caution">{{.Caution}}</div>{{end}}
+    <div class="meta">
+      {{range $index, $episode := .Episodes}}{{if $index}} · {{end}}<a href="/episodes/{{$episode}}">episode {{add1 $index}}</a>{{end}}
+    </div>
     {{if $act}}
     <div class="acts">
-      {{template "confirm" confirm "Keep" "Turn this correction into a regression test?" "Yes, keep it" "/actions/corrections/keep" .ID}}
-      {{template "confirm" confirm "Discard" "It will not be pinned as a test." "Yes, discard it" "/actions/corrections/discard" .ID}}
+      {{template "confirm" confirm "Keep" "Pins this as a regression test, and settles every candidate carrying the same complaint." "Yes, keep it" "/actions/corrections/keep" .IDList}}
+      {{template "confirm" confirm "Discard" "Drops every candidate carrying this complaint. Nothing is pinned as a test." "Yes, discard it" "/actions/corrections/discard" .IDList}}
     </div>
     {{end}}
   </div>
