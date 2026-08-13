@@ -434,6 +434,17 @@ func HumanBytes(bytes int64) string {
 	case bytes > 0:
 		return fmt.Sprintf("%d KB", max(bytes/(1<<10), 1))
 	default:
-		return "—"
+		// Not "—". A checkout of zero bytes and a checkout nobody measured are
+		// different facts, and the page has to be able to print both.
+		return "0 B"
 	}
+}
+
+// Headline is what the page leads with: the total, or the plain statement that
+// there is nothing rather than a zero the reader has to interpret.
+func (d WorkspaceDisk) Headline() string {
+	if d.Total == 0 {
+		return "Nothing on disk"
+	}
+	return HumanBytes(d.Total) + " on disk"
 }

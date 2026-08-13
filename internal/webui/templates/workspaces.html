@@ -9,7 +9,7 @@ this machine, and nothing else counts them.</p>
   <div class="hero-status">
     <div class="hero-line">
       <span class="hero-beacon" aria-hidden="true"></span>
-      <h2 class="hero-word">{{bytes .Disk.Total}} on disk</h2>
+      <h2 class="hero-word">{{.Disk.Headline}}</h2>
     </div>
     <div class="hero-stats">
       <span><strong>{{len .Live}}</strong>in use</span>
@@ -49,7 +49,7 @@ those are the ones cleanup refuses to delete without a check.</p>
   {{range .Live}}
   <div class="row episode-row" data-state="{{.Activity}}">
     <span class="episode-dot" aria-hidden="true"></span>
-    <span class="episode-when">{{.Size}}</span>
+    <span class="episode-when">{{if .Bytes}}{{.Size}}{{else if $.Disk.Available}}no checkout{{else}}—{{end}}</span>
     <span class="episode-title">{{.Kind}}{{if .Detail}} · {{.Detail}}{{end}}</span>
     <span class="episode-facts">
       <span>{{.Activity}}</span>

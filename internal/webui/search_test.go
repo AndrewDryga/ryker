@@ -404,7 +404,7 @@ func TestWorkspaceDiskNamesSizesAndOrphans(t *testing.T) {
 		bytes int64
 		want  string
 	}{
-		{0, "—"}, {512, "1 KB"}, {5 << 20, "5 MB"}, {2 << 30, "2.0 GB"},
+		{0, "0 B"}, {512, "1 KB"}, {5 << 20, "5 MB"}, {2 << 30, "2.0 GB"},
 	} {
 		if got := HumanBytes(testCase.bytes); got != testCase.want {
 			t.Fatalf("HumanBytes(%d) = %q, want %q", testCase.bytes, got, testCase.want)
