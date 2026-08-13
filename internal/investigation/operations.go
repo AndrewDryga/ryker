@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"slices"
 )
 
 type CompletionAssessment struct {
@@ -265,6 +266,39 @@ var resultOperationPayloads = []func(ResultOperation) bool{
 
 // requirePayload builds the common validator: the named payload must be
 // present, and any extra condition on it must hold.
+// coverageStatuses is the set a coverage assessment may report, named here so
+// the rejection can quote it back.
+var coverageStatuses = []string{"healthy", "degraded", "unhealthy", "unknown", "not_applicable"}
+
+// validateCoverageOperation rejects an unsupported coverage status where the
+// model can act on it.
+//
+// An entry whose status was not in the set used to be dropped in silence
+// during sanitization, and the layer it assessed was then reported back as
+// never assessed at all. The model was told to go and check something it had
+// just checked, with no hint that the answer had been thrown away for its
+// spelling — so it checked again, wrote the same word, and the turn spent its
+// rechecks on a validation failure nothing in the record explained.
+func validateCoverageOperation(o ResultOperation) error {
+	if o.Coverage == nil {
+		return fmt.Errorf("result operation %q requires coverage", o.ID)
+	}
+	status := NormalizeCoverageStatus(strings.ToLower(strings.TrimSpace(o.Coverage.Status)))
+	if status == "" {
+		return fmt.Errorf(
+			"result operation %q coverage for layer %q requires a status, one of: %s",
+			o.ID, o.Coverage.Layer, strings.Join(coverageStatuses, ", "),
+		)
+	}
+	if !slices.Contains(coverageStatuses, status) {
+		return fmt.Errorf(
+			"result operation %q reports coverage status %q for layer %q, which is not one of: %s",
+			o.ID, o.Coverage.Status, o.Coverage.Layer, strings.Join(coverageStatuses, ", "),
+		)
+	}
+	return nil
+}
+
 func requirePayload(
 	requirement string,
 	complete func(ResultOperation) bool,
@@ -285,9 +319,7 @@ var resultOperationValidators = map[string]func(ResultOperation) error{
 	"record_evidence": requirePayload("evidence", func(o ResultOperation) bool {
 		return o.Evidence != nil
 	}),
-	"record_coverage": requirePayload("coverage", func(o ResultOperation) bool {
-		return o.Coverage != nil
-	}),
+	"record_coverage": validateCoverageOperation,
 	"report_progress": requirePayload("progress phase and summary", func(o ResultOperation) bool {
 		return o.Progress != nil && strings.TrimSpace(o.Progress.Phase) != "" &&
 			strings.TrimSpace(o.Progress.Summary) != ""

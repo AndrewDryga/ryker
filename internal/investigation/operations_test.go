@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 func TestAlertAssessmentAcceptsKnownSemanticAliases(t *testing.T) {
@@ -74,5 +76,41 @@ func TestProposeActionIsRefusedWithItsReason(t *testing.T) {
 	}
 	if strings.Contains(ResultOperationsPrompt(), "propose_action") {
 		t.Fatal("the prompt still asks for an operation the host refuses")
+	}
+}
+
+// A coverage entry whose status was not in the set used to be dropped in
+// silence during sanitization, and the layer it assessed was then reported back
+// as never assessed at all — so the model rechecked what it had just checked,
+// with nothing in the record saying its answer had been thrown away for its
+// spelling.
+func TestCoverageOperationRejectsUnsupportedStatusWithTheAllowedSet(t *testing.T) {
+	invalid := ResultOperation{
+		ID: "coverage-app", Type: "record_coverage",
+		Coverage: &core.Coverage{
+			Layer: "application", Status: "verified", Detail: "checked the endpoints",
+		},
+	}
+	err := invalid.Validate()
+	if err == nil {
+		t.Fatal("an unsupported coverage status was accepted")
+	}
+	for _, want := range []string{"verified", "application", "healthy", "not_applicable"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("rejection %q does not name %q", err, want)
+		}
+	}
+
+	// "covered" is the one alias the host understands, and it still normalizes
+	// rather than being rejected.
+	alias := invalid
+	alias.Coverage = &core.Coverage{Layer: "application", Status: "covered"}
+	if err := alias.Validate(); err != nil {
+		t.Fatalf("the covered alias was rejected: %v", err)
+	}
+	valid := invalid
+	valid.Coverage = &core.Coverage{Layer: "application", Status: "degraded"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("a supported status was rejected: %v", err)
 	}
 }

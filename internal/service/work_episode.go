@@ -372,6 +372,25 @@ func (s *Service) episodeContinuityPrompt(
 		string(payload) + "\n</episode-continuity>"
 }
 
+// currentCoverage stamps this turn's assessment so it outranks the stored one
+// for the same layer.
+//
+// The ledger picks one item per layer by observation time, and a candidate that
+// has not been stored yet carries none — so the turn's own fresh reading lost
+// every time to the older row it was meant to replace. A reconciled result was
+// rejected against its own superseded history, repeatedly, and the episode
+// spent its rechecks failing to update a layer it had already updated.
+func currentCoverage(coverage []core.Coverage, now time.Time) []core.Coverage {
+	stamped := make([]core.Coverage, 0, len(coverage))
+	for _, item := range coverage {
+		if item.ObservedAt.IsZero() && item.CreatedAt.IsZero() {
+			item.CreatedAt = now
+		}
+		stamped = append(stamped, item)
+	}
+	return stamped
+}
+
 func (s *Service) episodeClaimCorrectionWithHistory(
 	ctx context.Context,
 	episode core.WorkEpisode,
@@ -394,7 +413,7 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 		episode,
 		action,
 		append(priorEvidence, evidence...),
-		append(priorCoverage, coverage...),
+		append(priorCoverage, currentCoverage(coverage, now)...),
 		completion,
 		now,
 		strict,
