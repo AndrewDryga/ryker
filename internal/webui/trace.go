@@ -461,7 +461,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			Duration: traceDuration(attempt.Started, attempt.Completed),
 			Stats:    []TraceStat{{"Run", attempt.RunID}},
 		}
-		if attempt.Failure != "" {
+		// A class is a token; some rows carry the whole failure message in
+		// this column, and the summary already shows that.
+		if attempt.Failure != "" && len(attempt.Failure) <= 48 && !strings.Contains(attempt.Failure, " ") {
 			step.Stats = append(step.Stats, TraceStat{"Failure class", attempt.Failure})
 		}
 		if detail := strings.TrimSpace(present(attempt.Error)); detail != "" {
