@@ -301,9 +301,12 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 	body := recorder.Body.String()
 	// The section is "Coming up" and each row leads with when it next runs,
 	// so a schedule reads as an appointment rather than as a settings entry.
+	// It hands off to the Schedules section rather than explaining how to make
+	// one: the overview says what is coming, and the page it links to is where
+	// a schedule's own history lives.
 	for _, expected := range []string{
 		"Coming up", "Daily platform health review", "daily at 09:00 America/Mexico_City",
-		"in 19h", "last completed 4h ago", "/responder schedules",
+		"in 19h", "last completed 4h ago", `href="/schedules/schedule-1"`, "every schedule →",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Errorf("overview is missing %q: %s", expected, body)

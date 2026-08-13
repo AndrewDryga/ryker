@@ -634,10 +634,21 @@ func (s *Store) Prune(
 		DELETE FROM standing_rules WHERE expires_at <= ?`, s.nowText()); err != nil {
 		return result, err
 	}
+	// Schedule runs expire on the episode-history clock, for the reason rule
+	// runs do, three statements up: a run row is not the transport of a
+	// firing, it is the account of one.
+	//
+	// At twenty-four hours a daily schedule kept exactly one execution, so
+	// "did this run every morning this week" had no answer anywhere — the
+	// deployed database held one surviving row against a schedule that had
+	// been firing for days. The row is small (a task id, the instant it was
+	// due, an outcome word, and the episode it produced) and the episode it
+	// points at lives on this same horizon, so the pair expires together
+	// instead of leaving a link to nothing.
 	if result.ScheduledTaskRuns, err = deleteCount(`
 		DELETE FROM scheduled_task_runs
 		WHERE outcome IN ('completed', 'failed', 'skipped_missed', 'skipped_overlap', 'skipped_unauthorized')
-		  AND updated_at < ?`, operational); err != nil {
+		  AND updated_at < ?`, episodeHistoryBefore.UTC().Format(timestampFormat)); err != nil {
 		return result, err
 	}
 	if result.ScheduledTasks, err = deleteCount(`

@@ -1455,6 +1455,36 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .episode-spoke { color: var(--accent); }
 .episode-retried { color: var(--warn); }
 
+/* Schedule pages reuse the episode row so the whole control plane keeps one
+   list vocabulary. Only the states a schedule can be in that an episode cannot
+   are declared here — completed and failed already read correctly from the
+   episode rules above, and repeating them would leave two places to edit. */
+.episode-row[data-state="queued"] .episode-dot::before,
+.episode-row[data-state="running"] .episode-dot::before { background: var(--accent); }
+.episode-row[data-state="skipped_missed"] .episode-dot::before,
+.episode-row[data-state="skipped_overlap"] .episode-dot::before,
+.episode-row[data-state="skipped_unauthorized"] .episode-dot::before {
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+.episode-row[data-state^="skipped"] .episode-state { color: var(--warn); }
+/* The standing instructions are reference material, not the answer to why you
+   opened the page, and on a real schedule they run to a couple of thousand
+   words — printed open they pushed the execution history off the screen. */
+.disclose { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.disclose > summary {
+  padding: 11px 16px; cursor: pointer; color: var(--dim); font-size: 13px;
+  list-style: none;
+}
+.disclose > summary::-webkit-details-marker { display: none; }
+.disclose > summary::before { content: "▸"; margin-right: 9px; color: var(--faint); }
+.disclose[open] > summary::before { content: "▾"; }
+.disclose > summary:hover { color: var(--ink); }
+.schedule-prompt {
+  margin: 0; padding: 2px 16px 15px; color: var(--ink-2);
+  font-size: 13.5px; line-height: 1.65; max-width: 100ch;
+}
+.schedule-prompt code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
+
 @media (max-width: 900px) {
   body { display: block; }
   .sidebar {

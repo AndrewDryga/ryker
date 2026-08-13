@@ -1396,51 +1396,123 @@ func (r *Reader) EpisodeActivity(ctx context.Context, now time.Time, days int) (
 // day, because the handler passed a nil slice where a query belonged — the
 // section was scaffolding wearing the costume of an empty state.
 type Schedule struct {
+	ID                                                                string
 	Title, Prompt, Cadence, Channel, Repository, CatchUp, LastOutcome string
-	Enabled                                                           bool
-	NextRun, LastRun                                                  time.Time
-	Runs                                                              int
+	// Recurrence is the stored word and Cadence the phrasing built from it.
+	// Both are kept because "daily" is the rule and "daily at 09:00
+	// America/Mexico_City" is the appointment, and a page about one schedule
+	// needs to say which timezone that clock is in.
+	Timezone, Recurrence string
+	Enabled              bool
+	NextRun, LastRun     time.Time
+	StartAt, ExpiresAt   time.Time
+	Runs                 int
+}
+
+const scheduleSelect = `
+  SELECT s.id, s.title, s.prompt, s.recurrence, s.interval_seconds, s.local_time, s.timezone,
+         s.channel_id, s.repository, s.catch_up, s.enabled, COALESCE(s.next_run_at,''),
+         COALESCE(s.last_run_at,''), s.last_outcome, s.start_at, s.expires_at,
+         (SELECT COUNT(*) FROM scheduled_task_runs r WHERE r.task_id = s.id)
+  FROM scheduled_tasks s`
+
+// scanSchedule shapes one row the same way for the list and for the schedule's
+// own page. Written once because a schedule that reads "daily at 09:00
+// America/Mexico_City" in the list and "daily" on the page it links to is two
+// answers to the same question.
+func (r *Reader) scanSchedule(ctx context.Context, rows *sql.Rows) (Schedule, error) {
+	var item Schedule
+	var localTime, next, last, start, expires string
+	var interval int
+	if err := rows.Scan(&item.ID, &item.Title, &item.Prompt, &item.Recurrence, &interval,
+		&localTime, &item.Timezone, &item.Channel, &item.Repository, &item.CatchUp,
+		&item.Enabled, &next, &last, &item.LastOutcome, &start, &expires, &item.Runs); err != nil {
+		return Schedule{}, err
+	}
+	item.Channel = r.channelName(ctx, item.Channel)
+	item.NextRun, item.LastRun = parseStamp(next), parseStamp(last)
+	item.StartAt, item.ExpiresAt = parseStamp(start), parseStamp(expires)
+	item.Cadence = item.Recurrence
+	switch {
+	case item.Recurrence == "interval" && interval > 0:
+		item.Cadence = "every " + (time.Duration(interval) * time.Second).String()
+	case localTime != "":
+		item.Cadence = item.Recurrence + " at " + localTime + " " + item.Timezone
+	}
+	return item, nil
 }
 
 func (r *Reader) Schedules(ctx context.Context) ([]Schedule, error) {
-	if !r.live() {
-		return nil, nil
-	}
-	rows, err := r.db.QueryContext(ctx, `
-	  SELECT s.title, s.prompt, s.recurrence, s.interval_seconds, s.local_time, s.timezone,
-	         s.channel_id, s.repository, s.catch_up, s.enabled, COALESCE(s.next_run_at,''),
-	         COALESCE(s.last_run_at,''), s.last_outcome,
-	         (SELECT COUNT(*) FROM scheduled_task_runs r WHERE r.task_id = s.id)
-	  FROM scheduled_tasks s
+	return collect(ctx, r, scheduleSelect+`
 	  WHERE julianday(s.expires_at) > julianday('now')
-	  ORDER BY s.enabled DESC, s.next_run_at IS NULL, s.next_run_at LIMIT 50`)
-	if err != nil {
-		return nil, err
+	  ORDER BY s.enabled DESC, s.next_run_at IS NULL, s.next_run_at LIMIT 50`,
+		func(rows *sql.Rows) (Schedule, error) { return r.scanSchedule(ctx, rows) })
+}
+
+// Schedule is one schedule by id, including ones that have expired.
+//
+// The list filters those out because an expired schedule will not fire again
+// and does not belong in "what is coming up". A link to one still has to
+// resolve: an execution that ran last week is a real record, and following it
+// to a page that says the schedule never existed would be a lie about history.
+func (r *Reader) Schedule(ctx context.Context, id string) (Schedule, bool, error) {
+	if !r.live() || id == "" {
+		return Schedule{}, false, nil
 	}
-	defer rows.Close()
-	items := []Schedule{}
-	for rows.Next() {
-		var item Schedule
-		var recurrence, localTime, timezone, next, last string
-		var interval int
-		if err := rows.Scan(&item.Title, &item.Prompt, &recurrence, &interval, &localTime,
-			&timezone, &item.Channel, &item.Repository, &item.CatchUp, &item.Enabled,
-			&next, &last, &item.LastOutcome, &item.Runs); err != nil {
-			return nil, err
-		}
-		item.Channel = r.channelName(ctx, item.Channel)
-		item.NextRun = parseStamp(next)
-		item.LastRun = parseStamp(last)
-		item.Cadence = recurrence
-		switch {
-		case recurrence == "interval" && interval > 0:
-			item.Cadence = "every " + (time.Duration(interval) * time.Second).String()
-		case localTime != "":
-			item.Cadence = recurrence + " at " + localTime + " " + timezone
-		}
-		items = append(items, item)
+	items, err := collect(ctx, r, scheduleSelect+` WHERE s.id = ? LIMIT 1`,
+		func(rows *sql.Rows) (Schedule, error) { return r.scanSchedule(ctx, rows) }, id)
+	if err != nil || len(items) == 0 {
+		return Schedule{}, false, err
 	}
-	return items, rows.Err()
+	return items[0], true, nil
+}
+
+// ScheduleRun is one firing: when it was due, what became of it, and the
+// episode it produced.
+type ScheduleRun struct {
+	ScheduledFor time.Time
+	Started      time.Time
+	Completed    time.Time
+	Outcome      string
+	EpisodeID    string
+	Error        string
+}
+
+// Took is how long the firing ran. A skipped run never started, so it has no
+// duration rather than a zero one.
+func (s ScheduleRun) Took() string { return traceDuration(s.Started, s.Completed) }
+
+// Reads names the outcome in words. The stored value is one token, and
+// "skipped_overlap" in a list of otherwise plain English reads as a leaked
+// column value.
+func (s ScheduleRun) Reads() string {
+	switch s.Outcome {
+	case "skipped_missed":
+		return "skipped, the window passed"
+	case "skipped_overlap":
+		return "skipped, still running"
+	case "skipped_unauthorized":
+		return "skipped, not authorized"
+	}
+	return strings.ReplaceAll(s.Outcome, "_", " ")
+}
+
+// ScheduleRuns lists a schedule's executions, newest first.
+func (r *Reader) ScheduleRuns(ctx context.Context, id string, limit int) ([]ScheduleRun, error) {
+	return collect(ctx, r, `
+	  SELECT scheduled_for, COALESCE(started_at,''), COALESCE(completed_at,''),
+	         outcome, episode_id, last_error
+	  FROM scheduled_task_runs WHERE task_id = ?
+	  ORDER BY scheduled_for DESC LIMIT ?`,
+		func(rows *sql.Rows) (ScheduleRun, error) {
+			var item ScheduleRun
+			var scheduled, started, completed string
+			err := rows.Scan(&scheduled, &started, &completed,
+				&item.Outcome, &item.EpisodeID, &item.Error)
+			item.ScheduledFor = parseStamp(scheduled)
+			item.Started, item.Completed = parseStamp(started), parseStamp(completed)
+			return item, err
+		}, id, limit)
 }
 
 // Preference and StandingRule mirror what the App Home lists, because how

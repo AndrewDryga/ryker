@@ -1,0 +1,44 @@
+{{define "schedule"}}
+{{template "problems" .Errs}}
+<div class="panel">
+  <div class="meta">
+    {{if .Enabled}}<span class="pill good">enabled</span>{{else}}<span class="pill warn">paused</span>{{end}}
+    {{.Cadence}} · {{.Channel}}{{if .Repository}} · <span class="mono">{{.Repository}}</span>{{end}}
+  </div>
+  <div class="meta">
+    {{if .Enabled}}Next {{until .NextRun}}{{else}}No future run while paused{{end}}
+    · {{if .LastRun.IsZero}}never run yet{{else}}last run {{since .LastRun}}{{end}}
+    · {{if .CatchUp}}missed runs: {{if eq .CatchUp "latest"}}run the latest one{{else}}skipped{{end}}{{end}}
+    {{if not .ExpiresAt.IsZero}} · expires {{until .ExpiresAt}}{{end}}
+  </div>
+</div>
+
+<h2>Executions <span class="note">{{len .Runs}}</span></h2>
+{{if .Runs}}
+<p class="note">Every firing kept on record. Each one links to the episode it produced, which is
+where what it actually did is written down.</p>
+<div class="rows">
+  {{range .Runs}}
+  {{if .EpisodeID}}<a class="row episode-row" href="/episodes/{{.EpisodeID}}" data-state="{{.Outcome}}">
+  {{else}}<div class="row episode-row" data-state="{{.Outcome}}">{{end}}
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-when">{{since .ScheduledFor}}</span>
+    <span class="episode-title">Due {{stamp .ScheduledFor}}</span>
+    {{if .Error}}<span class="episode-answer">{{.Error}}</span>{{end}}
+    <span class="episode-facts">
+      <span class="episode-state">{{.Reads}}</span>
+      {{with .Took}}<span>took {{.}}</span>{{end}}
+      {{if .EpisodeID}}<span>see what it did →</span>{{else}}<span>no episode</span>{{end}}
+    </span>
+  {{if .EpisodeID}}</a>{{else}}</div>{{end}}
+  {{end}}
+</div>
+{{else}}<p class="empty">No execution is on record yet. Runs are kept for thirty days; a schedule
+that has not fired in that window shows nothing here.</p>{{end}}
+
+<h2>What it asks for</h2>
+<details class="disclose">
+  <summary>The instructions this schedule sends, every time it fires</summary>
+  <p class="schedule-prompt">{{mrkdwn .Prompt}}</p>
+</details>
+{{end}}

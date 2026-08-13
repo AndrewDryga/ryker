@@ -2,12 +2,15 @@ package webui
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
+
+	_ "modernc.org/sqlite"
 )
 
 // Search reaches both places an operator remembers work by — the commitment
@@ -188,5 +191,111 @@ func TestOutcomeWidthsKeepSmallSharesVisible(t *testing.T) {
 	}
 	if done, failed, other = outcomeWidths(0, 0, 0); done+failed+other != 0 {
 		t.Fatalf("empty channel drew %d+%d+%d units", done, failed, other)
+	}
+}
+
+// A schedule's own page exists to answer "did it actually run", so the
+// executions have to reach it and each one has to lead back to the episode it
+// produced. The list deliberately hides expired schedules while the detail
+// page still opens them: an execution from last week is a real record, and
+// following it to a page claiming the schedule never existed would be a lie
+// about history.
+func TestSchedulePagesListRunsAndOpenExpiredSchedules(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	migrated, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrated.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Seeded through raw SQL against the real migrated schema: schedules are
+	// created by the Slack confirmation flow, and reaching that from a reader
+	// test would exercise everything except what is under test here.
+	live, err := sql.Open("sqlite", filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	insert := func(id, title, expires string) {
+		t.Helper()
+		if _, err := live.ExecContext(ctx, `
+			INSERT INTO scheduled_tasks (
+			  id, team_id, channel_id, repository, title, prompt, recurrence,
+			  start_at, local_time, timezone, enabled, actor_id, source_ref,
+			  next_run_at, expires_at, created_at, updated_at
+			) VALUES (?, 'T1', 'COPS', 'repo', ?, 'check the thing', 'daily',
+			  '2026-01-01T09:00:00.000000000Z', '09:00', 'UTC', 1, 'U1', 'ref-'||?,
+			  '2027-01-01T09:00:00.000000000Z', ?,
+			  '2026-01-01T00:00:00.000000000Z', '2026-01-01T00:00:00.000000000Z')`,
+			id, title, id, expires); err != nil {
+			t.Fatalf("insert %s: %v", id, err)
+		}
+	}
+	insert("sched-live", "Daily health review", "2099-01-01T00:00:00.000000000Z")
+	insert("sched-gone", "Retired review", "2020-01-01T00:00:00.000000000Z")
+	if _, err := live.ExecContext(ctx, `
+		INSERT INTO scheduled_task_runs (
+		  task_id, scheduled_for, outcome, episode_id, started_at, completed_at,
+		  created_at, updated_at
+		) VALUES
+		  ('sched-live', '2026-06-01T09:00:00.000000000Z', 'completed', 'episode_x',
+		   '2026-06-01T09:00:00.000000000Z', '2026-06-01T09:04:00.000000000Z',
+		   '2026-06-01T09:00:00.000000000Z', '2026-06-01T09:04:00.000000000Z'),
+		  ('sched-live', '2026-06-02T09:00:00.000000000Z', 'skipped_overlap', '',
+		   NULL, NULL,
+		   '2026-06-02T09:00:00.000000000Z', '2026-06-02T09:00:00.000000000Z')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReader(filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	listed, err := reader.Schedules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].ID != "sched-live" {
+		t.Fatalf("list = %+v, want only the schedule that can still fire", listed)
+	}
+	if listed[0].Cadence != "daily at 09:00 UTC" || listed[0].Runs != 2 {
+		t.Fatalf("list row = %+v, want the human cadence and its run count", listed[0])
+	}
+	// The expired one is absent from the list and still has a page.
+	gone, found, err := reader.Schedule(ctx, "sched-gone")
+	if err != nil || !found || gone.Title != "Retired review" {
+		t.Fatalf("expired schedule = %+v found=%t err=%v", gone, found, err)
+	}
+	if _, found, err := reader.Schedule(ctx, "sched-missing"); err != nil || found {
+		t.Fatalf("unknown id reported found=%t err=%v", found, err)
+	}
+
+	runs, err := reader.ScheduleRuns(ctx, "sched-live", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("runs = %d, want both firings", len(runs))
+	}
+	// Newest first, so the page opens on what happened last.
+	if runs[0].Outcome != "skipped_overlap" || runs[1].Outcome != "completed" {
+		t.Fatalf("runs are not newest first: %+v", runs)
+	}
+	if runs[1].EpisodeID != "episode_x" || runs[1].Took() != "4m 00s" {
+		t.Fatalf("completed run = %+v, want its episode and duration", runs[1])
+	}
+	// A skipped firing never started, so it has no duration to report rather
+	// than a zero one, and it says why in words.
+	if runs[0].Took() != "" {
+		t.Fatalf("skipped run reported a duration of %q", runs[0].Took())
+	}
+	if runs[0].Reads() != "skipped, still running" {
+		t.Fatalf("outcome reads %q, want the stored token in words", runs[0].Reads())
 	}
 }

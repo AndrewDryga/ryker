@@ -70,6 +70,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", h.overview)
 	mux.HandleFunc("GET /episodes", h.episodes)
 	mux.HandleFunc("GET /episodes/{id}", h.episode)
+	mux.HandleFunc("GET /schedules", h.schedules)
+	mux.HandleFunc("GET /schedules/{id}", h.schedule)
 	mux.HandleFunc("GET /incidents/{id}", h.incident)
 	mux.HandleFunc("GET /failures", h.failures)
 	mux.HandleFunc("GET /failures/{key}", h.failure)
@@ -392,6 +394,43 @@ func (h *Handler) episodes(w http.ResponseWriter, r *http.Request) {
 		page.Newer = episodesURL(filter, max(filter.Offset-episodePageSize, 0))
 	}
 	h.page(w, r, "episodes", "episodes", page)
+}
+
+// schedules is the section for work nobody asked for at the moment it ran.
+//
+// It was one panel on Overview with no way into a single schedule, so the only
+// question a schedule really raises — has it been firing, and what did it do —
+// had no page to be asked on.
+func (h *Handler) schedules(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var failed problems
+	schedules, err := h.reader.Schedules(ctx)
+	failed.note("schedules", err)
+	h.page(w, r, "schedules", "schedules", struct {
+		Schedules []Schedule
+		Errs      problems
+	}{schedules, failed})
+}
+
+func (h *Handler) schedule(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	item, found, err := h.reader.Schedule(ctx, r.PathValue("id"))
+	if err != nil || !found {
+		h.trouble(w, r, http.StatusNotFound, "No such schedule",
+			"Nothing on record carries this id. A schedule an operator deleted is gone from this list, though the episodes it produced remain under Episodes.")
+		return
+	}
+	var failed problems
+	runs, err := h.reader.ScheduleRuns(ctx, item.ID, 50)
+	failed.note("executions", err)
+	// The title is optional — a schedule made from a bare instruction has
+	// none — and a page headed by nothing is worse than one headed by what it
+	// asks for. The list makes the same substitution.
+	h.detail(w, r, "schedules", "schedule", fallback(item.Title, truncate(item.Prompt, 80)), struct {
+		Schedule
+		Runs []ScheduleRun
+		Errs problems
+	}{item, runs, failed})
 }
 
 func (h *Handler) episodeFilter(ctx context.Context, r *http.Request) EpisodeFilter {

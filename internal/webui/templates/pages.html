@@ -56,7 +56,7 @@ from Slack or a webhook.</p>{{end}}
 {{if .Schedules}}
 <div class="rows">
   {{range .Schedules}}
-  <div class="row episode-row" data-state="{{if .Enabled}}scheduled{{else}}paused{{end}}">
+  <a class="row episode-row" href="/schedules/{{.ID}}" data-state="{{if .Enabled}}scheduled{{else}}paused{{end}}">
     <span class="episode-dot" aria-hidden="true"></span>
     <span class="episode-when">{{if .Enabled}}{{until .NextRun}}{{else}}paused{{end}}</span>
     <span class="episode-title">{{if .Title}}{{.Title}}{{else}}{{.Prompt}}{{end}}</span>
@@ -66,11 +66,10 @@ from Slack or a webhook.</p>{{end}}
       {{if .Repository}}<span class="mono">{{.Repository}}</span>{{end}}
       <span>{{if .LastRun.IsZero}}never run yet{{else}}last {{if .LastOutcome}}{{.LastOutcome}} {{end}}{{since .LastRun}}{{end}}</span>
     </span>
-  </div>
+  </a>
   {{end}}
 </div>
-<p class="note">Set these up in Slack with <span class="mono">/responder schedules</span>, or from
-<a href="/configuration">Configuration</a>.</p>
+<p class="note"><a href="/schedules">every schedule →</a></p>
 {{else}}<p class="empty">Nothing is scheduled. Ask Responder in Slack to check something on a
 cadence and it will appear here.</p>{{end}}
 
@@ -230,6 +229,31 @@ from Slack or a webhook.</p>{{end}}
   {{if .Older}}<a href="{{.Older}}">older →</a>{{end}}
 </div>
 {{end}}
+{{end}}
+
+{{define "schedules"}}
+{{template "problems" .Errs}}
+<p class="note">Work Responder starts on its own, without anybody asking. Open one to see every
+time it fired and what came of it.</p>
+{{if .Schedules}}
+<div class="rows">
+  {{range .Schedules}}
+  <a class="row episode-row" href="/schedules/{{.ID}}" data-state="{{if .Enabled}}scheduled{{else}}paused{{end}}">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-when">{{if .Enabled}}{{until .NextRun}}{{else}}paused{{end}}</span>
+    <span class="episode-title">{{if .Title}}{{.Title}}{{else}}{{truncate 90 .Prompt}}{{end}}</span>
+    <span class="episode-facts">
+      <span>{{.Cadence}}</span>
+      <span>{{.Channel}}</span>
+      {{if .Repository}}<span class="mono">{{.Repository}}</span>{{end}}
+      <span>{{if .LastRun.IsZero}}never run yet{{else}}last {{if .LastOutcome}}{{.LastOutcome}} {{end}}{{since .LastRun}}{{end}}</span>
+      {{if .Runs}}<span>{{.Runs}} run{{if ne .Runs 1}}s{{end}}</span>{{end}}
+    </span>
+  </a>
+  {{end}}
+</div>
+{{else}}<p class="empty">Nothing is scheduled. Ask Responder in Slack to check something on a
+cadence — <span class="mono">/responder schedules</span> — and it will appear here.</p>{{end}}
 {{end}}
 
 {{define "failures"}}

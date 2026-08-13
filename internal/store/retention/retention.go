@@ -175,9 +175,10 @@ var Policies = []Policy{
 			"it is accepted or its own expires_at passes. It was the sixth table found with no " +
 			"deletion path, and Sweep now settles it on the same predicate configuration_sessions " +
 			"uses"},
-	{"scheduled_task_runs", Operational,
-		"one firing of a scheduled task, deleted on the operational horizon once it reached a " +
-			"settled outcome"},
+	{"scheduled_task_runs", History,
+		"one firing of a scheduled task and the episode it produced — the account of a firing " +
+			"rather than its transport, so it expires with the episode history it points at " +
+			"rather than a day later"},
 	{"scheduled_tasks", Kept,
 		"a recurring task an operator asked for. It is kept until the expiry they set, which " +
 			"Prune honors row by row, or until they delete it"},
