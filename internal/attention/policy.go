@@ -60,7 +60,15 @@ func Enforce(
 	insufficient := false
 	switch result.Action {
 	case "reply":
-		insufficient = (!explicitlyTargeted && humanAddressee) ||
+		// The human-addressee clause carries the same exception the
+		// human-directed-thread clause below defines, because it was overriding
+		// it: a reply the model classified as a material correction was
+		// suppressed for no reason beyond the addressee being a person, which
+		// is true of most safety-relevant corrections. Addressee suppresses
+		// ordinary chatter. It should not be able to silence the one
+		// contribution the policy already decided is worth an interruption.
+		insufficient = (!explicitlyTargeted && humanAddressee &&
+			!supportsHumanThreadInterruption(result)) ||
 			(humanDirectedThread && !supportsHumanThreadInterruption(result)) ||
 			(!targeted && (result.Attention.Score() < replyThreshold ||
 				!supportsAmbientReply(result.Attention)))

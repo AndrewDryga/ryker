@@ -1181,3 +1181,52 @@ func TestWatchRepositorySetSelectsItsCoopPolicy(t *testing.T) {
 		t.Fatalf("Coop create policies = %v", coopClient.createPolicies)
 	}
 }
+
+// A safety-relevant correction addressed to a person was suppressed for no
+// reason beyond the addressee being a person, which is true of most safety
+// corrections. The policy already defines the exception — material_correction
+// may interrupt a human-directed thread — and the addressee clause was
+// overriding it.
+func TestAttentionPolicyDeliversMaterialCorrectionInHumanDirectedThread(t *testing.T) {
+	input := core.SlackInput{
+		ID: "slack-ambient-correction", Kind: "message", ChannelID: "C1",
+		ThreadTS: "1700.100", MessageTS: "1700.140", UserID: "U111",
+		Text: "so we can go ahead and drop the replica tonight",
+	}
+	// A thread one person opened by addressing another. Ambient by every
+	// signal Responder has.
+	state := decisionpkg.WatchTurnState{RecentMessages: []decisionpkg.WatchContextMessage{{
+		MessageTS: "1700.100", SenderID: "U111", SenderType: "human",
+		Text: "<@U222> can you confirm the replica is idle?",
+	}}}
+	correction := decisionpkg.WatchDecision{
+		Action:  "reply",
+		Message: "That replica still serves read traffic; dropping it tonight will take reads down.",
+		Attention: decisionpkg.AttentionAssessment{
+			Addressee: "human", Urgency: 3, Confidence: 3, Novelty: 3, Ownership: 2,
+			Contribution: "material_correction", Material: true,
+		},
+	}
+	filtered := attentionpkg.Enforce(input, state, correction, 7, 4)
+	if filtered.Action != "reply" || filtered.Message == "" {
+		t.Fatalf("material correction to a human-directed thread was suppressed: %+v", filtered)
+	}
+
+	// Ordinary chatter addressed to a person stays suppressed. The exception is
+	// for the one contribution the policy already decided is worth an
+	// interruption, not for anything the model labels human.
+	chatter := correction
+	chatter.Attention.Contribution = "none"
+	chatter.Attention.Material = false
+	if filtered := attentionpkg.Enforce(input, state, chatter, 7, 4); filtered.Action != "ignore" {
+		t.Fatalf("ambient chatter addressed to a human was delivered: %+v", filtered)
+	}
+
+	// New evidence that has not reached a decision is not an interruption
+	// either: it may be new to Responder and useless to the people talking.
+	evidence := correction
+	evidence.Attention.Contribution = "new_evidence"
+	if filtered := attentionpkg.Enforce(input, state, evidence, 7, 4); filtered.Action != "ignore" {
+		t.Fatalf("undecided new evidence interrupted a human thread: %+v", filtered)
+	}
+}

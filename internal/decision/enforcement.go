@@ -332,7 +332,14 @@ func WatchDecisionCorrectionAt(
 		return "the operator combined a conversation-location change with new work; " +
 			"answer the new work and honor the requested response location"
 	}
-	if decision.Action == "ignore" &&
+	// Not a synthetic recheck. The host generates those, marks them as
+	// conversation follow-ups so the turn carries its thread, and then tells the
+	// model in as many words to return ignore when the blocker and the useful
+	// result are unchanged. This rule read that obedience as an unanswered
+	// operator and rejected it, so the only way a recheck could pass validation
+	// was to say something — which is the opposite of what a quiet recheck is
+	// for. Nobody is waiting on the other end of a timer Responder set itself.
+	if decision.Action == "ignore" && input.Kind != "recheck" &&
 		WatchInputTargeted(input, state) &&
 		decision.Attention.Addressee == "responder" {
 		return "the target is an active conversation follow-up addressed to Emisar; " +
