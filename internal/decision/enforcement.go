@@ -250,6 +250,25 @@ func AlertAssessmentCorrection(
 				"decision_ready with the healthy verdict, say plainly what completed, and close " +
 				"the earlier alert without broadening this into a platform-health assessment"
 		}
+		// A resolution notification confirms an incident happened. It is not
+		// evidence that the problem is still happening, and the two were being
+		// conflated: the recovery check above only ever ran when the model had
+		// already said not_issue, so a confirmed_issue verdict on a cleared
+		// alert went straight through. Responder published active degradation
+		// and recommended halting a rollout for a condition that had already
+		// recovered, on evidence that was fresh only in the sense of having
+		// been retrieved a moment ago — it described the incident, not the
+		// present.
+		if OperationalAlertResolvedEvent(input.Text) &&
+			(decision.AlertAssessment.Verdict == "confirmed_issue" ||
+				decision.AlertAssessment.Verdict == "likely_issue") &&
+			!HasActiveDegradationEvidence(evidence, now) {
+			return "this alert condition has already cleared and nothing observed since shows " +
+				"the problem is still active; close the exact alert condition, say plainly that " +
+				"the signal recovered, mark broader recovery unknown where you did not verify it, " +
+				"and do not claim current degradation or recommend containment without a fresh " +
+				"observation that finds the failure still present"
+		}
 		if !recovered && !WatchDecisionHasEvidenceSource(evidence, "repository") {
 			return "the alert reply does not reconcile the live signal with declared repository " +
 				"topology; inspect the configured repository before deciding"
@@ -523,6 +542,22 @@ func ExternalAppEventRequiresDecision(text string) bool {
 func MatchedOperationalAlertRule(rules []core.StandingRule) bool {
 	for _, rule := range rules {
 		if rule.Trigger == "operational_alert" && rule.Action == "triage_alert" {
+			return true
+		}
+	}
+	return false
+}
+
+// HasActiveDegradationEvidence reports a fresh operational observation that
+// actually found something wrong, as opposed to one that merely arrived
+// recently. Freshness says when Responder looked; the health effect says what
+// it saw, and only the second can support a claim that a problem is ongoing.
+func HasActiveDegradationEvidence(evidence []core.Evidence, now time.Time) bool {
+	for _, item := range evidence {
+		if item.HealthEffect != "degraded" && item.HealthEffect != "unhealthy" {
+			continue
+		}
+		if HasFreshOperationalEvidence([]core.Evidence{item}, now) {
 			return true
 		}
 	}
