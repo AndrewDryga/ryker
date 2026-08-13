@@ -818,6 +818,18 @@ func (s *Store) SetAgentRunContext(
 	return sqlutil.ExpectOne(result, err, "set agent run context")
 }
 
+// requeueRunColumns drops what bound a run to the attempt that failed.
+const requeueRunColumns = `expected_revision = 0, coop_turn_id = '', result_json = X'', terminal_state = '', completed_at = NULL,`
+
+// ReleaseAgentRunRevision unfreezes a preparing run's revision, so a run that
+// lost a revision race stops replaying the same stale number.
+func (s *Store) ReleaseAgentRunRevision(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs SET expected_revision = 0, updated_at = ?
+		WHERE id = ? AND state = 'preparing'`, s.nowText(), id)
+	return err
+}
+
 func (s *Store) FreezeAgentRunRevision(
 	ctx context.Context,
 	id string,
@@ -1279,10 +1291,9 @@ func (s *Store) RequeueAgentRun(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', failure_count = ?, idempotency_key = ?,
-		    expected_revision = 0, coop_turn_id = '',
+		    `+requeueRunColumns+`
 		    coop_event_sequence = MAX(coop_event_sequence, ?),
-		    result_json = X'', terminal_state = '', last_error = ?,
-		    next_attempt_at = ?, completed_at = NULL, updated_at = ?
+		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'running'`,
 		attempt,
 		fmt.Sprintf("responder:run:%s:%s", id, recoveryID),
@@ -1385,9 +1396,8 @@ func (s *Store) RequeueFailedAgentRun(ctx context.Context, id, detail string) er
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', idempotency_key = ?,
-		    expected_revision = 0, coop_turn_id = '',
-		    result_json = X'', terminal_state = '', last_error = ?,
-		    next_attempt_at = ?, completed_at = NULL, updated_at = ?
+		    `+requeueRunColumns+`
+		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'failed'`,
 		newRunKey,
 		sqlutil.BoundedError(detail),
@@ -1448,10 +1458,9 @@ func (s *Store) DeferRunningAgentRun(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', idempotency_key = ?,
-		    expected_revision = 0, coop_turn_id = '',
+		    `+requeueRunColumns+`
 		    coop_event_sequence = MAX(coop_event_sequence, ?),
-		    result_json = X'', terminal_state = '', last_error = ?,
-		    next_attempt_at = ?, completed_at = NULL, updated_at = ?
+		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'running'`,
 		fmt.Sprintf("responder:run:%s:dependency:%d", id, s.now().UnixNano()),
 		eventSequence,

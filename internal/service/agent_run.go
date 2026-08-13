@@ -1202,6 +1202,17 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		recovered, bound := s.turnBoundToRunKey(ctx, run, session, err)
 		if !bound {
+			// A revision conflict says the session moved on while this run held
+			// a number, and no turn was accepted. Replaying the same frozen
+			// revision fails for the same reason every time, so the attempt
+			// budget was spent proving that twenty times over. Release it and
+			// let the next attempt read the session it is actually racing.
+			if isCoopRevisionConflict(err) {
+				if releaseErr := s.store.ReleaseAgentRunRevision(ctx, run.ID); releaseErr != nil {
+					s.log.Warn("release frozen Coop revision",
+						"run", run.ID, "error", releaseErr)
+				}
+			}
 			return s.retryAgentRun(ctx, run, err)
 		}
 		turn = recovered
@@ -1568,7 +1579,12 @@ func (s *Service) retryAgentRun(
 	}
 	terminal := retrydelay.Exhausted(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts)
 	var apiErr *coop.APIError
-	if errors.As(cause, &apiErr) && !apiErr.Retryable() {
+	// "Do not replay this request" is not "do not do this work", and treating
+	// them as the same thing abandoned a watched Terraform failure before its
+	// turn ever started. A revision conflict says the session moved on and
+	// nothing was accepted; with the frozen revision released, the next attempt
+	// is a genuinely different request rather than the same one again.
+	if errors.As(cause, &apiErr) && !apiErr.Retryable() && !isCoopRevisionConflict(cause) {
 		terminal = true
 	}
 	if permanentSlackAttachmentError(cause) || permanentPreparationError(cause) {

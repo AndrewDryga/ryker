@@ -1528,3 +1528,57 @@ func TestTriageSubmitIdempotencyConflictRecoversExistingTurn(t *testing.T) {
 		t.Fatalf("a recovered conflict reported failure to Slack: %+v", slackClient.posts)
 	}
 }
+
+// The frozen revision exists so a retry replays the identical request rather
+// than a changed one. That is right for every failure except the one that says
+// the revision itself is stale: the run kept replaying the same stale number,
+// so each of its twenty attempts failed for precisely the reason the previous
+// one had, and a watched Terraform failure was abandoned before its turn ever
+// started.
+func TestRevisionConflictReleasesTheFrozenRevisionAndRetries(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CREVISION"}
+	cfg.Slack.WatchChannels = nil
+	cfg.Limits.MaxAgentRunAttempts = 20
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-revision", EnvelopeID: "env-revision", EventID: "event-revision",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: "CREVISION",
+		MessageTS: "1700.902", UserID: "U123ABC",
+		Text: "<@U999BOT> check production health",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitErrs = []error{&coop.APIError{
+		Status: 409, Code: "revision_conflict",
+		Detail: "expected revision 2 is stale",
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.TerminalState != "" {
+		t.Fatalf("a revision race went terminal: state=%q error=%q", run.TerminalState, run.LastError)
+	}
+	// The frozen number is gone, so the next attempt races the session it is
+	// actually in rather than the one it remembered.
+	if run.ExpectedRevision != 0 {
+		t.Fatalf("expected revision = %d after a revision conflict, want it released", run.ExpectedRevision)
+	}
+}

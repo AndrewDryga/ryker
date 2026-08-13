@@ -281,7 +281,14 @@ var lineBudget = map[string]int{
 	// storage logic lives in store/artifactstore, but the schema migration,
 	// the repository wiring, and the retention hook are irreducibly this
 	// package's, and fourteen lines of them landed over a four-line margin.
-	"store":      11340,
+	// Raised to 11342 on 2026-08-13 for ReleaseAgentRunRevision. A run that
+	// lost a Coop revision race replayed the same frozen revision until its
+	// attempts ran out, failing each time for the reason the previous attempt
+	// had; unfreezing it is a store concern and nowhere else can do it. Paid
+	// for first: the reset the three requeue paths spelled out column by
+	// column is now one shared clause, which is where four of the eleven new
+	// lines came from.
+	"store":      11342,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

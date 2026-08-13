@@ -368,6 +368,11 @@ func (s *Service) createWatchSession(
 	}
 }
 
+func isCoopRevisionConflict(err error) bool {
+	var apiErr *coop.APIError
+	return errors.As(err, &apiErr) && apiErr.Code == "revision_conflict"
+}
+
 func isCoopIdempotencyConflict(err error) bool {
 	var apiErr *coop.APIError
 	return errors.As(err, &apiErr) && apiErr.Code == "idempotency_conflict"
