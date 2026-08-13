@@ -195,8 +195,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		add(TraceStep{
 			ID: "source", Stage: "Input", Actor: "Slack", State: sourceKindLabel(page.Source), Icon: "message",
 			Title: sourceTitle(page.Source), At: page.Source.Received,
+			Why: sourceWhy(page.Source),
 			Stats: []TraceStat{{"Channel", page.Source.Channel}, {"Message", page.Source.MessageTS},
-				{"Thread", fallback(page.Source.ThreadTS, "top level")}, {"Sender", fallback(page.Source.Sender, page.Source.UserID)}},
+				{"Thread", fallback(page.Source.ThreadTS, "top level")},
+				{sourceSenderLabel(page.Source), fallback(page.Source.Sender, page.Source.UserID)}},
 			Details: details,
 		})
 	} else {
@@ -381,9 +383,16 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			// renders only when its manifest is not on the page.
 			continue
 		}
+		if (event.Kind == "external_wait_started" || event.Kind == "wakeup_resolved") &&
+			wakeupEventCovered(event.Payload, wakeups, event.Kind == "wakeup_resolved") {
+			// These receipts are written alongside the wakeup row itself; the
+			// "Wake-up scheduled" and "Wake-up resolved" cards already present
+			// the same facts with the full matcher and observation.
+			continue
+		}
 		includePayload := true
 		step := TraceStep{
-			ID: fmt.Sprintf("event-%d", index+1), Stage: eventStage(event.Kind), Actor: event.Actor, Icon: eventIcon(event.Kind),
+			ID: fmt.Sprintf("event-%d", index+1), Stage: eventStage(event.Kind), Actor: actorName(event.Actor), Icon: eventIcon(event.Kind),
 			State: event.Kind, Title: eventTitle(event.Kind), Summary: present(event.Detail),
 			Why: eventWhy(event.Kind), At: event.At,
 		}
@@ -393,20 +402,21 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if event.Repeats > 0 {
 			step.Stats = append(step.Stats, TraceStat{"Repeats", repeatValue(event.Repeats)})
 		}
-		if event.Kind == "phase_changed" {
+		switch event.Kind {
+		case "phase_changed":
 			if payload := decodePhasePayload(event.Payload); payload.Phase != "" {
 				step.State, step.Title = payload.Phase, phaseTitle(payload.Phase)
-				step.Summary = phaseCardSummary(payload, event.Detail, step.Title, present)
-				step.Why = ""
+				step.Summary, step.Why = phaseCardSummary(payload, event.Detail, step.Title, present)
 				// The card already says everything a routine phase payload
 				// holds; a JSON block restating the title in four spellings
 				// is noise. Payloads with more than the routine keys stay.
 				includePayload = !routinePhasePayload(event.Payload)
 			}
-		}
-		if event.Kind == "completion_submitted" {
+		case "completion_submitted":
 			// The model's own closing statement. Its verdict and status are
-			// structure, not prose — the summary carries only the words.
+			// structure, not prose — the summary carries only the words meant
+			// for the channel, and the private assessment reads as text rather
+			// than as a field inside a JSON dump.
 			if completion := decodeCompletionEvent(event.Payload); completion.Message != "" || completion.Verdict != "" {
 				step.Summary = present(completion.Message)
 				if completion.Verdict != "" {
@@ -416,6 +426,117 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				if completion.Status != "" {
 					step.Stats = append(step.Stats, TraceStat{"Status", strings.ReplaceAll(completion.Status, "_", " ")})
 				}
+				step.Details = append(step.Details, completionDetails(completion, present)...)
+				includePayload = !routineEventPayload(event.Payload, "id", "type", "completion")
+			}
+		case "external_wait_started":
+			// Rendered only when the wakeup row itself is not on the page.
+			if wait := decodeWakeupEvent(event.Payload); wait.WakeupID != "" {
+				step.Summary = "The episode parked itself until a matching " + strings.ReplaceAll(wait.Kind, "_", " ") +
+					" event arrives — no worker is held while it waits."
+				step.Stats = append(step.Stats, TraceStat{"Wake-up", wait.WakeupID})
+				includePayload = !routineEventPayload(event.Payload, "kind", "wakeup_id", "deadline", "due_at")
+			}
+		case "wakeup_resolved":
+			if wait := decodeWakeupEvent(event.Payload); wait.WakeupID != "" {
+				step.Summary = "The awaited " + strings.ReplaceAll(wait.Kind, "_", " ") + " event arrived; the episode could continue."
+				step.Stats = append(step.Stats, TraceStat{"Wake-up", wait.WakeupID})
+			}
+		case "progress_reported":
+			if step.Summary == "" {
+				step.Summary = present(decodePhasePayload(event.Payload).Summary)
+			}
+			includePayload = !routinePhasePayload(event.Payload)
+		case "episode_reopened":
+			if step.Summary == "" || cannedPhaseStatus(step.Summary) {
+				step.Summary = "A follow-up in the same conversation brought the finished episode back to life; it continues with its memory intact."
+			}
+			includePayload = !routinePhasePayload(event.Payload)
+		case "episode_cancelled":
+			includePayload = !routinePhasePayload(event.Payload)
+		case "destination_changed":
+			if dest := decodeDestinationChange(event.Payload); dest.ChannelID != "" || dest.Reason != "" {
+				step.Summary = destinationChangeSummary(dest, present)
+				if dest.ChannelID != "" {
+					step.Stats = append(step.Stats, TraceStat{"New destination", present(dest.ChannelID)})
+				}
+				if dest.ThreadTS != "" {
+					step.Stats = append(step.Stats, TraceStat{"Thread", dest.ThreadTS})
+				}
+				includePayload = !routineEventPayload(event.Payload, "channel_id", "destination_revision", "reason", "thread_ts")
+			}
+		case "migration_recovered":
+			if merged := decodeMigrationRecovered(event.Payload); merged != "" {
+				step.Summary = "An upgrade found this conversation's earlier record under a different episode and merged it into this one, so its history is not lost."
+				step.Stats = append(step.Stats, TraceStat{"Merged from", merged})
+			}
+			// The recovered record is replayed as its own card; this receipt
+			// only needs to say what was merged and from where.
+			includePayload = !routineEventPayload(event.Payload,
+				"merged_from_episode", "original_kind", "original_idempotency_key", "original_payload_json")
+		case "operator_input_requested":
+			if question, choices := decodeOperatorInput(event.Payload); question != "" {
+				step.Summary = "“" + present(question) + "”"
+				if len(choices) > 0 {
+					step.Stats = append(step.Stats, TraceStat{"Choices", strings.Join(choices, " · ")})
+				}
+				includePayload = !routineEventPayload(event.Payload, "id", "type", "operator_input")
+			}
+		case "task_offered":
+			if task := decodeTaskOffered(event.Payload); task.Title != "" {
+				step.Summary = present(task.Title)
+				for _, stat := range []TraceStat{{"Repository", task.Repository}, {"Kind", task.Kind}} {
+					if stat.Value != "" {
+						step.Stats = append(step.Stats, stat)
+					}
+				}
+				// The brief the engineer would receive is the reviewable part
+				// of an offer; JSON around it is not.
+				if strings.TrimSpace(task.Prompt) != "" {
+					step.Details = append(step.Details, TraceDetail{
+						Label: "What the task would ask for", Body: present(task.Prompt), Kind: "text",
+						Description: "The exact instructions that would be handed to the engineering session if an operator confirms.",
+					})
+				}
+				includePayload = !routineEventPayload(event.Payload, "id", "type", "task")
+			}
+		case "feedback.recorded":
+			if feedback := decodeFeedbackEvent(event.Payload); feedback.Summary != "" {
+				step.Summary = present(feedback.Summary)
+				if feedback.Category != "" {
+					step.Stats = append(step.Stats, TraceStat{"Category", strings.ReplaceAll(feedback.Category, "_", " ")})
+				}
+				if feedback.Sentiment != "" {
+					step.Stats = append(step.Stats, TraceStat{"Sentiment", feedback.Sentiment})
+				}
+				if strings.TrimSpace(feedback.Details) != "" {
+					step.Details = append(step.Details, TraceDetail{Label: "What prompted it", Body: present(feedback.Details), Kind: "text"})
+				}
+				includePayload = !routineEventPayload(event.Payload, "id", "type", "feedback")
+			}
+		case "evidence_recorded":
+			// The claim is the card's line; the observation — the part a person
+			// actually re-checks — reads as text instead of hiding in the JSON.
+			if evidence := decodeEvidenceEvent(event.Payload); evidence.Observation != "" {
+				if step.Summary == "" {
+					step.Summary = present(evidence.Claim)
+				}
+				for _, stat := range []TraceStat{
+					{"Relation", strings.ReplaceAll(evidence.Relation, "_", " ")},
+					{"Confidence", evidence.Confidence},
+					{"Source", evidence.SourceName},
+				} {
+					if strings.TrimSpace(stat.Value) != "" {
+						step.Stats = append(step.Stats, stat)
+					}
+				}
+				step.Details = append(step.Details, TraceDetail{
+					Label: "What the model observed", Body: present(evidence.Observation), Kind: "text", Open: true,
+				})
+				if provenance := evidenceProvenance(evidence, present); provenance != nil {
+					step.Details = append(step.Details, *provenance)
+				}
+				includePayload = !routineEventPayload(event.Payload, "id", "type", "evidence")
 			}
 		}
 		if includePayload {
@@ -433,6 +554,18 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if artifact.Kind == "progress" && progressDuplicatesPhase(artifact, phaseEvents, commitmentAt, hasCommitment) {
 			// The kernel event for the same phase change renders the step; the
 			// progress record repeats it in the same instant.
+			continue
+		}
+		if artifact.Kind == "publication_lifecycle" && timelineRepeatsLifecycle(artifact, page.Artifacts) {
+			// Publishing writes the same sentence twice: once to the incident
+			// timeline, once to the lifecycle ledger. The timeline card names
+			// what happened ("PR merged"), so it is the one that renders.
+			continue
+		}
+		if artifact.Kind == "incident_timeline" && artifact.State == "agent.finding" &&
+			timelineRepeatsAnswer(artifact, page) {
+			// This episode's own answer is copied into the incident thread it
+			// belongs to. The answer already has cards of its own here.
 			continue
 		}
 		details := []TraceDetail{}
@@ -459,9 +592,35 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			step.Title, step.Summary, step.Why = "Episode created", "", ""
 		case "progress":
 			step.Title = phaseTitle(artifact.State)
-			step.Summary = phaseCardSummary(phasePayload{Phase: artifact.State}, artifact.Summary, step.Title, present)
+			step.Summary, step.Why = phaseCardSummary(
+				phasePayload{Phase: artifact.State}, artifact.Summary, step.Title, present)
 		case "evaluation":
 			step.Title = decisionTitle(artifact.State)
+		case "incident_timeline":
+			// Some timeline kinds store a whole sentence as their title. A
+			// sentence is a summary; the header names the kind of update. A
+			// heading does not end in a period, and does not run past a line.
+			if raw := present(artifact.Title); len(raw) > 60 ||
+				strings.Contains(raw, ". ") || strings.HasSuffix(raw, ".") {
+				if step.Summary == "" {
+					step.Summary = raw
+				}
+				step.Title = timelineKindTitle(artifact.State)
+			}
+			// The rest carry their content in the detail. A card whose only
+			// words are a generic heading says nothing, so its opening lines
+			// become the summary and the full text stays one click away.
+			if step.Summary == "" && strings.TrimSpace(artifact.Detail) != "" {
+				lead, isReference := timelineLead(present(artifact.Detail))
+				switch {
+				case isReference:
+					step.Stats = append(step.Stats, TraceStat{"Reference", lead})
+					step.Details = nil
+				default:
+					step.Summary = lead
+				}
+			}
+			step.Why = timelineKindWhy(artifact.State)
 		}
 		add(step)
 	}
@@ -488,9 +647,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 	for index, rejection := range page.Rejections {
 		add(TraceStep{
 			ID: fmt.Sprintf("rejection-%d", index+1), Stage: "Validation", Actor: "Responder", State: "rejected", Tone: "bad", Icon: "x",
-			Title: "Answer rejected", Summary: present(rejection.Outcome),
+			Title: "Answer rejected", Summary: correctionClassSummary(rejection.Outcome),
 			Why: "The result did not fit the required format, so Responder sent a correction back instead of acting on it.", At: rejection.At,
-			Stats:   []TraceStat{{"Run", fallback(rejection.RunID, "not recorded")}},
+			Stats:   []TraceStat{{"Run", fallback(rejection.RunID, "not recorded")}, {"Check", rejection.Outcome}},
 			Details: []TraceDetail{{Label: "Correction sent to the model", Body: present(rejection.Detail), Kind: "text", Open: true}},
 		})
 	}
@@ -523,7 +682,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			resultID = fmt.Sprintf("result-%d", turnIndex+1)
 		}
 		add(TraceStep{
-			ID: resultID, Stage: "Result", Actor: "Model", State: turn.State, Tone: stateTone(turn.State), Icon: "sparkle",
+			ID: resultID, Stage: "Result", Actor: "Model", State: fallback(turn.State, "received"), Tone: stateTone(turn.State), Icon: "sparkle",
 			Title: "Model result received", Summary: present(modelSummary(turn)),
 			Why: "Responder checks every result against its contract before anything reaches Slack.", At: turn.Updated,
 			Stats:   []TraceStat{{"Run", turn.RunID}, {"Attempt", fmt.Sprint(turn.AttemptNumber)}, {"Action", fallback(turn.Action, "not recorded")}, {"Operations", fmt.Sprint(tallyTotal(turn.Operations))}, {"Follow-ups", fmt.Sprint(len(turn.Followups))}},
@@ -557,29 +716,41 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		}
 		summary := present(effect.Title)
 		href := ""
+		stats := []TraceStat{{"ID", fallback(effect.ID, "none")}}
+		// The title of a conversation-memory change is the note's slot —
+		// "Goal", "Open loops". What was written into it is the fact.
+		if written := fallback(effect.After, effect.Detail); effect.Kind == "conversation memory" &&
+			strings.TrimSpace(written) != "" {
+			stats = append(stats, TraceStat{"Note", summary})
+			summary = truncate(strings.Join(strings.Fields(present(written)), " "), 220)
+		}
 		if effect.Kind == "work episode" {
 			// A delegated episode's objective is prose that may carry raw Slack
 			// markup; identifiers like rule names must stay exact.
 			summary = cleanTitle(summary)
 			href = "/episodes/" + url.PathEscape(effect.ID)
+			// Alert-driven episodes append the provider run id to their title;
+			// it is an identifier, not part of the sentence.
+			if base, run, found := strings.Cut(summary, " · Run "); found &&
+				strings.HasPrefix(run, "run-") && !strings.Contains(run, " ") {
+				summary = base
+				stats = append(stats, TraceStat{"Run", run})
+			}
 		}
 		add(TraceStep{
 			ID: fmt.Sprintf("effect-%d", index+1), Stage: "Side effect", Actor: "Responder", State: effect.State, Icon: "bookmark",
 			Tone:  stateTone(effect.State),
 			Title: effectTitle(effect), Summary: summary, Why: sideEffectWhy(effect), Href: href, At: effect.At,
-			Stats:   []TraceStat{{"ID", fallback(effect.ID, "none")}},
+			Stats:   stats,
 			Details: []TraceDetail{{Label: "Recorded change", Body: fallback(body, "No additional value was recorded."), Kind: "diff", Open: effect.Before != "" || effect.After != ""}},
 		})
 	}
 
 	for index, delivery := range page.Delivered {
-		summary := delivery.Channel
-		if delivery.ThreadTS != "" {
-			summary += " · thread " + delivery.ThreadTS
-		}
-		if delivery.Operation == "status" && strings.TrimSpace(delivery.Status) != "" {
-			summary = "“" + present(delivery.Status) + "” · " + summary
-		}
+		// Where it went is a fact about the delivery, not what the delivery
+		// was; the channel and thread are stats, and the sentence says what
+		// Slack actually shows.
+		summary := deliverySummary(delivery, present)
 		details := []TraceDetail{}
 		if delivery.Body != "" {
 			details = append(details, TraceDetail{Label: "Slack payload", Body: present(delivery.Body), Kind: "json"})
@@ -587,7 +758,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		if delivery.Error != "" {
 			details = append(details, TraceDetail{Label: "Delivery error", Body: present(delivery.Error), Kind: "error", Open: true})
 		}
-		stats := []TraceStat{{"Message", fallback(delivery.MessageTS, "none")}, {"Kind", delivery.Kind}}
+		stats := []TraceStat{{"Channel", fallback(delivery.Channel, "not recorded")},
+			{"Thread", fallback(delivery.ThreadTS, "top level")},
+			{"Message", fallback(delivery.MessageTS, "none")}, {"Kind", delivery.Kind}}
 		if delivery.Retries > 0 {
 			stats = append(stats, TraceStat{"Retries", fmt.Sprint(delivery.Retries)})
 		}
@@ -1056,27 +1229,66 @@ func manifestEventCovered(payload string, manifests []ManifestRow) bool {
 
 type completionEvent struct {
 	Message, Status, Verdict string
+	// Assessment is the model's own one-line judgment, written for the record
+	// rather than for the channel; Blocker and Next say what stopped the work
+	// and what it expects to happen.
+	Assessment, Blocker, Next string
+	Gaps                      []string
 }
 
 // decodeCompletionEvent unwraps a complete_episode operation's payload: the
-// public message at the top of the completion, the machine status and verdict
-// nested inside it.
+// public message at the top of the completion, the machine status, verdict and
+// private assessment nested inside it.
 func decodeCompletionEvent(payload string) completionEvent {
 	var decoded struct {
 		Completion struct {
 			Message    string `json:"message"`
 			Completion struct {
-				Status  string `json:"status"`
-				Verdict string `json:"verdict"`
+				Status  string   `json:"status"`
+				Verdict string   `json:"verdict"`
+				Summary string   `json:"summary"`
+				Blocker string   `json:"blocker"`
+				Next    string   `json:"next"`
+				Gaps    []string `json:"gaps"`
 			} `json:"completion"`
 		} `json:"completion"`
 	}
 	_ = json.Unmarshal([]byte(payload), &decoded)
+	inner := decoded.Completion.Completion
 	return completionEvent{
-		Message: decoded.Completion.Message,
-		Status:  decoded.Completion.Completion.Status,
-		Verdict: decoded.Completion.Completion.Verdict,
+		Message: decoded.Completion.Message, Status: inner.Status, Verdict: inner.Verdict,
+		Assessment: inner.Summary, Blocker: inner.Blocker, Next: inner.Next, Gaps: inner.Gaps,
 	}
+}
+
+// completionDetails renders the parts of a completion the channel never saw:
+// the model's own assessment of the outcome, what it says is still missing,
+// and what it expects next.
+func completionDetails(completion completionEvent, present func(string) string) []TraceDetail {
+	details := []TraceDetail{}
+	if strings.TrimSpace(completion.Assessment) != "" {
+		details = append(details, TraceDetail{
+			Label: "The model's own assessment", Body: present(completion.Assessment), Kind: "text",
+			Description: "Written for the record, not for the channel — this is the line a later review reads.",
+		})
+	}
+	if strings.TrimSpace(completion.Blocker) != "" {
+		details = append(details, TraceDetail{
+			Label: "What blocked it", Body: present(completion.Blocker), Kind: "text", Open: true, Tone: "missing",
+		})
+	}
+	if len(completion.Gaps) > 0 {
+		details = append(details, TraceDetail{
+			Label: "What it could not cover", Body: present(strings.Join(completion.Gaps, "\n")), Kind: "text",
+			Tone: "missing", ShowCount: true, Count: len(completion.Gaps),
+		})
+	}
+	if strings.TrimSpace(completion.Next) != "" {
+		details = append(details, TraceDetail{
+			Label: "What it expects next", Body: present(completion.Next), Kind: "text",
+		})
+	}
+	return details
 }
 
 type phasePayload struct {
@@ -1091,6 +1303,178 @@ func decodePhasePayload(payload string) phasePayload {
 	return decoded
 }
 
+// The kernel and the model write several receipt kinds with stable envelopes;
+// each decoder unwraps just the fields a card presents.
+
+type wakeupEventPayload struct {
+	Kind     string `json:"kind"`
+	WakeupID string `json:"wakeup_id"`
+}
+
+func decodeWakeupEvent(payload string) wakeupEventPayload {
+	var decoded wakeupEventPayload
+	_ = json.Unmarshal([]byte(payload), &decoded)
+	return decoded
+}
+
+// wakeupEventCovered reports whether the wakeup this receipt describes already
+// renders as its own scheduled/resolved card pair on the page.
+func wakeupEventCovered(payload string, wakeups []Wakeup, needResolved bool) bool {
+	id := decodeWakeupEvent(payload).WakeupID
+	if id == "" {
+		return false
+	}
+	for _, wakeup := range wakeups {
+		if wakeup.ID == id && (!needResolved || !wakeup.Resolved.IsZero()) {
+			return true
+		}
+	}
+	return false
+}
+
+type destinationChange struct {
+	ChannelID string `json:"channel_id"`
+	Reason    string `json:"reason"`
+	ThreadTS  string `json:"thread_ts"`
+}
+
+func decodeDestinationChange(payload string) destinationChange {
+	var decoded destinationChange
+	_ = json.Unmarshal([]byte(payload), &decoded)
+	return decoded
+}
+
+func destinationChangeSummary(dest destinationChange, present func(string) string) string {
+	where := "a different destination"
+	if dest.ChannelID != "" {
+		where = present(dest.ChannelID)
+		if dest.ThreadTS != "" {
+			where += " (in a thread)"
+		}
+	}
+	switch dest.Reason {
+	case "communication_policy":
+		return "The channel's communication policy routes this reply to " + where + " instead of where the work started."
+	case "":
+		return "Later messages for this episode go to " + where + "."
+	}
+	return "Later messages for this episode go to " + where + " — " + strings.ReplaceAll(dest.Reason, "_", " ") + "."
+}
+
+func decodeMigrationRecovered(payload string) string {
+	var decoded struct {
+		MergedFrom string `json:"merged_from_episode"`
+	}
+	_ = json.Unmarshal([]byte(payload), &decoded)
+	return decoded.MergedFrom
+}
+
+func decodeOperatorInput(payload string) (string, []string) {
+	var decoded struct {
+		OperatorInput struct {
+			Question string   `json:"question"`
+			Choices  []string `json:"choices"`
+		} `json:"operator_input"`
+	}
+	_ = json.Unmarshal([]byte(payload), &decoded)
+	return decoded.OperatorInput.Question, decoded.OperatorInput.Choices
+}
+
+type taskOffer struct {
+	Kind       string `json:"kind"`
+	Title      string `json:"title"`
+	Repository string `json:"repository"`
+	Prompt     string `json:"prompt"`
+}
+
+func decodeTaskOffered(payload string) taskOffer {
+	var decoded struct {
+		Task taskOffer `json:"task"`
+	}
+	_ = json.Unmarshal([]byte(payload), &decoded)
+	return decoded.Task
+}
+
+type feedbackEvent struct {
+	Category  string `json:"category"`
+	Sentiment string `json:"sentiment"`
+	Summary   string `json:"summary"`
+	Details   string `json:"details"`
+}
+
+func decodeFeedbackEvent(payload string) feedbackEvent {
+	var decoded struct {
+		Feedback feedbackEvent `json:"feedback"`
+	}
+	_ = json.Unmarshal([]byte(payload), &decoded)
+	return decoded.Feedback
+}
+
+type evidenceEvent struct {
+	ClaimID      string            `json:"claim_id"`
+	Claim        string            `json:"claim"`
+	Observation  string            `json:"observation"`
+	Relation     string            `json:"relation"`
+	HealthEffect string            `json:"health_effect"`
+	SourceType   string            `json:"source_type"`
+	SourceID     string            `json:"source_id"`
+	SourceName   string            `json:"source_name"`
+	Freshness    string            `json:"freshness"`
+	Confidence   string            `json:"confidence"`
+	ObservedAt   string            `json:"observed_at"`
+	Dimensions   map[string]string `json:"dimensions"`
+}
+
+func decodeEvidenceEvent(payload string) evidenceEvent {
+	var decoded struct {
+		Evidence evidenceEvent `json:"evidence"`
+	}
+	_ = json.Unmarshal([]byte(payload), &decoded)
+	return decoded.Evidence
+}
+
+// evidenceProvenance is the rest of an evidence row: where the observation came
+// from, how fresh it was, and what it was scoped to. These are the fields a
+// later reviewer needs to decide whether to trust the row, so they read as
+// labeled lines instead of as a JSON dump.
+func evidenceProvenance(evidence evidenceEvent, present func(string) string) *TraceDetail {
+	lines := []string{}
+	appendLine := func(label, value string) {
+		if strings.TrimSpace(value) != "" {
+			lines = append(lines, label+"\n"+present(value))
+		}
+	}
+	source := strings.TrimSpace(evidence.SourceType)
+	if evidence.SourceID != "" {
+		source = strings.TrimSpace(source + " " + evidence.SourceID)
+	}
+	appendLine("Where it came from", source)
+	appendLine("How current it was", evidence.Freshness)
+	if effect := evidence.HealthEffect; effect != "" && effect != "none" {
+		appendLine("Effect on system health", strings.ReplaceAll(effect, "_", " "))
+	}
+	if len(evidence.Dimensions) > 0 {
+		keys := make([]string, 0, len(evidence.Dimensions))
+		for key := range evidence.Dimensions {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		scope := make([]string, 0, len(keys))
+		for _, key := range keys {
+			scope = append(scope, strings.ReplaceAll(key, "_", " ")+": "+evidence.Dimensions[key])
+		}
+		appendLine("What it was scoped to", strings.Join(scope, "\n"))
+	}
+	appendLine("Claim it answers", evidence.ClaimID)
+	if len(lines) == 0 {
+		return nil
+	}
+	return &TraceDetail{
+		Label: "Where this came from", Body: strings.Join(lines, "\n\n"), Kind: "text",
+		Description: "Provenance a later review uses to decide whether this observation still holds.",
+	}
+}
+
 // phaseExplain says what actually happened in the machine at each phase
 // transition, in plain present-tense words. Each sentence is written from the
 // store call that sets the phase, not invented: "planning" is LeaseAgentRun
@@ -1099,17 +1483,20 @@ func decodePhasePayload(payload string) phasePayload {
 // pipeline from one episode.
 func phaseExplain(phase string) string {
 	return map[string]string{
-		"planning":        "A background worker took this job off the queue and is preparing the model call — no model is running yet.",
-		"investigating":   "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
-		"executing":       "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
-		"finalizing":      "The model finished its turn. Before anything reaches Slack, Responder checks the result: it must parse, the answer must be complete — a verdict, coverage explained, claims the evidence supports — anything it offers must be well-formed, and the reply must fit the shape bounds. A failure goes back to the model as a correction instead of posting.",
-		"finished":        "The final outcome is recorded; nothing more runs for this episode.",
-		"resuming":        "A new attempt is starting from this episode's saved state.",
-		"retrying":        "The previous attempt failed; the work is queued to run again from the preserved context.",
-		"waiting":         "The work is parked until the dependency recovers — no worker is held while it waits.",
-		"queued":          "The work is waiting for a dependency before a worker can pick it up.",
-		"continuing":      "Unfinished work from the previous turn carries forward into a new one.",
-		"expanding_scope": "The quick lane was not enough; the work moved to the full investigation lane.",
+		"accepted":                   "Responder took ownership of this work and queued it for a background worker.",
+		"planning":                   "A background worker took this job off the queue and is preparing the model call — no model is running yet.",
+		"investigating":              "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
+		"executing":                  "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
+		"finalizing":                 "The model finished its turn. Before anything reaches Slack, Responder checks the result: it must parse, the answer must be complete — a verdict, coverage explained, claims the evidence supports — anything it offers must be well-formed, and the reply must fit the shape bounds. A failure goes back to the model as a correction instead of posting.",
+		"finished":                   "The final outcome is recorded; nothing more runs for this episode.",
+		"resuming":                   "A new attempt is starting from this episode's saved state.",
+		"retrying":                   "The previous attempt failed; the work is queued to run again from the preserved context.",
+		"waiting":                    "The work is parked until the dependency recovers — no worker is held while it waits.",
+		"waiting_for_external_event": "The episode parked itself until a matching external event arrives or its deadline passes — no worker is held while it waits.",
+		"waiting_for_operator":       "The episode parked itself until the operator answers in Slack.",
+		"queued":                     "The work is waiting for a dependency before a worker can pick it up.",
+		"continuing":                 "Unfinished work from the previous turn carries forward into a new one.",
+		"expanding_scope":            "The quick lane was not enough; the work moved to the full investigation lane.",
 	}[phase]
 }
 
@@ -1129,6 +1516,7 @@ func cannedNextAction(next string) bool {
 		"Waiting for execution runtime":                  true,
 		"Resume when the dependency is ready":            true,
 		"Resume when the provider limit window recovers": true,
+		"Resume when the matching event arrives":         true,
 		"Continue in the full investigation lane":        true,
 		"Review the blocker or retry":                    true,
 	}[next]
@@ -1137,33 +1525,40 @@ func cannedNextAction(next string) bool {
 // phaseCardSummary is the one line a phase card carries: the recorded status
 // when it says something real (a rate-limit message, a blocker), otherwise
 // the plain explanation of what this stage is — plus any next action that is
-// not host boilerplate.
-func phaseCardSummary(payload phasePayload, status, title string, present func(string) string) string {
+// not host boilerplate. When a real status takes the headline, the stage's
+// explanation moves to the "why" line rather than being dropped: the specific
+// fact and the mechanism behind it are both worth having.
+func phaseCardSummary(payload phasePayload, status, title string, present func(string) string) (string, string) {
 	summary := strings.TrimSpace(present(status))
 	if strings.EqualFold(summary, title) || strings.EqualFold(summary, payload.Phase) ||
 		cannedPhaseStatus(summary) {
 		summary = ""
 	}
+	explain, why := phaseExplain(payload.Phase), ""
 	if summary == "" {
-		summary = phaseExplain(payload.Phase)
+		summary = explain
+	} else {
+		why = explain
 	}
 	if next := strings.TrimSpace(payload.NextAction); next != "" && !cannedNextAction(next) {
 		summary = strings.TrimSpace(summary + " Next: " + present(next))
 	}
-	return summary
+	return summary, why
 }
 
 // cannedPhaseStatus recognizes the host's fixed status labels, which restate
 // the phase rather than describe this episode.
 func cannedPhaseStatus(status string) bool {
 	return map[string]bool{
-		"Accepted":             true,
-		"Planning the work":    true,
-		"Investigating":        true,
-		"Preparing the result": true,
-		"Completed":            true,
-		"Resuming work":        true,
-		"Verified privately":   true,
+		"Accepted":                       true,
+		"Planning the work":              true,
+		"Investigating":                  true,
+		"Preparing the result":           true,
+		"Completed":                      true,
+		"Resuming work":                  true,
+		"Verified privately":             true,
+		"Waiting for an external update": true,
+		"Waiting for your answer":        true,
 	}[status]
 }
 
@@ -1171,14 +1566,20 @@ func cannedPhaseStatus(status string) bool {
 // the card itself already presents — the phase in a few spellings and the
 // next action.
 func routinePhasePayload(payload string) bool {
+	return routineEventPayload(payload,
+		"phase", "state", "status", "next_action", "summary", "progress_due_at", "due_at")
+}
+
+// routineEventPayload reports whether the payload holds only the listed keys —
+// facts the card itself already presents, so a JSON block would restate them.
+func routineEventPayload(payload string, keys ...string) bool {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal([]byte(payload), &fields) != nil {
 		return false
 	}
-	routine := map[string]bool{
-		"phase": true, "state": true, "status": true,
-		"next_action": true, "summary": true,
-		"progress_due_at": true, "due_at": true,
+	routine := map[string]bool{}
+	for _, key := range keys {
+		routine[key] = true
 	}
 	for key := range fields {
 		if !routine[key] {
@@ -1194,16 +1595,18 @@ func routinePhasePayload(payload string) bool {
 // transition means rather than repeating the stage's internal name.
 func phaseTitle(phase string) string {
 	if title, ok := map[string]string{
-		"accepted":      "Accepted the work",
-		"planning":      "Planning the work",
-		"investigating": "Model working",
-		"executing":     "Model working",
-		"implementing":  "Implementing",
-		"verifying":     "Verifying",
-		"finalizing":    "Wrapping up",
-		"finished":      "Finished the work",
-		"waiting":       "Waiting",
-		"blocked":       "Blocked",
+		"accepted":                   "Accepted the work",
+		"planning":                   "Planning the work",
+		"investigating":              "Model working",
+		"executing":                  "Model working",
+		"implementing":               "Implementing",
+		"verifying":                  "Verifying",
+		"finalizing":                 "Wrapping up",
+		"finished":                   "Finished the work",
+		"waiting":                    "Waiting",
+		"waiting_for_external_event": "Waiting for an external event",
+		"waiting_for_operator":       "Waiting for the operator",
+		"blocked":                    "Blocked",
 	}[phase]; ok {
 		return title
 	}
@@ -1265,6 +1668,57 @@ func sourceKindLabel(source SourceInput) string {
 	return strings.ReplaceAll(source.Kind, "_", " ")
 }
 
+// actorName says who did a thing in the words the rest of the page uses. The
+// ledger stores process names; a card should not be the only place a person
+// meets "agent" or "control-plane@localhost".
+func actorName(actor string) string {
+	switch actor {
+	case "agent":
+		return "Model"
+	case "control-plane@localhost", "control-plane":
+		return "Control plane"
+	case "scheduler":
+		return "Scheduler"
+	}
+	return actor
+}
+
+// sourceWhy says why this input produced an episode at all. Responder does not
+// answer everything it sees: a mention is addressed to it, a direct message is
+// a private conversation, and a channel message only gets here after the watch
+// decided it was worth work.
+func sourceWhy(source SourceInput) string {
+	switch source.Kind {
+	case "bot_message":
+		return "Another app posted this. Responder watches app messages because alerts and run notifications are operational events, not conversation."
+	case "mention":
+		return "Someone addressed Responder directly, so the message is handled without a watch decision."
+	case "direct":
+		return "A direct message to Responder. Everything said here is meant for it."
+	case "recheck":
+		return "Not a new message — Responder re-examined an earlier one after something changed."
+	case "schedule", "scheduled":
+		return "No one sent anything. A schedule came due and started this run on its own."
+	case "action":
+		return "Someone pressed a button on a Responder message in Slack."
+	case "slash":
+		return "Someone ran a Responder slash command."
+	case "reaction_added":
+		return "Someone reacted to a message with an emoji Responder watches."
+	default:
+		return "A message in a channel Responder watches. The watch decision below is what turned it into work."
+	}
+}
+
+// sourceSenderLabel names the sender field for what it is: a person for human
+// messages, an app for everything a bot posted.
+func sourceSenderLabel(source SourceInput) string {
+	if source.Kind == "bot_message" || strings.HasPrefix(source.UserID, "B") {
+		return "App"
+	}
+	return "Sender"
+}
+
 func promptStepSummary(manifest ManifestRow, memoryLayers, totalTokens int) string {
 	if totalTokens > 0 {
 		return "~" + humanTokens(int64(totalTokens)) + " tokens went to the model, kept exactly as sent."
@@ -1299,6 +1753,7 @@ func stateTone(state string) string {
 	case "failed", "rejected", "error", "unreadable", "discarded", "refused", "dead":
 		return "bad"
 	case "blocked", "waiting", "waiting_operator", "waiting_approval", "waiting_external",
+		"waiting_for_external_event", "waiting_for_operator", "episode_cancelled",
 		"pending", "offered", "retrying", "cancelled", "superseded", "disabled", "not measured":
 		return "warn"
 	case "completed", "succeeded", "sent", "saved", "resolved", "finished", "confirmed",
@@ -1338,6 +1793,38 @@ func effectTitle(effect SideEffect) string {
 		verb = strings.ReplaceAll(effect.State, "_", " ")
 	}
 	return strings.TrimSpace(noun + " " + verb)
+}
+
+// deliverySummary says what Slack actually shows after this delivery. The
+// channel and thread it went to are stats; repeating them as the only sentence
+// on the card told a reader where something happened without ever saying what.
+func deliverySummary(delivery Delivery, present func(string) string) string {
+	where := delivery.Channel
+	if where == "" {
+		where = "Slack"
+	}
+	switch delivery.Operation {
+	case "status":
+		if status := strings.TrimSpace(delivery.Status); status != "" {
+			return "“" + present(status) + "” now shows beside Responder's name in " + where + "."
+		}
+		return "The progress note beside Responder's name in " + where + " was taken down."
+	case "reaction":
+		if delivery.Kind == "failure_marker_remove" {
+			return "The failure marker on the message in " + where + " was removed."
+		}
+		return "A marker was added to the message in " + where + " so the failure is visible where it happened."
+	case "post":
+		if delivery.ThreadTS != "" {
+			return "The answer was posted in " + where + ", in the thread the request came from."
+		}
+		return "The answer was posted to " + where + "."
+	case "update":
+		return "An earlier Responder message in " + where + " was edited in place."
+	case "delete":
+		return "A Responder message was removed from " + where + "."
+	}
+	return where
 }
 
 func deliveryTitle(delivery Delivery) string {
@@ -1422,12 +1909,26 @@ func stepChip(step TraceStep) string {
 
 func eventIcon(kind string) string {
 	switch kind {
-	case "phase_changed":
+	case "phase_changed", "progress_reported":
 		return "milestone"
 	case "episode_created", "completed":
 		return "flag"
 	case "context_extended":
 		return "docplus"
+	case "external_wait_started", "wakeup_resolved":
+		return "clock"
+	case "operator_input_requested", "feedback.recorded":
+		return "message"
+	case "task_offered":
+		return "bookmark"
+	case "destination_changed":
+		return "route"
+	case "migration_recovered":
+		return "shield"
+	case "evidence_recorded":
+		return "db"
+	case "completion_submitted":
+		return "sparkle"
 	default:
 		return "dot"
 	}
@@ -1642,6 +2143,12 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 	if audit.Kind == "standing_rules.evaluated" {
 		var evaluation core.StandingRuleEvaluationAudit
 		if err := json.Unmarshal([]byte(audit.Detail), &evaluation); err == nil {
+			if evaluation.Checked == 0 {
+				// Three zeros and no rule cards say nothing. The fact worth
+				// stating is that this channel has no standing rules at all.
+				return "This channel has no standing rules, so there was nothing to match. " +
+					"Rules are added by asking Responder in the channel and confirming.", nil
+			}
 			skipped := max(evaluation.Checked-evaluation.Matched, 0)
 			stats := []TraceStat{
 				{"Active rules", fmt.Sprint(evaluation.Checked)},
@@ -1667,6 +2174,17 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 	}
 	stats := []TraceStat{{"Actor", audit.Actor}, {"Object", fallback(audit.Object, "none")}, {"Repeats", repeatValue(audit.Repeats)}}
 	summary := present(audit.Detail)
+	// A watch row whose detail is just the channel token says where but not
+	// what; the decision itself belongs in the sentence. Detail with prose in
+	// it (a failure, a coalesce note) already carries the decision.
+	if audit.Kind == "slack.watch" && !strings.Contains(strings.TrimSpace(audit.Detail), " ") {
+		switch audit.Outcome {
+		case "replied":
+			summary = "Responder read this message and decided it deserved a reply in " + summary + "."
+		case "ignored":
+			summary = "Responder read this message and decided no reply was needed in " + summary + "."
+		}
+	}
 	if audit.Outcome != "reacted" && audit.Outcome != "unreacted" {
 		return summary, stats
 	}
@@ -1679,9 +2197,20 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 	return display, stats
 }
 
+// auditTraceWhy explains the audit kinds whose title is a term of art. Rows
+// that already say what they did get nothing: a recurring paragraph about what
+// an audit ledger is would drown them.
 func auditTraceWhy(audit AuditRow) string {
-	// Audit rows carry their meaning in the title and outcome; a recurring
-	// paragraph about what an audit ledger is would drown them.
+	switch audit.Kind {
+	case "result.legacy_shape":
+		return "The model answered in an older result format that Responder still accepts. It was read successfully — this row exists so the count of old-format answers stays visible while the contract moves on."
+	case "coop.budget.auto_extend":
+		return "The turn ran into its token budget and Responder raised it rather than cutting the work short."
+	case "slack.paused":
+		return "Responder stops replying in a channel while it is paused; the work still runs and is recorded here."
+	case "slack.replay":
+		return "The exact inputs and answer were saved as a replay candidate, which can become a regression test."
+	}
 	return ""
 }
 
@@ -2906,11 +3435,34 @@ func wakeupSummary(wakeup Wakeup) string {
 	return fmt.Sprintf("Wait for a matching %s event before continuing.", provider)
 }
 
+// correctionClassSummary names the finalization check that failed. The stored
+// value is the check's own token; a person reading the trace needs to know
+// what the host actually objected to.
+func correctionClassSummary(class string) string {
+	if summary, ok := map[string]string{
+		"unreadable": "The result did not parse — Responder could not read an answer out of it at all.",
+		"incomplete": "The answer was readable but unfinished: a missing verdict, uncovered ground left unexplained, or a claim the evidence did not support.",
+		"rejected":   "The answer parsed and was complete, but something it proposed was not well-formed enough to act on.",
+		"shape":      "The reply did not fit the channel's shape bounds — too long, or built wrong for where it was going.",
+	}[class]; ok {
+		return summary
+	}
+	return "The result failed the " + strings.ReplaceAll(class, "_", " ") + " check."
+}
+
 func modelSummary(turn Turn) string {
 	if turn.Message != "" {
 		return truncate(strings.Join(strings.Fields(turn.Message), " "), 220)
 	}
 	if turn.Action != "" || turn.Reason != "" {
+		// "ignore: <reason>" is the ledger's spelling, not a sentence.
+		if lead, ok := map[string]string{
+			"ignore":  "Decided not to reply.",
+			"reply":   "Decided to reply.",
+			"observe": "Decided to watch without replying.",
+		}[turn.Action]; ok {
+			return strings.TrimSpace(lead + " " + turn.Reason)
+		}
 		return strings.TrimSpace(turn.Action + ": " + turn.Reason)
 	}
 	if turn.Unreadable != "" {
@@ -2937,6 +3489,18 @@ func contextLabel(kind string) string {
 }
 
 func eventStage(kind string) string {
+	switch kind {
+	case "external_wait_started", "wakeup_resolved", "operator_input_requested":
+		return "Wait"
+	case "destination_changed":
+		return "Delivery"
+	case "feedback.recorded":
+		return "Review"
+	case "task_offered":
+		return "Side effect"
+	case "migration_recovered":
+		return "Recovery"
+	}
 	switch {
 	case strings.Contains(kind, "evidence") || strings.Contains(kind, "claim") || strings.Contains(kind, "coverage"):
 		return "Evidence"
@@ -2960,6 +3524,14 @@ func eventTitle(kind string) string {
 		"completion_submitted":       "Model reported completion",
 		"completed":                  "Episode completed",
 		"blocked":                    "Blocked",
+		"external_wait_started":      "Waiting for an external event",
+		"wakeup_resolved":            "Wake-up resolved",
+		"operator_input_requested":   "Model asked the operator",
+		"progress_reported":          "Model reported progress",
+		"task_offered":               "Model offered an engineering task",
+		"feedback.recorded":          "Model recorded operator feedback",
+		"destination_changed":        "Reply destination changed",
+		"migration_recovered":        "Recovered from an earlier episode",
 	}[kind]; ok {
 		return title
 	}
@@ -2970,6 +3542,94 @@ func eventTitle(kind string) string {
 	runes := []rune(title)
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
+}
+
+// timelineRepeatsLifecycle reports whether an incident-timeline entry already
+// carries this lifecycle event's sentence. Both records are written by the
+// same publish step, so their text matches exactly.
+func timelineRepeatsLifecycle(lifecycle EpisodeArtifact, artifacts []EpisodeArtifact) bool {
+	text := strings.TrimSpace(lifecycle.Summary)
+	if text == "" {
+		return false
+	}
+	for _, artifact := range artifacts {
+		if artifact.Kind != "incident_timeline" {
+			continue
+		}
+		if strings.TrimSpace(artifact.Title) == text || strings.TrimSpace(artifact.Summary) == text {
+			return true
+		}
+	}
+	return false
+}
+
+// timelineRepeatsAnswer reports whether an incident-timeline finding is this
+// episode's own reply, mirrored into the thread the work belongs to.
+func timelineRepeatsAnswer(artifact EpisodeArtifact, page episodePage) bool {
+	text := strings.TrimSpace(artifact.Detail)
+	if text == "" {
+		return false
+	}
+	for _, turn := range append([]Turn{page.Turn}, page.Turns...) {
+		for _, said := range []string{turn.Message, turn.Prose, turn.Completion.Summary} {
+			if said = strings.TrimSpace(said); said != "" && said == text {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// timelineLead reduces a timeline detail to the line a card can lead with. A
+// detail that is a bare identifier — a Slack timestamp, a session id — is a
+// reference, not a sentence, and says so.
+func timelineLead(detail string) (string, bool) {
+	trimmed := strings.TrimSpace(detail)
+	if !strings.Contains(trimmed, " ") {
+		return trimmed, true
+	}
+	lead, _, _ := strings.Cut(trimmed, "\n\n")
+	return strings.TrimSpace(lead), false
+}
+
+// timelineKindWhy says what an incident-timeline entry is for. An incident
+// thread mixes operator messages, agent findings, and publication events; the
+// line explains why each belongs on the same rail.
+func timelineKindWhy(kind string) string {
+	switch kind {
+	case "agent.finding":
+		return "A delegated agent reported back into the incident thread while this episode was running."
+	case "operator.message":
+		return "An operator message in the incident thread; it can start or redirect the delegated work."
+	case "coop.session.created":
+		return "The engineering work runs in its own isolated Coop session, separate from this conversation's session."
+	case "slack.thread.bound":
+		return "The engineering task was tied to the Slack thread it came from, so its updates return to the same place."
+	case "agent.failure":
+		return "The delegated agent stopped before finishing; the incident keeps the failure so the work can resume."
+	}
+	if strings.HasPrefix(kind, "publication.") {
+		return "Recorded because this incident opened a pull request; Responder tracks it until the change is merged and applied."
+	}
+	return ""
+}
+
+// timelineKindTitle names an incident-timeline entry by its kind when the
+// stored title is a full sentence rather than a heading.
+func timelineKindTitle(kind string) string {
+	if title, ok := map[string]string{
+		"publication.checks":    "PR checks reported",
+		"publication.merged":    "PR merged",
+		"publication.terraform": "Terraform run update",
+		"agent.finding":         "Investigation update",
+		"agent.failure":         "Delegated agent failed",
+		"operator.message":      "Operator message",
+		"coop.session.created":  "Isolated engineering task started",
+		"slack.thread.bound":    "Engineering task started in source thread",
+	}[kind]; ok {
+		return title
+	}
+	return "Incident update"
 }
 
 func artifactStage(kind string) string {
@@ -3105,18 +3765,38 @@ func usageTraceStep(page episodePage) TraceStep {
 }
 
 func eventWhy(kind string) string {
-	if kind == "evidence_recorded" {
+	switch kind {
+	case "evidence_recorded":
 		return "The contract makes the model file evidence — a claim, the observation, its source and confidence — instead of just asserting conclusions. These rows feed the claim assessment and the operational memory of future turns in this channel."
-	}
-	if kind == "context_extended" {
+	case "context_extended":
 		return "The kernel's receipt for freezing a context manifest. It renders here because the manifest itself could not be loaded on this page."
+	case "operator_input_requested":
+		return "The model stopped instead of guessing. The question went to Slack, and the episode waits for the answer."
+	case "task_offered":
+		return "Proposed by the model — nothing runs until an operator confirms it."
+	case "progress_reported":
+		return "Long work must report progress before its deadline; a missing report is treated as a stall and recovered."
+	case "feedback.recorded":
+		return "Saved so future replies in this channel can adapt to what the operator asked for."
 	}
 	return ""
 }
 
 func attemptSummary(attempt Attempt) string {
 	if attempt.Failure != "" {
+		// Known machine classes read as sentences; real failure messages
+		// already do.
+		if prose, ok := map[string]string{
+			"episode_terminal": "The episode reached its final state before this attempt finished, so the attempt's result was no longer needed.",
+			"superseded":       "A newer attempt took over this work before this one finished.",
+		}[attempt.Failure]; ok {
+			return prose
+		}
 		return attempt.Failure
+	}
+	if attempt.State == "succeeded" {
+		// The title already says it; an echo under it is noise.
+		return ""
 	}
 	if attempt.State != "" {
 		return "Coop attempt " + attempt.State
@@ -3128,7 +3808,7 @@ func attemptWhy(attempt Attempt) string {
 	if attempt.Failure != "" || attempt.State == "failed" {
 		return "The failure is kept so a retry can start over from the same evidence."
 	}
-	return ""
+	return "One Coop run of this episode's work. Attempts are numbered because a run that fails or is overtaken does not lose the episode — the next attempt starts again from the same saved context."
 }
 
 func sideEffectWhy(effect SideEffect) string {

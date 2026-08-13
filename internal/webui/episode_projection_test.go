@@ -617,14 +617,22 @@ func TestPhaseCardsSpeakPlainlyAndDropRoutinePayloads(t *testing.T) {
 		t.Fatal("a payload with extra fields must keep its JSON detail")
 	}
 	identity := func(text string) string { return text }
-	summary := phaseCardSummary(decodePhasePayload(payload), "Planning the work", "Planning the work", identity)
+	summary, why := phaseCardSummary(decodePhasePayload(payload), "Planning the work", "Planning the work", identity)
 	if !strings.Contains(summary, "no model is running yet") || strings.Contains(summary, "Next:") {
 		t.Fatalf("planning summary = %q, want the explanation without the canned checklist", summary)
 	}
-	blocked := phaseCardSummary(phasePayload{Phase: "waiting", NextAction: "Ask the operator which account to use"},
+	if why != "" {
+		t.Fatalf("why = %q, want nothing repeated under a summary that is already the explanation", why)
+	}
+	blocked, blockedWhy := phaseCardSummary(phasePayload{Phase: "waiting", NextAction: "Ask the operator which account to use"},
 		"The AI provider is rate-limiting requests; the work is queued.", "Waiting", identity)
 	if !strings.Contains(blocked, "rate-limiting") || !strings.Contains(blocked, "Next: Ask the operator") {
 		t.Fatalf("waiting summary = %q, want the real status and the meaningful next action", blocked)
+	}
+	// The specific status took the headline, so the stage's mechanism has to
+	// survive somewhere rather than being dropped.
+	if !strings.Contains(blockedWhy, "no worker is held") {
+		t.Fatalf("waiting why = %q, want the stage explanation kept beside the real status", blockedWhy)
 	}
 }
 
@@ -1726,4 +1734,201 @@ func (f *episodeProjectionFixture) reader() *Reader {
 		f.t.Fatal(err)
 	}
 	return reader
+}
+
+// Every kernel receipt an episode can write has to reach a card that says what
+// happened in words. Before this, nine event kinds fell back to a title-cased
+// column name over a JSON dump, so the trace showed "External wait started"
+// and left the reader to decode the payload themselves.
+func TestTypedEventCardsReplaceRawPayloads(t *testing.T) {
+	at := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	for _, testCase := range []struct {
+		name, kind, payload string
+		wantTitle           string
+		wantSummary         string
+		wantStat            [2]string
+	}{
+		{
+			name: "external wait", kind: "external_wait_started",
+			payload:   `{"kind":"terraform_run","wakeup_id":"terraform-run-a6j8-terminal","deadline":"2026-08-13T04:40:45Z"}`,
+			wantTitle: "Waiting for an external event", wantSummary: "matching terraform run event",
+			wantStat: [2]string{"Wake-up", "terraform-run-a6j8-terminal"},
+		},
+		{
+			name: "operator question", kind: "operator_input_requested",
+			payload:   `{"id":"schedule-choice","type":"request_operator_input","operator_input":{"question":"Tomorrow or the day after?","choices":["Tomorrow","Day after"]}}`,
+			wantTitle: "Model asked the operator", wantSummary: "Tomorrow or the day after?",
+			wantStat: [2]string{"Choices", "Tomorrow · Day after"},
+		},
+		{
+			name: "task offer", kind: "task_offered",
+			payload:   `{"id":"task-lb","type":"offer_task","task":{"kind":"engineering","title":"Remove obsolete load balancers","repository":"tenant-infra","prompt":"Audit production Terraform."}}`,
+			wantTitle: "Model offered an engineering task", wantSummary: "Remove obsolete load balancers",
+			wantStat: [2]string{"Repository", "tenant-infra"},
+		},
+		{
+			name: "feedback", kind: "feedback.recorded",
+			payload:   `{"id":"fb-1","type":"record_feedback","feedback":{"category":"latency","sentiment":"negative","summary":"Acknowledge long investigations promptly.","details":"The user had to follow up."}}`,
+			wantTitle: "Model recorded operator feedback", wantSummary: "Acknowledge long investigations promptly.",
+			wantStat: [2]string{"Category", "latency"},
+		},
+		{
+			name: "destination", kind: "destination_changed",
+			payload:   `{"channel_id":"C0TENANTOPS","destination_revision":2,"reason":"communication_policy","thread_ts":"1786578548.957499"}`,
+			wantTitle: "Reply destination changed", wantSummary: "communication policy routes this reply",
+			wantStat: [2]string{"New destination", "C0TENANTOPS"},
+		},
+		{
+			name: "migration", kind: "migration_recovered",
+			payload:   `{"merged_from_episode":"episode_run_95b5","original_kind":"episode_created","original_idempotency_key":"created:x","original_payload_json":"{}"}`,
+			wantTitle: "Recovered from an earlier episode", wantSummary: "merged it into this one",
+			wantStat: [2]string{"Merged from", "episode_run_95b5"},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			trace := buildEpisodeTrace(config.Pricing{}, episodePage{Events: []Event{{
+				Kind: testCase.kind, Actor: "agent", At: at, Payload: testCase.payload,
+			}}}, nil)
+			var step TraceStep
+			for _, candidate := range trace.Steps {
+				if strings.HasPrefix(candidate.ID, "event-") {
+					step = candidate
+				}
+			}
+			if step.Title != testCase.wantTitle {
+				t.Fatalf("title = %q, want %q", step.Title, testCase.wantTitle)
+			}
+			if !strings.Contains(step.Summary, testCase.wantSummary) {
+				t.Fatalf("summary = %q, want it to contain %q", step.Summary, testCase.wantSummary)
+			}
+			found := ""
+			for _, stat := range step.Stats {
+				if stat.Label == testCase.wantStat[0] {
+					found = stat.Value
+				}
+			}
+			if found != testCase.wantStat[1] {
+				t.Fatalf("stat %s = %q, want %q (stats %+v)", testCase.wantStat[0], found, testCase.wantStat[1], step.Stats)
+			}
+			for _, detail := range step.Details {
+				if detail.Label == "Recorded event payload" {
+					t.Fatalf("payload restates the card: %+v", detail)
+				}
+			}
+			if step.Actor != "Model" {
+				t.Fatalf("actor = %q, want the ledger's process name translated", step.Actor)
+			}
+		})
+	}
+}
+
+// A wake-up writes three records for one fact: the wakeup row and a receipt on
+// each side of the wait. The scheduled and resolved cards carry the matcher and
+// the observation, so the receipts render only when the row itself is absent.
+func TestWakeupReceiptsFoldIntoTheirWakeupCards(t *testing.T) {
+	at := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	page := episodePage{
+		Wakeups: []Wakeup{{
+			ID: "terraform-run-a6j8-terminal", Kind: "terraform_run", State: "resolved",
+			Created: at, Resolved: at.Add(time.Minute), Matcher: `{"kind":"terraform_run"}`,
+		}},
+		Events: []Event{
+			{Kind: "external_wait_started", At: at, Payload: `{"kind":"terraform_run","wakeup_id":"terraform-run-a6j8-terminal"}`},
+			{Kind: "wakeup_resolved", At: at.Add(time.Minute), Payload: `{"kind":"terraform_run","wakeup_id":"terraform-run-a6j8-terminal"}`},
+			{Kind: "wakeup_resolved", At: at.Add(2 * time.Minute), Payload: `{"kind":"terraform_run","wakeup_id":"other-wakeup"}`},
+		},
+	}
+	kept := []string{}
+	for _, step := range buildEpisodeTrace(config.Pricing{}, page, nil).Steps {
+		if strings.HasPrefix(step.ID, "event-") {
+			kept = append(kept, step.Title)
+		}
+	}
+	if len(kept) != 1 || kept[0] != "Wake-up resolved" {
+		t.Fatalf("event cards = %v, want only the receipt whose wake-up is not on the page", kept)
+	}
+}
+
+// Publishing writes the same sentence to the incident timeline and to the
+// lifecycle ledger. Two cards in a row with identical prose read as two events.
+func TestPublicationLifecycleFoldsIntoItsTimelineEntry(t *testing.T) {
+	at := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	page := episodePage{Artifacts: []EpisodeArtifact{
+		{Kind: "incident_timeline", State: "publication.merged", Title: "PR #526 was merged.", At: at},
+		{Kind: "publication_lifecycle", State: "succeeded", Title: "Publication update", Summary: "PR #526 was merged.", At: at},
+		{Kind: "publication_lifecycle", State: "pending", Title: "Publication update", Summary: "The draft is opening.", At: at},
+	}}
+	titles := []string{}
+	for _, step := range buildEpisodeTrace(config.Pricing{}, page, nil).Steps {
+		if strings.HasPrefix(step.ID, "record-") {
+			titles = append(titles, step.Title)
+		}
+	}
+	if len(titles) != 2 {
+		t.Fatalf("cards = %v, want the timeline entry and the lifecycle event it does not repeat", titles)
+	}
+	if titles[0] != "PR merged" {
+		t.Fatalf("timeline title = %q, want the kind named rather than its sentence", titles[0])
+	}
+}
+
+// A card that only says where something happened never says what happened.
+// Deliveries name what Slack shows; the channel is a stat beside it.
+func TestDeliveryCardsSayWhatSlackShows(t *testing.T) {
+	at := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	page := episodePage{Delivered: []Delivery{
+		{Operation: "reaction", Kind: "failure_marker", Channel: "#backend-ops", State: "sent", At: at},
+		{Operation: "status", Status: "Investigating", Channel: "#backend-ops", State: "sent", At: at},
+		{Operation: "status", Channel: "#backend-ops", State: "sent", At: at},
+	}}
+	summaries := []string{}
+	for _, step := range buildEpisodeTrace(config.Pricing{}, page, nil).Steps {
+		if strings.HasPrefix(step.ID, "delivery-") {
+			summaries = append(summaries, step.Summary)
+		}
+	}
+	for index, want := range []string{"marker was added", "“Investigating” now shows", "was taken down"} {
+		if !strings.Contains(summaries[index], want) {
+			t.Fatalf("delivery %d = %q, want it to contain %q", index+1, summaries[index], want)
+		}
+	}
+}
+
+// The finalization checks are named by token in the ledger. A rejection card
+// has to say what the host objected to, because that is the whole content of
+// the card.
+func TestRejectionCardsNameTheFailedCheck(t *testing.T) {
+	if !strings.Contains(correctionClassSummary("incomplete"), "unfinished") {
+		t.Fatalf("incomplete = %q, want the check explained", correctionClassSummary("incomplete"))
+	}
+	if !strings.Contains(correctionClassSummary("unreadable"), "did not parse") {
+		t.Fatalf("unreadable = %q, want the check explained", correctionClassSummary("unreadable"))
+	}
+	if summary := correctionClassSummary("future_check"); !strings.Contains(summary, "future check") {
+		t.Fatalf("unknown class = %q, want a readable fallback", summary)
+	}
+}
+
+// Model prose carries links in two spellings and neither should print as
+// punctuation. The renderer escapes first, so a link can only ever be an
+// anchor around http(s) text.
+func TestMrkdwnRendersLinksWithoutTrustingTheirText(t *testing.T) {
+	for _, testCase := range []struct{ in, want string }{
+		{"See [Run run-FpSZ](https://app.terraform.io/run) now.",
+			`<a href="https://app.terraform.io/run" target="_blank" rel="noopener noreferrer">Run run-FpSZ</a>`},
+		{"Draft PR #526 is published. https://github.com/x/y/pull/526.",
+			`<a href="https://github.com/x/y/pull/526" target="_blank" rel="noopener noreferrer">https://github.com/x/y/pull/526</a>.`},
+		{`[click](javascript:alert(1))`, "javascript"},
+	} {
+		got := string(renderMrkdwn(testCase.in))
+		if !strings.Contains(got, testCase.want) {
+			t.Fatalf("renderMrkdwn(%q) = %q, want it to contain %q", testCase.in, got, testCase.want)
+		}
+	}
+	if got := string(renderMrkdwn(`[click](javascript:alert(1))`)); strings.Contains(got, "<a href") {
+		t.Fatalf("non-http scheme became a link: %q", got)
+	}
+	if got := string(renderMrkdwn(`<img src=x onerror=alert(1)> https://ok.example/a`)); strings.Contains(got, "<img") {
+		t.Fatalf("markup in the text survived escaping: %q", got)
+	}
 }

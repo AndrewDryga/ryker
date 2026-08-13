@@ -885,7 +885,10 @@ func (r *Reader) Artifacts(ctx context.Context, episodeID string) ([]EpisodeArti
 		err := rows.Scan(&ruleID, &sourceInput, &trigger, &action, &item.State, &eventID, &at)
 		item.ID = ruleID + "@" + sourceInput
 		item.Kind, item.Title, item.At = "standing_rule_run", "Standing rule ran", parseStamp(at)
-		item.Summary = "When " + trigger + " matched, Responder ran " + action + "."
+		// The trigger and action are the rule's own identifiers, so they stay
+		// exact; the sentence around them says what the run decided.
+		item.Summary = "This channel's " + trigger + " rule matched, so Responder ran its " +
+			action + " workflow" + standingRuleOutcomePhrase(item.State)
 		item.Stats = []ArtifactStat{{"Rule", ruleID}, {"Source input", sourceInput},
 			{"Event", eventID}, {"Outcome", item.State}}
 		return item, err
@@ -1086,8 +1089,31 @@ func yesNo(value bool) string {
 	return "no"
 }
 
+// scheduleRunSummary says when a scheduled run was due, in the timezone the
+// schedule was written in. The stored instant carries nanoseconds and a UTC
+// offset; neither belongs on a card about a daily 15:00 review.
 func scheduleRunSummary(outcome, scheduledFor, timezone string) string {
-	return fmt.Sprintf("Scheduled for %s (%s); outcome: %s.", scheduledFor, fallback(timezone, "UTC"), outcome)
+	zone := fallback(timezone, "UTC")
+	when := scheduledFor
+	if due := parseStamp(scheduledFor); !due.IsZero() {
+		if location, err := time.LoadLocation(zone); err == nil {
+			when = due.In(location).Format("Mon 2 Jan, 15:04")
+		} else {
+			when = due.UTC().Format("Mon 2 Jan, 15:04")
+		}
+	}
+	lead := "Nobody asked for this run — it came due on a schedule at " + when + " (" + zone + ")."
+	switch outcome {
+	case "completed":
+		return lead + " It ran and finished."
+	case "failed":
+		return lead + " It ran and failed."
+	case "skipped":
+		return lead + " It was skipped."
+	case "":
+		return lead
+	}
+	return lead + " Outcome: " + strings.ReplaceAll(outcome, "_", " ") + "."
 }
 
 func publicationSummary(state string, prNumber int, url string) string {
@@ -1318,4 +1344,20 @@ func (r *Reader) scanSourceInput(ctx context.Context, row rowScanner, item *Sour
 	item.Attachments = prettyJSON(attachments)
 	item.Received, item.Updated = parseStamp(received), parseStamp(updated)
 	return nil
+}
+
+// standingRuleOutcomePhrase closes the standing-rule sentence with what the
+// run decided. A rule can do its work and still stay silent — that is a
+// deliberate outcome, not a missing reply.
+func standingRuleOutcomePhrase(outcome string) string {
+	switch outcome {
+	case "reply":
+		return ", which answered in the channel."
+	case "ignore":
+		return ", which found nothing worth saying and stayed silent."
+	case "":
+		return "."
+	default:
+		return " (" + strings.ReplaceAll(outcome, "_", " ") + ")."
+	}
 }

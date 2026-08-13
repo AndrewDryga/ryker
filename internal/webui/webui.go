@@ -132,30 +132,50 @@ var (
 	mrkdwnCode      = regexp.MustCompile("`([^`\n]+)`")
 	mrkdwnBoldMd    = regexp.MustCompile(`\*\*([^*\n]+)\*\*`)
 	mrkdwnBoldSlack = regexp.MustCompile(`\*([^*\n]+)\*`)
+	// One pattern for both link spellings: a markdown link, or a bare URL
+	// sitting in the prose. Matching them together is what keeps the bare-URL
+	// branch from reaching inside an anchor the markdown branch just wrote.
+	mrkdwnLink = regexp.MustCompile(`\[([^\[\]\n]+)\]\((https?://[^\s()]+)\)|(https?://[^\s<>"]+)`)
 )
 
 // renderMrkdwn renders the safe subset of the markup model prose actually
-// carries — `code` spans and bold, in both the model's **markdown** and
-// Slack's *mrkdwn* spelling — instead of printing the asterisks literally.
-// The text is HTML-escaped before any tag is inserted, and the only inserted
-// tags are the fixed <code> and <strong> pairs, so nothing in the text can
-// become markup. Italics are deliberately not rendered: identifiers like
-// claim_id are everywhere in this prose and underscores inside them are not
-// emphasis.
+// carries — `code` spans, bold in both the model's **markdown** and Slack's
+// *mrkdwn* spelling, and [text](https://…) links — instead of printing the
+// punctuation literally. The text is HTML-escaped before any tag is inserted;
+// the inserted tags are the fixed <code> and <strong> pairs plus an anchor
+// whose href comes from the already-escaped match and must start with
+// http(s)://, so nothing in the text can become markup or a javascript: URL.
+// Italics are deliberately not rendered: identifiers like claim_id are
+// everywhere in this prose and underscores inside them are not emphasis.
 func renderMrkdwn(text string) template.HTML {
 	escaped := template.HTMLEscapeString(text)
 	var out strings.Builder
 	last := 0
 	for _, span := range mrkdwnCode.FindAllStringSubmatchIndex(escaped, -1) {
-		out.WriteString(mrkdwnBold(escaped[last:span[0]]))
+		out.WriteString(mrkdwnSpans(escaped[last:span[0]]))
 		out.WriteString("<code>" + escaped[span[2]:span[3]] + "</code>")
 		last = span[1]
 	}
-	out.WriteString(mrkdwnBold(escaped[last:]))
+	out.WriteString(mrkdwnSpans(escaped[last:]))
 	return template.HTML(strings.ReplaceAll(out.String(), "\n", "<br>")) //nolint:gosec // escaped above; only fixed tags inserted
 }
 
-func mrkdwnBold(text string) string {
+func mrkdwnSpans(text string) string {
+	text = mrkdwnLink.ReplaceAllStringFunc(text, func(match string) string {
+		groups := mrkdwnLink.FindStringSubmatch(match)
+		label, href, tail := groups[1], groups[2], ""
+		if href == "" {
+			// A bare URL. Neither the sentence's closing punctuation nor the
+			// escaped ">" of Slack's <url|label> spelling is part of it.
+			href = groups[3]
+			if cut, _, found := strings.Cut(href, "&gt;"); found {
+				href = cut
+			}
+			href = strings.TrimRight(href, ".,;:!?")
+			label, tail = href, strings.TrimPrefix(match, href)
+		}
+		return `<a href="` + href + `" target="_blank" rel="noopener noreferrer">` + label + `</a>` + tail
+	})
 	text = mrkdwnBoldMd.ReplaceAllString(text, "<strong>$1</strong>")
 	return mrkdwnBoldSlack.ReplaceAllString(text, "<strong>$1</strong>")
 }
