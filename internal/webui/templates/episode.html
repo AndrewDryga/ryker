@@ -202,7 +202,8 @@
               <div class="trace-table-wrap">
                 <table class="trace-table{{if .Table.Tight}} cols-tight{{end}}">
                   <thead><tr>{{range .Table.Headers}}<th>{{.}}</th>{{end}}</tr></thead>
-                  <tbody>{{range .Table.Rows}}{{$href := .Href}}{{$expand := .Expand}}{{$expandAt := .ExpandAt}}<tr>{{range $cell, $value := .Cells}}<td>{{if and $href (eq $cell 1)}}<a href="{{$href}}">{{$value}}</a>{{else if and $expand (eq $cell $expandAt)}}<details class="trace-cell-detail"><summary>{{$value}}</summary><pre>{{$expand}}</pre></details>{{else}}{{$value}}{{end}}</td>{{end}}</tr>{{end}}</tbody>
+                  {{$span := len .Table.Headers}}
+                  <tbody>{{range .Table.Rows}}{{$href := .Href}}{{$expand := .Expand}}{{$expandAt := .ExpandAt}}<tr>{{range $cell, $value := .Cells}}<td>{{if and $href (eq $cell 1)}}<a href="{{$href}}">{{$value}}</a>{{else if and $expand (eq $cell $expandAt)}}<details class="trace-cell-detail"><summary>{{$value}}</summary></details>{{else}}{{$value}}{{end}}</td>{{end}}</tr>{{if $expand}}<tr class="trace-row-expand"><td colspan="{{$span}}"><pre>{{$expand}}</pre></td></tr>{{end}}{{end}}</tbody>
                 </table>
               </div>
               {{else if .Segments}}

@@ -1255,15 +1255,32 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   color: var(--faint);
 }
 .trace-cell-detail[open] > summary::after { content: " ▾"; }
-.trace-cell-detail > pre {
-  margin: 8px 0 0;
-  padding: 8px 10px;
+
+/* The opened record spans the table rather than the one column its toggle
+   sits in. Nested in the cell it inherited that column's width, so a pack
+   digest wrapped as "hcp-\nterraform@0.7.0/..." — a full-width row is the
+   whole reason to expand instead of reading the cell. */
+.trace-row-expand > td {
+  padding: 0 18px 12px;
+  border-bottom: 1px solid var(--line-2);
+  background: #0b0b0e;
+}
+.trace-row-expand pre {
+  margin: 0;
+  padding: 10px 12px;
   border-radius: 4px;
   background: #08080a;
   color: var(--ink-2);
-  font: 10.5px/1.55 var(--mono);
+  font: 10.5px/1.6 var(--mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* Toggled by the disclosure in the row above. Guarded rather than assumed:
+   without :has() the record stays visible, which is worse only in density —
+   never unreachable. */
+@supports selector(tr:has(> td > details[open])) {
+  .trace-row-expand { display: none; }
+  tr:has(> td > .trace-cell-detail[open]) + .trace-row-expand { display: table-row; }
 }
 
 .prompt-segments {
