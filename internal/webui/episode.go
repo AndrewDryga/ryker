@@ -168,8 +168,8 @@ func (r *Reader) Activity(ctx context.Context, episodeID string) ([]ActivityMome
 	}
 	type activityRow struct {
 		runID, kind, toolCallID, title, toolKind, status string
-		detail                                          []byte
-		at                                              time.Time
+		detail                                           []byte
+		at                                               time.Time
 	}
 	rows, err := collect(ctx, r, `
 	  SELECT agent_run_id, kind, tool_call_id, title, tool_kind, status,
