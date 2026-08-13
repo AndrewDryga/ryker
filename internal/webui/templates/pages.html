@@ -143,7 +143,7 @@ channel's work turned out.</p>
   <div class="chan-card">
     <div class="chan-head">
       <a class="chan-name" href="/episodes?channel={{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</a>
-      <span class="note">{{since .Last}}</span>
+      <span class="chan-when">{{since .Last}}</span>
     </div>
     <svg class="chan-bar" viewBox="0 0 100 4" width="100%" height="4" preserveAspectRatio="none" role="img"
          aria-label="{{.Done}} completed, {{.Failed}} failed, {{.Other}} ended another way">
@@ -152,21 +152,16 @@ channel's work turned out.</p>
       {{if .OtherW}}<rect class="chan-other" x="{{.OtherX}}" y="0" width="{{.OtherW}}" height="4"/>{{end}}
     </svg>
     <div class="chan-counts">
-      <span><strong>{{.Total}}</strong> episodes</span>
-      <span class="good"><strong>{{.Done}}</strong> completed</span>
-      {{if .Failed}}<span class="bad"><strong>{{.Failed}}</strong> failed</span>{{end}}
-      {{if .Other}}<span><strong>{{.Other}}</strong> ended another way</span>{{end}}
+      <span>{{.Total}} episodes</span>
+      {{if .Failed}}<span class="chan-bad">{{.Failed}} failed</span>{{end}}
+      {{if .NeedsDecision}}<span class="chan-wait">{{.NeedsDecision}} waiting on you</span>{{end}}
+      {{if .InFlight}}<span class="chan-busy">{{.InFlight}} in flight</span>{{end}}
     </div>
-    {{if or .InFlight .NeedsDecision}}
-    <div class="chan-live">
-      {{if .InFlight}}<span class="pill">{{.InFlight}} in flight</span>{{end}}
-      {{if .NeedsDecision}}<span class="pill warn">{{.NeedsDecision}} waiting on you</span>{{end}}
-    </div>
-    {{end}}
     <div class="chan-foot">
-      {{if .Repository}}<span class="mono">{{.Repository}}</span>{{if .Participation}} · {{.Participation}}{{end}}
-      {{else}}<span class="note">no repository bound</span>{{end}}
-      · <a href="/channels/{{.ID}}">settings and memory →</a>
+      {{if .Repository}}<span class="mono">{{.Repository}}</span> · {{.Participation}}
+      {{else if .Direct}}<span class="mono">{{.ID}}</span>
+      {{else}}no repository bound{{end}}
+      · <a href="/channels/{{.ID}}">settings</a>
     </div>
   </div>
   {{end}}
@@ -215,19 +210,18 @@ from Slack or a webhook.</p>{{end}}
 {{define "episoderows"}}
 <div class="rows">
   {{range .}}
-  <a class="row episode-row" href="/episodes/{{.ID}}">
-    <div class="episode-row-head">
-      <span class="title">{{truncate 150 .Title}}</span>
-      <span class="note">{{.Channel}} · {{since .Updated}}</span>
-    </div>
-    <div class="meta">
-      <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
+  <a class="row episode-row" href="/episodes/{{.ID}}" data-state="{{.State}}">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-when">{{since .Updated}}</span>
+    <span class="episode-title">{{.Title}}</span>
+    {{if .Answer}}<span class="episode-answer">{{summary .Answer}}</span>{{end}}
+    <span class="episode-facts">
+      <span class="episode-state">{{.State}}</span>
+      <span>{{.Channel}}</span>
+      {{with .Answered}}<span>{{.}}</span>{{end}}
       {{if .Replied}}<span class="episode-spoke">replied in Slack</span>{{end}}
       {{if gt .Attempts 1}}<span class="episode-retried">{{.Attempts}} attempts</span>{{end}}
-      {{with .Answered}}<span class="who">{{.}}</span>{{end}}
-      {{if .Run}}<span class="mono note">{{.Run}}</span>{{end}}
-    </div>
-    {{if .Answer}}<p class="episode-answer">{{mrkdwn .Answer}}</p>{{end}}
+    </span>
   </a>
   {{end}}
 </div>

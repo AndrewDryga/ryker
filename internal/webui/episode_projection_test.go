@@ -1946,3 +1946,37 @@ func TestMrkdwnRendersLinksWithoutTrustingTheirText(t *testing.T) {
 		t.Fatalf("markup in the text survived escaping: %q", got)
 	}
 }
+
+// A list row is one link. An anchor nested inside an anchor is invalid HTML,
+// and browsers repair it by closing the outer one — which on the episode list
+// tore the row's own grid open and left the paragraph rendering outside it.
+// Prose that sits inside a row keeps a link's words and drops its href.
+func TestSummaryProseNeverNestsALink(t *testing.T) {
+	for _, text := range []string{
+		"see [the run](https://app.terraform.io/run) for detail",
+		"published at https://github.com/x/y/pull/526",
+		"`code` then [a **bold** label](https://example.com/a) after",
+	} {
+		got := string(renderSummary(text))
+		if strings.Contains(got, "<a ") || strings.Contains(got, "href=") {
+			t.Fatalf("renderSummary(%q) emitted an anchor: %q", text, got)
+		}
+		if strings.Contains(got, "](") || strings.Contains(got, "[the run") {
+			t.Fatalf("renderSummary(%q) left link punctuation in the prose: %q", text, got)
+		}
+	}
+	// The label survives; only the destination is dropped.
+	if got := string(renderSummary("see [the run](https://app.terraform.io/run) now")); !strings.Contains(got, "the run") {
+		t.Fatalf("link label was lost: %q", got)
+	}
+	// A bare URL keeps its host, which is the part that means anything in a
+	// row; the full address is one click away on the episode's own page.
+	got := string(renderSummary("published at https://github.com/tenantcorp/tenant-infra/pull/526."))
+	if !strings.Contains(got, "github.com") || strings.Contains(got, "/pull/526") {
+		t.Fatalf("bare URL did not reduce to its host: %q", got)
+	}
+	// renderMrkdwn, which is used outside anchors, still links.
+	if !strings.Contains(string(renderMrkdwn("see https://example.com/a")), "<a href=") {
+		t.Fatal("renderMrkdwn stopped linking")
+	}
+}

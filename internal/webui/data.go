@@ -182,13 +182,7 @@ func (r *Reader) scanItems(ctx context.Context, query string, args ...any) ([]It
 		}
 		item.Channel = r.channelName(ctx, item.Channel)
 		item.Title = cleanTitle(item.Title)
-		// Alert-driven episodes append the provider run id to their title; it is
-		// an identifier, not part of the sentence, and two runs of the same alert
-		// rendered as the same row while it sat past the truncation point.
-		if base, run, found := strings.Cut(item.Title, " · Run "); found &&
-			strings.HasPrefix(run, "run-") && !strings.Contains(run, " ") {
-			item.Title, item.Run = base, run
-		}
+		item.Title, item.Run = splitRunTail(item.Title)
 		item.Answer = answerLine(item.Answer, result, lastError, item.Status)
 		item.Answer = truncate(strings.Join(strings.Fields(item.Answer), " "), 400)
 		items = append(items, item)
@@ -205,6 +199,31 @@ func (r *Reader) scanItems(ctx context.Context, query string, args ...any) ([]It
 // labels. A row with none of these shows nothing rather than a placeholder —
 // "no answer recorded" in five hundred rows is noise, and the title is still
 // there.
+// splitRunTail lifts the provider run id off an alert-driven title.
+//
+// Two things made these titles unreadable in a list. The id is an identifier
+// rather than part of the sentence, and it sat past the point where the row
+// truncated, so two runs of the same alert rendered as the same row. And the
+// title is stored already shortened, so what often arrives is "… · Run..." —
+// a tail with no id left in it, which says nothing and still costs the width.
+//
+// The title's own trailing ellipsis stays. Removing it looked tidier on the
+// titles that happened to end on a word and produced "15m avg I/" on the ones
+// that did not: those dots are the only thing saying the sentence continues.
+func splitRunTail(title string) (string, string) {
+	if base, run, found := strings.Cut(title, " · Run "); found &&
+		strings.HasPrefix(run, "run-") && !strings.Contains(run, " ") {
+		return base, run
+	}
+	// The id was truncated away, leaving the label and whatever dots survived.
+	for _, tail := range []string{" · Run...", " · Run…", " · Run..", " · Run."} {
+		if base, found := strings.CutSuffix(title, tail); found {
+			return base, ""
+		}
+	}
+	return title, ""
+}
+
 func answerLine(completion, result, lastError, status string) string {
 	if text := strings.TrimSpace(completion); text != "" {
 		return text
@@ -1535,6 +1554,10 @@ type ChannelRoll struct {
 	// stylesheet cannot carry data.
 	DoneW, FailedW, OtherW int
 	FailedX, OtherX        int
+	// Direct marks a one-to-one conversation. It has no channel name and no
+	// repository binding, so the card labels itself by what it is and puts the
+	// conversation id where a repository would go.
+	Direct bool
 	// counterpart is the person on the other side of a direct message, used
 	// only to name the card.
 	counterpart string
@@ -1576,6 +1599,7 @@ func (r *Reader) ChannelRolls(ctx context.Context) ([]ChannelRoll, error) {
 	}
 	for index := range rolls {
 		roll := &rolls[index]
+		roll.Direct = strings.HasPrefix(roll.ID, "D")
 		roll.Name = r.rollName(ctx, *roll)
 		roll.Other = max(roll.Total-roll.Done-roll.Failed, 0)
 		roll.DoneW, roll.FailedW, roll.OtherW = outcomeWidths(roll.Done, roll.Failed, roll.Other)
@@ -1586,11 +1610,11 @@ func (r *Reader) ChannelRolls(ctx context.Context) ([]ChannelRoll, error) {
 }
 
 // rollName labels a card in a grid, where every other label is a channel name.
-// A direct message has no channel name, and channelName answers "direct
-// message" for all of them — correct in a sentence, useless in a list, where
-// two cards then carry the same title and neither says whose conversation it
-// is. The person comes first when their name is known, and the raw id is the
-// fallback because an ambiguous card is worse than an ugly one.
+// A direct message has no channel name, so it says what it is and names the
+// person when their name is known. The conversation id is not in the title:
+// two unresolved DMs would then be two cards titled with a raw Slack id, which
+// is neither readable nor a name. The id goes in the card's footer, where the
+// repository sits for a channel — it disambiguates without shouting.
 func (r *Reader) rollName(ctx context.Context, roll ChannelRoll) string {
 	if !strings.HasPrefix(roll.ID, "D") {
 		return r.channelName(ctx, roll.ID)
@@ -1598,7 +1622,7 @@ func (r *Reader) rollName(ctx context.Context, roll ChannelRoll) string {
 	if name := r.userName(roll.counterpart); name != "" && name != roll.counterpart {
 		return "direct message with " + strings.TrimPrefix(name, "@")
 	}
-	return "direct message · " + roll.ID
+	return "direct message"
 }
 
 // outcomeWidths splits a bar of 100 units across three counts without letting

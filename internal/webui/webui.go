@@ -120,6 +120,7 @@ func NewRenderer() (*Renderer, error) {
 		"confirm": confirmStep,
 		"meter":   meterSVG,
 		"mrkdwn":  renderMrkdwn,
+		"summary": renderSummary,
 	}
 	parsed, err := template.New("webui").Funcs(funcs).ParseFS(assets, "templates/*.html")
 	if err != nil {
@@ -155,13 +156,22 @@ var (
 // http(s)://, so nothing in the text can become markup or a javascript: URL.
 // Italics are deliberately not rendered: identifiers like claim_id are
 // everywhere in this prose and underscores inside them are not emphasis.
-func renderMrkdwn(text string) template.HTML {
+func renderMrkdwn(text string) template.HTML { return mrkdwnHTML(text, true) }
+
+// renderSummary is renderMrkdwn for prose that sits inside a link — a list row
+// is one click target, and an anchor nested in an anchor is invalid HTML that
+// browsers repair by closing the outer one, which tore the row's own layout
+// open around the paragraph. Link labels keep their words and lose their href;
+// the row's destination is the only thing worth clicking there anyway.
+func renderSummary(text string) template.HTML { return mrkdwnHTML(text, false) }
+
+func mrkdwnHTML(text string, links bool) template.HTML {
 	escaped := template.HTMLEscapeString(text)
 	var out strings.Builder
 	last := 0
 	for _, span := range mrkdwnSpan.FindAllStringSubmatchIndex(escaped, -1) {
 		out.WriteString(mrkdwnBold(escaped[last:span[0]]))
-		out.WriteString(mrkdwnSpanHTML(escaped, span))
+		out.WriteString(mrkdwnSpanHTML(escaped, span, links))
 		last = span[1]
 	}
 	out.WriteString(mrkdwnBold(escaped[last:]))
@@ -171,7 +181,7 @@ func renderMrkdwn(text string) template.HTML {
 // mrkdwnSpanHTML renders whichever alternative of mrkdwnSpan matched. The
 // group indexes are the alternation's, in order: link label, link href, code
 // body, bare URL.
-func mrkdwnSpanHTML(escaped string, span []int) string {
+func mrkdwnSpanHTML(escaped string, span []int, links bool) string {
 	group := func(n int) string {
 		if span[2*n] < 0 {
 			return ""
@@ -180,7 +190,11 @@ func mrkdwnSpanHTML(escaped string, span []int) string {
 	}
 	if href := group(2); href != "" {
 		// A link's label is prose of its own and keeps its code and bold.
-		return anchor(href, mrkdwnBold(mrkdwnCodeSpans(group(1))))
+		label := mrkdwnBold(mrkdwnCodeSpans(group(1)))
+		if !links {
+			return label
+		}
+		return anchor(href, label)
 	}
 	if code := group(3); code != "" {
 		return "<code>" + code + "</code>"
@@ -192,7 +206,24 @@ func mrkdwnSpanHTML(escaped string, span []int) string {
 		href = cut
 	}
 	trimmed := strings.TrimRight(href, ".,;:!?")
-	return anchor(trimmed, trimmed) + strings.TrimPrefix(href, trimmed)
+	tail := strings.TrimPrefix(href, trimmed)
+	if !links {
+		// A naked URL in a list row is a wall of characters standing where a
+		// sentence should be. Its host is the part that means anything.
+		return mrkdwnHost(trimmed) + tail
+	}
+	return anchor(trimmed, trimmed) + tail
+}
+
+// mrkdwnHost shortens a URL to its host for prose that cannot link. The whole
+// URL is still one click away on the episode's own page.
+func mrkdwnHost(url string) string {
+	rest := strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
+	host, _, _ := strings.Cut(rest, "/")
+	if host == "" {
+		return url
+	}
+	return "<span class=\"link-host\">" + host + "</span>"
 }
 
 func anchor(href, label string) string {

@@ -1253,43 +1253,133 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
    fleet: three channels hold most of six hundred episodes, and a flat list
    sorted by time never shows that. Each card is one channel, and the bar is
    the only place on the dashboard where a channel's outcomes are comparable
-   by eye. */
-.chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+   by eye.
+
+   The card states one number and then only what is unusual. It used to print
+   all four — total, completed, failed, ended another way — which wrapped to
+   two ragged lines and buried the failure count among three numbers nobody
+   was looking for. The bar already carries the proportion; the text carries
+   the exceptions. */
+.chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 10px; }
 .chan-card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   padding: 13px 15px 12px; display: flex; flex-direction: column; gap: 9px;
 }
 .chan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.chan-name { font-weight: 550; font-size: 14.5px; }
+/* The name is the card's title, so it is ink rather than accent. Fourteen
+   cards of glowing green read as fourteen calls to action. */
+.chan-name { font-size: 14px; font-weight: 550; color: var(--ink); }
+.chan-name:hover { color: var(--accent); text-decoration: none; }
+.chan-when { font-size: 12px; color: var(--faint); white-space: nowrap; flex: none; }
 .chan-bar { display: block; width: 100%; height: 4px; border-radius: 2px; overflow: hidden; background: var(--line-2); }
 .chan-done { fill: var(--accent-dim); }
 .chan-failed { fill: var(--bad); }
 .chan-other { fill: #3f3f46; }
-.chan-counts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--faint); }
-.chan-counts strong { color: var(--ink-2); font-variant-numeric: tabular-nums; font-weight: 550; margin-right: 4px; }
-.chan-counts .good strong { color: var(--good); }
-.chan-counts .bad strong { color: var(--bad); }
-.chan-live { display: flex; flex-wrap: wrap; gap: 6px; }
-.chan-foot { font-size: 12.5px; color: var(--faint); margin-top: auto; padding-top: 2px; }
+.chan-counts, .chan-foot {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  font-size: 12.5px; color: var(--faint);
+}
+.chan-counts > span + span::before,
+.chan-foot > span + span::before { content: "·"; margin: 0 7px; opacity: .5; }
+.chan-counts { color: var(--dim); }
+.chan-bad { color: var(--bad); }
+.chan-wait { color: var(--warn); }
+.chan-busy { color: var(--accent); }
+.chan-foot { margin-top: auto; padding-top: 1px; font-size: 12px; gap: 0 4px; }
 
-/* The episode row. It leads with what came in, then what Responder concluded,
-   because a list of six hundred alert titles all read the same and none of
-   them says what happened next. */
-.episode-row { padding: 13px 16px 14px; }
-.episode-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
-.episode-row-head .title { font-weight: 500; line-height: 1.45; }
-.episode-row-head .note { flex: none; white-space: nowrap; }
+/* The episode row.
+   Three questions, in the order somebody scanning six hundred of these has
+   them: is anything wrong, what was this about, and what did Responder
+   conclude. The layout answers them in that order and gives each answer one
+   fixed place, so the eye runs down a column instead of re-reading a paragraph
+   to find the next title.
+
+   A two-column grid rather than stacked blocks: the dot and the timestamp hold
+   their own tracks, so a long title cannot push the time out of line and a
+   wrapped title cannot leave the dot stranded. Everything else shares the text
+   column and therefore one left edge.
+
+   Colour is reserved for what is unusual. Most work completes, most work never
+   reaches Slack, and most work runs once — so those states are grey, and only
+   a failure, a wait, a reply or a retry is allowed to take the eye. A page of
+   fifty green ticks says exactly as little as a page of none. */
+.episode-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "dot title  when"
+    ".   answer answer"
+    ".   facts  facts";
+  align-items: baseline;
+  column-gap: 10px;
+  padding: 13px 16px 14px;
+}
+/* The dot is centred in the title's own line box rather than aligned to its
+   baseline: an empty inline box has no text to take a baseline from, so
+   baseline alignment put it a pixel or two low at every zoom level. */
+.episode-dot {
+  grid-area: dot; align-self: start;
+  height: 21px; display: flex; align-items: center;
+}
+.episode-dot::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--faint);
+}
+/* Superseded and cancelled work did not reach an outcome of its own, so it
+   reads as an outline rather than a mark. */
+.episode-row[data-state="superseded"] .episode-dot::before,
+.episode-row[data-state="cancelled"] .episode-dot::before {
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+.episode-row[data-state="completed"] .episode-dot::before { background: var(--accent-dim); opacity: .55; }
+.episode-row[data-state="failed"] .episode-dot::before,
+.episode-row[data-state="dead"] .episode-dot::before { background: var(--bad); }
+.episode-row[data-state="blocked"] .episode-dot::before,
+.episode-row[data-state="waiting_operator"] .episode-dot::before,
+.episode-row[data-state="waiting_approval"] .episode-dot::before { background: var(--warn); }
+
+/* One line, always. A title that wraps to two lines and then truncates
+   mid-word costs a line of rhythm to say nothing the first line did not. */
+.episode-title {
+  grid-area: title;
+  font-size: 14px; font-weight: 500; color: var(--ink); line-height: 1.5;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.episode-when {
+  grid-area: when;
+  font-size: 12px; color: var(--faint); white-space: nowrap;
+}
+/* Three lines of the conclusion. Enough for the finding and its qualifier,
+   which is where these paragraphs put the part worth reading; the rest is one
+   click away and does not have to be paid for fifty times on one screen. */
 .episode-answer {
-  color: var(--ink-2); font-size: 13px; line-height: 1.55;
-  margin: 7px 0 0; max-width: 110ch;
+  grid-area: answer;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 5px; max-width: 104ch;
+  font-size: 13px; line-height: 1.6; color: var(--dim);
 }
 .episode-answer code {
-  font-family: var(--mono); font-size: 12px;
-  background: var(--panel-2); border-radius: 4px; padding: 1px 4px;
+  font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+  background: var(--panel-2); border-radius: 4px; padding: 1px 5px;
 }
-.episode-answer a { color: var(--accent); }
-/* Two facts that are worth a colour because they are the exceptions: almost
-   nothing reaches Slack, and almost nothing is retried. */
+.episode-answer strong { color: var(--ink-2); font-weight: 550; }
+.episode-answer .link-host { color: var(--dim); text-decoration: underline; text-underline-offset: 2px; }
+.episode-facts {
+  grid-area: facts;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 0;
+  margin-top: 7px; font-size: 12px; color: var(--faint);
+}
+/* One separator rule beats a separator typed between every pair: the middle
+   dots stay even, and a fact that renders conditionally cannot leave a
+   dangling one behind it. */
+.episode-facts > span + span::before { content: "·"; margin: 0 7px; opacity: .5; }
+.episode-state { color: var(--dim); }
+.episode-row[data-state="failed"] .episode-state,
+.episode-row[data-state="dead"] .episode-state { color: var(--bad); }
+.episode-row[data-state="blocked"] .episode-state,
+.episode-row[data-state="waiting_operator"] .episode-state,
+.episode-row[data-state="waiting_approval"] .episode-state { color: var(--warn); }
 .episode-spoke { color: var(--accent); }
 .episode-retried { color: var(--warn); }
 
