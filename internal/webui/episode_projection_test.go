@@ -1925,6 +1925,20 @@ func TestMrkdwnRendersLinksWithoutTrustingTheirText(t *testing.T) {
 			t.Fatalf("renderMrkdwn(%q) = %q, want it to contain %q", testCase.in, got, testCase.want)
 		}
 	}
+	// A code span inside a link label is the shape model prose actually
+	// produces, and resolving code first cut the link in half before anything
+	// looked for it: the reader got a literal "[brief `sdb` spike](" and an
+	// anchor whose href carried the closing bracket.
+	nested := string(renderMrkdwn("`nomad-hst02` recovered from the [brief `sdb` latency spike](https://slack.example/thread/1) overnight."))
+	if strings.Contains(nested, "](") || strings.Contains(nested, "[brief") {
+		t.Fatalf("a code span split the link around it: %q", nested)
+	}
+	if !strings.Contains(nested, `<a href="https://slack.example/thread/1" target="_blank" rel="noopener noreferrer">brief <code>sdb</code> latency spike</a>`) {
+		t.Fatalf("nested link did not render whole: %q", nested)
+	}
+	if !strings.Contains(nested, "<code>nomad-hst02</code>") {
+		t.Fatalf("a code span outside the link stopped rendering: %q", nested)
+	}
 	if got := string(renderMrkdwn(`[click](javascript:alert(1))`)); strings.Contains(got, "<a href") {
 		t.Fatalf("non-http scheme became a link: %q", got)
 	}

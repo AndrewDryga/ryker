@@ -1272,6 +1272,27 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .chan-live { display: flex; flex-wrap: wrap; gap: 6px; }
 .chan-foot { font-size: 12.5px; color: var(--faint); margin-top: auto; padding-top: 2px; }
 
+/* The episode row. It leads with what came in, then what Responder concluded,
+   because a list of six hundred alert titles all read the same and none of
+   them says what happened next. */
+.episode-row { padding: 13px 16px 14px; }
+.episode-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+.episode-row-head .title { font-weight: 500; line-height: 1.45; }
+.episode-row-head .note { flex: none; white-space: nowrap; }
+.episode-answer {
+  color: var(--ink-2); font-size: 13px; line-height: 1.55;
+  margin: 7px 0 0; max-width: 110ch;
+}
+.episode-answer code {
+  font-family: var(--mono); font-size: 12px;
+  background: var(--panel-2); border-radius: 4px; padding: 1px 4px;
+}
+.episode-answer a { color: var(--accent); }
+/* Two facts that are worth a colour because they are the exceptions: almost
+   nothing reaches Slack, and almost nothing is retried. */
+.episode-spoke { color: var(--accent); }
+.episode-retried { color: var(--warn); }
+
 @media (max-width: 900px) {
   body { display: block; }
   .sidebar {

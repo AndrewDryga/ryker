@@ -189,7 +189,8 @@ workspace and ends in a pull request; the episodes below are its individual turn
 <h2>Episodes <span class="note">{{.Total}} recorded{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
 {{if .Episodes}}
 <p class="note">One episode is one turn of work: something arrived, Responder decided what to do
-about it, and did it.</p>
+about it, and did it. Most turns are deliberately silent — only the rows marked
+<em>replied in Slack</em> put a message in front of somebody.</p>
 {{template "episoderows" .Episodes}}
 {{else}}<p class="empty">No episodes yet. One appears the first time Responder accepts work
 from Slack or a webhook.</p>{{end}}
@@ -214,12 +215,19 @@ from Slack or a webhook.</p>{{end}}
 {{define "episoderows"}}
 <div class="rows">
   {{range .}}
-  <a class="row" href="/episodes/{{.ID}}">
-    <div class="title">{{truncate 120 .Title}}</div>
+  <a class="row episode-row" href="/episodes/{{.ID}}">
+    <div class="episode-row-head">
+      <span class="title">{{truncate 150 .Title}}</span>
+      <span class="note">{{.Channel}} · {{since .Updated}}</span>
+    </div>
     <div class="meta">
       <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
-      {{.Channel}} · {{.Kind}} · {{since .Updated}}{{with .Answered}} · <span class="who">{{.}}</span>{{end}}
+      {{if .Replied}}<span class="episode-spoke">replied in Slack</span>{{end}}
+      {{if gt .Attempts 1}}<span class="episode-retried">{{.Attempts}} attempts</span>{{end}}
+      {{with .Answered}}<span class="who">{{.}}</span>{{end}}
+      {{if .Run}}<span class="mono note">{{.Run}}</span>{{end}}
     </div>
+    {{if .Answer}}<p class="episode-answer">{{mrkdwn .Answer}}</p>{{end}}
   </a>
   {{end}}
 </div>

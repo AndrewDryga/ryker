@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/decision"
 )
 
 // Reader is the dashboard's own read-only view of the database.
@@ -91,6 +92,23 @@ type Item struct {
 	Provider string
 	Model    string
 	Effort   string
+
+	// Answer is what the episode concluded, in the model's own words. A list
+	// that shows only what came in makes every alert-driven row look the same
+	// as the last one and says nothing about what Responder did with it.
+	Answer string
+	// Replied records whether any of this reached Slack. Almost nothing does —
+	// 38 of 625 episodes on the busiest deployment posted a message — so the
+	// rare row that spoke to somebody is worth marking, and the silent
+	// majority is the normal case rather than a fault.
+	Replied bool
+	// Attempts above one means the work was retried, which is the cheapest
+	// signal that something went wrong on the way to an answer.
+	Attempts int
+	// Run is the provider run id an alert-driven title carries as a suffix. It
+	// is an identifier, not part of the sentence, and leaving it on the title
+	// made two runs of the same alert render as the same row.
+	Run string
 }
 
 // Answered names the model in one token for a list. Effort is included because
@@ -112,6 +130,11 @@ func (i Item) Answered() string {
 // them would repeat the episode once per manifest — the same fan-out that
 // turned 351 manifests into 953 rows on the Usage page before it keyed on the
 // attempt. The latest manifest is the one that answered.
+//
+// The completion message is read out of the event with json_extract for the
+// same reason: an episode has many events, and joining work_episode_events to
+// reach the one closing statement would repeat the episode once per event it
+// ever recorded. The subquery takes the latest completion and nothing else.
 const episodeSelect = `
   SELECT e.id, COALESCE(c.title, ''), e.lifecycle_state, COALESCE(r.mode, ''),
          COALESCE(r.channel_id, ''), COALESCE(e.status, ''), COALESCE(e.next_action, ''),
@@ -121,7 +144,15 @@ const episodeSelect = `
          COALESCE((SELECT m.model FROM context_manifests m
                    WHERE m.episode_id = e.id ORDER BY m.version DESC LIMIT 1), ''),
          COALESCE((SELECT m.reasoning_effort FROM context_manifests m
-                   WHERE m.episode_id = e.id ORDER BY m.version DESC LIMIT 1), '')
+                   WHERE m.episode_id = e.id ORDER BY m.version DESC LIMIT 1), ''),
+         COALESCE((SELECT json_extract(CAST(v.payload_json AS TEXT), '$.completion.message')
+                   FROM work_episode_events v
+                   WHERE v.episode_id = e.id AND v.kind = 'completion_submitted'
+                   ORDER BY v.created_at DESC LIMIT 1), ''),
+         EXISTS(SELECT 1 FROM slack_deliveries d
+                WHERE d.episode_id = e.id AND d.operation = 'post' AND d.state = 'sent'),
+         (SELECT COUNT(*) FROM episode_attempts a WHERE a.episode_id = e.id),
+         COALESCE(CAST(r.result_json AS TEXT), ''), COALESCE(r.last_error, '')
   FROM work_episodes AS e
   LEFT JOIN commitments AS c ON c.episode_id = e.id
   LEFT JOIN agent_runs AS r ON r.id = e.agent_run_id`
@@ -138,10 +169,11 @@ func (r *Reader) scanItems(ctx context.Context, query string, args ...any) ([]It
 	items := []Item{}
 	for rows.Next() {
 		var item Item
-		var created, updated string
+		var created, updated, result, lastError string
 		if err := rows.Scan(&item.ID, &item.Title, &item.State, &item.Kind,
 			&item.Channel, &item.Status, &item.Next, &created, &updated,
-			&item.Provider, &item.Model, &item.Effort); err != nil {
+			&item.Provider, &item.Model, &item.Effort,
+			&item.Answer, &item.Replied, &item.Attempts, &result, &lastError); err != nil {
 			return nil, err
 		}
 		item.Created, item.Updated = parseStamp(created), parseStamp(updated)
@@ -150,9 +182,60 @@ func (r *Reader) scanItems(ctx context.Context, query string, args ...any) ([]It
 		}
 		item.Channel = r.channelName(ctx, item.Channel)
 		item.Title = cleanTitle(item.Title)
+		// Alert-driven episodes append the provider run id to their title; it is
+		// an identifier, not part of the sentence, and two runs of the same alert
+		// rendered as the same row while it sat past the truncation point.
+		if base, run, found := strings.Cut(item.Title, " · Run "); found &&
+			strings.HasPrefix(run, "run-") && !strings.Contains(run, " ") {
+			item.Title, item.Run = base, run
+		}
+		item.Answer = answerLine(item.Answer, result, lastError, item.Status)
+		item.Answer = truncate(strings.Join(strings.Fields(item.Answer), " "), 400)
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// answerLine is what the row says the episode concluded.
+//
+// The completion event is the best source and covers a bit over half the
+// episodes. The rest either never completed or answered without one, and for
+// those the ranking is: what the model decided and why, then the error that
+// stopped it, then the stored status when it is not one of the host's canned
+// labels. A row with none of these shows nothing rather than a placeholder —
+// "no answer recorded" in five hundred rows is noise, and the title is still
+// there.
+func answerLine(completion, result, lastError, status string) string {
+	if text := strings.TrimSpace(completion); text != "" {
+		return text
+	}
+	if parsed, err := decision.ParseWatchDecision(strings.TrimSpace(result), time.Now().UTC()); err == nil {
+		if text := strings.TrimSpace(parsed.Message); text != "" {
+			return text
+		}
+		// An ignored message has no public words by definition; the reason it
+		// was ignored is the only account of the turn there will ever be.
+		if text := strings.TrimSpace(parsed.Reason); text != "" {
+			return text
+		}
+	}
+	if text := strings.TrimSpace(lastError); text != "" {
+		return text
+	}
+	if text := strings.TrimSpace(status); text != "" && !cannedEpisodeStatus(text) {
+		return text
+	}
+	return ""
+}
+
+// cannedEpisodeStatus recognizes the host's fixed status labels, which restate
+// the lifecycle state the row already shows as a pill.
+func cannedEpisodeStatus(status string) bool {
+	return map[string]bool{
+		"Accepted": true, "Completed": true, "Planning the work": true,
+		"Investigating": true, "Preparing the result": true,
+		"Needs operator attention": true, "Resuming work": true,
+	}[status]
 }
 
 // Blocked is the same set the App Home leads with: work a person can move.

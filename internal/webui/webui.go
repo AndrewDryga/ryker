@@ -129,13 +129,21 @@ func NewRenderer() (*Renderer, error) {
 }
 
 var (
-	mrkdwnCode      = regexp.MustCompile("`([^`\n]+)`")
 	mrkdwnBoldMd    = regexp.MustCompile(`\*\*([^*\n]+)\*\*`)
 	mrkdwnBoldSlack = regexp.MustCompile(`\*([^*\n]+)\*`)
-	// One pattern for both link spellings: a markdown link, or a bare URL
-	// sitting in the prose. Matching them together is what keeps the bare-URL
-	// branch from reaching inside an anchor the markdown branch just wrote.
-	mrkdwnLink = regexp.MustCompile(`\[([^\[\]\n]+)\]\((https?://[^\s()]+)\)|(https?://[^\s<>"]+)`)
+	// One pattern for every span that is not bold, alternated in priority
+	// order and matched in a single pass.
+	//
+	// Priority is the whole point. Code spans used to be resolved first, in
+	// their own pass, and links second within each gap between them — so a
+	// link whose label contained a code span was cut in half before anything
+	// looked for it. Model prose does that constantly, and the reader got a
+	// literal "[brief `sdb` latency spike](" followed by an anchor whose href
+	// carried the closing bracket. One pass, links first, cannot split.
+	mrkdwnSpan = regexp.MustCompile(
+		"\\[([^\\[\\]\n]+)\\]\\((https?://[^\\s()]+)\\)" + // [label](url)
+			"|`([^`\n]+)`" + // `code`
+			"|(https?://[^\\s<>\"]+)") // a bare URL
 )
 
 // renderMrkdwn renders the safe subset of the markup model prose actually
@@ -151,31 +159,53 @@ func renderMrkdwn(text string) template.HTML {
 	escaped := template.HTMLEscapeString(text)
 	var out strings.Builder
 	last := 0
-	for _, span := range mrkdwnCode.FindAllStringSubmatchIndex(escaped, -1) {
-		out.WriteString(mrkdwnSpans(escaped[last:span[0]]))
-		out.WriteString("<code>" + escaped[span[2]:span[3]] + "</code>")
+	for _, span := range mrkdwnSpan.FindAllStringSubmatchIndex(escaped, -1) {
+		out.WriteString(mrkdwnBold(escaped[last:span[0]]))
+		out.WriteString(mrkdwnSpanHTML(escaped, span))
 		last = span[1]
 	}
-	out.WriteString(mrkdwnSpans(escaped[last:]))
+	out.WriteString(mrkdwnBold(escaped[last:]))
 	return template.HTML(strings.ReplaceAll(out.String(), "\n", "<br>")) //nolint:gosec // escaped above; only fixed tags inserted
 }
 
-func mrkdwnSpans(text string) string {
-	text = mrkdwnLink.ReplaceAllStringFunc(text, func(match string) string {
-		groups := mrkdwnLink.FindStringSubmatch(match)
-		label, href, tail := groups[1], groups[2], ""
-		if href == "" {
-			// A bare URL. Neither the sentence's closing punctuation nor the
-			// escaped ">" of Slack's <url|label> spelling is part of it.
-			href = groups[3]
-			if cut, _, found := strings.Cut(href, "&gt;"); found {
-				href = cut
-			}
-			href = strings.TrimRight(href, ".,;:!?")
-			label, tail = href, strings.TrimPrefix(match, href)
+// mrkdwnSpanHTML renders whichever alternative of mrkdwnSpan matched. The
+// group indexes are the alternation's, in order: link label, link href, code
+// body, bare URL.
+func mrkdwnSpanHTML(escaped string, span []int) string {
+	group := func(n int) string {
+		if span[2*n] < 0 {
+			return ""
 		}
-		return `<a href="` + href + `" target="_blank" rel="noopener noreferrer">` + label + `</a>` + tail
-	})
+		return escaped[span[2*n]:span[2*n+1]]
+	}
+	if href := group(2); href != "" {
+		// A link's label is prose of its own and keeps its code and bold.
+		return anchor(href, mrkdwnBold(mrkdwnCodeSpans(group(1))))
+	}
+	if code := group(3); code != "" {
+		return "<code>" + code + "</code>"
+	}
+	// A bare URL. Neither the sentence's closing punctuation nor the escaped
+	// ">" of Slack's <url|label> spelling is part of it.
+	href := group(4)
+	if cut, _, found := strings.Cut(href, "&gt;"); found {
+		href = cut
+	}
+	trimmed := strings.TrimRight(href, ".,;:!?")
+	return anchor(trimmed, trimmed) + strings.TrimPrefix(href, trimmed)
+}
+
+func anchor(href, label string) string {
+	return `<a href="` + href + `" target="_blank" rel="noopener noreferrer">` + label + `</a>`
+}
+
+func mrkdwnCodeSpans(text string) string {
+	return mrkdwnCode.ReplaceAllString(text, "<code>$1</code>")
+}
+
+var mrkdwnCode = regexp.MustCompile("`([^`\n]+)`")
+
+func mrkdwnBold(text string) string {
 	text = mrkdwnBoldMd.ReplaceAllString(text, "<strong>$1</strong>")
 	return mrkdwnBoldSlack.ReplaceAllString(text, "<strong>$1</strong>")
 }
