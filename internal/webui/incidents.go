@@ -6,10 +6,11 @@ import (
 	"time"
 )
 
-// Room is an incident: the container a whole conversation of work happens in,
-// as opposed to an episode, which is one turn of it. Four exist and none was
-// reachable, so the three pull requests Responder has opened were visible only
-// in GitHub.
+// Room is the container a whole conversation of work happens in, as opposed to
+// an episode, which is one turn of it. Two kinds share the table: an
+// engineering task someone asked for, and an incident an alert opened. Four
+// existed and none was reachable, so the three pull requests Responder had
+// opened were visible only in GitHub.
 type Room struct {
 	ID, Title, Status, Workflow string
 	Repository, Channel, Kind   string
@@ -17,6 +18,23 @@ type Room struct {
 	PRNumber                    int
 	PRState, Checks             string
 	Created, Updated            time.Time
+}
+
+// IsTask reports whether this room is an engineering task rather than an
+// alert-driven incident. Both live in the incidents table — it is the
+// container for a whole conversation of work — but they are different things
+// to an operator: one was asked for and ends in a pull request, the other
+// fired on its own.
+func (r Room) IsTask() bool {
+	return r.Kind == "engineering_task"
+}
+
+// Noun names the room in the singular, for prose that has to refer to one.
+func (r Room) Noun() string {
+	if r.IsTask() {
+		return "engineering task"
+	}
+	return "incident room"
 }
 
 func (r *Reader) Rooms(ctx context.Context) ([]Room, error) {

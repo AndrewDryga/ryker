@@ -303,14 +303,6 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 // episodePageSize keeps one page readable; the pager reaches the rest.
 const episodePageSize = 50
 
-// episodes lists the work, optionally narrowed to one slice of it.
-//
-// The filter is what makes the Usage breakdowns openable, and the search box
-// is what makes eight hundred episodes findable: the query is a plain GET, so
-// a filtered page stays a URL that can be bookmarked or pasted into a thread.
-// Incident rooms are dropped while a filter is active: they are not filtered
-// by it, and an unfiltered table sitting above a filtered list reads as part
-// of the same answer.
 // stateChip is one state filter the operator can click: the state, how many
 // episodes are in it, and the list URL with every other filter term kept.
 type stateChip struct {
@@ -339,6 +331,12 @@ func stateChips(filter EpisodeFilter, counts []StateCount) []stateChip {
 	return chips
 }
 
+// episodes lists the work three ways: where it happens, the long-running rooms
+// it belongs to, and the individual turns in order.
+//
+// The filter is what makes the Usage breakdowns openable, and the search box
+// is what makes eight hundred episodes findable: the query is a plain GET, so
+// a filtered page stays a URL that can be bookmarked or pasted into a thread.
 func (h *Handler) episodes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var failed problems
@@ -349,22 +347,35 @@ func (h *Handler) episodes(w http.ResponseWriter, r *http.Request) {
 	failed.note("episode count", err)
 	states, err := h.reader.EpisodeStateCounts(ctx)
 	failed.note("states", err)
-	rooms := []Room{}
+	// Rooms and the channel roll-up are dropped while a filter is active: they
+	// are not narrowed by it, and an unfiltered summary sitting above a
+	// filtered list reads as part of the same answer.
+	tasks, incidents, channels := []Room{}, []Room{}, []ChannelRoll{}
 	if !filter.Active() {
-		rooms, err = h.reader.Rooms(ctx)
-		failed.note("incident rooms", err)
+		rooms, err := h.reader.Rooms(ctx)
+		failed.note("rooms", err)
+		for _, room := range rooms {
+			if room.IsTask() {
+				tasks = append(tasks, room)
+			} else {
+				incidents = append(incidents, room)
+			}
+		}
+		channels, err = h.reader.ChannelRolls(ctx)
+		failed.note("channel activity", err)
 	}
 	page := struct {
-		Episodes     []Item
-		Rooms        []Room
-		Errs         problems
-		Filter       EpisodeFilter
-		Total        int
-		States       []stateChip
-		From, To     int
-		Older, Newer template.URL
-	}{Episodes: episodes, Rooms: rooms, Errs: failed, Filter: filter,
-		Total: total, States: stateChips(filter, states)}
+		Episodes         []Item
+		Tasks, Incidents []Room
+		Channels         []ChannelRoll
+		Errs             problems
+		Filter           EpisodeFilter
+		Total            int
+		States           []stateChip
+		From, To         int
+		Older, Newer     template.URL
+	}{Episodes: episodes, Tasks: tasks, Incidents: incidents, Channels: channels,
+		Errs: failed, Filter: filter, Total: total, States: stateChips(filter, states)}
 	page.From, page.To = filter.Offset+1, filter.Offset+len(episodes)
 	if filter.Offset+episodePageSize < total {
 		page.Older = episodesURL(filter, filter.Offset+episodePageSize)

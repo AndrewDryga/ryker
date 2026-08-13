@@ -98,3 +98,95 @@ func TestEpisodeSearchMatchesTitlesAndStatusAndPaginates(t *testing.T) {
 		}
 	}
 }
+
+// The channel roll-up is the answer to "where is work happening", which the
+// flat episode list could only answer by reading six hundred channel columns.
+// Its outcome bar has to tile exactly: a segment that rounds away leaves a gap
+// that reads as work nobody accounted for.
+func TestChannelRollsGroupWorkAndTileTheirOutcomeBar(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	live, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := func(channel, source string) core.WorkEpisode {
+		t.Helper()
+		run, created, err := live.QueueAgentRun(ctx, core.AgentRun{
+			Mode: core.AgentRunTriage, ChannelID: channel,
+			ConversationKey: "thread:" + channel + ":" + source, SourceKind: "watch",
+			SourceID: source, Prompt: "Investigate " + source, CommitmentTitle: "Work in " + channel,
+		})
+		if err != nil || !created {
+			t.Fatalf("queue %s: created=%t err=%v", source, created, err)
+		}
+		episode, err := live.GetWorkEpisodeByRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return episode
+	}
+	finish := func(episode core.WorkEpisode, state core.WorkEpisodeState) {
+		t.Helper()
+		if err := live.SetEpisodePhase(ctx, episode.ID, state, "finished",
+			"done", "", time.Time{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	finish(queue("COPS", "a"), core.EpisodeCompleted)
+	finish(queue("COPS", "b"), core.EpisodeCompleted)
+	finish(queue("COPS", "c"), core.EpisodeFailed)
+	queue("COPS", "d") // still accepted: in flight, neither done nor failed
+	finish(queue("CQUIET", "e"), core.EpisodeCompleted)
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReader(filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	rolls, err := reader.ChannelRolls(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ChannelRoll{}
+	for _, roll := range rolls {
+		byID[roll.ID] = roll
+	}
+	if len(rolls) != 2 {
+		t.Fatalf("rolls = %d, want one per channel that has work", len(rolls))
+	}
+	ops := byID["COPS"]
+	if ops.Total != 4 || ops.Done != 2 || ops.Failed != 1 || ops.Other != 1 {
+		t.Fatalf("COPS = %+v, want 4 total split 2 done, 1 failed, 1 other", ops)
+	}
+	if ops.InFlight != 1 {
+		t.Fatalf("COPS in flight = %d, want the unfinished episode counted", ops.InFlight)
+	}
+	for _, roll := range rolls {
+		if width := roll.DoneW + roll.FailedW + roll.OtherW; width != 100 {
+			t.Fatalf("%s bar spans %d units, want the segments to tile exactly", roll.ID, width)
+		}
+		if roll.FailedX != roll.DoneW || roll.OtherX != roll.DoneW+roll.FailedW {
+			t.Fatalf("%s segments overlap or leave a gap: %+v", roll.ID, roll)
+		}
+	}
+}
+
+// A count that is real must not round away to nothing, and the bar must still
+// add up: one failure among a thousand successes is the row an operator is
+// looking for.
+func TestOutcomeWidthsKeepSmallSharesVisible(t *testing.T) {
+	done, failed, other := outcomeWidths(999, 1, 0)
+	if failed == 0 {
+		t.Fatal("a real failure rounded away to nothing")
+	}
+	if done+failed+other != 100 {
+		t.Fatalf("widths = %d+%d+%d, want 100", done, failed, other)
+	}
+	if done, failed, other = outcomeWidths(0, 0, 0); done+failed+other != 0 {
+		t.Fatalf("empty channel drew %d+%d+%d units", done, failed, other)
+	}
+}

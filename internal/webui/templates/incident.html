@@ -5,7 +5,7 @@
   <div class="title"><strong>{{.Title}}</strong></div>
   <div class="meta">
     <span class="pill{{if eq .Status "closed"}} good{{end}}">{{.Status}}</span>
-    {{.Kind}} · {{.Repository}} · {{.Channel}} · opened {{stamp .Created}}
+    {{.Noun}} · {{.Repository}} · {{.Channel}} · opened {{stamp .Created}}
   </div>
   {{if and .CanAct (ne .Status "closed")}}
   <div class="acts">

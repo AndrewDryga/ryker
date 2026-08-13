@@ -1432,6 +1432,121 @@ type ChannelSetting struct {
 	On                      bool
 }
 
+// ChannelRoll is one channel's whole history at a glance: how much work has
+// happened there, how it turned out, and whether anything is live right now.
+//
+// The episodes list answers "what happened" and could answer "where" only by
+// reading the channel column of six hundred rows. Work is not evenly spread —
+// three channels hold most of it — so the shape of the fleet is a fact the
+// list buried.
+type ChannelRoll struct {
+	ID, Name                string
+	Repository              string
+	Participation           string
+	Total                   int
+	Done, Failed, Other     int
+	InFlight, NeedsDecision int
+	Last                    time.Time
+	// Segment widths for the outcome bar, in units of 100 and summing to 100
+	// exactly. Computed here because a template cannot do arithmetic and the
+	// stylesheet cannot carry data.
+	DoneW, FailedW, OtherW int
+	FailedX, OtherX        int
+	// counterpart is the person on the other side of a direct message, used
+	// only to name the card.
+	counterpart string
+}
+
+// ChannelRolls groups every recorded episode by the channel it happened in.
+//
+// Direct messages and channels Responder has since left are kept: the work is
+// on record and a page that silently drops it under-reports what ran. Rows
+// with no channel at all — webhook-only work — are excluded, because there is
+// no channel page to send them to.
+func (r *Reader) ChannelRolls(ctx context.Context) ([]ChannelRoll, error) {
+	rolls, err := collect(ctx, r, `
+	  SELECT e.channel_id, COUNT(*),
+	         SUM(e.lifecycle_state = 'completed'),
+	         SUM(e.lifecycle_state IN ('failed','dead')),
+	         SUM(e.lifecycle_state IN ('accepted','acknowledged','planning','working','retrying','verifying')),
+	         SUM(e.lifecycle_state IN ('blocked','waiting_operator','waiting_approval')),
+	         MAX(e.updated_at),
+	         COALESCE(c.repository,''), COALESCE(c.participation,''),
+	         COALESCE((SELECT s.user_id FROM slack_inputs AS s
+	                   WHERE s.channel_id = e.channel_id AND s.user_id <> ''
+	                   ORDER BY s.received_at DESC LIMIT 1), '')
+	  FROM work_episodes AS e
+	  LEFT JOIN channel_configurations AS c ON c.channel_id = e.channel_id
+	  WHERE e.channel_id <> ''
+	  GROUP BY e.channel_id
+	  ORDER BY MAX(e.updated_at) DESC`, func(rows *sql.Rows) (ChannelRoll, error) {
+		var item ChannelRoll
+		var last string
+		err := rows.Scan(&item.ID, &item.Total, &item.Done, &item.Failed,
+			&item.InFlight, &item.NeedsDecision, &last, &item.Repository,
+			&item.Participation, &item.counterpart)
+		item.Last = parseStamp(last)
+		return item, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	for index := range rolls {
+		roll := &rolls[index]
+		roll.Name = r.rollName(ctx, *roll)
+		roll.Other = max(roll.Total-roll.Done-roll.Failed, 0)
+		roll.DoneW, roll.FailedW, roll.OtherW = outcomeWidths(roll.Done, roll.Failed, roll.Other)
+		roll.FailedX = roll.DoneW
+		roll.OtherX = roll.DoneW + roll.FailedW
+	}
+	return rolls, nil
+}
+
+// rollName labels a card in a grid, where every other label is a channel name.
+// A direct message has no channel name, and channelName answers "direct
+// message" for all of them — correct in a sentence, useless in a list, where
+// two cards then carry the same title and neither says whose conversation it
+// is. The person comes first when their name is known, and the raw id is the
+// fallback because an ambiguous card is worse than an ugly one.
+func (r *Reader) rollName(ctx context.Context, roll ChannelRoll) string {
+	if !strings.HasPrefix(roll.ID, "D") {
+		return r.channelName(ctx, roll.ID)
+	}
+	if name := r.userName(roll.counterpart); name != "" && name != roll.counterpart {
+		return "direct message with " + strings.TrimPrefix(name, "@")
+	}
+	return "direct message · " + roll.ID
+}
+
+// outcomeWidths splits a bar of 100 units across three counts without letting
+// rounding lose or invent a unit: the remainder goes to whichever share is
+// largest, so the segments always tile the bar exactly. A non-zero count keeps
+// at least one unit, because a real outcome must not round away to nothing.
+func outcomeWidths(done, failed, other int) (int, int, int) {
+	total := done + failed + other
+	if total == 0 {
+		return 0, 0, 0
+	}
+	widths := []int{percent(done, total), percent(failed, total), percent(other, total)}
+	for index, count := range []int{done, failed, other} {
+		if count > 0 && widths[index] == 0 {
+			widths[index] = 1
+		}
+	}
+	sum := widths[0] + widths[1] + widths[2]
+	largest := 0
+	for index, width := range widths {
+		if width > widths[largest] {
+			largest = index
+		}
+	}
+	widths[largest] += 100 - sum
+	if widths[largest] < 0 {
+		widths[largest] = 0
+	}
+	return widths[0], widths[1], widths[2]
+}
+
 // ChannelDetail is everything the dashboard knows about one channel.
 type ChannelDetail struct {
 	ID, Name, Repository, Participation, AlertPolicy string

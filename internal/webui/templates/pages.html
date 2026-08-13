@@ -133,12 +133,74 @@ work still to do.</p>
 {{else}}<p class="empty">No episode matches this filter.</p>{{end}}
 {{template "pager" .}}
 {{else}}
-<h2>Incident rooms <span class="note">{{len .Rooms}}</span></h2>
-{{if .Rooms}}
-<p class="note">A room is one whole conversation of work; each episode is one turn of it.</p>
+
+<h2>Where work happens <span class="note">{{len .Channels}} {{if eq (len .Channels) 1}}channel{{else}}channels{{end}}</span></h2>
+{{if .Channels}}
+<p class="note">Every conversation Responder has worked in, busiest first. The bar is how that
+channel's work turned out.</p>
+<div class="chan-grid">
+  {{range .Channels}}
+  <div class="chan-card">
+    <div class="chan-head">
+      <a class="chan-name" href="/episodes?channel={{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</a>
+      <span class="note">{{since .Last}}</span>
+    </div>
+    <svg class="chan-bar" viewBox="0 0 100 4" width="100%" height="4" preserveAspectRatio="none" role="img"
+         aria-label="{{.Done}} completed, {{.Failed}} failed, {{.Other}} ended another way">
+      {{if .DoneW}}<rect class="chan-done" x="0" y="0" width="{{.DoneW}}" height="4"/>{{end}}
+      {{if .FailedW}}<rect class="chan-failed" x="{{.FailedX}}" y="0" width="{{.FailedW}}" height="4"/>{{end}}
+      {{if .OtherW}}<rect class="chan-other" x="{{.OtherX}}" y="0" width="{{.OtherW}}" height="4"/>{{end}}
+    </svg>
+    <div class="chan-counts">
+      <span><strong>{{.Total}}</strong> episodes</span>
+      <span class="good"><strong>{{.Done}}</strong> completed</span>
+      {{if .Failed}}<span class="bad"><strong>{{.Failed}}</strong> failed</span>{{end}}
+      {{if .Other}}<span><strong>{{.Other}}</strong> ended another way</span>{{end}}
+    </div>
+    {{if or .InFlight .NeedsDecision}}
+    <div class="chan-live">
+      {{if .InFlight}}<span class="pill">{{.InFlight}} in flight</span>{{end}}
+      {{if .NeedsDecision}}<span class="pill warn">{{.NeedsDecision}} waiting on you</span>{{end}}
+    </div>
+    {{end}}
+    <div class="chan-foot">
+      {{if .Repository}}<span class="mono">{{.Repository}}</span>{{if .Participation}} · {{.Participation}}{{end}}
+      {{else}}<span class="note">no repository bound</span>{{end}}
+      · <a href="/channels/{{.ID}}">settings and memory →</a>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{else}}<p class="empty">No work is on record in any channel yet.</p>{{end}}
+
+{{if .Tasks}}
+<h2>Engineering tasks <span class="note">{{len .Tasks}}</span></h2>
+<p class="note">Work someone asked Responder to carry out in a repository. Each one runs in its own
+workspace and ends in a pull request; the episodes below are its individual turns.</p>
+{{template "roomtable" .Tasks}}
+{{end}}
+
+{{if .Incidents}}
+<h2>Incident rooms <span class="note">{{len .Incidents}}</span></h2>
+<p class="note">An alert that opened a room of its own. Each episode below is one turn of the response.</p>
+{{template "roomtable" .Incidents}}
+{{end}}
+
+<h2>Episodes <span class="note">{{.Total}} recorded{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
+{{if .Episodes}}
+<p class="note">One episode is one turn of work: something arrived, Responder decided what to do
+about it, and did it.</p>
+{{template "episoderows" .Episodes}}
+{{else}}<p class="empty">No episodes yet. One appears the first time Responder accepts work
+from Slack or a webhook.</p>{{end}}
+{{template "pager" .}}
+{{end}}
+{{end}}
+
+{{define "roomtable"}}
 <table>
-  <tr><th>Room</th><th>Status</th><th>Repository</th><th>Channel</th><th class="num">Episodes</th><th>Pull request</th><th>Last change</th></tr>
-  {{range .Rooms}}
+  <tr><th>What was asked</th><th>Status</th><th>Repository</th><th>Channel</th><th class="num">Episodes</th><th>Pull request</th><th>Last change</th></tr>
+  {{range .}}
   <tr><td><a href="/incidents/{{.ID}}">{{truncate 70 .Title}}</a></td>
       <td><span class="pill{{if eq .Status "closed"}} good{{end}}">{{.Status}}</span></td>
       <td class="mono">{{.Repository}}</td><td>{{.Channel}}</td>
@@ -147,15 +209,6 @@ work still to do.</p>
       <td class="note">{{since .Updated}}</td></tr>
   {{end}}
 </table>
-{{else}}<p class="empty">No incident room has been opened.</p>{{end}}
-
-<h2>Episodes <span class="note">{{.Total}} recorded{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
-{{if .Episodes}}
-{{template "episoderows" .Episodes}}
-{{else}}<p class="empty">No episodes yet. One appears the first time Responder accepts work
-from Slack or a webhook.</p>{{end}}
-{{template "pager" .}}
-{{end}}
 {{end}}
 
 {{define "episoderows"}}
