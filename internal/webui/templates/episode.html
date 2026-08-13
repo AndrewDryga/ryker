@@ -95,6 +95,12 @@
           </div>
           {{end}}
 
+          {{if .Inventory}}
+          <div class="inventory" aria-label="What went into the briefing">
+            {{range .Inventory}}<span class="inv{{if .On}} on{{end}}{{if .Tone}} tone-{{.Tone}}{{end}}">{{.Label}}</span>{{end}}
+          </div>
+          {{end}}
+
           {{if .Why}}
           <div class="trace-why">
             <span>Why</span>

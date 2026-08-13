@@ -77,10 +77,15 @@ type TraceStep struct {
 	Chip string
 	// Bar is this kind's micro-visualization — the briefing's token
 	// composition, a turn's fresh/cached/output split — or nil.
-	Bar     *StepBar
-	Stats   []TraceStat
-	Details []TraceDetail
-	order   int
+	Bar *StepBar
+	// Inventory is the briefing's include list: which context systems fired
+	// for this turn and which stayed quiet. Reading "no operational memory"
+	// on one episode and "operational memory · 4" on the next is how the
+	// memory machinery becomes legible.
+	Inventory []InventoryChip
+	Stats     []TraceStat
+	Details   []TraceDetail
+	order     int
 	// band is the minimum chapter this step belongs to; -1 derives it from the
 	// stage. Chapters are assigned forward-only over the chronological list, so
 	// a wake-up scheduled mid-work stays with the work instead of teleporting
@@ -98,6 +103,12 @@ type StepBar struct {
 type BarSlice struct {
 	Label, Value, Class string
 	X, W                int
+}
+
+// InventoryChip is one entry in a briefing's include list.
+type InventoryChip struct {
+	Label, Tone string
+	On          bool
 }
 
 // TraceChapter is one act of the episode: what came in, the work, the answer,
@@ -298,9 +309,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			})
 		}
 		var composition *StepBar
+		briefTokens := 0
 		if prompt != "" {
 			segments := promptSegments(present(prompt))
-			composition = promptCompositionBar(segments)
+			composition, briefTokens = promptCompositionBar(segments)
 			promptDetails = append(promptDetails, TraceDetail{
 				Label: "Final submitted prompt", Body: present(prompt), Kind: "prompt",
 				Status: "Exact model input", Tone: "prompt", Open: true,
@@ -316,10 +328,11 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		}
 		add(TraceStep{
 			ID: promptID, Stage: "Context", Actor: "Responder", State: "recorded", Icon: "doc",
-			Title: "Model briefed", Summary: promptStepSummary(manifest, memoryLayers), At: manifest.Created,
-			Bar:     composition,
-			Stats:   []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Context refs", fmt.Sprint(len(manifest.Refs))}, {"Memory layers", fmt.Sprint(memoryLayers)}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
-			Details: promptDetails,
+			Title: "Model briefed", Summary: promptStepSummary(manifest, memoryLayers, briefTokens), At: manifest.Created,
+			Bar:       composition,
+			Inventory: briefingInventory(prompt, manifest),
+			Stats:     []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
+			Details:   promptDetails,
 		})
 	}
 
@@ -1140,7 +1153,10 @@ func sourceKindLabel(source SourceInput) string {
 	return strings.ReplaceAll(source.Kind, "_", " ")
 }
 
-func promptStepSummary(manifest ManifestRow, memoryLayers int) string {
+func promptStepSummary(manifest ManifestRow, memoryLayers, totalTokens int) string {
+	if totalTokens > 0 {
+		return "~" + humanTokens(int64(totalTokens)) + " tokens went to the model, kept exactly as sent."
+	}
 	parts := countList([]countPart{
 		{len(manifest.Refs), "context component", "context components"},
 		{memoryLayers, "memory layer", "memory layers"},
@@ -1344,9 +1360,9 @@ func auditIcon(kind string) string {
 // promptCompositionBar reduces the exact submitted prompt to the question an
 // operator actually asks of it: how much of the model's attention went to
 // instructions, memory, the Slack conversation, and the request itself.
-func promptCompositionBar(segments []PromptSegment) *StepBar {
+func promptCompositionBar(segments []PromptSegment) (*StepBar, int) {
 	if len(segments) == 0 {
-		return nil
+		return nil, 0
 	}
 	families := []struct {
 		label, class string
@@ -1373,9 +1389,9 @@ func promptCompositionBar(segments []PromptSegment) *StepBar {
 		total += segment.Tokens
 	}
 	if total == 0 {
-		return nil
+		return nil, 0
 	}
-	bar := &StepBar{Note: "~" + humanTokens(int64(total)) + " tokens, estimated from text length"}
+	bar := &StepBar{Note: "shares estimated from text length"}
 	for _, family := range families {
 		if family.tokens == 0 {
 			continue
@@ -1386,7 +1402,7 @@ func promptCompositionBar(segments []PromptSegment) *StepBar {
 			W:     max(family.tokens*1000/total, 8),
 		})
 	}
-	return layoutBar(bar)
+	return layoutBar(bar), total
 }
 
 // usageBar draws what a turn's tokens were made of. Cached input dominating
@@ -1556,20 +1572,8 @@ func slackReactionDisplay(name string) string {
 // a wall of instructions. It deliberately does not infer a layer when the
 // prompt predates retention or when a field is absent.
 func promptContextDetails(prompt string, present func(string) string) ([]TraceDetail, int) {
-	const open = "<untrusted-slack-context>\n"
-	const close = "\n</untrusted-slack-context>"
-	start := strings.LastIndex(prompt, open)
-	if start < 0 {
-		return nil, 0
-	}
-	start += len(open)
-	end := strings.Index(prompt[start:], close)
-	if end < 0 {
-		return nil, 0
-	}
-
-	var envelope map[string]json.RawMessage
-	if json.Unmarshal([]byte(prompt[start:start+end]), &envelope) != nil {
+	envelope, ok := promptEnvelope(prompt)
+	if !ok {
 		return nil, 0
 	}
 	details := make([]TraceDetail, 0, len(envelope)+12)
@@ -1660,6 +1664,85 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 		details = append(details, detail)
 	}
 	return details, layerCount
+}
+
+// promptEnvelope extracts the typed context envelope from a retained prompt.
+func promptEnvelope(prompt string) (map[string]json.RawMessage, bool) {
+	const open = "<untrusted-slack-context>\n"
+	const close = "\n</untrusted-slack-context>"
+	start := strings.LastIndex(prompt, open)
+	if start < 0 {
+		return nil, false
+	}
+	start += len(open)
+	end := strings.Index(prompt[start:], close)
+	if end < 0 {
+		return nil, false
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal([]byte(prompt[start:start+end]), &envelope) != nil {
+		return nil, false
+	}
+	return envelope, true
+}
+
+// briefingInventory is the include list on the Model briefed card: each
+// context system that could have contributed, with what it contributed this
+// turn or the fact that it stayed quiet.
+func briefingInventory(prompt string, manifest ManifestRow) []InventoryChip {
+	envelope, ok := promptEnvelope(prompt)
+	if !ok {
+		return nil
+	}
+	chips := []InventoryChip{}
+	add := func(on bool, onLabel, offLabel string) {
+		label := offLabel
+		if on {
+			label = onLabel
+		}
+		chips = append(chips, InventoryChip{Label: label, On: on})
+	}
+	counted := func(count int, noun, offLabel string) {
+		add(count > 0, fmt.Sprintf("%s · %d", noun, count), offLabel)
+	}
+	sumEntries := func(raw json.RawMessage) int {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil {
+			return contextEntryCount(raw)
+		}
+		total := 0
+		for _, value := range fields {
+			if !emptyJSON(value) {
+				total += contextEntryCount(value)
+			}
+		}
+		return total
+	}
+
+	sourceKey, _ := firstPromptField(envelope, "target_message", "source_message")
+	add(sourceKey != "", "source message", "no source message")
+	_, recent := firstPromptField(envelope, "recent_messages_around_target", "recent_messages", "recent_channel_messages")
+	counted(contextEntryCount(recent), "recent messages", "no recent messages")
+	_, conversation := firstPromptField(envelope, "structured_memory", "conversation_situation")
+	counted(sumEntries(conversation), "conversation memory", "no conversation memory")
+	_, operational := firstPromptField(envelope, "prior_operational_context")
+	counted(sumEntries(operational), "operational memory", "no operational memory")
+	_, related := firstPromptField(envelope, "related_situations")
+	counted(contextEntryCount(related), "related conversations", "no related conversations")
+	var repository string
+	_ = json.Unmarshal(envelope["repository"], &repository)
+	add(strings.TrimSpace(repository) != "", "repository · "+repository, "no repository")
+	threadKey, _ := firstPromptField(envelope, "referenced_thread")
+	add(threadKey != "", "referenced thread", "no referenced thread")
+	attachmentsKey, _ := firstPromptField(envelope, "attachments")
+	add(attachmentsKey != "", "attachments", "no attachments")
+	if correctionsKey, _ := firstPromptField(envelope, "structured_corrections", "reply_shape_corrections"); correctionsKey != "" {
+		chips = append(chips, InventoryChip{Label: "retry corrections", On: true, Tone: "warn"})
+	}
+	if len(manifest.Omissions) > 0 {
+		chips = append(chips, InventoryChip{Label: "trimmed to fit", On: true, Tone: "warn"})
+	}
+	return chips
 }
 
 func firstPromptField(envelope map[string]json.RawMessage, keys ...string) (string, json.RawMessage) {
@@ -1998,23 +2081,17 @@ func evidenceMemoryBody(raw json.RawMessage, present func(string) string) string
 // on rate limits. The manifest records the effective answerer, so a rotated
 // turn shows the fallback that ran, not the first rung that was configured.
 func modelSelectionWhy(manifest ManifestRow) string {
-	target := strings.TrimSpace(manifest.Provider + "/" + manifest.Model)
-	if target == "/" {
-		target = "an unrecorded target"
-	}
-	effort := fallback(manifest.Effort, "an unrecorded")
-	answered := fmt.Sprintf("%s at %s effort is what actually answered this attempt.", target, effort)
 	if manifest.Preset == "" {
-		return answered + " No Coop policy was recorded, so the routing source is unknown."
+		return "No Coop policy was recorded for this attempt, so the routing source is unknown."
 	}
-	source := fmt.Sprintf("Coop policy %s's", manifest.Preset)
 	if repository := manifestRepository(manifest.Refs); repository != "" {
-		source = fmt.Sprintf("this channel's repository binding (%s) names Coop policy %s, whose",
+		return fmt.Sprintf(
+			"Routing is set statically in the configuration. This channel's repository binding (%s) names Coop policy %s, whose model ladder picks what runs and rotates on rate limits.",
 			repository, manifest.Preset)
 	}
 	return fmt.Sprintf(
-		"Routing is configuration, not a per-message choice: %s model ladder picks what runs and rotates on rate limits. %s",
-		source, answered)
+		"Routing is set statically in the configuration. Coop policy %s's model ladder picks what runs and rotates on rate limits.",
+		manifest.Preset)
 }
 
 // manifestRepository names the repository the attempt was bound to, from the

@@ -155,16 +155,19 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Provider</small><strong>claude",
 		"Model</small><strong>opus",
 		"Reasoning</small><strong>high",
-		"Routing is configuration, not a per-message choice",
+		"Routing is set statically in the configuration.",
 		"Coop policy emisar-conversation",
-		"claude/opus at high effort is what actually answered this attempt.",
 		"Model briefed",
 		"Slack conversation",
 		"Sent to model",
 		"Not sent",
 		"SYSTEM: Keep durable settings typed.",
 		"USER: @Emisar it would be better if plan summaries showed before and after values",
-		"Memory layers</small><strong>3",
+		"tokens went to the model, kept exactly as sent.",
+		"conversation memory · 2",
+		"operational memory · 1",
+		"related conversations · 1",
+		"no recent messages",
 		"Operational memory",
 		"Operational memory · Confirmed memory (1)",
 		"Conversation memory",
@@ -455,7 +458,7 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 // must group every segment tone, keep real slivers visible, and lay out to
 // exactly the whole strip.
 func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
-	bar := promptCompositionBar([]PromptSegment{
+	bar, total := promptCompositionBar([]PromptSegment{
 		{Tone: "system", Tokens: 700},
 		{Tone: "structure", Tokens: 20},
 		{Tone: "operational", Tokens: 90},
@@ -465,6 +468,9 @@ func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
 	})
 	if bar == nil || len(bar.Slices) != 4 {
 		t.Fatalf("composition = %+v, want four families", bar)
+	}
+	if total != 983 {
+		t.Fatalf("composition total = %d, want 983", total)
 	}
 	if bar.Slices[0].Label != "Instructions" || bar.Slices[1].Label != "Memory" ||
 		bar.Slices[2].Label != "Slack" || bar.Slices[3].Label != "Request" {
@@ -485,6 +491,38 @@ func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
 	}
 	if !strings.Contains(bar.Note, "estimated") {
 		t.Fatalf("note does not say the tokens are estimates: %q", bar.Note)
+	}
+}
+
+// The briefed card's inventory says which context systems fired and which
+// stayed quiet, counted from the envelope that was actually sent.
+func TestBriefingInventoryListsFiredAndQuietSystems(t *testing.T) {
+	prompt := "SYSTEM\n<untrusted-slack-context>\n" +
+		`{"target_message":{"text":"check"},"recent_messages":[{"text":"a"},{"text":"b"}],` +
+		`"structured_memory":{"goal":"g","decisions":["d1","d2"]},"repository":"tenant-platform",` +
+		`"reply_shape_corrections":{"attempt":1}}` +
+		"\n</untrusted-slack-context>\nUSER: check"
+	chips := briefingInventory(prompt, ManifestRow{Omissions: []string{"trimmed tail"}})
+	byLabel := map[string]InventoryChip{}
+	for _, chip := range chips {
+		byLabel[chip.Label] = chip
+	}
+	for _, on := range []string{
+		"source message", "recent messages · 2", "conversation memory · 3",
+		"repository · tenant-platform", "retry corrections", "trimmed to fit",
+	} {
+		if !byLabel[on].On {
+			t.Fatalf("inventory missing fired chip %q: %+v", on, chips)
+		}
+	}
+	for _, off := range []string{"no operational memory", "no related conversations", "no attachments"} {
+		chip, found := byLabel[off]
+		if !found || chip.On {
+			t.Fatalf("inventory missing quiet chip %q: %+v", off, chips)
+		}
+	}
+	if byLabel["retry corrections"].Tone != "warn" || byLabel["trimmed to fit"].Tone != "warn" {
+		t.Fatalf("trouble chips are not amber: %+v", chips)
 	}
 }
 
