@@ -511,7 +511,7 @@ func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 		deploymentName(h.cfg.StateDir),
 		reader.Schema(context.Background()),
 		version.Version,
-		func() bool { ready, _ := h.service.Ready(context.Background()); return ready },
+		func() (bool, string) { return h.service.Ready(context.Background()) },
 		h.cfg.Pricing,
 		h.cfg.Repositories,
 		&dashboardActions{store: h.store, service: h.service, cfg: h.cfg},

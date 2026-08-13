@@ -611,7 +611,7 @@ func TestArtifactRouteServesRetainedBodiesAsInertText(t *testing.T) {
 	}
 	defer reader.Close()
 	handler, err := NewHandler(reader, "test", "70", "responder-abc",
-		func() bool { return true }, config.Pricing{}, nil, nil)
+		func() (bool, string) { return true, "" }, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -707,5 +707,54 @@ func TestChannelIDsInFreeTextResolveToNames(t *testing.T) {
 	// Second call comes from the cache the earlier code only claimed to have.
 	if again := reader.resolveChannels(ctx, detail); again != got {
 		t.Errorf("cached lookup disagreed with the first: %q then %q", got, again)
+	}
+}
+
+// An operator watched alerts arrive and nothing happen. The machine knew
+// exactly why — its Docker daemon was down, so Coop could not build the box
+// image and every turn died before it started — and the page said "not ready"
+// in three-point type, which is indistinguishable from a Responder that had
+// decided to stay quiet.
+func TestNotReadyStatesTheReasonItAlreadyKnows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "responder.db")
+	db, err := store.Open(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReader(filepath.Join(filepath.Dir(path), "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	stopped, err := NewHandler(reader, "test", "70", "responder-abc",
+		func() (bool, string) { return false, "Coop unavailable" },
+		config.Pricing{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	stopped.Register(mux)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/configuration", nil))
+	if body := recorder.Body.String(); !strings.Contains(body, "Coop unavailable") {
+		t.Fatalf("a stopped deployment does not say what stopped it: %s", body)
+	}
+
+	// A reason nobody supplied still reads as a state rather than as a blank.
+	bare, err := NewHandler(reader, "test", "70", "responder-abc",
+		func() (bool, string) { return false, "" }, config.Pricing{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bareMux := http.NewServeMux()
+	bare.Register(bareMux)
+	bareRecorder := httptest.NewRecorder()
+	bareMux.ServeHTTP(bareRecorder, httptest.NewRequest(http.MethodGet, "/configuration", nil))
+	if body := bareRecorder.Body.String(); !strings.Contains(body, "not ready") {
+		t.Fatalf("an unexplained stop lost its state entirely: %s", body)
 	}
 }

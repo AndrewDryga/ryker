@@ -17,7 +17,7 @@ import (
 // data, which is the confusion this package exists to end.
 func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	handler, err := NewHandler(&Reader{}, "test", "47", "responder-abc1234",
-		func() bool { return true },
+		func() (bool, string) { return true, "" },
 		config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -24,7 +24,7 @@ type Handler struct {
 	deployment string
 	schema     string
 	binary     string
-	ready      func() bool
+	ready      func() (bool, string)
 	pricing    config.Pricing
 	// repositories is taken by value for the same reason as pricing: it is the
 	// operator's file, and the Memory page has to show a repository that has no
@@ -41,7 +41,7 @@ type Handler struct {
 func NewHandler(
 	reader *Reader,
 	deployment, schema, binary string,
-	ready func() bool,
+	ready func() (bool, string),
 	pricing config.Pricing,
 	repositories map[string]config.Repository,
 	actions Actions,
@@ -51,7 +51,7 @@ func NewHandler(
 		return nil, err
 	}
 	if ready == nil {
-		ready = func() bool { return true }
+		ready = func() (bool, string) { return true, "" }
 	}
 	return &Handler{
 		reader: reader, render: render, deployment: deployment,
@@ -162,7 +162,13 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request, slug, body, tit
 
 func (h *Handler) shell(r *http.Request, slug string, content any) Shell {
 	shell := NewShell(slug, h.deployment, content)
-	shell.Binary, shell.Schema, shell.Ready = h.binary, h.schema, h.ready()
+	shell.Binary, shell.Schema = h.binary, h.schema
+	// The reason, not just the bit. The service computes exactly why it cannot
+	// work — "Coop unavailable", "Slack disconnected" — and this threw the
+	// string away and printed a bare red "not ready", so an operator watching
+	// alerts arrive and nothing happen had no way to tell a stopped execution
+	// environment from a Responder that had decided to stay quiet.
+	shell.Ready, shell.NotReady = h.ready()
 	ctx := r.Context()
 	// A few tiny counts per render, against a local SQLite. The alternative —
 	// badges only on the pages that computed them — made the numbers appear
@@ -291,6 +297,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 		Errs                                 problems
 		Deployment, Binary, Schema           string
 		Ready                                bool
+		NotReady                             string
 	}{
 		Lanes: lanes, Schedules: schedules, Errs: failed,
 		NeedsYou:   h.reader.Count(ctx, countNeedsDecision),
@@ -300,8 +307,9 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 		Blocked:    foldBlocked(blocked),
 		Recent:     recent,
 		Pulse:      buildPulse(activity),
-		Deployment: h.deployment, Binary: h.binary, Schema: h.schema, Ready: h.ready(),
+		Deployment: h.deployment, Binary: h.binary, Schema: h.schema,
 	}
+	page.Ready, page.NotReady = h.ready()
 	// A healthy lane has nothing to say. Fifteen cells of zero said it fifteen
 	// times and buried the one lane that was retrying among them.
 	for _, lane := range lanes {

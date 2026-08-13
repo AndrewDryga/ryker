@@ -22,7 +22,7 @@
   </ul>
   {{end}}
   <div class="foot">
-    <span class="foot-health"><i class="ready-dot{{if not .Ready}} down{{end}}"></i>{{if .Ready}}ready{{else}}not ready{{end}}</span>
+    <span class="foot-health"><i class="ready-dot{{if not .Ready}} down{{end}}"></i>{{if .Ready}}ready{{else}}{{if .NotReady}}{{.NotReady}}{{else}}not ready{{end}}{{end}}</span>
     <span>{{.Binary}}</span>
     <span>schema {{.Schema}}</span>
   </div>

@@ -311,9 +311,10 @@ type Shell struct {
 
 	// The persistent answer to "what am I looking at, and is it alive". Health
 	// used to live only on Overview, which left every other page context-free.
-	Binary string
-	Schema string
-	Ready  bool
+	Binary   string
+	Schema   string
+	Ready    bool
+	NotReady string
 
 	// Badges put the one number that would make someone open a page beside its
 	// name — needs-you on Overview, failures on Failures, corrections on
