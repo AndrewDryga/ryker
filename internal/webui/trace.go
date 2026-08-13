@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
@@ -77,15 +78,10 @@ type TraceStep struct {
 	Chip string
 	// Bar is this kind's micro-visualization — the briefing's token
 	// composition, a turn's fresh/cached/output split — or nil.
-	Bar *StepBar
-	// Inventory is the briefing's include list: which context systems fired
-	// for this turn and which stayed quiet. Reading "no operational memory"
-	// on one episode and "operational memory · 4" on the next is how the
-	// memory machinery becomes legible.
-	Inventory []InventoryChip
-	Stats     []TraceStat
-	Details   []TraceDetail
-	order     int
+	Bar     *StepBar
+	Stats   []TraceStat
+	Details []TraceDetail
+	order   int
 	// band is the minimum chapter this step belongs to; -1 derives it from the
 	// stage. Chapters are assigned forward-only over the chronological list, so
 	// a wake-up scheduled mid-work stays with the work instead of teleporting
@@ -103,12 +99,6 @@ type StepBar struct {
 type BarSlice struct {
 	Label, Value, Class string
 	X, W                int
-}
-
-// InventoryChip is one entry in a briefing's include list.
-type InventoryChip struct {
-	Label, Tone string
-	On          bool
 }
 
 // TraceChapter is one act of the episode: what came in, the work, the answer,
@@ -301,10 +291,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		promptDetails = append(promptDetails, contextReferenceDetails(manifest.Refs, present)...)
 		if len(manifest.Omissions) > 0 {
 			promptDetails = append(promptDetails, TraceDetail{
-				Label: "Manifest omissions", Body: present(strings.Join(manifest.Omissions, "\n")), Kind: "missing",
+				Label: "Trimmed to fit the turn", Body: present(strings.Join(manifest.Omissions, "\n")), Kind: "missing",
 				Status: "Not sent", Tone: "missing", Open: true, ShowCount: true, Count: len(manifest.Omissions),
-				Description: "These sources were assembled or considered, then left out before the model call.",
-				Group:       "Not sent to the model", GroupDetail: "Responder assembled these inputs but omitted them before submission.",
+				Description: promptCapNote + " Layers drop lowest-value first: old evidence, then related summaries, synthesized continuity, and older channel messages.",
+				Group:       "Not sent to the model", GroupDetail: "Responder assembled these inputs, then dropped them before submission to fit the turn.",
 				GroupCount: 1,
 			})
 		}
@@ -329,10 +319,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		add(TraceStep{
 			ID: promptID, Stage: "Context", Actor: "Responder", State: "recorded", Icon: "doc",
 			Title: "Model briefed", Summary: promptStepSummary(manifest, memoryLayers, briefTokens), At: manifest.Created,
-			Bar:       composition,
-			Inventory: briefingInventory(prompt, manifest),
-			Stats:     []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
-			Details:   promptDetails,
+			Bar:     composition,
+			Stats:   []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
+			Details: promptDetails,
 		})
 	}
 
@@ -1579,6 +1568,10 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 	details := make([]TraceDetail, 0, len(envelope)+12)
 	layerCount := 0
 	seen := map[string]bool{}
+	// Sources that stayed quiet fold into one dim line at the end of the
+	// tree instead of a run of grey rows: one glance says which systems
+	// fired, one line says which did not.
+	quiet := []string{}
 
 	// Slack conversation. Alias sets represent schema evolution; only the value
 	// selected by the compiler is shown, never duplicate spellings of it.
@@ -1593,8 +1586,9 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 			seen[alias] = true
 		}
 		if key == "" {
-			key = aliases[0]
-			slack = append(slack, missingPromptFieldDetail(key))
+			if name := quietSlotName(aliases[0]); name != "" {
+				quiet = append(quiet, name)
+			}
 			continue
 		}
 		slack = append(slack, promptFieldDetail(key, raw, present))
@@ -1618,13 +1612,12 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 		for _, alias := range layer.keys {
 			seen[alias] = true
 		}
-		var rows []TraceDetail
 		if key == "" {
-			rows = []TraceDetail{missingMemoryDetail(layer.label, layer.keys[0])}
-		} else {
-			layerCount++
-			rows = memoryLayerDetails(raw, key, layer.label, layer.priority, present)
+			quiet = append(quiet, quietSlotName(layer.keys[0]))
+			continue
 		}
+		layerCount++
+		rows := memoryLayerDetails(raw, key, layer.label, layer.priority, present)
 		details = append(details, markDetailGroup(rows, layer.group, layer.groupDetail)...)
 	}
 
@@ -1635,9 +1628,6 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 	} {
 		seen[key] = true
 		if emptyJSON(envelope[key]) {
-			if key == "context_omitted" {
-				workspace = append(workspace, missingPromptFieldDetail(key))
-			}
 			continue
 		}
 		workspace = append(workspace, promptFieldDetail(key, envelope[key], present))
@@ -1663,8 +1653,36 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 		}
 		details = append(details, detail)
 	}
+	if len(quiet) > 0 {
+		details = append(details, TraceDetail{
+			Label: strings.Join(quiet, " · "), Kind: "missing", Status: "Quiet",
+			Description: "Nothing eligible was selected from these sources for this turn.",
+			Inert:       true,
+			Group:       "Not included this turn", GroupCount: len(quiet),
+		})
+	}
 	return details, layerCount
 }
+
+// quietSlotName is the short human name a quiet context source folds under.
+// Channel plumbing fields return nothing: their absence is not information.
+func quietSlotName(key string) string {
+	return map[string]string{
+		"target_message":                "source message",
+		"recent_messages_around_target": "recent messages",
+		"referenced_thread":             "referenced thread",
+		"attachments":                   "attachments",
+		"prior_operational_context":     "operational memory",
+		"structured_memory":             "conversation memory",
+		"related_situations":            "related conversations",
+	}[key]
+}
+
+// promptCapNote states the budget every turn is trimmed against, from the
+// transport constant that enforces it.
+var promptCapNote = fmt.Sprintf(
+	"Everything sent must fit Coop's %d KiB turn cap (roughly %s tokens).",
+	coop.MaxPromptBytes>>10, humanTokens(int64(coop.MaxPromptBytes/4)))
 
 // promptEnvelope extracts the typed context envelope from a retained prompt.
 func promptEnvelope(prompt string) (map[string]json.RawMessage, bool) {
@@ -1686,65 +1704,6 @@ func promptEnvelope(prompt string) (map[string]json.RawMessage, bool) {
 	return envelope, true
 }
 
-// briefingInventory is the include list on the Model briefed card: each
-// context system that could have contributed, with what it contributed this
-// turn or the fact that it stayed quiet.
-func briefingInventory(prompt string, manifest ManifestRow) []InventoryChip {
-	envelope, ok := promptEnvelope(prompt)
-	if !ok {
-		return nil
-	}
-	chips := []InventoryChip{}
-	add := func(on bool, onLabel, offLabel string) {
-		label := offLabel
-		if on {
-			label = onLabel
-		}
-		chips = append(chips, InventoryChip{Label: label, On: on})
-	}
-	counted := func(count int, noun, offLabel string) {
-		add(count > 0, fmt.Sprintf("%s · %d", noun, count), offLabel)
-	}
-	sumEntries := func(raw json.RawMessage) int {
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(raw, &fields) != nil {
-			return contextEntryCount(raw)
-		}
-		total := 0
-		for _, value := range fields {
-			if !emptyJSON(value) {
-				total += contextEntryCount(value)
-			}
-		}
-		return total
-	}
-
-	sourceKey, _ := firstPromptField(envelope, "target_message", "source_message")
-	add(sourceKey != "", "source message", "no source message")
-	_, recent := firstPromptField(envelope, "recent_messages_around_target", "recent_messages", "recent_channel_messages")
-	counted(contextEntryCount(recent), "recent messages", "no recent messages")
-	_, conversation := firstPromptField(envelope, "structured_memory", "conversation_situation")
-	counted(sumEntries(conversation), "conversation memory", "no conversation memory")
-	_, operational := firstPromptField(envelope, "prior_operational_context")
-	counted(sumEntries(operational), "operational memory", "no operational memory")
-	_, related := firstPromptField(envelope, "related_situations")
-	counted(contextEntryCount(related), "related conversations", "no related conversations")
-	var repository string
-	_ = json.Unmarshal(envelope["repository"], &repository)
-	add(strings.TrimSpace(repository) != "", "repository · "+repository, "no repository")
-	threadKey, _ := firstPromptField(envelope, "referenced_thread")
-	add(threadKey != "", "referenced thread", "no referenced thread")
-	attachmentsKey, _ := firstPromptField(envelope, "attachments")
-	add(attachmentsKey != "", "attachments", "no attachments")
-	if correctionsKey, _ := firstPromptField(envelope, "structured_corrections", "reply_shape_corrections"); correctionsKey != "" {
-		chips = append(chips, InventoryChip{Label: "retry corrections", On: true, Tone: "warn"})
-	}
-	if len(manifest.Omissions) > 0 {
-		chips = append(chips, InventoryChip{Label: "trimmed to fit", On: true, Tone: "warn"})
-	}
-	return chips
-}
-
 func firstPromptField(envelope map[string]json.RawMessage, keys ...string) (string, json.RawMessage) {
 	for _, key := range keys {
 		if !emptyJSON(envelope[key]) {
@@ -1752,23 +1711,6 @@ func firstPromptField(envelope map[string]json.RawMessage, keys ...string) (stri
 		}
 	}
 	return "", nil
-}
-
-func missingPromptFieldDetail(key string) TraceDetail {
-	label, tone := promptFieldPresentation(key)
-	return TraceDetail{
-		Label: label, Body: "No content selected.", Kind: "missing",
-		Status: "Not sent", Description: promptSelectionDescription(key, false), Tone: tone,
-		Inert: true,
-	}
-}
-
-func missingMemoryDetail(label, key string) TraceDetail {
-	return TraceDetail{
-		Label: label, Body: "No content selected.", Kind: "missing",
-		Status: "Not sent", Description: promptSelectionDescription(key, false), Tone: promptTone(key),
-		Inert: true,
-	}
 }
 
 func promptFieldDetail(key string, raw json.RawMessage, present func(string) string) TraceDetail {
@@ -1802,7 +1744,7 @@ func promptSelectionDescription(key string, included bool) string {
 		"conversation_situation":        {"The exact thread summary when available; otherwise the compact channel summary.", "No compact conversation summary was available for this turn."},
 		"related_situations":            {"At most 6 relevance-ranked summaries selected from up to 40 recent candidates.", "None of the recent conversation summaries were relevant enough to include."},
 		"repository":                    {"The repository or repository set chosen for this channel and request.", "No repository was selected for this turn."},
-		"context_omitted":               {"Context removed by deterministic size trimming before submission.", "Nothing was removed from the assembled prompt for size."},
+		"context_omitted":               {promptCapNote + " These notes are sent to the model, so it knows what it is missing.", "Nothing was removed from the assembled prompt for size."},
 	}[key]; ok {
 		if included {
 			return value[0]

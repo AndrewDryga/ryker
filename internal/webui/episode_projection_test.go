@@ -160,14 +160,11 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Model briefed",
 		"Slack conversation",
 		"Sent to model",
-		"Not sent",
 		"SYSTEM: Keep durable settings typed.",
 		"USER: @Emisar it would be better if plan summaries showed before and after values",
 		"tokens went to the model, kept exactly as sent.",
-		"conversation memory · 2",
-		"operational memory · 1",
-		"related conversations · 1",
-		"no recent messages",
+		"Not included this turn",
+		"recent messages · referenced thread · attachments",
 		"Operational memory",
 		"Operational memory · Confirmed memory (1)",
 		"Conversation memory",
@@ -177,7 +174,6 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Prefer threads",
 		"Related conversation summaries (1)",
 		"A prior rollout used the same image.",
-		"Workspace and prompt controls",
 		"Final submitted prompt",
 		"Exact model input",
 		"System instructions",
@@ -491,38 +487,6 @@ func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
 	}
 	if !strings.Contains(bar.Note, "estimated") {
 		t.Fatalf("note does not say the tokens are estimates: %q", bar.Note)
-	}
-}
-
-// The briefed card's inventory says which context systems fired and which
-// stayed quiet, counted from the envelope that was actually sent.
-func TestBriefingInventoryListsFiredAndQuietSystems(t *testing.T) {
-	prompt := "SYSTEM\n<untrusted-slack-context>\n" +
-		`{"target_message":{"text":"check"},"recent_messages":[{"text":"a"},{"text":"b"}],` +
-		`"structured_memory":{"goal":"g","decisions":["d1","d2"]},"repository":"tenant-platform",` +
-		`"reply_shape_corrections":{"attempt":1}}` +
-		"\n</untrusted-slack-context>\nUSER: check"
-	chips := briefingInventory(prompt, ManifestRow{Omissions: []string{"trimmed tail"}})
-	byLabel := map[string]InventoryChip{}
-	for _, chip := range chips {
-		byLabel[chip.Label] = chip
-	}
-	for _, on := range []string{
-		"source message", "recent messages · 2", "conversation memory · 3",
-		"repository · tenant-platform", "retry corrections", "trimmed to fit",
-	} {
-		if !byLabel[on].On {
-			t.Fatalf("inventory missing fired chip %q: %+v", on, chips)
-		}
-	}
-	for _, off := range []string{"no operational memory", "no related conversations", "no attachments"} {
-		chip, found := byLabel[off]
-		if !found || chip.On {
-			t.Fatalf("inventory missing quiet chip %q: %+v", off, chips)
-		}
-	}
-	if byLabel["retry corrections"].Tone != "warn" || byLabel["trimmed to fit"].Tone != "warn" {
-		t.Fatalf("trouble chips are not amber: %+v", chips)
 	}
 }
 
@@ -850,7 +814,7 @@ USER: check this`
 		"@Trevin Miller\ndeploy finished", "Slack channel", "#infra", "Repository selection", "emisar",
 		"A bounded chronological window around the triggering message",
 		"The 10 newest evidence records from this channel",
-		"Not sent", "This request did not resolve to a separate referenced thread",
+		"Not included this turn", "referenced thread · attachments · related conversations",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("readable prompt context missing %q:\n%s", want, joined)
