@@ -1,6 +1,7 @@
 package investigation
 
 import (
+	"github.com/AndrewDryga/responder/internal/core"
 	"strings"
 	"testing"
 )
@@ -46,5 +47,38 @@ func TestAMissingRunbookIsNotABlockerOnItsOwn(t *testing.T) {
 	}
 	if err := validateBlockedCompletion(alsoMissingEvidence); err != nil {
 		t.Fatalf("a real evidence blocker was refused: %v", err)
+	}
+}
+
+// direct_answer — "what is the disk usage on nomad-hst03" — defines no
+// verdicts, because answering a question is not reaching a verdict. The
+// mismatch branch fired anyway and told the model its verdict did not match
+// the contract and to "use one of:" followed by nothing at all. There was no
+// reply it could have written that would pass: fifty-three corrections across
+// eight episodes, every one unanswerable.
+func TestNoVerdictContractTellsTheModelToOmitIt(t *testing.T) {
+	episode := core.WorkEpisode{Objective: "what is the disk usage on nomad-hst03"}
+	contract := Compile(episode)
+	if len(contract.Completion.AllowedVerdicts) != 0 {
+		t.Skip("this conclusion kind now defines verdicts; the deadlock cannot arise")
+	}
+	correction := CompletionCorrection(episode, "reply", nil, &CompletionAssessment{
+		Status: "decision_ready", Verdict: "degraded", Summary: "The disk is at 82%.",
+	})
+	if correction == "" {
+		t.Fatal("a verdict on a no-verdict contract was accepted")
+	}
+	if strings.Contains(correction, "use one of: \n") || strings.HasSuffix(correction, "use one of: ") {
+		t.Fatalf("the correction offers an empty list of verdicts: %q", correction)
+	}
+	if !strings.Contains(correction, "omit completion.verdict") {
+		t.Fatalf("the correction does not say what to do instead: %q", correction)
+	}
+
+	// Omitting it is accepted, so the instruction is one the model can follow.
+	if correction := CompletionCorrection(episode, "reply", nil, &CompletionAssessment{
+		Status: "decision_ready", Summary: "The disk is at 82%.",
+	}); correction != "" {
+		t.Fatalf("omitting the verdict was still corrected: %q", correction)
 	}
 }

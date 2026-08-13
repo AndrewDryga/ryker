@@ -114,3 +114,39 @@ func TestCoverageOperationRejectsUnsupportedStatusWithTheAllowedSet(t *testing.T
 		t.Fatalf("a supported status was rejected: %v", err)
 	}
 }
+
+// Every operation is a verb and a noun, and a model reaching for the noun alone
+// wrote alert_assessment where record_alert_assessment was meant. The whole
+// response was rejected for it — three times in the recorded history, on
+// results that were otherwise complete.
+func TestOperationNamedAfterItsPayloadResolves(t *testing.T) {
+	operation := ResultOperation{
+		ID: "alert-assessment", Type: "alert_assessment",
+		AlertAssessment: &AlertAssessment{
+			Verdict: "not_issue", Impact: "none",
+		},
+	}
+	encoded, err := json.Marshal(operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded ResultOperation
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	// Normalized on the operation itself, because folding, suppression and
+	// completion all switch on this string.
+	if decoded.Type != "record_alert_assessment" {
+		t.Fatalf("type = %q, want it resolved to the real operation", decoded.Type)
+	}
+
+	// An exact match always wins, so a real type can never be shadowed.
+	if got := resolveOperationType("complete_episode"); got != "complete_episode" {
+		t.Fatalf("an exact type was rewritten to %q", got)
+	}
+	// Nothing is invented: a name with no real operation behind it stays put
+	// and is rejected as before.
+	if got := resolveOperationType("teleport_pod"); got != "teleport_pod" {
+		t.Fatalf("an unknown type became %q", got)
+	}
+}

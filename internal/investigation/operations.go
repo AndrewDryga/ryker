@@ -256,6 +256,11 @@ func (operation *ResultOperation) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*operation = ResultOperation(value)
+	// Normalized here rather than at validation, because everything downstream
+	// switches on this string: folding, suppression, completion. Accepting a
+	// name only to have the fold not recognise it would be worse than
+	// rejecting it.
+	operation.Type = resolveOperationType(strings.TrimSpace(operation.Type))
 	return nil
 }
 
@@ -319,6 +324,29 @@ func validateCoverageOperation(o ResultOperation) error {
 		)
 	}
 	return nil
+}
+
+// resolveOperationType accepts an operation named after its payload.
+//
+// Every operation in the prompt's list is a verb and a noun — record_evidence,
+// record_coverage, report_progress — and a model that reaches for the noun
+// alone writes alert_assessment where record_alert_assessment was meant. The
+// whole response was rejected for it, three times in the recorded history, on
+// results that were otherwise complete.
+//
+// A rule rather than a list, and safe by construction: the prefixed name is
+// accepted only if it is itself a real operation, so nothing is invented. An
+// exact match always wins, so this can never shadow a real type.
+func resolveOperationType(kind string) string {
+	if _, ok := resultOperationValidators[kind]; ok {
+		return kind
+	}
+	for _, verb := range []string{"record_", "report_", "update_", "offer_", "request_"} {
+		if _, ok := resultOperationValidators[verb+kind]; ok {
+			return verb + kind
+		}
+	}
+	return kind
 }
 
 func requirePayload(

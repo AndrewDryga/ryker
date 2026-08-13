@@ -432,6 +432,22 @@ func CompletionCorrection(
 			return "completion.verdict is required and must be one of: " +
 				strings.Join(contract.Completion.AllowedVerdicts, ", ")
 		}
+		// A request with no verdict vocabulary is told to omit the verdict,
+		// not handed an empty list to choose from.
+		//
+		// direct_answer — "what is the disk usage on nomad-hst03" — defines no
+		// verdicts, because answering a question is not reaching a verdict.
+		// The mismatch branch below fired anyway, and told the model its
+		// verdict did not match the contract and to "use one of:" followed by
+		// nothing at all. There was no reply it could have written that would
+		// pass. Fifty-three corrections across eight episodes, every one of
+		// them unanswerable.
+		if completion.Verdict != "" && len(contract.Completion.AllowedVerdicts) == 0 {
+			return fmt.Sprintf(
+				"a %s request reaches no verdict; omit completion.verdict and let the summary carry the answer",
+				contract.Completion.ConclusionKind,
+			)
+		}
 		if completion.Verdict != "" &&
 			!slices.Contains(contract.Completion.AllowedVerdicts, completion.Verdict) {
 			return fmt.Sprintf(
