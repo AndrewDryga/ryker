@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: eval-prompts watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -173,6 +173,23 @@ eval-regressions: | $(EVAL_HISTORY)
 		--input "$(REGRESSION_CORPUS)" --repeat $(REGRESSION_REPEAT) \
 		--min-case-pass-rate $(REGRESSION_CASE_RATE) \
 		$(call history,regressions)
+
+# Does the prompt let the model produce a result Responder can use?
+#
+# Not whether the answer is good — that is eval-quality. This asks the narrower
+# question: given what the prompt says, can the model return a response the host
+# accepts without correcting it? The harness runs the host's own correction
+# pipeline against the answer and fails on any correction, so a failure here is
+# a prompt defect by construction: the host had already said everything it was
+# going to say.
+#
+# Every case is drawn from a correction that fired in production. Run it when
+# prompts, contracts, or operation schemas change. It calls a real model, so it
+# is deliberately outside dev-check.
+eval-prompts: | $(EVAL_HISTORY)
+	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/prompts.jsonl \
+		--min-overall-pass-rate 1 --min-case-pass-rate 1 \
+		$(call history,prompts)
 
 eval-live-canary: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/live.jsonl --canary \
