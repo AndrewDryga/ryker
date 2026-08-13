@@ -97,16 +97,32 @@ func (e *TransportError) Unwrap() error { return e.Err }
 // OperationPendingError hands a durable asynchronous operation back to the
 // scheduler before the worker lease expires. Retrying the same request key
 // resumes polling the same Coop operation.
+//
+// Method names what is actually pending: this string becomes the episode's
+// status and its trace card, and "operation op_7a83… is still running" told
+// an operator that something was queued without saying what.
 type OperationPendingError struct {
-	ID    string
-	Cause error
+	ID     string
+	Method string
+	Cause  error
 }
 
 func (e *OperationPendingError) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("Coop operation %s is still running: %v", e.ID, e.Cause)
+	what := "Coop operation " + e.ID + " is still running"
+	switch e.Method {
+	case "CreateSession":
+		what = "Coop is still preparing the model session (operation " + e.ID + ")"
+	case "SubmitTurn":
+		what = "Coop is still starting the model turn (operation " + e.ID + ")"
+	default:
+		if e.Method != "" {
+			what = "Coop is still running " + e.Method + " (operation " + e.ID + ")"
+		}
 	}
-	return "Coop operation " + e.ID + " is still running"
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %v", what, e.Cause)
+	}
+	return what
 }
 
 func (e *OperationPendingError) Unwrap() error       { return e.Cause }
@@ -457,16 +473,16 @@ func (c *Client) CreateSession(
 		}
 		select {
 		case <-ctx.Done():
-			return Session{}, op, &OperationPendingError{ID: op.ID, Cause: ctx.Err()}
+			return Session{}, op, &OperationPendingError{ID: op.ID, Method: op.Method, Cause: ctx.Err()}
 		case <-deadline.C:
-			return Session{}, op, &OperationPendingError{ID: op.ID}
+			return Session{}, op, &OperationPendingError{ID: op.ID, Method: op.Method}
 		case <-ticker.C:
 		}
 		pollCtx, cancel := context.WithTimeout(ctx, min(5*time.Second, c.asyncPollWindow))
 		next, pollErr := c.Operation(pollCtx, op.ID)
 		cancel()
 		if pollErr != nil {
-			return Session{}, op, &OperationPendingError{ID: op.ID, Cause: pollErr}
+			return Session{}, op, &OperationPendingError{ID: op.ID, Method: op.Method, Cause: pollErr}
 		}
 		op = next
 	}
