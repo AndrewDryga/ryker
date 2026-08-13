@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -437,6 +438,7 @@ func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 	}
 	defer st.Close()
 	coopClient := newFakeCoop()
+	coopClient.session.BaseCommit = "repo-commit"
 	coopClient.completeQueue = []string{
 		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1,"contribution":"decision","material":true},"reason":"ordinary arithmetic","message":"8","memory":{}}`,
 	}
@@ -465,12 +467,107 @@ func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 	}
 	if len(coopClient.submitPrompts) != 1 ||
 		!strings.Contains(coopClient.submitPrompts[0], "bounded conversation turn") ||
+		!strings.Contains(coopClient.submitPrompts[0], "<trusted-responder-repository-capabilities>") ||
+		!strings.Contains(coopClient.submitPrompts[0], `"access_mode":"pinned_read_only"`) ||
 		strings.Contains(coopClient.submitPrompts[0], "Run independent read-only") {
 		t.Fatalf("conversation prompt = %q", coopClient.submitPrompts)
 	}
 	if len(slack.posts) != 1 ||
 		!strings.Contains(slack.posts[0].message.Text, "8") {
 		t.Fatalf("conversation reply = %+v", slack.posts)
+	}
+}
+
+func TestRepositoryAccessQuestionUsesPinnedSessionCapabilities(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Repositories = map[string]config.Repository{
+		"tenant-core": {
+			DisplayName: "Tenant Core", CoopPolicy: "tenant-core-observe",
+			ConversationPolicy: "tenant-core-conversation",
+		},
+		"tenant-flutter": {
+			DisplayName: "Tenant Flutter", CoopPolicy: "tenant-flutter-observe",
+			ConversationPolicy: "tenant-flutter-conversation",
+		},
+		"tenant-infra": {
+			DisplayName: "Tenant Infrastructure", CoopPolicy: "tenant-infra-observe",
+			ConversationPolicy: "tenant-infra-conversation",
+		},
+		"nexus": {
+			DisplayName: "Nexus", CoopPolicy: "nexus-observe",
+			ConversationPolicy: "nexus-conversation",
+		},
+		"tenant-overlay": {
+			DisplayName: "Ultralite Overlay", CoopPolicy: "tenant-overlay-observe",
+			ConversationPolicy: "tenant-overlay-conversation",
+		},
+	}
+	cfg.RepositorySets = map[string]config.RepositorySet{
+		"tenant-platform": {
+			DisplayName: "All Tenant repositories", Primary: "tenant-infra",
+			CoopPolicy:         "tenant-platform-observe",
+			ConversationPolicy: "tenant-platform-conversation",
+		},
+	}
+	cfg.Slack.DefaultRepository = "tenant-platform"
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.BaseCommit = "infra-commit"
+	coopClient.session.Companions = []coop.CompanionRepository{
+		{Name: "tenant-core", BaseCommit: "core-commit"},
+		{Name: "tenant-flutter", BaseCommit: "flutter-commit"},
+		{Name: "tenant-overlay", BaseCommit: "overlay-commit"},
+	}
+	coopClient.completeQueue = []string{
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2,"contribution":"decision","material":true},"reason":"bound session manifest verifies read access","message":"Yes, I have read access to all three repositories.","memory":{}}`,
+	}
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "repository-access", EnvelopeID: "repository-access-envelope",
+		EventID: "repository-access-event", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1700.300", UserID: "U123ABC",
+		Text: "<@UBOT> do you have access to the `tenant-flutter`, `tenant-core`, or `tenant-overlay` repos?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.createPolicies) != 1 ||
+		coopClient.createPolicies[0] != "tenant-platform-observe" {
+		t.Fatalf("created policies = %v", coopClient.createPolicies)
+	}
+	if len(coopClient.submitPrompts) != 1 {
+		t.Fatalf("submitted prompts = %d", len(coopClient.submitPrompts))
+	}
+	prompt := coopClient.submitPrompts[0]
+	for _, required := range []string{
+		"Run independent read-only",
+		"<trusted-responder-repository-capabilities>",
+		`"key":"tenant-core","display_name":"Tenant Core","role":"companion","access_mode":"pinned_read_only","pinned_commit":"core-commit","can_publish":false`,
+		`"key":"tenant-flutter","display_name":"Tenant Flutter","role":"companion","access_mode":"pinned_read_only","pinned_commit":"flutter-commit","can_publish":false`,
+		`"key":"nexus","display_name":"Nexus","role":"unbound","access_mode":"configured","can_publish":false`,
+		`"key":"tenant-overlay","display_name":"Ultralite Overlay","role":"companion","access_mode":"pinned_read_only","pinned_commit":"overlay-commit","can_publish":false`,
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("repository access prompt lacks %q:\n%s", required, prompt)
+		}
+	}
+	if strings.Contains(prompt, "bounded conversation turn") {
+		t.Fatalf("repository access question used bounded lane:\n%s", prompt)
 	}
 }
 

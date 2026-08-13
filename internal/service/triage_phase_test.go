@@ -20,8 +20,11 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 	repository := config.Repository{ConversationPolicy: "repo-conversation"}
 	mention := core.SlackInput{Kind: "mention"}
 
-	if lane := triageoutcome.Lane(mention, decisionpkg.WatchTurnState{}, true, false); lane != "conversation" {
+	if lane := triageoutcome.Lane(mention, decisionpkg.WatchTurnState{}, true, false, false); lane != "conversation" {
 		t.Fatalf("a plain mention with a conversation policy = %q", lane)
+	}
+	if lane := triageoutcome.Lane(mention, decisionpkg.WatchTurnState{}, true, false, true); lane != "investigation" {
+		t.Fatalf("a repository access question = %q, want investigation", lane)
 	}
 
 	for _, testCase := range []struct {
@@ -74,6 +77,7 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 				testCase.input, testCase.state,
 				testCase.repository.ConversationPolicy != "",
 				isSlackVerificationReplay(testCase.input),
+				false,
 			); lane != "investigation" {
 				t.Fatalf("lane = %q, want investigation", lane)
 			}
@@ -84,7 +88,7 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 	// ongoing conversation, which is the case the untargeted test above turns on.
 	followup := decisionpkg.WatchTurnState{ConversationFollowup: true}
 	if lane := triageoutcome.Lane(
-		core.SlackInput{Kind: "message"}, followup, true, false,
+		core.SlackInput{Kind: "message"}, followup, true, false, false,
 	); lane != "conversation" {
 		t.Fatalf("a conversation follow-up = %q, want conversation", lane)
 	}

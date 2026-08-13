@@ -303,9 +303,10 @@ var lineBudget = map[string]int{
 	// atomic publication/close exclusion. Keeping both claim directions here is
 	// what prevents a close and a publication from starting concurrently; the
 	// independent receipt decoder and restart recovery live elsewhere.
-	"publicationstore":  575,
-	"pausecleanupstore": 70,
-	"promptbudget":      60,
+	"publicationstore":     575,
+	"pausecleanupstore":    70,
+	"promptbudget":         60,
+	"repositorycapability": 105,
 	// decision owns the shapes a model result arrives in and the rules for
 	// reading one, so the evaluation family can reach them without the runtime.
 	//
@@ -370,6 +371,7 @@ var forbiddenImports = map[string][]string{
 	"episode":                  {"service", "store", "slackui", "httpapi", "app"},
 	"pausecleanupstore":        {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
 	"promptbudget":             {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "core"},
+	"repositorycapability":     {"service", "store", "slackui", "httpapi", "app", "publisher", "emisar", "decision", "investigation"},
 	"investigation":            {"service", "store", "slackui", "httpapi", "app"},
 	"investigationcontract":    {"service", "store", "slackui", "httpapi", "app", "decision", "investigation"},
 	"decision":                 {"service", "store", "httpapi", "app", "publisher", "coop"},

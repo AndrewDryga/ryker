@@ -23,6 +23,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/publicationcontext"
 	"github.com/AndrewDryga/responder/internal/recall"
+	"github.com/AndrewDryga/responder/internal/repositorycapability"
 	"github.com/AndrewDryga/responder/internal/resultwire"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
@@ -1003,6 +1004,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if state.Lane == "" {
 		state.Lane = triageoutcome.Lane(
 			input, state, repository.ConversationPolicy != "", isSlackVerificationReplay(input),
+			repositorycapability.AccessQuestion(input.Text),
 		)
 	}
 	resolved, err := s.resolveTriageSession(ctx, run, input, &state, repository)
@@ -1095,6 +1097,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			"request because: " + boundedOperatorText(state.EscalationReason) +
 			". Perform the full evidence-backed work now.\n</host-escalation>")
 	}
+	late.WriteString("\n\n" + repositorycapability.Prompt(repositorycapability.Build(s.cfg, repositoryKey, session, repositorycapability.PinnedReadOnly)))
 	late.WriteString(publicationcontext.ActivePrompt(state.ActivePublications))
 	late.WriteString(watchDecisionCorrectionPrompt(state.FailureDetail))
 	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)

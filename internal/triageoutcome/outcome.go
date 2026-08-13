@@ -30,8 +30,10 @@ func Lane(
 	state decisionpkg.WatchTurnState,
 	conversationEnabled bool,
 	verificationReplay bool,
+	requiresRepositoryEvidence bool,
 ) string {
-	if conversationEnabled && !verificationReplay && len(input.Attachments) == 0 &&
+	if conversationEnabled && !verificationReplay && !requiresRepositoryEvidence &&
+		len(input.Attachments) == 0 &&
 		len(state.MatchedRules) == 0 &&
 		(input.Kind == "message" || input.Kind == "mention" || input.Kind == "direct") &&
 		decisionpkg.WatchInputTargeted(input, state) {
