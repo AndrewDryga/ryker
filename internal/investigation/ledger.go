@@ -185,7 +185,7 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 				}
 				missing = append(missing, requirement.ID+" ("+detail+")")
 			} else if !view.Resolved {
-				contradicted = append(contradicted, requirement.ID)
+				contradicted = append(contradicted, contradictionDetail(view))
 			}
 		case ClaimNotApplicable:
 			if requirement.Layer != "slo" || !ledger.Contract.Completion.AllowUnknownSLO {
@@ -201,7 +201,7 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 			}
 		case ClaimContradicted, ClaimMixed:
 			if !view.Resolved {
-				contradicted = append(contradicted, requirement.ID)
+				contradicted = append(contradicted, contradictionDetail(view))
 			}
 		}
 	}
@@ -303,6 +303,56 @@ func claimResolution(
 	default:
 		return false
 	}
+}
+
+// contradictionDetail names the observations that disagree.
+//
+// The correction used to be the claim id and nothing else: "required claims
+// still contain unresolved contradictions: change.recent". The model was told
+// that two of its own observations conflicted and not which two, so it had to
+// guess which one to supersede — and guessing wrong costs a whole turn. Thirty
+// of these were recorded in two days, and the episodes carrying them spent
+// every attempt they had before failing.
+//
+// It follows what the missing-evidence branch above already does, which states
+// the exact dimension keys the host is waiting for rather than leaving the
+// model to infer them.
+func contradictionDetail(view ClaimView) string {
+	against := firstObservation(view.Contradictions)
+	support := firstObservation(view.Evidence)
+	switch {
+	case against == "" && support == "":
+		return view.Requirement.ID
+	case support == "":
+		return view.Requirement.ID + " (contradicted by: " + against + ")"
+	default:
+		return view.Requirement.ID + " (" + support + " — contradicted by: " + against + ")"
+	}
+}
+
+// firstObservation is the newest observation in a set, bounded so a correction
+// stays readable when the evidence body does not.
+func firstObservation(evidence []core.Evidence) string {
+	newest := core.Evidence{}
+	for _, item := range evidence {
+		if strings.TrimSpace(item.Observation) == "" {
+			continue
+		}
+		if newest.Observation == "" ||
+			observationTime(item.ObservedAt, item.CreatedAt).After(
+				observationTime(newest.ObservedAt, newest.CreatedAt),
+			) {
+			newest = item
+		}
+	}
+	observation := strings.TrimSpace(newest.Observation)
+	if len([]rune(observation)) > 160 {
+		observation = string([]rune(observation)[:157]) + "..."
+	}
+	if source := strings.TrimSpace(newest.SourceName); source != "" && observation != "" {
+		return observation + " [" + source + "]"
+	}
+	return observation
 }
 
 // contradictionsPredateSupport reports whether every contradiction is strictly

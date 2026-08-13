@@ -313,6 +313,41 @@ type Evidence struct {
 	CreatedAt    time.Time         `json:"created_at,omitempty"`
 }
 
+// confidenceBand reads a confidence written as a band or as a number.
+//
+// Evidence confidence is high, medium or low. The attention assessment beside
+// it in the same result uses an integer from one to three, and models borrow
+// that scale here — twelve results in two days were discarded whole for it,
+// each costing a turn to be told the same thing again. A number on the scale
+// the host itself defines is not ambiguous enough to be worth refusing.
+func confidenceBand(raw json.RawMessage) (string, error) {
+	text := strings.TrimSpace(string(raw))
+	if text == "" || text == "null" {
+		return "", nil
+	}
+	var band string
+	if err := json.Unmarshal(raw, &band); err == nil {
+		return band, nil
+	}
+	var number float64
+	if err := json.Unmarshal(raw, &number); err != nil {
+		return "", fmt.Errorf("evidence confidence must be high, medium, or low: %w", err)
+	}
+	// A decimal is a probability; a whole number is the one-to-three band used
+	// everywhere else in the result.
+	if strings.Contains(text, ".") && number <= 1 {
+		number *= 3
+	}
+	switch {
+	case number >= 2.5:
+		return "high", nil
+	case number >= 1.5:
+		return "medium", nil
+	default:
+		return "low", nil
+	}
+}
+
 // UnmarshalJSON accepts scalar dimension values and normalizes them to their
 // lossless textual form. Models commonly emit counts and boolean scope axes as
 // JSON numbers or booleans; rejecting those values would not improve evidence
@@ -327,6 +362,7 @@ func (item *Evidence) UnmarshalJSON(data []byte) error {
 		"claim_id": {}, "claim": {}, "observation": {}, "relation": {}, "health_effect": {},
 		"source_type": {}, "source_id": {}, "source_name": {}, "source_url": {},
 		"source": {}, "source_ref": {}, "source_time": {},
+		"summary": {}, "statement": {},
 		"target": {}, "scope_note": {}, "freshness": {}, "confidence": {},
 		"observed_at": {}, "valid_until": {}, "dimensions": {}, "metadata": {},
 		"created_at": {},
@@ -344,9 +380,23 @@ func (item *Evidence) UnmarshalJSON(data []byte) error {
 		Source     string                     `json:"source,omitempty"`
 		SourceRef  string                     `json:"source_ref,omitempty"`
 		SourceTime time.Time                  `json:"source_time,omitempty"`
+		Confidence json.RawMessage            `json:"confidence,omitempty"`
+		Summary    string                     `json:"summary,omitempty"`
+		Statement  string                     `json:"statement,omitempty"`
 	}{evidenceAlias: (*evidenceAlias)(item)}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
+	}
+	if confidence, err := confidenceBand(wire.Confidence); err != nil {
+		return err
+	} else if confidence != "" {
+		item.Confidence = confidence
+	}
+	// An observation under another name. The whole record was being thrown away
+	// over the label on the field carrying the finding, which is the one part of
+	// it nothing else can supply.
+	if item.Observation == "" {
+		item.Observation = FirstNonempty(wire.Summary, wire.Statement)
 	}
 	if item.SourceName == "" {
 		item.SourceName = wire.Source

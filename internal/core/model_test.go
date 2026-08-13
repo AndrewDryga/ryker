@@ -71,3 +71,53 @@ func TestAgentMemoryNormalizesScalarTopologyObject(t *testing.T) {
 		}
 	}
 }
+
+// Twelve results in two days were discarded whole because the model wrote the
+// evidence confidence as the one-to-three integer the attention assessment
+// beside it uses. Each rejection cost a turn to say the same thing again.
+func TestEvidenceAcceptsNumericConfidenceAndObservationSynonyms(t *testing.T) {
+	for _, testCase := range []struct {
+		raw  string
+		want string
+	}{
+		{`3`, "high"}, {`2`, "medium"}, {`1`, "low"},
+		{`"high"`, "high"}, {`"low"`, "low"}, {``, ""},
+		// A decimal is read as a probability rather than as the band.
+		{`0.9`, "high"}, {`0.5`, "medium"}, {`0.1`, "low"},
+	} {
+		body := `{"claim_id":"c","observation":"o","source_type":"emisar","source_name":"s"`
+		if testCase.raw != "" {
+			body += `,"confidence":` + testCase.raw
+		}
+		var item Evidence
+		if err := json.Unmarshal([]byte(body+`}`), &item); err != nil {
+			t.Fatalf("confidence %s was rejected: %v", testCase.raw, err)
+		}
+		if item.Confidence != testCase.want {
+			t.Fatalf("confidence %s = %q, want %q", testCase.raw, item.Confidence, testCase.want)
+		}
+	}
+
+	// A confidence that is neither a band nor a number is still refused: the
+	// point is to read what the model meant, not to accept anything.
+	var rejected Evidence
+	if err := json.Unmarshal([]byte(
+		`{"claim_id":"c","observation":"o","source_type":"emisar","source_name":"s","confidence":{"level":9}}`,
+	), &rejected); err == nil {
+		t.Fatal("an unreadable confidence was accepted")
+	}
+
+	// The observation is the one part of a record nothing else can supply, and
+	// the whole record was being thrown away over the label on that field.
+	for _, field := range []string{"summary", "statement"} {
+		var item Evidence
+		if err := json.Unmarshal([]byte(
+			`{"claim_id":"c","`+field+`":"the disk recovered","source_type":"emisar","source_name":"s"}`,
+		), &item); err != nil {
+			t.Fatalf("evidence carrying %q was rejected: %v", field, err)
+		}
+		if item.Observation != "the disk recovered" {
+			t.Fatalf("%q did not become the observation: %q", field, item.Observation)
+		}
+	}
+}
