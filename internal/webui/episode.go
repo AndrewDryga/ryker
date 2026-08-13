@@ -87,6 +87,13 @@ type Turn struct {
 type Completion struct {
 	Status, Verdict, Summary, Blocker, Next string
 	Gaps                                    []string
+	// Kind is the machine's name for why the work stopped, and Attempts is
+	// what the model already tried before it did. Both were recorded from the
+	// beginning and neither was ever shown, so a blocked episode said only
+	// that it was blocked — leaving the reader to guess what was missing and
+	// to repeat work the model had already done.
+	Kind     string
+	Attempts []string
 }
 
 // SideEffect is durable or proposed state produced by an episode. The state is
@@ -218,6 +225,7 @@ func (t *Turn) readResult(result string) {
 			Status: parsed.Completion.Status, Verdict: parsed.Completion.Verdict,
 			Summary: parsed.Completion.Summary, Blocker: parsed.Completion.Blocker,
 			Next: parsed.Completion.NextAction, Gaps: parsed.Completion.MaterialGaps,
+			Kind: parsed.Completion.BlockerKind, Attempts: parsed.Completion.Attempts,
 		}
 	}
 	t.Effects = resultSideEffects(parsed, t.State)

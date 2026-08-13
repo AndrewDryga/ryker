@@ -1980,3 +1980,70 @@ func TestSummaryProseNeverNestsALink(t *testing.T) {
 		t.Fatal("renderMrkdwn stopped linking")
 	}
 }
+
+// A parked episode's whole page is "what is it waiting for". The model records
+// the answer in four parts — the kind of obstacle, what is missing, what it
+// already tried, and what would unblock it — and the page showed none of them,
+// so the reader got the word "blocked" and a truncated instruction.
+func TestWaitingPanelStatesWhatIsMissingAndWhatWasTried(t *testing.T) {
+	page := episodePage{
+		Item: Item{State: "blocked", Status: "Change attribution cannot be established.",
+			Next: "the episode's own next action"},
+		Turn: Turn{Completion: Completion{
+			Status: "blocked", Kind: "source_unavailable",
+			Summary:  "A request pattern exists in current source, but attribution cannot be established.",
+			Gaps:     []string{"August 7–9 commit history", "Production cms-web revision"},
+			Attempts: []string{"Inspected the pinned source", "Searched the configured GitHub repository"},
+			Next:     "Provide access to the full history, then compare the deployed SHA.",
+		}},
+	}
+	panel := stoppedOn(page)
+	if panel == nil {
+		t.Fatal("a blocked episode rendered no waiting panel")
+	}
+	if !strings.Contains(panel.Headline, "could not reach the code or data") {
+		t.Fatalf("headline = %q, want the blocker kind in plain words", panel.Headline)
+	}
+	if len(panel.Needs) != 2 || len(panel.Tried) != 2 {
+		t.Fatalf("panel = %+v, want both lists carried through", panel)
+	}
+	// The completion's next action wins over the episode's stored one: it is
+	// the model's own account of what would unblock the work.
+	if panel.Do != "Provide access to the full history, then compare the deployed SHA." {
+		t.Fatalf("do = %q, want the completion's next action", panel.Do)
+	}
+	// Every state that cannot be waited on renders no panel at all rather than
+	// an empty one.
+	for _, state := range []string{"completed", "failed", "superseded", "cancelled"} {
+		page.Item.State = state
+		if stoppedOn(page) != nil {
+			t.Fatalf("state %q rendered a waiting panel", state)
+		}
+	}
+}
+
+// An episode can be parked without any completion having said why — an older
+// record, or one blocked by the host rather than by the model. The panel says
+// so plainly instead of rendering a heading over three empty lists.
+func TestWaitingPanelFallsBackToTheEpisodeStatus(t *testing.T) {
+	panel := stoppedOn(episodePage{
+		Item: Item{State: "waiting_operator", Status: "Waiting for your answer",
+			Next: "Answer the question in Slack"},
+	})
+	if panel == nil {
+		t.Fatal("a waiting episode rendered no panel")
+	}
+	if panel.Headline != "It stopped before finishing" || panel.Why != "Waiting for your answer" {
+		t.Fatalf("panel = %+v, want the episode's own status as the account", panel)
+	}
+	if panel.Do != "Answer the question in Slack" {
+		t.Fatalf("do = %q, want the episode's next action when no completion set one", panel.Do)
+	}
+	if len(panel.Needs) != 0 || len(panel.Tried) != 0 {
+		t.Fatalf("panel invented list content: %+v", panel)
+	}
+	// An unmapped kind is opened out rather than guessed at.
+	if got := blockerHeadline("quota_exhausted"); got != "Quota exhausted" {
+		t.Fatalf("unmapped kind = %q, want the token made readable", got)
+	}
+}

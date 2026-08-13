@@ -478,6 +478,9 @@ type episodePage struct {
 	// person is what the episode is waiting for. The kernel re-checks on the
 	// way through; this only decides whether a button is honest to offer.
 	Resolvable bool
+	// Waiting is what a parked episode is waiting for, absent on every episode
+	// that is not parked.
+	Waiting *StoppedOn
 }
 
 // resolvableState lists the lifecycle states an operator may close as
@@ -557,6 +560,7 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("retained artifacts", err)
 	present := func(text string) string { return h.reader.resolveSlackText(ctx, text) }
 	page.Trace = buildEpisodeTrace(h.pricing, page, present)
+	page.Waiting = stoppedOn(page)
 	shell := h.shell(r, "episodes", page)
 	shell.TitleOverride = episodeDisplayTitle(page)
 	shell.Crumbs = []Crumb{{Href: "/episodes", Label: "Episodes"}}

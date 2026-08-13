@@ -1249,6 +1249,51 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   padding-top: 8px;
 }
 
+/* What a parked episode is waiting for.
+   For a blocked episode this is the page: the reader came to find out what is
+   missing, and previously got the word "blocked" in the outcome tile and one
+   truncated line of instruction three hundred pixels below it. The panel sits
+   directly under the summary strip, before the trace, because nobody scrolls
+   a hundred cards to find out why nothing happened. */
+.stopped {
+  border: 1px solid rgb(251 191 36 / .35); border-radius: 12px;
+  background: rgb(251 191 36 / .04);
+  padding: 16px 18px 15px; margin-bottom: 18px;
+}
+/* Section headings on this dashboard are uppercase and tracked out, which is
+   right for a two-word label and wrong for a sentence — "IT COULD NOT REACH
+   THE CODE OR DATA IT NEEDED" is shouted at somebody who is already annoyed. */
+.stopped h2 {
+  margin: 0; font-size: 15px; font-weight: 600; color: var(--warn);
+  text-transform: none; letter-spacing: 0;
+}
+.stopped-why { margin: 7px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.6; max-width: 100ch; }
+.stopped-cols {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 4px 28px; margin-top: 13px;
+}
+.stopped h3 {
+  margin: 0 0 5px; font: 600 11px/1.5 var(--sans);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+}
+.stopped ul { margin: 0; padding-left: 17px; color: var(--ink-2); font-size: 13px; line-height: 1.65; }
+.stopped li { margin: 0; }
+.stopped li::marker { color: var(--warn); }
+/* What was already tried is context, not instruction — it is here so nobody
+   repeats it, and it should not compete with what still needs doing. */
+.stopped-tried { color: var(--dim); }
+.stopped-tried li::marker { color: var(--faint); }
+.stopped-do {
+  margin: 14px 0 0; padding-top: 12px; border-top: 1px solid rgb(251 191 36 / .2);
+  color: var(--ink); font-size: 13.5px; line-height: 1.6; max-width: 100ch;
+}
+.stopped-do > span {
+  display: block; font: 600 11px/1.5 var(--sans);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--warn); margin-bottom: 4px;
+}
+.stopped code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
+.episode-action-strip .note { margin: 0 12px 0 0; }
+
 /* Two rows on the overview borrow the episode row's grid so the page reads as
    one list vocabulary rather than three. A question waiting on somebody adds
    the line it is waiting for; a schedule leads with when it next runs, which

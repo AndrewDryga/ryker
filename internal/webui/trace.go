@@ -3276,7 +3276,10 @@ func episodeOutcome(page episodePage) EpisodeMetric {
 		metric.Detail = failureDetail(page)
 	case "blocked", "waiting_operator", "waiting_approval":
 		metric.Value, metric.Tone = "Waiting on you", "warn"
-		metric.Detail = truncate(page.Next, 110)
+		// Not the next action: the panel below states it in full, and a tile
+		// showing the same sentence cut off at a hundred characters is the
+		// same instruction twice, worse the first time.
+		metric.Detail = "Nothing more runs until somebody unblocks it. What it needs is below."
 	case "waiting_external":
 		metric.Value, metric.Tone = "Waiting on an event", "warn"
 		metric.Detail = "Parked until the awaited external event arrives."
@@ -3901,4 +3904,79 @@ func compactDuration(duration time.Duration) string {
 		return fmt.Sprintf("%dm %02ds", int(duration.Minutes()), int(duration.Seconds())%60)
 	}
 	return fmt.Sprintf("%dh %02dm", int(duration.Hours()), int(duration.Minutes())%60)
+}
+
+// StoppedOn is what a blocked or waiting episode is actually waiting for.
+//
+// The model records all of this and the page showed none of it. A reader got
+// the word "blocked" and one truncated sentence of instruction, so the two
+// questions they actually had — what is missing, and has anyone tried the
+// obvious thing — had no answer anywhere on the screen. Every field here was
+// already in the completion payload.
+type StoppedOn struct {
+	// Headline names the kind of obstacle in words a person uses.
+	Headline string
+	// Why is the model's own one-line account of where it got to.
+	Why string
+	// Needs is what would unblock it; Tried is what it already did, so nobody
+	// repeats it.
+	Needs, Tried []string
+	// Do is the specific action that would let the work continue.
+	Do string
+}
+
+// blockerHeadline names each recorded blocker_kind. The values are the
+// model's, taken from the contract it answers under; anything unmapped falls
+// back to the token with its underscores opened out, because inventing a
+// friendly name for a class this code has never seen would be a guess.
+func blockerHeadline(kind string) string {
+	if headline, ok := map[string]string{
+		"source_unavailable":      "It could not reach the code or data it needed",
+		"capability_unavailable":  "It has no tool that can do this",
+		"access_denied":           "It was refused access",
+		"operator_input_required": "It needs an answer from a person",
+		"tool_failure":            "A tool it depends on failed",
+		"authority_boundary":      "This is past what it is allowed to do on its own",
+	}[kind]; ok {
+		return headline
+	}
+	if kind == "" {
+		return "It stopped before finishing"
+	}
+	runes := []rune(strings.ReplaceAll(kind, "_", " "))
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
+}
+
+// stoppedOn builds the waiting panel from the last completion that reported a
+// blocker. It returns nil when the episode is not parked on anything, so the
+// panel is absent rather than empty on the great majority of pages.
+func stoppedOn(page episodePage) *StoppedOn {
+	if !resolvableState(page.Item.State) {
+		return nil
+	}
+	turns := page.Turns
+	if len(turns) == 0 {
+		turns = []Turn{page.Turn}
+	}
+	panel := StoppedOn{Do: strings.TrimSpace(page.Item.Next)}
+	for _, turn := range turns {
+		completion := turn.Completion
+		if completion.Summary == "" && completion.Blocker == "" && len(completion.Gaps) == 0 {
+			continue
+		}
+		panel.Headline = blockerHeadline(completion.Kind)
+		panel.Why = strings.TrimSpace(fallback(completion.Blocker, completion.Summary))
+		panel.Needs, panel.Tried = completion.Gaps, completion.Attempts
+		if next := strings.TrimSpace(completion.Next); next != "" {
+			panel.Do = next
+		}
+	}
+	if panel.Headline == "" {
+		// No completion said why. The episode's own status line is then the
+		// only account there is, and saying that plainly beats a blank panel.
+		panel.Headline = blockerHeadline("")
+		panel.Why = strings.TrimSpace(page.Item.Status)
+	}
+	return &panel
 }

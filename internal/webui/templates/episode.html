@@ -36,9 +36,32 @@
 </div>
 {{end}}
 
+{{with .Waiting}}
+<section class="stopped" aria-label="What this is waiting for">
+  <h2>{{.Headline}}</h2>
+  {{if .Why}}<p class="stopped-why">{{mrkdwn .Why}}</p>{{end}}
+  <div class="stopped-cols">
+    {{if .Needs}}
+    <div>
+      <h3>What would unblock it</h3>
+      <ul>{{range .Needs}}<li>{{mrkdwn .}}</li>{{end}}</ul>
+    </div>
+    {{end}}
+    {{if .Tried}}
+    <div>
+      <h3>What it already tried</h3>
+      <ul class="stopped-tried">{{range .Tried}}<li>{{mrkdwn .}}</li>{{end}}</ul>
+    </div>
+    {{end}}
+  </div>
+  {{if .Do}}<p class="stopped-do"><span>Do this</span>{{mrkdwn .Do}}</p>{{end}}
+</section>
+{{end}}
+
 {{if and .CanAct .Resolvable}}
 <div class="episode-action-strip">
-  {{template "confirm" confirm "Resolve as overtaken" "Close this episode because events have moved on. Its history and audit trail remain." "Resolve episode" "/actions/episodes/resolve" .ID}}
+  <p class="note">Nothing more runs until this is unblocked. If it no longer matters, close it:</p>
+  {{template "confirm" confirm "Close as no longer needed" "Marks this cancelled, so no further attempt runs and it stops counting as waiting on you. Nothing is deleted and nothing is posted to Slack — the trace below stays exactly as it is." "Yes, close it" "/actions/episodes/resolve" .ID}}
 </div>
 {{end}}
 
