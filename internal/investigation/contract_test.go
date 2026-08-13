@@ -384,3 +384,105 @@ func TestLedgerLetsNewerCorrelatedEvidenceSupersedeContradictoryHistory(t *testi
 		t.Fatalf("correlated claim ledger = %+v", claim)
 	}
 }
+
+// A claim whose contradiction is older than every supporting observation has
+// recovered, and a healthy verdict must be reachable.
+//
+// This is the deadlock that cost forty-four episodes ninety-two continuation
+// turns. Correlation-based staleness keys on the source id and every dimension
+// value, so evidence about the revision that fixed a rollout never supersedes
+// evidence about the revision that broke it — the change itself keeps the two
+// records apart. The claim stayed mixed forever, a mixed claim could only
+// resolve through a material health effect, and a material health effect needs
+// a degraded or unhealthy status. The host asked for a resolution the model
+// had already supplied, and kept asking.
+func TestRecoveredClaimStopsBlockingAHealthyVerdict(t *testing.T) {
+	now := time.Date(2026, 8, 12, 15, 8, 0, 0, time.UTC)
+	// change.recent, deliberately: it carries no freshness bound, so a
+	// contradiction never ages out of it, and its dimensions include the
+	// revision — the one value guaranteed to differ between the evidence that
+	// found a problem and the evidence that found it fixed. Thirty-two of the
+	// stuck claims were this one.
+	contract := Compile(core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"change"},
+	})
+	claimID := ""
+	for _, requirement := range contract.Claims {
+		if requirement.ID == "change.recent" {
+			claimID = requirement.ID
+		}
+	}
+	if claimID == "" {
+		t.Fatal("the change.recent claim is no longer in a focused check")
+	}
+	ledgerFor := func(supportAt, contradictAt time.Time) Ledger {
+		return BuildLedger(contract, []core.Evidence{
+			{
+				ID: "broke", ClaimID: claimID, Relation: "contradicts", SourceType: "emisar",
+				SourceID: "run-older", SourceName: "HCP Terraform run",
+				ObservedAt: contradictAt, Confidence: "high",
+				Observation: "The earlier rollout left one allocation unhealthy.",
+				Dimensions: map[string]string{
+					"environment": "production", "repository": "tenant-infra", "revision": "aaaa1111",
+				},
+			},
+			{
+				ID: "fixed", ClaimID: claimID, Relation: "supports", SourceType: "emisar",
+				SourceID: "run-newer", SourceName: "HCP Terraform run",
+				ObservedAt: supportAt, Confidence: "high",
+				Observation: "Revision 6942aec8 rolled out 4 of 4 successfully.",
+				Dimensions: map[string]string{
+					"environment": "production", "repository": "tenant-infra", "revision": "6942aec8",
+				},
+			},
+		}, []core.Coverage{{
+			Layer: "change", ClaimIDs: []string{claimID}, Status: "healthy",
+			ObservedAt: now, Detail: "The failed rollout was replaced by a successful one.",
+		}}, now)
+	}
+
+	// The revision changed, so the two records never correlate and the claim
+	// is genuinely mixed rather than superseded.
+	recovered := ledgerFor(now.Add(-4*time.Minute), now.Add(-2*time.Hour))
+	if state := recovered.Claims[claimID].State; state != ClaimMixed {
+		t.Fatalf("claim state = %v, want the mixed state this fix is about", state)
+	}
+	if blocker := recovered.CompletionCorrection("healthy"); blocker != "" {
+		t.Fatalf("a recovered claim still blocks a healthy verdict: %q", blocker)
+	}
+
+	// The guard has to survive where it earns its keep: a contradiction that
+	// is the newest thing known is a disagreement about now.
+	live := ledgerFor(now.Add(-2*time.Hour), now.Add(-4*time.Minute))
+	if blocker := live.CompletionCorrection("healthy"); blocker == "" {
+		t.Fatal("a contradiction newer than its support let a healthy verdict through")
+	}
+}
+
+// An observation with no recorded instant cannot be shown to be history, so it
+// keeps blocking. "We do not know when this was seen" reads as "it may be now".
+func TestContradictionWithNoObservationTimeStillBlocks(t *testing.T) {
+	now := time.Date(2026, 8, 12, 15, 8, 0, 0, time.UTC)
+	contract := Compile(core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"application"},
+	})
+	claimID := contract.Claims[0].ID
+	ledger := BuildLedger(contract, []core.Evidence{
+		{
+			ID: "undated", ClaimID: claimID, Relation: "contradicts", SourceType: "emisar",
+			SourceID: "run-older", SourceName: "probe", Confidence: "high",
+			Observation: "Something was wrong, at an unrecorded moment.",
+		},
+		{
+			ID: "fixed", ClaimID: claimID, Relation: "supports", SourceType: "emisar",
+			SourceID: "run-newer", SourceName: "probe", ObservedAt: now.Add(-time.Minute),
+			Confidence: "high", Observation: "It responds normally now.",
+		},
+	}, []core.Coverage{{
+		Layer: "application", ClaimIDs: []string{claimID}, Status: "healthy",
+		ObservedAt: now, Detail: "Checked and healthy.",
+	}}, now)
+	if blocker := ledger.CompletionCorrection("healthy"); blocker == "" {
+		t.Fatal("an undated contradiction was treated as history")
+	}
+}

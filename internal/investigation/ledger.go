@@ -267,7 +267,32 @@ func claimResolution(
 	case ClaimSupported:
 		return coverage.Status == "healthy" ||
 			(completion.ConclusionKind == "change_review" && coverage.Status == "unknown")
-	case ClaimContradicted, ClaimMixed:
+	case ClaimMixed:
+		// A contradiction every supporting observation post-dates is history,
+		// not a live disagreement, and the claim has recovered rather than
+		// stayed in conflict.
+		//
+		// Correlation-based staleness cannot see this. Its key carries the
+		// source id and every dimension value, so evidence about the revision
+		// that fixed a problem never supersedes evidence about the revision
+		// that caused it — the thing that changed is the thing keeping the two
+		// records apart. That left a permanently mixed claim, and a mixed
+		// claim could only resolve through a material health effect, which
+		// requires a degraded or unhealthy status. A healthy verdict was
+		// therefore unreachable: the host asked for the contradiction to be
+		// resolved, the model had already recorded the evidence resolving it,
+		// and the loop ran until the continuation budget was spent. Forty-four
+		// episodes did this, ninety-two turns between them.
+		//
+		// The guard survives where it earns its keep. A contradiction that is
+		// the newest thing known still blocks a healthy verdict, because that
+		// is a disagreement about now rather than a record of something fixed.
+		if contradictionsPredateSupport(view) {
+			return coverage.Status == "healthy" ||
+				(completion.ConclusionKind == "change_review" && coverage.Status == "unknown")
+		}
+		return materialHealthEffectPresent(view, coverage.Status)
+	case ClaimContradicted:
 		return materialHealthEffectPresent(view, coverage.Status)
 	case ClaimUnknown:
 		return (completion.AllowUnknownSLO && view.Requirement.Layer == "slo" &&
@@ -278,6 +303,34 @@ func claimResolution(
 	default:
 		return false
 	}
+}
+
+// contradictionsPredateSupport reports whether every contradiction is strictly
+// older than the newest supporting observation.
+//
+// Strictly, and with an unknown time counting against: a contradiction whose
+// observation instant was never recorded cannot be shown to be history, and
+// the safe reading of "we do not know when this was seen" is "it may be now".
+func contradictionsPredateSupport(view ClaimView) bool {
+	if len(view.Evidence) == 0 || len(view.Contradictions) == 0 {
+		return false
+	}
+	var newestSupport time.Time
+	for _, item := range view.Evidence {
+		if at := observationTime(item.ObservedAt, item.CreatedAt); at.After(newestSupport) {
+			newestSupport = at
+		}
+	}
+	if newestSupport.IsZero() {
+		return false
+	}
+	for _, item := range view.Contradictions {
+		at := observationTime(item.ObservedAt, item.CreatedAt)
+		if at.IsZero() || !at.Before(newestSupport) {
+			return false
+		}
+	}
+	return true
 }
 
 func materialHealthEffectPresent(view ClaimView, status string) bool {
