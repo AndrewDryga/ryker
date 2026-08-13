@@ -1249,6 +1249,33 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   padding-top: 8px;
 }
 
+/* Two rows on the overview borrow the episode row's grid so the page reads as
+   one list vocabulary rather than three. A question waiting on somebody adds
+   the line it is waiting for; a schedule leads with when it next runs, which
+   is the only thing anybody wants from it here. */
+.episode-ask {
+  grid-area: answer;
+  margin-top: 5px; max-width: 104ch;
+  font-size: 13px; line-height: 1.55; color: var(--ink-2);
+}
+.episode-ask::before { content: "→"; color: var(--accent); margin-right: 7px; }
+.episode-row[data-state="scheduled"] .episode-dot::before { background: var(--accent-dim); opacity: .55; }
+.episode-row[data-state="paused"] .episode-dot::before {
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+
+/* The system line replaces a four-cell table that repeated the sidebar footer
+   and a nine-column one that was thirteen zeros and one fact. A healthy lane
+   has nothing to say; the table returns the moment one stops being healthy. */
+.system-line {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  font-size: 12.5px; color: var(--faint);
+}
+.system-line > span + span::before { content: "·"; margin: 0 8px; opacity: .5; }
+.system-line .ok { color: var(--good); }
+.system-line .bad { color: var(--bad); }
+.system-line .warn { color: var(--warn); }
+
 /* The channel roll-up on /episodes. Work is not evenly spread across the
    fleet: three channels hold most of six hundred episodes, and a flat list
    sorted by time never shows that. Each card is one channel, and the bar is

@@ -272,7 +272,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	failed.note("scheduled tasks", err)
 	activity, err := h.reader.EpisodeActivity(ctx, time.Now().UTC(), 14)
 	failed.note("activity", err)
-	recent, err := h.reader.EpisodesMatching(ctx, EpisodeFilter{}, 6)
+	recent, err := h.reader.EpisodesMatching(ctx, EpisodeFilter{}, 5)
 	failed.note("recent episodes", err)
 	page := struct {
 		NeedsYou, Failed, InFlight, Retained int
@@ -281,6 +281,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 		Pulse                                heroPulse
 		Calm                                 bool
 		Lanes                                []Lane
+		Troubled                             []Lane
 		Schedules                            []Schedule
 		Errs                                 problems
 		Deployment, Binary, Schema           string
@@ -288,13 +289,20 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	}{
 		Lanes: lanes, Schedules: schedules, Errs: failed,
 		NeedsYou:   h.reader.Count(ctx, countNeedsDecision),
-		Failed:     h.reader.Count(ctx, countFailedRuns),
+		Failed:     h.reader.Count(ctx, countFailedToday),
 		InFlight:   h.reader.Count(ctx, countInFlight),
 		Retained:   h.reader.Count(ctx, countRetained),
 		Blocked:    foldBlocked(blocked),
 		Recent:     recent,
 		Pulse:      buildPulse(activity),
 		Deployment: h.deployment, Binary: h.binary, Schema: h.schema, Ready: h.ready(),
+	}
+	// A healthy lane has nothing to say. Fifteen cells of zero said it fifteen
+	// times and buried the one lane that was retrying among them.
+	for _, lane := range lanes {
+		if lane.Status != "healthy" {
+			page.Troubled = append(page.Troubled, lane)
+		}
 	}
 	page.Calm = page.NeedsYou == 0
 	h.page(w, r, "", "overview", page)

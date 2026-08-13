@@ -422,7 +422,20 @@ const (
 	countNeedsDecision = `SELECT COUNT(*) FROM work_episodes
 	  WHERE lifecycle_state IN ('blocked','waiting_operator','waiting_approval')`
 	countFailedRuns = `SELECT COUNT(*) FROM agent_runs WHERE terminal_state = 'failed'`
-	countInFlight   = `SELECT COUNT(*) FROM work_episodes
+	// countFailedToday is the overview's failure number, and it is deliberately
+	// not countFailedRuns.
+	//
+	// The hero sets four counts side by side and three of them are the state
+	// right now: nothing in flight, one waiting, nothing held. The fourth was
+	// every failure ever recorded, which on a deployment two weeks old was 120
+	// against a 0, a 1 and a 0 — the loudest number on the page, in red, every
+	// day, saying nothing about today. A number that cannot go down is not a
+	// status. The whole history is still one click away on Failures, where it
+	// is the subject rather than the alarm.
+	countFailedToday = `SELECT COUNT(*) FROM agent_runs
+	  WHERE terminal_state = 'failed'
+	    AND updated_at > strftime('%Y-%m-%dT%H:%M:%f', 'now', '-1 day')`
+	countInFlight = `SELECT COUNT(*) FROM work_episodes
 	  WHERE lifecycle_state IN ('accepted','acknowledged','planning','working','retrying','verifying')`
 	countRetained     = `SELECT COUNT(*) FROM coop_cleanup WHERE state = 'blocked'`
 	countCleanupDone  = `SELECT COUNT(*) FROM coop_cleanup WHERE state = 'done'`

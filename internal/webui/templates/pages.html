@@ -6,10 +6,10 @@
       {{if .Calm}}<h2 class="hero-word">All quiet</h2>{{else}}<h2 class="hero-word">{{.NeedsYou}} waiting on you</h2>{{end}}
     </div>
     <div class="hero-stats">
-      <span><strong>{{.InFlight}}</strong>in flight</span>
-      <span{{if .NeedsYou}} class="warn"{{end}}><strong>{{.NeedsYou}}</strong>need a decision</span>
-      <a href="/failures"{{if .Failed}} class="bad"{{end}}><strong>{{.Failed}}</strong>failed on record</a>
-      <a href="/workspaces"{{if .Retained}} class="warn"{{end}}><strong>{{.Retained}}</strong>retained workspaces</a>
+      <span><strong>{{.InFlight}}</strong>working now</span>
+      <span{{if .NeedsYou}} class="warn"{{end}}><strong>{{.NeedsYou}}</strong>waiting on you</span>
+      <a href="/failures"{{if .Failed}} class="bad"{{end}}><strong>{{.Failed}}</strong>failed today</a>
+      <a href="/workspaces"{{if .Retained}} class="warn"{{end}}><strong>{{.Retained}}</strong>workspaces held</a>
     </div>
   </div>
   {{with .Pulse}}
@@ -21,88 +21,84 @@
       {{if .FH}}<rect class="pulse-failed" x="{{.X}}" y="{{.FY}}" width="7" height="{{.FH}}" rx="1.5"><title>{{.Title}}</title></rect>{{end}}
       {{end}}
     </svg>
-    <span>{{.Episodes}} episodes · {{.Span}} days</span>
+    <span>{{.Episodes}} episodes over {{.Span}} days · red is failed</span>
   </div>
   {{end}}
 </section>
 
-<h2>Needs a decision</h2>
 {{if .Blocked}}
+<h2>Waiting on you <span class="note">{{len .Blocked}}</span></h2>
 <div class="rows">
   {{range .Blocked}}
-  <a class="row" href="/episodes/{{.ID}}">
-    <div class="title">{{truncate 110 .Title}}{{if .Repeats}} <span class="rep">×{{add1 .Repeats}}</span>{{end}}</div>
-    <div class="meta"><span class="pill warn">{{.State}}</span> {{.Channel}} · {{since .Updated}}{{with .Answered}} · <span class="who">{{.}}</span>{{end}}</div>
-    {{if .Next}}<div class="todo"><span class="arr">→</span> {{truncate 160 .Next}}</div>{{end}}
+  <a class="row episode-row" href="/episodes/{{.ID}}" data-state="{{.State}}">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-when">{{since .Updated}}</span>
+    <span class="episode-title">{{.Title}}{{if .Repeats}} <span class="rep">×{{add1 .Repeats}}</span>{{end}}</span>
+    {{if .Next}}<span class="episode-ask">{{.Next}}</span>{{end}}
+    <span class="episode-facts">
+      <span class="episode-state">{{.State}}</span>
+      <span>{{.Channel}}</span>
+      {{with .Answered}}<span>{{.}}</span>{{end}}
+    </span>
   </a>
   {{end}}
 </div>
-{{else}}<p class="empty">Nothing is waiting on you.</p>{{end}}
+{{end}}
 
-<h2>Recent episodes</h2>
+<h2>What it just did</h2>
 {{if .Recent}}
-<div class="rows">
-  {{range .Recent}}
-  <a class="row" href="/episodes/{{.ID}}">
-    <div class="title">{{truncate 110 .Title}}</div>
-    <div class="meta">
-      <span class="pill{{if eq .State "failed"}} bad{{else if eq .State "blocked"}} warn{{else if eq .State "completed"}} good{{end}}">{{.State}}</span>
-      {{.Channel}} · {{since .Updated}}{{with .Answered}} · <span class="who">{{.}}</span>{{end}}
-    </div>
-  </a>
-  {{end}}
-</div>
+{{template "episoderows" .Recent}}
 <p class="note"><a href="/episodes">every episode →</a></p>
-{{else}}<p class="empty">No episodes yet.</p>{{end}}
+{{else}}<p class="empty">No episodes yet. One appears the first time Responder accepts work
+from Slack or a webhook.</p>{{end}}
 
-<h2>Scheduled tasks <span class="note">{{len .Schedules}}</span></h2>
+<h2>Coming up <span class="note">{{len .Schedules}}</span></h2>
 {{if .Schedules}}
 <div class="rows">
   {{range .Schedules}}
-  <div class="row">
-    <div class="title">{{if .Title}}{{truncate 100 .Title}}{{else}}{{truncate 100 .Prompt}}{{end}}</div>
-    <div class="meta">
-      <span class="pill{{if .Enabled}} good{{else}} warn{{end}}">{{if .Enabled}}enabled{{else}}paused{{end}}</span>
-      {{.Cadence}} · {{.Channel}}{{if .Repository}} · <span class="mono">{{.Repository}}</span>{{end}}
-    </div>
-    <div class="todo">
-      {{if .Enabled}}Next {{until .NextRun}}{{else}}No future run while paused{{end}}
-      · {{if .LastRun}}Last {{if .LastOutcome}}{{.LastOutcome}} {{end}}{{since .LastRun}}{{else}}Not run yet{{end}}
-    </div>
+  <div class="row episode-row" data-state="{{if .Enabled}}scheduled{{else}}paused{{end}}">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-when">{{if .Enabled}}{{until .NextRun}}{{else}}paused{{end}}</span>
+    <span class="episode-title">{{if .Title}}{{.Title}}{{else}}{{.Prompt}}{{end}}</span>
+    <span class="episode-facts">
+      <span>{{.Cadence}}</span>
+      <span>{{.Channel}}</span>
+      {{if .Repository}}<span class="mono">{{.Repository}}</span>{{end}}
+      <span>{{if .LastRun.IsZero}}never run yet{{else}}last {{if .LastOutcome}}{{.LastOutcome}} {{end}}{{since .LastRun}}{{end}}</span>
+    </span>
   </div>
   {{end}}
 </div>
-<p class="note">Manage schedules from <a href="/configuration">Configuration</a>
-or with <span class="mono">/responder schedules</span> in Slack.</p>
-{{else}}<p class="empty">No recurring or delayed tasks are configured.</p>{{end}}
+<p class="note">Set these up in Slack with <span class="mono">/responder schedules</span>, or from
+<a href="/configuration">Configuration</a>.</p>
+{{else}}<p class="empty">Nothing is scheduled. Ask Responder in Slack to check something on a
+cadence and it will appear here.</p>{{end}}
 
-<h2>Scheduler</h2>
+<h2>System</h2>
 {{template "problems" .Errs}}
-{{if .Lanes}}
+<div class="system-line">
+  <span class="{{if .Ready}}ok{{else}}bad{{end}}">{{if .Ready}}accepting work{{else}}not ready{{end}}</span>
+  <span>{{len .Lanes}} worker lane{{if ne (len .Lanes) 1}}s{{end}}{{if .Troubled}}, <span class="warn">{{len .Troubled}} degraded</span>{{else}}, all healthy{{end}}</span>
+  <span class="mono">{{.Binary}}</span>
+  <span class="mono">schema {{.Schema}}</span>
+</div>
+{{if .Troubled}}
 <p class="note">Pollers are permanent worker loops, not queued jobs; only the work columns count
 work still to do.</p>
 <table>
   <tr><th>Lane</th><th>Status</th><th class="num">Pollers</th><th class="num">Ready</th><th class="num">Running</th><th class="num">Scheduled</th><th class="num">Retrying</th><th class="num">Failed</th><th>Next work</th><th>Last issue</th></tr>
-  {{range .Lanes}}
+  {{range .Troubled}}
   <tr><td>{{.Name}}</td>
-      <td><span class="pill{{if eq .Status "healthy"}} good{{else if eq .Status "failed"}} bad{{else if eq .Status "retrying"}} warn{{end}}">{{.Status}}</span></td>
-      <td class="mono num">{{.Pollers}}</td><td class="mono num">{{.Ready}}</td>
-      <td class="mono num">{{.Running}}</td><td class="mono num">{{.Scheduled}}</td>
+      <td><span class="pill{{if eq .Status "failed"}} bad{{else if eq .Status "retrying"}} warn{{end}}">{{.Status}}</span></td>
+      <td class="mono num">{{.Pollers}}</td><td class="mono num">{{.Ready}}</td><td class="mono num">{{.Running}}</td>
+      <td class="mono num">{{.Scheduled}}</td>
       <td class="mono num">{{.Retrying}}{{if .RetryAttempts}} <span class="note">({{.RetryAttempts}} attempts)</span>{{end}}</td>
       <td class="mono num">{{.Failed}}</td>
       <td class="note">{{if .HasNext}}{{since .Next}}{{else}}—{{end}}</td>
       <td>{{if .Error}}{{truncate 90 .Error}}{{else}}<span class="note">—</span>{{end}}</td></tr>
   {{end}}
 </table>
-{{else}}<p class="empty">No scheduler workers have registered.</p>{{end}}
-
-<h2>Health</h2>
-<table>
-  <tr><th>Deployment</th><th>Binary</th><th>Ready</th><th>Schema</th></tr>
-  <tr><td>{{.Deployment}}</td><td class="mono">{{.Binary}}</td>
-      <td>{{if .Ready}}<span class="pill good">ready</span>{{else}}<span class="pill bad">not ready</span>{{end}}</td>
-      <td class="mono">{{.Schema}}</td></tr>
-</table>
+{{else if not .Lanes}}<p class="empty">No scheduler workers have registered.</p>{{end}}
 {{end}}
 
 {{define "episodes"}}

@@ -127,7 +127,7 @@ func TestEveryCounterRunsAgainstTheMigratedSchema(t *testing.T) {
 		query string
 		args  []any
 	}{
-		{countNeedsDecision, nil}, {countFailedRuns, nil}, {countInFlight, nil},
+		{countNeedsDecision, nil}, {countFailedRuns, nil}, {countFailedToday, nil}, {countInFlight, nil},
 		{countRetained, nil}, {countCleanupDone, nil}, {countEpisodes, nil},
 		{countTerminalRuns, nil}, {countCorrections, []any{"unreadable"}},
 		{countAudited, nil}, {countAuditKind, []any{"slack.watch"}},
@@ -299,9 +299,11 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 	body := recorder.Body.String()
+	// The section is "Coming up" and each row leads with when it next runs,
+	// so a schedule reads as an appointment rather than as a settings entry.
 	for _, expected := range []string{
-		"Scheduled tasks", "Daily platform health review", "daily at 09:00 America/Mexico_City",
-		"Next in 19h", "Last completed 4h ago", "/responder schedules",
+		"Coming up", "Daily platform health review", "daily at 09:00 America/Mexico_City",
+		"in 19h", "last completed 4h ago", "/responder schedules",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Errorf("overview is missing %q: %s", expected, body)
