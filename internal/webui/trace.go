@@ -345,6 +345,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			if payload := decodePhasePayload(event.Payload); payload.Phase != "" {
 				step.State, step.Title = payload.Phase, phaseTitle(payload.Phase)
 				step.Summary = phaseSummary(payload, present)
+				step.Why = phaseWhy(payload.Phase)
 				// The card already says everything a routine phase payload
 				// holds; a JSON block restating the title in four spellings
 				// is noise. Payloads with more than the routine keys stay.
@@ -392,6 +393,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			step.Title, step.Summary, step.Why = "Episode created", "", ""
 		case "progress":
 			step.Title = phaseTitle(artifact.State)
+			step.Why = phaseWhy(artifact.State)
 			if strings.EqualFold(strings.TrimSpace(artifact.Summary), strings.TrimSpace(artifact.State)) {
 				step.Summary = ""
 			}
@@ -977,6 +979,28 @@ func phaseSummary(payload phasePayload, present func(string) string) string {
 		return "Next: " + present(next)
 	}
 	return present(payload.Summary)
+}
+
+// phaseWhy explains what actually happened in the machine at each phase
+// transition, in plain words. Each sentence is written from the store call
+// that sets the phase, not invented: "planning" is LeaseAgentRun moving a
+// queued run to a worker, "investigating" is the Coop turn starting, and so
+// on. This is the line that lets someone build a mental model of the
+// pipeline from one episode.
+func phaseWhy(phase string) string {
+	return map[string]string{
+		"planning":        "A background worker picked this job off the queue and is assembling the model call. No model is running yet — the next step named here is the host's checklist, not the model's words.",
+		"investigating":   "The prepared call was submitted to Coop; from here until the result arrives, the model is the one working.",
+		"executing":       "The prepared call was submitted to Coop; from here until the result arrives, the model is the one working.",
+		"finalizing":      "The model finished its turn. Responder is checking the result against its contract before anything reaches Slack.",
+		"finished":        "The final outcome was recorded; nothing more runs for this episode.",
+		"resuming":        "A later attempt is starting again from this episode's saved state.",
+		"retrying":        "The previous attempt failed; the work is queued to run again from the preserved context.",
+		"waiting":         "The work is parked until the named dependency recovers. No worker is held while it waits.",
+		"queued":          "The work is waiting for a dependency before a worker can pick it up.",
+		"continuing":      "Unfinished work from the previous turn is being carried forward into a new one.",
+		"expanding_scope": "The quick lane was not enough; the work moved to the full investigation lane.",
+	}[phase]
 }
 
 // routinePhasePayload reports whether a phase payload holds only the fields
