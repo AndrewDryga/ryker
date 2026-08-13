@@ -1953,6 +1953,15 @@ func (s *Service) stageTriageTerminal(
 			input, state, decision,
 		)
 		originalAction := decision.Action
+		// Kept because suppression erases them and the completion is persisted
+		// either way. Silencing a reply decides what Slack hears; it does not
+		// decide whether the model's own result was coherent, and completion
+		// validation skips anything that is not a reply — so a suppressed
+		// result went to the episode unchecked. One claimed a succeeded change
+		// review over change coverage it had marked unknown, and finalized
+		// silently, because policy had removed the evidence of its own
+		// invalidity before anything looked at it.
+		originalCompletion := decision.Completion
 		originalPublicationUpdates := len(decision.PublicationUpdates)
 		decision = EnforceExternalLifecycleCommunication(input, decision)
 		var lifecycleEvidenceAdjusted bool
@@ -1992,11 +2001,23 @@ func (s *Service) stageTriageTerminal(
 			correction = ExternalLifecycleReplyLanguageCorrection(input, decision)
 		}
 		if correction == "" {
+			// A terminal claim is checked against what the model produced, not
+			// against what policy left of it. Only a terminal one: a turn that
+			// parks on a wait is not concluding anything, and holding its
+			// in-progress completion to the episode's completion contract
+			// would correct a result behaving exactly as intended. The
+			// message-shaped checks below stay on the suppressed decision,
+			// because correcting the wording of something nobody will read is
+			// work for its own sake.
+			checkedAction, checkedCompletion := decision.Action, decision.Completion
+			if originalCompletion != nil && originalCompletion.Verdict != "in_progress" {
+				checkedAction, checkedCompletion = originalAction, originalCompletion
+			}
 			correction = investigation.CompletionCorrection(
 				episode,
-				decision.Action,
+				checkedAction,
 				decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
-				decision.Completion,
+				checkedCompletion,
 			)
 			if correction == "" {
 				correction = investigation.ConclusionLanguageCorrection(

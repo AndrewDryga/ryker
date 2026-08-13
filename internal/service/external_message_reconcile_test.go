@@ -879,3 +879,53 @@ func TestSuppressedLifecycleReplyStaysSuppressedAfterPersistence(t *testing.T) {
 		t.Fatalf("suppression discarded the evidence it should keep: %+v", reparsed.Evidence)
 	}
 }
+
+// Suppression decides what Slack hears. It does not decide whether the model's
+// own result was coherent — but completion validation skips anything that is
+// not a reply, and suppression makes every result an ignore. So a succeeded
+// change review over change coverage the same turn had marked unknown was
+// finalized silently, because policy removed the evidence of its own
+// invalidity before anything looked at it.
+func TestSuppressedLifecycleResultIsStillValidatedAgainstItsContract(t *testing.T) {
+	input := core.SlackInput{
+		ID: "slack-run-invalid", EventID: "EvRunInvalid", Kind: "bot_message",
+		ReceivedAt: time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
+		Text: "Run notification for <https://example.com/acme/infra|acme/infra>\n" +
+			"<https://example.com/acme/infra/runs/run-ok|Run run-ok>\nRun Applied",
+	}
+	episode := core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, Objective: "Review the exact Terraform run",
+		RequiredCoverage: []string{"change"},
+	}
+	// A terminal verdict over coverage the same turn could not establish.
+	message := `{"action":"reply","operations":[` +
+		`{"id":"coverage-change","type":"record_coverage","coverage":{"layer":"change",` +
+		`"claim_ids":["change.recent"],"status":"unknown","detail":"Effects are unknown."}},` +
+		`{"id":"complete","type":"complete_episode","completion":{"message":"The apply succeeded.",` +
+		`"completion":{"status":"decision_ready","verdict":"healthy","summary":"Apply succeeded."}}}` +
+		`]}`
+	decision, err := decisionpkg.ParseWatchDecision(message, testDecodeClock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeAction, beforeCompletion := decision.Action, decision.Completion
+
+	suppressed := EnforceExternalLifecycleCommunication(input, decision)
+	if suppressed.Action != "ignore" || suppressed.Completion != nil {
+		t.Fatalf("the host did not suppress this successful lifecycle reply: %+v", suppressed)
+	}
+
+	// Validated after suppression it says nothing, which is the defect: the
+	// verdict reaches the episode either way.
+	coverage := decisionpkg.SanitizeCoverage(suppressed.Coverage, "", "", "", testDecodeClock)
+	if after := investigation.CompletionCorrection(
+		episode, suppressed.Action, coverage, suppressed.Completion,
+	); after != "" {
+		t.Fatalf("suppressed decision was already validated, so this test proves nothing: %q", after)
+	}
+	if before := investigation.CompletionCorrection(
+		episode, beforeAction, coverage, beforeCompletion,
+	); before == "" {
+		t.Fatal("a healthy verdict over unknown change coverage was accepted as valid")
+	}
+}

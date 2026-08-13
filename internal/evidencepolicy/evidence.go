@@ -41,13 +41,27 @@ func ValidConfidence(value string) bool {
 // and every named claim has a cited observation. A contradiction can be valid
 // evidence (for example, a healthy-state claim contradicted by a live probe),
 // so relation alone is intentionally not treated as support or refutation.
+// AlertCauseCorrection binds an asserted cause to the evidence behind it.
+//
+// Gated on the assertion rather than on the verdict. It used to run only for a
+// confirmed or likely issue, so a recovered alert could name a root cause —
+// "the leak in the new revision, now resolved" — with nothing tying it to
+// anything observed, and say so in the channel. A claim about why something
+// broke needs the same support whether or not it is still broken; the operator
+// acts on the cause either way.
 func AlertCauseCorrection(assessment *investigation.AlertAssessment, evidence []core.Evidence) string {
-	if assessment == nil || (assessment.Verdict != "confirmed_issue" &&
-		assessment.Verdict != "likely_issue") {
+	if assessment == nil {
+		return ""
+	}
+	active := assessment.Verdict == "confirmed_issue" || assessment.Verdict == "likely_issue"
+	status := strings.ToLower(strings.TrimSpace(assessment.CauseStatus))
+	asserted := strings.TrimSpace(assessment.Cause) != "" &&
+		(status == "identified" || status == "bounded")
+	if !active && !asserted {
 		return ""
 	}
 	if len(assessment.CauseClaimIDs) == 0 || len(assessment.EvidenceRefs) == 0 {
-		return "the active issue assigns a cause without cause_claim_ids and evidence_refs; bind the cause to exact recorded claims and evidence operation ids or return an unverified assessment"
+		return "this assessment assigns a cause without cause_claim_ids and evidence_refs; bind the cause to exact recorded claims and evidence operation ids, or leave cause_status unverified"
 	}
 	claims := make(map[string]bool, len(assessment.CauseClaimIDs))
 	covered := make(map[string]bool, len(assessment.CauseClaimIDs))
