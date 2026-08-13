@@ -279,10 +279,23 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				prompt = page.Turn.Prompt
 			}
 		}
+		// The budget's cuts, keyed by layer kind, render inside the category
+		// they were cut from; anything unmapped stays in the general block.
+		trimmedByKind, leftoverTrims := map[string][]string{}, []string{}
+		for _, ref := range manifest.Refs {
+			if ref.Visibility != "omitted" || strings.TrimSpace(ref.Omitted) == "" {
+				continue
+			}
+			if trimmedLayerLabel[ref.Kind] != "" {
+				trimmedByKind[ref.Kind] = append(trimmedByKind[ref.Kind], ref.Omitted)
+			} else {
+				leftoverTrims = append(leftoverTrims, ref.Omitted)
+			}
+		}
 		promptDetails := []TraceDetail{}
 		memoryLayers := 0
 		if prompt != "" {
-			components, layers := promptContextDetails(prompt, present)
+			components, layers := promptContextDetails(prompt, present, trimmedByKind)
 			memoryLayers = layers
 			promptDetails = append(promptDetails, components...)
 		} else {
@@ -299,11 +312,16 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		}
 		runtimeAccess, replayVerification := contextReferenceDetails(manifest.Refs, present, page.StoredArtifacts)
 		promptDetails = append(promptDetails, runtimeAccess...)
-		if len(manifest.Omissions) > 0 {
+		if prompt == "" && len(manifest.Omissions) > 0 {
+			// Without prompt text there are no category sections to place the
+			// cuts in; the flat list is all this attempt can still say.
+			leftoverTrims = manifest.Omissions
+		}
+		if len(leftoverTrims) > 0 {
 			promptDetails = append(promptDetails, TraceDetail{
-				Label: "Trimmed to fit the turn", Body: present(strings.Join(manifest.Omissions, "\n")), Kind: "missing",
-				Status: "Not sent", Tone: "missing", Open: true, ShowCount: true, Count: len(manifest.Omissions),
-				Description: promptCapNote + " Layers drop lowest-value first: old evidence, then related summaries, synthesized continuity, and older channel messages.",
+				Label: "Trimmed to fit the turn", Body: present(strings.Join(leftoverTrims, "\n")), Kind: "missing",
+				Status: "Not sent", Tone: "missing", Open: true, ShowCount: true, Count: len(leftoverTrims),
+				Description: promptCapNote,
 				Group:       "Not sent to the model", GroupDetail: "Responder assembled these inputs, then dropped them before submission to fit the turn.",
 				GroupCount: 1,
 			})
@@ -1606,7 +1624,7 @@ func slackReactionDisplay(name string) string {
 // operator can answer "which memory influenced this turn?" without searching
 // a wall of instructions. It deliberately does not infer a layer when the
 // prompt predates retention or when a field is absent.
-func promptContextDetails(prompt string, present func(string) string) ([]TraceDetail, int) {
+func promptContextDetails(prompt string, present func(string) string, trimmed map[string][]string) ([]TraceDetail, int) {
 	envelope, ok := promptEnvelope(prompt)
 	if !ok {
 		return nil, 0
@@ -1617,7 +1635,8 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 
 	// Slack conversation. Alias sets represent schema evolution; only the value
 	// selected by the compiler is shown, never duplicate spellings of it. A
-	// quiet slot keeps its own inert row, in place, with its own reason.
+	// quiet slot keeps its own inert row, in place, with its own reason — and
+	// a slot the budget cut says it was trimmed, never that nothing existed.
 	slack := []TraceDetail{}
 	for _, aliases := range [][]string{
 		{"target_message", "source_message"},
@@ -1629,11 +1648,14 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 			seen[alias] = true
 		}
 		if key == "" {
-			slack = append(slack, missingPromptFieldDetail(aliases[0]))
+			if len(trimmed[slackTrimKind[aliases[0]]]) == 0 {
+				slack = append(slack, missingPromptFieldDetail(aliases[0]))
+			}
 			continue
 		}
 		slack = append(slack, promptFieldDetail(key, raw, present))
 	}
+	slack = append(slack, trimmedRows(trimmed, present, "channel_history", "referenced_thread")...)
 	details = append(details, markDetailGroup(slack,
 		"Slack conversation",
 		"The triggering message and nearby conversation selected for this turn. Included rows show their complete submitted content.",
@@ -1642,24 +1664,29 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 	// Memory. Each root is selected independently and expanded into the actual
 	// values sent to the model so the page never hides memory behind a digest.
 	for _, layer := range []struct {
-		keys, priority            []string
+		keys, priority, trimKinds []string
 		label, group, groupDetail string
 	}{
-		{[]string{"prior_operational_context"}, []string{"current_incidents", "open_commitments", "pending_approvals", "operator_confirmed_memory", "confirmed_memory", "automatically_synthesized_continuity", "recent_same_channel_evidence", "responder_preferences"}, "Operational memory", "Operational memory", "Current commitments, confirmed guidance, preferences, and recent evidence selected for this work."},
-		{[]string{"structured_memory", "conversation_situation"}, []string{"goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs"}, "Conversation memory", "Conversation memory", "A compact summary of the exact thread when available, otherwise the channel's continuity summary."},
-		{[]string{"related_situations"}, nil, "Related conversation summaries", "Related conversations", "Up to six relevant summaries selected from the workspace's recent conversation memory."},
+		{[]string{"prior_operational_context"}, []string{"current_incidents", "open_commitments", "pending_approvals", "operator_confirmed_memory", "confirmed_memory", "automatically_synthesized_continuity", "recent_same_channel_evidence", "responder_preferences"}, []string{"prior_evidence", "dreamed_memory", "confirmed_memory", "prior_operational_context"}, "Operational memory", "Operational memory", "Current commitments, confirmed guidance, preferences, and recent evidence selected for this work."},
+		{[]string{"structured_memory", "conversation_situation"}, []string{"goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs"}, []string{"channel_knowledge", "channel_situation"}, "Conversation memory", "Conversation memory", "A compact summary of the exact thread when available, otherwise the channel's continuity summary."},
+		{[]string{"related_situations"}, nil, []string{"related_situations"}, "Related conversation summaries", "Related conversations", "Up to six relevant summaries selected from the workspace's recent conversation memory."},
 	} {
 		key, raw := firstPromptField(envelope, layer.keys...)
 		for _, alias := range layer.keys {
 			seen[alias] = true
 		}
+		cut := trimmedRows(trimmed, present, layer.trimKinds...)
 		var rows []TraceDetail
-		if key == "" {
-			rows = []TraceDetail{missingMemoryDetail(layer.label, layer.keys[0])}
-		} else {
+		switch {
+		case key != "":
 			layerCount++
 			rows = memoryLayerDetails(raw, key, layer.label, layer.priority, present)
+		case len(cut) == 0:
+			rows = []TraceDetail{missingMemoryDetail(layer.label, layer.keys[0])}
 		}
+		// When a layer is absent because the budget cut it, the trimmed rows
+		// carry the story; a quiet "nothing was relevant" row would be false.
+		rows = append(rows, cut...)
 		details = append(details, markDetailGroup(rows, layer.group, layer.groupDetail)...)
 	}
 
@@ -1702,6 +1729,41 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 		details = append(details, detail)
 	}
 	return details, layerCount
+}
+
+// slackTrimKind links a Slack envelope slot to the budget's omission kind, so
+// a slot absent because it was cut renders as trimmed rather than quiet.
+var slackTrimKind = map[string]string{
+	"recent_messages_around_target": "channel_history",
+	"referenced_thread":             "referenced_thread",
+}
+
+// trimmedLayerLabel names each budget-omission kind the way its section does.
+var trimmedLayerLabel = map[string]string{
+	"channel_history":           "Older channel messages",
+	"referenced_thread":         "Referenced Slack thread",
+	"prior_evidence":            "Operational memory · Channel evidence",
+	"dreamed_memory":            "Operational memory · Synthesized continuity",
+	"confirmed_memory":          "Operational memory · Confirmed memory",
+	"prior_operational_context": "Operational memory",
+	"channel_knowledge":         "Conversation memory · Knowledge",
+	"channel_situation":         "Conversation memory · Situation summary",
+	"related_situations":        "Related conversation summaries",
+}
+
+// trimmedRows renders the budget's cuts inside the category they were cut
+// from: an amber inert row per layer, its reason inline.
+func trimmedRows(trimmed map[string][]string, present func(string) string, kinds ...string) []TraceDetail {
+	rows := []TraceDetail{}
+	for _, kind := range kinds {
+		for _, reason := range trimmed[kind] {
+			rows = append(rows, TraceDetail{
+				Label: trimmedLayerLabel[kind], Kind: "missing", Status: "Trimmed",
+				Description: present(reason), Tone: "trimmed", Inert: true,
+			})
+		}
+	}
+	return rows
 }
 
 // missingPromptFieldDetail is the inert row a quiet context slot keeps in its

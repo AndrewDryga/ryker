@@ -1066,6 +1066,17 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   white-space: nowrap;
 }
 
+/* A budget cut is a warning-grade fact: amber tag, and its reason is the
+   content — it wraps instead of truncating. */
+.trace-detail-inert.tone-trimmed .trace-detail-title em { color: var(--warn); border-color: rgb(251 191 36 / .35); }
+.trace-detail-inert.tone-trimmed .trace-inert-note {
+  color: var(--dim);
+  text-align: right;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .trace-detail > summary::-webkit-details-marker { display: none; }
 .trace-detail > summary:hover { background: var(--panel-2); }
 .trace-detail[open] > summary { background: #161619; color: var(--ink); }

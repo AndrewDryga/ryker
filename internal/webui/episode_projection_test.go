@@ -804,7 +804,10 @@ USER: check this`
 	present := func(value string) string {
 		return strings.NewReplacer("<@U1>", "@Andrew Dryga", "<@U2>", "@Trevin Miller", "C1", "#infra").Replace(value)
 	}
-	details, layers := promptContextDetails(prompt, present)
+	details, layers := promptContextDetails(prompt, present, map[string][]string{
+		"prior_evidence":     {"earlier evidence records from this channel were omitted to fit the turn"},
+		"related_situations": {"summaries of related conversations were omitted to fit the turn"},
+	})
 	if layers != 2 {
 		t.Fatalf("memory layers = %d, want 2", layers)
 	}
@@ -833,7 +836,9 @@ USER: check this`
 		"A bounded chronological window around the triggering message",
 		"The 10 newest evidence records from this channel",
 		"Not sent", "This request did not resolve to a separate referenced thread",
-		"None of the recent conversation summaries were relevant enough to include.",
+		"Trimmed", "Operational memory · Channel evidence",
+		"earlier evidence records from this channel were omitted to fit the turn",
+		"summaries of related conversations were omitted to fit the turn",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("readable prompt context missing %q:\n%s", want, joined)
@@ -852,7 +857,11 @@ USER: check this`
 			t.Fatalf("context count for %q = %d, want %d", label, got, want)
 		}
 	}
-	for _, unwanted := range []string{"ev_secret", "mentions_responder", `"sender_id"`} {
+	for _, unwanted := range []string{
+		"ev_secret", "mentions_responder", `"sender_id"`,
+		// A layer absent because the budget cut it must not claim irrelevance.
+		"None of the recent conversation summaries were relevant enough to include.",
+	} {
 		if strings.Contains(joined, unwanted) {
 			t.Fatalf("prompt context leaked storage field %q:\n%s", unwanted, joined)
 		}
