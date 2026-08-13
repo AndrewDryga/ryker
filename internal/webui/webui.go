@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -118,12 +119,45 @@ func NewRenderer() (*Renderer, error) {
 		"exact":   groupDigits,
 		"confirm": confirmStep,
 		"meter":   meterSVG,
+		"mrkdwn":  renderMrkdwn,
 	}
 	parsed, err := template.New("webui").Funcs(funcs).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse control plane templates: %w", err)
 	}
 	return &Renderer{templates: parsed}, nil
+}
+
+var (
+	mrkdwnCode      = regexp.MustCompile("`([^`\n]+)`")
+	mrkdwnBoldMd    = regexp.MustCompile(`\*\*([^*\n]+)\*\*`)
+	mrkdwnBoldSlack = regexp.MustCompile(`\*([^*\n]+)\*`)
+)
+
+// renderMrkdwn renders the safe subset of the markup model prose actually
+// carries — `code` spans and bold, in both the model's **markdown** and
+// Slack's *mrkdwn* spelling — instead of printing the asterisks literally.
+// The text is HTML-escaped before any tag is inserted, and the only inserted
+// tags are the fixed <code> and <strong> pairs, so nothing in the text can
+// become markup. Italics are deliberately not rendered: identifiers like
+// claim_id are everywhere in this prose and underscores inside them are not
+// emphasis.
+func renderMrkdwn(text string) template.HTML {
+	escaped := template.HTMLEscapeString(text)
+	var out strings.Builder
+	last := 0
+	for _, span := range mrkdwnCode.FindAllStringSubmatchIndex(escaped, -1) {
+		out.WriteString(mrkdwnBold(escaped[last:span[0]]))
+		out.WriteString("<code>" + escaped[span[2]:span[3]] + "</code>")
+		last = span[1]
+	}
+	out.WriteString(mrkdwnBold(escaped[last:]))
+	return template.HTML(strings.ReplaceAll(out.String(), "\n", "<br>")) //nolint:gosec // escaped above; only fixed tags inserted
+}
+
+func mrkdwnBold(text string) string {
+	text = mrkdwnBoldMd.ReplaceAllString(text, "<strong>$1</strong>")
+	return mrkdwnBoldSlack.ReplaceAllString(text, "<strong>$1</strong>")
 }
 
 // meterSVG is the proportional bar every table can put beside a share or a

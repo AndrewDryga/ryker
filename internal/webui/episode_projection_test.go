@@ -508,6 +508,58 @@ func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
 	}
 }
 
+// The model's closing statement renders as prose with its markup honored;
+// verdict and status are structure beside it, not a jargon prefix inside it.
+func TestCompletionCardSeparatesProseFromMachineFields(t *testing.T) {
+	payload := `{"completion":{"message":"Both **tenant-infra** runs completed for ` + "`eeda4fbf`" + `.","completion":{"status":"decision_ready","verdict":"succeeded"}},"type":"complete_episode"}`
+	trace := buildEpisodeTrace(config.Pricing{}, episodePage{Events: []Event{{
+		Kind: "completion_submitted", Actor: "agent",
+		At: time.Date(2026, 8, 12, 23, 54, 0, 0, time.UTC), Payload: payload,
+	}}}, nil)
+	var step TraceStep
+	for _, candidate := range trace.Steps {
+		if candidate.Title == "Model reported completion" {
+			step = candidate
+		}
+	}
+	if step.ID == "" {
+		t.Fatalf("no completion card: %+v", trace.Steps)
+	}
+	if strings.Contains(step.Summary, "decision_ready") || strings.Contains(step.Summary, "succeeded —") {
+		t.Fatalf("machine fields leaked into the prose: %q", step.Summary)
+	}
+	if !strings.Contains(step.Summary, "Both **tenant-infra** runs completed") {
+		t.Fatalf("completion prose missing: %q", step.Summary)
+	}
+	stats := map[string]string{}
+	for _, stat := range step.Stats {
+		stats[stat.Label] = stat.Value
+	}
+	if stats["Verdict"] != "succeeded" || stats["Status"] != "decision ready" {
+		t.Fatalf("completion structure = %+v", step.Stats)
+	}
+	if step.Tone != "good" {
+		t.Fatalf("succeeded verdict tone = %q", step.Tone)
+	}
+}
+
+// Model prose renders its safe markup instead of printing asterisks, and
+// nothing in the text can become live HTML.
+func TestMrkdwnRendersBoldAndCodeAndNothingElse(t *testing.T) {
+	got := string(renderMrkdwn("The **tenant-infra** apply and *va1-apps* rolled `1ebee7d` <script>alert(1)</script>\nsecond_line_id stays plain"))
+	for _, want := range []string{
+		"<strong>tenant-infra</strong>", "<strong>va1-apps</strong>",
+		"<code>1ebee7d</code>", "&lt;script&gt;", "<br>", "second_line_id",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mrkdwn output missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "<script>") || strings.Contains(got, "<em>") {
+		t.Fatalf("mrkdwn produced unsafe or unwanted markup: %s", got)
+	}
+}
+
 // The kernel writes a context_extended receipt in the same transaction that
 // creates a manifest; when that manifest renders as a "Model briefed" card,
 // the receipt is the same fact twice and must not become its own step.

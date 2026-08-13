@@ -391,6 +391,20 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				includePayload = !routinePhasePayload(event.Payload)
 			}
 		}
+		if event.Kind == "completion_submitted" {
+			// The model's own closing statement. Its verdict and status are
+			// structure, not prose — the summary carries only the words.
+			if completion := decodeCompletionEvent(event.Payload); completion.Message != "" || completion.Verdict != "" {
+				step.Summary = present(completion.Message)
+				if completion.Verdict != "" {
+					step.State, step.Tone = completion.Verdict, stateTone(completion.Verdict)
+					step.Stats = append(step.Stats, TraceStat{"Verdict", completion.Verdict})
+				}
+				if completion.Status != "" {
+					step.Stats = append(step.Stats, TraceStat{"Status", strings.ReplaceAll(completion.Status, "_", " ")})
+				}
+			}
+		}
 		if includePayload {
 			if payload := presentEventPayload(event.Payload, present); payload != "" && payload != "{}" {
 				step.Details = append(step.Details, TraceDetail{Label: "Recorded event payload", Body: payload, Kind: "json"})
@@ -1012,6 +1026,31 @@ func manifestEventCovered(payload string, manifests []ManifestRow) bool {
 		}
 	}
 	return false
+}
+
+type completionEvent struct {
+	Message, Status, Verdict string
+}
+
+// decodeCompletionEvent unwraps a complete_episode operation's payload: the
+// public message at the top of the completion, the machine status and verdict
+// nested inside it.
+func decodeCompletionEvent(payload string) completionEvent {
+	var decoded struct {
+		Completion struct {
+			Message    string `json:"message"`
+			Completion struct {
+				Status  string `json:"status"`
+				Verdict string `json:"verdict"`
+			} `json:"completion"`
+		} `json:"completion"`
+	}
+	_ = json.Unmarshal([]byte(payload), &decoded)
+	return completionEvent{
+		Message: decoded.Completion.Message,
+		Status:  decoded.Completion.Completion.Status,
+		Verdict: decoded.Completion.Completion.Verdict,
+	}
 }
 
 type phasePayload struct {
@@ -2855,6 +2894,7 @@ func eventTitle(kind string) string {
 		"phase_changed":              "Phase changed",
 		"context_extended":           "Context recorded",
 		"evidence_recorded":          "Model logged evidence",
+		"completion_submitted":       "Model reported completion",
 		"completed":                  "Episode completed",
 		"blocked":                    "Blocked",
 	}[kind]; ok {

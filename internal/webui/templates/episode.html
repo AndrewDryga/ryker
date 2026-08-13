@@ -81,7 +81,7 @@
             </div>
           </header>
 
-          {{if .Summary}}<p class="trace-step-summary">{{.Summary}}</p>{{end}}
+          {{if .Summary}}<p class="trace-step-summary">{{mrkdwn .Summary}}</p>{{end}}
 
           {{with .Bar}}
           <div class="stepbar">
