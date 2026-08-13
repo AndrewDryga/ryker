@@ -164,8 +164,9 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"SYSTEM: Keep durable settings typed.",
 		"USER: @Emisar it would be better if plan summaries showed before and after values",
 		"tokens went to the model, kept exactly as sent.",
-		"Not included this turn",
-		"recent messages · referenced thread · attachments",
+		"Not sent",
+		"No additional nearby Slack messages were admitted into this prompt.",
+		"This request did not resolve to a separate referenced thread.",
 		"Operational memory",
 		"Operational memory · Confirmed memory (1)",
 		"Conversation memory",
@@ -831,7 +832,8 @@ USER: check this`
 		"@Trevin Miller\ndeploy finished", "Slack channel", "#infra", "Repository selection", "emisar",
 		"A bounded chronological window around the triggering message",
 		"The 10 newest evidence records from this channel",
-		"Not included this turn", "referenced thread · attachments · related conversations",
+		"Not sent", "This request did not resolve to a separate referenced thread",
+		"None of the recent conversation summaries were relevant enough to include.",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("readable prompt context missing %q:\n%s", want, joined)

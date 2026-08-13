@@ -1610,13 +1610,10 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 	details := make([]TraceDetail, 0, len(envelope)+12)
 	layerCount := 0
 	seen := map[string]bool{}
-	// Sources that stayed quiet fold into one dim line at the end of the
-	// tree instead of a run of grey rows: one glance says which systems
-	// fired, one line says which did not.
-	quiet := []string{}
 
 	// Slack conversation. Alias sets represent schema evolution; only the value
-	// selected by the compiler is shown, never duplicate spellings of it.
+	// selected by the compiler is shown, never duplicate spellings of it. A
+	// quiet slot keeps its own inert row, in place, with its own reason.
 	slack := []TraceDetail{}
 	for _, aliases := range [][]string{
 		{"target_message", "source_message"},
@@ -1628,9 +1625,7 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 			seen[alias] = true
 		}
 		if key == "" {
-			if name := quietSlotName(aliases[0]); name != "" {
-				quiet = append(quiet, name)
-			}
+			slack = append(slack, missingPromptFieldDetail(aliases[0]))
 			continue
 		}
 		slack = append(slack, promptFieldDetail(key, raw, present))
@@ -1654,12 +1649,13 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 		for _, alias := range layer.keys {
 			seen[alias] = true
 		}
+		var rows []TraceDetail
 		if key == "" {
-			quiet = append(quiet, quietSlotName(layer.keys[0]))
-			continue
+			rows = []TraceDetail{missingMemoryDetail(layer.label, layer.keys[0])}
+		} else {
+			layerCount++
+			rows = memoryLayerDetails(raw, key, layer.label, layer.priority, present)
 		}
-		layerCount++
-		rows := memoryLayerDetails(raw, key, layer.label, layer.priority, present)
 		details = append(details, markDetailGroup(rows, layer.group, layer.groupDetail)...)
 	}
 
@@ -1701,29 +1697,26 @@ func promptContextDetails(prompt string, present func(string) string) ([]TraceDe
 		}
 		details = append(details, detail)
 	}
-	if len(quiet) > 0 {
-		details = append(details, TraceDetail{
-			Label: strings.Join(quiet, " · "), Kind: "missing", Status: "Quiet",
-			Description: "Nothing eligible was selected from these sources for this turn.",
-			Inert:       true,
-			Group:       "Not included this turn", GroupCount: len(quiet),
-		})
-	}
 	return details, layerCount
 }
 
-// quietSlotName is the short human name a quiet context source folds under.
-// Channel plumbing fields return nothing: their absence is not information.
-func quietSlotName(key string) string {
-	return map[string]string{
-		"target_message":                "source message",
-		"recent_messages_around_target": "recent messages",
-		"referenced_thread":             "referenced thread",
-		"attachments":                   "attachments",
-		"prior_operational_context":     "operational memory",
-		"structured_memory":             "conversation memory",
-		"related_situations":            "related conversations",
-	}[key]
+// missingPromptFieldDetail is the inert row a quiet context slot keeps in its
+// own group: nothing to open, the reason inline.
+func missingPromptFieldDetail(key string) TraceDetail {
+	label, tone := promptFieldPresentation(key)
+	return TraceDetail{
+		Label: label, Kind: "missing", Status: "Not sent",
+		Description: promptSelectionDescription(key, false), Tone: tone,
+		Inert: true,
+	}
+}
+
+func missingMemoryDetail(label, key string) TraceDetail {
+	return TraceDetail{
+		Label: label, Kind: "missing", Status: "Not sent",
+		Description: promptSelectionDescription(key, false), Tone: promptTone(key),
+		Inert: true,
+	}
 }
 
 // promptCapNote states the budget every turn is trimmed against, from the
