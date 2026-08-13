@@ -255,12 +255,16 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 }
 
 func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
+	// Each of the twenty messages is sized so the assembled prompt exceeds
+	// the watch budget however large the transport cap grows.
+	messageBytes := watchPromptBudget(0) / 12
+	unit := "old-alert-00 "
 	recent := make([]decisionpkg.WatchContextMessage, 0, 20)
 	for index := 0; index < 20; index++ {
 		recent = append(recent, decisionpkg.WatchContextMessage{
 			MessageTS: fmt.Sprintf("1700.%06d", index),
 			SenderID:  "B_GRAFANA", SenderType: "external_app",
-			Text: strings.Repeat(fmt.Sprintf("old-alert-%02d ", index), 260),
+			Text: strings.Repeat(fmt.Sprintf("old-alert-%02d ", index), messageBytes/len(unit)),
 		})
 	}
 	input := core.SlackInput{

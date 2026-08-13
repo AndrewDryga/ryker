@@ -121,7 +121,10 @@ func staticPromptSizes(t *testing.T) map[string]int {
 // that fits, still carries the target, and says what it lost.
 func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 	svc := &Service{cfg: serviceConfig(t)}
-	filler := strings.Repeat("saturated evidence detail ", 60)
+	// Filler scales with the budget so assembly overflows it however large
+	// the transport cap grows: forty messages of budget/50 bytes each are
+	// alone most of a budget, before memory and related summaries pile on.
+	filler := strings.Repeat("saturated evidence detail ", watchPromptBudget(0)/50/len("saturated evidence detail ")+1)
 
 	recent := make([]decisionpkg.WatchContextMessage, 0, 40)
 	for index := range 40 {
@@ -327,11 +330,14 @@ func TestWatchBudgetLeavesRoomForWhatFollowsIt(t *testing.T) {
 			got, minimumWatchPromptBytes)
 	}
 
-	// The old behaviour, stated so a regression is recognisable: a fixed 56 KiB
-	// section plus the observed 14 KiB suffix is 71,680 bytes against a 65,536
-	// cap — which is what production was actually sending.
+	// The old behaviour, stated so a regression is recognisable: against the
+	// 64 KiB cap of the day, a fixed 56 KiB section plus the observed 14 KiB
+	// suffix was 71,680 bytes — which is what production was actually
+	// sending. The cap has since been raised, so the arithmetic is pinned to
+	// the historical constant rather than the current one.
+	const oldCap = 64 << 10
 	const oldFixedBudget = 56 << 10
-	if oldFixedBudget+(14<<10) <= coop.MaxPromptBytes {
+	if oldFixedBudget+(14<<10) <= oldCap {
 		t.Fatal("this test no longer describes the bug it was written for")
 	}
 }

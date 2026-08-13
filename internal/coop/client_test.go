@@ -340,8 +340,11 @@ func TestClientBoundsTurnPromptAndPreservesInstructionsAndTarget(t *testing.T) {
 	go server.Serve(listener)
 	defer server.Shutdown(context.Background())
 
+	// Sized past the transport cap however large the cap is, so the elision
+	// path stays exercised when the budget moves.
+	repeats := maxPromptBytes/len("old context ") + 1000
 	prompt := "GOVERNING INSTRUCTIONS\n" +
-		strings.Repeat("old context ", 9000) +
+		strings.Repeat("old context ", repeats) +
 		"\nCURRENT TARGET: investigate the memory alert \U0001F9E0"
 	prompt = string([]byte(prompt[:len(prompt)-1])) + "\xff\x00" +
 		"\nCURRENT TARGET: investigate the memory alert \U0001F9E0"

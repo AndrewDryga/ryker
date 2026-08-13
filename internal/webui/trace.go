@@ -302,7 +302,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		briefTokens := 0
 		if prompt != "" {
 			segments := promptSegments(present(prompt))
-			composition, briefTokens = promptCompositionBar(segments)
+			composition, briefTokens = promptCompositionBar(segments, len(prompt), len(manifest.Omissions) > 0)
 			promptDetails = append(promptDetails, TraceDetail{
 				Label: "Final submitted prompt", Body: present(prompt), Kind: "prompt",
 				Status: "Exact model input", Tone: "prompt", Open: true,
@@ -1346,10 +1346,13 @@ func auditIcon(kind string) string {
 	}
 }
 
-// promptCompositionBar reduces the exact submitted prompt to the question an
+// promptCompositionBar reduces the exact submitted prompt to the questions an
 // operator actually asks of it: how much of the model's attention went to
-// instructions, memory, the Slack conversation, and the request itself.
-func promptCompositionBar(segments []PromptSegment) (*StepBar, int) {
+// instructions, memory, the Slack conversation, and the request — and how
+// close the whole turn came to its budget. The strip's full width is the
+// budget; the unfilled remainder is headroom. A trimmed turn draws full by
+// definition: its budget was the ceiling it hit.
+func promptCompositionBar(segments []PromptSegment, promptBytes int, trimmed bool) (*StepBar, int) {
 	if len(segments) == 0 {
 		return nil, 0
 	}
@@ -1380,7 +1383,17 @@ func promptCompositionBar(segments []PromptSegment) (*StepBar, int) {
 	if total == 0 {
 		return nil, 0
 	}
-	bar := &StepBar{Note: "shares estimated from text length"}
+
+	budget := coop.MaxPromptBytes
+	used := 1000
+	bar := &StepBar{}
+	if trimmed || promptBytes >= budget {
+		bar.Note = fmt.Sprintf("the turn budget was full at %s — lower-value layers were dropped to fit", humanKiB(promptBytes))
+	} else {
+		used = max(promptBytes*1000/budget, 30)
+		bar.Note = fmt.Sprintf("%d%% of the %d KiB turn budget used · %s of headroom",
+			max(promptBytes*100/budget, 1), budget>>10, humanKiB(budget-promptBytes))
+	}
 	for _, family := range families {
 		if family.tokens == 0 {
 			continue
@@ -1388,10 +1401,31 @@ func promptCompositionBar(segments []PromptSegment) (*StepBar, int) {
 		bar.Slices = append(bar.Slices, BarSlice{
 			Label: family.label, Class: family.class,
 			Value: "~" + humanTokens(int64(family.tokens)),
-			W:     max(family.tokens*1000/total, 8),
+			W:     max(family.tokens*used/total, 8),
 		})
 	}
-	return layoutBar(bar), total
+	scale, x := 0, 0
+	for _, slice := range bar.Slices {
+		scale += slice.W
+	}
+	for index := range bar.Slices {
+		bar.Slices[index].W = bar.Slices[index].W * used / scale
+		bar.Slices[index].X = x
+		x += bar.Slices[index].W
+	}
+	bar.Slices[len(bar.Slices)-1].W = used - bar.Slices[len(bar.Slices)-1].X
+	if used < 1000 {
+		bar.Slices = append(bar.Slices, BarSlice{
+			Label: "headroom", Class: "free",
+			Value: humanKiB(budget - promptBytes),
+			X:     used, W: 1000 - used,
+		})
+	}
+	return bar, total
+}
+
+func humanKiB(bytes int) string {
+	return fmt.Sprintf("%.1f KiB", float64(bytes)/1024)
 }
 
 // usageBar draws what a turn's tokens were made of. Cached input dominating

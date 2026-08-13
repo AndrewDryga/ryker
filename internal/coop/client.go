@@ -25,8 +25,13 @@ const (
 	maxResponseBytes       = 3 << 20
 	maxReviewPatchBytes    = 64 << 20
 	maxOutputArtifactBytes = 8 << 20
-	maxPromptBytes         = 64 << 10
-	promptTailBytes        = 20 << 10
+	// 256 KiB, matching Coop's session.MaxPromptBytes. At the old 64 KiB cap
+	// this deployment trimmed context on 100% of turns — dropping evidence,
+	// related summaries, and continuity on nearly every call — and still hit
+	// transport elision. The sources are bounded upstream, so the cap's job
+	// is to be a transport backstop, not the working ceiling of every turn.
+	maxPromptBytes  = 256 << 10
+	promptTailBytes = 20 << 10
 )
 
 const promptElisionMarker = "\n\n<responder-context-elided>\nOlder bounded context was omitted to fit the Coop turn limit.\n</responder-context-elided>\n\n"

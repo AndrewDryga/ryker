@@ -949,6 +949,8 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .sb-in { fill: #60a5fa; }         .sb-key.in::before { background: #60a5fa; }
 .sb-out { fill: #a78bfa; }        .sb-key.out::before { background: #a78bfa; }
 .sb-think { fill: #22d3ee; }      .sb-key.think::before { background: #22d3ee; }
+.sb-free { fill: #1c1c20; }       .sb-key.free::before { background: #1c1c20; box-shadow: inset 0 0 0 1px #33333a; }
+.sb-key.free { color: #52525b; }
 .stepbar rect:hover { opacity: .85; }
 
 

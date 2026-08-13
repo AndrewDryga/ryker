@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -454,16 +455,17 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 // must group every segment tone, keep real slivers visible, and lay out to
 // exactly the whole strip.
 func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
-	bar, total := promptCompositionBar([]PromptSegment{
+	segments := []PromptSegment{
 		{Tone: "system", Tokens: 700},
 		{Tone: "structure", Tokens: 20},
 		{Tone: "operational", Tokens: 90},
 		{Tone: "conversation", Tokens: 90},
 		{Tone: "slack", Tokens: 80},
 		{Tone: "user", Tokens: 3},
-	})
-	if bar == nil || len(bar.Slices) != 4 {
-		t.Fatalf("composition = %+v, want four families", bar)
+	}
+	bar, total := promptCompositionBar(segments, coop.MaxPromptBytes/2, false)
+	if bar == nil || len(bar.Slices) != 5 {
+		t.Fatalf("composition = %+v, want four families plus headroom", bar)
 	}
 	if total != 983 {
 		t.Fatalf("composition total = %d, want 983", total)
@@ -485,8 +487,23 @@ func TestPromptCompositionBarGroupsFamiliesAcrossTheWholeStrip(t *testing.T) {
 	if covered != 1000 {
 		t.Fatalf("bar covers %d of 1000 units", covered)
 	}
-	if !strings.Contains(bar.Note, "estimated") {
-		t.Fatalf("note does not say the tokens are estimates: %q", bar.Note)
+	free := bar.Slices[4]
+	if free.Class != "free" || free.X != 500 || free.W != 500 {
+		t.Fatalf("half-used budget headroom = %+v, want the second half of the strip", free)
+	}
+	if !strings.Contains(bar.Note, "50% of the 256 KiB turn budget") {
+		t.Fatalf("note does not state budget use: %q", bar.Note)
+	}
+
+	// A trimmed turn fills the strip by definition: its budget was the
+	// ceiling it hit, and the note says so instead of inventing headroom.
+	full, _ := promptCompositionBar(segments, 62<<10, true)
+	last := full.Slices[len(full.Slices)-1]
+	if last.Class == "free" || last.X+last.W != 1000 {
+		t.Fatalf("trimmed turn bar = %+v, want families across the whole strip", full.Slices)
+	}
+	if !strings.Contains(full.Note, "budget was full at 62.0 KiB") {
+		t.Fatalf("trimmed note = %q", full.Note)
 	}
 }
 
