@@ -930,3 +930,48 @@ func TestSuppressedLifecycleResultIsStillValidatedAgainstItsContract(t *testing.
 		t.Fatal("a healthy verdict over unknown change coverage was accepted as valid")
 	}
 }
+
+// A verified rollout is not a status paraphrase, and suppression could not tell
+// them apart.
+//
+// The rule required a coverage layer other than change to carry a real status,
+// so a reply whose whole point was that the change landed and the service
+// answers — fresh probe evidence bound to change.recent, change coverage
+// healthy — was suppressed as redundant narration.
+func TestAppliedTerraformReplyWithContractShapedFreshRuntimeEvidenceIsNotSuppressed(t *testing.T) {
+	observed := time.Now().UTC()
+	input := core.SlackInput{
+		ID: "slack-run-applied", EventID: "EvApplied", Kind: "bot_message",
+		ReceivedAt: observed,
+		Text: "Run notification for <https://example.com/acme/infra|acme/infra>\n" +
+			"<https://example.com/acme/infra/runs/run-ok|Run run-ok>\nRun Applied",
+	}
+	verified := decisionpkg.WatchDecision{
+		Action:  "reply",
+		Message: "The apply landed and the service answers on the new revision.",
+		Evidence: []core.Evidence{{
+			ID: "evidence-probe", ClaimID: "change.recent",
+			Observation: "The HTTP probe returns 200 on the new revision.",
+			SourceType:  "emisar", SourceName: "http-probe", Relation: "supports",
+			HealthEffect: "none", ObservedAt: observed.Add(-time.Minute),
+		}},
+		Coverage: []core.Coverage{{
+			Layer: "change", Status: "healthy", ClaimIDs: []string{"change.recent"},
+			Detail: "The requested revision is the running one.", ObservedAt: observed,
+		}},
+	}
+	if got := EnforceExternalLifecycleCommunication(input, verified); got.Action != "reply" {
+		t.Fatalf("a verified rollout with fresh runtime evidence was suppressed: action %q", got.Action)
+	}
+
+	// Still suppressed: coverage the model asserted from the notification it was
+	// reading rather than from anything it recorded.
+	asserted := verified
+	asserted.Coverage = []core.Coverage{{
+		Layer: "change", Status: "healthy", Source: "HCP Terraform",
+		Detail: "the apply completed", ObservedAt: observed,
+	}}
+	if got := EnforceExternalLifecycleCommunication(input, asserted); got.Action != "ignore" {
+		t.Fatalf("unbound change coverage reached the channel: action %q", got.Action)
+	}
+}

@@ -177,10 +177,27 @@ func ReplyAddsFreshOperationalValue(decision decisionpkg.WatchDecision, now time
 		) {
 		return false
 	}
+	// The change layer counts too, once something was actually observed.
+	//
+	// It used to be skipped unconditionally, on the reasoning that a lifecycle
+	// event already says the change happened. True of a status paraphrase,
+	// false of a verified rollout: a reply saying the requested revision is the
+	// running one and answers an HTTP probe is a finding about the running
+	// system that happens to be filed under change. Every such reply was
+	// suppressed as redundant narration.
 	for _, item := range decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", now) {
 		layer := strings.ToLower(strings.TrimSpace(item.Layer))
 		status := strings.ToLower(strings.TrimSpace(item.Status))
-		if layer == "" || layer == "change" {
+		if layer == "" {
+			continue
+		}
+		// Bound to recorded claims, though. That is what separates the two, and
+		// the layer name is not: both file under change, and both can cite
+		// evidence typed monitoring, because the provider's own feed is
+		// monitoring. The difference is whether the model tied its healthy
+		// verdict to observations it recorded — bound to change.recent — or
+		// asserted it from the notification it was reading.
+		if layer == "change" && len(item.ClaimIDs) == 0 {
 			continue
 		}
 		switch status {
