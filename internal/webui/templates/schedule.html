@@ -11,7 +11,26 @@
     · {{if .CatchUp}}missed runs: {{if eq .CatchUp "latest"}}run the latest one{{else}}skipped{{end}}{{end}}
     {{if not .ExpiresAt.IsZero}} · expires {{until .ExpiresAt}}{{end}}
   </div>
+  {{if .CanAct}}
+  <div class="acts">
+    {{if .Enabled}}
+    {{template "confirm" confirm "Pause" "Stops it firing. Nothing already running is interrupted, its history is kept, and it can be resumed as long as it still has a future run." "Yes, pause it" "/actions/schedules/pause" .ID}}
+    {{else}}
+    {{if eq .CatchUp "latest"}}
+    {{template "confirm" confirm "Resume" "Starts it firing again on its usual cadence. This schedule catches up, so if an occurrence came due while it was paused, the most recent one runs as soon as it resumes." "Yes, resume it" "/actions/schedules/resume" .ID}}
+    {{else}}
+    {{template "confirm" confirm "Resume" "Starts it firing again on its usual cadence. This schedule does not catch up: an occurrence that came due while it was paused is recorded as missed rather than run." "Yes, resume it" "/actions/schedules/resume" .ID}}
+    {{end}}
+    {{end}}
+    {{template "confirm" confirm "Delete" "Removes the schedule for good; it will not fire again. The executions below stay on record, and the episodes they produced remain under Episodes." "Yes, delete it" "/actions/schedules/delete" .ID}}
+  </div>
+  {{end}}
 </div>
+
+<p class="note">To change what this asks for or when it runs, ask Responder in
+{{.Channel}} for the replacement and confirm it there. A schedule has no edit in place:
+a new one is proposed, you confirm it, and this one is deleted — so a half-changed
+schedule can never be what fires tonight.</p>
 
 <h2>Executions <span class="note">{{len .Runs}}</span></h2>
 {{if .Runs}}

@@ -95,6 +95,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /actions/workspaces/discard", h.discardRetainedWork)
 	mux.HandleFunc("POST /actions/workspaces/rerun", h.rerunCleanup)
 	mux.HandleFunc("POST /actions/workspaces/discard-session", h.discardWorkspace)
+	mux.HandleFunc("POST /actions/schedules/pause", h.pauseSchedule)
+	mux.HandleFunc("POST /actions/schedules/resume", h.resumeSchedule)
+	mux.HandleFunc("POST /actions/schedules/delete", h.deleteSchedule)
 	mux.HandleFunc("POST /actions/episodes/resolve", h.resolveEpisode)
 	mux.HandleFunc("POST /actions/replays/cancel", h.cancelSlackReplay)
 	mux.HandleFunc("POST /actions/incidents/resolve", h.resolveIncident)
@@ -428,9 +431,10 @@ func (h *Handler) schedule(w http.ResponseWriter, r *http.Request) {
 	// asks for. The list makes the same substitution.
 	h.detail(w, r, "schedules", "schedule", fallback(item.Title, truncate(item.Prompt, 80)), struct {
 		Schedule
-		Runs []ScheduleRun
-		Errs problems
-	}{item, runs, failed})
+		Runs   []ScheduleRun
+		Errs   problems
+		CanAct bool
+	}{item, runs, failed, h.CanAct()})
 }
 
 func (h *Handler) episodeFilter(ctx context.Context, r *http.Request) EpisodeFilter {

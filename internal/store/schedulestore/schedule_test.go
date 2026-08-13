@@ -134,3 +134,62 @@ func TestScheduleProposalUpdatesMatchingTaskInPlaceAndIsIdempotent(t *testing.T)
 		t.Fatalf("scheduled tasks after replacement = %+v, err=%v", listed, err)
 	}
 }
+
+// Pausing is always allowed; resuming is not. A schedule with no future run —
+// a one-off that already fired, or anything past its expiry — has nothing to
+// be resumed to, and the store refuses rather than flipping a flag that would
+// never fire. The control plane turns that refusal into a sentence, so it has
+// to be a refusal and not a silent no-op.
+func TestResumingNeedsAFutureRunAndPausingAlwaysWorks(t *testing.T) {
+	ctx := context.Background()
+	db := storetest.DB(t)
+	repo := schedulestore.New(db, time.Now)
+	now := time.Now().UTC().Truncate(time.Second)
+	create := func(ref, recurrence, localTime string, next time.Time) core.ScheduledTask {
+		t.Helper()
+		task, err := repo.CreateScheduledTask(ctx, core.ScheduledTask{
+			TeamID: "T1", ChannelID: "C1", Repository: "repo",
+			Title: "Check " + ref, Prompt: "Check something.", Recurrence: recurrence,
+			LocalTime: localTime,
+			StartAt:   next, Timezone: "UTC", CatchUp: "latest", ActorID: "U1",
+			SourceRef: ref, NextRunAt: next, ExpiresAt: now.Add(30 * 24 * time.Hour),
+		}, 10, 5)
+		if err != nil {
+			t.Fatalf("create %s: %v", ref, err)
+		}
+		return task
+	}
+
+	recurring := create("Ev-daily", "daily", "09:00", now.Add(time.Hour))
+	paused, err := repo.SetScheduledTaskEnabled(ctx, recurring.ID, false)
+	if err != nil || paused.Enabled {
+		t.Fatalf("pause = %+v, %v; want it disabled", paused, err)
+	}
+	resumed, err := repo.SetScheduledTaskEnabled(ctx, recurring.ID, true)
+	if err != nil || !resumed.Enabled {
+		t.Fatalf("resume = %+v, %v; want it enabled again", resumed, err)
+	}
+
+	// A schedule whose next run has been cleared cannot be resumed.
+	spent := create("Ev-once", "once", "", now.Add(time.Hour))
+	if _, err := repo.SetScheduledTaskEnabled(ctx, spent.ID, false); err != nil {
+		t.Fatalf("pause the one-off: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE scheduled_tasks SET next_run_at = NULL WHERE id = ?`, spent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.SetScheduledTaskEnabled(ctx, spent.ID, true); err == nil {
+		t.Fatal("resumed a schedule that has no future run to resume to")
+	}
+
+	// Deleting reports what was deleted, and doing it twice is an error rather
+	// than a silent success, so a stale page cannot claim a second removal.
+	deleted, err := repo.DeleteScheduledTask(ctx, recurring.ID)
+	if err != nil || deleted.ID != recurring.ID {
+		t.Fatalf("delete = %+v, %v", deleted, err)
+	}
+	if _, err := repo.DeleteScheduledTask(ctx, recurring.ID); err == nil {
+		t.Fatal("deleting an already-deleted schedule reported success")
+	}
+}

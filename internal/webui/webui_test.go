@@ -200,6 +200,12 @@ type failingActions struct{}
 func (failingActions) KeepCorrection(context.Context, string, string) error {
 	return errors.New("store refused")
 }
+func (failingActions) SetSchedulePaused(context.Context, string, bool, string) error {
+	return errors.New("store refused")
+}
+func (failingActions) DeleteSchedule(context.Context, string, string) error {
+	return errors.New("store refused")
+}
 func (failingActions) DiscardCorrection(context.Context, string, string) error {
 	return errors.New("store refused")
 }

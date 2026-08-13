@@ -284,6 +284,52 @@ func (a *dashboardActions) CancelSlackReplay(ctx context.Context, replayID, expe
 // ResolveIncident closes an open room through the same service handler the
 // Slack close control calls: cleanup scheduling, audit, timeline and the
 // closing notice included.
+// SetSchedulePaused stops a schedule firing, or starts it again.
+//
+// The store refuses to resume one that has no future run left — a "once"
+// schedule that already fired, or any schedule past its expiry — and that
+// refusal reaches the operator as a sentence rather than as a row count,
+// because "nothing happened" on a control they just pressed is the failure
+// mode this whole page exists to avoid.
+func (a *dashboardActions) SetSchedulePaused(
+	ctx context.Context, id string, paused bool, actor string,
+) error {
+	task, err := a.store.Schedules.SetScheduledTaskEnabled(ctx, id, !paused)
+	if err != nil {
+		if paused {
+			return fmt.Errorf("this schedule could not be paused; it may already be deleted or expired: %w", err)
+		}
+		return fmt.Errorf(
+			"this schedule cannot be resumed: it has no future run left, which happens to a one-off that already fired and to any schedule past its expiry. Ask Responder in Slack for a replacement: %w",
+			err,
+		)
+	}
+	outcome, detail := "resumed", "enabled"
+	if paused {
+		outcome, detail = "paused", "disabled"
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "schedule." + outcome, ActorID: actor, ObjectID: task.ID,
+		Outcome: detail, Detail: task.Title,
+	})
+}
+
+// DeleteSchedule removes a schedule for good.
+//
+// The executions it already produced are not touched: they are the record of
+// work that really ran, and the episodes they point at are reached from
+// Episodes whether or not the schedule that started them still exists.
+func (a *dashboardActions) DeleteSchedule(ctx context.Context, id, actor string) error {
+	task, err := a.store.Schedules.DeleteScheduledTask(ctx, id)
+	if err != nil {
+		return fmt.Errorf("this schedule could not be deleted; it may already be gone: %w", err)
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "schedule.deleted", ActorID: actor, ObjectID: task.ID,
+		Outcome: "deleted", Detail: task.Title,
+	})
+}
+
 func (a *dashboardActions) ResolveIncident(ctx context.Context, incidentID, actor string) error {
 	return a.service.ControlPlaneAct(ctx, "close", incidentID, actor)
 }

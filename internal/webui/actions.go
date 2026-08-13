@@ -34,6 +34,16 @@ type Actions interface {
 	// Coop's acknowledged plan — and drops only the bookkeeping that needs an
 	// incident, since there is no room to post an outcome to.
 	DiscardWorkspace(ctx context.Context, sessionID, actor string) error
+	// SetSchedulePaused and DeleteSchedule are the two things that can be done
+	// to a schedule without describing a new one. Both call the store paths the
+	// Slack schedule controls call.
+	//
+	// There is deliberately no edit here. A schedule's definition has no update
+	// path anywhere in the product: changing one means proposing a replacement
+	// and confirming it, which is why Slack's own edit control answers with a
+	// sentence asking for the replacement rather than opening a form.
+	SetSchedulePaused(ctx context.Context, id string, paused bool, actor string) error
+	DeleteSchedule(ctx context.Context, id, actor string) error
 	// ResolveEpisodeOvertaken closes blocked or waiting work whose moment has
 	// passed, through the episode kernel's own cancel transition. Nothing is
 	// deleted: the event and the audit row are the record of who decided.
@@ -131,6 +141,28 @@ func (h *Handler) discardRetainedWork(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) rerunCleanup(w http.ResponseWriter, r *http.Request) {
 	h.act(w, r, func(ctx context.Context, id string) error {
 		return h.actions.RerunCleanup(ctx, id, dashboardActor)
+	})
+}
+
+// Pause and resume are separate routes rather than one carrying the desired
+// state in the form. A control that toggles is a control whose effect depends
+// on a page that may already be stale; two routes each do one thing, and
+// pressing the wrong one twice is a no-op rather than an undo.
+func (h *Handler) pauseSchedule(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.SetSchedulePaused(ctx, id, true, dashboardActor)
+	})
+}
+
+func (h *Handler) resumeSchedule(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.SetSchedulePaused(ctx, id, false, dashboardActor)
+	})
+}
+
+func (h *Handler) deleteSchedule(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.DeleteSchedule(ctx, id, dashboardActor)
 	})
 }
 
