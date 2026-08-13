@@ -1244,17 +1244,32 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   overflow-wrap: anywhere;
 }
 
-.trace-cell-detail > summary {
-  cursor: pointer;
-  list-style: none;
-  color: var(--ink-2);
+/* The whole row is the control. A target the width of one column is a target
+   you have to aim at, and every cell in the row describes the same call. */
+.trace-row-toggle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
-.trace-cell-detail > summary::-webkit-details-marker { display: none; }
-.trace-cell-detail > summary::after {
+.trace-table tr.is-expandable { cursor: pointer; }
+.trace-table tr.is-expandable:hover > td { background: #131318; }
+.trace-table tr.is-expandable label {
+  display: block;
+  cursor: pointer;
+}
+.trace-table tr.is-expandable label.has-caret::after {
   content: " ▸";
   color: var(--faint);
 }
-.trace-cell-detail[open] > summary::after { content: " ▾"; }
+.trace-table tr.is-expandable:has(.trace-row-toggle:checked) label.has-caret::after {
+  content: " ▾";
+}
+.trace-table tr.is-expandable:has(.trace-row-toggle:focus-visible) > td {
+  outline: 1px solid var(--line-1);
+  outline-offset: -1px;
+}
 
 /* The opened record spans the table rather than the one column its toggle
    sits in. Nested in the cell it inherited that column's width, so a pack
@@ -1278,9 +1293,9 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 /* Toggled by the disclosure in the row above. Guarded rather than assumed:
    without :has() the record stays visible, which is worse only in density —
    never unreachable. */
-@supports selector(tr:has(> td > details[open])) {
+@supports selector(tr:has(.trace-row-toggle:checked)) {
   .trace-row-expand { display: none; }
-  tr:has(> td > .trace-cell-detail[open]) + .trace-row-expand { display: table-row; }
+  tr:has(.trace-row-toggle:checked) + .trace-row-expand { display: table-row; }
 }
 
 .prompt-segments {

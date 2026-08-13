@@ -202,8 +202,8 @@
               <div class="trace-table-wrap">
                 <table class="trace-table{{if .Table.Tight}} cols-tight{{end}}">
                   <thead><tr>{{range .Table.Headers}}<th>{{.}}</th>{{end}}</tr></thead>
-                  {{$span := len .Table.Headers}}
-                  <tbody>{{range .Table.Rows}}{{$href := .Href}}{{$expand := .Expand}}{{$expandAt := .ExpandAt}}<tr>{{range $cell, $value := .Cells}}<td>{{if and $href (eq $cell 1)}}<a href="{{$href}}">{{$value}}</a>{{else if and $expand (eq $cell $expandAt)}}<details class="trace-cell-detail"><summary>{{$value}}</summary></details>{{else}}{{$value}}{{end}}</td>{{end}}</tr>{{if $expand}}<tr class="trace-row-expand"><td colspan="{{$span}}"><pre>{{$expand}}</pre></td></tr>{{end}}{{end}}</tbody>
+                  {{$span := len .Table.Headers}}{{$prefix := .Table.IDPrefix}}
+                  <tbody>{{range $index, $row := .Table.Rows}}{{$href := $row.Href}}{{$expand := $row.Expand}}{{$expandAt := $row.ExpandAt}}{{$rid := printf "%s-row-%d" $prefix $index}}<tr{{if $expand}} class="is-expandable"{{end}}>{{range $cell, $value := $row.Cells}}<td>{{if and $href (eq $cell 1)}}<a href="{{$href}}">{{$value}}</a>{{else if $expand}}{{if eq $cell 0}}<input class="trace-row-toggle" type="checkbox" id="{{$rid}}">{{end}}<label for="{{$rid}}"{{if eq $cell $expandAt}} class="has-caret"{{end}}>{{$value}}</label>{{else}}{{$value}}{{end}}</td>{{end}}</tr>{{if $expand}}<tr class="trace-row-expand"><td colspan="{{$span}}"><pre>{{$expand}}</pre></td></tr>{{end}}{{end}}</tbody>
                 </table>
               </div>
               {{else if .Segments}}

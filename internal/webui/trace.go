@@ -55,6 +55,10 @@ type TraceTable struct {
 	// "mcp.emisar.run_action" as four unreadable fragments — a scrollbar is
 	// the cheaper cost.
 	Tight bool
+	// IDPrefix namespaces the per-row toggle controls. A page carries several
+	// of these tables, and a duplicated control id would make one row's click
+	// open another card's record.
+	IDPrefix string
 }
 
 type TraceTableRow struct {
@@ -62,9 +66,10 @@ type TraceTableRow struct {
 	// Href links the row's name cell to the record behind it — a retained
 	// artifact body, openable from the trace.
 	Href template.URL
-	// Expand is the full record behind a summarized cell, rendered as a
-	// disclosure inside the cell at ExpandAt. A row whose cell holds a
-	// normalized label needs somewhere to keep what was normalized away.
+	// Expand is the full record behind a summarized row, opened by clicking
+	// anywhere in the row and rendered across the table below it. ExpandAt is
+	// only where the caret is drawn — the whole row is the control, because a
+	// target the width of one column is a target you have to aim at.
 	Expand   string
 	ExpandAt int
 }
@@ -3799,8 +3804,6 @@ func activityCallsStep(calls []ActivityMoment, ordinal int) TraceStep {
 	first, end := calls[0].At, calls[0].At
 	rows := make([]TraceTableRow, 0, len(calls))
 	kinds := map[string]int{}
-	operations := []string{}
-	seen := map[string]bool{}
 	failed, running := 0, 0
 	for _, call := range calls {
 		if !call.At.IsZero() {
@@ -3820,10 +3823,6 @@ func activityCallsStep(calls []ActivityMoment, ordinal int) TraceStep {
 		case "failed":
 			failed++
 		}
-		if name := call.Title; name != "" && !seen[name] {
-			seen[name] = true
-			operations = append(operations, name)
-		}
 		rows = append(rows, TraceTableRow{
 			Cells: []string{
 				activityOffset(first, call.At),
@@ -3840,18 +3839,14 @@ func activityCallsStep(calls []ActivityMoment, ordinal int) TraceStep {
 	step := TraceStep{
 		ID: fmt.Sprintf("activity-%d", ordinal+1), Stage: "Execution", Actor: "Model",
 		State: "recorded", Icon: "bolt", At: first, band: bandWork,
-		Why: "Tool calls the model made in one unbroken stretch. Arguments are " +
-			"recorded, results are not: results dominate a transcript and routinely " +
-			"carry credentials and log bodies.",
 	}
 	if len(calls) == 1 {
 		step.Title = fallback(calls[0].Title, "Tool call")
 	} else {
+		// No summary line naming the operations: the table sits open directly
+		// underneath and lists every one of them, so a header repeating the
+		// first few is the same sentence twice.
 		step.Title = countList([]countPart{{len(calls), "tool call", "tool calls"}})
-		// Which operations ran, so a run of twenty-six is legible without
-		// opening it. Distinct names only — the same action against the same
-		// target twice is one fact, not two.
-		step.Summary = core.TruncateUTF8WithSuffix(strings.Join(operations, ", "), 200, "…")
 	}
 	if failed > 0 {
 		step.Tone = "warn"
@@ -3872,11 +3867,18 @@ func activityCallsStep(calls []ActivityMoment, ordinal int) TraceStep {
 	}
 	step.Details = []TraceDetail{{
 		Label: "Every call, in order", Kind: "context", Status: "Tool calls",
-		Description: "Click a row's arguments to see the whole recorded input.",
-		Open:        true, ShowCount: true, Count: len(rows),
+		// The one fact a reader cannot infer from the table: results were
+		// never recorded, so an empty-looking call is not a call that
+		// returned nothing.
+		Description: "Click a row for the whole recorded input. Arguments are kept, " +
+			"results are not: results dominate a transcript and routinely carry " +
+			"credentials and log bodies.",
+		Open: true, ShowCount: true, Count: len(rows),
 		Table: &TraceTable{
-			Headers: []string{"At", "What ran", "Kind", "Status", "Took", "Arguments"},
-			Rows:    rows, Tight: true,
+			Headers:  []string{"At", "What ran", "Kind", "Status", "Took", "Arguments"},
+			Rows:     rows,
+			Tight:    true,
+			IDPrefix: step.ID,
 		},
 	}}
 	return step
@@ -3893,7 +3895,6 @@ func activityMomentStep(moment ActivityMoment, ordinal int) TraceStep {
 	case "thought":
 		step.Icon, step.Title = "sparkle", "Reasoning"
 		step.Summary = core.TruncateUTF8WithSuffix(moment.Detail, 160, "…")
-		step.Why = "The model's own account of its thinking, as the provider streamed it."
 		if len(moment.Detail) > len(step.Summary) {
 			step.Details = []TraceDetail{{
 				Label: "In full", Body: moment.Detail, Kind: "text",
@@ -3914,8 +3915,6 @@ func activityMomentStep(moment ActivityMoment, ordinal int) TraceStep {
 			lines = append(lines, line)
 		}
 		step.Summary = fmt.Sprintf("%d of %d steps done", done, len(moment.Entries))
-		step.Why = "The model revised its own plan here. What it dropped or added " +
-			"says as much as what it kept."
 		step.Details = []TraceDetail{{
 			Label: "The plan as it stood", Body: strings.Join(lines, "\n"), Kind: "text",
 			Open: true, ShowCount: true, Count: len(lines),
@@ -3932,8 +3931,6 @@ func activityMomentStep(moment ActivityMoment, ordinal int) TraceStep {
 		if moment.Dropped > 0 {
 			step.Stats = []TraceStat{{"Moments dropped", fmt.Sprint(moment.Dropped)}}
 		}
-		step.Why = "The turn produced more activity than one turn may narrate. The " +
-			"gap is reported rather than left to read as a complete account."
 	default:
 		step.Icon, step.Title = "dot", fallback(moment.Title, "Activity")
 		step.Summary = moment.Detail

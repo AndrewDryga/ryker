@@ -3,6 +3,7 @@ package webui
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -310,13 +311,13 @@ func TestReasoningAndCallsAlternateAsSeparateCards(t *testing.T) {
 			t.Fatalf("card %d = %q, want %q (all: %v)", index, titles[index], want[index], titles)
 		}
 	}
-	// A lone call is named for itself rather than counted.
-	if steps[3].Summary != "" {
-		t.Fatalf("a single call restated itself: %q", steps[3].Summary)
-	}
-	// The run of two says which operations it covered without being opened.
-	if steps[1].Summary != "emisar · tfc.run_details, emisar · tfc.plan_summary" {
-		t.Fatalf("grouped card summary = %q", steps[1].Summary)
+	// Neither card carries a summary line. The table sits open directly under
+	// it and lists every call, so a header naming the first few would be the
+	// same sentence twice.
+	for _, step := range steps {
+		if step.Summary != "" && step.Title != "Reasoning" {
+			t.Fatalf("card %q repeats its own table: %q", step.Title, step.Summary)
+		}
 	}
 	// Order on the rail is the order they happened.
 	for index := 1; index < len(steps); index++ {
@@ -428,6 +429,56 @@ func TestCallTableIsTightAndExpandable(t *testing.T) {
 	row := table.Table.Rows[0]
 	if row.ExpandAt != 5 || !strings.Contains(row.Expand, `"run_id": "r1"`) {
 		t.Fatalf("the full record is not behind the arguments cell: %+v", row)
+	}
+	// The toggle controls are namespaced per card. A page carries several of
+	// these tables, and a duplicated control id would make one row's click
+	// open a different card's record.
+	if table.Table.IDPrefix != steps[0].ID {
+		t.Fatalf("table id prefix = %q, want the card's own id %q",
+			table.Table.IDPrefix, steps[0].ID)
+	}
+}
+
+// Every cell in an expandable row is a label for that row's toggle, so the
+// whole row is the click target rather than one column of it.
+func TestEveryCellOfAnExpandableRowIsTheControl(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
+	for index, action := range []string{"tfc.run_details", "tfc.plan_summary"} {
+		fixture.exec(`INSERT INTO agent_activity
+		  (id, episode_id, agent_run_id, session_id, turn_id, sequence, kind,
+		   tool_call_id, title, tool_kind, status, detail, occurred_at, created_at)
+		  VALUES (?,'episode-1','run-1','sess-1','turn-1',?,'tool.started',?,
+		          'mcp.emisar.run_action','execute','',?,?,?)`,
+			fmt.Sprintf("act-%d", index), index+1, fmt.Sprintf("t%d", index),
+			fmt.Sprintf(`{"input":{"arguments":{"action_id":%q,"args":{"run_id":"r1"}},`+
+				`"server":"emisar","tool":"run_action"}}`, action),
+			at.Add(time.Duration(index)*time.Second).Format(time.RFC3339Nano), fixture.stamp)
+	}
+	reader := fixture.reader()
+	defer reader.Close()
+	body := servePage(t, reader, "/episodes/episode-1")
+	rows := regexp.MustCompile(`(?s)<tr class="is-expandable">(.*?)</tr>`).FindAllStringSubmatch(body, -1)
+	if len(rows) != 2 {
+		t.Fatalf("want two expandable rows, got %d", len(rows))
+	}
+	for index, row := range rows {
+		id := regexp.MustCompile(`id="([^"]+)"`).FindStringSubmatch(row[1])
+		if id == nil {
+			t.Fatalf("row %d has no toggle", index)
+		}
+		cells := strings.Count(row[1], "<td>")
+		labels := strings.Count(row[1], `<label for="`+id[1]+`"`)
+		if labels != cells {
+			t.Fatalf("row %d: %d of %d cells are click targets", index, labels, cells)
+		}
+	}
+	// Two rows, two distinct controls.
+	if strings.Count(body, `class="trace-row-toggle"`) != 2 {
+		t.Fatalf("expected one toggle per row: %d", strings.Count(body, `class="trace-row-toggle"`))
+	}
+	if strings.Contains(body, "trace-cell-detail") {
+		t.Fatal("the old single-column disclosure is still rendered")
 	}
 }
 
