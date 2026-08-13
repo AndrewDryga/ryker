@@ -976,6 +976,16 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-step-stats small { color: var(--faint); font-size: 9.5px; text-transform: uppercase; }
 .trace-step-stats strong { color: var(--ink-2); font: 500 11.5px/1.5 var(--mono); overflow-wrap: anywhere; }
 
+/* The footer strip: flat facts below every disclosure — replay fingerprints
+   read like the stats row, not like a table to open. */
+.trace-step-footer {
+  margin: 0;
+  padding: 10px 16px 0;
+  border-top: 1px solid var(--line-2);
+}
+.trace-step-footer p { margin: 0 0 2px; color: #52525b; font-size: 10.5px; }
+.trace-step-footer .trace-step-stats { margin: 4px 0 0; padding-bottom: 0; }
+
 .trace-details { border-top: 1px solid var(--line-2); }
 .trace-step-header + .trace-details,
 .trace-step-summary + .trace-details,

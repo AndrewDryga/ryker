@@ -870,11 +870,15 @@ func TestContextReferenceDetailsSeparateReplayMetadataFromInputs(t *testing.T) {
 		{Kind: "artifact", What: "github-pr-529.md (text/markdown)", Visibility: "eligible",
 			FullDigest: "5256adaff57a0000", Digest: "5256adaff57a"},
 	}, func(value string) string { return value }, map[string]bool{"5256adaff57a0000": true})
-	if len(runtime) != 1 || len(replay) != 1 {
-		t.Fatalf("context details = %+v / %+v, want one runtime table and one replay table", runtime, replay)
+	if len(runtime) != 1 || len(replay) != 2 {
+		t.Fatalf("context details = %+v / %+v, want one runtime table and two replay facts", runtime, replay)
+	}
+	if replay[0] != (TraceStat{"Final prompt", "abc123"}) ||
+		replay[1] != (TraceStat{"Selected context", "def456"}) {
+		t.Fatalf("replay facts = %+v, want flat fingerprint pairs", replay)
 	}
 	joined := ""
-	for _, detail := range append(append([]TraceDetail{}, runtime...), replay...) {
+	for _, detail := range runtime {
 		joined += detail.Group + "\n" + detail.Label + "\n" + detail.Description + "\n"
 		if detail.Table != nil {
 			joined += strings.Join(detail.Table.Headers, "\n") + "\n"
@@ -888,8 +892,6 @@ func TestContextReferenceDetailsSeparateReplayMetadataFromInputs(t *testing.T) {
 		"Companion repository", "Read-only companion checkout", "emisar-docs",
 		"Execution policy", "Controls tools and whether files can change",
 		"Exact file handed to the model", "/artifacts/5256adaff57a0000",
-		"Replay verification", "The model never sees them", "Integrity fingerprints",
-		"Final prompt", "abc123", "Selected context", "def456",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("context details missing %q:\n%s", want, joined)

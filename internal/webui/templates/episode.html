@@ -163,6 +163,17 @@
             {{end}}
           </div>
           {{end}}
+
+          {{if .Footer}}
+          <footer class="trace-step-footer">
+            {{if .FooterLabel}}<p>{{.FooterLabel}}</p>{{end}}
+            <div class="trace-step-stats">
+              {{range .Footer}}
+              <span><small>{{.Label}}</small><strong>{{.Value}}</strong></span>
+              {{end}}
+            </div>
+          </footer>
+          {{end}}
         </div>
       </article>
       {{end}}

@@ -82,10 +82,15 @@ type TraceStep struct {
 	Chip string
 	// Bar is this kind's micro-visualization — the briefing's token
 	// composition, a turn's fresh/cached/output split — or nil.
-	Bar     *StepBar
-	Stats   []TraceStat
-	Details []TraceDetail
-	order   int
+	Bar   *StepBar
+	Stats []TraceStat
+	// Footer is one flat label-over-value strip at the very bottom of the
+	// card, below every disclosure: replay fingerprints live here, since two
+	// hashes are facts to glance at, not a table to open.
+	Footer      []TraceStat
+	FooterLabel string
+	Details     []TraceDetail
+	order       int
 	// band is the minimum chapter this step belongs to; -1 derives it from the
 	// stage. Chapters are assigned forward-only over the chronological list, so
 	// a wake-up scheduled mid-work stays with the work instead of teleporting
@@ -316,9 +321,6 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				GroupCount: 1, Segments: segments,
 			})
 		}
-		// Verification metadata reads last: it proves the content above it and
-		// is the one section that never went to the model.
-		promptDetails = append(promptDetails, replayVerification...)
 		// Prompt sources can be large. Keep the inventory, counts, and selection
 		// rationale scannable while leaving full bodies one click away.
 		for index := range promptDetails {
@@ -327,9 +329,11 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		add(TraceStep{
 			ID: promptID, Stage: "Context", Actor: "Responder", State: "recorded", Icon: "doc",
 			Title: "Model briefed", Summary: promptStepSummary(manifest, memoryLayers, briefTokens), At: manifest.Created,
-			Bar:     composition,
-			Stats:   []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
-			Details: promptDetails,
+			Bar:         composition,
+			Stats:       []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
+			Footer:      replayVerification,
+			FooterLabel: "Replay verification — hashes a replay uses to prove the same inputs; the model never sees them",
+			Details:     promptDetails,
 		})
 	}
 
@@ -2310,11 +2314,10 @@ func promptFieldPresentation(key string) (string, string) {
 }
 
 // contextReferenceDetails returns the runtime-access table and, separately,
-// the replay fingerprints — the caller places verification metadata at the
-// bottom of the card, after the model-visible content it verifies.
-func contextReferenceDetails(refs []ContextRef, present func(string) string, stored map[string]bool) (runtimeDetail, replayDetail []TraceDetail) {
+// the replay fingerprints as flat facts — the caller renders those as the
+// card's footer strip, below the model-visible content they verify.
+func contextReferenceDetails(refs []ContextRef, present func(string) string, stored map[string]bool) (runtimeDetail []TraceDetail, replay []TraceStat) {
 	runtime := make([]TraceTableRow, 0, len(refs))
-	replay := make([]TraceTableRow, 0, 2)
 	for _, ref := range refs {
 		switch ref.Kind {
 		case "source_input":
@@ -2322,15 +2325,15 @@ func contextReferenceDetails(refs []ContextRef, present func(string) string, sto
 			// as a colored model-visible prompt component. Do not show it again.
 			continue
 		case "compiled_prompt", "assembled_context":
-			name, use := "Final prompt", "Confirms an exact prompt replay"
+			name := "Final prompt"
 			if ref.Kind == "assembled_context" {
-				name, use = "Selected context", "Confirms the same context was selected"
+				name = "Selected context"
 			}
 			fingerprint := fallback(ref.Digest, "not recorded")
 			if ref.Omitted != "" {
-				use += "; omitted: " + present(ref.Omitted)
+				fingerprint += " · omitted: " + present(ref.Omitted)
 			}
-			replay = append(replay, TraceTableRow{Cells: []string{name, fingerprint, use}})
+			replay = append(replay, TraceStat{name, fingerprint})
 			continue
 		default:
 			if ref.Visibility != "omitted" {
@@ -2353,19 +2356,7 @@ func contextReferenceDetails(refs []ContextRef, present func(string) string, sto
 			},
 		}}
 	}
-	if len(replay) > 0 {
-		replayDetail = []TraceDetail{{
-			Label: "Integrity fingerprints", Kind: "context",
-			Status: "Not model input", Tone: "structure", ShowCount: true, Count: len(replay),
-			Description: "Responder stores these hashes so a replay can prove it used the same inputs. The model never sees them.",
-			Group:       "Replay verification", GroupCount: len(replay),
-			Table: &TraceTable{
-				Headers: []string{"Input", "Fingerprint", "Purpose"},
-				Rows:    replay,
-			},
-		}}
-	}
-	return runtimeDetail, replayDetail
+	return runtimeDetail, replay
 }
 
 func markDetailGroup(details []TraceDetail, label, description string) []TraceDetail {
