@@ -919,6 +919,18 @@ func (s *Service) finishSlashMessage(
 		return s.store.FinishSlackInput(ctx, input.ID)
 	}
 	if err := s.slack.PostEphemeral(ctx, input.ChannelID, input.UserID, message); err != nil {
+		// A direct message is already private, so the reason to prefer an
+		// ephemeral message there does not apply — and when Slack rejects the
+		// ephemeral post, retrying replays the same rejection until the input
+		// gives up, which is how a valid command answered nobody at all. Post
+		// it as an ordinary message in the same conversation instead.
+		if strings.HasPrefix(input.ChannelID, "D") {
+			if postErr := s.postInputMessage(
+				ctx, "slash_"+input.ID, input, message,
+			); postErr == nil {
+				return s.store.FinishSlackInput(ctx, input.ID)
+			}
+		}
 		s.log.Warn(
 			"post Slack slash command result",
 			"channel", input.ChannelID,

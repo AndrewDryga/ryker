@@ -1648,3 +1648,55 @@ func drainSlackDeliveries(
 	}
 	t.Fatal("Slack delivery queue did not drain")
 }
+
+// A slash command from a direct message answered nobody. Slack rejected the
+// ephemeral post, and the retry replayed the same deterministic rejection until
+// the input gave up — so a valid command produced no visible response at all. A
+// DM is already private, so the reason to prefer ephemeral there does not
+// apply.
+func TestSlashCommandInDirectMessageFallsBackToAVisibleReply(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{ephemeralErr: errors.New("channel_not_found")}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	input := core.SlackInput{
+		ID: "slash-dm", EnvelopeID: "env-slash-dm", EventID: "event-slash-dm",
+		Kind: "slash", TeamID: cfg.Slack.TeamID, ChannelID: "D0123456789",
+		UserID: "U123ABC", Text: "preferences", ActionID: "/responder",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit slash command = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) == 0 {
+		t.Fatal("a slash command in a DM produced no visible reply")
+	}
+	stored, err := st.GetSlackInput(ctx, input.ID)
+	if err != nil || stored.State != "done" {
+		t.Fatalf("the answered command was not finished: %+v, %v", stored, err)
+	}
+
+	// A channel is not a DM, and answering one in the open would put a private
+	// directory in front of everyone. That path posts nothing.
+	posted := len(slackClient.posts)
+	channelInput := input
+	channelInput.ID, channelInput.EnvelopeID = "slash-channel", "env-slash-channel"
+	channelInput.EventID, channelInput.ChannelID = "event-slash-channel", "CWATCH"
+	if created, err := st.AdmitSlackInput(ctx, channelInput); err != nil || !created {
+		t.Fatalf("admit channel slash command = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.posts) != posted {
+		t.Fatalf("a channel command answered in the open: %+v", slackClient.posts[posted:])
+	}
+}
