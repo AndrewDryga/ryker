@@ -256,6 +256,51 @@ time it fired and what came of it.</p>
 cadence — <span class="mono">/responder schedules</span> — and it will appear here.</p>{{end}}
 {{end}}
 
+{{define "channels"}}
+{{template "problems" .Errs}}
+<p class="note">Every channel Responder has a footprint in — configured, worked in, opened for an
+incident, or currently joined. The {{.Total}} here are not the whole workspace; a channel it has
+never been in is not its business.</p>
+{{range .Groups}}
+<h2>{{.Kind}}s <span class="note">{{len .Channels}}</span></h2>
+<p class="note">{{.Lede}}</p>
+<div class="chan-grid">
+  {{range .Channels}}
+  <div class="chan-card">
+    <div class="chan-head">
+      <a class="chan-name" href="/channels/{{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</a>
+      <span class="chan-when">{{if .Last.IsZero}}no work yet{{else}}{{since .Last}}{{end}}</span>
+    </div>
+    {{if .Total}}
+    <svg class="chan-bar" viewBox="0 0 100 4" width="100%" height="4" preserveAspectRatio="none" role="img"
+         aria-label="{{.Done}} completed, {{.Failed}} failed, {{.Other}} ended another way">
+      {{if .DoneW}}<rect class="chan-done" x="0" y="0" width="{{.DoneW}}" height="4"/>{{end}}
+      {{if .FailedW}}<rect class="chan-failed" x="{{.FailedX}}" y="0" width="{{.FailedW}}" height="4"/>{{end}}
+      {{if .OtherW}}<rect class="chan-other" x="{{.OtherX}}" y="0" width="{{.OtherW}}" height="4"/>{{end}}
+    </svg>
+    {{end}}
+    <div class="chan-counts">
+      {{if .Total}}<span>{{.Total}} episodes</span>{{else}}<span>no episodes yet</span>{{end}}
+      {{if .Failed}}<span class="chan-bad">{{.Failed}} failed</span>{{end}}
+      {{if .NeedsDecision}}<span class="chan-wait">{{.NeedsDecision}} waiting on you</span>{{end}}
+      {{if .InFlight}}<span class="chan-busy">{{.InFlight}} in flight</span>{{end}}
+      {{if .Tasks}}<span>{{.Tasks}} engineering task{{if ne .Tasks 1}}s{{end}}</span>{{end}}
+    </div>
+    <div class="chan-foot">
+      {{if .Private}}<span>private</span>{{end}}
+      {{if .Direct}}<span class="mono">{{.ID}}</span>
+      {{else if not .Member}}<span class="chan-wait">not a member</span>{{end}}
+      {{if .Repository}}<span class="mono">{{.Repository}}</span>{{end}}
+      {{if .Participation}}<span>{{.Participation}}</span>{{end}}
+      {{if not .Repository}}<span>no repository bound</span>{{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{if not .Groups}}<p class="empty">No channel has any Responder footprint yet.</p>{{end}}
+{{end}}
+
 {{define "failures"}}
 <p class="note">{{.Total}} failed work items, grouped by cause. Open a cause to reach the runs
 behind it and retry them.</p>

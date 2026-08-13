@@ -1366,6 +1366,10 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .chan-wait { color: var(--warn); }
 .chan-busy { color: var(--accent); }
 .chan-foot { margin-top: auto; padding-top: 1px; font-size: 12px; gap: 0 4px; }
+/* The same bar on the channel's own page. A card spaces its children with a
+   flex gap; a panel does not, so here it carries its own margin. */
+.panel > .chan-bar { margin-top: 10px; }
+.panel > .chan-counts { margin-top: 7px; }
 
 /* The episode row.
    Three questions, in the order somebody scanning six hundred of these has

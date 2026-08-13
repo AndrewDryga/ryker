@@ -42,6 +42,7 @@ var pages = []Page{
 	{"", "Overview", "What is happening right now?", "Operate"},
 	{"episodes", "Episodes", "What did it do, and why?", "Operate"},
 	{"schedules", "Schedules", "What runs on its own, and did it?", "Operate"},
+	{"channels", "Channels", "Where is Responder, and what is set up there?", "Operate"},
 	{"failures", "Failures", "What is broken, and can I retry it?", "Operate"},
 	{"workspaces", "Workspaces", "What is still held, and why?", "Operate"},
 	{"decisions", "Decisions", "What did it choose, and was it right?", "Improve"},

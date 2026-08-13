@@ -2,12 +2,29 @@
 {{template "problems" .Errs}}
 <div class="panel">
   <div class="meta">
+    {{.Kind}} ·
     {{if .Member}}<span class="pill good">member</span>{{else}}<span class="pill">not a member</span>{{end}}
     {{if .Private}} · private{{end}}
     {{if .Repository}} · <span class="mono">{{.Repository}}</span>{{end}}
     {{if .Participation}} · set up for {{.Participation}}{{end}}
     {{if .AlertPolicy}} · alerts {{.AlertPolicy}}{{end}}
   </div>
+  {{with .Roll}}{{if .Total}}
+  <svg class="chan-bar" viewBox="0 0 100 4" width="100%" height="4" preserveAspectRatio="none" role="img"
+       aria-label="{{.Done}} completed, {{.Failed}} failed, {{.Other}} ended another way">
+    {{if .DoneW}}<rect class="chan-done" x="0" y="0" width="{{.DoneW}}" height="4"/>{{end}}
+    {{if .FailedW}}<rect class="chan-failed" x="{{.FailedX}}" y="0" width="{{.FailedW}}" height="4"/>{{end}}
+    {{if .OtherW}}<rect class="chan-other" x="{{.OtherX}}" y="0" width="{{.OtherW}}" height="4"/>{{end}}
+  </svg>
+  <div class="chan-counts">
+    <span>{{.Total}} episodes</span>
+    {{if .Done}}<span>{{.Done}} completed</span>{{end}}
+    {{if .Failed}}<span class="chan-bad">{{.Failed}} failed</span>{{end}}
+    {{if .NeedsDecision}}<span class="chan-wait">{{.NeedsDecision}} waiting on you</span>{{end}}
+    {{if .InFlight}}<span class="chan-busy">{{.InFlight}} in flight</span>{{end}}
+    {{if .Tasks}}<span>{{.Tasks}} engineering task{{if ne .Tasks 1}}s{{end}}</span>{{end}}
+  </div>
+  {{end}}{{end}}
   {{if .Summary}}<p>{{.Summary}}</p>
   <div class="meta">{{.OpenLoops}} open loops · memory updated {{since .MemoryUpdated}} ·
     <a href="/conversations/{{.ID}}/channel">the whole conversation memory →</a></div>
@@ -102,6 +119,45 @@ configuration. Clearing an override restores whatever it was hiding.</p>
 <p class="note"><a href="/episodes?channel={{.ID}}">every episode in this channel →</a></p>
 {{else}}<p class="empty">No recorded work. Responder writes an episode here the first time it
 answers, reacts to an alert, or runs a scheduled task in this channel.</p>{{end}}
+
+{{if .Tasks}}
+<h2>Engineering tasks started here <span class="note">{{len .Tasks}}</span></h2>
+<div class="rows">
+  {{range .Tasks}}
+  <a class="row episode-row" href="/incidents/{{.ID}}" data-state="{{.Status}}">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-when">{{since .Updated}}</span>
+    <span class="episode-title">{{.Title}}</span>
+    <span class="episode-facts">
+      <span class="episode-state">{{.Status}}</span>
+      {{if .Repository}}<span class="mono">{{.Repository}}</span>{{end}}
+      {{if .PRNumber}}<span>PR #{{.PRNumber}}</span>{{end}}
+    </span>
+  </a>
+  {{end}}
+</div>
+{{end}}
+
+{{if .Threads}}
+<h2>Conversations it remembers <span class="note">{{len .Threads}}</span></h2>
+<p class="note">One memory per thread, plus the channel's own. Each is what Responder would carry
+into the next turn there.</p>
+<div class="rows">
+  {{range .Threads}}
+  <a class="row" href="/conversations/{{$.ID}}/{{.ThreadTS}}">
+    <div class="title">{{if .Summary}}{{.Summary}}{{else}}No summary kept for this thread.{{end}}</div>
+    <div class="meta">updated {{since .Updated}}{{if .Loops}} · {{.Loops}} open loop{{if ne .Loops 1}}s{{end}}{{end}}</div>
+  </a>
+  {{end}}
+</div>
+{{end}}
+
+<h2>Also here</h2>
+<div class="system-line">
+  <span><a href="/conversations/{{.ID}}/channel">the channel's own memory →</a></span>
+  <span>{{.Findings}} quality finding{{if ne .Findings 1}}s{{end}}</span>
+  <span>{{.Feedback}} feedback item{{if ne .Feedback 1}}s{{end}}</span>
+</div>
 {{end}}
 
 {{define "setting"}}

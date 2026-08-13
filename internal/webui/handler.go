@@ -83,6 +83,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /audit/{kind}", h.auditKind)
 	mux.HandleFunc("GET /memory", h.memory)
 	mux.HandleFunc("GET /configuration", h.configuration)
+	mux.HandleFunc("GET /channels", h.channels)
 	mux.HandleFunc("GET /channels/{id}", h.channel)
 	mux.HandleFunc("GET /usage", h.usage)
 	mux.HandleFunc("GET /artifacts/{digest}", h.artifact)
@@ -943,6 +944,54 @@ func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
 	}{channels, entries, conversations, rollups, review, h.CanAct()})
 }
 
+// channels is the roster: every channel Responder has a footprint in, grouped
+// by what the channel is rather than by how busy it is.
+func (h *Handler) channels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var failed problems
+	all, err := h.reader.Channels(ctx)
+	failed.note("channels", err)
+	groups := []channelGroup{}
+	for _, kind := range []string{"shared channel", "incident room", "direct message"} {
+		group := channelGroup{Kind: kind}
+		for _, channel := range all {
+			if channel.Kind == kind {
+				group.Channels = append(group.Channels, channel)
+			}
+		}
+		if len(group.Channels) > 0 {
+			groups = append(groups, group)
+		}
+	}
+	h.page(w, r, "channels", "channels", struct {
+		Groups []channelGroup
+		Total  int
+		Errs   problems
+	}{groups, len(all), failed})
+}
+
+// channelGroup is one heading on the roster.
+type channelGroup struct {
+	Kind     string
+	Channels []ChannelRoll
+}
+
+// Lede says what the heading means, because "incident room" and "shared
+// channel" look alike in a grid and behave nothing alike: one Responder opened
+// and will close, the other belongs to people who invited it in.
+func (g channelGroup) Lede() string {
+	switch g.Kind {
+	case "shared channel":
+		return "Channels a person invited Responder into. It only replies where its " +
+			"participation setting says it may."
+	case "incident room":
+		return "Channels Responder opened itself to work an incident in. They close with the work."
+	case "direct message":
+		return "One-to-one conversations. Everything said here is meant for Responder."
+	}
+	return ""
+}
+
 // channel is the hub every other page's channel name now points at.
 //
 // Configuration listed channels and stopped there, so the question "how does
@@ -959,7 +1008,7 @@ func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
 	}
 	var failed problems
 	failed.note("channel", err)
-	h.detail(w, r, "configuration", "channel", detail.Name, struct {
+	h.detail(w, r, "channels", "channel", detail.Name, struct {
 		ChannelDetail
 		CanAct bool
 		Errs   problems
@@ -976,7 +1025,7 @@ func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	channels, _ := h.reader.Channels(ctx)
+	channels, _ := h.reader.KnownChannels(ctx)
 	schedules, _ := h.reader.Schedules(ctx)
 	preferences, _ := h.reader.Preferences(ctx)
 	rules, _ := h.reader.StandingRules(ctx)

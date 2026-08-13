@@ -947,10 +947,6 @@ type ChannelConfigRow struct {
 	Episodes   int
 }
 
-func (r *Reader) Channels(ctx context.Context) ([]ChannelConfigRow, error) {
-	return r.KnownChannels(ctx)
-}
-
 // MemoryEntry is one saved operational fact.
 //
 // Recall count is shown because it is the only evidence that a memory is worth
@@ -1770,6 +1766,17 @@ type ChannelRoll struct {
 	// repository binding, so the card labels itself by what it is and puts the
 	// conversation id where a repository would go.
 	Direct bool
+	// Kind is what the channel is for, derived rather than stored: an incident
+	// room Responder opened, a shared channel it works in, or a direct message.
+	Kind string
+	// Private and Member describe Slack's own view. A channel Responder has
+	// left still has its history and still belongs on the list, so absence is
+	// shown rather than used as a filter — except on a direct message, which
+	// has no membership row at all, so "not a member" there would report a
+	// missing table row as if somebody had removed it.
+	Private, Member bool
+	// Tasks is how many engineering tasks were started from this channel.
+	Tasks int
 	// counterpart is the person on the other side of a direct message, used
 	// only to name the card.
 	counterpart string
@@ -1819,6 +1826,131 @@ func (r *Reader) ChannelRolls(ctx context.Context) ([]ChannelRoll, error) {
 		roll.OtherX = roll.DoneW + roll.FailedW
 	}
 	return rolls, nil
+}
+
+// incidentRoomExists and incidentRoomCount are the one room test, written once
+// so the roster and a channel's own page cannot disagree about what a channel
+// is.
+//
+// A room is an incident Responder opened a channel for, which is the inverse
+// of core.Incident.IsThreadScoped and has to be spelled out in SQL to match it.
+// The obvious rule — any incident naming this channel — is wrong, and wrongly
+// in the direction that reads plausibly. Thread-scoped work also records a
+// channel_id: the channel the thread lives in. Every incident on the deployed
+// instance is a thread-scoped engineering task, so that rule labelled five
+// ordinary shared channels as rooms Responder had opened for itself, under a
+// heading promising they close with the work. They do not; people invited it
+// into them.
+const incidentRoomExists = `SELECT 1 FROM incidents i WHERE i.channel_id = k.channel_id
+	  AND NOT (i.work_scope = 'thread' OR (i.work_scope = ''
+	    AND i.work_kind = 'engineering_task' AND i.origin_thread_ts <> ''))`
+
+const incidentRoomCount = `SELECT COUNT(*) FROM incidents i WHERE i.channel_id = ?
+	  AND NOT (i.work_scope = 'thread' OR (i.work_scope = ''
+	    AND i.work_kind = 'engineering_task' AND i.origin_thread_ts <> ''))`
+
+// Channels lists every channel Responder has a footprint in.
+//
+// The union rather than the membership table: that table holds every channel
+// in the workspace — 254 on the busiest deployment, 249 of which Responder has
+// never been in — so listing it would bury the dozen that matter. A channel
+// counts when it is configured, when work happened in it, when it is a room an
+// incident owns, or when Responder is currently a member.
+func (r *Reader) Channels(ctx context.Context) ([]ChannelRoll, error) {
+	rolls, err := r.ChannelRolls(ctx)
+	if err != nil {
+		return nil, err
+	}
+	worked := make(map[string]ChannelRoll, len(rolls))
+	for _, roll := range rolls {
+		worked[roll.ID] = roll
+	}
+	type footprint struct {
+		id                        string
+		private, member, room     bool
+		tasks                     int
+		repository, participation string
+	}
+	found, err := collect(ctx, r, `
+	  WITH known AS (
+	    SELECT channel_id FROM channel_configurations WHERE channel_id <> ''
+	    UNION SELECT channel_id FROM work_episodes WHERE channel_id <> ''
+	    UNION SELECT channel_id FROM incidents WHERE channel_id <> ''
+	    UNION SELECT channel_id FROM slack_channel_memberships WHERE present = 1
+	  )
+	  SELECT k.channel_id,
+	         COALESCE(m.private, 0), COALESCE(m.present, 0),
+	         EXISTS(`+incidentRoomExists+`),
+	         (SELECT COUNT(*) FROM incidents t
+	          WHERE t.origin_channel_id = k.channel_id AND t.work_kind = 'engineering_task'),
+	         COALESCE(c.repository, ''), COALESCE(c.participation, '')
+	  FROM known k
+	  LEFT JOIN slack_channel_memberships m ON m.channel_id = k.channel_id
+	  LEFT JOIN channel_configurations c ON c.channel_id = k.channel_id`,
+		func(rows *sql.Rows) (footprint, error) {
+			var item footprint
+			var private, member, room int
+			err := rows.Scan(&item.id, &private, &member, &room, &item.tasks,
+				&item.repository, &item.participation)
+			item.private, item.member, item.room = private == 1, member == 1, room == 1
+			return item, err
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	channels := make([]ChannelRoll, 0, len(found))
+	for _, item := range found {
+		roll, hasWork := worked[item.id]
+		roll.ID = item.id
+		roll.Kind = channelKind(item.id, item.room)
+		roll.Private, roll.Member, roll.Tasks = item.private, item.member, item.tasks
+		roll.Direct = strings.HasPrefix(item.id, "D")
+		if roll.Repository == "" {
+			roll.Repository = item.repository
+		}
+		if roll.Participation == "" {
+			roll.Participation = item.participation
+		}
+		// A channel with no episodes was never named by ChannelRolls, so it is
+		// named here. Its counts stay zero: nothing happened, which is a fact
+		// about the channel and not a gap in the query.
+		if !hasWork {
+			roll.Name = r.rollName(ctx, roll)
+		}
+		channels = append(channels, roll)
+	}
+
+	// Grouped before ranked: the question this page answers is "where is
+	// Responder", and a room it opened for one alert has nothing to do with a
+	// channel a person invited it into, however recently either was touched.
+	rank := map[string]int{"shared channel": 0, "incident room": 1, "direct message": 2}
+	sort.SliceStable(channels, func(one, two int) bool {
+		first, second := channels[one], channels[two]
+		if rank[first.Kind] != rank[second.Kind] {
+			return rank[first.Kind] < rank[second.Kind]
+		}
+		if !first.Last.Equal(second.Last) {
+			return first.Last.After(second.Last)
+		}
+		return first.Name < second.Name
+	})
+	return channels, nil
+}
+
+// channelKind says what a channel is, which nothing records. Slack marks a
+// one-to-one conversation with a D-prefixed id; a channel some incident names
+// as its own is a room Responder opened to work in; everything left is a
+// channel a person invited it into.
+func channelKind(id string, room bool) string {
+	switch {
+	case strings.HasPrefix(id, "D"):
+		return "direct message"
+	case room:
+		return "incident room"
+	default:
+		return "shared channel"
+	}
 }
 
 // rollName labels a card in a grid, where every other label is a channel name.
@@ -1879,6 +2011,28 @@ type ChannelDetail struct {
 	Schedules                                        []Schedule
 	Episodes                                         []Item
 	Blocked, Failed                                  int
+	Kind                                             string
+	Tasks                                            []ChannelTask
+	Threads                                          []ChannelThread
+	Findings                                         int
+	Feedback                                         int
+	Roll                                             ChannelRoll
+}
+
+// ChannelTask is an engineering task somebody started from this channel.
+type ChannelTask struct {
+	ID, Title, Status, Repository string
+	PRNumber                      int
+	Updated                       time.Time
+}
+
+// ChannelThread is one conversation inside the channel that Responder kept a
+// memory for. The channel's own memory is the row with no thread.
+type ChannelThread struct {
+	ThreadTS string
+	Summary  string
+	Updated  time.Time
+	Loops    int
 }
 
 // Channel gathers one channel's configuration, memory and history.
@@ -1968,6 +2122,74 @@ func (r *Reader) Channel(ctx context.Context, id string) (ChannelDetail, bool, e
 	    ('blocked','waiting_operator','waiting_approval')`, id)
 	detail.Failed = r.Count(ctx,
 		`SELECT COUNT(*) FROM agent_runs WHERE channel_id = ? AND terminal_state = 'failed'`, id)
+
+	// The same room test the roster uses, and it has to be the same or the
+	// list and the page it links to disagree about what a channel is.
+	detail.Kind = channelKind(id, r.Count(ctx, incidentRoomCount, id) > 0)
+
+	tasks, err := collect(ctx, r, `
+	  SELECT id, title, status, repository,
+	         COALESCE((SELECT pr_number FROM publications p WHERE p.incident_id = incidents.id),0),
+	         updated_at
+	  FROM incidents WHERE origin_channel_id = ? AND work_kind = 'engineering_task'
+	  ORDER BY updated_at DESC LIMIT 20`, func(rows *sql.Rows) (ChannelTask, error) {
+		var item ChannelTask
+		var updated string
+		err := rows.Scan(&item.ID, &item.Title, &item.Status, &item.Repository,
+			&item.PRNumber, &updated)
+		item.Title, item.Updated = cleanTitle(item.Title), parseStamp(updated)
+		return item, err
+	}, id)
+	if err != nil {
+		return detail, true, err
+	}
+	detail.Tasks = tasks
+
+	threads, err := collect(ctx, r, `
+	  SELECT thread_ts, COALESCE(state_json,'{}'), updated_at FROM conversation_memories
+	  WHERE channel_id = ? AND thread_ts <> ''
+	  ORDER BY updated_at DESC LIMIT 20`, func(rows *sql.Rows) (ChannelThread, error) {
+		var item ChannelThread
+		var memory, touched string
+		if err := rows.Scan(&item.ThreadTS, &memory, &touched); err != nil {
+			return item, err
+		}
+		item.Updated = parseStamp(touched)
+		var decoded core.AgentMemory
+		if json.Unmarshal([]byte(memory), &decoded) == nil {
+			item.Summary = truncate(decoded.SituationSummary, 200)
+			item.Loops = len(decoded.OpenLoops)
+		}
+		return item, nil
+	}, id)
+	if err != nil {
+		return detail, true, err
+	}
+	detail.Threads = threads
+
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM quality_findings WHERE channel_id = ?`, id).
+		Scan(&detail.Findings); err != nil {
+		return detail, true, err
+	}
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM feedback_items WHERE channel_id = ?`, id).
+		Scan(&detail.Feedback); err != nil {
+		return detail, true, err
+	}
+
+	// The same roll the roster shows, so the two pages cannot disagree about
+	// how much work happened here.
+	channels, err := r.Channels(ctx)
+	if err != nil {
+		return detail, true, err
+	}
+	for _, channel := range channels {
+		if channel.ID == id {
+			detail.Roll = channel
+			break
+		}
+	}
 	return detail, true, nil
 }
 
