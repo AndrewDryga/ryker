@@ -1663,7 +1663,70 @@ func (s *Service) pollAgentRuns(ctx context.Context) {
 	}
 }
 
+// pollAgentRun advances one running turn, holding a failing run off the poll
+// until its backoff expires.
+//
+// The backoff is the whole point of the wrapper. A poll that fails leaves the
+// run running and its event cursor unadvanced, so the next tick reads the same
+// events and fails the same way — the loop has no failure counter, no terminal,
+// and nothing that slows it down. A dangling goal reference in one finished
+// result rode that loop about three times a second for seventy-nine minutes,
+// 23,030 identical warnings, while every health signal read green.
+//
+// It wraps rather than sits in pollAgentRuns because this is not the only
+// caller: pollIncident polls the same run through the incident's active turn,
+// which is why that outage produced two warnings per pass, not one. A guard in
+// either caller alone would have throttled half of it.
 func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
+	if run.NextAttemptAt.After(s.now()) {
+		return nil
+	}
+	err := s.pollAgentRunOnce(ctx, run)
+	switch {
+	case ctx.Err() != nil:
+	case err != nil:
+		s.holdOffFailingPoll(ctx, run, err)
+	case run.LastError != "":
+		// The poll recovered, so the failure it recorded is history. Leaving it
+		// on the row would be worse than never writing it: stalledRunDetail
+		// reads exactly this field to tell an operator why work stopped, and a
+		// resolved error offered as the cause of a later silence is a confident
+		// wrong answer. Only a run carrying one pays for this write.
+		if clearErr := s.store.HoldOffAgentRunPoll(
+			ctx, run.ID, "", s.now(),
+		); clearErr != nil && s.log != nil {
+			s.log.Warn("could not clear a recovered poll failure", "run", run.ID, "error", clearErr)
+		}
+	}
+	return err
+}
+
+// holdOffFailingPoll spaces out the retries of a poll that keeps failing and
+// records why, so a wedged run is answerable from its own row.
+//
+// The delay grows with how long the run has been going nowhere, measured from
+// when it started rather than from its last write — a backoff that resets its
+// own clock every time it fires does not back off. It reaches the fifteen
+// second ceiling DependencyWait already defines and stops there, because a
+// transient failure resolves on its own and a permanent one is the overdue
+// path's problem, not this one's.
+//
+// Recording is best-effort. Failing to write down a failure must not become a
+// second failure.
+func (s *Service) holdOffFailingPoll(ctx context.Context, run core.AgentRun, cause error) {
+	now := s.now()
+	since := run.StartedAt
+	if since.IsZero() {
+		since = run.CreatedAt
+	}
+	next := now.Add(retrydelay.DependencyWait(now.Sub(since)))
+	if err := s.store.HoldOffAgentRunPoll(ctx, run.ID, trimError(cause), next); err != nil &&
+		ctx.Err() == nil && s.log != nil {
+		s.log.Warn("could not hold off a failing poll", "run", run.ID, "error", err)
+	}
+}
+
+func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error {
 	events, err := s.coop.Events(ctx, run.SessionID, run.CoopEventSequence, 100)
 	if err != nil {
 		return err

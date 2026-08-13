@@ -44,6 +44,11 @@ const (
 	EventCompletionAccepted  = "completion_accepted"
 	EventDeliveryProjected   = "delivery_projected"
 	EventCommitmentOverdue   = "commitment_overdue"
+	// EventOperationDropped records a result operation the host refused to
+	// apply. It changes no projection — it exists so that "the model asked for
+	// this and it did not happen" is answerable from the episode's own
+	// timeline rather than from a log line nobody is reading.
+	EventOperationDropped = "operation_dropped"
 )
 
 type Transition struct {

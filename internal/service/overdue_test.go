@@ -104,6 +104,73 @@ func TestOverdueSurfacingSurvivesRestart(t *testing.T) {
 	}
 }
 
+// "No progress" is what a stall looks like from outside, and it is not always
+// what happened.
+//
+// A run can be wedged on a failure it has already written down. Reporting only
+// that nothing moved sends an operator to look for a slow agent when the agent
+// finished long ago — which is exactly how a completed engineering task came to
+// sit behind an "Investigating" card for seventy-nine minutes. If the run knows
+// why it is stuck, the person waiting on it should be told.
+func TestAStalledEpisodeNamesWhatActuallyFailed(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	clock := useTestClock(svc, st)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	episode := acceptedEpisodeAwaitingProgress(t, ctx, svc, st, clock)
+	const cause = `result operation "goal-completed-traefik-oom": not found`
+	if err := st.HoldOffAgentRunPoll(
+		ctx, episode.AgentRunID, cause, clock.Now().Add(time.Second),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	grace := cfg.Limits.EpisodeOverdueAfter.Duration
+	clock.Advance(2 * grace)
+	svc.surfaceOverdueEpisodes(ctx, clock.Now())
+	drainSlackDeliveries(t, ctx, svc)
+
+	if len(slack.posts) != 1 {
+		t.Fatalf("expected one overdue notice, got %d: %+v", len(slack.posts), slack.posts)
+	}
+	notice := slack.posts[0].message
+	spoken := notice.Text + "\n" + strings.Join(notice.Sections, "\n")
+	if !strings.Contains(spoken, "goal-completed-traefik-oom") {
+		t.Fatalf("the notice never names why the run is stuck: %s", spoken)
+	}
+
+	// And the state an operator lands on afterwards carries it too, so the
+	// answer survives the message scrolling away.
+	clock.Advance(2 * grace)
+	svc.surfaceOverdueEpisodes(ctx, clock.Now())
+	stalled, err := st.GetWorkEpisode(ctx, episode.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stalled.State != core.EpisodeBlocked {
+		t.Fatalf("stalled episode state = %q, want blocked", stalled.State)
+	}
+	if !strings.Contains(stalled.NextAction, "goal-completed-traefik-oom") {
+		t.Fatalf("blocked episode next action = %q, want it to name the cause", stalled.NextAction)
+	}
+}
+
+// A run that is simply quiet must not be dressed up as a failure. Inventing a
+// cause is its own kind of lying.
+func TestAQuietRunIsNotGivenAFabricatedCause(t *testing.T) {
+	if got := stalledEpisodeNextAction("Retry or close this work", ""); got != "Retry or close this work" {
+		t.Fatalf("next action = %q, want it unchanged when the run recorded nothing", got)
+	}
+}
+
 func acceptedEpisodeAwaitingProgress(
 	t *testing.T,
 	ctx context.Context,

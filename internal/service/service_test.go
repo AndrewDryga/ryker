@@ -970,10 +970,15 @@ func stageAgentRunWithMissingConversationSource(
 }
 
 type fakeCoop struct {
-	session            coop.Session
-	turn               coop.Turn
-	changes            coop.Changes
-	events             []coop.Event
+	session coop.Session
+	turn    coop.Turn
+	changes coop.Changes
+	events  []coop.Event
+	// eventsErr fails the event read every poll, and eventsCalls counts the
+	// reads that got through — together they are how a test can tell a poll
+	// that is being held off from one that is merely failing quietly.
+	eventsErr          error
+	eventsCalls        int
 	createKeys         []string
 	createPolicies     []string
 	createTasks        []string
@@ -1199,6 +1204,10 @@ func (f *fakeCoop) GetOutputArtifact(_ context.Context, _, _, artifactID string)
 	return artifact, nil
 }
 func (f *fakeCoop) Events(_ context.Context, _ string, after int64, _ int) ([]coop.Event, error) {
+	f.eventsCalls++
+	if f.eventsErr != nil {
+		return nil, f.eventsErr
+	}
 	var result []coop.Event
 	for _, event := range f.events {
 		if event.Sequence > after {

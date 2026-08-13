@@ -43,7 +43,13 @@ var methodBudget = map[string]int{
 	// 229 for GetCoopCleanup. NextCleanup answers "what should the janitor do
 	// next" and filters to the states the janitor owns, so it can never return
 	// the blocked row an operator is acting on.
-	"Store": 229,
+	// 230 for HoldOffAgentRunPoll. A poll that fails leaves the run running and
+	// its cursor unadvanced, so the next tick fails identically; one finished
+	// result rode that loop three times a second for seventy-nine minutes. The
+	// hold-off has to be durable rather than a field on Service, because the
+	// error it writes to the run is also what lets a stalled episode tell an
+	// operator what actually failed instead of "no progress".
+	"Store": 230,
 }
 
 // lineBudget caps non-test source lines per package.
@@ -225,7 +231,16 @@ var lineBudget = map[string]int{
 	// the change that tripped this budget at three lines of headroom is still in
 	// flight, and a ratchet that re-arms at zero is the tripwire the note at the
 	// top of this map warns about.
-	"service": 21820,
+	// Raised to 21889 on 2026-08-13 for the three defects behind a finished
+	// engineering task that never reported: a result operation that could not
+	// apply failed the completion beside it, the poll that hit that failure
+	// retried it forever, and the stall it produced was reported as "no
+	// progress" when the run had already recorded the cause. The next
+	// extraction here is result-operation application — recordResultOperation-
+	// Events and what it now delegates to are cohesive and roughly 120 lines —
+	// but it needs an interface over a dozen store methods, and rebuilding the
+	// path that just failed in production is not work to bundle into its fix.
+	"service": 21889,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -303,7 +318,12 @@ var lineBudget = map[string]int{
 	// budget is asking for; what remains here is the v71 DDL and four lines
 	// attaching the repository, and schema definition cannot leave the package
 	// that owns migrations.
-	"store":      11382,
+	// Raised to 11397 on 2026-08-13 for HoldOffAgentRunPoll, the one statement
+	// that stops a failing poll retrying at full speed. Fifteen lines, and it
+	// belongs beside the other agent_runs state transitions: what makes it
+	// correct is that it leaves state and failure_count alone, which is only
+	// checkable next to the paths that do change them.
+	"store":      11397,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

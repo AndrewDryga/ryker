@@ -1171,6 +1171,40 @@ func (s *Store) ListRunningAgentRuns(
 	return result, rows.Err()
 }
 
+// HoldOffAgentRunPoll spaces out the polling of a run whose turn cannot be
+// advanced right now, and records what stopped it. An empty detail with a
+// deadline of now is how a recovered poll clears both again.
+//
+// next_attempt_at is free to mean this while a run is running: every path that
+// sets it for scheduling — requeue, defer, escalate, rate limit — moves the run
+// to pending or applying in the same statement, so nothing reads it for a
+// running row. The state is deliberately left alone here. A poll that cannot
+// read its events has not told us anything about the turn, which may well have
+// finished; taking the run out of running on that basis would discard a real
+// answer over a transient failure.
+//
+// failure_count is left alone for the same reason. It counts attempts at the
+// work, and a poll that could not read is not an attempt the model made.
+func (s *Store) HoldOffAgentRunPoll(
+	ctx context.Context,
+	id string,
+	detail string,
+	next time.Time,
+) error {
+	// No row matching is not an error: a run that left running while the poll
+	// was failing simply has nothing left to hold off.
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET last_error = ?, next_attempt_at = ?, updated_at = ?
+		WHERE id = ? AND state = 'running'`,
+		sqlutil.BoundedError(detail),
+		next.UTC().Format(timestampFormat),
+		s.nowText(),
+		id,
+	)
+	return err
+}
+
 func (s *Store) AdvanceAgentRunEvents(
 	ctx context.Context,
 	id string,

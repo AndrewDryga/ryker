@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -88,6 +89,14 @@ func (s *Service) surfaceOverdueEpisode(
 		}
 		return nil
 	}
+	// "No progress" is what silence looks like from here, but it is not always
+	// what happened. A run can be wedged on a failure it has already recorded,
+	// and saying only that nothing moved sends an operator looking for a slow
+	// agent when the agent finished long ago. The message renders NextAction,
+	// so naming the cause here puts it in front of them.
+	episode.NextAction = stalledEpisodeNextAction(
+		episode.NextAction, s.stalledRunDetail(ctx, episode),
+	)
 	destination := episode.Destination
 	if destination.ChannelID == "" {
 		destination.ChannelID = episode.Conversation.ChannelID
@@ -136,7 +145,31 @@ func (s *Service) blockStalledEpisode(
 		core.EpisodeBlocked,
 		"blocked",
 		"Stalled",
-		"An operator needs to retry or close this work",
+		stalledEpisodeNextAction(
+			"An operator needs to retry or close this work",
+			s.stalledRunDetail(ctx, episode),
+		),
 		time.Time{},
 	)
+}
+
+// stalledRunDetail returns what the episode's run last failed on, if it
+// recorded anything. An empty string means the run is simply quiet, which is
+// its own answer and should not be dressed up as a cause.
+func (s *Service) stalledRunDetail(ctx context.Context, episode core.WorkEpisode) string {
+	if episode.AgentRunID == "" {
+		return ""
+	}
+	run, err := s.store.GetAgentRun(ctx, episode.AgentRunID)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(run.LastError)
+}
+
+func stalledEpisodeNextAction(base, detail string) string {
+	if detail == "" {
+		return base
+	}
+	return base + "; Responder could not advance it: " + detail
 }
