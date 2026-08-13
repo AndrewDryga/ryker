@@ -147,7 +147,7 @@ func TestEveryCounterRunsAgainstTheMigratedSchema(t *testing.T) {
 // no compile catches.
 func TestEveryPageRendersAgainstTheMigratedSchema(t *testing.T) {
 	reader := migratedReader(t)
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestLanesSeparatePollersFromActualWork(t *testing.T) {
 		t.Errorf("lane status = %q, error = %q", lane.Status, lane.Error)
 	}
 
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	handler, err := NewHandler(reader, "test", "53", "responder-abc", nil, nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "53", "responder-abc", nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,16 +382,37 @@ func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing
 		return recorder.Body.String()
 	}
 
+	// Configuration is the index. It carries the count and the one fact that
+	// says whether the rules need attention; the rules themselves are a page.
 	configuration := render("/configuration")
-	for _, expected := range []string{
-		"Fired", "Acted", "Did nothing", ">64<", ">12<",
-		// A rule with fires and no actions is the row worth acting on, so it
-		// carries the same warning pill a failure does rather than the green
-		// one that says "enabled" and stops there.
-		`<span class="pill bad">enabled</span>`,
-	} {
+	for _, expected := range []string{"Standing rules", "1 firing but never acting"} {
 		if !strings.Contains(configuration, expected) {
 			t.Errorf("configuration does not show %q: %s", expected, configuration)
+		}
+	}
+
+	rules := render("/rules")
+	for _, expected := range []string{
+		// The rule reads as a sentence, because that is how an operator holds
+		// it in mind — not as two enum columns they have to translate.
+		"When a Terraform plan is posted in C1 posted by an app, review the plan before it is applied.",
+		"fired 64", "acted 0", "stayed quiet 12", "never acted",
+		// A rule with fires and no actions is the row worth acting on, so it
+		// is marked as such rather than sharing the state that says "enabled"
+		// and stops there.
+		`data-state="idle"`,
+	} {
+		if !strings.Contains(rules, expected) {
+			t.Errorf("rules page does not show %q: %s", expected, rules)
+		}
+	}
+
+	// The detail page exists for the question the counts cannot answer: what it
+	// decided each time it fired.
+	rule := render("/rules/rule_idle")
+	for _, expected := range []string{"Firings", "has not matched anything on record"} {
+		if !strings.Contains(rule, expected) {
+			t.Errorf("rule page does not show %q: %s", expected, rule)
 		}
 	}
 
@@ -590,7 +611,7 @@ func TestArtifactRouteServesRetainedBodiesAsInertText(t *testing.T) {
 	}
 	defer reader.Close()
 	handler, err := NewHandler(reader, "test", "70", "responder-abc",
-		func() bool { return true }, nil, config.Pricing{}, nil)
+		func() bool { return true }, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

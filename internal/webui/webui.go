@@ -102,6 +102,7 @@ func NewRenderer() (*Renderer, error) {
 		"until":    humanUntil,
 		"stamp":    humanStamp,
 		"pct":      func(part, whole int) int { return percent(part, whole) },
+		"kib":      humanKiB,
 		"truncate": func(limit int, value string) string { return truncate(value, limit) },
 		"lower":    strings.ToLower,
 		"add1":     func(value int) int { return value + 1 },

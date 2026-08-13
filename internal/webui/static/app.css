@@ -1579,3 +1579,38 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   .trace-detail pre { padding: 12px 13px 15px; }
   .prompt-segment-meta { align-items: flex-start; flex-direction: column; gap: 2px; padding: 8px 12px 0; }
 }
+
+/* Configuration is an index, not a dump. Each card is one kind of standing
+   instruction: what it is, how much of it exists, and the single fact that
+   says whether any of it needs attention. The count alone cannot say that —
+   twelve channels is not better or worse than four — so the health line is
+   the reason this is a card and not a link. */
+.set-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px; margin-bottom: 26px; }
+.set-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px 13px; display: grid; gap: 4px; align-content: start; color: inherit;
+}
+.set-card:hover { border-color: #33333a; text-decoration: none; }
+.set-name { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); }
+.set-count { font: 600 24px/1.2 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.set-what { font-size: 12.5px; line-height: 1.55; color: var(--dim); margin-top: 2px; }
+.set-health { font-size: 12px; color: var(--faint); margin-top: 5px; }
+.set-health.warn { color: var(--warn); }
+.set-health.bad { color: var(--bad); }
+.set-card:hover .set-count { color: var(--accent); }
+
+/* A dropped layer is a count against a sentence, so the sentence gets the
+   room and the count sits where a timestamp would. */
+.layer-row .episode-title { white-space: normal; }
+
+/* States these pages add to the shared row. A preference or rule that is
+   turned off did not reach an outcome — it is not running — so it reads as an
+   outline, the same as superseded work. A rule that fires and never acts is
+   the one row worth acting on, and takes the failure colour. */
+.episode-row[data-state="enabled"] .episode-dot::before,
+.episode-row[data-state="reply"] .episode-dot::before { background: var(--accent-dim); opacity: .55; }
+.episode-row[data-state="disabled"] .episode-dot::before,
+.episode-row[data-state="shadowed"] .episode-dot::before {
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+.episode-row[data-state="idle"] .episode-dot::before { background: var(--bad); }

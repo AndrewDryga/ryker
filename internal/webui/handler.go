@@ -25,20 +25,9 @@ type Handler struct {
 	schema     string
 	binary     string
 	ready      func() bool
-	prompts    []PromptBudget
 	pricing    config.Pricing
 	actions    Actions
 }
-
-// PromptBudget is measured by the caller, which owns the prompt builders.
-type PromptBudget struct {
-	Name  string
-	Bytes int
-	Cap   int
-}
-
-func (p PromptBudget) Left() int    { return max(p.Cap-p.Bytes, 0) }
-func (p PromptBudget) LeftPct() int { return percent(p.Left(), p.Cap) }
 
 // NewHandler takes the price table by value from configuration: prices change
 // on the provider's schedule, so they live in the operator's file rather than
@@ -48,7 +37,6 @@ func NewHandler(
 	reader *Reader,
 	deployment, schema, binary string,
 	ready func() bool,
-	prompts []PromptBudget,
 	pricing config.Pricing,
 	actions Actions,
 ) (*Handler, error) {
@@ -61,7 +49,7 @@ func NewHandler(
 	}
 	return &Handler{
 		reader: reader, render: render, deployment: deployment,
-		schema: schema, binary: binary, ready: ready, prompts: prompts,
+		schema: schema, binary: binary, ready: ready,
 		pricing: pricing, actions: actions,
 	}, nil
 }
@@ -84,6 +72,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /audit/{kind}", h.auditKind)
 	mux.HandleFunc("GET /memory", h.memory)
 	mux.HandleFunc("GET /configuration", h.configuration)
+	mux.HandleFunc("GET /preferences", h.preferences)
+	mux.HandleFunc("GET /rules", h.rules)
+	mux.HandleFunc("GET /rules/{id}", h.rule)
 	mux.HandleFunc("GET /channels", h.channels)
 	mux.HandleFunc("GET /channels/{id}", h.channel)
 	mux.HandleFunc("GET /usage", h.usage)
@@ -1042,19 +1033,120 @@ func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// configuration is the index of everything that has been told to Responder and
+// keeps applying: where it works, when it runs on its own, how it answers, and
+// what it reacts to without being asked.
+//
+// It used to be four flat tables and a fifth header over an empty slice, all at
+// equal weight, with no way into any of them. Four tables of raw columns is a
+// dump of the database, not an answer to "how is it set up": the operator has
+// to read every row to find the one that is wrong, and cannot open any of them
+// to find out more. Counts and the one fact that says whether each kind is
+// healthy belong here; the rows themselves belong on their own pages.
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	channels, _ := h.reader.KnownChannels(ctx)
-	schedules, _ := h.reader.Schedules(ctx)
-	preferences, _ := h.reader.Preferences(ctx)
-	rules, _ := h.reader.StandingRules(ctx)
+	var failed problems
+	channels, err := h.reader.KnownChannels(ctx)
+	failed.note("channels", err)
+	schedules, err := h.reader.Schedules(ctx)
+	failed.note("schedules", err)
+	preferences, err := h.reader.PreferenceDetails(ctx)
+	failed.note("preferences", err)
+	rules, err := h.reader.StandingRuleDetails(ctx)
+	failed.note("standing rules", err)
+	budget, err := h.reader.TurnBudget(ctx)
+	failed.note("turn budget", err)
+	models, err := h.reader.Models(ctx)
+	failed.note("models", err)
+	// The card's health line is the whole reason it is a card rather than a
+	// link: a count says how much configuration exists, and only the second
+	// number says whether any of it needs attention.
+	unconfigured := 0
+	for _, channel := range channels {
+		if channel.Member && channel.Mode == "" {
+			unconfigured++
+		}
+	}
+	paused := 0
+	for _, schedule := range schedules {
+		if !schedule.Enabled {
+			paused++
+		}
+	}
+	idle := 0
+	for _, rule := range rules {
+		if rule.Idle() {
+			idle++
+		}
+	}
 	h.page(w, r, "configuration", "configuration", struct {
-		Prompts     []PromptBudget
-		Channels    []ChannelConfigRow
-		Schedules   []Schedule
-		Preferences []Preference
-		Rules       []StandingRule
-	}{h.prompts, channels, schedules, preferences, rules})
+		Channels     []ChannelConfigRow
+		Schedules    []Schedule
+		Preferences  []PreferenceDetail
+		Rules        []RuleDetail
+		Budget       TurnBudget
+		Deployment   Deployment
+		Unconfigured int
+		Paused       int
+		IdleRules    int
+		Errs         problems
+	}{
+		channels, schedules, preferences, rules, budget,
+		Deployment{
+			Name: h.deployment, Schema: h.schema, Binary: h.binary,
+			Models: models, Coop: h.reader.CoopRepositories(),
+		},
+		unconfigured, paused, idle, failed,
+	})
+}
+
+// preferences is how Responder answers, as opposed to what it answers.
+func (h *Handler) preferences(w http.ResponseWriter, r *http.Request) {
+	var failed problems
+	items, err := h.reader.PreferenceDetails(r.Context())
+	failed.note("preferences", err)
+	h.detail(w, r, "configuration", "preferences", "Preferences", struct {
+		Preferences []PreferenceDetail
+		Errs        problems
+	}{items, failed})
+}
+
+// rules lists the standing rules: the work Responder starts without being
+// asked, which is the configuration most worth reading and least visible.
+func (h *Handler) rules(w http.ResponseWriter, r *http.Request) {
+	var failed problems
+	items, err := h.reader.StandingRuleDetails(r.Context())
+	failed.note("standing rules", err)
+	h.detail(w, r, "configuration", "rules", "Standing rules", struct {
+		Rules []RuleDetail
+		Errs  problems
+	}{items, failed})
+}
+
+// rule is one standing rule and every firing on record.
+//
+// A rule's fire count says it is busy and nothing about whether it is useful.
+// The firings say both: each one carries the outcome, the reason the model gave
+// for acting or staying quiet, and a link to the episode it produced.
+func (h *Handler) rule(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	item, found, err := h.reader.StandingRuleDetail(ctx, r.PathValue("id"))
+	if err != nil || !found {
+		h.trouble(w, r, http.StatusNotFound, "No such standing rule",
+			"Nothing on record carries this id. A rule that was removed is gone from this list, though the episodes it started remain under Episodes.")
+		return
+	}
+	var failed problems
+	runs, err := h.reader.RuleRuns(ctx, item.ID, 100)
+	failed.note("firings", err)
+	// Named Firings rather than Runs: the embedded rule already has a Runs
+	// count, and an outer field of the same name silently shadows it, so the
+	// page rendered the whole slice where "fired 59 times" belonged.
+	h.detail(w, r, "configuration", "rule", item.Sentence(), struct {
+		RuleDetail
+		Firings []RuleRun
+		Errs    problems
+	}{item, runs, failed})
 }
 
 // usagePage is what the machine spent: provider measurements first, with

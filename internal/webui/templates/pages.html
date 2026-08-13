@@ -480,76 +480,206 @@ individual conversations age out.</p>{{end}}
 {{end}}
 
 {{define "configuration"}}
-<h2>Prompt budget</h2>
-<table>
-  <tr><th>Prompt</th><th class="num">Instructions</th><th class="num">Left for conversation</th></tr>
-  {{range .Prompts}}
-  <tr><td>{{.Name}}</td><td class="mono num">{{.Bytes}} B</td>
-      <td class="mono num">{{.Left}} B ({{.LeftPct}}%)</td></tr>
+{{template "problems" .Errs}}
+<p class="note">Everything here was asked for once, in Slack, and keeps applying to every turn
+after. None of it can be edited on this page: a standing instruction is changed by asking
+Responder for the replacement in the channel it belongs to, so a half-changed setting can never
+be what runs tonight.</p>
+
+<div class="set-grid">
+  <a class="set-card" href="/channels">
+    <span class="set-name">Channels</span>
+    <span class="set-count">{{len .Channels}}</span>
+    <span class="set-what">Where it works, and how much of the conversation it reads.</span>
+    <span class="set-health{{if .Unconfigured}} warn{{end}}">{{if .Unconfigured}}{{.Unconfigured}} joined with no setup{{else}}all set up{{end}}</span>
+  </a>
+  <a class="set-card" href="/schedules">
+    <span class="set-name">Schedules</span>
+    <span class="set-count">{{len .Schedules}}</span>
+    <span class="set-what">Work it starts on a clock, with nobody asking.</span>
+    <span class="set-health{{if .Paused}} warn{{end}}">{{if .Paused}}{{.Paused}} paused{{else if .Schedules}}all running{{else}}none set{{end}}</span>
+  </a>
+  <a class="set-card" href="/preferences">
+    <span class="set-name">Preferences</span>
+    <span class="set-count">{{len .Preferences}}</span>
+    <span class="set-what">How it answers: where the reply goes, and how much it says.</span>
+    <span class="set-health">{{if .Preferences}}overriding the defaults{{else}}defaults everywhere{{end}}</span>
+  </a>
+  <a class="set-card" href="/rules">
+    <span class="set-name">Standing rules</span>
+    <span class="set-count">{{len .Rules}}</span>
+    <span class="set-what">What it reacts to automatically, without being addressed.</span>
+    <span class="set-health{{if .IdleRules}} bad{{end}}">{{if .IdleRules}}{{.IdleRules}} firing but never acting{{else if .Rules}}all acting{{else}}none set{{end}}</span>
+  </a>
+</div>
+
+<h2>Turn budget</h2>
+{{with .Budget}}
+{{if .Measured}}
+<section class="hero{{if .Healthy}} calm{{else}} busy{{end}}">
+  <div class="hero-status">
+    <div class="hero-line">
+      <span class="hero-beacon" aria-hidden="true"></span>
+      <h2 class="hero-word">{{if .Thinned}}{{.Thinned}} of {{.Turns}} turns lost context{{else}}Every turn fitted{{end}}</h2>
+    </div>
+    <div class="hero-stats">
+      <span><strong>{{kib .Typical}}</strong>typical prompt</span>
+      <span><strong>{{kib .Largest}}</strong>largest</span>
+      <span><strong>{{kib .Cap}}</strong>ceiling</span>
+      <span><strong>{{.Fullest}}%</strong>fullest turn</span>
+    </div>
+  </div>
+</section>
+<p class="note">{{.Verdict}}</p>
+{{if .Layers}}
+<div class="rows">
+  {{range .Layers}}
+  <div class="row episode-row layer-row">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-title">{{.Reason}}</span>
+    <span class="episode-when">{{.Turns}} turns</span>
+  </div>
   {{end}}
+</div>
+{{end}}
+{{else}}
+<p class="empty">No turn has run with its prompt kept on record, so there is nothing to
+measure. Prompts are stored on the attempt's context manifest and kept for thirty days.</p>
+{{end}}
+{{end}}
+
+<h2>This deployment</h2>
+{{with .Deployment}}
+<table>
+  <tr><th>Setting</th><th>Value</th></tr>
+  <tr><td>Name</td><td class="mono">{{.Name}}</td></tr>
+  <tr><td>Binary</td><td class="mono">{{.Binary}}</td></tr>
+  <tr><td>Schema</td><td class="mono">{{.Schema}}</td></tr>
+  {{if .Coop}}<tr><td>Checkouts</td><td class="mono">{{.Coop}}</td></tr>{{end}}
 </table>
 
-<h2>Channels <span class="note">{{len .Channels}}</span></h2>
-{{if .Channels}}
+{{if .Models}}
+<h2>Models it has run</h2>
 <table>
-  <tr><th>Channel</th><th>Participation</th><th>Repository</th><th class="num">Episodes</th><th>Member</th></tr>
-  {{range .Channels}}
-  <tr><td><a href="/channels/{{.ID}}">{{.Channel}}</a></td>
-      <td>{{if .Mode}}{{.Mode}}{{else}}<span class="note">not set up</span>{{end}}</td>
-      <td class="mono">{{if .Repository}}{{.Repository}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="mono num">{{.Episodes}}</td>
-      <td>{{if .Member}}<span class="pill good">yes</span>{{else}}<span class="pill">left</span>{{end}}</td></tr>
+  <tr><th>Model</th><th>Effort</th><th class="num">Turns</th></tr>
+  {{range .Models}}
+  <tr><td class="mono">{{.Label}}</td><td class="note">{{if .Effort}}{{.Effort}}{{else}}—{{end}}</td>
+      <td class="mono num">{{.Turns}}</td></tr>
   {{end}}
 </table>
-<p class="note">Every channel Responder is in or has been set up for. A channel it sits in
-without a setup is the one worth opening.</p>
-{{else}}<p class="empty">Responder is not in any channel. Invite it to one in Slack.</p>{{end}}
+<p class="note">What actually ran, from the context manifests. A model named in the
+configuration file and never reached is a plan, so it is not listed here.</p>
+{{end}}
+{{end}}
+{{end}}
 
-<h2>Schedules <span class="note">{{len .Schedules}}</span></h2>
-{{if .Schedules}}
-<table>
-  <tr><th>Schedule</th><th>Cadence</th><th>Where</th><th class="num">Runs</th><th>Catch up</th><th>Next</th><th>State</th></tr>
-  {{range .Schedules}}
-  <tr><td>{{if .Title}}{{truncate 60 .Title}}{{else}}{{truncate 60 .Prompt}}{{end}}</td>
-      <td class="mono">{{.Cadence}}</td>
-      <td>{{.Channel}} <span class="note">{{.Repository}}</span></td>
-      <td class="mono num">{{.Runs}}</td><td class="note">{{.CatchUp}}</td>
-      <td class="note">{{until .NextRun}}</td>
-      <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
-  {{end}}
-</table>
-{{else}}<p class="empty">No schedules. Ask Responder for recurring work in Slack to create one.</p>{{end}}
+{{define "preferences"}}
+{{template "problems" .Errs}}
+<p class="note">How Responder answers, where it has been told to differ from the default.
+Each one was set by asking in Slack, and is changed the same way.</p>
 
-<h2>Preferences <span class="note">{{len .Preferences}}</span></h2>
 {{if .Preferences}}
-<table>
-  <tr><th>Preference</th><th>Value</th><th>Scope</th><th>Expires</th><th>State</th></tr>
+<div class="rows">
   {{range .Preferences}}
-  <tr><td class="mono">{{.Name}}</td><td class="mono">{{.Value}}</td><td>{{.Scope}}</td>
-      <td class="note">{{stamp .Expires}}</td>
-      <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
+  <div class="row episode-row" data-state="{{if .Enabled}}enabled{{else}}disabled{{end}}">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-title">{{.Title}}</span>
+    <span class="episode-answer">{{if .Means}}{{.Means}}{{else}}<span class="mono">{{.Value}}</span>{{end}}</span>
+    <span class="episode-facts">
+      <span class="episode-state">{{.Where}}</span>
+      {{if .Actor}}<span>set by {{.Actor}}</span>{{end}}
+      {{if not .At.IsZero}}<span>{{since .At}}</span>{{end}}
+      {{if not .Expires.IsZero}}<span>expires {{until .Expires}}</span>{{end}}
+      {{if not .Enabled}}<span>turned off</span>{{end}}
+    </span>
+  </div>
   {{end}}
-</table>
-{{else}}<p class="empty">No preferences saved.</p>{{end}}
+</div>
+<p class="note">A preference expires on its own. When it lapses the default applies again
+without anything being deleted, which is why one that matters has to be renewed rather than
+assumed permanent.</p>
+{{else}}
+<p class="empty">No preference is set, so every channel uses the defaults: answer where the
+message was, at standard detail, with a standard health check. Ask Responder in a channel to
+change one there.</p>
+{{end}}
+{{end}}
 
-<h2>Standing rules <span class="note">{{len .Rules}}</span></h2>
+{{define "rules"}}
+{{template "problems" .Errs}}
+<p class="note">Work Responder starts without being addressed. A rule watches one channel for
+one kind of event and responds to every match, which makes it the configuration that costs the
+most and is read the least.</p>
+
 {{if .Rules}}
-<table>
-  <tr><th>When</th><th>Do</th><th>Where</th><th class="num">Fired</th><th class="num">Acted</th>
-      <th class="num">Did nothing</th><th>Last acted</th><th>Expires</th><th>State</th></tr>
+<div class="rows">
   {{range .Rules}}
-  <tr><td class="mono">{{.Trigger}}</td><td class="mono">{{.Action}}</td><td>{{.Channel}}</td>
-      <td class="mono num">{{.Runs}}</td>
-      <td class="mono num">{{if .Recorded}}{{.Acted}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="mono num">{{if .Recorded}}{{.Quiet}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="note">{{if not .LastActed.IsZero}}{{since .LastActed}}{{else if .Idle}}never{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="note">{{stamp .Expires}}</td>
-      <td><span class="pill{{if .Idle}} bad{{else if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
+  <a class="row episode-row" href="/rules/{{.ID}}" data-state="{{if .Idle}}idle{{else if .Enabled}}enabled{{else}}disabled{{end}}">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-title">{{.Sentence}}</span>
+    <span class="episode-facts">
+      <span class="episode-state">fired {{.Runs}}</span>
+      {{if .Recorded}}<span>acted {{.Acted}}</span><span>stayed quiet {{.Quiet}}</span>{{end}}
+      {{if not .LastActed.IsZero}}<span>last acted {{since .LastActed}}</span>
+      {{else if .Idle}}<span>never acted</span>{{end}}
+      {{if not .Enabled}}<span>turned off</span>{{end}}
+      <span>what it did →</span>
+    </span>
+  </a>
   {{end}}
-</table>
+</div>
 <p class="note">A rule that fires and never acts is spending a model turn per matching message
-and returning silence — those are the rows to prune or sharpen.</p>
-{{else}}<p class="empty">No standing rules.</p>{{end}}
+and returning silence. Open it to see what it decided each time, then either sharpen what it
+matches or remove it.</p>
+{{else}}
+<p class="empty">No standing rule is set, so Responder starts nothing on its own in any
+channel. Ask it in a channel to watch for something there.</p>
+{{end}}
+{{end}}
+
+{{define "rule"}}
+{{template "problems" .Errs}}
+<div class="panel">
+  <div class="meta">
+    {{if .Idle}}<span class="pill bad">firing but never acting</span>
+    {{else if .Enabled}}<span class="pill good">enabled</span>
+    {{else}}<span class="pill warn">turned off</span>{{end}}
+    {{.Channel}}{{if .Repository}} · <span class="mono">{{.Repository}}</span>{{end}} · {{.From}}
+  </div>
+  <div class="meta">
+    fired {{.Runs}} times{{if .Recorded}} · acted {{.Acted}} · stayed quiet {{.Quiet}}{{end}}
+    {{if not .LastActed.IsZero}} · last acted {{since .LastActed}}{{end}}
+    {{if not .Expires.IsZero}} · expires {{until .Expires}}{{end}}
+  </div>
+  {{if .Actor}}<div class="meta">Set up by {{.Actor}}{{if not .Created.IsZero}} {{since .Created}}{{end}}.</div>{{end}}
+</div>
+
+<p class="note">To change what this matches or remove it, ask Responder in {{.Channel}}. A rule
+has no edit in place: a replacement is proposed, you confirm it, and this one is removed.</p>
+
+<h2>Firings <span class="note">{{len .Firings}}</span></h2>
+{{if .Firings}}
+<p class="note">Every match on record, with what the model decided. A firing that stayed quiet
+still cost a turn — the rule matched, the message was read, and the answer was that nothing
+needed saying.</p>
+<div class="rows">
+  {{range .Firings}}
+  {{if .Episode}}<a class="row episode-row" href="/episodes/{{.Episode}}" data-state="{{.Outcome}}">
+  {{else}}<div class="row episode-row" data-state="{{.Outcome}}">{{end}}
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-when">{{since .At}}</span>
+    <span class="episode-title">{{.Reads}}</span>
+    {{if .Reason}}<span class="episode-answer">{{.Reason}}</span>{{end}}
+    <span class="episode-facts">
+      {{if .Episode}}<span>see what it did →</span>{{else}}<span>no episode on record</span>{{end}}
+    </span>
+  {{if .Episode}}</a>{{else}}</div>{{end}}
+  {{end}}
+</div>
+{{else}}
+<p class="empty">This rule has not matched anything on record. Firings are kept for thirty
+days, so a rule that last fired before then shows nothing here.</p>
+{{end}}
 {{end}}
 
 {{define "usage"}}

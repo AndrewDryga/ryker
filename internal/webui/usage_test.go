@@ -95,7 +95,7 @@ func seedUsage(t *testing.T, attempts ...attempt) *Reader {
 
 func servePage(t *testing.T, reader *Reader, target string) string {
 	t.Helper()
-	handler, err := NewHandler(reader, "test", "48", "responder-abc", nil, nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "48", "responder-abc", nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,7 @@ import (
 
 	_ "modernc.org/sqlite"
 	"os"
+	"strings"
 )
 
 // Search reaches both places an operator remembers work by — the commitment
@@ -441,5 +442,48 @@ func TestWorkspaceDiskNamesSizesAndOrphans(t *testing.T) {
 	// because "nothing held" and "could not look" are different answers.
 	if absent := reader.Disk(context.Background(), filepath.Join(root, "nope"), nil); absent.Available {
 		t.Fatal("a missing directory reported a measurement")
+	}
+}
+
+// The turn budget section replaced a table fed by a slice nobody passed, so
+// what matters is that it reads the measurement and says what it means — a
+// section that renders is not the same as a section that is right.
+func TestTurnBudgetReadsWhatWasCutAndWhy(t *testing.T) {
+	// Under half the ceiling and still dropping layers. This is the state the
+	// cap alone calls healthy and is not: the assembler is budgeting against
+	// its own share of the prompt, so the transport's headroom is unreachable.
+	thinned := TurnBudget{
+		Cap: 256 << 10, Turns: 144, Thinned: 92,
+		Largest: 113718, Typical: 65231,
+	}
+	if thinned.Healthy() {
+		t.Fatal("a budget dropping context on most turns reported healthy")
+	}
+	if got := thinned.Fullest(); got != 43 {
+		t.Fatalf("fullest = %d%%, want 43%%", got)
+	}
+	if !strings.Contains(thinned.Verdict(), "the cap is not what cut it") {
+		t.Fatalf("verdict does not name the real cause: %q", thinned.Verdict())
+	}
+
+	roomy := TurnBudget{Cap: 256 << 10, Turns: 10, Largest: 1000, Typical: 900}
+	if !roomy.Healthy() || !strings.Contains(roomy.Verdict(), "room to spare") {
+		t.Fatalf("a budget that cut nothing did not read as healthy: %q", roomy.Verdict())
+	}
+	if empty := (TurnBudget{Cap: 1}); empty.Measured() || !strings.Contains(
+		empty.Verdict(), "nothing to measure",
+	) {
+		t.Fatalf("an unmeasured budget claimed a measurement: %q", empty.Verdict())
+	}
+
+	// The transport's elision notes name the exact byte counts of the prompt
+	// they cut, so counting them verbatim yields one row per turn and a list
+	// that says nothing. They collapse to the one fact they share.
+	reasons := decodeOmissions(`["the transport elided 4085 bytes from the middle of this 69621-byte prompt to fit","the transport elided 546 bytes from the middle of this 66082-byte prompt to fit","older channel messages were omitted to fit the turn"]`)
+	if len(reasons) != 3 || reasons[0] != reasons[1] {
+		t.Fatalf("transport elisions did not collapse to one reason: %q", reasons)
+	}
+	if decodeOmissions("[]") != nil || decodeOmissions("not json") != nil {
+		t.Fatal("an empty or unreadable omission list produced reasons")
 	}
 }

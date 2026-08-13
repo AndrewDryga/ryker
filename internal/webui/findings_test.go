@@ -20,7 +20,7 @@ import (
 // is the part worth executing.
 func TestFindingsPageShowsTheDefectAndItsChallenge(t *testing.T) {
 	reader := seededReader(t)
-	handler, err := NewHandler(reader, "test", "54", "responder-abc", nil, nil, config.Pricing{}, nil)
+	handler, err := NewHandler(reader, "test", "54", "responder-abc", nil, config.Pricing{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
