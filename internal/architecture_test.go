@@ -345,7 +345,10 @@ var lineBudget = map[string]int{
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.
 	"agentcontext": 200,
-	"agentprompt":  300,
+	// agentprompt kept the turn-conduct policies and the prompt assembly; the
+	// Slack reply-shape prose moved beside its measured enforcement in
+	// replypolicy on 2026-08-12, and the budget follows the lines down.
+	"agentprompt": 280,
 	// evaluation replays recorded and live corpora through the same prompt and
 	// decision paths the runtime uses, and gates releases on the result. It sits
 	// above service the way app does: it may import service, and nothing imports
@@ -354,14 +357,18 @@ var lineBudget = map[string]int{
 	"evidencepolicy":        100,
 	"episode":               350,
 	"investigationcontract": 550,
-	"replypolicy":           220,
-	"replaycontrol":         75,
-	"replayinterrupt":       95,
-	"replaycancelstore":     90,
-	"serviceport":           65,
-	"retrydelay":            40,
-	"schemaassets":          1050,
-	"triageoutcome":         50,
+	// replypolicy owns what a Slack reply must look like. Since 2026-08-12 both
+	// halves of the rule live here — the instruction text every lane carries and
+	// the measured bound the host enforces — because a rule split across
+	// packages is how "answer in thread" went two months unmeasured.
+	"replypolicy":       270,
+	"replaycontrol":     75,
+	"replayinterrupt":   95,
+	"replaycancelstore": 90,
+	"serviceport":       65,
+	"retrydelay":        40,
+	"schemaassets":      1050,
+	"triageoutcome":     50,
 }
 
 // forbiddenImports records the dependency direction. Each package maps to the

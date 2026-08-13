@@ -4,11 +4,12 @@ import (
 	"github.com/AndrewDryga/responder/internal/agentprompt"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/replypolicy"
 )
 
 const (
-	slackReplyFormattingPolicy = agentprompt.ReplyFormattingPolicy
-	slackReplyShapePolicy      = agentprompt.ReplyShapePolicy
+	slackReplyFormattingPolicy = replypolicy.ReplyFormattingPolicy
+	slackReplyShapePolicy      = replypolicy.ReplyShapePolicy
 	offerContractPolicy        = agentprompt.OfferContractPolicy
 	compoundRequestPolicy      = agentprompt.CompoundRequestPolicy
 	suppliedContextPolicy      = agentprompt.SuppliedContextPolicy
