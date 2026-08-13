@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -78,6 +82,16 @@ func (s *Service) rejectedOffers(
 		}
 	}
 	if offers := OrderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 && s.scheduleOfferInScope(input) {
+		if err := s.scheduleBatchMatchesRequest(ctx, input, offers, now); err != nil {
+			rejected = append(rejected, offerCheck{
+				kind: "scheduled task batch", rejected: err,
+				clear: func() {
+					decision.ScheduleOffer = nil
+					decision.ScheduleOffers = nil
+				},
+			})
+			return rejected
+		}
 		for _, offer := range offers {
 			if _, err := s.scheduledTaskFromOffer(ctx, input, *offer, now); err == nil {
 				continue
@@ -94,6 +108,77 @@ func (s *Service) rejectedOffers(
 		}
 	}
 	return rejected
+}
+
+// scheduleBatchMatchesRequest checks the proposed occurrences against the ones
+// the operator actually named.
+//
+// "Check tomorrow and in 3 days" came back as three checks at one, two and four
+// days out, and every host validation passed: each offer was a well-formed
+// future one-time schedule and the batch was inside its size limit. Nothing
+// compared the batch with the request, so a schedule nobody asked for only had
+// to be syntactically valid to be confirmed.
+//
+// Only requests with unambiguous relative days are checked. Anything else is
+// left to the per-offer validation that was already there.
+func (s *Service) scheduleBatchMatchesRequest(
+	ctx context.Context,
+	input core.SlackInput,
+	offers []*core.ScheduleOffer,
+	now time.Time,
+) error {
+	wanted := schedulepkg.RequestedDayOffsets(input.Text)
+	if len(wanted) == 0 {
+		return nil
+	}
+	proposed := map[int]bool{}
+	for _, offer := range offers {
+		task, err := s.scheduledTaskFromOffer(ctx, input, *offer, now)
+		if err != nil || task.Recurrence != "once" {
+			// A recurring offer answers a different shape of request, and a
+			// malformed one is already reported by the per-offer check.
+			return nil
+		}
+		location := schedulepkg.MustLocation(task.Timezone)
+		asked := now.In(location)
+		days := int(task.NextRunAt.In(location).Truncate(24*time.Hour).
+			Sub(asked.Truncate(24*time.Hour)).Hours() / 24)
+		proposed[days] = true
+	}
+	if len(proposed) == len(wanted) {
+		matched := true
+		for _, day := range wanted {
+			matched = matched && proposed[day]
+		}
+		if matched {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"the request named %d check(s), at %s from now, and the batch proposes %d at %s; "+
+			"return exactly the occurrences that were asked for, at a consistent local time",
+		len(wanted), dayList(wanted), len(offers), dayList(sortedDays(proposed)),
+	)
+}
+
+func sortedDays(days map[int]bool) []int {
+	out := make([]int, 0, len(days))
+	for day := range days {
+		out = append(out, day)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func dayList(days []int) string {
+	parts := make([]string, 0, len(days))
+	for _, day := range days {
+		parts = append(parts, strconv.Itoa(day)+"d")
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // offerRejectionCorrection tells the model what is wrong with an offer it

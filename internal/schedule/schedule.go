@@ -261,3 +261,59 @@ func NextScheduledOccurrence(task core.ScheduledTask, after time.Time) time.Time
 func ScheduledSourceInputID(taskID string, scheduledFor time.Time) string {
 	return fmt.Sprintf("schedule_%s_%d", taskID, scheduledFor.UTC().UnixNano())
 }
+
+// numberWords maps the counts an operator writes out to their value, so "in
+// three days" and "in 3 days" are read as the same request.
+var numberWords = map[string]int{
+	"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+	"seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+
+var relativeDayPattern = regexp.MustCompile(
+	`(?i)\b(tomorrow)\b|\bin\s+(an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(days?|weeks?)\b`,
+)
+
+// RequestedDayOffsets reads the explicit relative days an operator named, in
+// the order they named them and without repeats.
+//
+// It exists because "check tomorrow and in 3 days" came back as three checks at
+// one, two and four days out, and every host validation passed: each offer was
+// a well-formed future one-time schedule, and the batch size was inside its
+// limit. Nothing compared what was proposed with what was asked for, so a
+// schedule the operator never requested only had to be syntactically valid to
+// be confirmed.
+//
+// Only unambiguous forms are extracted. A request this cannot read returns
+// nothing, which leaves the batch to the checks that were already there —
+// guessing at an offset would replace a proposal the operator can see and
+// reject with one Responder invented.
+func RequestedDayOffsets(text string) []int {
+	offsets := []int{}
+	seen := map[int]bool{}
+	for _, match := range relativeDayPattern.FindAllStringSubmatch(text, 8) {
+		days := 0
+		switch {
+		case match[1] != "":
+			days = 1
+		case match[2] != "":
+			count, ok := numberWords[strings.ToLower(match[2])]
+			if !ok {
+				parsed, err := strconv.Atoi(match[2])
+				if err != nil {
+					continue
+				}
+				count = parsed
+			}
+			days = count
+			if strings.HasPrefix(strings.ToLower(match[3]), "week") {
+				days = count * 7
+			}
+		}
+		if days <= 0 || seen[days] {
+			continue
+		}
+		seen[days] = true
+		offsets = append(offsets, days)
+	}
+	return offsets
+}
