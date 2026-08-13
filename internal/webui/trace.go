@@ -50,6 +50,11 @@ type PromptSegment struct {
 type TraceTable struct {
 	Headers []string
 	Rows    []TraceTableRow
+	// Tight stops the identity columns from wrapping. The table already
+	// scrolls horizontally, and a cell broken mid-token renders
+	// "mcp.emisar.run_action" as four unreadable fragments — a scrollbar is
+	// the cheaper cost.
+	Tight bool
 }
 
 type TraceTableRow struct {
@@ -57,6 +62,11 @@ type TraceTableRow struct {
 	// Href links the row's name cell to the record behind it — a retained
 	// artifact body, openable from the trace.
 	Href template.URL
+	// Expand is the full record behind a summarized cell, rendered as a
+	// disclosure inside the cell at ExpandAt. A row whose cell holds a
+	// normalized label needs somewhere to keep what was normalized away.
+	Expand   string
+	ExpandAt int
 }
 
 // TraceStep is one host-observable fact in the execution story. Why describes
@@ -3793,14 +3803,17 @@ func activityTraceStep(page episodePage) (TraceStep, bool) {
 			case "failed":
 				failed++
 			}
-			rows = append(rows, TraceTableRow{Cells: []string{
-				activityOffset(first, moment.At),
-				fallback(moment.Title, "unnamed call"),
-				fallback(moment.ToolKind, "—"),
-				fallback(moment.Status, "still running"),
-				fallback(moment.Duration, "—"),
-				fallback(moment.Detail, "—"),
-			}})
+			rows = append(rows, TraceTableRow{
+				Cells: []string{
+					activityOffset(first, moment.At),
+					fallback(moment.Title, "unnamed call"),
+					fallback(moment.ToolKind, "—"),
+					fallback(moment.Status, "still running"),
+					fallback(moment.Duration, "—"),
+					fallback(moment.Detail, "—"),
+				},
+				Expand: moment.Arguments, ExpandAt: 5,
+			})
 		case "thought":
 			if moment.Detail != "" {
 				reasoning = append(reasoning, moment.Detail)
@@ -3866,7 +3879,7 @@ func activityTraceStep(page episodePage) (TraceStep, bool) {
 			ShowCount: true, Count: len(rows),
 			Table: &TraceTable{
 				Headers: []string{"At", "What ran", "Kind", "Status", "Took", "Arguments"},
-				Rows:    rows,
+				Rows:    rows, Tight: true,
 			},
 		})
 	}

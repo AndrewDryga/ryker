@@ -46,12 +46,114 @@ func TestReaderFoldsToolStartAndFinishIntoOneMoment(t *testing.T) {
 	if finished.Title != "Emisar nomad.job_status" || finished.ToolKind != "execute" {
 		t.Fatalf("folding lost the call's identity: %+v", finished)
 	}
-	if finished.Detail != `{"job":"website"}` {
+	if finished.Detail != "job=website" {
 		t.Fatalf("arguments were lost in the fold: %q", finished.Detail)
 	}
 	// Showing it as running is honest; inventing a completion is not.
 	if moments[1].Status != "" || moments[1].Duration != "" {
 		t.Fatalf("an unfinished call was given an ending: %+v", moments[1])
+	}
+}
+
+// An Emisar call arrives as mcp.emisar.run_action wrapping a 250-byte
+// envelope, and the fact that matters — which action ran against which target
+// — is two levels inside it. Four such rows printed the envelope four times
+// and made the reader dig for the only part that differed.
+func TestReaderNamesTheOperationInsideAnMCPCall(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	at := time.Date(2026, 8, 13, 20, 22, 45, 0, time.UTC)
+	input := `{"input":{"arguments":{"action_id":"tfc.run_details",` +
+		`"args":{"run_id":"run-d3doZz584gYuTKrA"},` +
+		`"pack_ref":"hcp-terraform@0.7.0/sha256:3f34cba5aaaaf61b36480ec3c77f55f7dae0da90",` +
+		`"reason":"Verify the exact lifecycle of the tenant-infra CI run.",` +
+		`"runner_refs":["emisar-gcp-runner~4a20767d"],"wait":"30s"},` +
+		`"server":"emisar","tool":"run_action"}}`
+	fixture.exec(`INSERT INTO agent_activity
+	  (id, episode_id, agent_run_id, session_id, turn_id, sequence, kind,
+	   tool_call_id, title, tool_kind, status, detail, occurred_at, created_at)
+	  VALUES ('act-1','episode-1','run-1','sess-1','turn-1',1,'tool.started',
+	          't1','mcp.emisar.run_action','execute','',?,?,?)`,
+		input, at.Format(time.RFC3339Nano), fixture.stamp)
+
+	reader := fixture.reader()
+	defer reader.Close()
+	moments, err := reader.Activity(context.Background(), "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moments) != 1 {
+		t.Fatalf("want one call, got %+v", moments)
+	}
+	call := moments[0]
+	if call.Title != "emisar · tfc.run_details" {
+		t.Fatalf("the row is still named after the envelope: %q", call.Title)
+	}
+	// The cell carries the target, not the pack digest and runner ref that are
+	// identical on every call from the same pack.
+	if call.Detail != "run_id=run-d3doZz584gYuTKrA" {
+		t.Fatalf("arguments cell = %q", call.Detail)
+	}
+	// Nothing is lost — it moves behind the disclosure, reason first.
+	if !strings.HasPrefix(call.Arguments, "Why: Verify the exact lifecycle of the tenant-infra CI run.") {
+		t.Fatalf("the stated reason is not surfaced: %q", call.Arguments)
+	}
+	for _, want := range []string{"pack_ref", "runner_refs", "hcp-terraform@0.7.0"} {
+		if !strings.Contains(call.Arguments, want) {
+			t.Fatalf("normalizing dropped %q from the full record", want)
+		}
+	}
+}
+
+// Adapters populate rawInput only for MCP calls, so an empty object is the
+// common case. "{}" in a cell is worse than nothing, and there is nothing to
+// open behind it.
+func TestReaderTreatsAnEmptyToolInputAsAbsent(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	at := time.Date(2026, 8, 13, 20, 22, 45, 0, time.UTC)
+	fixture.exec(`INSERT INTO agent_activity
+	  (id, episode_id, agent_run_id, session_id, turn_id, sequence, kind,
+	   tool_call_id, title, tool_kind, status, detail, occurred_at, created_at)
+	  VALUES ('act-1','episode-1','run-1','sess-1','turn-1',1,'tool.started',
+	          't1','Terminal','execute','','{"input":{}}',?,?)`,
+		at.Format(time.RFC3339Nano), fixture.stamp)
+
+	reader := fixture.reader()
+	defer reader.Close()
+	moments, err := reader.Activity(context.Background(), "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moments) != 1 || moments[0].Title != "Terminal" {
+		t.Fatalf("want the call kept under its own name: %+v", moments)
+	}
+	if moments[0].Detail != "" || moments[0].Arguments != "" {
+		t.Fatalf("an empty input produced content: %+v", moments[0])
+	}
+}
+
+// A plain (non-MCP) tool keeps its own name and gets its fields flattened.
+func TestReaderFlattensAPlainToolInput(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	at := time.Date(2026, 8, 13, 20, 22, 45, 0, time.UTC)
+	fixture.exec(`INSERT INTO agent_activity
+	  (id, episode_id, agent_run_id, session_id, turn_id, sequence, kind,
+	   tool_call_id, title, tool_kind, status, detail, occurred_at, created_at)
+	  VALUES ('act-1','episode-1','run-1','sess-1','turn-1',1,'tool.started',
+	          't1','Read','read','',
+	          '{"input":{"file_path":"/repo/apps_cms.tf","limit":40}}',?,?)`,
+		at.Format(time.RFC3339Nano), fixture.stamp)
+
+	reader := fixture.reader()
+	defer reader.Close()
+	moments, err := reader.Activity(context.Background(), "episode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moments[0].Title != "Read" {
+		t.Fatalf("a plain tool was renamed: %q", moments[0].Title)
+	}
+	if moments[0].Detail != "file_path=/repo/apps_cms.tf · limit=40" {
+		t.Fatalf("arguments cell = %q", moments[0].Detail)
 	}
 }
 
@@ -157,8 +259,9 @@ func TestActivityStepIsAbsentWithoutActivity(t *testing.T) {
 func TestActivityStepFoldsEveryCallIntoOneCard(t *testing.T) {
 	start := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
 	page := episodePage{Activity: []ActivityMoment{
-		{Kind: "tool", Title: "Emisar nomad.job_status", ToolKind: "execute",
-			Status: "completed", Duration: "2.0s", At: start, Detail: `{"job":"website"}`},
+		{Kind: "tool", Title: "emisar · nomad.job_status", ToolKind: "execute",
+			Status: "completed", Duration: "2.0s", At: start,
+			Detail: "job=website", Arguments: "Why: check the rollout\n\n{\n  \"job\": \"website\"\n}"},
 		{Kind: "tool", Title: "Read apps_cms.tf", ToolKind: "read",
 			Status: "completed", Duration: "120ms", At: start.Add(3 * time.Second)},
 		{Kind: "tool", Title: "Emisar http.probe", ToolKind: "execute",
@@ -198,8 +301,21 @@ func TestActivityStepFoldsEveryCallIntoOneCard(t *testing.T) {
 	if got := table.Table.Rows[1].Cells[0]; got != "+3.0s" {
 		t.Fatalf("second call is at %q, want an offset from the first", got)
 	}
-	if got := table.Table.Rows[0].Cells[5]; got != `{"job":"website"}` {
+	if got := table.Table.Rows[0].Cells[5]; got != "job=website" {
 		t.Fatalf("arguments were lost: %q", got)
+	}
+	// Identity columns must not break mid-token, and what the cell summarized
+	// away has to stay reachable behind the cell it summarized.
+	if !table.Table.Tight {
+		t.Fatal("the table wraps its identity columns")
+	}
+	row := table.Table.Rows[0]
+	if row.ExpandAt != 5 || !strings.Contains(row.Expand, `"job": "website"`) {
+		t.Fatalf("the full record is not behind the arguments cell: %+v", row)
+	}
+	// A call with nothing recorded has nothing to open.
+	if got := table.Table.Rows[1].Expand; got != "" {
+		t.Fatalf("an empty input produced a disclosure: %q", got)
 	}
 	// Counted by kind, so "it ran nine actions and read two files" is legible
 	// without opening anything.

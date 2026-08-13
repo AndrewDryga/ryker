@@ -147,10 +147,13 @@ type ActivityMoment struct {
 	// elided. It is not the Coop event type, which distinguishes a start from
 	// a finish that this view has already joined.
 	Kind, Title, ToolKind, Status, Detail string
-	Entries                               []ActivityPlanStep
-	At                                    time.Time
-	Duration, Tone                        string
-	Dropped                               int
+	// Arguments is the whole recorded input, kept for the disclosure behind
+	// Detail. Detail is what fits a table cell; this is what was actually sent.
+	Arguments      string
+	Entries        []ActivityPlanStep
+	At             time.Time
+	Duration, Tone string
+	Dropped        int
 }
 
 type ActivityPlanStep struct {
@@ -216,9 +219,10 @@ func (r *Reader) Activity(ctx context.Context, episodeID string) ([]ActivityMome
 			if row.toolCallID != "" {
 				openCalls[key] = len(moments)
 			}
+			label, summary, full := activityCall(row.title, row.detail)
 			moments = append(moments, ActivityMoment{
-				Kind: "tool", Title: row.title, ToolKind: row.toolKind,
-				At: row.at, Detail: activityDetailText(row.detail, "input"),
+				Kind: "tool", Title: label, ToolKind: row.toolKind,
+				At: row.at, Detail: summary, Arguments: full,
 			})
 		case "model.thought":
 			moments = append(moments, ActivityMoment{
@@ -248,6 +252,129 @@ func (r *Reader) Activity(ctx context.Context, episodeID string) ([]ActivityMome
 		}
 	}
 	return moments, nil
+}
+
+// activityCall turns a recorded tool input into the three things a table
+// needs: what to call the row, what fits in its arguments cell, and the whole
+// record to put behind a disclosure.
+//
+// The raw shape is not what an operator is looking for. An Emisar call arrives
+// as mcp.emisar.run_action carrying a 250-byte envelope, and the fact that
+// matters — which action ran against which target — is two levels inside it.
+// Printing the envelope in a cell said "an MCP tool was called" four times in
+// a row and made the reader dig for the only part that differed.
+func activityCall(title string, detail []byte) (label, summary, full string) {
+	label = title
+	input := activityInputObject(detail)
+	if len(input) == 0 {
+		return label, "", ""
+	}
+	full = activityPrettyJSON(input)
+
+	var envelope struct {
+		Server    string          `json:"server"`
+		Tool      string          `json:"tool"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if json.Unmarshal(input, &envelope) == nil && envelope.Server != "" && envelope.Tool != "" {
+		var call struct {
+			ActionID string          `json:"action_id"`
+			Args     json.RawMessage `json:"args"`
+			Reason   string          `json:"reason"`
+		}
+		_ = json.Unmarshal(envelope.Arguments, &call)
+		operation := call.ActionID
+		if operation == "" {
+			operation = envelope.Tool
+		}
+		label = envelope.Server + " · " + operation
+		if summary = activityFields(call.Args); summary == "" {
+			// No inner args: fall back to the envelope minus the parts that
+			// are identical on every call from the same pack.
+			summary = activityFields(envelope.Arguments, "action_id", "pack_ref", "runner_refs", "reason", "wait")
+		}
+		if call.Reason != "" {
+			full = "Why: " + call.Reason + "\n\n" + full
+		}
+		return label, summary, full
+	}
+	return label, activityFields(input), full
+}
+
+// activityInputObject unwraps the stored {"input": …} envelope, treating an
+// input that carries nothing as absent. Several adapters populate rawInput
+// only for MCP calls, so an empty object is the common case and printing "{}"
+// in a cell is worse than printing nothing.
+func activityInputObject(detail []byte) json.RawMessage {
+	if len(detail) == 0 {
+		return nil
+	}
+	var wrapper struct {
+		Input json.RawMessage `json:"input"`
+	}
+	if json.Unmarshal(detail, &wrapper) != nil {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(wrapper.Input, &fields) != nil || len(fields) == 0 {
+		return nil
+	}
+	return wrapper.Input
+}
+
+// activityFields renders a flat object as "key=value · key=value", skipping
+// the named keys. Values that are not scalars are compacted rather than
+// expanded: the cell is a label, and the disclosure holds the real thing.
+func activityFields(object json.RawMessage, skip ...string) string {
+	if len(object) == 0 {
+		return ""
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(object, &fields) != nil || len(fields) == 0 {
+		return ""
+	}
+	omit := map[string]bool{}
+	for _, key := range skip {
+		omit[key] = true
+	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		if !omit[name] {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+"="+activityScalar(fields[name]))
+	}
+	return truncateActivityCell(strings.Join(parts, " · "))
+}
+
+func activityScalar(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return truncateActivityCell(text)
+	}
+	var compact bytes.Buffer
+	if json.Compact(&compact, raw) != nil {
+		return "?"
+	}
+	return truncateActivityCell(compact.String())
+}
+
+const activityCellBytes = 160
+
+func truncateActivityCell(value string) string {
+	return core.TruncateUTF8WithSuffix(value, activityCellBytes, "…")
+}
+
+func activityPrettyJSON(raw json.RawMessage) string {
+	var indented bytes.Buffer
+	if json.Indent(&indented, raw, "", "  ") != nil {
+		return string(raw)
+	}
+	return indented.String()
 }
 
 func activityTone(status string) string {
