@@ -123,6 +123,7 @@ func NewRenderer() (*Renderer, error) {
 		"meter":   meterSVG,
 		"mrkdwn":  renderMrkdwn,
 		"summary": renderSummary,
+		"bytes":   HumanBytes,
 	}
 	parsed, err := template.New("webui").Funcs(funcs).ParseFS(assets, "templates/*.html")
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 
 	_ "modernc.org/sqlite"
+	"os"
 )
 
 // Search reaches both places an operator remembers work by — the commitment
@@ -392,5 +393,53 @@ func TestCorrectionsGroupByComplaintAndFlagHostFaults(t *testing.T) {
 	}
 	if byText[repeated].Caution != "" {
 		t.Fatalf("an ordinary complaint was flagged as a host fault: %q", byText[repeated].Caution)
+	}
+}
+
+// The workspaces page exists to say what the checkouts cost, so the two
+// numbers it is built on have to be right: what a size reads as, and which
+// directories no live session owns.
+func TestWorkspaceDiskNamesSizesAndOrphans(t *testing.T) {
+	for _, testCase := range []struct {
+		bytes int64
+		want  string
+	}{
+		{0, "—"}, {512, "1 KB"}, {5 << 20, "5 MB"}, {2 << 30, "2.0 GB"},
+	} {
+		if got := HumanBytes(testCase.bytes); got != testCase.want {
+			t.Fatalf("HumanBytes(%d) = %q, want %q", testCase.bytes, got, testCase.want)
+		}
+	}
+
+	root := t.TempDir()
+	for name, size := range map[string]int{"live_1": 2048, "gone_1": 4096} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(root, name, "blob"), make([]byte, size), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reader := &Reader{}
+	// A checkout is an orphan when no live session claims it, which is why the
+	// live list has to be measured against the disk rather than assumed equal
+	// to it: an open session may hold no directory at all, because Coop builds
+	// one on first use.
+	disk := reader.Disk(context.Background(), root, []Workspace{{ID: "live_1"}})
+	if !disk.Available {
+		t.Fatal("a readable directory reported no measurement")
+	}
+	if len(disk.Orphans) != 1 || disk.Orphans[0].SessionID != "gone_1" {
+		t.Fatalf("orphans = %+v, want only the checkout with no live session", disk.Orphans)
+	}
+	if disk.Total < 6144 {
+		t.Fatalf("total = %d, want every checkout counted including the orphan", disk.Total)
+	}
+	// A deployment with no Coop directory says so rather than reporting zero,
+	// because "nothing held" and "could not look" are different answers.
+	if absent := reader.Disk(context.Background(), filepath.Join(root, "nope"), nil); absent.Available {
+		t.Fatal("a missing directory reported a measurement")
 	}
 }

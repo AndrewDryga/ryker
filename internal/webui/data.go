@@ -17,6 +17,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/decision"
+	"path/filepath"
 )
 
 // Reader is the dashboard's own read-only view of the database.
@@ -29,6 +30,10 @@ import (
 type Reader struct {
 	db         *sql.DB
 	coop       *sql.DB
+	coopRoot   string
+	diskOnce   sync.Mutex
+	diskRoot   string
+	disk       WorkspaceDisk
 	channels   sync.Map
 	identities sync.Map
 }
@@ -58,6 +63,16 @@ func (r *Reader) OpenCoopSessions(path string) {
 	}
 	db.SetMaxOpenConns(1)
 	r.coop = db
+	r.coopRoot = filepath.Join(filepath.Dir(path), "repositories")
+}
+
+// CoopRepositories is where Coop keeps the checkouts, derived from where it
+// keeps its session store so the two cannot drift apart.
+func (r *Reader) CoopRepositories() string {
+	if r == nil || r.coopRoot == "" {
+		return ""
+	}
+	return r.coopRoot
 }
 
 func (r *Reader) SetSlackIdentities(labels map[string]string) {

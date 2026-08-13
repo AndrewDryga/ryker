@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"sort"
 )
 
 // Handler serves the control plane. Read-only in v1: every write path is opted
@@ -833,14 +834,32 @@ func (h *Handler) workspaces(w http.ResponseWriter, r *http.Request) {
 	failed.note("workspaces", err)
 	live, attached, err := h.reader.LiveWorkspaces(ctx)
 	failed.note("live workspaces", err)
+	// Measured after the live list, because what counts as an orphan is
+	// "a checkout on disk that no live session owns" and that needs both.
+	disk := h.reader.Disk(ctx, h.reader.CoopRepositories(), live)
+	// Biggest first: the page's question is what the checkouts cost, and a
+	// list ordered by anything else makes the reader do the sorting.
+	sort.SliceStable(live, func(i, j int) bool {
+		return disk.Sizes[live[i].ID] > disk.Sizes[live[j].ID]
+	})
+	for index := range live {
+		live[index].Bytes = disk.Sizes[live[index].ID]
+	}
+	reclaimable := int64(0)
+	for _, orphan := range disk.Orphans {
+		reclaimable += orphan.Bytes
+	}
 	h.page(w, r, "workspaces", "workspaces", struct {
 		Live         []Workspace
 		CoopAttached bool
+		Disk         WorkspaceDisk
+		Reclaimable  int64
 		Held, Queued []RetainedWorkspace
 		Reclaimed    int
 		Errs         problems
 		CanAct       bool
-	}{live, attached, held, queued, h.reader.Count(ctx, countCleanupDone), failed, h.CanAct()})
+	}{live, attached, disk, reclaimable, held, queued,
+		h.reader.Count(ctx, countCleanupDone), failed, h.CanAct()})
 }
 
 // conversation unpacks the state blob a list can only count. The goal, open

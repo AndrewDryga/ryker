@@ -1,35 +1,70 @@
 {{define "workspaces"}}
 {{template "problems" .Errs}}
+<p class="note">A workspace is a checkout on disk. Coop makes one so a turn has real files to read,
+and holds it until the work it belongs to is done. They are the largest thing Responder occupies on
+this machine, and nothing else counts them.</p>
 
-<h2>Held right now <span class="note">{{len .Live}}</span></h2>
+{{if .Disk.Available}}
+<section class="hero calm">
+  <div class="hero-status">
+    <div class="hero-line">
+      <span class="hero-beacon" aria-hidden="true"></span>
+      <h2 class="hero-word">{{bytes .Disk.Total}} on disk</h2>
+    </div>
+    <div class="hero-stats">
+      <span><strong>{{len .Live}}</strong>in use</span>
+      <span{{if .Reclaimable}} class="warn"{{end}}><strong>{{bytes .Reclaimable}}</strong>reclaimable now</span>
+      <span{{if .Held}} class="bad"{{end}}><strong>{{len .Held}}</strong>cleanup blocked</span>
+      <span><strong>{{.Reclaimed}}</strong>already reclaimed</span>
+    </div>
+  </div>
+</section>
+{{end}}
+
+{{if .Disk.Orphans}}
+<h2>Reclaimable now <span class="note">{{bytes .Reclaimable}}</span></h2>
+<p class="note">A checkout whose session has already ended. Nothing will read it again, and until
+the janitor reaches it the disk stays spoken for.</p>
+<div class="rows">
+  {{range .Disk.Orphans}}
+  <div class="row episode-row" data-state="parked">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-when">{{bytes .Bytes}}</span>
+    <span class="episode-title">Checkout with no live session</span>
+    <span class="episode-facts">
+      <span class="mono">{{.SessionID}}</span>
+      <span>its session has ended</span>
+    </span>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+<h2>In use <span class="note">{{len .Live}}</span></h2>
 {{if .Live}}
-<p class="note">Every checkout Coop is holding. Each one is a working copy on disk with a turn
-budget; it is released when the work it belongs to finishes.</p>
+<p class="note">Largest first. A conversation or watch fork is disposable — Responder rebuilds one
+on demand — while an engineering task's fork can hold commits that exist nowhere else, which is why
+those are the ones cleanup refuses to delete without a check.</p>
 <div class="rows">
   {{range .Live}}
   <div class="row episode-row" data-state="{{.Activity}}">
     <span class="episode-dot" aria-hidden="true"></span>
-    <span class="episode-when">{{since .Updated}}</span>
+    <span class="episode-when">{{.Size}}</span>
     <span class="episode-title">{{.Kind}}{{if .Detail}} · {{.Detail}}{{end}}</span>
     <span class="episode-facts">
       <span>{{.Activity}}</span>
-      {{if .Repository}}<span class="mono">{{.Repository}}</span>{{end}}
       <span>{{.Turns}} of {{.MaxTurns}} turns</span>
       {{if .Queued}}<span class="episode-retried">{{.Queued}} queued</span>{{end}}
       {{if .PRNumber}}<span>PR #{{.PRNumber}}</span>{{end}}
-      {{if .Companions}}<span>{{.Companions}} companion repos</span>{{end}}
+      <span>idle {{since .Updated}}</span>
       {{if .Href}}<span><a href="{{.Href}}">{{.HrefLabel}}</a></span>{{end}}
     </span>
   </div>
   {{end}}
 </div>
-{{else if .CoopAttached}}<p class="empty">Coop is holding no workspaces.</p>
-{{else}}<p class="empty">Coop's session store is not attached to this build, so what is held
-cannot be read. Only the reclamation queue below is available.</p>{{end}}
-
-<p class="note">A retained workspace is a Coop fork still on disk after its work ended. Cleanup
-deletes every fork it can prove safe; each refusal lands here with its reason until a person
-acts. {{.Reclaimed}} already reclaimed.</p>
+{{else if .CoopAttached}}<p class="empty">Coop is holding no checkouts.</p>
+{{else}}<p class="empty">Coop's session store is not attached to this build, so what is held cannot
+be read. Only the cleanup queue below is available.</p>{{end}}
 
 <h2>Waiting on you <span class="note">{{len .Held}}</span></h2>
 {{if .Held}}

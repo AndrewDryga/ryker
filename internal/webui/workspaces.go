@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -22,10 +25,15 @@ type Workspace struct {
 	PRNumber           int
 	Created, Updated   time.Time
 	Companions         int
+	// Bytes is what this checkout holds on disk, filled in by the handler.
+	Bytes int64
 }
 
 // TurnPct is how much of the session's turn budget is spent, for the meter.
 func (w Workspace) TurnPct() int { return percent(w.Turns, w.MaxTurns) }
+
+// Size renders this checkout for a reader rather than a machine.
+func (w Workspace) Size() string { return HumanBytes(w.Bytes) }
 
 // LiveWorkspaces lists the sessions Coop is currently holding.
 //
@@ -303,4 +311,129 @@ func (r *Reader) incidentTitle(ctx context.Context, incidentID string) string {
 		return ""
 	}
 	return title
+}
+
+// WorkspaceDisk is what the checkouts actually cost, which is the question
+// this page exists to answer and the one thing it never showed.
+//
+// A session's identity told the operator nothing: on the deployed instance
+// sixteen of seventeen rows read "parked · tenant-infra · 11 companion repos"
+// and differed only in a label. Meanwhile the directory those rows stand for
+// held twenty-three gigabytes, and a checkout whose session had already closed
+// was still holding one and a fifth of them with nothing on the page to say so.
+type WorkspaceDisk struct {
+	// Total is every byte under Coop's repositories directory, including the
+	// orphans, because that is what the filesystem is actually giving up.
+	Total int64
+	// Sizes is per session id. A session absent from it holds no checkout yet:
+	// Coop materializes one on first use, so an open session and a directory
+	// on disk are different facts and the page must not merge them.
+	Sizes map[string]int64
+	// Orphans are directories whose session has ended or was never recorded.
+	// Nothing will read them again.
+	Orphans []WorkspaceOrphan
+	// Measured is when the walk ran, and Available says whether one could.
+	Measured  time.Time
+	Available bool
+}
+
+// WorkspaceOrphan is a checkout on disk that no live session owns.
+type WorkspaceOrphan struct {
+	SessionID string
+	State     string
+	Bytes     int64
+}
+
+// Disk measures what the workspaces cost, cached because the walk is not free.
+//
+// Fifteen session directories are thirteen thousand files each and a little
+// over a second to stat warm. That is affordable once and wasteful on every
+// render, so the answer is held for a minute — long enough that opening the
+// page twice does not pay twice, short enough that a reclaim shows up while
+// the operator is still looking at the consequence of it.
+func (r *Reader) Disk(ctx context.Context, root string, live []Workspace) WorkspaceDisk {
+	if r == nil || root == "" {
+		return WorkspaceDisk{}
+	}
+	r.diskOnce.Lock()
+	defer r.diskOnce.Unlock()
+	// Keyed on the root as well as the clock. There is one root in production,
+	// so a time-only cache looked correct and was not: asked about a different
+	// directory inside the minute it answered about the previous one.
+	if r.diskRoot == root && r.disk.Available && time.Since(r.disk.Measured) < time.Minute {
+		return r.diskFor(live)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		r.diskRoot, r.disk = root, WorkspaceDisk{}
+		return WorkspaceDisk{}
+	}
+	measured := WorkspaceDisk{
+		Sizes: map[string]int64{}, Measured: time.Now(), Available: true,
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		size := directoryBytes(ctx, filepath.Join(root, entry.Name()))
+		measured.Sizes[entry.Name()] = size
+		measured.Total += size
+	}
+	r.diskRoot, r.disk = root, measured
+	return r.diskFor(live)
+}
+
+// diskFor names the orphans by comparing what is on disk against what is live.
+func (r *Reader) diskFor(live []Workspace) WorkspaceDisk {
+	result := r.disk
+	result.Orphans = nil
+	held := make(map[string]struct{}, len(live))
+	for _, workspace := range live {
+		held[workspace.ID] = struct{}{}
+	}
+	for id, size := range result.Sizes {
+		if _, alive := held[id]; alive {
+			continue
+		}
+		result.Orphans = append(result.Orphans, WorkspaceOrphan{SessionID: id, Bytes: size})
+	}
+	sort.SliceStable(result.Orphans, func(i, j int) bool {
+		return result.Orphans[i].Bytes > result.Orphans[j].Bytes
+	})
+	return result
+}
+
+// directoryBytes sums a tree, counting what the files hold rather than what
+// they claim: a walk that fails partway returns what it managed, because an
+// approximate size is a better answer than none for a number whose job is to
+// say "this is large".
+func directoryBytes(ctx context.Context, path string) int64 {
+	var total int64
+	_ = filepath.WalkDir(path, func(_ string, entry os.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil || entry.IsDir() {
+			return nil //nolint:nilerr // an unreadable subtree is skipped, not fatal
+		}
+		if info, statErr := entry.Info(); statErr == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// HumanBytes renders a size the way an operator reads one.
+func HumanBytes(bytes int64) string {
+	switch {
+	case bytes >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/(1<<30))
+	case bytes >= 1<<20:
+		return fmt.Sprintf("%d MB", bytes/(1<<20))
+	case bytes > 0:
+		return fmt.Sprintf("%d KB", max(bytes/(1<<10), 1))
+	default:
+		return "—"
+	}
 }
