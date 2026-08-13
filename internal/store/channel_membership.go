@@ -263,6 +263,21 @@ func (s *Store) ListPresentSlackChannelIDs(ctx context.Context, limit int) ([]st
 		LIMIT ?`, boundedChannelLimit(limit)))
 }
 
+// SlackChannelName is the readable name of one channel, empty when Responder
+// has never seen it. An id tells a model a transcript came from somewhere else
+// and not where; the name is the part a person can check.
+func (s *Store) SlackChannelName(ctx context.Context, channelID string) (string, error) {
+	var name string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT channel_name FROM slack_channel_memberships WHERE channel_id = ?`,
+		strings.TrimSpace(channelID),
+	).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return name, err
+}
+
 func (s *Store) FinishSlackChannelOnboarding(
 	ctx context.Context,
 	channelID string,

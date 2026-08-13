@@ -288,7 +288,15 @@ var lineBudget = map[string]int{
 	// for first: the reset the three requeue paths spelled out column by
 	// column is now one shared clause, which is where four of the eleven new
 	// lines came from.
-	"store":      11342,
+	// Raised to 11353 on 2026-08-13 for SlackChannelName. A cross-channel
+	// permalink is parsed, authorized and fetched, and the model then has to be
+	// told which room the transcript came from — an id says "elsewhere" and not
+	// where, and the prompt asks it to cite the channel by name. The name lives
+	// in this package's membership roster and nowhere else. The obvious payment
+	// is the forty-four copies of scan-one-row-tolerate-no-rows in here, but
+	// that is a refactor with its own risk and should not ride along on a
+	// feature.
+	"store":      11353,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

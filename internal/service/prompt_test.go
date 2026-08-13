@@ -372,6 +372,14 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // investigation's goal as though the room existed to answer it. The host now
 // drops a goal at channel scope, and these bytes stop the model spending a
 // field on something that will be discarded.
+// Raised by 124 on 2026-08-13 to say where a referenced transcript came from.
+// A permalink to another channel was already parsed, authorized and fetched,
+// and then handed to the model as "an older thread" with nothing marking it as
+// belonging to a different room — while the instructions two paragraphs down
+// tell it to treat the current thread as the referent of "that". A link to the
+// exact thread holding the answer read as unavailable. Paid for in part: the
+// same block lost its note about immutable message anchors, which described
+// how the cache works rather than anything the model can act on.
 // Raised by 540 on 2026-08-13 for record_repository_contents: one operation
 // example and three lines saying what the repository map may hold. It replaces
 // RESPONDER_WORKSPACE.md, a hand-maintained 3,092-byte index that the Coop
@@ -379,7 +387,7 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // drifted in both directions for two weeks. The prompt now carries a map
 // derived from the session's own pins, so the bytes bought a smaller total read
 // and a map that cannot go stale between deploys.
-const staticWatchPromptBytes = 49286
+const staticWatchPromptBytes = 49410
 
 // The static prompt must not grow without someone deciding it should.
 //

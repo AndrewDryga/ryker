@@ -667,6 +667,19 @@ func AlertActionIsUnfinishedInvestigation(action string) bool {
 }
 
 type ReferencedThreadContext struct {
+	// ChannelID and ChannelName say where the transcript came from, and
+	// Elsewhere says whether that is somewhere other than here.
+	//
+	// A permalink to another channel was resolved, fetched and handed to the
+	// model as "an older thread the operator referred to", with nothing saying
+	// it belonged to a different room. The model's other instructions tell it
+	// to treat the current thread as the referent of "it" and "that", so an
+	// unlabelled transcript from #frontend-ops read as more of #ask-devops —
+	// and a link to the exact thread that answered the question was treated as
+	// though it had not resolved at all.
+	ChannelID      string                `json:"channel_id,omitempty"`
+	ChannelName    string                `json:"channel_name,omitempty"`
+	Elsewhere      bool                  `json:"from_another_channel,omitempty"`
 	ThreadTS       string                `json:"thread_ts"`
 	LastMessageTS  string                `json:"last_message_ts,omitempty"`
 	Summary        core.AgentMemory      `json:"summary,omitempty"`

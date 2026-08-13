@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackref"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"time"
 )
 
 func TestParseSlackPermalinkExtractsThreadAndMessage(t *testing.T) {
@@ -47,6 +48,11 @@ func TestSlackPermalinkHydratesConfiguredCrossChannelThread(t *testing.T) {
 		ChannelID: "C0TENANTENG", Participation: "proactive",
 		Repository: "repo", AlertPolicy: "reply", ActorID: cfg.Slack.Operators[0],
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReconcileSlackChannelMemberships(ctx, []store.SlackChannelMembershipObservation{
+		{ChannelID: "C0TENANTENG", ChannelName: "frontend-ops", Present: true},
+	}, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	slackClient := &fakeSlack{history: []slackui.HistoryMessage{
@@ -88,6 +94,41 @@ func TestSlackPermalinkHydratesConfiguredCrossChannelThread(t *testing.T) {
 	if request.channel != "C0TENANTENG" || request.thread != "1786478872.467239" ||
 		request.target != "1786480327.091169" {
 		t.Fatalf("linked history request = %+v", request)
+	}
+	// Fetching the transcript is half the job. The model is told two paragraphs
+	// later to treat the current thread as the referent of "that", so a
+	// transcript from another room with nothing marking it as such reads as
+	// more of this room — and the link to the thread holding the answer reads
+	// as unresolved.
+	if !assembled.ReferencedThread.Elsewhere {
+		t.Fatal("a transcript from another channel was not marked as coming from one")
+	}
+	if assembled.ReferencedThread.ChannelID != "C0TENANTENG" {
+		t.Fatalf("referenced channel = %q, want the linked one",
+			assembled.ReferencedThread.ChannelID)
+	}
+	if assembled.ReferencedThread.ChannelName != "frontend-ops" {
+		t.Fatalf("referenced channel name = %q, want the roster name",
+			assembled.ReferencedThread.ChannelName)
+	}
+
+	// A link into the channel the conversation is already in is not a
+	// cross-channel reference, and saying so would send the model chasing a
+	// room it is standing in.
+	local := input
+	local.ChannelID = "C0TENANTENG"
+	here, err := svc.assembleAgentContext(ctx, agentContextRequest{
+		ChannelID: local.ChannelID, Repository: "repo", RepositoryPinned: true,
+		OperatorID: local.UserID, TargetInput: &local,
+		ReferencedChannelID: state.ReferencedChannelID,
+		ReferencedThreadTS:  state.ReferencedThreadTS,
+		ReferencedMessageTS: state.ReferencedMessageTS,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if here.ReferencedThread == nil || here.ReferencedThread.Elsewhere {
+		t.Fatalf("a same-channel reference was marked as elsewhere: %+v", here.ReferencedThread)
 	}
 }
 

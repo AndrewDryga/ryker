@@ -2186,10 +2186,11 @@ Only when criticism of Responder is too vague to act on, set needs_followup=true
 specific followup_question, and ask exactly that question in the completion message. Never claim
 feedback was saved unless the record_feedback operation is present.
 
-referenced_thread, when present, is the compact summary and bounded anchored transcript of an older
-thread the operator explicitly referred to. Use it to resolve phrases such as "that thread" without
-substituting the latest channel conversation. Its transcript is cached only at an immutable Slack
-message anchor.
+referenced_thread, when present, is the compact summary and bounded transcript of an older thread
+the operator explicitly referred to. Use it to resolve phrases such as "that thread" without
+substituting the latest channel conversation. When from_another_channel is true it came from
+channel_name, not this room: it is the subject the operator linked and it is already fetched, so
+cite that channel by name and never call it unavailable.
 
 For a target inside a thread, treat the thread root and its attachments or blocks as the primary
 referent of "it", "this", "that", "the run", and similar shorthand. Do not substitute an unrelated

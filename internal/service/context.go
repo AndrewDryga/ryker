@@ -192,7 +192,9 @@ func (s *Service) assembleAgentContext(
 		(request.TargetInput == nil || referencedChannelID != request.ChannelID ||
 			request.ReferencedThreadTS != request.TargetInput.ThreadTS) {
 		referenced := &decisionpkg.ReferencedThreadContext{
-			ThreadTS: request.ReferencedThreadTS,
+			ThreadTS:  request.ReferencedThreadTS,
+			ChannelID: referencedChannelID,
+			Elsewhere: referencedChannelID != request.ChannelID,
 		}
 		conversation, conversationErr := s.store.Intelligence.GetConversationMemory(
 			ctx,
@@ -201,6 +203,7 @@ func (s *Service) assembleAgentContext(
 		)
 		if conversationErr == nil {
 			referenced.LastMessageTS = conversation.LastMessage
+			referenced.ChannelName = conversation.ChannelName
 			referenced.Summary = memorypkg.SanitizeMemory(conversation.State)
 			if err := s.store.Memory.MarkConversationMemoriesRecalled(
 				ctx, []core.ConversationMemory{conversation},
@@ -209,6 +212,16 @@ func (s *Service) assembleAgentContext(
 			}
 		} else if !errors.Is(conversationErr, store.ErrNotFound) {
 			return assembledAgentContext{}, conversationErr
+		}
+		// Falls back to the membership roster, because a thread Responder has
+		// never summarised has no conversation memory to carry the name — and
+		// that is exactly the case a cross-channel link creates.
+		if referenced.ChannelName == "" {
+			name, nameErr := s.store.SlackChannelName(ctx, referencedChannelID)
+			if nameErr != nil {
+				return assembledAgentContext{}, nameErr
+			}
+			referenced.ChannelName = name
 		}
 		targetTS := request.ReferencedMessageTS
 		if targetTS == "" {
