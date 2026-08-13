@@ -46,6 +46,11 @@ Fixtures are harvested, never invented. `agent_runs.result_json` holds hundreds 
 answers and `context_manifests.submitted_prompt` the prompts that produced them, so the exact
 result that broke production is already on disk.
 
+`make findings-coverage` lists every confirmed finding whose suggested test does not exist.
+The assessor proposes a name; when a better one exists by the time you write it, claim the
+spec with a `// Covers: TestSuggestedName` line so the backlog is a number that can reach
+zero rather than one that drifts.
+
 ### Where each kind of test belongs
 
 - **Host mishandled a valid result** → Go test beside the code. Deterministic, no model.

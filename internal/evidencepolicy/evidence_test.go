@@ -11,6 +11,7 @@ import (
 // observed, and say so in the channel, because the binding rule ran only for a
 // confirmed or likely issue. A claim about why something broke needs the same
 // support whether or not it is still broken.
+// Covers: TestAlertCauseCorrectionRejectsUnboundCauseOnRecoveredAssessment
 func TestRecoveredAlertMustStillBindTheCauseItNames(t *testing.T) {
 	naming := &investigation.AlertAssessment{
 		Verdict: "not_issue", Impact: "none",

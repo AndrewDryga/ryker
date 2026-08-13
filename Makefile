@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: eval-prompts watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: eval-prompts findings-coverage watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -217,6 +217,17 @@ focus:
 
 dev-workflow-check:
 	scripts/test-dev-workflow.sh
+
+# Which confirmed findings asked for a test and never got one.
+#
+# The assessor writes the test spec for every defect it confirms, and for
+# months nothing read that column. This names the tests that were asked for,
+# so the backlog is a number that can go down rather than a database nobody
+# opens. It reads the deployment databases, so it runs here rather than in CI.
+findings-coverage:
+	scripts/findings-coverage.sh \
+		"$$HOME/Projects/tenant/.responder/state/responder.db" \
+		"$$HOME/Projects/os/emisar/.responder/state/responder.db"
 
 # The watchdog's failure mode is silence, and so is its healthy state. It is
 # gated here because the only way to know it still fires is to break something

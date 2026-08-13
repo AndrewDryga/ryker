@@ -886,6 +886,7 @@ func TestSuppressedLifecycleReplyStaysSuppressedAfterPersistence(t *testing.T) {
 // change review over change coverage the same turn had marked unknown was
 // finalized silently, because policy removed the evidence of its own
 // invalidity before anything looked at it.
+// Covers: TestLifecycleSuppressionDoesNotBypassCompletionValidation
 func TestSuppressedLifecycleResultIsStillValidatedAgainstItsContract(t *testing.T) {
 	input := core.SlackInput{
 		ID: "slack-run-invalid", EventID: "EvRunInvalid", Kind: "bot_message",
