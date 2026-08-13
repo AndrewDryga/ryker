@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -134,6 +135,179 @@ type EpisodeArtifact struct {
 
 type ArtifactStat struct {
 	Label, Value string
+}
+
+// ActivityMoment is one thing the model did inside a turn, folded into the
+// shape a reader wants rather than the shape the wire uses. Coop narrates a
+// tool call as two events — it started, it finished — because the trace has to
+// be readable while the turn is still running; by the time anyone opens the
+// page those two are one row with a duration.
+type ActivityMoment struct {
+	// Kind is the presentation family: tool, thought, plan, permission, or
+	// elided. It is not the Coop event type, which distinguishes a start from
+	// a finish that this view has already joined.
+	Kind, Title, ToolKind, Status, Detail string
+	Entries                               []ActivityPlanStep
+	At                                    time.Time
+	Duration, Tone                        string
+	Dropped                               int
+}
+
+type ActivityPlanStep struct {
+	Content, Status, Priority string
+}
+
+// Activity returns the episode's narrated work in the order Coop produced it.
+//
+// A tool call that never reached a terminal update keeps an empty status: the
+// turn ended while it was in flight, or the narration budget ran out mid-call.
+// Showing it as running is honest; inventing a completion is not.
+func (r *Reader) Activity(ctx context.Context, episodeID string) ([]ActivityMoment, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	type activityRow struct {
+		runID, kind, toolCallID, title, toolKind, status string
+		detail                                          []byte
+		at                                              time.Time
+	}
+	rows, err := collect(ctx, r, `
+	  SELECT agent_run_id, kind, tool_call_id, title, tool_kind, status,
+	         COALESCE(detail, CAST('' AS BLOB)), occurred_at
+	  FROM agent_activity WHERE episode_id = ?
+	  ORDER BY agent_run_id, sequence LIMIT 500`,
+		func(scan *sql.Rows) (activityRow, error) {
+			var row activityRow
+			var at string
+			err := scan.Scan(&row.runID, &row.kind, &row.toolCallID, &row.title,
+				&row.toolKind, &row.status, &row.detail, &at)
+			row.at = parseStamp(at)
+			return row, err
+		}, episodeID)
+	if err != nil {
+		return nil, err
+	}
+	moments := []ActivityMoment{}
+	// Where each in-flight call landed, so its completion updates the row it
+	// opened instead of appending a second one. Keyed by run as well as by
+	// call: providers number tool calls per session, so an episode that ran
+	// twice holds two "t1"s, and a call left open by the first run would
+	// otherwise swallow the second run's completion.
+	openCalls := map[string]int{}
+	for _, row := range rows {
+		key := row.runID + "\x00" + row.toolCallID
+		switch row.kind {
+		case "tool.completed":
+			if index, ok := openCalls[key]; ok && row.toolCallID != "" {
+				moments[index].Status = row.status
+				moments[index].Tone = activityTone(row.status)
+				if span := row.at.Sub(moments[index].At); span >= 0 {
+					moments[index].Duration = compactDuration(span)
+				}
+				delete(openCalls, key)
+				continue
+			}
+			// A completion whose start was never recorded still happened.
+			moments = append(moments, ActivityMoment{
+				Kind: "tool", Title: row.title, ToolKind: row.toolKind,
+				Status: row.status, Tone: activityTone(row.status), At: row.at,
+			})
+		case "tool.started":
+			if row.toolCallID != "" {
+				openCalls[key] = len(moments)
+			}
+			moments = append(moments, ActivityMoment{
+				Kind: "tool", Title: row.title, ToolKind: row.toolKind,
+				At: row.at, Detail: activityDetailText(row.detail, "input"),
+			})
+		case "model.thought":
+			moments = append(moments, ActivityMoment{
+				Kind: "thought", Title: row.title, At: row.at,
+				Detail: activityDetailText(row.detail, "text"),
+			})
+		case "model.plan":
+			moments = append(moments, ActivityMoment{
+				Kind: "plan", Title: row.title, At: row.at,
+				Entries: activityPlanSteps(row.detail),
+			})
+		case "permission.decided":
+			moment := ActivityMoment{
+				Kind: "permission", Title: row.title, At: row.at,
+				Detail: activityDetailText(row.detail, "option_kind"),
+			}
+			if activityDetailText(row.detail, "outcome") == "cancelled" {
+				moment.Tone = "warn"
+			}
+			moments = append(moments, moment)
+		case "activity.elided":
+			moments = append(moments, ActivityMoment{
+				Kind: "elided", Title: row.title, At: row.at, Tone: "warn",
+				Detail:  activityDetailText(row.detail, "reason"),
+				Dropped: activityDetailInt(row.detail, "dropped"),
+			})
+		}
+	}
+	return moments, nil
+}
+
+func activityTone(status string) string {
+	switch status {
+	case "failed":
+		return "bad"
+	case "cancelled":
+		return "warn"
+	default:
+		return ""
+	}
+}
+
+func activityDetailText(detail []byte, field string) string {
+	if len(detail) == 0 {
+		return ""
+	}
+	var parsed map[string]json.RawMessage
+	if json.Unmarshal(detail, &parsed) != nil {
+		return ""
+	}
+	raw, ok := parsed[field]
+	if !ok {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	// A tool's arguments are an object, not a string. Compacted rather than
+	// pretty-printed: this is a label in a table cell, not a document.
+	var compact bytes.Buffer
+	if json.Compact(&compact, raw) != nil {
+		return ""
+	}
+	return compact.String()
+}
+
+func activityDetailInt(detail []byte, field string) int {
+	if len(detail) == 0 {
+		return 0
+	}
+	var parsed map[string]int
+	if json.Unmarshal(detail, &parsed) != nil {
+		return 0
+	}
+	return parsed[field]
+}
+
+func activityPlanSteps(detail []byte) []ActivityPlanStep {
+	if len(detail) == 0 {
+		return nil
+	}
+	var parsed struct {
+		Entries []ActivityPlanStep `json:"entries"`
+	}
+	if json.Unmarshal(detail, &parsed) != nil {
+		return nil
+	}
+	return parsed.Entries
 }
 
 func (r *Reader) Turn(ctx context.Context, episodeID string) (Turn, error) {

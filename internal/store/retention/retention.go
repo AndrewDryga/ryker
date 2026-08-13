@@ -63,6 +63,10 @@ type Policy struct {
 // Policies is every table in the schema, in the order sqlite_master lists them
 // so the two can be read side by side.
 var Policies = []Policy{
+	{"agent_activity", Cascade,
+		"what the model did inside a turn — the tool calls, plan revisions, reasoning and " +
+			"permission decisions Coop narrated; part of the episode's trace and deleted with " +
+			"work_episodes"},
 	{"agent_runs", Operational,
 		"the transport of one model turn — its assembled input and its reply — deleted on the " +
 			"operational horizon once no episode or attempt still points at it, and with its " +

@@ -1703,6 +1703,13 @@ func (s *Service) pollAgentRun(ctx context.Context, run core.AgentRun) error {
 		if event.TurnID != run.CoopTurnID {
 			continue
 		}
+		// Recorded before the terminal switch below, which returns. Coop
+		// sequences a turn's narration under its terminal event precisely so
+		// that a page containing both delivers the work before the verdict.
+		if coop.IsActivity(event.Type) {
+			s.recordAgentActivity(ctx, run, event)
+			continue
+		}
 		switch event.Type {
 		// session.target_rotated needs no handling: Coop rotated the ladder
 		// mid-turn and re-delivered the prompt itself, and every Responder

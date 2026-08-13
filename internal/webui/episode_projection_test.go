@@ -1576,6 +1576,7 @@ func TestEpisodeProjectionInventoryCoversEveryEpisodeLinkedTable(t *testing.T) {
 	// that table. Keeping the inventory next to the projection tests makes a new
 	// episode-owned table fail loudly until the timeline has an intentional home.
 	projected := map[string]string{
+		"agent_activity":              "model activity",
 		"agent_runs":                  "model turns",
 		"claim_assessments":           "claim ledger",
 		"commitments":                 "durable records",

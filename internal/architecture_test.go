@@ -296,7 +296,14 @@ var lineBudget = map[string]int{
 	// is the forty-four copies of scan-one-row-tolerate-no-rows in here, but
 	// that is a refactor with its own risk and should not ride along on a
 	// feature.
-	"store":      11353,
+	// Raised to 11382 on 2026-08-13 for the agent_activity migration: what the
+	// model did inside a turn, so a trace can name the operations behind a
+	// conclusion instead of reporting forty seconds and a verdict. The reading
+	// and writing went to internal/store/activitystore, which is the split the
+	// budget is asking for; what remains here is the v71 DDL and four lines
+	// attaching the repository, and schema definition cannot leave the package
+	// that owns migrations.
+	"store":      11382,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

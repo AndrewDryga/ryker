@@ -516,6 +516,7 @@ type episodePage struct {
 	Attempts   []Attempt
 	Rejections []Rejection
 	Artifacts  []EpisodeArtifact
+	Activity   []ActivityMoment
 	Delivered  []Delivery
 	Effects    []SideEffect
 	Audit      []AuditRow
@@ -594,6 +595,8 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	page.Errs.note("host corrections", err)
 	page.Artifacts, err = h.reader.Artifacts(ctx, id)
 	page.Errs.note("durable episode records", err)
+	page.Activity, err = h.reader.Activity(ctx, id)
+	page.Errs.note("model activity", err)
 	page.Delivered, err = h.reader.Deliveries(ctx, id)
 	page.Errs.note("delivery", err)
 	confirmedEffects, err := h.reader.SideEffects(ctx, id)

@@ -690,6 +690,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		})
 	}
 
+	if step, ok := activityTraceStep(page); ok {
+		add(step)
+	}
+
 	if page.Manifest.Version > 0 {
 		add(usageTraceStep(page))
 	}
@@ -3735,6 +3739,159 @@ func occurrenceDetail(times []time.Time) *TraceDetail {
 		Label: "All occurrences", Body: strings.Join(lines, "\n"), Kind: "text",
 		Open: false, ShowCount: true, Count: len(times),
 	}
+}
+
+// activityTraceStep is the interior of the turn: what the model actually did
+// between being briefed and answering.
+//
+// It is one card rather than one card per tool call. A turn runs dozens of
+// them, and a rail that pushed each onto the timeline would bury the six
+// decisions an operator came to read under a hundred file reads. The card
+// carries the count and the span; the table behind it carries the calls.
+//
+// The step is dated at the first moment, so it lands between the briefing and
+// the result instead of collapsing onto the turn's end timestamp.
+func activityTraceStep(page episodePage) (TraceStep, bool) {
+	if len(page.Activity) == 0 {
+		return TraceStep{}, false
+	}
+	var (
+		rows       []TraceTableRow
+		reasoning  []string
+		planSteps  []string
+		decisions  []string
+		elisions   []string
+		toolKinds  = map[string]int{}
+		tools      int
+		running    int
+		failed     int
+		first, end time.Time
+	)
+	for _, moment := range page.Activity {
+		if !moment.At.IsZero() {
+			if first.IsZero() || moment.At.Before(first) {
+				first = moment.At
+			}
+			if moment.At.After(end) {
+				end = moment.At
+			}
+		}
+		switch moment.Kind {
+		case "tool":
+			tools++
+			if moment.ToolKind != "" {
+				toolKinds[moment.ToolKind]++
+			}
+			switch moment.Status {
+			case "":
+				running++
+			case "failed":
+				failed++
+			}
+			rows = append(rows, TraceTableRow{Cells: []string{
+				activityOffset(first, moment.At),
+				fallback(moment.Title, "unnamed call"),
+				fallback(moment.ToolKind, "—"),
+				fallback(moment.Status, "still running"),
+				fallback(moment.Duration, "—"),
+				fallback(moment.Detail, "—"),
+			}})
+		case "thought":
+			if moment.Detail != "" {
+				reasoning = append(reasoning, moment.Detail)
+			}
+		case "plan":
+			for _, entry := range moment.Entries {
+				line := "• " + entry.Content
+				if entry.Status != "" {
+					line += " — " + entry.Status
+				}
+				planSteps = append(planSteps, line)
+			}
+		case "permission":
+			decisions = append(decisions, strings.TrimSpace(
+				fallback(moment.Title, "a tool call")+" — "+fallback(moment.Detail, "decided")))
+		case "elided":
+			elisions = append(elisions, moment.Detail)
+		}
+	}
+
+	step := TraceStep{
+		// Execution, not a stage of its own: an unmapped stage falls to the
+		// outcome band, and because chapters are assigned forward-only, one
+		// early card in that band drags the whole rest of the trace into
+		// "What came of it".
+		ID: "activity", Stage: "Execution", Actor: "Model", State: "recorded", Icon: "bolt",
+		At: first, Title: "Model worked",
+		Why: "What the model did between its briefing and its answer. Coop reports each " +
+			"tool call, plan revision and reasoning pass as it happens; without them a turn " +
+			"is only a duration, and the operations behind a conclusion are visible only " +
+			"when the model happens to cite them.",
+	}
+	if failed > 0 {
+		step.Tone = "warn"
+	}
+	step.Summary = countList([]countPart{
+		{tools, "tool call", "tool calls"},
+		{len(planSteps), "plan step", "plan steps"},
+		{len(reasoning), "reasoning pass", "reasoning passes"},
+		{failed, "failed call", "failed calls"},
+		// A call with no terminal update is not a call that succeeded. Saying
+		// so beats quietly rendering it as though it finished.
+		{running, "call never reported finishing", "calls never reported finishing"},
+	})
+	if !first.IsZero() && end.After(first) {
+		step.Duration = compactDuration(end.Sub(first))
+	}
+	for kind, count := range toolKinds {
+		step.Stats = append(step.Stats, TraceStat{kind, fmt.Sprint(count)})
+	}
+	sort.Slice(step.Stats, func(i, j int) bool { return step.Stats[i].Label < step.Stats[j].Label })
+
+	if len(rows) > 0 {
+		step.Details = append(step.Details, TraceDetail{
+			Label: "Every call, in order", Kind: "context", Status: "Tool calls",
+			Description: "Arguments are recorded, results are not: results dominate a " +
+				"transcript and routinely carry credentials and log bodies.",
+			ShowCount: true, Count: len(rows),
+			Table: &TraceTable{
+				Headers: []string{"At", "What ran", "Kind", "Status", "Took", "Arguments"},
+				Rows:    rows,
+			},
+		})
+	}
+	if len(planSteps) > 0 {
+		step.Details = append(step.Details, TraceDetail{
+			Label: "Plan the model kept", Body: strings.Join(planSteps, "\n"), Kind: "text",
+			ShowCount: true, Count: len(planSteps),
+		})
+	}
+	if len(reasoning) > 0 {
+		step.Details = append(step.Details, TraceDetail{
+			Label: "Reasoning", Body: strings.Join(reasoning, "\n\n"), Kind: "text",
+			Description: "The model's own account of its thinking, as the provider streamed it.",
+			ShowCount:   true, Count: len(reasoning),
+		})
+	}
+	if len(decisions) > 0 {
+		step.Details = append(step.Details, TraceDetail{
+			Label: "Permissions answered without a person", Body: strings.Join(decisions, "\n"),
+			Kind: "text", ShowCount: true, Count: len(decisions),
+		})
+	}
+	if len(elisions) > 0 {
+		step.Details = append(step.Details, TraceDetail{
+			Label: "Not recorded", Body: strings.Join(elisions, "\n"), Kind: "text", Tone: "warn",
+		})
+	}
+	return step, true
+}
+
+func activityOffset(start, at time.Time) string {
+	if start.IsZero() || at.IsZero() || at.Before(start) {
+		return "—"
+	}
+	return "+" + compactDuration(at.Sub(start))
 }
 
 func usageTraceStep(page episodePage) TraceStep {

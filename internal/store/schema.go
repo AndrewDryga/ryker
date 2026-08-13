@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 70
+const currentSchemaVersion = 71
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -350,5 +350,37 @@ var migrations = map[int]string{
 		  body BLOB NOT NULL,
 		  created_at TEXT NOT NULL
 		);
+	`,
+	// What the model actually did inside a turn, as Coop narrated it. Until
+	// now a turn's interior was a stopwatch: the dashboard could say a model
+	// worked for forty seconds and could not name one thing it did in them.
+	//
+	// Keyed by the Coop event sequence so an at-least-once poll — and the
+	// cursor repair that rewinds to zero — replays into the same rows instead
+	// of duplicating the story.
+	71: `
+		CREATE TABLE agent_activity (
+		  id TEXT PRIMARY KEY,
+		  episode_id TEXT NOT NULL DEFAULT '',
+		  agent_run_id TEXT NOT NULL,
+		  session_id TEXT NOT NULL,
+		  turn_id TEXT NOT NULL DEFAULT '',
+		  sequence INTEGER NOT NULL,
+		  kind TEXT NOT NULL,
+		  tool_call_id TEXT NOT NULL DEFAULT '',
+		  title TEXT NOT NULL DEFAULT '',
+		  tool_kind TEXT NOT NULL DEFAULT '',
+		  status TEXT NOT NULL DEFAULT '',
+		  -- Nullable on purpose: most moments carry no detail beyond the
+		  -- columns beside them, and an empty blob would claim otherwise.
+		  detail BLOB,
+		  occurred_at TEXT NOT NULL,
+		  created_at TEXT NOT NULL,
+		  UNIQUE(agent_run_id, sequence),
+		  FOREIGN KEY(episode_id) REFERENCES work_episodes(id) ON DELETE CASCADE
+		);
+
+		CREATE INDEX agent_activity_episode_idx
+		  ON agent_activity(episode_id, sequence);
 	`,
 }

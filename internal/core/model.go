@@ -1444,6 +1444,29 @@ type WorkEpisodeProgress struct {
 	CreatedAt time.Time
 }
 
+// AgentActivity is one narrated moment from inside a model turn: a tool call
+// starting or finishing, a plan the model revised, a stretch of its reasoning,
+// or a permission Coop answered on nobody's behalf.
+//
+// Sequence is Coop's session event sequence, not a Responder counter. It is
+// the identity of the moment as well as its order, which is what lets an
+// at-least-once poll replay without telling the story twice.
+type AgentActivity struct {
+	ID         string
+	EpisodeID  string
+	AgentRunID string
+	SessionID  string
+	TurnID     string
+	Sequence   int64
+	Kind       string
+	ToolCallID string
+	Title      string
+	ToolKind   string
+	Status     string
+	Detail     json.RawMessage
+	OccurredAt time.Time
+}
+
 type AgentRun struct {
 	ID                string
 	EpisodeID         string

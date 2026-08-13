@@ -282,6 +282,135 @@ type Event struct {
 	Type       string    `json:"type"`
 	Version    int       `json:"version"`
 	OccurredAt time.Time `json:"occurred_at"`
+	// Payload is what the event says happened. An older Coop omits it, so
+	// absence has to stay readable as "this Coop does not narrate" rather than
+	// as an empty turn.
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// Activity event types. These narrate the interior of a turn — the tool calls,
+// plan revisions, reasoning, and permission decisions Coop observed — as
+// against the lifecycle events that report what Coop itself decided.
+const (
+	EventToolStarted    = "tool.started"
+	EventToolCompleted  = "tool.completed"
+	EventModelPlan      = "model.plan"
+	EventModelThought   = "model.thought"
+	EventPermission     = "permission.decided"
+	EventActivityElided = "activity.elided"
+)
+
+// IsActivity reports whether an event narrates work inside a turn.
+func IsActivity(eventType string) bool {
+	switch eventType {
+	case EventToolStarted, EventToolCompleted, EventModelPlan,
+		EventModelThought, EventPermission, EventActivityElided:
+		return true
+	}
+	return false
+}
+
+// Activity is one narrated moment inside a turn, in the shape a caller can
+// store and show. The payload fields are a union across event types: a tool
+// call fills the tool fields, a thought fills Text, a plan fills Entries.
+type Activity struct {
+	ToolCallID string      `json:"tool_call_id,omitempty"`
+	Title      string      `json:"title,omitempty"`
+	Kind       string      `json:"kind,omitempty"`
+	Status     string      `json:"status,omitempty"`
+	Input      any         `json:"input,omitempty"`
+	Text       string      `json:"text,omitempty"`
+	Entries    []PlanEntry `json:"entries,omitempty"`
+	Outcome    string      `json:"outcome,omitempty"`
+	OptionID   string      `json:"option_id,omitempty"`
+	OptionKind string      `json:"option_kind,omitempty"`
+	Dropped    int         `json:"dropped,omitempty"`
+	Reason     string      `json:"reason,omitempty"`
+}
+
+type PlanEntry struct {
+	Content  string `json:"content"`
+	Status   string `json:"status,omitempty"`
+	Priority string `json:"priority,omitempty"`
+}
+
+// DecodeActivity reads an activity payload. A payload Responder cannot parse
+// is not an error worth failing a poll over: the run still has to finish, and
+// a missing timeline line is the whole cost.
+func DecodeActivity(payload json.RawMessage) (Activity, bool) {
+	if len(payload) == 0 {
+		return Activity{}, false
+	}
+	var activity Activity
+	if json.Unmarshal(payload, &activity) != nil {
+		return Activity{}, false
+	}
+	return activity, true
+}
+
+// Label names the moment. A moment that arrived without a title still needs
+// one, or a trace prints an empty row or a bare opaque identifier.
+func (a Activity) Label(eventType string) string {
+	if a.Title != "" {
+		return a.Title
+	}
+	switch eventType {
+	case EventToolStarted, EventToolCompleted:
+		if a.Kind != "" {
+			return a.Kind
+		}
+		if a.ToolCallID != "" {
+			return a.ToolCallID
+		}
+		return "Tool call"
+	case EventModelPlan:
+		return "Plan updated"
+	case EventModelThought:
+		return "Reasoning"
+	case EventPermission:
+		return "Permission decided"
+	case EventActivityElided:
+		return "Activity not recorded"
+	}
+	return ""
+}
+
+// Detail is the part of the payload a timeline renders beyond the columns
+// beside it. Storing the whole payload again under every row would duplicate
+// those columns and put a tool's arguments on a page that only meant to show
+// its name.
+func (a Activity) Detail(eventType string) json.RawMessage {
+	var detail any
+	switch eventType {
+	case EventToolStarted:
+		if a.Input == nil {
+			return nil
+		}
+		detail = map[string]any{"input": a.Input}
+	case EventModelPlan:
+		if len(a.Entries) == 0 {
+			return nil
+		}
+		detail = map[string]any{"entries": a.Entries}
+	case EventModelThought:
+		if strings.TrimSpace(a.Text) == "" {
+			return nil
+		}
+		detail = map[string]any{"text": a.Text}
+	case EventPermission:
+		detail = map[string]any{
+			"outcome": a.Outcome, "option_id": a.OptionID, "option_kind": a.OptionKind,
+		}
+	case EventActivityElided:
+		detail = map[string]any{"dropped": a.Dropped, "reason": a.Reason}
+	default:
+		return nil
+	}
+	encoded, err := json.Marshal(detail)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 type Change struct {
