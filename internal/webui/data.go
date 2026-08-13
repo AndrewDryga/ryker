@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -26,8 +27,36 @@ import (
 // is already at its line budget.
 type Reader struct {
 	db         *sql.DB
+	coop       *sql.DB
 	channels   sync.Map
 	identities sync.Map
+}
+
+// OpenCoopSessions attaches Coop's own session store, read-only.
+//
+// A second database rather than a join: workspaces belong to Coop, which
+// records what it is holding and why, and Responder only keeps the references
+// it needs. Reading the file directly keeps the dashboard's bargain — local,
+// read-only, nothing fetched at render time — where asking Coop over its
+// control socket would make the page unrenderable whenever Coop is restarting.
+//
+// A missing or unreadable file is not an error. It means this deployment has
+// no Coop state to show, and the page says so rather than failing.
+func (r *Reader) OpenCoopSessions(path string) {
+	// Checked before opening, because sql.Open is lazy: it would hand back a
+	// healthy-looking handle for a file that is not there, the page would
+	// report Coop as attached, and the first query would fail. "Could not
+	// load" for a deployment that simply has no Coop is the wrong answer to a
+	// question nobody asked.
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		return
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(2000)")
+	if err != nil {
+		return
+	}
+	db.SetMaxOpenConns(1)
+	r.coop = db
 }
 
 func (r *Reader) SetSlackIdentities(labels map[string]string) {
@@ -51,6 +80,9 @@ func OpenReader(path string) (*Reader, error) {
 }
 
 func (r *Reader) Close() error {
+	if r != nil && r.coop != nil {
+		r.coop.Close()
+	}
 	if !r.live() {
 		return nil
 	}

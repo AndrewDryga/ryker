@@ -1,5 +1,32 @@
 {{define "workspaces"}}
 {{template "problems" .Errs}}
+
+<h2>Held right now <span class="note">{{len .Live}}</span></h2>
+{{if .Live}}
+<p class="note">Every checkout Coop is holding. Each one is a working copy on disk with a turn
+budget; it is released when the work it belongs to finishes.</p>
+<div class="rows">
+  {{range .Live}}
+  <div class="row episode-row" data-state="{{.Activity}}">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-when">{{since .Updated}}</span>
+    <span class="episode-title">{{.Kind}}{{if .Detail}} · {{.Detail}}{{end}}</span>
+    <span class="episode-facts">
+      <span>{{.Activity}}</span>
+      {{if .Repository}}<span class="mono">{{.Repository}}</span>{{end}}
+      <span>{{.Turns}} of {{.MaxTurns}} turns</span>
+      {{if .Queued}}<span class="episode-retried">{{.Queued}} queued</span>{{end}}
+      {{if .PRNumber}}<span>PR #{{.PRNumber}}</span>{{end}}
+      {{if .Companions}}<span>{{.Companions}} companion repos</span>{{end}}
+      {{if .Href}}<span><a href="{{.Href}}">{{.HrefLabel}}</a></span>{{end}}
+    </span>
+  </div>
+  {{end}}
+</div>
+{{else if .CoopAttached}}<p class="empty">Coop is holding no workspaces.</p>
+{{else}}<p class="empty">Coop's session store is not attached to this build, so what is held
+cannot be read. Only the reclamation queue below is available.</p>{{end}}
+
 <p class="note">A retained workspace is a Coop fork still on disk after its work ended. Cleanup
 deletes every fork it can prove safe; each refusal lands here with its reason until a person
 acts. {{.Reclaimed}} already reclaimed.</p>

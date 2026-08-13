@@ -2047,3 +2047,25 @@ func TestWaitingPanelFallsBackToTheEpisodeStatus(t *testing.T) {
 		t.Fatalf("unmapped kind = %q, want the token made readable", got)
 	}
 }
+
+// The message a blocked episode came from is the place it gets unblocked, and
+// the page knows its address. The archives permalink needs only the channel
+// and the timestamp, so it works without threading a team id through.
+func TestSourceInputLinksBackToItsSlackMessage(t *testing.T) {
+	top := SourceInput{ChannelID: "C0TENANTOPS", MessageTS: "1786570164.636819"}
+	if got := top.SlackHref(); got != "https://slack.com/archives/C0TENANTOPS/p1786570164636819" {
+		t.Fatalf("top-level permalink = %q", got)
+	}
+	reply := SourceInput{
+		ChannelID: "D0TENANTX02", MessageTS: "1786570164.636819",
+		ThreadTS: "1786561107.106969",
+	}
+	if got := reply.SlackHref(); !strings.Contains(got, "thread_ts=1786561107.106969") ||
+		!strings.Contains(got, "cid=D0TENANTX02") {
+		t.Fatalf("threaded permalink lost its thread: %q", got)
+	}
+	// A message with no address gets no link rather than a broken one.
+	if got := (SourceInput{ChannelID: "C1"}).SlackHref(); got != "" {
+		t.Fatalf("built a permalink with no timestamp: %q", got)
+	}
+}

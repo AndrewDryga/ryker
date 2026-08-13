@@ -1292,7 +1292,15 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   letter-spacing: .08em; text-transform: uppercase; color: var(--warn); margin-bottom: 4px;
 }
 .stopped code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
-.episode-action-strip .note { margin: 0 12px 0 0; }
+.episode-action-strip { flex-wrap: wrap; gap: 8px; align-items: center; }
+.episode-action-strip .note { margin: 0; margin-right: auto; }
+/* Answering in Slack is a link, not a mutation, so it does not wear the
+   confirm disclosure the writes do. */
+.act-link {
+  padding: 7px 13px; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 13px; color: var(--dim); white-space: nowrap;
+}
+.act-link:hover { color: var(--accent); border-color: var(--faint); text-decoration: none; }
 
 /* Two rows on the overview borrow the episode row's grid so the page reads as
    one list vocabulary rather than three. A question waiting on somebody adds
@@ -1484,6 +1492,11 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   font-size: 13.5px; line-height: 1.65; max-width: 100ch;
 }
 .schedule-prompt code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
+
+/* Coop's own activity words, on the shared episode row. A parked workspace is
+   idle but still holding disk; a working one has a turn in flight. */
+.episode-row[data-state="working"] .episode-dot::before { background: var(--accent); }
+.episode-row[data-state="parked"] .episode-dot::before { background: var(--faint); }
 
 @media (max-width: 900px) {
   body { display: block; }

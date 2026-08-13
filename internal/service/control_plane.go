@@ -34,8 +34,16 @@ import (
 // said the action succeeded while the room was told it had not happened. A
 // control that refuses here now refuses to here: the error lands on the
 // refusal page the operator is already looking at.
-func (s *Service) ControlPlaneAct(ctx context.Context, action, incidentID, actor string) error {
-	incident, err := s.store.GetIncident(ctx, incidentID)
+func (s *Service) ControlPlaneAct(ctx context.Context, action, id, actor string) error {
+	// Rerun names an episode; every other verb names a work record. It branches
+	// before the incident load rather than arriving through a second exported
+	// method, because the dashboard seam is one entry point on purpose — a
+	// method per verb is how a surface grows a path that skips the checks the
+	// others share.
+	if action == "rerun" {
+		return s.rerunEpisode(ctx, id, actor)
+	}
+	incident, err := s.store.GetIncident(ctx, id)
 	if err != nil {
 		return fmt.Errorf("load the work record: %w", err)
 	}
@@ -203,4 +211,76 @@ func (s *Service) ControlPlaneDiscardSession(ctx context.Context, sessionID, act
 		plan.OperationID,
 		"Operator discarded a retained workspace that belongs to no work record.",
 	)
+}
+
+// rerunEpisode runs a parked episode again from the top.
+//
+// The case it exists for: an episode stops because it cannot reach something —
+// a repository's history, a credential, an answer — an operator fixes that, and
+// the work should now succeed. Until now the only control on such an episode
+// was to close it, so the operator's choice after fixing the blocker was to
+// abandon the work or to go retype the request in Slack.
+//
+// It is not the failed-run retry. That one revives a run that died, and
+// refuses anything else, because reviving a run whose result was already
+// consumed would race whatever consumed it. A blocked episode's run did not
+// die: the model finished its turn and correctly reported a wall. So this
+// takes the other route, the one the recheck machinery already uses — a fresh
+// synthetic input carrying the original request, admitted and queued like any
+// other work. The pipeline then does what it always does, and the earlier
+// attempt stays on the record as the account of what was tried first.
+func (s *Service) rerunEpisode(ctx context.Context, episodeID, actor string) error {
+	episode, err := s.store.GetWorkEpisode(ctx, episodeID)
+	if err != nil {
+		return fmt.Errorf("load the episode: %w", err)
+	}
+	// Only work that is parked on a person. Running work would race itself,
+	// and finished work is finished — a new request is a new episode, not a
+	// second run of a closed one.
+	switch episode.State {
+	case core.EpisodeBlocked, core.EpisodeWaitingOperator,
+		core.EpisodeWaitingApproval, core.EpisodeWaitingExternal:
+	default:
+		return fmt.Errorf(
+			"this episode is %s; only work that is blocked or waiting can be run again",
+			episode.State,
+		)
+	}
+	originRun, err := s.store.GetAgentRun(ctx, episode.AgentRunID)
+	if err != nil {
+		return fmt.Errorf("load the episode's run: %w", err)
+	}
+	originInput, err := s.store.GetSlackInput(ctx, originRun.SourceID)
+	if err != nil {
+		return fmt.Errorf("load the message this episode came from: %w", err)
+	}
+	rerunID, err := core.NewID("rerun")
+	if err != nil {
+		return err
+	}
+	// A fresh id per press rather than one derived from the episode: an
+	// operator who fixes two different blockers should get two runs, and a
+	// derived id would silently swallow the second.
+	input := core.SlackInput{
+		ID: rerunID, EnvelopeID: "rerun:" + rerunID, EventID: "rerun:" + rerunID,
+		Kind: "recheck", TeamID: originInput.TeamID, ChannelID: originInput.ChannelID,
+		ThreadTS: originInput.ThreadTS, MessageTS: originInput.MessageTS,
+		UserID: originInput.UserID, Text: originInput.Text,
+		Attachments: append([]core.SlackAttachment(nil), originInput.Attachments...),
+		ReceivedAt:  s.now().UTC(),
+	}
+	created, err := s.store.AdmitSyntheticSlackInput(ctx, input)
+	if err != nil {
+		return err
+	}
+	if !created {
+		return errors.New("this rerun was already admitted")
+	}
+	if err := s.queueWatchedInput(ctx, input); err != nil {
+		return err
+	}
+	return s.store.Audit(ctx, core.AuditEvent{
+		Kind: "episode.rerun", ActorID: actor, ObjectID: episodeID,
+		Outcome: "queued", Detail: "operator ran a parked episode again from the control plane",
+	})
 }

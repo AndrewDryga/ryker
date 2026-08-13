@@ -44,6 +44,11 @@ type Actions interface {
 	// sentence asking for the replacement rather than opening a form.
 	SetSchedulePaused(ctx context.Context, id string, paused bool, actor string) error
 	DeleteSchedule(ctx context.Context, id, actor string) error
+	// RerunEpisode runs a parked episode again, for the case an operator has
+	// just cleared whatever stopped it. It goes through the service, which
+	// admits a fresh input and queues it like any other work rather than
+	// reviving the finished run.
+	RerunEpisode(ctx context.Context, episodeID, actor string) error
 	// ResolveEpisodeOvertaken closes blocked or waiting work whose moment has
 	// passed, through the episode kernel's own cancel transition. Nothing is
 	// deleted: the event and the audit row are the record of who decided.
@@ -163,6 +168,12 @@ func (h *Handler) resumeSchedule(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 	h.act(w, r, func(ctx context.Context, id string) error {
 		return h.actions.DeleteSchedule(ctx, id, dashboardActor)
+	})
+}
+
+func (h *Handler) rerunEpisode(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.RerunEpisode(ctx, id, dashboardActor)
 	})
 }
 

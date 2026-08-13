@@ -98,6 +98,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /actions/schedules/pause", h.pauseSchedule)
 	mux.HandleFunc("POST /actions/schedules/resume", h.resumeSchedule)
 	mux.HandleFunc("POST /actions/schedules/delete", h.deleteSchedule)
+	mux.HandleFunc("POST /actions/episodes/rerun", h.rerunEpisode)
 	mux.HandleFunc("POST /actions/episodes/resolve", h.resolveEpisode)
 	mux.HandleFunc("POST /actions/replays/cancel", h.cancelSlackReplay)
 	mux.HandleFunc("POST /actions/incidents/resolve", h.resolveIncident)
@@ -524,6 +525,10 @@ type episodePage struct {
 	// Waiting is what a parked episode is waiting for, absent on every episode
 	// that is not parked.
 	Waiting *StoppedOn
+	// Retryable gates the failed-run retry, which the Failures page has always
+	// offered and the episode page never did — even though the episode page is
+	// where somebody looking at a failure actually is.
+	Retryable bool
 }
 
 // resolvableState lists the lifecycle states an operator may close as
@@ -604,6 +609,10 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	present := func(text string) string { return h.reader.resolveSlackText(ctx, text) }
 	page.Trace = buildEpisodeTrace(h.pricing, page, present)
 	page.Waiting = stoppedOn(page)
+	// The store refuses anything but a failed run on its latest attempt, so
+	// the button is offered only where pressing it would do something.
+	page.Retryable = page.Turn.RunID != "" && page.Turn.State == "failed" &&
+		page.Item.State != "completed"
 	shell := h.shell(r, "episodes", page)
 	shell.TitleOverride = episodeDisplayTitle(page)
 	shell.Crumbs = []Crumb{{Href: "/episodes", Label: "Episodes"}}
@@ -821,12 +830,16 @@ func (h *Handler) workspaces(w http.ResponseWriter, r *http.Request) {
 	var failed problems
 	held, queued, err := h.reader.RetainedWorkspaces(ctx)
 	failed.note("workspaces", err)
+	live, attached, err := h.reader.LiveWorkspaces(ctx)
+	failed.note("live workspaces", err)
 	h.page(w, r, "workspaces", "workspaces", struct {
+		Live         []Workspace
+		CoopAttached bool
 		Held, Queued []RetainedWorkspace
 		Reclaimed    int
 		Errs         problems
 		CanAct       bool
-	}{held, queued, h.reader.Count(ctx, countCleanupDone), failed, h.CanAct()})
+	}{live, attached, held, queued, h.reader.Count(ctx, countCleanupDone), failed, h.CanAct()})
 }
 
 // conversation unpacks the state blob a list can only count. The goal, open

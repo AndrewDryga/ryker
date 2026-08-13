@@ -3,9 +3,170 @@ package webui
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"path/filepath"
 	"strings"
 	"time"
 )
+
+// Workspace is one Coop session: a checkout on disk with a turn budget, held
+// for some piece of Responder's work.
+type Workspace struct {
+	ID, Kind, Detail   string
+	Policy, Repository string
+	State, Activity    string
+	Turns, MaxTurns    int
+	Queued             int
+	Fork, BaseCommit   string
+	Href, HrefLabel    string
+	PRNumber           int
+	Created, Updated   time.Time
+	Companions         int
+}
+
+// TurnPct is how much of the session's turn budget is spent, for the meter.
+func (w Workspace) TurnPct() int { return percent(w.Turns, w.MaxTurns) }
+
+// LiveWorkspaces lists the sessions Coop is currently holding.
+//
+// Only open ones: a discarded session is a directory that no longer exists,
+// and 491 of them on the deployed instance would bury the sixteen that are
+// real. What became of them is the reclaimed count the page already reports.
+func (r *Reader) LiveWorkspaces(ctx context.Context) ([]Workspace, bool, error) {
+	// The second return says "Coop state is not attached", which the page uses
+	// to explain itself rather than showing an empty list that would read as
+	// "Coop is holding nothing".
+	if r == nil || r.coop == nil {
+		return nil, false, nil
+	}
+	// Queried through r.coop, not the collect helper: that helper is bound to
+	// the Responder database and would run this against the wrong file.
+	rows, err := r.coop.QueryContext(ctx, `
+	  SELECT id, COALESCE(external_ref,''), COALESCE(policy,''), COALESCE(repository,''),
+	         COALESCE(state,''), COALESCE(activity,''), COALESCE(turns_used,0),
+	         COALESCE(max_turns,0), COALESCE(queued_turn_count,0), COALESCE(fork_name,''),
+	         COALESCE(base_commit,''), COALESCE(pull_request_number,0),
+	         COALESCE(companions,''), created_at, updated_at
+	  FROM sessions WHERE state = 'open' ORDER BY updated_at DESC LIMIT 200`)
+	if err != nil {
+		return nil, true, err
+	}
+	defer rows.Close()
+	items := []Workspace{}
+	for rows.Next() {
+		var item Workspace
+		var reference, companions string
+		var created, updated any
+		if err := rows.Scan(&item.ID, &reference, &item.Policy, &item.Repository,
+			&item.State, &item.Activity, &item.Turns, &item.MaxTurns, &item.Queued,
+			&item.Fork, &item.BaseCommit, &item.PRNumber, &companions,
+			&created, &updated); err != nil {
+			return nil, true, err
+		}
+		item.Created, item.Updated = coopStamp(created), coopStamp(updated)
+		// The repository is stored as its checkout path, which on a single-host
+		// deployment is the same forty characters on every row and says only
+		// where this machine keeps its code. The name is the part that differs.
+		item.Repository = filepath.Base(item.Repository)
+		item.Companions = companionCount(companions)
+		var channel string
+		item.Kind, item.Detail, item.Href, item.HrefLabel, channel = describeWorkspace(reference)
+		// An engineering task's reference carries only the incident id, so three
+		// of them render as three rows reading "Engineering task" and nothing
+		// else. The title is what tells them apart, and it lives in Responder's
+		// own tables rather than in Coop's.
+		if item.Kind == "Engineering task" {
+			if title, found := strings.CutPrefix(item.Href, "/incidents/"); found {
+				item.Detail = cleanTitle(r.incidentTitle(ctx, title))
+			}
+		}
+		// Resolved here rather than in the helper, which stays pure so the
+		// classification can be tested without a database behind it.
+		if name := r.channelName(ctx, channel); name != "" {
+			if item.Detail == "" {
+				item.Detail = name
+			} else {
+				item.Detail = name + " · " + item.Detail
+			}
+		}
+		items = append(items, item)
+	}
+	return items, true, rows.Err()
+}
+
+// coopStamp reads one of Coop's timestamps. Coop stores them as Unix
+// nanoseconds rather than the RFC 3339 text Responder writes, so parseStamp
+// cannot be reused; text is still accepted so an older store still renders.
+func coopStamp(value any) time.Time {
+	switch stamp := value.(type) {
+	case int64:
+		if stamp == 0 {
+			return time.Time{}
+		}
+		return time.Unix(0, stamp).UTC()
+	case string:
+		return parseStamp(stamp)
+	case []byte:
+		return parseStamp(string(stamp))
+	}
+	return time.Time{}
+}
+
+// companionCount counts the extra repositories checked out beside the primary
+// one. The column is a JSON array, and anything else counts as none rather
+// than failing the page.
+func companionCount(raw string) int {
+	var companions []json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &companions); err != nil {
+		return 0
+	}
+	return len(companions)
+}
+
+// describeWorkspace names what a session is holding, from the reference
+// Responder wrote when it created it. Parsing that string beats joining
+// Responder's tables: the reference is written at creation and survives
+// whatever happens to the work afterwards, and an evaluation session has no
+// row in those tables at all.
+//
+// The channel id comes back so the caller can trade it for a name; resolving
+// it here would put the Reader inside the classification.
+func describeWorkspace(externalRef string) (kind, detail, href, hrefLabel, channel string) {
+	if id, ok := strings.CutPrefix(externalRef, "engineering-task:"); ok {
+		return "Engineering task", "", "/incidents/" + id, "the task →", ""
+	}
+	if rest, ok := strings.CutPrefix(externalRef, "Slack bounded conversation "); ok {
+		token, generation := splitGeneration(rest)
+		return "Conversation", generation, "/episodes?channel=" + token, "its episodes →", token
+	}
+	if rest, ok := strings.CutPrefix(externalRef, "Slack operations channel "); ok {
+		token, generation := splitGeneration(rest)
+		// A scheduled run borrows the operations-channel shape but names a run
+		// instead of a channel, and one run has no page of its own — so the row
+		// says what it is and links nowhere rather than somewhere wrong.
+		if strings.HasPrefix(token, "scheduled:") {
+			return "Scheduled run", generation, "", "", ""
+		}
+		return "Channel watch", generation, "/episodes?channel=" + token, "its episodes →", token
+	}
+	if name, ok := strings.CutPrefix(externalRef, "Responder live model evaluation: "); ok {
+		return "Model evaluation", truncate(name, 80), "", "", ""
+	}
+	return "Other", truncate(externalRef, 80), "", "", ""
+}
+
+// splitGeneration reads the "<token> generation <N>" tail both Slack session
+// references carry.
+func splitGeneration(rest string) (token, generation string) {
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return "", ""
+	}
+	if len(fields) >= 3 && fields[1] == "generation" {
+		return fields[0], "generation " + fields[2]
+	}
+	return fields[0], ""
+}
 
 // RetainedWorkspace is one Coop session whose fork is still on disk.
 //
@@ -127,4 +288,19 @@ func (r *Reader) RetainedWorkspaces(ctx context.Context) (held, queued []Retaine
 		}
 	}
 	return held, queued, nil
+}
+
+// incidentTitle names one work record, for a page that holds its id and needs
+// to say which one it is.
+func (r *Reader) incidentTitle(ctx context.Context, incidentID string) string {
+	if !r.live() || incidentID == "" {
+		return ""
+	}
+	var title string
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(title,'') FROM incidents WHERE id = ?`, incidentID,
+	).Scan(&title); err != nil {
+		return ""
+	}
+	return title
 }

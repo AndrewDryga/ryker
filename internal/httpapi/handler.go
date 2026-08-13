@@ -284,6 +284,10 @@ func (a *dashboardActions) CancelSlackReplay(ctx context.Context, replayID, expe
 // ResolveIncident closes an open room through the same service handler the
 // Slack close control calls: cleanup scheduling, audit, timeline and the
 // closing notice included.
+func (a *dashboardActions) RerunEpisode(ctx context.Context, episodeID, actor string) error {
+	return a.service.ControlPlaneAct(ctx, "rerun", episodeID, actor)
+}
+
 // SetSchedulePaused stops a schedule firing, or starts it again.
 //
 // The store refuses to resume one that has no future run left — a "once"
@@ -496,6 +500,9 @@ func (h *Handler) mountControlPlane(mux *http.ServeMux) error {
 			h.log.Warn("dashboard Slack identity snapshot failed", "error", identityErr)
 		}
 	}
+	// Coop's own session store, so the workspaces page can show what is held
+	// rather than only what is queued for reclamation.
+	reader.OpenCoopSessions(filepath.Join(h.cfg.Coop.StateDir, "session.sqlite"))
 	// Read from the database rather than a constant, so the page reports the
 	// schema actually in use rather than the one this binary expects. Those
 	// differ exactly when something is wrong.

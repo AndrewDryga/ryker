@@ -203,6 +203,9 @@ func (failingActions) KeepCorrection(context.Context, string, string) error {
 func (failingActions) SetSchedulePaused(context.Context, string, bool, string) error {
 	return errors.New("store refused")
 }
+func (failingActions) RerunEpisode(context.Context, string, string) error {
+	return errors.New("store refused")
+}
 func (failingActions) DeleteSchedule(context.Context, string, string) error {
 	return errors.New("store refused")
 }

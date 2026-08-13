@@ -1178,6 +1178,26 @@ type SourceInput struct {
 	Received, Updated                                                 time.Time
 }
 
+// SlackHref is a permalink to the message this episode came from.
+//
+// The archives form rather than a deep link built from a team id: it needs
+// only the channel and the timestamp, both of which the page already has, and
+// Slack resolves the workspace itself. Blocked work is unblocked by answering
+// in the thread, and a page that says what is missing while offering no way to
+// go and supply it makes the reader hunt for a conversation Responder already
+// knows the address of.
+func (s SourceInput) SlackHref() string {
+	if s.ChannelID == "" || s.MessageTS == "" {
+		return ""
+	}
+	stamp := "p" + strings.ReplaceAll(s.MessageTS, ".", "")
+	href := "https://slack.com/archives/" + s.ChannelID + "/" + stamp
+	if s.ThreadTS != "" && s.ThreadTS != s.MessageTS {
+		href += "?thread_ts=" + s.ThreadTS + "&cid=" + s.ChannelID
+	}
+	return href
+}
+
 // Wakeup is the durable subscription that let Responder release a worker and
 // resume after an external object changed. It is read by trigger ID instead of
 // episode ID because recovered follow-up episodes can be created after the
