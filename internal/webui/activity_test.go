@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -227,14 +228,15 @@ func TestReaderKeepsACompletionWithoutItsStart(t *testing.T) {
 	}
 }
 
-func activityStep(t *testing.T, page episodePage) (TraceStep, bool) {
+func activitySteps(t *testing.T, page episodePage) []TraceStep {
 	t.Helper()
+	found := []TraceStep{}
 	for _, step := range buildEpisodeTrace(config.Pricing{}, page, nil).Steps {
-		if step.ID == "activity" {
-			return step, true
+		if strings.HasPrefix(step.ID, "activity-") {
+			found = append(found, step)
 		}
 	}
-	return TraceStep{}, false
+	return found
 }
 
 func detailByLabel(step TraceStep, label string) (TraceDetail, bool) {
@@ -246,81 +248,120 @@ func detailByLabel(step TraceStep, label string) (TraceDetail, bool) {
 	return TraceDetail{}, false
 }
 
-// An episode that narrated nothing gets no card. A turn from a Coop that
-// predates this, or one that used no tools, must not sprout an empty section.
-func TestActivityStepIsAbsentWithoutActivity(t *testing.T) {
-	if _, ok := activityStep(t, episodePage{}); ok {
-		t.Fatal("an episode with no recorded activity got an activity card")
+func toolMoment(name string, at time.Time) ActivityMoment {
+	return ActivityMoment{
+		Kind: "tool", Title: name, ToolKind: "execute", Status: "completed",
+		Duration: "1.0s", At: at, Detail: "run_id=r1", Arguments: "{\n  \"run_id\": \"r1\"\n}",
 	}
 }
 
-// One card, not one per call. A turn runs dozens, and a rail that pushed each
-// onto the timeline would bury the decisions an operator came to read.
-func TestActivityStepFoldsEveryCallIntoOneCard(t *testing.T) {
+// An episode that narrated nothing gets no cards.
+func TestActivityAbsentWithoutActivity(t *testing.T) {
+	if steps := activitySteps(t, episodePage{}); len(steps) != 0 {
+		t.Fatalf("an episode with no recorded activity got %d cards", len(steps))
+	}
+}
+
+// The shape that makes both turns work: an unbroken run of calls is one card,
+// however long, so a mechanical turn that fires twenty-six Emisar actions back
+// to back does not bury the rest of the trace.
+func TestConsecutiveToolCallsCollapseIntoOneCard(t *testing.T) {
 	start := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
-	page := episodePage{Activity: []ActivityMoment{
-		{Kind: "tool", Title: "emisar · nomad.job_status", ToolKind: "execute",
-			Status: "completed", Duration: "2.0s", At: start,
-			Detail: "job=website", Arguments: "Why: check the rollout\n\n{\n  \"job\": \"website\"\n}"},
-		{Kind: "tool", Title: "Read apps_cms.tf", ToolKind: "read",
-			Status: "completed", Duration: "120ms", At: start.Add(3 * time.Second)},
-		{Kind: "tool", Title: "Emisar http.probe", ToolKind: "execute",
-			Status: "failed", Tone: "bad", Duration: "5.0s", At: start.Add(6 * time.Second)},
-	}}
-	step, ok := activityStep(t, page)
-	if !ok {
-		t.Fatal("recorded activity produced no card")
+	moments := make([]ActivityMoment, 0, 26)
+	for index := range 26 {
+		moments = append(moments, toolMoment(
+			fmt.Sprintf("emisar · tfc.action_%d", index), start.Add(time.Duration(index)*time.Second)))
 	}
-	if step.At != start {
-		t.Fatalf("the card must sit at the first moment, not %v", step.At)
+	steps := activitySteps(t, episodePage{Activity: moments})
+	if len(steps) != 1 {
+		t.Fatalf("26 back-to-back calls produced %d cards, want 1", len(steps))
 	}
-	if step.Duration != "6.0s" {
-		t.Fatalf("span = %q, want the first-to-last stretch", step.Duration)
+	if steps[0].Title != "26 tool calls" {
+		t.Fatalf("card title = %q", steps[0].Title)
 	}
-	if !strings.Contains(step.Summary, "3 tool calls") ||
-		!strings.Contains(step.Summary, "1 failed call") {
-		t.Fatalf("summary does not count the work: %q", step.Summary)
+	table, ok := detailByLabel(steps[0], "Every call, in order")
+	if !ok || len(table.Table.Rows) != 26 {
+		t.Fatalf("the calls are not all in the card's table: %+v", table.Table)
 	}
-	if step.Tone != "warn" {
-		t.Fatalf("a failed call left the card unmarked: tone %q", step.Tone)
+	if steps[0].Duration != "25.0s" {
+		t.Fatalf("card span = %q, want the whole run", steps[0].Duration)
 	}
-	table, ok := detailByLabel(step, "Every call, in order")
-	if !ok || table.Table == nil {
-		t.Fatalf("the calls are not behind a table: %+v", step.Details)
+}
+
+// And the shape the single summary card destroyed: reasoning and acting
+// alternate, and the page has to keep the order they happened in.
+func TestReasoningAndCallsAlternateAsSeparateCards(t *testing.T) {
+	start := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
+	at := func(seconds int) time.Time { return start.Add(time.Duration(seconds) * time.Second) }
+	steps := activitySteps(t, episodePage{Activity: []ActivityMoment{
+		{Kind: "thought", Detail: "Check whether the rollout finished.", At: at(0)},
+		toolMoment("emisar · tfc.run_details", at(1)),
+		toolMoment("emisar · tfc.plan_summary", at(2)),
+		{Kind: "thought", Detail: "The plan touched one resource.", At: at(3)},
+		toolMoment("emisar · nomad.job_status", at(4)),
+	}})
+	if len(steps) != 4 {
+		t.Fatalf("want thought, calls, thought, call — got %d cards", len(steps))
 	}
-	// A closed disclosure is why the first person to look for this on a live
-	// episode reported not seeing it at all.
-	if !table.Open {
-		t.Fatal("the call table renders collapsed")
+	titles := []string{steps[0].Title, steps[1].Title, steps[2].Title, steps[3].Title}
+	want := []string{"Reasoning", "2 tool calls", "Reasoning", "emisar · nomad.job_status"}
+	for index := range want {
+		if titles[index] != want[index] {
+			t.Fatalf("card %d = %q, want %q (all: %v)", index, titles[index], want[index], titles)
+		}
 	}
-	if len(table.Table.Rows) != 3 {
-		t.Fatalf("table rows = %d, want one per call", len(table.Table.Rows))
+	// A lone call is named for itself rather than counted.
+	if steps[3].Summary != "" {
+		t.Fatalf("a single call restated itself: %q", steps[3].Summary)
 	}
-	// Offsets are relative to the first moment, so a reader sees the shape of
-	// the turn rather than three near-identical wall-clock stamps.
-	if got := table.Table.Rows[1].Cells[0]; got != "+3.0s" {
-		t.Fatalf("second call is at %q, want an offset from the first", got)
+	// The run of two says which operations it covered without being opened.
+	if steps[1].Summary != "emisar · tfc.run_details, emisar · tfc.plan_summary" {
+		t.Fatalf("grouped card summary = %q", steps[1].Summary)
 	}
-	if got := table.Table.Rows[0].Cells[5]; got != "job=website" {
-		t.Fatalf("arguments were lost: %q", got)
+	// Order on the rail is the order they happened.
+	for index := 1; index < len(steps); index++ {
+		if steps[index].At.Before(steps[index-1].At) {
+			t.Fatalf("cards are out of order at %d", index)
+		}
 	}
-	// Identity columns must not break mid-token, and what the cell summarized
-	// away has to stay reachable behind the cell it summarized.
-	if !table.Table.Tight {
-		t.Fatal("the table wraps its identity columns")
+}
+
+// The cards belong to "The work", and the preparation before them no longer
+// claims that name.
+func TestActivityCardsOpenTheWorkChapter(t *testing.T) {
+	start := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
+	page := episodePage{
+		Item:     Item{Created: start},
+		Source:   SourceInput{Received: start},
+		Manifest: ManifestRow{Version: 1, Created: start.Add(time.Second)},
+		// The turn ends after its work, which is what dates the usage card.
+		// Without it that card falls back to the briefing's timestamp, lands
+		// before the work it measured, and — chapters being forward-only —
+		// drags the work into "The answer".
+		Turn:      Turn{RunID: "run-1", State: "completed", Updated: start.Add(10 * time.Second)},
+		Activity:  []ActivityMoment{toolMoment("emisar · tfc.run_details", start.Add(2*time.Second))},
+		Delivered: []Delivery{{Kind: "post", State: "sent", Channel: "C1", At: start.Add(time.Minute)}},
 	}
-	row := table.Table.Rows[0]
-	if row.ExpandAt != 5 || !strings.Contains(row.Expand, `"job": "website"`) {
-		t.Fatalf("the full record is not behind the arguments cell: %+v", row)
+	trace := buildEpisodeTrace(config.Pricing{}, page, nil)
+	chapterOf := map[string]string{}
+	titles := []string{}
+	for _, chapter := range trace.Chapters {
+		titles = append(titles, chapter.Title)
+		for _, step := range chapter.Steps {
+			chapterOf[step.ID] = chapter.Title
+		}
 	}
-	// A call with nothing recorded has nothing to open.
-	if got := table.Table.Rows[1].Expand; got != "" {
-		t.Fatalf("an empty input produced a disclosure: %q", got)
+	if chapterOf["activity-1"] != "The work" {
+		t.Fatalf("the activity card landed in %q; chapters=%v", chapterOf["activity-1"], titles)
 	}
-	// Counted by kind, so "it ran nine actions and read two files" is legible
-	// without opening anything.
-	if len(step.Stats) != 2 || step.Stats[0].Label != "execute" || step.Stats[0].Value != "2" {
-		t.Fatalf("kind tally = %+v", step.Stats)
+	// The briefing is preparation, and now says so.
+	if chapterOf["prompt"] != "Getting ready" {
+		t.Fatalf("the briefing landed in %q; chapters=%v", chapterOf["prompt"], titles)
+	}
+	// Chapters are assigned forward-only, so a card banded too late would drag
+	// everything after it along.
+	if titles[len(titles)-1] != "What came of it" {
+		t.Fatalf("last chapter = %q; the cards pulled the story forward", titles[len(titles)-1])
 	}
 }
 
@@ -329,10 +370,10 @@ func TestActivityStepFoldsEveryCallIntoOneCard(t *testing.T) {
 func TestTraceSummaryCountsToolCalls(t *testing.T) {
 	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
 	trace := buildEpisodeTrace(config.Pricing{}, episodePage{Activity: []ActivityMoment{
-		{Kind: "tool", Title: "Emisar run_action", ToolKind: "execute", Status: "completed", At: at},
-		{Kind: "tool", Title: "Emisar http.probe", ToolKind: "execute", Status: "completed", At: at},
+		toolMoment("emisar · run_action", at),
+		toolMoment("emisar · http.probe", at.Add(time.Second)),
 		// Not a call, and must not be counted as one.
-		{Kind: "thought", Detail: "Check the rollout.", At: at},
+		{Kind: "thought", Detail: "Check the rollout.", At: at.Add(2 * time.Second)},
 	}}, nil)
 	var found string
 	for _, stat := range trace.Stats {
@@ -345,97 +386,79 @@ func TestTraceSummaryCountsToolCalls(t *testing.T) {
 	}
 }
 
-// The card belongs to "The work". Chapters are assigned forward-only, so a
-// card that landed in a later band would drag every step after it along.
-func TestActivityStepBelongsToTheWorkChapter(t *testing.T) {
-	start := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
-	page := episodePage{
-		Item:   Item{Created: start},
-		Source: SourceInput{Received: start},
-		Activity: []ActivityMoment{{
-			Kind: "tool", Title: "Emisar nomad.job_status", ToolKind: "execute",
-			Status: "completed", Duration: "2.0s", At: start.Add(time.Second),
-		}},
-		Delivered: []Delivery{{
-			Kind: "post", State: "sent", Channel: "C1",
-			At: start.Add(time.Minute),
-		}},
-	}
-	trace := buildEpisodeTrace(config.Pricing{}, page, nil)
-	var chapter string
-	for _, candidate := range trace.Chapters {
-		for _, step := range candidate.Steps {
-			if step.ID == "activity" {
-				chapter = candidate.Title
-			}
+// A call with no terminal update did not succeed, and the card says so rather
+// than rendering it as finished.
+func TestCallsThatNeverFinishedAreNamed(t *testing.T) {
+	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
+	steps := activitySteps(t, episodePage{Activity: []ActivityMoment{
+		{Kind: "tool", Title: "emisar · run_action", ToolKind: "execute", At: at},
+	}})
+	var running string
+	for _, stat := range steps[0].Stats {
+		if stat.Label == "never finished" {
+			running = stat.Value
 		}
 	}
-	if chapter != "The work" {
-		t.Fatalf("the activity card landed in %q, want \"The work\"", chapter)
+	if running != "1" {
+		t.Fatalf("an unfinished call was not called out: %+v", steps[0].Stats)
 	}
-	// And the delivery after it still reads as an outcome, which is what
-	// breaks first if the card is banded too late.
-	last := trace.Chapters[len(trace.Chapters)-1]
-	if last.Title != "What came of it" {
-		t.Fatalf("last chapter = %q; the card pulled the story forward", last.Title)
-	}
-}
-
-// A call with no terminal update did not succeed. The card says so rather than
-// rendering it as finished.
-func TestActivityStepNamesCallsThatNeverFinished(t *testing.T) {
-	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
-	step, ok := activityStep(t, episodePage{Activity: []ActivityMoment{
-		{Kind: "tool", Title: "Emisar run_action", ToolKind: "execute", At: at},
-	}})
-	if !ok {
-		t.Fatal("no card")
-	}
-	if !strings.Contains(step.Summary, "never reported finishing") {
-		t.Fatalf("an unfinished call was not called out: %q", step.Summary)
-	}
-	table, _ := detailByLabel(step, "Every call, in order")
+	table, _ := detailByLabel(steps[0], "Every call, in order")
 	if got := table.Table.Rows[0].Cells[3]; got != "still running" {
 		t.Fatalf("status cell = %q, want an honest unfinished state", got)
 	}
 }
 
-func TestActivityStepSeparatesReasoningPlanAndPermissions(t *testing.T) {
+// Identity columns must not break mid-token, and what a cell summarized away
+// has to stay reachable behind it.
+func TestCallTableIsTightAndExpandable(t *testing.T) {
 	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
-	step, ok := activityStep(t, episodePage{Activity: []ActivityMoment{
-		{Kind: "thought", Detail: "Check whether the rollout finished.", At: at},
-		{Kind: "plan", At: at.Add(time.Second), Entries: []ActivityPlanStep{
+	steps := activitySteps(t, episodePage{Activity: []ActivityMoment{
+		toolMoment("emisar · tfc.run_details", at),
+	}})
+	table, ok := detailByLabel(steps[0], "Every call, in order")
+	if !ok || table.Table == nil {
+		t.Fatalf("the call has no table: %+v", steps[0].Details)
+	}
+	if !table.Open {
+		t.Fatal("the call table renders collapsed")
+	}
+	if !table.Table.Tight {
+		t.Fatal("the table wraps its identity columns")
+	}
+	row := table.Table.Rows[0]
+	if row.ExpandAt != 5 || !strings.Contains(row.Expand, `"run_id": "r1"`) {
+		t.Fatalf("the full record is not behind the arguments cell: %+v", row)
+	}
+}
+
+func TestPlanPermissionAndElisionEachGetACard(t *testing.T) {
+	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
+	steps := activitySteps(t, episodePage{Activity: []ActivityMoment{
+		{Kind: "plan", At: at, Entries: []ActivityPlanStep{
 			{Content: "Read the run", Status: "completed"},
 			{Content: "Check allocations", Status: "pending"},
 		}},
-		{Kind: "permission", Title: "Emisar run_action", Detail: "allow_always",
-			At: at.Add(2 * time.Second)},
+		{Kind: "permission", Title: "emisar · run_action", Detail: "allow_always",
+			At: at.Add(time.Second)},
 		{Kind: "elided", Detail: "the turn produced more activity than one turn may narrate",
-			Dropped: 12, At: at.Add(3 * time.Second)},
+			Dropped: 12, At: at.Add(2 * time.Second)},
 	}})
-	if !ok {
-		t.Fatal("no card")
+	if len(steps) != 3 {
+		t.Fatalf("want a card each, got %d", len(steps))
 	}
-	if !strings.Contains(step.Summary, "2 plan steps") ||
-		!strings.Contains(step.Summary, "1 reasoning pass") {
-		t.Fatalf("summary = %q", step.Summary)
+	if steps[0].Title != "Plan updated" || steps[0].Summary != "1 of 2 steps done" {
+		t.Fatalf("plan card = %+v", steps[0])
 	}
-	plan, ok := detailByLabel(step, "Plan the model kept")
+	plan, ok := detailByLabel(steps[0], "The plan as it stood")
 	if !ok || !strings.Contains(plan.Body, "• Read the run — completed") {
 		t.Fatalf("plan detail = %+v", plan)
 	}
-	reasoning, ok := detailByLabel(step, "Reasoning")
-	if !ok || reasoning.Body != "Check whether the rollout finished." {
-		t.Fatalf("reasoning detail = %+v", reasoning)
-	}
 	// Nobody human answered this; the trace owes the reader that fact.
-	decided, ok := detailByLabel(step, "Permissions answered without a person")
-	if !ok || !strings.Contains(decided.Body, "Emisar run_action — allow_always") {
-		t.Fatalf("permission detail = %+v", decided)
+	if !strings.Contains(steps[1].Summary, "emisar · run_action — allow_always") {
+		t.Fatalf("permission card = %+v", steps[1])
 	}
 	// A silently short list would read as a complete account of the turn.
-	elided, ok := detailByLabel(step, "Not recorded")
-	if !ok || !strings.Contains(elided.Body, "more activity than one turn may narrate") {
-		t.Fatalf("elision detail = %+v", elided)
+	if steps[2].Tone != "warn" || steps[2].Stats[0].Value != "12" {
+		t.Fatalf("elision card = %+v", steps[2])
 	}
 }

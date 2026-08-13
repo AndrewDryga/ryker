@@ -194,7 +194,10 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 		"Acknowledged in 1.4s.",
 		"Errors",
 		"What came in",
-		"The work",
+		// This episode predates recorded activity, so it has preparation and
+		// no work chapter. Chapters have always appeared only when a step
+		// lands in them; "The work" is now one of them.
+		"Getting ready",
 		"The answer",
 		"What came of it",
 		"Model result received",

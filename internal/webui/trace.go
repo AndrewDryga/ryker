@@ -700,7 +700,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		})
 	}
 
-	if step, ok := activityTraceStep(page); ok {
+	for _, step := range activityTraceSteps(page) {
 		add(step)
 	}
 
@@ -786,7 +786,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			Stats:    stats, Details: details,
 		}
 		if delivery.Operation == "status" {
-			step.band = bandWork
+			// A "working on it" post is not an outcome. The band is a floor,
+			// not a placement, so the earlier of the two work chapters lets it
+			// sit wherever the story has actually reached.
+			step.band = bandReady
 		}
 		add(step)
 	}
@@ -899,14 +902,20 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 // is progress feedback rather than an outcome.
 const (
 	bandIn = iota + 1
+	bandReady
 	bandWork
 	bandAnswer
 	bandOutcome
 )
 
+// The chapter that used to be called "The work" held routing, briefing and
+// queueing — everything up to the moment a model started, and none of the work
+// itself, because none of it was recorded yet. Now that a turn's interior is
+// kept, the name belongs to the chapter that earns it.
 var chapterNames = [...]struct{ title, blurb string }{
 	{"What came in", "The message or event that started this."},
-	{"The work", "How Responder handled it: the model, its briefing, and checkpoints along the way."},
+	{"Getting ready", "How Responder set this up: the routing, the model, and its briefing."},
+	{"The work", "What the model did once it started: what it reasoned about, what it ran, and what came back."},
 	{"The answer", "What the model returned and what Responder decided to do."},
 	{"What came of it", "Replies, saved changes, and follow-ups."},
 }
@@ -919,7 +928,7 @@ func stepBand(step TraceStep) int {
 	case "Input", "Trigger", "Wait", "Schedule":
 		return bandIn
 	case "Plan", "Routing", "Context", "Preparation", "Execution", "Validation", "":
-		return bandWork
+		return bandReady
 	case "Result", "Decision", "Evidence", "Measurement":
 		return bandAnswer
 	default:
@@ -3756,158 +3765,180 @@ func occurrenceDetail(times []time.Time) *TraceDetail {
 	}
 }
 
-// activityTraceStep is the interior of the turn: what the model actually did
-// between being briefed and answering.
+// activityTraceSteps is the interior of the turn — what the model reasoned
+// about and what it ran — as cards on the rail rather than one summary.
 //
-// It is one card rather than one card per tool call. A turn runs dozens of
-// them, and a rail that pushed each onto the timeline would bury the six
-// decisions an operator came to read under a hundred file reads. The card
-// carries the count and the span; the table behind it carries the calls.
-//
-// The step is dated at the first moment, so it lands between the briefing and
-// the result instead of collapsing onto the turn's end timestamp.
-func activityTraceStep(page episodePage) (TraceStep, bool) {
-	if len(page.Activity) == 0 {
-		return TraceStep{}, false
+// Consecutive tool calls collapse into a single tabular card. That is what
+// makes both shapes work: a mechanical turn that runs twenty-six Emisar
+// actions back to back stays one card, while a turn that thinks, acts, thinks
+// again produces a card per beat and keeps the order those beats happened in.
+// The earlier single card lost exactly that — it lumped every thought into one
+// block and every call into another, so "considered X, then did Y" was
+// unrecoverable from the page.
+func activityTraceSteps(page episodePage) []TraceStep {
+	moments := page.Activity
+	steps := []TraceStep{}
+	for index := 0; index < len(moments); {
+		if moments[index].Kind != "tool" {
+			steps = append(steps, activityMomentStep(moments[index], len(steps)))
+			index++
+			continue
+		}
+		run := index
+		for run < len(moments) && moments[run].Kind == "tool" {
+			run++
+		}
+		steps = append(steps, activityCallsStep(moments[index:run], len(steps)))
+		index = run
 	}
-	var (
-		rows       []TraceTableRow
-		reasoning  []string
-		planSteps  []string
-		decisions  []string
-		elisions   []string
-		toolKinds  = map[string]int{}
-		tools      int
-		running    int
-		failed     int
-		first, end time.Time
-	)
-	for _, moment := range page.Activity {
-		if !moment.At.IsZero() {
-			if first.IsZero() || moment.At.Before(first) {
-				first = moment.At
+	return steps
+}
+
+// activityCallsStep renders one unbroken run of tool calls.
+func activityCallsStep(calls []ActivityMoment, ordinal int) TraceStep {
+	first, end := calls[0].At, calls[0].At
+	rows := make([]TraceTableRow, 0, len(calls))
+	kinds := map[string]int{}
+	operations := []string{}
+	seen := map[string]bool{}
+	failed, running := 0, 0
+	for _, call := range calls {
+		if !call.At.IsZero() {
+			if first.IsZero() || call.At.Before(first) {
+				first = call.At
 			}
-			if moment.At.After(end) {
-				end = moment.At
+			if call.At.After(end) {
+				end = call.At
 			}
 		}
-		switch moment.Kind {
-		case "tool":
-			tools++
-			if moment.ToolKind != "" {
-				toolKinds[moment.ToolKind]++
-			}
-			switch moment.Status {
-			case "":
-				running++
-			case "failed":
-				failed++
-			}
-			rows = append(rows, TraceTableRow{
-				Cells: []string{
-					activityOffset(first, moment.At),
-					fallback(moment.Title, "unnamed call"),
-					fallback(moment.ToolKind, "—"),
-					fallback(moment.Status, "still running"),
-					fallback(moment.Duration, "—"),
-					fallback(moment.Detail, "—"),
-				},
-				Expand: moment.Arguments, ExpandAt: 5,
-			})
-		case "thought":
-			if moment.Detail != "" {
-				reasoning = append(reasoning, moment.Detail)
-			}
-		case "plan":
-			for _, entry := range moment.Entries {
-				line := "• " + entry.Content
-				if entry.Status != "" {
-					line += " — " + entry.Status
-				}
-				planSteps = append(planSteps, line)
-			}
-		case "permission":
-			decisions = append(decisions, strings.TrimSpace(
-				fallback(moment.Title, "a tool call")+" — "+fallback(moment.Detail, "decided")))
-		case "elided":
-			elisions = append(elisions, moment.Detail)
+		if call.ToolKind != "" {
+			kinds[call.ToolKind]++
 		}
+		switch call.Status {
+		case "":
+			running++
+		case "failed":
+			failed++
+		}
+		if name := call.Title; name != "" && !seen[name] {
+			seen[name] = true
+			operations = append(operations, name)
+		}
+		rows = append(rows, TraceTableRow{
+			Cells: []string{
+				activityOffset(first, call.At),
+				fallback(call.Title, "unnamed call"),
+				fallback(call.ToolKind, "—"),
+				fallback(call.Status, "still running"),
+				fallback(call.Duration, "—"),
+				fallback(call.Detail, "—"),
+			},
+			Expand: call.Arguments, ExpandAt: 5,
+		})
 	}
 
 	step := TraceStep{
-		// Execution, not a stage of its own: an unmapped stage falls to the
-		// outcome band, and because chapters are assigned forward-only, one
-		// early card in that band drags the whole rest of the trace into
-		// "What came of it".
-		ID: "activity", Stage: "Execution", Actor: "Model", State: "recorded", Icon: "bolt",
-		At: first, Title: "Model worked",
-		Why: "What the model did between its briefing and its answer. Coop reports each " +
-			"tool call, plan revision and reasoning pass as it happens; without them a turn " +
-			"is only a duration, and the operations behind a conclusion are visible only " +
-			"when the model happens to cite them.",
+		ID: fmt.Sprintf("activity-%d", ordinal+1), Stage: "Execution", Actor: "Model",
+		State: "recorded", Icon: "bolt", At: first, band: bandWork,
+		Why: "Tool calls the model made in one unbroken stretch. Arguments are " +
+			"recorded, results are not: results dominate a transcript and routinely " +
+			"carry credentials and log bodies.",
+	}
+	if len(calls) == 1 {
+		step.Title = fallback(calls[0].Title, "Tool call")
+	} else {
+		step.Title = countList([]countPart{{len(calls), "tool call", "tool calls"}})
+		// Which operations ran, so a run of twenty-six is legible without
+		// opening it. Distinct names only — the same action against the same
+		// target twice is one fact, not two.
+		step.Summary = core.TruncateUTF8WithSuffix(strings.Join(operations, ", "), 200, "…")
 	}
 	if failed > 0 {
 		step.Tone = "warn"
 	}
-	step.Summary = countList([]countPart{
-		{tools, "tool call", "tool calls"},
-		{len(planSteps), "plan step", "plan steps"},
-		{len(reasoning), "reasoning pass", "reasoning passes"},
-		{failed, "failed call", "failed calls"},
-		// A call with no terminal update is not a call that succeeded. Saying
-		// so beats quietly rendering it as though it finished.
-		{running, "call never reported finishing", "calls never reported finishing"},
-	})
 	if !first.IsZero() && end.After(first) {
 		step.Duration = compactDuration(end.Sub(first))
 	}
-	for kind, count := range toolKinds {
+	for kind, count := range kinds {
 		step.Stats = append(step.Stats, TraceStat{kind, fmt.Sprint(count)})
 	}
 	sort.Slice(step.Stats, func(i, j int) bool { return step.Stats[i].Label < step.Stats[j].Label })
+	if failed > 0 {
+		step.Stats = append(step.Stats, TraceStat{"failed", fmt.Sprint(failed)})
+	}
+	// A call with no terminal update is not a call that succeeded.
+	if running > 0 {
+		step.Stats = append(step.Stats, TraceStat{"never finished", fmt.Sprint(running)})
+	}
+	step.Details = []TraceDetail{{
+		Label: "Every call, in order", Kind: "context", Status: "Tool calls",
+		Description: "Click a row's arguments to see the whole recorded input.",
+		Open:        true, ShowCount: true, Count: len(rows),
+		Table: &TraceTable{
+			Headers: []string{"At", "What ran", "Kind", "Status", "Took", "Arguments"},
+			Rows:    rows, Tight: true,
+		},
+	}}
+	return step
+}
 
-	if len(rows) > 0 {
-		step.Details = append(step.Details, TraceDetail{
-			Label: "Every call, in order", Kind: "context", Status: "Tool calls",
-			Description: "Arguments are recorded, results are not: results dominate a " +
-				"transcript and routinely carry credentials and log bodies.",
-			// Open, unlike the prompt bodies below it. This table is the
-			// substance of the card rather than a large body kept one click
-			// away, and a closed disclosure is why the first person to look
-			// for this on a live episode reported not seeing it at all.
-			Open:      true,
-			ShowCount: true, Count: len(rows),
-			Table: &TraceTable{
-				Headers: []string{"At", "What ran", "Kind", "Status", "Took", "Arguments"},
-				Rows:    rows, Tight: true,
-			},
-		})
+// activityMomentStep renders one non-tool beat: a stretch of reasoning, a plan
+// the model revised, a permission answered without a person, or a gap.
+func activityMomentStep(moment ActivityMoment, ordinal int) TraceStep {
+	step := TraceStep{
+		ID: fmt.Sprintf("activity-%d", ordinal+1), Stage: "Execution", Actor: "Model",
+		State: "recorded", At: moment.At, Tone: moment.Tone, band: bandWork,
 	}
-	if len(planSteps) > 0 {
-		step.Details = append(step.Details, TraceDetail{
-			Label: "Plan the model kept", Body: strings.Join(planSteps, "\n"), Kind: "text",
-			ShowCount: true, Count: len(planSteps),
-		})
+	switch moment.Kind {
+	case "thought":
+		step.Icon, step.Title = "sparkle", "Reasoning"
+		step.Summary = core.TruncateUTF8WithSuffix(moment.Detail, 160, "…")
+		step.Why = "The model's own account of its thinking, as the provider streamed it."
+		if len(moment.Detail) > len(step.Summary) {
+			step.Details = []TraceDetail{{
+				Label: "In full", Body: moment.Detail, Kind: "text",
+			}}
+		}
+	case "plan":
+		step.Icon, step.Title = "milestone", "Plan updated"
+		lines := make([]string, 0, len(moment.Entries))
+		done := 0
+		for _, entry := range moment.Entries {
+			line := "• " + entry.Content
+			if entry.Status != "" {
+				line += " — " + entry.Status
+			}
+			if entry.Status == "completed" {
+				done++
+			}
+			lines = append(lines, line)
+		}
+		step.Summary = fmt.Sprintf("%d of %d steps done", done, len(moment.Entries))
+		step.Why = "The model revised its own plan here. What it dropped or added " +
+			"says as much as what it kept."
+		step.Details = []TraceDetail{{
+			Label: "The plan as it stood", Body: strings.Join(lines, "\n"), Kind: "text",
+			Open: true, ShowCount: true, Count: len(lines),
+		}}
+	case "permission":
+		step.Icon, step.Title = "shield", "Permission decided"
+		step.Summary = strings.TrimSpace(fallback(moment.Title, "a tool call") +
+			" — " + fallback(moment.Detail, "decided"))
+		step.Why = "The agent asked to do something and nobody human was there to " +
+			"answer. This is what the policy chose on their behalf."
+	case "elided":
+		step.Icon, step.Title, step.Tone = "info", "Activity not recorded", "warn"
+		step.Summary = moment.Detail
+		if moment.Dropped > 0 {
+			step.Stats = []TraceStat{{"Moments dropped", fmt.Sprint(moment.Dropped)}}
+		}
+		step.Why = "The turn produced more activity than one turn may narrate. The " +
+			"gap is reported rather than left to read as a complete account."
+	default:
+		step.Icon, step.Title = "dot", fallback(moment.Title, "Activity")
+		step.Summary = moment.Detail
 	}
-	if len(reasoning) > 0 {
-		step.Details = append(step.Details, TraceDetail{
-			Label: "Reasoning", Body: strings.Join(reasoning, "\n\n"), Kind: "text",
-			Description: "The model's own account of its thinking, as the provider streamed it.",
-			ShowCount:   true, Count: len(reasoning),
-		})
-	}
-	if len(decisions) > 0 {
-		step.Details = append(step.Details, TraceDetail{
-			Label: "Permissions answered without a person", Body: strings.Join(decisions, "\n"),
-			Kind: "text", ShowCount: true, Count: len(decisions),
-		})
-	}
-	if len(elisions) > 0 {
-		step.Details = append(step.Details, TraceDetail{
-			Label: "Not recorded", Body: strings.Join(elisions, "\n"), Kind: "text", Tone: "warn",
-		})
-	}
-	return step, true
+	return step
 }
 
 func countActivityTools(moments []ActivityMoment) int {
