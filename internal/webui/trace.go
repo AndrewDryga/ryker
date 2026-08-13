@@ -1013,11 +1013,13 @@ func cannedNextAction(next string) bool {
 }
 
 // phaseCardSummary is the one line a phase card carries: the recorded status
-// when it says something the title does not, otherwise the plain explanation
-// of what this stage is — plus any next action that is not host boilerplate.
+// when it says something real (a rate-limit message, a blocker), otherwise
+// the plain explanation of what this stage is — plus any next action that is
+// not host boilerplate.
 func phaseCardSummary(payload phasePayload, status, title string, present func(string) string) string {
 	summary := strings.TrimSpace(present(status))
-	if strings.EqualFold(summary, title) || strings.EqualFold(summary, payload.Phase) {
+	if strings.EqualFold(summary, title) || strings.EqualFold(summary, payload.Phase) ||
+		cannedPhaseStatus(summary) {
 		summary = ""
 	}
 	if summary == "" {
@@ -1027,6 +1029,20 @@ func phaseCardSummary(payload phasePayload, status, title string, present func(s
 		summary = strings.TrimSpace(summary + " Next: " + present(next))
 	}
 	return summary
+}
+
+// cannedPhaseStatus recognizes the host's fixed status labels, which restate
+// the phase rather than describe this episode.
+func cannedPhaseStatus(status string) bool {
+	return map[string]bool{
+		"Accepted":             true,
+		"Planning the work":    true,
+		"Investigating":        true,
+		"Preparing the result": true,
+		"Completed":            true,
+		"Resuming work":        true,
+		"Verified privately":   true,
+	}[status]
 }
 
 // routinePhasePayload reports whether a phase payload holds only the fields
