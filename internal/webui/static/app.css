@@ -918,7 +918,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 /* Who acted, only when it is not Responder itself — and each outside actor
    keeps one hue, so "purple did this" becomes muscle memory for the model. */
 .trace-actor { color: var(--faint); font: 550 10.5px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
-.trace-actor[data-actor="Model"] { color: #c4b5fd; }
+.trace-actor[data-actor="Model"], .trace-actor[data-actor="agent"] { color: #c4b5fd; }
 .trace-actor[data-actor="Coop"] { color: #67e8f9; }
 .trace-actor[data-actor="Slack"], .trace-actor[data-actor="Slack outbox"] { color: #7dd3fc; }
 .trace-actor[data-actor="Operator"], .trace-actor[data-actor="person"] { color: var(--warn); }

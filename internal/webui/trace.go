@@ -2854,6 +2854,7 @@ func eventTitle(kind string) string {
 		"episode_created":            "Episode created",
 		"phase_changed":              "Phase changed",
 		"context_extended":           "Context recorded",
+		"evidence_recorded":          "Model logged evidence",
 		"completed":                  "Episode completed",
 		"blocked":                    "Blocked",
 	}[kind]; ok {
@@ -3001,6 +3002,9 @@ func usageTraceStep(page episodePage) TraceStep {
 }
 
 func eventWhy(kind string) string {
+	if kind == "evidence_recorded" {
+		return "The contract makes the model file evidence — a claim, the observation, its source and confidence — instead of just asserting conclusions. These rows feed the claim assessment and the operational memory of future turns in this channel."
+	}
 	if kind == "context_extended" {
 		return "The kernel's receipt for freezing a context manifest. It renders here because the manifest itself could not be loaded on this page."
 	}
