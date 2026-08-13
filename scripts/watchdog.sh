@@ -39,6 +39,11 @@ renotify_minutes="${WATCHDOG_RENOTIFY_MINUTES:-30}"
 
 mkdir -p "$state_dir"
 
+# A heartbeat, because this script is silent when everything is well and also
+# silent when it is dead, and those must be tellable apart. Written first, so
+# it records that the check started even if the check itself then fails.
+date -u '+%Y-%m-%dT%H:%M:%SZ' > "$state_dir/heartbeat"
+
 note() {
   printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" >> "$log"
 }
