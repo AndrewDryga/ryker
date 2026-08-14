@@ -103,6 +103,50 @@ else
   printf 'FAIL a healthy deployment logged: %s\n' "$healthy"; failures=$((failures + 1))
 fi
 
+# The alarm also lands as a Slack DM to the deployment's operator, with the
+# deployment's own bot token — the toast alone let an 11-hour stall pass
+# unseen. Proven by watching the request arrive, not by trusting that it
+# would: the API base is pointed at a local server that records what it is
+# sent.
+rm -rf "$WATCHDOG_STATE"; seed pending 12
+printf 'listen: 127.0.0.1:59999\nslack:\n  operators:\n    - UWATCHOP1\n' \
+  > "$work/deploy/.responder/responder.yaml"
+printf 'SLACK_BOT_TOKEN=xoxb-watchdog-test-token\n' > "$work/deploy/.responder/local.env"
+/usr/bin/python3 -c "
+import http.server, threading, time
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        with open('$work/slack-posts', 'ab') as f:
+            f.write(self.path.encode() + b' ' + self.headers.get('Authorization','').encode() + b' ' + body + b'\n')
+        self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers()
+        self.wfile.write(b'{\"ok\":true}')
+    def log_message(self, *a): pass
+s = http.server.HTTPServer(('127.0.0.1', 0), H)
+open('$work/slack-port', 'w').write(str(s.server_address[1]))
+threading.Thread(target=s.serve_forever, daemon=True).start()
+time.sleep(12)
+" &
+slack_server=$!
+sleep 1
+slack_port=$(cat "$work/slack-port")
+export WATCHDOG_SLACK_API="http://127.0.0.1:$slack_port"
+run >/dev/null
+run >/dev/null
+kill $slack_server 2>/dev/null; wait $slack_server 2>/dev/null
+unset WATCHDOG_SLACK_API
+posts=$(cat "$work/slack-posts" 2>/dev/null)
+check "the alarm reaches Slack as a DM to the operator" "\"channel\":\"UWATCHOP1\"" "$posts"
+check "the DM says what is wrong" "is not working" "$posts"
+check "the DM authenticates with the deployment's token" "Bearer xoxb-watchdog-test-token" "$posts"
+
+# A deployment without Slack credentials keeps the toast and says why, rather
+# than failing the check.
+rm -rf "$WATCHDOG_STATE"; rm -f "$work/deploy/.responder/local.env"; seed pending 12
+run >/dev/null
+nodm=$(run)
+check "a deployment without credentials skips the DM and says so" "slack DM skipped" "$nodm"
+
 # Nothing to watch is itself a failure: a watchdog pointed at an empty
 # directory reports success forever, which is the most dangerous state it has.
 rm -rf "$WATCHDOG_STATE" "$WATCHDOG_AGENTS"; mkdir -p "$WATCHDOG_AGENTS"

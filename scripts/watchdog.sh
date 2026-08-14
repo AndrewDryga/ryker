@@ -48,9 +48,47 @@ note() {
   printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" >> "$log"
 }
 
+# slack_dm sends the alarm to the deployment's first configured operator as a
+# Slack DM, with the deployment's own bot token.
+#
+# The toast was not enough. On 2026-08-14 the emisar queue sat wedged for
+# eleven hours and 654 strikes while the alarm fired as a macOS notification —
+# transient, easy to miss, gone if the operator was not at this machine. The
+# bot token is the right transport for the same reason the queue is the right
+# signal: it works when the Responder process is dead, because the Slack app
+# outlives the process that uses it. Credentials come from the deployment's own
+# local.env and config, read at alarm time and never logged; a deployment
+# without them just keeps the toast. The API base is overridable so the test
+# can watch the request arrive instead of trusting that it would.
+slack_dm() {
+  local title="$1" message="$2"
+  # The nothing-to-watch alarm belongs to no deployment and stays a toast.
+  [[ -n ${current_env:-} && -n ${current_config:-} ]] || return 0
+  if [[ ! -f $current_env ]]; then
+    note "slack DM skipped for $title: no local.env beside the deployment config"
+    return 0
+  fi
+  local token operator
+  token=$(sed -n 's/^ *\(export \)\{0,1\}SLACK_BOT_TOKEN=//p' "$current_env" | head -1)
+  token=${token%\"}; token=${token#\"}; token=${token%\'}; token=${token#\'}
+  operator=$(sed -n '/^ *operators:/,/^[^ ]/p' "$current_config" |
+    sed -n 's/^[[:space:]]*-[[:space:]]*//p' | head -1)
+  if [[ -z $token || -z $operator ]]; then
+    note "slack DM skipped for $title: no bot token or operator in the deployment config"
+    return 0
+  fi
+  local api="${WATCHDOG_SLACK_API:-https://slack.com/api}"
+  local safe_title=${title//\"/\\\"} safe_message=${message//\"/\\\"}
+  /usr/bin/curl -fsS --max-time 5 -X POST "$api/chat.postMessage" \
+    -H "Authorization: Bearer $token" -H "Content-Type: application/json; charset=utf-8" \
+    -d "{\"channel\":\"$operator\",\"text\":\"$safe_title — $safe_message\"}" \
+    >/dev/null 2>&1 || note "slack DM failed for $title"
+}
+
 alarm() {
   local title="$1" message="$2"
   note "ALERT $title — $message"
+  slack_dm "$title" "$message"
   # Escaped for AppleScript's string literal, which is the one place a
   # deployment name containing a quote would otherwise become a syntax error.
   local safe_title=${title//\"/\\\"} safe_message=${message//\"/\\\"}
@@ -115,6 +153,11 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
   # with no database.
   config="$responder_dir/responder.yaml"
   [[ -f $config ]] || continue
+  # Remembered for the alarm path: a per-deployment alarm DMs that
+  # deployment's operator with that deployment's token. The nothing-to-watch
+  # alarm at the bottom has neither and stays a toast.
+  current_config="$config"
+  current_env="$responder_dir/local.env"
   db="$responder_dir/state/responder.db"
   listen=$(/usr/bin/awk -F'[[:space:]]+' '/^listen:/ {print $2; exit}' "$config" 2>/dev/null)
 
