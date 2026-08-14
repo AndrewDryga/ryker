@@ -90,6 +90,12 @@ func ReplyShapeCorrection(trigger, lane, action, message string) string {
 			"next concrete action. If a blocker changes what the reader should do, name it in one " +
 			"clause inside the answer rather than as the parting thought."
 	}
+	if phrase := noOpClosing(message); phrase != "" {
+		return "the reply closes on `" + phrase + "`, which announces the absence of a next action " +
+			"instead of ending on the outcome. When nothing is needed, stop after what happened — " +
+			"the missing ask says it. State a next action only when one exists; keep " +
+			"nothing-is-pending as internal memory if it is worth remembering, not as channel prose."
+	}
 	return ""
 }
 
@@ -292,6 +298,39 @@ var scopeDisclaimerClosings = []string{
 func scopeDisclaimerClosing(message string) string {
 	closing := replyClosing(message)
 	for _, phrase := range scopeDisclaimerClosings {
+		if strings.Contains(closing, phrase) {
+			return phrase
+		}
+	}
+	return ""
+}
+
+// noOpClosings are endings that announce the absence of a next action.
+//
+// On 2026-08-14 a clean terminal-run reply in #backend-ops closed with "no
+// further action is needed" — boilerplate the operator flagged on sight. The
+// instruction that bred it ("if it is progressing safely and needs no action
+// now, say so") was written for ACTIVE issues, where "you don't have to act
+// yet" is information; on a terminal success the same sentence is padding, and
+// once a model learns it as a closing it appends it everywhere. Position is
+// the whole rule, as with every list here: mid-message, "no action needed
+// before the rollout" can be a real constraint; as the parting thought it is
+// the absence of information dressed as information.
+var noOpClosings = []string{
+	"no further action is needed", "no further action needed",
+	"no further action is required", "no further action required",
+	"no action is needed", "no action needed",
+	"no action is required", "no action required",
+	"nothing further is needed", "nothing further needed",
+	"nothing else is needed", "nothing else needed", "nothing else to do",
+	"no follow-up is needed", "no follow-up needed",
+	"no followup is needed", "no followup needed",
+}
+
+// noOpClosing returns the no-op ending a reply closes on, or "".
+func noOpClosing(message string) string {
+	closing := replyClosing(message)
+	for _, phrase := range noOpClosings {
 		if strings.Contains(closing, phrase) {
 			return phrase
 		}

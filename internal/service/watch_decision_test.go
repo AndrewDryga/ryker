@@ -274,7 +274,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			decision: `{"action":"reply","attention":{"addressee":"channel",` +
 				`"urgency":1,"confidence":3,"novelty":2,"ownership":2,"contribution":"decision","material":true},` +
 				`"operations":[{"id":"complete","type":"complete_episode","completion":{` +
-				`"message":"The deploy recovered; no action is needed.",` +
+				`"message":"The deploy recovered; checkout is serving normally again.",` +
 				`"completion":{"status":"decision_ready","summary":"the deploy recovered"}}}]}`,
 			wantState: "done", wantPosts: 1,
 		},

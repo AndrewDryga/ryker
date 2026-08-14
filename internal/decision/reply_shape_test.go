@@ -158,6 +158,41 @@ func TestReplyShapeRejectsOnlyAClosingHandBack(t *testing.T) {
 	}
 }
 
+// A clean terminal-run reply in #backend-ops on 2026-08-14 closed with "no
+// further action is needed", and the operator flagged it on sight: a next
+// action is stated only when one exists, and announcing its absence is padding
+// dressed as information. Position is the whole rule, as with every closing
+// list — "no action needed before the rollout" mid-message can be a real
+// constraint; as the parting thought it says nothing the silence after the
+// last sentence doesn't.
+func TestReplyShapeRejectsAClosingNoOp(t *testing.T) {
+	body := words(70)
+	for _, closing := range []string{
+		"All three groups are stable on their new version targets; no further action is needed.",
+		"The rollout completed cleanly, so no action is required.",
+		"Everything reconciled, and there is nothing else to do.",
+		"The alert closed on its own — no follow-up needed.",
+	} {
+		reply := body + "\n\n" + closing
+		correction := decisionpkg.ReplyShapeCorrection(
+			strings.Repeat("context ", 30)+"did the rollout land?", "conversation", "reply", reply,
+		)
+		if !strings.Contains(correction, "announces the absence of a next action") {
+			t.Fatalf("no-op closing %q produced %q", closing, correction)
+		}
+	}
+
+	// The same phrase mid-message, followed by the finding, is a constraint and
+	// must survive.
+	legitimate := "No action is needed before the rollout window; the migration gate holds " +
+		"writes until then. " + body + "\n\nThe window opens at 14:00 UTC and the gate lifts itself."
+	if correction := decisionpkg.ReplyShapeCorrection(
+		strings.Repeat("context ", 30)+"when does the rollout land?", "conversation", "reply", legitimate,
+	); correction != "" {
+		t.Fatalf("a mid-message no-action constraint was rejected: %q", correction)
+	}
+}
+
 // Only a reply has a shape to get wrong.
 func TestReplyShapeIgnoresNonReplyActions(t *testing.T) {
 	for _, action := range []string{"ignore", "react", "escalate"} {

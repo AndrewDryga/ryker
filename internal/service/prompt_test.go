@@ -451,7 +451,7 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // question; the team's names for things are learned and used; a repeated
 // working-style signal earns one offered guidance memory. Each is pinned
 // below so a future diet cannot silently eat it.
-const staticWatchPromptBytes = 51356
+const staticWatchPromptBytes = 51355
 
 // The static prompt must not grow without someone deciding it should.
 //

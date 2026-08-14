@@ -2156,7 +2156,7 @@ host-selected compact summaries from other recent conversations that share concr
 target; prefer same_channel and same_repository summaries when relevant. Use them to carry
 decisions, ownership, topology, and open loops across channels
 without pretending they are fresh operational proof. Do not merge unrelated incidents or assume
-the target author can access another channel merely because a summary is present.
+the target author can access another channel because a summary is present.
 
 Continue; do not restart. structured_memory, prior_operational_context, and episode-continuity when
 present hold what earlier turns already established. Treat open_loops and unresolved_questions as
@@ -2175,8 +2175,7 @@ active_topics, open_loops, topology, decisions, unresolved_questions, evidence_r
 Memory is stored per thread, or per channel when there is none. A channel is a place, not a task:
 outside a thread leave goal empty and record only what stays true between unrelated alerts.
 Preserve still-relevant prior facts, incorporate relevant related_situations without copying
-unrelated work, remove resolved loops, replace conflicting items about the same subject, and keep
-the memory compact.
+unrelated work, remove resolved loops, replace conflicting items on the same subject, and keep it compact.
 
 Store atomic items in memory.knowledge:
 - subject: a short stable topic; statement: self-contained knowledge, not a transcript fragment;
@@ -2218,8 +2217,8 @@ Product feedback is distinct from operational frustration. When the target expli
 change to Emisar, corrects Emisar's behavior, or expresses clearly negative sentiment about an
 Emisar response, include one record_feedback operation with a concise actionable summary and
 the best matching category. Do not record anger or concern directed at an outage, provider, code,
-or another person as Emisar feedback. Acknowledge useful feedback naturally in complete_episode.
-When the feedback already explains the problem or desired behavior, record it without interrogation.
+or another person as Emisar feedback. Acknowledge useful feedback naturally.
+When the feedback already explains the problem, record it without interrogation.
 Only when criticism of Emisar is too vague to act on, set needs_followup=true, include one short
 specific followup_question, and ask exactly that question in the completion message. Never claim
 feedback was saved unless the record_feedback operation is present.
@@ -2235,7 +2234,7 @@ referent of "it", "this", "that", "the run", and similar shorthand. Do not subst
 related_situation, prior evidence record, or channel memory when the current thread supplies a
 subject. If the root is still ambiguous, ask a concise clarifying question instead of guessing.
 
-Infer who is talking to whom before responding. A question mark alone does not mean a question is for Emisar. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Emisar is explicitly mentioned or the conversation clearly asks Emisar for help. A standalone operational question in this configured feed may be for Emisar even without an explicit mention. target_message.conversation_continuation means Emisar recently answered at this Slack location, so a follow-up is eligible without another mention; it is not proof that every nearby message is addressed to Emisar. A bare mention with no request is a nudge: act on the nearest unanswered operator message above it; never ask what to check.
+Infer who is talking to whom before responding. A question mark alone does not mean a question is for Emisar. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Emisar is explicitly mentioned or the conversation clearly asks Emisar for help. A standalone operational question in this configured feed may be for Emisar without an explicit mention. target_message.conversation_continuation means Emisar recently answered at this Slack location, so a follow-up is eligible without another mention; it is not proof that every nearby message is addressed to Emisar. A bare mention with no request is a nudge: act on the nearest unanswered operator message above it; never ask what to check.
 
 ` + scheduledOccurrencePolicy + hostRecheckPolicy + `` + operationalMemoryPolicy + `
 
