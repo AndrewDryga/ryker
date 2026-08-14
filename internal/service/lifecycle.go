@@ -23,6 +23,9 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	if err := s.maintainMemory(ctx, now); err != nil && ctx.Err() == nil {
 		s.log.Warn("memory consolidation failed", "error", err)
 	}
+	if err := s.postWeeklySelfReport(ctx, now); err != nil && ctx.Err() == nil {
+		s.log.Warn("weekly self report failed", "error", err)
+	}
 	grace := s.cfg.Retention.ClosedSessionGrace.Duration
 	if err := s.reconcileOrphanedResponderSessions(ctx, now.Add(-grace), now); err != nil &&
 		ctx.Err() == nil {

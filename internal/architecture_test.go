@@ -345,7 +345,15 @@ var lineBudget = map[string]int{
 	// 22079 the same evening, for the supersession guard's sibling coverage
 	// and the nudge rule — the two halves of the 2026-08-14 "What would you
 	// like me to check?" failure.
-	"service": 22079,
+	//
+	// Raised to 22175 on 2026-08-14 for the weekly self report, atop the
+	// evening's 22079: one call in the maintenance sweep and one function that
+	// reads the schedule, the recorded send, and the configured channel. The
+	// two halves that could leave did — internal/selfreport composes the
+	// digest and internal/store/selfreportstore counts it, both registered
+	// below — and the margin left is what stops the next honest change
+	// arguing with a number instead of a reviewer.
+	"service": 22175,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -459,7 +467,13 @@ var lineBudget = map[string]int{
 	// or a crash between the two leaves an attempt that will record a prompt
 	// it never sent. The extraction the notes above keep asking for is still
 	// what brings this number down.
-	"store":      11425,
+	//
+	// Raised to 11440 on 2026-08-14 for the weekly self report's repository.
+	// Three lines: the import, the field, and the line in attachRepositories.
+	// Every query it owns went to internal/store/selfreportstore, which is the
+	// split these notes keep asking for; a delegating method here would have
+	// cost the same three lines and a slot in the method budget as well.
+	"store":      11440,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,
@@ -539,7 +553,14 @@ var lineBudget = map[string]int{
 	// halves of the rule live here — the instruction text every lane carries and
 	// the measured bound the host enforces — because a rule split across
 	// packages is how "answer in thread" went two months unmeasured.
-	"replypolicy":       270,
+	"replypolicy": 270,
+	// selfreport composes the weekly digest, and selfreportstore counts it.
+	// They are two packages rather than one because the counting needs the
+	// database and the wording needs nothing at all: the wording is where the
+	// interesting mistakes are, and a test for it should not have to migrate a
+	// schema to run.
+	"selfreport":        260,
+	"selfreportstore":   275,
 	"replaycontrol":     75,
 	"replayinterrupt":   95,
 	"replaycancelstore": 90,
@@ -553,28 +574,34 @@ var lineBudget = map[string]int{
 // internal packages it must never import, keeping the layering acyclic and
 // stopping the domain and persistence layers from depending on presentation.
 var forbiddenImports = map[string][]string{
-	"core":                     {"config", "coop", "emisar", "publisher", "service", "slackui", "store", "webhook", "httpapi", "app"},
-	"store":                    {"service", "slackui", "publisher", "httpapi", "app", "emisar"},
-	"slackui":                  {"service", "store", "httpapi", "app", "publisher"},
-	"coop":                     {"service", "store", "slackui", "httpapi", "app"},
-	"replaycontrol":            {"service", "store", "slackui", "httpapi", "app"},
-	"replayinterrupt":          {"service", "store", "slackui", "httpapi", "app"},
-	"replaycancelstore":        {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
-	"serviceport":              {"service", "store", "httpapi", "app"},
-	"emisar":                   {"service", "store", "slackui", "httpapi", "app"},
-	"webhook":                  {"service", "store", "slackui", "httpapi", "app"},
-	"episode":                  {"service", "store", "slackui", "httpapi", "app"},
-	"pausecleanupstore":        {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
-	"promptbudget":             {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "core"},
-	"repositorycapability":     {"service", "store", "slackui", "httpapi", "app", "publisher", "emisar", "decision", "investigation"},
-	"investigation":            {"service", "store", "slackui", "httpapi", "app"},
-	"investigationcontract":    {"service", "store", "slackui", "httpapi", "app", "decision", "investigation"},
-	"decision":                 {"service", "store", "httpapi", "app", "publisher", "coop"},
-	"evaluation":               {"httpapi", "app", "webhook"},
-	"agentcontext":             {"service", "store", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
-	"agentprompt":              {"service", "store", "slackui", "httpapi", "app", "publisher", "config"},
-	"evidencepolicy":           {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
-	"replypolicy":              {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	"core":                  {"config", "coop", "emisar", "publisher", "service", "slackui", "store", "webhook", "httpapi", "app"},
+	"store":                 {"service", "slackui", "publisher", "httpapi", "app", "emisar"},
+	"slackui":               {"service", "store", "httpapi", "app", "publisher"},
+	"coop":                  {"service", "store", "slackui", "httpapi", "app"},
+	"replaycontrol":         {"service", "store", "slackui", "httpapi", "app"},
+	"replayinterrupt":       {"service", "store", "slackui", "httpapi", "app"},
+	"replaycancelstore":     {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
+	"serviceport":           {"service", "store", "httpapi", "app"},
+	"emisar":                {"service", "store", "slackui", "httpapi", "app"},
+	"webhook":               {"service", "store", "slackui", "httpapi", "app"},
+	"episode":               {"service", "store", "slackui", "httpapi", "app"},
+	"pausecleanupstore":     {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
+	"promptbudget":          {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "core"},
+	"repositorycapability":  {"service", "store", "slackui", "httpapi", "app", "publisher", "emisar", "decision", "investigation"},
+	"investigation":         {"service", "store", "slackui", "httpapi", "app"},
+	"investigationcontract": {"service", "store", "slackui", "httpapi", "app", "decision", "investigation"},
+	"decision":              {"service", "store", "httpapi", "app", "publisher", "coop"},
+	"evaluation":            {"httpapi", "app", "webhook"},
+	"agentcontext":          {"service", "store", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	"agentprompt":           {"service", "store", "slackui", "httpapi", "app", "publisher", "config"},
+	"evidencepolicy":        {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
+	"replypolicy":           {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	// The digest reads the database and writes into Slack, so the direction has
+	// to be stated or it will drift back into one package that does both. The
+	// composer knows nothing about either: give it a counted week and it
+	// returns Markdown, which is what lets its tests be a table of strings.
+	"selfreport":               {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "investigation"},
+	"selfreportstore":          {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "investigation"},
 	"retrydelay":               {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
 	"schemaassets":             {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation", "core"},
 	"triageoutcome":            {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "investigation"},

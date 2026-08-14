@@ -27,6 +27,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 	"github.com/AndrewDryga/responder/internal/store/replaycancelstore"
 	"github.com/AndrewDryga/responder/internal/store/schedulestore"
+	"github.com/AndrewDryga/responder/internal/store/selfreportstore"
 	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 	"github.com/AndrewDryga/responder/internal/store/taskcardstore"
@@ -109,6 +110,9 @@ type Store struct {
 	// ReplayCancellations retries Coop interruption after a local replay
 	// cancellation, including across process restart and lost submit responses.
 	ReplayCancellations *replaycancelstore.Repository
+	// SelfReport counts the week the weekly digest reports, and remembers when
+	// that digest last went out.
+	SelfReport *selfreportstore.Repository
 }
 
 type Metrics struct {
@@ -1119,6 +1123,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.SlackInputs = slackinputstore.New(db)
 	s.PauseCleanup = pausecleanupstore.New(db)
 	s.ReplayCancellations = replaycancelstore.New(db, clock)
+	s.SelfReport = selfreportstore.New(db)
 }
 
 // SetClock replaces the store clock. It exists for tests.

@@ -133,6 +133,21 @@ memory:
   max_rollups: 256
   min_rollup_sources: 2
 
+report:
+  # A weekly digest of how Responder itself did: the correction rate and its direction,
+  # feedback and graded reactions, what it learned, the open loops nobody has closed, and
+  # the week's worst confirmed answer. Composed from SQL with no model call, so it cannot
+  # hallucinate a good week.
+  weekly_self_report:
+    # Off by default. This posts unprompted on a schedule, which an operator opts into.
+    enabled: false
+    # The Slack channel id the digest is posted in. Required once enabled.
+    # channel: C0123456789
+    # The local send time. Local rather than UTC, so it does not drift an hour twice a year.
+    weekday: monday
+    local_time: "09:00"
+    timezone: UTC
+
 repositories:
   infrastructure:
     display_name: Infrastructure

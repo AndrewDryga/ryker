@@ -63,6 +63,7 @@ type Config struct {
 	GitHub         GitHubConfig             `yaml:"github"`
 	Retention      RetentionConfig          `yaml:"retention"`
 	Memory         MemoryConfig             `yaml:"memory"`
+	Report         ReportConfig             `yaml:"report"`
 	Repositories   map[string]Repository    `yaml:"repositories"`
 	RepositorySets map[string]RepositorySet `yaml:"repository_sets"`
 	Webhooks       map[string]Webhook       `yaml:"webhooks"`
@@ -347,6 +348,31 @@ type MemoryConfig struct {
 	MinRollupSources         int      `yaml:"min_rollup_sources"`
 }
 
+// ReportConfig holds the digests Responder posts about itself rather than
+// about the team's systems.
+type ReportConfig struct {
+	WeeklySelfReport WeeklySelfReportConfig `yaml:"weekly_self_report"`
+}
+
+// WeeklySelfReportConfig switches on the weekly digest and says where and when
+// it goes.
+//
+// Off by default, and it has to be. This posts unprompted into a channel on a
+// schedule, which is the one behaviour an operator must opt into rather than
+// discover; a deployment that upgrades into a new recurring message is a
+// deployment that taught its team to mute the bot.
+type WeeklySelfReportConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// Channel is the Slack channel id the digest is posted in.
+	Channel string `yaml:"channel"`
+	// Weekday and LocalTime are the local send time, in Timezone. Local
+	// rather than UTC because "Monday morning" is what an operator means, and
+	// a UTC hour drifts an hour off that twice a year.
+	Weekday   string `yaml:"weekday"`
+	LocalTime string `yaml:"local_time"`
+	Timezone  string `yaml:"timezone"`
+}
+
 type Webhook struct {
 	Name              string         `yaml:"-"`
 	Kind              string         `yaml:"kind"`
@@ -481,6 +507,11 @@ func defaults() Config {
 			MaxConversationSummaries: 2000,
 			MaxRollups:               256,
 			MinRollupSources:         2,
+		},
+		Report: ReportConfig{
+			WeeklySelfReport: WeeklySelfReportConfig{
+				Weekday: "monday", LocalTime: "09:00", Timezone: "UTC",
+			},
 		},
 		Limits: Limits{
 			MaxWebhookBytes:                  1 << 20,
@@ -753,6 +784,9 @@ func (c Config) validateSubsystems() error {
 	}
 	if err := validateMemory(c.Memory, c.Retention); err != nil {
 		return fmt.Errorf("memory: %w", err)
+	}
+	if err := validateWeeklySelfReport(c.Report.WeeklySelfReport); err != nil {
+		return fmt.Errorf("report.weekly_self_report: %w", err)
 	}
 	if err := validatePricing(c.Pricing); err != nil {
 		return fmt.Errorf("pricing: %w", err)
@@ -1057,6 +1091,65 @@ func validateMemory(c MemoryConfig, retention RetentionConfig) error {
 		return errors.New("min_rollup_sources must be between 1 and 50")
 	}
 	return nil
+}
+
+// validateWeeklySelfReport refuses a schedule that would never fire.
+//
+// Checked even when the digest is switched off, because these three fields are
+// how an operator turns it on: a typo in weekday or timezone that is only
+// rejected once enabled is a typo discovered a week later, when the message
+// everybody was expecting did not arrive.
+func validateWeeklySelfReport(c WeeklySelfReportConfig) error {
+	if _, ok := weekdayNumber(c.Weekday); !ok {
+		return errors.New("weekday must be a lowercase day name such as monday")
+	}
+	if _, err := time.Parse("15:04", c.LocalTime); err != nil {
+		return errors.New("local_time must use HH:MM")
+	}
+	if _, err := time.LoadLocation(c.Timezone); err != nil {
+		return fmt.Errorf("timezone %q is not a known location", c.Timezone)
+	}
+	if c.Enabled && strings.TrimSpace(c.Channel) == "" {
+		return errors.New("channel is required when the weekly self report is enabled")
+	}
+	return nil
+}
+
+// weekdayNumber reads a lowercase day name.
+func weekdayNumber(value string) (time.Weekday, bool) {
+	for day := time.Sunday; day <= time.Saturday; day++ {
+		if strings.ToLower(day.String()) == value {
+			return day, true
+		}
+	}
+	return 0, false
+}
+
+// Day is the weekday the digest goes out.
+func (c WeeklySelfReportConfig) Day() time.Weekday {
+	day, _ := weekdayNumber(c.Weekday)
+	return day
+}
+
+// Clock is the local hour and minute the digest goes out.
+func (c WeeklySelfReportConfig) Clock() (int, int) {
+	parsed, err := time.Parse("15:04", c.LocalTime)
+	if err != nil {
+		return 9, 0
+	}
+	return parsed.Hour(), parsed.Minute()
+}
+
+// Location is the timezone the send time is stated in. An
+// unloadable location falls back to UTC rather than skipping the week: Validate
+// has already refused one, so reaching this means the zone database moved under
+// a running process, and a digest an hour off is better than no digest.
+func (c WeeklySelfReportConfig) Location() *time.Location {
+	location, err := time.LoadLocation(c.Timezone)
+	if err != nil {
+		return time.UTC
+	}
+	return location
 }
 
 func validateSlack(c SlackConfig) error {
