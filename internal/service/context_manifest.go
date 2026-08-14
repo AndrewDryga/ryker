@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	responderPromptVersion       = "responder-prompt-v2"
+	responderPromptVersion       = "responder-prompt-v3"
 	investigationContractVersion = "investigation-contract-v1"
 	resultOperationsVersion      = "result-operations-v2"
 )

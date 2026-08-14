@@ -35,7 +35,11 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 		"Answer the user's actual question first",
 		"one main idea per sentence",
 		"Keep exact technical terms",
-		"Strict controlled English is only for a user who explicitly asks for it",
+		// Simplified technical English is the default register now, not an
+		// opt-in. The owner asked for it directly on 2026-08-14; the old pin
+		// said the opposite ("strict controlled English is only for a user who
+		// explicitly asks"), so it retired with the sentence it anchored.
+		"the rhythm of simplified technical English",
 		"Do not repeat repository or live-system checks",
 		"Use humor like a trusted teammate",
 		"never force a joke",
@@ -204,7 +208,7 @@ func TestBoundedConversationUsesTheSameHumanVoicePolicy(t *testing.T) {
 		"not a report generator, policy engine, or technical manual",
 		"Use common words, contractions",
 		"Do not force headings or bullets onto a short answer",
-		"Strict controlled English is only for a user who explicitly asks for it",
+		"the rhythm of simplified technical English",
 		"Use humor like a trusted teammate",
 		"Use emoji like a teammate, not decoration",
 		"Prefer a reaction over a written reply",
@@ -409,7 +413,24 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // title, repository and prompt and nothing else, so it is the one result-shaped
 // thing with no operation to travel in, and a prompt that forbade it would
 // forbid updating an exact existing PR at all.
-const staticWatchPromptBytes = 49788
+//
+// Raised by 108 net on 2026-08-14, the day the prompt stopped being a heap.
+// Bought: one persona (the two role sentences disagreed — Responder in this
+// lane, Emisar in the conversation lane — and the follow-up rule already spoke
+// of Emisar, which is the name teammates actually see); a continuity
+// instruction telling the model that structured_memory, prior context, and the
+// episode-continuity ledger are its own earlier findings to build on rather
+// than re-derive; a when-to-ask rule for sizable engineering offers (three
+// pointed questions, each with a proposed default) against a production count
+// of five request_operator_input uses ever; a final shape check at the tail
+// naming the exact correction classes still firing — bare payload nouns,
+// integer confidence, blocked completions missing their five fields; and the
+// simplified-technical-English default the owner asked for. Paid: the memory
+// rules said twice became once, the engineering-offer rules said three times
+// became one block, the reply bullet stopped restating it, and the plain and
+// alert style policies lost their overlap. 2,441 bytes of additions arrived
+// with 2,333 bytes of deletions.
+const staticWatchPromptBytes = 49896
 
 // The static prompt must not grow without someone deciding it should.
 //

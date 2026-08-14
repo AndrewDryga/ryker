@@ -397,7 +397,8 @@ func StructuredResponseInstructions() string {
 
 ` + investigation.ResultOperationsPrompt() + `
 
-Evidence requires claim_id when it satisfies a contract claim, claim, observation, source_type,
+Evidence always requires claim_id — the exact required_claims id when the contract lists one,
+otherwise a short stable slug naming the claim it answers — plus claim, observation, source_type,
 source_name, relation=supports|contradicts, dimensions, observed_at when known, freshness, and
 confidence. Coverage requires layer, status, source, detail, observed_at when known, and claim_ids.
 Never invent a source, evidence, timestamp, action, target, approval, or outcome. The complete_episode

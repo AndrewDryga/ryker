@@ -533,7 +533,7 @@ func ResultOperationsPrompt() string {
 and exactly one payload matching its type. The host validates operations independently and records
 accepted operations in the episode event stream.
 
-- record_evidence: {"id":"evidence-1","type":"record_evidence","evidence":{"claim_id":"exact required_claims id from the host contract","claim":"short claim","observation":"what the source established","relation":"supports|contradicts","health_effect":"none|risk|degraded|unhealthy|unknown","source_type":"repository|emisar|monitoring|slack|other","source_id":"stable provider or result id","source_name":"human-readable source","observed_at":"RFC3339 source time","freshness":"source-relative age or revision","confidence":"high|medium|low","dimensions":{"service":"api","environment":"production","replicas":3},"scope_note":"optional bounded limitation"}}
+- record_evidence: {"id":"evidence-1","type":"record_evidence","evidence":{"claim_id":"exact required_claims id from the host contract, or a short stable slug when no listed claim applies","claim":"short claim","observation":"what the source established","relation":"supports|contradicts","health_effect":"none|risk|degraded|unhealthy|unknown","source_type":"repository|emisar|monitoring|slack|other","source_id":"stable provider or result id","source_name":"human-readable source","observed_at":"RFC3339 source time","freshness":"source-relative age or revision","confidence":"high|medium|low","dimensions":{"service":"api","environment":"production","replicas":3},"scope_note":"optional bounded limitation"}}
 - record_coverage: {"id":"coverage-host","type":"record_coverage","coverage":{"layer":"host","claim_ids":["host.current_state"],"status":"healthy|degraded|unhealthy|unknown|not_applicable","source":"short source label","detail":"bounded assessment","observed_at":"RFC3339 source time"}}
 - report_progress: {"id":"progress-1","type":"report_progress","progress":{"phase":"investigating","summary":"meaningful operator-facing update","next_due_at":"optional RFC3339"}}
 - plan_goal: {"id":"goal-plan-1","type":"plan_goal","goal":{"id":"goal-1","kind":"check|engineering|operation|schedule","requested_outcome":"...","completion_contract":"observable done condition","required":true,"prerequisite_goal_ids":[],"authority":"read_only|repository_write|governed_operation"}}
@@ -570,7 +570,16 @@ exactly one of repository, emisar, monitoring, slack, or other. Every coverage.l
 task, hardware, host, runtime, scheduler, workload, dependency, application, slo, or change. Emit one
 coverage item for every required claim in the host investigation contract and use its exact layer
 and claim id; never invent aliases such as configuration, rollout, or endpoint. When approval is
-pending, include the exact pending_approval object returned by Emisar as the request_approval payload.`
+pending, include the exact pending_approval object returned by Emisar as the request_approval payload.
+
+Final shape check, before returning:
+- one JSON object, no code fence, no prose outside it;
+- every enum value is one exact listed string, and every operation type is the full verb form such
+  as record_alert_assessment, never the bare payload noun;
+- evidence confidence is high, medium, or low — the 0-3 integers belong to attention scores alone;
+- a blocked completion carries summary, material_gaps, blocker_kind, attempts, and next_action
+  together, or the host rejects the whole response;
+- every required claim has record_evidence bound to its exact claim_id before complete_episode.`
 }
 
 func WatchEnvelopePrompt() string {
