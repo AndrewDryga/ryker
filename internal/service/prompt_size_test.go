@@ -26,7 +26,18 @@ var promptCeilings = map[string]int{
 	// message no longer carries the scheduled-occurrence, host-recheck,
 	// publication-correlation or durable-behavior rules, none of which it can
 	// use.
-	"watch": 42 * 1024,
+	//
+	// Raised to 43 KiB on 2026-08-14 for four behaviors bought as one batch,
+	// each a thing operators asked for by name: post-fix verification (a fix
+	// that ships schedules its own scheduled_verification wait instead of
+	// handing "monitor it" back), the disagreement middle band (evidence that
+	// contradicts a teammate's claim gets a reply with the evidence and one
+	// question, not silence and not agreement), glossary learning (the team's
+	// names for things become knowledge and get used), and the
+	// unverifiable-alert rule rides the standing-rule block. ~950 bytes for
+	// four behaviors, with margin left so the ceiling stays a ratchet rather
+	// than a tripwire.
+	"watch": 43 * 1024,
 
 	// The ambient measurement above is the cheap case, and for a while it was
 	// the only one — so this test reported "37% left for context" while an
@@ -64,7 +75,11 @@ var promptCeilings = map[string]int{
 	// taken; the remainder buys the format checks that the gate's first
 	// execution showed still firing, on a transport whose cap now leaves this
 	// variant 81% of the turn for context.
-	"watch-operator": 48*1024 + 64,
+	// And to 49 KiB + 256 in the same batch: the operator variant carries the
+	// same four behaviors plus the style-signal clause on the offer_memory
+	// gate (an operator who asks for brevity twice gets offered a guidance
+	// memory capturing it, instead of asking a third time).
+	"watch-operator": 49*1024 + 256,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {

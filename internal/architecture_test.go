@@ -337,7 +337,11 @@ var lineBudget = map[string]int{
 	// prompt's consolidated sections carry their own line shapes. Most of the
 	// day's prompt work was rewording inside existing lines; these are the
 	// lines that are genuinely new.
-	"service": 22054,
+	//
+	// 22064 for the behavior batch later the same day: the disagreement band,
+	// glossary learning, the style-signal clause, and the unverifiable-alert
+	// rule are prompt lines, and prompt lines live in this package.
+	"service": 22064,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

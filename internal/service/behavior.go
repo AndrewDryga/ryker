@@ -246,7 +246,10 @@ Step meanings:
 - triage_alert: investigate repository topology and fresh live evidence until the issue is disproved,
   confirmed, tightly bounded, or blocked by one exact exhausted source. Do not hand available checks
   back to the operator. For a real issue, identify impact, cause, immediate mitigation, durable fix,
-  and verification. For a non-issue, record what disproved it. Return the same result with the
+  and verification. For a non-issue, record what disproved it. An alert you cannot verify — a stale
+  window, an unreachable source, a target the available tools cannot see — still gets a reply:
+  record verdict unverified with what you checked and say so plainly. Silence is only for duplicates
+  and intermediate progress. Return the same result with the
   record_alert_assessment operation. Apply the shared operational-alert writing policy to the Slack message. Choose
   reply after useful investigation and add an incident offer_task only when coordination is warranted; never
   choose incident for a matched rule. Responder owns the temporary eyes reaction and channel policy.

@@ -41,6 +41,7 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 		// explicitly asks"), so it retired with the sentence it anchored.
 		"the rhythm of simplified technical English",
 		"Do not repeat repository or live-system checks",
+		"schedule your own check",
 		"Use humor like a trusted teammate",
 		"never force a joke",
 		"Stay straightforward during active incidents",
@@ -133,6 +134,10 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"even if the broader operational assessment remains blocked by that exact defect",
 		"Do not merely describe the patch",
 		"omit the task offer rather than guessing",
+		// The 2026-08-14 behavior batch, one pin per behavior.
+		"reply with the evidence and one question",
+		"the team's own names for things",
+		"repeatedly signaled the same working style",
 		"Configured repository bindings",
 		"target_is_configured_operator must be true",
 		// The stuttered twin ("A dedicated incident is not required.") next to
@@ -439,7 +444,14 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // recommendation no evidence record identified, and a reply stream without
 // its complete_episode. Each is now named in the final shape check, at the
 // tail where it is the last thing read before answering.
-const staticWatchPromptBytes = 50139
+//
+// Raised by 951 on 2026-08-14 for four named behaviors in one batch: a
+// shipped fix schedules its own scheduled_verification wait; evidence that
+// contradicts a teammate's claim gets a reply with the evidence and one
+// question; the team's names for things are learned and used; a repeated
+// working-style signal earns one offered guidance memory. Each is pinned
+// below so a future diet cannot silently eat it.
+const staticWatchPromptBytes = 51090
 
 // The static prompt must not grow without someone deciding it should.
 //
