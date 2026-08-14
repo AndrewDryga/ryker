@@ -28,8 +28,12 @@ import (
 // does — and it did reach nothing, for every option on every card, until the
 // option value started carrying its own action id.
 var routedActionIDs = map[string]bool{
-	ActionOverflow: true, ActionFullRequest: true,
-	ActionUpdate: true, ActionChanges: true, ActionChangesPrevious: true,
+	ActionOverflow: true, ActionFullRequest: true, ActionTurnReceipt: true,
+	// A URL button still reports its click, and Slack shows the operator a
+	// failure on an interaction nobody answered. acknowledgeLinkAction is the
+	// answer: the link already did the work.
+	ActionOpenCanvas: true,
+	ActionUpdate:     true, ActionChanges: true, ActionChangesPrevious: true,
 	ActionChangesNext: true, ActionChangesRefresh: true, ActionReview: true,
 	ActionRepairReview: true, ActionPublishPR: true, ActionViewPR: true,
 	ActionCheckDelivery: true, ActionDiscardWork: true, ActionStop: true,
@@ -168,7 +172,8 @@ func TestEveryOverflowOptionDecodesToARoutedAction(t *testing.T) {
 	// a refactor that empties a menu should fail here rather than pass quietly.
 	for _, want := range []string{
 		ActionUpdate, ActionReview, ActionCheckDelivery, ActionHelp,
-		ActionFullRequest, ActionToggleSchedule, ActionEditSchedule,
+		ActionFullRequest, ActionTurnReceipt, ActionToggleSchedule,
+		ActionEditSchedule,
 	} {
 		if !routed[want] {
 			t.Errorf("no production ⋯ menu offers %q; the audit covers nothing", want)

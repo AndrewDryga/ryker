@@ -41,11 +41,17 @@ var channelPostingArgument = map[string]int{
 	// because the delivery queue has always spent a channel slot on them, and
 	// dropping that here would loosen pacing as a side effect of a change whose
 	// whole point is to tighten it.
-	"Update":              1,
-	"SetStatus":           1,
-	"SetProgress":         1,
-	"UploadFile":          1,
-	"Auth":                -1,
+	"Update":      1,
+	"SetStatus":   1,
+	"SetProgress": 1,
+	"UploadFile":  1,
+	"Auth":        -1,
+	// canvases.create, canvases.access.set and files.info are workspace-tier
+	// methods that publish a document rather than a message. Nothing appears in
+	// the channel until the card pointing at the canvas is posted, and that
+	// post records for itself; pacing the room's replies behind a canvas would
+	// delay answers to buy back budget nobody spent.
+	"CreateCanvas":        -1,
 	"CreateChannel":       -1,
 	"FindChannelByName":   -1,
 	"GetChannel":          -1,
@@ -221,6 +227,10 @@ func (*stubSlack) SetProgress(context.Context, string, string, string, []string)
 }
 
 func (*stubSlack) PublishHome(context.Context, string, slackui.Message) error { return nil }
+
+func (*stubSlack) CreateCanvas(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
 
 func (*stubSlack) JoinChannel(context.Context, string) error { return nil }
 

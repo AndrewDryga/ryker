@@ -566,6 +566,12 @@ func taskActions(
 	checkDelivery := Action{ID: ActionCheckDelivery, Label: "Check delivery", Value: task.ID}
 	closeTask := closeWorkAction(task, hasCodeChanges, publication)
 	fullRequest := Action{ID: ActionFullRequest, Label: "Open the full request", Value: task.ID}
+	// The card shows what the turn is doing while it runs and then rewrites
+	// itself, so what a finished turn actually did is gone from the surface a
+	// minute later. This is where it stays askable, on every state of the card:
+	// a turn that has finished is exactly what a receipt is about, and a card
+	// with none yet answers that plainly rather than hiding the question.
+	receipt := Action{ID: ActionTurnReceipt, Label: "What did that turn do?", Value: task.ID}
 	help := Action{ID: ActionHelp, Label: "How this works", Value: task.ID}
 	// The overflow copies of these drop their confirmations deliberately: both
 	// are read-only, and the alternative is one dialog guarding every option
@@ -578,7 +584,7 @@ func taskActions(
 	showDiff := hasCodeChanges || !codeChangesKnown
 
 	var actions []Action
-	overflow := []Action{fullRequest, help}
+	overflow := []Action{fullRequest, receipt, help}
 	switch state.Word {
 	case "Working":
 		if task.ActiveTurnID != "" {

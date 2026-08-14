@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
+	"github.com/AndrewDryga/responder/internal/reportcanvas"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -101,6 +102,7 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionReviewPullRequest:       (*Service).handlePullRequestReviewAction,
 	slackui.ActionOpenApproval:            (*Service).handleOpenEmisarApproval,
 	slackui.ActionOpenWorkThread:          (*Service).acknowledgeLinkAction,
+	slackui.ActionOpenCanvas:              (*Service).acknowledgeLinkAction,
 	slackui.ActionRememberMemory:          (*Service).handleRememberMemory,
 	slackui.ActionForgetMemory:            (*Service).handleForgetMemory,
 	slackui.ActionForgetMemoryRollup:      (*Service).handleForgetMemoryRollup,
@@ -635,6 +637,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			input.ActionID != slackui.ActionViewPR &&
 			input.ActionID != slackui.ActionCheckDelivery &&
 			input.ActionID != slackui.ActionFullRequest &&
+			input.ActionID != slackui.ActionTurnReceipt &&
 			input.ActionID != slackui.ActionDiscardWork {
 			return s.finishSlashInput(
 				ctx,
@@ -1169,6 +1172,10 @@ func (s *Service) handleControl(
 		}
 		return s.enqueue(ctx, "out_full_request_"+input.ID, incident, "notice",
 			threadTS, slackui.FullRequestMessage(incident, signals))
+	// A receipt reads the durable record of a turn that has already stopped and
+	// writes nothing, so it is gated exactly as View diff and Full request are.
+	case slackui.ActionTurnReceipt:
+		return s.turnReceipt(ctx, input, incident)
 	case slackui.ActionReview:
 		return s.reviewFix(ctx, input, incident)
 	case slackui.ActionRepairReview:
@@ -1627,13 +1634,20 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 	if err != nil {
 		return err
 	}
+	// The canvas is made here, before the draft is queued, rather than by the
+	// delivery worker. The worker retries, and a retry that also remade the
+	// canvas would leave one abandoned document in the workspace per attempt;
+	// the queue is for getting a message delivered, not for repeating a
+	// side effect on the way. If the canvas cannot be made, what gets queued is
+	// the draft exactly as it has always been queued.
 	return s.enqueue(
 		ctx,
 		"out_postmortem_"+incident.ID,
 		incident,
 		"postmortem",
 		incident.ConversationThreadTS(),
-		slackui.PostmortemDraft(record),
+		reportcanvas.Publish(ctx, s.slack, s.log, incident.ChannelID,
+			slackui.PostmortemReport(record)),
 	)
 }
 

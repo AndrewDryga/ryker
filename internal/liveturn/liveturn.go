@@ -160,11 +160,7 @@ func Line(moment core.AgentActivity) (slackui.ActivityLine, bool) {
 // runtimes' own and is matched loosely on purpose — an unrecognised kind
 // renders as a tool call, which is true of every kind here.
 func isEdit(kind string) bool {
-	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "edit", "write", "file_edit", "fileedit", "apply_patch", "patch", "delete":
-		return true
-	}
-	return false
+	return core.IsEditToolKind(kind)
 }
 
 // detailText reads the reasoning summary out of a stored thought.

@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/reportcanvas"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -446,24 +447,13 @@ func (s *Service) finishIncidentIntelligence(
 	if err != nil {
 		return err
 	}
-	switch command {
-	case "timeline":
-		return s.finishSlashMessage(ctx, input, slackui.TimelineMessage(record))
-	case "postmortem":
-		return s.finishSlashMessage(ctx, input, slackui.PostmortemDraft(record))
-	case "evidence", "handoff":
-	default:
+	report, ok := reportcanvas.For(command, record)
+	if !ok {
 		return errors.New("unknown incident intelligence command")
 	}
-	if command == "evidence" {
-		return s.finishSlashMessage(
-			ctx, input,
-			slackui.EvidenceDirectoryMessage(incident, record.Evidence, record.Coverage),
-		)
-	}
-	return s.finishSlashMessage(
-		ctx, input, slackui.HandoffMessage(record),
-	)
+	return s.finishSlashMessage(ctx, input, reportcanvas.Publish(
+		ctx, s.slack, s.log, input.ChannelID, report,
+	))
 }
 
 func (s *Service) configureShadow(

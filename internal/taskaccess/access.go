@@ -322,7 +322,7 @@ func MemberControlAllowed(control string) bool {
 		slackui.ActionChangesNext, slackui.ActionChangesRefresh,
 		slackui.ActionReview, slackui.ActionRepairReview,
 		slackui.ActionViewPR, slackui.ActionCheckDelivery,
-		slackui.ActionFullRequest, slackui.ActionExtend:
+		slackui.ActionFullRequest, slackui.ActionTurnReceipt, slackui.ActionExtend:
 		return true
 	default:
 		return false

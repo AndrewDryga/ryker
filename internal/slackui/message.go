@@ -115,6 +115,21 @@ const (
 	// or the card would be hiding the thing the work is about. Read-only, and
 	// gated like View diff.
 	ActionFullRequest = "responder_full_request"
+
+	// ActionOpenCanvas is the way into a long-form report. It opens a URL and
+	// changes nothing, so the host answers it by acknowledging the click:
+	// Slack still reports the interaction, and an unanswered interaction is
+	// shown to the operator as a failure on a button that worked.
+	ActionOpenCanvas = "responder_open_canvas"
+
+	// ActionTurnReceipt answers what one finished turn actually did.
+	//
+	// It is never posted automatically. A receipt beside every completed turn
+	// would put token counts in front of people who did not ask what a turn
+	// cost, and would put them there most often on the turns nobody was
+	// watching. It is a question, so it lives behind the ⋯ and is asked.
+	// Read-only, and gated like View diff.
+	ActionTurnReceipt = "responder_turn_receipt"
 )
 
 // Custody colours. The stripe answers one question — whose turn is it — and it

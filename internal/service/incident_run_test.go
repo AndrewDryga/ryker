@@ -1031,11 +1031,24 @@ func TestSlashPostmortemReadsLatestClosedIncidentRecord(t *testing.T) {
 	if len(slackClient.ephemerals) != 1 {
 		t.Fatalf("postmortem responses = %+v", slackClient.ephemerals)
 	}
+	// The draft is a document now, so the record it was built from is asserted
+	// on the canvas rather than in the reply. The reply is the card pointing at
+	// it, and what it must not do is claim a root cause the draft has not
+	// assigned.
+	if len(slackClient.canvases) != 1 {
+		t.Fatalf("postmortem canvases = %+v", slackClient.canvases)
+	}
+	canvas := slackClient.canvases[0]
+	if canvas.channel != "CPOSTMORTEM" ||
+		!strings.Contains(canvas.title, "Post-incident draft") ||
+		!strings.Contains(canvas.markdown, "Post-incident draft") ||
+		!strings.Contains(canvas.markdown, "API recovered") ||
+		strings.Contains(canvas.markdown, "Still open") {
+		t.Fatalf("postmortem canvas = %+v", canvas)
+	}
 	message := slackClient.ephemerals[0].message
-	if !strings.Contains(message.Markdown, "Post-incident draft") ||
-		!strings.Contains(message.Markdown, "API recovered") ||
-		strings.Contains(message.Markdown, "Still open") {
-		t.Fatalf("postmortem = %+v", message)
+	if !strings.Contains(renderedSlackMessage(message), "Root cause is not assigned") {
+		t.Fatalf("postmortem card = %+v", message)
 	}
 }
 

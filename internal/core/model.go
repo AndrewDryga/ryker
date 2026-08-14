@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1503,6 +1504,48 @@ type AgentActivityTail struct {
 type IncidentEvidence struct {
 	Count int
 	Claim string
+}
+
+// AgentTurnActivity totals what one turn did, as the activity ledger recorded
+// it.
+//
+// The tail beside it answers a card's question — what is happening now, in this
+// episode — and deliberately spans every turn the episode ran. A receipt asks a
+// different question about a different grain: what did that one turn do. The
+// rows carry a turn id, so the answer is a count rather than an estimate, and
+// conflating the two would quote an episode's hundred tool calls under a turn
+// that made three.
+type AgentTurnActivity struct {
+	// Moments counts every narrated kind. It is what distinguishes a turn that
+	// did nothing from a turn nobody was watching.
+	Moments int
+	// ToolCalls counts tool.started, which is what an operator means by "what
+	// did it do".
+	ToolCalls int
+	// Files counts the tool calls that changed something on disk, which is the
+	// half of the work that outlives the turn.
+	Files int
+	// First and Last bound the turn from the outside. They are a fallback
+	// duration for a run whose own clocks were never stamped.
+	First time.Time
+	Last  time.Time
+}
+
+// EditToolKinds are the tool kinds that change something on disk.
+//
+// The vocabulary is an adapter's, not Responder's: ACP lets each agent name its
+// own tools, so this is a list of what the agents in use actually call an edit
+// rather than a closed enum anyone is obliged to match. It lives here because
+// two subsystems ask the same question of it — the live card, which counts
+// edits in Go, and the activity ledger, which counts them in SQL — and two
+// copies of a list like this drift into two different definitions of "changed a
+// file" without anyone noticing which one a number came from.
+var EditToolKinds = []string{
+	"edit", "write", "file_edit", "fileedit", "apply_patch", "patch", "delete",
+}
+
+func IsEditToolKind(kind string) bool {
+	return slices.Contains(EditToolKinds, strings.ToLower(strings.TrimSpace(kind)))
 }
 
 type AgentRun struct {

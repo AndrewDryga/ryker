@@ -33,6 +33,7 @@ type API interface {
 	SetStatus(context.Context, string, string, string) error
 	SetProgress(context.Context, string, string, string, []string) error
 	PublishHome(context.Context, string, Message) error
+	CreateCanvas(context.Context, string, string, string) (string, error)
 	JoinChannel(context.Context, string) error
 	UserAllowed(context.Context, string, string) (bool, error)
 	UserGroupMembers(context.Context, string, string) ([]string, error)
@@ -338,7 +339,14 @@ var requiredBotScopes = []string{
 // actually costs is one thing — Responder cannot add itself to a public
 // channel an operator configured — and the join path says exactly that when it
 // happens instead of pretending the room is simply unreachable.
+// canvases:write is optional for the same reason and at a smaller cost: a
+// workspace that has not granted it keeps the long-form reports exactly as they
+// are posted today, as messages. Nothing is lost but the escalation, and the
+// report path never asks whether the scope is present — it attempts the canvas
+// and reads Slack's answer, because the token, not a config flag, is the truth
+// about what this installation can do.
 var optionalBotScopes = []string{
+	"canvases:write",
 	"channels:join",
 }
 

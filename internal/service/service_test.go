@@ -1377,6 +1377,16 @@ type fakeSlack struct {
 	uploads            []slackFileUpload
 	uploadErr          error
 	deniedUsers        map[string]bool
+	canvases           []slackCanvas
+	canvasURL          string
+	canvasErr          error
+}
+
+// slackCanvas is one long-form report Slack was asked to hold.
+type slackCanvas struct {
+	channel  string
+	title    string
+	markdown string
 }
 
 type fakeSocket struct {
@@ -1506,6 +1516,25 @@ func (f *fakeSlack) PublishHome(
 ) error {
 	f.homes = append(f.homes, slackPost{thread: user, message: message})
 	return f.homeErr
+}
+func (f *fakeSlack) CreateCanvas(
+	_ context.Context,
+	channelID, title, markdown string,
+) (string, error) {
+	// The attempt is recorded before the error, because a workspace without
+	// canvases is not a workspace where Responder skipped asking — the ask is
+	// the feature detection, and a test proving the fallback has to see it
+	// happen exactly once.
+	f.canvases = append(f.canvases, slackCanvas{
+		channel: channelID, title: title, markdown: markdown,
+	})
+	if f.canvasErr != nil {
+		return "", f.canvasErr
+	}
+	if f.canvasURL != "" {
+		return f.canvasURL, nil
+	}
+	return "https://example.slack.com/docs/T123ABC/F0CANVAS", nil
 }
 func (f *fakeSlack) JoinChannel(_ context.Context, channelID string) error {
 	f.joined = append(f.joined, channelID)

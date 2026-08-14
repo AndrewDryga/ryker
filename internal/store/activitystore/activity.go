@@ -221,6 +221,61 @@ func (r *Repository) TailForIncident(
 	return r.tail(ctx, fmt.Sprintf(tailQuery, selector), incidentID, limit)
 }
 
+// CountsForTurn totals what one turn did.
+//
+// The tails above answer a card's question and span the whole episode on
+// purpose. A receipt asks about one turn, and the rows carry the turn id Coop
+// stamped on them, so the answer is a count rather than an episode total worn
+// as one — an episode's hundred tool calls quoted under a turn that made three
+// is not a rounding error, it is a different fact.
+//
+// The scan is bounded by the episode as well as the turn because that is the
+// index the table has; a turn id alone would be a full scan of every episode's
+// narration to find rows one episode already isolates.
+func (r *Repository) CountsForTurn(
+	ctx context.Context,
+	episodeID string,
+	turnID string,
+) (core.AgentTurnActivity, error) {
+	var counts core.AgentTurnActivity
+	if strings.TrimSpace(episodeID) == "" || strings.TrimSpace(turnID) == "" {
+		return counts, nil
+	}
+	var first, last string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(SUM(CASE WHEN kind = 'tool.started' THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN kind = 'tool.started'
+		                          AND LOWER(TRIM(tool_kind)) IN (`+editToolKindList+`)
+		                         THEN 1 ELSE 0 END), 0),
+		       COALESCE(MIN(occurred_at), ''), COALESCE(MAX(occurred_at), '')
+		FROM agent_activity
+		WHERE episode_id = ? AND turn_id = ?`, episodeID, turnID,
+	).Scan(&counts.Moments, &counts.ToolCalls, &counts.Files, &first, &last)
+	if err != nil {
+		return core.AgentTurnActivity{}, err
+	}
+	counts.First = sqlutil.ParseTime(first)
+	counts.Last = sqlutil.ParseTime(last)
+	return counts, nil
+}
+
+// editToolKindList is core.EditToolKinds as a SQL literal list, built from the
+// slice rather than typed out again so the ledger and the live card cannot come
+// to disagree about which tool kinds changed a file.
+var editToolKindList = editToolKindLiterals()
+
+func editToolKindLiterals() string {
+	quoted := make([]string, 0, len(core.EditToolKinds))
+	for _, kind := range core.EditToolKinds {
+		// The vocabulary is a package-level constant list, not input; quoting
+		// it is belt and braces against a future entry with an apostrophe in
+		// it becoming a syntax error at runtime instead of here.
+		quoted = append(quoted, "'"+strings.ReplaceAll(kind, "'", "''")+"'")
+	}
+	return strings.Join(quoted, ", ")
+}
+
 func (r *Repository) tail(
 	ctx context.Context,
 	query string,
