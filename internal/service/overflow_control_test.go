@@ -60,6 +60,24 @@ func deliverInteraction(
 	action *slack.BlockAction,
 ) {
 	t.Helper()
+	deliverInteractionAt(t, ctx, svc, incident, incident.RootTS, envelope, userID, action)
+}
+
+// deliverInteractionAt is a press on a message other than the pinned card.
+//
+// Not every control lives on the card. Close diff sits on the diff message it
+// closes, and a press recorded against the root ts would be answered by the
+// card's own staleness check rather than by the diff's.
+func deliverInteractionAt(
+	t *testing.T,
+	ctx context.Context,
+	svc *Service,
+	incident core.Incident,
+	messageTS string,
+	envelope, userID string,
+	action *slack.BlockAction,
+) {
+	t.Helper()
 	svc.admitInteraction(ctx, socketmode.Event{
 		Type: socketmode.EventTypeInteractive,
 		Data: slack.InteractionCallback{
@@ -67,7 +85,7 @@ func deliverInteraction(
 			Team: slack.Team{ID: "T123ABC"},
 			User: slack.User{ID: userID},
 			Container: slack.Container{
-				ChannelID: incident.ChannelID, MessageTs: incident.RootTS,
+				ChannelID: incident.ChannelID, MessageTs: messageTS,
 			},
 			ActionCallback: slack.ActionCallbacks{
 				BlockActions: []*slack.BlockAction{action},
@@ -197,17 +215,25 @@ func TestUndecodableOverflowSelectionIsAcknowledgedAndDropped(t *testing.T) {
 // lives in a Row with its own control, so these two facts have to be read
 // together or a test can watch the text change without noticing that the button
 // stopped agreeing with it.
-func theAsk(t *testing.T, message slackui.Message) (string, string) {
+func theAsk(t *testing.T, message slackui.Message) string {
 	t.Helper()
-	for _, row := range message.Rows {
-		for _, action := range row.Actions {
-			if action.ID == slackui.ActionFullRequest {
-				return row.Text, action.Label
-			}
+	for _, section := range message.Tail {
+		if strings.HasPrefix(section, "*The request*") {
+			return section
 		}
 	}
-	t.Fatalf("the card has no ask row: %+v", message)
-	return "", ""
+	t.Fatalf("the card has no request in its tail: %+v", message)
+	return ""
+}
+
+// legacyFullRequestValue is the retired toggle's encoding, frozen.
+//
+// It is written out here rather than imported because nothing composes it any
+// more: the only values that still carry it are sitting in Slack on cards
+// posted before the request moved into the card's tail, and this is a test
+// about those cards specifically.
+func legacyFullRequestValue(incidentID string) string {
+	return incidentID + "~expanded"
 }
 
 // taskOverflowFixture is an engineering task with a delivered card and an ask
@@ -290,154 +316,121 @@ const longAsk = "The reload path allocates a fresh cache per request and never "
 	"steady state with a soak. Start from commit deadbeefcafebabefeedfacedeadbeefcafebabe " +
 	"which is where the regression landed."
 
-// Full request rewrites the card in place: the ask row becomes the whole
-// request and the button under it becomes Collapse. Pressed again it goes back.
+// A press on the retired Full request button re-renders the card.
 //
-// It used to post the ask as a thread reply, which answered a question about
-// the card by putting the answer somewhere else and left a fresh copy of the
-// same text in the thread on every press. The operator asked for the toggle.
-func TestFullRequestExpandsTheCardInPlaceAndCollapsesBack(t *testing.T) {
+// The control is gone: the card carries the whole request in its tail, where
+// Slack's own fold handles the height, so there is no view to toggle. But cards
+// posted before that are still in channels with the button on them, and the
+// honest answer to that press is the current card — which shows the request the
+// operator wanted and replaces the button with a layout that needs none.
+func TestARetiredFullRequestPressRerendersTheCard(t *testing.T) {
 	ctx := context.Background()
 	_, svc, slackClient, task := taskOverflowFixture(t, ctx, longAsk)
 
-	deliverInteraction(t, ctx, svc, task, "env-expand", "U123ABC",
+	deliverInteraction(t, ctx, svc, task, "env-legacy-full-request", "U123ABC",
 		&slack.BlockAction{
 			ActionID: slackui.ActionFullRequest,
-			Value:    slackui.FullRequestActionValue(task.ID, true),
+			Value:    legacyFullRequestValue(task.ID),
 		})
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	if len(slackClient.updates) != 1 {
-		t.Fatalf("expanding rewrote %d messages, want the card itself", len(slackClient.updates))
+		t.Fatalf("the press rewrote %d messages, want the card itself", len(slackClient.updates))
 	}
-	expanded := slackClient.updates[0]
-	if expanded.channel != task.ChannelID || expanded.ts != task.RootTS {
-		t.Fatalf("expanded %q/%q, want the clicked card %q/%q",
-			expanded.channel, expanded.ts, task.ChannelID, task.RootTS)
+	rendered := slackClient.updates[0]
+	if rendered.channel != task.ChannelID || rendered.ts != task.RootTS {
+		t.Fatalf("rewrote %q/%q, want the clicked card %q/%q",
+			rendered.channel, rendered.ts, task.ChannelID, task.RootTS)
 	}
-	expandedAsk, expandedLabel := theAsk(t, expanded.message)
-	if !strings.Contains(expandedAsk, "prove the steady state with a soak") {
-		t.Fatalf("the expanded ask stops short of the request: %q", expandedAsk)
+	if ask := theAsk(t, rendered.message); !strings.Contains(
+		ask, "prove the steady state with a soak",
+	) {
+		t.Fatalf("the re-rendered card stops short of the request: %q", ask)
 	}
-	if expandedLabel != "Collapse" {
-		t.Fatalf("the expanded card offers %q, not the way back", expandedLabel)
-	}
-
-	// The same button, now carrying the collapsed view.
-	deliverInteraction(t, ctx, svc, task, "env-collapse", "U123ABC",
-		&slack.BlockAction{
-			ActionID: slackui.ActionFullRequest,
-			Value:    slackui.FullRequestActionValue(task.ID, false),
-		})
-	if err := svc.processSlackInput(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(slackClient.updates) != 2 {
-		t.Fatalf("collapsing rewrote %d messages", len(slackClient.updates)-1)
-	}
-	collapsedAsk, collapsedLabel := theAsk(t, slackClient.updates[1].message)
-	if strings.Contains(collapsedAsk, "prove the steady state with a soak") {
-		t.Fatalf("collapsing left the whole ask on the card: %q", collapsedAsk)
-	}
-	if collapsedLabel != "Full request" {
-		t.Fatalf("the collapsed card offers %q, not the way in", collapsedLabel)
+	// And the button does not come back.
+	for _, action := range append(
+		append([]slackui.Action{}, rendered.message.Actions...),
+		rendered.message.Overflow...,
+	) {
+		if action.ID == slackui.ActionFullRequest {
+			t.Fatalf("the re-rendered card still offers the retired control: %+v", action)
+		}
 	}
 
-	// Nothing was said in the thread and nothing was refused: the toggle is a
-	// view change, and it costs exactly one Slack edit each way.
+	// Nothing was said in the thread and nothing was refused: it is a re-render,
+	// and it costs exactly one Slack edit.
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slackClient.posts) != 0 {
-		t.Fatalf("the toggle posted in the thread: %+v", slackClient.posts)
+		t.Fatalf("the press posted in the thread: %+v", slackClient.posts)
 	}
 	if len(slackClient.ephemerals) != 0 {
 		t.Fatalf("a read-only control was answered privately: %+v", slackClient.ephemerals)
 	}
 }
 
-// Expansion is one operator's view state, so the next worker render collapses
-// it. This is the intended behavior rather than a leak — a card left tall by
-// somebody else's reading position is a card everyone else pays for.
-func TestTheNextCardRenderCollapsesAnExpandedAsk(t *testing.T) {
+// Every render carries the whole request, so there is no view state left for a
+// worker pass to heal or to leak. The card an operator opens is the card
+// everyone else sees.
+func TestEveryCardRenderCarriesTheWholeRequest(t *testing.T) {
 	ctx := context.Background()
-	_, svc, slackClient, task := taskOverflowFixture(t, ctx, longAsk)
+	_, svc, slackClient, _ := taskOverflowFixture(t, ctx, longAsk)
 
-	deliverInteraction(t, ctx, svc, task, "env-expand-then-render", "U123ABC",
-		&slack.BlockAction{
-			ActionID: slackui.ActionFullRequest,
-			Value:    slackui.FullRequestActionValue(task.ID, true),
-		})
-	if err := svc.processSlackInput(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if expandedAsk, _ := theAsk(t, slackClient.updates[0].message); !strings.Contains(
-		expandedAsk, "prove the steady state with a soak",
-	) {
-		t.Fatalf("the fixture never expanded: %q", expandedAsk)
-	}
-
-	// The card is dirty from creation, so the ordinary worker pass is the one
-	// that self-heals the view.
 	if err := svc.processCard(ctx); err != nil {
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
 
-	rendered := slackClient.updates[len(slackClient.updates)-1]
-	renderedAsk, renderedLabel := theAsk(t, rendered.message)
-	if strings.Contains(renderedAsk, "prove the steady state with a soak") {
-		t.Fatalf("the worker re-rendered the card expanded: %q", renderedAsk)
+	if len(slackClient.updates) == 0 {
+		t.Fatal("the worker pass rendered no card")
 	}
-	if renderedLabel != "Full request" {
-		t.Fatalf("the re-rendered card offers %q", renderedLabel)
+	rendered := slackClient.updates[len(slackClient.updates)-1]
+	if ask := theAsk(t, rendered.message); !strings.Contains(
+		ask, "prove the steady state with a soak",
+	) {
+		t.Fatalf("a worker render stops short of the request: %q", ask)
 	}
 }
 
-// Both views of the toggle have to survive the staleness gate, and the gate
-// reads the *delivered* body — which never records the expanded view, because
-// expanding writes straight to Slack. A Collapse press therefore arrives
-// carrying a value the stored card does not contain, and refusing it would
-// strand the operator inside the expanded card with no way back.
-func TestBothAskViewsPassTheStalenessCheck(t *testing.T) {
+// A retired button has to survive the staleness gate, and the gate reads the
+// *delivered* body. A card expanded in place before the toggle was retired
+// carries a value the stored body never recorded, so an exact-value match would
+// refuse the one press that would have replaced that card with a current one.
+func TestARetiredFullRequestButtonPassesTheStalenessCheck(t *testing.T) {
 	ctx := context.Background()
 	_, svc, _, task := taskOverflowFixture(t, ctx, longAsk)
 
-	// A delivered card somewhere other than the pinned root, so the check reads
-	// the stored body instead of short-circuiting on RootTS.
+	// The body as an older build delivered it, at a ts other than the pinned
+	// root so the check reads the stored body instead of short-circuiting.
 	card, err := svc.incidentCard(ctx, task)
 	if err != nil {
 		t.Fatal(err)
 	}
+	card.Overflow = append(card.Overflow, slackui.Action{
+		ID:    slackui.ActionFullRequest,
+		Label: "Open the full request",
+		Value: legacyFullRequestValue(task.ID),
+	})
 	deliverStoredCard(t, ctx, svc, task, "1700.400", card)
 
-	for _, expanded := range []bool{false, true} {
-		input := core.SlackInput{
-			ChannelID: task.ChannelID, MessageTS: "1700.400", UserID: "U123ABC",
-			ActionID:    slackui.ActionFullRequest,
-			ActionValue: slackui.FullRequestActionValue(task.ID, expanded),
-		}
-		matches, err := svc.incidentControlMatchesMessage(ctx, input, task)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !matches {
-			t.Fatalf("the card refused its own toggle with expanded=%t", expanded)
-		}
-	}
-
-	// The gate still refuses a value that names a different task.
-	stray := core.SlackInput{
-		ChannelID: task.ChannelID, MessageTS: "1700.400", UserID: "U123ABC",
-		ActionID:    slackui.ActionFullRequest,
-		ActionValue: slackui.FullRequestActionValue("inc_someone_else", true),
-	}
-	matches, err := svc.incidentControlMatchesMessage(ctx, stray, task)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if matches {
-		t.Fatal("a toggle naming another task was accepted")
+	for name, value := range map[string]string{
+		"asking to expand":   legacyFullRequestValue(task.ID),
+		"asking to collapse": task.ID,
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := core.SlackInput{
+				ChannelID: task.ChannelID, MessageTS: "1700.400", UserID: "U123ABC",
+				ActionID: slackui.ActionFullRequest, ActionValue: value,
+			}
+			matches, err := svc.incidentControlMatchesMessage(ctx, input, task)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !matches {
+				t.Fatalf("the card refused a button it is still carrying: %q", value)
+			}
+		})
 	}
 }
 
@@ -478,10 +471,10 @@ func TestFullRequestControlRefusesTheSameUsersAsViewDiff(t *testing.T) {
 	}
 }
 
-// The same choice, arriving through the ⋯ rather than the row button, expands
-// the same card — and the menu's value survives being wrapped in the overflow
+// The same press arriving through the ⋯ rather than as a button re-renders the
+// same card — and the retired value survives being wrapped in the overflow
 // codec, which is the part that could silently stop decoding.
-func TestFullRequestReachesItsHandlerThroughTheOverflowMenu(t *testing.T) {
+func TestARetiredFullRequestChoiceReachesItsHandlerThroughTheOverflowMenu(t *testing.T) {
 	ctx := context.Background()
 	_, svc, slackClient, task := taskOverflowFixture(t, ctx, longAsk)
 
@@ -491,7 +484,7 @@ func TestFullRequestReachesItsHandlerThroughTheOverflowMenu(t *testing.T) {
 			SelectedOption: slack.OptionBlockObject{
 				Value: slackui.OverflowOptionValue(slackui.Action{
 					ID:    slackui.ActionFullRequest,
-					Value: slackui.FullRequestActionValue(task.ID, true),
+					Value: legacyFullRequestValue(task.ID),
 				}),
 			},
 		})
@@ -503,10 +496,10 @@ func TestFullRequestReachesItsHandlerThroughTheOverflowMenu(t *testing.T) {
 	if len(slackClient.updates) != 1 {
 		t.Fatalf("the ⋯ choice rewrote %d messages", len(slackClient.updates))
 	}
-	expandedAsk, label := theAsk(t, slackClient.updates[0].message)
-	if !strings.Contains(expandedAsk, "prove the steady state with a soak") ||
-		label != "Collapse" {
-		t.Fatalf("full request from the ⋯ = %q / %q", expandedAsk, label)
+	if ask := theAsk(t, slackClient.updates[0].message); !strings.Contains(
+		ask, "prove the steady state with a soak",
+	) {
+		t.Fatalf("full request from the ⋯ = %q", ask)
 	}
 }
 

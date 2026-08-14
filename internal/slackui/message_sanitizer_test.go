@@ -28,6 +28,9 @@ func TestSanitizerCoversEveryUntrustedMessageSurface(t *testing.T) {
 		Text: "<!channel>", Header: "super-secret-token",
 		Sections: []string{"<@U123>"}, Fields: []Field{{Label: "xoxb-1234567890-secret", Value: "\x1b[31mvalue"}},
 		Context: []string{"<!here>"},
+		// The tail carries the request as it was written — the least trusted
+		// text on the card, and the last surface added to it.
+		Tail: []string{"*The request*\n> ping <!channel> with super-secret-token"},
 	})
 	data, err := Encode(message)
 	if err != nil {
@@ -48,6 +51,7 @@ func TestSanitizerDoesNotMutateCallerMessage(t *testing.T) {
 		Sections: []string{"section SUPERSECRETVALUE1"},
 		Fields:   []Field{{Label: "label SUPERSECRETVALUE1", Value: "value SUPERSECRETVALUE1"}},
 		Context:  []string{"context SUPERSECRETVALUE1"},
+		Tail:     []string{"tail SUPERSECRETVALUE1"},
 		Actions:  []Action{{Label: "label SUPERSECRETVALUE1", Confirm: "confirm SUPERSECRETVALUE1"}},
 	}
 	cleaned := sanitizer.Message(original)
@@ -55,12 +59,13 @@ func TestSanitizerDoesNotMutateCallerMessage(t *testing.T) {
 	if !strings.Contains(original.Sections[0], "SUPERSECRETVALUE1") ||
 		!strings.Contains(original.Fields[0].Value, "SUPERSECRETVALUE1") ||
 		!strings.Contains(original.Context[0], "SUPERSECRETVALUE1") ||
+		!strings.Contains(original.Tail[0], "SUPERSECRETVALUE1") ||
 		!strings.Contains(original.Actions[0].Label, "SUPERSECRETVALUE1") {
 		t.Fatalf("sanitizing mutated the caller's message: %+v", original)
 	}
 	for _, value := range []string{
 		cleaned.Text, cleaned.Sections[0], cleaned.Fields[0].Label,
-		cleaned.Fields[0].Value, cleaned.Context[0],
+		cleaned.Fields[0].Value, cleaned.Context[0], cleaned.Tail[0],
 		cleaned.Actions[0].Label, cleaned.Actions[0].Confirm,
 	} {
 		if strings.Contains(value, "SUPERSECRETVALUE1") {

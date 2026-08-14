@@ -763,8 +763,9 @@ func TestCustodyStripeShipsTheCardAsOneColouredAttachment(t *testing.T) {
 			t.Errorf("%s sent bare blocks beside the attachment: %s", call.path, call.form.Get("blocks"))
 		}
 		var attachments []struct {
-			Color  string          `json:"color"`
-			Blocks json.RawMessage `json:"blocks"`
+			Color    string          `json:"color"`
+			Fallback string          `json:"fallback"`
+			Blocks   json.RawMessage `json:"blocks"`
 		}
 		if err := json.Unmarshal([]byte(call.form.Get("attachments")), &attachments); err != nil {
 			t.Fatalf("%s attachments = %q: %v", call.path, call.form.Get("attachments"), err)
@@ -778,10 +779,22 @@ func TestCustodyStripeShipsTheCardAsOneColouredAttachment(t *testing.T) {
 		if string(attachments[0].Blocks) != string(blocks) {
 			t.Errorf("%s attachment blocks = %s, want %s", call.path, attachments[0].Blocks, blocks)
 		}
+		// Top-level text is drawn above an attachment rather than hidden
+		// behind it, so a striped card that sent one rendered its own
+		// fallback as a paragraph and said the state and the title twice.
+		if text := call.form.Get("text"); text != "" {
+			t.Errorf("%s sent visible top-level text beside the attachment: %q", call.path, text)
+		}
+		// The form must still carry the key: chat.update leaves an omitted
+		// field alone, so a card posted by an older build keeps its visible
+		// text forever unless the edit clears it.
+		if _, present := call.form["text"]; !present {
+			t.Errorf("%s omitted text entirely; an edit then cannot clear an older card's text", call.path)
+		}
 		// Notifications and the sidebar strip the colour, so the fallback
-		// still has to lead with the state word.
-		if call.form.Get("text") != striped.Text {
-			t.Errorf("%s fallback text = %q", call.path, call.form.Get("text"))
+		// still has to lead with the state word — from the attachment now.
+		if attachments[0].Fallback != striped.Text {
+			t.Errorf("%s attachment fallback = %q, want %q", call.path, attachments[0].Fallback, striped.Text)
 		}
 	}
 
@@ -790,6 +803,11 @@ func TestCustodyStripeShipsTheCardAsOneColouredAttachment(t *testing.T) {
 	}
 	if blocks := calls[1].form.Get("blocks"); !strings.Contains(blocks, `"type":"header"`) {
 		t.Errorf("an unstriped card no longer sends its blocks: %s", blocks)
+	}
+	// Beside blocks, top-level text is notification-only and never drawn, so
+	// the unstriped payload keeps carrying it exactly as it always did.
+	if text := calls[1].form.Get("text"); text != plain.Text {
+		t.Errorf("an unstriped card's fallback text = %q, want %q", text, plain.Text)
 	}
 }
 

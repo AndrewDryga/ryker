@@ -180,21 +180,217 @@ func TestLineKeepsOnlyTheFirstLineOfAMultiLineCommand(t *testing.T) {
 }
 
 // An Emisar call is stored with tool_kind execute and carries no command, so
-// the exec gate alone would not have kept it out. It must still name the tool
-// and target the pack ref, digest and all — stripping the digest is the
-// renderer's job, not this package's.
-func TestLineKeepsPackRefForMCPCallWithNoCommand(t *testing.T) {
+// the exec gate alone would not have kept it out. It used to render as the
+// transport's title beside the pack ref, which is the same two strings for
+// every action in that pack: what the call did was the action and the query,
+// both of them already in the payload.
+func TestLineNamesTheActionAndItsQueryForMCPCallWithNoCommand(t *testing.T) {
 	detail := `{"input":{"arguments":{"action_id":"vl.query","args":{"limit":200,"query":"_time:[2026-08-13T23:05:00Z,2026-08-13T23:20:00Z] service:data-api | sort by (_time) asc"},"pack_ref":"victorialogs@0.1.6/sha256:db374853549b53ae2d6825453b515e128c61975d1f18ca9b007c4f116fabe59f","reason":"Inspect Data API application logs during the timeout burst","runner_refs":["nomad-hst01~f5e3a96782c44bd31186fcaa14ba6efb"],"wait":"30s"},"server":"emisar","tool":"run_action"}}`
 	line, ok := Line(toolStarted("mcp.emisar.run_action", "execute", detail))
 	if !ok {
 		t.Fatal("row dropped")
 	}
-	if line.Title != "mcp.emisar.run_action" {
+	if line.Title != "emisar vl.query" {
 		t.Fatalf("title = %q", line.Title)
 	}
-	want := "victorialogs@0.1.6/sha256:db374853549b53ae2d6825453b515e128c61975d1f18ca9b007c4f116fabe59f"
+	want := "_time:[2026-08-13T23:05:00Z,2026-08-13T23:20:00Z] service:data-api | sort by (_time) asc"
 	if line.Target != want {
 		t.Fatalf("target = %q, want %q", line.Target, want)
+	}
+}
+
+// The complaint this was made for: a window of `⚡ Terminal ×2` and `⚡ Read
+// File`, where every row on disk knew which action it ran or which file it
+// opened. One case per tool kind the ledger actually records, with the payloads
+// and titles as responder.db stores them.
+func TestLineSaysWhatEachToolKindDid(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		title, toolKind, detail string
+		wantKind                string
+		wantTitle, wantTarget   string
+	}{
+		"mcp action with args": {
+			title:     "mcp.emisar.run_action",
+			toolKind:  "execute",
+			detail:    `{"input":{"arguments":{"action_id":"vl.query","args":{"limit":20,"query":"_time:15m (\"cs2/in-game\" OR \"path_norm=cs2/in-game\") | sort by (_time) desc"},"pack_ref":"victorialogs@0.1.6/sha256:db374853549b53ae2d6825453b515e128c61975d1f18ca9b007c4f116fabe59f","reason":"Check the latest 15 minutes of in-game route traffic","runner_refs":["nomad-hst01~f5e3a96782c44bd31186fcaa14ba6efb"],"wait":"30s"},"server":"emisar","tool":"run_action"}}`,
+			wantKind:  slackui.ActivityTool,
+			wantTitle: "emisar vl.query",
+			// The limit is an argument too; the query is the one that says what
+			// this call was looking at.
+			wantTarget: `_time:15m ("cs2/in-game" OR "path_norm=cs2/in-game") | sort by (_time) desc`,
+		},
+		"mcp action with a url": {
+			title:      "mcp.emisar.run_action",
+			toolKind:   "execute",
+			detail:     `{"input":{"arguments":{"action_id":"net.http_probe","args":{"max_time":15,"url":"https://tenant.example/cs2/in-game"},"pack_ref":"network-tls@0.1.14/sha256:0c82f0b2e0a44d1e9d4b3a5c6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091","reason":"Probe the public in-game route","runner_refs":["nomad-hst01~f5e3a96782c44bd31186fcaa14ba6efb"],"wait":"30s"},"server":"emisar","tool":"run_action"}}`,
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "emisar net.http_probe",
+			wantTarget: "https://tenant.example/cs2/in-game",
+		},
+		// A lookup passes no arguments of its own. The action is still the
+		// answer, and the pack ref left in the envelope is not: it says which
+		// pack, which is the same for every row from that pack.
+		"mcp action with no args": {
+			title:      "mcp.emisar.get_action",
+			toolKind:   "execute",
+			detail:     `{"input":{"arguments":{"action_id":"vl.query","pack_ref":"victorialogs@0.1.6/sha256:db374853549b53ae2d6825453b515e128c61975d1f18ca9b007c4f116fabe59f"},"server":"emisar","tool":"get_action"}}`,
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "emisar vl.query",
+			wantTarget: "",
+		},
+		// Discovery names no action, so the tool is what ran.
+		"mcp call with no action": {
+			title:      "mcp.emisar.find_actions",
+			toolKind:   "execute",
+			detail:     `{"input":{"arguments":{"query":"read-only HTTP probe for CS2 in-game public user route"},"server":"emisar","tool":"find_actions"}}`,
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "emisar find_actions",
+			wantTarget: "read-only HTTP probe for CS2 in-game public user route",
+		},
+		// A second server, whose arguments are named nothing this knows. Sorted
+		// order picks one, and picks the same one every time the card rewrites.
+		"mcp call to another server": {
+			title:      "mcp.codex_apps.github.fetch_commit",
+			toolKind:   "execute",
+			detail:     `{"input":{"arguments":{"commit_sha":"1b016292e91141be46b1f23f155a2a37ac5d39e6","repo_full_name":"tenantcorp/tenant-infra"},"server":"codex_apps","tool":"github.fetch_commit"}}`,
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "codex_apps github.fetch_commit",
+			wantTarget: "1b016292e91141be46b1f23f155a2a37ac5d39e6",
+		},
+		"read in a fork checkout": {
+			title:      `Read file '/Users/andrewdryga/Projects/tenant/tenant-infra-forks/remote-bf1a4735b267827eceebd9f1/terraform/apps_cms.tf'`,
+			toolKind:   "read",
+			detail:     `{"input":{}}`,
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "Read file",
+			wantTarget: "terraform/apps_cms.tf",
+		},
+		"read in a coop repository": {
+			title:      `Read file '/coop/repositories/tenant-app-svelte/src/games/tft/api.ts'`,
+			toolKind:   "read",
+			detail:     "",
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "Read file",
+			wantTarget: "src/games/tft/api.ts",
+		},
+		"read titled with a bare path": {
+			title:      "Read /coop/repositories/tenant-app-svelte/src/games/tft/api.ts",
+			toolKind:   "read",
+			detail:     `{"input":{}}`,
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "Read",
+			wantTarget: "src/games/tft/api.ts",
+		},
+		// The apostrophe is not the opening quote. Taking it for one would end
+		// the run on the path's own quote and label the row `s file`.
+		"read titled with an apostrophe in it": {
+			title:      `Read the agent's file '/coop/repositories/tenant-infra/terraform/apps_cms.tf'`,
+			toolKind:   "read",
+			detail:     `{"input":{}}`,
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "Read the agent's file",
+			wantTarget: "terraform/apps_cms.tf",
+		},
+		// A title that is only a path has no verb to keep, and a line with no
+		// title is dropped rather than shown. The path becomes the label.
+		"read titled with nothing but a path": {
+			title:     "/coop/repositories/tenant-infra/terraform/apps_cms.tf",
+			toolKind:  "read",
+			detail:    "",
+			wantKind:  slackui.ActivityTool,
+			wantTitle: "terraform/apps_cms.tf",
+		},
+		// Nine reads on disk are titled this and carry nothing else. There is
+		// no path to find, and the row must not gain one.
+		"read with no path anywhere": {
+			title:     "Read File",
+			toolKind:  "read",
+			detail:    `{"input":{}}`,
+			wantKind:  slackui.ActivityTool,
+			wantTitle: "Read File",
+		},
+		"edit with no path anywhere": {
+			title:     "Edit",
+			toolKind:  "edit",
+			detail:    "",
+			wantKind:  slackui.ActivityEdit,
+			wantTitle: "Edit",
+		},
+		"write with no path anywhere": {
+			title:     "Write",
+			toolKind:  "edit",
+			detail:    "",
+			wantKind:  slackui.ActivityEdit,
+			wantTitle: "Write",
+		},
+		"search names its pattern": {
+			title:      `Search for 'function dataURL|const dataURL' in api.ts`,
+			toolKind:   "search",
+			detail:     "",
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "Search",
+			wantTarget: "function dataURL|const dataURL",
+		},
+		"search over a repository": {
+			title:      `Search for 'analyzed_comps|14\.14|frontend-utilities' in tenant-app-svelte`,
+			toolKind:   "search",
+			detail:     "",
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "Search",
+			wantTarget: `analyzed_comps|14\.14|frontend-utilities`,
+		},
+		// A search that never named a pattern has nothing to move out of its
+		// title, so the title stays whole rather than becoming the bare word.
+		"search with no pattern": {
+			title:     "Search",
+			toolKind:  "search",
+			detail:    `{"input":{}}`,
+			wantKind:  slackui.ActivityTool,
+			wantTitle: "Search",
+		},
+		"exec still shows its command": {
+			title:      "Terminal",
+			toolKind:   "execute",
+			detail:     `{"input":{"command":"git -C /coop/repositories/tenant-infra show --stat HEAD","cwd":"/Users/andrewdryga/Projects/tenant/tenant-infra-forks/remote-bf1a4735b267827eceebd9f1"}}`,
+			wantKind:   slackui.ActivityTool,
+			wantTitle:  "git -C /coop/repositories/tenant-infra show --stat HEAD",
+			wantTarget: "",
+		},
+		"other keeps its own title": {
+			title:     "ToolSearch",
+			toolKind:  "other",
+			detail:    "",
+			wantKind:  slackui.ActivityTool,
+			wantTitle: "ToolSearch",
+		},
+		"unnamed tool kind keeps its own title": {
+			title:     "Context compacting",
+			toolKind:  "",
+			detail:    `{"input":{}}`,
+			wantKind:  slackui.ActivityTool,
+			wantTitle: "Context compacting",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			line, ok := Line(toolStarted(testCase.title, testCase.toolKind, testCase.detail))
+			if !ok {
+				t.Fatal("row dropped")
+			}
+			if line.Kind != testCase.wantKind {
+				t.Errorf("kind = %q, want %q", line.Kind, testCase.wantKind)
+			}
+			if line.Title != testCase.wantTitle {
+				t.Errorf("title = %q, want %q", line.Title, testCase.wantTitle)
+			}
+			if line.Target != testCase.wantTarget {
+				t.Errorf("target = %q, want %q", line.Target, testCase.wantTarget)
+			}
+			// The digest is what makes a pack ref immutable and what makes it 64
+			// characters of a 46-rune line. No row spends the card on one.
+			if rendered := line.Title + " " + line.Target; strings.Contains(rendered, "sha256:") {
+				t.Errorf("line carries a pack digest: %q", rendered)
+			}
+		})
 	}
 }
 
@@ -233,7 +429,8 @@ func TestLinePrefersPackRefOverCommandInTarget(t *testing.T) {
 }
 
 // The kind gate is half the guard. A read or fetch tool whose payload happens
-// to carry a `command` key is not a shell call, and its own title stands.
+// to carry a `command` key is not a shell call, and its own title stands. The
+// path beside it is what a read is about, and the row shows that instead.
 func TestLineIgnoresCommandKeyForNonExecToolKinds(t *testing.T) {
 	line, ok := Line(toolStarted("Read api.ts", "read",
 		`{"input":{"command":"not a shell call","path":"games/tft/api.ts"}}`,
@@ -241,8 +438,11 @@ func TestLineIgnoresCommandKeyForNonExecToolKinds(t *testing.T) {
 	if !ok {
 		t.Fatal("row dropped")
 	}
-	if line.Title != "Read api.ts" || line.Target != "" {
+	if line.Title != "Read api.ts" || line.Target != "games/tft/api.ts" {
 		t.Fatalf("line = %+v", line)
+	}
+	if strings.Contains(line.Title+line.Target, "not a shell call") {
+		t.Fatalf("read call rendered its payload's command: %+v", line)
 	}
 }
 
@@ -297,7 +497,7 @@ func TestLineMapsEditToolKindToEditActivity(t *testing.T) {
 	if line.Kind != slackui.ActivityEdit {
 		t.Fatalf("kind = %q, want %q", line.Kind, slackui.ActivityEdit)
 	}
-	if line.Title != "api.ts" || line.Target != "" {
+	if line.Title != "api.ts" || line.Target != "games/tft/api.ts" {
 		t.Fatalf("line = %+v", line)
 	}
 }
@@ -389,6 +589,50 @@ func TestNormalizeCommandLeavesCommandsThatOnlyLookQuoted(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := normalizeCommand(testCase.in); got != testCase.want {
 				t.Fatalf("normalizeCommand(%q) = %q, want %q", testCase.in, got, testCase.want)
+			}
+		})
+	}
+}
+
+// The renderer truncates from the right, so a path handed over whole arrives on
+// the card as the half that says where the agent works. What survives has to be
+// the end.
+func TestShortenPathKeepsTheEndThatNamesTheFile(t *testing.T) {
+	for name, testCase := range map[string]struct{ in, want string }{
+		"fork checkout": {
+			in:   "/Users/andrewdryga/Projects/tenant/tenant-infra-forks/remote-bf1a4735b267827eceebd9f1/terraform/apps_cms.tf",
+			want: "terraform/apps_cms.tf",
+		},
+		"coop repository": {
+			in:   "/coop/repositories/tenant-app-svelte/src/games/tft/api.ts",
+			want: "src/games/tft/api.ts",
+		},
+		// A directory a person named `remote-something` is inside the work, not
+		// the checkout the work happens in.
+		"remote directory that is not a checkout": {
+			in:   "/coop/repositories/tenant-infra/remote-config/main.tf",
+			want: "remote-config/main.tf",
+		},
+		"already repository relative": {
+			in:   "src/games/tft/api.ts",
+			want: "src/games/tft/api.ts",
+		},
+		"outside any workspace": {
+			in:   "/Users/andrewdryga/Projects/os/responder/internal/liveturn/liveturn.go",
+			want: "…/internal/liveturn/liveturn.go",
+		},
+		// Nothing to drop off the front, so nothing claims to have been dropped.
+		"one long name": {
+			in:   "a-single-file-name-that-will-not-fit-the-column.tf",
+			want: "a-single-file-name-that-will-not-fit-the-column.tf",
+		},
+		"bare name": {in: "api.ts", want: "api.ts"},
+		"empty":     {in: "  ", want: ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := shortenPath(testCase.in)
+			if got != testCase.want {
+				t.Fatalf("shortenPath(%q) = %q, want %q", testCase.in, got, testCase.want)
 			}
 		})
 	}

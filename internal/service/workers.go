@@ -887,21 +887,9 @@ func (s *Service) processCard(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (slackui.Message, error) {
-	return s.incidentCardView(ctx, incident, false)
-}
-
-// incidentCardView composes the card in one of its ask views.
-//
-// One function rather than two, because the Full request toggle re-renders the
-// whole card and everything on it besides the ask row has to come out identical
-// — the same publication resolution, the same diff probe, the same live window.
-// A second composition path would drift, and the operator would watch the card
-// change facts when they clicked a button that only meant to show them more text.
-func (s *Service) incidentCardView(
+func (s *Service) incidentCard(
 	ctx context.Context,
 	incident core.Incident,
-	expandedAsk bool,
 ) (slackui.Message, error) {
 	signals, err := s.store.ListSignals(ctx, incident.ID)
 	if err != nil {
@@ -985,11 +973,7 @@ func (s *Service) incidentCardView(
 		s.log.Warn("read the turn's interior for the card",
 			"incident", incident.ID, "error", trimError(turnErr))
 	}
-	compose := slackui.IncidentCardWithPublication
-	if expandedAsk {
-		compose = slackui.IncidentCardWithAskExpanded
-	}
-	return compose(
+	return slackui.IncidentCardWithPublication(
 		incident,
 		s.repositoryName(incident.Repository),
 		signals,

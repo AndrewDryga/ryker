@@ -141,15 +141,21 @@ func TestRunningCardShowsTheRecordedTurnRatherThanItsSelfReport(t *testing.T) {
 		card.Activity[0].Kind != slackui.ActivityEdit {
 		t.Fatalf("newest line is not the edit that just happened: %+v", card.Activity[0])
 	}
-	if card.Activity[1].Title != "Emisar vm.query_range" ||
+	// The action, named from the payload rather than from the runtime's own
+	// title. "mcp.emisar.run_action" told the operator which transport was
+	// used and nothing about what was run.
+	if card.Activity[1].Title != "emisar vm.query_range" ||
 		card.Activity[1].Kind != slackui.ActivityTool {
 		t.Fatalf("second line is not the tool call: %+v", card.Activity[1])
 	}
-	// The pack ref is the one durable identifier a tool payload carries, and
-	// the digest that makes it immutable is 64 of the 46 characters a line
-	// has. It reaches the card whole and the renderer strips the digest.
-	if !strings.HasPrefix(card.Activity[1].Target, "victoriametrics@0.1.7") {
-		t.Fatalf("the call lost the pack it resolved: %+v", card.Activity[1])
+	// And no pack ref. It used to be the target, on the reasoning that it was
+	// the one durable identifier in the payload — but it identifies the pack
+	// the action came from, which is the same for every call in a run and is
+	// never the thing the operator is trying to read. This call passes no
+	// arguments, so there is nothing more specific to say, and the line says
+	// nothing rather than filling the column with the least useful fact in it.
+	if card.Activity[1].Target != "" {
+		t.Fatalf("the call named its pack instead of its arguments: %+v", card.Activity[1])
 	}
 	// Reasoning is a summary title and one line of it. The store holds up to
 	// four kilobytes of thought and none of it is chain-of-thought for Slack.

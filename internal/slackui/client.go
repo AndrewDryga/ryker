@@ -608,16 +608,14 @@ func (c *Client) post(
 	message Message,
 	broadcast bool,
 ) (string, error) {
-	options := []slack.MsgOption{
-		slack.MsgOptionText(message.Text, false),
-		messageBlocks(message),
+	options := append(messageOptions(message),
 		slack.MsgOptionDisableLinkUnfurl(),
 		slack.MsgOptionDisableMediaUnfurl(),
 		slack.MsgOptionMetadata(slack.SlackMetadata{
 			EventType:    "responder_delivery",
 			EventPayload: map[string]any{"id": deliveryID},
 		}),
-	}
+	)
 	if threadTS != "" {
 		options = append(options, slack.MsgOptionTS(threadTS))
 	}
@@ -643,12 +641,10 @@ func (c *Client) PostEphemeral(
 	channel, user, threadTS string,
 	message Message,
 ) error {
-	options := []slack.MsgOption{
-		slack.MsgOptionText(message.Text, false),
-		messageBlocks(message),
+	options := append(messageOptions(message),
 		slack.MsgOptionDisableLinkUnfurl(),
 		slack.MsgOptionDisableMediaUnfurl(),
-	}
+	)
 	if threadTS != "" {
 		options = append(options, slack.MsgOptionTS(threadTS))
 	}
@@ -656,7 +652,8 @@ func (c *Client) PostEphemeral(
 	return err
 }
 
-// messageBlocks is the one place the custody stripe reaches Slack.
+// messageOptions renders one card into the options that carry it, and is the
+// one place the custody stripe reaches Slack.
 //
 // A bot cannot colour a block; the only tint it owns is an attachment's, so a
 // striped card ships as a single attachment holding the entire block set rather
@@ -665,27 +662,62 @@ func (c *Client) PostEphemeral(
 // affordance — and it is confined to this function, so dropping it later is one
 // edit rather than sixty-seven. Without a stripe the payload is byte-identical
 // to what it always was.
-func messageBlocks(message Message) slack.MsgOption {
+//
+// Where the fallback goes is not a detail. Top-level `text` beside `blocks` is
+// notification-only and never drawn; top-level `text` beside `attachments` is
+// drawn, above them — so the striped card rendered its own fallback as a visible
+// paragraph and the operator read the state line and the title twice, once as
+// text and again as the card's header. The fallback therefore rides the
+// attachment, whose `fallback` field exists for exactly this ("a plain text
+// summary … used in clients that don't show formatted text, eg. mobile
+// notifications"), and the striped call sends an explicit empty `text`. Empty
+// rather than absent because chat.update leaves an omitted field alone: a card
+// posted by an older build already has visible text, and only an empty value
+// clears it on the next edit.
+func messageOptions(message Message) []slack.MsgOption {
 	blocks := message.Blocks()
 	if message.Stripe == "" {
-		return slack.MsgOptionBlocks(blocks...)
+		return []slack.MsgOption{
+			slack.MsgOptionText(message.Text, false),
+			slack.MsgOptionBlocks(blocks...),
+		}
 	}
-	return slack.MsgOptionAttachments(slack.Attachment{
-		Color:  message.Stripe,
-		Blocks: slack.Blocks{BlockSet: blocks},
-	})
+	return []slack.MsgOption{
+		slack.MsgOptionText("", false),
+		slack.MsgOptionAttachments(slack.Attachment{
+			Color:    message.Stripe,
+			Fallback: truncateUTF8(singleLine(message.Text), 3000),
+			Blocks:   slack.Blocks{BlockSet: blocks},
+		}),
+	}
 }
 
 func (c *Client) Update(ctx context.Context, channel, timestamp string, message Message) error {
-	_, _, _, err := c.api.UpdateMessageContext(
-		ctx,
-		channel,
-		timestamp,
-		slack.MsgOptionText(message.Text, false),
-		messageBlocks(message),
+	options := append(messageOptions(message),
 		slack.MsgOptionDisableLinkUnfurl(),
 		slack.MsgOptionDisableMediaUnfurl(),
 	)
+	_, _, _, err := c.api.UpdateMessageContext(ctx, channel, timestamp, options...)
+	return err
+}
+
+// Delete removes a message Responder posted.
+//
+// It exists for one control — Close diff — and it is deliberately not on the
+// API interface: every test fake would have to grow a method for a capability
+// almost nothing uses, which is the same reason React and Unreact are reached
+// by type assertion. chat.delete only works on the bot's own messages, which is
+// the only thing this is ever pointed at.
+//
+// A message that is already gone is not an error worth propagating. Somebody
+// deleting the diff by hand and somebody pressing Close diff are the same
+// intention arriving twice, and the caller's next act either way is to forget
+// the message ever existed.
+func (c *Client) Delete(ctx context.Context, channel, timestamp string) error {
+	_, _, err := c.api.DeleteMessageContext(ctx, channel, timestamp)
+	if err != nil && strings.Contains(err.Error(), "message_not_found") {
+		return nil
+	}
 	return err
 }
 

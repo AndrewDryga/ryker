@@ -3258,6 +3258,21 @@ func (s *Service) withEngineeringTaskChanges(
 		)
 		return message
 	}
+	// The one fetch per turn that holds the whole patch rather than a page, so
+	// the one place the stat can be computed honestly without asking Coop
+	// again. Written unconditionally — including as "" — because a turn that
+	// removed the changes has to take the old count down with it, and a stat
+	// left over from two turns ago is worse than none.
+	//
+	// This is also what keeps the number fresh: recomputing at the end of every
+	// turn is the same guarantee as clearing at the end of every turn, without
+	// the window where the card knows less than it did a second ago.
+	if statErr := s.store.Incidents.SetChangesStat(
+		ctx, incident.ID, taskcard.ChangesStat(changes),
+	); statErr != nil {
+		s.log.Warn("record engineering task change stat",
+			"incident", incident.ID, "error", trimError(statErr))
+	}
 	assembled, _ := decodeAssembledAgentContext(run.Context)
 	if !taskcard.TurnCreatedChanges(assembled.InitialTaskChangesFingerprint, changes) {
 		return message

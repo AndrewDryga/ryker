@@ -20,7 +20,9 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -121,6 +123,13 @@ func Project(
 // a reader sees, which is why this is a translation rather than a
 // pass-through: a reasoning summary and a file edit arrive narrated the same
 // way and are not the same thing to look at.
+//
+// A tool call is read by what its payload is rather than by what the runtime
+// titled it, because the titles are about the tool and the operator is asking
+// about the call: `mcp.emisar.run_action` is `emisar vl.query` and the query it
+// ran, and `Read file '/Users/…/remote-bf1a…/terraform/apps_cms.tf'` is `Read
+// file` and `terraform/apps_cms.tf`. Both facts were on disk the whole time the
+// window was saying `Terminal ×2` and `Read File`.
 func Line(moment core.AgentActivity) (slackui.ActivityLine, bool) {
 	switch moment.Kind {
 	case coop.EventModelThought:
@@ -142,6 +151,20 @@ func Line(moment core.AgentActivity) (slackui.ActivityLine, bool) {
 		kind := slackui.ActivityTool
 		if isEdit(moment.ToolKind) {
 			kind = slackui.ActivityEdit
+		}
+		// The specific readings run first, in the order of how much a payload
+		// says about itself: an MCP envelope names its own call, a file tool
+		// names a path, a search names what it looked for. Each answers only
+		// when it found that thing, so a row none of them recognises falls
+		// through to the shell reading below and renders as it always did.
+		if label, argument, ok := mcpToolCall(moment.Detail); ok {
+			return slackui.ActivityLine{Kind: kind, Title: label, Target: argument}, true
+		}
+		if verb, path, ok := fileToolCall(title, moment.ToolKind, moment.Detail); ok {
+			return slackui.ActivityLine{Kind: kind, Title: verb, Target: path}, true
+		}
+		if query, ok := searchToolCall(title, moment.ToolKind); ok {
+			return slackui.ActivityLine{Kind: kind, Title: searchLabel, Target: query}, true
 		}
 		target := packRef(moment.Detail)
 		raw := ""
@@ -197,6 +220,27 @@ var execToolKinds = []string{
 
 func isExec(kind string) bool {
 	return slices.Contains(execToolKinds, strings.ToLower(strings.TrimSpace(kind)))
+}
+
+// readToolKinds are the tool kinds whose subject is a path but which change
+// nothing. The kinds that do change one are core.EditToolKinds, and both halves
+// are asked the same question here — where is the file — so isFile is the two
+// lists together rather than a third list that would have to be kept level with
+// them.
+var readToolKinds = []string{"read", "read_file", "readfile", "move", "rename"}
+
+func isFile(kind string) bool {
+	return isEdit(kind) ||
+		slices.Contains(readToolKinds, strings.ToLower(strings.TrimSpace(kind)))
+}
+
+// searchToolKinds are the tool kinds that look for a string rather than open a
+// file. Live rows only ever say `search`; the rest are the same runtimes' other
+// names for it, matched loosely for the reason execToolKinds is.
+var searchToolKinds = []string{"search", "grep", "glob", "find"}
+
+func isSearch(kind string) bool {
+	return slices.Contains(searchToolKinds, strings.ToLower(strings.TrimSpace(kind)))
 }
 
 // coopFallbackTitle is what Coop stores when the runtime named nothing
@@ -359,9 +403,11 @@ func detailText(detail json.RawMessage) string {
 // immutable is also what makes it 64 characters of a 46-character line —
 // leaving `victoriametrics@0.1.7`, which is what a person reads it as.
 //
-// Anything else is left alone. A tool's arguments are an object of unknown
-// shape, and guessing a target out of one would put a confident wrong noun on
-// the card.
+// It is now the fallback rather than the first answer: a payload that names its
+// server and tool is read by mcpToolCall, which has the action and the
+// arguments to say what this one call did, and a pack ref is the same string on
+// every call made through that pack. This is what is left for a payload that
+// names a pack and nothing else.
 func packRef(detail json.RawMessage) string {
 	if len(detail) == 0 {
 		return ""
@@ -377,6 +423,381 @@ func packRef(detail json.RawMessage) string {
 		return ""
 	}
 	return firstLine(envelope.Input.Arguments.PackRef)
+}
+
+// mcpToolCall names an MCP call the way the operator who asked for it would.
+//
+// The stored title is the transport's — `mcp.emisar.run_action`, the same
+// string for every action a pack has — and the call's own identity is two levels
+// inside the payload: which server, which action, and what it was aimed at. A
+// window of those titles said "an MCP tool was called" three times about three
+// different investigations.
+//
+// The envelope and its field names are the ones webui's activityCall reads for
+// the episode table. It is the same stored payload and two readings of it would
+// drift into two accounts of one call.
+func mcpToolCall(detail json.RawMessage) (label, argument string, ok bool) {
+	input := toolInput(detail)
+	if len(input) == 0 {
+		return "", "", false
+	}
+	var envelope struct {
+		Server    string          `json:"server"`
+		Tool      string          `json:"tool"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if json.Unmarshal(input, &envelope) != nil || envelope.Server == "" || envelope.Tool == "" {
+		return "", "", false
+	}
+	var call struct {
+		ActionID string          `json:"action_id"`
+		Args     json.RawMessage `json:"args"`
+	}
+	_ = json.Unmarshal(envelope.Arguments, &call)
+	// The action is what ran; the tool is the door it ran through. `run_action`
+	// on its own is true of most of the calls on disk.
+	operation := call.ActionID
+	if operation == "" {
+		operation = envelope.Tool
+	}
+	argument = argumentTarget(call.Args)
+	if argument == "" {
+		argument = argumentTarget(envelope.Arguments, envelopeArgumentSkip...)
+	}
+	return firstLine(envelope.Server + " " + operation), firstLine(argument), true
+}
+
+// toolInput unwraps the stored `{"input": …}` envelope, treating an input that
+// carries nothing as absent — which is most rows: several adapters record the
+// envelope for MCP calls only, so `{"input":{}}` is what a read, an edit or a
+// search leaves behind.
+func toolInput(detail json.RawMessage) json.RawMessage {
+	if len(detail) == 0 {
+		return nil
+	}
+	var wrapper struct {
+		Input json.RawMessage `json:"input"`
+	}
+	if json.Unmarshal(detail, &wrapper) != nil {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(wrapper.Input, &fields) != nil || len(fields) == 0 {
+		return nil
+	}
+	return wrapper.Input
+}
+
+// argumentKeyOrder is the order in which a call's arguments are asked which of
+// them is the target. A url or a query names what the call reached for; a limit
+// or a timeout is how it asked.
+var argumentKeyOrder = []string{"url", "query", "path", "target", "name", "id"}
+
+// envelopeArgumentSkip are the keys that say the same thing on every call made
+// through one pack, or are prose about the call rather than the call. Same list
+// webui skips, for the same reason: what is left is what differs between two
+// rows in the window.
+var envelopeArgumentSkip = []string{
+	"action_id", "pack_ref", "runner_refs", "reason", "wait",
+}
+
+// argumentTarget picks the one argument the card has room for.
+//
+// The order is fixed end to end — named keys, then any string in sorted order,
+// then a number or a bool — because a map range is not, and a card that
+// rewrites every ten seconds would show a different argument each time from the
+// same stored row.
+func argumentTarget(object json.RawMessage, skip ...string) string {
+	var fields map[string]json.RawMessage
+	if len(object) == 0 || json.Unmarshal(object, &fields) != nil {
+		return ""
+	}
+	omit := make(map[string]bool, len(skip))
+	for _, key := range skip {
+		omit[key] = true
+	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		if !omit[name] {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	for _, name := range argumentKeyOrder {
+		if omit[name] {
+			continue
+		}
+		if value, _ := argumentScalar(fields[name]); value != "" {
+			return value
+		}
+	}
+	for _, name := range names {
+		if value, isText := argumentScalar(fields[name]); isText && value != "" {
+			return value
+		}
+	}
+	for _, name := range names {
+		if value, _ := argumentScalar(fields[name]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// argumentScalar reads one argument as text, and says whether it was a string.
+//
+// An object or an array is not an answer: the card has one column and a nested
+// payload would fill it with punctuation. A number or a bool is an answer only
+// when nothing better was passed, which is what the second return says.
+func argumentScalar(raw json.RawMessage) (value string, isText bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	var decoded any
+	if json.Unmarshal(raw, &decoded) != nil {
+		return "", false
+	}
+	switch typed := decoded.(type) {
+	case string:
+		return strings.TrimSpace(typed), true
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64), false
+	case bool:
+		return strconv.FormatBool(typed), false
+	}
+	return "", false
+}
+
+// fileToolCall splits a file tool's row into what it did and what it did it to.
+//
+// The path is in the title on disk and nowhere else — every read and edit
+// payload stored is `{"input":{}}` — so `Read file '/Users/…/apps_cms.tf'` is
+// one string holding two facts, of which the second is the one that differs
+// between rows. A row that names no path keeps its title whole: nine reads on
+// disk are titled `Read File` and carry nothing at all, and there is nothing to
+// make of that but the words.
+func fileToolCall(
+	title, toolKind string, detail json.RawMessage,
+) (verb, path string, ok bool) {
+	if !isFile(toolKind) {
+		return "", "", false
+	}
+	verb, path = splitTitlePath(title)
+	if path == "" {
+		if path = detailPath(detail); path == "" {
+			return "", "", false
+		}
+		verb = title
+	}
+	path = shortenPath(path)
+	if verb == "" {
+		// A title that was only a path leaves nothing to label the row with,
+		// and a line with no title is dropped rather than shown. The path is a
+		// worse label than a verb and a better one than nothing.
+		return path, "", true
+	}
+	return verb, path, true
+}
+
+// splitTitlePath separates the verb of a file tool's title from the path in it.
+//
+// A quoted run is the path outright: that is how the runtimes write it. An
+// unquoted one is only taken from the end of the title and only when it has a
+// separator in it, because `Read File` also ends in a word and calling `File` a
+// path would put a noun on the card that names nothing.
+func splitTitlePath(title string) (verb, path string) {
+	if inner, rest, found := quotedRun(title); found {
+		return trimVerb(rest), inner
+	}
+	fields := strings.Fields(title)
+	if len(fields) == 0 {
+		return title, ""
+	}
+	last := fields[len(fields)-1]
+	if !strings.Contains(last, "/") {
+		return title, ""
+	}
+	return trimVerb(strings.TrimSuffix(title, last)), last
+}
+
+// trimVerb drops the punctuation that was holding the path on: `Read file:` and
+// `Edit —` are the same label as `Read file` and `Edit` with the argument gone.
+func trimVerb(value string) string {
+	return strings.TrimRight(strings.TrimSpace(value), " :-–—,")
+}
+
+// detailPath reads a path out of a tool payload that sent one.
+//
+// No row on disk does: every read, edit and search payload recorded is either
+// absent or `{"input":{}}`, and the path is in the title. This is here for the
+// runtimes that do record their arguments, and is deliberately not the only way
+// a path reaches the card — writing this and stopping would have left the rows
+// that exist rendering exactly as they did.
+func detailPath(detail json.RawMessage) string {
+	if len(detail) == 0 {
+		return ""
+	}
+	var envelope struct {
+		Input struct {
+			Path     string `json:"path"`
+			FilePath string `json:"file_path"`
+			Target   string `json:"target"`
+		} `json:"input"`
+	}
+	if json.Unmarshal(detail, &envelope) != nil {
+		return ""
+	}
+	for _, value := range []string{
+		envelope.Input.Path, envelope.Input.FilePath, envelope.Input.Target,
+	} {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+// pathTargetRunes is how much of a path the target column has.
+//
+// The renderer's line is 46 runes and it truncates from the right, which is the
+// wrong end of a path: an absolute checkout path is prefix for its first forty
+// characters, so `/Users/andrewdryga/Projects/tenant/tenant-in…` is a line that
+// spent itself saying where the agent works. A glyph, a verb the length of
+// `Read file` and the gaps between them leave this, and the shortening spends
+// it on the end of the path instead.
+const pathTargetRunes = 32
+
+// shortenPath cuts a path down to the part that says which file.
+//
+// Two prefixes are dropped outright because they are the same on every row of a
+// turn: the checkout Coop made for a fork (`remote-<hex>`), and the repository
+// directory under `repositories`. What is left is the path as the repository
+// itself writes it — `terraform/apps_cms.tf` — which is the form the operator
+// would type. Anything still too long keeps its tail, marked, because the file
+// name is at that end.
+func shortenPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if trimmed := strings.TrimSuffix(path, "/"); trimmed != "" {
+		path = trimmed
+	}
+	path = workspaceRelative(path)
+	if utf8.RuneCountInString(path) <= pathTargetRunes {
+		return path
+	}
+	segments := strings.Split(path, "/")
+	if len(segments) == 1 {
+		// One long name with nothing to drop off the front of it. The marker
+		// would claim a cut that did not happen.
+		return path
+	}
+	tail := segments[len(segments)-1]
+	for index := len(segments) - 2; index > 0; index-- {
+		candidate := strings.Join(segments[index:], "/")
+		if utf8.RuneCountInString(candidate)+2 > pathTargetRunes {
+			break
+		}
+		tail = candidate
+	}
+	return "…/" + tail
+}
+
+// workspaceRelative drops the part of a path that is where the work happens
+// rather than what was worked on. The scan runs from the right so that a
+// checkout inside a checkout resolves to the inner one.
+func workspaceRelative(path string) string {
+	segments := strings.Split(path, "/")
+	for index := len(segments) - 2; index >= 0; index-- {
+		switch {
+		case isCheckoutDir(segments[index]):
+			return strings.Join(segments[index+1:], "/")
+		case segments[index] == "repositories" && index+2 < len(segments):
+			return strings.Join(segments[index+2:], "/")
+		}
+	}
+	return path
+}
+
+// isCheckoutDir reports that a directory is a checkout Coop made rather than one
+// a person named. The hex id is what makes the difference: `remote-config` is a
+// directory in a repository and `remote-bf1a4735b267827eceebd9f1` is the
+// repository.
+func isCheckoutDir(segment string) bool {
+	id, found := strings.CutPrefix(segment, "remote-")
+	if !found || len(id) < 16 {
+		return false
+	}
+	for index := 0; index < len(id); index++ {
+		switch char := id[index]; {
+		case char >= '0' && char <= '9', char >= 'a' && char <= 'f':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// searchLabel is what a search row is called once the pattern moved out of its
+// title. It is deliberately short: monoLines sizes the label column from the
+// widest label in the window and squeezes the target column first, so a longer
+// one here — `Search in tenant-app-svelte` — would take runes off the pattern on
+// every other row too. The scope the title names is dropped for that reason;
+// what was searched for is the fact worth the width.
+const searchLabel = "Search"
+
+// searchToolCall reads what a search looked for.
+//
+// The pattern is quoted in the title (`Search for 'analyzed_comps|14\.14' in
+// tenant-app-svelte`) and the payload is empty, so the title is the only source.
+// A title with no quoted run is left to render as it is: it is either a search
+// this does not recognise or one that never named its pattern, and inventing a
+// target from the rest of the sentence would say something the row does not.
+func searchToolCall(title, toolKind string) (query string, ok bool) {
+	if !isSearch(toolKind) {
+		return "", false
+	}
+	inner, _, found := quotedRun(title)
+	if !found {
+		return "", false
+	}
+	return inner, true
+}
+
+// quotedRun reads the first quoted run out of a title, and what the title says
+// without it.
+//
+// Two rules keep the run the one the runtime meant. It opens at the start of a
+// word, because the apostrophe in `the agent's file 'x.ts'` would otherwise open
+// a run that closes on the path's own quote and put `s file` on the card. And it
+// closes at the next mark rather than the last, so `Search for 'a' in 'b'`
+// yields `a` rather than everything between the ends.
+func quotedRun(title string) (inner, rest string, found bool) {
+	for _, mark := range []byte{'\'', '"', '`'} {
+		for start := 0; start < len(title); start++ {
+			if title[start] != mark || (start > 0 && !isTitleSpace(title[start-1])) {
+				continue
+			}
+			end := strings.IndexByte(title[start+1:], mark)
+			if end < 0 {
+				break
+			}
+			end += start + 1
+			if inner = strings.TrimSpace(title[start+1 : end]); inner == "" {
+				break
+			}
+			rest = strings.TrimSpace(
+				strings.TrimSpace(title[:start]) + " " + strings.TrimSpace(title[end+1:]),
+			)
+			return inner, rest, true
+		}
+	}
+	return "", title, false
+}
+
+func isTitleSpace(char byte) bool {
+	return char == ' ' || char == '\t'
 }
 
 // firstLine is the bound every string from a transcript passes before it

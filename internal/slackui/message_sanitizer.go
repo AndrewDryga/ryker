@@ -102,11 +102,19 @@ func (s *Sanitizer) Message(message Message) Message {
 	message.Fields = append([]Field(nil), message.Fields...)
 	message.Context = append([]string(nil), message.Context...)
 	message.Actions = append([]Action(nil), message.Actions...)
+	// The tail is a section that renders last, and it holds the one thing on
+	// the card that is entirely somebody else's words — the request as it was
+	// written, pasted logs and all. Sanitizing Sections and stopping there
+	// would put the least trusted text on the card outside the redaction pass.
+	message.Tail = append([]string(nil), message.Tail...)
 	message.Text = s.Text(message.Text)
 	message.Header = s.Text(message.Header)
 	message.Markdown = s.Text(message.Markdown)
 	for index := range message.Sections {
 		message.Sections[index] = s.Text(message.Sections[index])
+	}
+	for index := range message.Tail {
+		message.Tail[index] = s.Text(message.Tail[index])
 	}
 	for index := range message.Fields {
 		message.Fields[index].Label = s.Text(message.Fields[index].Label)
@@ -120,6 +128,9 @@ func (s *Sanitizer) Message(message Message) Message {
 	message.Header = core.TruncateUTF8(message.Header, maxSlackHeaderBytes)
 	for index := range message.Sections {
 		message.Sections[index] = truncateMarkdown(message.Sections[index], maxSlackSectionBytes)
+	}
+	for index := range message.Tail {
+		message.Tail[index] = truncateMarkdown(message.Tail[index], maxSlackSectionBytes)
 	}
 	for index := range message.Fields {
 		message.Fields[index].Label = core.TruncateUTF8(message.Fields[index].Label, maxSlackFieldBytes)

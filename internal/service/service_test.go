@@ -1354,6 +1354,8 @@ type fakeSlack struct {
 	statuses           []slackStatus
 	reactions          []slackReaction
 	removedReactions   []slackReaction
+	deletes            []slackReaction
+	deleteErr          error
 	homes              []slackPost
 	homeErr            error
 	joined             []string
@@ -1484,6 +1486,15 @@ func (f *fakeSlack) Update(_ context.Context, channel, ts string, message slacku
 	return f.updateErr
 }
 func (f *fakeSlack) Pin(context.Context, string, string) error { return nil }
+
+// Delete is reached by type assertion rather than through slackui.API, so the
+// fake carries it for the same reason the real client does: one control needs
+// it and nothing else does.
+func (f *fakeSlack) Delete(_ context.Context, channel, timestamp string) error {
+	f.deletes = append(f.deletes, slackReaction{channel: channel, timestamp: timestamp})
+	return f.deleteErr
+}
+
 func (f *fakeSlack) React(
 	_ context.Context,
 	channel string,

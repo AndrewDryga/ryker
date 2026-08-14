@@ -94,6 +94,12 @@ var slackOptionalCapabilities = map[string]string{
 	"Unreact":      "reactions.remove, same tier as reactions.add",
 	"UserTimezone": "a read of the operator's Slack profile",
 	"ListChannels": "a read of the workspace channel list",
+	// chat.delete removes a message rather than adding one, and it is not on
+	// the per-channel posting limit chat.postMessage competes for. It is also
+	// self-limiting in a way the posting methods are not: it can only be
+	// reached by pressing a control on a message that already exists, and the
+	// press deletes that message.
+	"Delete": "chat.delete removes a message and does not spend the posting budget",
 }
 
 // Nothing may reach the Slack client for a write that the pacer cannot see.

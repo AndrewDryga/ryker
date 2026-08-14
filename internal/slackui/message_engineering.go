@@ -2,7 +2,6 @@ package slackui
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -43,7 +42,6 @@ func engineeringTaskCard(
 	publication core.Publication,
 	followup core.PublicationFollowup,
 	lifecycle core.PublicationLifecycleEvent,
-	expandedAsk bool,
 	turn LiveTurn,
 ) Message {
 	now := time.Now()
@@ -51,7 +49,7 @@ func engineeringTaskCard(
 	ask := taskAsk(state, task, hasCodeChanges, codeChangesKnown, publication)
 	ledger := taskLedger(task, state, hasCodeChanges, publication, turn, now)
 	actions, overflow := taskActions(
-		task, state, hasCodeChanges, codeChangesKnown, publication, followup, expandedAsk,
+		task, state, hasCodeChanges, codeChangesKnown, publication, followup,
 	)
 	message := Message{
 		Text: truncateUTF8(taskFallback(
@@ -62,10 +60,13 @@ func engineeringTaskCard(
 		Sections: []string{state.stateLine(
 			escapeSlackText(repositoryName), cardAge(task.CreatedAt, now), ask,
 		)},
-		Ledger:   ledger,
-		Context:  []string{taskFooter(task)},
-		Actions:  actions,
-		Overflow: overflow,
+		Ledger:  ledger,
+		Context: []string{taskFooter(task, repositoryName)},
+		Actions: actions,
+		// The card ends in the whole request, which has no bound worth
+		// promising, so the controls have to be above it rather than under it.
+		ActionsEarly: true,
+		Overflow:     overflow,
 	}
 	// Position two, directly under the state line, because it is the reason
 	// the card is salmon and the only thing on it the operator can act on.
@@ -74,13 +75,15 @@ func engineeringTaskCard(
 	}
 	// The ask is reference material: it is what was wanted, not what is
 	// happening, and it was the tallest block on every card that carried it.
-	// A lede, and a button that swaps the lede for the whole of it in place.
+	//
+	// It used to be a lede with a button that swapped it for the whole request,
+	// which spent a control and a round trip on a job Slack already does: a long
+	// message folds itself behind "Show more". So the whole request goes on the
+	// card, last, where the fold is — no toggle, nothing truncated to a sentence
+	// nobody asked for, and every id intact because a shortened revision is not
+	// a revision.
 	if signal, ok := primarySignal(signals); ok && strings.TrimSpace(signal.Summary) != "" {
-		message = AppendRow(
-			message,
-			askQuote(signal.Summary, expandedAsk),
-			[]Action{askToggle(task.ID, expandedAsk)},
-		)
+		message.Tail = append(message.Tail, "*The request*\n"+requestQuote(signal.Summary))
 	}
 	// Directly above the model's own summary, because it is the same subject
 	// told two ways and the recorded one is the one that cannot be wrong.
@@ -405,6 +408,13 @@ func taskLedger(
 			steps[1].Detail += fmt.Sprintf(" · %d evidence", turn.Evidence)
 		}
 	}
+	// And what the calls came to. "3 files · +48 −12" is what the operator
+	// opened the diff to find out, so it outranks the call count on the one
+	// step that is about the change itself — how much work was done is a
+	// weaker fact than what the work amounts to, and the column fits one.
+	if stat := strings.TrimSpace(task.ChangesStat); stat != "" {
+		steps[1].Detail = escapeSlackText(stat)
+	}
 	// One word each. The detail column is the first to give way when a line
 	// runs long, and "needs a…" is not a state anybody can act on — the state
 	// line and the ask carry the full sentence.
@@ -511,24 +521,26 @@ func taskOutcome(
 	}
 }
 
-// taskFooter is rule 7: identifiers are footnotes, and the space they used to
-// occupy as a fields grid states the safety boundary where people read.
-func taskFooter(task core.Incident) string {
-	parts := []string{"Isolated fork — cannot merge or deploy"}
-	// Folded into the same line rather than given its own, because the
-	// sentence is only true for a thread-scoped card and a card is a fixed
-	// height instrument before it is a place to put sentences.
-	if task.IsThreadScoped() {
-		parts = append(parts, "replies here continue the same isolated task session")
+// taskFooter says where the work is happening, and nothing else.
+//
+// It used to say five things — a boundary sentence, a sentence about replies, a
+// short id, the fork, and a start date — separated by interpuncts, and it was
+// the line every operator had learned to skip. Four of the five were never read
+// twice: the boundary is stated where it matters, in the confirmation on every
+// control that could cross it; the reply rule is learned once by replying; the
+// short id is a search key nobody searches from the card; and the age is
+// already in the state line. What is left is the one fact the card cannot be
+// read without — which repository this fork was cut from, and which fork.
+func taskFooter(task core.Incident, repositoryName string) string {
+	name := strings.TrimSpace(repositoryName)
+	if name == "" {
+		name = "the repository"
 	}
-	parts = append(parts, "`"+safeInlineCode(ShortID(task.ID))+"`")
+	footer := "Isolated fork of " + escapeSlackText(name)
 	if task.CoopForkName != "" {
-		parts = append(parts, "`"+safeInlineCode(task.CoopForkName)+"`")
+		footer += " `" + safeInlineCode(task.CoopForkName) + "`"
 	}
-	if started := slackDate(task.CreatedAt, "2006-01-02 15:04 UTC"); started != "" {
-		parts = append(parts, "started "+started)
-	}
-	return strings.Join(parts, "  ·  ")
+	return footer
 }
 
 // taskFallback leads with the state word.
@@ -590,29 +602,23 @@ func taskActions(
 	codeChangesKnown bool,
 	publication core.Publication,
 	followup core.PublicationFollowup,
-	expandedAsk bool,
 ) ([]Action, []Action) {
 	// The card renders before Slack has told us where it lives; controls that
 	// route by message would have nowhere to go.
 	if task.RootTS == "" {
 		return nil, nil
 	}
+	// One button, two labels. The card knows whether a diff is open because the
+	// ts of the message is on the incident, so the control that opened it is
+	// also the control that puts it away — rather than a second button beside
+	// it that is dead most of the time.
 	changes := Action{ID: ActionChanges, Label: "View diff", Value: task.ID}
+	if task.ChangesMessageTS != "" {
+		changes.Label = "Hide diff"
+	}
 	viewPR := Action{ID: ActionViewPR, Label: "Open PR", Value: task.ID, URL: publication.PRURL}
 	checkDelivery := Action{ID: ActionCheckDelivery, Label: "Check delivery", Value: task.ID}
 	closeTask := closeWorkAction(task, hasCodeChanges, publication)
-	// The menu copy of the toggle carries the same value as the row button, so
-	// whichever one is pressed the card ends up in the same view. Its label says
-	// which way it moves, because a menu option is read without the row beside it.
-	fullRequest := Action{
-		ID:    ActionFullRequest,
-		Label: "Open the full request",
-		Value: FullRequestActionValue(task.ID, true),
-	}
-	if expandedAsk {
-		fullRequest.Label = "Collapse the full request"
-		fullRequest.Value = FullRequestActionValue(task.ID, false)
-	}
 	// The card shows what the turn is doing while it runs and then rewrites
 	// itself, so what a finished turn actually did is gone from the surface a
 	// minute later. This is where it stays askable, on every state of the card:
@@ -631,7 +637,7 @@ func taskActions(
 	showDiff := hasCodeChanges || !codeChangesKnown
 
 	var actions []Action
-	overflow := []Action{fullRequest, receipt, help}
+	overflow := []Action{receipt, help}
 	switch state.Word {
 	case "Working":
 		if task.ActiveTurnID != "" {
@@ -723,109 +729,30 @@ func containsAction(actions []Action, id string) bool {
 	return false
 }
 
-// askLedeRunes is what the ask row is allowed to cost when collapsed.
+// requestQuoteBytes bounds the request block.
 //
-// The design said two lines; the code said truncateUTF8(..., 180), and those
-// were never the same claim. 180 is a byte bound with no ellipsis and no word
-// boundary, so the row rendered a hard mid-word cut of up to 180 bytes — five
-// or more lines in a narrow Slack column, which pushed the card's action row
-// under "Show more" and put every button one extra click away. 160 runes cut on
-// a word is the bound that matches the sentence the design actually wrote down.
-const askLedeRunes = 160
+// The card renders the request whole, so this is not a display decision about
+// how much of it is worth reading — it is the point past which Slack rejects a
+// section, minus the heading above it. A pasted twenty-kilobyte log is still a
+// section, and a section over 3000 characters fails the whole delivery.
+const requestQuoteBytes = 2800
 
-// askExpandedBytes bounds the ask when it is shown whole.
-//
-// It is the bound the thread reply this toggle replaced used, so expanding
-// shows no less than opening it in the thread ever did, and it sits under the
-// sanitizer's 3000-byte section limit so the quote prefixes cannot push the
-// block past a cut the sanitizer would make without knowing where the lines are.
-const askExpandedBytes = 2900
-
-// fullGitSHAPattern finds a git object id sitting in prose.
-//
-// Anchored patterns elsewhere in the tree answer "is this string a SHA"; this
-// one answers "is there a SHA inside this sentence", which is the question the
-// ask row has. A 40-character hex run is one unbreakable token to Slack's
-// wrapper: it cannot be split, so it reserves a whole line's width and drags the
-// rest of the quote down with it. Both git object lengths are matched, longest
-// first, so a SHA-256 id is shortened once rather than clipped at 40.
-var fullGitSHAPattern = regexp.MustCompile(`\b(?:[0-9a-f]{64}|[0-9a-f]{40})\b`)
-
-// shortenGitSHAs is applied to the lede only. The expanded ask and the prompt
-// the agent reads keep every id whole, because a truncated revision is not a
-// revision — this is a display bound on a line that cannot afford one, not a
-// claim that twelve characters identify the commit.
-func shortenGitSHAs(value string) string {
-	return fullGitSHAPattern.ReplaceAllStringFunc(value, shortSHA)
-}
-
-// askQuote renders the ask row in whichever of its two views is being shown.
-func askQuote(summary string, expanded bool) string {
-	if expanded {
-		return askExpanded(summary)
-	}
-	return "> " + askLede(summary)
-}
-
-func askLede(summary string) string {
-	// Escaping is last: it is the only step that can turn one character into
-	// five, and cutting after it could leave half an entity on the card.
-	return escapeSlackText(
-		truncateWords(shortenGitSHAs(singleLine(summary)), askLedeRunes),
-	)
-}
-
-// askExpanded quotes the whole ask, one blockquote line at a time.
+// requestQuote quotes the whole request, one blockquote line at a time.
 //
 // Slack's mrkdwn quotes a line, not a paragraph, so a request with structure in
 // it — a numbered list, a pasted stack trace — needs the marker repeated or only
 // its first line reads as the quote and the rest reads as the card talking.
-func askExpanded(summary string) string {
+//
+// Every git object id stays whole. This block is reference material and a
+// shortened revision is not a revision; the lede that used to shorten them did
+// so because one 40-character token reserved a whole line's width on a block
+// that had to stay two lines tall, and that block no longer exists.
+func requestQuote(summary string) string {
 	lines := strings.Split(escapeSlackText(strings.TrimSpace(summary)), "\n")
 	for index, line := range lines {
 		lines[index] = "> " + line
 	}
-	return truncateUTF8(strings.Join(lines, "\n"), askExpandedBytes)
-}
-
-// askToggle is the one button that swaps the ask between its two views.
-//
-// The value carries the view the click is asking for, not the view it is
-// sitting in, so the handler renders what it decodes instead of inverting it.
-func askToggle(taskID string, expanded bool) Action {
-	if expanded {
-		return Action{
-			ID:    ActionFullRequest,
-			Label: "Collapse",
-			Value: FullRequestActionValue(taskID, false),
-		}
-	}
-	return Action{
-		ID:    ActionFullRequest,
-		Label: "Full request",
-		Value: FullRequestActionValue(taskID, true),
-	}
-}
-
-// truncateWords cuts on a word and says that it cut.
-//
-// A hard cut mid-token reads as corrupted text rather than as shortened text,
-// and without an ellipsis the reader has no way to tell a request that ended
-// from one that was trimmed. The floor stops a single very long token — a URL,
-// a path — collapsing the line to almost nothing in search of a space.
-func truncateWords(value string, limit int) string {
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
-	}
-	cut := runes[:limit]
-	for index := len(cut) - 1; index >= limit*2/3; index-- {
-		if cut[index] == ' ' || cut[index] == '\t' {
-			cut = cut[:index]
-			break
-		}
-	}
-	return strings.TrimRight(string(cut), " ,;:-—") + "…"
+	return truncateUTF8(strings.Join(lines, "\n"), requestQuoteBytes)
 }
 
 func publicationFallback(
@@ -926,9 +853,15 @@ func MemoryReviewCompleteMessage(action string, remaining int) Message {
 // open, and nothing is waiting on anyone here. It used to spend a header, a
 // linked line, a paragraph about lease protection and a boundary line saying
 // four separate things Responder had not done — most of a screen to report one
-// state change. The state change is the first line; what publishing could and
-// could not do is one context line under it, where the same sentence has been
-// read a hundred times already.
+// state change. The state change is the first line, and now it is the only
+// line. The context line that survived that compression — "Lease-protected
+// publication: Responder refuses to overwrite an unexpected remote change, and
+// did not merge, deploy, sign, or change review state" — is gone too, because
+// it was the third statement of the same boundary in one flow: the publish
+// control confirms with it before the press, the draft PR body carries it on
+// GitHub, and this receipt repeated it to somebody who had just read both. A
+// disclaimer read three times is a disclaimer read none. It stays where it can
+// still change a decision, which is the confirmation, not the receipt.
 func PublicationMessage(publication core.Publication, updated bool) Message {
 	action, state := "created", "is open"
 	if updated {
@@ -944,10 +877,6 @@ func PublicationMessage(publication core.Publication, updated bool) Message {
 			"*<%s|Draft PR #%d> %s* — it carries the exact tree the latest Coop readiness review approved.",
 			publication.PRURL, publication.PRNumber, state,
 		)},
-		Context: []string{
-			"Lease-protected publication: Responder refuses to overwrite an unexpected remote change, " +
-				"and did not merge, deploy, sign, or change review state.",
-		},
 		Actions: []Action{
 			{ID: ActionViewPR, Label: "Open PR", Value: publication.IncidentID, URL: publication.PRURL},
 			// Check delivery stays a button rather than moving into the ⋯ menu
@@ -1142,18 +1071,30 @@ func firstValue(values []string) string {
 // this constructor, which is where the byte offsets in the navigation values
 // are produced and routed. The offsets stay exactly as they are — this renames
 // a label, and changes no route.
-func changesStatLine(navigation ChangesNavigation) string {
-	if navigation.TotalBytes <= 0 {
-		return ""
+// changesStatLine says what the change amounts to and where in it you are.
+//
+// The shape of the change leads, because "3 files · +48 −12" is the question
+// the diff was opened to answer and the byte window is only the answer to
+// "where did this page come from". The shape is omitted rather than guessed
+// when the patch was never fetched whole; see taskcard.ChangesStat.
+func changesStatLine(stat string, navigation ChangesNavigation) string {
+	var parts []string
+	if stat = strings.TrimSpace(stat); stat != "" {
+		parts = append(parts, "*"+escapeSlackText(stat)+"*")
 	}
-	parts := []string{fmt.Sprintf(
-		"*Part %d of %d*", max(navigation.Page, 1), max(navigation.Pages, 1),
-	), fmt.Sprintf(
-		"bytes %d-%d of %d",
-		navigation.FirstByte+1, navigation.LastByte, navigation.TotalBytes,
-	)}
-	if len(navigation.Digest) >= 12 {
-		parts = append(parts, "snapshot `"+safeInlineCode(navigation.Digest[:12])+"`")
+	if navigation.TotalBytes > 0 {
+		if navigation.Pages > 1 {
+			parts = append(parts, fmt.Sprintf(
+				"part %d of %d", max(navigation.Page, 1), navigation.Pages,
+			))
+		}
+		parts = append(parts, fmt.Sprintf(
+			"bytes %d-%d of %d",
+			navigation.FirstByte+1, navigation.LastByte, navigation.TotalBytes,
+		))
+		if len(navigation.Digest) >= 12 {
+			parts = append(parts, "snapshot `"+safeInlineCode(navigation.Digest[:12])+"`")
+		}
 	}
 	return joinFacts(parts)
 }
@@ -1173,7 +1114,7 @@ func ChangesMessage(
 		work = "engineering task"
 	}
 	var markdown strings.Builder
-	if stat := changesStatLine(navigation); stat != "" {
+	if stat := changesStatLine(incident.ChangesStat, navigation); stat != "" {
 		markdown.WriteString(stat)
 		markdown.WriteString("\n\n")
 	}
@@ -1214,6 +1155,11 @@ func ChangesMessage(
 			Value: navigation.RefreshValue,
 		})
 	}
+	// Last, and on every page, because the way out of a diff should not depend
+	// on which page of it you stopped reading.
+	message.Actions = append(message.Actions, Action{
+		ID: ActionCloseDiff, Label: "Close diff", Value: incident.ID,
+	})
 	return message
 }
 
@@ -1288,9 +1234,14 @@ func WithEngineeringTaskDelivery(
 	if !incident.IsEngineeringTask() || !hasCodeChanges {
 		return message
 	}
-	message.Actions = append(message.Actions,
-		Action{ID: ActionChanges, Label: "View diff", Value: incident.ID},
-	)
+	// The same control the card carries, and it has to read the same way: a
+	// button labelled "View diff" that deletes the diff you are looking at is
+	// worse than no button, and the two labels are decided by one column.
+	diff := Action{ID: ActionChanges, Label: "View diff", Value: incident.ID}
+	if incident.ChangesMessageTS != "" {
+		diff.Label = "Hide diff"
+	}
+	message.Actions = append(message.Actions, diff)
 	// A merged or closed PR cannot be published into again, so the only
 	// controls are the two that read: the diff this task still holds, and the
 	// PR it went to. Which of those is true is stated by the task card's state,

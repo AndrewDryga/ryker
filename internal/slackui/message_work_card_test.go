@@ -626,12 +626,113 @@ func TestBusiestTaskCardStaysAnInstrument(t *testing.T) {
 	}
 	// Every part the design says must be there is still there at that height.
 	if len(card.Fields) != 0 || len(card.Context) != 1 || len(card.Ledger) != 5 ||
-		len(card.Rows) != 1 {
+		len(card.Tail) != 1 {
 		t.Fatalf("the busiest card lost a required part: %+v", card)
 	}
-	if !strings.Contains(card.Context[0], "Isolated fork — cannot merge or deploy") ||
-		!strings.Contains(card.Context[0], "`01ce33abd2`") {
-		t.Fatalf("footer does not carry the boundary and the identifiers: %q", card.Context[0])
+	// The footer says where the work is happening and stops. It used to say
+	// five things separated by interpuncts — a boundary sentence, a sentence
+	// about replies, a short id, the fork and a start date — and it was the
+	// line every operator had learned to skip.
+	if card.Context[0] != "Isolated fork of Tenant Infrastructure `remote-44f3f67`" {
+		t.Fatalf("footer = %q", card.Context[0])
+	}
+}
+
+// Every surface that offers the diff offers the same two labels.
+//
+// The button is a toggle now, and which way it points is decided by one column
+// on the incident. Three constructors render it — the task card, the incident
+// card, and the delivery footer on a finished turn — and a "View diff" that
+// deletes the diff in front of you is worse than no button at all.
+func TestEverySurfaceLabelsTheDiffControlByWhetherOneIsOpen(t *testing.T) {
+	signals := []core.Signal{{Status: core.SignalFiring, Summary: "Raise Traefik memory."}}
+	task := taskFixture()
+	task.LatestUpdate = "Raised the allocation memory."
+	incident := taskFixture()
+	incident.WorkKind, incident.WorkScope, incident.Route = "", "", "grafana"
+	incident.SourceIncidentID = "alert-1"
+
+	for name, open := range map[string]bool{"no diff open": false, "a diff open": true} {
+		t.Run(name, func(t *testing.T) {
+			want := "View diff"
+			ts := ""
+			if open {
+				want, ts = "Hide diff", "1700.900"
+			}
+			task.ChangesMessageTS, incident.ChangesMessageTS = ts, ts
+			surfaces := map[string]Message{
+				"task card": IncidentCardWithPublication(
+					task, "Tenant Infrastructure", signals, true, true,
+					core.Publication{}, core.PublicationFollowup{},
+					core.PublicationLifecycleEvent{},
+				),
+				"incident card": IncidentCardWithPublication(
+					incident, "Tenant Infrastructure", signals, true, true,
+					core.Publication{}, core.PublicationFollowup{},
+					core.PublicationLifecycleEvent{},
+				),
+				"delivery footer": WithEngineeringTaskDelivery(
+					Message{Text: "Done."}, task, true,
+					core.Publication{}, core.PublicationFollowup{},
+				),
+			}
+			for surface, message := range surfaces {
+				action, found := findAction(message.Actions, ActionChanges)
+				if !found {
+					t.Fatalf("%s offers no diff control: %+v", surface, message.Actions)
+				}
+				if action.Label != want {
+					t.Errorf("%s offers %q, want %q", surface, action.Label, want)
+				}
+			}
+		})
+	}
+}
+
+// One boundary, or none, and never a stack of them.
+//
+// The card used to state one in its footer while the publication receipt beside
+// it stated another and the confirmation on the button stated a third, all
+// saying that Responder cannot merge or deploy. A disclaimer read three times
+// is a disclaimer read none, so the card states none: the boundary lives on the
+// confirmation, which is the only place it can still change a decision.
+//
+// Run over every state, including the receipts a finished task shrinks to.
+// Merged and closed are where a stacked disclaimer would hide longest, because
+// nobody re-reads a card about work that is over.
+func TestTheTaskCardStacksNoDisclaimers(t *testing.T) {
+	boundary := []string{
+		"cannot merge or deploy", "did not merge, deploy, sign",
+		"Lease-protected", "lease-protected", "No merge, signing, push",
+	}
+	for _, card := range everyTaskCardState(t) {
+		t.Run(card.name, func(t *testing.T) {
+			for _, line := range card.message.Context {
+				for _, phrase := range boundary {
+					if strings.Contains(line, phrase) {
+						t.Errorf("a context line restates the boundary: %q", line)
+					}
+				}
+			}
+			// The confirmations are where it belongs, and they still carry it.
+			for _, action := range card.message.Actions {
+				if action.ID == ActionPublishPR && !strings.Contains(
+					action.Confirm, "cannot merge or deploy",
+				) {
+					t.Errorf("the publish confirmation dropped the boundary: %q", action.Confirm)
+				}
+			}
+		})
+	}
+	// And the receipt that lands beside the card in the same flow states none
+	// either: the publish control confirmed with it and the PR body carries it.
+	receipt := PublicationMessage(openPublication(), false)
+	for _, line := range receipt.Context {
+		for _, phrase := range boundary {
+			if strings.Contains(line, phrase) {
+				t.Errorf("the publication receipt restates the boundary: %q", line)
+			}
+		}
 	}
 }
 

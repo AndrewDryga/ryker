@@ -21,6 +21,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 	"github.com/AndrewDryga/responder/internal/taskaccess"
+	"github.com/AndrewDryga/responder/internal/taskcard"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 	"github.com/AndrewDryga/responder/internal/taskprompt"
 )
@@ -588,6 +589,9 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			input.ActionID != slackui.ActionChangesPrevious &&
 			input.ActionID != slackui.ActionChangesNext &&
 			input.ActionID != slackui.ActionChangesRefresh &&
+			// A closed task can still have a diff open on it, and refusing to
+			// put that away would leave it there permanently.
+			input.ActionID != slackui.ActionCloseDiff &&
 			input.ActionID != slackui.ActionReview &&
 			input.ActionID != slackui.ActionRepairReview &&
 			input.ActionID != slackui.ActionViewPR &&
@@ -1136,12 +1140,22 @@ func (s *Service) handleControl(
 		slackui.ActionChangesNext,
 		slackui.ActionChangesRefresh:
 		return s.showChanges(ctx, input, incident)
-	// The card quotes a lede of the ask because it is an instrument; the rest of
-	// it is one click away, in the card itself. Read-only — it re-renders what
-	// was recorded and touches neither the fork nor the task — so it is gated
-	// like View diff.
+	// Close diff sits on the diff message, so it deletes the message it is on
+	// rather than the tracked one — those are the same message whenever the
+	// tracking is current, and when they have drifted the one in front of the
+	// operator is the one they meant.
+	case slackui.ActionCloseDiff:
+		messageTS := input.MessageTS
+		if messageTS == "" {
+			messageTS = incident.ChangesMessageTS
+		}
+		return s.closeChanges(ctx, input, incident, messageTS)
+	// Retired control, still routed: cards posted before the request moved into
+	// the card's tail carry the button, and a press on one re-renders the card.
+	// Read-only — it renders what was recorded and touches neither the fork nor
+	// the task — so it is gated like View diff.
 	case slackui.ActionFullRequest:
-		return s.toggleFullRequest(ctx, input, incident)
+		return s.refreshFullRequestCard(ctx, input, incident)
 	// A receipt reads the durable record of a turn that has already stopped and
 	// writes nothing, so it is gated exactly as View diff and Full request are.
 	case slackui.ActionTurnReceipt:
@@ -1169,33 +1183,25 @@ func (s *Service) handleControl(
 	}
 }
 
-// toggleFullRequest swaps the card's ask between its lede and the whole of it.
+// refreshFullRequestCard answers a Full request press by re-rendering the card.
 //
-// It rewrites the clicked message rather than replying beside it. The thread
-// reply this replaced answered a question about the card by putting the answer
-// somewhere else, so reading the request meant leaving the instrument, and every
-// press left another copy of the same text in the thread. Expanding in place
-// costs one Slack edit and nothing durable.
-//
-// Deliberately not a card_version bump and deliberately not through the delivery
-// ledger: the expansion is one operator's transient view state, so the next
-// worker render collapses it again. That is the intended behavior, not a leak —
-// see slackui.IncidentCardWithAskExpanded.
-func (s *Service) toggleFullRequest(
+// The control is retired: the card carries the whole request already, last,
+// where Slack's own fold handles it. This handler exists only for the cards
+// posted before that, which are still sitting in channels with the button on
+// them — and the honest answer to that press is the current card, which both
+// shows the request the operator wanted and replaces the button with a layout
+// that no longer needs one.
+func (s *Service) refreshFullRequestCard(
 	ctx context.Context,
 	input core.SlackInput,
 	incident core.Incident,
 ) error {
-	_, expanded, ok := slackui.DecodeFullRequestActionValue(input.ActionValue)
-	if !ok {
-		return errors.New("full request control carries no task")
-	}
 	// A control-plane press has no Slack message to rewrite. The dashboard
 	// renders the whole request already, so there is nothing to refuse either.
 	if input.ChannelID == "" || input.MessageTS == "" {
 		return s.finishSlackInput(ctx, input)
 	}
-	card, err := s.incidentCardView(ctx, incident, expanded)
+	card, err := s.incidentCard(ctx, incident)
 	if err != nil {
 		return err
 	}
@@ -1293,6 +1299,14 @@ func (s *Service) showChanges(
 	incident core.Incident,
 ) error {
 	threadTS := incident.ConversationThreadTS()
+	// The same button both ways. A diff is already open, so this press means
+	// put it away — and the label the operator read said "Hide diff", which is
+	// derived from the same column this branch reads. The pager's own buttons
+	// are excluded: they act on the message they are sitting on, and pressing
+	// Next to be told the diff has been closed would be absurd.
+	if input.ActionID == slackui.ActionChanges && incident.ChangesMessageTS != "" {
+		return s.closeChanges(ctx, input, incident, incident.ChangesMessageTS)
+	}
 	if incident.CoopSessionID == "" {
 		return s.refuseControl(ctx, input, incident,
 			"*Code changes are not available yet.* Emisar is still preparing the "+
@@ -1345,6 +1359,20 @@ func (s *Service) showChanges(
 		}
 	}
 
+	// What the change amounts to, recorded whenever this fetch happened to hold
+	// the whole patch. Written through the incident rather than kept here so
+	// the card can state it without opening a diff, and written as "" when the
+	// fetch was a page — the alternative is a file count from seven kilobytes
+	// of a sixty-kilobyte diff, which reads exactly like the truth.
+	if stat := taskcard.ChangesStat(changes); stat != "" {
+		if statErr := s.store.Incidents.SetChangesStat(ctx, incident.ID, stat); statErr != nil {
+			s.log.Warn("record engineering task change stat",
+				"incident", incident.ID, "error", trimError(statErr))
+		} else {
+			incident.ChangesStat = stat
+		}
+	}
+
 	summary := changesSummary(changes)
 	if diffChanged {
 		summary = "_The fork changed while you were browsing. Showing the newest diff._\n\n" +
@@ -1380,6 +1408,47 @@ func (s *Service) showChanges(
 		s.clearNativeStatus(ctx, incident)
 	}
 	return err
+}
+
+// closeChanges puts the open diff away and turns the card's button back over.
+//
+// Both presses land here: Close diff on the diff message itself, and Hide diff
+// on the card. They are the same act on the same message, so they are the same
+// code — a second path would eventually disagree with this one about whether
+// the tracking was cleared.
+//
+// A delete that fails clears the tracking anyway. The alternative is a card
+// stuck saying "Hide diff" about a message that is not there, whose only
+// control tries the same failing delete forever; forgetting a message that may
+// still exist costs one stale diff in a thread, and the operator can delete
+// that themselves. The error is logged rather than swallowed, because the
+// reason it failed is worth knowing even though it changes nothing here.
+func (s *Service) closeChanges(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+	messageTS string,
+) error {
+	if channel := incident.ChannelID; channel != "" && messageTS != "" {
+		client, ok := unpacedSlack(s.slack).(interface {
+			Delete(context.Context, string, string) error
+		})
+		switch {
+		case !ok:
+			s.log.Warn("close the open diff", "incident", incident.ID,
+				"error", "Slack client does not support deleting a message")
+		default:
+			if err := client.Delete(ctx, channel, messageTS); err != nil {
+				s.log.Warn("close the open diff", "incident", incident.ID,
+					"message", messageTS, "error", trimError(err))
+			}
+		}
+	}
+	if err := s.store.Incidents.ClearChangesMessage(ctx, incident.ID); err != nil {
+		return err
+	}
+	s.clearNativeStatus(ctx, incident)
+	return s.finishSlackInput(ctx, input)
 }
 
 func (s *Service) changesPage(

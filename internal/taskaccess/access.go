@@ -320,6 +320,10 @@ func MemberControlAllowed(control string) bool {
 	case "status", slackui.ActionHelp, slackui.ActionUpdate,
 		slackui.ActionChanges, slackui.ActionChangesPrevious,
 		slackui.ActionChangesNext, slackui.ActionChangesRefresh,
+		// Putting a diff away changes nothing about the work. Whoever was
+		// allowed to open it is allowed to close it, or the room fills with
+		// diffs only an operator can clear.
+		slackui.ActionCloseDiff,
 		slackui.ActionReview, slackui.ActionRepairReview,
 		slackui.ActionViewPR, slackui.ActionCheckDelivery,
 		slackui.ActionFullRequest, slackui.ActionTurnReceipt, slackui.ActionExtend:

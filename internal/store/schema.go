@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 72
+const currentSchemaVersion = 73
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -392,4 +392,23 @@ var migrations = map[int]string{
 	// Nullable rather than defaulted: an episode that has narrated nothing has
 	// no last activity, and a zero timestamp would claim 1970.
 	72: `ALTER TABLE work_episodes ADD COLUMN last_activity_at TEXT;`,
+	// Which diff message is open, and what it says the change amounts to.
+	//
+	// View diff posted a new message every press and there was no way to put
+	// one away, so a task the operator checked four times left four diffs of
+	// the same fork stacked in the thread, the oldest of them wrong. The button
+	// can only become a toggle if the card knows whether a diff is already
+	// open, and the ts is the only durable handle on it — Slack has no "is this
+	// message still there" that is cheaper than trying to delete it.
+	//
+	// The stat rides along because it answers the question the diff is opened
+	// to answer — how big is this change — without opening it, and it is
+	// computed from the same patch fetch. Empty is a real value for both: no
+	// diff open, and no honest stat available. A stat is never computed from a
+	// page, because "3 files" from the first 7 KB of a 60 KB patch is a lie
+	// that reads exactly like the truth.
+	73: `
+		ALTER TABLE incidents ADD COLUMN changes_message_ts TEXT NOT NULL DEFAULT '';
+		ALTER TABLE incidents ADD COLUMN changes_stat TEXT NOT NULL DEFAULT '';
+	`,
 }

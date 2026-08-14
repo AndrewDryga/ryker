@@ -34,7 +34,8 @@ var routedActionIDs = map[string]bool{
 	// answer: the link already did the work.
 	ActionOpenCanvas: true,
 	ActionUpdate:     true, ActionChanges: true, ActionChangesPrevious: true,
-	ActionChangesNext: true, ActionChangesRefresh: true, ActionReview: true,
+	ActionChangesNext: true, ActionChangesRefresh: true, ActionCloseDiff: true,
+	ActionReview:       true,
 	ActionRepairReview: true, ActionPublishPR: true, ActionViewPR: true,
 	ActionCheckDelivery: true, ActionDiscardWork: true, ActionStop: true,
 	ActionExtend: true, ActionResolve: true, ActionHelp: true,
@@ -170,10 +171,12 @@ func TestEveryOverflowOptionDecodesToARoutedAction(t *testing.T) {
 
 	// The controls Phases 1 and 4 moved into menus, named rather than counted:
 	// a refactor that empties a menu should fail here rather than pass quietly.
+	// ActionFullRequest is deliberately absent: the card renders the whole
+	// request in its tail, so the control that used to reveal it is retired
+	// from every menu. It stays routed for the cards that still carry it.
 	for _, want := range []string{
 		ActionUpdate, ActionReview, ActionCheckDelivery, ActionHelp,
-		ActionFullRequest, ActionTurnReceipt, ActionToggleSchedule,
-		ActionEditSchedule,
+		ActionTurnReceipt, ActionToggleSchedule, ActionEditSchedule,
 	} {
 		if !routed[want] {
 			t.Errorf("no production ⋯ menu offers %q; the audit covers nothing", want)

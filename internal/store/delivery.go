@@ -776,6 +776,23 @@ func (s *Store) FinishSlackDelivery(
 			return err
 		}
 	}
+	// The diff that is now open. Recorded here rather than where it was
+	// composed because here is the only place the ts exists: the handler
+	// enqueues a delivery and Slack decides where it lands. Paging rewrites
+	// this same message, so the same branch answers both without a second
+	// spelling of the rule.
+	//
+	// The version bump is guarded on the value actually changing. Without the
+	// guard every Next press would re-render the card to say the same thing.
+	if incidentID.Valid && kind == "changes" && messageTS != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE incidents
+			SET changes_message_ts = ?, updated_at = ?, card_version = card_version + 1
+			WHERE id = ? AND changes_message_ts != ?`,
+			messageTS, s.nowText(), incidentID.String, messageTS); err != nil {
+			return err
+		}
+	}
 	if messageTS != "" {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE emisar_approvals

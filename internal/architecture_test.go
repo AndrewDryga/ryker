@@ -426,7 +426,13 @@ var lineBudget = map[string]int{
 	// internal/service and load every long-running turn the sweep exists to
 	// ignore — into a LIMIT ordered by the deadline they are all past, where
 	// they would crowd out the episodes that really did stop.
-	"store":      11404,
+	// Raised to 11420 on 2026-08-14 for the open diff and what it amounts to:
+	// the v73 migration and its comment, two columns on the incident read
+	// path, the FinishSlackDelivery branch that records the ts a diff landed
+	// at, and the two writers that clear it and set the stat. The ts is only
+	// knowable where the delivery completes and the column is only readable
+	// where incidents are scanned, so neither half can live anywhere else.
+	"store":      11420,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

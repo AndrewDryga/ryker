@@ -37,19 +37,42 @@ func TestChangesMessageRendersExplicitPatchPageAndNavigation(t *testing.T) {
 	// window is a byte range and calling it a page invited the reading that
 	// file 3 of 4 was on it. The offsets and the navigation values are
 	// untouched, so routing is unchanged.
+	//
+	// This page carries no shape: the patch was fetched a page at a time, and
+	// "N files" counted from bytes 7001-14000 would read exactly like "N files"
+	// counted from the whole change.
 	if !strings.HasPrefix(
 		message.Markdown,
-		"*Part 2 of 4* · bytes 7001-14000 of 25000 · snapshot `aaaaaaaaaaaa`\n\n",
+		"part 2 of 4 · bytes 7001-14000 of 25000 · snapshot `aaaaaaaaaaaa`\n\n",
 	) ||
 		strings.Contains(message.Markdown, "Patch page") ||
-		strings.Index(message.Markdown, "*Part 2 of 4*") > strings.Index(message.Markdown, "```diff") ||
+		strings.Contains(message.Markdown, "files ·") ||
+		strings.Index(message.Markdown, "part 2 of 4") > strings.Index(message.Markdown, "```diff") ||
 		!strings.Contains(message.Markdown, "+changed line") ||
 		strings.Contains(message.Markdown, "The patch exceeded") ||
-		len(message.Actions) != 3 ||
+		len(message.Actions) != 4 ||
 		message.Actions[0].ID != ActionChangesPrevious ||
 		message.Actions[1].ID != ActionChangesNext ||
-		message.Actions[2].ID != ActionChangesRefresh {
+		message.Actions[2].ID != ActionChangesRefresh ||
+		message.Actions[3].ID != ActionCloseDiff {
 		t.Fatalf("large diff page = %+v", message)
+	}
+
+	// A diff fetched whole leads with what the change amounts to, which is the
+	// question it was opened to answer. One page, so no part counter.
+	incident.ChangesStat = "3 files · +48 −12"
+	whole := ChangesMessage(incident, "*Committed (3)*", []byte("+one\n"), ChangesNavigation{
+		Page: 1, Pages: 1, FirstByte: 0, LastByte: 5, TotalBytes: 5,
+		RefreshValue: "refresh",
+	})
+	if !strings.HasPrefix(whole.Markdown, "*3 files · +48 −12* · bytes 1-5 of 5\n\n") {
+		t.Fatalf("whole diff = %q", whole.Markdown)
+	}
+	// Close diff is on every page, because the way out should not depend on
+	// which page you stopped reading.
+	if last := whole.Actions[len(whole.Actions)-1]; last.ID != ActionCloseDiff ||
+		last.Value != incident.ID || last.Label != "Close diff" {
+		t.Fatalf("close control = %+v", last)
 	}
 }
 
@@ -484,14 +507,13 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		card.Actions[len(card.Actions)-1].Label != "Close task" {
 		t.Fatalf("engineering task card = %+v", card)
 	}
-	if !slices.ContainsFunc(card.Rows, func(row Row) bool {
-		return len(row.Actions) == 1 && row.Actions[0].ID == ActionFullRequest
-	}) {
-		t.Fatalf("the quoted ask has no way to reach the rest of it: %+v", card.Rows)
+	// The whole request is on the card, in the tail, where Slack's own fold
+	// handles its height — no lede, and no control to reveal the rest.
+	if len(card.Tail) != 1 || !strings.HasPrefix(card.Tail[0], "*The request*") {
+		t.Fatalf("the request is not the card's tail: %+v", card.Tail)
 	}
-	if !strings.Contains(offer.Actions[0].Confirm, "isolated") ||
-		!strings.Contains(card.Context[0], "same isolated task session") {
-		t.Fatalf("engineering task thread copy = offer:%+v card:%+v", offer, card)
+	if !strings.Contains(offer.Actions[0].Confirm, "isolated") {
+		t.Fatalf("engineering task thread copy = offer:%+v", offer)
 	}
 	// The "*Delivery state*\nThe isolated task has no code changes…" paragraph
 	// is superseded by the ledger: an unstarted step states the same fact as a

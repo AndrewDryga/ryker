@@ -105,45 +105,35 @@ func TestOverflowOptionValueRoundTrips(t *testing.T) {
 	}
 }
 
-// The ask toggle's value carries which view the click asks for, and it has to
-// survive being nested inside an overflow option — the same control appears as
-// a row button and as a ⋯ choice, and the two must decode to the same thing.
-func TestFullRequestActionValueRoundTrips(t *testing.T) {
+// The expand toggle is retired, but the cards that carried it are still in
+// channels and their buttons still carry its value. A press on one has to find
+// its incident rather than look one up under a string that was never an id.
+func TestARetiredFullRequestButtonStillNamesItsIncident(t *testing.T) {
 	const task = "inc_01ce33abd2000000"
 
-	for _, expanded := range []bool{false, true} {
-		encoded := FullRequestActionValue(task, expanded)
-		id, view, ok := DecodeFullRequestActionValue(encoded)
-		if !ok || id != task || view != expanded {
-			t.Errorf("round trip of expanded=%t = %q/%t/%t", expanded, id, view, ok)
-		}
-		// Through the ⋯ as well.
-		wrapped := OverflowOptionValue(Action{ID: ActionFullRequest, Value: encoded})
-		actionID, value, decoded := DecodeOverflowOptionValue(wrapped)
-		if !decoded || actionID != ActionFullRequest {
-			t.Fatalf("overflow round trip = %q/%q/%t", actionID, value, decoded)
-		}
-		if id, view, ok = DecodeFullRequestActionValue(value); !ok || id != task ||
-			view != expanded {
-			t.Errorf("nested round trip of expanded=%t = %q/%t/%t", expanded, id, view, ok)
-		}
-		// Slack refuses an option value over 150 characters, and this one is
-		// nested inside another codec, so its length is worth stating.
-		if len(wrapped) > overflowOptionValueLimit {
-			t.Errorf("the nested toggle value is %d characters", len(wrapped))
-		}
-	}
-
-	// A value written before the toggle existed is a bare incident id, and it
-	// means the view it always meant rather than a refusal.
-	if id, view, ok := DecodeFullRequestActionValue(task); !ok || id != task || view {
-		t.Errorf("legacy value = %q/%t/%t", id, view, ok)
+	for name, value := range map[string]string{
+		"asking to expand":     task + legacyFullRequestSuffix,
+		"asking to collapse":   task,
+		"nested in a ⋯ choice": task + legacyFullRequestSuffix,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if strings.Contains(name, "nested") {
+				wrapped := OverflowOptionValue(Action{ID: ActionFullRequest, Value: value})
+				actionID, inner, decoded := DecodeOverflowOptionValue(wrapped)
+				if !decoded || actionID != ActionFullRequest {
+					t.Fatalf("overflow round trip = %q/%q/%t", actionID, inner, decoded)
+				}
+				value = inner
+			}
+			if id, ok := ActionIncidentID(ActionFullRequest, value); !ok || id != task {
+				t.Errorf("ActionIncidentID(%q) = %q/%t, want %q", value, id, ok, task)
+			}
+		})
 	}
 	// Nothing to route: no incident named, either way round.
-	for _, malformed := range []string{"", fullRequestExpandedSuffix} {
-		if id, view, ok := DecodeFullRequestActionValue(malformed); ok {
-			t.Errorf("DecodeFullRequestActionValue(%q) = %q/%t/true, want a refusal",
-				malformed, id, view)
+	for _, malformed := range []string{"", legacyFullRequestSuffix} {
+		if id, ok := ActionIncidentID(ActionFullRequest, malformed); ok {
+			t.Errorf("ActionIncidentID(%q) = %q/true, want a refusal", malformed, id)
 		}
 	}
 }

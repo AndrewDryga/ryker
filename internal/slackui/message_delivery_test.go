@@ -111,10 +111,14 @@ func TestPublicationReceiptStatesOneFactAndKeepsItsControls(t *testing.T) {
 		!strings.Contains(message.Sections[0], "is open") {
 		t.Fatalf("receipt does not link the PR it is about: %q", message.Sections[0])
 	}
-	if len(message.Context) != 1 ||
-		!strings.Contains(message.Context[0], "did not merge, deploy, sign") ||
-		!strings.Contains(message.Context[0], "Lease-protected") {
-		t.Fatalf("receipt boundary = %+v", message.Context)
+	// And it states no boundary at all. "Lease-protected publication: …did not
+	// merge, deploy, sign, or change review state" was the third statement of
+	// the same fact in one flow — the publish control confirms with it, the PR
+	// body carries it on GitHub, and this receipt said it again to somebody who
+	// had just read both. It stays where it can still change a decision.
+	if len(message.Context) != 0 {
+		t.Fatalf("the receipt repeats a boundary the operator has already read twice: %+v",
+			message.Context)
 	}
 	// Check delivery stays a button. It would belong in the ⋯ menu if overflow
 	// options routed; they do not, so moving it there would retire a working

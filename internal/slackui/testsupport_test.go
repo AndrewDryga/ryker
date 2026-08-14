@@ -20,6 +20,11 @@ func cardText(message Message) string {
 		parts = append(parts, row.Text)
 	}
 	parts = append(parts, message.Context...)
+	// The tail is text on the card like any other. It is rendered last, under
+	// the footer, so that Slack's fold hides it rather than the controls — a
+	// reader still reads it, and a test that skipped it would report a card
+	// missing a request that is right there.
+	parts = append(parts, message.Tail...)
 	return strings.Join(parts, "\n")
 }
 

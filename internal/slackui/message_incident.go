@@ -9,42 +9,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
-// IncidentCardWithAskExpanded renders the card with the ask shown whole rather
-// than quoted to a lede, which is what the Full request toggle asks for.
-//
-// Expansion is view state and deliberately not card state. It belongs to the
-// one operator who clicked, it is written straight onto their message instead of
-// through the delivery ledger, and the next worker render collapses it again.
-// That self-healing is the point: the card at rest is an instrument, and the ask
-// is reference material that must not be the tallest block on it. Persisting the
-// expansion would mean one person's reading position quietly re-tallying the
-// card for everyone else in the channel, permanently.
-//
-// Only an engineering task carries an ask row, so every other incident renders
-// exactly as it always does.
-func IncidentCardWithAskExpanded(
-	incident core.Incident,
-	repositoryName string,
-	signals []core.Signal,
-	hasCodeChanges bool,
-	codeChangesKnown bool,
-	publication core.Publication,
-	followup core.PublicationFollowup,
-	lifecycle core.PublicationLifecycleEvent,
-	live ...LiveTurn,
-) Message {
-	if !incident.IsEngineeringTask() {
-		return IncidentCardWithPublication(
-			incident, repositoryName, signals, hasCodeChanges, codeChangesKnown,
-			publication, followup, lifecycle, live...,
-		)
-	}
-	return engineeringTaskCard(
-		incident, repositoryName, signals, hasCodeChanges, codeChangesKnown,
-		publication, followup, lifecycle, true, firstLiveTurn(live),
-	)
-}
-
 func IncidentCardWithPublication(
 	incident core.Incident,
 	repositoryName string,
@@ -64,7 +28,7 @@ func IncidentCardWithPublication(
 	if incident.IsEngineeringTask() {
 		return engineeringTaskCard(
 			incident, repositoryName, signals, hasCodeChanges, codeChangesKnown,
-			publication, followup, lifecycle, false, turn,
+			publication, followup, lifecycle, turn,
 		)
 	}
 	now := time.Now()
@@ -660,7 +624,13 @@ func incidentActions(
 	if incident.RootTS == "" {
 		return nil
 	}
+	// One control, two labels, decided by whether a diff is already open — the
+	// same rule the task card follows, because it is the same button and an
+	// incident's diff is put away exactly the way a task's is.
 	changes := Action{ID: ActionChanges, Label: "View diff", Value: incident.ID}
+	if incident.ChangesMessageTS != "" {
+		changes.Label = "Hide diff"
+	}
 	review := Action{
 		ID: ActionReview, Label: "Run readiness check", Value: incident.ID,
 		Confirm: "Compare the isolated changes with the current repository state, check rebase and configured validation and policy gates, and report whether the fix is ready for external review. This does not merge, push, sign, or deploy.",

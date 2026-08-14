@@ -194,6 +194,8 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		ALTER TABLE context_manifests DROP COLUMN usage_cost_usd;
 		ALTER TABLE context_manifests DROP COLUMN usage_costed_turns;
+		ALTER TABLE incidents DROP COLUMN changes_message_ts;
+		ALTER TABLE incidents DROP COLUMN changes_stat;
 		ALTER TABLE work_episodes DROP COLUMN last_activity_at;
 		DROP TABLE agent_activity;
 		DROP TABLE context_artifacts;
@@ -319,6 +321,8 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;
 		ALTER TABLE context_manifests DROP COLUMN usage_cost_usd;
 		ALTER TABLE context_manifests DROP COLUMN usage_costed_turns;
+		ALTER TABLE incidents DROP COLUMN changes_message_ts;
+		ALTER TABLE incidents DROP COLUMN changes_stat;
 		ALTER TABLE work_episodes DROP COLUMN last_activity_at;
 		DROP TABLE agent_activity;
 		DROP TABLE context_artifacts;

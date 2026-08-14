@@ -104,12 +104,20 @@ type Incident struct {
 	LatestUpdate          string
 	LatestUpdateRunID     string
 	LatestUpdateRunKey    string
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	LastFiringAt          time.Time
-	ResolveDueAt          time.Time
-	ResolvedAt            time.Time
-	ClosedAt              time.Time
+	// ChangesMessageTS is the diff message open for this work, if one is. It
+	// makes View diff a toggle: without it the button could only ever post
+	// another copy, and a task checked four times left four stacked diffs.
+	ChangesMessageTS string
+	// ChangesStat is what the last fully fetched patch amounted to, as
+	// "3 files · +48 −12". Empty when no patch has been fetched whole — a stat
+	// computed from one page would read like the truth and not be it.
+	ChangesStat  string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	LastFiringAt time.Time
+	ResolveDueAt time.Time
+	ResolvedAt   time.Time
+	ClosedAt     time.Time
 }
 
 func (i Incident) ChannelWritable() bool {

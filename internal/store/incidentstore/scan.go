@@ -59,12 +59,48 @@ func (r *Repository) BindTaskPullRequest(
 	return fmt.Errorf("engineering task pull request binding: %w", core.ErrConflict)
 }
 
+// ClearChangesMessage forgets the open diff, so View diff offers to open one
+// again rather than to hide a message that is no longer there.
+//
+// The card version moves with it because the button's label is derived from
+// this column: leaving the version alone would keep "Hide diff" on a card whose
+// diff has been deleted, and the next press would try to delete it twice.
+//
+// Idempotent by design. It is called from the two paths that can both be true
+// at once — the operator pressing Close diff, and a delete that failed because
+// Slack no longer had the message — and neither knows about the other.
+func (r *Repository) ClearChangesMessage(ctx context.Context, incidentID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE incidents SET changes_message_ts = '', updated_at = ?,
+		  card_version = card_version + 1
+		WHERE id = ? AND changes_message_ts != ''`,
+		r.clock().UTC().Format(core.TimestampFormat), incidentID,
+	)
+	return err
+}
+
+// SetChangesStat records what the last whole patch amounted to.
+//
+// Written only where the full patch was in hand, and written as "" when it was
+// not, which is the same statement: this is what we know, and we do not guess.
+// No card version bump — the stat rides a card that some other change is
+// already re-rendering, and a counter is not worth a rewrite of its own.
+func (r *Repository) SetChangesStat(ctx context.Context, incidentID, stat string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE incidents SET changes_stat = ?, updated_at = ?
+		WHERE id = ? AND changes_stat != ?`,
+		stat, r.clock().UTC().Format(core.TimestampFormat), incidentID, stat,
+	)
+	return err
+}
+
 const Columns = `
 	id, route, repository, correlation_key, source_incident_id, title, severity,
 	status, workflow, signal_count, firing_count, channel_id, channel_name, root_ts,
 	coop_session_id, coop_fork_name, coop_revision, coop_event_sequence, active_turn_id,
 	initial_turn_queued, card_version, card_rendered_version, last_error, latest_update,
 	latest_update_run_id, latest_update_run_key,
+	changes_message_ts, changes_stat,
 	task_pull_request_json,
 	created_at, updated_at, last_firing_at, resolve_due_at, resolved_at, closed_at,
 	channel_state, channel_state_changed_at, channel_checked_at,
@@ -84,6 +120,7 @@ func Scan(row interface{ Scan(...any) error }) (core.Incident, error) {
 		&incident.ActiveTurnID, &initial, &incident.CardVersion,
 		&incident.CardRenderedVersion, &incident.LastError, &incident.LatestUpdate,
 		&incident.LatestUpdateRunID, &incident.LatestUpdateRunKey,
+		&incident.ChangesMessageTS, &incident.ChangesStat,
 		&taskPullRequestJSON, &created, &updated, &firing, &due,
 		&resolved, &closed, &incident.ChannelState, &channelChanged, &channelChecked,
 		&incident.WorkKind, &incident.WorkScope, &incident.OriginChannelID,

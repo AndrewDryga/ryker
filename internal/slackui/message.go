@@ -23,17 +23,21 @@ const (
 	ActionChangesPrevious = "responder_changes_previous"
 	ActionChangesNext     = "responder_changes_next"
 	ActionChangesRefresh  = "responder_changes_refresh"
-	ActionReview          = "responder_review"
-	ActionRepairReview    = "responder_repair_review"
-	ActionPublishPR       = "responder_publish_pr"
-	ActionViewPR          = "responder_view_pr"
-	ActionCheckDelivery   = "responder_check_delivery"
-	ActionDiscardWork     = "responder_discard_work"
-	ActionStop            = "responder_stop"
-	ActionExtend          = "responder_extend"
-	ActionResolve         = "responder_resolve"
-	ActionHelp            = "responder_help"
-	ActionOpenIncident    = "responder_open_incident"
+	// ActionCloseDiff puts an opened diff away. Without it View diff could only
+	// ever post another one, so a task checked four times left four diffs of
+	// the same fork stacked in the thread with the oldest one wrong.
+	ActionCloseDiff     = "responder_close_diff"
+	ActionReview        = "responder_review"
+	ActionRepairReview  = "responder_repair_review"
+	ActionPublishPR     = "responder_publish_pr"
+	ActionViewPR        = "responder_view_pr"
+	ActionCheckDelivery = "responder_check_delivery"
+	ActionDiscardWork   = "responder_discard_work"
+	ActionStop          = "responder_stop"
+	ActionExtend        = "responder_extend"
+	ActionResolve       = "responder_resolve"
+	ActionHelp          = "responder_help"
+	ActionOpenIncident  = "responder_open_incident"
 	// A link out to the conversation an item lives in, so the page that says
 	// something needs a decision can also get the reader to it.
 	ActionOpenWorkThread     = "responder_open_work_thread"
@@ -199,6 +203,20 @@ type Message struct {
 	Fields  []Field  `json:"fields,omitempty"`
 	Context []string `json:"context,omitempty"`
 	Actions []Action `json:"actions,omitempty"`
+	// Tail holds the sections rendered after everything else, including the
+	// footer. It exists because Slack's "Show more" fold is what a long request
+	// should cost, and the fold measures rendered height from the top: whatever
+	// is last is what gets hidden. Reference material goes here so that the fold
+	// eats the reference material and nothing else.
+	Tail []string `json:"tail,omitempty"`
+	// ActionsEarly lifts the divider and the action row to directly under the
+	// sections, ahead of the ledger, the activity window, the counters and the
+	// footer.
+	//
+	// A card with a tail needs it. Buttons at the bottom of a card whose bottom
+	// is a pasted stack trace are buttons under the fold, and a control the
+	// operator has to expand the card to reach is a control they do not press.
+	ActionsEarly bool `json:"actions_early,omitempty"`
 	// Stripe is the custody colour, applied by client.go rather than by
 	// Blocks: colour lives on an attachment, which is the one thing a bot can
 	// tint and the one thing that is not a block. Empty renders as before.
@@ -427,6 +445,37 @@ func (m Message) Blocks() []slack.Block {
 			}
 		}
 	}
+	// emitActions is a closure rather than a run of statements because the card
+	// has two places to put its controls, and rendering them twice from two
+	// copies of this is how one of the copies stops matching the other.
+	emitActions := func() {
+		if len(m.Actions) == 0 && len(m.Overflow) == 0 {
+			return
+		}
+		blocks = append(blocks, slack.NewDividerBlock())
+		actionBlocks := make([]*slack.ActionBlock, 0, len(m.Actions)/4+1)
+		for begin := 0; begin < len(m.Actions); begin += 4 {
+			stop := min(begin+4, len(m.Actions))
+			elements := buttonElements(m.Actions[begin:stop], occurrences)
+			if len(elements) == 0 {
+				continue
+			}
+			actionBlocks = append(actionBlocks, slack.NewActionBlock("", elements...))
+		}
+		// The menu belongs beside the buttons it is the remainder of, so it
+		// joins the last row rather than starting one of its own.
+		if overflow := overflowElement(m.Overflow, occurrences); overflow != nil {
+			if len(actionBlocks) == 0 {
+				actionBlocks = append(actionBlocks, slack.NewActionBlock("", overflow))
+			} else {
+				last := actionBlocks[len(actionBlocks)-1]
+				last.Elements.ElementSet = append(last.Elements.ElementSet, overflow)
+			}
+		}
+		for _, block := range actionBlocks {
+			blocks = append(blocks, block)
+		}
+	}
 	emitRows(0)
 	for index, section := range m.Sections {
 		if section != "" {
@@ -436,6 +485,9 @@ func (m Message) Blocks() []slack.Block {
 			))
 		}
 		emitRows(index + 1)
+	}
+	if m.ActionsEarly {
+		emitActions()
 	}
 	if block := preformattedBlock(ledgerLines(m.Ledger, 0)); block != nil {
 		blocks = append(blocks, block)
@@ -477,30 +529,21 @@ func (m Message) Blocks() []slack.Block {
 		}
 		blocks = append(blocks, slack.NewContextBlock("", elements...))
 	}
-	if len(m.Actions) > 0 || len(m.Overflow) > 0 {
-		blocks = append(blocks, slack.NewDividerBlock())
-		actionBlocks := make([]*slack.ActionBlock, 0, len(m.Actions)/4+1)
-		for begin := 0; begin < len(m.Actions); begin += 4 {
-			stop := min(begin+4, len(m.Actions))
-			elements := buttonElements(m.Actions[begin:stop], occurrences)
-			if len(elements) == 0 {
-				continue
-			}
-			actionBlocks = append(actionBlocks, slack.NewActionBlock("", elements...))
+	if !m.ActionsEarly {
+		emitActions()
+	}
+	// Last, under the footer, because this is the block the fold is meant to
+	// eat. Slack measures "Show more" by rendered height from the top of the
+	// message, so whatever sits at the bottom is what gets hidden — which makes
+	// the bottom the only safe place for a block of unbounded height.
+	for _, section := range m.Tail {
+		if section == "" {
+			continue
 		}
-		// The menu belongs beside the buttons it is the remainder of, so it
-		// joins the last row rather than starting one of its own.
-		if overflow := overflowElement(m.Overflow, occurrences); overflow != nil {
-			if len(actionBlocks) == 0 {
-				actionBlocks = append(actionBlocks, slack.NewActionBlock("", overflow))
-			} else {
-				last := actionBlocks[len(actionBlocks)-1]
-				last.Elements.ElementSet = append(last.Elements.ElementSet, overflow)
-			}
-		}
-		for _, block := range actionBlocks {
-			blocks = append(blocks, block)
-		}
+		blocks = append(blocks, slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(section, 2900), false, true),
+			nil, nil,
+		))
 	}
 	return blocks
 }
@@ -1872,32 +1915,17 @@ func DecodePublicationActionValue(value string) (string, int64, bool) {
 	return value[:index], generation, true
 }
 
-// fullRequestExpandedSuffix marks the ask view a Full request click asks for.
+// legacyFullRequestSuffix is all that survives of the expand/collapse toggle.
 //
-// Unlike a publication generation this is not a freshness token — both views of
-// the ask are current, and neither goes stale — so it is a suffix on the plain
-// incident id rather than a second field. A bare id decodes as the collapsed
-// view, which is what every value written before the toggle existed meant, so an
-// old click still routes rather than being refused.
-//
-// The suffix survives being nested inside an overflow option value, because
-// DecodeOverflowOptionValue splits on the first "~opt~" and hands the whole
-// remainder here.
-const fullRequestExpandedSuffix = "~expanded"
+// The card no longer has two views of the ask: it renders the whole request, in
+// the tail, under the fold Slack draws for itself. Nothing writes this suffix
+// any more — but every card posted before that is still sitting in a channel
+// with a button on it whose value ends in it, and a click on one of those has
+// to find its incident rather than look one up under a string that was never an
+// id. Trimmed, not decoded: the view the click asked for is no longer a
+// question anybody answers.
+const legacyFullRequestSuffix = "~expanded"
 
-func FullRequestActionValue(incidentID string, expanded bool) string {
-	if !expanded {
-		return incidentID
-	}
-	return incidentID + fullRequestExpandedSuffix
-}
-
-// DecodeFullRequestActionValue reads the incident and the view a click asked
-// for. The final result reports whether an incident was named at all; a value
-// that is only the suffix names none.
-func DecodeFullRequestActionValue(value string) (string, bool, bool) {
-	if incidentID, found := strings.CutSuffix(value, fullRequestExpandedSuffix); found {
-		return incidentID, true, incidentID != ""
-	}
-	return value, false, value != ""
+func legacyFullRequestIncidentID(value string) string {
+	return strings.TrimSuffix(value, legacyFullRequestSuffix)
 }

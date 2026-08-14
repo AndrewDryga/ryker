@@ -185,6 +185,8 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
 		ALTER TABLE context_manifests DROP COLUMN usage_cost_usd;
 		ALTER TABLE context_manifests DROP COLUMN usage_costed_turns;
+		ALTER TABLE incidents DROP COLUMN changes_message_ts;
+		ALTER TABLE incidents DROP COLUMN changes_stat;
 		ALTER TABLE work_episodes DROP COLUMN last_activity_at;
 		DROP TABLE agent_activity;
 		DROP TABLE context_artifacts;

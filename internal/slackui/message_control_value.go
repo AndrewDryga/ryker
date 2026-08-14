@@ -65,8 +65,8 @@ func ActionIncidentID(actionID string, value string) (string, bool) {
 		incidentID, _, _ := DecodePublicationActionValue(value)
 		return incidentID, incidentID != ""
 	case ActionFullRequest:
-		incidentID, _, ok := DecodeFullRequestActionValue(value)
-		return incidentID, ok
+		incidentID := legacyFullRequestIncidentID(value)
+		return incidentID, incidentID != ""
 	case ActionChangesPrevious, ActionChangesNext, ActionChangesRefresh:
 		cursor, ok := DecodeChangesCursor(value)
 		return cursor.IncidentID, ok
@@ -79,14 +79,15 @@ func ActionIncidentID(actionID string, value string) (string, bool) {
 // control that was pressed.
 //
 // It looks everywhere a control can be rendered, not only at the bottom row. A
-// card puts its ask toggle in a Row and its read-only options behind ⋯, and
-// scanning Actions alone judged both of those stale.
+// card puts a control in a Row and its read-only options behind ⋯, and scanning
+// Actions alone judged both of those stale.
 //
-// A view toggle matches on its id alone. Its value carries which view the click
-// asked for, and both views are current: requiring an exact match would refuse
-// the Collapse press on a card the host expanded in place and therefore never
-// re-recorded in the ledger. Every other control keeps exact matching, which is
-// what makes a superseded publication button harmless.
+// Full request matches on its id alone. The card stopped rendering it — the
+// request is always on the card now — but cards expanded in place before that
+// carry a button whose value the ledger never recorded, and requiring an exact
+// match would refuse those clicks instead of re-rendering the card they are
+// sitting on. Every other control keeps exact matching, which is what makes a
+// superseded publication button harmless.
 func MessageOffersControl(message Message, actionID, value string) bool {
 	match := func(action Action) bool {
 		if action.ID != actionID {
