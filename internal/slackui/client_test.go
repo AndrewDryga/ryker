@@ -792,3 +792,50 @@ func TestCustodyStripeShipsTheCardAsOneColouredAttachment(t *testing.T) {
 		t.Errorf("an unstriped card no longer sends its blocks: %s", blocks)
 	}
 }
+
+// An ephemeral with no thread_ts lands at channel level whichever message was
+// clicked. Thread-scoped work lives entirely inside its thread, so every
+// private answer its controls produced — a refusal, "No turn has finished here
+// yet", a click acknowledgement — was delivered where the operator was not
+// looking, and the button appeared to do nothing. This asserts the field
+// reaches Slack, because that is the whole of the bug.
+func TestEphemeralCarriesTheThreadItWasAskedFor(t *testing.T) {
+	var forms []url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		forms = append(forms, r.Form)
+		_, _ = fmt.Fprint(w, `{"ok":true,"message_ts":"1700.900"}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+	ctx := context.Background()
+
+	if err := client.PostEphemeral(
+		ctx, "CTASK", "U123ABC", "1700.100", Notice("On it."),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got := forms[0].Get("thread_ts"); got != "1700.100" {
+		t.Fatalf("threaded ephemeral carried thread_ts=%q", got)
+	}
+	if forms[0].Get("channel") != "CTASK" || forms[0].Get("user") != "U123ABC" {
+		t.Fatalf("ephemeral addressed to %s/%s",
+			forms[0].Get("channel"), forms[0].Get("user"))
+	}
+
+	// A channel-level answer still has no thread, and must not invent one.
+	if err := client.PostEphemeral(
+		ctx, "CTASK", "U123ABC", "", Notice("Channel-level answer."),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got := forms[1].Get("thread_ts"); got != "" {
+		t.Fatalf("unthreaded ephemeral carried thread_ts=%q", got)
+	}
+}

@@ -135,10 +135,19 @@ func (s *Service) processPublicationFollowup(ctx context.Context) error {
 	return s.publicationFollower().Process(ctx)
 }
 
+// checkPublicationFollowup re-reads the delivery state on an operator's press.
+//
+// The check is silent by design: it posts only when the lifecycle actually
+// moved, so the common answer — nothing changed since last time — reached the
+// operator as no message at all, which is the same thing a dead button looks
+// like. The acknowledgement is the press's own receipt and says exactly that,
+// covering both outcomes without predicting which one this call will produce.
 func (s *Service) checkPublicationFollowup(
 	ctx context.Context,
 	input core.SlackInput,
 	incident core.Incident,
 ) error {
+	s.ackControl(ctx, input, incident,
+		"Checking the delivery status now — I'll post here only if something moved.")
 	return s.publicationFollower().Check(ctx, input, incident)
 }

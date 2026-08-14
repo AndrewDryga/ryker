@@ -2,6 +2,7 @@ package slackui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -42,15 +43,15 @@ func engineeringTaskCard(
 	publication core.Publication,
 	followup core.PublicationFollowup,
 	lifecycle core.PublicationLifecycleEvent,
-	live ...LiveTurn,
+	expandedAsk bool,
+	turn LiveTurn,
 ) Message {
 	now := time.Now()
-	turn := firstLiveTurn(live)
 	state := taskCardState(task, hasCodeChanges, codeChangesKnown, publication, followup)
 	ask := taskAsk(state, task, hasCodeChanges, codeChangesKnown, publication)
 	ledger := taskLedger(task, state, hasCodeChanges, publication, turn, now)
 	actions, overflow := taskActions(
-		task, state, hasCodeChanges, codeChangesKnown, publication, followup,
+		task, state, hasCodeChanges, codeChangesKnown, publication, followup, expandedAsk,
 	)
 	message := Message{
 		Text: truncateUTF8(taskFallback(
@@ -73,12 +74,12 @@ func engineeringTaskCard(
 	}
 	// The ask is reference material: it is what was wanted, not what is
 	// happening, and it was the tallest block on every card that carried it.
-	// Two lines and a way to read the rest.
+	// A lede, and a button that swaps the lede for the whole of it in place.
 	if signal, ok := primarySignal(signals); ok && strings.TrimSpace(signal.Summary) != "" {
 		message = AppendRow(
 			message,
-			"> "+truncateUTF8(escapeSlackText(singleLine(signal.Summary)), 180),
-			[]Action{{ID: ActionFullRequest, Label: "Full request", Value: task.ID}},
+			askQuote(signal.Summary, expandedAsk),
+			[]Action{askToggle(task.ID, expandedAsk)},
 		)
 	}
 	// Directly above the model's own summary, because it is the same subject
@@ -555,6 +556,7 @@ func taskActions(
 	codeChangesKnown bool,
 	publication core.Publication,
 	followup core.PublicationFollowup,
+	expandedAsk bool,
 ) ([]Action, []Action) {
 	// The card renders before Slack has told us where it lives; controls that
 	// route by message would have nowhere to go.
@@ -565,7 +567,18 @@ func taskActions(
 	viewPR := Action{ID: ActionViewPR, Label: "Open PR", Value: task.ID, URL: publication.PRURL}
 	checkDelivery := Action{ID: ActionCheckDelivery, Label: "Check delivery", Value: task.ID}
 	closeTask := closeWorkAction(task, hasCodeChanges, publication)
-	fullRequest := Action{ID: ActionFullRequest, Label: "Open the full request", Value: task.ID}
+	// The menu copy of the toggle carries the same value as the row button, so
+	// whichever one is pressed the card ends up in the same view. Its label says
+	// which way it moves, because a menu option is read without the row beside it.
+	fullRequest := Action{
+		ID:    ActionFullRequest,
+		Label: "Open the full request",
+		Value: FullRequestActionValue(task.ID, true),
+	}
+	if expandedAsk {
+		fullRequest.Label = "Collapse the full request"
+		fullRequest.Value = FullRequestActionValue(task.ID, false)
+	}
 	// The card shows what the turn is doing while it runs and then rewrites
 	// itself, so what a finished turn actually did is gone from the surface a
 	// minute later. This is where it stays askable, on every state of the card:
@@ -676,33 +689,109 @@ func containsAction(actions []Action, id string) bool {
 	return false
 }
 
-// FullRequestMessage posts the whole ask as a thread reply.
+// askLedeRunes is what the ask row is allowed to cost when collapsed.
 //
-// The card quotes the first two lines; this is where the rest of it lives, so
-// the request stays reachable without ever being the tallest block on an
-// instrument that has to stay readable at a glance.
+// The design said two lines; the code said truncateUTF8(..., 180), and those
+// were never the same claim. 180 is a byte bound with no ellipsis and no word
+// boundary, so the row rendered a hard mid-word cut of up to 180 bytes — five
+// or more lines in a narrow Slack column, which pushed the card's action row
+// under "Show more" and put every button one extra click away. 160 runes cut on
+// a word is the bound that matches the sentence the design actually wrote down.
+const askLedeRunes = 160
+
+// askExpandedBytes bounds the ask when it is shown whole.
 //
-// It takes the task's signals rather than one chosen signal so that it and the
-// card select the same one. The card quotes primarySignal; a caller that picked
-// its own would be able to quote two lines of one request and the whole of a
-// different one, under a button that says it is opening the rest of the text
-// above it.
-func FullRequestMessage(task core.Incident, signals []core.Signal) Message {
-	signal, _ := primarySignal(signals)
-	body := strings.TrimSpace(firstNonemptyUI(signal.Summary, signal.Title))
-	if body == "" {
-		body = "The original request was not recorded with this task."
+// It is the bound the thread reply this toggle replaced used, so expanding
+// shows no less than opening it in the thread ever did, and it sits under the
+// sanitizer's 3000-byte section limit so the quote prefixes cannot push the
+// block past a cut the sanitizer would make without knowing where the lines are.
+const askExpandedBytes = 2900
+
+// fullGitSHAPattern finds a git object id sitting in prose.
+//
+// Anchored patterns elsewhere in the tree answer "is this string a SHA"; this
+// one answers "is there a SHA inside this sentence", which is the question the
+// ask row has. A 40-character hex run is one unbreakable token to Slack's
+// wrapper: it cannot be split, so it reserves a whole line's width and drags the
+// rest of the quote down with it. Both git object lengths are matched, longest
+// first, so a SHA-256 id is shortened once rather than clipped at 40.
+var fullGitSHAPattern = regexp.MustCompile(`\b(?:[0-9a-f]{64}|[0-9a-f]{40})\b`)
+
+// shortenGitSHAs is applied to the lede only. The expanded ask and the prompt
+// the agent reads keep every id whole, because a truncated revision is not a
+// revision — this is a display bound on a line that cannot afford one, not a
+// claim that twelve characters identify the commit.
+func shortenGitSHAs(value string) string {
+	return fullGitSHAPattern.ReplaceAllStringFunc(value, shortSHA)
+}
+
+// askQuote renders the ask row in whichever of its two views is being shown.
+func askQuote(summary string, expanded bool) string {
+	if expanded {
+		return askExpanded(summary)
 	}
-	return Message{
-		Text: truncateUTF8(
-			"The full request for "+ShortID(task.ID)+": "+escapeSlackText(singleLine(body)), 4000,
-		),
-		Header:   "The full request",
-		Sections: []string{truncateUTF8(escapeSlackText(body), 2900)},
-		Context: []string{
-			"Quoted as it was received. Reply in this thread to change what is being asked for.",
-		},
+	return "> " + askLede(summary)
+}
+
+func askLede(summary string) string {
+	// Escaping is last: it is the only step that can turn one character into
+	// five, and cutting after it could leave half an entity on the card.
+	return escapeSlackText(
+		truncateWords(shortenGitSHAs(singleLine(summary)), askLedeRunes),
+	)
+}
+
+// askExpanded quotes the whole ask, one blockquote line at a time.
+//
+// Slack's mrkdwn quotes a line, not a paragraph, so a request with structure in
+// it — a numbered list, a pasted stack trace — needs the marker repeated or only
+// its first line reads as the quote and the rest reads as the card talking.
+func askExpanded(summary string) string {
+	lines := strings.Split(escapeSlackText(strings.TrimSpace(summary)), "\n")
+	for index, line := range lines {
+		lines[index] = "> " + line
 	}
+	return truncateUTF8(strings.Join(lines, "\n"), askExpandedBytes)
+}
+
+// askToggle is the one button that swaps the ask between its two views.
+//
+// The value carries the view the click is asking for, not the view it is
+// sitting in, so the handler renders what it decodes instead of inverting it.
+func askToggle(taskID string, expanded bool) Action {
+	if expanded {
+		return Action{
+			ID:    ActionFullRequest,
+			Label: "Collapse",
+			Value: FullRequestActionValue(taskID, false),
+		}
+	}
+	return Action{
+		ID:    ActionFullRequest,
+		Label: "Full request",
+		Value: FullRequestActionValue(taskID, true),
+	}
+}
+
+// truncateWords cuts on a word and says that it cut.
+//
+// A hard cut mid-token reads as corrupted text rather than as shortened text,
+// and without an ellipsis the reader has no way to tell a request that ended
+// from one that was trimmed. The floor stops a single very long token — a URL,
+// a path — collapsing the line to almost nothing in search of a space.
+func truncateWords(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	cut := runes[:limit]
+	for index := len(cut) - 1; index >= limit*2/3; index-- {
+		if cut[index] == ' ' || cut[index] == '\t' {
+			cut = cut[:index]
+			break
+		}
+	}
+	return strings.TrimRight(string(cut), " ,;:-—") + "…"
 }
 
 func publicationFallback(

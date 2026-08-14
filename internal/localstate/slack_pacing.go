@@ -97,10 +97,11 @@ func (p *pacedSlack) PostEphemeral(
 	ctx context.Context,
 	channel string,
 	user string,
+	threadTS string,
 	message slackui.Message,
 ) error {
 	defer p.record(channel)
-	return p.API.PostEphemeral(ctx, channel, user, message)
+	return p.API.PostEphemeral(ctx, channel, user, threadTS, message)
 }
 
 func (p *pacedSlack) Update(

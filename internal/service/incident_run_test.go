@@ -205,20 +205,20 @@ func TestPrivateSlackReplayBypassesStaleMessageCoalescing(t *testing.T) {
 
 func TestChangesCursorAndNavigationBindPagesToIncidentAndDigest(t *testing.T) {
 	digest := strings.Repeat("a", 64)
-	value := encodeChangesCursor(changesCursor{
+	value := slackui.EncodeChangesCursor(slackui.ChangesCursor{
 		IncidentID: "incident_123",
-		Offset:     changesPatchPageBytes,
+		Offset:     slackui.ChangesPatchPageBytes,
 		Digest:     digest,
 	})
-	cursor, ok := decodeChangesCursor(value)
+	cursor, ok := slackui.DecodeChangesCursor(value)
 	if !ok || cursor.IncidentID != "incident_123" ||
-		cursor.Offset != changesPatchPageBytes || cursor.Digest != digest {
+		cursor.Offset != slackui.ChangesPatchPageBytes || cursor.Digest != digest {
 		t.Fatalf("cursor = %+v, %t", cursor, ok)
 	}
-	if _, ok := decodeChangesCursor(value + "!"); ok {
+	if _, ok := slackui.DecodeChangesCursor(value + "!"); ok {
 		t.Fatal("malformed diff cursor was accepted")
 	}
-	navigation := changesNavigation("incident_123", coop.Changes{
+	navigation := slackui.NewChangesNavigation("incident_123", coop.Changes{
 		PatchOffset: 7000, PatchNextOffset: 14000,
 		PatchBytes: 15000, PatchHasMore: true, PatchDigest: digest,
 	})
@@ -235,7 +235,7 @@ func TestChangesCursorAndNavigationBindPagesToIncidentAndDigest(t *testing.T) {
 		{slackui.ActionChangesNext, navigation.NextValue},
 		{slackui.ActionChangesRefresh, navigation.RefreshValue},
 	} {
-		incidentID, ok := changesActionIncidentID(action.id, action.value)
+		incidentID, ok := slackui.ActionIncidentID(action.id, action.value)
 		if !ok || incidentID != "incident_123" {
 			t.Fatalf("action %s incident = %q, %t", action.id, incidentID, ok)
 		}

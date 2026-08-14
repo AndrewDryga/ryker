@@ -212,7 +212,7 @@ func (*stubSlack) PostBroadcast(
 	return "", nil
 }
 
-func (*stubSlack) PostEphemeral(context.Context, string, string, slackui.Message) error {
+func (*stubSlack) PostEphemeral(context.Context, string, string, string, slackui.Message) error {
 	return nil
 }
 

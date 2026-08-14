@@ -1304,9 +1304,13 @@ func (f *fakeCoop) complete(message string) {
 }
 
 type slackPost struct {
-	outboxID  string
-	channel   string
-	thread    string
+	outboxID string
+	channel  string
+	thread   string
+	// user is set only for ephemerals, which are addressed to a person as well
+	// as to a place. It used to be stored in thread, which left the fake unable
+	// to observe the one field an ephemeral gets wrong most often.
+	user      string
 	broadcast bool
 	message   slackui.Message
 }
@@ -1464,9 +1468,13 @@ func (f *fakeSlack) PostBroadcast(
 	})
 	return "1700.00" + string(rune('1'+len(f.posts)-1)), f.postErr
 }
-func (f *fakeSlack) PostEphemeral(_ context.Context, channel, user string, message slackui.Message) error {
+func (f *fakeSlack) PostEphemeral(
+	_ context.Context,
+	channel, user, threadTS string,
+	message slackui.Message,
+) error {
 	f.ephemerals = append(f.ephemerals, slackPost{
-		channel: channel, thread: user, message: message,
+		channel: channel, user: user, thread: threadTS, message: message,
 	})
 	return f.ephemeralErr
 }

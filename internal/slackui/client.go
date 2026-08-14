@@ -27,7 +27,7 @@ type API interface {
 	SetTopic(context.Context, string, string) error
 	Post(context.Context, string, string, string, Message) (string, error)
 	PostBroadcast(context.Context, string, string, string, Message) (string, error)
-	PostEphemeral(context.Context, string, string, Message) error
+	PostEphemeral(context.Context, string, string, string, Message) error
 	Update(context.Context, string, string, Message) error
 	Pin(context.Context, string, string) error
 	SetStatus(context.Context, string, string, string) error
@@ -628,20 +628,31 @@ func (c *Client) post(
 	return timestamp, err
 }
 
+// PostEphemeral answers one person where they are looking.
+//
+// threadTS is not optional decoration. An ephemeral posted without it lands at
+// channel level no matter which message the click came from, and a thread-scoped
+// task lives entirely inside its thread — so every private answer the task
+// controls produce ("No turn has finished here yet", a refusal, a click
+// acknowledgement) was delivered to a channel the operator was not reading,
+// while the thread they were watching stayed silent. The click looked like it
+// did nothing. Callers with genuinely no thread — channel-level configuration
+// answers — pass "" and get the old behavior.
 func (c *Client) PostEphemeral(
 	ctx context.Context,
-	channel, user string,
+	channel, user, threadTS string,
 	message Message,
 ) error {
-	_, err := c.api.PostEphemeralContext(
-		ctx,
-		channel,
-		user,
+	options := []slack.MsgOption{
 		slack.MsgOptionText(message.Text, false),
 		messageBlocks(message),
 		slack.MsgOptionDisableLinkUnfurl(),
 		slack.MsgOptionDisableMediaUnfurl(),
-	)
+	}
+	if threadTS != "" {
+		options = append(options, slack.MsgOptionTS(threadTS))
+	}
+	_, err := c.api.PostEphemeralContext(ctx, channel, user, options...)
 	return err
 }
 

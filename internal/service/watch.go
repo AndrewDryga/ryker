@@ -681,11 +681,12 @@ func (s *Service) finishShadowedWatchDecision(
 	// is "not here". Ephemeral, so the channel stays as quiet as it was asked
 	// to be and the asker is not left waiting on a reply that is never coming.
 	if input.Kind == "mention" && input.ChannelID != "" && input.UserID != "" {
-		if err := s.slack.PostEphemeral(ctx, input.ChannelID, input.UserID, s.sanitizeMessage(
-			slackui.Notice("*This channel is set to observe only.* I read everything here and "+
-				"keep the evidence, but I do not post. Change it with `/responder shadow off` "+
-				"or from the channel's page in the control plane."),
-		)); err != nil {
+		if err := s.slack.PostEphemeral(ctx, input.ChannelID, input.UserID,
+			slackReplyThread(input), s.sanitizeMessage(
+				slackui.Notice("*This channel is set to observe only.* I read everything here and "+
+					"keep the evidence, but I do not post. Change it with `/responder shadow off` "+
+					"or from the channel's page in the control plane."),
+			)); err != nil {
 			return err
 		}
 	}

@@ -852,31 +852,52 @@ func (s *Service) refuseSlashInput(
 	ctx context.Context,
 	input core.SlackInput,
 	text string,
+	threadTS ...string,
 ) error {
 	if input.Kind != "conversation_command" ||
 		input.ChannelID == "" || input.UserID == "" {
-		return s.finishSlashInput(ctx, input, text)
+		return s.finishSlashInput(ctx, input, text, threadTS...)
 	}
 	if err := s.slack.PostEphemeral(
-		ctx, input.ChannelID, input.UserID, s.sanitizeMessage(slackui.Notice(text)),
+		ctx,
+		input.ChannelID,
+		input.UserID,
+		privateReplyThread(input, threadTS),
+		s.sanitizeMessage(slackui.Notice(text)),
 	); err != nil {
 		return s.retrySlackInput(ctx, input, err)
 	}
 	return s.store.FinishSlackInput(ctx, input.ID)
 }
 
+// privateReplyThread decides which thread a private answer belongs in.
+//
+// The default mirrors postInputMessage exactly: the same input answered out
+// loud and answered privately must land in the same place, or the two spellings
+// of one command disagree about where the conversation is. An explicit override
+// exists for the incident-scoped controls, whose public answers are threaded on
+// the task rather than on the click — see controlReplyThread.
+func privateReplyThread(input core.SlackInput, override []string) string {
+	if len(override) > 0 {
+		return override[0]
+	}
+	return conversationalResponseThread(input)
+}
+
 func (s *Service) finishSlashInput(
 	ctx context.Context,
 	input core.SlackInput,
 	text string,
+	threadTS ...string,
 ) error {
-	return s.finishSlashMessage(ctx, input, slackui.Notice(text))
+	return s.finishSlashMessage(ctx, input, slackui.Notice(text), threadTS...)
 }
 
 func (s *Service) finishSlashMessage(
 	ctx context.Context,
 	input core.SlackInput,
 	message slackui.Message,
+	threadTS ...string,
 ) error {
 	message = s.sanitizeMessage(message)
 	if input.Kind == "conversation_command" {
@@ -908,7 +929,13 @@ func (s *Service) finishSlashMessage(
 		}
 		return s.store.FinishSlackInput(ctx, input.ID)
 	}
-	if err := s.slack.PostEphemeral(ctx, input.ChannelID, input.UserID, message); err != nil {
+	if err := s.slack.PostEphemeral(
+		ctx,
+		input.ChannelID,
+		input.UserID,
+		privateReplyThread(input, threadTS),
+		message,
+	); err != nil {
 		// A direct message is already private, so the reason to prefer an
 		// ephemeral message there does not apply — and when Slack rejects the
 		// ephemeral post, retrying replays the same rejection until the input

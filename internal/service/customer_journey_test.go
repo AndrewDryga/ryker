@@ -1125,8 +1125,8 @@ func TestCustomerJourneyIncidentCannotPublishDraftPR(t *testing.T) {
 		!strings.Contains(rendered, "remain read-only") {
 		t.Fatalf("incident publication notice = %+v", slackClient.ephemerals[0].message)
 	}
-	if slackClient.ephemerals[0].thread != cfg.Slack.Operators[0] {
-		t.Fatalf("refusal went to %q, not the operator who pressed", slackClient.ephemerals[0].thread)
+	if slackClient.ephemerals[0].user != cfg.Slack.Operators[0] {
+		t.Fatalf("refusal went to %q, not the operator who pressed", slackClient.ephemerals[0].user)
 	}
 }
 

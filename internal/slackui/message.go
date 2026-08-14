@@ -1867,3 +1867,33 @@ func DecodePublicationActionValue(value string) (string, int64, bool) {
 	}
 	return value[:index], generation, true
 }
+
+// fullRequestExpandedSuffix marks the ask view a Full request click asks for.
+//
+// Unlike a publication generation this is not a freshness token — both views of
+// the ask are current, and neither goes stale — so it is a suffix on the plain
+// incident id rather than a second field. A bare id decodes as the collapsed
+// view, which is what every value written before the toggle existed meant, so an
+// old click still routes rather than being refused.
+//
+// The suffix survives being nested inside an overflow option value, because
+// DecodeOverflowOptionValue splits on the first "~opt~" and hands the whole
+// remainder here.
+const fullRequestExpandedSuffix = "~expanded"
+
+func FullRequestActionValue(incidentID string, expanded bool) string {
+	if !expanded {
+		return incidentID
+	}
+	return incidentID + fullRequestExpandedSuffix
+}
+
+// DecodeFullRequestActionValue reads the incident and the view a click asked
+// for. The final result reports whether an incident was named at all; a value
+// that is only the suffix names none.
+func DecodeFullRequestActionValue(value string) (string, bool, bool) {
+	if incidentID, found := strings.CutSuffix(value, fullRequestExpandedSuffix); found {
+		return incidentID, true, incidentID != ""
+	}
+	return value, false, value != ""
+}

@@ -298,7 +298,39 @@ var lineBudget = map[string]int{
 	// the arm of the exhaustion switch that ships the answer instead of blocking
 	// it, and the audit outcome. Every one of them touches the store handle, the
 	// run record, or the ladder's local state.
-	"service": 21965,
+	//
+	// Raised to 22030 on 2026-08-14 for the live-feedback round: an operator
+	// clicked the controls on a deployed card and could not tell any of them
+	// from a dead button. Every ephemeral this package sends was posted with no
+	// thread_ts, so on thread-scoped work each private answer — a refusal, "No
+	// turn has finished here yet", the reason a press changed nothing — was
+	// delivered at channel level while the operator watched the thread. Ask for
+	// an update queued a real run and said nothing. Full request replied in the
+	// thread instead of opening on the card.
+	//
+	// 120 lines landed here and 104 left, which is the shape this map keeps
+	// asking for. What left is the other half of a control: reading an action's
+	// value back to the work it acts on. The pager cursor codec, ActionIncidentID
+	// — now the single place that knows how every control packs its target — and
+	// MessageOffersControl are in slackui beside the option-value codec that went
+	// there on 2026-08-13, and NewChangesNavigation went with them because it
+	// mints those cursors and returns a slackui type. Putting them there also
+	// fixed a live defect the split exposed: the incident lookup read the value
+	// raw and special-cased one action, so every diff-pager button resolved a
+	// cursor as if it were an incident id and was answered "no longer valid".
+	//
+	// The sixteen that stayed are wiring that cannot leave. The ask toggle's
+	// handler composes a card and calls Slack's update, so it holds the store,
+	// the publisher, the Coop client and the sanitizer at once; the press
+	// acknowledgement holds the Slack client, the sanitizer and the logger; and
+	// the thread helper reads the incident to answer where a private reply goes.
+	// Moving any of them would put four clients behind a package boundary to
+	// relocate a call.
+	//
+	// 22030 rather than 21981. This entry was sitting at exactly its own count
+	// again — the fifth time — and the note at the top of this map calls that a
+	// tripwire rather than a ratchet.
+	"service": 22030,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

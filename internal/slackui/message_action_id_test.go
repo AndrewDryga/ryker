@@ -105,6 +105,49 @@ func TestOverflowOptionValueRoundTrips(t *testing.T) {
 	}
 }
 
+// The ask toggle's value carries which view the click asks for, and it has to
+// survive being nested inside an overflow option — the same control appears as
+// a row button and as a ⋯ choice, and the two must decode to the same thing.
+func TestFullRequestActionValueRoundTrips(t *testing.T) {
+	const task = "inc_01ce33abd2000000"
+
+	for _, expanded := range []bool{false, true} {
+		encoded := FullRequestActionValue(task, expanded)
+		id, view, ok := DecodeFullRequestActionValue(encoded)
+		if !ok || id != task || view != expanded {
+			t.Errorf("round trip of expanded=%t = %q/%t/%t", expanded, id, view, ok)
+		}
+		// Through the ⋯ as well.
+		wrapped := OverflowOptionValue(Action{ID: ActionFullRequest, Value: encoded})
+		actionID, value, decoded := DecodeOverflowOptionValue(wrapped)
+		if !decoded || actionID != ActionFullRequest {
+			t.Fatalf("overflow round trip = %q/%q/%t", actionID, value, decoded)
+		}
+		if id, view, ok = DecodeFullRequestActionValue(value); !ok || id != task ||
+			view != expanded {
+			t.Errorf("nested round trip of expanded=%t = %q/%t/%t", expanded, id, view, ok)
+		}
+		// Slack refuses an option value over 150 characters, and this one is
+		// nested inside another codec, so its length is worth stating.
+		if len(wrapped) > overflowOptionValueLimit {
+			t.Errorf("the nested toggle value is %d characters", len(wrapped))
+		}
+	}
+
+	// A value written before the toggle existed is a bare incident id, and it
+	// means the view it always meant rather than a refusal.
+	if id, view, ok := DecodeFullRequestActionValue(task); !ok || id != task || view {
+		t.Errorf("legacy value = %q/%t/%t", id, view, ok)
+	}
+	// Nothing to route: no incident named, either way round.
+	for _, malformed := range []string{"", fullRequestExpandedSuffix} {
+		if id, view, ok := DecodeFullRequestActionValue(malformed); ok {
+			t.Errorf("DecodeFullRequestActionValue(%q) = %q/%t/true, want a refusal",
+				malformed, id, view)
+		}
+	}
+}
+
 // Slack rejects an option value over 150 characters and rejects the message
 // carrying it. The option is dropped rather than cut: a truncated routing key
 // still decodes to a real action, and would fire it at a target that has had

@@ -9,6 +9,42 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
+// IncidentCardWithAskExpanded renders the card with the ask shown whole rather
+// than quoted to a lede, which is what the Full request toggle asks for.
+//
+// Expansion is view state and deliberately not card state. It belongs to the
+// one operator who clicked, it is written straight onto their message instead of
+// through the delivery ledger, and the next worker render collapses it again.
+// That self-healing is the point: the card at rest is an instrument, and the ask
+// is reference material that must not be the tallest block on it. Persisting the
+// expansion would mean one person's reading position quietly re-tallying the
+// card for everyone else in the channel, permanently.
+//
+// Only an engineering task carries an ask row, so every other incident renders
+// exactly as it always does.
+func IncidentCardWithAskExpanded(
+	incident core.Incident,
+	repositoryName string,
+	signals []core.Signal,
+	hasCodeChanges bool,
+	codeChangesKnown bool,
+	publication core.Publication,
+	followup core.PublicationFollowup,
+	lifecycle core.PublicationLifecycleEvent,
+	live ...LiveTurn,
+) Message {
+	if !incident.IsEngineeringTask() {
+		return IncidentCardWithPublication(
+			incident, repositoryName, signals, hasCodeChanges, codeChangesKnown,
+			publication, followup, lifecycle, live...,
+		)
+	}
+	return engineeringTaskCard(
+		incident, repositoryName, signals, hasCodeChanges, codeChangesKnown,
+		publication, followup, lifecycle, true, firstLiveTurn(live),
+	)
+}
+
 func IncidentCardWithPublication(
 	incident core.Incident,
 	repositoryName string,
@@ -28,7 +64,7 @@ func IncidentCardWithPublication(
 	if incident.IsEngineeringTask() {
 		return engineeringTaskCard(
 			incident, repositoryName, signals, hasCodeChanges, codeChangesKnown,
-			publication, followup, lifecycle, turn,
+			publication, followup, lifecycle, false, turn,
 		)
 	}
 	now := time.Now()

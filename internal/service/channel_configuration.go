@@ -213,9 +213,10 @@ func (s *Service) processConfigurationReply(
 		// act on it, and a channel that learns Responder posts its errors there
 		// is a channel that starts tuning Responder out.
 		//
-		// Ephemeral needs no bookkeeping: it has no timestamp to thread under,
-		// and the operator answers beneath the question that is already
-		// recorded as a thread root.
+		// Ephemeral needs no bookkeeping — it has no timestamp of its own to
+		// record — but it does need to land where the question did, which is
+		// what responseThreadTS already decided for the setup card. Setup run
+		// in the channel resolves that to "" and stays at channel level.
 		if decisionpkg.RequestedConversationLocation(text) == decisionpkg.ConversationLocationFollow {
 			message := slackui.Notice(
 				"**I could not map that answer to a safe typed setting.**\n\n" +
@@ -228,7 +229,11 @@ func (s *Service) processConfigurationReply(
 				)
 			}
 			if err := s.slack.PostEphemeral(
-				ctx, session.ChannelID, input.UserID, s.sanitizeMessage(message),
+				ctx,
+				session.ChannelID,
+				input.UserID,
+				responseThreadTS,
+				s.sanitizeMessage(message),
 			); err != nil {
 				return true, err
 			}

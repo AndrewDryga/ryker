@@ -19,6 +19,7 @@ package liveturn
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/coop"
@@ -138,16 +139,37 @@ func Line(moment core.AgentActivity) (slackui.ActivityLine, bool) {
 		return slackui.ActivityLine{Kind: slackui.ActivityThinking, Title: text}, true
 	case coop.EventToolStarted:
 		title := firstLine(moment.Title)
-		if title == "" {
-			return slackui.ActivityLine{}, false
-		}
 		kind := slackui.ActivityTool
 		if isEdit(moment.ToolKind) {
 			kind = slackui.ActivityEdit
 		}
-		return slackui.ActivityLine{
-			Kind: kind, Title: title, Target: packRef(moment.Detail),
-		}, true
+		target := packRef(moment.Detail)
+		raw := ""
+		if isExec(moment.ToolKind) {
+			raw = shellCommand(moment.Detail)
+		}
+		if command := firstLine(normalizeCommand(raw)); command != "" {
+			switch {
+			// The command is the label when the title is not one. A shell tool
+			// whose runtime sends no per-call title leaves its own name behind,
+			// and three of those in a row is the window telling an operator
+			// "Terminal" three times about three different commands. It is also
+			// the label when the title is that same command in worse clothes:
+			// one fact, once, in the form a person can read.
+			case uninformativeTitle(moment.Title, moment.ToolKind) ||
+				sameCommand(moment.Title, raw):
+				title = command
+			// A pack ref outranks a command line — it is the one durable
+			// identifier a tool payload carries — and the target column holds
+			// one thing.
+			case target == "":
+				target = command
+			}
+		}
+		if title == "" {
+			return slackui.ActivityLine{}, false
+		}
+		return slackui.ActivityLine{Kind: kind, Title: title, Target: target}, true
 	}
 	return slackui.ActivityLine{}, false
 }
@@ -161,6 +183,157 @@ func Line(moment core.AgentActivity) (slackui.ActivityLine, bool) {
 // renders as a tool call, which is true of every kind here.
 func isEdit(kind string) bool {
 	return core.IsEditToolKind(kind)
+}
+
+// execToolKinds are the tool kinds that run a shell command.
+//
+// Same shape as core.EditToolKinds and for the same reason — the vocabulary is
+// each runtime's own, not Responder's — but it stays here because only this
+// package asks the question: it decides whether a payload's `command` is a
+// command, and nothing counts exec calls in SQL.
+var execToolKinds = []string{
+	"execute", "exec", "terminal", "bash", "shell", "command", "run",
+}
+
+func isExec(kind string) bool {
+	return slices.Contains(execToolKinds, strings.ToLower(strings.TrimSpace(kind)))
+}
+
+// coopFallbackTitle is what Coop stores when the runtime named nothing
+// (coop.Activity.Title). It is a label about the record, not about the work.
+const coopFallbackTitle = "tool call"
+
+// uninformativeTitle reports that the stored title names the tool rather than
+// the call.
+//
+// This is the measured failure itself: 118 of the shell calls on disk are
+// titled `Terminal` with an empty payload, and the ones that do carry a command
+// were rendering under that same word. A title that repeats the tool kind says
+// nothing three lines of it did not already say.
+func uninformativeTitle(title, toolKind string) bool {
+	folded := strings.ToLower(strings.TrimSpace(title))
+	switch folded {
+	case "", "terminal", coopFallbackTitle:
+		return true
+	}
+	return folded == strings.ToLower(strings.TrimSpace(toolKind))
+}
+
+// shellWrappers are the ways a runtime hands a command line to a shell. The
+// wrapper is the runtime's plumbing; the operator asked what ran.
+var shellWrappers = []string{
+	"/bin/bash -lc ", "/bin/bash -c ", "/bin/sh -lc ", "/bin/sh -c ",
+	"/bin/zsh -lc ", "/bin/zsh -c ",
+	"bash -lc ", "bash -c ", "sh -lc ", "sh -c ", "zsh -lc ", "zsh -c ",
+}
+
+// shellCommand reads what a shell tool call ran.
+//
+// The command was in the payload the whole time the card was saying "Terminal":
+// coop.Activity.Detail stores the runtime's input verbatim under `input`, so
+// `input.command` is the line itself. Decoded through its own envelope for the
+// same reason packRef has one — a tool payload is an object of unknown shape
+// and only the key being read is claimed.
+func shellCommand(detail json.RawMessage) string {
+	if len(detail) == 0 {
+		return ""
+	}
+	var envelope struct {
+		Input struct {
+			Command string `json:"command"`
+		} `json:"input"`
+	}
+	if json.Unmarshal(detail, &envelope) != nil {
+		return ""
+	}
+	return envelope.Input.Command
+}
+
+// normalizeCommand turns a stored command line back into what a person typed.
+//
+// A wrapped call arrives as `/bin/bash -lc "grep -n \"x\" f"`, which is three
+// facts — the shell, the quoting the shell needed, and the command — of which
+// the card has room for one. Unwrapping is refused unless the remainder is one
+// quoted string end to end, because `"a" && "b"` is not a quoted string and
+// stripping its ends would change what it says.
+func normalizeCommand(value string) string {
+	value = strings.TrimSpace(stripShellWrapper(strings.TrimSpace(value)))
+	if unwrapped, ok := unquote(value); ok {
+		return unwrapped
+	}
+	return value
+}
+
+func stripShellWrapper(value string) string {
+	for _, wrapper := range shellWrappers {
+		if rest, found := strings.CutPrefix(value, wrapper); found {
+			return rest
+		}
+	}
+	return value
+}
+
+// unquote unwraps one pair of double quotes, and says whether it found one.
+//
+// An unescaped quote inside, or a dangling backslash where the closing quote
+// should be, means the ends are not a pair — the string merely starts and stops
+// with a quote — and the value is returned untouched.
+func unquote(value string) (string, bool) {
+	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+		return value, false
+	}
+	inner := value[1 : len(value)-1]
+	var unescaped strings.Builder
+	for index := 0; index < len(inner); index++ {
+		switch char := inner[index]; {
+		case char == '\\':
+			if index+1 >= len(inner) {
+				return value, false
+			}
+			if next := inner[index+1]; next == '"' || next == '\\' {
+				unescaped.WriteByte(next)
+				index++
+				continue
+			}
+			unescaped.WriteByte(char)
+		case char == '"':
+			return value, false
+		default:
+			unescaped.WriteByte(char)
+		}
+	}
+	return unescaped.String(), true
+}
+
+// sameCommand reports that a title is the command again, worse dressed.
+//
+// The runtimes that title a shell call at all title it with the command, in the
+// escaped form the wrapper needed, and the activity store then bounds that
+// title at 300 bytes with an ellipsis while keeping the whole line in the
+// payload. On disk that is 32 of the 49 shell calls that carry a command: same
+// fact, cut and escaped. Rendering both would put the command on the card
+// twice, once unreadable.
+func sameCommand(title, command string) bool {
+	stored, ran := commandKey(title), commandKey(command)
+	if stored == "" || ran == "" {
+		return false
+	}
+	if stored == ran {
+		return true
+	}
+	prefix, truncated := strings.CutSuffix(stored, "…")
+	return truncated && prefix != "" && strings.HasPrefix(ran, prefix)
+}
+
+// commandKey is the form in which two writings of one command line compare
+// equal. Comparing is not rendering, so unlike normalizeCommand it strips the
+// quoting either way: a title cut mid-string keeps its opening quote and never
+// reaches its closing one, and refusing that pair here would call a truncated
+// command a different command.
+func commandKey(value string) string {
+	value = strings.TrimSpace(stripShellWrapper(strings.TrimSpace(value)))
+	value = strings.TrimSuffix(strings.TrimPrefix(value, `"`), `"`)
+	return strings.NewReplacer(`\"`, `"`, `\\`, `\`).Replace(value)
 }
 
 // detailText reads the reasoning summary out of a stored thought.

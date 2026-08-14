@@ -1641,9 +1641,9 @@ func TestAShadowChannelAnswersAMentionPrivatelyAndPostsNothing(t *testing.T) {
 	if len(slackClient.ephemerals) != 1 {
 		t.Fatalf("the mention got no answer at all: %+v", slackClient.ephemerals)
 	}
-	if slackClient.ephemerals[0].thread != cfg.Slack.Operators[0] {
+	if slackClient.ephemerals[0].user != cfg.Slack.Operators[0] {
 		t.Errorf("the answer went to %q, not the person who asked",
-			slackClient.ephemerals[0].thread)
+			slackClient.ephemerals[0].user)
 	}
 	if !strings.Contains(slackClient.ephemerals[0].message.Text, "observe only") {
 		t.Errorf("the answer does not say why it is quiet: %q",

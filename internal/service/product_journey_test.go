@@ -479,8 +479,8 @@ func TestAMistypedSetupAnswerIsNotPostedToTheChannel(t *testing.T) {
 	for _, ephemeral := range slackClient.ephemerals {
 		if strings.Contains(ephemeral.message.Text, "could not map that answer") {
 			refused = true
-			if ephemeral.thread != cfg.Slack.Operators[0] {
-				t.Errorf("refusal went to %q, not the operator who typed it", ephemeral.thread)
+			if ephemeral.user != cfg.Slack.Operators[0] {
+				t.Errorf("refusal went to %q, not the operator who typed it", ephemeral.user)
 			}
 		}
 	}
@@ -547,8 +547,8 @@ func TestANonOperatorIsRefusedPrivatelyNotInTheIncidentRoom(t *testing.T) {
 			continue
 		}
 		refused = true
-		if ephemeral.thread != "UBYSTANDER" {
-			t.Errorf("refusal went to %q, not the person refused", ephemeral.thread)
+		if ephemeral.user != "UBYSTANDER" {
+			t.Errorf("refusal went to %q, not the person refused", ephemeral.user)
 		}
 		if ephemeral.channel != "CINCIDENT" {
 			t.Errorf("refusal landed in %q, not where they typed", ephemeral.channel)
@@ -613,8 +613,8 @@ func TestANonOperatorAskingInChannelIsRefusedPrivately(t *testing.T) {
 			continue
 		}
 		refused = true
-		if ephemeral.thread != "UBYSTANDER" || ephemeral.channel != "COPS" {
-			t.Errorf("refusal went to %q in %q", ephemeral.thread, ephemeral.channel)
+		if ephemeral.user != "UBYSTANDER" || ephemeral.channel != "COPS" {
+			t.Errorf("refusal went to %q in %q", ephemeral.user, ephemeral.channel)
 		}
 	}
 	if !refused {
@@ -712,8 +712,8 @@ func TestAnAbandonedRequestTellsTheOperatorNotTheRoom(t *testing.T) {
 			continue
 		}
 		told = true
-		if ephemeral.thread != cfg.Slack.Operators[0] {
-			t.Errorf("give-up notice went to %q, not the operator who pressed", ephemeral.thread)
+		if ephemeral.user != cfg.Slack.Operators[0] {
+			t.Errorf("give-up notice went to %q, not the operator who pressed", ephemeral.user)
 		}
 		if !strings.Contains(renderedSlackMessage(ephemeral.message), "forbidden") {
 			t.Errorf("the reason was dropped: %q", ephemeral.message.Text)
@@ -782,8 +782,8 @@ func TestAControlWithNoIncidentToActOnAnswersOnlyTheAsker(t *testing.T) {
 			continue
 		}
 		refused = true
-		if ephemeral.thread != cfg.Slack.Operators[0] || ephemeral.channel != "COPS" {
-			t.Errorf("refusal went to %q in %q", ephemeral.thread, ephemeral.channel)
+		if ephemeral.user != cfg.Slack.Operators[0] || ephemeral.channel != "COPS" {
+			t.Errorf("refusal went to %q in %q", ephemeral.user, ephemeral.channel)
 		}
 	}
 	if !refused {
@@ -838,8 +838,8 @@ func TestAControlThatStoppedNothingTellsThePresserNotTheRoom(t *testing.T) {
 			continue
 		}
 		told = true
-		if ephemeral.thread != cfg.Slack.Operators[0] {
-			t.Errorf("the answer went to %q, not the operator who pressed", ephemeral.thread)
+		if ephemeral.user != cfg.Slack.Operators[0] {
+			t.Errorf("the answer went to %q, not the operator who pressed", ephemeral.user)
 		}
 		if ephemeral.channel != incident.ChannelID {
 			t.Errorf("the answer landed in %q, not where they pressed", ephemeral.channel)

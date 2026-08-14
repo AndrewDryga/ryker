@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -32,55 +31,8 @@ type frozenAction struct {
 	Revision  int64  `json:"revision"`
 }
 
-const changesPatchPageBytes = 7000
-
-type changesCursor struct {
-	IncidentID string `json:"i"`
-	Offset     int64  `json:"o"`
-	Digest     string `json:"d,omitempty"`
-}
-
 type coopChangesPager interface {
 	ChangesPage(context.Context, string, int64, int) (coop.Changes, error)
-}
-
-func encodeChangesCursor(cursor changesCursor) string {
-	data, err := json.Marshal(cursor)
-	if err != nil {
-		return ""
-	}
-	return base64.RawURLEncoding.EncodeToString(data)
-}
-
-func decodeChangesCursor(value string) (changesCursor, bool) {
-	data, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil || len(data) > 1024 {
-		return changesCursor{}, false
-	}
-	var cursor changesCursor
-	if err := json.Unmarshal(data, &cursor); err != nil ||
-		cursor.IncidentID == "" || cursor.Offset < 0 ||
-		(cursor.Digest != "" && len(cursor.Digest) != sha256.Size*2) {
-		return changesCursor{}, false
-	}
-	return cursor, true
-}
-
-func changesActionIncidentID(actionID string, value string) (string, bool) {
-	switch actionID {
-	case slackui.ActionChanges:
-		return value, value != ""
-	case slackui.ActionPublishPR:
-		incidentID, _, _ := slackui.DecodePublicationActionValue(value)
-		return incidentID, incidentID != ""
-	case slackui.ActionChangesPrevious,
-		slackui.ActionChangesNext,
-		slackui.ActionChangesRefresh:
-		cursor, ok := decodeChangesCursor(value)
-		return cursor.IncidentID, ok
-	default:
-		return value, value != ""
-	}
 }
 
 // inputAppHome is a Slack surface refresh. It carries no operator instruction:
@@ -489,10 +441,13 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	var incident core.Incident
 	var incidentErr error
 	if input.Kind == "action" {
-		incidentID := input.ActionValue
-		if input.ActionID == slackui.ActionPublishPR {
-			incidentID, _, _ = slackui.DecodePublicationActionValue(input.ActionValue)
-		}
+		// slackui.ActionIncidentID is the one place that knows how each control
+		// packs its value, and the staleness gate below already asks it the same
+		// question. Reading the value raw here and special-casing a single action
+		// meant every other control with structure in its value — a diff page
+		// cursor, the ask toggle — looked up an incident under a string that was
+		// never an incident id and was answered "no longer valid".
+		incidentID, _ := slackui.ActionIncidentID(input.ActionID, input.ActionValue)
 		incident, incidentErr = s.store.GetIncident(ctx, incidentID)
 	} else {
 		incident, incidentErr = s.store.FindIncidentForConversation(
@@ -625,6 +580,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				input,
 				"*That button is no longer current.* Use a control on the latest "+noun+
 					" card or result message. Nothing was changed.",
+				controlReplyThread(input, incident),
 			)
 		}
 		if incident.Status == core.IncidentClosed &&
@@ -644,6 +600,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 				input,
 				"*This incident is already closed.* Closed incidents allow only read-only "+
 					"inspection of an existing code change. No action was taken.",
+				controlReplyThread(input, incident),
 			)
 		}
 		err = s.handleControl(ctx, input, incident, input.ActionID)
@@ -877,6 +834,23 @@ func slackReplyThread(input core.SlackInput) string {
 		return input.ThreadTS
 	}
 	return input.MessageTS
+}
+
+// controlReplyThread puts a private answer about a task where that task's
+// public answers go.
+//
+// A control's own notices are enqueued against incident.ConversationThreadTS(),
+// so a refusal must use it too. Clicking a control on the pinned card of a
+// room-scoped task carries no thread_ts — the card is the thread's parent, not a
+// reply in it — so mirroring the click instead of the task would answer at
+// channel level while every other reply about that task sits in the thread
+// underneath. Falling back to the click's own thread covers the inputs that
+// reach here without a resolved incident.
+func controlReplyThread(input core.SlackInput, incident core.Incident) string {
+	if thread := incident.ConversationThreadTS(); thread != "" {
+		return thread
+	}
+	return slackReplyThread(input)
 }
 
 func (s *Service) createManualIncident(ctx context.Context, input core.SlackInput) error {
@@ -1154,6 +1128,7 @@ func (s *Service) handleControl(
 				status = "is preparing an engineering task update..."
 			}
 			s.setNativeStatus(ctx, incident, status)
+			s.ackControl(ctx, input, incident, "On it — the update will land in this thread.")
 		}
 		return err
 	case slackui.ActionChanges,
@@ -1161,17 +1136,12 @@ func (s *Service) handleControl(
 		slackui.ActionChangesNext,
 		slackui.ActionChangesRefresh:
 		return s.showChanges(ctx, input, incident)
-	// The card quotes two lines of the ask because it is an instrument; the
-	// rest of it lives one click away, in the thread beside the card, the way
-	// Help and status answer. Read-only — it quotes what was recorded and
-	// touches neither the fork nor the task — so it is gated like View diff.
+	// The card quotes a lede of the ask because it is an instrument; the rest of
+	// it is one click away, in the card itself. Read-only — it re-renders what
+	// was recorded and touches neither the fork nor the task — so it is gated
+	// like View diff.
 	case slackui.ActionFullRequest:
-		signals, err := s.store.ListSignals(ctx, incident.ID)
-		if err != nil {
-			return err
-		}
-		return s.enqueue(ctx, "out_full_request_"+input.ID, incident, "notice",
-			threadTS, slackui.FullRequestMessage(incident, signals))
+		return s.toggleFullRequest(ctx, input, incident)
 	// A receipt reads the durable record of a turn that has already stopped and
 	// writes nothing, so it is gated exactly as View diff and Full request are.
 	case slackui.ActionTurnReceipt:
@@ -1196,6 +1166,91 @@ func (s *Service) handleControl(
 		return s.closeIncident(ctx, input, incident)
 	default:
 		return errors.New("unknown Responder control")
+	}
+}
+
+// toggleFullRequest swaps the card's ask between its lede and the whole of it.
+//
+// It rewrites the clicked message rather than replying beside it. The thread
+// reply this replaced answered a question about the card by putting the answer
+// somewhere else, so reading the request meant leaving the instrument, and every
+// press left another copy of the same text in the thread. Expanding in place
+// costs one Slack edit and nothing durable.
+//
+// Deliberately not a card_version bump and deliberately not through the delivery
+// ledger: the expansion is one operator's transient view state, so the next
+// worker render collapses it again. That is the intended behavior, not a leak —
+// see slackui.IncidentCardWithAskExpanded.
+func (s *Service) toggleFullRequest(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+) error {
+	_, expanded, ok := slackui.DecodeFullRequestActionValue(input.ActionValue)
+	if !ok {
+		return errors.New("full request control carries no task")
+	}
+	// A control-plane press has no Slack message to rewrite. The dashboard
+	// renders the whole request already, so there is nothing to refuse either.
+	if input.ChannelID == "" || input.MessageTS == "" {
+		return s.finishSlackInput(ctx, input)
+	}
+	card, err := s.incidentCardView(ctx, incident, expanded)
+	if err != nil {
+		return err
+	}
+	if err := s.slack.Update(
+		ctx, input.ChannelID, input.MessageTS, s.sanitizeMessage(card),
+	); err != nil {
+		return err
+	}
+	return s.finishSlackInput(ctx, input)
+}
+
+// ackControl tells the operator their press landed.
+//
+// Some controls produce their whole answer later: Ask for an update queues an
+// agent run whose reply arrives minutes afterwards, a readiness re-run works for
+// as long as the checks take, and Check delivery is silent unless the state
+// actually moved. Pressed on the card, all three looked identical to a broken
+// button — the operator pressed "Ask for an update", saw nothing, and had no way
+// to tell a queued run from a dropped click.
+//
+// One line, addressed to the person who pressed, in the task's own thread. It is
+// host-composed and says only what is already true at the moment of the press,
+// so it can never be the thing that is wrong about the work. A failure to
+// acknowledge is logged and dropped: the work was already admitted, and losing
+// the control because the receipt did not render would be the worse trade.
+//
+// First attempt only. The controls worth acknowledging are the slow ones, which
+// are also the ones whose handlers fail and are retried, and an acknowledgement
+// per attempt would answer one press with up to twelve identical lines — noise
+// of exactly the kind this is meant to remove. LeaseSlackInput counts the lease
+// it is handing out, so the first attempt arrives here as 1 and not as 0.
+func (s *Service) ackControl(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+	text string,
+) {
+	if input.Kind == controlPlaneInput || input.ChannelID == "" ||
+		input.UserID == "" || input.Attempts > 1 {
+		return
+	}
+	if err := s.slack.PostEphemeral(
+		ctx,
+		input.ChannelID,
+		input.UserID,
+		controlReplyThread(input, incident),
+		s.sanitizeMessage(slackui.Notice(text)),
+	); err != nil {
+		s.log.Warn(
+			"acknowledge an operator's control press",
+			"input", input.ID,
+			"channel", input.ChannelID,
+			"user", input.UserID,
+			"error", trimError(err),
+		)
 	}
 }
 
@@ -1248,7 +1303,7 @@ func (s *Service) showChanges(
 	requestedOffset := int64(0)
 	expectedDigest := ""
 	if input.ActionID != slackui.ActionChanges {
-		cursor, ok := decodeChangesCursor(input.ActionValue)
+		cursor, ok := slackui.DecodeChangesCursor(input.ActionValue)
 		if !ok || cursor.IncidentID != incident.ID {
 			return errors.New("invalid diff page cursor")
 		}
@@ -1261,14 +1316,14 @@ func (s *Service) showChanges(
 		ctx,
 		incident.CoopSessionID,
 		requestedOffset,
-		changesPatchPageBytes,
+		slackui.ChangesPatchPageBytes,
 	)
 	if err != nil && requestedOffset > 0 {
 		changes, err = s.changesPage(
 			ctx,
 			incident.CoopSessionID,
 			0,
-			changesPatchPageBytes,
+			slackui.ChangesPatchPageBytes,
 		)
 		requestedOffset = 0
 	}
@@ -1282,7 +1337,7 @@ func (s *Service) showChanges(
 			ctx,
 			incident.CoopSessionID,
 			0,
-			changesPatchPageBytes,
+			slackui.ChangesPatchPageBytes,
 		)
 		if err != nil {
 			s.clearNativeStatus(ctx, incident)
@@ -1299,7 +1354,7 @@ func (s *Service) showChanges(
 		incident,
 		summary,
 		changes.Patch,
-		changesNavigation(incident.ID, changes),
+		slackui.NewChangesNavigation(incident.ID, changes),
 	)
 	if input.Kind == "action" && input.ActionID != slackui.ActionChanges &&
 		input.MessageTS != "" {
@@ -1358,45 +1413,6 @@ func (s *Service) changesPage(
 	changes.PatchHasMore = end < changes.PatchBytes
 	changes.Truncated = offset > 0 || changes.PatchHasMore
 	return changes, nil
-}
-
-func changesNavigation(
-	incidentID string,
-	changes coop.Changes,
-) slackui.ChangesNavigation {
-	total := changes.PatchBytes
-	pages := 1
-	page := 1
-	if total > 0 {
-		pages = int((total + changesPatchPageBytes - 1) / changesPatchPageBytes)
-		page = int(changes.PatchOffset/changesPatchPageBytes) + 1
-	}
-	navigation := slackui.ChangesNavigation{
-		Page: page, Pages: pages,
-		FirstByte: changes.PatchOffset, LastByte: changes.PatchNextOffset,
-		TotalBytes: total, Digest: changes.PatchDigest,
-		RefreshValue: encodeChangesCursor(changesCursor{
-			IncidentID: incidentID,
-			Offset:     0,
-			Digest:     changes.PatchDigest,
-		}),
-	}
-	if changes.PatchOffset > 0 {
-		previous := max(int64(0), changes.PatchOffset-changesPatchPageBytes)
-		navigation.PreviousValue = encodeChangesCursor(changesCursor{
-			IncidentID: incidentID,
-			Offset:     previous,
-			Digest:     changes.PatchDigest,
-		})
-	}
-	if changes.PatchHasMore {
-		navigation.NextValue = encodeChangesCursor(changesCursor{
-			IncidentID: incidentID,
-			Offset:     changes.PatchNextOffset,
-			Digest:     changes.PatchDigest,
-		})
-	}
-	return navigation
 }
 
 func (s *Service) explainAutomaticCapacity(
@@ -1459,6 +1475,11 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 				"working copy has no changed files, so no review was started.")
 	}
 	s.setNativeStatus(ctx, incident, "is reviewing the proposed fix...")
+	// Past every refusal, so the press has genuinely started work. The checks
+	// below run inline and can take minutes; until they land the card says
+	// nothing new, which is indistinguishable from a button that did not fire.
+	s.ackControl(ctx, input, incident,
+		"On it — re-running the readiness check. The card updates when it finishes.")
 	action, err := s.freezeAction(ctx, input, incident, false)
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
@@ -1706,7 +1727,7 @@ func (s *Service) incidentControlMatchesMessage(
 	input core.SlackInput,
 	incident core.Incident,
 ) (bool, error) {
-	actionIncidentID, actionValueOK := changesActionIncidentID(
+	actionIncidentID, actionValueOK := slackui.ActionIncidentID(
 		input.ActionID,
 		input.ActionValue,
 	)
@@ -1754,12 +1775,7 @@ func (s *Service) incidentControlMatchesMessage(
 			return false, fmt.Errorf("decode Slack control delivery %q: %w", delivery.ID, err)
 		}
 	}
-	for _, action := range message.Actions {
-		if action.ID == input.ActionID && action.Value == input.ActionValue {
-			return true, nil
-		}
-	}
-	return false, nil
+	return slackui.MessageOffersControl(message, input.ActionID, input.ActionValue), nil
 }
 
 func (s *Service) publicationControlGenerationMatches(
@@ -1914,7 +1930,11 @@ func (s *Service) reportAbandonedInput(
 	)
 	if input.ChannelID != "" && input.UserID != "" {
 		if err := s.slack.PostEphemeral(
-			ctx, input.ChannelID, input.UserID, s.sanitizeMessage(message),
+			ctx,
+			input.ChannelID,
+			input.UserID,
+			slackReplyThread(input),
+			s.sanitizeMessage(message),
 		); err != nil {
 			s.log.Warn(
 				"tell an operator their Slack request was abandoned",
@@ -2069,7 +2089,11 @@ func (s *Service) refuseControl(
 		return errControlRefused
 	}
 	if err := s.slack.PostEphemeral(
-		ctx, input.ChannelID, input.UserID, s.sanitizeMessage(slackui.Notice(text)),
+		ctx,
+		input.ChannelID,
+		input.UserID,
+		controlReplyThread(input, incident),
+		s.sanitizeMessage(slackui.Notice(text)),
 	); err != nil {
 		s.log.Warn(
 			"tell an operator their control changed nothing",
@@ -2090,7 +2114,11 @@ func (s *Service) denyInput(ctx context.Context, input core.SlackInput, reason s
 	)
 	if input.ChannelID != "" && input.UserID != "" {
 		if err := s.slack.PostEphemeral(
-			ctx, input.ChannelID, input.UserID, s.sanitizeMessage(slackui.Notice(reason)),
+			ctx,
+			input.ChannelID,
+			input.UserID,
+			controlReplyThread(input, incident),
+			s.sanitizeMessage(slackui.Notice(reason)),
 		); err != nil {
 			s.log.Warn(
 				"tell a refused Slack user why",
