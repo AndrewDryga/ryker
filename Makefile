@@ -187,6 +187,10 @@ eval-regressions: | $(EVAL_HISTORY)
 # prompts, contracts, or operation schemas change. It calls a real model, so it
 # is deliberately outside dev-check.
 eval-prompts: | $(EVAL_HISTORY)
+	@docker info >/dev/null 2>&1 || { \
+		echo "eval-prompts: Docker/OrbStack is not running — every boxed case would fail fast" >&2; \
+		echo "and the tally would blame the prompts for a dead runtime. Start it and retry." >&2; \
+		exit 1; }
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/prompts.jsonl \
 		--min-overall-pass-rate 1 --min-case-pass-rate 1 \
 		$(call history,prompts)
