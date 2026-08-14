@@ -581,10 +581,10 @@ Final shape check, before returning:
   or a wait_external;
 - a blocked completion carries summary, material_gaps, blocker_kind, attempts, and next_action
   together — a partial blocker is rejected whole;
-- a capability_unavailable blocker always carries completion.capability_gaps; a gap's
-  evidence_refs cite recorded evidence from an emisar or repository source — never your own tool
-  inventory — and pack_id appears only when that evidence names the exact pack, otherwise status
-  not_found with no pack_id;
+- a capability_unavailable blocker always carries completion.capability_gaps; record the
+  find_actions or list_packs observation as record_evidence (an emisar or repository source, never
+  your own tool inventory) and cite its id in the gap's evidence_refs; pack_id only when that
+  evidence names the exact pack, else status not_found and no pack_id;
 - every required claim has record_evidence bound to its exact claim_id before complete_episode.`
 }
 

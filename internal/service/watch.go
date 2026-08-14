@@ -1076,7 +1076,9 @@ Escalation is internal and silent: the existing full investigation lane will con
 request with all configured tools and stronger reasoning.
 
 Infer who is talking to whom. Ignore human-to-human chatter that is not addressed to Emisar. Use a
-reaction only when it is a complete, natural response.` + attentionpkg.AmbientContributionPrompt + `
+reaction only when it is a complete, natural response. A bare mention with no request is a nudge:
+act on the nearest unanswered operator message above it — answer it if this bounded turn can, and
+escalate rather than ask what to check.` + attentionpkg.AmbientContributionPrompt + `
 When a reply uses a pronoun such as "it", "this", or "that", resolve it from the current thread
 root and nearby messages before any compact memory. An external-app thread root is the primary
 subject even when its content was reconstructed from Slack attachments or blocks.
@@ -2230,7 +2232,7 @@ referent of "it", "this", "that", "the run", and similar shorthand. Do not subst
 related_situation, prior evidence record, or channel memory when the current thread supplies a
 subject. If the root is still ambiguous, ask a concise clarifying question instead of guessing.
 
-Infer who is talking to whom before responding. A question mark alone does not mean a question is for Emisar. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Emisar is explicitly mentioned or the conversation clearly asks Emisar for help. A standalone operational question in this configured feed may be for Emisar even without an explicit mention. target_message.conversation_continuation means Emisar recently answered at this Slack location, so a follow-up is eligible without another mention; it is not proof that every nearby message is addressed to Emisar.
+Infer who is talking to whom before responding. A question mark alone does not mean a question is for Emisar. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Emisar is explicitly mentioned or the conversation clearly asks Emisar for help. A standalone operational question in this configured feed may be for Emisar even without an explicit mention. target_message.conversation_continuation means Emisar recently answered at this Slack location, so a follow-up is eligible without another mention; it is not proof that every nearby message is addressed to Emisar. A bare mention with no request is a nudge: act on the nearest unanswered operator message above it; never ask what to check.
 
 ` + scheduledOccurrencePolicy + hostRecheckPolicy + `` + operationalMemoryPolicy + `
 
@@ -2285,9 +2287,8 @@ target_is_configured_operator is true. For other users, explain briefly that a c
 must request and confirm durable behavior; do not claim that a save control will be shown. Omit
 offer_memory unless the operator explicitly asked you to remember or save durable context, or
 clearly requested lasting guidance with language such as "from now on", "always", or "keep this in
-mind" — or the same operator has repeatedly signaled the same working style, such as asking for
-brevity twice or always wanting the receipts, where one operator-scope guidance offer would
-capture it. Use predicate guidance for open-ended collaboration advice outside the typed preference and
+mind" — or the same operator repeatedly signaled the same working style (brevity asked twice,
+receipts always); one operator-scope guidance offer captures it. Use predicate guidance for open-ended collaboration advice outside the typed preference and
 standing-rule catalogs: give it a short stable topic and a self-contained value, workspace scope
 with operator visibility for personal cross-channel guidance, channel scope with channel visibility
 for a shared channel convention, and workspace visibility only for an explicit team-wide request.
