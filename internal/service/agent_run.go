@@ -1134,6 +1134,13 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		return s.retryAgentRun(ctx, run, episodeErr)
 	}
 	late.WriteString("\n\n" + WorkEpisodePrompt(episode))
+	// The continuity block rides the triage path too, not just the incident
+	// lane. A Slack follow-up creates a child episode here, and until this
+	// line the parent's recorded evidence never reached it — the model
+	// re-derived its own findings from a ten-row channel slice while the
+	// ledger built to carry them went unread. The budget call below already
+	// counts late, so the head shrinks to make room rather than overflowing.
+	late.WriteString(s.episodeContinuityPrompt(ctx, episode))
 	late.WriteString(agentprompt.ToolTransport())
 	late.WriteString(agentprompt.Continuation(run))
 

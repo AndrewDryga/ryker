@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -674,5 +676,116 @@ func TestARootEpisodeSeesTheEvidenceItsOwnWorkProduced(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "p99 write latency is 40ms on va1-cass-3") {
 		t.Fatalf("the evidence did not reach the turn: %s", prompt)
+	}
+}
+
+// A Slack follow-up is shown the findings its earlier episode already recorded.
+//
+// The continuity block above was wired into the incident lane only. An
+// ordinary Slack follow-up creates a child episode on the triage path — the
+// exact "continue this work" case — and that path never called it, so the
+// second turn re-derived what the first had proved from at most a ten-row
+// channel evidence slice, spending its tool budget rediscovering its own
+// conclusions.
+func TestASlackFollowupSeesThePriorEpisodesFindings(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CFOLLOW"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{
+		{
+			State: "completed",
+			AssistantMessage: `{"action":"reply",
+				"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":2},
+				"reason":"direct question with evidence",
+				"operations":[
+					{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout latency cause","observation":"p99 write latency is 40ms on va1-cass-3","relation":"supports","health_effect":"risk","source_type":"monitoring","source_name":"grafana","confidence":"high","freshness":"live query","dimensions":{"service":"checkout","environment":"production"}}},
+					{"id":"complete","type":"complete_episode","completion":{"message":"Checkout is slow because va1-cass-3 writes at 40ms p99.","completion":{"status":"decision_ready","summary":"cause identified"}}}]}`,
+		},
+		{
+			State: "completed",
+			AssistantMessage: `{"action":"reply",
+				"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":1,"ownership":2},
+				"reason":"follow-up answered from established findings",
+				"operations":[{"id":"complete","type":"complete_episode","completion":{"message":"Still the same cause; nothing new since the last check.","completion":{"status":"decision_ready","summary":"unchanged"}}}]}`,
+		},
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	first := core.SlackInput{
+		ID: "slack-follow-1", EnvelopeID: "env-follow-1", EventID: "event-follow-1",
+		Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CFOLLOW", MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "<@U999BOT> why is checkout slow?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, first); err != nil || !created {
+		t.Fatalf("admit first input = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	followup := core.SlackInput{
+		ID: "slack-follow-2", EnvelopeID: "env-follow-2", EventID: "event-follow-2",
+		Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CFOLLOW", MessageTS: "1700.200", UserID: "U123ABC",
+		Text: "<@U999BOT> anything new on that?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, followup); err != nil || !created {
+		t.Fatalf("admit follow-up = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	followupRun, err := st.GetAgentRunBySource(ctx, "watch", followup.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, followupRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.ParentEpisodeID == "" {
+		t.Fatal("the follow-up did not create a child episode, so this test no " +
+			"longer exercises the continuity chain it was written for")
+	}
+	if len(coopClient.submitPrompts) != 2 {
+		t.Fatalf("expected two model turns, got %d", len(coopClient.submitPrompts))
+	}
+	prompt := coopClient.submitPrompts[1]
+	if !strings.Contains(prompt, "<episode-continuity>") {
+		t.Fatal("the follow-up turn carries no episode-continuity block; " +
+			"the prior episode's findings never reached the model")
+	}
+	if !strings.Contains(prompt, "p99 write latency is 40ms on va1-cass-3") {
+		t.Fatalf("the parent episode's evidence did not reach the follow-up turn:\n%.2000s", prompt)
 	}
 }
