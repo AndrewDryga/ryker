@@ -195,6 +195,22 @@ eval-prompts: | $(EVAL_HISTORY)
 		--min-overall-pass-rate 1 --min-case-pass-rate 1 \
 		$(call history,prompts)
 
+# The deploy-speed tier. The full gate above runs ten live investigations and
+# takes half an hour, which is the wrong price for a wording change — on
+# 2026-08-14 an operator's fix sat behind it and the operator said so. Three
+# smoke-tagged cases (~five minutes) cover the envelope, the operations
+# schema, and the conversation dialect; run this before deploying a prompt
+# WORDING change. The full run stays for contract, schema, or operation-list
+# changes and for release checks, and may run after a deploy as information
+# rather than in front of it as a queue.
+eval-prompts-smoke: | $(EVAL_HISTORY)
+	@docker info >/dev/null 2>&1 || { \
+		echo "eval-prompts-smoke: Docker/OrbStack is not running; start it and retry." >&2; \
+		exit 1; }
+	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/prompts.jsonl \
+		--case smoke --min-overall-pass-rate 1 --min-case-pass-rate 1 \
+		$(call history,prompts-smoke)
+
 eval-live-canary: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/live.jsonl --canary \
 		--min-overall-pass-rate 1 --min-case-pass-rate 1 \

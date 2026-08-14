@@ -59,6 +59,12 @@ zero rather than one that drifts.
   operation schemas change.
 - **The machine stopped working** → no test catches this. `scripts/watchdog.sh` does.
 
+The full eval-prompts run takes half an hour and must never queue a deploy. For a prompt
+WORDING change, `make eval-prompts-smoke` (~5 minutes, three smoke-tagged cases) gates the
+deploy; the full run follows after the deploy as information. The full run gates only
+contract, schema, or operation-list changes, and releases. A live fix waits for dev-check
+and nothing else.
+
 The split is diagnostic. When a correction fires repeatedly on one episode, ask which side it
 belongs to before writing anything: a correction the model *cannot* satisfy is a host bug, and
 a correction it simply *did not* satisfy is a prompt bug. Ranking the recorded corrections by
