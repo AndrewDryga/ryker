@@ -65,8 +65,8 @@ func TestTheWindowRendersOnlyWhileTheTurnIsRunning(t *testing.T) {
 		t.Fatalf("a stopped turn kept its window: %+v", parked.Activity)
 	}
 	// The totals survive as a receipt on the step that earned them. This is
-	// the only place a reader later learns that "Investigate the trigger" was
-	// 119 tool calls rather than two.
+	// the only place a reader later learns that "Investigate" was 119 tool
+	// calls rather than two.
 	receipt := ""
 	for _, step := range parked.Ledger {
 		if strings.Contains(step.Detail, "calls") {

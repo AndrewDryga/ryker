@@ -1111,7 +1111,10 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	if slackClient.createChannelCalls != 0 {
 		t.Fatalf("thread task created %d Slack channels", slackClient.createChannelCalls)
 	}
-	if err := svc.processCard(ctx); err != nil {
+	// The offer message is not the task card. Starting the task binds the
+	// thread and posts the card as its own new reply, exactly as when a task
+	// starts any other way; the message that carried the button is left alone.
+	if err := svc.processChannel(ctx); err != nil {
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
@@ -1124,19 +1127,44 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		task.ConversationThreadTS() != source.MessageTS {
 		t.Fatalf("bound thread task = %+v", task)
 	}
-	if task.RootTS != "1700.001" {
-		t.Fatalf("task did not adopt offer message = %+v", task)
+	if task.RootTS == "1700.001" {
+		t.Fatalf("task consumed the clicked offer message = %+v", task)
 	}
-	if len(slackClient.updates) == 0 {
-		t.Fatal("task offer was not updated into a durable task card")
+	if len(slackClient.posts) != 2 || slackClient.posts[1].outboxID != "out_root_"+task.ID {
+		t.Fatalf("task card was not posted as its own message = %+v", slackClient.posts)
 	}
-	taskCard := slackClient.updates[len(slackClient.updates)-1]
+	taskCard := slackClient.posts[1]
 	// The fallback leads with the state word rather than the work's category,
 	// because a notification strips the stripe and the glyph and that word is
 	// the only thing left carrying whose turn it is.
-	if taskCard.channel != source.ChannelID || taskCard.ts != task.RootTS ||
+	if taskCard.channel != source.ChannelID || taskCard.thread != source.MessageTS ||
 		!strings.HasPrefix(taskCard.message.Text, "Working — ") {
-		t.Fatalf("updated thread task card = %+v", taskCard)
+		t.Fatalf("thread task card = %+v", taskCard)
+	}
+	// The whole complaint: clicking the button used to rewrite the reply that
+	// carried it, so the evidence the operator was reading was destroyed by
+	// acting on it. Nothing may edit that message.
+	for _, update := range slackClient.updates {
+		if update.ts == "1700.001" {
+			t.Fatalf("starting the task rewrote the offer message = %+v", update)
+		}
+	}
+	// Clicking again is a no-op rather than a second task: the source event ID
+	// already has a row, so the insert is ignored and no initial turn is
+	// queued. Nothing has to neutralize the button for that to hold.
+	click("engineering-task-second", "UOTHER")
+	drainSlackDeliveries(t, ctx, svc)
+	if again, err := st.ListIncidents(ctx, 10); err != nil || len(again) != 1 ||
+		again[0].ID != task.ID || again[0].RootTS != task.RootTS {
+		t.Fatalf("second click on the offer = %+v, %v", again, err)
+	}
+	if len(slackClient.posts) != 2 {
+		t.Fatalf("second click posted again = %+v", slackClient.posts)
+	}
+	for _, update := range slackClient.updates {
+		if update.ts == "1700.001" {
+			t.Fatalf("second click rewrote the offer message = %+v", update)
+		}
 	}
 	if err := svc.processSession(ctx); err != nil {
 		t.Fatal(err)

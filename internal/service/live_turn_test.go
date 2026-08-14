@@ -199,7 +199,7 @@ func TestRunningCardShowsTheRecordedTurnRatherThanItsSelfReport(t *testing.T) {
 // The work does not stop being true when the turn ends; it stops being news. A
 // window left up would make a stopped card the most reassuring one on the
 // screen, and the totals are the only place a reader later finds out that
-// "Investigate the trigger" meant three tool calls rather than none.
+// "Investigate" meant three tool calls rather than none.
 func TestFinishedTurnMovesItsTotalsFromTheWindowToTheLedger(t *testing.T) {
 	ctx, st, svc, coopClient, task, run := liveTurnFixture(t)
 	seedNarratedTurn(t, ctx, svc, coopClient, run)

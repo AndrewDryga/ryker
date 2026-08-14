@@ -290,6 +290,14 @@ func taskAsk(
 			}
 			return "correct the blocker, then retry the draft PR"
 		}
+		// *Action needed* is rendered only when there is a detail to put in it,
+		// and the publication is not the failure here, so the section exists
+		// exactly when the task recorded an error. Blocked with no recorded
+		// reason renders no section, and pointing at one sends the operator
+		// looking for something that is not on the card.
+		if task.LastError == "" {
+			return "reply with how to continue, or close the task"
+		}
 		return "read *Action needed*, then reply here"
 	case "Ready to publish":
 		if publication.HasPR() {
@@ -311,6 +319,37 @@ func taskAsk(
 	}
 }
 
+// changeStepLabel names the middle ledger step for the phase the work is in,
+// and names no object.
+//
+// It used to read "Investigate the trigger", carried over from a design mock
+// whose task happened to be an OOM investigation. On "Bump the pinned admin
+// runner release" that label asks a question the card cannot answer — which
+// trigger? There is no trigger. This function knows the phase and knows
+// nothing whatever about the subject, so it states the phase and stops.
+//
+// Three positions from the two signals that reach here. A change exists, so
+// the step is making it. Or nothing has run yet — the workspace is still being
+// provisioned, so there is nothing that could have been investigated and the
+// step ahead is working out what to do. Otherwise a turn has run, or is
+// running, and has not produced a change: that is investigation.
+//
+// changesMade rather than hasCodeChanges, so the label agrees with the ✓ beside
+// it. The caller treats an open PR or a running publication as proof a change
+// exists even while the fork is uninspected, and a step marked done under the
+// word "Investigate" would be the two columns contradicting each other.
+func changeStepLabel(task core.Incident, changesMade bool) string {
+	switch {
+	case changesMade:
+		return "Make the change"
+	case task.Workflow == core.WorkflowProvisioningChannel,
+		task.Workflow == core.WorkflowProvisioningSession:
+		return "Plan the work"
+	default:
+		return "Investigate"
+	}
+}
+
 // taskLedger renders the run as five positions.
 //
 // Every publication and followup state lands on one of them rather than on a
@@ -328,12 +367,6 @@ func taskLedger(
 	if state.Custody == custodyNobody && state.Word != "Parked" {
 		return nil
 	}
-	// The middle step is named for the phase it is in. Before a change exists
-	// the work is understanding the trigger; after one exists it is the change.
-	changeLabel := "Investigate the trigger"
-	if hasCodeChanges {
-		changeLabel = "Make the change"
-	}
 	// A step is complete when the thing it names has happened, which is not
 	// the same as a PR existing. A PR whose latest attempt failed, went stale,
 	// or is still publishing has not landed, and marking Draft PR done in
@@ -347,7 +380,7 @@ func taskLedger(
 		publication.State != core.PublicationFailed && !publication.NeedsUpdate()
 	steps := []LedgerStep{
 		{Label: "Workspace ready"},
-		{Label: changeLabel},
+		{Label: changeStepLabel(task, changesMade)},
 		{Label: "Readiness review"},
 		{Label: "Draft PR"},
 		{Label: "Review & merge", Owner: "yours"},
@@ -363,8 +396,9 @@ func taskLedger(
 	// The turn's work does not stop being true when the turn ends; it stops
 	// being news. So it moves from three live lines to one number on the step
 	// that did it — the same fact at the weight it now deserves, and the only
-	// place a reader can later find out that "Investigate the trigger" meant
-	// 119 tool calls rather than two.
+	// place a reader can later find out that "Investigate" meant 119 tool calls
+	// rather than two. It attaches to the position, not to the wording, so the
+	// receipt survives the step being named for a different phase.
 	if !turn.Active && turn.ToolCalls > 0 {
 		steps[1].Detail = fmt.Sprintf("%d calls", turn.ToolCalls)
 		if turn.Evidence > 0 {

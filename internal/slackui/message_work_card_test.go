@@ -358,7 +358,7 @@ func TestTaskLedgerStatesPositionAndTerminalCardsShrinkToAReceipt(t *testing.T) 
 	}
 	position, steps := ledgerMarker(card.Ledger)
 	if position != 2 || steps != 5 ||
-		card.Ledger[1].Label != "Investigate the trigger" ||
+		card.Ledger[1].Label != "Investigate" ||
 		card.Ledger[0].Glyph != "✓" || card.Ledger[4].Owner != "yours" {
 		t.Fatalf("ledger does not state the run's position: %+v", card.Ledger)
 	}
@@ -392,6 +392,142 @@ func TestTaskLedgerStatesPositionAndTerminalCardsShrinkToAReceipt(t *testing.T) 
 	receipt := strings.Join(merged.Sections, "\n")
 	if !strings.Contains(receipt, "PR merged") || !strings.Contains(receipt, "b3b6bb4e501") {
 		t.Fatalf("merged receipt lost its outcome or its identifiers: %q", receipt)
+	}
+}
+
+// The middle ledger step names the phase, and never an object.
+//
+// It read "Investigate the trigger" in every state, carried over from a mock
+// whose task happened to be an OOM investigation. On "Bump the pinned admin
+// runner release" there is no trigger, so the card was putting a question to
+// the operator about a thing that did not exist. The renderer knows the phase
+// and knows nothing about the subject; the label may only say the part it
+// knows.
+func TestTheChangeStepNamesThePhaseAndNeverAnObject(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		workflow       core.WorkflowState
+		hasCodeChanges bool
+		publication    core.Publication
+		label          string
+	}{
+		{
+			name:     "nothing has run, so the step ahead is working out what to do",
+			workflow: core.WorkflowProvisioningChannel,
+			label:    "Plan the work",
+		},
+		{
+			name:     "the workspace is still coming up",
+			workflow: core.WorkflowProvisioningSession,
+			label:    "Plan the work",
+		},
+		{
+			name:     "a turn is running and has produced no change",
+			workflow: core.WorkflowInvestigating,
+			label:    "Investigate",
+		},
+		{
+			name:     "a turn has run and produced no change",
+			workflow: core.WorkflowParked,
+			label:    "Investigate",
+		},
+		{
+			name:           "the fork holds a change",
+			workflow:       core.WorkflowInvestigating,
+			hasCodeChanges: true,
+			label:          "Make the change",
+		},
+		{
+			// Nobody probes the fork while a publication runs, so the caller
+			// reports no changes and the step is marked done anyway. A step
+			// with a ✓ on it under the word "Investigate" would be the label
+			// and the glyph contradicting each other.
+			name:        "a PR exists, so a change exists whatever the fork probe says",
+			workflow:    core.WorkflowParked,
+			publication: openPublication(),
+			label:       "Make the change",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			task := taskFixture()
+			task.Workflow = testCase.workflow
+			if testCase.workflow == core.WorkflowProvisioningChannel ||
+				testCase.workflow == core.WorkflowProvisioningSession {
+				// Nothing is provisioned yet, so there is no session to name.
+				task.CoopSessionID = ""
+			}
+			state := taskCardState(
+				task, testCase.hasCodeChanges, true,
+				testCase.publication, core.PublicationFollowup{},
+			)
+			ledger := taskLedger(
+				task, state, testCase.hasCodeChanges, testCase.publication,
+				LiveTurn{}, time.Now(),
+			)
+			if len(ledger) != 5 {
+				t.Fatalf("ledger = %+v", ledger)
+			}
+			if ledger[1].Label != testCase.label {
+				t.Fatalf("change step = %q, want %q", ledger[1].Label, testCase.label)
+			}
+			for _, step := range ledger {
+				if strings.Contains(step.Label, "trigger") {
+					t.Fatalf("a step named an object the card cannot know: %+v", ledger)
+				}
+			}
+		})
+	}
+
+	// The receipt hangs off the position, not off the wording. A finished
+	// turn's totals move onto the middle step whatever that step is called, so
+	// renaming it for the phase cannot cost a reader the only record of what
+	// the turn actually did.
+	task := taskFixture()
+	task.Workflow = core.WorkflowParked
+	ledger := taskLedger(
+		task,
+		taskCardState(task, true, true, core.Publication{}, core.PublicationFollowup{}),
+		true, core.Publication{},
+		LiveTurn{ToolCalls: 119, Evidence: 2}, time.Now(),
+	)
+	if ledger[1].Label != "Make the change" ||
+		ledger[1].Detail != "119 calls · 2 evidence" {
+		t.Fatalf("the completed step lost its receipt: %+v", ledger)
+	}
+}
+
+// The state line may not point at a section the card did not render.
+//
+// Same rule as the ledger label, one section down: name only what is there.
+// "Needs you" is reached from a blocked workflow as well as from a failed
+// publication, and *Action needed* is rendered only when something recorded a
+// reason — so a task blocked without one was sending the operator to read a
+// block that is not on the card.
+func TestTheStateLineNeverPointsAtASectionTheCardDidNotRender(t *testing.T) {
+	blocked := taskFixture()
+	blocked.Workflow = core.WorkflowBlocked
+	card := IncidentCardWithPublication(
+		blocked, "Tenant Infrastructure", nil, false, true, core.Publication{},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
+	)
+	body := strings.Join(card.Sections, "\n")
+	if strings.Contains(body, "*Action needed*") {
+		t.Fatalf("a blocker with no recorded reason rendered a section: %q", body)
+	}
+	if !strings.Contains(body, "reply with how to continue") {
+		t.Fatalf("the state line lost its ask: %q", body)
+	}
+
+	// With a reason the section exists, and then the pointer is honest.
+	blocked.LastError = "The gate needs a repository validation command."
+	withReason := IncidentCardWithPublication(
+		blocked, "Tenant Infrastructure", nil, false, true, core.Publication{},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
+	)
+	reason := strings.Join(withReason.Sections, "\n")
+	if !strings.Contains(reason, "*Action needed*") ||
+		!strings.Contains(reason, "read *Action needed*") {
+		t.Fatalf("a recorded blocker lost its section or its pointer: %q", reason)
 	}
 }
 

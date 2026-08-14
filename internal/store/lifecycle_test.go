@@ -559,7 +559,7 @@ func TestRecoverInterruptedPublicationProgressUpdatesTaskCards(t *testing.T) {
 	}
 }
 
-func TestEngineeringTaskAdoptsOfferAsRestartSafeWorkCard(t *testing.T) {
+func TestEngineeringTaskKeepsRestartSafeWorkCard(t *testing.T) {
 	ctx := context.Background()
 	stateDir := filepath.Join(t.TempDir(), "state")
 	st, err := Open(stateDir)
@@ -573,7 +573,13 @@ func TestEngineeringTaskAdoptsOfferAsRestartSafeWorkCard(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("create task = %+v, %t, %v", incident, created, err)
 	}
-	if err := st.TaskCards.AdoptOffer(ctx, incident.ID, "1700.101"); err != nil {
+	// The card is a message of its own, posted into the source thread — not the
+	// offer message rewritten in place. This is that sequence: bind the thread,
+	// then record the timestamp the posted card came back with.
+	if err := st.BindThreadWork(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, incident.ID, "1700.101"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.TaskCards.SetUpdate(ctx, incident.ID, "", "Draft PR #526 is ready."); err != nil {

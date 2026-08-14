@@ -3,7 +3,6 @@ package taskcardstore
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
 	"time"
 
@@ -24,23 +23,6 @@ func New(db *sql.DB, clock func() time.Time) *Repository {
 
 func (r *Repository) nowText() string {
 	return r.clock().UTC().Format(core.TimestampFormat)
-}
-
-// AdoptOffer makes the existing offer message the task's durable status card.
-func (r *Repository) AdoptOffer(ctx context.Context, id, messageTS string) error {
-	if strings.TrimSpace(messageTS) == "" {
-		return errors.New("adopt task card requires a Slack message timestamp")
-	}
-	now := r.nowText()
-	result, err := r.db.ExecContext(ctx, `
-		UPDATE incidents SET channel_id = origin_channel_id, root_ts = ?,
-		  workflow = 'provisioning_session', channel_state = 'active',
-		  channel_state_changed_at = ?, channel_checked_at = ?, updated_at = ?,
-		  card_version = card_version + 1, last_error = ''
-		WHERE id = ? AND work_scope = 'thread' AND channel_id = '' AND root_ts = ''
-		  AND origin_channel_id != '' AND origin_thread_ts != ''`,
-		messageTS, now, now, now, id)
-	return sqlutil.ExpectOne(result, err, "adopt task card")
 }
 
 // BumpActiveTurn marks the pinned card stale because the running turn narrated

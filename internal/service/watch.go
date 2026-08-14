@@ -1257,15 +1257,23 @@ func (s *Service) createWatchedWork(
 		})
 		return s.finishInputIfOpen(ctx, trigger)
 	}
-	if engineeringTask && created {
-		if err := s.store.TaskCards.AdoptOffer(ctx, incident.ID, trigger.MessageTS); err != nil {
-			return err
-		}
-		incident, err = s.store.GetIncident(ctx, incident.ID)
-		if err != nil {
-			return err
-		}
-	} else if !engineeringTask {
+	// The clicked message is not consumed. It used to be: starting a task
+	// pointed the incident's root_ts at the offer message, and the card worker
+	// then rewrote that message with chat.update — so the evidence reply that
+	// carried the offer was destroyed by acting on it. The offer and the task
+	// are different things and each keeps its own message. The card posts
+	// itself through the ordinary route (processChannelIncident binds the
+	// thread and enqueues a "root" delivery), which for thread-scoped work is a
+	// new reply in the same thread, exactly as when a task starts any other
+	// way.
+	//
+	// Nothing neutralizes the button, because nothing has to. A second click
+	// re-enters createManualWork, whose INSERT OR IGNORE on the source event ID
+	// matches the existing row, returns created=false, and skips both the
+	// initial turn and the capacity and cooldown checks — those run only when
+	// the insert actually created a row. The duplicate is a no-op that audits
+	// as engineering_task_reused.
+	if !engineeringTask {
 		if err := s.postInputNotice(
 			ctx,
 			"watch_incident_"+source.ID,
