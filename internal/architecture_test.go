@@ -248,7 +248,15 @@ var lineBudget = map[string]int{
 	// refresh call in the poll loop, and the fetch at the one place a card is
 	// composed. Moving those would shuffle lines between packages without
 	// moving a decision, which is the thing this number exists to notice.
-	"service": 21895,
+	// Raised to 21904 on 2026-08-13 for the overdue watchdog's second clock.
+	// Nine lines: the activity grace constant, the widened store call, and a
+	// four-line predicate that turns an episode's last narrated moment into the
+	// age its card states. All three are the watchdog's own policy — how long
+	// silence has to last, and what "no evidence either way" means — and the
+	// only other place they could live is the message constructor, which would
+	// put a staleness decision inside a renderer to move six lines across a
+	// package boundary.
+	"service": 21904,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -337,7 +345,14 @@ var lineBudget = map[string]int{
 	// package that owns migrations, and a column's scan cannot leave the
 	// function that reads the row. The card bump this column arrived with did
 	// leave, to taskcardstore, which already owns card_version.
-	"store":      11399,
+	// Raised to 11404 on 2026-08-13 for the overdue sweep's activity cutoff:
+	// the second bound, the WHERE clause that applies it, and the formatted
+	// timestamp. Five lines, and a WHERE clause cannot leave the package that
+	// owns the query. Deciding it in Go instead would cost the same lines in
+	// internal/service and load every long-running turn the sweep exists to
+	// ignore — into a LIMIT ordered by the deadline they are all past, where
+	// they would crowd out the episodes that really did stop.
+	"store":      11404,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

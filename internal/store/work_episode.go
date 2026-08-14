@@ -868,7 +868,7 @@ func (s *Store) ListEpisodeProgress(
 }
 
 // ListOverdueEpisodes returns accepted work that has stopped reporting
-// progress.
+// progress and has also stopped doing anything.
 //
 // An episode carries a progress deadline so the host can tell "still working"
 // apart from "stopped". Nothing consumed that deadline, so an episode could
@@ -876,14 +876,29 @@ func (s *Store) ListEpisodeProgress(
 // which reads to an operator as an answer that never came rather than as a
 // failure. Terminal states are excluded because a finished episode has no
 // progress left to owe.
+//
+// Two clocks, and both have to be stale. progress_due_at is a promise the model
+// makes about prose, and a long turn breaks it routinely: the episode behind
+// the 2026-08-13 19:57 alarm said "Still working" twice, byte for byte, then
+// made 119 tool calls in silence and was accused mid-investigation.
+// last_activity_at is what the turn actually did, so it is the clock that tells
+// a stall from a working turn with nothing to say. NULL keeps the old
+// prose-only rule: no narration was ever recorded, and missing evidence must
+// not make an episode invisible to the watchdog.
+//
+// Filtering here rather than in the caller keeps a busy turn out of the LIMIT
+// as well as out of the alarm — the batch is ordered by progress_due_at, where
+// long-running work sits at the head.
 func (s *Store) ListOverdueEpisodes(
 	ctx context.Context,
-	now time.Time,
+	progressStaleBefore time.Time,
+	activityStaleBefore time.Time,
 	limit int,
 ) ([]core.WorkEpisode, error) {
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("overdue episode limit must be between 1 and 100")
 	}
+	progressCutoff := progressStaleBefore.UTC().Format(timestampFormat)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+workEpisodeColumns+`
 		FROM work_episodes
@@ -899,13 +914,16 @@ func (s *Store) ListOverdueEpisodes(
 		          AND run.state IN ('pending', 'preparing', 'running', 'applying', 'finalizing')
 		      ))
 		  )
+		  -- The narration clock; NULL means nothing was ever recorded.
+		  AND (last_activity_at IS NULL OR julianday(last_activity_at) <= julianday(?))
 		  -- 'refused' is explicit because the legacy state column this replaced
 		  -- collapsed refused into failed and so excluded it already.
 		  AND lifecycle_state NOT IN (
 		    'completed', 'cancelled', 'failed', 'refused', 'superseded')
 		ORDER BY progress_due_at
 		LIMIT ?`,
-		now.UTC().Format(timestampFormat), now.UTC().Format(timestampFormat), limit,
+		progressCutoff, progressCutoff,
+		activityStaleBefore.UTC().Format(timestampFormat), limit,
 	)
 	if err != nil {
 		return nil, err

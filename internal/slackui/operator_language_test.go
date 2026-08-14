@@ -42,7 +42,7 @@ func TestOperatorMessagesCarryNoInternalVocabulary(t *testing.T) {
 		"HelpMessage":                   HelpMessage(core.Incident{ID: "inc_1", Title: "Checkout latency"}),
 		"CommitmentOverdueMessage": CommitmentOverdueMessage(core.WorkEpisode{
 			ID: "ep_1", Objective: "Verify the rollout",
-		}, 90*time.Minute),
+		}, 90*time.Minute, 0),
 	}
 
 	for name, message := range messages {

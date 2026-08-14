@@ -15,6 +15,22 @@ import (
 // after an outage should not turn into a burst of Slack writes.
 const overdueBatch = 20
 
+// overdueActivityGrace is how long the narration stream must be silent before
+// this sweep will call an episode stalled.
+//
+// It sits beside EpisodeOverdueAfter (30 minutes by default) and is
+// deliberately a fraction of it, because the two clocks measure different
+// things. Progress prose is written when the model decides to write it, so half
+// an hour without a line is ordinary inside one long turn — that is a reporting
+// style, not a stall. Narration is emitted as the work happens, at up to a
+// moment per second while a turn is active, so five minutes of silence from a
+// stream that granular is a real signal: something stopped.
+//
+// A constant rather than a configurable limit, because the value follows from
+// the stream's cadence rather than from anyone's policy. The knob an operator
+// has for how patient the watchdog is remains episode_overdue_after.
+const overdueActivityGrace = 5 * time.Minute
+
 // surfaceOverdueEpisodes tells operators about accepted work that stopped
 // making progress.
 //
@@ -28,12 +44,25 @@ const overdueBatch = 20
 // no progress moves it to blocked rather than posting again — repeating
 // "still nothing" is noise, and a blocked episode carries an operator-facing
 // reason and its existing controls.
+//
+// Silence is the signal, and prose is only half of it. An episode whose
+// narration is still arriving is skipped no matter how late its progress note
+// is, and skipping is all that happens: the deadline stays in the past, so the
+// next pass asks the same question again and surfaces the episode the moment
+// the stream goes quiet. That deferral has no cap on purpose. A turn that
+// narrates continuously for hours without writing prose is a working turn, and
+// the watchdog's job is detecting silence, not enforcing prose discipline —
+// the limits that stop an overlong turn are its own budget and timeout, which
+// end it and report why. Capping the deferral here would only reinstate the
+// alarm this rule exists to prevent, one interval later.
 func (s *Service) surfaceOverdueEpisodes(ctx context.Context, now time.Time) {
 	grace := s.cfg.Limits.EpisodeOverdueAfter.Duration
 	if grace <= 0 {
 		return
 	}
-	episodes, err := s.store.ListOverdueEpisodes(ctx, now.Add(-grace), overdueBatch)
+	episodes, err := s.store.ListOverdueEpisodes(
+		ctx, now.Add(-grace), now.Add(-overdueActivityGrace), overdueBatch,
+	)
 	if err != nil {
 		if ctx.Err() == nil {
 			s.log.Warn("list overdue episodes", "error", err)
@@ -117,8 +146,23 @@ func (s *Service) surfaceOverdueEpisode(
 		episode.ID,
 		destination.ChannelID,
 		destination.ThreadTS,
-		slackui.CommitmentOverdueMessage(episode, overdueBy),
+		slackui.CommitmentOverdueMessage(episode, overdueBy, episodeActivityAge(episode, now)),
 	)
+}
+
+// episodeActivityAge is how long ago the turn last narrated anything, and zero
+// when nothing was ever recorded for it — an episode from before the stream
+// existed, or a turn that produced no narration at all.
+//
+// Zero is the honest answer to "how long has it been quiet" when there is no
+// evidence either way, and the message treats it as one: it then says only what
+// the progress clock knows. A stamp in the future is the same non-answer rather
+// than a negative age.
+func episodeActivityAge(episode core.WorkEpisode, now time.Time) time.Duration {
+	if episode.LastActivityAt.IsZero() {
+		return 0
+	}
+	return max(now.Sub(episode.LastActivityAt), 0)
 }
 
 // blockStalledEpisode stops an episode that has been silent for two full

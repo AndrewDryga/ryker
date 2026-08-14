@@ -1633,4 +1633,88 @@ func TestStandingRuleWorthSeparatesFiresFromWhatTheyProduced(t *testing.T) {
 	}
 }
 
+// The overdue card says which of the two silences it is actually looking at.
+//
+// Both ages are facts it holds, and conflating them is what sent an operator
+// after a stall that had not happened: on 2026-08-13 a turn that was making
+// tool calls the whole time was reported as having made no progress for half an
+// hour. A turn last seen working seven minutes ago is not stalled; one that has
+// recorded nothing since before its deadline is, and the card is allowed to say
+// so because it can now point at both clocks.
+func TestOverdueCardDistinguishesAStallFromAQuietTurn(t *testing.T) {
+	episode := core.WorkEpisode{
+		ID: "ep_1", Objective: "Verify the rollout",
+		Status: "Working", NextAction: "Investigating",
+	}
+	for _, testCase := range []struct {
+		name          string
+		overdueBy     time.Duration
+		sinceActivity time.Duration
+		contains      []string
+		absent        []string
+	}{
+		{
+			// Nothing recorded either way — an episode from before the stream
+			// existed, or a turn that narrated nothing. It says what the
+			// progress clock knows and invents no activity it never saw.
+			name:      "a turn that recorded nothing keeps the progress-only copy",
+			overdueBy: 33 * time.Minute,
+			contains: []string{
+				"Still working on Verify the rollout",
+				"*No progress for 33 minutes.*",
+			},
+			absent: []string{"last activity", "nothing recorded", "Stalled"},
+		},
+		{
+			name:          "a turn that was working recently is not called stalled",
+			overdueBy:     33 * time.Minute,
+			sinceActivity: 7 * time.Minute,
+			contains: []string{
+				"Still working on Verify the rollout: no update for 33 minutes",
+				"quiet for the last 7 minutes",
+				"*No progress note for 33 minutes, and last activity 7 minutes ago.*",
+			},
+			absent: []string{"Stalled"},
+		},
+		{
+			name:          "nothing since before the deadline is a stall, and both ages are cited",
+			overdueBy:     33 * time.Minute,
+			sinceActivity: 40 * time.Minute,
+			contains: []string{
+				"Stalled on Verify the rollout",
+				"*Stalled for 33 minutes.*",
+				"nothing recorded for 40 minutes",
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			message := CommitmentOverdueMessage(episode, testCase.overdueBy, testCase.sinceActivity)
+			spoken := message.Text + "\n" + strings.Join(message.Sections, "\n") + "\n" +
+				strings.Join(message.Context, "\n")
+			for _, expected := range testCase.contains {
+				if !strings.Contains(spoken, expected) {
+					t.Fatalf("overdue card lacks %q:\n%s", expected, spoken)
+				}
+			}
+			for _, unwanted := range testCase.absent {
+				if strings.Contains(spoken, unwanted) {
+					t.Fatalf("overdue card claims %q:\n%s", unwanted, spoken)
+				}
+			}
+			// Whichever reading it is, the card still states where the work
+			// stands and what the operator can do, and still apologises for
+			// nothing.
+			if !strings.Contains(message.Sections[1], "*Next action:* Investigating") {
+				t.Fatalf("overdue card dropped the next action: %+v", message)
+			}
+			if !strings.Contains(spoken, "Ask me to retry") {
+				t.Fatalf("overdue card stopped saying what the operator can do:\n%s", spoken)
+			}
+			if strings.Contains(strings.ToLower(spoken), "sorry") {
+				t.Fatalf("overdue card started grovelling:\n%s", spoken)
+			}
+		})
+	}
+}
+
 // Sanitizing a copy of a Message must not rewrite the caller's own slices.

@@ -262,7 +262,7 @@ func TestAcceptedEpisodeWithoutProgressDeadlineBecomesOverdue(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if episodes, err := st.ListOverdueEpisodes(ctx, createdAt.Add(-time.Nanosecond), 10); err != nil {
+	if episodes, err := st.ListOverdueEpisodes(ctx, createdAt.Add(-time.Nanosecond), createdAt, 10); err != nil {
 		t.Fatal(err)
 	} else if len(episodes) != 0 {
 		t.Fatalf("fresh episode was already overdue: %+v", episodes)
@@ -274,7 +274,7 @@ func TestAcceptedEpisodeWithoutProgressDeadlineBecomesOverdue(t *testing.T) {
 		); err != nil {
 			t.Fatalf("set live state %s: %v", state, err)
 		}
-		if episodes, err := st.ListOverdueEpisodes(ctx, createdAt.Add(time.Hour), 10); err != nil {
+		if episodes, err := st.ListOverdueEpisodes(ctx, createdAt.Add(time.Hour), createdAt.Add(time.Hour), 10); err != nil {
 			t.Fatal(err)
 		} else if len(episodes) != 0 {
 			t.Fatalf("live %s run was reported as an orphan: %+v", state, episodes)
@@ -286,7 +286,7 @@ func TestAcceptedEpisodeWithoutProgressDeadlineBecomesOverdue(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	episodes, err := st.ListOverdueEpisodes(ctx, createdAt.Add(time.Hour), 10)
+	episodes, err := st.ListOverdueEpisodes(ctx, createdAt.Add(time.Hour), createdAt.Add(time.Hour), 10)
 	if err != nil || len(episodes) != 1 || episodes[0].AgentRunID != run.ID {
 		t.Fatalf("orphaned accepted episode = %+v, %v", episodes, err)
 	}

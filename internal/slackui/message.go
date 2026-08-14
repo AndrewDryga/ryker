@@ -1587,16 +1587,61 @@ func ChannelName(prefix string, incident core.Incident) string {
 // The tone matters here: this is Responder admitting it has not delivered
 // something it took on, so it states the fact and what the operator can do,
 // without apologising at length or implying the work is lost.
-func CommitmentOverdueMessage(episode core.WorkEpisode, overdueBy time.Duration) Message {
+//
+// It says only what it can see, and it can now see two clocks. overdueBy is how
+// late the progress note is; sinceActivity is how long the turn has been quiet,
+// where zero means nothing was ever recorded — an older episode, or a turn that
+// narrated nothing. Those are three different situations and this card used to
+// render them identically. "No progress for 33 minutes" is a fair description
+// of a turn that has recorded nothing since before its deadline, and a
+// misleading one for a turn that was still working seven minutes ago: it sends
+// an operator hunting for a stall that has not happened. So the confident word
+// is spent only on the reading that earns it, and both numbers are stated
+// either way.
+func CommitmentOverdueMessage(
+	episode core.WorkEpisode,
+	overdueBy time.Duration,
+	sinceActivity time.Duration,
+) Message {
 	objective := displayOr(episode.Objective, "this request")
+	text := "Still working on " + objective + ", but I have not made progress recently."
+	state := fmt.Sprintf(
+		"*No progress for %s.* I am still holding this request, but it has not advanced "+
+			"since my last update.",
+		roundedDuration(overdueBy),
+	)
+	switch {
+	case sinceActivity <= 0:
+		// Nothing recorded either way, so the progress clock is the whole story.
+	case sinceActivity < overdueBy:
+		// The work kept moving after the update it owed, then went quiet. The
+		// second number is the one that matters: the silence is that long, not
+		// as long as the missing update makes it look.
+		text = fmt.Sprintf(
+			"Still working on %s: no update for %s, and quiet for the last %s.",
+			objective, roundedDuration(overdueBy), roundedDuration(sinceActivity),
+		)
+		state = fmt.Sprintf(
+			"*No progress note for %s, and last activity %s ago.* The work kept moving after "+
+				"my last update and then went quiet.",
+			roundedDuration(overdueBy), roundedDuration(sinceActivity),
+		)
+	default:
+		// Both clocks stopped, and the older one stopped first. Nothing has
+		// happened here since before the update was due.
+		text = fmt.Sprintf(
+			"Stalled on %s: no update or recorded activity for %s.",
+			objective, roundedDuration(overdueBy),
+		)
+		state = fmt.Sprintf(
+			"*Stalled for %s.* No progress note in that time, and nothing recorded for %s.",
+			roundedDuration(overdueBy), roundedDuration(sinceActivity),
+		)
+	}
 	return Message{
-		Text: "Still working on " + objective + ", but I have not made progress recently.",
+		Text: text,
 		Sections: []string{
-			fmt.Sprintf(
-				"*No progress for %s.* I am still holding this request, but it has not advanced "+
-					"since my last update.",
-				roundedDuration(overdueBy),
-			),
+			state,
 			"*Current state:* " + displayOr(episode.Status, "working") +
 				"\n*Next action:* " + displayOr(episode.NextAction, "none recorded"),
 		},
