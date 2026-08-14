@@ -3923,11 +3923,8 @@ func activityMomentStep(moment ActivityMoment, ordinal int) TraceStep {
 			Open: true, ShowCount: true, Count: len(lines),
 		}}
 	case "permission":
-		step.Icon, step.Title = "shield", "Permission decided"
-		step.Summary = strings.TrimSpace(fallback(moment.Title, "a tool call") +
-			" — " + fallback(moment.Detail, "decided"))
-		step.Why = "The agent asked to do something and nobody human was there to " +
-			"answer. This is what the policy chose on their behalf."
+		step.Icon = "shield"
+		permissionCard(&step, moment)
 	case "elided":
 		step.Icon, step.Title, step.Tone = "info", "Activity not recorded", "warn"
 		step.Summary = moment.Detail
@@ -3939,6 +3936,137 @@ func activityMomentStep(moment ActivityMoment, ordinal int) TraceStep {
 		step.Summary = moment.Detail
 	}
 	return step
+}
+
+// permissionAction names the call a permission decision answered, in the tense
+// the decision makes true: an allowed call ran, a refused one did not, and one
+// whose answer this page cannot read was only ever asked for. input labels the
+// block that shows what was actually asked.
+//
+// The keys are ACP's tool kinds, which is the same vocabulary the tool-call
+// rows use. A kind this table does not list still gets a card that says what
+// happened, in the one phrasing that is true of every tool.
+type permissionAction struct{ ran, blocked, asked, input string }
+
+var permissionActions = map[string]permissionAction{
+	"execute": {"Ran a command", "Did not run a command", "Asked to run a command", "The command"},
+	"read":    {"Read a file", "Did not read a file", "Asked to read a file", "The file"},
+	"edit":    {"Edited a file", "Did not edit a file", "Asked to edit a file", "The file"},
+	"delete":  {"Deleted a file", "Did not delete a file", "Asked to delete a file", "The file"},
+	"move":    {"Moved a file", "Did not move a file", "Asked to move a file", "The file"},
+	"search":  {"Searched the workspace", "Did not search the workspace", "Asked to search the workspace", "The search"},
+	"fetch":   {"Fetched a URL", "Did not fetch a URL", "Asked to fetch a URL", "The URL"},
+}
+
+var permissionActionFallback = permissionAction{
+	"Used a tool", "Did not use a tool", "Asked to use a tool", "What it asked for",
+}
+
+// permissionVerdict is Coop's recorded answer in the three shapes a card has to
+// render differently: it went ahead, it did not, or this page cannot tell.
+type permissionVerdict struct {
+	allowed, refused bool
+	// sentence says what the decision means going forward, in words rather than
+	// in the wire's enum spelling. "allow_always" is machinery vocabulary; what
+	// a reader needs is that the next request like it will not be asked again.
+	sentence string
+	// raw is the value to print verbatim when this code cannot name the answer.
+	// An unrecognised decision rendered as a blank is a decision the page hid.
+	raw string
+}
+
+// permissionDecision reads Coop's recorded answer to a session/request_permission.
+//
+// Coop answers those itself: it takes the first option the request offers whose
+// kind is allow_always or allow_once, and when the request offers neither it
+// answers "cancelled", which leaves the call unrun. So the pairs that actually
+// reach this page are selected/allow_always, selected/allow_once, and cancelled
+// with no option kind at all.
+//
+// The kinds are ACP's and they arrive from whichever agent Coop is driving —
+// external wire data, not Responder's vocabulary. reject_once and reject_always
+// are the other two kinds ACP defines, and an agent free to send a kind is free
+// to send one nobody here has seen. An answer this code cannot name is reported
+// as exactly that, beside the value it was given, rather than guessed into the
+// nearest sentence or dropped for looking unfamiliar.
+func permissionDecision(outcome, optionKind string) permissionVerdict {
+	switch optionKind {
+	case "allow_always":
+		return permissionVerdict{allowed: true, sentence: "Allowed, and policy will keep " +
+			"allowing this for the rest of the session."}
+	case "allow", "allow_once":
+		return permissionVerdict{allowed: true, sentence: "Allowed this once — the next " +
+			"request like it is decided again."}
+	case "reject_always", "deny_always":
+		return permissionVerdict{refused: true, sentence: "Refused, and policy will keep " +
+			"refusing this for the rest of the session."}
+	case "deny", "reject", "reject_once", "deny_once":
+		return permissionVerdict{refused: true, sentence: "Refused this once — the next " +
+			"request like it is decided again."}
+	case "":
+		switch outcome {
+		case "cancelled":
+			return permissionVerdict{refused: true, sentence: "Refused: the request offered " +
+				"no answer Coop is allowed to give, so the call never ran."}
+		case "":
+			// Nothing was recorded either way. Saying so is the only honest
+			// card; a default sentence here would invent an outcome.
+			return permissionVerdict{sentence: "Coop answered this request, but the record " +
+				"does not say which way."}
+		}
+	}
+	return permissionVerdict{
+		sentence: "Coop recorded an answer this page cannot name. It is printed below, " +
+			"exactly as it was recorded.",
+		raw: fallback(optionKind, outcome),
+	}
+}
+
+// permissionCard renders one permission decision as what happened rather than
+// as the wire fields it happened in.
+//
+// The card used to be titled "Permission decided" over a line reading
+// "<the whole curl command> — allow_always", which buried the two facts a
+// reader wants (what was asked for, and whether it went ahead) under the
+// machinery's own vocabulary — and put a tool's arguments through the prose
+// renderer, which found the URL inside the command and turned it into a link.
+// The sentence leads; what was asked for sits below it in a code block, where
+// it is escaped and nothing looks for markup in it.
+func permissionCard(step *TraceStep, moment ActivityMoment) {
+	verdict := permissionDecision(moment.Status, moment.Detail)
+	action, ok := permissionActions[moment.ToolKind]
+	if !ok {
+		action = permissionActionFallback
+	}
+	switch {
+	case verdict.allowed:
+		step.Title = action.ran + " — policy allowed it"
+	case verdict.refused:
+		step.Title, step.Tone = action.blocked+" — policy refused it", "warn"
+	default:
+		step.Title = action.asked + " — policy answered"
+	}
+	step.Summary = verdict.sentence
+	// The insight the old card carried, kept to what the record proves. The
+	// payload has no field distinguishing a policy answer from a human one;
+	// what makes the claim true is that Coop has no path that waits for a
+	// person, so the absence of one is a property of the system, not of this
+	// event.
+	step.Why = "Nothing here waited for a person: Coop answers permission requests " +
+		"from policy. This is what the policy chose on the agent's behalf."
+	if verdict.raw != "" {
+		step.Details = append(step.Details, TraceDetail{
+			Label: "The answer Coop recorded", Body: verdict.raw, Kind: "code", Open: true,
+		})
+	}
+	// A permission whose tool call was never named is stored under the label
+	// Coop falls back to, and a code block captioned "The command" holding the
+	// words "Permission decided" would read as the command that ran.
+	if asked := strings.TrimSpace(moment.Title); asked != "" && asked != "Permission decided" {
+		step.Details = append(step.Details, TraceDetail{
+			Label: action.input, Body: asked, Kind: "code", Open: true,
+		})
+	}
 }
 
 func countActivityTools(moments []ActivityMoment) int {

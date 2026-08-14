@@ -197,6 +197,20 @@ func (r *Reader) Activity(ctx context.Context, episodeID string) ([]ActivityMome
 	// twice holds two "t1"s, and a call left open by the first run would
 	// otherwise swallow the second run's completion.
 	openCalls := map[string]int{}
+	// What kind of call each tool call id was, so a permission decision can say
+	// what was being asked for. Coop's permission payload names the call it
+	// answered but not its kind, and "policy allowed it" is a different fact
+	// depending on whether "it" was reading a file or running a command. Built
+	// in its own pass because the answer can be recorded before the start is.
+	toolKinds := map[string]string{}
+	for _, row := range rows {
+		if row.toolCallID == "" || row.toolKind == "" {
+			continue
+		}
+		if key := row.runID + "\x00" + row.toolCallID; toolKinds[key] == "" {
+			toolKinds[key] = row.toolKind
+		}
+	}
 	for _, row := range rows {
 		key := row.runID + "\x00" + row.toolCallID
 		switch row.kind {
@@ -235,11 +249,17 @@ func (r *Reader) Activity(ctx context.Context, episodeID string) ([]ActivityMome
 				Entries: activityPlanSteps(row.detail),
 			})
 		case "permission.decided":
+			// Status carries Coop's outcome ("selected" or "cancelled") and
+			// Detail the kind of option it picked. Both are needed: a cancelled
+			// request has no option kind at all, and reads as a refusal only
+			// because the outcome says so.
+			outcome := activityDetailText(row.detail, "outcome")
 			moment := ActivityMoment{
 				Kind: "permission", Title: row.title, At: row.at,
+				ToolKind: toolKinds[key], Status: outcome,
 				Detail: activityDetailText(row.detail, "option_kind"),
 			}
-			if activityDetailText(row.detail, "outcome") == "cancelled" {
+			if outcome == "cancelled" {
 				moment.Tone = "warn"
 			}
 			moments = append(moments, moment)

