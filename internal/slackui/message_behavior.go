@@ -283,15 +283,26 @@ func conditionalScheduleOfferLead(value string) string {
 	return "Confirm the schedule below to create this task.\n\n" + value
 }
 
+// ScheduleOfferUnavailable replaces an offer that could not be prepared.
+//
+// Grey and stateless: nothing was saved, nothing is pending, and the only thing
+// wanted is the ask again. It decorates the reply it arrives on rather than
+// standing alone, so it strips that reply back to this one statement — every
+// control included. Rows and the overflow menu are cleared alongside Actions
+// because a proposal is a row now: clearing only the button pile would have
+// deleted the sentence a confirmation referred to and left the confirmation.
 func ScheduleOfferUnavailable(message Message) Message {
-	message.Text = "I couldn’t safely prepare that schedule, so nothing was scheduled."
+	message.Text = "Nothing was scheduled — I couldn’t safely prepare that schedule."
 	message.Markdown = message.Text
+	message.Stripe = StripeIdle
 	message.Sections = nil
 	message.Fields = nil
 	message.Context = []string{
 		"Please restate the timing and task. Responder will show the exact schedule for confirmation before saving it.",
 	}
 	message.Actions = nil
+	message.Rows = nil
+	message.Overflow = nil
 	return message
 }
 

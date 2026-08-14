@@ -857,8 +857,11 @@ func TestFailedWatchSessionIsDetachedAndQueuedForCleanup(t *testing.T) {
 	}
 	// This targeted request is terminal, not queued. It gets one bounded notice
 	// with a retry path and no raw Coop/session detail.
+	// Superseded: the fallback led with "I couldn't finish this request"; it now
+	// leads with the header and what stopped, which is what a notification has
+	// room for.
 	if len(slackClient.posts) != 1 ||
-		!strings.Contains(slackClient.posts[0].message.Text, "couldn't finish this request") ||
+		!strings.Contains(slackClient.posts[0].message.Text, "Request needs a retry") ||
 		strings.Contains(slackClient.posts[0].message.Text, "turn cleanup") {
 		t.Fatalf("terminal targeted failure notice = %+v", slackClient.posts)
 	}

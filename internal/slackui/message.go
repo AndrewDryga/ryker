@@ -1215,24 +1215,33 @@ func markdownCell(value string) string {
 	return truncateUTF8(value, 220)
 }
 
+// TurnFailureMessage is a turn that ended without an answer.
+//
+// Operator-cancelled is grey and says so in the first person. Stopping work you
+// asked to be stopped is the system obeying you, and a red card with an alarm
+// glyph on it reads as something having gone wrong — which then has to be
+// discounted by the one person who already knows it did not.
 func TurnFailureMessage(state, detail string) Message {
-	header := "Investigation could not finish"
+	stripe, header := StripeFailed, "🛑 Investigation could not finish"
 	if state == "cancelled" {
-		header = "Investigation stopped"
+		stripe, header = StripeIdle, "⏸ Stopped — you asked me to."
 	}
 	detail = strings.TrimSpace(detail)
 	if detail == "" {
 		detail = state
 	}
-	return Message{
-		Text:   header + ": " + escapeSlackText(detail),
-		Header: header,
-		Sections: []string{
-			escapeSlackText(detail),
-			"The isolated fork and collected evidence are preserved. Reply in this thread to continue or use the incident controls.",
-		},
-		Context: []string{"No merge, push, signing, or deployment occurred."},
-	}
+	message := failureCard(
+		stripe,
+		header,
+		escapeSlackText(detail),
+		"The isolated fork and the evidence collected so far are preserved.",
+		"Reply in this thread to continue, or use the controls on the work card.",
+	)
+	message.Context = append(
+		message.Context,
+		"No merge, push, signing, or deployment occurred.",
+	)
+	return message
 }
 
 // AgentReportFailureMessage is what an operator sees when Responder exhausted
@@ -1244,50 +1253,60 @@ func TurnFailureMessage(state, detail string) Message {
 // `json: cannot unmarshal ...` in front of someone waiting on an incident.
 // What they need is what survived, that nothing changed, and what to do next.
 func AgentReportFailureMessage() Message {
-	return Message{
-		Text:   "I could not publish a clean summary of that turn.",
-		Header: "Summary needs another pass",
-		Sections: []string{
-			"The investigation ran and its findings are preserved, but the final " +
-				"summary did not come back in a form I could publish.",
-			"Reply in this thread and I will write it up again from the same work — " +
-				"nothing was lost and nothing was changed.",
-		},
-		Context: []string{
-			"No merge, push, signing, or deployment occurred. " +
-				"Raw transcripts and tool output are not posted to Slack.",
-		},
-	}
+	// No "Write it up again" button, though this is the card that most wants
+	// one. The rerun control is incident-scoped — it routes on an incident id
+	// carried in the button's value — and this constructor is given no
+	// incident, so the button would render and then answer that the control is
+	// no longer valid. The sentence is the honest version of the same offer.
+	message := failureCard(
+		StripeFailed,
+		"🛑 Summary needs another pass",
+		"The investigation ran, but its final summary did not come back in a form I could publish.",
+		"The findings are preserved — nothing was lost and nothing was changed.",
+		"Reply in this thread and I’ll write it up again from the same work.",
+	)
+	message.Context = append(
+		message.Context,
+		"No merge, push, signing, or deployment occurred. "+
+			"Raw transcripts and tool output are not posted to Slack.",
+	)
+	return message
 }
 
 // TriageFailureMessage is the terminal notice for an accepted human request.
 // It intentionally takes no raw error: provider and transport diagnostics are
 // useful in logs, not in the Slack thread of the person waiting for an answer.
 func TriageFailureMessage() Message {
-	return Message{
-		Text:   "I couldn't finish this request.",
-		Header: "Request needs a retry",
-		Sections: []string{
-			"I stopped retrying this request so it would not remain silently queued.",
-			"Reply in this thread to try again. Verify current state before repeating any operation.",
-		},
-		Context: []string{"Internal provider and transport errors were kept out of the channel."},
-	}
+	message := failureCard(
+		StripeFailed,
+		"🛑 Request needs a retry",
+		"I stopped retrying this request so it would not remain silently queued.",
+		"Nothing ran on it, so there is nothing half-finished to undo.",
+		"Reply in this thread to try again. Verify current state before repeating any operation.",
+	)
+	message.Context = append(
+		message.Context,
+		"Internal provider and transport errors were kept out of the channel.",
+	)
+	return message
 }
 
 // ApprovalVerificationFailureMessage reports only the verification boundary:
 // the governed external action may have happened, so retrying it blindly would
 // be unsafe even though the follow-up verification has stopped.
 func ApprovalVerificationFailureMessage() Message {
-	return Message{
-		Text:   "The governed run finished, but I couldn't verify or report its result.",
-		Header: "Verification needs attention",
-		Sections: []string{
-			"I stopped the automatic verification after its retry limit.",
-			"Check the run and current state before repeating any action, then reply here to continue verification.",
-		},
-		Context: []string{"Internal provider and transport errors were kept out of the channel."},
-	}
+	message := failureCard(
+		StripeFailed,
+		"🛑 Verification needs attention",
+		"The governed run finished, but I stopped verifying its result after the retry limit.",
+		"Emisar holds the authoritative record of what that run did.",
+		"Check the run and current state before repeating any action, then reply here to continue verification.",
+	)
+	message.Context = append(
+		message.Context,
+		"Internal provider and transport errors were kept out of the channel.",
+	)
+	return message
 }
 func EvidenceDirectoryMessage(
 	incident core.Incident,

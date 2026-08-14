@@ -604,6 +604,16 @@ func handoffMessage(channelID, header, room, workspace, boundary string) Message
 	}
 }
 
+// incidentActions is the incident card's control set, and only the incident
+// card's.
+//
+// An engineering task never reaches here: IncidentCardWithPublication hands one
+// to engineeringTaskCard before this is called, and that card derives its
+// controls from taskActions, which owns the task-shaped states — ready to
+// publish, PR open, merged, closed with retained work. The branches that asked
+// `incident.IsEngineeringTask()` are gone rather than kept as insurance: a
+// condition that cannot be true is a claim that it can, and the next reader
+// would have had to prove otherwise before touching anything around it.
 func incidentActions(
 	incident core.Incident,
 	hasCodeChanges bool,
@@ -638,13 +648,6 @@ func incidentActions(
 			if publication.Published() {
 				actions = append(actions, checkDelivery)
 			}
-		}
-		if hasCodeChanges && !publication.Published() && incident.IsEngineeringTask() {
-			actions = append(actions, Action{
-				ID: ActionDiscardWork, Label: "Discard retained work",
-				Value: incident.ID, Style: "danger",
-				Confirm: "Permanently delete this closed task's unpublished committed work and isolated Coop state? This cannot be undone. Dirty uncommitted work is never discarded.",
-			})
 		}
 		return actions
 	}
@@ -732,9 +735,6 @@ func incidentActions(
 	if hasCodeChanges {
 		actions = append(actions, changes)
 		actions = append(actions, review)
-		if incident.IsEngineeringTask() {
-			actions = append(actions, publish)
-		}
 	}
 	if publication.HasPR() {
 		actions = append(actions, viewPR)

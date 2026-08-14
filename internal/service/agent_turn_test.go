@@ -106,8 +106,11 @@ func TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation(t *testing.T) 
 		t.Fatalf("terminal approval was polled again: %d calls", emisarClient.calls)
 	}
 	drainSlackDeliveries(t, ctx, svc)
+	// Superseded: the header gained the outcome glyph. Colour never travels
+	// alone, and this card is read in a notification as often as in the channel.
 	if len(slackClient.updates) != 1 ||
-		slackClient.updates[0].message.Header != "Emisar action completed" {
+		slackClient.updates[0].message.Header != "✅ Emisar action completed" ||
+		slackClient.updates[0].message.Stripe != slackui.StripeDone {
 		t.Fatalf("approval Slack update = %+v", slackClient.updates)
 	}
 }
@@ -957,8 +960,11 @@ func TestOperatorRequestedEmisarApprovalReachesIncidentThread(t *testing.T) {
 		t.Fatalf("approval posts = %+v", slackClient.posts)
 	}
 	post := slackClient.posts[0]
+	// Superseded: the header named the console rather than the action waiting
+	// on a decision. The action id is a typed identifier Emisar assigned, so it
+	// is safe in a header that cannot be escaped.
 	if post.thread != incident.RootTS ||
-		post.message.Header != "Approval required in Emisar" ||
+		post.message.Header != "✋ Approval needed: nomad.alloc_restart" ||
 		len(post.message.Actions) != 1 ||
 		post.message.Actions[0].ID != slackui.ActionOpenApproval ||
 		post.message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_123" {

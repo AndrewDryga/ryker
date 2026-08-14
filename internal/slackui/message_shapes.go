@@ -165,6 +165,50 @@ func directoryCard(message Message, entries []directoryEntry, more string) Messa
 	return message
 }
 
+// failureCard is the one shape every failure wears.
+//
+// Three slots, always in this order, because they are the three questions
+// somebody reads a failure to answer: what stopped, what survived it, and what
+// to do now. Six constructors had each answered them in a different order, or
+// left one out — the turn failure said what survived and never what to do, the
+// triage failure said what to do and never what survived — and the slot that
+// goes missing is always the reassuring one, so a person met the worst reading
+// of an interruption that had preserved everything.
+//
+// whatNext is a context line rather than a section. The design wanted a button
+// there, and where a button routes somewhere real it should be passed in; none
+// of these five have one, because the handler that would rerun the work needs
+// an incident these constructors are not given. A button that renders and does
+// nothing is worse than a sentence that tells the truth about where to reply.
+func failureCard(
+	stripe, header, whatStopped, whatSurvived, whatNext string,
+	actions ...Action,
+) Message {
+	sections := make([]string, 0, 2)
+	for _, slot := range []string{whatStopped, whatSurvived} {
+		if trimmed := strings.TrimSpace(slot); trimmed != "" {
+			sections = append(sections, trimmed)
+		}
+	}
+	message := Message{
+		// The fallback leads with what stopped: a notification shows this line
+		// and nothing else, and the header without it is a category rather than
+		// an event. Bounded here because what stopped is the one slot a caller
+		// fills with text this package did not write.
+		Text: truncateUTF8(
+			strings.TrimSpace(header+" "+strings.TrimSpace(whatStopped)), 4000,
+		),
+		Header:   header,
+		Stripe:   stripe,
+		Sections: sections,
+		Actions:  actions,
+	}
+	if next := strings.TrimSpace(whatNext); next != "" {
+		message.Context = []string{next}
+	}
+	return message
+}
+
 // reviewCard asks one question about one entry.
 //
 // The entry leads. The card that preceded it opened with "This saved memory has

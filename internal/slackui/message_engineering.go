@@ -784,34 +784,87 @@ func MemoryReviewCompleteMessage(action string, remaining int) Message {
 	return stateChangeCard(result+" "+meaning, "*"+result+"* "+meaning, note, actions...)
 }
 
+// PublicationMessage is the receipt for a draft PR that now exists.
+//
+// A receipt, because that is the whole event: the branch is pushed, the PR is
+// open, and nothing is waiting on anyone here. It used to spend a header, a
+// linked line, a paragraph about lease protection and a boundary line saying
+// four separate things Responder had not done — most of a screen to report one
+// state change. The state change is the first line; what publishing could and
+// could not do is one context line under it, where the same sentence has been
+// read a hundred times already.
 func PublicationMessage(publication core.Publication, updated bool) Message {
-	action := "created"
-	header := "PR ready"
+	action, state := "created", "is open"
 	if updated {
-		action = "updated"
-		header = "PR updated"
+		action, state = "updated", "is updated"
 	}
 	return Message{
 		Text: fmt.Sprintf(
-			"Responder %s PR #%d for this engineering task: %s",
+			"Done — Responder %s draft PR #%d for this engineering task: %s",
 			action, publication.PRNumber, publication.PRURL,
 		),
-		Header: header,
-		Sections: []string{
-			fmt.Sprintf(
-				"<%s|Open PR #%d>\n\nThe branch contains the exact tree approved by "+
-					"the latest Coop readiness review. Publication used lease protection, so "+
-					"Responder would refuse to overwrite an unexpected remote change.",
-				publication.PRURL, publication.PRNumber,
-			),
-		},
+		Stripe: StripeDone,
+		Sections: []string{fmt.Sprintf(
+			"*<%s|Draft PR #%d> %s* — it carries the exact tree the latest Coop readiness review approved.",
+			publication.PRURL, publication.PRNumber, state,
+		)},
 		Context: []string{
-			"Responder did not merge, deploy, sign, change review state, or change infrastructure.",
+			"Lease-protected publication: Responder refuses to overwrite an unexpected remote change, " +
+				"and did not merge, deploy, sign, or change review state.",
 		},
 		Actions: []Action{
 			{ID: ActionViewPR, Label: "Open PR", Value: publication.IncidentID, URL: publication.PRURL},
+			// Check delivery stays a button rather than moving into the ⋯ menu
+			// the design puts it in. Overflow options do not route today: the
+			// renderer emits one shared `responder_overflow` action id and
+			// drops the per-option id, and no handler answers it — so moving a
+			// working control in there would retire it. See the report on the
+			// overflow routing gap; this moves the day that gap is closed.
 			{ID: ActionCheckDelivery, Label: "Check delivery", Value: publication.IncidentID},
 		},
+	}
+}
+
+// publicationLifecycleState is the custody colour for a delivery notification.
+//
+// The kinds and states are exactly what publicationTransition emits, and it is
+// the only producer: merged/succeeded, closed/stopped, checks/succeeded,
+// checks/failed, and status/<PR state> for an operator-requested refresh. The
+// terraform and deployment kinds the header switch below still names have never
+// been emitted by anything; they are mapped by state here rather than given
+// invented colours, so the day something does emit one it inherits the same
+// rule as everything else instead of a default.
+//
+// Nothing here is amber. A lifecycle notification reports something that has
+// already happened on GitHub — Responder is not working on it and no turn is
+// running behind it — and amber would claim custody nobody holds.
+func publicationLifecycleState(kind, state string, status core.PublicationLifecycleStatus) cardState {
+	switch kind {
+	case "merged":
+		return cardState{Stripe: StripeDone, Glyph: "✅", Word: "Merged"}
+	case "closed":
+		return cardState{Stripe: StripeIdle, Glyph: "⏸", Word: "Closed"}
+	case "checks":
+		if state == "failed" {
+			return cardState{Stripe: StripeFailed, Glyph: "🛑", Word: "Checks failed"}
+		}
+		return cardState{Stripe: StripeDone, Glyph: "✅", Word: "Checks passed"}
+	}
+	// A manual refresh reports the PR's current state, so it is coloured by
+	// that state rather than by the fact that somebody asked. Failing checks
+	// under an open PR are the one case where a readout is bad news, and it
+	// reads as bad news.
+	switch {
+	case state == "merged":
+		return cardState{Stripe: StripeDone, Glyph: "✅", Word: "Merged"}
+	case state == "closed" || state == "stopped":
+		return cardState{Stripe: StripeIdle, Glyph: "⏸", Word: "Closed"}
+	case state == "failed" || state == "errored" || status.ChecksState == "failing":
+		return cardState{Stripe: StripeFailed, Glyph: "🛑", Word: "Failed"}
+	case state == "succeeded" || state == "applied":
+		return cardState{Stripe: StripeDone, Glyph: "✅", Word: "Done"}
+	default:
+		return cardState{Stripe: StripeIdle, Glyph: "🔀", Word: "PR open"}
 	}
 }
 
@@ -840,13 +893,21 @@ func PublicationLifecycleMessage(
 	case "deployment":
 		header = "Deployment update"
 	}
+	outcome := publicationLifecycleState(kind, state, status)
 	context := []string{"Task: " + escapeSlackText(taskTitle)}
 	if status.MergeSHA != "" {
 		context = append(context, "Merge commit: `"+escapeSlackText(shortSHA(status.MergeSHA))+"`")
 	}
 	return Message{
-		Text:     header + " for PR #" + fmt.Sprint(publication.PRNumber) + ": " + summary,
-		Header:   header,
+		// The state word first, then the subject: this line is what a
+		// notification shows, and "Delivery update for PR #42" was a category
+		// where the outcome should have been.
+		Text: outcome.Word + " — PR #" + fmt.Sprint(publication.PRNumber) + ": " + summary,
+		// summary is composed by publicationTransition from typed GitHub
+		// status, not by a model, and it is the one sentence this card exists
+		// to carry. It stays exactly as it arrives.
+		Header:   outcome.Header(header),
+		Stripe:   outcome.Stripe,
 		Sections: []string{summary},
 		Context:  context,
 		Actions: []Action{
@@ -929,6 +990,38 @@ func firstValue(values []string) string {
 	return values[0]
 }
 
+// changesStatLine says which part of the patch this is, before the patch.
+//
+// It used to sit underneath the summary and above the diff, which put it at the
+// bottom of a screen of file names and at the top of an unbounded block of
+// changed lines — the one position where a reader scrolling a long diff would
+// pass it without reading it and then have no way to know whether the diff had
+// ended or the page had. The renderer emits Header, then Markdown, then
+// everything else, so a context block cannot precede the patch; the first line
+// of the Markdown can.
+//
+// "Part" rather than "page": the split is by byte, not by file, and calling a
+// byte window a page invited the reading that file 3 of 4 was on it. Paging by
+// file is the design's ask and needs the diff parsed into files upstream of
+// this constructor, which is where the byte offsets in the navigation values
+// are produced and routed. The offsets stay exactly as they are — this renames
+// a label, and changes no route.
+func changesStatLine(navigation ChangesNavigation) string {
+	if navigation.TotalBytes <= 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf(
+		"*Part %d of %d*", max(navigation.Page, 1), max(navigation.Pages, 1),
+	), fmt.Sprintf(
+		"bytes %d-%d of %d",
+		navigation.FirstByte+1, navigation.LastByte, navigation.TotalBytes,
+	)}
+	if len(navigation.Digest) >= 12 {
+		parts = append(parts, "snapshot `"+safeInlineCode(navigation.Digest[:12])+"`")
+	}
+	return joinFacts(parts)
+}
+
 func ChangesMessage(
 	incident core.Incident,
 	summary string,
@@ -944,22 +1037,11 @@ func ChangesMessage(
 		work = "engineering task"
 	}
 	var markdown strings.Builder
-	markdown.WriteString(summary)
-	if navigation.TotalBytes > 0 {
-		page := max(navigation.Page, 1)
-		pages := max(navigation.Pages, 1)
-		markdown.WriteString(fmt.Sprintf(
-			"\n\n*Patch page %d of %d* · bytes %d-%d of %d",
-			page,
-			pages,
-			navigation.FirstByte+1,
-			navigation.LastByte,
-			navigation.TotalBytes,
-		))
-		if len(navigation.Digest) >= 12 {
-			markdown.WriteString(" · snapshot `" + safeInlineCode(navigation.Digest[:12]) + "`")
-		}
+	if stat := changesStatLine(navigation); stat != "" {
+		markdown.WriteString(stat)
+		markdown.WriteString("\n\n")
 	}
+	markdown.WriteString(summary)
 	if len(patch) > 0 {
 		diff := strings.ToValidUTF8(string(patch), "\uFFFD")
 		diff = strings.ReplaceAll(diff, "```", "` ` `")
@@ -999,10 +1081,29 @@ func ChangesMessage(
 	return message
 }
 
+// ReviewMessage is the readiness verdict.
+//
+// The design asks for the gate rendered as a checklist — each check named with
+// its own result — because a green verdict reached by running every gate and a
+// green verdict reached by skipping most of them are different claims that
+// currently look identical. This constructor cannot tell them apart: `summary`
+// arrives as one model-written string, and the per-check results that would
+// fill a checklist are not carried to this call site in any typed form.
+//
+// SEAM: the checklist needs Coop's readiness result as typed check records
+// (name, outcome, skipped-because) threaded from internal/service's review path
+// into a new parameter here. Composing a checklist out of the prose instead —
+// splitting the summary on bullets, matching "passed" — would be the host
+// inventing gate results, which is the one thing a gate card must never do. So
+// the summary stays a single section until that data exists, and this card
+// claims no more than it was told.
 func ReviewMessage(incident core.Incident, summary string, publishable bool) Message {
-	state := "Not ready for review"
+	state, glyph, stripe := "Not ready for review", "✋", StripeNeedsYou
 	if publishable {
-		state = "Ready for external review"
+		// Green because there is a decision to make and it is the operator's:
+		// the tree is pinned and publishing is one press away. Nothing is
+		// running and nothing failed.
+		state, glyph, stripe = "Ready for external review", "✅", StripeDone
 	}
 	work := "incident"
 	if incident.IsEngineeringTask() {
@@ -1010,7 +1111,8 @@ func ReviewMessage(incident core.Incident, summary string, publishable bool) Mes
 	}
 	message := Message{
 		Text:     state + " for " + work + " " + ShortID(incident.ID),
-		Header:   state,
+		Header:   glyph + " " + state,
+		Stripe:   stripe,
 		Sections: []string{summary},
 		Context:  []string{"No branch was pushed and no pull request was created."},
 	}
@@ -1024,6 +1126,22 @@ func ReviewMessage(incident core.Incident, summary string, publishable bool) Mes
 	return message
 }
 
+// WithEngineeringTaskDelivery puts the delivery controls on a task reply that
+// stands on its own.
+//
+// The design deletes this and lets the task card carry delivery, and for the
+// common turn it already does: a task result with nothing to press is folded
+// into the durable card, and `taskcard.Update` keeps only that message's words
+// — every button here is dropped on the floor, and the card's own taskActions
+// renders the real ones. What survives that fold is the paragraph, which is why
+// there is no paragraph any more.
+//
+// It is kept because one path still posts a task result as its own message:
+// a turn ending in an Emisar approval, or in any offer with a control attached,
+// is not folded into the card, because its buttons must stay attached to the
+// exact proposal being accepted. On that message these are the only delivery
+// controls there are. The prose that used to accompany them said what the task
+// card says better and in the place the operator is already looking.
 func WithEngineeringTaskDelivery(
 	message Message,
 	incident core.Incident,
@@ -1031,53 +1149,19 @@ func WithEngineeringTaskDelivery(
 	publication core.Publication,
 	followup core.PublicationFollowup,
 ) Message {
-	if !incident.IsEngineeringTask() {
+	if !incident.IsEngineeringTask() || !hasCodeChanges {
 		return message
 	}
-	if !hasCodeChanges {
-		message.Context = append(
-			message.Context,
-			"No code changes were produced. There is no diff or draft PR to deliver.",
-		)
-		return message
-	}
-	if followup.Terminal() {
-		state := "closed"
-		if followup.PRState == "merged" {
-			state = "merged"
-		}
-		message.Context = append(message.Context, fmt.Sprintf(
-			"Changes are preserved in this task, but PR #%d is already %s. Start a new engineering task to review and publish another change.",
-			publication.PRNumber, state,
-		))
-		message.Actions = append(message.Actions,
-			Action{ID: ActionChanges, Label: "View diff", Value: incident.ID},
-		)
-		if publication.HasPR() {
-			message.Actions = append(message.Actions, Action{
-				ID: ActionViewPR, Label: "Open PR", Value: incident.ID, URL: publication.PRURL,
-			})
-		}
-		return message
-	}
-	context := "Changes are preserved in the isolated task fork. View the diff, then create a draft PR for external review."
-	publish := Action{
-		ID: ActionPublishPR, Label: "Create draft PR (operator)",
-		Value: PublicationActionValue(incident.ID, publication.Generation), Style: "primary",
-		Confirm: "Run Coop's readiness review, publish the exact approved tree on a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
-	}
-	if publication.HasPR() {
-		context = fmt.Sprintf(
-			"View the diff, then update existing PR #%d with the current reviewed tree.",
-			publication.PRNumber,
-		)
-		publish.Label = "Update PR"
-		publish.Confirm = "Run a fresh Coop readiness review and update the existing PR using lease-protected branch publication? This cannot merge or deploy."
-	}
-	message.Context = append(message.Context, context)
 	message.Actions = append(message.Actions,
-		Action{ID: ActionChanges, Label: "View diff", Value: incident.ID}, publish,
+		Action{ID: ActionChanges, Label: "View diff", Value: incident.ID},
 	)
+	// A merged or closed PR cannot be published into again, so the only
+	// controls are the two that read: the diff this task still holds, and the
+	// PR it went to. Which of those is true is stated by the task card's state,
+	// not restated here.
+	if !followup.Terminal() {
+		message.Actions = append(message.Actions, publishAction(incident, publication))
+	}
 	if publication.HasPR() {
 		message.Actions = append(message.Actions, Action{
 			ID: ActionViewPR, Label: "Open PR", Value: incident.ID, URL: publication.PRURL,

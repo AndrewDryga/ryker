@@ -28,9 +28,20 @@ func TestChangesMessageRendersExplicitPatchPageAndNavigation(t *testing.T) {
 			PreviousValue: "previous", NextValue: "next", RefreshValue: "refresh",
 		},
 	)
-	if !strings.Contains(message.Markdown, "Patch page 2 of 4") ||
-		!strings.Contains(message.Markdown, "bytes 7001-14000 of 25000") ||
-		!strings.Contains(message.Markdown, "snapshot `aaaaaaaaaaaa`") ||
+	// Superseded: the stat line used to sit between the summary and the diff,
+	// which is the one position a reader scrolling four hundred changed lines
+	// passes without reading. It now leads the body — the renderer emits
+	// Markdown before every context block, so first-line-of-Markdown is as
+	// early as this fact can be placed — and "page" became "part", because the
+	// window is a byte range and calling it a page invited the reading that
+	// file 3 of 4 was on it. The offsets and the navigation values are
+	// untouched, so routing is unchanged.
+	if !strings.HasPrefix(
+		message.Markdown,
+		"*Part 2 of 4* · bytes 7001-14000 of 25000 · snapshot `aaaaaaaaaaaa`\n\n",
+	) ||
+		strings.Contains(message.Markdown, "Patch page") ||
+		strings.Index(message.Markdown, "*Part 2 of 4*") > strings.Index(message.Markdown, "```diff") ||
 		!strings.Contains(message.Markdown, "+changed line") ||
 		strings.Contains(message.Markdown, "The patch exceeded") ||
 		len(message.Actions) != 3 ||
@@ -559,9 +570,20 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		ConversationResponse("I staged the next hostname.", NewSanitizer(12000)),
 		mergedTask, true, mergedPublication, mergedFollowup,
 	)
+	// Superseded: this used to assert a context paragraph explaining that the
+	// PR was already merged and a new task was needed. WithEngineeringTaskDelivery
+	// no longer writes paragraphs — on the task-card path taskcard.Update keeps
+	// only a message's words and drops its buttons, so the paragraph was the
+	// half that survived and the controls were the half that mattered. The task
+	// card states the merged state on its own ledger; this decorator now
+	// contributes controls and nothing else, and offers no publish control into
+	// a PR that can no longer be published into.
 	if slices.ContainsFunc(mergedReply.Actions, func(action Action) bool {
 		return action.ID == ActionPublishPR || action.ID == ActionReview
-	}) || !strings.Contains(strings.Join(mergedReply.Context, "\n"), "new engineering task") {
+	}) || len(mergedReply.Context) != 0 ||
+		!slices.ContainsFunc(mergedReply.Actions, func(action Action) bool {
+			return action.ID == ActionChanges
+		}) {
 		t.Fatalf("merged task follow-up delivery = %+v", mergedReply)
 	}
 	for _, state := range []struct {
@@ -611,7 +633,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	)
 	if !slices.ContainsFunc(delivery.Actions, func(action Action) bool {
 		return action.ID == ActionPublishPR && action.Label == "Update PR"
-	}) || strings.Contains(strings.Join(delivery.Context, "\n"), "create a draft PR") {
+	}) || len(delivery.Context) != 0 {
 		t.Fatalf("stale task delivery offered a new PR: %+v", delivery)
 	}
 	for _, progress := range []struct {
@@ -788,7 +810,12 @@ func TestPublicationGateRecommendationIsAdvisory(t *testing.T) {
 		PRNumber: 42,
 		PRURL:    "https://github.example/owner/repository/pull/42",
 	}, false))
-	if message.Header != "PR ready" ||
+	// Superseded: the header was "PR ready" over a section that said the PR was
+	// ready. A receipt states its one fact once, in the section, and keeps no
+	// header — the same rule the memory and preference receipts already follow.
+	if message.Header != "" ||
+		!strings.Contains(strings.Join(message.Sections, "\n"), "Draft PR #42") ||
+		message.Stripe != StripeDone ||
 		!strings.Contains(strings.Join(message.Context, "\n"), "add `gate:`") ||
 		!slices.ContainsFunc(message.Actions, func(action Action) bool {
 			return action.ID == ActionCheckDelivery && action.Label == "Check delivery"
@@ -803,7 +830,8 @@ func TestIncompleteValidationWarningKeepsDraftPublicationActionable(t *testing.T
 		PRURL:    "https://github.example/owner/repository/pull/43",
 	}, false))
 	context := strings.Join(message.Context, "\n")
-	if message.Header != "PR ready" ||
+	if message.Header != "" ||
+		!strings.Contains(strings.Join(message.Sections, "\n"), "Draft PR #43") ||
 		!strings.Contains(context, "Validation warning") ||
 		!strings.Contains(context, "GitHub checks") ||
 		!slices.ContainsFunc(message.Actions, func(action Action) bool {
@@ -815,10 +843,20 @@ func TestIncompleteValidationWarningKeepsDraftPublicationActionable(t *testing.T
 
 func TestTurnFailureAndManualHandoffPreserveTheNextStep(t *testing.T) {
 	failure := TurnFailureMessage("failed", "MCP request timed out.")
-	if failure.Header != "Investigation could not finish" ||
+	// Superseded: what to do next moved out of the section that says what
+	// survived and into the context line, so the three slots every failure card
+	// now has — what stopped, what survived, what to do — are three separate
+	// things a reader can find rather than two sentences sharing a paragraph.
+	if failure.Header != "🛑 Investigation could not finish" ||
+		failure.Stripe != StripeFailed ||
 		!strings.Contains(strings.Join(failure.Sections, "\n"), "preserved") ||
-		!strings.Contains(strings.Join(failure.Sections, "\n"), "continue") {
+		!strings.Contains(strings.Join(failure.Context, "\n"), "continue") {
 		t.Fatalf("failure message = %+v", failure)
+	}
+	// Cancelling is not a failure. It is grey, and it says who did it.
+	cancelled := TurnFailureMessage("cancelled", "operator stopped the turn")
+	if cancelled.Stripe != StripeIdle || cancelled.Header != "⏸ Stopped — you asked me to." {
+		t.Fatalf("cancelled turn = %+v", cancelled)
 	}
 	handoff := ManualHandoff("C123INCIDENT")
 	if handoff.Header != "Incident room ready" ||
@@ -927,11 +965,24 @@ func TestEmisarApprovalCardLinksToAuthoritativeConsole(t *testing.T) {
 			ExpiresAt:   time.Date(2026, 7, 28, 6, 30, 0, 0, time.UTC),
 		},
 	)
-	if message.Header != "Approval required in Emisar" ||
-		!strings.Contains(strings.Join(message.Sections, "\n"), "paused `nomad.alloc_restart` before it ran") ||
-		!strings.Contains(strings.Join(message.Sections, "\n"), "2026-07-28 06:30 UTC") ||
+	// Superseded: the header was "Approval required in Emisar" — a category —
+	// and the action id was repeated in a section below it. The header names
+	// the action now, which is safe because an action id is a typed identifier
+	// Emisar assigned rather than model prose, and the section it displaced
+	// stated the expiry in UTC. The expiry moved to a date token in context so
+	// it renders in the reader's own timezone; see the token assertion below.
+	if message.Header != "✋ Approval needed: nomad.alloc_restart" ||
+		message.Stripe != StripeNeedsYou ||
+		!strings.Contains(strings.Join(message.Sections, "\n"), "Emisar paused this before anything ran") ||
+		!strings.Contains(strings.Join(message.Context, "\n"), "2026-07-28 06:30 UTC") ||
 		!strings.Contains(strings.Join(message.Context, "\n"), "Approval happens only in Emisar") {
 		t.Fatalf("approval card copy = %+v", message)
+	}
+	// The decorator adds one section. The reply it decorates keeps its own —
+	// the agent's account of why it wants this is the one sentence on the card
+	// this package could not have written.
+	if !strings.Contains(message.Markdown, "Emisar paused the requested restart for policy approval") {
+		t.Fatalf("approval card clobbered the model reply: %+v", message)
 	}
 	if len(message.Fields) != 0 {
 		t.Fatalf("approval metadata must use a full-width layout: %+v", message.Fields)
@@ -965,9 +1016,22 @@ func TestEmisarApprovalCardLinksToAuthoritativeConsole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal approval Block Kit: %v", err)
 	}
-	if strings.Contains(strings.Join(renderedMessage.Sections, "\n"), "**") ||
-		strings.Contains(string(rendered), "<!date^") {
+	// Superseded on the date token: this used to assert no `<!date^` survived
+	// rendering, which was true only because no card used slackDate yet. The
+	// sanitizer preserves exactly the shape slackDate emits and neuters every
+	// other bang form, and Slack resolves it client-side — so the token is now
+	// the correct thing to find here, and its absence would mean the approval
+	// expiry had gone back to asking its reader to convert from UTC.
+	if strings.Contains(strings.Join(renderedMessage.Sections, "\n"), "**") {
 		t.Fatalf("approval Block Kit contains incompatible Slack markup: %s", rendered)
+	}
+	// Asserted on the sanitized context rather than the marshalled blocks:
+	// encoding/json escapes the token's angle bracket to \u003c, so a substring
+	// search over the payload would answer no to a token that is present and
+	// correct.
+	if !strings.Contains(strings.Join(renderedMessage.Context, "\n"), "<!date^") ||
+		!strings.Contains(string(rendered), "date_short_pretty") {
+		t.Fatalf("approval Block Kit lost the client-local expiry: %s", rendered)
 	}
 }
 
@@ -985,9 +1049,12 @@ func TestEmisarApprovalCardSupportsCurrentConversationWithoutIncident(t *testing
 			ExpiresAt:   time.Date(2099, 8, 1, 0, 0, 0, 0, time.UTC),
 		},
 	)
-	sections := strings.Join(message.Sections, "\n")
-	if !strings.Contains(sections, "update this card automatically") ||
-		strings.Contains(sections, "pinned card") || len(message.Actions) != 1 ||
+	// Superseded: "I'll watch this request" was a section between the reply and
+	// the button. It is a promise about Responder rather than a fact about the
+	// decision, so it is one context line now.
+	content := cardText(message)
+	if !strings.Contains(strings.Join(message.Context, "\n"), "update this card automatically") ||
+		strings.Contains(content, "pinned card") || len(message.Actions) != 1 ||
 		message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_shared" {
 		t.Fatalf("shared approval card = %+v", message)
 	}
@@ -1000,14 +1067,16 @@ func TestEmisarApprovalStateMessagesExplainProgressAndCompletion(t *testing.T) {
 		RunURL: "https://emisar.dev/app/acme/runs/run_state",
 	}
 	running := EmisarApprovalStateMessage(approval, false)
-	if running.Header != "Emisar is running the approved action" ||
+	// Superseded: the header gained its glyph, because colour never travels
+	// alone and a notification strips the stripe.
+	if running.Header != "⚙️ Emisar is running the approved action" ||
 		!strings.Contains(strings.Join(running.Sections, "\n"), "keep using Slack") ||
 		len(running.Actions) != 1 || running.Actions[0].Label != "Open run in Emisar" {
 		t.Fatalf("running approval state = %+v", running)
 	}
 	approval.Status = "success"
 	completed := EmisarApprovalStateMessage(approval, true)
-	if completed.Header != "Emisar action completed" ||
+	if completed.Header != "✅ Emisar action completed" ||
 		!strings.Contains(strings.Join(completed.Sections, "\n"), "concise follow-up") ||
 		!strings.Contains(strings.Join(completed.Context, "\n"), "authoritative") {
 		t.Fatalf("completed approval state = %+v", completed)
@@ -1125,8 +1194,12 @@ func TestAgentReportFailureSpeaksToTheOperatorNotAboutTheParser(t *testing.T) {
 
 func TestTriageFailureMessageDoesNotAcceptOrExposeRawErrors(t *testing.T) {
 	message := TriageFailureMessage()
-	if !strings.Contains(message.Text, "couldn't finish this request") ||
-		!strings.Contains(strings.Join(message.Sections, " "), "Reply in this thread") {
+	// Superseded: the fallback led with "I couldn't finish this request", and
+	// what to do next was a section. The fallback now leads with the header and
+	// what stopped — the two things a notification has room for — and the next
+	// step is the context line every failure card carries it in.
+	if !strings.Contains(message.Text, "Request needs a retry") ||
+		!strings.Contains(strings.Join(message.Context, " "), "Reply in this thread") {
 		t.Fatalf("terminal triage failure = %+v", message)
 	}
 }
@@ -1321,8 +1394,11 @@ func TestScheduleOfferMakesFutureCommitmentConditional(t *testing.T) {
 	}
 
 	unavailable := ScheduleOfferUnavailable(message)
-	if len(unavailable.Actions) != 0 ||
-		!strings.Contains(unavailable.Text, "nothing was scheduled") {
+	// cardActions rather than Actions: the proposal it is replacing carries its
+	// confirmation on a row now, so clearing only the bottom pile would have
+	// deleted the sentence and left the button that agreed to it.
+	if len(cardActions(unavailable)) != 0 || unavailable.Stripe != StripeIdle ||
+		!strings.Contains(unavailable.Text, "Nothing was scheduled") {
 		t.Fatalf("invalid schedule offer = %+v", unavailable)
 	}
 }
@@ -1421,7 +1497,11 @@ func TestFailedEngineeringReviewOffersSameTaskRecovery(t *testing.T) {
 		"*Readiness checks*\n• Repository gate: failed",
 		false,
 	)
-	if message.Header != "Not ready for review" || len(message.Actions) != 0 {
+	// Superseded: the header gained its glyph and the card gained its stripe.
+	// Salmon rather than red — a readiness check that says no has not failed,
+	// it has answered, and the change it is about is intact behind it.
+	if message.Header != "✋ Not ready for review" || message.Stripe != StripeNeedsYou ||
+		len(message.Actions) != 0 {
 		t.Fatalf("failed review recovery = %+v", message)
 	}
 	if len(message.Context) != 1 ||

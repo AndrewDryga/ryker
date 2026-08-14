@@ -403,11 +403,16 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			}
 			if test.wantApproval {
 				message := slack.posts[0].message
-				if message.Header != "Approval required in Emisar" ||
+				// Superseded: the header named the console, not the action, and
+				// the promise to watch the request was a section between the
+				// reply and the button. The header names the action id — a typed
+				// identifier Emisar assigned — and the promise is a context line.
+				if message.Header != "✋ Approval needed: bunny.pull_zone.update" ||
+					message.Stripe != slackui.StripeNeedsYou ||
 					len(message.Actions) != 1 ||
 					message.Actions[0].ID != slackui.ActionOpenApproval ||
 					message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_watch_1" ||
-					!strings.Contains(strings.Join(message.Sections, "\n"), "update this card automatically") ||
+					!strings.Contains(strings.Join(message.Context, "\n"), "update this card automatically") ||
 					strings.Contains(strings.Join(message.Sections, "\n"), "pinned card") {
 					t.Fatalf("shared conversation approval card = %+v", message)
 				}

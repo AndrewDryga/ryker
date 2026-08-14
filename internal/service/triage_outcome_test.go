@@ -54,8 +54,14 @@ func TestTerminalHumanTriageFailurePostsOneSanitizedNotice(t *testing.T) {
 	if len(slack.posts) != 1 || slack.posts[0].thread != input.MessageTS {
 		t.Fatalf("terminal failure notice = %+v", slack.posts)
 	}
+	// Superseded: the notice used to open "I couldn't finish this request".
+	// Every failure card now leads with what stopped, in the header and again
+	// as the first section, so the summary this asserts is the same fact under
+	// its own name.
 	content := slack.posts[0].message.Text + strings.Join(slack.posts[0].message.Sections, " ")
-	if strings.Contains(content, raw) || !strings.Contains(content, "couldn't finish this request") {
+	if strings.Contains(content, raw) ||
+		!strings.Contains(content, "Request needs a retry") ||
+		!strings.Contains(content, "stopped retrying this request") {
 		t.Fatalf("terminal notice leaked or omitted the useful summary: %q", content)
 	}
 	stored, err := st.GetAgentRun(ctx, run.ID)
@@ -128,8 +134,16 @@ func TestApprovalContinuationFailurePostsVerificationOnlyNotice(t *testing.T) {
 	if len(slack.posts) != 1 || slack.posts[0].thread != input.ThreadTS {
 		t.Fatalf("approval verification notice = %+v", slack.posts)
 	}
-	content := slack.posts[0].message.Text + strings.Join(slack.posts[0].message.Sections, " ")
-	for _, required := range []string{"couldn't verify or report", "before repeating any action"} {
+	// Superseded: "couldn't verify or report" was the fallback line. The three
+	// slots split that sentence — what stopped is the verification, what
+	// survived is Emisar's record — and "before repeating any action" moved to
+	// the context line every failure card carries its next step in.
+	content := slack.posts[0].message.Text +
+		strings.Join(slack.posts[0].message.Sections, " ") +
+		strings.Join(slack.posts[0].message.Context, " ")
+	for _, required := range []string{
+		"stopped verifying its result", "before repeating any action",
+	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("approval verification notice lacks %q: %q", required, content)
 		}

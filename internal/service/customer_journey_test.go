@@ -189,7 +189,10 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGat
 		slackClient.updates[0].message.Text + "\n" +
 		strings.Join(slackClient.updates[0].message.Sections, "\n") + "\n" +
 		strings.Join(slackClient.updates[0].message.Context, "\n")
-	if !strings.Contains(rendered, "PR ready") ||
+	// Superseded: the publication receipt dropped its "PR ready" header, which
+	// restated the sentence directly beneath it. The folded task-card update
+	// carries that sentence instead.
+	if !strings.Contains(rendered, "Draft PR #") ||
 		!strings.Contains(rendered, publisherClient.result.PRURL) ||
 		!strings.Contains(rendered, "Validation warning") ||
 		!strings.Contains(rendered, "GitHub checks") ||
