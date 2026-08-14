@@ -2,6 +2,7 @@ package slackui
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -69,6 +70,77 @@ func TestBaseActionIDRecoversTheRoute(t *testing.T) {
 		if got := BaseActionID(testCase.in); got != testCase.want {
 			t.Errorf("BaseActionID(%q) = %q, want %q", testCase.in, got, testCase.want)
 		}
+	}
+}
+
+// An overflow option value is a routing key, and the only one there is: Slack
+// reports the menu's shared action_id and the chosen value, and nothing that
+// says which option object produced it.
+func TestOverflowOptionValueRoundTrips(t *testing.T) {
+	for _, testCase := range []struct{ id, value string }{
+		{ActionUpdate, "inc_01ce33abd2000000"},
+		// A value that carries the separator itself still splits at the
+		// boundary the encoder wrote, because the id side cannot contain one.
+		{ActionPublishPR, PublicationActionValue("inc_01ce33abd2000000", 3)},
+		{ActionToggleSchedule, `{"id":"schedule_1","enabled":false}`},
+		{ActionHelp, ""},
+	} {
+		encoded := OverflowOptionValue(Action{ID: testCase.id, Value: testCase.value})
+		id, value, ok := DecodeOverflowOptionValue(encoded)
+		if !ok || id != testCase.id || value != testCase.value {
+			t.Errorf("round trip of %q/%q = %q/%q/%t",
+				testCase.id, testCase.value, id, value, ok)
+		}
+	}
+	// Nothing this renderer wrote. There is no id to recover and no honest
+	// guess to make, so it reports failure and the socket drops the click.
+	for _, malformed := range []string{
+		"", "inc_01ce33abd2000000", "~opt~inc_01ce33abd2000000",
+		"responder_update~opt", "responder-update",
+	} {
+		if id, value, ok := DecodeOverflowOptionValue(malformed); ok {
+			t.Errorf("DecodeOverflowOptionValue(%q) = %q/%q/true, want a refusal",
+				malformed, id, value)
+		}
+	}
+}
+
+// Slack rejects an option value over 150 characters and rejects the message
+// carrying it. The option is dropped rather than cut: a truncated routing key
+// still decodes to a real action, and would fire it at a target that has had
+// its tail removed — the right control against the wrong incident.
+func TestOversizedOverflowOptionIsDroppedRatherThanTruncated(t *testing.T) {
+	fits := Action{ID: ActionUpdate, Label: "Ask for an update", Value: "inc_1"}
+	oversized := Action{
+		ID:    ActionChangesNext,
+		Label: "Next page",
+		Value: strings.Repeat("c", overflowOptionValueLimit),
+	}
+	message := Message{Text: "receipt", Overflow: []Action{fits, oversized}}
+
+	options := renderedOverflowOptions(t, message)
+	if len(options) != 1 {
+		t.Fatalf("overflow rendered %d options, want the oversized one dropped: %v",
+			len(options), options)
+	}
+	if options[0] != OverflowOptionValue(fits) {
+		t.Fatalf("surviving option = %q", options[0])
+	}
+	// Exactly at the limit is inside it, and the ⋯ still renders when every
+	// option is dropped only because there is nothing left to render.
+	atLimit := oversized
+	atLimit.Value = strings.Repeat(
+		"c", overflowOptionValueLimit-len(ActionChangesNext)-len(overflowOptionSeparator),
+	)
+	if got := renderedOverflowOptions(t, Message{
+		Text: "receipt", Overflow: []Action{atLimit},
+	}); len(got) != 1 || len(got[0]) != overflowOptionValueLimit {
+		t.Fatalf("option at exactly the limit = %v", got)
+	}
+	if got := renderedOverflowOptions(t, Message{
+		Text: "receipt", Overflow: []Action{oversized},
+	}); len(got) != 0 {
+		t.Fatalf("menu with only an oversized option rendered %v", got)
 	}
 }
 

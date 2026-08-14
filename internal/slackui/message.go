@@ -101,18 +101,19 @@ const (
 	ActionCommandNextIncidents     = "responder_command_incidents_next"
 
 	// ActionOverflow is the id every overflow menu carries. One id for every
-	// menu on purpose: which item was chosen travels in the option value, the
-	// same way a repeated button's row travels in its value, so routing needs
-	// one entry rather than one per card.
+	// menu on purpose: Slack reports the menu, never the option object, so both
+	// halves of the route — which item was chosen and what it acts on — travel
+	// in the option value, encoded by OverflowOptionValue. Routing therefore
+	// needs one entry rather than one per card, and the socket hands the
+	// decoded halves to the same path the equivalent button takes.
 	ActionOverflow = "responder_overflow"
 
 	// ActionFullRequest posts the whole ask as a thread reply.
 	//
 	// The card shows a two-line lede because the request is reference material
 	// and the card is an instrument — but the full text has to stay reachable,
-	// or the card would be hiding the thing the work is about. Routing this to
-	// FullRequestMessage is the next phase's edit; the id and the constructor
-	// ship together so the button is never rendered without a destination.
+	// or the card would be hiding the thing the work is about. Read-only, and
+	// gated like View diff.
 	ActionFullRequest = "responder_full_request"
 )
 
@@ -533,10 +534,10 @@ func buttonElements(actions []Action, occurrences map[string]int) []slack.BlockE
 // overflowElement renders the ⋯ menu.
 //
 // Slack sends the menu's action_id and the chosen option's value, and nothing
-// about which option object it came from, so the value carries the target the
-// same way a repeated button's value does. Each option's own Action.ID is
-// therefore unused; it stays on the struct because callers build overflow
-// entries from the same Action they would have made a button from.
+// about which option object it came from. One action_id is shared by every menu
+// on the surface, so the option value carries both halves of the route — the
+// action and its target — encoded by OverflowOptionValue and split apart again
+// by the socket before the choice enters the ordinary button path.
 //
 // There is no per-option confirmation in Block Kit. The element takes a single
 // confirm dialog, which would then guard every option including the harmless
@@ -546,7 +547,10 @@ func buttonElements(actions []Action, occurrences map[string]int) []slack.BlockE
 func overflowElement(actions []Action, occurrences map[string]int) *slack.OverflowBlockElement {
 	options := make([]*slack.OptionBlockObject, 0, len(actions))
 	for _, action := range actions {
-		if action.Label == "" {
+		// A menu item with no label cannot be read and one with no action id
+		// cannot be routed. Both are dropped here rather than rendered as an
+		// entry that does nothing when it is picked.
+		if action.Label == "" || action.ID == "" {
 			continue
 		}
 		// Slack accepts at most five options and rejects the message over
@@ -556,8 +560,17 @@ func overflowElement(actions []Action, occurrences map[string]int) *slack.Overfl
 		if len(options) == 5 {
 			break
 		}
+		// Over the limit the option is dropped, not truncated. A truncated
+		// value is still a routing key — it would decode to a real action id
+		// with a corrupted target, and fire that action against the wrong
+		// incident or a cursor that no longer parses. A missing menu entry is
+		// visible and harmless; a mis-aimed one is neither.
+		value := OverflowOptionValue(action)
+		if len(value) > overflowOptionValueLimit {
+			continue
+		}
 		options = append(options, slack.NewOptionBlockObject(
-			action.Value,
+			value,
 			slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(action.Label, 75), false, false),
 			nil,
 		))
@@ -1748,6 +1761,80 @@ func BaseActionID(actionID string) string {
 		}
 	}
 	return actionID
+}
+
+// An overflow option has to carry two things Slack will not carry for it: which
+// action was chosen, and what that action acts on. Slack sends the menu's
+// action_id — one shared id for every ⋯ on the surface — and the chosen option's
+// value, and nothing that identifies the option object, so the option value is
+// the only place the target action can travel.
+//
+// The separator is a character no action id contains: every id is
+// `responder_`-prefixed snake_case, so a tilde cannot appear on the left of the
+// split. The decode therefore takes the FIRST occurrence rather than the last,
+// which keeps a value that contains the separator itself — a JSON or base64
+// payload — from stealing the boundary.
+const overflowOptionSeparator = "~opt~"
+
+// Slack rejects an option whose value exceeds 150 characters, and rejects the
+// whole message with it.
+//
+// https://docs.slack.dev/reference/block-kit/composition-objects/option-object
+// — "Maximum length for this field is 150 characters." (The limit was 75 in
+// older documentation; slack-go states neither and validates neither, so the
+// bound is ours to hold.) The worst case in a menu today is Pause schedule:
+// `responder_toggle_schedule` (25) + separator (5) + the toggle's JSON value
+// `{"id":"schedule_<32 hex>","enabled":false}` (66) = 96. A changes-page cursor
+// would be about 197 and is why the guard is not theoretical.
+const overflowOptionValueLimit = 150
+
+// OverflowOptionValue encodes an overflow choice as the action it fires plus
+// that action's own value, so routing can tell "Ask for an update" from "Close
+// task" after Slack has thrown the option identity away.
+func OverflowOptionValue(action Action) string {
+	return action.ID + overflowOptionSeparator + action.Value
+}
+
+// DecodeOverflowOptionValue splits an encoded overflow choice back into the
+// action id and the value a button carrying that action would have sent.
+//
+// A value that was not produced by OverflowOptionValue reports false rather
+// than guessing. There is nothing to fall back to: the id is the routing key,
+// and an option value without one is not an under-specified control, it is a
+// control with no destination.
+func DecodeOverflowOptionValue(value string) (string, string, bool) {
+	index := strings.Index(value, overflowOptionSeparator)
+	if index <= 0 {
+		return "", "", false
+	}
+	return value[:index], value[index+len(overflowOptionSeparator):], true
+}
+
+// ControlSelection reduces one block action to the control it fires.
+//
+// A button puts its target in `value`. A menu — overflow or select — leaves
+// `value` empty and puts the choice in `selected_option.value`, which is why
+// every ⋯ on every card was inert: the socket read the field Slack had not
+// filled in. An overflow additionally shares one action_id across every menu on
+// the surface, so the option value carries the action too and is split apart
+// here.
+//
+// The caller then holds exactly what an equivalent button click would have
+// produced, which is the point of resolving it at the edge: the choice enters
+// the same action table, operator gate, staleness check and control switch,
+// with no second copy of any of them to keep in step.
+//
+// It reports false for an overflow choice that does not decode — a payload this
+// renderer did not write, with no action in it to route.
+func ControlSelection(action *slack.BlockAction) (string, string, bool) {
+	actionID, value := action.ActionID, action.Value
+	if selected := action.SelectedOption.Value; selected != "" {
+		value = selected
+	}
+	if BaseActionID(actionID) != ActionOverflow {
+		return actionID, value, true
+	}
+	return DecodeOverflowOptionValue(value)
 }
 
 const publicationActionValueSeparator = "~publication-"

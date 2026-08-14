@@ -634,6 +634,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			input.ActionID != slackui.ActionRepairReview &&
 			input.ActionID != slackui.ActionViewPR &&
 			input.ActionID != slackui.ActionCheckDelivery &&
+			input.ActionID != slackui.ActionFullRequest &&
 			input.ActionID != slackui.ActionDiscardWork {
 			return s.finishSlashInput(
 				ctx,
@@ -1157,6 +1158,17 @@ func (s *Service) handleControl(
 		slackui.ActionChangesNext,
 		slackui.ActionChangesRefresh:
 		return s.showChanges(ctx, input, incident)
+	// The card quotes two lines of the ask because it is an instrument; the
+	// rest of it lives one click away, in the thread beside the card, the way
+	// Help and status answer. Read-only — it quotes what was recorded and
+	// touches neither the fork nor the task — so it is gated like View diff.
+	case slackui.ActionFullRequest:
+		signals, err := s.store.ListSignals(ctx, incident.ID)
+		if err != nil {
+			return err
+		}
+		return s.enqueue(ctx, "out_full_request_"+input.ID, incident, "notice",
+			threadTS, slackui.FullRequestMessage(incident, signals))
 	case slackui.ActionReview:
 		return s.reviewFix(ctx, input, incident)
 	case slackui.ActionRepairReview:

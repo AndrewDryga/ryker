@@ -3,6 +3,9 @@ package slackui
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 // routedActionIDs is every action id internal/service will actually answer.
@@ -17,18 +20,15 @@ import (
 // not be able to satisfy this by adding a name to a list. Someone re-reads the
 // routers when this list changes, which is the whole value of it.
 //
-// Two ids are deliberately absent because nothing routes them today:
-//
-//   - ActionFullRequest — rendered on the task card since Phase 1, its handler
-//     scheduled with FullRequestMessage. Known debt, not this phase's.
-//   - ActionOverflow — the id every ⋯ menu carries. The renderer emits one
-//     shared id and drops the per-option id, no handler answers it, and the
-//     socket reads `action.Value` where Slack puts an overflow choice in
-//     `selected_option.value`. Every option in every overflow menu is therefore
-//     unreachable today. That is why the publication receipt keeps Check
-//     delivery as a button instead of moving it into the menu the design puts
-//     it in — moving a working control into that menu retires it.
+// ActionOverflow is routed at admission rather than by a handler:
+// slackControlSelection reads the chosen option out of `selected_option.value`,
+// splits the encoded action back off it, and hands the ordinary control path an
+// input indistinguishable from the equivalent button click. It is listed here
+// because a menu that reaches nothing is the same failure as a button that
+// does — and it did reach nothing, for every option on every card, until the
+// option value started carrying its own action id.
 var routedActionIDs = map[string]bool{
+	ActionOverflow: true, ActionFullRequest: true,
 	ActionUpdate: true, ActionChanges: true, ActionChangesPrevious: true,
 	ActionChangesNext: true, ActionChangesRefresh: true, ActionReview: true,
 	ActionRepairReview: true, ActionPublishPR: true, ActionViewPR: true,
@@ -58,6 +58,122 @@ var routedActionIDs = map[string]bool{
 	ActionSetupIncludeMe: true, ActionCommandStatus: true,
 	ActionCommandOpenIncidents: true, ActionCommandAllIncidents: true,
 	ActionCommandPreviousIncidents: true, ActionCommandNextIncidents: true,
+}
+
+// Every option in every ⋯ menu production can render reaches a handler.
+//
+// The allowlist above is checked against Action structs, which is one step
+// short of the truth: the struct's ID is not what Slack sends back. Slack sends
+// the shared menu action_id and the option's value, so an option is only
+// reachable if the value it actually shipped decodes to a routed id. That gap
+// is precisely where seven live controls went missing — the renderer built the
+// options from Action.Value alone and discarded each option's own ID, and the
+// audit could not see it because the audit read the struct.
+//
+// So this reads the rendered payload: every menu every production constructor
+// emits, decoded the way the socket decodes it.
+func TestEveryOverflowOptionDecodesToARoutedAction(t *testing.T) {
+	// An alert-routed incident, not an engineering task: a different constructor
+	// with a different menu, and the ⋯ the publication receipt was kept off.
+	incident := taskFixture()
+	incident.WorkKind = ""
+	incident.WorkScope = ""
+	incident.Route = "grafana"
+	incident.SourceIncidentID = "alert-1"
+	if incident.IsEngineeringTask() {
+		t.Fatal("the incident fixture still renders as an engineering task")
+	}
+	closedIncident := incident
+	closedIncident.Status = core.IncidentClosed
+	closedIncident.Workflow = core.WorkflowClosed
+	published := openPublication()
+
+	schedule := core.ScheduledTask{
+		ID: "schedule_" + strings.Repeat("a", 32), ChannelID: "COPS", ThreadTS: "100.1",
+		Repository: "repo", Title: "Morning health report",
+		Prompt:     "Check production health and summarize material changes.",
+		Recurrence: "daily", LocalTime: "09:00", Timezone: "UTC",
+		NextRunAt: time.Now().UTC().Add(time.Hour), Enabled: true,
+	}
+	paused := schedule
+	paused.Enabled = false
+	firedOneShot := schedule
+	firedOneShot.NextRunAt = time.Time{}
+
+	cards := append([]namedCard{}, everyTaskCardState(t)...)
+	for _, incidentCase := range []struct {
+		name        string
+		incident    core.Incident
+		publication core.Publication
+	}{
+		{"incident published", incident, published},
+		{"incident closed with PR", closedIncident, published},
+		{"incident plain", incident, core.Publication{}},
+	} {
+		cards = append(cards, namedCard{
+			name: incidentCase.name,
+			message: IncidentCardWithPublication(
+				incidentCase.incident, "Tenant Infrastructure", nil, false, true,
+				incidentCase.publication, core.PublicationFollowup{},
+				core.PublicationLifecycleEvent{},
+			),
+		})
+	}
+	cards = append(cards,
+		namedCard{
+			name:    "schedule directory",
+			message: ScheduleDirectoryMessage([]core.ScheduledTask{schedule, paused, firedOneShot}),
+		},
+	)
+
+	routed := map[string]bool{}
+	for _, card := range cards {
+		options := renderedOverflowOptions(t, card.message)
+		// Every entry the constructor put in a menu has to have shipped. A
+		// guard that silently swallowed the whole menu would otherwise read as
+		// a pass here, which is the failure this test exists to catch.
+		wanted := card.message.Overflow
+		for _, row := range card.message.Rows {
+			wanted = append(wanted, row.Overflow...)
+		}
+		if len(options) != len(wanted) {
+			t.Fatalf("%s: rendered %d overflow options for %d menu entries",
+				card.name, len(options), len(wanted))
+		}
+		for index, value := range options {
+			actionID, target, ok := DecodeOverflowOptionValue(value)
+			if !ok {
+				t.Fatalf("%s: overflow option %q does not decode", card.name, value)
+			}
+			if !routedActionIDs[actionID] {
+				t.Errorf("%s: ⋯ offers %q, which no handler answers", card.name, actionID)
+			}
+			// The decoded halves are what a button carrying the same action
+			// would have sent, or the re-entry into the button path routes a
+			// real action at the wrong thing.
+			if actionID != wanted[index].ID || target != wanted[index].Value {
+				t.Errorf("%s: option %q decodes to %q/%q, want %q/%q",
+					card.name, value, actionID, target,
+					wanted[index].ID, wanted[index].Value)
+			}
+			if len(value) > overflowOptionValueLimit {
+				t.Errorf("%s: option value is %d characters, over Slack's %d",
+					card.name, len(value), overflowOptionValueLimit)
+			}
+			routed[actionID] = true
+		}
+	}
+
+	// The controls Phases 1 and 4 moved into menus, named rather than counted:
+	// a refactor that empties a menu should fail here rather than pass quietly.
+	for _, want := range []string{
+		ActionUpdate, ActionReview, ActionCheckDelivery, ActionHelp,
+		ActionFullRequest, ActionToggleSchedule, ActionEditSchedule,
+	} {
+		if !routed[want] {
+			t.Errorf("no production ⋯ menu offers %q; the audit covers nothing", want)
+		}
+	}
 }
 
 // Every failure answers the same three questions in the same order.

@@ -675,7 +675,14 @@ func containsAction(actions []Action, id string) bool {
 // The card quotes the first two lines; this is where the rest of it lives, so
 // the request stays reachable without ever being the tallest block on an
 // instrument that has to stay readable at a glance.
-func FullRequestMessage(task core.Incident, signal core.Signal) Message {
+//
+// It takes the task's signals rather than one chosen signal so that it and the
+// card select the same one. The card quotes primarySignal; a caller that picked
+// its own would be able to quote two lines of one request and the whole of a
+// different one, under a button that says it is opening the rest of the text
+// above it.
+func FullRequestMessage(task core.Incident, signals []core.Signal) Message {
+	signal, _ := primarySignal(signals)
 	body := strings.TrimSpace(firstNonemptyUI(signal.Summary, signal.Title))
 	if body == "" {
 		body = "The original request was not recorded with this task."

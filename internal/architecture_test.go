@@ -256,7 +256,31 @@ var lineBudget = map[string]int{
 	// only other place they could live is the message constructor, which would
 	// put a staleness decision inside a renderer to move six lines across a
 	// package boundary.
-	"service": 21904,
+	//
+	// Raised to 21950 on 2026-08-13 for the overflow menus, which rendered and
+	// could not fire. Slack reports a menu choice in `selected_option.value`
+	// and this package read `value`, so every ⋯ option on every card arrived
+	// carrying nothing — seven live controls, including the only route to the
+	// full text of a request.
+	//
+	// Fifteen lines. The decision did leave: reading a block action down to the
+	// control it fires, and the option-value codec that makes an overflow
+	// choice routable at all, are in slackui beside the renderer that writes
+	// them — seventeen lines, and the only place that knows the encoding. What
+	// stayed is the wiring that cannot: a store read and its error path, the
+	// enqueue that answers in the card's thread, one entry on the closed-
+	// incident read-only list, and the socket's drop-and-acknowledge for a
+	// selection with no action in it. Moving those would put a Slack client, a
+	// store handle and a logger behind a package boundary to relocate an error
+	// check.
+	//
+	// The other thirty-one are margin, restored deliberately. This entry has
+	// been re-armed at exactly its own count three times since 2026-08-13, and
+	// the note four paragraphs up calls that a tripwire rather than a ratchet:
+	// the next change fails on this one's merits, and the pressure to bump it
+	// is highest exactly when the change is justified. The next extraction here
+	// is still result-operation application, named two entries up.
+	"service": 21950,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

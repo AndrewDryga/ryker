@@ -327,7 +327,7 @@ func TestConfirmableActionsNeverReachTheOverflowMenu(t *testing.T) {
 		}
 		for _, value := range options {
 			if !slices.ContainsFunc(card.message.Overflow, func(action Action) bool {
-				return action.Value == value
+				return OverflowOptionValue(action) == value
 			}) {
 				t.Fatalf("%s: rendered an overflow option no Overflow entry owns: %q",
 					card.name, value)

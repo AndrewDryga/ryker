@@ -613,6 +613,17 @@ func (s *Service) admitInteraction(ctx context.Context, event socketmode.Event) 
 		return
 	}
 	action := callback.ActionCallback.BlockActions[0]
+	// Acknowledged either way — the operator picked something and Slack retries
+	// an unanswered interaction — but dropped rather than admitted, because an
+	// input with no action id would travel the whole control lane to be refused
+	// at the end of it.
+	actionID, actionValue, routable := slackui.ControlSelection(action)
+	if !routable {
+		s.log.Warn("drop Slack menu selection that carries no action",
+			"envelope", event.Request.EnvelopeID, "action", action.ActionID)
+		_ = s.socket.Ack(*event.Request)
+		return
+	}
 	input := core.SlackInput{
 		EnvelopeID:  event.Request.EnvelopeID,
 		EventID:     "interaction:" + event.Request.EnvelopeID,
@@ -622,8 +633,8 @@ func (s *Service) admitInteraction(ctx context.Context, event socketmode.Event) 
 		ThreadTS:    core.FirstNonempty(callback.Container.ThreadTs, callback.Message.ThreadTimestamp),
 		MessageTS:   core.FirstNonempty(callback.Container.MessageTs, callback.Message.Timestamp),
 		UserID:      callback.User.ID,
-		ActionID:    action.ActionID,
-		ActionValue: action.Value,
+		ActionID:    actionID,
+		ActionValue: actionValue,
 		ReceivedAt:  s.now().UTC(),
 	}
 	if _, err := s.store.AdmitSlackInput(ctx, input); err != nil {

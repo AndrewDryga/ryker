@@ -345,17 +345,26 @@ func TestOverflowJoinsTheLastActionRow(t *testing.T) {
 	if len(overflow.Options) != 2 {
 		t.Fatalf("overflow holds %d options", len(overflow.Options))
 	}
-	if overflow.Options[0].Text.Text != "Ask for an update" ||
-		overflow.Options[0].Value != "update~task_1" {
+	// Every menu shares one action_id, so the option value is the only thing
+	// that distinguishes Ask for an update from How this works. It carries the
+	// action and its target, and both survive the round trip.
+	if overflow.Options[0].Text.Text != "Ask for an update" {
 		t.Errorf("first option = %+v", overflow.Options[0])
+	}
+	actionID, value, ok := DecodeOverflowOptionValue(overflow.Options[0].Value)
+	if !ok || actionID != ActionUpdate || value != "update~task_1" {
+		t.Errorf("first option value = %q -> %q/%q/%t",
+			overflow.Options[0].Value, actionID, value, ok)
 	}
 	// Slack rejects a label over 75 characters, and the routing target travels
 	// in the value, so the label is the only part that can be cut.
 	if length := len(overflow.Options[1].Text.Text); length > 75 {
 		t.Errorf("option label is %d characters, over Slack's 75", length)
 	}
-	if overflow.Options[1].Value != "help~task_1" {
-		t.Errorf("option value = %q; routing lost its target", overflow.Options[1].Value)
+	actionID, value, ok = DecodeOverflowOptionValue(overflow.Options[1].Value)
+	if !ok || actionID != ActionHelp || value != "help~task_1" {
+		t.Errorf("option value = %q; routing lost its target",
+			overflow.Options[1].Value)
 	}
 }
 
