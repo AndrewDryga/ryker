@@ -54,6 +54,11 @@ var (
 	ErrCapacity            = errors.New("incident capacity reached")
 	ErrMemberTaskCapacity  = errors.New("member engineering task capacity reached")
 	ErrMemberTaskRateLimit = errors.New("member engineering task creation rate reached")
+	// ErrEpisodeOperationConflict marks a deterministic kernel rejection: a
+	// result operation reused a durable id (goal, wakeup) with different
+	// semantics than the recorded one. Retrying the same result can never
+	// succeed, which is what distinguishes it from every transient error here.
+	ErrEpisodeOperationConflict = errors.New("episode operation conflicts with its recorded history")
 )
 
 type Store struct {

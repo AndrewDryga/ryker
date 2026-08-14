@@ -29,7 +29,17 @@ import (
 // answers over a blip, which is a worse trade than retrying a hopeless one.
 func unappliableOperation(err error) bool {
 	var parse *time.ParseError
-	return errors.Is(err, store.ErrNotFound) || errors.As(err, &parse)
+	// A semantic-conflict rejection is deterministic: the kernel refused an id
+	// reused with different semantics, and re-applying the identical result
+	// can only be refused the identical way. Before it joined this class, the
+	// refusal escaped to the poll loop, which retried that exact re-apply
+	// every fifteen seconds — one goal-id reuse held a tenant channel for 80
+	// minutes and one wakeup-id reuse held the emisar queue for eleven hours
+	// and 650 watchdog strikes, with the finished answer staged and undeliverable
+	// the whole time. The recorded operation keeps its original semantics;
+	// the reuse is dropped with a trace like any other unappliable operation.
+	return errors.Is(err, store.ErrNotFound) || errors.As(err, &parse) ||
+		errors.Is(err, store.ErrEpisodeOperationConflict)
 }
 
 // recordResultOperationEvents applies what a finished turn asked the host to

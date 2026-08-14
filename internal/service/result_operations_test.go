@@ -65,6 +65,77 @@ func TestDanglingGoalCloseDoesNotWithholdTheCompletionBesideIt(t *testing.T) {
 	)
 }
 
+// A reused durable id costs its operation, not the turn — and not the queue.
+//
+// The kernel refuses a goal or wakeup id reused with different semantics, and
+// that refusal is deterministic: re-applying the identical result can only be
+// refused the identical way. It used to escape this seam to the poll loop,
+// which re-read the same completed turn every fifteen seconds forever. One
+// wakeup-id reuse held the emisar deployment's queue for eleven hours and 650
+// watchdog strikes; one goal-id reuse held a tenant channel for 80 minutes —
+// both with a finished, staged answer that never reached Slack, behind runs
+// serialized on the wedged one. The recorded id keeps its original semantics;
+// the reuse drops with a trace, and the completion beside it still lands.
+func TestAReusedWakeupIdCostsItsOperationNotTheTurn(t *testing.T) {
+	ctx, st, svc, _, run := activityRunFixture(t)
+
+	if err := svc.recordResultOperationEvents(ctx, run.ID, []investigation.ResultOperation{{
+		ID: "wait-target-run", Type: "wait_external",
+		ExternalWait: &investigation.ExternalWaitOperation{
+			ID: "wakeup-1", Kind: "terraform_run",
+			PollAfter: time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
+			Deadline:  time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+		},
+	}}); err != nil {
+		t.Fatalf("recording the original wait = %v, want nil", err)
+	}
+
+	if err := svc.recordResultOperationEvents(ctx, run.ID, []investigation.ResultOperation{
+		{
+			ID: "wait-target-run-again", Type: "wait_external",
+			ExternalWait: &investigation.ExternalWaitOperation{
+				ID: "wakeup-1", Kind: "deployment",
+				PollAfter: time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
+				Deadline:  time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+			},
+		},
+		{
+			ID: "complete-the-episode", Type: "complete_episode",
+			Completion: &investigation.CompleteEpisode{
+				Message: "The run errored; diagnostics are in the thread.",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("a reused wakeup id failed the whole result = %v, want nil", err)
+	}
+
+	events, err := st.ListWorkEpisodeEvents(ctx, run.ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dropped, completed := false, false
+	for _, event := range events {
+		switch event.Kind {
+		case episodepkg.EventOperationDropped:
+			dropped = true
+		case episodepkg.EventCompletionSubmitted:
+			completed = true
+		}
+	}
+	if !completed {
+		t.Fatalf(
+			"the completion beside the reused wakeup id was never recorded; got %v",
+			episodeEventKinds(events),
+		)
+	}
+	if !dropped {
+		t.Fatalf(
+			"the reused wakeup id was dropped without a trace; got %v",
+			episodeEventKinds(events),
+		)
+	}
+}
+
 // A goal that was planned still closes. The tolerance above is for a reference
 // to nothing, not a licence to drop bookkeeping that has somewhere to land.
 func TestPlannedGoalStillClosesFromAResultOperation(t *testing.T) {

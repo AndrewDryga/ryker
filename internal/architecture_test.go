@@ -330,7 +330,14 @@ var lineBudget = map[string]int{
 	// 22030 rather than 21981. This entry was sitting at exactly its own count
 	// again — the fifth time — and the note at the top of this map calls that a
 	// tripwire rather than a ratchet.
-	"service": 22030,
+	//
+	// Raised to 22054 on 2026-08-14 for the day the prompt stopped being a
+	// heap: the episode-continuity block joins the triage suffix (a Slack
+	// follow-up now sees what its earlier episode proved), and the watch
+	// prompt's consolidated sections carry their own line shapes. Most of the
+	// day's prompt work was rewording inside existing lines; these are the
+	// lines that are genuinely new.
+	"service": 22054,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -433,7 +440,7 @@ var lineBudget = map[string]int{
 	// knowable where the delivery completes and the column is only readable
 	// where incidents are scanned, so neither half can live anywhere else.
 	//
-	// Raised to 11424 on 2026-08-14 for the one statement that releases an
+	// Raised to 11425 on 2026-08-14 for the one statement that releases an
 	// attempt's frozen context manifest when a requeue is about to rebuild its
 	// prompt. Without it context_manifests.submitted_prompt held the FIRST
 	// prompt of every corrected turn while agent_runs.result_json held the
@@ -444,7 +451,7 @@ var lineBudget = map[string]int{
 	// or a crash between the two leaves an attempt that will record a prompt
 	// it never sent. The extraction the notes above keep asking for is still
 	// what brings this number down.
-	"store":      11424,
+	"store":      11425,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

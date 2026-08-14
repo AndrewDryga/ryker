@@ -299,7 +299,7 @@ func (s *Store) CreateEpisodeGoal(ctx context.Context, goal core.EpisodeGoal) (c
 		if existing.EpisodeID != goal.EpisodeID || existing.Kind != goal.Kind ||
 			existing.RequestedOutcome != goal.RequestedOutcome ||
 			existing.CompletionContract != goal.CompletionContract {
-			return core.EpisodeGoal{}, fmt.Errorf("goal id %q was reused with different semantics", goal.ID)
+			return core.EpisodeGoal{}, fmt.Errorf("goal id %q was reused with different semantics: %w", goal.ID, ErrEpisodeOperationConflict)
 		}
 		if err := tx.Commit(); err != nil {
 			return core.EpisodeGoal{}, err
@@ -828,7 +828,7 @@ func (s *Store) CreateEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWake
 		}
 		if existing.EpisodeID != wakeup.EpisodeID || existing.Kind != wakeup.Kind ||
 			string(existing.EventMatcher) != string(wakeup.EventMatcher) {
-			return core.EpisodeWakeup{}, fmt.Errorf("wakeup id %q was reused with different semantics", wakeup.ID)
+			return core.EpisodeWakeup{}, fmt.Errorf("wakeup id %q was reused with different semantics: %w", wakeup.ID, ErrEpisodeOperationConflict)
 		}
 		if err := tx.Commit(); err != nil {
 			return core.EpisodeWakeup{}, err
