@@ -140,6 +140,7 @@ func (s *Sanitizer) Message(message Message) Message {
 			s.Text(message.Rows[index].Text), maxSlackSectionBytes,
 		)
 		message.Rows[index].Actions = s.actions(message.Rows[index].Actions)
+		message.Rows[index].Overflow = s.actions(message.Rows[index].Overflow)
 	}
 	message.Overflow = s.actions(message.Overflow)
 	message.Ledger = s.ledger(message.Ledger)

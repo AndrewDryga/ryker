@@ -38,12 +38,23 @@ func expiryPhrase(expiresLabel string) string {
 	return "Expires: " + expiresLabel
 }
 
-// expiryStamp is the same answer for a saved row rather than an offer.
+// expiryStamp is the same answer as a bare date, for the App Home rows that
+// still compose their own line around it.
 func expiryStamp(expires time.Time, layout string) string {
 	if core.IsPermanentExpiry(expires) {
 		return core.NeverExpires
 	}
 	return expires.UTC().Format(layout)
+}
+
+// expiryFact is the same answer for something already saved, in the reader's
+// own timezone: every absolute time these cards printed was UTC, and nobody
+// reading them is.
+func expiryFact(expires time.Time) string {
+	if core.IsPermanentExpiry(expires) {
+		return expiryTerm(core.NeverExpires)
+	}
+	return "expires " + slackDate(expires, "2006-01-02 15:04 UTC")
 }
 
 const permanentGuidanceCaution = " It will not expire: Responder asks you to " +
@@ -58,27 +69,20 @@ func WithMemoryOffer(
 	expiresLabel string,
 ) Message {
 	if offer.Predicate == "guidance" {
-		caution := "Nothing is saved yet. This can steer future replies, but it cannot start work, prove operational state, or authorize any action."
+		boundary := "Nothing is saved yet. It can steer future replies; it cannot start work, prove operational state, or authorize anything."
 		if expiresLabel == core.NeverExpires {
-			caution += permanentGuidanceCaution
+			boundary += permanentGuidanceCaution
 		}
-		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*Proposed guidance*\n> %s\n\nApplies to: %s · %s",
-			escapeSlackText(offer.Value),
-			guidanceOfferScopeLabel(offer, scopeLabel),
-			expiryPhrase(expiresLabel),
-		))
-		message.Context = append(message.Context, caution)
-		message.Actions = append(message.Actions, Action{
+		actions := []Action{{
 			ID:    ActionRememberMemory,
 			Label: "Remember this",
 			Value: actionValue,
 			Style: "primary",
 			Confirm: "Remember this guidance " + rememberPhrase(expiresLabel) +
 				"? Your current request and Responder's safety policy will always take precedence.",
-		})
+		}}
 		if permanentValue != "" {
-			message.Actions = append(message.Actions, Action{
+			actions = append(actions, Action{
 				ID:    ActionRememberMemory,
 				Label: "Remember permanently",
 				Value: permanentValue,
@@ -87,35 +91,39 @@ func WithMemoryOffer(
 					" at any time.",
 			})
 		}
-		return message
+		return offerCard(message, boundary, offerProposal{
+			Quote: escapeSlackText(offer.Value),
+			Facts: joinFacts([]string{
+				"Applies to " + guidanceOfferScopeLabel(offer, scopeLabel),
+				expiryPhrase(expiresLabel),
+			}),
+			Actions: actions,
+		})
 	}
-	revision := ""
+	facts := []string{
+		"Scope: " + scopeLabel,
+		"Visibility: `" + offer.Visibility + "`",
+		"Expires: " + expiresLabel,
+	}
 	if offer.SourceRevision != "" {
-		revision = "\nSource revision: `" + offer.SourceRevision + "`"
+		facts = append(facts, "revision `"+offer.SourceRevision+"`")
 	}
-	message.Sections = append(message.Sections, fmt.Sprintf(
-		"*Proposed operational memory*\n`%s` *%s* `%s`\n\nScope: %s · Visibility: `%s` · Expires: %s%s",
-		offer.Subject,
-		offer.Predicate,
-		offer.Value,
-		scopeLabel,
-		offer.Visibility,
-		expiresLabel,
-		revision,
-	))
-	message.Context = append(
-		message.Context,
-		"Nothing is saved yet. This is an operator-reviewed hint, not live evidence; Responder will re-check it against repositories and operational tools before relying on it.",
+	return offerCard(
+		message,
+		"Nothing is saved yet. This is an operator-reviewed hint, not live evidence; Responder re-checks it against repositories and operational tools before relying on it.",
+		offerProposal{
+			Quote: fmt.Sprintf("`%s` *%s* `%s`", offer.Subject, offer.Predicate, offer.Value),
+			Facts: joinFacts(facts),
+			Actions: []Action{{
+				ID:    ActionRememberMemory,
+				Label: "Remember for " + expiresLabel,
+				Value: actionValue,
+				Style: "primary",
+				Confirm: "Save this " + scopeLabel + " memory for " + expiresLabel +
+					"? It may guide future investigations but cannot establish current health or authorize a change.",
+			}},
+		},
 	)
-	message.Actions = append(message.Actions, Action{
-		ID:    ActionRememberMemory,
-		Label: "Remember for " + expiresLabel,
-		Value: actionValue,
-		Style: "primary",
-		Confirm: "Save this " + scopeLabel + " memory for " + expiresLabel +
-			"? It may guide future investigations but cannot establish current health or authorize a change.",
-	})
-	return message
 }
 
 // A fact-shaped memory never reaches the permanent branch above: the host
@@ -130,26 +138,25 @@ func WithPreferenceOffer(
 	expiresLabel string,
 ) Message {
 	title, description := preferenceDescription(preference)
-	message.Sections = append(message.Sections, fmt.Sprintf(
-		"*%s*\n%s\n_%s · %s_",
-		title,
-		description,
-		preferenceScopeLabel(preference),
-		expiryTerm(expiresLabel),
-	))
-	message.Context = appendBehaviorOfferContext(message.Context)
 	label := "Remember this"
 	if offer.Name == "response_location" {
 		label = "Use this reply style"
 	}
-	message.Actions = append(message.Actions, Action{
-		ID:      ActionRememberPreference,
-		Label:   label,
-		Value:   actionValue,
-		Style:   "primary",
-		Confirm: "Use this setting " + rememberPhrase(expiresLabel) + "?",
+	return offerCard(message, behaviorOfferContext, offerProposal{
+		Quote: description,
+		Facts: joinFacts([]string{
+			title,
+			preferenceScopeLabel(preference),
+			expiryTerm(expiresLabel),
+		}),
+		Actions: []Action{{
+			ID:      ActionRememberPreference,
+			Label:   label,
+			Value:   actionValue,
+			Style:   "primary",
+			Confirm: "Use this setting " + rememberPhrase(expiresLabel) + "?",
+		}},
 	})
-	return message
 }
 
 func WithRuleOffer(
@@ -168,35 +175,25 @@ func WithRuleOffer(
 	if description == "." {
 		description = fmt.Sprintf("Watch matching messages and reply in their threads using `%s`.", offer.Repository)
 	}
-	confirmation := "Enable this read-only rule " + rememberPhrase(expiresLabel) + "?"
-	message.Sections = append(message.Sections, fmt.Sprintf(
-		"*%s*\n%s\n\nRepository: `%s`\n_This channel · %s_",
-		title,
-		description,
-		rule.Repository,
-		expiryTerm(expiresLabel),
-	))
-	message.Context = appendBehaviorOfferContext(message.Context)
-	message.Actions = append(message.Actions, Action{
-		ID:      ActionRememberRule,
-		Label:   "Enable rule",
-		Value:   actionValue,
-		Style:   "primary",
-		Confirm: confirmation,
+	return offerCard(message, behaviorOfferContext, offerProposal{
+		Quote: description,
+		Facts: joinFacts([]string{
+			title,
+			"Repository `" + rule.Repository + "`",
+			"This channel",
+			expiryTerm(expiresLabel),
+		}),
+		Actions: []Action{{
+			ID:      ActionRememberRule,
+			Label:   "Enable rule",
+			Value:   actionValue,
+			Style:   "primary",
+			Confirm: "Enable this read-only rule " + rememberPhrase(expiresLabel) + "?",
+		}},
 	})
-	return message
 }
 
-const behaviorOfferContext = "Not active yet. Confirm each setting you want to enable. These settings are read-only and cannot approve or make changes."
-
-func appendBehaviorOfferContext(context []string) []string {
-	for _, item := range context {
-		if item == behaviorOfferContext {
-			return context
-		}
-	}
-	return append(context, behaviorOfferContext)
-}
+const behaviorOfferContext = "Not active yet. These settings are read-only: they cannot approve or make changes."
 
 func WithScheduleOffer(
 	message Message,
@@ -218,46 +215,60 @@ func WithScheduleOffers(
 	}
 	message.Text = conditionalScheduleOfferLead(message.Text)
 	message.Markdown = conditionalScheduleOfferLead(message.Markdown)
-	if len(tasks) == 1 {
-		task := tasks[0]
-		destination := "<#" + firstNonemptyUI(task.DeliveryChannel, task.ChannelID) + ">"
-		if task.ThreadTS != "" && firstNonemptyUI(task.DeliveryChannel, task.ChannelID) == task.ChannelID {
-			destination = "this thread"
-		}
-		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*Proposed scheduled task: %s*\n%s\n\n*When:* %s\n*Where:* %s · *Repository:* `%s`",
-			escapeSlackText(task.Title), escapeSlackText(task.Prompt), whens[0],
-			destination, safeInlineCode(task.Repository),
-		))
-	} else {
-		var body strings.Builder
-		fmt.Fprintf(&body, "*%d follow-up checks*", len(tasks))
-		for index, task := range tasks {
-			fmt.Fprintf(&body, "\n%d. *%s* — %s\n   %s", index+1,
-				escapeSlackText(task.Title), whens[index], escapeSlackText(task.Prompt))
-		}
-		destination := "<#" + firstNonemptyUI(tasks[0].DeliveryChannel, tasks[0].ChannelID) + ">"
-		if tasks[0].ThreadTS != "" && firstNonemptyUI(tasks[0].DeliveryChannel, tasks[0].ChannelID) == tasks[0].ChannelID {
-			destination = "this thread"
-		}
-		fmt.Fprintf(&body, "\n\nBoth results will be posted in %s.", destination)
-		message.Sections = append(message.Sections, body.String())
-	}
-	context := "Nothing is scheduled yet. Each occurrence re-runs this request through current Coop, repository, tool, and Emisar policies. It cannot reuse an old approval, and overlapping occurrences are skipped."
-	label := "Schedule this"
-	confirm := "Create this scheduled task? Future runs use the current policies and may still require operator approval."
-	if len(tasks) > 1 {
-		label = fmt.Sprintf("Schedule all %d", len(tasks))
-		confirm = fmt.Sprintf("Create all %d follow-up checks? Either all are saved or none are.", len(tasks))
-		context = "Nothing is scheduled yet. One confirmation saves every check shown above; if any one cannot be saved, none are. Each check uses current access and approval rules."
-	}
-	message.Context = append(message.Context, context)
-	message.Actions = append(message.Actions, Action{
-		ID: ActionRememberSchedule, Label: label, Value: actionValue,
+	boundary := "Nothing is scheduled yet. Each occurrence re-runs this request through current Coop, repository, tool, and Emisar policies. It cannot reuse an old approval, and overlapping occurrences are skipped."
+	confirm := Action{
+		ID: ActionRememberSchedule, Label: "Schedule this", Value: actionValue,
 		Style:   "primary",
-		Confirm: confirm,
-	})
-	return message
+		Confirm: "Create this scheduled task? Future runs use the current policies and may still require operator approval.",
+	}
+	if len(tasks) > 1 {
+		confirm.Label = fmt.Sprintf("Schedule all %d", len(tasks))
+		confirm.Confirm = fmt.Sprintf(
+			"Create all %d follow-up checks? Either all are saved or none are.", len(tasks),
+		)
+		boundary = "Nothing is scheduled yet. One confirmation saves every check shown here; if any one cannot be saved, none are. Each check uses current access and approval rules."
+	}
+	// One confirmation covers every proposal, so it sits on the first row rather
+	// than repeating down the card. The rows past the ceiling are still saved by
+	// it — a listing that quietly dropped them would be describing a smaller
+	// commitment than the button makes.
+	shown := tasks
+	if len(shown) > directoryRowLimit {
+		boundary += fmt.Sprintf(
+			" %d more are covered by the same confirmation and not shown here.",
+			len(shown)-directoryRowLimit,
+		)
+		shown = shown[:directoryRowLimit]
+	}
+	proposals := make([]offerProposal, 0, len(shown))
+	for index, task := range shown {
+		proposal := offerProposal{
+			Quote: escapeSlackText(task.Prompt),
+			Facts: joinFacts([]string{
+				"*" + escapeSlackText(task.Title) + "*",
+				whens[index],
+				scheduleDestination(task),
+				"`" + safeInlineCode(task.Repository) + "`",
+			}),
+		}
+		if index == 0 {
+			proposal.Actions = []Action{confirm}
+		}
+		proposals = append(proposals, proposal)
+	}
+	return offerCard(message, boundary, proposals...)
+}
+
+// scheduleDestination names where an occurrence will report.
+func scheduleDestination(task core.ScheduledTask) string {
+	channel := firstNonemptyUI(task.DeliveryChannel, task.ChannelID)
+	if task.ThreadTS != "" && channel == task.ChannelID {
+		return "this thread"
+	}
+	if channel == "" {
+		return ""
+	}
+	return "<#" + channel + ">"
 }
 
 func conditionalScheduleOfferLead(value string) string {
@@ -292,28 +303,76 @@ func scheduleToggleValue(id string, enabled bool) string {
 	return string(data)
 }
 
-func scheduleActions(task core.ScheduledTask) []Action {
-	actions := make([]Action, 0, 4)
+// scheduleToggleAction is the control that stops a schedule without destroying
+// it, named for the state it moves to.
+func scheduleToggleAction(task core.ScheduledTask) Action {
 	label := "Pause schedule"
 	if !task.Enabled {
 		label = "Resume schedule"
 	}
-	if !task.NextRunAt.IsZero() {
-		actions = append(actions, Action{ID: ActionToggleSchedule, Label: label, Value: scheduleToggleValue(task.ID, !task.Enabled)})
+	return Action{
+		ID: ActionToggleSchedule, Label: label,
+		Value: scheduleToggleValue(task.ID, !task.Enabled),
 	}
-	return append(actions,
-		Action{ID: ActionRunSchedule, Label: "Run now", Value: task.ID, Style: "primary"},
-		Action{ID: ActionEditSchedule, Label: "Replace", Value: task.ID},
-		Action{ID: ActionDeleteSchedule, Label: "Delete", Value: task.ID, Style: "danger", Confirm: "Delete this scheduled task? Future occurrences will not run."},
-	)
 }
 
-func scheduleDirectoryActions(task core.ScheduledTask, number int) []Action {
-	actions := scheduleActions(task)
-	for index := range actions {
-		actions[index].Label += fmt.Sprintf(" #%d", number)
+// scheduleRowActions splits a schedule's four controls into the two that earn a
+// button on a listed row and the two that sit behind its ⋯.
+//
+// Run now and Delete are what a person opens this list to do. Pausing and
+// replacing are real but rarer, and at ten rows four buttons apiece is eighty
+// controls on one card — which is how the old list came to number its buttons
+// instead of naming them.
+func scheduleRowActions(task core.ScheduledTask) (actions, overflow []Action) {
+	actions = []Action{
+		{ID: ActionRunSchedule, Label: "Run now", Value: task.ID},
+		{
+			ID: ActionDeleteSchedule, Label: "Delete", Value: task.ID, Style: "danger",
+			Confirm: "Delete this scheduled task? Future occurrences will not run.",
+		},
 	}
-	return actions
+	// A finished one-shot has nothing to pause.
+	if !task.NextRunAt.IsZero() {
+		overflow = append(overflow, scheduleToggleAction(task))
+	}
+	return actions, append(overflow, Action{
+		ID: ActionEditSchedule, Label: "Replace", Value: task.ID,
+	})
+}
+
+// scheduleNextRun is when the next occurrence lands, in the reader's timezone.
+func scheduleNextRun(task core.ScheduledTask) string {
+	if task.NextRunAt.IsZero() {
+		return ""
+	}
+	return slackDate(task.NextRunAt, "2006-01-02 15:04 UTC")
+}
+
+// scheduleLastRun reports what the last occurrence produced rather than when it
+// happened. "last: never" was on every row of a list where most rows had run —
+// it was reporting the outcome column, which nothing had ever written.
+func scheduleLastRun(task core.ScheduledTask) string {
+	if outcome := strings.TrimSpace(task.LastOutcome); outcome != "" {
+		return "last run " + escapeSlackText(outcome)
+	}
+	if task.LastRunAt.IsZero() {
+		return "not run yet"
+	}
+	return "last run " + slackDate(task.LastRunAt, "2006-01-02 15:04 UTC")
+}
+
+// scheduleStateWord is the schedule's own state, which is not the same question
+// as whether it is enabled: a one-shot that has fired is neither paused nor
+// waiting, it is done.
+func scheduleStateWord(task core.ScheduledTask) string {
+	switch {
+	case task.Enabled:
+		return "active"
+	case task.NextRunAt.IsZero():
+		return "completed"
+	default:
+		return "paused"
+	}
 }
 
 func ScheduleSavedMessage(task core.ScheduledTask) Message {
@@ -325,36 +384,43 @@ func SchedulesSavedMessage(tasks []core.ScheduledTask) Message {
 		return Message{Text: "No scheduled tasks were created.", Header: "Nothing scheduled"}
 	}
 	if len(tasks) > 1 {
-		sections := make([]string, 0, len(tasks)+1)
-		for index, task := range tasks {
-			destination := "<#" + firstNonemptyUI(task.DeliveryChannel, task.ChannelID) + ">"
-			if task.ThreadTS != "" && firstNonemptyUI(task.DeliveryChannel, task.ChannelID) == task.ChannelID {
-				destination = "this thread"
-			}
-			sections = append(sections, fmt.Sprintf("%d. *%s* — %s\n%s", index+1,
-				escapeSlackText(task.Title),
-				task.NextRunAt.In(timeLocation(task.Timezone)).Format("Mon, 02 Jan 2006 15:04 MST"),
-				destination))
+		// Undo is one action value, and the action behind it deletes one task by
+		// id (handleDeleteSchedule reads a single id from the value). An "Undo
+		// all" here would remove one of the batch and say it removed the batch,
+		// so the multi-check receipt carries no control and the directory is
+		// where a mistaken batch gets unwound.
+		message := receiptCard(
+			fmt.Sprintf("Scheduled %d follow-up checks.", len(tasks)),
+			"Scheduled.",
+			fmt.Sprintf("%d follow-up checks.", len(tasks)),
+			[]string{"Manage or run them early with `/responder schedules`."},
+		)
+		for _, task := range tasks[:min(len(tasks), directoryRowLimit)] {
+			message = AppendRow(message, joinFacts([]string{
+				"*" + escapeSlackText(task.Title) + "*",
+				scheduleNextRun(task),
+				scheduleDestination(task),
+			}), nil)
 		}
-		return Message{
-			Text:     fmt.Sprintf("Scheduled %d follow-up checks.", len(tasks)),
-			Header:   fmt.Sprintf("%d follow-up checks scheduled", len(tasks)),
-			Sections: sections,
-			Context:  []string{"Manage or run them early with `/responder schedules`."},
+		if extra := len(tasks) - directoryRowLimit; extra > 0 {
+			message.Context = append(message.Context, fmt.Sprintf(
+				"and %d more — `/responder schedules` lists them all.", extra,
+			))
 		}
+		return message
 	}
 	task := tasks[0]
-	destination := "<#" + firstNonemptyUI(task.DeliveryChannel, task.ChannelID) + ">"
-	if task.ThreadTS != "" && firstNonemptyUI(task.DeliveryChannel, task.ChannelID) == task.ChannelID {
-		destination = "this thread"
-	}
-	return Message{
-		Text:     "Scheduled " + task.Title + ". Next run: " + task.NextRunAt.Format(time.RFC3339),
-		Header:   "Scheduled task created",
-		Sections: []string{fmt.Sprintf("*%s*\n%s\n\nNext run: %s\nDelivery: %s\nRepository: `%s`", escapeSlackText(task.Title), escapeSlackText(task.Prompt), task.NextRunAt.In(timeLocation(task.Timezone)).Format("Mon, 02 Jan 2006 15:04 MST"), destination, safeInlineCode(task.Repository))},
-		Context:  []string{"I’ll run only one copy at a time. Each occurrence uses current access and approval rules."},
-		Actions:  scheduleActions(task),
-	}
+	return receiptCard(
+		"Scheduled "+task.Title+". Next run: "+task.NextRunAt.Format(time.RFC3339),
+		"Scheduled.",
+		escapeSlackText(task.Title)+" runs "+scheduleNextRun(task)+".",
+		[]string{
+			scheduleDestination(task),
+			"`" + safeInlineCode(task.Repository) + "`",
+			"One copy runs at a time, and each occurrence uses current access and approval rules.",
+		},
+		undoAction(ActionDeleteSchedule, task.ID),
+	)
 }
 
 func ScheduledRunStartedMessage(task core.ScheduledTask, scheduledFor time.Time) Message {
@@ -371,43 +437,74 @@ func ScheduledRunStartedMessage(task core.ScheduledTask, scheduledFor time.Time)
 }
 
 func ScheduleStateMessage(task core.ScheduledTask) Message {
-	state := "paused"
+	title := escapeSlackText(task.Title)
+	actions := []Action{scheduleToggleAction(task)}
+	if task.NextRunAt.IsZero() {
+		actions = nil
+	}
+	actions = append(actions, Action{
+		ID: ActionRunSchedule, Label: "Run now", Value: task.ID,
+	})
 	if task.Enabled {
-		state = "active"
+		when := scheduleNextRun(task)
+		statement := "*Active.* " + title + " runs again " + when + "."
+		if when == "" {
+			statement = "*Active.* " + title + " runs on its schedule."
+		}
+		return stateChangeCard(
+			"Active. Scheduled task "+task.Title+" runs on its schedule.",
+			statement, "", actions...,
+		)
 	}
-	return Message{
-		Text:     "Scheduled task " + task.Title + " is " + state + ".",
-		Header:   "Schedule " + state,
-		Sections: []string{"*" + escapeSlackText(task.Title) + "* is now " + state + "."},
-		Actions:  scheduleActions(task),
-	}
+	return stateChangeCard(
+		"Paused. Scheduled task "+task.Title+" will not run until you resume it.",
+		"*Paused.* "+title+" will not run until you resume it.",
+		"It stays saved with its timing intact.",
+		actions...,
+	)
 }
 
 func ScheduleDeletedMessage() Message {
-	return Message{Text: "Scheduled task deleted.", Header: "Schedule deleted", Sections: []string{"Future occurrences will not run. A task already in progress can finish. Existing audit records age out with operational retention."}}
+	return stateChangeCard(
+		"Deleted. Future occurrences of that scheduled task will not run.",
+		"*Deleted.* Future occurrences will not run.",
+		"An occurrence already in progress can finish. Audit records age out with operational retention.",
+	)
 }
 
 func ScheduleDirectoryMessage(tasks []core.ScheduledTask) Message {
-	message := Message{Text: fmt.Sprintf("Emisar has %d unexpired scheduled tasks in this channel.", len(tasks)), Header: "Scheduled tasks for this channel", Context: []string{"Schedules decide when to submit a request. Every occurrence still uses current Coop, repository, tool, and Emisar policy."}}
+	message := Message{
+		Text:   "Emisar has " + countLabel(len(tasks), "unexpired scheduled task") + " in this channel.",
+		Header: "Scheduled tasks for this channel",
+	}
 	if len(tasks) == 0 {
+		message.Context = []string{"Schedules decide when to submit a request. Every occurrence still uses current Coop, repository, tool, and Emisar policy."}
 		message.Sections = []string{"No scheduled tasks are configured here.", "Example: `@Emisar every Monday at 09:00, summarize production health in this channel`. I’ll normalize the timing and ask for confirmation."}
 		return message
 	}
-	for index, task := range tasks[:min(len(tasks), 8)] {
-		state := "paused"
-		if task.Enabled {
-			state = "active"
-		} else if task.NextRunAt.IsZero() {
-			state = "completed"
+	message.Context = []string{fmt.Sprintf(
+		"%s here · every occurrence still uses current Coop, repository, tool, and Emisar policy.",
+		countLabel(len(tasks), "unexpired scheduled task"),
+	)}
+	entries := make([]directoryEntry, 0, len(tasks))
+	for _, task := range tasks {
+		actions, overflow := scheduleRowActions(task)
+		next := ""
+		if when := scheduleNextRun(task); when != "" {
+			next = "next " + when
 		}
-		next := "none"
-		if !task.NextRunAt.IsZero() {
-			next = task.NextRunAt.In(timeLocation(task.Timezone)).Format("2006-01-02 15:04 MST")
-		}
-		message.Sections = append(message.Sections, fmt.Sprintf("*%d. %s*\n%s · next: %s · last: %s\nRepository: `%s`", index+1, escapeSlackText(task.Title), state, next, firstNonemptyUI(task.LastOutcome, "never"), safeInlineCode(task.Repository)))
-		message.Actions = append(message.Actions, scheduleDirectoryActions(task, index+1)...)
+		entries = append(entries, directoryEntry{
+			Text: "*" + escapeSlackText(task.Title) + "*\n" + joinFacts([]string{
+				scheduleStateWord(task),
+				next,
+				scheduleLastRun(task),
+				"`" + safeInlineCode(task.Repository) + "`",
+			}),
+			Actions:  actions,
+			Overflow: overflow,
+		})
 	}
-	return message
+	return directoryCard(message, entries, "most recently changed first.")
 }
 
 func PreferenceSavedMessage(
@@ -415,92 +512,89 @@ func PreferenceSavedMessage(
 	replaced bool,
 ) Message {
 	title, description := preferenceDescription(preference)
-	header := "Responder preference saved"
+	verb := "Saved."
 	if replaced {
-		header = "Responder preference updated"
+		verb = "Updated."
 	}
-	return Message{
-		Text: fmt.Sprintf(
-			"%s: %s.",
-			header, description,
-		),
-		Header: header,
-		Sections: []string{fmt.Sprintf(
-			"*%s*\n%s\n\nScope: %s\nExpires: %s",
+	return receiptCard(
+		verb+" "+description,
+		verb,
+		description,
+		[]string{
 			title,
-			description,
 			preferenceScopeLabel(preference),
-			expiryStamp(preference.ExpiresAt, "2006-01-02 15:04 UTC"),
-		)},
-		Context: []string{preferencePrecedenceText(preference) +
-			" It does not authorize incidents or changes."},
-		Actions: preferenceActions(preference),
-	}
+			expiryFact(preference.ExpiresAt),
+			preferencePrecedenceText(preference) +
+				" It does not authorize incidents or changes.",
+		},
+		undoAction(ActionDeletePreference, preference.ID),
+	)
 }
 
 func PreferenceStateMessage(preference core.ResponderPreference) Message {
-	state := "disabled"
+	title, description := preferenceDescription(preference)
 	if preference.Enabled {
-		state = "enabled"
+		return stateChangeCard(
+			"Enabled. "+description,
+			"*Enabled.* "+description,
+			preferencePrecedenceText(preference),
+			preferenceToggleAction(preference),
+		)
 	}
-	return Message{
-		Text:   fmt.Sprintf("Responder preference %s is %s.", preference.Name, state),
-		Header: "Preference " + state,
-		Sections: []string{fmt.Sprintf(
-			"`%s` remains `%s` for %s and is now *%s*.",
-			preference.Name, preference.Value, preferenceScopeLabel(preference), state,
-		)},
-		Context: []string{
-			"Disabled preferences remain stored until expiry or deletion and are not supplied to investigations.",
-		},
-		Actions: preferenceActions(preference),
-	}
+	return stateChangeCard(
+		"Disabled. "+title+" no longer shapes replies.",
+		"*Disabled.* "+title+" no longer shapes replies.",
+		"It stays stored until it expires or you delete it, and is not supplied to investigations.",
+		preferenceToggleAction(preference),
+	)
 }
 
 func PreferenceDeletedMessage() Message {
-	return Message{
-		Text:     "Responder permanently deleted the selected preference.",
-		Header:   "Preference deleted",
-		Sections: []string{"The preference will no longer affect future investigations."},
-		Context:  []string{"The audit trail retains only its ID, scope, and deletion outcome."},
-	}
+	return stateChangeCard(
+		"Deleted. That preference no longer affects future investigations.",
+		"*Deleted.* It will no longer affect future investigations.",
+		"The audit trail retains only its ID, scope, and deletion outcome.",
+	)
 }
 
 func PreferenceDirectoryMessage(
 	preferences []core.ResponderPreference,
 ) Message {
 	message := Message{
-		Text:   fmt.Sprintf("Responder has %d unexpired preferences visible here.", len(preferences)),
+		Text:   "Responder has " + countLabel(len(preferences), "unexpired preference") + " visible here.",
 		Header: "Responder preferences",
-		Context: []string{
-			"Precedence is operator, channel, repository, then workspace. Disabled preferences are retained but do not affect investigations.",
-		},
 	}
 	if len(preferences) == 0 {
+		message.Context = []string{
+			"Precedence is operator, channel, repository, then workspace. Disabled preferences are retained but do not affect investigations.",
+		}
 		message.Sections = []string{
 			"No operator, channel, repository, or workspace preference matches this context.",
 			"Examples: `@Emisar when I ask for infrastructure health, always run a deep check` or `@Emisar from now on keep responses concise in this channel`. Emisar will show a confirmation before saving.",
 		}
 		return message
 	}
-	for index, preference := range preferences[:min(len(preferences), 8)] {
+	message.Context = []string{fmt.Sprintf(
+		"%s visible here · precedence is operator, channel, repository, then workspace, and a disabled one is retained without affecting investigations.",
+		countLabel(len(preferences), "unexpired preference"),
+	)}
+	entries := make([]directoryEntry, 0, len(preferences))
+	for _, preference := range preferences {
 		state := "disabled"
 		if preference.Enabled {
 			state = "enabled"
 		}
 		title, description := preferenceDescription(preference)
-		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*%d. %s*\n%s\n%s · %s · expires %s",
-			index+1,
-			title,
-			description,
-			state,
-			preferenceScopeLabel(preference),
-			expiryStamp(preference.ExpiresAt, "2006-01-02"),
-		))
-		message.Actions = append(message.Actions, preferenceActions(preference)...)
+		entries = append(entries, directoryEntry{
+			Text: "*" + title + "* — " + description + "\n" + joinFacts([]string{
+				state,
+				preferenceScopeLabel(preference),
+				expiryFact(preference.ExpiresAt),
+			}),
+			Actions: preferenceRowActions(preference),
+		})
 	}
-	return message
+	return directoryCard(message, entries, "highest precedence first.")
 }
 
 func preferenceDescription(preference core.ResponderPreference) (string, string) {
@@ -524,48 +618,43 @@ func preferenceDescription(preference core.ResponderPreference) (string, string)
 }
 
 func RuleSavedMessage(rule core.StandingRule, replaced bool) Message {
-	header := "Standing rule enabled"
+	verb := "Enabled."
 	if replaced {
-		header = "Standing rule updated"
+		verb = "Updated."
 	}
 	workflow := standingRuleWorkflow(rule)
-	return Message{
-		Text:   fmt.Sprintf("%s: %s.", header, workflow.Name),
-		Header: header,
-		Sections: []string{fmt.Sprintf(
-			"*%s*\n%s\n\nRepository: `%s` · Watches: %s\nExpires: %s",
+	return receiptCard(
+		verb+" "+workflow.Name+" is active.",
+		verb,
+		core.StandingWorkflowEffect(workflow),
+		[]string{
 			workflow.Name,
-			core.StandingWorkflowEffect(workflow),
-			rule.Repository,
-			standingRuleSourceDescription(rule.SourceKind),
-			expiryStamp(rule.ExpiresAt, "2006-01-02 15:04 UTC"),
-		)},
-		Context: []string{
-			"This rule is active now. It can start read-only work, but it cannot approve or make changes.",
+			"repository `" + rule.Repository + "`",
+			"watches " + standingRuleSourceDescription(rule.SourceKind),
+			expiryFact(rule.ExpiresAt),
+			"It can start read-only work, but it cannot approve or make changes.",
 		},
-		Actions: ruleActions(rule),
-	}
+		undoAction(ActionDeleteRule, rule.ID),
+	)
 }
 
 func RuleStateMessage(rule core.StandingRule) Message {
-	state := "disabled"
-	if rule.Enabled {
-		state = "enabled"
-	}
 	workflow := standingRuleWorkflow(rule)
-	description := standingRuleEffect(rule)
-	return Message{
-		Text:   fmt.Sprintf("%s is %s.", workflow.Name, state),
-		Header: "Standing rule " + state,
-		Sections: []string{fmt.Sprintf(
-			"*%s* is now *%s*.\n%s",
-			workflow.Name, state, description,
-		)},
-		Context: []string{
-			"Disabled rules remain stored until expiry or deletion and do not admit or investigate matching messages.",
-		},
-		Actions: ruleActions(rule),
+	if rule.Enabled {
+		return stateChangeCard(
+			"Enabled. "+workflow.Name+" is watching again.",
+			"*Enabled.* "+standingRuleEffect(rule),
+			"It can start read-only work, but it cannot approve or make changes.",
+			ruleToggleAction(rule),
+		)
 	}
+	return stateChangeCard(
+		"Disabled. "+workflow.Name+" no longer admits matching messages.",
+		"*Disabled.* "+workflow.Name+" no longer admits or investigates matching messages.\n"+
+			standingRuleEffect(rule),
+		"It stays stored until it expires or you delete it.",
+		ruleToggleAction(rule),
+	)
 }
 
 func standingRuleEffect(rule core.StandingRule) string {
@@ -580,55 +669,60 @@ func standingRuleEffect(rule core.StandingRule) string {
 }
 
 func RuleDeletedMessage() Message {
-	return Message{
-		Text:     "Responder permanently deleted the selected standing rule.",
-		Header:   "Standing rule deleted",
-		Sections: []string{"Matching messages will no longer trigger this rule."},
-		Context:  []string{"Durable execution records age out with normal operational retention."},
-	}
+	return stateChangeCard(
+		"Deleted. Matching messages will no longer trigger that rule.",
+		"*Deleted.* Matching messages will no longer trigger it.",
+		"Durable execution records age out with normal operational retention.",
+	)
 }
 
 func RuleDirectoryMessage(rules []core.StandingRule) Message {
 	message := Message{
-		Text:   fmt.Sprintf("Responder has %d unexpired standing rules in this channel.", len(rules)),
+		Text:   "Responder has " + countLabel(len(rules), "unexpired standing rule") + " in this channel.",
 		Header: "Standing rules for this channel",
-		Context: []string{
-			"Rules are typed, read-only subscriptions. They can admit matching messages while broad proactive triage is off; they never create incidents or authorize changes.",
-		},
 	}
 	if len(rules) == 0 {
+		message.Context = []string{
+			"Rules are typed, read-only subscriptions. They can admit matching messages while broad proactive triage is off; they never create incidents or authorize changes.",
+		}
 		message.Sections = []string{
 			"No standing rules are configured in this channel.",
 			"Example: `@Emisar when you see a new Terraform plan here, review its main diff and red flags`. Emisar will show the normalized trigger, repository, expiry, and safety boundary before saving.",
 		}
 		return message
 	}
-	for index, rule := range rules[:min(len(rules), 8)] {
+	message.Context = []string{fmt.Sprintf(
+		"%s here · typed read-only subscriptions that never create incidents or authorize changes.",
+		countLabel(len(rules), "unexpired standing rule"),
+	)}
+	entries := make([]directoryEntry, 0, len(rules))
+	for _, rule := range rules {
 		workflow := standingRuleWorkflow(rule)
 		state := "disabled"
 		if rule.Enabled {
 			state = "enabled"
 		}
-		lastRun := "never"
+		lastFired := "never fired"
 		if !rule.LastTriggered.IsZero() {
-			lastRun = rule.LastTriggered.UTC().Format("2006-01-02 15:04 UTC")
+			lastFired = "last fired " + slackDate(rule.LastTriggered, "2006-01-02 15:04 UTC")
 		}
-		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*%d. %s*\n%s\n%s · watches %s · repository `%s`\n"+
-				"%s\nLast fired: %s · expires: %s",
-			index+1,
-			workflow.Name,
-			core.StandingWorkflowEffect(workflow),
-			state,
-			standingRuleSourceDescription(rule.SourceKind),
-			rule.Repository,
-			StandingRuleWorth(rule),
-			lastRun,
-			expiryStamp(rule.ExpiresAt, "2006-01-02"),
-		))
-		message.Actions = append(message.Actions, ruleActions(rule)...)
+		entries = append(entries, directoryEntry{
+			// Three lines rather than two: the worth sentence is the one fact
+			// that answers whether to keep a rule, and a fire count without it
+			// reads the same whether the rule did work all week or matched
+			// constantly and answered nothing.
+			Text: "*" + workflow.Name + "* — " + core.StandingWorkflowEffect(workflow) + "\n" +
+				joinFacts([]string{
+					state,
+					"watches " + standingRuleSourceDescription(rule.SourceKind),
+					"`" + rule.Repository + "`",
+					lastFired,
+					expiryFact(rule.ExpiresAt),
+				}) + "\n_" + StandingRuleWorth(rule) + "_",
+			Actions: ruleRowActions(rule),
+		})
 	}
-	return message
+	return directoryCard(message, entries, "most recently changed first.")
 }
 
 func standingRuleWorkflow(rule core.StandingRule) core.StandingWorkflow {
@@ -721,44 +815,50 @@ func preferencePrecedenceText(preference core.ResponderPreference) string {
 	}
 }
 
-func preferenceActions(preference core.ResponderPreference) []Action {
-	label := "Disable preference"
+// The labels below are bare verbs because the row above them says what they
+// act on. "Disable preference 3" was a button label on a card that already had
+// the preference written directly above it, twice — once in the row and once in
+// the number.
+func preferenceToggleAction(preference core.ResponderPreference) Action {
+	label := "Disable"
 	if !preference.Enabled {
-		label = "Enable preference"
+		label = "Enable"
 	}
+	return Action{
+		ID: ActionTogglePreference, Label: label,
+		Value: behaviorToggleValue(preference.ID, !preference.Enabled),
+	}
+}
+
+func preferenceRowActions(preference core.ResponderPreference) []Action {
 	return []Action{
+		preferenceToggleAction(preference),
+		{ID: ActionEditPreference, Label: "Edit", Value: preference.ID},
 		{
-			ID: ActionTogglePreference, Label: label,
-			Value: behaviorToggleValue(preference.ID, !preference.Enabled),
-		},
-		{
-			ID: ActionEditPreference, Label: "Edit preference",
-			Value: preference.ID,
-		},
-		{
-			ID: ActionDeletePreference, Label: "Delete preference",
+			ID: ActionDeletePreference, Label: "Delete",
 			Value: preference.ID, Style: "danger",
 			Confirm: "Permanently delete this Responder preference? It will stop affecting future investigations.",
 		},
 	}
 }
 
-func ruleActions(rule core.StandingRule) []Action {
-	label := "Disable rule"
+func ruleToggleAction(rule core.StandingRule) Action {
+	label := "Disable"
 	if !rule.Enabled {
-		label = "Enable rule"
+		label = "Enable"
 	}
+	return Action{
+		ID: ActionToggleRule, Label: label,
+		Value: behaviorToggleValue(rule.ID, !rule.Enabled),
+	}
+}
+
+func ruleRowActions(rule core.StandingRule) []Action {
 	return []Action{
+		ruleToggleAction(rule),
+		{ID: ActionEditRule, Label: "Edit", Value: rule.ID},
 		{
-			ID: ActionToggleRule, Label: label,
-			Value: behaviorToggleValue(rule.ID, !rule.Enabled),
-		},
-		{
-			ID: ActionEditRule, Label: "Edit rule",
-			Value: rule.ID,
-		},
-		{
-			ID: ActionDeleteRule, Label: "Delete rule",
+			ID: ActionDeleteRule, Label: "Delete",
 			Value: rule.ID, Style: "danger",
 			Confirm: "Permanently delete this standing rule? Matching messages will no longer trigger it.",
 		},
@@ -767,55 +867,86 @@ func ruleActions(rule core.StandingRule) []Action {
 
 func MemorySavedMessage(entry core.MemoryEntry, replaced bool) Message {
 	if entry.Predicate == "guidance" {
-		action := "remember"
-		header := "Guidance remembered"
+		verb, lede := "Remembered.", "I'll remember: "
 		if replaced {
-			action = "use the updated guidance"
-			header = "Guidance updated"
+			verb, lede = "Updated.", "I'll use the updated guidance: "
 		}
-		return Message{
-			Text:   "I'll " + action + ": " + entry.Value,
-			Header: header,
-			Sections: []string{fmt.Sprintf(
-				"> %s\n\nApplies to: %s · Expires: %s",
-				escapeSlackText(entry.Value),
-				guidanceEntryScopeLabel(entry),
-				expiryStamp(entry.ExpiresAt, "2006-01-02 15:04 UTC"),
-			)},
-			Context: []string{
-				"This steers future replies when relevant. Your current request and Responder's safety policy take precedence.",
+		return receiptCard(
+			lede+entry.Value,
+			verb,
+			escapeSlackText(entry.Value),
+			[]string{
+				"Applies to " + guidanceEntryScopeLabel(entry),
+				expiryFact(entry.ExpiresAt),
+				"It steers future replies when relevant; your current request and Responder's safety policy take precedence.",
 			},
-			Actions: []Action{{
-				ID:      ActionForgetMemory,
-				Label:   "Forget this",
-				Value:   entry.ID,
-				Style:   "danger",
-				Confirm: "Permanently forget this guidance? It will no longer steer future replies.",
-			}},
-		}
+			undoAction(ActionForgetMemory, entry.ID),
+		)
 	}
-	action := "Saved"
+	verb := "Saved."
 	if replaced {
-		action = "Updated"
+		verb = "Updated."
 	}
-	return Message{
-		Text: fmt.Sprintf(
-			"%s Responder memory: %s %s %s.",
-			action, entry.SubjectKey, entry.Predicate, entry.Value,
+	return receiptCard(
+		fmt.Sprintf(
+			"%s operational memory: %s %s %s.",
+			strings.TrimSuffix(verb, "."), entry.SubjectKey, entry.Predicate, entry.Value,
 		),
-		Header: action + " operational memory",
-		Sections: []string{fmt.Sprintf(
-			"*%s* `%s` `%s`\n\nScope: `%s:%s`\nExpires: %s",
-			entry.SubjectKey, entry.Predicate, entry.Value,
-			entry.ScopeKind, entry.ScopeKey,
-			expiryStamp(entry.ExpiresAt, "2006-01-02 15:04 UTC"),
-		)},
-		Context: []string{
-			"Responder treats this as an operator-confirmed hint. Fresh live evidence and current repository content take precedence.",
+		verb,
+		fmt.Sprintf("`%s` `%s` `%s`", entry.SubjectKey, entry.Predicate, entry.Value),
+		[]string{
+			fmt.Sprintf("scope `%s:%s`", entry.ScopeKind, entry.ScopeKey),
+			expiryFact(entry.ExpiresAt),
+			"An operator-confirmed hint: fresh live evidence and current repository content take precedence.",
 		},
+		undoAction(ActionForgetMemory, entry.ID),
+	)
+}
+
+func MemoryForgottenMessage() Message {
+	return stateChangeCard(
+		"Forgotten. That memory is no longer supplied to investigations.",
+		"*Forgotten.* The saved value was permanently deleted and will no longer be supplied to future investigations.",
+		"The audit trail retains only the memory entry ID and deletion outcome.",
+	)
+}
+
+// memoryRecallFact reports whether a saved memory has ever been used.
+//
+// It is the fact that decides whether an entry is worth keeping, it has been
+// recorded all along, and no card has ever shown it: a directory of forty
+// entries where six were ever recalled looked exactly like one where all forty
+// were.
+func memoryRecallFact(entry core.MemoryEntry) string {
+	if entry.LastRecalledAt.IsZero() {
+		return "never used"
+	}
+	used := "last used " + compactDuration(time.Since(entry.LastRecalledAt)) + " ago"
+	if entry.RecallCount > 0 {
+		used = fmt.Sprintf("used %d× · %s", entry.RecallCount, used)
+	}
+	return used
+}
+
+func memoryDirectoryEntry(entry core.MemoryEntry) directoryEntry {
+	text := "*" + escapeSlackText(entry.SubjectKey) + "* `" +
+		entry.Predicate + "` `" + entry.Value + "`"
+	scope := "scope `" + entry.ScopeKind + ":" + entry.ScopeKey + "`"
+	if entry.Predicate == "guidance" {
+		text = "*Guidance: " +
+			escapeSlackText(strings.ReplaceAll(entry.SubjectKey, "_", " ")) +
+			"* — " + escapeSlackText(entry.Value)
+		scope = "applies to " + guidanceEntryScopeLabel(entry)
+	}
+	return directoryEntry{
+		Text: text + "\n" + joinFacts([]string{
+			scope,
+			expiryFact(entry.ExpiresAt),
+			memoryRecallFact(entry),
+		}),
 		Actions: []Action{{
 			ID:      ActionForgetMemory,
-			Label:   "Forget this memory",
+			Label:   "Forget",
 			Value:   entry.ID,
 			Style:   "danger",
 			Confirm: "Permanently forget this saved memory? The audit trail will retain only the entry ID and outcome, not its value.",
@@ -823,61 +954,30 @@ func MemorySavedMessage(entry core.MemoryEntry, replaced bool) Message {
 	}
 }
 
-func MemoryForgottenMessage() Message {
-	return Message{
-		Text:     "Responder forgot the selected operational memory.",
-		Header:   "Operational memory forgotten",
-		Sections: []string{"The saved value was permanently deleted and will no longer be supplied to future investigations."},
-		Context:  []string{"The audit trail retains only the memory entry ID and deletion outcome."},
-	}
-}
-
 func MemoryDirectoryMessage(entries []core.MemoryEntry) Message {
 	message := Message{
-		Text:   fmt.Sprintf("Responder has %d active memory entries visible here.", len(entries)),
+		Text:   "Responder has " + countLabel(len(entries), "active memory entry", "active memory entries") + " visible here.",
 		Header: "What Responder remembers here",
-		Context: []string{
-			"Guidance is advice, and operational mappings are hints rather than current health evidence. Current requests, host policy, fresh observations, and repository state take precedence.",
-		},
 	}
 	if len(entries) == 0 {
+		message.Context = []string{
+			"Guidance is advice, and operational mappings are hints rather than current health evidence. Current requests, host policy, fresh observations, and repository state take precedence.",
+		}
 		message.Sections = []string{
 			"No active memory matches this channel, its configured repository, and your visibility.",
 			"Tell Responder to remember guidance, an alias, a repository binding, an evidence route, or an entity relationship correction. It will show exactly what it plans to remember before anything is saved.",
 		}
 		return message
 	}
-	for index, entry := range entries[:min(len(entries), 20)] {
-		if entry.Predicate == "guidance" {
-			message.Sections = append(message.Sections, fmt.Sprintf(
-				"*%d. Guidance: %s*\n> %s\nApplies to: %s · Expires: %s",
-				index+1,
-				escapeSlackText(strings.ReplaceAll(entry.SubjectKey, "_", " ")),
-				escapeSlackText(entry.Value),
-				guidanceEntryScopeLabel(entry),
-				expiryStamp(entry.ExpiresAt, "2006-01-02 15:04 UTC"),
-			))
-		} else {
-			message.Sections = append(message.Sections, fmt.Sprintf(
-				"*%d. %s*\n`%s` `%s`\nScope: `%s:%s` · Expires: %s",
-				index+1,
-				escapeSlackText(entry.SubjectKey),
-				entry.Predicate,
-				entry.Value,
-				entry.ScopeKind,
-				entry.ScopeKey,
-				expiryStamp(entry.ExpiresAt, "2006-01-02 15:04 UTC"),
-			))
-		}
-		message.Actions = append(message.Actions, Action{
-			ID:      ActionForgetMemory,
-			Label:   fmt.Sprintf("Forget memory %d", index+1),
-			Value:   entry.ID,
-			Style:   "danger",
-			Confirm: "Permanently forget this saved memory? The audit trail will retain only the entry ID and outcome, not its value.",
-		})
+	message.Context = []string{fmt.Sprintf(
+		"%s visible here · guidance is advice and mappings are hints, not current health evidence.",
+		countLabel(len(entries), "active memory entry", "active memory entries"),
+	)}
+	directoryEntries := make([]directoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		directoryEntries = append(directoryEntries, memoryDirectoryEntry(entry))
 	}
-	return message
+	return directoryCard(message, directoryEntries, "nearest this channel first.")
 }
 
 func MemoryHealthMessage(
@@ -888,51 +988,52 @@ func MemoryHealthMessage(
 	message := MemoryDirectoryMessage(entries)
 	lastDreamed := "not run yet"
 	if !health.LastDreamedAt.IsZero() {
-		lastDreamed = health.LastDreamedAt.UTC().Format("2006-01-02 15:04 UTC")
+		lastDreamed = slackDate(health.LastDreamedAt, "2006-01-02 15:04 UTC")
 	}
-	message.Sections = append([]string{fmt.Sprintf(
-		"*Memory health*\n%d confirmed memories · %d recalled · %d recent conversation summaries · %d continuity rollups\nLast consolidation: %s",
+	// The health strip is counters, and counters are context. It used to be the
+	// tallest section on the card, above the memories it was counting.
+	message.Context = append([]string{fmt.Sprintf(
+		"%d confirmed · %d recalled · %d recent conversation summaries · %d continuity rollups · last consolidation %s",
 		health.ExplicitActive,
 		health.ExplicitRecalled,
 		health.ConversationSummaries,
 		health.Rollups,
 		lastDreamed,
-	)}, message.Sections...)
+	)}, message.Context...)
+	// The nudge leads, because it is the only thing on this card that asks for
+	// anything, and it carries its own button instead of pooling one at the
+	// bottom among the Forget buttons.
 	if health.PendingReviews > 0 {
-		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*Review needed*\n%d saved memory item%s may be stale or redundant. Nothing will be changed automatically.",
-			health.PendingReviews,
-			map[bool]string{true: "", false: "s"}[health.PendingReviews == 1],
-		))
-		message.Actions = append([]Action{{
-			ID: ActionReviewMemory, Label: "Review memory", Value: "next",
-		}}, message.Actions...)
+		message.Rows = append([]Row{{
+			Text: fmt.Sprintf(
+				"*%s may be stale or redundant.* Nothing changes automatically.",
+				countLabel(health.PendingReviews, "saved memory item"),
+			),
+			Actions: []Action{{
+				ID: ActionReviewMemory, Label: "Review", Value: "next", Style: "primary",
+			}},
+		}}, message.Rows...)
 	}
 	if len(rollups) > 0 {
-		var continuity strings.Builder
-		continuity.WriteString("*Older conversation continuity*")
-		for index, rollup := range rollups[:min(len(rollups), 4)] {
+		message.Sections = append(message.Sections, "*Older conversation continuity*")
+		for _, rollup := range rollups[:min(len(rollups), 4)] {
 			summary := strings.TrimSpace(rollup.State.SituationSummary)
 			if summary == "" {
 				summary = displayOr(strings.TrimSpace(rollup.State.Goal), "No situation summary")
 			}
-			fmt.Fprintf(
-				&continuity,
-				"\n%d. %s · %s to %s · %d source summaries\n> %s",
-				index+1,
+			message = AppendRow(message, fmt.Sprintf(
+				"*%s* · %s to %s · %s\n> %s",
 				escapeSlackText(rollup.ScopeKind+":"+rollup.ScopeKey),
-				rollup.PeriodStart.UTC().Format("2006-01-02"),
-				rollup.PeriodEnd.UTC().Format("2006-01-02"),
-				rollup.SourceCount,
+				slackDate(rollup.PeriodStart, "2006-01-02"),
+				slackDate(rollup.PeriodEnd, "2006-01-02"),
+				countLabel(rollup.SourceCount, "source summary", "source summaries"),
 				escapeSlackText(summary),
-			)
-			message.Actions = append(message.Actions, Action{
-				ID: ActionForgetMemoryRollup, Label: fmt.Sprintf("Discard continuity %d", index+1),
+			), []Action{{
+				ID: ActionForgetMemoryRollup, Label: "Discard",
 				Value: rollup.ID, Style: "danger",
 				Confirm: "Discard this synthesized continuity summary? Its already-compacted source summaries cannot be restored.",
-			})
+			}})
 		}
-		message.Sections = append(message.Sections, continuity.String())
 		message.Context = append(message.Context,
 			"Continuity rollups are lossy summaries of older conversations, not instructions or operational evidence.")
 	}
@@ -940,14 +1041,11 @@ func MemoryHealthMessage(
 }
 
 func MemoryRollupForgottenMessage() Message {
-	return Message{
-		Text:   "Older conversation continuity discarded.",
-		Header: "Continuity summary discarded",
-		Sections: []string{
-			"The selected synthesized summary was removed and will no longer appear in future context.",
-		},
-		Context: []string{"Current conversation summaries and operator-confirmed memory were not changed."},
-	}
+	return stateChangeCard(
+		"Discarded. That continuity summary will not appear in future context.",
+		"*Discarded.* The selected synthesized summary was removed and will no longer appear in future context.",
+		"Current conversation summaries and operator-confirmed memory were not changed.",
+	)
 }
 
 func guidanceOfferScopeLabel(offer core.MemoryOffer, fallback string) string {

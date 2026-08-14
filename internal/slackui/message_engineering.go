@@ -721,69 +721,67 @@ func publicationFallback(
 }
 
 func MemoryReviewMessage(item core.MemoryReviewItem, entries []core.MemoryEntry) Message {
-	header := "Review saved memory"
-	intro := "This saved memory has not been used recently. Keep it if it is still useful, or forget it."
-	if item.Kind == "duplicate" {
-		header = "Possible duplicate memory"
-		intro = "These entries remember the same guidance in the same scope. Merge them to keep the newest copy, or keep them separate."
-	}
-	message := Message{
-		Text:     header + ". " + item.Reason,
-		Header:   header,
-		Sections: []string{intro},
-		Context: []string{
-			"This review never changes memory until you choose an action. Fresh evidence and current repository state still take precedence over anything kept.",
+	// The header asks the question and the sentence below says why it is being
+	// asked. It used to open with "This saved memory has not been used
+	// recently", which is the facts line rewritten as prose — the entry now
+	// leads and states its own recall directly.
+	header, why := "Still true?",
+		"Keep it if it is still useful, or forget it."
+	actions := []Action{
+		{ID: ActionKeepMemoryReview, Label: "Keep it", Value: item.ID, Style: "primary"},
+		{
+			ID: ActionForgetMemoryReview, Label: "Forget it", Value: item.ID,
+			Style: "danger", Confirm: "Permanently forget this saved memory?",
 		},
 	}
-	for index, entry := range entries {
-		lastUsed := "never recalled"
-		if !entry.LastRecalledAt.IsZero() {
-			lastUsed = "last used " + entry.LastRecalledAt.UTC().Format("2006-01-02")
-		}
-		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*%d. %s*\n> %s\n%s · %s · expires %s",
-			index+1,
-			escapeSlackText(strings.ReplaceAll(entry.SubjectKey, "_", " ")),
-			escapeSlackText(entry.Value),
-			guidanceEntryScopeLabel(entry),
-			lastUsed,
-			expiryStamp(entry.ExpiresAt, "2006-01-02"),
-		))
-	}
 	if item.Kind == "duplicate" {
-		message.Actions = []Action{
-			{ID: ActionMergeMemoryReview, Label: "Merge copies", Value: item.ID, Style: "primary", Confirm: "Keep the newest copy and permanently remove the redundant copies?"},
+		header, why = "Same memory twice?",
+			"These entries remember the same guidance in the same scope. Merging keeps the newest copy."
+		actions = []Action{
+			{
+				ID: ActionMergeMemoryReview, Label: "Merge copies", Value: item.ID,
+				Style: "primary", Confirm: "Keep the newest copy and permanently remove the redundant copies?",
+			},
 			{ID: ActionDismissMemoryReview, Label: "Keep separate", Value: item.ID},
 		}
-	} else {
-		message.Actions = []Action{
-			{ID: ActionKeepMemoryReview, Label: "Keep it", Value: item.ID, Style: "primary"},
-			{ID: ActionForgetMemoryReview, Label: "Forget it", Value: item.ID, Style: "danger", Confirm: "Permanently forget this saved memory?"},
-		}
 	}
-	return message
+	quoted := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		saved := ""
+		if when := slackDate(entry.CreatedAt, "2006-01-02"); when != "" {
+			saved = "saved " + when
+		}
+		quoted = append(quoted, quoteLines(entry.Value)+"\n"+joinFacts([]string{
+			"*" + escapeSlackText(strings.ReplaceAll(entry.SubjectKey, "_", " ")) + "*",
+			saved,
+			memoryRecallFact(entry),
+			guidanceEntryScopeLabel(entry),
+		}))
+	}
+	return reviewCard(header, why, quoted, actions...)
 }
 
 func MemoryReviewCompleteMessage(action string, remaining int) Message {
-	result := "Memory kept."
+	result := "Kept."
+	meaning := "It stays available to future investigations."
 	switch action {
 	case "forget":
-		result = "Memory forgotten."
+		result, meaning = "Forgotten.",
+			"It will no longer be supplied to future investigations."
 	case "merge":
-		result = "Duplicate copies merged."
+		result, meaning = "Merged.",
+			"The newest copy was kept and the redundant copies were removed."
 	case "dismiss":
-		result = "Entries kept separately."
+		result, meaning = "Kept separately.",
+			"Both entries stay as they are."
 	}
-	message := Message{
-		Text:     result,
-		Header:   "Memory review complete",
-		Sections: []string{result},
-	}
+	note := ""
+	var actions []Action
 	if remaining > 0 {
-		message.Context = []string{fmt.Sprintf("%d memory review item(s) remain.", remaining)}
-		message.Actions = []Action{{ID: ActionReviewMemory, Label: "Review next", Value: "next"}}
+		note = fmt.Sprintf("%s still to review.", countLabel(remaining, "memory item"))
+		actions = []Action{{ID: ActionReviewMemory, Label: "Review next", Value: "next"}}
 	}
-	return message
+	return stateChangeCard(result+" "+meaning, "*"+result+"* "+meaning, note, actions...)
 }
 
 func PublicationMessage(publication core.Publication, updated bool) Message {

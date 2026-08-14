@@ -3483,7 +3483,7 @@ func (s *Service) finalizeIncidentAgentRun(
 	// confirmation or approval keeps its own message because its controls must
 	// remain attached to the exact proposal the operator is accepting.
 	standaloneTaskResult := incident.IsEngineeringTask() &&
-		(pendingApproval != nil || len(message.Actions) > 0)
+		(pendingApproval != nil || message.HasControls())
 	if incident.IsEngineeringTask() {
 		message = s.withEngineeringTaskChanges(ctx, run, incident, state, message)
 	}

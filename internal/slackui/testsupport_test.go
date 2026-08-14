@@ -23,6 +23,31 @@ func cardText(message Message) string {
 	return strings.Join(parts, "\n")
 }
 
+// cardActions is every control on a card, wherever it is attached.
+//
+// Controls used to live in one pile at the bottom, so a test could read
+// message.Actions and see all of them. They now sit on the row they act on, in
+// a row's ⋯ menu, or in the card's — an assertion that still counts the bottom
+// pile is asserting where a button is, not whether it exists.
+func cardActions(message Message) []Action {
+	actions := append([]Action{}, message.Actions...)
+	for _, row := range message.Rows {
+		actions = append(actions, row.Actions...)
+		actions = append(actions, row.Overflow...)
+	}
+	return append(actions, message.Overflow...)
+}
+
+// cardActionIDs is the same set reduced to the routes it would fire.
+func cardActionIDs(message Message) []string {
+	actions := cardActions(message)
+	ids := make([]string, 0, len(actions))
+	for _, action := range actions {
+		ids = append(ids, action.ID)
+	}
+	return ids
+}
+
 // ledgerText flattens a ledger for assertions that care what a step says
 // rather than how the strip is aligned.
 func ledgerText(steps []LedgerStep) string {

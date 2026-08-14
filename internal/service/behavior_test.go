@@ -248,6 +248,11 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	content := offerPost.message.Text + "\n" +
 		strings.Join(offerPost.message.Sections, "\n") + "\n" +
 		strings.Join(offerPost.message.Context, "\n")
+	// Each proposal is a row that carries its own confirmation, so the words
+	// being agreed to are in the rows.
+	for _, row := range offerPost.message.Rows {
+		content += "\n" + row.Text
+	}
 	for _, expected := range []string{
 		"I can remember both", "Reply in threads", "Investigate operational alerts",
 		"current evidence", "focused fixes", "critical alerts",
@@ -1715,7 +1720,22 @@ func findSlackAction(
 	actionID string,
 ) slackui.Action {
 	t.Helper()
+	// A card's controls now sit on the row they act on, in that row's overflow
+	// menu, or in the card's — "does this card offer that action" is a question
+	// about the whole card, not about the pile at the bottom of it.
 	for _, action := range message.Actions {
+		if action.ID == actionID {
+			return action
+		}
+	}
+	for _, row := range message.Rows {
+		for _, action := range append(append([]slackui.Action{}, row.Actions...), row.Overflow...) {
+			if action.ID == actionID {
+				return action
+			}
+		}
+	}
+	for _, action := range message.Overflow {
 		if action.ID == actionID {
 			return action
 		}

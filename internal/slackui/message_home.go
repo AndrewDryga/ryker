@@ -231,7 +231,7 @@ func OperationsHome(
 				state,
 				scope,
 				expiryStamp(preference.ExpiresAt, "2006-01-02"),
-			), preferenceActions(preference))
+			), preferenceRowActions(preference))
 		}
 	}
 	if len(rules) > 0 {
@@ -249,7 +249,7 @@ func OperationsHome(
 				rule.ChannelID,
 				rule.TriggerCount,
 				expiryStamp(rule.ExpiresAt, "2006-01-02"),
-			), ruleActions(rule))
+			), ruleRowActions(rule))
 		}
 	}
 	return message

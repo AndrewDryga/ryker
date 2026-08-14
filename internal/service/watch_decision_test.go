@@ -736,11 +736,17 @@ func TestWatchedScheduleAndRunbookRequestUsesEmisarAndOffersSchedule(t *testing.
 		t.Fatalf("compound offer posts = %+v", slackClient.posts)
 	}
 	message := slackClient.posts[0].message
-	if len(message.Actions) != 1 ||
-		message.Actions[0].ID != slackui.ActionRememberSchedule ||
-		!strings.Contains(strings.Join(message.Sections, "\n"), "Daily deep infrastructure health review") ||
-		!strings.Contains(strings.Join(message.Sections, "\n"), "deep-infrastructure-health@1") ||
-		strings.Contains(strings.Join(message.Sections, "\n"), "engineering task") {
+	// Supersedes the flat-Actions/Sections form: the proposal is a row and its
+	// confirmation is attached to it.
+	offerText := strings.Join(message.Sections, "\n")
+	for _, row := range message.Rows {
+		offerText += "\n" + row.Text
+	}
+	if len(message.Rows) != 1 || len(message.Rows[0].Actions) != 1 ||
+		message.Rows[0].Actions[0].ID != slackui.ActionRememberSchedule ||
+		!strings.Contains(offerText, "Daily deep infrastructure health review") ||
+		!strings.Contains(offerText, "deep-infrastructure-health@1") ||
+		strings.Contains(offerText, "engineering task") {
 		t.Fatalf("compound offer = %+v", message)
 	}
 	run, err := st.GetAgentRunBySource(ctx, "watch", source.ID)

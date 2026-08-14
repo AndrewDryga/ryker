@@ -504,9 +504,15 @@ func TestCustomerJourneySchedulesEngineeringFollowupWithoutStalePRControls(t *te
 		t.Fatalf("follow-up posts = %+v", slackClient.posts)
 	}
 	message := slackClient.posts[0].message
-	ids := make([]string, 0, len(message.Actions))
+	// The schedule's confirmation sits on the proposal row it confirms.
+	ids := make([]string, 0, len(message.Actions)+len(message.Rows))
 	for _, action := range message.Actions {
 		ids = append(ids, action.ID)
+	}
+	for _, row := range message.Rows {
+		for _, action := range row.Actions {
+			ids = append(ids, action.ID)
+		}
 	}
 	if !slices.Contains(ids, slackui.ActionRememberSchedule) ||
 		slices.Contains(ids, slackui.ActionChanges) ||

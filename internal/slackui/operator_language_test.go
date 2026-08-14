@@ -43,15 +43,49 @@ func TestOperatorMessagesCarryNoInternalVocabulary(t *testing.T) {
 		"CommitmentOverdueMessage": CommitmentOverdueMessage(core.WorkEpisode{
 			ID: "ep_1", Objective: "Verify the rollout",
 		}, 90*time.Minute, 0),
+		// The memory, preference, rule and schedule cards write their own copy
+		// too, and they are where an operator meets Responder most often.
+		"MemorySavedMessage":           MemorySavedMessage(shapeGuidanceEntry(), false),
+		"MemoryForgottenMessage":       MemoryForgottenMessage(),
+		"MemoryRollupForgottenMessage": MemoryRollupForgottenMessage(),
+		"MemoryDirectoryMessage":       MemoryDirectoryMessage(repeat(3, shapeMemoryEntry)),
+		"MemoryReviewCompleteMessage":  MemoryReviewCompleteMessage("forget", 2),
+		"PreferenceSavedMessage":       PreferenceSavedMessage(shapePreference(0), false),
+		"PreferenceStateMessage":       PreferenceStateMessage(shapePreference(0)),
+		"PreferenceDeletedMessage":     PreferenceDeletedMessage(),
+		"PreferenceDirectoryMessage":   PreferenceDirectoryMessage(repeat(3, shapePreference)),
+		"RuleSavedMessage":             RuleSavedMessage(shapeRule(0), false),
+		"RuleStateMessage":             RuleStateMessage(shapeRule(0)),
+		"RuleDeletedMessage":           RuleDeletedMessage(),
+		"RuleDirectoryMessage":         RuleDirectoryMessage(repeat(3, shapeRule)),
+		"ScheduleSavedMessage":         ScheduleSavedMessage(shapeTask(0)),
+		"ScheduleStateMessage":         ScheduleStateMessage(shapeTask(0)),
+		"ScheduleDeletedMessage":       ScheduleDeletedMessage(),
+		"ScheduleDirectoryMessage":     ScheduleDirectoryMessage(repeat(3, shapeTask)),
+		"CommitmentDirectoryMessage":   CommitmentDirectoryMessage(repeat(3, shapeCommitment)),
+		"MemoryReviewMessage": MemoryReviewMessage(
+			core.MemoryReviewItem{ID: "review_1", Kind: "stale"},
+			[]core.MemoryEntry{shapeGuidanceEntry()},
+		),
+		"WithScheduleOffer": WithScheduleOffer(
+			ConversationResponse("I can do that.", NewSanitizer(12000)),
+			shapeTask(0), `{"v":1}`, "Every day at 09:00 UTC",
+		),
+		"WithRuleOffer": WithRuleOffer(
+			ConversationResponse("I can watch those.", NewSanitizer(12000)),
+			core.RuleOffer{
+				Scope: "channel", Repository: "repo", Trigger: "terraform_plan",
+				Action: "review_terraform_plan", SourceKind: "app", ExpiresIn: "30d",
+			}, shapeRule(0), `{"v":1}`, "30 days",
+		),
 	}
 
 	for name, message := range messages {
 		t.Run(name, func(t *testing.T) {
-			content := strings.ToLower(
-				message.Text + "\n" + message.Header + "\n" + message.Markdown + "\n" +
-					strings.Join(message.Sections, "\n") + "\n" +
-					strings.Join(message.Context, "\n"),
-			)
+			// cardText rather than the fields by hand: a card's words live in
+			// its rows as readily as its sections, and a linter that reads only
+			// Sections stops seeing the copy the moment it moves.
+			content := strings.ToLower(cardText(message))
 			for _, leak := range internalVocabulary {
 				if strings.Contains(content, strings.ToLower(leak)) {
 					t.Errorf("operator message contains %q:\n%s", leak, content)

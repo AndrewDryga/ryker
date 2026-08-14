@@ -740,12 +740,17 @@ func TestScheduleAndEngineeringTaskOffersComposeWithoutOverwriting(t *testing.T)
 		"slack-source-compound",
 		"Tenant infrastructure (`tenant-infra`)",
 	)
-	if len(message.Actions) != 2 ||
-		message.Actions[0].ID != ActionRememberSchedule ||
-		message.Actions[1].ID != ActionStartTask ||
-		len(message.Sections) != 2 ||
-		!strings.Contains(message.Sections[0], "Daily deep health review") ||
-		!strings.Contains(message.Sections[1], "Create a reusable deep health runbook") ||
+	// Supersedes the flat-Actions form: the schedule's confirmation now sits on
+	// the proposal row it confirms, and the task offer keeps the card's own
+	// button, so composition means both survive in their own place.
+	if len(message.Rows) != 1 || len(message.Rows[0].Actions) != 1 ||
+		message.Rows[0].Actions[0].ID != ActionRememberSchedule ||
+		!strings.Contains(message.Rows[0].Text, "Daily deep health review") {
+		t.Fatalf("schedule proposal row = %+v", message)
+	}
+	if len(message.Actions) != 1 || message.Actions[0].ID != ActionStartTask ||
+		len(message.Sections) != 1 ||
+		!strings.Contains(message.Sections[0], "Create a reusable deep health runbook") ||
 		len(message.Context) != 1 {
 		t.Fatalf("compound offers = %+v", message)
 	}
@@ -1222,20 +1227,22 @@ func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
 		"channel",
 		"30 days",
 	)
-	content := strings.Join(message.Sections, "\n") + "\n" +
-		strings.Join(message.Context, "\n")
+	// Supersedes the "Proposed operational memory" heading: the proposal is the
+	// row, quoted, so a label restating that it is a proposal is one line of
+	// card spent saying nothing the reader cannot see.
+	content := cardText(message)
 	for _, expected := range []string{
-		"Proposed operational memory", "old portal", "alias_of", "service:portal",
+		"old portal", "alias_of", "service:portal",
 		"Nothing is saved yet", "not live evidence",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("memory offer missing %q: %+v", expected, message)
 		}
 	}
-	if len(message.Actions) != 1 ||
-		message.Actions[0].ID != ActionRememberMemory ||
-		!strings.Contains(message.Actions[0].Confirm, "cannot establish current health") {
-		t.Fatalf("memory offer action = %+v", message.Actions)
+	actions := cardActions(message)
+	if len(actions) != 1 || actions[0].ID != ActionRememberMemory ||
+		!strings.Contains(actions[0].Confirm, "cannot establish current health") {
+		t.Fatalf("memory offer action = %+v", actions)
 	}
 	if strings.Contains(content, "**") {
 		t.Fatalf("memory offer uses non-Slack bold markup: %s", content)
@@ -1246,9 +1253,10 @@ func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
 		ExpiresAt: time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC),
 	}
 	directory := MemoryDirectoryMessage([]core.MemoryEntry{entry})
-	if len(directory.Actions) != 1 ||
-		directory.Actions[0].ID != ActionForgetMemory ||
-		!strings.Contains(directory.Sections[0], "COPS") {
+	directoryActions := cardActions(directory)
+	if len(directoryActions) != 1 ||
+		directoryActions[0].ID != ActionForgetMemory ||
+		!strings.Contains(cardText(directory), "COPS") {
 		t.Fatalf("memory directory = %+v", directory)
 	}
 }
@@ -1263,15 +1271,15 @@ func TestScheduleOfferAndDirectoryExplainExecutionBoundary(t *testing.T) {
 		NextRunAt: now, ExpiresAt: now.Add(30 * 24 * time.Hour), Enabled: true,
 	}
 	offer := WithScheduleOffer(ConversationResponse("I can do that.", NewSanitizer(12000)), task, `{"version":1}`, "Every day at 09:00 UTC")
-	if len(offer.Actions) != 1 || offer.Actions[0].ID != ActionRememberSchedule ||
+	offerActions := cardActions(offer)
+	if len(offerActions) != 1 || offerActions[0].ID != ActionRememberSchedule ||
 		!strings.Contains(strings.Join(offer.Context, " "), "cannot reuse an old approval") {
 		t.Fatalf("schedule offer = %+v", offer)
 	}
+	// Every control still reaches the row it belongs to; two of them now sit in
+	// that row's ⋯ rather than in a pile of four buttons per schedule.
 	directory := ScheduleDirectoryMessage([]core.ScheduledTask{task})
-	ids := make([]string, 0, len(directory.Actions))
-	for _, action := range directory.Actions {
-		ids = append(ids, action.ID)
-	}
+	ids := cardActionIDs(directory)
 	for _, want := range []string{ActionToggleSchedule, ActionRunSchedule, ActionEditSchedule, ActionDeleteSchedule} {
 		if !slices.Contains(ids, want) {
 			t.Fatalf("schedule directory actions = %v, missing %s", ids, want)
@@ -1281,10 +1289,8 @@ func TestScheduleOfferAndDirectoryExplainExecutionBoundary(t *testing.T) {
 	completed.Enabled = false
 	completed.NextRunAt = time.Time{}
 	completedDirectory := ScheduleDirectoryMessage([]core.ScheduledTask{completed})
-	for _, action := range completedDirectory.Actions {
-		if action.ID == ActionToggleSchedule {
-			t.Fatalf("completed one-shot schedule can be resumed: %+v", completedDirectory.Actions)
-		}
+	if slices.Contains(cardActionIDs(completedDirectory), ActionToggleSchedule) {
+		t.Fatalf("completed one-shot schedule can be resumed: %+v", completedDirectory.Rows)
 	}
 }
 
@@ -1303,14 +1309,10 @@ func TestScheduleOfferMakesFutureCommitmentConditional(t *testing.T) {
 		`{"version":1}`,
 		"Once on Aug 3, 2026 at 19:18 UTC",
 	)
-	content := message.Text + "\n" + message.Markdown + "\n" +
-		strings.Join(message.Sections, "\n") + "\n" +
-		strings.Join(message.Context, "\n")
-	for _, row := range message.Rows {
-		content += "\n" + row.Text
-	}
-	if len(message.Actions) != 1 || message.Actions[0].ID != ActionRememberSchedule {
-		t.Fatalf("schedule confirmation action = %+v", message.Actions)
+	content := cardText(message)
+	actions := cardActions(message)
+	if len(actions) != 1 || actions[0].ID != ActionRememberSchedule {
+		t.Fatalf("schedule confirmation action = %+v", actions)
 	}
 	if !strings.Contains(content, "Confirm the schedule below") ||
 		!strings.Contains(content, "Nothing is scheduled yet") ||
@@ -1336,13 +1338,21 @@ func TestSeveralScheduleOffersUseOneAtomicConfirmation(t *testing.T) {
 		`{"version":3,"proposal_ids":["one","two"]}`,
 		[]string{"Tomorrow at 15:00 CDT", "In three days at 15:00 CDT"},
 	)
-	content := message.Text + strings.Join(message.Sections, "\n") + strings.Join(message.Context, "\n")
-	if len(message.Actions) != 1 || message.Actions[0].Label != "Schedule all 2" ||
-		!strings.Contains(message.Actions[0].Confirm, "all 2") ||
+	content := cardText(message)
+	actions := cardActions(message)
+	if len(actions) != 1 || actions[0].Label != "Schedule all 2" ||
+		!strings.Contains(actions[0].Confirm, "all 2") ||
 		!strings.Contains(content, "Check Zot tomorrow") ||
 		!strings.Contains(content, "Check Zot in three days") ||
 		!strings.Contains(content, "none are") {
 		t.Fatalf("schedule batch card = %+v", message)
+	}
+	// One confirmation, and it is on the first proposal rather than repeated
+	// down the card: the second row is a thing being agreed to, not a thing to
+	// agree to separately.
+	if len(message.Rows) != 2 || len(message.Rows[0].Actions) != 1 ||
+		len(message.Rows[1].Actions) != 0 {
+		t.Fatalf("batch confirmation is not attached to the first proposal: %+v", message.Rows)
 	}
 }
 
@@ -1360,25 +1370,25 @@ func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
 		"workspace",
 		"90 days",
 	)
-	content := strings.Join(message.Sections, "\n") + "\n" +
-		strings.Join(message.Context, "\n")
+	content := cardText(message)
+	actions := cardActions(message)
 	for _, expected := range []string{
-		"Proposed guidance", "Start with a simple summary", "only you, across this workspace",
+		"Start with a simple summary", "only you, across this workspace",
 		"cannot start work", "Remember this",
 	} {
-		if !strings.Contains(content+"\n"+message.Actions[0].Label, expected) {
+		if !strings.Contains(content+"\n"+actions[0].Label, expected) {
 			t.Fatalf("guidance offer missing %q: %+v", expected, message)
 		}
 	}
 	// Two buttons: the offer as proposed, and the same guidance with no expiry.
 	// The second one is the whole answer to "I don't want a deadline" — an
 	// operator who wants permanence should not have to talk the model into
-	// re-proposing it.
-	if strings.Contains(content, "**") || len(message.Actions) != 2 ||
-		message.Actions[0].ID != ActionRememberMemory ||
-		message.Actions[1].ID != ActionRememberMemory ||
-		message.Actions[1].Label != "Remember permanently" ||
-		message.Actions[1].Value != `{"version":1,"forever":true}` {
+	// re-proposing it. Both sit on the proposal row now.
+	if strings.Contains(content, "**") || len(actions) != 2 ||
+		actions[0].ID != ActionRememberMemory ||
+		actions[1].ID != ActionRememberMemory ||
+		actions[1].Label != "Remember permanently" ||
+		actions[1].Value != `{"version":1,"forever":true}` {
 		t.Fatalf("guidance offer formatting/actions = %+v", message)
 	}
 	entry := core.MemoryEntry{
@@ -1390,11 +1400,11 @@ func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
 	}
 	saved := MemorySavedMessage(entry, false)
 	directory := MemoryDirectoryMessage([]core.MemoryEntry{entry})
-	surface := saved.Text + "\n" + saved.Header + "\n" +
-		strings.Join(saved.Sections, "\n") + "\n" +
-		strings.Join(directory.Sections, "\n")
+	surface := cardText(saved) + "\n" + cardText(directory)
+	// Supersedes the "Guidance remembered" header: the receipt is one line that
+	// leads with the verb, so the header said it a second time.
 	for _, expected := range []string{
-		"I'll remember", "Guidance remembered", "Guidance: fix explanation style",
+		"I'll remember", "Remembered.", "Guidance: fix explanation style",
 	} {
 		if !strings.Contains(surface, expected) {
 			t.Fatalf("guidance management missing %q: %s", expected, surface)
@@ -1436,8 +1446,11 @@ func TestMemoryHealthAndReviewCardsAreExplicit(t *testing.T) {
 		ExplicitActive: 1, ConversationSummaries: 12, Rollups: 4,
 		PendingReviews: 1, LastDreamedAt: now,
 	})
-	if len(health.Actions) < 3 || health.Actions[0].ID != ActionReviewMemory ||
-		!strings.Contains(strings.Join(health.Sections, "\n"), "Last consolidation") {
+	// The review nudge leads the card and carries its own button; the health
+	// counters became the context line under the header, where counters belong.
+	if len(health.Rows) < 2 || len(health.Rows[0].Actions) != 1 ||
+		health.Rows[0].Actions[0].ID != ActionReviewMemory ||
+		!strings.Contains(strings.Join(health.Context, "\n"), "last consolidation") {
 		t.Fatalf("health = %+v", health)
 	}
 	review := MemoryReviewMessage(core.MemoryReviewItem{
@@ -1445,7 +1458,7 @@ func TestMemoryHealthAndReviewCardsAreExplicit(t *testing.T) {
 	}, []core.MemoryEntry{entry})
 	if len(review.Actions) != 2 || review.Actions[0].ID != ActionKeepMemoryReview ||
 		review.Actions[1].ID != ActionForgetMemoryReview ||
-		!strings.Contains(strings.Join(review.Context, "\n"), "never changes memory") {
+		!strings.Contains(strings.Join(review.Context, "\n"), "Nothing changes until you choose") {
 		t.Fatalf("review = %+v", review)
 	}
 }
@@ -1468,8 +1481,7 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 		`{"version":1}`,
 		"30 days",
 	)
-	preferenceContent := strings.Join(preferenceMessage.Sections, "\n") + "\n" +
-		strings.Join(preferenceMessage.Context, "\n")
+	preferenceContent := cardText(preferenceMessage)
 	for _, expected := range []string{
 		"Health-check depth", "deep", "Not active yet", "read-only",
 	} {
@@ -1489,12 +1501,11 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 		`{"version":1}`,
 		"90 days",
 	)
-	locationContent := strings.Join(locationMessage.Sections, "\n") + "\n" +
-		strings.Join(locationMessage.Context, "\n")
+	locationContent := cardText(locationMessage)
 	for _, expected := range []string{
 		"Reply in threads", "relevant thread", "Use this reply style",
 	} {
-		if !strings.Contains(locationContent+"\n"+locationMessage.Actions[0].Label, expected) {
+		if !strings.Contains(locationContent+"\n"+cardActions(locationMessage)[0].Label, expected) {
 			t.Fatalf("location preference lacks %q: %+v", expected, locationMessage)
 		}
 	}
@@ -1503,25 +1514,27 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 		!strings.Contains(preferenceContent, "You (operator preference)") {
 		t.Fatalf("preference offer has invalid Slack formatting or scope: %s", preferenceContent)
 	}
-	if len(preferenceMessage.Actions) != 1 ||
-		preferenceMessage.Actions[0].ID != ActionRememberPreference {
-		t.Fatalf("preference offer action = %+v", preferenceMessage.Actions)
+	preferenceActions := cardActions(preferenceMessage)
+	if len(preferenceActions) != 1 ||
+		preferenceActions[0].ID != ActionRememberPreference {
+		t.Fatalf("preference offer action = %+v", preferenceActions)
 	}
 	preferenceDirectory := PreferenceDirectoryMessage(
 		[]core.ResponderPreference{preference},
 	)
 	preferenceSaved := PreferenceSavedMessage(preference, false)
-	preferenceSurface := strings.Join(preferenceDirectory.Sections, "\n") + "\n" +
-		strings.Join(preferenceSaved.Sections, "\n") + "\n" +
-		strings.Join(preferenceSaved.Context, "\n")
-	if len(preferenceDirectory.Actions) != 3 ||
-		preferenceDirectory.Actions[0].ID != ActionTogglePreference ||
-		preferenceDirectory.Actions[1].ID != ActionEditPreference ||
-		preferenceDirectory.Actions[2].ID != ActionDeletePreference ||
+	preferenceSurface := cardText(preferenceDirectory) + "\n" + cardText(preferenceSaved)
+	// Supersedes the flat-Actions order: each preference's three controls sit
+	// under the preference they act on, so the assertion is per row.
+	if len(preferenceDirectory.Rows) != 1 ||
+		len(preferenceDirectory.Rows[0].Actions) != 3 ||
+		preferenceDirectory.Rows[0].Actions[0].ID != ActionTogglePreference ||
+		preferenceDirectory.Rows[0].Actions[1].ID != ActionEditPreference ||
+		preferenceDirectory.Rows[0].Actions[2].ID != ActionDeletePreference ||
 		strings.Contains(preferenceSurface, "**") ||
 		strings.Contains(preferenceSurface, preference.ScopeKey) ||
 		!strings.Contains(preferenceSurface, "highest precedence") {
-		t.Fatalf("preference controls = %+v", preferenceDirectory.Actions)
+		t.Fatalf("preference controls = %+v", preferenceDirectory.Rows)
 	}
 
 	rule := core.StandingRule{
@@ -1542,8 +1555,7 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 		`{"version":1}`,
 		"30 days",
 	)
-	ruleContent := strings.Join(ruleMessage.Sections, "\n") + "\n" +
-		strings.Join(ruleMessage.Context, "\n")
+	ruleContent := cardText(ruleMessage)
 	for _, expected := range []string{
 		"Review Terraform plans", "saved plan", "red flags",
 		"read-only", "Not active yet",
@@ -1557,20 +1569,23 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 		!strings.Contains(ruleContent, "This channel") {
 		t.Fatalf("rule offer has invalid Slack formatting or scope: %s", ruleContent)
 	}
-	if len(ruleMessage.Actions) != 1 ||
-		ruleMessage.Actions[0].ID != ActionRememberRule {
-		t.Fatalf("rule offer action = %+v", ruleMessage.Actions)
+	ruleOfferActions := cardActions(ruleMessage)
+	if len(ruleOfferActions) != 1 ||
+		ruleOfferActions[0].ID != ActionRememberRule {
+		t.Fatalf("rule offer action = %+v", ruleOfferActions)
 	}
 	ruleDirectory := RuleDirectoryMessage([]core.StandingRule{rule})
 	ruleSaved := RuleSavedMessage(rule, false)
-	ruleSurface := strings.Join(ruleDirectory.Sections, "\n") + "\n" +
-		strings.Join(ruleSaved.Sections, "\n")
-	if len(ruleDirectory.Actions) != 3 ||
-		ruleDirectory.Actions[0].ID != ActionToggleRule ||
-		ruleDirectory.Actions[1].ID != ActionEditRule ||
-		ruleDirectory.Actions[2].ID != ActionDeleteRule ||
-		!strings.Contains(ruleDirectory.Sections[0], "Fired 2 times") ||
-		!strings.Contains(ruleDirectory.Sections[0], "acted 1, did nothing 1") ||
+	ruleSurface := cardText(ruleDirectory) + "\n" + cardText(ruleSaved)
+	// Supersedes the flat-Actions order: a rule's controls sit under the rule,
+	// and the worth sentence stays on the row that names it.
+	if len(ruleDirectory.Rows) != 1 ||
+		len(ruleDirectory.Rows[0].Actions) != 3 ||
+		ruleDirectory.Rows[0].Actions[0].ID != ActionToggleRule ||
+		ruleDirectory.Rows[0].Actions[1].ID != ActionEditRule ||
+		ruleDirectory.Rows[0].Actions[2].ID != ActionDeleteRule ||
+		!strings.Contains(ruleDirectory.Rows[0].Text, "Fired 2 times") ||
+		!strings.Contains(ruleDirectory.Rows[0].Text, "acted 1, did nothing 1") ||
 		strings.Contains(ruleSurface, "**") {
 		t.Fatalf("rule directory = %+v", ruleDirectory)
 	}

@@ -50,9 +50,16 @@ func TestEvaluationRendersEmisarRunbookResultAndScheduleSurface(t *testing.T) {
 		Kind: "watch", Input: "Schedule a daily deep health review around 9 am and create a reusable runbook.",
 		MentionsResponder: true, Repository: "repo",
 	}, output)
-	if err != nil || action != "reply" || len(message.Actions) != 1 ||
-		message.Actions[0].ID != slackui.ActionRememberSchedule ||
-		strings.Contains(strings.Join(message.Sections, "\n"), "engineering task") {
+	// Supersedes the flat-Actions form: the schedule's confirmation is attached
+	// to the proposal row it confirms.
+	offerText := strings.Join(message.Sections, "\n")
+	for _, row := range message.Rows {
+		offerText += "\n" + row.Text
+	}
+	if err != nil || action != "reply" || len(message.Rows) != 1 ||
+		len(message.Rows[0].Actions) != 1 ||
+		message.Rows[0].Actions[0].ID != slackui.ActionRememberSchedule ||
+		strings.Contains(offerText, "engineering task") {
 		t.Fatalf("rendered compound offer = %+v, action=%q, err=%v", message, action, err)
 	}
 }

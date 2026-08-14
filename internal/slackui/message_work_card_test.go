@@ -530,13 +530,18 @@ func TestSanitizerKeepsDateTokensAndStillNeutersBroadcasts(t *testing.T) {
 func TestSanitizerRedactsTheCardPartsTheWorkCardsIntroduced(t *testing.T) {
 	const secret = "xoxb-1234567890-abcdefghijklmnop"
 	message := Message{
-		Text:     "card",
-		Rows:     []Row{{Text: "> deploy with " + secret, Actions: []Action{{ID: ActionHelp, Label: "Full " + secret}}}},
+		Text: "card",
+		Rows: []Row{{
+			Text:     "> deploy with " + secret,
+			Actions:  []Action{{ID: ActionHelp, Label: "Full " + secret}},
+			Overflow: []Action{{ID: ActionHelp, Label: "Replace " + secret}},
+		}},
 		Overflow: []Action{{ID: ActionHelp, Label: "How " + secret, Confirm: "really " + secret}},
 		Ledger:   []LedgerStep{{Label: "Alert " + secret, Children: []LedgerStep{{Label: "check " + secret}}}},
 	}
 	cleaned := NewSanitizer(12000).Message(message)
 	rendered := cleaned.Rows[0].Text + cleaned.Rows[0].Actions[0].Label +
+		cleaned.Rows[0].Overflow[0].Label +
 		cleaned.Overflow[0].Label + cleaned.Overflow[0].Confirm +
 		cleaned.Ledger[0].Label + cleaned.Ledger[0].Children[0].Label
 	if strings.Contains(rendered, secret) {

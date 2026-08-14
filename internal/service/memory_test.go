@@ -158,8 +158,11 @@ func TestConfirmedMemoryActionPersistsAndForgetDeletes(t *testing.T) {
 	if err != nil || len(entries) != 1 || entries[0].Value != "service:portal" {
 		t.Fatalf("saved entries = %+v, %v", entries, err)
 	}
+	// Supersedes the "Saved operational memory" header: a receipt is one line
+	// that leads with the verb, and the header restated it.
 	if len(slackClient.posts) != 1 ||
-		slackClient.posts[0].message.Header != "Saved operational memory" {
+		!strings.HasPrefix(slackClient.posts[0].message.Text, "Saved operational memory:") ||
+		!strings.Contains(strings.Join(slackClient.posts[0].message.Sections, "\n"), "*Saved.*") {
 		t.Fatalf("memory receipt = %+v", slackClient.posts)
 	}
 	rememberedInput, err := st.GetSlackInput(ctx, remember.ID)
@@ -181,8 +184,10 @@ func TestConfirmedMemoryActionPersistsAndForgetDeletes(t *testing.T) {
 	if _, err := st.Memory.GetMemoryEntry(ctx, entries[0].ID); err != store.ErrNotFound {
 		t.Fatalf("forgotten entry error = %v", err)
 	}
+	// Supersedes the "Operational memory forgotten" header: the outcome word
+	// leads the fallback text and the one section beneath it.
 	if len(slackClient.ephemerals) != 1 ||
-		slackClient.ephemerals[0].message.Header != "Operational memory forgotten" {
+		!strings.HasPrefix(slackClient.ephemerals[0].message.Text, "Forgotten.") {
 		t.Fatalf("forget receipt = %+v", slackClient.ephemerals)
 	}
 }

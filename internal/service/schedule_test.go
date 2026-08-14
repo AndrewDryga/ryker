@@ -167,8 +167,11 @@ func TestScheduleConfirmationUpdatesProposalCardInPlace(t *testing.T) {
 		t.Fatalf("schedule confirmation updates = %+v", slackClient.updates)
 	}
 	update := slackClient.updates[0]
+	// Supersedes the "Scheduled task created" header and the four management
+	// buttons: a receipt states the outcome once and offers the way back out,
+	// not a control panel five seconds after a confirmation.
 	if update.channel != action.ChannelID || update.ts != action.MessageTS ||
-		update.message.Header != "Scheduled task created" {
+		!strings.HasPrefix(update.message.Text, "Scheduled Verify Zot authentication tomorrow.") {
 		t.Fatalf("schedule proposal update = %+v", update)
 	}
 	for _, control := range update.message.Actions {
@@ -176,7 +179,10 @@ func TestScheduleConfirmationUpdatesProposalCardInPlace(t *testing.T) {
 			t.Fatalf("confirmed schedule kept proposal action: %+v", update.message.Actions)
 		}
 	}
-	if len(update.message.Actions) == 0 || update.message.Actions[0].ID != slackui.ActionToggleSchedule {
+	if len(update.message.Actions) != 1 ||
+		update.message.Actions[0].ID != slackui.ActionDeleteSchedule ||
+		update.message.Actions[0].Label != "Undo" ||
+		update.message.Actions[0].Style == "danger" {
 		t.Fatalf("confirmed schedule controls = %+v", update.message.Actions)
 	}
 	tasks, err := st.Schedules.ListScheduledTasksForChannel(ctx, action.ChannelID, 10)
@@ -241,8 +247,11 @@ func TestBatchScheduleConfirmationUpdatesProposalCardInPlace(t *testing.T) {
 		t.Fatalf("batch confirmation updates = %+v", slackClient.updates)
 	}
 	update := slackClient.updates[0]
+	// Supersedes the "%d follow-up checks scheduled" header; the batch receipt
+	// leads with the verb and lists what it created as rows.
 	if update.channel != action.ChannelID || update.ts != action.MessageTS ||
-		update.message.Header != "2 follow-up checks scheduled" {
+		update.message.Text != "Scheduled 2 follow-up checks." ||
+		len(update.message.Rows) != 2 {
 		t.Fatalf("batch proposal update = %+v", update)
 	}
 	for _, control := range update.message.Actions {

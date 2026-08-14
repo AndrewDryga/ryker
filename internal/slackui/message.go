@@ -292,15 +292,47 @@ func (l LiveTurn) Recorded() bool {
 type Row struct {
 	Text    string   `json:"text"`
 	Actions []Action `json:"actions,omitempty"`
-	After   int      `json:"after,omitempty"`
+	// Overflow is this row's ⋯ menu, holding the controls that did not earn a
+	// button on this item. A list repeats its controls once per item, so the
+	// extras a single card could afford as buttons — edit, pause, replace —
+	// become a wall of them at ten rows; behind the menu they cost nothing and
+	// stay attached to the item they act on. Same rule as the card's menu: at
+	// most five options, and nothing that destroys work, because Block Kit
+	// confirms the menu rather than the option.
+	Overflow []Action `json:"overflow,omitempty"`
+	After    int      `json:"after,omitempty"`
 }
 
 // AppendRow adds a row directly beneath the sections added so far.
 func AppendRow(message Message, text string, actions []Action) Message {
+	return AppendRowMenu(message, text, actions, nil)
+}
+
+// AppendRowMenu is AppendRow with the row's remaining controls behind ⋯.
+func AppendRowMenu(message Message, text string, actions, overflow []Action) Message {
 	message.Rows = append(message.Rows, Row{
-		Text: text, Actions: actions, After: len(message.Sections),
+		Text: text, Actions: actions, Overflow: overflow, After: len(message.Sections),
 	})
 	return message
+}
+
+// HasControls reports whether this card asks the operator to press anything.
+//
+// The question is about the card, not about one field of it: a control now sits
+// on the row it acts on, or in that row's ⋯, as readily as in the pile at the
+// bottom. A caller that asked `len(Actions) > 0` was answering "is anything
+// attached here" and would silently answer no for a proposal whose confirmation
+// had moved onto the proposal.
+func (m Message) HasControls() bool {
+	if len(m.Actions) > 0 || len(m.Overflow) > 0 {
+		return true
+	}
+	for _, row := range m.Rows {
+		if len(row.Actions) > 0 || len(row.Overflow) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 type Field struct {
@@ -370,7 +402,11 @@ func (m Message) Blocks() []slack.Block {
 				slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(row.Text, 2900), false, true),
 				nil, nil,
 			))
-			if elements := buttonElements(row.Actions, occurrences); len(elements) > 0 {
+			elements := buttonElements(row.Actions, occurrences)
+			if overflow := overflowElement(row.Overflow, occurrences); overflow != nil {
+				elements = append(elements, overflow)
+			}
+			if len(elements) > 0 {
 				blocks = append(blocks, slack.NewActionBlock("", elements...))
 			}
 		}
@@ -1301,40 +1337,30 @@ func CommitmentDirectoryMessage(items []core.Commitment) Message {
 				"Closed incidents and completed engineering tasks remain available in the work history.",
 		}
 	}
-	var body strings.Builder
-	body.WriteString(
-		"These are durable agent runs that are queued, active, finishing, or blocked. " +
-			"Emisar resumes them after restarts and returns to the originating conversation.\n",
-	)
+	message := Message{
+		Text:   countLabel(len(items), "unfinished Emisar commitment") + ".",
+		Header: "What Emisar owes the team",
+		Context: []string{fmt.Sprintf(
+			"%s — queued, active, finishing, or blocked · resumed after restarts, and "+
+				"blocked work stays visible until it is retried, resolved, or aged out.",
+			countLabel(len(items), "unfinished commitment"),
+		)},
+	}
+	entries := make([]directoryEntry, 0, len(items))
 	for _, item := range items {
-		location := ""
+		text := "*" + escapeSlackText(item.Title) + "*"
 		if item.ChannelID != "" {
-			location = " in <#" + item.ChannelID + ">"
+			text += " · <#" + item.ChannelID + ">"
 		}
-		fmt.Fprintf(
-			&body,
-			"\n- **%s**%s\n  %s - %s",
-			escapeSlackText(item.Title),
-			location,
-			commitmentStateLabel(item.State),
-			escapeSlackText(item.Status),
-		)
+		text += "\n" + commitmentStateLabel(item.State) + " — " + escapeSlackText(item.Status)
 		if item.NextAction != "" {
-			fmt.Fprintf(
-				&body,
-				"\n  Next: %s",
-				escapeSlackText(item.NextAction),
-			)
+			text += "\nNext: " + escapeSlackText(item.NextAction)
 		}
+		entries = append(entries, directoryEntry{
+			Text: text, Actions: openThreadAction(item),
+		})
 	}
-	return Message{
-		Text:     fmt.Sprintf("%d unfinished Emisar commitments.", len(items)),
-		Header:   "What Emisar owes the team",
-		Markdown: body.String(),
-		Context: []string{
-			"Blocked work remains visible until it is retried, resolved, or removed by retention cleanup.",
-		},
-	}
+	return directoryCard(message, entries, "most recently updated first.")
 }
 
 func workflowStateLabel(workflow core.WorkflowState) string {
