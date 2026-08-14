@@ -5,8 +5,49 @@ package slackui
 // these narrower forms exist purely to keep their unit tests focused.
 
 import (
+	"strings"
+
 	"github.com/AndrewDryga/responder/internal/core"
 )
+
+// cardText is everything on a card a person reads as words, including the row
+// the ask now lives in — a card assertion that only joined Sections would stop
+// seeing the request the moment it moved.
+func cardText(message Message) string {
+	parts := []string{message.Text, message.Header, message.Markdown}
+	parts = append(parts, message.Sections...)
+	for _, row := range message.Rows {
+		parts = append(parts, row.Text)
+	}
+	parts = append(parts, message.Context...)
+	return strings.Join(parts, "\n")
+}
+
+// ledgerText flattens a ledger for assertions that care what a step says
+// rather than how the strip is aligned.
+func ledgerText(steps []LedgerStep) string {
+	parts := make([]string, 0, len(steps))
+	for _, step := range steps {
+		parts = append(parts, strings.Join(
+			[]string{step.Glyph, step.Label, step.Detail, step.When, step.Owner}, " ",
+		))
+		if len(step.Children) > 0 {
+			parts = append(parts, ledgerText(step.Children))
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// ledgerMarker reports the run's position: which step is current, out of how
+// many. Returns 0 when no step is marked, which is what a terminal card does.
+func ledgerMarker(steps []LedgerStep) (int, int) {
+	for index, step := range steps {
+		if step.Current {
+			return index + 1, len(steps)
+		}
+	}
+	return 0, len(steps)
+}
 
 func IncidentCard(
 	incident core.Incident,

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	IncidentCardRevision = "2026-07-28.1"
+	IncidentCardRevision = "2026-08-13.1"
 
 	ActionUpdate          = "responder_update"
 	ActionChanges         = "responder_changes"
@@ -105,6 +105,15 @@ const (
 	// same way a repeated button's row travels in its value, so routing needs
 	// one entry rather than one per card.
 	ActionOverflow = "responder_overflow"
+
+	// ActionFullRequest posts the whole ask as a thread reply.
+	//
+	// The card shows a two-line lede because the request is reference material
+	// and the card is an instrument — but the full text has to stay reachable,
+	// or the card would be hiding the thing the work is about. Routing this to
+	// FullRequestMessage is the next phase's edit; the id and the constructor
+	// ship together so the button is never rendered without a destination.
+	ActionFullRequest = "responder_full_request"
 )
 
 // Custody colours. The stripe answers one question — whose turn is it — and it
@@ -142,6 +151,9 @@ var (
 		regexp.MustCompile(`\bAKIA[A-Z0-9]{16}\b`),
 	}
 	slackMentionPattern = regexp.MustCompile(`<(?:@[A-Z0-9]+|![^>]+)>`)
+	// The exact shape slackDate emits, and nothing looser: an integer epoch,
+	// then a format and a fallback that carry no angle brackets of their own.
+	slackDatePattern = regexp.MustCompile(`^<!date\^\d+\^[^<>]*\|[^<>]*>$`)
 	// <https://host/path|Label> renders as Label. A work title is often the
 	// Slack message that started it, so it arrives full of these.
 	slackLinkTextPattern = regexp.MustCompile(`<https?://[^|>]+\|([^>]*)>`)
@@ -264,20 +276,12 @@ type Action struct {
 	URL     string `json:"url,omitempty"`
 }
 
-// Slack's Block Kit limits. A payload over any of them is rejected at
-// delivery — after the work is done, and in a way the agent cannot explain to
-// whoever is waiting. Not every field that reaches a card is bounded upstream
-// (a preference value and a standing-rule trigger are not), so the bound
-// belongs here, at the one point every outgoing message passes through.
-// Slack's Block Kit limits. A payload over any of them is rejected at
-// delivery — after the work is done, and in a way the agent cannot explain to
-// whoever is waiting. Not every field that reaches a card is bounded upstream
-// (a preference value and a standing-rule trigger are not), so the bound
-// belongs here, at the one point every outgoing message passes through.
-
-// safeActionURL drops anything that is not an ordinary web link. Slack renders
-// a button URL directly, so a non-HTTPS scheme would be an unreviewed escape
-// from the host-owned control surface.
+// truncateUTF8 bounds a payload at Slack's Block Kit limits. A payload over
+// any of them is rejected at delivery — after the work is done, and in a way
+// the agent cannot explain to whoever is waiting. Not every field that reaches
+// a card is bounded upstream (a preference value and a standing-rule trigger
+// are not), so the bound belongs here, at the one point every outgoing message
+// passes through.
 func truncateUTF8(value string, limit int) string {
 	return core.TruncateUTF8(value, limit)
 }
@@ -883,6 +887,91 @@ func slackDate(t time.Time, fallbackLayout string) string {
 	)
 }
 
+// custody is the question the stripe answers: whose turn is it.
+//
+// It is deliberately not the status taxonomy. Queued, investigating and
+// publishing are three different things a card can say in words, and one thing
+// as far as the colour is concerned — the operator is waiting on Emisar. The
+// card derives its primary button from this and nothing else, which is what
+// keeps "one primary, earned" from decaying into a green button per state.
+type custody int
+
+const (
+	// custodyEmisar: Emisar is working. No primary button anywhere on the
+	// card, and the state line ends in "nothing needed from you".
+	custodyEmisar custody = iota
+	// custodyOperator: something specific is wanted from a person, and the
+	// state line names it.
+	custodyOperator
+	// custodyNobody: terminal or idle. Nothing is running and nothing is
+	// owed, which is a different sentence from either of the above.
+	custodyNobody
+)
+
+// cardState is what a work card is, resolved once.
+//
+// Colour, glyph and word are produced together because they must agree and
+// each reaches a different reader: the stripe is invisible in a notification,
+// the glyph is stripped by the sidebar, and neither survives a screen reader.
+// A resolver that returned only a colour would let the three drift apart one
+// branch at a time, which is how the card being replaced ended up with eleven
+// conditional sections and no single answer to "what is this".
+type cardState struct {
+	Stripe  string
+	Glyph   string
+	Word    string
+	Custody custody
+}
+
+// Header renders "<glyph> <title>" — the first of the two lines rule 1 gives a
+// card to answer what this is.
+func (s cardState) Header(title string) string {
+	title = singleLine(title)
+	if s.Glyph == "" {
+		return truncateUTF8(title, 150)
+	}
+	return truncateUTF8(s.Glyph+" "+title, 150)
+}
+
+// stateLine is the second line: what state, where, how old, and what is wanted.
+//
+// It ends with the ask or its absence, always. A card that cannot say which of
+// those two it is has not earned the operator's attention.
+func (s cardState) stateLine(where, age, ask string) string {
+	parts := []string{"*" + s.Word + "*"}
+	for _, part := range []string{where, age} {
+		if strings.TrimSpace(part) != "" {
+			parts = append(parts, part)
+		}
+	}
+	if strings.TrimSpace(ask) != "" {
+		parts = append(parts, "*"+ask+"*")
+	}
+	return strings.Join(parts, "  ·  ")
+}
+
+// cardAge is the relative age of a card's subject, or "" when the timestamp
+// never made it into the record. An age of "55 years" is what a zero time
+// renders as, and it would be the loudest thing on the card.
+func cardAge(created, now time.Time) string {
+	if created.IsZero() {
+		return ""
+	}
+	return compactDuration(now.Sub(created))
+}
+
+// externalText is the boundary for strings this package did not write.
+//
+// Alert labels, signal titles and requester prose all reach a card from
+// outside the process. Sanitizer runs over an assembled Message, but it is
+// constructed per-caller and the card functions do not hold one, so the
+// shapes that must never render — escape sequences, credentials, a pack
+// digest, an embedded newline that would take a monospace column with it —
+// are stripped where the value is read.
+func externalText(value string) string {
+	return activityText(value)
+}
+
 func WithRepositoryGateRecommendation(message Message) Message {
 	message.Context = append(message.Context,
 		"Recommendation: add `gate:` to `.agent/project.yaml` so future draft-PR reviews run the repository's validation command.",
@@ -1457,24 +1546,6 @@ func ChannelName(prefix string, incident core.Incident) string {
 // The tone matters here: this is Responder admitting it has not delivered
 // something it took on, so it states the fact and what the operator can do,
 // without apologising at length or implying the work is lost.
-// CommitmentOverdueMessage tells a thread that accepted work has stopped
-// reporting progress.
-//
-// The tone matters here: this is Responder admitting it has not delivered
-// something it took on, so it states the fact and what the operator can do,
-// without apologising at length or implying the work is lost.
-// CommitmentOverdueMessage tells a thread that accepted work has stopped
-// reporting progress.
-//
-// The tone matters here: this is Responder admitting it has not delivered
-// something it took on, so it states the fact and what the operator can do,
-// without apologising at length or implying the work is lost.
-// CommitmentOverdueMessage tells a thread that accepted work has stopped
-// reporting progress.
-//
-// The tone matters here: this is Responder admitting it has not delivered
-// something it took on, so it states the fact and what the operator can do,
-// without apologising at length or implying the work is lost.
 func CommitmentOverdueMessage(episode core.WorkEpisode, overdueBy time.Duration) Message {
 	objective := displayOr(episode.Objective, "this request")
 	return Message{
@@ -1495,9 +1566,6 @@ func CommitmentOverdueMessage(episode core.WorkEpisode, overdueBy time.Duration)
 }
 
 // roundedDuration renders a duration the way a person would say it.
-// roundedDuration renders a duration the way a person would say it.
-// roundedDuration renders a duration the way a person would say it.
-// roundedDuration renders a duration the way a person would say it.
 func roundedDuration(value time.Duration) string {
 	switch {
 	case value >= 2*time.Hour:
@@ -1508,6 +1576,32 @@ func roundedDuration(value time.Duration) string {
 		return fmt.Sprintf("%d minutes", int(value.Minutes()))
 	default:
 		return "a minute"
+	}
+}
+
+// compactDuration renders an age as the one token a card column has room for.
+//
+// roundedDuration is the prose form and stays that way — "3 hours" is what a
+// sentence wants. A card wants "3h": the state line puts an age between two
+// separators, and a ledger line is 46 runes wide before the alignment starts
+// costing the reader a column. Timezone-proof by construction, which is the
+// other reason the ledger says "46m ago" rather than a wall clock nobody can
+// convert while reading.
+func compactDuration(value time.Duration) string {
+	switch {
+	case value < time.Minute:
+		// Never negative and never "0s": a clock skew of a second should not
+		// make a card look broken, and every age here is at least a moment old.
+		if value < time.Second {
+			return "1s"
+		}
+		return fmt.Sprintf("%ds", int(value.Seconds()))
+	case value < time.Hour:
+		return fmt.Sprintf("%dm", int(value.Minutes()))
+	case value < 48*time.Hour:
+		return fmt.Sprintf("%dh", int(value.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(value.Hours())/24)
 	}
 }
 

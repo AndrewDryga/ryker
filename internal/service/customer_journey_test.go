@@ -341,7 +341,13 @@ func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
 		}
 		drainSlackDeliveries(t, ctx, svc)
 		card := slackClient.updates[len(slackClient.updates)-1].message
+		// Publication progress is a detail on the ledger step it belongs to
+		// rather than a paragraph of its own, so a reader sees which step is
+		// running instead of an adjective they have to place in a sequence.
 		rendered := card.Text + "\n" + strings.Join(card.Sections, "\n")
+		for _, step := range card.Ledger {
+			rendered += "\n" + step.Label + " · " + step.Detail
+		}
 		if !strings.Contains(rendered, text) {
 			t.Fatalf("%s card lacks %q: %+v", state, text, card)
 		}
@@ -361,14 +367,14 @@ func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
 	// Progress is durable before the first Coop read. Keep session validation
 	// blocked and prove the card worker does not wait on the integration it is reporting.
 	waitFor("session validation", getSessionStarted)
-	assertCard("reviewing", "reviewing changes")
+	assertCard("reviewing", "Readiness review · running")
 	releaseGetSessionOnce.Do(func() { close(releaseGetSession) })
 	waitFor("reviewing", changesStarted)
 	releaseChangesOnce.Do(func() { close(releaseChanges) })
 	waitFor("readiness review", reviewStarted)
 	releaseReviewOnce.Do(func() { close(releaseReview) })
 	waitFor("publishing", publishStarted)
-	assertCard("publishing", "PR update: publishing")
+	assertCard("publishing", "Draft PR · #43 publishing")
 	releasePublishOnce.Do(func() { close(releasePublish) })
 	select {
 	case err := <-processed:
@@ -387,13 +393,18 @@ func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
 		t.Fatalf("published record = %+v, %v", publication, err)
 	}
 	final := slackClient.updates[len(slackClient.updates)-1].message
-	if !strings.Contains(strings.Join(final.Sections, "\n"), "PR ready") {
+	// The "*PR ready*" paragraph is superseded by the state word, which the
+	// fallback leads with so a notification carries it too.
+	if !strings.HasPrefix(final.Text, "PR open — ") {
 		t.Fatalf("final publication card = %+v", final)
 	}
+	// Open PR earns a button; refreshing delivery status does not, so it moved
+	// behind the overflow menu. Both must still be reachable — the assertion
+	// is that the control exists, not which row it sits in.
 	for _, actionID := range []string{slackui.ActionViewPR, slackui.ActionCheckDelivery} {
-		if !slices.ContainsFunc(final.Actions, func(action slackui.Action) bool {
-			return action.ID == actionID
-		}) {
+		reachable := func(action slackui.Action) bool { return action.ID == actionID }
+		if !slices.ContainsFunc(final.Actions, reachable) &&
+			!slices.ContainsFunc(final.Overflow, reachable) {
 			t.Fatalf("published card lacks %s after skipped Coop inspection: %+v", actionID, final)
 		}
 	}

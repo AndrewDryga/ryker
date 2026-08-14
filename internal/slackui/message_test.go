@@ -54,17 +54,35 @@ func TestIncidentCardHasVisibleStateAndDeterministicControls(t *testing.T) {
 		Status: core.SignalFiring, Summary: "Checkout requests are timing out.",
 		SourceURL: "https://grafana.example.test/alerting/1",
 	}}, true)
-	if card.Header != "CRITICAL | "+incident.Title || len(card.Actions) != 2 {
+	// The header is the incident's name and the glyph. The "CRITICAL | "
+	// prefix it used to carry moved into the state line, where severity sits
+	// beside the signal count it qualifies instead of competing with the title.
+	if card.Header != "🔴 "+incident.Title || len(card.Actions) != 2 {
 		t.Fatalf("card = %+v", card)
+	}
+	if card.Stripe != StripeFailed {
+		t.Fatalf("firing critical incident is not red: %q", card.Stripe)
+	}
+	if !strings.HasPrefix(card.Text, "Firing — ") {
+		t.Fatalf("fallback does not lead with the state word: %q", card.Text)
 	}
 	if !strings.Contains(card.Text, "Severity critical") ||
 		!strings.Contains(card.Text, "Responder Investigating") ||
 		!strings.Contains(card.Text, "2 of 3 signals firing") {
 		t.Fatalf("fallback omits incident state: %q", card.Text)
 	}
+	if !strings.Contains(card.Sections[0], "Critical") ||
+		!strings.Contains(card.Sections[0], "2 of 3 signals firing") {
+		t.Fatalf("state line omits severity or signal count: %q", card.Sections[0])
+	}
 	if len(card.Sections) != 2 || !strings.Contains(card.Sections[1], "Checkout requests") ||
 		!slices.Contains(card.Context, "Alert source: <https://grafana.example.test/alerting/1|Open grafana.example.test>") {
 		t.Fatalf("card omits alert evidence: %+v", card)
+	}
+	// The fields grid stated a count and never the names. The strip states
+	// which signal, which is the question the count stood in front of.
+	if len(card.Ledger) != 1 || card.Ledger[0].Glyph != "●" || len(card.Fields) != 0 {
+		t.Fatalf("signal strip did not replace the fields grid: %+v", card)
 	}
 	var actionBlocks int
 	for _, action := range card.Actions {
@@ -80,9 +98,12 @@ func TestIncidentCardHasVisibleStateAndDeterministicControls(t *testing.T) {
 			}
 		}
 	}
+	// Stop is neutral now. It preserves the fork and the queued work, so it
+	// destroys nothing, and red is reserved for the controls that do — a red
+	// button on every running card is how red stops meaning anything.
 	if actionBlocks != 1 || card.Actions[0].ID != ActionStop ||
 		card.Actions[0].Label != "Stop current run" ||
-		card.Actions[0].Style != "danger" || card.Actions[0].Confirm == "" {
+		card.Actions[0].Style != "" || card.Actions[0].Confirm == "" {
 		t.Fatalf("card lacks compact safe stop action: %+v", card.Actions)
 	}
 }
@@ -438,28 +459,44 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	card := IncidentCard(task, "Emisar", []core.Signal{{
 		Status: core.SignalFiring, Summary: "Update infra/ with required packs.",
 	}}, false)
-	content := card.Text + "\n" + strings.Join(card.Sections, "\n")
-	if !strings.Contains(content, "Engineering task") ||
-		!strings.Contains(content, "Requested change") ||
+	content := cardText(card)
+	// "*Engineering task: Open | Responder: Waiting for input*" and the full
+	// "Requested change" dump are both gone. The fallback leads with the state
+	// word, and the ask is a two-line quote with a way to read the rest —
+	// the request is reference material and was the tallest block on the card.
+	if !strings.HasPrefix(card.Text, "Parked — ") ||
+		!strings.Contains(content, "Update infra/ with required packs.") ||
 		strings.Contains(content, "alert signals") ||
 		strings.Contains(content, "Severity") ||
 		len(card.Actions) == 0 ||
 		card.Actions[len(card.Actions)-1].Label != "Close task" {
 		t.Fatalf("engineering task card = %+v", card)
 	}
+	if !slices.ContainsFunc(card.Rows, func(row Row) bool {
+		return len(row.Actions) == 1 && row.Actions[0].ID == ActionFullRequest
+	}) {
+		t.Fatalf("the quoted ask has no way to reach the rest of it: %+v", card.Rows)
+	}
 	if !strings.Contains(offer.Actions[0].Confirm, "isolated") ||
 		!strings.Contains(card.Context[0], "same isolated task session") {
 		t.Fatalf("engineering task thread copy = offer:%+v card:%+v", offer, card)
 	}
-	if !strings.Contains(content, "nothing to inspect, review, or publish") {
-		t.Fatalf("zero-change task does not explain delivery state: %+v", card)
+	// The "*Delivery state*\nThe isolated task has no code changes…" paragraph
+	// is superseded by the ledger: an unstarted step states the same fact as a
+	// position instead of as a paragraph the reader has to place in a sequence.
+	if position, steps := ledgerMarker(card.Ledger); position != 2 || steps != 5 {
+		t.Fatalf("zero-change task ledger = step %d of %d: %+v", position, steps, card.Ledger)
 	}
 	task.Workflow = core.WorkflowBlocked
 	blocked := IncidentCard(task, "Emisar", nil, false)
 	blockedContent := blocked.Header + "\n" + blocked.Text + "\n" + blocked.Markdown + "\n" +
 		strings.Join(blocked.Sections, "\n") + "\n" + strings.Join(blocked.Context, "\n")
-	if !strings.Contains(blockedContent, "Needs teammate action") ||
-		strings.Contains(blockedContent, "Needs operator action") {
+	// "Needs teammate action" existed to avoid the incident card's "Needs
+	// operator action" authority copy. Both are replaced by one custody word
+	// that names neither role, so neither can be the wrong one.
+	if !strings.Contains(blockedContent, "Needs you") ||
+		strings.Contains(blockedContent, "Needs operator action") ||
+		blocked.Stripe != StripeNeedsYou {
 		t.Fatalf("blocked engineering task uses incident authority copy: %+v", blocked)
 	}
 	task.Workflow = core.WorkflowParked
@@ -478,9 +515,12 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		},
 		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
+	// The "*PR ready*\n<link>. The reviewed task tree is now durable…"
+	// paragraph is superseded by the state word and the ledger's Draft PR step.
 	if !slices.ContainsFunc(published.Actions, func(action Action) bool {
 		return action.ID == ActionViewPR && action.URL == "https://github.example/pull/42"
-	}) || !strings.Contains(strings.Join(published.Sections, "\n"), "PR ready") {
+	}) || !strings.HasPrefix(published.Text, "PR open — ") ||
+		!strings.Contains(ledgerText(published.Ledger), "#42") {
 		t.Fatalf("published task lacks durable PR state: %+v", published)
 	}
 	mergedTask := task
@@ -559,7 +599,10 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		return action.ID == ActionPublishPR && action.Label == "Update PR"
 	}) || !slices.ContainsFunc(stale.Actions, func(action Action) bool {
 		return action.ID == ActionViewPR && action.URL == stalePublication.PRURL
-	}) || !strings.Contains(strings.Join(stale.Sections, "\n"), "needs an update") {
+	}) || !strings.Contains(ledgerText(stale.Ledger), "needs update") ||
+		!strings.HasPrefix(stale.Text, "Ready to publish — ") {
+		// "*PR needs an update*\nThe task changed after…" is now the Draft PR
+		// step's detail: the same fact, on the step it is about.
 		t.Fatalf("stale task lacks update state: %+v", stale)
 	}
 	delivery := WithEngineeringTaskDelivery(
@@ -576,9 +619,12 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		text  string
 		prURL string
 	}{
-		{state: "reviewing", text: "reviewing changes"},
+		// Publication progress used to be a paragraph per state. It is now a
+		// detail on the ledger step it belongs to, so the reader sees which
+		// step is running instead of an adjective they have to place.
+		{state: "reviewing", text: "running"},
 		{state: "publishing", text: "publishing", prURL: "https://github.example/pull/42"},
-		{state: "retrying", text: "retry scheduled"},
+		{state: "retrying", text: "retrying"},
 	} {
 		card := IncidentCardWithPublication(
 			task, "Emisar", nil, false, false, core.Publication{
@@ -587,9 +633,12 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 			},
 			core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 		)
-		rendered := card.Text + "\n" + strings.Join(card.Sections, "\n")
-		if !strings.Contains(rendered, progress.text) {
+		if !strings.Contains(ledgerText(card.Ledger), progress.text) {
 			t.Fatalf("%s card lacks progress: %+v", progress.state, card)
+		}
+		if !strings.HasPrefix(card.Text, "Working — ") || card.Stripe != StripeWorking {
+			t.Fatalf("%s card does not read as Emisar's turn: %q %q",
+				progress.state, card.Text, card.Stripe)
 		}
 		for _, action := range card.Actions {
 			if slices.Contains([]string{
@@ -649,7 +698,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		},
 		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
-	if !strings.Contains(strings.Join(failed.Sections, "\n"), "needs attention") ||
+	if !strings.Contains(ledgerText(failed.Ledger), "failed") ||
 		!strings.Contains(strings.Join(failed.Sections, "\n"), "Retry PR update") ||
 		!slices.ContainsFunc(failed.Actions, func(action Action) bool {
 			return action.ID == ActionPublishPR && action.Label == "Retry PR update" &&

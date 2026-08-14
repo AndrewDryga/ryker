@@ -1088,8 +1088,11 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		t.Fatal("task offer was not updated into a durable task card")
 	}
 	taskCard := slackClient.updates[len(slackClient.updates)-1]
+	// The fallback leads with the state word rather than the work's category,
+	// because a notification strips the stripe and the glyph and that word is
+	// the only thing left carrying whose turn it is.
 	if taskCard.channel != source.ChannelID || taskCard.ts != task.RootTS ||
-		!strings.Contains(taskCard.message.Text, "Engineering task") {
+		!strings.HasPrefix(taskCard.message.Text, "Working — ") {
 		t.Fatalf("updated thread task card = %+v", taskCard)
 	}
 	if err := svc.processSession(ctx); err != nil {
