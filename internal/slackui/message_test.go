@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/slack-go/slack"
@@ -890,18 +891,150 @@ func TestIncidentStatusExplainsStateAndNextAction(t *testing.T) {
 
 func TestHelpExplainsControlEffectsAndSafety(t *testing.T) {
 	message := HelpMessage(core.Incident{ID: "inc_1234567890abcdef"})
-	content := strings.Join(message.Sections, "\n") + "\n" + strings.Join(message.Context, "\n")
+	content := helpSurface(t, message)
 	for _, required := range []string{
-		"an `@mention` is not required",
-		"`/responder changes` shows",
-		"`/responder stop` cancels",
-		"does not disable conversation in an attached incident room",
+		"no `@mention` needed",
+		"/responder changes",
+		"the working copy's diff",
 		"never merge, sign, or deploy",
 	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("help lacks %q: %+v", required, message)
 		}
 	}
+}
+
+// The thread variant names the card, not the composer.
+//
+// Slash controls resolve through FindIncidentByChannel, which filters
+// work_scope = 'room', so `/responder changes` typed at a task thread can never
+// select that task. The old help printed the command list to both variants and
+// then explained, four sections later, that it did not apply here.
+func TestThreadHelpNamesTheCardBecauseSlashCommandsCannotReachIt(t *testing.T) {
+	message := HelpMessage(core.Incident{
+		ID: "inc_1234567890abcdef", WorkKind: core.WorkKindEngineeringTask,
+		WorkScope: core.WorkScopeThread,
+	})
+	content := helpSurface(t, message)
+	for _, required := range []string{
+		"*Just reply in this thread*",
+		"stop · diff · publish · close",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("thread help lacks %q: %+v", required, message)
+		}
+	}
+	if strings.Contains(content, "/responder") {
+		t.Errorf("thread help advertises a slash command it cannot honour:\n%s", content)
+	}
+}
+
+// Help is read in a hurry by somebody who has forgotten one command.
+//
+// It used to answer six questions at once — Conversation, Read-only inspection,
+// Lifecycle controls, Automatic capacity, Thread scope, and a paragraph about
+// the `!respond` spellings — posted into a thread that already carried the task
+// card. That is a wall. It is now lead, reference, limit: one section, one
+// monospace strip, one context line, and nothing else.
+func TestHelpIsOneSentenceOneStripAndOneBoundary(t *testing.T) {
+	for _, variant := range []struct {
+		name     string
+		incident core.Incident
+		lead     string
+	}{
+		{
+			name:     "incident room",
+			incident: core.Incident{ID: "inc_1234567890abcdef"},
+			lead:     "*Just reply in this channel*",
+		},
+		{
+			name: "thread-scoped task",
+			incident: core.Incident{
+				ID: "inc_1234567890abcdef", WorkKind: core.WorkKindEngineeringTask,
+				WorkScope: core.WorkScopeThread,
+			},
+			lead: "*Just reply in this thread*",
+		},
+	} {
+		t.Run(variant.name, func(t *testing.T) {
+			message := HelpMessage(variant.incident)
+			if message.Header != "" {
+				t.Errorf("help still opens with a header block: %q", message.Header)
+			}
+			if message.Stripe != StripeIdle {
+				t.Errorf("help stripe = %q, want the idle colour %q", message.Stripe, StripeIdle)
+			}
+			if len(message.Sections) != 1 || !strings.HasPrefix(message.Sections[0], variant.lead) {
+				t.Fatalf("help prose = %+v, want the one lead sentence %q", message.Sections, variant.lead)
+			}
+			if len(message.Ledger) == 0 || len(message.Ledger) > 5 {
+				t.Errorf("the reference strip has %d rows, want 1 to 5", len(message.Ledger))
+			}
+			if len(message.Context) != 1 {
+				t.Errorf("help context = %+v, want the one boundary line", message.Context)
+			}
+			if len(message.Actions) != 0 || len(message.Fields) != 0 {
+				t.Errorf("help grew controls or tiles: %+v %+v", message.Actions, message.Fields)
+			}
+			if !strings.HasPrefix(message.Text, "Help — ") {
+				t.Errorf("fallback text = %q, want a one-sentence \"Help — …\"", message.Text)
+			}
+
+			// Three blocks: the sentence, the strip, the boundary. Counted on the
+			// rendered surface because that is what the operator scrolls.
+			blocks := message.Blocks()
+			if len(blocks) != 3 {
+				t.Fatalf("help renders %d blocks, want 3:\n%s", len(blocks), helpBlockTypes(blocks))
+			}
+			if types := helpBlockTypes(blocks); types != "section rich_text context" {
+				t.Errorf("help block order = %q, want \"section rich_text context\"", types)
+			}
+
+			// The strip is the reference, so nothing in it may be clipped: a
+			// truncated command is a command that does not run.
+			for index, line := range stripLines(t, message, 0) {
+				if runes := utf8.RuneCountInString(line); runes > monospaceLineRunes {
+					t.Errorf("strip line %d is %d runes, over the %d it has: %q",
+						index, runes, monospaceLineRunes, line)
+				}
+				if strings.Contains(line, "…") {
+					t.Errorf("strip line %d was truncated, so it no longer reads: %q", index, line)
+				}
+			}
+
+			// The six sections are gone, and the legacy spellings keep working
+			// without being advertised.
+			content := helpSurface(t, message)
+			for _, dead := range []string{
+				"Lifecycle controls", "Automatic capacity", "Thread scope",
+				"Read-only inspection", "Channel behavior", "!respond",
+				"turn-limit", "How to work with Responder",
+			} {
+				if strings.Contains(content, dead) {
+					t.Errorf("the wall grew back — help still says %q:\n%s", dead, content)
+				}
+			}
+			assertOnlyRealSubcommands(t, "help", content)
+		})
+	}
+}
+
+// helpSurface is everything the operator can read on the card: the prose, the
+// rendered strip, and the boundary line.
+func helpSurface(t *testing.T, message Message) string {
+	t.Helper()
+	parts := append([]string{}, message.Sections...)
+	parts = append(parts, monospaceStrips(t, message)...)
+	parts = append(parts, message.Context...)
+	return strings.Join(parts, "\n")
+}
+
+func helpBlockTypes(blocks []slack.Block) string {
+	types := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		types = append(types, string(block.BlockType()))
+	}
+	return strings.Join(types, " ")
 }
 
 func TestEvidenceResponseRendersCoverageAndCitations(t *testing.T) {

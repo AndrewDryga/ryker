@@ -1543,46 +1543,50 @@ func safeInlineCode(value string) string {
 	return escapeSlackText(strings.ReplaceAll(value, "`", "'"))
 }
 
+// HelpMessage answers one question — how do I say the next thing, and what do I
+// press — for a reader who is in a hurry and has forgotten one command.
+//
+// It used to answer six: Conversation, Read-only inspection, Lifecycle
+// controls, Automatic capacity, Thread scope, and a paragraph advertising the
+// `!respond` spellings. In a thread that already carries the task card that is
+// a wall, and the operator who opened it wanted one line of it. So it is now
+// one sentence about replying, one monospace strip of controls, and one line of
+// boundary: lead, reference, limit.
+//
+// The `!respond` commands still work. They are simply no longer advertised —
+// nobody arrives at Slack needing the second spelling of a control the card
+// already shows.
 func HelpMessage(incident core.Incident) Message {
-	conversation := "*Conversation*\nReply normally anywhere in this incident channel. Responder reads " +
-		"operator messages as part of the incident conversation; an `@mention` is not required."
-	controls := "*Lifecycle controls*\nUse the pinned incident card to stop the active turn or close the incident. " +
-		"`/responder stop` cancels the active turn but preserves its work. `/responder close` closes " +
-		"the session and schedules ownership-checked retention."
-	channelBehavior := "*Channel behavior*\n`/responder status` explains what Responder reads here and why. " +
-		"`/responder proactive ...` configures normal-channel triage; it does not disable " +
-		"conversation in an attached incident room."
-	noun := "incident"
+	// Slash controls resolve through the incident attached to a *channel*
+	// (FindIncidentByChannel filters work_scope = 'room'), so a thread-scoped
+	// task cannot be selected from the composer at all. Printing
+	// `/responder changes` to a task thread would be an instruction that
+	// silently targets the wrong thing, so the thread's strip names the card.
+	conversation := "*Just reply in this channel* — no `@mention` needed; every message here " +
+		"continues the same incident conversation."
+	reference := []LedgerStep{
+		// A blank glyph: these are label/value rows, not steps of a run.
+		{Glyph: " ", Label: "/responder update", Detail: "fresh evidence summary"},
+		{Glyph: " ", Label: "/responder changes", Detail: "the working copy's diff"},
+		{Glyph: " ", Label: "/responder review", Detail: "is it ready"},
+		{Glyph: " ", Label: "/responder publish", Detail: "operator opens draft PR"},
+	}
+	summary := "just reply here; slash commands run the controls."
 	if incident.IsThreadScoped() {
-		noun = "engineering task"
-		conversation = "*Conversation*\nKeep replying in this Slack thread. Every authorized reply continues " +
-			"the same isolated engineering session; an `@mention` is not required."
-		controls = "*Lifecycle controls*\nUse the task card in this thread to stop the active turn, inspect " +
-			"changes, or check fix readiness. A configured operator must publish a draft PR, stop, close, or discard work. Slack slash commands do not carry thread " +
-			"context, so they cannot select this task from the channel composer."
-		channelBehavior = "*Thread scope*\nOnly this source thread is attached to the writable task. Other " +
-			"messages in the shared channel continue through its normal read-only triage settings."
+		conversation = "*Just reply in this thread* — no `@mention` needed; every authorized reply " +
+			"continues the same isolated session."
+		reference = []LedgerStep{
+			{Glyph: " ", Label: "the card", Detail: "stop · diff · publish · close"},
+		}
+		summary = "just reply here; the card above has the controls."
 	}
 	return Message{
-		Text:   "Responder controls for " + noun + " " + ShortID(incident.ID),
-		Header: "How to work with Responder",
-		Sections: []string{
-			conversation,
-			"*Read-only inspection*\n`/responder update` requests a fresh " +
-				"evidence-based summary.\n`/responder changes` shows the isolated working " +
-				"copy's diff.\n`/responder review` compares a proposed change with the current " +
-				"repository and runs rebase, validation, and policy checks.\n`/responder publish` " +
-				"asks a configured operator to create or update a draft PR from the exact reviewed tree for a channel-scoped task.",
-			controls,
-			"*Automatic capacity*\nResponder allocates turns automatically when authorized work " +
-				"arrives. `/responder turn-limit` explains the current channel's lifetime " +
-				"safety ceiling; operators do not estimate how many turns a task requires.",
-			channelBehavior,
-			"Legacy deterministic controls such as `!respond status` and `!respond stop` also " +
-				"work when sent as the entire message.",
-		},
+		Text:     "Help — " + summary,
+		Stripe:   StripeIdle,
+		Sections: []string{conversation},
+		Ledger:   reference,
 		Context: []string{
-			"Controls never merge, sign, or deploy. Draft PR publication can push only a verified, lease-protected Responder branch. Coop and Emisar policy still govern infrastructure access and approvals.",
+			"Controls never merge, sign, or deploy; publication pushes one lease-protected branch.",
 		},
 	}
 }

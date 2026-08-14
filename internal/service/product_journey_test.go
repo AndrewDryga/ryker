@@ -376,15 +376,22 @@ func TestProductJourneyTextControlsExplainHelpAndAutomaticCapacity(t *testing.T)
 		return slackClient.posts[len(slackClient.posts)-1].message
 	}
 
+	// `!respond help` still answers. The legacy spellings keep working; help
+	// simply stopped advertising them, along with the five other sections it
+	// used to open with.
 	help := renderedSlackMessage(run("help", "!respond help"))
 	for _, expected := range []string{
+		"Just reply in this channel",
 		"/responder update",
 		"/responder changes",
-		"/responder close",
+		"never merge, sign, or deploy",
 	} {
 		if !strings.Contains(help, expected) {
 			t.Fatalf("help does not explain %q: %s", expected, help)
 		}
+	}
+	if strings.Contains(help, "Lifecycle controls") || strings.Contains(help, "!respond") {
+		t.Fatalf("help is a wall again: %s", help)
 	}
 	// "!respond help" is a question asked in the open and keeps its channel
 	// answer. "!respond extend" allocates nothing — the explanation belongs to

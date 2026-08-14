@@ -423,6 +423,21 @@ func assertLiveSlackMessage(t *testing.T, message slackui.Message) {
 func renderedSlackMessage(message slackui.Message) string {
 	parts := []string{message.Header, message.Markdown, message.Text}
 	parts = append(parts, message.Sections...)
+	// The ledger is read text, not decoration — the help card's command
+	// reference lives there and nowhere else — so a helper that claims to
+	// render the message has to include it.
+	parts = append(parts, renderedLedger(message.Ledger)...)
 	parts = append(parts, message.Context...)
 	return strings.Join(parts, "\n")
+}
+
+func renderedLedger(steps []slackui.LedgerStep) []string {
+	var lines []string
+	for _, step := range steps {
+		lines = append(lines, strings.TrimSpace(strings.Join(
+			[]string{step.Label, step.Detail, step.When, step.Owner}, " ",
+		)))
+		lines = append(lines, renderedLedger(step.Children)...)
+	}
+	return lines
 }

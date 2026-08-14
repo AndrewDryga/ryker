@@ -160,27 +160,37 @@ func TestSecondaryNumbersAreOneLineNotAGridOfTiles(t *testing.T) {
 // layer can lie, and it lies silently — the operator types it and is told the
 // subcommand is unknown, which reads as their mistake.
 func TestEveryCommandTheHomeNamesIsARealSubcommand(t *testing.T) {
-	// From the switch in internal/service/slash.go processSlashInput.
-	real := map[string]bool{
-		"help": true, "status": true, "settings": true, "config": true,
-		"incidents": true, "work": true, "commitments": true, "feedback": true,
-		"memory": true, "preferences": true, "preference": true, "rules": true,
-		"rule": true, "schedules": true, "schedule": true, "reminders": true,
-		"proactive": true, "watch": true, "shadow": true, "turn-limit": true,
-		"turns": true, "timeline": true, "evidence": true, "handoff": true,
-		"postmortem": true, "update": true, "changes": true, "review": true,
-		"publish": true, "stop": true, "extend": true, "close": true,
-	}
 	message := busiestHome()
 	surface := homeContent(message) + "\n" + strings.Join(message.Context, "\n")
-	for _, match := range slashCommandPattern.FindAllStringSubmatch(surface, -1) {
-		if !real[match[1]] {
-			t.Errorf("the Home names `/responder %s`, which the slash router refuses", match[1])
-		}
-	}
+	assertOnlyRealSubcommands(t, "the Home", surface)
 }
 
 var slashCommandPattern = regexp.MustCompile(`/responder ([a-z-]+)`)
+
+// realSlashSubcommands is the switch in internal/service/slash.go
+// processSlashInput, transcribed. Anything a surface prints that is not in here
+// fails as the operator's mistake — they are told the subcommand is unknown.
+var realSlashSubcommands = map[string]bool{
+	"help": true, "status": true, "settings": true, "config": true,
+	"incidents": true, "work": true, "commitments": true, "feedback": true,
+	"memory": true, "preferences": true, "preference": true, "rules": true,
+	"rule": true, "schedules": true, "schedule": true, "reminders": true,
+	"proactive": true, "watch": true, "shadow": true, "turn-limit": true,
+	"turns": true, "timeline": true, "evidence": true, "handoff": true,
+	"postmortem": true, "update": true, "changes": true, "review": true,
+	"publish": true, "stop": true, "extend": true, "close": true,
+}
+
+// assertOnlyRealSubcommands is the guard any surface that names commands can
+// reuse: the Home, and now the help card, which exists to be typed from.
+func assertOnlyRealSubcommands(t *testing.T, surfaceName, content string) {
+	t.Helper()
+	for _, match := range slashCommandPattern.FindAllStringSubmatch(content, -1) {
+		if !realSlashSubcommands[match[1]] {
+			t.Errorf("%s names `/responder %s`, which the slash router refuses", surfaceName, match[1])
+		}
+	}
+}
 
 // Headings must keep their items. Rendering every row after every section put
 // "Responder preferences", "Standing rules" and "Corrections worth keeping?"
