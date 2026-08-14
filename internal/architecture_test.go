@@ -353,7 +353,14 @@ var lineBudget = map[string]int{
 	// digest and internal/store/selfreportstore counts it, both registered
 	// below — and the margin left is what stops the next honest change
 	// arguing with a number instead of a reviewer.
-	"service": 22175,
+	//
+	// Raised to 22400 on 2026-08-14 for operator-question choice buttons: the
+	// press handler that turns a click into the asked operator's answer, its
+	// delivered-card and identity checks, and the wiring at both
+	// blocked-completion sites. The two rounds of margin this entry carried
+	// today were both consumed by real features within hours, which is the
+	// argument for the margin, not against it.
+	"service": 22400,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

@@ -49,6 +49,54 @@ func DecodeChangesCursor(value string) (ChangesCursor, bool) {
 	return cursor, true
 }
 
+// OperatorChoice is one answer to one question, carried in the button that
+// gives it.
+//
+// Everything the press means travels here because a press means nothing on its
+// own: Slack reports which control was clicked and by whom, and neither answers
+// "which of three questions is this, and what did the button say". Answer is
+// the text the operator read, not an index into a list that the model could
+// have re-ordered by the time the press arrives.
+//
+// AskedUser is who the question was put to. A press is a claim made in someone
+// else's name — the host turns it into that person's answer — so the button
+// records whose answer it would be, and a press by anyone else is refused
+// rather than attributed. Typing the answer is unaffected and always was: this
+// binds the accelerator, not the conversation.
+type OperatorChoice struct {
+	EpisodeID string `json:"e"`
+	AskedUser string `json:"u"`
+	Question  int    `json:"q"`
+	Answer    string `json:"a"`
+}
+
+func EncodeOperatorChoice(choice OperatorChoice) string {
+	data, err := json.Marshal(choice)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+// DecodeOperatorChoice reads a press back, or reports that it cannot.
+//
+// A value this package did not write has no honest reading. Answering with a
+// zero-valued choice would resume an episode with an empty answer in the name
+// of an empty user, which is worse than the dropped click it would be replacing.
+func DecodeOperatorChoice(value string) (OperatorChoice, bool) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(data) > buttonValueLimit {
+		return OperatorChoice{}, false
+	}
+	var choice OperatorChoice
+	if err := json.Unmarshal(data, &choice); err != nil ||
+		choice.EpisodeID == "" || choice.AskedUser == "" ||
+		choice.Question < 0 || choice.Answer == "" {
+		return OperatorChoice{}, false
+	}
+	return choice, true
+}
+
 // ActionIncidentID reads which work a control acts on out of its value.
 //
 // Most controls carry the id and nothing else. The ones that carry more — a

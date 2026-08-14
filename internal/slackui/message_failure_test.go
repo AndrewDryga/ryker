@@ -41,6 +41,11 @@ var routedActionIDs = map[string]bool{
 	ActionExtend: true, ActionResolve: true, ActionHelp: true,
 	ActionOpenIncident: true, ActionOpenWorkThread: true, ActionStartTask: true,
 	ActionReviewPullRequest: true, ActionOpenApproval: true,
+	// The model's own question, answered by pressing one of the choices it
+	// supplied. Routed like any other control, because a press that reached
+	// nothing would leave the work parked on a question the operator believes
+	// they have already answered.
+	ActionOperatorChoice: true,
 	ActionRememberMemory: true, ActionForgetMemory: true,
 	ActionForgetMemoryRollup: true, ActionDismissFeedback: true,
 	ActionConvertFeedback: true, ActionConvertFeedbackBrief: true,

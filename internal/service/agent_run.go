@@ -3568,6 +3568,19 @@ func (s *Service) finalizeIncidentAgentRun(
 					s.sanitizer,
 				)
 			}
+			// The questions carry controls, which is also what keeps an
+			// engineering task's ask off the durable card and on a message of
+			// its own: standaloneTaskResult below reads HasControls, and the
+			// card discards everything but the reply text.
+			if questions := operatorQuestions(episodeOperations); len(questions) > 0 {
+				message = slackui.WithOperatorQuestions(
+					message,
+					run.EpisodeID,
+					core.FirstNonempty(conversationInput.UserID, run.UserID),
+					questions,
+					s.sanitizer,
+				)
+			}
 			evidenceIDs := make([]string, 0, len(report.Evidence))
 			for _, evidence := range report.Evidence {
 				evidenceIDs = append(evidenceIDs, evidence.ID)

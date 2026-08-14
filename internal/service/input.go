@@ -55,6 +55,7 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionStartTask:               (*Service).handleWatchTaskOfferAction,
 	slackui.ActionReviewPullRequest:       (*Service).handlePullRequestReviewAction,
 	slackui.ActionOpenApproval:            (*Service).handleOpenEmisarApproval,
+	slackui.ActionOperatorChoice:          (*Service).handleOperatorChoice,
 	slackui.ActionOpenWorkThread:          (*Service).acknowledgeLinkAction,
 	slackui.ActionOpenCanvas:              (*Service).acknowledgeLinkAction,
 	slackui.ActionRememberMemory:          (*Service).handleRememberMemory,

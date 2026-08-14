@@ -1,0 +1,213 @@
+package slackui
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// Two questions harvested from production, one of which marks its own default.
+//
+// run_943d4feabe6156db570205614a39daf4 asked "At least one (Recommended)" /
+// "Two or more" and run_2f0a10452f35e37b950d4bb7e37d9555 asked "One extra per
+// zone" / "Only us-central1-f". The first marks its proposal in the choice
+// text; the second does not mark one at all. Both shapes are real and the
+// renderer has to answer both without inventing a default for the second.
+func harvestedQuestions() []OperatorQuestion {
+	return []OperatorQuestion{{
+		Question: "Did you mean add one spare when a zone hosts at least one steady-state instance, or only when it hosts two or more?",
+		Choices:  []string{"At least one (Recommended)", "Two or more"},
+	}, {
+		Question: "Should the PR reserve one additional rollout slot in every configured zone, or only one extra slot in `us-central1-f`?",
+		Choices:  []string{"One extra per zone", "Only us-central1-f"},
+	}}
+}
+
+// A question with choices reaches the operator as buttons, one per choice.
+//
+// The operation has carried `operator_input.choices` since the contract was
+// written and no Slack surface had ever read it: the question arrived as prose
+// inside a blocked completion, and the structure the model had already supplied
+// was thrown away at the card. Slack rejects a whole surface whose action_ids
+// repeat, so four buttons across two questions must be four distinct ids, and
+// each one has to say which question it answers or the second question's press
+// would be recorded against the first.
+func TestEachQuestionChoiceRendersAsItsOwnButton(t *testing.T) {
+	message := WithOperatorQuestions(
+		Message{Text: "blocked"}, "epi_01ce33abd2000000", "U0ASKER",
+		harvestedQuestions(), NewSanitizer(12000),
+	)
+
+	blocks := renderedActionBlocks(t, message)
+	if len(blocks) != 2 {
+		t.Fatalf("rendered %d action blocks for 2 questions: %v", len(blocks), blocks)
+	}
+	seen := map[string]bool{}
+	answers := map[int][]string{}
+	for questionIndex, block := range blocks {
+		if len(block) != 2 {
+			t.Fatalf("question %d rendered %d buttons, want 2", questionIndex, len(block))
+		}
+		for _, element := range block {
+			if seen[element.ActionID] {
+				t.Errorf("action_id %q appears twice; Slack rejects the whole surface",
+					element.ActionID)
+			}
+			seen[element.ActionID] = true
+			if BaseActionID(element.ActionID) != ActionOperatorChoice {
+				t.Errorf("button routes to %q, want %q",
+					BaseActionID(element.ActionID), ActionOperatorChoice)
+			}
+			choice, ok := DecodeOperatorChoice(element.Value)
+			if !ok {
+				t.Fatalf("button value %q does not decode", element.Value)
+			}
+			if choice.EpisodeID != "epi_01ce33abd2000000" || choice.AskedUser != "U0ASKER" {
+				t.Errorf("button carries episode %q asked of %q",
+					choice.EpisodeID, choice.AskedUser)
+			}
+			if choice.Question != questionIndex {
+				t.Errorf("button under question %d says it answers question %d",
+					questionIndex, choice.Question)
+			}
+			// The answer posted on the operator's behalf is the text they read
+			// on the button. Anything else attributes words to them that they
+			// never saw.
+			if choice.Answer != element.Text {
+				t.Errorf("button reads %q and answers %q", element.Text, choice.Answer)
+			}
+			answers[questionIndex] = append(answers[questionIndex], choice.Answer)
+		}
+	}
+	for index, question := range harvestedQuestions() {
+		if strings.Join(answers[index], "|") != strings.Join(question.Choices, "|") {
+			t.Errorf("question %d offered %v, want %v", index, answers[index], question.Choices)
+		}
+	}
+
+	// The question itself is still on the card. Buttons are an accelerator, not
+	// a replacement for reading what was asked — and a free-text reply is still
+	// the answer for anyone who wants to give a different one.
+	rendered := renderedText(t, message)
+	for _, question := range harvestedQuestions() {
+		if !strings.Contains(rendered, question.Question) {
+			t.Errorf("the card never states the question %q", question.Question)
+		}
+	}
+}
+
+// The default is the model's claim, not the host's guess.
+//
+// The contract asks for "your proposed default" and gives the operation nowhere
+// typed to put one, so the model writes it into the choice — "At least one
+// (Recommended)" in run_943d4feabe6156db570205614a39daf4. Marking the first
+// choice instead would have styled "One extra per zone" as a recommendation
+// that model never made, on a question about how many machines to pay for.
+func TestOnlyAChoiceTheModelMarkedRendersAsTheProposal(t *testing.T) {
+	message := WithOperatorQuestions(
+		Message{Text: "blocked"}, "epi_1", "U0ASKER", harvestedQuestions(),
+		NewSanitizer(12000),
+	)
+
+	blocks := renderedActionBlocks(t, message)
+	styles := map[string]string{}
+	for _, block := range blocks {
+		for _, element := range block {
+			styles[element.Text] = element.Style
+		}
+	}
+	if styles["At least one (Recommended)"] != "primary" {
+		t.Errorf("the choice the model recommended rendered as %q, want primary",
+			styles["At least one (Recommended)"])
+	}
+	for _, unmarked := range []string{"Two or more", "One extra per zone", "Only us-central1-f"} {
+		if styles[unmarked] != "" {
+			t.Errorf("%q rendered as %q; the model proposed nothing on that question",
+				unmarked, styles[unmarked])
+		}
+	}
+}
+
+// A question the model asked in prose alone stays prose.
+//
+// Half the production asks carry no choices — "Please paste or reattach the
+// list you mean by 'those'" cannot be a button — and an empty row of controls
+// under a question is worse than none: it reads as an offer that failed to
+// load. The question still has to reach the card, because that is the whole
+// point of the operation.
+func TestAQuestionWithNoChoicesRendersWithoutControls(t *testing.T) {
+	message := WithOperatorQuestions(Message{Text: "blocked"}, "epi_1", "U0ASKER",
+		[]OperatorQuestion{{
+			Question: "Which repository owns the `realtime-gateway` server source?",
+		}}, NewSanitizer(12000))
+
+	if message.HasControls() {
+		t.Error("a question with no choices rendered controls")
+	}
+	if !strings.Contains(renderedText(t, message), "realtime-gateway") {
+		t.Error("a question with no choices never reached the card")
+	}
+}
+
+// renderedButton is one button as Slack receives it, not as the Action struct
+// describes it: the id carries the instance suffix and the label has been
+// through the renderer's own bounds.
+type renderedButton struct {
+	ActionID string
+	Value    string
+	Style    string
+	Text     string
+}
+
+// renderedActionBlocks returns each rendered actions block in card order.
+func renderedActionBlocks(t *testing.T, message Message) [][]renderedButton {
+	t.Helper()
+	var blocks [][]renderedButton
+	for _, block := range message.Blocks() {
+		raw, err := json.Marshal(block)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var probe struct {
+			Type     string `json:"type"`
+			Elements []struct {
+				ActionID string `json:"action_id"`
+				Value    string `json:"value"`
+				Style    string `json:"style"`
+				Text     struct {
+					Text string `json:"text"`
+				} `json:"text"`
+			} `json:"elements"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			t.Fatal(err)
+		}
+		if probe.Type != "actions" {
+			continue
+		}
+		group := make([]renderedButton, 0, len(probe.Elements))
+		for _, rendered := range probe.Elements {
+			// Slack rejects a button value over 2000 characters and rejects the
+			// message with it, which would lose the answer and the question.
+			if len(rendered.Value) > buttonValueLimit {
+				t.Errorf("button value is %d characters, over Slack's %d",
+					len(rendered.Value), buttonValueLimit)
+			}
+			group = append(group, renderedButton{
+				ActionID: rendered.ActionID, Value: rendered.Value,
+				Style: rendered.Style, Text: rendered.Text.Text,
+			})
+		}
+		blocks = append(blocks, group)
+	}
+	return blocks
+}
+
+func renderedText(t *testing.T, message Message) string {
+	t.Helper()
+	raw, err := json.Marshal(message.Blocks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}

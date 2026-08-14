@@ -597,6 +597,17 @@ func (s *Service) applyReplyDecision(
 			s.sanitizer,
 		)
 	}
+	if questions := operatorQuestions(decision.AppliedOperations); len(questions) > 0 {
+		message = slackui.WithOperatorQuestions(
+			message, episodeID, input.UserID, questions, s.sanitizer,
+		)
+		// Only when nothing more specific has been recorded. A turn that also
+		// offered a task said something rarer than "it asked a question", and
+		// the episode's own waiting_for_operator phase already carries this.
+		if outcome == "replied" {
+			outcome = "operator_input_requested"
+		}
+	}
 	if input.Kind != "shortcut" {
 		if _, ok := s.pullRequestReferenceForWatch(input, state); ok {
 			message = slackui.WithPullRequestReview(message, input.ID)

@@ -126,6 +126,15 @@ const (
 	// shown to the operator as a failure on a button that worked.
 	ActionOpenCanvas = "responder_open_canvas"
 
+	// ActionOperatorChoice answers one of the model's own questions with the
+	// text written on the button.
+	//
+	// The model asks through request_operator_input and Responder owns the
+	// controls, so the choices it supplied become buttons here rather than
+	// Block Kit it was never allowed to emit. Pressing one says the same thing
+	// typing it would have said, and typing it still works.
+	ActionOperatorChoice = "responder_operator_choice"
+
 	// ActionTurnReceipt answers what one finished turn actually did.
 	//
 	// It is never posted automatically. A receipt beside every completed turn
@@ -1874,6 +1883,14 @@ const overflowOptionSeparator = "~opt~"
 // `{"id":"schedule_<32 hex>","enabled":false}` (66) = 96. A changes-page cursor
 // would be about 197 and is why the guard is not theoretical.
 const overflowOptionValueLimit = 150
+
+// buttonValueLimit is Slack's bound on a button's value, which is far wider
+// than an option's because a button carries no option object around it.
+//
+// https://docs.slack.dev/reference/block-kit/block-elements/button-element —
+// "Maximum length for this field is 2000 characters." slack-go validates
+// neither, so the bound is ours to hold, the same way the option's is.
+const buttonValueLimit = 2000
 
 // OverflowOptionValue encodes an overflow choice as the action it fires plus
 // that action's own value, so routing can tell "Ask for an update" from "Close
