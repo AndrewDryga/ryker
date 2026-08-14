@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -151,6 +152,12 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if cfg.Coop.Supervise {
 		repair := newCoopRuntimeRepairGate(cfg.Coop.RestartDelay.Duration, func() error {
 			return ensureManagedCoopImage(cfg, stderr)
+		}, func() error {
+			fmt.Fprintln(stderr, "Two Coop image builds failed in a row; pruning the builder cache before the next attempt.")
+			command := exec.Command("docker", "builder", "prune", "-f")
+			command.Stdout = stderr
+			command.Stderr = stderr
+			return command.Run()
 		})
 		svc.SetCoopRuntimeRepairer(repair.Repair)
 	}

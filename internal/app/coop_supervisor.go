@@ -49,6 +49,8 @@ type coopRuntimeRepairGate struct {
 	base     time.Duration
 	now      func() time.Time
 	repair   func() error
+	prune    func() error
+	pruned   bool
 	failures int
 	next     time.Time
 	lastErr  error
@@ -58,8 +60,8 @@ const coopStartupOutputLimit = 16 << 10
 
 const coopMissingImageDiagnostic = "coop box image is not built"
 
-func newCoopRuntimeRepairGate(base time.Duration, repair func() error) *coopRuntimeRepairGate {
-	return &coopRuntimeRepairGate{base: base, now: time.Now, repair: repair}
+func newCoopRuntimeRepairGate(base time.Duration, repair, prune func() error) *coopRuntimeRepairGate {
+	return &coopRuntimeRepairGate{base: base, now: time.Now, repair: repair, prune: prune}
 }
 
 func (g *coopRuntimeRepairGate) Repair(ctx context.Context) error {
@@ -78,6 +80,21 @@ func (g *coopRuntimeRepairGate) Repair(ctx context.Context) error {
 	if g.repair == nil {
 		return errors.New("managed Coop image repair is unavailable")
 	}
+	// Two consecutive build failures are the corruption signature, not a
+	// transient: on 2026-08-13 and again on 2026-08-14 the box build failed
+	// repeatedly against a buildkit cache referencing deleted overlay2 layers,
+	// runs parked at failure counts up to 17, and both incidents were resolved
+	// by hand with the same prune the gate now runs itself. Once per streak —
+	// a pruned cache that still cannot build is failing for a different
+	// reason, and re-pruning every retry would only make each attempt slower.
+	if g.failures >= 2 && !g.pruned && g.prune != nil {
+		g.pruned = true
+		if err := g.prune(); err != nil {
+			// The build still runs: a failed prune must not replace the build
+			// error the operator is diagnosing from.
+			g.lastErr = fmt.Errorf("prune before rebuild: %w", err)
+		}
+	}
 	if err := g.repair(); err != nil {
 		g.failures++
 		g.lastErr = err
@@ -85,6 +102,7 @@ func (g *coopRuntimeRepairGate) Repair(ctx context.Context) error {
 		return err
 	}
 	g.failures = 0
+	g.pruned = false
 	g.next = time.Time{}
 	g.lastErr = nil
 	return nil

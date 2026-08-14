@@ -456,7 +456,7 @@ func TestCoopRuntimeRepairGateBacksOffSharedBuildFailure(t *testing.T) {
 	gate := newCoopRuntimeRepairGate(base, func() error {
 		attempts++
 		return errors.New("Docker daemon unavailable")
-	})
+	}, nil)
 	gate.now = func() time.Time { return now }
 
 	if err := gate.Repair(context.Background()); err == nil {
@@ -476,5 +476,93 @@ func TestCoopRuntimeRepairGateBacksOffSharedBuildFailure(t *testing.T) {
 	}
 	if attempts != 2 {
 		t.Fatalf("repair attempts after cooldown = %d, want 2", attempts)
+	}
+}
+
+// Two consecutive build failures are the corruption signature. On 2026-08-13
+// and again on 2026-08-14 the box build failed against a buildkit cache
+// referencing deleted overlay2 layers, runs parked at failure counts up to 17,
+// and both incidents were resolved by hand with the same `docker builder
+// prune` the gate now runs itself — twice the same 3.2 GB of dead cache,
+// twice a human in the loop for a mechanical fix.
+func TestARepeatedBuildFailurePrunesTheCacheItTripsOn(t *testing.T) {
+	base := 100 * time.Millisecond
+	now := time.Date(2026, time.August, 14, 23, 0, 0, 0, time.UTC)
+	attempts, prunes := 0, 0
+	cacheCorrupted := true
+	gate := newCoopRuntimeRepairGate(base, func() error {
+		attempts++
+		if cacheCorrupted {
+			return errors.New("build managed Coop box image: exit status 1")
+		}
+		return nil
+	}, func() error {
+		prunes++
+		cacheCorrupted = false
+		return nil
+	})
+	gate.now = func() time.Time { return now }
+
+	if err := gate.Repair(context.Background()); err == nil {
+		t.Fatal("the first build against a corrupted cache unexpectedly succeeded")
+	}
+	if prunes != 0 {
+		t.Fatalf("pruned after a single failure: %d prunes; one failure is not the signature", prunes)
+	}
+	now = now.Add(coopRestartBackoff(base, 1) + time.Millisecond)
+	if err := gate.Repair(context.Background()); err == nil {
+		t.Fatal("the second build against a corrupted cache unexpectedly succeeded")
+	}
+	if prunes != 0 {
+		t.Fatalf("pruned before two consecutive failures: %d prunes", prunes)
+	}
+	now = now.Add(coopRestartBackoff(base, 2) + time.Millisecond)
+	if err := gate.Repair(context.Background()); err != nil {
+		t.Fatalf("the build after the self-prune failed: %v", err)
+	}
+	if prunes != 1 || attempts != 3 {
+		t.Fatalf("prunes = %d attempts = %d, want exactly one prune before the third attempt",
+			prunes, attempts)
+	}
+
+	// The streak flag resets with success: a later, unrelated failure pair
+	// earns its own prune instead of inheriting a spent one.
+	cacheCorrupted = true
+	for range 2 {
+		now = now.Add(time.Hour)
+		_ = gate.Repair(context.Background())
+	}
+	now = now.Add(time.Hour)
+	if err := gate.Repair(context.Background()); err != nil {
+		t.Fatalf("the second streak's post-prune build failed: %v", err)
+	}
+	if prunes != 2 {
+		t.Fatalf("second streak prunes = %d, want a fresh prune per streak", prunes)
+	}
+}
+
+// A failed prune must not replace the build error the operator diagnoses from,
+// and must not stop the build attempt.
+func TestAFailedPruneStillAttemptsTheBuild(t *testing.T) {
+	base := 100 * time.Millisecond
+	now := time.Date(2026, time.August, 14, 23, 0, 0, 0, time.UTC)
+	attempts := 0
+	gate := newCoopRuntimeRepairGate(base, func() error {
+		attempts++
+		return errors.New("build managed Coop box image: exit status 1")
+	}, func() error {
+		return errors.New("docker daemon went away mid-prune")
+	})
+	gate.now = func() time.Time { return now }
+
+	for failures := 1; failures <= 3; failures++ {
+		if err := gate.Repair(context.Background()); err == nil ||
+			!strings.Contains(err.Error(), "build managed Coop box image") {
+			t.Fatalf("attempt %d error = %v, want the build's own error", failures, err)
+		}
+		now = now.Add(coopRestartBackoff(base, failures) + time.Millisecond)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d; a failed prune must not swallow a build attempt", attempts)
 	}
 }
