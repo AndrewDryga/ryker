@@ -98,6 +98,22 @@ func TestEveryEvaluationCorpusIsValid(t *testing.T) {
 				for _, testCase := range cases {
 					names = append(names, testCase.Name)
 					checkCapabilityTags(t, testCase)
+					// The live harness must be able to build the case's input.
+					// The prompts corpus shipped with sender_type "app" while
+					// the harness accepted only "external_app", so six of its
+					// ten cases were never evaluated by the credentialed gate
+					// they existed for — and nothing offline said so, because
+					// decoding validated the JSON without asking the harness.
+					// The gate looked like a gate from the day it landed and
+					// was not one.
+					if testCase.Kind == "watch" {
+						if _, _, err := liveEvaluationWatchContext(
+							testCase, "corpus-check", "UEVALOPERATOR",
+						); err != nil {
+							t.Errorf("case %q cannot reach the live harness: %v",
+								testCase.Name, err)
+						}
+					}
 				}
 			}
 			if len(names) == 0 {
